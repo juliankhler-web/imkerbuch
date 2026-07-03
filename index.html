@@ -453,14 +453,27 @@ const U = {
   debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; },
   mapsLinks(lat, lng) { return { google: `https://www.google.com/maps?q=${lat},${lng}`, osm: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}` }; },
   _scripts: {},
-  /** CDN-Skript einmalig laden (SW cached danach für offline) */
-  loadScript(url) {
-    if (!U._scripts[url]) U._scripts[url] = new Promise((res, rej) => {
+  /** CDN-Skript einmalig laden; weitere URLs dienen als Ausweich-CDNs
+      (iOS/Inhaltsblocker blockieren manchmal einzelne Hosts).
+      Promise löst mit der URL auf, die funktioniert hat. */
+  loadScript(...urls) {
+    const key = urls[0];
+    if (!U._scripts[key]) U._scripts[key] = (async () => {
+      for (const url of urls) {
+        try { await U._injectScript(url); return url; } catch (e) { /* nächstes CDN */ }
+      }
+      delete U._scripts[key];
+      throw new Error('Bibliothek konnte von keinem CDN geladen werden (offline? Inhaltsblocker?): ' + key.split('/').pop());
+    })();
+    return U._scripts[key];
+  },
+  _injectScript(url) {
+    return new Promise((res, rej) => {
       const s = document.createElement('script');
-      s.src = url; s.onload = res; s.onerror = () => { delete U._scripts[url]; rej(new Error('Bibliothek konnte nicht geladen werden (offline?): ' + url)); };
+      s.src = url; s.onload = res;
+      s.onerror = () => { s.remove(); rej(new Error('Laden fehlgeschlagen: ' + url)); };
       document.head.appendChild(s);
     });
-    return U._scripts[url];
   },
   download(blob, filename) {
     const a = document.createElement('a');
@@ -488,6 +501,38 @@ const U = {
   },
 };
 const TEST_MODE = new URLSearchParams(location.search).has('testdb'); // Testseite nutzt eigene DB
+
+/* Bibliotheks-CDNs mit Ausweichquellen: iOS-Inhaltsblocker oder einzelne
+   Netze blockieren manchmal einen Host – dann greift das nächste CDN. */
+const CDN = {
+  jspdf: [
+    // cdnjs führt 2.5.2 NICHT (404, verursachte den PDF-Fehler am iPhone) → jsdelivr zuerst
+    'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+    'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  ],
+  autotable: [
+    'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js',
+    'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+    'https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+  ],
+  pdfjs: [
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+    'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+  ],
+  qrcode: [
+    'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
+    'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js',
+    'https://unpkg.com/qrcode-generator@1.4.4/qrcode.js', // unpkg hat nur die unminifizierte Datei
+  ],
+  xlsx: [
+    'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
+    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', // ältere, API-kompatible Version als Notnagel
+    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
+  ],
+};
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -1037,7 +1082,11 @@ const Anhang = {
 const Ocr = {
   async run(blob, onProgress = () => {}) {
     if (!navigator.onLine && !U._scripts['tesseract']) { /* SW-Cache kann trotzdem greifen */ }
-    await U.loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js');
+    await U.loadScript(
+      'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+      'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
+    );
     const { data } = await Tesseract.recognize(blob, 'deu', {
       logger: (m) => { if (m.status === 'recognizing text') onProgress(m.progress || 0); },
     });
@@ -1074,7 +1123,10 @@ const Voice = {
   async whisper(blob, onProgress = () => {}) {
     if (!Voice._asr) {
       onProgress({ label: 'Whisper-Modell wird geladen (einmalig, danach im Cache) …', pct: 2 });
-      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+      let tf;
+      try { tf = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2'); }
+      catch (e) { tf = await import('https://unpkg.com/@xenova/transformers@2.17.2/dist/transformers.min.js'); }
+      const { pipeline, env } = tf;
       env.allowLocalModels = false;
       Voice._asr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
         quantized: true,
@@ -3025,7 +3077,10 @@ const Backup = {
         <span class="spacer"></span><button class="btn btn-ghost btn-sm" onclick="Backup.share()">Sichern</button>
         <button class="icon-btn" onclick="Backup._dismissed.gelb=true;Backup.updateBanners()">${icon('x')}</button></div>`;
     }
-    if (this._persistDenied && !this._dismissed.persist) {
+    // Als installierte App (Home-Bildschirm) ist der Speicher ohnehin geschützt –
+    // WebKit lehnt persist() dort trotzdem oft still ab, der Hinweis wäre nur Lärm.
+    const installiert = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+    if (this._persistDenied && !this._dismissed.persist && !installiert) {
       html += `<div class="banner info">${icon('info')} Der Browser hat <b>dauerhaften Speicher abgelehnt</b>. Bei Speicherplatzmangel könnte er die App-Daten löschen – bitte regelmäßig extern sichern (und die App ggf. als PWA installieren, das erhöht die Chance auf dauerhaften Speicher).
         <span class="spacer"></span><button class="icon-btn" onclick="Backup._dismissed.persist=true;Backup.updateBanners()">${icon('x')}</button></div>`;
     }
@@ -3277,7 +3332,7 @@ const Notif = {
    QR-CODES (qrcode-generator): Text → PNG-DataURL (für <img> und jsPDF)
    ===================================================================== */
 async function makeQr(text) {
-  await U.loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js');
+  await U.loadScript(...CDN.qrcode);
   window.qrcode.stringToBytes = window.qrcode.stringToBytesFuncs['UTF-8']; // Umlaute korrekt kodieren
   const qr = window.qrcode(0, 'M');
   qr.addData(text, 'Byte'); qr.make();
@@ -3294,7 +3349,7 @@ async function makeQr(text) {
    EXCEL-EXPORT (SheetJS): alle Module als Arbeitsmappe oder einzeln
    ===================================================================== */
 const Xlsx = {
-  async lib() { await U.loadScript('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js'); return window.XLSX; },
+  async lib() { await U.loadScript(...CDN.xlsx); return window.XLSX; },
   _d: (iso) => (iso ? new Date(String(iso).slice(0, 10) + 'T00:00:00') : ''),
   /** je Modul: Blattname + lesbare Zeilen (Fremdschlüssel aufgelöst) */
   async defs() {
@@ -3361,8 +3416,8 @@ const Xlsx = {
    ===================================================================== */
 const Pdf = {
   async lib() {
-    await U.loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js');
-    await U.loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js');
+    await U.loadScript(...CDN.jspdf);
+    await U.loadScript(...CDN.autotable);
     return window.jspdf.jsPDF;
   },
   _logoCache: null,
@@ -3680,8 +3735,9 @@ const PdfImport = {
   async read(file, outEl) {
     outEl.innerHTML = `<div class="small muted">PDF wird gelesen …</div>`;
     try {
-      await U.loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const gewinner = await U.loadScript(...CDN.pdfjs);
+      // Worker vom selben CDN beziehen, das für die Hauptbibliothek funktioniert hat
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
       const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
       let text = '';
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -3961,6 +4017,18 @@ function applyHeaderLogo() {
 /* =====================================================================
    APP-START: DB öffnen, Settings laden, Router, PWA, Persistenz
    ===================================================================== */
+/** Bibliotheken im Hintergrund vorladen, sobald die App online läuft:
+    danach liegen sie im Service-Worker-Cache und PDF/Excel/QR
+    funktionieren dauerhaft offline – auch wenn ein CDN mal klemmt. */
+function warmupBibliotheken() {
+  if (TEST_MODE || !navigator.onLine) return;
+  setTimeout(() => {
+    Pdf.lib().catch(() => {});
+    Xlsx.lib().catch(() => {});
+    U.loadScript(...CDN.qrcode).catch(() => {});
+  }, 6000);
+}
+
 async function boot() {
   try { await DB.open(); } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>ImkerBuch kann nicht starten</h2><p>IndexedDB ist nicht verfügbar (privater Modus?): ${U.esc(e.message)}</p></div>`;
@@ -3975,6 +4043,7 @@ async function boot() {
   Backup.initAuto();
   Backup.requestPersist();
   Notif.init();
+  warmupBibliotheken();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('service-worker.js').catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }

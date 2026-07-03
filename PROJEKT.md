@@ -26,6 +26,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 ```
 ⚠️ Service Worker cached die App: nach Code-Änderungen zweimal neu laden.
 
+## Deployment (LIVE)
+
+- **App-URL: https://juliankhler-web.github.io/imkerbuch/** (GitHub Pages, Branch `main`, root)
+- Repo: https://github.com/juliankhler-web/imkerbuch (öffentlich; von Julian am 2026-07-03 bestätigt)
+- ⚠️ **Historie divergiert**: Der GitHub-Stand entstand per Web-Upload (eigener Commit), das lokale Repo hat seine eigene Historie. Für Updates entweder (a) geänderte Dateien erneut per Web-Upload ins Repo ziehen oder (b) einmalig Push-Auth einrichten (PAT/SSH) und dann `git push --force origin main` zum Angleichen. Remote `origin` ist lokal bereits gesetzt.
+- iPhone-Installation: URL in Safari → Teilen → „Zum Home-Bildschirm“ (wichtig: schützt vor Safaris 7-Tage-Datenlöschung).
+
 ## Status-Kurzfassung
 
 - **App komplett gebaut** (index.html, ~3.900 Zeilen): 15 Fachmodule, PWA/offline, Backup-System (Export/Teilen/Import mit Merge/Snapshots/Auto-Sicherung/Reminder), Excel-Gesamtexport, alle PDFs (Bestandsbuch, Wanderbuch, Zuchtbuch, Chargen, Rechnung, Meldungen, Reports, Kassenbuch-Jahr, Komplettausdruck), PDF-Import, OCR, Sprachnotizen mit Whisper-Option, Anhänge, Einrichtungsassistent, Demo-Daten, Dark Mode.
@@ -55,4 +62,5 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **2026-07-03**: Erst-Aufbau komplett (alle Module + PWA + Backup + PDFs + Tests). Alter localStorage-Prototyp als `alt-prototyp-2026-07-03.html` archiviert. Docs-as-Code-Struktur (`docs/`, `tests/`) eingeführt, DRY-Refactoring, QR-CDN-Fix.
 - **2026-07-03 (2)**: Gründlicher Rest-Durchlauf aller Ansichten/Flows. **Bug gefunden + gefixt**: View-Klick-Listener akkumulierten am persistenten `#main` (Klick auf Zuchtserie öffnete „Neue Tracht“) → `renderRoute` ersetzt `#main` jetzt pro Render durch listenerfreien Klon; Regressionstest #22. Neue Tests für `PdfImport.parse`. 23/23 grün.
 - **2026-07-03 (3)**: Git-Repository initialisiert (Branch `main`), Baseline-Commit `d3691f6` mit komplettem Stand.
+- **2026-07-03 (5)**: **Bug live am iPhone gefunden + behoben**: „PDF: Bibliothek konnte nicht geladen werden“ – Ursache war cdnjs (jsPDF 2.5.2 existiert dort nicht, 404). Fix: zentrale `CDN`-Konstante mit Multi-CDN-Fallback (jsdelivr→unpkg→cdnjs) für ALLE Bibliotheken, `loadScript` mit Ausweichkette, pdf.js-Worker vom Gewinner-CDN, `warmupBibliotheken()` lädt PDF/Excel/QR im Hintergrund vor (→ dauerhaft offline). Persist-Hinweis-Banner wird in installierten Apps (standalone) unterdrückt. 25/25 Tests grün.
 - **2026-07-03 (4)**: Erinnerungen gebaut (Julian-Wunsch „Pushnachricht bei Ereignis, z. B. Fütterung“): `Notif`-Modul (Systemmeldung via SW + App-Icon-Badge bei fälligen Aufgaben, 1×/Tag gedrosselt), Fütterungs-Wiedervorlage → Auto-Aufgabe, Kalender-Export (.ics mit Alarm) für Erinnerungen bei geschlossener App. Echte Server-Push bewusst NICHT gebaut (bräuchte Backend, widerspricht 100-%-lokal). 25/25 Tests grün.

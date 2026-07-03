@@ -100,6 +100,8 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`.
 
 Diagramme: **eigener SVG-Chart-Helfer** (`UI.chart`, Linie/Balken) – keine Bibliothek.
 
+**CDN-Robustheit:** Alle Bibliotheks-URLs liegen zentral in der Konstante `CDN` mit je 2–3 Ausweichquellen (jsdelivr/unpkg/cdnjs); `U.loadScript(...urls)` probiert sie der Reihe nach und liefert die funktionierende URL zurück (pdf.js bezieht seinen Worker vom Gewinner-CDN). Grund: cdnjs führt jsPDF 2.5.2 NICHT (404 → PDF-Fehler am iPhone am 2026-07-03). `warmupBibliotheken()` lädt jsPDF/SheetJS/QR nach dem Start im Hintergrund vor → nach der ersten Online-Sitzung dauerhaft offline verfügbar.
+
 ## Konventionen
 - Deutsch für Fachbegriffe (Stores, Felder, UI), Englisch für Technik (`renderRoute`, `boot`).
 - Anzeige `TT.MM.JJJJ` + Dezimalkomma (`U.fmtDate`/`U.fmtNum`/`U.parseNum`); intern ISO-Datum + Number.
