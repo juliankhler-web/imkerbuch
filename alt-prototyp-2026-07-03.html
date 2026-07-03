@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ImkerBuch – lokale Imkerverwaltung</title>
+<style>
+:root{
+  --bg:#ffffff; --side:#f5f4ee; --card:#ffffff; --border:#e7e5da; --border2:#d6d3c4;
+  --text:#22211c; --muted:#8b887b;
+  --honey:#EFA827; --honey-dark:#854F0B;
+  --amber-bg:#FAEEDA; --amber-border:#EED9A0; --amber-text:#633806;
+  --danger:#A32D2D; --danger-bg:#FCEBEB; --ok:#3B6D11; --ok-bg:#EAF3DE;
+  --warn-bg:#FBF3D9; --warn-text:#8a6205;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
+.app{display:flex;min-height:100vh}
+.sidebar{width:200px;flex-shrink:0;background:var(--side);color:var(--text);display:flex;flex-direction:column;padding:16px 10px;position:sticky;top:0;height:100vh;border-right:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600;color:var(--honey-dark);padding:4px 10px 16px}
+.logo .ic{width:20px;height:20px}
+.ic{width:16px;height:16px;flex-shrink:0}
+.nav-btn{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:none;color:#5f5d52;font-size:14px;padding:8px 10px;border-radius:8px;cursor:pointer;font-family:inherit}
+.nav-btn:hover{background:#ecebe0}
+.nav-btn.active{background:var(--amber-bg);color:var(--amber-text);font-weight:600}
+.sidebar-footer{margin-top:auto;font-size:11.5px;color:var(--muted);padding:10px}
+main{flex:1;padding:26px 30px;max-width:1100px;min-width:0}
+h1{font-size:23px;font-weight:650;margin-bottom:4px}
+h2{font-size:16px;font-weight:650;margin-bottom:10px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+.toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.btn{background:var(--card);border:1px solid var(--border2);border-radius:8px;padding:7px 14px;font-size:13.5px;cursor:pointer;font-family:inherit;color:var(--text)}
+.btn:hover{background:#f5f4ee}
+.btn.primary{background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber-text);font-weight:600}
+.btn.primary:hover{background:#f5e2c0}
+.btn.small{padding:3px 9px;font-size:12.5px}
+.btn.danger{color:var(--danger)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.metric{background:var(--side);border:none;border-radius:10px;padding:13px 15px}
+.metric .lbl{font-size:12px;color:var(--muted)}
+.metric .val{font-size:25px;font-weight:650;margin-top:2px}
+.metric.honey{background:var(--amber-bg)}
+.metric.honey .lbl{color:var(--honey-dark)}
+.metric.honey .val{color:var(--amber-text)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.warncard{background:var(--warn-bg);border:1px solid var(--amber-border);color:var(--warn-text);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13.5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:12px;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border2)}
+td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+tr.click{cursor:pointer}
+tr.click:hover td{background:#f8f7f0}
+.badge{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:20px;background:#efede2;color:#6b6858;white-space:nowrap}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}
+.badge.warn{background:var(--warn-bg);color:var(--warn-text)}
+.badge.bad{background:var(--danger-bg);color:var(--danger)}
+.qdot{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid #999;vertical-align:-1px;margin-right:5px}
+.empty{color:var(--muted);font-size:13.5px;padding:14px 4px;text-align:center}
+.muted{color:var(--muted)}
+.right{text-align:right}
+.infogrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px 18px;font-size:13.5px}
+.infogrid .lbl{font-size:11.5px;color:var(--muted)}
+.bars .bar-row{display:grid;grid-template-columns:110px 1fr 70px;gap:10px;align-items:center;margin-bottom:7px;font-size:13px}
+.bars .bar-track{background:#efede2;border-radius:6px;height:16px;overflow:hidden}
+.bars .bar-fill{background:var(--honey);height:100%;border-radius:6px}
+.bars .bar-val{text-align:right;color:var(--muted);font-size:12.5px}
+.aufgabe{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border)}
+.aufgabe input[type=checkbox]{width:17px;height:17px;accent-color:var(--honey-dark);cursor:pointer}
+.aufgabe .txt{flex:1}
+.aufgabe.done .txt{text-decoration:line-through;color:var(--muted)}
+.due-over{color:var(--danger);font-size:12px;font-weight:600}
+.due{color:var(--muted);font-size:12px}
+.modal-backdrop{position:fixed;inset:0;background:rgba(30,24,8,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;z-index:10;overflow:auto}
+.modal-backdrop[hidden]{display:none}
+.modal{background:var(--card);border-radius:14px;padding:22px 24px;width:100%;max-width:480px;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.modal h3{font-size:17px;margin-bottom:14px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:3px;font-weight:600}
+.field input[type=text],.field input[type=number],.field input[type=date],.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--text)}
+.field textarea{min-height:60px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--honey);outline-offset:-1px}
+.field.err input,.field.err select{border-color:var(--danger);outline:2px solid var(--danger)}
+.field .cbrow{display:flex;align-items:center;gap:8px;font-size:14px}
+.field .cbrow input{width:17px;height:17px;accent-color:var(--honey-dark)}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.detail-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+.actions-cell{white-space:nowrap;text-align:right}
+input[type=file]{display:none}
+@media (max-width:760px){
+  .app{flex-direction:column}
+  .sidebar{width:100%;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px;padding:10px;border-right:none;border-bottom:1px solid var(--border)}
+  .logo{padding:2px 10px;font-size:16px;width:100%}
+  .nav-btn{width:auto;padding:6px 9px;font-size:13px}
+  .sidebar-footer{display:none}
+  main{padding:16px}
+  .grid2{grid-template-columns:1fr}
+}
+@media print{
+  .sidebar,.toolbar,.btn,.no-print,.actions-cell{display:none !important}
+  body{background:#fff}
+  main{padding:0;max-width:none}
+  .card,.metric{border-color:#bbb}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="9,3.2 13,5.5 13,10.1 9,12.4 5,10.1 5,5.5"/><polygon points="15,11.6 19,13.9 19,18.5 15,20.8 11,18.5 11,13.9"/></svg>ImkerBuch</div>
+    <button class="nav-btn" data-view="dashboard" onclick="go('dashboard')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5"/></svg>Übersicht</button>
+    <button class="nav-btn" data-view="voelker" onclick="go('voelker')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="9,3.2 13,5.5 13,10.1 9,12.4 5,10.1 5,5.5"/><polygon points="15,11.6 19,13.9 19,18.5 15,20.8 11,18.5 11,13.9"/></svg>Völker</button>
+    <button class="nav-btn" data-view="standorte" onclick="go('standorte')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21c-4-3.7-6.5-7.1-6.5-10.2a6.5 6.5 0 0 1 13 0C18.5 13.9 16 17.3 12 21z"/><circle cx="12" cy="10.6" r="2.3"/></svg>Standorte</button>
+    <button class="nav-btn" data-view="behandlungen" onclick="go('behandlungen')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="7" width="17" height="13" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M12 10.5v6M9 13.5h6"/></svg>Behandlungen</button>
+    <button class="nav-btn" data-view="fuetterungen" onclick="go('fuetterungen')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3h4"/><path d="M10.5 3v3.5L8.6 9a2 2 0 0 0-.4 1.2V19a2 2 0 0 0 2 2h3.6a2 2 0 0 0 2-2v-8.8A2 2 0 0 0 15.4 9l-1.9-2.5V3"/></svg>Fütterung</button>
+    <button class="nav-btn" data-view="ernten" onclick="go('ernten')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.3s6 6.9 6 10.9a6 6 0 0 1-12 0c0-4 6-10.9 6-10.9z"/></svg>Ernte</button>
+    <button class="nav-btn" data-view="aufgaben" onclick="go('aufgaben')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.8 5.3l1.4 1.4 2.4-2.4"/><path d="M11 5.5h9.2"/><path d="M3.8 12.3l1.4 1.4 2.4-2.4"/><path d="M11 12.5h9.2"/><path d="M3.8 19.3l1.4 1.4 2.4-2.4"/><path d="M11 19.5h9.2"/></svg>Aufgaben</button>
+    <button class="nav-btn" data-view="statistik" onclick="go('statistik')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="13" width="4.4" height="7.5" rx="1"/><rect x="9.8" y="8.5" width="4.4" height="12" rx="1"/><rect x="15.6" y="4.5" width="4.4" height="16" rx="1"/></svg>Statistik</button>
+    <button class="nav-btn" data-view="einstellungen" onclick="go('einstellungen')"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="10" r="2"/><path d="M6 4v4M6 12v8"/><circle cx="12" cy="16" r="2"/><path d="M12 4v10M12 18v2"/><circle cx="18" cy="7" r="2"/><path d="M18 4v1M18 9v11"/></svg>Einstellungen</button>
+    <div class="sidebar-footer">Alle Daten bleiben auf diesem Gerät.<br>Kein Internet, keine Cloud.</div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div class="modal-backdrop" id="modal" hidden onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <div id="modalBody"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Abbrechen</button>
+      <button class="btn primary" onclick="submitForm()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- Daten ---------- */
+const KEY = "imkerbuch.v1";
+function emptyState(){
+  return {settings:{imkerName:""}, standorte:[], voelker:[], durchsichten:[], behandlungen:[], fuetterungen:[], ernten:[], aufgaben:[]};
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw) return Object.assign(emptyState(), JSON.parse(raw));
+  }catch(e){ console.error("Laden fehlgeschlagen", e); }
+  return emptyState();
+}
+let state = load();
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+function uid(){ return "x" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+/* ---------- Helfer ---------- */
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function today(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function fmtDate(iso){ if(!iso) return "–"; const d=new Date(iso+"T00:00"); return isNaN(d)?"–":d.toLocaleDateString("de-DE",{day:"2-digit",month:"2-digit",year:"numeric"}); }
+function daysSince(iso){ if(!iso) return null; return Math.floor((new Date(today()+"T00:00") - new Date(iso+"T00:00"))/86400000); }
+function relDays(iso){
+  const t = daysSince(iso);
+  if(t===null) return "–";
+  if(t===0) return "heute";
+  if(t===1) return "gestern";
+  if(t<0) return "in "+(-t)+" Tg.";
+  return "vor "+t+" Tg.";
+}
+function fmtNum(n){ if(n==null||isNaN(n)) return "–"; return (Math.round(n*10)/10).toLocaleString("de-DE"); }
+function volk(id){ return state.voelker.find(v=>v.id===id); }
+function volkName(id){ const v=volk(id); return v ? v.name : (id ? "?" : "–"); }
+function standortName(id){ const s=state.standorte.find(x=>x.id===id); return s ? s.name : "–"; }
+function byDatumDesc(a,b){ return (b.datum||"").localeCompare(a.datum||""); }
+
+/* Königinnen-Farbe nach internationalem Zeichenschema */
+const QFARBEN = {1:["Weiß","#f5f5f0"],2:["Gelb","#f5c518"],3:["Rot","#d63a2f"],4:["Grün","#2e8b3d"],5:["Blau","#2764c4"],6:["Weiß","#f5f5f0"],7:["Gelb","#f5c518"],8:["Rot","#d63a2f"],9:["Grün","#2e8b3d"],0:["Blau","#2764c4"]};
+function qDot(jahr){
+  const j = parseInt(jahr,10);
+  if(!jahr || isNaN(j)) return "";
+  const f = QFARBEN[((j%10)+10)%10];
+  return '<span class="qdot" title="'+f[0]+'" style="background:'+f[1]+'"></span>';
+}
+function letzteDurchsicht(volkId){
+  const ds = state.durchsichten.filter(d=>d.volkId===volkId).sort(byDatumDesc);
+  return ds.length ? ds[0] : null;
+}
+
+/* ---------- Navigation ---------- */
+let currentView = "dashboard";
+let currentVolk = null;
+let volkFilter = {standort:"", status:"aktiv"};
+function go(view, volkId){
+  currentView = view;
+  if(volkId !== undefined) currentVolk = volkId;
+  render();
+  window.scrollTo(0,0);
+}
+
+/* ---------- Formular-Baukasten ---------- */
+let formCtx = null;
+function openForm(title, fields, initial, onSave){
+  formCtx = {fields, onSave};
+  document.getElementById("modalTitle").textContent = title;
+  document.getElementById("modalBody").innerHTML = fields.map(f=>fieldHtml(f, initial ? initial[f.key] : undefined)).join("");
+  document.getElementById("modal").hidden = false;
+  const first = document.querySelector("#modalBody input, #modalBody select, #modalBody textarea");
+  if(first) first.focus();
+}
+function closeModal(){ document.getElementById("modal").hidden = true; formCtx = null; }
+function fieldHtml(f, val){
+  const id = "f_" + f.key;
+  const v = (val===undefined || val===null) ? (f.default!==undefined ? f.default : "") : val;
+  let inner = "";
+  if(f.type==="select"){
+    inner = '<select id="'+id+'">' + f.options.map(o=>{
+      const pair = Array.isArray(o) ? o : [o,o];
+      const sel = String(pair[0])===String(v) ? " selected" : "";
+      return '<option value="'+esc(pair[0])+'"'+sel+'>'+esc(pair[1])+'</option>';
+    }).join("") + '</select>';
+  } else if(f.type==="textarea"){
+    inner = '<textarea id="'+id+'">'+esc(v)+'</textarea>';
+  } else if(f.type==="checkbox"){
+    return '<div class="field"><div class="cbrow"><input type="checkbox" id="'+id+'"'+(v?" checked":"")+'><label for="'+id+'" style="margin:0;font-size:14px;color:var(--text);font-weight:400">'+esc(f.label)+'</label></div></div>';
+  } else {
+    const step = f.type==="number" ? ' step="any"' : "";
+    inner = '<input type="'+f.type+'" id="'+id+'" value="'+esc(v)+'"'+step+'>';
+  }
+  return '<div class="field" id="fw_'+f.key+'"><label for="'+id+'">'+esc(f.label)+(f.required?" *":"")+'</label>'+inner+'</div>';
+}
+function submitForm(){
+  if(!formCtx) return;
+  const vals = {};
+  for(const f of formCtx.fields){
+    const el = document.getElementById("f_"+f.key);
+    const wrap = document.getElementById("fw_"+f.key);
+    if(wrap) wrap.classList.remove("err");
+    let v;
+    if(f.type==="checkbox") v = el.checked;
+    else v = el.value.trim();
+    if(f.type==="number") v = (v==="" ? null : parseFloat(String(v).replace(",",".")));
+    if(f.required && (v==="" || v===null || (typeof v==="number" && isNaN(v)))){
+      if(wrap) wrap.classList.add("err");
+      el.focus();
+      return;
+    }
+    vals[f.key] = v;
+  }
+  formCtx.onSave(vals);
+  closeModal();
+  save();
+  render();
+}
+
+/* ---------- Auswahllisten ---------- */
+function standortOptions(){ return [["","– kein Standort –"]].concat(state.standorte.map(s=>[s.id,s.name])); }
+function volkOptions(extraFirst){
+  const list = state.voelker.filter(v=>v.status==="aktiv").concat(state.voelker.filter(v=>v.status!=="aktiv"));
+  const opts = list.map(v=>[v.id, v.name + (v.status!=="aktiv" ? " ("+v.status+")" : "")]);
+  return extraFirst ? [extraFirst].concat(opts) : opts;
+}
+
+/* ---------- Standorte ---------- */
+function standortForm(id){
+  const s = id ? state.standorte.find(x=>x.id===id) : null;
+  openForm(s?"Standort bearbeiten":"Neuer Standort", [
+    {key:"name",label:"Name",type:"text",required:true},
+    {key:"adresse",label:"Adresse / Lage",type:"text"},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], s, vals=>{
+    if(s) Object.assign(s, vals);
+    else state.standorte.push(Object.assign({id:uid()}, vals));
+  });
+}
+function delStandort(id){
+  const n = state.voelker.filter(v=>v.standortId===id).length;
+  if(!confirm("Standort löschen?" + (n ? " ("+n+" Völker verlieren die Zuordnung)" : ""))) return;
+  state.standorte = state.standorte.filter(s=>s.id!==id);
+  state.voelker.forEach(v=>{ if(v.standortId===id) v.standortId=""; });
+  save(); render();
+}
+
+/* ---------- Völker ---------- */
+function volkForm(id){
+  const v = id ? volk(id) : null;
+  openForm(v?"Volk bearbeiten":"Neues Volk", [
+    {key:"name",label:"Nummer / Name",type:"text",required:true},
+    {key:"standortId",label:"Standort",type:"select",options:standortOptions()},
+    {key:"art",label:"Art",type:"select",options:["Wirtschaftsvolk","Ableger","Schwarm","Begattungseinheit"],default:"Wirtschaftsvolk"},
+    {key:"beute",label:"Beute",type:"select",options:["Zander","Deutsch-Normalmaß","Dadant Blatt","Dadant US","Langstroth","Segeberger","Mini-Plus","Sonstige"],default:"Zander"},
+    {key:"status",label:"Status",type:"select",options:["aktiv","aufgelöst","verkauft","verloren"],default:"aktiv"},
+    {key:"kJahr",label:"Königin – Jahrgang (z. B. 2026)",type:"number"},
+    {key:"kRasse",label:"Königin – Rasse",type:"select",options:["unbekannt","Carnica","Buckfast","Ligustica","Mellifera","Landrasse"],default:"Carnica"},
+    {key:"kGezeichnet",label:"Königin gezeichnet",type:"checkbox"},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], v, vals=>{
+    if(v) Object.assign(v, vals);
+    else state.voelker.push(Object.assign({id:uid()}, vals));
+  });
+}
+function delVolk(id){
+  if(!confirm("Volk „"+volkName(id)+"“ inklusive aller Durchsichten, Behandlungen, Fütterungen und Ernten löschen?")) return;
+  state.voelker = state.voelker.filter(v=>v.id!==id);
+  ["durchsichten","behandlungen","fuetterungen","ernten"].forEach(k=>{ state[k] = state[k].filter(e=>e.volkId!==id); });
+  state.aufgaben.forEach(a=>{ if(a.volkId===id) a.volkId=""; });
+  if(currentVolk===id){ currentVolk=null; currentView="voelker"; }
+  save(); render();
+}
+
+/* ---------- Durchsichten (Stockkarte) ---------- */
+function durchsichtForm(id, presetVolkId){
+  const d = id ? state.durchsichten.find(x=>x.id===id) : null;
+  if(!id && !state.voelker.length){ alert("Bitte zuerst ein Volk anlegen."); return; }
+  openForm(d?"Durchsicht bearbeiten":"Neue Durchsicht", [
+    {key:"datum",label:"Datum",type:"date",required:true,default:today()},
+    {key:"volkId",label:"Volk",type:"select",options:volkOptions(),required:true,default:presetVolkId||""},
+    {key:"wetter",label:"Wetter",type:"text"},
+    {key:"staerke",label:"Volksstärke",type:"select",options:[["","–"],"schwach","mittel","stark"]},
+    {key:"sanftmut",label:"Sanftmut (1 = stechlustig … 5 = sehr sanft)",type:"select",options:[["","–"],"1","2","3","4","5"]},
+    {key:"brutwaben",label:"Brutwaben (Anzahl)",type:"number"},
+    {key:"honigwaben",label:"Honigwaben / Honigraum (Anzahl)",type:"number"},
+    {key:"koeniginGesehen",label:"Königin gesehen",type:"checkbox"},
+    {key:"stifte",label:"Stifte / offene Brut vorhanden",type:"checkbox"},
+    {key:"weiselzellen",label:"Weiselzellen (Anzahl)",type:"number"},
+    {key:"auffaelligkeiten",label:"Auffälligkeiten (z. B. Drohnenbrütig, Krankheit)",type:"text"},
+    {key:"massnahmen",label:"Maßnahmen (z. B. erweitert, Waben entnommen)",type:"textarea"},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], d || {volkId:presetVolkId||""}, vals=>{
+    if(d) Object.assign(d, vals);
+    else state.durchsichten.push(Object.assign({id:uid()}, vals));
+  });
+}
+
+/* ---------- Behandlungen ---------- */
+function behandlungForm(id, presetVolkId){
+  const b = id ? state.behandlungen.find(x=>x.id===id) : null;
+  if(!id && !state.voelker.length){ alert("Bitte zuerst ein Volk anlegen."); return; }
+  openForm(b?"Behandlung bearbeiten":"Neue Behandlung", [
+    {key:"datum",label:"Datum",type:"date",required:true,default:today()},
+    {key:"volkId",label:"Volk",type:"select",options:volkOptions(),required:true,default:presetVolkId||""},
+    {key:"mittel",label:"Mittel",type:"select",options:["Ameisensäure 60 %","Ameisensäure 85 %","Oxalsäure träufeln","Oxalsäure verdampfen","Milchsäure","Thymol","Bienenwohl","Sonstiges"],default:"Ameisensäure 60 %"},
+    {key:"dosierung",label:"Dosierung / Anwendung",type:"text"},
+    {key:"milbenfall",label:"Milbenfall (Milben/Tag)",type:"number"},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], b || {volkId:presetVolkId||""}, vals=>{
+    if(b) Object.assign(b, vals);
+    else state.behandlungen.push(Object.assign({id:uid()}, vals));
+  });
+}
+
+/* ---------- Fütterungen ---------- */
+function fuetterungForm(id, presetVolkId){
+  const f = id ? state.fuetterungen.find(x=>x.id===id) : null;
+  if(!id && !state.voelker.length){ alert("Bitte zuerst ein Volk anlegen."); return; }
+  openForm(f?"Fütterung bearbeiten":"Neue Fütterung", [
+    {key:"datum",label:"Datum",type:"date",required:true,default:today()},
+    {key:"volkId",label:"Volk",type:"select",options:volkOptions(),required:true,default:presetVolkId||""},
+    {key:"futterart",label:"Futterart",type:"select",options:["Zuckerwasser 3:2","Zuckerwasser 1:1","Fertigsirup","Futterteig","Eigener Honig"],default:"Zuckerwasser 3:2"},
+    {key:"menge",label:"Menge (kg)",type:"number",required:true},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], f || {volkId:presetVolkId||""}, vals=>{
+    if(f) Object.assign(f, vals);
+    else state.fuetterungen.push(Object.assign({id:uid()}, vals));
+  });
+}
+
+/* ---------- Ernten ---------- */
+function ernteForm(id, presetVolkId){
+  const e = id ? state.ernten.find(x=>x.id===id) : null;
+  openForm(e?"Ernte bearbeiten":"Neue Ernte", [
+    {key:"datum",label:"Datum",type:"date",required:true,default:today()},
+    {key:"volkId",label:"Volk",type:"select",options:volkOptions(["","– gesamt / mehrere Völker –"]),default:presetVolkId||""},
+    {key:"sorte",label:"Sorte / Tracht",type:"select",options:["Frühtracht","Sommertracht","Raps","Linde","Akazie/Robinie","Wald","Heide","Sonstige"],default:"Sommertracht"},
+    {key:"menge",label:"Menge (kg)",type:"number",required:true},
+    {key:"wassergehalt",label:"Wassergehalt (%)",type:"number"},
+    {key:"notiz",label:"Notiz",type:"textarea"}
+  ], e || {volkId:presetVolkId||""}, vals=>{
+    if(e) Object.assign(e, vals);
+    else state.ernten.push(Object.assign({id:uid()}, vals));
+  });
+}
+
+/* ---------- Aufgaben ---------- */
+function aufgabeForm(id){
+  const a = id ? state.aufgaben.find(x=>x.id===id) : null;
+  openForm(a?"Aufgabe bearbeiten":"Neue Aufgabe", [
+    {key:"text",label:"Aufgabe",type:"text",required:true},
+    {key:"faellig",label:"Fällig am",type:"date"},
+    {key:"volkId",label:"Volk (optional)",type:"select",options:volkOptions(["","–"])}
+  ], a, vals=>{
+    if(a) Object.assign(a, vals);
+    else state.aufgaben.push(Object.assign({id:uid(), erledigt:false}, vals));
+  });
+}
+function toggleAufgabe(id){
+  const a = state.aufgaben.find(x=>x.id===id);
+  if(a){ a.erledigt = !a.erledigt; save(); render(); }
+}
+function delItem(coll, id, msg){
+  if(!confirm(msg || "Eintrag löschen?")) return;
+  state[coll] = state[coll].filter(x=>x.id!==id);
+  save(); render();
+}
+
+/* ---------- Rendering ---------- */
+function render(){
+  document.querySelectorAll(".nav-btn").forEach(b=>{
+    b.classList.toggle("active", b.dataset.view===currentView || (currentView==="volk" && b.dataset.view==="voelker"));
+  });
+  const m = document.getElementById("main");
+  switch(currentView){
+    case "dashboard": m.innerHTML = viewDashboard(); break;
+    case "voelker": m.innerHTML = viewVoelker(); break;
+    case "volk": m.innerHTML = viewVolk(); break;
+    case "standorte": m.innerHTML = viewStandorte(); break;
+    case "behandlungen": m.innerHTML = viewBehandlungen(); break;
+    case "fuetterungen": m.innerHTML = viewFuetterungen(); break;
+    case "ernten": m.innerHTML = viewErnten(); break;
+    case "aufgaben": m.innerHTML = viewAufgaben(); break;
+    case "statistik": m.innerHTML = viewStatistik(); break;
+    case "einstellungen": m.innerHTML = viewEinstellungen(); break;
+    default: m.innerHTML = viewDashboard();
+  }
+}
+
+function viewDashboard(){
+  const jahr = new Date().getFullYear();
+  const aktiv = state.voelker.filter(v=>v.status==="aktiv");
+  const ernteJahr = state.ernten.filter(e=>(e.datum||"").startsWith(String(jahr))).reduce((s,e)=>s+(e.menge||0),0);
+  const offen = state.aufgaben.filter(a=>!a.erledigt);
+  const ueberf = offen.filter(a=>a.faellig && a.faellig < today());
+  const warnVoelker = aktiv.filter(v=>{ const d=letzteDurchsicht(v.id); return !d || daysSince(d.datum)>=14; });
+  const naechste = offen.slice().sort((a,b)=>(a.faellig||"9999").localeCompare(b.faellig||"9999")).slice(0,6);
+  const letzte = state.durchsichten.slice().sort(byDatumDesc).slice(0,6);
+  let h = '<h1>Übersicht</h1><div class="sub">'+new Date().toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+'</div>';
+  h += '<div class="cards">';
+  h += '<div class="metric"><div class="lbl">Völker aktiv</div><div class="val">'+aktiv.length+'</div></div>';
+  h += '<div class="metric"><div class="lbl">Standorte</div><div class="val">'+state.standorte.length+'</div></div>';
+  h += '<div class="metric"><div class="lbl">Offene Aufgaben</div><div class="val">'+offen.length+(ueberf.length?' <span class="badge bad">'+ueberf.length+' überfällig</span>':'')+'</div></div>';
+  h += '<div class="metric honey"><div class="lbl">Ernte '+jahr+'</div><div class="val">'+fmtNum(ernteJahr)+' kg</div></div>';
+  h += '</div>';
+  if(warnVoelker.length){
+    h += '<div class="warncard">Seit über 14 Tagen keine Durchsicht: ' + warnVoelker.map(v=>'<a href="javascript:void(0)" onclick="go(\'volk\',\''+v.id+'\')" style="color:inherit;font-weight:600">'+esc(v.name)+'</a>').join(", ") + '</div>';
+  }
+  if(!state.voelker.length){
+    h += '<div class="card"><h2>Willkommen!</h2><p style="font-size:14px;margin-bottom:12px">Lege zuerst einen Standort und deine Völker an – danach kannst du Durchsichten, Behandlungen, Fütterungen und Ernten erfassen. Alles wird nur auf diesem Gerät gespeichert.</p><button class="btn primary" onclick="standortForm()">+ Standort anlegen</button> <button class="btn" onclick="volkForm()">+ Volk anlegen</button> <button class="btn" onclick="demoDaten()">Beispieldaten laden</button></div>';
+  }
+  h += '<div class="grid2">';
+  h += '<div class="card"><h2>Nächste Aufgaben</h2>';
+  h += naechste.length ? naechste.map(a=>aufgabeRow(a)).join("") : '<div class="empty">Keine offenen Aufgaben</div>';
+  h += '<div style="margin-top:10px"><button class="btn small" onclick="aufgabeForm()">+ Aufgabe</button></div></div>';
+  h += '<div class="card"><h2>Letzte Durchsichten</h2>';
+  if(letzte.length){
+    h += '<table><tr><th>Datum</th><th>Volk</th><th>Kurzinfo</th></tr>';
+    h += letzte.map(d=>'<tr class="click" onclick="go(\'volk\',\''+d.volkId+'\')"><td>'+relDays(d.datum)+'</td><td><b>'+esc(volkName(d.volkId))+'</b></td><td class="muted">'+esc(durchsichtKurz(d))+'</td></tr>').join("");
+    h += '</table>';
+  } else h += '<div class="empty">Noch keine Durchsichten</div>';
+  h += '</div></div>';
+  return h;
+}
+function durchsichtKurz(d){
+  const p = [];
+  if(d.staerke) p.push(d.staerke);
+  if(d.brutwaben!=null && d.brutwaben!=="") p.push(d.brutwaben+" BW");
+  if(d.weiselzellen) p.push("⚠ "+d.weiselzellen+" WZ");
+  if(d.koeniginGesehen) p.push("Kö ✓");
+  if(d.auffaelligkeiten) p.push(d.auffaelligkeiten);
+  return p.join(" · ") || (d.notiz||"").slice(0,40);
+}
+function aufgabeRow(a){
+  const over = a.faellig && a.faellig < today() && !a.erledigt;
+  return '<div class="aufgabe'+(a.erledigt?' done':'')+'">'+
+    '<input type="checkbox"'+(a.erledigt?' checked':'')+' onchange="toggleAufgabe(\''+a.id+'\')">'+
+    '<span class="txt">'+esc(a.text)+(a.volkId?' <span class="badge">'+esc(volkName(a.volkId))+'</span>':'')+'</span>'+
+    (a.faellig ? '<span class="'+(over?'due-over':'due')+'">'+(over?'überfällig · ':'')+fmtDate(a.faellig)+'</span>' : '')+
+    '<button class="btn small" onclick="aufgabeForm(\''+a.id+'\')">✎</button>'+
+    '<button class="btn small danger" onclick="delItem(\'aufgaben\',\''+a.id+'\')">×</button>'+
+    '</div>';
+}
+
+function viewVoelker(){
+  let list = state.voelker.slice();
+  if(volkFilter.standort) list = list.filter(v=>v.standortId===volkFilter.standort);
+  if(volkFilter.status==="aktiv") list = list.filter(v=>v.status==="aktiv");
+  list.sort((a,b)=>String(a.name).localeCompare(String(b.name),"de",{numeric:true}));
+  let h = '<h1>Völker</h1><div class="sub">'+state.voelker.filter(v=>v.status==="aktiv").length+' aktiv · '+state.voelker.length+' gesamt</div>';
+  h += '<div class="toolbar"><button class="btn primary" onclick="volkForm()">+ Neues Volk</button>';
+  h += '<select class="btn" onchange="volkFilter.standort=this.value;render()">'+[["","Alle Standorte"]].concat(state.standorte.map(s=>[s.id,s.name])).map(o=>'<option value="'+esc(o[0])+'"'+(volkFilter.standort===o[0]?" selected":"")+'>'+esc(o[1])+'</option>').join("")+'</select>';
+  h += '<select class="btn" onchange="volkFilter.status=this.value;render()"><option value="aktiv"'+(volkFilter.status==="aktiv"?" selected":"")+'>Nur aktive</option><option value="alle"'+(volkFilter.status==="alle"?" selected":"")+'>Alle</option></select></div>';
+  if(!list.length) return h + '<div class="card"><div class="empty">Keine Völker – über „+ Neues Volk“ anlegen.</div></div>';
+  h += '<div class="card" style="padding:6px 10px"><table><tr><th>Volk</th><th>Standort</th><th>Beute</th><th>Königin</th><th>Letzte Durchsicht</th><th>Status</th><th></th></tr>';
+  for(const v of list){
+    const d = letzteDurchsicht(v.id);
+    const t = d ? daysSince(d.datum) : null;
+    const dsBadge = d ? (t>=14 ? '<span class="badge warn">'+relDays(d.datum)+'</span>' : relDays(d.datum)) : '<span class="badge warn">nie</span>';
+    const stBadge = v.status==="aktiv" ? '<span class="badge ok">aktiv</span>' : '<span class="badge">'+esc(v.status)+'</span>';
+    h += '<tr class="click" onclick="go(\'volk\',\''+v.id+'\')">'+
+      '<td><b>'+esc(v.name)+'</b>'+(v.art && v.art!=="Wirtschaftsvolk" ? ' <span class="badge">'+esc(v.art)+'</span>':'')+'</td>'+
+      '<td>'+esc(standortName(v.standortId))+'</td>'+
+      '<td>'+esc(v.beute||"–")+'</td>'+
+      '<td>'+qDot(v.kJahr)+esc(v.kJahr||"–")+'</td>'+
+      '<td>'+dsBadge+'</td>'+
+      '<td>'+stBadge+'</td>'+
+      '<td class="actions-cell"><button class="btn small" onclick="event.stopPropagation();volkForm(\''+v.id+'\')">✎</button> <button class="btn small danger" onclick="event.stopPropagation();delVolk(\''+v.id+'\')">×</button></td></tr>';
+  }
+  h += '</table></div>';
+  return h;
+}
+
+function viewVolk(){
+  const v = volk(currentVolk);
+  if(!v){ currentView="voelker"; return viewVoelker(); }
+  const ds = state.durchsichten.filter(d=>d.volkId===v.id).sort(byDatumDesc);
+  const sonstige = []
+    .concat(state.behandlungen.filter(x=>x.volkId===v.id).map(x=>({typ:"Behandlung", datum:x.datum, info:(x.mittel||"")+(x.dosierung?", "+x.dosierung:"")+(x.milbenfall!=null&&x.milbenfall!==""?" · Milbenfall "+fmtNum(x.milbenfall)+"/Tag":""), coll:"behandlungen", id:x.id, edit:"behandlungForm"})))
+    .concat(state.fuetterungen.filter(x=>x.volkId===v.id).map(x=>({typ:"Fütterung", datum:x.datum, info:(x.futterart||"")+" · "+fmtNum(x.menge)+" kg", coll:"fuetterungen", id:x.id, edit:"fuetterungForm"})))
+    .concat(state.ernten.filter(x=>x.volkId===v.id).map(x=>({typ:"Ernte", datum:x.datum, info:(x.sorte||"")+" · "+fmtNum(x.menge)+" kg"+(x.wassergehalt?" · "+fmtNum(x.wassergehalt)+" % H₂O":""), coll:"ernten", id:x.id, edit:"ernteForm"})))
+    .sort(byDatumDesc);
+  const f = v.kJahr ? QFARBEN[((parseInt(v.kJahr,10)%10)+10)%10] : null;
+  let h = '<div class="toolbar no-print"><button class="btn" onclick="go(\'voelker\')">← Völker</button><span style="flex:1"></span><button class="btn" onclick="window.print()">Stockkarte drucken</button></div>';
+  h += '<div class="detail-head"><h1>'+esc(v.name)+'</h1>'+(v.status==="aktiv"?'<span class="badge ok">aktiv</span>':'<span class="badge">'+esc(v.status)+'</span>')+'</div>';
+  h += '<div class="sub">Stockkarte'+(state.settings.imkerName?' · '+esc(state.settings.imkerName):'')+'</div>';
+  h += '<div class="card"><div class="infogrid">';
+  h += '<div><div class="lbl">Standort</div>'+esc(standortName(v.standortId))+'</div>';
+  h += '<div><div class="lbl">Art</div>'+esc(v.art||"–")+'</div>';
+  h += '<div><div class="lbl">Beute</div>'+esc(v.beute||"–")+'</div>';
+  h += '<div><div class="lbl">Königin</div>'+qDot(v.kJahr)+esc(v.kJahr||"?")+(f?' ('+f[0]+')':'')+' · '+esc(v.kRasse||"unbekannt")+(v.kGezeichnet?' · gezeichnet':'')+'</div>';
+  if(v.notiz) h += '<div style="grid-column:1/-1"><div class="lbl">Notiz</div>'+esc(v.notiz)+'</div>';
+  h += '</div><div style="margin-top:14px" class="no-print"><button class="btn small" onclick="volkForm(\''+v.id+'\')">✎ Bearbeiten</button></div></div>';
+  h += '<div class="toolbar no-print"><button class="btn primary" onclick="durchsichtForm(null,\''+v.id+'\')">+ Durchsicht</button><button class="btn" onclick="behandlungForm(null,\''+v.id+'\')">+ Behandlung</button><button class="btn" onclick="fuetterungForm(null,\''+v.id+'\')">+ Fütterung</button><button class="btn" onclick="ernteForm(null,\''+v.id+'\')">+ Ernte</button></div>';
+  h += '<div class="card"><h2>Durchsichten ('+ds.length+')</h2>';
+  if(ds.length){
+    h += '<div style="overflow-x:auto"><table><tr><th>Datum</th><th>Stärke</th><th>Sanftmut</th><th>BW</th><th>HW</th><th>Kö</th><th>Stifte</th><th>WZ</th><th>Auffällig / Maßnahmen / Notiz</th><th></th></tr>';
+    for(const d of ds){
+      const txt = [d.auffaelligkeiten, d.massnahmen, d.notiz].filter(Boolean).join(" · ");
+      h += '<tr><td style="white-space:nowrap">'+fmtDate(d.datum)+(d.wetter?'<br><span class="muted" style="font-size:11.5px">'+esc(d.wetter)+'</span>':'')+'</td>'+
+        '<td>'+esc(d.staerke||"–")+'</td><td>'+(d.sanftmut?esc(d.sanftmut)+"/5":"–")+'</td>'+
+        '<td>'+(d.brutwaben!=null&&d.brutwaben!==""?fmtNum(d.brutwaben):"–")+'</td>'+
+        '<td>'+(d.honigwaben!=null&&d.honigwaben!==""?fmtNum(d.honigwaben):"–")+'</td>'+
+        '<td>'+(d.koeniginGesehen?"✓":"–")+'</td><td>'+(d.stifte?"✓":"–")+'</td>'+
+        '<td>'+(d.weiselzellen?'<span class="badge bad">'+fmtNum(d.weiselzellen)+'</span>':"–")+'</td>'+
+        '<td>'+esc(txt)+'</td>'+
+        '<td class="actions-cell"><button class="btn small" onclick="durchsichtForm(\''+d.id+'\')">✎</button> <button class="btn small danger" onclick="delItem(\'durchsichten\',\''+d.id+'\')">×</button></td></tr>';
+    }
+    h += '</table></div>';
+  } else h += '<div class="empty">Noch keine Durchsichten</div>';
+  h += '</div>';
+  h += '<div class="card"><h2>Behandlungen, Fütterungen und Ernten ('+sonstige.length+')</h2>';
+  if(sonstige.length){
+    h += '<table><tr><th>Datum</th><th>Typ</th><th>Details</th><th></th></tr>';
+    for(const e of sonstige){
+      h += '<tr><td style="white-space:nowrap">'+fmtDate(e.datum)+'</td><td><span class="badge">'+e.typ+'</span></td><td>'+esc(e.info)+'</td>'+
+        '<td class="actions-cell"><button class="btn small" onclick="'+e.edit+'(\''+e.id+'\')">✎</button> <button class="btn small danger" onclick="delItem(\''+e.coll+'\',\''+e.id+'\')">×</button></td></tr>';
+    }
+    h += '</table>';
+  } else h += '<div class="empty">Noch keine Einträge</div>';
+  h += '</div>';
+  return h;
+}
+
+function viewStandorte(){
+  let h = '<h1>Standorte</h1><div class="sub">'+state.standorte.length+' Standorte</div>';
+  h += '<div class="toolbar"><button class="btn primary" onclick="standortForm()">+ Neuer Standort</button></div>';
+  if(!state.standorte.length) return h + '<div class="card"><div class="empty">Keine Standorte – über „+ Neuer Standort“ anlegen.</div></div>';
+  h += '<div class="card" style="padding:6px 10px"><table><tr><th>Name</th><th>Adresse / Lage</th><th>Völker</th><th>Notiz</th><th></th></tr>';
+  for(const s of state.standorte){
+    const n = state.voelker.filter(v=>v.standortId===s.id && v.status==="aktiv").length;
+    h += '<tr><td><b>'+esc(s.name)+'</b></td><td>'+esc(s.adresse||"–")+'</td><td>'+n+'</td><td class="muted">'+esc(s.notiz||"")+'</td>'+
+      '<td class="actions-cell"><button class="btn small" onclick="standortForm(\''+s.id+'\')">✎</button> <button class="btn small danger" onclick="delStandort(\''+s.id+'\')">×</button></td></tr>';
+  }
+  h += '</table></div>';
+  return h;
+}
+
+function listView(titel, coll, formFn, cols, rowFn, extra){
+  const list = state[coll].slice().sort(byDatumDesc);
+  let h = '<h1>'+titel+'</h1><div class="sub">'+list.length+' Einträge</div>';
+  h += '<div class="toolbar"><button class="btn primary" onclick="'+formFn+'()">+ Neu</button></div>';
+  if(extra) h += extra;
+  if(!list.length) return h + '<div class="card"><div class="empty">Noch keine Einträge – über „+ Neu“ anlegen.</div></div>';
+  h += '<div class="card" style="padding:6px 10px"><table><tr>'+cols.map(c=>'<th>'+c+'</th>').join("")+'<th></th></tr>';
+  for(const e of list){
+    h += '<tr>'+rowFn(e)+'<td class="actions-cell"><button class="btn small" onclick="'+formFn+'(\''+e.id+'\')">✎</button> <button class="btn small danger" onclick="delItem(\''+coll+'\',\''+e.id+'\')">×</button></td></tr>';
+  }
+  h += '</table></div>';
+  return h;
+}
+function volkLink(id){
+  if(!id) return '<span class="muted">gesamt</span>';
+  return '<a href="javascript:void(0)" onclick="go(\'volk\',\''+id+'\')" style="color:var(--honey-dark);font-weight:600;text-decoration:none">'+esc(volkName(id))+'</a>';
+}
+function viewBehandlungen(){
+  return listView("Behandlungen","behandlungen","behandlungForm",
+    ["Datum","Volk","Mittel","Dosierung","Milbenfall"],
+    b=>'<td style="white-space:nowrap">'+fmtDate(b.datum)+'</td><td>'+volkLink(b.volkId)+'</td><td>'+esc(b.mittel||"–")+'</td><td>'+esc(b.dosierung||"–")+'</td><td>'+(b.milbenfall!=null&&b.milbenfall!==""?fmtNum(b.milbenfall)+"/Tag":"–")+(b.notiz?'<br><span class="muted" style="font-size:12px">'+esc(b.notiz)+'</span>':'')+'</td>');
+}
+function viewFuetterungen(){
+  const jahr = new Date().getFullYear();
+  const sum = state.fuetterungen.filter(f=>(f.datum||"").startsWith(String(jahr))).reduce((s,f)=>s+(f.menge||0),0);
+  return listView("Fütterung","fuetterungen","fuetterungForm",
+    ["Datum","Volk","Futterart","Menge"],
+    f=>'<td style="white-space:nowrap">'+fmtDate(f.datum)+'</td><td>'+volkLink(f.volkId)+'</td><td>'+esc(f.futterart||"–")+'</td><td>'+fmtNum(f.menge)+' kg'+(f.notiz?'<br><span class="muted" style="font-size:12px">'+esc(f.notiz)+'</span>':'')+'</td>',
+    '<div class="warncard" style="background:#efede2;border-color:var(--border2);color:#6b6858">Gefüttert '+jahr+': <b>'+fmtNum(sum)+' kg</b></div>');
+}
+function viewErnten(){
+  const jahr = new Date().getFullYear();
+  const sum = state.ernten.filter(e=>(e.datum||"").startsWith(String(jahr))).reduce((s,e)=>s+(e.menge||0),0);
+  return listView("Ernte","ernten","ernteForm",
+    ["Datum","Volk","Sorte","Menge","Wassergehalt"],
+    e=>'<td style="white-space:nowrap">'+fmtDate(e.datum)+'</td><td>'+volkLink(e.volkId)+'</td><td>'+esc(e.sorte||"–")+'</td><td><b>'+fmtNum(e.menge)+' kg</b></td><td>'+(e.wassergehalt!=null&&e.wassergehalt!==""?fmtNum(e.wassergehalt)+" %":"–")+(e.notiz?'<br><span class="muted" style="font-size:12px">'+esc(e.notiz)+'</span>':'')+'</td>',
+    '<div class="warncard" style="background:var(--amber-bg);border-color:var(--amber-border);color:var(--amber-text)">Ernte '+jahr+': <b>'+fmtNum(sum)+' kg</b></div>');
+}
+
+function viewAufgaben(){
+  const offen = state.aufgaben.filter(a=>!a.erledigt).sort((a,b)=>(a.faellig||"9999").localeCompare(b.faellig||"9999"));
+  const done = state.aufgaben.filter(a=>a.erledigt);
+  let h = '<h1>Aufgaben</h1><div class="sub">'+offen.length+' offen</div>';
+  h += '<div class="toolbar"><button class="btn primary" onclick="aufgabeForm()">+ Neue Aufgabe</button></div>';
+  h += '<div class="card"><h2>Offen</h2>' + (offen.length ? offen.map(aufgabeRow).join("") : '<div class="empty">Alles erledigt</div>') + '</div>';
+  if(done.length) h += '<div class="card"><h2>Erledigt ('+done.length+')</h2>' + done.map(aufgabeRow).join("") + '</div>';
+  return h;
+}
+
+function bars(data, unit){
+  if(!data.length) return '<div class="empty">Keine Daten</div>';
+  const max = Math.max.apply(null, data.map(d=>d.value).concat([0.0001]));
+  return '<div class="bars">' + data.map(d=>
+    '<div class="bar-row"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(d.label)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+Math.max(2, d.value/max*100)+'%"></div></div><div class="bar-val">'+fmtNum(d.value)+' '+unit+'</div></div>'
+  ).join("") + '</div>';
+}
+function groupSum(list, keyFn, valFn){
+  const m = new Map();
+  for(const e of list){
+    const k = keyFn(e);
+    if(k==null || k==="") continue;
+    m.set(k, (m.get(k)||0) + (valFn(e)||0));
+  }
+  return Array.from(m.entries()).map(([label,value])=>({label,value}));
+}
+function viewStatistik(){
+  const jahr = new Date().getFullYear();
+  const proJahr = groupSum(state.ernten, e=>(e.datum||"").slice(0,4), e=>e.menge).sort((a,b)=>a.label.localeCompare(b.label));
+  const proSorte = groupSum(state.ernten.filter(e=>(e.datum||"").startsWith(String(jahr))), e=>e.sorte||"Sonstige", e=>e.menge).sort((a,b)=>b.value-a.value);
+  const futterJahr = groupSum(state.fuetterungen, f=>(f.datum||"").slice(0,4), f=>f.menge).sort((a,b)=>a.label.localeCompare(b.label));
+  const milben = state.behandlungen.filter(b=>b.milbenfall!=null && b.milbenfall!=="").sort(byDatumDesc).slice(0,12).reverse()
+    .map(b=>({label:fmtDate(b.datum).slice(0,6)+" "+volkName(b.volkId), value:b.milbenfall}));
+  const dsJahr = state.durchsichten.filter(d=>(d.datum||"").startsWith(String(jahr))).length;
+  let h = '<h1>Statistik</h1><div class="sub">'+dsJahr+' Durchsichten in '+jahr+'</div>';
+  h += '<div class="grid2">';
+  h += '<div class="card"><h2>Ernte pro Jahr</h2>'+bars(proJahr,"kg")+'</div>';
+  h += '<div class="card"><h2>Ernte '+jahr+' nach Sorte</h2>'+bars(proSorte,"kg")+'</div>';
+  h += '<div class="card"><h2>Fütterung pro Jahr</h2>'+bars(futterJahr,"kg")+'</div>';
+  h += '<div class="card"><h2>Milbenfall (letzte Behandlungen)</h2>'+bars(milben,"/Tag")+'</div>';
+  h += '</div>';
+  return h;
+}
+
+function viewEinstellungen(){
+  const counts = state.voelker.length+" Völker · "+state.durchsichten.length+" Durchsichten · "+state.behandlungen.length+" Behandlungen · "+state.fuetterungen.length+" Fütterungen · "+state.ernten.length+" Ernten · "+state.aufgaben.length+" Aufgaben";
+  let h = '<h1>Einstellungen</h1><div class="sub">Alles lokal – nichts verlässt dieses Gerät</div>';
+  h += '<div class="card"><h2>Imkerei</h2><div class="field" style="max-width:340px"><label>Name (erscheint auf gedruckten Stockkarten)</label><input type="text" value="'+esc(state.settings.imkerName||"")+'" onchange="state.settings.imkerName=this.value;save()"></div></div>';
+  h += '<div class="card"><h2>Datensicherung</h2><p style="font-size:13.5px;margin-bottom:12px" class="muted">Die Daten liegen im Speicher dieses Browsers ('+counts+'). Regelmäßig eine Sicherungsdatei exportieren – z. B. auf einen USB-Stick.</p>';
+  h += '<button class="btn primary" onclick="exportJson()">Sicherung exportieren (JSON)</button> ';
+  h += '<label class="btn" style="display:inline-block;cursor:pointer">Sicherung importieren<input type="file" accept=".json,application/json" onchange="importJson(event)"></label></div>';
+  h += '<div class="card"><h2>Sonstiges</h2>';
+  h += '<button class="btn" onclick="demoDaten()">Beispieldaten hinzufügen</button> ';
+  h += '<button class="btn danger" onclick="allesLoeschen()">Alle Daten löschen</button></div>';
+  h += '<div class="card muted" style="font-size:12.5px">ImkerBuch · lokale Imkerverwaltung · eine einzelne HTML-Datei, läuft ohne Internet in jedem Browser. Tipp: Die Datei kann einfach kopiert werden – die Daten stecken aber im Browser, nicht in der Datei. Zum Umzug auf ein anderes Gerät die Sicherung (JSON) exportieren und dort importieren.</div>';
+  return h;
+}
+
+/* ---------- Export / Import / Demo ---------- */
+function exportJson(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "imkerbuch-sicherung-" + today() + ".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importJson(ev){
+  const file = ev.target.files[0];
+  if(!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try{
+      const s = JSON.parse(r.result);
+      if(!s || !Array.isArray(s.voelker)) throw new Error("Format");
+      if(!confirm("Sicherung importieren? Die aktuellen Daten werden ersetzt.")) return;
+      state = Object.assign(emptyState(), s);
+      save(); render();
+      alert("Import erfolgreich.");
+    }catch(e){ alert("Ungültige Sicherungsdatei."); }
+  };
+  r.readAsText(file);
+  ev.target.value = "";
+}
+function allesLoeschen(){
+  if(!confirm("Wirklich ALLE Daten löschen?")) return;
+  if(!confirm("Letzte Warnung – ohne Sicherung sind die Daten weg. Fortfahren?")) return;
+  state = emptyState();
+  save(); render();
+}
+function dOff(days){
+  const d = new Date(); d.setDate(d.getDate()-days);
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function demoDaten(){
+  if(state.voelker.length && !confirm("Beispieldaten zu den vorhandenen Daten hinzufügen?")) return;
+  const jahr = new Date().getFullYear();
+  const s1 = uid(), s2 = uid();
+  state.standorte.push({id:s1, name:"Hausgarten", adresse:"hinterm Haus", notiz:""});
+  state.standorte.push({id:s2, name:"Streuobstwiese", adresse:"am Feldweg Richtung Wald", notiz:"Wanderplatz Mai–Juli"});
+  const v1 = uid(), v2 = uid(), v3 = uid();
+  state.voelker.push({id:v1, name:"Volk 1", standortId:s1, art:"Wirtschaftsvolk", beute:"Zander", status:"aktiv", kJahr:jahr-1, kRasse:"Carnica", kGezeichnet:true, notiz:"sehr sanftmütig"});
+  state.voelker.push({id:v2, name:"Volk 2", standortId:s1, art:"Wirtschaftsvolk", beute:"Zander", status:"aktiv", kJahr:jahr, kRasse:"Buckfast", kGezeichnet:true, notiz:""});
+  state.voelker.push({id:v3, name:"Ableger 26-01", standortId:s2, art:"Ableger", beute:"Zander", status:"aktiv", kJahr:jahr, kRasse:"Carnica", kGezeichnet:false, notiz:"aus Volk 1 gebildet"});
+  state.durchsichten.push({id:uid(), volkId:v1, datum:dOff(3), wetter:"sonnig, 24 °C", staerke:"stark", sanftmut:"5", brutwaben:7, honigwaben:8, koeniginGesehen:true, stifte:true, weiselzellen:0, auffaelligkeiten:"", massnahmen:"Honigraum kontrolliert", notiz:""});
+  state.durchsichten.push({id:uid(), volkId:v2, datum:dOff(2), wetter:"bewölkt", staerke:"mittel", sanftmut:"3", brutwaben:5, honigwaben:6, koeniginGesehen:false, stifte:true, weiselzellen:2, auffaelligkeiten:"2 Weiselzellen", massnahmen:"Zellen gebrochen, in 7 Tagen nachschauen", notiz:""});
+  state.durchsichten.push({id:uid(), volkId:v3, datum:dOff(16), wetter:"", staerke:"schwach", sanftmut:"4", brutwaben:3, honigwaben:0, koeniginGesehen:true, stifte:true, weiselzellen:0, auffaelligkeiten:"", massnahmen:"gefüttert", notiz:"entwickelt sich gut"});
+  state.behandlungen.push({id:uid(), volkId:v1, datum:dOff(20), mittel:"Ameisensäure 60 %", dosierung:"Nassenheider Verdunster, 7 Tage", milbenfall:4, notiz:""});
+  state.fuetterungen.push({id:uid(), volkId:v3, datum:dOff(15), futterart:"Zuckerwasser 3:2", menge:5, notiz:""});
+  state.ernten.push({id:uid(), volkId:v1, datum:dOff(30), sorte:"Frühtracht", menge:18.5, wassergehalt:17.2, notiz:""});
+  state.ernten.push({id:uid(), volkId:v2, datum:dOff(30), sorte:"Frühtracht", menge:14, wassergehalt:17.8, notiz:""});
+  state.aufgaben.push({id:uid(), text:"Weiselzellen-Kontrolle Volk 2", faellig:dOff(-5), volkId:v2, erledigt:false});
+  state.aufgaben.push({id:uid(), text:"Futterteig bestellen", faellig:dOff(-10), volkId:"", erledigt:false});
+  state.aufgaben.push({id:uid(), text:"Honigräume abräumen", faellig:dOff(2), volkId:"", erledigt:false});
+  save(); render();
+}
+
+render();
+</script>
+</body>
+</html>

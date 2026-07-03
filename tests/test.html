@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ImkerBuch – Tests</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: #FAF6EF; color: #28251E; margin: 0; padding: 24px; }
+  h1 { font-size: 20px; } .sub { color: #8B8478; font-size: 13px; margin-bottom: 16px; }
+  #ergebnis { background: #fff; border: 1px solid #ECE4D4; border-radius: 12px; padding: 14px 18px; }
+  .t { padding: 5px 0; border-bottom: 1px solid #F3EDE0; font-size: 14px; }
+  .t.fail { color: #B3362B; font-weight: 600; white-space: pre-wrap; }
+  .t.pass { color: #3E6E28; }
+  #summary { font-size: 16px; font-weight: 700; margin: 14px 0; }
+  #summary.ok { color: #3E6E28; } #summary.bad { color: #B3362B; }
+  button { padding: 9px 16px; border-radius: 10px; border: 1px solid #E0D6C2; background: #E8A013; font-weight: 700; cursor: pointer; }
+  iframe { width: 1px; height: 1px; opacity: 0; position: absolute; }
+</style>
+</head>
+<body>
+<h1>🐝 ImkerBuch – Testsuite</h1>
+<div class="sub">Läuft gegen <code>../index.html?testdb</code> (eigene IndexedDB <code>imkerbuch-test</code> – echte Daten bleiben unberührt). Doku: <code>docs/TESTFAELLE.md</code></div>
+<button id="run">Tests ausführen</button>
+<div id="summary"></div>
+<div id="ergebnis"></div>
+<iframe id="app" title="App unter Test"></iframe>
+<script src="tests.js"></script>
+<script>
+'use strict';
+const logEl = document.getElementById('ergebnis');
+const sumEl = document.getElementById('summary');
+function zeile(text, cls) { const d = document.createElement('div'); d.className = 't ' + cls; d.textContent = text; logEl.appendChild(d); }
+
+async function run() {
+  window.testErgebnis = null;
+  logEl.innerHTML = ''; sumEl.textContent = 'Läuft …'; sumEl.className = '';
+  // 1) Test-DB zurücksetzen, damit jeder Lauf deterministisch startet
+  const frame = document.getElementById('app');
+  frame.src = 'about:blank';
+  await new Promise((res) => setTimeout(res, 50));
+  await new Promise((res) => { const rq = indexedDB.deleteDatabase('imkerbuch-test'); rq.onsuccess = rq.onerror = rq.onblocked = () => res(); });
+  // 2) App im Test-Modus laden und auf Bereitschaft warten
+  frame.src = '../index.html?testdb=1';
+  const bereit = await new Promise((res) => {
+    const t0 = Date.now();
+    const t = setInterval(() => {
+      try { if (frame.contentWindow && frame.contentWindow.appReady) { clearInterval(t); res(true); } } catch (e) {}
+      if (Date.now() - t0 > 15000) { clearInterval(t); res(false); }
+    }, 60);
+  });
+  if (!bereit) { sumEl.textContent = 'App wurde nicht bereit (appReady-Timeout)'; sumEl.className = 'bad'; return; }
+  const w = frame.contentWindow;
+  // 3) Testfälle sequenziell ausführen
+  let pass = 0, fail = 0;
+  for (const t of TESTS) {
+    try { await t.fn(w); zeile('✅ ' + t.name, 'pass'); pass++; }
+    catch (e) { zeile('❌ ' + t.name + '\n   → ' + e.message, 'fail'); fail++; console.error(t.name, e); }
+  }
+  sumEl.textContent = `${pass} von ${TESTS.length} Tests grün` + (fail ? ` – ${fail} FEHLGESCHLAGEN` : ' ✓');
+  sumEl.className = fail ? 'bad' : 'ok';
+  window.testErgebnis = { pass, fail, gesamt: TESTS.length };
+}
+document.getElementById('run').onclick = run;
+run();
+</script>
+</body>
+</html>
