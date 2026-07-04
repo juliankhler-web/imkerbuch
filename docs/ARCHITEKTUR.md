@@ -62,7 +62,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | `staende` | name, lat, lng, kmEntfernung (einfache Strecke fürs Fahrtenbuch), notizen |
 | `wetter` | standId, datum, tempC, windKmh, niederschlagMm, bemerkung, quelle (`manuell`/`open-meteo`) |
 | `voelker` | name, standId, koeniginId, beutentyp, beutenkennung, raehmchenmass, status (`aktiv`/`aufgeloest`/`vereinigt`), historie[{datum,text}], notizen |
-| `stockkarten` | volkId, datum, volksstaerke/brutbild/sanftmut (1–5), futter, weiselzellen, notiz |
+| `stockkarten` | volkId, datum, volksstaerke/brutbild/sanftmut (1–5), futter, weiselzellen, notiz, zusatz{} (eigene Felder aus Setting `stockkartenFelder`) |
 | `fuetterungen` | volkId, datum, futterart, mengeKg, winterfutter |
 | `gewichte` | volkId, datum, gewichtKg |
 | `varroa` (v4) | volkId, datum, methode, tageZaehl, milben, notiz – Milben/Tag = milben/tageZaehl; Ampel via `varroaAmpel()` gegen `VARROA_SCHWELLEN` (monatlich) |
@@ -71,8 +71,8 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | `behandlungen` | zielTyp/zielId (volk/stand), datum, mittel, menge, einheit, anwendungsart, wartezeitTage, notiz |
 | `trachten` | bezeichnung, pflanze, von, bis, region, standIds[] |
 | `wanderungen` | zielTyp/zielId, vonOrt, nachOrt, datum, rueckDatum, trachtId, notiz |
-| `ernten` | zielTyp/zielId, datum, sorte, mengeKg, trachtId, notiz |
-| `chargen` | losnummer, abfuelldatum, ernteIds[], glasGroesseG, anzahlGlaeser, bestandGlaeser, mhd, etikettNotiz |
+| `ernten` | zielTyp/zielId, datum, produktart (Honig/Wachs/Pollen/…), sorte, mengeKg, trachtId, notiz |
+| `chargen` | losnummer, abfuelldatum, ernteIds[], glasGroesseG, anzahlGlaeser, bestandGlaeser, mhd, etikettNotiz, verkaufspreis (Standardpreis fürs Marktverkauf) |
 | `verkaeufe` (v2) | datum, chargeId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId – geschrieben nur über `verkaufErfassen()`/`verkaufStornieren()` (Bestands- + Kassenbuch-Kopplung) |
 | `fahrten` (v3) | datum, standId, km, zweck, notiz – Fahrtenbuch; km vorbelegt aus `staende.kmEntfernung × 2`; Auswertung `Reporting.fahrtStatistik`, Pauschale `KM_PAUSCHALE` (0,30 €/km), PDF `Pdf.fahrtenbuch(jahr)` |
 | `kontakte` | typ (`kunde`/`lieferant`), name, strasse, plz, ort, email, telefon, notiz |

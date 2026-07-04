@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-04 · **v0.33 · Alle Module + Nachträge (…, Volk-QR, Varroa-Kontrolle, Sammel-Erfassung), 32/32 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-04 · **v0.34 · Alle Module + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -33,6 +33,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - Repo: https://github.com/juliankhler-web/imkerbuch (öffentlich; von Julian am 2026-07-03 bestätigt)
 - ⚠️ **Historie divergiert**: Der GitHub-Stand entstand per Web-Upload (eigener Commit), das lokale Repo hat seine eigene Historie. Alternative zu Web-Upload: einmalig Push-Auth einrichten (PAT/SSH) und `git push --force origin main`. Remote `origin` ist lokal bereits gesetzt.
 - iPhone-Installation: URL in Safari → Teilen → „Zum Home-Bildschirm“ + Schalter „Als Web-App öffnen“ AN (schützt vor Safaris 7-Tage-Datenlöschung).
+- ⚠️ **Wenn „pages build and deployment“ fehlschlägt** (Actions-Tab, roter Lauf, Meldung „Deployment failed, try again later.“): Das ist ein vorübergehender GitHub-Hänger, NICHT unser Code (der `build`-Schritt ist grün). Fix: Actions → fehlgeschlagenen Lauf → „Re-run failed jobs“. Bleibt er in „Queued“ hängen, hilft ein neuer, winziger Commit (triggert sauberes Deployment). Live-Version prüfen: `curl -sL https://juliankhler-web.github.io/imkerbuch/index.html | grep APP_VERSION`.
 
 ### Update aufspielen (Runbook, auch für Julian ohne Claude)
 
@@ -70,6 +71,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-07-04 (v0.34)**: „Zweite Welle“ aus der Wettbewerbsanalyse: (1) **Marktverkauf** (`Views.markt`, Route `#/markt`, Touch-Kassenmodus, Warenkorb, Wechselgeld, `chargen.verkaufspreis`, bucht über `verkaufErfassen`). (2) **MHD-Wächter** (`pruefeMhd()` bei Boot, Aufgabe `quelle='mhd'`, ≤ `MHD_WARN_TAGE`, dedupliziert). (3) **Eigene Stockkarten-Felder** (Setting `stockkartenFelder`, dynamische Formularfelder, `stockkarten.zusatz`). (4) **Bienenprodukte** (`ernten.produktart`, `BIENENPRODUKTE`). 33/33 grün.
+
 - **2026-07-04 (v0.33)**: Von BeeInTouch/iBeekeeper inspirierte Features: (1) **QR-Code je Volk** (`volkQrAnzeigen`/`qrEtikettDruck`, kodiert `#/volk/<id>` → Scan öffnet Stockkarte). (2) **Varroa-Kontrolle** (Store `varroa` DB v4, Milben/Tag, Verlauf, Ampel `varroaAmpel`/`VARROA_SCHWELLEN`). (3) **Sammel-Erfassung** (`sammelErfassung`/`sammelFormular`: Durchsicht/Fütterung/Varroa für mehrere Völker). Team-/Community-Features bewusst ausgelassen (Server nötig). 32/32 grün. Marktanalyse in dieser Sitzung: Einmalkauf ~19,99 € als USP vs. Abo-Konkurrenz; Play-Store via TWA (kein Umbau).
 
 - **2026-07-04 (v0.32)**: Dashboard-Kacheln klickbar (data-ziel + Delegation, Buttons/Links behalten Vorrang). Fahrtenbuch: `staende.kmEntfernung`, Store `fahrten` (DB v3), `fahrtForm` (km = 2×Entfernung vorbelegt), Reporting → Fahrten (km/Pauschale je Jahr + je Stand), `Pdf.fahrtenbuch(jahr)` als Steuer-Nachweis. 31/31 Tests grün.
@@ -82,4 +85,3 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **2026-07-03 (3)**: Git-Repository initialisiert (Branch `main`), Baseline-Commit `d3691f6` mit komplettem Stand.
 - **2026-07-03 (5)**: **Bug live am iPhone gefunden + behoben**: „PDF: Bibliothek konnte nicht geladen werden“ – Ursache war cdnjs (jsPDF 2.5.2 existiert dort nicht, 404). Fix: zentrale `CDN`-Konstante mit Multi-CDN-Fallback (jsdelivr→unpkg→cdnjs) für ALLE Bibliotheken, `loadScript` mit Ausweichkette, pdf.js-Worker vom Gewinner-CDN, `warmupBibliotheken()` lädt PDF/Excel/QR im Hintergrund vor (→ dauerhaft offline). Persist-Hinweis-Banner wird in installierten Apps (standalone) unterdrückt. 25/25 Tests grün.
 - **2026-07-03 (4)**: Erinnerungen gebaut (Julian-Wunsch „Pushnachricht bei Ereignis, z. B. Fütterung“): `Notif`-Modul (Systemmeldung via SW + App-Icon-Badge bei fälligen Aufgaben, 1×/Tag gedrosselt), Fütterungs-Wiedervorlage → Auto-Aufgabe, Kalender-Export (.ics mit Alarm) für Erinnerungen bei geschlossener App. Echte Server-Push bewusst NICHT gebaut (bräuchte Backend, widerspricht 100-%-lokal). 25/25 Tests grün.
- 

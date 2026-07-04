@@ -188,6 +188,17 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
 .dash-klick{cursor:pointer;transition:transform .12s ease}
 .dash-klick:hover .card,.dash-klick:hover .stat{border-color:var(--honey)}
 .dash-klick:active{transform:scale(.985)}
+/* Marktverkauf: große Touch-Kacheln + Warenkorb */
+.markt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.markt-tile{border:1.5px solid var(--line2);border-radius:16px;padding:16px 14px;text-align:left;background:var(--card);transition:transform .1s,border-color .15s;min-height:104px;display:flex;flex-direction:column;gap:4px}
+.markt-tile:hover{border-color:var(--honey)}
+.markt-tile:active{transform:scale(.96)}
+.markt-tile .mt-name{font-weight:700;font-size:15px}
+.markt-tile .mt-preis{font-size:20px;font-weight:800;color:var(--honey-deep);margin-top:auto}
+.markt-tile .mt-rest{font-size:12px;color:var(--muted)}
+.markt-tile[disabled]{opacity:.45;pointer-events:none}
+.markt-korb{position:sticky;bottom:calc(var(--nav-h) + 8px + env(safe-area-inset-bottom));background:var(--card);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px 16px;z-index:20}
+@media(min-width:901px){.markt-korb{bottom:16px}}
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .tbl th{position:sticky;top:0;background:var(--card2);text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -545,8 +556,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.33';
+const APP_VERSION = '0.34';
 const CHANGELOG = [
+  { version: '0.34', datum: '2026-07-04', punkte: [
+    'Marktverkauf: großer Kassen-Bildschirm für den Wochenmarkt (Honig → Verkäufe → Marktverkauf) – Gläser antippen, Wechselgeld-Rechner, ein Tipp bucht alles (Bestand runter + Kassenbuch)',
+    'MHD-Wächter: die App erinnert automatisch, wenn das Mindesthaltbarkeitsdatum einer Charge näher rückt oder überschritten ist',
+    'Eigene Stockkarten-Felder: in den Einstellungen zusätzliche Durchsicht-Felder anlegen (z. B. „Baurahmen“, „Drohnenbrut“) – erscheinen dann in jeder Durchsicht',
+    'Weitere Bienenprodukte: Ernte nicht nur für Honig, sondern auch Wachs, Pollen, Propolis, Met u. a. erfassen',
+  ] },
   { version: '0.33', datum: '2026-07-04', punkte: [
     'QR-Code je Volk: Etikett drucken, ans Beutendach kleben – Kamera scannen öffnet direkt die Stockkarte dieses Volks (Volk → QR-Code)',
     'Varroa-Kontrolle: Milbenfall zählen (Bodenschieber, Puderzucker, Auswaschen), Milben/Tag mit Verlaufsdiagramm und Ampel gegen saisonale Schwellenwerte (Volk → Varroa)',
@@ -632,6 +649,10 @@ const VORSCHLAEGE = {
   pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
   fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf'],
 };
+/* Bienenprodukte für die Ernte (Honig ist Standard) */
+const BIENENPRODUKTE = ['Honig', 'Wabenhonig', 'Wachs', 'Pollen', 'Propolis', 'Gelée Royale', 'Met', 'Bienengift', 'Ableger/Volk'];
+/* Ab wie vielen Tagen vor MHD die App warnt */
+const MHD_WARN_TAGE = 60;
 /* Kilometerpauschale (Reisekosten) fürs Fahrtenbuch */
 const KM_PAUSCHALE = 0.30;
 
@@ -737,6 +758,7 @@ const S = {
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
+    stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     dashboardWidgets: ['voelker', 'aufgaben', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
     darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null,
   },
@@ -2032,6 +2054,12 @@ Views.volk = {
     });
   },
   stockkarteForm(v, s) {
+    // Eigene Zusatzfelder aus den Einstellungen (key z0, z1, … , vorbelegt aus s.zusatz)
+    const felder = S.get('stockkartenFelder') || [];
+    const typMap = { text: 'text', zahl: 'number', check: 'check', rating: 'rating' };
+    const zusatzWerte = {};
+    felder.forEach((f, i) => { zusatzWerte['z' + i] = (s && s.zusatz) ? s.zusatz[f.name] : undefined; });
+    const zusatzFelder = felder.map((f, i) => ({ key: 'z' + i, label: f.name, type: typMap[f.typ] || 'text' }));
     UI.formModal({
       title: s ? 'Durchsicht bearbeiten' : 'Neue Durchsicht',
       fields: [
@@ -2041,10 +2069,16 @@ Views.volk = {
         { key: 'sanftmut', label: 'Sanftmut', type: 'rating' },
         { key: 'futter', label: 'Futter', placeholder: 'z. B. ausreichend, 2 volle Waben' },
         { key: 'weiselzellen', label: 'Weiselzellen vorhanden', type: 'check' },
+        ...zusatzFelder,
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
-      values: s || {},
-      async onSave(val) { await DB.put('stockkarten', Object.assign(s || { volkId: v.id }, val)); UI.toast('Durchsicht gespeichert'); renderRoute(); },
+      values: Object.assign({}, s || {}, zusatzWerte),
+      async onSave(val) {
+        const zusatz = {};
+        felder.forEach((f, i) => { zusatz[f.name] = val['z' + i]; delete val['z' + i]; });
+        val.zusatz = zusatz;
+        await DB.put('stockkarten', Object.assign(s || { volkId: v.id }, val)); UI.toast('Durchsicht gespeichert'); renderRoute();
+      },
       onDelete: papierkorbDelete('stockkarten', s, 'Durchsicht löschen?', 'Wandert in den Papierkorb (30 Tage).'),
     });
   },
@@ -2055,7 +2089,9 @@ Views.volk = {
       body: `<div class="detail-kv mb12">
           <dt>Volksstärke</dt><dd>${rate(s.volksstaerke)}</dd><dt>Brutbild</dt><dd>${rate(s.brutbild)}</dd>
           <dt>Sanftmut</dt><dd>${rate(s.sanftmut)}</dd><dt>Futter</dt><dd>${U.esc(s.futter) || '–'}</dd>
-          <dt>Weiselzellen</dt><dd>${s.weiselzellen ? 'ja ⚠️' : 'nein'}</dd><dt>Notiz</dt><dd data-notiz>${U.esc(s.notiz) || '–'}</dd>
+          <dt>Weiselzellen</dt><dd>${s.weiselzellen ? 'ja ⚠️' : 'nein'}</dd>
+          ${s.zusatz ? Object.entries(s.zusatz).filter(([, val]) => val !== '' && val !== null && val !== undefined).map(([k, val]) => `<dt>${U.esc(k)}</dt><dd>${val === true ? 'ja' : val === false ? 'nein' : U.esc(val)}</dd>`).join('') : ''}
+          <dt>Notiz</dt><dd data-notiz>${U.esc(s.notiz) || '–'}</dd>
         </div>
         <div data-anhang></div><div data-audio class="mt16"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
@@ -2605,8 +2641,8 @@ Views.honig = {
     const umsatzJahr = U.sum(list.filter((v) => (v.datum || '').startsWith(jahr)), (v) => v.betrag);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${jahr}: ${U.fmtEur(umsatzJahr)}</span>
-        <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Verkauf erfassen</button></div>
-      <p class="small muted mb12">Jeder Verkauf zieht die Gläser automatisch vom Chargen-Bestand ab und bucht die Einnahme im Kassenbuch. Stornieren macht beides rückgängig.</p>
+        <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
+      <p class="small muted mb12">Jeder Verkauf zieht die Gläser automatisch vom Chargen-Bestand ab und bucht die Einnahme im Kassenbuch. Für den Wochenmarkt gibt es den großen <b>Marktverkauf</b>-Kassenmodus. Stornieren macht beides rückgängig.</p>
       ${list.length ? `<div class="rows">` + list.map((v) => {
         const c = chargen.get(v.chargeId);
         return `<div class="row">
@@ -2641,7 +2677,7 @@ Views.honig = {
       ${list.length ? `<div class="rows">` + list.map((e) => `
         <button class="row" data-id="${e.id}">
           <span class="r-ic">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(e.sorte)}</span>
+          <span class="r-main"><span class="r-title">${U.esc(e.sorte)}${e.produktart && e.produktart !== 'Honig' ? ` <span class="badge b-violet">${U.esc(e.produktart)}</span>` : ''}</span>
           <span class="r-sub">${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(e))}“${e.trachtId ? ' · ' + U.esc(trachten.get(e.trachtId)?.bezeichnung || '') : ''}</span></span>
           <span class="r-side"><b>${U.fmtNum(e.mengeKg)} kg</b></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('honig', 'Noch keine Ernte erfasst. Aus Ernten entstehen später Chargen mit Losnummern.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Ernte</button>`)}
@@ -2654,7 +2690,8 @@ Views.honig = {
         fields: [
           ...ziel,
           { key: 'datum', label: 'Erntedatum', type: 'date', required: true, default: U.todayIso() },
-          { key: 'sorte', label: 'Sorte', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
+          { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: BIENENPRODUKTE.map((p) => ({ v: p, l: p })) },
+          { key: 'sorte', label: 'Sorte / Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
           { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
           { key: 'trachtId', label: 'Tracht', type: 'select', options: trachtenArr.map((t) => ({ v: t.id, l: t.bezeichnung })) },
           { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Wassergehalt' },
@@ -2662,7 +2699,7 @@ Views.honig = {
         values: zielFormValues(e),
         async onSave(v) {
           const zielId = zielIdAus(v);
-          await DB.put('ernten', Object.assign(e || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, sorte: v.sorte, mengeKg: v.mengeKg, trachtId: v.trachtId || null, notiz: v.notiz }));
+          await DB.put('ernten', Object.assign(e || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte, mengeKg: v.mengeKg, trachtId: v.trachtId || null, notiz: v.notiz }));
           UI.toast('Ernte gespeichert'); renderRoute();
         },
         onDelete: papierkorbDelete('ernten', e, 'Ernte löschen?', 'Wandert in den Papierkorb.'),
@@ -2703,7 +2740,8 @@ Views.honig = {
         { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte} · ${U.fmtNum(e.mengeKg)} kg` })) },
         { key: 'glasGroesseG', label: 'Glasgröße (g)', type: 'number', required: true, default: 500 },
         { key: 'anzahlGlaeser', label: 'Anzahl Gläser', type: 'number', required: true },
-        { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date' },
+        { key: 'verkaufspreis', label: 'Verkaufspreis je Glas (€)', type: 'number', hint: 'Optional – wird im Marktverkauf als Standardpreis vorgeschlagen.' },
+        { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date', hint: `Die App erinnert automatisch ${MHD_WARN_TAGE} Tage vor Ablauf.` },
         { key: 'etikettNotiz', label: 'Etikettendaten / Bezeichnung', type: 'textarea', placeholder: 'z. B. Rapshonig, cremig gerührt' },
       ],
       values: c || {},
@@ -2817,6 +2855,97 @@ Views.honig = {
       : emptyState('honig', 'Noch kein Bestand – lege zuerst eine Charge an.')}
       </div>`;
     box.addEventListener('click', (e) => { const b = e.target.closest('[data-verkauf]'); if (b) verkaufForm(b.dataset.verkauf); });
+  },
+};
+
+/* =====================================================================
+   MODUL: MARKTVERKAUF (großer Kassenmodus für den Wochenmarkt)
+   Warenkorb im Speicher; „Kassieren“ bucht jede Position über
+   verkaufErfassen (Bestand runter + Kassenbuch).
+   ===================================================================== */
+Views.markt = {
+  title: 'Marktverkauf',
+  _korb: {}, // chargeId -> anzahl
+  async render(main) {
+    const chargen = U.sortBy((await DB.getAll('chargen')).filter((c) => c.bestandGlaeser > 0), (c) => c.losnummer);
+    const ernten = await idMap('ernten');
+    const korb = Views.markt._korb;
+    // Positionen ohne Bestand/Charge aus dem Korb entfernen
+    for (const id of Object.keys(korb)) { const c = chargen.find((x) => x.id === id); if (!c || korb[id] > c.bestandGlaeser) delete korb[id]; }
+    const preis = (c) => Views.markt._preise?.[c.id] ?? c.verkaufspreis ?? 0;
+    const summe = Object.entries(korb).reduce((s, [id, n]) => { const c = chargen.find((x) => x.id === id); return s + (c ? n * preis(c) : 0); }, 0);
+    const anzahlKorb = Object.values(korb).reduce((a, b) => a + b, 0);
+    main.innerHTML = `
+      <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('honig')">${icon('back')} Zurück</button>
+      ${pageHead('Marktverkauf', 'Glas antippen legt es in den Warenkorb. „Kassieren“ bucht Bestand + Kassenbuch.')}
+      ${chargen.length ? `<div class="markt-grid mb16">${chargen.map((c) => {
+        const name = (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || c.etikettNotiz || 'Honig';
+        const imKorb = korb[c.id] || 0;
+        return `<button class="markt-tile" data-tile="${c.id}" ${imKorb >= c.bestandGlaeser ? 'disabled' : ''}>
+          <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
+          <span class="mt-rest">${U.fmtNum(c.glasGroesseG, 0)} g · Los ${U.esc(c.losnummer)} · ${c.bestandGlaeser - imKorb} übrig</span>
+          <span class="mt-preis">${preis(c) ? U.fmtEur(preis(c)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
+        </button>`;
+      }).join('')}</div>`
+      : emptyState('honig', 'Kein Bestand vorhanden. Lege zuerst eine Charge mit Gläsern an.')}
+      ${anzahlKorb ? `<div class="markt-korb">
+        <div class="flex-wrap mb8"><b style="flex:1">Warenkorb: ${anzahlKorb} ${anzahlKorb === 1 ? 'Glas' : 'Gläser'}</b><span style="font-size:22px;font-weight:800">${U.fmtEur(summe)}</span></div>
+        <div class="flex-wrap"><button class="btn btn-ghost btn-sm" id="wechsel">${icon('euro')} Wechselgeld</button><button class="btn btn-ghost btn-sm" id="leeren">Leeren</button><span class="spacer"></span><button class="btn btn-primary" id="kassieren">${icon('check')} Kassieren</button></div>
+      </div>` : ''}`;
+    main.addEventListener('click', async (e) => {
+      const tile = e.target.closest('[data-tile]');
+      if (tile) {
+        const c = chargen.find((x) => x.id === tile.dataset.tile);
+        if (!preis(c)) return Views.markt.preisSetzen(c);
+        korb[c.id] = (korb[c.id] || 0) + 1;
+        return renderRoute();
+      }
+      if (e.target.closest('#leeren')) { Views.markt._korb = {}; return renderRoute(); }
+      if (e.target.closest('#wechsel')) return Views.markt.wechselgeld(summe);
+      if (e.target.closest('#kassieren')) return Views.markt.kassieren(korb, chargen, preis, summe);
+    });
+  },
+  preisSetzen(c) {
+    UI.formModal({
+      title: 'Verkaufspreis je Glas',
+      fields: [{ key: 'preis', label: `Preis für Los ${c.losnummer} (${U.fmtNum(c.glasGroesseG, 0)} g)`, type: 'number', required: true, default: c.verkaufspreis || '' },
+        { key: 'merken', label: 'Als Standardpreis dieser Charge merken', type: 'check', default: true }],
+      saveText: 'Übernehmen',
+      async onSave(v) {
+        Views.markt._preise = Views.markt._preise || {};
+        Views.markt._preise[c.id] = v.preis;
+        if (v.merken) { c.verkaufspreis = v.preis; await DB.put('chargen', c); }
+        renderRoute();
+      },
+    });
+  },
+  wechselgeld(summe) {
+    const m = UI.modal({
+      title: 'Wechselgeld',
+      body: `<div class="detail-kv mb12"><dt>Zu zahlen</dt><dd><b>${U.fmtEur(summe)}</b></dd></div>
+        <div class="field"><label>Erhalten (€)</label><input class="inp" id="wg-geg" inputmode="decimal" placeholder="z. B. 20"></div>
+        <div id="wg-out" style="font-size:22px;font-weight:800;text-align:center;padding:8px"></div>`,
+      footer: `<button class="btn btn-primary" data-close3>Fertig</button>`,
+    });
+    $('[data-close3]', m.el).onclick = () => m.close(true);
+    $('#wg-geg', m.el).oninput = (e) => {
+      const geg = U.parseNum(e.target.value);
+      $('#wg-out', m.el).innerHTML = isNaN(geg) ? '' : geg < summe ? `<span style="color:var(--danger)">fehlen ${U.fmtEur(summe - geg)}</span>` : `Rückgeld: <span style="color:var(--ok)">${U.fmtEur(geg - summe)}</span>`;
+    };
+  },
+  async kassieren(korb, chargen, preis, summe) {
+    const posten = Object.entries(korb);
+    if (!posten.length) return;
+    if (!(await UI.confirm({ title: 'Verkauf kassieren?', text: `${posten.reduce((a, [, n]) => a + n, 0)} Gläser für ${U.fmtEur(summe)} – Bestand wird gemindert und im Kassenbuch gebucht.`, confirmText: 'Kassieren', danger: false }))) return;
+    let fehler = 0;
+    for (const [id, n] of posten) {
+      const c = chargen.find((x) => x.id === id);
+      try { await verkaufErfassen({ chargeId: id, anzahl: n, preisJeGlas: preis(c), notiz: 'Marktverkauf' }); }
+      catch (e) { fehler++; console.error(e); }
+    }
+    Views.markt._korb = {};
+    UI.toast(fehler ? `Gebucht – ${fehler} Position(en) übersprungen (Bestand?)` : `Kassiert: ${U.fmtEur(summe)}`, fehler ? 'err' : 'ok');
+    renderRoute();
   },
 };
 
@@ -3170,7 +3299,7 @@ Views.aufgaben = {
       else if (U.daysBetween(heute, a.faellig) <= 7) grp.woche.push(a);
       else grp.spaeter.push(a);
     }
-    const quelleBadge = (a) => a.quelle === 'zucht' ? '<span class="badge b-violet">Zucht</span>' : a.quelle === 'behandlung' ? '<span class="badge b-blue">Behandlung</span>' : a.quelle === 'fuetterung' ? '<span class="badge b-honey">Fütterung</span>' : '';
+    const quelleBadge = (a) => a.quelle === 'zucht' ? '<span class="badge b-violet">Zucht</span>' : a.quelle === 'behandlung' ? '<span class="badge b-blue">Behandlung</span>' : a.quelle === 'fuetterung' ? '<span class="badge b-honey">Fütterung</span>' : a.quelle === 'mhd' ? '<span class="badge b-warn">MHD</span>' : '';
     const rows = (items, cls) => items.map((a) => `
       <div class="row" style="min-height:50px">
         <label class="check-line no-print" style="padding:0"><input type="checkbox" data-check="${a.id}" ${a.erledigt ? 'checked' : ''}></label>
@@ -3794,6 +3923,25 @@ const Backup = {
     });
   },
 };
+/* =====================================================================
+   MHD-WÄCHTER: legt automatisch Aufgaben an, wenn das Mindesthaltbarkeits-
+   datum einer Charge mit Restbestand näher rückt oder überschritten ist.
+   ===================================================================== */
+async function pruefeMhd() {
+  const chargen = (await DB.getAll('chargen')).filter((c) => c.mhd && c.bestandGlaeser > 0);
+  const offeneMhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && !a.erledigt);
+  const heute = U.todayIso();
+  for (const c of chargen) {
+    const tage = U.daysBetween(heute, c.mhd);
+    if (tage > MHD_WARN_TAGE) continue; // noch weit weg
+    if (offeneMhdAufgaben.some((a) => a.refId === c.id)) continue; // schon erinnert
+    const titel = tage < 0
+      ? `MHD überschritten: Los ${c.losnummer} (${c.bestandGlaeser} Gläser)`
+      : `MHD läuft ab: Los ${c.losnummer} am ${U.fmtDate(c.mhd)} (${c.bestandGlaeser} Gläser)`;
+    await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
+  }
+}
+
 /* Änderungs-Flag für „seit letzter Sicherung“ */
 const _origPut = DB.put.bind(DB);
 DB.put = async function (store, obj, keepStamp) { if (store !== 'settings' && store !== 'snapshots') window._changedSinceBackup = true; return _origPut(store, obj, keepStamp); };
@@ -3915,7 +4063,7 @@ const Xlsx = {
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Rückwanderung: d(w.rueckDatum), 'Volk/Stand': ziel(w), Von: w.vonOrt, Nach: w.nachOrt, Tracht: trachten.get(w.trachtId)?.bezeichnung || '', Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
-      ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), 'Volk/Stand': ziel(e), Sorte: e.sorte, 'Menge (kg)': e.mengeKg, Tracht: trachten.get(e.trachtId)?.bezeichnung || '', Notiz: e.notiz })) },
+      ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte, 'Menge (kg)': e.mengeKg, Tracht: trachten.get(e.trachtId)?.bezeichnung || '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => (await DB.getAll('verkaeufe')).map((v) => ({ Datum: d(v.datum), Los: chargenM.get(v.chargeId)?.losnummer || '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz })) },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), 'Ziel (Stand)': staende.get(f.standId)?.name || '', Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
@@ -4483,6 +4631,12 @@ Views.einstellungen = {
         <div class="flex no-print"><input class="inp" id="taet-neu" placeholder="Neue Tätigkeit …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="taet-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
+      <div class="card"><div class="card-title">${icon('buch')}<h2>Eigene Stockkarten-Felder</h2></div>
+        <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
+        <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
+        <div class="flex-wrap no-print"><input class="inp" id="skf-name" placeholder="Feldname …" style="max-width:200px"><select class="inp" id="skf-typ" style="width:auto"><option value="check">Ja/Nein</option><option value="text">Text</option><option value="zahl">Zahl</option><option value="rating">Bewertung 1–5</option></select><button class="btn btn-ghost btn-sm" id="skf-add">${icon('plus')} Hinzufügen</button></div>
+      </div>
+
       <div class="card"><div class="card-title">${icon('trash')}<h2>Papierkorb</h2></div>
         <p class="small muted mb8">Gelöschte Einträge bleiben 30 Tage wiederherstellbar.</p>
         <button class="btn btn-ghost btn-sm" onclick="navTo('papierkorb')">${icon('trash')} Papierkorb öffnen</button>
@@ -4596,6 +4750,20 @@ Views.einstellungen = {
       if (!(await UI.confirm({ title: 'Tätigkeit entfernen?', text: `„${taetigkeiten[+b.dataset.taetdel]}“ wird aus der Auswahl entfernt (bestehende Zeiteinträge behalten den Namen).`, confirmText: 'Entfernen' }))) return;
       taetigkeiten.splice(+b.dataset.taetdel, 1); await S.set('taetigkeiten', taetigkeiten); renderRoute();
     });
+
+    /* Eigene Stockkarten-Felder */
+    const skFelder = S.get('stockkartenFelder') || [];
+    $('#skf-add').onclick = async () => {
+      const name = $('#skf-name').value.trim();
+      if (!name) return;
+      if (skFelder.some((f) => f.name === name)) return UI.toast('Feld existiert bereits', 'err');
+      skFelder.push({ name, typ: $('#skf-typ').value }); await S.set('stockkartenFelder', skFelder); renderRoute();
+    };
+    $('#skf-list').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-skfdel]'); if (!b) return;
+      if (!(await UI.confirm({ title: 'Feld entfernen?', text: `„${skFelder[+b.dataset.skfdel].name}“ wird aus dem Durchsicht-Formular entfernt (bereits erfasste Werte bleiben in den alten Durchsichten erhalten).`, confirmText: 'Entfernen' }))) return;
+      skFelder.splice(+b.dataset.skfdel, 1); await S.set('stockkartenFelder', skFelder); renderRoute();
+    });
   },
 };
 
@@ -4640,6 +4808,7 @@ async function boot() {
   Backup.requestPersist();
   Notif.init();
   warmupBibliotheken();
+  pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('service-worker.js').catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }
@@ -4660,6 +4829,7 @@ Object.assign(window, {
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
+  pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

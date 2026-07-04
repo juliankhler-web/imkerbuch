@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-04 · Automatisiert: **32 Testfälle, alle grün**
+> Stand: 2026-07-04 · Automatisiert: **33 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -50,11 +50,12 @@ Funktionsweise:
 | 25 | verkaufStornieren | Bestand wiederhergestellt, Buchung + Verkauf im Papierkorb |
 | 26 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, null-Kategorie → „Sonstiges“, sortiert |
 | 27 | UI.pie | SVG-Segmente, Prozentanteile, Gesamtsumme, leerer Zustand |
-| 28 | varroaAmpel | saisonale Schwellen (Juli/Januar), Grenzwert = grün |
-| 29 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
-| 30 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
-| 31 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
-| 32 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
+| 28 | pruefeMhd | warnt bei nahem/überschrittenem MHD, nicht bei fernem/leerem, keine Duplikate |
+| 29 | varroaAmpel | saisonale Schwellen (Juli/Januar), Grenzwert = grün |
+| 30 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
+| 31 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
+| 32 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
+| 33 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 
@@ -70,6 +71,7 @@ Nach größeren Umbauten einmal am echten Gerät durchgehen:
 - [ ] **Geolocation**: „Aktuellen Standort übernehmen“ am Stand, Kartenlinks stimmen
 - [ ] **PDFs**: Bestandsbuch, Rechnung (mit Logo + QR), Komplettausdruck – Layout, Umlaute, Seitenzahlen
 - [ ] **Druck**: Listenansicht drucken (Topbar-Button), QR-Etikettenbogen
+- [ ] **Marktverkauf** am Handy: Kacheln antippen, Preis setzen, Wechselgeld, Kassieren → Bestand + Kassenbuch stimmen
 - [ ] **Dark Mode** + Systemwechsel, Responsive: Bottom-Nav mobil / Sidebar Desktop
 - [ ] **Erinnerungen** (als installierte Home-Screen-App): Schalter aktivieren → iOS fragt Berechtigung; Probe-Benachrichtigung erscheint; Badge-Zähler am Icon bei fälliger Aufgabe; .ics-Export in Apple Kalender importieren → Alarm 08:00 am Fälligkeitstag
 

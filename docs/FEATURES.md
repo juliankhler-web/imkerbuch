@@ -47,6 +47,12 @@
 14. ✅ **Reporting**: Völkerentwicklung (aktive Völker je Jahresende), Honigertrag je Volk/Stand/Tracht/Jahr (umschaltbar), Behandlungsübersicht, Einnahmen/Ausgaben – jeweils Diagramm + Tabelle + PDF-Export
 15. ✅ **Aufgaben/Kalender**: Fälligkeiten mit Gruppen (überfällig/heute/Woche/später/erledigt), Monatskalender mit Aufgaben-Punkten, Auto-Aufgaben aus Zuchtserien, Behandlungs-Wartezeiten und Fütterungs-Wiedervorlagen
 
+## v0.34: Marktverkauf, MHD-Wächter, eigene Felder, Bienenprodukte (Nachtrag 2026-07-04, „zweite Welle“ aus der Wettbewerbsanalyse)
+- ✅ **Marktverkauf** (Honig → Verkäufe → Marktverkauf, Route `#/markt`): großer Touch-Kassenmodus, Charge-Kacheln antippen → Warenkorb, Standardpreis je Charge (`verkaufspreis`), Wechselgeld-Rechner, „Kassieren“ bucht jede Position über `verkaufErfassen` (Bestand + Kassenbuch)
+- ✅ **MHD-Wächter** (`pruefeMhd()` beim Start): legt automatisch eine Aufgabe an, wenn eine Charge mit Restbestand ihr MHD in ≤ `MHD_WARN_TAGE` (60) erreicht oder überschritten hat; keine Duplikate; „MHD“-Badge in der Aufgabenliste
+- ✅ **Eigene Stockkarten-Felder** (Einstellungen): zusätzliche Durchsicht-Felder (Text/Zahl/Ja-Nein/Bewertung), erscheinen dynamisch im Durchsicht-Formular und im Detail; gespeichert in `stockkarten.zusatz`
+- ✅ **Weitere Bienenprodukte**: Ernte-Feld `produktart` (Honig/Wabenhonig/Wachs/Pollen/Propolis/Gelée Royale/Met/…), Badge in der Ernteliste, Spalte im Excel-Export
+
 ## v0.33: Volk-QR, Varroa-Kontrolle & Sammel-Erfassung (Nachtrag 2026-07-04, von BeeInTouch/iBeekeeper inspiriert)
 - ✅ **QR-Code je Volk** (Volk → QR-Code): kodiert den Direktlink `…#/volk/<id>`, druckbarer Etikettenbogen (`qrEtikettDruck`) fürs Beutendach – Kamera-Scan öffnet die Stockkarte des Volks
 - ✅ **Varroa-Kontrolle** (Volk → Tab „Varroa“): Zählung mit Methode (Bodenschieber/Puderzucker/Auswaschen/Gemüll) + Zähltage → Milben/Tag, Verlaufsdiagramm, **Ampel gegen saisonale Schwellen** (`VARROA_SCHWELLEN`, natürlicher Totenfall, ohne Gewähr); eigener Store `varroa` (DB v4), in Excel/Backup/Komplett-PDF

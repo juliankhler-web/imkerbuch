@@ -284,6 +284,23 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- MHD-Wächter ---------- */
+test('pruefeMhd: warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate', async (w) => {
+  const heute = new Date(w.U.todayIso() + 'T12:00:00');
+  const inTagen = (n) => { const d = new Date(heute); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const nah = await w.DB.put('chargen', { losnummer: 'MHD-nah', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 5, mhd: inTagen(30) });
+  const fern = await w.DB.put('chargen', { losnummer: 'MHD-fern', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 5, mhd: inTagen(400) });
+  const leer = await w.DB.put('chargen', { losnummer: 'MHD-leer', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 0, mhd: inTagen(10) });
+  await w.pruefeMhd();
+  const tasks1 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd');
+  assert(tasks1.some((a) => a.refId === nah.id), 'nahes MHD → Aufgabe');
+  assert(!tasks1.some((a) => a.refId === fern.id), 'fernes MHD → keine Aufgabe');
+  assert(!tasks1.some((a) => a.refId === leer.id), 'Charge ohne Bestand → keine Aufgabe');
+  await w.pruefeMhd(); // erneut
+  const tasks2 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && a.refId === nah.id);
+  assertEq(tasks2.length, 1, 'kein Duplikat bei erneutem Lauf');
+});
+
 /* ---------- Varroa-Ampel ---------- */
 test('varroaAmpel: saisonale Schwellen (Juli streng, Januar sehr streng)', (w) => {
   // Juli: gruen<=5, gelb<=10
