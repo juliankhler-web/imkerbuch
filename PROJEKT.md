@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-04 · **v0.34 · Alle Module + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-04 · **v0.36 · Alle Module + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -70,6 +70,10 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-07-04 (v0.35/0.36)**: **Hochformat-Design-Audit** (paralleler Multi-Agent-Code-Audit über Workflow, 6 Kategorien + adversariale Verifikation, danach Live-Prüfung aller Routen hell+dunkel). Grundursachen: `.grid2/.grid3>*{min-width:0}` (Kalender/Dashboard sprengten Viewport), `.btn{white-space:normal;max-width:100%}`. Clipping ergänzt: `.row .r-title/.r-sub` (v0.35), `.stat .s-value`, `.markt-tile .mt-name/.mt-rest`; Volk-Historie bricht um; `.page-head .ph-text` min-width→0; Pie-Legende; `.sheet-grid` 4→3 Spalten <390px; Banner-Text fließt als `.b-msg` statt zerrissen. Kein horizontaler Seiten-Scroll mehr auf 19 Routen. 33/33 grün.
+
+- **2026-07-04 (v0.35)**: **UI-Bugfix Hochformat**: `.row .r-title`/`.r-sub` waren `display:inline` → `text-overflow:ellipsis` griff nicht, langer Untertext lief über den Kartenrand. Fix: `display:block` (schneidet jetzt sauber ab); `.card-title` bekommt `flex-wrap:wrap` (Kopf bricht bei Enge um). 33/33 grün.
 
 - **2026-07-04 (v0.34)**: „Zweite Welle“ aus der Wettbewerbsanalyse: (1) **Marktverkauf** (`Views.markt`, Route `#/markt`, Touch-Kassenmodus, Warenkorb, Wechselgeld, `chargen.verkaufspreis`, bucht über `verkaufErfassen`). (2) **MHD-Wächter** (`pruefeMhd()` bei Boot, Aufgabe `quelle='mhd'`, ≤ `MHD_WARN_TAGE`, dedupliziert). (3) **Eigene Stockkarten-Felder** (Setting `stockkartenFelder`, dynamische Formularfelder, `stockkarten.zusatz`). (4) **Bienenprodukte** (`ernten.produktart`, `BIENENPRODUKTE`). 33/33 grün.
 

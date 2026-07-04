@@ -47,6 +47,13 @@
 14. ✅ **Reporting**: Völkerentwicklung (aktive Völker je Jahresende), Honigertrag je Volk/Stand/Tracht/Jahr (umschaltbar), Behandlungsübersicht, Einnahmen/Ausgaben – jeweils Diagramm + Tabelle + PDF-Export
 15. ✅ **Aufgaben/Kalender**: Fälligkeiten mit Gruppen (überfällig/heute/Woche/später/erledigt), Monatskalender mit Aufgaben-Punkten, Auto-Aufgaben aus Zuchtserien, Behandlungs-Wartezeiten und Fütterungs-Wiedervorlagen
 
+## v0.35–0.36: Hochformat-Feinschliff (Design-Audit 2026-07-04)
+- ✅ Grundursachen behoben: `.grid2/.grid3 > * { min-width:0 }` (Kalender/Dashboard sprengten sonst den Viewport → Seiten-Scroll), `.btn { white-space:normal; max-width:100% }` (lange Buttons brechen um statt zu überlaufen)
+- ✅ Text-Clipping ergänzt (inline → block+ellipsis wirkt erst dann): `.row .r-title/.r-sub` (v0.35), `.stat .s-value`, `.markt-tile .mt-name/.mt-rest`; Volk-Historie bricht sauber um
+- ✅ Enge behoben: `.page-head .ph-text` min-width 200→0 (Köpfe mit vielen Buttons), Pie-Legende min-width, `.sheet-grid` 4→3 Spalten unter 390px
+- ✅ Banner-Text fließt als ein Block (`.b-msg`) statt in einzeln umbrechende Häppchen (durch `<b>`/`<a>` im Flex-Banner)
+- Methode: paralleler Multi-Agent-Code-Audit (6 Kategorien) + adversariale Verifikation, danach Live-Prüfung aller Routen in Hell + Dunkel (kein horizontaler Seiten-Scroll mehr)
+
 ## v0.34: Marktverkauf, MHD-Wächter, eigene Felder, Bienenprodukte (Nachtrag 2026-07-04, „zweite Welle“ aus der Wettbewerbsanalyse)
 - ✅ **Marktverkauf** (Honig → Verkäufe → Marktverkauf, Route `#/markt`): großer Touch-Kassenmodus, Charge-Kacheln antippen → Warenkorb, Standardpreis je Charge (`verkaufspreis`), Wechselgeld-Rechner, „Kassieren“ bucht jede Position über `verkaufErfassen` (Bestand + Kassenbuch)
 - ✅ **MHD-Wächter** (`pruefeMhd()` beim Start): legt automatisch eine Aufgabe an, wenn eine Charge mit Restbestand ihr MHD in ≤ `MHD_WARN_TAGE` (60) erreicht oder überschritten hat; keine Duplikate; „MHD“-Badge in der Aufgabenliste
