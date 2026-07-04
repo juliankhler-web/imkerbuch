@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-03 · **Erst-Aufbau abgeschlossen, alle Module gebaut, 25/25 Tests grün**
+> Stand: 2026-07-04 · **v0.32 · Alle Module + Nachträge (Verkauf, Zeiterfassung, Vorschläge, Fahrtenbuch, klickbare Kacheln, Versionssystem), 31/31 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -14,6 +14,7 @@
 | [docs/TESTFAELLE.md](docs/TESTFAELLE.md) | Testsetup (tests/test.html gegen `?testdb`-Instanz), 20 automatisierte Testfälle, manuelle Smoke-Checkliste |
 
 **Regeln für die Pflege:**
+- **Bei JEDEM Update: `APP_VERSION` in index.html hochzählen (0.31 → 0.32 → …) und oben in `CHANGELOG` einen nutzerverständlichen Eintrag ergänzen** – die App zeigt daraus nach dem Update einmalig das „Was ist neu?“-Fenster (Julian-Wunsch 2026-07-04).
 - Neues Feature ⇒ Eintrag/Status in FEATURES.md, bei Architekturänderung ARCHITEKTUR.md nachziehen.
 - Neue Fachlogik ⇒ Testfall in `tests/tests.js` im selben Schritt; Suite vor jedem „fertig“ laufen lassen.
 - Bewusst zurückgestellte/anders gelöste Anforderungen ⇒ unten unter „Abweichungen“ UND am Feature in FEATURES.md vermerken.
@@ -30,8 +31,18 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 - **App-URL: https://juliankhler-web.github.io/imkerbuch/** (GitHub Pages, Branch `main`, root)
 - Repo: https://github.com/juliankhler-web/imkerbuch (öffentlich; von Julian am 2026-07-03 bestätigt)
-- ⚠️ **Historie divergiert**: Der GitHub-Stand entstand per Web-Upload (eigener Commit), das lokale Repo hat seine eigene Historie. Für Updates entweder (a) geänderte Dateien erneut per Web-Upload ins Repo ziehen oder (b) einmalig Push-Auth einrichten (PAT/SSH) und dann `git push --force origin main` zum Angleichen. Remote `origin` ist lokal bereits gesetzt.
-- iPhone-Installation: URL in Safari → Teilen → „Zum Home-Bildschirm“ (wichtig: schützt vor Safaris 7-Tage-Datenlöschung).
+- ⚠️ **Historie divergiert**: Der GitHub-Stand entstand per Web-Upload (eigener Commit), das lokale Repo hat seine eigene Historie. Alternative zu Web-Upload: einmalig Push-Auth einrichten (PAT/SSH) und `git push --force origin main`. Remote `origin` ist lokal bereits gesetzt.
+- iPhone-Installation: URL in Safari → Teilen → „Zum Home-Bildschirm“ + Schalter „Als Web-App öffnen“ AN (schützt vor Safaris 7-Tage-Datenlöschung).
+
+### Update aufspielen (Runbook, auch für Julian ohne Claude)
+
+1. github.com/juliankhler-web/imkerbuch öffnen (eingeloggt) → **Add file → Upload files**
+2. Im Finder **in den Ordner `ImkerApp` hinein**, `Cmd+A`, alles auf die Seite ziehen (Ordner-**Inhalt** ziehen, nicht den Ordner – sonst landet alles unter `ImkerApp/`)
+3. Kurze Commit-Nachricht eintragen → **Commit changes**
+4. 1–2 Minuten warten – GitHub Pages baut automatisch neu
+5. Am Handy: App komplett schließen und **zweimal öffnen** (1. Start lädt das Update im Hintergrund, 2. Start zeigt es)
+
+**Wichtig:** Es werden nur **Code-Dateien** hochgeladen – die Imkerei-DATEN (Völker, Kassenbuch, Fotos) liegen ausschließlich in der IndexedDB des jeweiligen Geräts, werden von Updates NICHT berührt und landen niemals auf GitHub. Datenverlust nur bei: App vom Home-Bildschirm löschen oder Website-Daten manuell löschen → dagegen schützt die Backup-Routine („Sicherung senden“).
 
 ## Status-Kurzfassung
 
@@ -58,6 +69,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-07-04 (v0.32)**: Dashboard-Kacheln klickbar (data-ziel + Delegation, Buttons/Links behalten Vorrang). Fahrtenbuch: `staende.kmEntfernung`, Store `fahrten` (DB v3), `fahrtForm` (km = 2×Entfernung vorbelegt), Reporting → Fahrten (km/Pauschale je Jahr + je Stand), `Pdf.fahrtenbuch(jahr)` als Steuer-Nachweis. 31/31 Tests grün.
+- **2026-07-04 (v0.31)**: Versionssystem: `APP_VERSION` + `CHANGELOG` + einmaliges „Was ist neu?“-Fenster nach Updates (Regel: bei jedem Update fortschreiben!).
+
+- **2026-07-04**: Julians Ausbau-Wünsche gebaut: (1) **Verkäufe mit Lagerlogik** – neuer Store `verkaeufe` (DB v2), `verkaufErfassen()` prüft Bestand → mindert Charge → bucht Kassenbuch-Einnahme, Storno kehrt um; Honig-Tab „Verkäufe“ + Buttons an Bestand/Charge. (2) **Zeiterfassung** – Schnell-Dialog beim Aufgaben-Abhaken (Dauer + Tätigkeit), Felder im Formular, „Zeit nachtragen“. (3) **Neuer Reiter „Zeiterfassung“** mit Donut-Tortendiagramm (`UI.pie`), Jahres-Filter, Tätigkeiten in Einstellungen pflegbar. (4) **Vorschlags-Dropdowns** (`suggest`-Feldtyp, `VORSCHLAEGE` + lernende `gelernteWerte()`) für Rasse, Beutentyp, Futterart, Mittel, Sorte u. a. 29/29 Tests grün.
 
 - **2026-07-03**: Erst-Aufbau komplett (alle Module + PWA + Backup + PDFs + Tests). Alter localStorage-Prototyp als `alt-prototyp-2026-07-03.html` archiviert. Docs-as-Code-Struktur (`docs/`, `tests/`) eingeführt, DRY-Refactoring, QR-CDN-Fix.
 - **2026-07-03 (2)**: Gründlicher Rest-Durchlauf aller Ansichten/Flows. **Bug gefunden + gefixt**: View-Klick-Listener akkumulierten am persistenten `#main` (Klick auf Zuchtserie öffnete „Neue Tracht“) → `renderRoute` ersetzt `#main` jetzt pro Render durch listenerfreien Klon; Regressionstest #22. Neue Tests für `PdfImport.parse`. 23/23 grün.

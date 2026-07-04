@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-03 · Automatisiert: **25 Testfälle, alle grün**
+> Stand: 2026-07-04 · Automatisiert: **31 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -46,8 +46,14 @@ Funktionsweise:
 | 21 | Notif.icsFuerAufgaben | gültiges VCALENDAR, nur offene mit Datum, Alarm, Escaping, stabile UID |
 | 22 | PdfImport.parse: Erkennung | Behandlung/Ernte aus Datum + Stichwort, TT.MM.JJ(JJ) → ISO |
 | 23 | PdfImport.parse: Dedup | gleiches Datum + Stichwort nur einmal |
-| 24 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
-| 25 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
+| 24 | verkaufErfassen | Bestand 10→7, Einnahme im Kassenbuch, Überverkauf abgelehnt ohne Nebenwirkung |
+| 25 | verkaufStornieren | Bestand wiederhergestellt, Buchung + Verkauf im Papierkorb |
+| 26 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, null-Kategorie → „Sonstiges“, sortiert |
+| 27 | UI.pie | SVG-Segmente, Prozentanteile, Gesamtsumme, leerer Zustand |
+| 28 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
+| 29 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
+| 30 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
+| 31 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

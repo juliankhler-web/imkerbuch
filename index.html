@@ -185,6 +185,9 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
 .stat .s-label svg{width:14px;height:14px;color:var(--honey-dark)}
 .stat .s-value{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-top:2px}
 .stat .s-sub{font-size:12px;color:var(--muted)}
+.dash-klick{cursor:pointer;transition:transform .12s ease}
+.dash-klick:hover .card,.dash-klick:hover .stat{border-color:var(--honey)}
+.dash-klick:active{transform:scale(.985)}
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .tbl th{position:sticky;top:0;background:var(--card2);text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -380,6 +383,7 @@ const ICONS = {
   meldung:'<rect x="5" y="4.8" width="14" height="16" rx="2"/><path d="M9.5 4.8V3h5v1.8ZM9 10h6M9 13.5h6M9 17h4"/>',
   chart:'<path d="M4 4.5v15h16"/><path d="M8.5 15.5v-4.5M13 15.5V7.5M17.5 15.5v-2.5"/>',
   task:'<circle cx="12" cy="12" r="8.6"/><path d="m8.4 12.4 2.5 2.5 4.9-5.4"/>',
+  uhr:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2.2"/>',
   kalender:'<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M4 10.5h16M8.5 3.5v4M15.5 3.5v4"/>',
   gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/>',
   trash:'<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 13.5h9.2L17.5 7M10 11v6M14 11v6"/>',
@@ -533,6 +537,56 @@ const CDN = {
   ],
 };
 
+/* =====================================================================
+   VERSION & ÄNDERUNGSPROTOKOLL
+   Bei JEDEM Update Pflicht: APP_VERSION hochzählen (0.31 → 0.32 → …)
+   und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
+   zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
+   ===================================================================== */
+const APP_VERSION = '0.32';
+const CHANGELOG = [
+  { version: '0.32', datum: '2026-07-04', punkte: [
+    'Dashboard-Kacheln sind jetzt klickbar: Tipp auf „Völker“, „Aufgaben“ & Co. springt direkt in den passenden Bereich',
+    'Fahrtenbuch für die Steuer: je Stand die Entfernung von zu Hause hinterlegen, Fahrten mit einem Tipp erfassen (km vorbelegt)',
+    'Kilometer-Übersicht unter Reporting → Fahrten: Summen je Jahr und je Stand, inkl. Pauschalen-Rechnung und Fahrtenbuch als PDF',
+  ] },
+  { version: '0.31', datum: '2026-07-04', punkte: [
+    'Verkäufe mit Lagerlogik: „Verkauf erfassen“ zieht die Gläser automatisch vom Chargen-Bestand ab und bucht die Einnahme im Kassenbuch (Honig → Verkäufe, inkl. Stornieren)',
+    'Zeiterfassung: beim Abhaken einer Aufgabe fragt die App kurz Dauer und Tätigkeit ab – Zeiten lassen sich auch nachtragen',
+    'Neuer Bereich „Zeiterfassung“ mit Tortendiagramm: wie viele Stunden stecken in welcher Tätigkeit, nach Jahren filterbar',
+    'Eingabehilfen: Vorschlagslisten bei Rasse, Beutentyp, Futterart, Behandlungsmittel, Honig-Sorte u. v. m. – eigene Einträge werden mitgelernt',
+    'Zuverlässigere PDF-/Excel-/QR-Erzeugung: mehrere Ausweichquellen für Bibliotheken und Vorladen im Hintergrund für die Offline-Nutzung',
+  ] },
+  { version: '0.30', datum: '2026-07-03', punkte: [
+    'Erst-Release: 15 Module von Bienenständen über Stockkarte, Behandlungen und Honigverwaltung bis Kassenbuch, Rechnungen und Reporting',
+    'Backup-System: Sicherung senden, Zusammenführen über Geräte hinweg, interne Snapshots, automatische Sicherung, Erinnerungs-Banner',
+    'Erinnerungen bei fälligen Aufgaben + Kalender-Export (.ics)',
+    'PDF-Dokumente, Excel-Export, OCR, Sprachnotizen, offline nutzbar als installierbare App',
+  ] },
+];
+/** Änderungsfenster anzeigen (eintraege = Changelog-Auszug) */
+function changelogModal(eintraege) {
+  const m = UI.modal({
+    title: '🐝 Was ist neu?',
+    body: eintraege.map((c) => `
+      <h3 class="mb8">Version ${U.esc(c.version)} <span class="muted small" style="font-weight:400">· ${U.fmtDate(c.datum)}</span></h3>
+      <ul style="padding-left:20px;margin-bottom:16px">${c.punkte.map((p) => `<li class="small" style="margin-bottom:7px">${U.esc(p)}</li>`).join('')}</ul>`).join(''),
+    footer: `<button class="btn btn-primary" data-ok>Alles klar</button>`,
+  });
+  $('[data-ok]', m.el).onclick = () => m.close(true);
+}
+/** Nach einem Update einmalig die Neuigkeiten seit der zuletzt gesehenen Version zeigen */
+async function zeigeUpdateFenster() {
+  if (TEST_MODE || !S.get('wizardDone')) return;
+  const gesehen = S.get('letzteGeseheneVersion');
+  if (gesehen === APP_VERSION) return;
+  const idx = gesehen ? CHANGELOG.findIndex((c) => c.version === gesehen) : -1;
+  // unbekannte/keine gesehene Version (Installation vor Einführung der Versionierung) → alles zeigen
+  const neue = idx >= 0 ? CHANGELOG.slice(0, idx) : CHANGELOG;
+  await S.set('letzteGeseheneVersion', APP_VERSION);
+  if (neue.length) changelogModal(neue);
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -557,12 +611,35 @@ const KASSEN_KATEGORIEN = {
 };
 const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
 
+/* Sinnvolle Vorschlagslisten für Eingabefelder (Typ 'suggest'):
+   vorausgewählt per Dropdown, eigenes Eintippen bleibt immer möglich. */
+const VORSCHLAEGE = {
+  rasse: ['Carnica', 'Buckfast', 'Ligustica (Italiener)', 'Mellifera (Dunkle Biene)', 'Elgon', 'Landbiene/Mix'],
+  herkunft: ['Eigene Nachzucht', 'Belegstelle', 'Standbegattung', 'Künstliche Besamung', 'Zukauf Züchter', 'Schwarm'],
+  beutentyp: ['Zander', 'Deutsch Normalmaß (DNM)', 'Dadant US', 'Dadant Blatt', 'Langstroth', 'Segeberger', 'Warré', 'Top-Bar-Hive', 'Mini-Plus'],
+  raehmchenmass: ['Zander', 'Zander 1,5', 'DNM', 'DNM 1,5', 'Dadant US', 'Dadant Blatt', 'Langstroth', 'Halbzarge/Flachzarge', 'Mini-Plus'],
+  futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. ApiInvert)', 'Futterteig', 'Eigener Honig'],
+  mittel: ['Ameisensäure 60 % ad us. vet.', 'Ameisensäure 85 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
+  anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
+  sorte: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume'],
+  pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
+  fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf'],
+};
+/* Kilometerpauschale (Reisekosten) fürs Fahrtenbuch */
+const KM_PAUSCHALE = 0.30;
+/** Vorschläge + bereits selbst verwendete Werte eines Feldes kombinieren */
+async function gelernteWerte(presets, store, feld) {
+  const eigene = new Set();
+  for (const r of await DB.getAll(store)) { const w = (r[feld] || '').trim(); if (w) eigene.add(w); }
+  return [...presets, ...[...eigene].filter((w) => !presets.includes(w)).sort()];
+}
+
 /* =====================================================================
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 1, _db: null,
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 3, _db: null, // v2: + verkaeufe · v3: + fahrten
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -635,8 +712,9 @@ const S = {
     rechnungskreis: { prefix: 'RE-', next: 1 },
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
+    taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     dashboardWidgets: ['voelker', 'aufgaben', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
-    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null,
+    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
@@ -726,6 +804,11 @@ const UI = {
         return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div></div>`;
       } else if (f.type === 'static') {
         return `<div class="field" data-field="${f.key}">${f.html}</div>`;
+      } else if (f.type === 'suggest') {
+        // Eingabefeld mit Vorschlagsliste (datalist): Vorauswahl per Dropdown, freies Eintippen möglich
+        const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
+        inner = `<input class="inp" id="${fid(f.key)}" list="${fid(f.key)}-dl" placeholder="${U.esc(f.placeholder || 'auswählen oder eintippen …')}" value="${U.esc(v)}" autocomplete="off">
+          <datalist id="${fid(f.key)}-dl">${opts.map((o) => `<option value="${U.esc(o)}"></option>`).join('')}</datalist>`;
       } else if (f.type === 'number') {
         inner = `<input class="inp" id="${fid(f.key)}" inputmode="decimal" placeholder="${U.esc(f.placeholder || 'z. B. 12,5')}" value="${v === '' ? '' : U.esc(String(v).replace('.', ','))}">`;
       } else {
@@ -837,6 +920,30 @@ const UI = {
     const legend = series.length > 1 ? `<div class="legend">${series.map((s, si) => `<span><i style="background:${s.color || defaultColors[si % defaultColors.length]}"></i>${U.esc(s.name || '')}</span>`).join('')}</div>` : '';
     return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>${legend}</div>`;
   },
+
+  /** Tortendiagramm (Donut) mit Legende: posten = [{label, wert}], einheit z. B. 'h' */
+  pie({ posten, einheit = '', fmt = (n) => U.fmtNum(n, 1) }) {
+    const daten = posten.filter((p) => p.wert > 0);
+    const gesamt = U.sum(daten, (p) => p.wert);
+    if (!gesamt) return `<div class="empty small">Noch keine Daten für ein Diagramm.</div>`;
+    const FARBEN = ['#E8A013', '#4C8A2E', '#2D6FB3', '#B3362B', '#7A5CC7', '#C77F00', '#3AA6A6', '#8A6D3B', '#D2649A', '#6B6B75', '#94A537'];
+    const R = 70, C = 2 * Math.PI * R;
+    let offset = 0, kreise = '';
+    daten.forEach((p, i) => {
+      const anteil = p.wert / gesamt;
+      kreise += `<circle r="${R}" cx="100" cy="100" fill="none" stroke="${FARBEN[i % FARBEN.length]}" stroke-width="44"
+        stroke-dasharray="${(anteil * C).toFixed(2)} ${C.toFixed(2)}" stroke-dashoffset="${(-offset * C).toFixed(2)}"
+        transform="rotate(-90 100 100)"><title>${U.esc(p.label)}: ${fmt(p.wert)} ${einheit} (${Math.round(anteil * 100)} %)</title></circle>`;
+      offset += anteil;
+    });
+    const legende = daten.map((p, i) => `<span><i style="background:${FARBEN[i % FARBEN.length]}"></i>${U.esc(p.label)}: <b>${fmt(p.wert)} ${einheit}</b> (${Math.round((p.wert / gesamt) * 100)} %)</span>`).join('');
+    return `<div class="flex-wrap" style="align-items:flex-start;gap:20px">
+      <div class="chart-box" style="max-width:230px;flex:0 0 auto"><svg viewBox="0 0 200 200">${kreise}
+        <text x="100" y="94" text-anchor="middle" style="font-size:26px;font-weight:800;fill:currentColor">${fmt(gesamt)}</text>
+        <text x="100" y="116" text-anchor="middle" class="axis" style="font-size:12px">${U.esc(einheit)} gesamt</text></svg></div>
+      <div class="legend" style="flex-direction:column;align-items:flex-start;display:flex;gap:8px;flex:1;min-width:200px">${legende}</div>
+    </div>`;
+  },
 };
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-9)))); const r = raw / p; return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10) * p; }
 
@@ -863,6 +970,7 @@ const NAV = [
   { route: 'inventar', label: 'Inventar', ic: 'box' },
   { sec: 'Auswertung' },
   { route: 'reporting', label: 'Reporting', ic: 'chart' },
+  { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
   { route: 'meldungen', label: 'Meldungen & Export', ic: 'meldung' },
   { sec: 'System' },
   { route: 'einstellungen', label: 'Einstellungen', ic: 'gear' },
@@ -908,7 +1016,7 @@ function renderChrome() {
   side.innerHTML = `<div class="brand">${logoSvg(30)} ImkerBuch</div>` + NAV.map((n) =>
     n.sec ? `<div class="nav-sec">${n.sec}</div>`
       : `<button class="nav-item" data-route="${n.route}">${icon(n.ic)}<span>${n.label}</span></button>`
-  ).join('') + `<div class="side-foot">ImkerBuch · lokal & offline<br>Deine Daten bleiben auf dem Gerät.</div>`;
+  ).join('') + `<div class="side-foot">ImkerBuch v${APP_VERSION} · lokal & offline<br>Deine Daten bleiben auf dem Gerät.</div>`;
   side.addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) navTo(b.dataset.route); });
   const bn = $('#bottomnav');
   const bnItems = [
@@ -1227,31 +1335,31 @@ const Sprachnotiz = {
    MODUL: DASHBOARD (konfigurierbare Widgets, persönliche Begrüßung)
    ===================================================================== */
 const DASH_WIDGETS = {
-  voelker: { label: 'Völkerzahl', async html() {
+  voelker: { label: 'Völkerzahl', ziel: 'voelker', async html() {
     const v = (await DB.getAll('voelker')).filter((x) => x.status === 'aktiv');
     const staende = await DB.getAll('staende');
     return `<div class="stat"><div class="s-label">${icon('volk')} Völker</div><div class="s-value">${v.length}</div><div class="s-sub">${staende.length} ${staende.length === 1 ? 'Stand' : 'Stände'}</div></div>`;
   }},
-  aufgaben: { label: 'Anstehende Aufgaben', async html() {
+  aufgaben: { label: 'Anstehende Aufgaben', ziel: 'aufgaben', async html() {
     const t = U.sortBy((await DB.getAll('aufgaben')).filter((a) => !a.erledigt), (a) => a.faellig || '9999').slice(0, 4);
     const today = U.todayIso();
     return `<div class="card" style="margin:0"><div class="card-title">${icon('task')}<h2>Aufgaben</h2><a href="#/aufgaben" class="small">Alle</a></div>
       ${t.length ? `<div class="rows">${t.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(a.titel)}</div></div>
         <span class="badge ${a.faellig && a.faellig < today ? 'b-danger' : 'b-honey'}">${a.faellig ? U.fmtDate(a.faellig) : 'offen'}</span></div>`).join('')}</div>` : '<div class="muted small">Nichts offen – sehr gut! 🐝</div>'}</div>`;
   }},
-  behandlungen: { label: 'Letzte Behandlungen', async html() {
+  behandlungen: { label: 'Letzte Behandlungen', ziel: 'behandlungen', async html() {
     const b = U.sortBy(await DB.getAll('behandlungen'), (x) => x.datum, true).slice(0, 3);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('flask')}<h2>Letzte Behandlungen</h2><a href="#/behandlungen" class="small">Alle</a></div>
       ${b.length ? `<div class="rows">${b.map((x) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(x.mittel)}</div><div class="r-sub">${U.fmtDate(x.datum)}</div></div></div>`).join('')}</div>` : '<div class="muted small">Noch keine Behandlungen erfasst.</div>'}</div>`;
   }},
-  ertrag: { label: 'Honigertrag Jahresvergleich', async html() {
+  ertrag: { label: 'Honigertrag Jahresvergleich', ziel: 'reporting', async html() {
     const ernten = await DB.getAll('ernten');
     const byYear = U.groupBy(ernten, (e) => (e.datum || '').slice(0, 4));
     const years = [...byYear.keys()].filter(Boolean).sort().slice(-5);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Reporting</a></div>
       ${years.length ? UI.chart({ type: 'bars', labels: years, series: [{ name: 'kg', values: years.map((y) => U.sum(byYear.get(y), (e) => e.mengeKg)) }], height: 160, unit: 'kg' }) : '<div class="muted small">Noch keine Ernten erfasst.</div>'}</div>`;
   }},
-  wetter: { label: 'Wetter am Stand', async html() {
+  wetter: { label: 'Wetter am Stand', ziel: 'staende', async html() {
     if (!S.get('features').wetter) return '';
     const stand = (await DB.getAll('staende')).find((s) => s.lat && s.lng);
     if (!stand) return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2></div><div class="muted small">Lege einen Stand mit Koordinaten an, um Wetter zu sehen.</div></div>`;
@@ -1265,7 +1373,7 @@ const DASH_WIDGETS = {
     }, 50);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2><a href="#/stand/${stand.id}" class="small">${U.esc(stand.name)}</a></div><div id="dash-wetter">${inner}</div></div>`;
   }},
-  sicherung: { label: 'Letzte Sicherung', async html() {
+  sicherung: { label: 'Letzte Sicherung', ziel: 'einstellungen', async html() {
     const info = Backup.reminderInfo();
     const badge = info.tage === null ? '<span class="badge b-danger">noch nie</span>'
       : `<span class="badge ${info.stufe === 'rot' ? 'b-danger' : info.stufe === 'gelb' ? 'b-warn' : 'b-ok'}">vor ${info.tage} ${info.tage === 1 ? 'Tag' : 'Tagen'}</span>`;
@@ -1283,11 +1391,20 @@ Views.dashboard = {
     const gruss = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
     const enabled = S.get('dashboardWidgets');
     const blocks = [];
-    for (const id of enabled) if (DASH_WIDGETS[id]) { try { blocks.push(await DASH_WIDGETS[id].html()); } catch (e) { console.error('Widget', id, e); } }
+    for (const id of enabled) if (DASH_WIDGETS[id]) {
+      try { const html = await DASH_WIDGETS[id].html(); if (html) blocks.push({ html, ziel: DASH_WIDGETS[id].ziel }); }
+      catch (e) { console.error('Widget', id, e); }
+    }
     main.innerHTML = pageHead(`${gruss}${vorname ? ', ' + vorname : ''}! 🐝`, new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
       `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">${icon('gear')} Widgets</button>`) +
-      `<div class="grid2">${blocks.filter(Boolean).map((b) => `<div>${b}</div>`).join('')}</div>`;
+      `<div class="grid2">${blocks.map((b) => `<div class="dash-klick" data-ziel="${b.ziel || ''}" role="link">${b.html}</div>`).join('')}</div>`;
     $('#dash-cfg').onclick = Views.dashboard.configure;
+    // Kachel-Klick führt in den passenden Bereich – Buttons/Links in der Kachel behalten Vorrang
+    main.addEventListener('click', (e) => {
+      if (e.target.closest('button, a, input, select')) return;
+      const k = e.target.closest('[data-ziel]');
+      if (k && k.dataset.ziel) navTo(k.dataset.ziel);
+    });
   },
   configure() {
     const enabled = S.get('dashboardWidgets');
@@ -1439,12 +1556,41 @@ const Wetter = {
   },
 };
 
+/** Fahrt erfassen (Fahrtenbuch): km vorbelegt mit 2 × Stand-Entfernung */
+async function fahrtForm(vorStandId = '') {
+  const staende = await DB.getAll('staende');
+  if (!staende.length) return UI.toast('Lege zuerst einen Bienenstand an', 'err');
+  const kmVon = (standId) => { const st = staende.find((x) => x.id === standId); return st && st.kmEntfernung ? st.kmEntfernung * 2 : ''; };
+  const m = UI.formModal({
+    title: 'Fahrt erfassen',
+    fields: [
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'standId', label: 'Bienenstand / Ziel', type: 'select', required: true, default: vorStandId || staende[0].id, options: staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })) },
+      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: kmVon(vorStandId || staende[0].id) },
+      { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true },
+      { key: 'notiz', label: 'Notiz', placeholder: 'z. B. mit Anhänger' },
+    ],
+    saveText: 'Fahrt buchen',
+    async onSave(v) {
+      await DB.put('fahrten', { datum: v.datum, standId: v.standId, km: v.km, zweck: v.zweck, notiz: v.notiz });
+      UI.toast('Fahrt erfasst'); renderRoute();
+    },
+  });
+  // Stand-Wechsel im Formular → km-Vorschlag aktualisieren (nur wenn Feld leer oder alter Vorschlag)
+  const standSel = $('#f-standId', m.el), kmInp = $('#f-km', m.el);
+  standSel.addEventListener('change', () => {
+    const vorschlag = kmVon(standSel.value);
+    if (vorschlag !== '') { kmInp.value = String(vorschlag).replace('.', ','); FormGuard.dirty = true; }
+  });
+}
+
 function standFormFields() {
   return [
     { key: 'name', label: 'Name des Stands', required: true, placeholder: 'z. B. Heimstand Garten' },
     { key: 'geo', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" data-geo>${icon('pin')} Aktuellen Standort übernehmen</button> <span class="small muted" data-geo-status></span>` },
     { key: 'lat', label: 'Breitengrad', type: 'number', placeholder: 'z. B. 51,3127' },
     { key: 'lng', label: 'Längengrad', type: 'number', placeholder: 'z. B. 9,4797' },
+    { key: 'kmEntfernung', label: 'Entfernung von zu Hause (km, einfache Strecke)', type: 'number', hint: 'Fürs Fahrtenbuch: neue Fahrten zu diesem Stand werden mit Hin- und Rückweg (2 ×) vorbelegt.' },
     { key: 'notizen', label: 'Notizen', type: 'textarea' },
   ];
 }
@@ -1469,7 +1615,7 @@ function openStandForm(stand, onDone) {
     title: stand ? 'Stand bearbeiten' : 'Neuer Bienenstand',
     fields: standFormFields(), values: stand || {},
     async onSave(v) {
-      await DB.put('staende', Object.assign(stand || { }, { name: v.name, lat: v.lat, lng: v.lng, notizen: v.notizen }));
+      await DB.put('staende', Object.assign(stand || { }, { name: v.name, lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
       UI.toast('Stand gespeichert'); if (onDone) onDone();
     },
   });
@@ -1504,6 +1650,8 @@ Views.stand = {
     if (!s) { main.innerHTML = emptyState('warn', 'Stand nicht gefunden.'); return; }
     const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === id && v.status === 'aktiv');
     const wetterAll = U.sortBy((await DB.getAll('wetter')).filter((w) => w.standId === id), (w) => w.datum, true);
+    const fahrten = U.sortBy((await DB.getAll('fahrten')).filter((f) => f.standId === id), (f) => f.datum, true);
+    const jahrAktuell = U.todayIso().slice(0, 4);
     const links = s.lat && s.lng ? U.mapsLinks(s.lat, s.lng) : null;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('staende')">${icon('back')} Alle Stände</button>
@@ -1513,8 +1661,17 @@ Views.stand = {
       <div class="card">
         <div class="detail-kv">
           <dt>Standort</dt><dd>${links ? `${U.fmtNum(s.lat, 5)}, ${U.fmtNum(s.lng, 5)} · <a href="${links.google}" target="_blank" rel="noopener">Google Maps</a> · <a href="${links.osm}" target="_blank" rel="noopener">OpenStreetMap</a>` : '<span class="muted">keine Koordinaten</span>'}</dd>
+          <dt>Entfernung</dt><dd>${s.kmEntfernung ? `${U.fmtNum(s.kmEntfernung)} km einfach (${U.fmtNum(s.kmEntfernung * 2)} km hin & zurück)` : '<span class="muted">– in „Bearbeiten“ hinterlegen fürs Fahrtenbuch</span>'}</dd>
           <dt>Notizen</dt><dd>${U.esc(s.notizen) || '<span class="muted">–</span>'}</dd>
         </div>
+      </div>
+      <div class="card">
+        <div class="card-title">${icon('truck')}<h2>Fahrten</h2><button class="btn btn-ghost btn-sm no-print" id="fahrtAdd">${icon('plus')} Fahrt erfassen</button></div>
+        ${fahrten.length ? `<div class="rows">${fahrten.slice(0, 5).map((f) => `<div class="row" style="min-height:44px;padding:8px 4px">
+          <span class="r-main"><span class="r-title">${U.esc(f.zweck || 'Fahrt')}</span><span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
+          <span class="badge b-blue">${U.fmtNum(f.km)} km</span></div>`).join('')}</div>
+          <div class="small muted mt8">${jahrAktuell}: ${U.fmtNum(U.sum(fahrten.filter((f) => (f.datum || '').startsWith(jahrAktuell)), (f) => f.km))} km zu diesem Stand · komplette Übersicht + Fahrtenbuch-PDF unter <a href="#/reporting">Reporting → Fahrten</a></div>`
+        : `<div class="muted small">Noch keine Fahrt erfasst. Mit hinterlegter Entfernung ist eine Fahrt in zwei Tipps gebucht – für die Kilometer-Übersicht (Steuer).</div>`}
       </div>
       <div class="card">
         <div class="card-title">${icon('volk')}<h2>Völker an diesem Stand</h2><button class="btn btn-ghost btn-sm no-print" id="addVolk">${icon('plus')} Volk</button></div>
@@ -1541,6 +1698,7 @@ Views.stand = {
       await DB.softDel('staende', id); UI.toast('Stand in den Papierkorb verschoben'); navTo('staende');
     };
     $('#addVolk').onclick = () => openVolkForm(null, { standId: id }, renderRoute);
+    $('#fahrtAdd').onclick = () => fahrtForm(id);
     main.addEventListener('click', async (e) => {
       const v = e.target.closest('[data-volk]'); if (v) return navTo('volk/' + v.dataset.volk);
       const wd = e.target.closest('[data-wdel]');
@@ -1580,15 +1738,17 @@ async function koeniginOptions() {
 async function openVolkForm(volk, defaults = {}, onDone) {
   const staende = await DB.getAll('staende');
   const qOpts = await koeniginOptions();
+  const beutenOpts = await gelernteWerte(VORSCHLAEGE.beutentyp, 'voelker', 'beutentyp');
+  const massOpts = await gelernteWerte(VORSCHLAEGE.raehmchenmass, 'voelker', 'raehmchenmass');
   UI.formModal({
     title: volk ? 'Volk bearbeiten' : 'Neues Volk',
     fields: [
       { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Volk 3' },
       { key: 'standId', label: 'Bienenstand', type: 'select', options: staende.map((s) => ({ v: s.id, l: s.name })) },
       { key: 'koeniginId', label: 'Königin', type: 'select', options: qOpts },
-      { key: 'beutentyp', label: 'Beutentyp', placeholder: 'z. B. Zander, DNM, Dadant' },
+      { key: 'beutentyp', label: 'Beutentyp', type: 'suggest', options: beutenOpts },
       { key: 'beutenkennung', label: 'Beutenkennung', placeholder: 'z. B. Z-07' },
-      { key: 'raehmchenmass', label: 'Rähmchenmaß', placeholder: 'z. B. Zander, DNM' },
+      { key: 'raehmchenmass', label: 'Rähmchenmaß', type: 'suggest', options: massOpts },
       { key: 'notizen', label: 'Notizen', type: 'textarea' },
     ],
     values: volk || Object.assign({ }, defaults),
@@ -1778,11 +1938,11 @@ Views.volk = {
         <div class="small muted mt8">Gesamt: ${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''}</div>`
       : emptyState('honig', 'Noch keine Fütterung erfasst.')}
     </div>`;
-    const form = (f) => UI.formModal({
+    const form = async (f) => UI.formModal({
       title: f ? 'Fütterung bearbeiten' : 'Fütterung erfassen',
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-        { key: 'futterart', label: 'Futterart', required: true, placeholder: 'z. B. Zuckersirup 3:2, Futterteig' },
+        { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern automatisch eine Aufgabe an (nur bei neuer Fütterung).' },
@@ -1879,14 +2039,16 @@ Views.koeniginnen = {
       if (q) Views.koeniginnen.detail(q, voelker);
     });
   },
-  form(q) {
+  async form(q) {
     const jahr = new Date().getFullYear();
+    const herkunftOpts = await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft');
+    const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
     UI.formModal({
       title: q ? 'Königin bearbeiten' : 'Neue Königin',
       fields: [
         { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, hint: `Zeichenfarbe wird automatisch bestimmt (${jahr} = ${queenColor(jahr)[0]}).` },
-        { key: 'herkunft', label: 'Herkunft', placeholder: 'z. B. Belegstelle, eigene Nachzucht, Zukauf' },
-        { key: 'linie', label: 'Linie / Rasse', placeholder: 'z. B. Carnica Troiseck, Buckfast B7' },
+        { key: 'herkunft', label: 'Herkunft', type: 'suggest', options: herkunftOpts },
+        { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: rasseOpts },
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
@@ -2056,15 +2218,17 @@ Views.behandlungen = {
   },
   async form(b) {
     const ziel = await zielFelder(b || {});
+    const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
+    const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
     UI.formModal({
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true,
       fields: [
         ...ziel,
         { key: 'datum', label: 'Datum der Anwendung', type: 'date', required: true, default: U.todayIso() },
-        { key: 'mittel', label: 'Arzneimittel / Mittel', required: true, placeholder: 'z. B. Ameisensäure 60 % ad us. vet.' },
+        { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
         { key: 'menge', label: 'Menge', type: 'number', required: true },
         { key: 'einheit', label: 'Einheit', default: 'ml', placeholder: 'ml, g, Streifen …' },
-        { key: 'anwendungsart', label: 'Anwendungsart', placeholder: 'z. B. Träufeln, Verdunster, Sprühen' },
+        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerungs-Aufgabe zum Ende angelegt.' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
@@ -2123,11 +2287,11 @@ Views.trachten = {
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('flower', 'Noch keine Tracht angelegt. Trachten lassen sich Ständen und Wanderungen zuordnen und im Reporting auswerten.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Tracht</button>`)) + `</div>`;
     const staendeArr = [...staende.values()];
-    const form = (t) => UI.formModal({
+    const form = async (t) => UI.formModal({
       title: t ? 'Tracht bearbeiten' : 'Neue Tracht',
       fields: [
         { key: 'bezeichnung', label: 'Bezeichnung', required: true, placeholder: 'z. B. Raps 2026' },
-        { key: 'pflanze', label: 'Trachtpflanze', placeholder: 'z. B. Raps, Robinie, Linde' },
+        { key: 'pflanze', label: 'Trachtpflanze', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.pflanze, 'trachten', 'pflanze') },
         { key: 'von', label: 'Beginn', type: 'date' },
         { key: 'bis', label: 'Ende', type: 'date' },
         { key: 'region', label: 'Region', placeholder: 'z. B. Feldmark Nord' },
@@ -2192,20 +2356,97 @@ Views.wanderungen = {
 };
 
 /* =====================================================================
-   MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, QR, Bestand)
+   MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, QR, Bestand,
+   Verkäufe mit automatischem Lagerabzug + Kassenbuch-Buchung)
    ===================================================================== */
+/** Verkauf erfassen: prüft Bestand, mindert die Charge, bucht die Einnahme */
+async function verkaufErfassen({ chargeId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
+  const c = await DB.get('chargen', chargeId);
+  if (!c) throw new Error('Bitte eine Charge auswählen.');
+  anzahl = Math.round(anzahl);
+  if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
+  if (anzahl > c.bestandGlaeser) throw new Error(`Nur ${c.bestandGlaeser} Gläser im Bestand von Los ${c.losnummer}.`);
+  const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
+  c.bestandGlaeser -= anzahl;
+  await DB.put('chargen', c);
+  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${U.fmtNum(c.glasGroesseG, 0)} g (Los ${c.losnummer})`, rechnungId: null });
+  return DB.put('verkaeufe', { datum, chargeId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id });
+}
+/** Verkauf stornieren: Bestand zurückbuchen, Kassenbuch-Buchung + Verkauf in den Papierkorb */
+async function verkaufStornieren(verkaufId) {
+  const v = await DB.get('verkaeufe', verkaufId);
+  if (!v) return;
+  const c = await DB.get('chargen', v.chargeId);
+  if (c) { c.bestandGlaeser += v.anzahl; await DB.put('chargen', c); }
+  if (v.kassenbuchId) await DB.softDel('kassenbuch', v.kassenbuchId);
+  await DB.softDel('verkaeufe', verkaufId);
+}
+/** Verkaufs-Formular (optional mit vorgewählter Charge) */
+async function verkaufForm(vorChargeId = '') {
+  const chargen = (await DB.getAll('chargen')).filter((c) => c.bestandGlaeser > 0);
+  if (!chargen.length) return UI.toast('Kein Bestand vorhanden – lege zuerst eine Charge an', 'err');
+  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
+  UI.formModal({
+    title: 'Verkauf erfassen',
+    fields: [
+      { key: 'chargeId', label: 'Charge (Ernte)', type: 'select', required: true, default: vorChargeId, options: chargen.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(c.glasGroesseG, 0)} g · ${c.bestandGlaeser} verfügbar` })) },
+      { key: 'anzahl', label: 'Anzahl Gläser', type: 'number', required: true, default: 1 },
+      { key: 'preisJeGlas', label: 'Preis je Glas (€)', type: 'number', required: true },
+      { key: 'kontaktId', label: 'Verkauft an', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional – Kunden legst du unter Kassenbuch → Kunden & Lieferanten an.' },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'notiz', label: 'Notiz', placeholder: 'z. B. Haustürverkauf, Wochenmarkt' },
+    ],
+    saveText: 'Verkauf buchen',
+    async onSave(v) {
+      await verkaufErfassen({ chargeId: v.chargeId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
+      UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute();
+    },
+  });
+}
 Views.honig = {
   title: 'Honig & Chargen',
   async render(main) {
     const tab = Views.honig._tab || 'ernten';
     main.innerHTML = pageHead('Honig', 'Ernten, Abfüllungen mit Losnummern und Bestandsübersicht') + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar').appendChild(UI.tabs([
-      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'bestand', label: 'Bestand' },
+      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' },
     ], tab, (t) => { Views.honig._tab = t; renderRoute(); }));
     const box = $('#tab-content');
     if (tab === 'ernten') await Views.honig.tabErnten(box);
     else if (tab === 'chargen') await Views.honig.tabChargen(box);
+    else if (tab === 'verkaeufe') await Views.honig.tabVerkaeufe(box);
     else await Views.honig.tabBestand(box);
+  },
+
+  /* ---------- Verkäufe (Lagerabzug + Kassenbuch automatisch) ---------- */
+  async tabVerkaeufe(box) {
+    const list = U.sortBy(await DB.getAll('verkaeufe'), (v) => v.datum, true);
+    const chargen = await idMap('chargen'), kontakte = await idMap('kontakte');
+    const jahr = U.todayIso().slice(0, 4);
+    const umsatzJahr = U.sum(list.filter((v) => (v.datum || '').startsWith(jahr)), (v) => v.betrag);
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${jahr}: ${U.fmtEur(umsatzJahr)}</span>
+        <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Verkauf erfassen</button></div>
+      <p class="small muted mb12">Jeder Verkauf zieht die Gläser automatisch vom Chargen-Bestand ab und bucht die Einnahme im Kassenbuch. Stornieren macht beides rückgängig.</p>
+      ${list.length ? `<div class="rows">` + list.map((v) => {
+        const c = chargen.get(v.chargeId);
+        return `<div class="row">
+          <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
+          <span class="r-main"><span class="r-title">${v.anzahl} × ${c ? U.fmtNum(c.glasGroesseG, 0) + ' g (Los ' + U.esc(c.losnummer) + ')' : 'Glas'} · ${U.fmtEur(v.betrag)}</span>
+          <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
+          <button class="btn btn-xs btn-danger no-print" data-storno="${v.id}">Stornieren</button>
+        </div>`;
+      }).join('') + `</div>`
+      : emptyState('euro', 'Noch kein Verkauf erfasst. Beim Buchen wird der Bestand automatisch gemindert und die Einnahme im Kassenbuch angelegt.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Verkauf</button>`)}
+    </div>`;
+    bindAdd(() => verkaufForm(), box);
+    box.addEventListener('click', async (e) => {
+      const st = e.target.closest('[data-storno]');
+      if (st && (await UI.confirm({ title: 'Verkauf stornieren?', text: 'Die Gläser wandern zurück in den Bestand, die Kassenbuch-Buchung in den Papierkorb.', confirmText: 'Stornieren' }))) {
+        await verkaufStornieren(st.dataset.storno);
+        UI.toast('Verkauf storniert'); renderRoute();
+      }
+    });
   },
 
   /* ---------- Ernten ---------- */
@@ -2234,7 +2475,7 @@ Views.honig = {
         fields: [
           ...ziel,
           { key: 'datum', label: 'Erntedatum', type: 'date', required: true, default: U.todayIso() },
-          { key: 'sorte', label: 'Sorte', required: true, placeholder: 'z. B. Frühtracht, Raps, Linde' },
+          { key: 'sorte', label: 'Sorte', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
           { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
           { key: 'trachtId', label: 'Tracht', type: 'select', options: trachtenArr.map((t) => ({ v: t.id, l: t.bezeichnung })) },
           { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Wassergehalt' },
@@ -2327,6 +2568,7 @@ Views.honig = {
         </div>
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
+        ${c.bestandGlaeser > 0 ? `<button class="btn btn-ghost" data-vk>${icon('euro')} Verkauf</button>` : ''}
         <button class="btn btn-primary" data-qr>${icon('qr')} QR-Code erzeugen</button>`,
     });
     $('#bestand-save', m.el).onclick = async () => {
@@ -2335,6 +2577,8 @@ Views.honig = {
       c.bestandGlaeser = n; await DB.put('chargen', c); UI.toast('Bestand aktualisiert'); renderRoute();
     };
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.honig.chargeForm(c); };
+    const vkBtn = $('[data-vk]', m.el);
+    if (vkBtn) vkBtn.onclick = () => { m.close(true); verkaufForm(c.id); };
     $('[data-qr]', m.el).onclick = async () => {
       const zone = $('#qr-zone', m.el);
       zone.innerHTML = '<span class="muted small">QR-Code wird erzeugt …</span>';
@@ -2387,11 +2631,13 @@ Views.honig = {
       </div>
       <div class="card"><div class="card-title">${icon('honig')}<h2>Bestand je Charge</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.chargenuebersicht()">${icon('doc')} Chargenübersicht (PDF)</button></div>
-      ${chargen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Los</th><th>Sorte</th><th class="num">Glas</th><th class="num">Abgefüllt</th><th class="num">Bestand</th><th class="num">Abverkauft</th><th>MHD</th></tr></thead>
+      ${chargen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Los</th><th>Sorte</th><th class="num">Glas</th><th class="num">Abgefüllt</th><th class="num">Bestand</th><th class="num">Abverkauft</th><th>MHD</th><th class="no-print"></th></tr></thead>
         <tbody>${chargen.map((c) => `<tr><td><b>${U.esc(c.losnummer)}</b></td><td>${(c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ') || '–'}</td>
-          <td class="num">${U.fmtNum(c.glasGroesseG, 0)} g</td><td class="num">${c.anzahlGlaeser}</td><td class="num"><b>${c.bestandGlaeser}</b></td><td class="num">${c.anzahlGlaeser - c.bestandGlaeser}</td><td>${U.fmtDate(c.mhd) || '–'}</td></tr>`).join('')}</tbody></table></div>`
+          <td class="num">${U.fmtNum(c.glasGroesseG, 0)} g</td><td class="num">${c.anzahlGlaeser}</td><td class="num"><b>${c.bestandGlaeser}</b></td><td class="num">${c.anzahlGlaeser - c.bestandGlaeser}</td><td>${U.fmtDate(c.mhd) || '–'}</td>
+          <td class="no-print">${c.bestandGlaeser > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${c.id}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
       : emptyState('honig', 'Noch kein Bestand – lege zuerst eine Charge an.')}
       </div>`;
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-verkauf]'); if (b) verkaufForm(b.dataset.verkauf); });
   },
 };
 
@@ -2796,17 +3042,25 @@ Views.aufgaben = {
       fields: [
         { key: 'titel', label: 'Aufgabe', required: true, placeholder: 'z. B. Futterkontrolle Volk 3' },
         { key: 'faellig', label: 'Fällig am', type: 'date' },
+        { key: 'kategorie', label: 'Tätigkeit (Zeiterfassung)', type: 'select', options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
+        { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       values: a || {},
-      async onSave(v) { await DB.put('aufgaben', Object.assign(a || { erledigt: false, quelle: 'manuell', refId: null }, v)); UI.toast('Aufgabe gespeichert'); renderRoute(); },
+      async onSave(v) { v.zeitMinuten = v.zeitMinuten ? Math.round(v.zeitMinuten) : null; await DB.put('aufgaben', Object.assign(a || { erledigt: false, quelle: 'manuell', refId: null }, v)); UI.toast('Aufgabe gespeichert'); renderRoute(); },
       onDelete: papierkorbDelete('aufgaben', a, 'Aufgabe löschen?', 'Wandert in den Papierkorb.'),
     });
     const add = () => form(null);
     bindAdd(add);
     main.addEventListener('click', async (e) => {
       const chk = e.target.closest('[data-check]');
-      if (chk) { const a = all.find((x) => x.id === chk.dataset.check); a.erledigt = chk.checked; await DB.put('aufgaben', a); Notif.check(); renderRoute(); return; }
+      if (chk) {
+        const a = all.find((x) => x.id === chk.dataset.check);
+        a.erledigt = chk.checked;
+        await DB.put('aufgaben', a); Notif.check(); renderRoute();
+        if (a.erledigt && !a.zeitMinuten) zeitDialog(a); // Zeiterfassung beim Erledigen
+        return;
+      }
       const op = e.target.closest('[data-open]');
       if (op) { form(all.find((x) => x.id === op.dataset.open)); return; }
       const day = e.target.closest('.c-day.clickable');
@@ -2818,10 +3072,78 @@ Views.aufgaben = {
   },
 };
 
+/** Schnellabfrage beim Erledigen einer Aufgabe: Dauer + Tätigkeit */
+function zeitDialog(a) {
+  const taetigkeiten = S.get('taetigkeiten');
+  const vorschlag = { zucht: 'Zucht', behandlung: 'Behandlung', fuetterung: 'Fütterung' }[a.quelle] || a.kategorie || '';
+  const m = UI.modal({
+    title: 'Wie lange hat es gedauert?',
+    body: `<p class="small muted mb12">„${U.esc(a.titel)}“ – landet in deiner <a href="#/zeiten">Zeiterfassung</a>.</p>
+      <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${n}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
+      <div class="field"><label>Oder Minuten eingeben</label><input class="inp" id="zt-min" inputmode="numeric" placeholder="z. B. 25"></div>
+      <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${taetigkeiten.map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>`,
+    footer: `<button class="btn btn-ghost" data-skip>Ohne Zeit</button><button class="btn btn-primary" data-ok>Speichern</button>`,
+  });
+  const speichern = async (min) => {
+    if (min > 0) { a.zeitMinuten = min; a.kategorie = $('#zt-kat', m.el).value; await DB.put('aufgaben', a); UI.toast('Zeit erfasst'); }
+    m.close(true); renderRoute();
+  };
+  $('#zt-chips', m.el).addEventListener('click', (e) => { const b = e.target.closest('[data-min]'); if (b) speichern(+b.dataset.min); });
+  $('[data-ok]', m.el).onclick = () => { const n = Math.round(U.parseNum($('#zt-min', m.el).value)); speichern(n > 0 ? n : 0); };
+  $('[data-skip]', m.el).onclick = () => m.close(true);
+}
+
+/* =====================================================================
+   MODUL: ZEITERFASSUNG (Stunden je Tätigkeit als Tortendiagramm)
+   ===================================================================== */
+Views.zeiten = {
+  title: 'Zeiterfassung',
+  async render(main) {
+    const alle = (await DB.getAll('aufgaben')).filter((a) => a.erledigt && a.zeitMinuten > 0);
+    const datumVon = (a) => a.faellig || (a.lastModified || '').slice(0, 10);
+    const jahre = [...new Set(alle.map((a) => datumVon(a).slice(0, 4)))].filter(Boolean).sort().reverse();
+    const jahr = Views.zeiten._jahr || jahre[0] || U.todayIso().slice(0, 4);
+    const list = alle.filter((a) => datumVon(a).startsWith(jahr));
+    const stunden = Reporting.zeiten(list);
+    const gesamtMin = U.sum(list, (a) => a.zeitMinuten);
+    main.innerHTML = pageHead('Zeiterfassung', 'Wie viel Zeit steckt in welcher Tätigkeit? Zeiten entstehen beim Abhaken von Aufgaben.',
+      `<button class="btn btn-primary no-print" id="add">${icon('plus')} Zeit nachtragen</button>`) +
+      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
+      <div class="stat-grid mb16">
+        <div class="stat"><div class="s-label">${icon('uhr')} Stunden ${jahr}</div><div class="s-value">${U.fmtNum(gesamtMin / 60, 1)}</div></div>
+        <div class="stat"><div class="s-label">${icon('task')} Einträge</div><div class="s-value">${list.length}</div></div>
+        <div class="stat"><div class="s-label">${icon('chart')} Ø je Eintrag</div><div class="s-value">${list.length ? U.fmtNum(gesamtMin / list.length, 0) : '–'}<span style="font-size:14px"> min</span></div></div>
+      </div>
+      <div class="card"><div class="card-title">${icon('uhr')}<h2>Stunden je Tätigkeit ${jahr}</h2></div>
+        ${UI.pie({ posten: stunden, einheit: 'h' })}
+      </div>
+      <div class="card"><div class="card-title">${icon('buch')}<h2>Letzte Einträge</h2></div>
+        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 30).map((a) => `<div class="row" style="min-height:46px">
+          <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}</span></span>
+          <span class="badge b-honey">${a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min'}</span></div>`).join('')}</div>`
+        : emptyState('uhr', 'Noch keine Zeiten erfasst. Hake eine Aufgabe ab (die App fragt dann nach der Dauer) oder trage hier eine Zeit nach.')}
+      </div>`;
+    bindAdd(() => UI.formModal({
+      title: 'Zeit nachtragen',
+      fields: [
+        { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'kategorie', label: 'Tätigkeit', type: 'select', required: true, options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
+        { key: 'zeitMinuten', label: 'Dauer (Minuten)', type: 'number', required: true },
+      ],
+      async onSave(v) {
+        await DB.put('aufgaben', { titel: v.titel, faellig: v.datum, erledigt: true, quelle: 'manuell', refId: null, notiz: '', kategorie: v.kategorie, zeitMinuten: Math.round(v.zeitMinuten) });
+        UI.toast('Zeit erfasst'); renderRoute();
+      },
+    }));
+    main.addEventListener('click', (e) => { const c = e.target.closest('[data-jahr]'); if (c) { Views.zeiten._jahr = c.dataset.jahr; renderRoute(); } });
+  },
+};
+
 /* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -2938,6 +3260,20 @@ const Reporting = {
     const g = U.groupBy(list, (b) => `${(b.datum || '').slice(0, 4)}|${b.mittel}`);
     return [...g.entries()].map(([key, items]) => { const [jahr, mittel] = key.split('|'); return { jahr, mittel, n: items.length, menge: U.sum(items, (b) => b.menge), einheit: items[0].einheit || '' }; }).sort((a, b) => b.jahr.localeCompare(a.jahr));
   },
+  /** Fahrten → Kilometer und Anzahl je Jahr (absteigend) */
+  fahrtStatistik(fahrten) {
+    const g = U.groupBy(fahrten.filter((f) => f.datum), (f) => f.datum.slice(0, 4));
+    return [...g.entries()]
+      .map(([jahr, items]) => ({ jahr, anzahl: items.length, km: Math.round(U.sum(items, (f) => f.km) * 10) / 10 }))
+      .sort((a, b) => b.jahr.localeCompare(a.jahr));
+  },
+  /** erledigte Aufgaben mit Zeit → Stunden je Tätigkeit (für Tortendiagramm) */
+  zeiten(aufgaben) {
+    const g = U.groupBy(aufgaben, (a) => a.kategorie || 'Sonstiges');
+    return [...g.entries()]
+      .map(([label, items]) => ({ label, wert: Math.round((U.sum(items, (a) => a.zeitMinuten) / 60) * 10) / 10 }))
+      .sort((a, b) => b.wert - a.wert);
+  },
   async finanzen() {
     const list = await DB.getAll('kassenbuch');
     const years = [...new Set(list.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort();
@@ -2955,7 +3291,7 @@ Views.reporting = {
     const gruppe = Views.reporting._gruppe || 'volk';
     main.innerHTML = pageHead('Reporting', 'Auswertungen über alle Bereiche – jeder Report als PDF exportierbar') + `
       <div class="chip-row mb16 no-print">
-        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
+        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben'], ['fahrten', 'Fahrten (km)']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
       </div><div id="rep"></div>`;
     const box = $('#rep');
     if (typ === 'voelker') {
@@ -2977,6 +3313,39 @@ Views.reporting = {
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('behandlungen')">${icon('doc')} PDF</button></div>
         ${rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jahr</th><th>Mittel</th><th class="num">Anwendungen</th><th class="num">Gesamtmenge</th></tr></thead>
         <tbody>${rows.map((r) => `<tr><td>${r.jahr}</td><td>${U.esc(r.mittel)}</td><td class="num">${r.n}</td><td class="num">${U.fmtNum(r.menge)} ${U.esc(r.einheit)}</td></tr>`).join('')}</tbody></table></div>` : emptyState('flask', 'Noch keine Behandlungen erfasst.')}</div>`;
+    } else if (typ === 'fahrten') {
+      const fahrten = await DB.getAll('fahrten');
+      const staende = await idMap('staende');
+      const jahre = Reporting.fahrtStatistik(fahrten);
+      const jahrAkt = U.todayIso().slice(0, 4);
+      const akt = jahre.find((j) => j.jahr === jahrAkt) || { km: 0, anzahl: 0 };
+      const proStand = U.groupBy(fahrten.filter((f) => (f.datum || '').startsWith(jahrAkt)), (f) => f.standId);
+      const letzte = U.sortBy(fahrten, (f) => f.datum, true).slice(0, 25);
+      box.innerHTML = `<div class="card"><div class="card-title">${icon('truck')}<h2>Fahrten & Kilometer</h2>
+          <span class="no-print flex" style="gap:8px">
+            <button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahrAkt}')">${icon('doc')} Fahrtenbuch ${jahrAkt} (PDF)</button>
+            <button class="btn btn-primary btn-sm" onclick="fahrtForm()">${icon('plus')} Fahrt</button></span></div>
+        <div class="stat-grid mb16">
+          <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahrAkt}</div><div class="s-value">${U.fmtNum(akt.km)}</div><div class="s-sub">${akt.anzahl} Fahrten</div></div>
+          <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahrAkt}</div><div class="s-value">${U.fmtEur(akt.km * KM_PAUSCHALE)}</div><div class="s-sub">bei ${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
+          <div class="stat"><div class="s-label">${icon('chart')} Kilometer gesamt</div><div class="s-value">${U.fmtNum(U.sum(jahre, (j) => j.km))}</div></div>
+        </div>
+        <div class="hint mb12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt in zwei Tipps gebucht. Das Fahrtenbuch-PDF eignet sich als Nachweis für die Steuer (Pauschale ohne Gewähr, Satz je nach Fall).</div>
+        ${jahre.length ? `<div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Fahrten</th><th class="num">Kilometer</th><th class="num">Pauschale</th></tr></thead>
+          <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * KM_PAUSCHALE)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        ${proStand.size ? `<h3 class="mb8">Je Stand (${jahrAkt})</h3><div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Stand</th><th class="num">Fahrten</th><th class="num">Kilometer</th></tr></thead>
+          <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(staende.get(sid)?.name || 'gelöscht')}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        ${letzte.length ? `<h3 class="mb8">Letzte Fahrten</h3><div class="rows">${letzte.map((f) => `<div class="row" style="min-height:46px">
+          <span class="r-main"><span class="r-title">${U.esc(staende.get(f.standId)?.name || '–')} · ${U.esc(f.zweck || 'Fahrt')}</span>
+          <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
+          <span class="badge b-blue">${U.fmtNum(f.km)} km</span>
+          <button class="btn btn-xs btn-ghost no-print" data-fdel="${f.id}">${icon('trash')}</button></div>`).join('')}</div>`
+        : emptyState('truck', 'Noch keine Fahrten erfasst.')}
+      </div>`;
+      box.addEventListener('click', async (e) => {
+        const b = e.target.closest('[data-fdel]');
+        if (b && (await UI.confirm({ title: 'Fahrt löschen?', text: 'Wandert in den Papierkorb (30 Tage).' }))) { await DB.softDel('fahrten', b.dataset.fdel); renderRoute(); }
+      });
     } else {
       const rows = await Reporting.finanzen();
       box.innerHTML = `<div class="card"><div class="card-title">${icon('euro')}<h2>Einnahmen & Ausgaben je Jahr</h2>
@@ -3354,7 +3723,8 @@ const Xlsx = {
   /** je Modul: Blattname + lesbare Zeilen (Fremdschlüssel aufgelöst) */
   async defs() {
     const voelker = await idMap('voelker'), staende = await idMap('staende'), queens = await idMap('koeniginnen'),
-      trachten = await idMap('trachten'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
+      trachten = await idMap('trachten'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten'),
+      chargenM = await idMap('chargen');
     const ziel = (r) => (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : staende.get(r.zielId)?.name) || '';
     const d = this._d;
     return {
@@ -3368,11 +3738,13 @@ const Xlsx = {
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), 'Volk/Stand': ziel(e), Sorte: e.sorte, 'Menge (kg)': e.mengeKg, Tracht: trachten.get(e.trachtId)?.bezeichnung || '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
+      verkaeufe: { blatt: 'Verkäufe', rows: async () => (await DB.getAll('verkaeufe')).map((v) => ({ Datum: d(v.datum), Los: chargenM.get(v.chargeId)?.losnummer || '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz })) },
+      fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), 'Ziel (Stand)': staende.get(f.standId)?.name || '', Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, '§19 UStG': r.kleinunternehmer ? 'ja' : 'nein' })) },
       inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Stückzahl: i.stueckzahl, 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
-      aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Notiz: a.notiz })) },
+      aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
@@ -3626,6 +3998,20 @@ const Pdf = {
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
+  /* ---------- Fahrtenbuch (Steuer-Nachweis) ---------- */
+  async fahrtenbuch(jahr) {
+    try {
+      const fahrten = U.sortBy((await DB.getAll('fahrten')).filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum);
+      const staende = await idMap('staende');
+      const kmSumme = U.sum(fahrten, (f) => f.km);
+      const { doc, y } = await this.newDoc(`Fahrtenbuch ${jahr}`, `${fahrten.length} Fahrten · ${U.fmtNum(kmSumme)} km · Kilometerpauschale (${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km): ${U.fmtEur(kmSumme * KM_PAUSCHALE)}`);
+      const body = fahrten.map((f) => [U.fmtDate(f.datum), staende.get(f.standId)?.name || '–', f.zweck || '', U.fmtNum(f.km), f.notiz || '']);
+      body.push(['', '', 'Summe', U.fmtNum(kmSumme), '']);
+      this.table(doc, { head: ['Datum', 'Ziel (Bienenstand)', 'Zweck', 'km', 'Notiz'], body, startY: y, widths: { 3: { halign: 'right' } } });
+      this.finish(doc, `fahrtenbuch-${jahr}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
   /* ---------- Kassenbuch-Jahresbericht ---------- */
   async kassenbuchJahr(jahr) {
     try {
@@ -3693,7 +4079,7 @@ const Pdf = {
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
       const defs = await Xlsx.defs();
-      const kapitel = ['staende', 'voelker', 'stockkarten', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'];
+      const kapitel = ['staende', 'voelker', 'stockkarten', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'];
       for (const key of kapitel) {
         const def = defs[key];
         const rows = await def.rows();
@@ -3785,7 +4171,7 @@ const PdfImport = {
       fields: [
         ...ziel,
         { key: 'datum', label: 'Erntedatum', type: 'date', required: true },
-        { key: 'sorte', label: 'Sorte', required: true },
+        { key: 'sorte', label: 'Sorte', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
@@ -3911,9 +4297,25 @@ Views.einstellungen = {
         <div class="flex no-print"><input class="inp" id="typ-neu" placeholder="Neuer Typ …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="typ-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
+      <div class="card"><div class="card-title">${icon('uhr')}<h2>Tätigkeiten (Zeiterfassung)</h2></div>
+        <p class="small muted mb12">Kategorien für die Zeiterfassung beim Abhaken von Aufgaben – frei anpassbar.</p>
+        <div class="chip-row mb12" id="taet-list">${S.get('taetigkeiten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-taetdel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
+        <div class="flex no-print"><input class="inp" id="taet-neu" placeholder="Neue Tätigkeit …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="taet-add">${icon('plus')} Hinzufügen</button></div>
+      </div>
+
       <div class="card"><div class="card-title">${icon('trash')}<h2>Papierkorb</h2></div>
         <p class="small muted mb8">Gelöschte Einträge bleiben 30 Tage wiederherstellbar.</p>
         <button class="btn btn-ghost btn-sm" onclick="navTo('papierkorb')">${icon('trash')} Papierkorb öffnen</button>
+      </div>
+
+      <div class="card"><div class="card-title">${icon('info')}<h2>Version</h2></div>
+        <div class="flex-wrap">
+          <span class="kpill">ImkerBuch v${APP_VERSION}</span>
+          <span class="small muted">Stand ${U.fmtDate(CHANGELOG[0].datum)}</span>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost btn-sm no-print" onclick="changelogModal(CHANGELOG)">${icon('buch')} Was ist neu?</button>
+        </div>
+        <div class="hint mt8">Nach jedem Update zeigt die App die Neuerungen automatisch einmalig an.</div>
       </div>`;
 
     /* Sicherung */
@@ -4000,6 +4402,20 @@ Views.einstellungen = {
       if (!(await UI.confirm({ title: 'Dokumententyp entfernen?', text: `„${typen[+b.dataset.tdel]}“ wird aus der Auswahl entfernt (bestehende Zuordnungen bleiben als Text erhalten).`, confirmText: 'Entfernen' }))) return;
       typen.splice(+b.dataset.tdel, 1); await S.set('dokumentTypen', typen); renderRoute();
     });
+
+    /* Tätigkeiten (Zeiterfassung) */
+    const taetigkeiten = S.get('taetigkeiten');
+    $('#taet-add').onclick = async () => {
+      const v = $('#taet-neu').value.trim();
+      if (!v) return;
+      if (taetigkeiten.includes(v)) return UI.toast('Tätigkeit existiert bereits', 'err');
+      taetigkeiten.push(v); await S.set('taetigkeiten', taetigkeiten); renderRoute();
+    };
+    $('#taet-list').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-taetdel]'); if (!b) return;
+      if (!(await UI.confirm({ title: 'Tätigkeit entfernen?', text: `„${taetigkeiten[+b.dataset.taetdel]}“ wird aus der Auswahl entfernt (bestehende Zeiteinträge behalten den Namen).`, confirmText: 'Entfernen' }))) return;
+      taetigkeiten.splice(+b.dataset.taetdel, 1); await S.set('taetigkeiten', taetigkeiten); renderRoute();
+    });
   },
 };
 
@@ -4047,9 +4463,13 @@ async function boot() {
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('service-worker.js').catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }
-  if (!S.get('wizardDone') && !TEST_MODE) Wizard.run();
+  if (!S.get('wizardDone') && !TEST_MODE) {
+    Wizard.run();
+    S.set('letzteGeseheneVersion', APP_VERSION); // Neuinstallation: kein „Was ist neu?“-Fenster
+  }
   await renderRoute();
   Backup.updateBanners();
+  zeigeUpdateFenster();
   window.appReady = true; // Signal für die Testseite
 }
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
@@ -4058,6 +4478,7 @@ Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
+  verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

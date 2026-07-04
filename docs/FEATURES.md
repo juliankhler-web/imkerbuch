@@ -47,6 +47,17 @@
 14. ✅ **Reporting**: Völkerentwicklung (aktive Völker je Jahresende), Honigertrag je Volk/Stand/Tracht/Jahr (umschaltbar), Behandlungsübersicht, Einnahmen/Ausgaben – jeweils Diagramm + Tabelle + PDF-Export
 15. ✅ **Aufgaben/Kalender**: Fälligkeiten mit Gruppen (überfällig/heute/Woche/später/erledigt), Monatskalender mit Aufgaben-Punkten, Auto-Aufgaben aus Zuchtserien, Behandlungs-Wartezeiten und Fütterungs-Wiedervorlagen
 
+## v0.32: Klickbare Kacheln & Fahrtenbuch (Nachtrag 2026-07-04, auf Julians Wunsch)
+- ✅ **Dashboard-Kacheln klickbar**: Tipp auf eine Kachel springt in den passenden Bereich (Völker→Völker, Aufgaben→Aufgaben, Ertrag→Reporting, Wetter→Stände, Sicherung→Einstellungen); Buttons/Links in der Kachel behalten Vorrang
+- ✅ **Fahrtenbuch für die Steuer**: je Stand Entfernung von zu Hause hinterlegbar (`kmEntfernung`), „Fahrt erfassen“ am Stand-Detail + unter Reporting → Fahrten (km vorbelegt mit 2 × Entfernung, Zweck-Vorschläge); Übersicht mit km/Fahrten/Pauschale (0,30 €/km) je Jahr und je Stand; **Fahrtenbuch-PDF** als Steuer-Nachweis; eigener Store `fahrten` (DB v3), in Excel/Backup/Komplett-PDF enthalten
+- ✅ **Versionssystem** (ab 0.31): `APP_VERSION` + `CHANGELOG`, „Was ist neu?“-Fenster einmalig nach jedem Update, Version in Sidebar + Einstellungen
+
+## Verkauf, Zeiterfassung & Vorschlagslisten (Nachtrag 2026-07-04, auf Julians Wunsch)
+- ✅ **Verkäufe mit Lagerlogik** (Honig → Tab „Verkäufe“ + Buttons an Charge/Bestand): „X Gläser aus Los Y an Kunde Z“ → prüft Bestand, mindert die Charge, bucht die Einnahme automatisch im Kassenbuch; Stornieren macht beides rückgängig; eigener Store `verkaeufe` (DB v2), in Excel-Export/Backup/Komplett-PDF enthalten
+- ✅ **Zeiterfassung je Aufgabe**: beim Abhaken fragt ein Schnell-Dialog Dauer (15/30/45/60/90/120 min oder frei) + Tätigkeit ab (Vorbelegung aus Aufgaben-Quelle, z. B. Zucht); Felder auch im Aufgaben-Formular; „Zeit nachtragen“ für Arbeiten ohne Aufgabe
+- ✅ **Neuer Reiter „Zeiterfassung“** (Navigation → Auswertung): Tortendiagramm (Donut, eigener SVG-Helfer `UI.pie`) Stunden je Tätigkeit, Jahres-Filter, Kennzahlen, Einträge-Liste; Tätigkeiten-Liste in den Einstellungen frei anpassbar
+- ✅ **Vorschlags-Dropdowns** (neuer Feldtyp `suggest` = Datalist): Rasse/Linie, Herkunft, Beutentyp, Rähmchenmaß, Futterart, Behandlungsmittel, Anwendungsart, Honig-Sorte, Trachtpflanze – sinnvolle Vorgaben + freie Eigeneingabe, bereits selbst verwendete Werte werden automatisch mit vorgeschlagen („lernend“)
+
 ## Erinnerungen (Nachtrag 2026-07-03, auf Julians Wunsch)
 - ✅ Benachrichtigung bei fälligen Aufgaben: Systemmeldung über den Service Worker + Zähler am App-Icon (Badging API); Prüfung beim Öffnen, beim Sichtbarwerden und alle 30 Min. solange die App läuft; max. 1 Meldung/Tag (mehr nur bei neuen Fälligkeiten); Klick springt zu den Aufgaben; Feature-Schalter + Probe-Button in den Einstellungen
 - ✅ Fütterungs-Wiedervorlage: „erneut prüfen in X Tagen“ beim Erfassen einer Fütterung → automatische Aufgabe

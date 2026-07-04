@@ -240,6 +240,71 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
   w.location.hash = '#/dashboard'; await warte();
 });
 
+/* ---------- Verkauf: Lagerabzug + Kassenbuch-Automatik ---------- */
+test('verkaufErfassen: mindert Bestand, bucht Einnahme, lehnt Überverkauf ab', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'T-01', abfuelldatum: '2026-06-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 10, mhd: '', etikettNotiz: '' });
+  const v = await w.verkaufErfassen({ chargeId: c.id, anzahl: 3, preisJeGlas: 6.5 });
+  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 7, 'Bestand 10 → 7');
+  assertNah(v.betrag, 19.5, 0.001, 'Betrag = Anzahl × Preis');
+  const kb = await w.DB.get('kassenbuch', v.kassenbuchId);
+  assert(kb && kb.typ === 'einnahme' && kb.kategorie === 'Honigverkauf', 'Einnahme im Kassenbuch');
+  assertNah(kb.betrag, 19.5, 0.001, 'Kassenbuch-Betrag');
+  let fehler = false;
+  try { await w.verkaufErfassen({ chargeId: c.id, anzahl: 99, preisJeGlas: 1 }); } catch (e) { fehler = true; }
+  assert(fehler, 'Überverkauf wirft Fehler');
+  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 7, 'Bestand nach Fehlversuch unverändert');
+});
+test('verkaufStornieren: Bestand zurück, Buchung + Verkauf im Papierkorb', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'T-02', abfuelldatum: '2026-06-01', ernteIds: [], glasGroesseG: 250, anzahlGlaeser: 5, bestandGlaeser: 5, mhd: '', etikettNotiz: '' });
+  const v = await w.verkaufErfassen({ chargeId: c.id, anzahl: 2, preisJeGlas: 4 });
+  await w.verkaufStornieren(v.id);
+  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 5, 'Bestand wiederhergestellt');
+  assert(!(await w.DB.get('verkaeufe', v.id)), 'Verkauf entfernt');
+  assert(!(await w.DB.get('kassenbuch', v.kassenbuchId)), 'Buchung entfernt');
+  const korb = await w.DB.getAll('papierkorb');
+  assert(korb.some((t) => t.store === 'kassenbuch' && t.daten.id === v.kassenbuchId), 'Buchung liegt im Papierkorb');
+});
+
+/* ---------- Zeiterfassung ---------- */
+test('Reporting.zeiten: Minuten → Stunden je Tätigkeit, ohne Kategorie = Sonstiges', (w) => {
+  const p = w.Reporting.zeiten([
+    { zeitMinuten: 90, kategorie: 'Behandlung' },
+    { zeitMinuten: 30, kategorie: 'Behandlung' },
+    { zeitMinuten: 60, kategorie: null },
+  ]);
+  assertEq(p.find((x) => x.label === 'Behandlung').wert, 2, '120 min → 2 h');
+  assertEq(p.find((x) => x.label === 'Sonstiges').wert, 1, 'null-Kategorie → Sonstiges');
+  assertEq(p[0].label, 'Behandlung', 'absteigend sortiert');
+});
+test('UI.pie: Donut mit Anteilen und Legende', (w) => {
+  const html = w.UI.pie({ posten: [{ label: 'A', wert: 2 }, { label: 'B', wert: 1 }], einheit: 'h' });
+  assert(html.includes('<circle'), 'SVG-Segmente vorhanden');
+  assert(html.includes('67 %') && html.includes('33 %'), 'Prozentanteile berechnet');
+  assert(html.includes('h gesamt'), 'Gesamtsumme in der Mitte');
+  assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
+});
+
+/* ---------- Fahrtenbuch ---------- */
+test('Reporting.fahrtStatistik: Kilometer und Fahrten je Jahr', (w) => {
+  const s = w.Reporting.fahrtStatistik([
+    { datum: '2026-05-01', km: 12.4 },
+    { datum: '2026-06-01', km: 7.6 },
+    { datum: '2025-08-01', km: 30 },
+    { datum: null, km: 99 },
+  ]);
+  assertEq(s[0], { jahr: '2026', anzahl: 2, km: 20 }, 'Jahr summiert, absteigend sortiert');
+  assertEq(s[1], { jahr: '2025', anzahl: 1, km: 30 });
+  assertEq(s.length, 2, 'Einträge ohne Datum werden ignoriert');
+});
+
+/* ---------- Version & Changelog ---------- */
+test('Version & Changelog konsistent (Update-Fenster-Grundlage)', (w) => {
+  assertEq(w.APP_VERSION, w.CHANGELOG[0].version, 'APP_VERSION = neuester Changelog-Eintrag');
+  assert(w.CHANGELOG.every((c) => c.version && /^\d{4}-\d{2}-\d{2}$/.test(c.datum) && c.punkte.length > 0), 'jeder Eintrag hat Version, Datum, Punkte');
+  const versionen = w.CHANGELOG.map((c) => c.version);
+  assertEq(new Set(versionen).size, versionen.length, 'keine doppelten Versionsnummern');
+});
+
 /* ---------- Aufgaben-Automatik ---------- */
 test('syncZuchtAufgaben: 7 Termine als Aufgaben', async (w) => {
   const serie = await w.DB.put('zuchtserien', { name: 'Test-Serie', startdatum: '2026-07-01', anzahl: 10, termine: w.zuchtTermine('2026-07-01'), notiz: '' });
