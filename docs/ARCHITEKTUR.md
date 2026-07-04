@@ -34,7 +34,7 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 | `S` | Settings (Key-Value-Store, beim Start in den Speicher geladen, `S.get`/`S.set`) |
 | `UI` | `toast`, `modal`, `confirm` (inkl. Tipp-Bestätigung), `formModal` (generisches Formular mit Validierung, Dezimalkomma, Dirty-Guard; Feldtyp `suggest` = Datalist-Vorschläge + Eigeneingabe), `tabs`, `chart` (SVG Linie/Balken), `pie` (SVG-Donut mit Legende) |
 | Router | Hash-Routing `#/route/param`, `Views`-Registry, `renderRoute()`, `navTo()`, `NAV`-Definition, App-Chrome (Sidebar/Bottom-Nav/Mehr-Sheet), `applyTheme()` |
-| DRY-Helfer | `bindAdd` (Neu-Buttons), `zielIdAus` + `zielFormValues` (Volk/Stand-Formulare), `papierkorbDelete` (Standard-onDelete), `emptyState`, `pageHead`, `idMap` |
+| DRY-Helfer | `bindAdd` (Neu-Buttons), `zielIdAus` + `zielFormValues` (Volk/Stand-Formulare), `papierkorbDelete` (Standard-onDelete), `emptyState`, `pageHead` (Titel + `.ph-actions`-Buttonblock; responsiv: `.ph-text{min-width:min(100%,14rem)}` erzwingt bei Platzmangel den Umbruch der Aktionen in eine eigene Zeile statt Titel-Overlap), `idMap` |
 | `Anhang` | Foto-/Dokument-Anhänge: Galerie, Viewer, Dokumententypen, OCR-Anbindung |
 | `Ocr` | Tesseract.js (deu), lazy |
 | `Voice`, `Sprachnotiz` | MediaRecorder, Web-Speech-Live-Diktat, Whisper offline (transformers.js, 16-kHz-Resampling) |

@@ -138,7 +138,11 @@ main{flex:1;padding:20px 18px calc(30px + env(safe-area-inset-bottom));max-width
 .card-title h2{flex:1}
 .card-title svg{width:19px;height:19px;color:var(--honey-dark)}
 .page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px;flex-wrap:wrap}
-.page-head .ph-text{flex:1;min-width:0}
+/* ph-text bekommt eine Mindestbreite (aber nie mehr als die volle Zeile), damit der Titel
+   nicht auf wenige Pixel gestaucht wird und über die Buttons läuft. Passt er samt Actions
+   nicht in eine Zeile, wandert der Actions-Block dank flex-wrap automatisch in die nächste. */
+.page-head .ph-text{flex:1 1 auto;min-width:min(100%,14rem)}
+.page-head .ph-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0}
 .page-head .sub{color:var(--muted);font-size:13.5px;margin-top:2px}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;border-radius:12px;
@@ -564,8 +568,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.39';
+const APP_VERSION = '0.41';
 const CHANGELOG = [
+  { version: '0.41', datum: '2026-07-04', punkte: [
+    'Layout-Korrektur: Auf schmalen Handy-Breiten (z. B. iPhone) wurde die Seitenüberschrift („Völker“ usw.) von den Buttons daneben überdeckt/abgeschnitten. Titel und Aktionen rutschen jetzt sauber untereinander – gilt für alle Seiten',
+  ] },
+  { version: '0.40', datum: '2026-07-04', punkte: [
+    'Mehr Auswahl-Menüs statt Freitext: Beim Ausfüllen schlägt die App jetzt auch bei Futter (Stockkarte), Einheit (Behandlung), Von/Nach-Ort (Wanderung), Inventar-Bezeichnung, Tracht-Region, Kassenbuch-Beschreibung und Kontakt-Ort passende Werte vor – eigene Eingaben werden gemerkt und stehen beim nächsten Mal zur Auswahl',
+    'Neue Inventar-Kategorien „Behandlungsmittel“ und „Futter“ – passend zur Betriebsmittel-Überwachung',
+  ] },
   { version: '0.39', datum: '2026-07-04', punkte: [
     'Honig-Etiketten drucken: aus jeder Charge ein druckfertiger Etikettenbogen mit allen Pflichtangaben nach Honigverordnung (Bezeichnung, Füllmenge, MHD, Los, Name+Anschrift, Ursprungsland) – optional mit QR-Code (Honig → Charge → Etikett)',
     'Stockkarten-Vorlagen: eine Durchsicht als Vorlage speichern und per Schnell-Button vorbefüllt öffnen (z. B. „Ableger“) – weniger Tippen am Stand',
@@ -660,7 +671,7 @@ const KASSEN_KATEGORIEN = {
   einnahme: ['Honigverkauf', 'Völker-/Ablegerverkauf', 'Wachs/Sonstige Produkte', 'Förderung/Zuschuss', 'Sonstige Einnahme'],
   ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Versicherung/Beiträge', 'Sonstige Ausgabe'],
 };
-const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
+const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Behandlungsmittel', 'Futter', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
 
 /* Sinnvolle Vorschlagslisten für Eingabefelder (Typ 'suggest'):
    vorausgewählt per Dropdown, eigenes Eintippen bleibt immer möglich. */
@@ -675,6 +686,9 @@ const VORSCHLAEGE = {
   sorte: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume'],
   pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
   fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf'],
+  futter: ['ausreichend', 'gut', 'reichlich', 'knapp', 'muss gefüttert werden', '1 Futterwabe', '2 Futterwaben', '3 Futterwaben', 'verdeckelt'],
+  einheit: ['ml', 'g', 'Streifen', 'Tablette', 'Stück', 'Beutel'],
+  inventar: ['Beute komplett', 'Zarge', 'Rähmchen', 'Absperrgitter', 'Smoker', 'Stockmeißel', 'Abkehrbesen', 'Honigschleuder', 'Entdeckelungsgeschirr', 'Refraktometer', 'Futtertrog', 'Mittelwände', 'Ameisensäure', 'Oxalsäure', 'Bienenflucht', 'Anhänger', 'Waage'],
 };
 /* Bienenprodukte für die Ernte (Honig ist Standard) */
 const BIENENPRODUKTE = ['Honig', 'Wabenhonig', 'Wachs', 'Pollen', 'Propolis', 'Gelée Royale', 'Met', 'Bienengift', 'Ableger/Volk'];
@@ -1157,7 +1171,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
 
 /* Wiederkehrende UI-Bausteine */
 const emptyState = (ic, text, btnHtml = '') => `<div class="empty">${icon(ic)}<div class="e-text">${text}</div>${btnHtml}</div>`;
-const pageHead = (title, sub, actions = '') => `<div class="page-head"><div class="ph-text"><h1>${U.esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${actions}</div>`;
+const pageHead = (title, sub, actions = '') => `<div class="page-head"><div class="ph-text"><h1>${U.esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${actions ? `<div class="ph-actions no-print">${actions}</div>` : ''}</div>`;
 
 /** „Neu"-Buttons (Kopfzeile #add + leerer Zustand #add2) mit derselben Aktion verdrahten */
 function bindAdd(fn, root = document) { for (const id of ['#add', '#add2']) { const b = $(id, root); if (b) b.onclick = fn; } }
@@ -2103,7 +2117,8 @@ Views.volk = {
       if (s) Views.volk.stockkarteDetail(v, s);
     });
   },
-  stockkarteForm(v, s, vorlage) {
+  async stockkarteForm(v, s, vorlage) {
+    const futterOpts = await gelernteWerte(VORSCHLAEGE.futter, 'stockkarten', 'futter');
     // Eigene Zusatzfelder aus den Einstellungen (key z0, z1, … , vorbelegt aus s.zusatz)
     const felder = S.get('stockkartenFelder') || [];
     const typMap = { text: 'text', zahl: 'number', check: 'check', rating: 'rating' };
@@ -2119,7 +2134,7 @@ Views.volk = {
         { key: 'volksstaerke', label: 'Volksstärke', type: 'rating', hint: '1 = schwach, 5 = sehr stark' },
         { key: 'brutbild', label: 'Brutbild', type: 'rating' },
         { key: 'sanftmut', label: 'Sanftmut', type: 'rating' },
-        { key: 'futter', label: 'Futter', placeholder: 'z. B. ausreichend, 2 volle Waben' },
+        { key: 'futter', label: 'Futter', type: 'suggest', options: futterOpts },
         { key: 'weiselzellen', label: 'Weiselzellen vorhanden', type: 'check' },
         ...zusatzFelder,
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
@@ -2538,7 +2553,7 @@ Views.behandlungen = {
         { key: 'datum', label: 'Datum der Anwendung', type: 'date', required: true, default: U.todayIso() },
         { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
         { key: 'menge', label: 'Menge', type: 'number', required: true },
-        { key: 'einheit', label: 'Einheit', default: 'ml', placeholder: 'ml, g, Streifen …' },
+        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
         { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerungs-Aufgabe zum Ende angelegt.' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
@@ -2605,7 +2620,7 @@ Views.trachten = {
         { key: 'pflanze', label: 'Trachtpflanze', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.pflanze, 'trachten', 'pflanze') },
         { key: 'von', label: 'Beginn', type: 'date' },
         { key: 'bis', label: 'Ende', type: 'date' },
-        { key: 'region', label: 'Region', placeholder: 'z. B. Feldmark Nord' },
+        { key: 'region', label: 'Region', type: 'suggest', options: await gelernteWerte([], 'trachten', 'region'), placeholder: 'z. B. Feldmark Nord' },
         { key: 'standIds', label: 'Zugeordnete Stände', type: 'multicheck', options: staendeArr.map((s) => ({ v: s.id, l: s.name })) },
       ],
       values: t || {},
@@ -2640,12 +2655,15 @@ Views.wanderungen = {
     const form = async (w) => {
       const ziel = await zielFelder(w || {});
       const trachtenArr = await DB.getAll('trachten');
+      const standNamen = (await DB.getAll('staende')).map((s) => s.name).filter(Boolean);
+      const vonOpts = await gelernteWerte(standNamen, 'wanderungen', 'vonOrt');
+      const nachOpts = await gelernteWerte(standNamen, 'wanderungen', 'nachOrt');
       UI.formModal({
         title: w ? 'Wanderung bearbeiten' : 'Neue Wanderung', wide: true,
         fields: [
           ...ziel,
-          { key: 'vonOrt', label: 'Von (Ort)', placeholder: 'z. B. Heimstand' },
-          { key: 'nachOrt', label: 'Nach (Ort)', required: true, placeholder: 'z. B. Rapsfeld Feldmark Nord' },
+          { key: 'vonOrt', label: 'Von (Ort)', type: 'suggest', options: vonOpts, placeholder: 'z. B. Heimstand' },
+          { key: 'nachOrt', label: 'Nach (Ort)', type: 'suggest', required: true, options: nachOpts, placeholder: 'z. B. Rapsfeld Feldmark Nord' },
           { key: 'datum', label: 'Datum Hinwanderung', type: 'date', required: true, default: U.todayIso() },
           { key: 'rueckDatum', label: 'Rückwanderung (optional)', type: 'date' },
           { key: 'trachtId', label: 'Zugeordnete Tracht', type: 'select', options: trachtenArr.map((t) => ({ v: t.id, l: t.bezeichnung })) },
@@ -3118,6 +3136,7 @@ Views.kassenbuch = {
   },
   async form(k) {
     const kontakte = await DB.getAll('kontakte');
+    const beschrOpts = await gelernteWerte([], 'kassenbuch', 'beschreibung');
     UI.formModal({
       title: k ? 'Buchung bearbeiten' : 'Neue Buchung',
       fields: [
@@ -3128,7 +3147,7 @@ Views.kassenbuch = {
         { key: 'betrag', label: 'Betrag (€)', type: 'number', required: true },
         { key: 'steuersatz', label: 'Steuersatz', type: 'select', default: '0', options: [{ v: '0', l: '0 % / keine' }, { v: '7', l: '7 %' }, { v: '19', l: '19 %' }] },
         { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${c.typ})` })) },
-        { key: 'beschreibung', label: 'Beschreibung', placeholder: 'z. B. 12 Gläser Rapshonig' },
+        { key: 'beschreibung', label: 'Beschreibung', type: 'suggest', options: beschrOpts, placeholder: 'z. B. 12 Gläser Rapshonig' },
       ],
       values: k ? { ...k, katEin: k.typ === 'einnahme' ? k.kategorie : '', katAus: k.typ === 'ausgabe' ? k.kategorie : '' } : {},
       async onSave(v) {
@@ -3165,12 +3184,12 @@ Views.kassenbuch = {
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('meldung', 'Noch keine Kontakte. Kunden brauchst du für Rechnungen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Kontakt</button>`)}
     </div>`;
-    const form = (c) => UI.formModal({
+    const form = async (c) => UI.formModal({
       title: c ? 'Kontakt bearbeiten' : 'Neuer Kontakt',
       fields: [
         { key: 'typ', label: 'Art', type: 'select', required: true, default: 'kunde', options: [{ v: 'kunde', l: 'Kunde' }, { v: 'lieferant', l: 'Lieferant' }] },
         { key: 'name', label: 'Name / Firma', required: true },
-        { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
+        { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort', type: 'suggest', options: await gelernteWerte([], 'kontakte', 'ort') },
         { key: 'email', label: 'E-Mail' }, { key: 'telefon', label: 'Telefon' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
@@ -3379,10 +3398,10 @@ Views.inventar = {
           <td>${U.esc(staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–')}</td><td>${U.fmtDate(i.anschaffung) || '–'}</td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>`
       : emptyState('box', 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
-    const form = (i) => UI.formModal({
+    const form = async (i) => UI.formModal({
       title: i ? 'Position bearbeiten' : 'Neue Inventar-Position',
       fields: [
-        { key: 'bezeichnung', label: 'Bezeichnung', required: true, placeholder: 'z. B. Zanderbeute komplett' },
+        { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.inventar, 'inventar', 'bezeichnung'), placeholder: 'z. B. Zanderbeute komplett' },
         { key: 'kategorie', label: 'Kategorie', type: 'select', options: INVENTAR_KATEGORIEN.map((k) => ({ v: k, l: k })) },
         { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
         { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
@@ -5277,6 +5296,7 @@ Object.assign(window, {
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
+  gelernteWerte, INVENTAR_KATEGORIEN, pageHead,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

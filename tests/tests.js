@@ -396,6 +396,39 @@ test('Reporting.fahrtStatistik: Kilometer und Fahrten je Jahr', (w) => {
   assertEq(s.length, 2, 'Einträge ohne Datum werden ignoriert');
 });
 
+/* ---------- Auswahl-Menüs (Vorschläge) ---------- */
+test('gelernteWerte: Presets + gelernte DB-Werte, dedupliziert & sortiert', async (w) => {
+  const P = 'ZZ-Test-'; // eindeutiges Präfix isoliert von Daten anderer Tests
+  await w.DB.put('kassenbuch', { typ: 'einnahme', datum: '2026-05-01', betrag: 5, beschreibung: P + 'Beta' });
+  await w.DB.put('kassenbuch', { typ: 'ausgabe', datum: '2026-05-02', betrag: 3, beschreibung: P + 'Alpha' });
+  await w.DB.put('kassenbuch', { typ: 'einnahme', datum: '2026-05-03', betrag: 9, beschreibung: P + 'Alpha' }); // Duplikat
+  // Learned-only (leere Presets): einmalige, sortierte Werte aus dem Store
+  const nur = (await w.gelernteWerte([], 'kassenbuch', 'beschreibung')).filter((x) => x.startsWith(P));
+  assertEq(nur, [P + 'Alpha', P + 'Beta'], 'gelernte Werte einmalig und sortiert');
+  // Mit Presets: Presets zuerst, gelernte ohne Doppelung ergänzt
+  const mit = (await w.gelernteWerte([P + 'Alpha', P + 'Gamma'], 'kassenbuch', 'beschreibung')).filter((x) => x.startsWith(P));
+  assertEq(mit, [P + 'Alpha', P + 'Gamma', P + 'Beta'], 'Presets voran, kein Duplikat von Alpha');
+});
+
+test('Vorschlagslisten & Inventar-Kategorien vorhanden', (w) => {
+  ['futter', 'einheit', 'inventar'].forEach((k) => assert(Array.isArray(w.VORSCHLAEGE[k]) && w.VORSCHLAEGE[k].length > 0, `VORSCHLAEGE.${k} gefüllt`));
+  assert(w.INVENTAR_KATEGORIEN.includes('Behandlungsmittel') && w.INVENTAR_KATEGORIEN.includes('Futter'), 'neue Inventar-Kategorien vorhanden');
+});
+
+/* ---------- Seitenkopf-Layout (kein Titel/Button-Overlap) ---------- */
+test('pageHead: Aktionen in eigenem .ph-actions-Container (verhindert Titel-Overlap)', (w) => {
+  const d = document.createElement('div');
+  d.innerHTML = w.pageHead('Völker', '3 aktiv', '<button id="x">Neues Volk</button>');
+  assert(d.querySelector('.page-head'), 'page-head vorhanden');
+  assertEq(d.querySelector('.ph-text h1').textContent, 'Völker', 'Titel im ph-text');
+  const act = d.querySelector('.ph-actions');
+  assert(act && act.querySelector('#x'), 'Aktionen sind in .ph-actions gekapselt');
+  // ohne Aktionen darf kein leerer Container entstehen
+  const d2 = document.createElement('div');
+  d2.innerHTML = w.pageHead('Nur Titel', 'Untertitel');
+  assert(!d2.querySelector('.ph-actions'), 'ohne Aktionen kein .ph-actions');
+});
+
 /* ---------- Version & Changelog ---------- */
 test('Version & Changelog konsistent (Update-Fenster-Grundlage)', (w) => {
   assertEq(w.APP_VERSION, w.CHANGELOG[0].version, 'APP_VERSION = neuester Changelog-Eintrag');

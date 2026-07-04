@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-04 · **v0.39 · Alle Module + Import + 6 Wettbewerbs-Features komplett + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-04 · **v0.41 · Alle Module + Import + 7 Wettbewerbs-Features + lernende Auswahl-Menüs + Seitenkopf-Layoutfix (kein Titel/Button-Overlap auf Handys), 42/42 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -71,6 +71,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-07-04 (v0.41)**: **Seitenkopf-Layoutfix** (Julian-Report: Überschrift „Völker" wurde auf schmalen Handy-Breiten von den Buttons überdeckt/abgeschnitten). Ursache: `.page-head` (flex-wrap) stauchte `.ph-text` bei ~390px auf ~10px, der einwortige Titel lief über die Aktionen. Fix: `pageHead()` kapselt Aktionen in `.ph-actions`; `.ph-text{flex:1 1 auto;min-width:min(100%,14rem)}` verhindert die Stauchung → Aktionen brechen dank flex-wrap breitenunabhängig in eine eigene Zeile (verifiziert 375/390/414/637px, alle 20+ Routen inkl. Detailseiten, kein X-Overflow). Test #40 sichert die `.ph-actions`-Kapselung; Test-Harness bekam einen Cache-Buster (frische `tests.js`). SW-Cache → `imkerbuch-v041`. 42/42 grün.
+- **2026-07-04 (v0.40)**: **Vorschläge überall im Freitext** (Julians Wunsch „überall wo noch Freitext ist“): Feldtyp `suggest` zusätzlich bei Stockkarten-Futter, Behandlungs-Einheit, Wanderung Von/Nach-Ort (aus Stand-Namen + gelernt via `gelernteWerte`), Inventar-Bezeichnung, Tracht-Region, Kassenbuch-Beschreibung, Kontakt-Ort; neue `VORSCHLAEGE` (futter/einheit/inventar) + Inventar-Kategorien „Behandlungsmittel“/„Futter“; SW-Cache → `imkerbuch-v040`. 41/41 grün.
 - **2026-07-04 (v0.39)**: Wettbewerbs-Auftrag Teil 3/3 abgeschlossen: **Honig-Etiketten-PDF** (`Pdf.honigEtikett`/`honigEtikettForm`, Honigverordnungs-Pflichtangaben, optional QR), **Stockkarten-Vorlagen** (`stockkartenVorlagen`, Schnell-Buttons + Speichern im Formular + Verwaltung in Einstellungen), **Zucht-Stammbaum** (`koeniginnen.mutterId`, `koeniginStammbaumHtml` Ahnen+Töchter zyklensicher). Alle 7 Auftrags-Features (Import + Rechner + Betriebsmittel + Varroa-Befall + Etiketten + Vorlagen + Stammbaum) fertig. 39/39 grün.
 
 - **2026-07-04 (v0.38)**: Aus der Wettbewerbsanalyse (Julian-Auftrag, Teil 2/3): **Imker-Rechner** (`Views.rechner`, NAV+Route: Honigpreis/Wassergehalt/Sirup/Futter), **Betriebsmittel-Warnung** (Inventar `ablauf`+`mindestbestand`, `pruefeMhd` erweitert, Badge), **Varroa-Befallsmethoden** (`varroaAmpelBefall`/`varroaMetrik`, Milben je 100 Bienen für Auswaschen/Puderzucker via `probeBienen`, `VARROA_BEFALL_METHODEN`). 37/37 grün. NOCH OFFEN: Honig-Etiketten, Stockkarten-Vorlagen, Zucht-Stammbaum.

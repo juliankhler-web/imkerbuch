@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-04 · Automatisiert: **39 Testfälle, alle grün**
+> Stand: 2026-07-04 · Automatisiert: **42 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -23,46 +23,48 @@ Funktionsweise:
 
 | # | Testfall | Prüft |
 |---|---|---|
-| 1 | Name | — |
-| 2 | U.parseNum | deutsches Zahlenformat |
-| 3 | U.fmtDate / fmtNum / fmtEur | — |
-| 4 | U.addDays / daysBetween (Monats-/Jahresgrenzen) | — |
-| 5 | U.dataURLToBlob / blobToDataURL Roundtrip | — |
-| 6 | queenColor | internationale Zeichenfarben |
-| 7 | zuchtTermine | Zuchtkalender ab Umlarvtag |
-| 8 | rechnungSummen | Brutto & enthaltene USt |
-| 9 | zielIdAus / zielFormValues (Formular-Helfer) | — |
-| 10 | DB.put vergibt UUID, createdAt, lastModified | — |
-| 11 | DB.softDel → Papierkorb → trashRestore | — |
-| 12 | DB.purgeTrash | nur Einträge > 30 Tage löschen |
-| 13 | Backup.applyMerge | neuer gewinnt, keine Duplikate |
-| 14 | Backup.applyMerge | älterer Import verliert |
-| 15 | Backup.applyMerge | Anhang ohne Datei wird übersprungen |
-| 16 | Backup.buildData + applyReplace | Roundtrip erhält Daten |
-| 17 | Backup | Dateiname imkerbuch-backup-JJJJ-MM-TT-HHMM.json |
-| 18 | Backup.snapshotInternal | rollierend, ohne Anhang-Blobs |
-| 19 | S.set / S.get Roundtrip (persistiert) | — |
-| 20 | Backup.reminderInfo | Stufen ok/gelb/rot |
-| 21 | Notif.faellige | überfällig + heute, ohne erledigte/zukünftige/ohne Datum |
-| 22 | Notif.icsFuerAufgaben | gültiger Kalender mit Alarm und Escaping |
-| 23 | PdfImport.parse | erkennt Behandlung und Ernte am Datum + Stichwort |
-| 24 | PdfImport.parse | dedupliziert gleiche Treffer |
-| 25 | Regression | View-Listener leaken nicht über Seitenwechsel |
-| 26 | verkaufErfassen | mindert Bestand, bucht Einnahme, lehnt Überverkauf ab |
-| 27 | verkaufStornieren | Bestand zurück, Buchung + Verkauf im Papierkorb |
-| 28 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, ohne Kategorie = Sonstiges |
-| 29 | UI.pie | Donut mit Anteilen und Legende |
-| 30 | koeniginStammbaumHtml | Ahnenlinie aufwärts + Töchter |
-| 31 | koeniginStammbaumHtml | Zyklen brechen ab (kein Endlos) |
-| 32 | Importer.parseDate | erkennt gängige Datumsformate → ISO |
-| 33 | Importer | Spalten-Auto-Zuordnung + Import mit Referenzauflösung |
-| 34 | Importer | Durchsicht ohne existierendes Volk wird übersprungen |
-| 35 | pruefeMhd | warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate |
-| 36 | varroaAmpelBefall + varroaMetrik | Milben je 100 Bienen |
-| 37 | varroaAmpel | saisonale Schwellen (Juli streng, Januar sehr streng) |
-| 38 | Reporting.fahrtStatistik | Kilometer und Fahrten je Jahr |
-| 39 | Version & Changelog konsistent (Update-Fenster-Grundlag | — |
-| 40 | syncZuchtAufgaben | 7 Termine als Aufgaben |
+| 1 | U.parseNum | deutsches Zahlenformat |
+| 2 | U.fmtDate / fmtNum / fmtEur | — |
+| 3 | U.addDays / daysBetween (Monats-/Jahresgrenzen) | — |
+| 4 | U.dataURLToBlob / blobToDataURL Roundtrip | — |
+| 5 | queenColor | internationale Zeichenfarben |
+| 6 | zuchtTermine | Zuchtkalender ab Umlarvtag |
+| 7 | rechnungSummen | Brutto & enthaltene USt |
+| 8 | zielIdAus / zielFormValues (Formular-Helfer) | — |
+| 9 | DB.put vergibt UUID, createdAt, lastModified | — |
+| 10 | DB.softDel → Papierkorb → trashRestore | — |
+| 11 | DB.purgeTrash | nur Einträge > 30 Tage löschen |
+| 12 | Backup.applyMerge | neuer gewinnt, keine Duplikate |
+| 13 | Backup.applyMerge | älterer Import verliert |
+| 14 | Backup.applyMerge | Anhang ohne Datei wird übersprungen |
+| 15 | Backup.buildData + applyReplace | Roundtrip erhält Daten |
+| 16 | Backup | Dateiname imkerbuch-backup-JJJJ-MM-TT-HHMM.json |
+| 17 | Backup.snapshotInternal | rollierend, ohne Anhang-Blobs |
+| 18 | S.set / S.get Roundtrip (persistiert) | — |
+| 19 | Backup.reminderInfo | Stufen ok/gelb/rot |
+| 20 | Notif.faellige | überfällig + heute, ohne erledigte/zukünftige/ohne Datum |
+| 21 | Notif.icsFuerAufgaben | gültiger Kalender mit Alarm und Escaping |
+| 22 | PdfImport.parse | erkennt Behandlung und Ernte am Datum + Stichwort |
+| 23 | PdfImport.parse | dedupliziert gleiche Treffer |
+| 24 | Regression | View-Listener leaken nicht über Seitenwechsel |
+| 25 | verkaufErfassen | mindert Bestand, bucht Einnahme, lehnt Überverkauf ab |
+| 26 | verkaufStornieren | Bestand zurück, Buchung + Verkauf im Papierkorb |
+| 27 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, ohne Kategorie = Sonstiges |
+| 28 | UI.pie | Donut mit Anteilen und Legende |
+| 29 | koeniginStammbaumHtml | Ahnenlinie aufwärts + Töchter |
+| 30 | koeniginStammbaumHtml | Zyklen brechen ab (kein Endlos) |
+| 31 | Importer.parseDate | erkennt gängige Datumsformate → ISO |
+| 32 | Importer | Spalten-Auto-Zuordnung + Import mit Referenzauflösung |
+| 33 | Importer | Durchsicht ohne existierendes Volk wird übersprungen |
+| 34 | pruefeMhd | warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate |
+| 35 | varroaAmpelBefall + varroaMetrik | Milben je 100 Bienen |
+| 36 | varroaAmpel | saisonale Schwellen (Juli streng, Januar sehr streng) |
+| 37 | Reporting.fahrtStatistik | Kilometer und Fahrten je Jahr |
+| 38 | gelernteWerte | Presets + gelernte DB-Werte, dedupliziert & sortiert |
+| 39 | Vorschlagslisten & Inventar-Kategorien | futter/einheit/inventar gefüllt, neue Kategorien vorhanden |
+| 40 | pageHead | Aktionen in eigenem .ph-actions-Container (verhindert Titel/Button-Overlap) |
+| 41 | Version & Changelog konsistent | Update-Fenster-Grundlage |
+| 42 | syncZuchtAufgaben | 7 Termine als Aufgaben |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

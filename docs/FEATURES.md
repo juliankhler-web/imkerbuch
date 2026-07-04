@@ -91,6 +91,7 @@
 - ✅ **Zeiterfassung je Aufgabe**: beim Abhaken fragt ein Schnell-Dialog Dauer (15/30/45/60/90/120 min oder frei) + Tätigkeit ab (Vorbelegung aus Aufgaben-Quelle, z. B. Zucht); Felder auch im Aufgaben-Formular; „Zeit nachtragen“ für Arbeiten ohne Aufgabe
 - ✅ **Neuer Reiter „Zeiterfassung“** (Navigation → Auswertung): Tortendiagramm (Donut, eigener SVG-Helfer `UI.pie`) Stunden je Tätigkeit, Jahres-Filter, Kennzahlen, Einträge-Liste; Tätigkeiten-Liste in den Einstellungen frei anpassbar
 - ✅ **Vorschlags-Dropdowns** (neuer Feldtyp `suggest` = Datalist): Rasse/Linie, Herkunft, Beutentyp, Rähmchenmaß, Futterart, Behandlungsmittel, Anwendungsart, Honig-Sorte, Trachtpflanze – sinnvolle Vorgaben + freie Eigeneingabe, bereits selbst verwendete Werte werden automatisch mit vorgeschlagen („lernend“)
+- ✅ **Vorschläge überall im Freitext** (Nachtrag 2026-07-04, v0.40): zusätzlich bei Stockkarten-Futter, Behandlungs-Einheit (ml/g/Streifen …), Wanderung Von-/Nach-Ort (aus vorhandenen Stand-Namen + gelernt), Inventar-Bezeichnung, Tracht-Region, Kassenbuch-Beschreibung und Kontakt-Ort; neue Inventar-Kategorien „Behandlungsmittel“ und „Futter“
 
 ## Erinnerungen (Nachtrag 2026-07-03, auf Julians Wunsch)
 - ✅ Benachrichtigung bei fälligen Aufgaben: Systemmeldung über den Service Worker + Zähler am App-Icon (Badging API); Prüfung beim Öffnen, beim Sichtbarwerden und alle 30 Min. solange die App läuft; max. 1 Meldung/Tag (mehr nur bei neuen Fälligkeiten); Klick springt zu den Aufgaben; Feature-Schalter + Probe-Button in den Einstellungen
