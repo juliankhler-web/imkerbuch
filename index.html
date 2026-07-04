@@ -403,6 +403,7 @@ const ICONS = {
   task:'<circle cx="12" cy="12" r="8.6"/><path d="m8.4 12.4 2.5 2.5 4.9-5.4"/>',
   uhr:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2.2"/>',
   varroa:'<circle cx="12" cy="12" r="4.5"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+  rechner:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M16 11h.01M8 15h2M12 15h2M16 15v3M8 18h6"/>',
   check2:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.5 2.5L16 9"/>',
   kalender:'<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M4 10.5h16M8.5 3.5v4M15.5 3.5v4"/>',
   gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/>',
@@ -563,8 +564,21 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.36';
+const APP_VERSION = '0.39';
 const CHANGELOG = [
+  { version: '0.39', datum: '2026-07-04', punkte: [
+    'Honig-Etiketten drucken: aus jeder Charge ein druckfertiger Etikettenbogen mit allen Pflichtangaben nach Honigverordnung (Bezeichnung, Füllmenge, MHD, Los, Name+Anschrift, Ursprungsland) – optional mit QR-Code (Honig → Charge → Etikett)',
+    'Stockkarten-Vorlagen: eine Durchsicht als Vorlage speichern und per Schnell-Button vorbefüllt öffnen (z. B. „Ableger“) – weniger Tippen am Stand',
+    'Königinnen-Zucht-Stammbaum: Muttertier hinterlegen und die Abstammung über Generationen samt Töchtern sehen',
+  ] },
+  { version: '0.38', datum: '2026-07-04', punkte: [
+    'Neuer Bereich „Rechner“: Honigpreis-Kalkulation, Wassergehalt-Bewertung, Zuckersirup-Mischung (3:2/1:1) und Winterfutter-Bedarf – rechnen direkt auf dem Gerät',
+    'Betriebsmittel-Warnung: Inventar-Positionen können jetzt Ablaufdatum und Mindestbestand haben; die App erinnert automatisch, wenn z. B. Varroa-Mittel ablaufen oder der Vorrat knapp wird (Badge in der Inventarliste + Aufgabe)',
+    'Varroa-Kontrolle erweitert: neben Milben/Tag (Bodenschieber) jetzt auch Befall je 100 Bienen (Auswaschen/Puderzucker) mit eigener Ampel – im selben Verlaufsdiagramm',
+  ] },
+  { version: '0.37', datum: '2026-07-04', punkte: [
+    'Umstieg leicht gemacht: Daten aus einer anderen Imker-App übernehmen! Unter „Meldungen & Export → Aus anderer App importieren“ eine CSV- oder Excel-Datei (Export aus BeeManager, iBeekeeper, BeeInTouch o. a.) hochladen, Spalten zuordnen (die App rät sie meist selbst) und Stände, Völker, Durchsichten, Behandlungen, Ernten, Kontakte oder Kassenbuch werden angelegt – kein Neu-Eintippen.',
+  ] },
   { version: '0.36', datum: '2026-07-04', punkte: [
     'Großer Hochformat-Feinschliff (mehrere Ansichten geprüft): behoben wurden seitliches Verrutschen im Aufgaben-Kalender und Dashboard, überlaufende Zahlen in Kennzahl-Kacheln, zu enge Marktverkauf-Kacheln, gequetschte Seitenköpfe mit vielen Knöpfen sowie zerrissener Banner-Text – die App sitzt jetzt auf schmalen Displays sauber.',
   ] },
@@ -678,12 +692,29 @@ const VARROA_SCHWELLEN = { // Monat (1–12): {gruen, gelb} Milben/Tag
   5: { gruen: 3, gelb: 6 }, 6: { gruen: 5, gelb: 10 }, 7: { gruen: 5, gelb: 10 }, 8: { gruen: 5, gelb: 10 },
   9: { gruen: 3, gelb: 6 }, 10: { gruen: 1, gelb: 3 }, 11: { gruen: 0.5, gelb: 1 }, 12: { gruen: 0.5, gelb: 1 },
 };
-/** Milben/Tag → Ampelstufe für den Monat des Datums */
+/** Milben/Tag → Ampelstufe für den Monat des Datums (natürlicher Fall) */
 function varroaAmpel(milbenProTag, datumIso) {
   const s = VARROA_SCHWELLEN[+String(datumIso).slice(5, 7)] || { gruen: 3, gelb: 6 };
   if (milbenProTag <= s.gruen) return { stufe: 'gruen', badge: 'b-ok', text: 'unkritisch' };
   if (milbenProTag <= s.gelb) return { stufe: 'gelb', badge: 'b-warn', text: 'beobachten' };
   return { stufe: 'rot', badge: 'b-danger', text: 'Behandlung prüfen' };
+}
+/** Befallsgrad (Milben je 100 Bienen, Auswaschen/Puderzucker) → Ampel; Richtwert ~3 % */
+function varroaAmpelBefall(milbenJe100) {
+  if (milbenJe100 <= 1) return { stufe: 'gruen', badge: 'b-ok', text: 'unkritisch' };
+  if (milbenJe100 <= 3) return { stufe: 'gelb', badge: 'b-warn', text: 'beobachten' };
+  return { stufe: 'rot', badge: 'b-danger', text: 'Behandlung prüfen' };
+}
+/* Welche Methode misst was: 'fall' = Milben/Tag, 'befall' = Milben je 100 Bienen */
+const VARROA_BEFALL_METHODEN = ['Puderzuckermethode', 'Auswaschmethode'];
+/** vereinheitlichte Kennzahl einer Zählung: {wert, einheit, ampel} */
+function varroaMetrik(x) {
+  if (VARROA_BEFALL_METHODEN.includes(x.methode)) {
+    const je100 = x.probeBienen > 0 ? (x.milben / x.probeBienen) * 100 : x.milben;
+    return { wert: Math.round(je100 * 10) / 10, einheit: '/100 Bienen', ampel: varroaAmpelBefall(je100) };
+  }
+  const proTag = x.tageZaehl > 0 ? x.milben / x.tageZaehl : x.milben;
+  return { wert: Math.round(proTag * 10) / 10, einheit: '/Tag', ampel: varroaAmpel(proTag, x.datum) };
 }
 /** Vorschläge + bereits selbst verwendete Werte eines Feldes kombinieren */
 async function gelernteWerte(presets, store, feld) {
@@ -772,6 +803,7 @@ const S = {
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
+    stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
     dashboardWidgets: ['voelker', 'aufgaben', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
     darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null,
   },
@@ -1030,6 +1062,7 @@ const NAV = [
   { sec: 'Auswertung' },
   { route: 'reporting', label: 'Reporting', ic: 'chart' },
   { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
+  { route: 'rechner', label: 'Rechner', ic: 'rechner' },
   { route: 'meldungen', label: 'Meldungen & Export', ic: 'meldung' },
   { sec: 'System' },
   { route: 'einstellungen', label: 'Einstellungen', ic: 'gear' },
@@ -2051,8 +2084,10 @@ Views.volk = {
   async tabStockkarte(box, v) {
     const eintraege = U.sortBy((await DB.getAll('stockkarten')).filter((s) => s.volkId === v.id), (s) => s.datum, true);
     const rate = (n) => (n ? `${n}/5` : '–');
+    const vorlagen = S.get('stockkartenVorlagen') || [];
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('buch')}<h2>Durchsichten</h2><button class="btn btn-primary btn-sm no-print" id="skAdd">${icon('plus')} Durchsicht</button></div>
+      ${vorlagen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center">Schnell:</span>${vorlagen.map((vl, i) => `<button class="chip" data-vorlage="${i}">${icon('plus')} ${U.esc(vl.name)}</button>`).join('')}</div>` : ''}
       ${eintraege.length ? `<div class="rows">${eintraege.map((s) => `
         <button class="row" data-sk="${s.id}">
           <span class="r-main"><span class="r-title">${U.fmtDate(s.datum)} ${s.weiselzellen ? '<span class="badge b-warn">Weiselzellen</span>' : ''}</span>
@@ -2061,20 +2096,24 @@ Views.volk = {
     </div>`;
     $('#skAdd', box).onclick = () => Views.volk.stockkarteForm(v, null);
     box.addEventListener('click', (e) => {
+      const vl = e.target.closest('[data-vorlage]');
+      if (vl) { Views.volk.stockkarteForm(v, null, vorlagen[+vl.dataset.vorlage].werte); return; }
       const b = e.target.closest('[data-sk]'); if (!b) return;
       const s = eintraege.find((x) => x.id === b.dataset.sk);
       if (s) Views.volk.stockkarteDetail(v, s);
     });
   },
-  stockkarteForm(v, s) {
+  stockkarteForm(v, s, vorlage) {
     // Eigene Zusatzfelder aus den Einstellungen (key z0, z1, … , vorbelegt aus s.zusatz)
     const felder = S.get('stockkartenFelder') || [];
     const typMap = { text: 'text', zahl: 'number', check: 'check', rating: 'rating' };
+    // Startwerte: bestehender Eintrag ODER Vorlage (bei neuer Durchsicht), Zusatzfelder umgeschlüsselt
+    const basis = s || vorlage || {};
     const zusatzWerte = {};
-    felder.forEach((f, i) => { zusatzWerte['z' + i] = (s && s.zusatz) ? s.zusatz[f.name] : undefined; });
+    felder.forEach((f, i) => { zusatzWerte['z' + i] = basis.zusatz ? basis.zusatz[f.name] : undefined; });
     const zusatzFelder = felder.map((f, i) => ({ key: 'z' + i, label: f.name, type: typMap[f.typ] || 'text' }));
     UI.formModal({
-      title: s ? 'Durchsicht bearbeiten' : 'Neue Durchsicht',
+      title: s ? 'Durchsicht bearbeiten' : vorlage ? 'Neue Durchsicht (Vorlage)' : 'Neue Durchsicht',
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'volksstaerke', label: 'Volksstärke', type: 'rating', hint: '1 = schwach, 5 = sehr stark' },
@@ -2084,13 +2123,23 @@ Views.volk = {
         { key: 'weiselzellen', label: 'Weiselzellen vorhanden', type: 'check' },
         ...zusatzFelder,
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
+        ...(s ? [] : [{ key: '_vorlageName', label: 'Diese Eingaben als Vorlage speichern (Name)', placeholder: 'leer lassen = nicht speichern', hint: 'z. B. „Ableger“ oder „Standard-Sommer“ – dann als Schnell-Button verfügbar.' }]),
       ],
-      values: Object.assign({}, s || {}, zusatzWerte),
+      values: Object.assign({}, basis, s ? {} : { datum: U.todayIso() }, zusatzWerte),
       async onSave(val) {
+        const vorlageName = (val._vorlageName || '').trim(); delete val._vorlageName;
         const zusatz = {};
         felder.forEach((f, i) => { zusatz[f.name] = val['z' + i]; delete val['z' + i]; });
         val.zusatz = zusatz;
-        await DB.put('stockkarten', Object.assign(s || { volkId: v.id }, val)); UI.toast('Durchsicht gespeichert'); renderRoute();
+        if (vorlageName) {
+          const vl = S.get('stockkartenVorlagen') || [];
+          const werte = { volksstaerke: val.volksstaerke, brutbild: val.brutbild, sanftmut: val.sanftmut, futter: val.futter, weiselzellen: val.weiselzellen, zusatz, notiz: val.notiz };
+          const idx = vl.findIndex((x) => x.name === vorlageName);
+          if (idx >= 0) vl[idx].werte = werte; else vl.push({ name: vorlageName, werte });
+          await S.set('stockkartenVorlagen', vl);
+        }
+        await DB.put('stockkarten', Object.assign(s || { volkId: v.id }, val));
+        UI.toast(vorlageName ? 'Durchsicht + Vorlage gespeichert' : 'Durchsicht gespeichert'); renderRoute();
       },
       onDelete: papierkorbDelete('stockkarten', s, 'Durchsicht löschen?', 'Wandert in den Papierkorb (30 Tage).'),
     });
@@ -2154,35 +2203,38 @@ Views.volk = {
   /* ---------- Varroa-Kontrolle (Milbenfall, Milben/Tag, Ampel) ---------- */
   async tabVarroa(box, v) {
     const list = U.sortBy((await DB.getAll('varroa')).filter((x) => x.volkId === v.id), (x) => x.datum);
-    const proTag = (x) => (x.tageZaehl > 0 ? x.milben / x.tageZaehl : x.milben);
     const letzte = list.length ? list[list.length - 1] : null;
-    const letztAmpel = letzte ? varroaAmpel(proTag(letzte), letzte.datum) : null;
+    const mLetzt = letzte ? varroaMetrik(letzte) : null;
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('varroa')}<h2>Varroa-Kontrolle</h2><button class="btn btn-primary btn-sm no-print" id="vAdd">${icon('plus')} Zählung</button></div>
-      ${letzte ? `<div class="flex-wrap mb12"><span class="badge ${letztAmpel.badge}">${U.fmtNum(proTag(letzte), 1)} Milben/Tag · ${letztAmpel.text}</span><span class="small muted">letzte Zählung ${U.fmtDate(letzte.datum)}</span></div>` : ''}
-      ${list.length ? UI.chart({ type: 'line', labels: list.map((x) => U.fmtDate(x.datum).slice(0, 6)), series: [{ name: 'Milben/Tag', values: list.map(proTag), color: '#B3362B' }], height: 180, unit: '/Tag' }) : ''}
-      ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Tage</th><th class="num">Milben</th><th class="num">Milben/Tag</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
-        <tbody>${[...list].reverse().map((x) => { const a = varroaAmpel(proTag(x), x.datum);
-          return `<tr><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${x.tageZaehl || '–'}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(proTag(x), 1)}</b></td><td><span class="badge ${a.badge}">${a.text}</span></td>
+      ${letzte ? `<div class="flex-wrap mb12"><span class="badge ${mLetzt.ampel.badge}">${U.fmtNum(mLetzt.wert, 1)} Milben${mLetzt.einheit} · ${mLetzt.ampel.text}</span><span class="small muted">letzte Zählung ${U.fmtDate(letzte.datum)}</span></div>` : ''}
+      ${list.length ? UI.chart({ type: 'line', labels: list.map((x) => U.fmtDate(x.datum).slice(0, 6)), series: [{ name: 'Milben', values: list.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
+      ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Milben</th><th class="num">Kennzahl</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
+        <tbody>${[...list].reverse().map((x) => { const m = varroaMetrik(x);
+          return `<tr><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${x.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
-        <div class="hint mt8">Ampel nach saisonalen Richtwerten für den natürlichen Milbentotenfall (ohne Gewähr). „Behandlung prüfen“ heißt: Diagnose ernst nehmen und ggf. behandeln – die Behandlung selbst dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
-      : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (z. B. Bodenschieber) zeigt früh, wann behandelt werden muss.')}
+        <div class="hint mt8">Zwei Kennzahlen je nach Methode: <b>Milben/Tag</b> (Bodenschieber/Gemüll, saisonale Schwelle) und <b>Milben je 100 Bienen</b> (Auswaschen/Puderzucker, Richtwert ~3 %). Ohne Gewähr. Behandlung dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
+      : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (Bodenschieber, Auswaschen oder Puderzucker) zeigt früh, wann behandelt werden muss.')}
     </div>`;
+    const istBefall = (m) => VARROA_BEFALL_METHODEN.includes(m);
     const form = (x) => UI.formModal({
       title: x ? 'Varroa-Zählung bearbeiten' : 'Varroa-Zählung',
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'methode', label: 'Methode', type: 'select', required: true, default: VARROA_METHODEN[0], options: VARROA_METHODEN.map((mm) => ({ v: mm, l: mm })) },
-        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7, hint: 'Wie viele Tage lag der Schieber ein? Milben/Tag = Milben ÷ Tage. Bei Puderzucker/Auswaschen: 1.' },
+        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7, hint: 'Milben/Tag = Milben ÷ Tage.', showIf: (f) => !istBefall(f.methode) },
+        { key: 'probeBienen', label: 'Bienen in der Probe', type: 'number', default: 300, hint: 'Milben je 100 Bienen = Milben ÷ Bienen × 100 (übliche Probe: 300 Bienen ≈ 3 Becher).', showIf: (f) => istBefall(f.methode) },
         { key: 'milben', label: 'Gezählte Milben', type: 'number', required: true },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       values: x || {},
       async onSave(val) {
         val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1;
-        await DB.put('varroa', Object.assign(x || { volkId: v.id }, val));
-        const a = varroaAmpel(val.tageZaehl > 0 ? val.milben / val.tageZaehl : val.milben, val.datum);
-        UI.toast(a.stufe === 'rot' ? '⚠️ Gespeichert – Schwelle überschritten, Behandlung prüfen' : 'Zählung gespeichert');
+        val.probeBienen = val.probeBienen ? Math.round(val.probeBienen) : 300;
+        const saved = Object.assign(x || { volkId: v.id }, val);
+        await DB.put('varroa', saved);
+        const m = varroaMetrik(saved);
+        UI.toast(m.ampel.stufe === 'rot' ? '⚠️ Gespeichert – Schwelle überschritten, Behandlung prüfen' : 'Zählung gespeichert');
         renderRoute();
       },
       onDelete: papierkorbDelete('varroa', x, 'Zählung löschen?', 'Wandert in den Papierkorb.'),
@@ -2271,12 +2323,14 @@ Views.koeniginnen = {
     const jahr = new Date().getFullYear();
     const herkunftOpts = await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft');
     const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
+    const andereQueens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.id !== (q && q.id)), (k) => k.jahrgang, true);
     UI.formModal({
       title: q ? 'Königin bearbeiten' : 'Neue Königin',
       fields: [
         { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, hint: `Zeichenfarbe wird automatisch bestimmt (${jahr} = ${queenColor(jahr)[0]}).` },
         { key: 'herkunft', label: 'Herkunft', type: 'suggest', options: herkunftOpts },
         { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: rasseOpts },
+        { key: 'mutterId', label: 'Muttertier (Zuchtmutter)', type: 'select', options: andereQueens.map((k) => ({ v: k.id, l: `${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` })), hint: 'Für den Zucht-Stammbaum – von welcher Königin stammt sie ab?' },
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
@@ -2304,16 +2358,21 @@ Views.koeniginnen = {
       } : null,
     });
   },
-  detail(q, voelker) {
+  async detail(q, voelker) {
     const [farbe, hex] = queenColor(q.jahrgang);
     const hist = U.sortBy(q.historie || [], (h) => h.von, true);
+    const qm = await idMap('koeniginnen');
+    const stammbaum = koeniginStammbaumHtml(q, qm);
     const m = UI.modal({
       title: `Königin ${q.jahrgang} (${farbe})`, wide: true,
       body: `<div class="detail-kv mb12">
           <dt>Zeichenfarbe</dt><dd><span class="dot" style="background:${hex}"></span> ${farbe}</dd>
           <dt>Herkunft</dt><dd>${U.esc(q.herkunft) || '–'}</dd><dt>Linie</dt><dd>${U.esc(q.linie) || '–'}</dd>
+          <dt>Muttertier</dt><dd>${q.mutterId && qm.get(q.mutterId) ? koeniginLabel(qm.get(q.mutterId)) : '<span class="muted">–</span>'}</dd>
           <dt>Status</dt><dd>${U.esc(q.status)}</dd><dt>Notiz</dt><dd>${U.esc(q.notiz) || '–'}</dd>
         </div>
+        <h3 class="mb8">Zucht-Stammbaum</h3>
+        <div class="mb12">${stammbaum}</div>
         <h3 class="mb8">Zuordnungshistorie</h3>
         <div class="rows mb12">${hist.map((h) => `<div class="row" style="min-height:42px;padding:8px 4px">
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(h.volkId)?.name || 'gelöschtes Volk')}</span>
@@ -2325,6 +2384,30 @@ Views.koeniginnen = {
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.koeniginnen.form(q); };
   },
 };
+/** Kurzlabel einer Königin */
+function koeniginLabel(k) { return k ? `${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
+/** Stammbaum: Ahnenlinie aufwärts + Nachkommen (Töchter, rekursiv begrenzt) */
+function koeniginStammbaumHtml(q, qm) {
+  // Vorfahren (Mutterlinie aufwärts)
+  const ahnen = []; let cur = q.mutterId ? qm.get(q.mutterId) : null; const gesehen = new Set([q.id]);
+  while (cur && !gesehen.has(cur.id) && ahnen.length < 8) { ahnen.push(cur); gesehen.add(cur.id); cur = cur.mutterId ? qm.get(cur.mutterId) : null; }
+  // Nachkommen (Töchter) rekursiv, Tiefe 3
+  const alle = [...qm.values()];
+  const toechterHtml = (mutterId, tiefe) => {
+    if (tiefe > 3) return '';
+    const kinder = U.sortBy(alle.filter((k) => k.mutterId === mutterId), (k) => k.jahrgang, true);
+    if (!kinder.length) return '';
+    return `<div style="margin-left:16px;border-left:2px solid var(--line);padding-left:12px">${kinder.map((k) => `<div class="small" style="padding:3px 0">${koeniginLabel(k)}${k.status !== 'aktiv' ? ` <span class="badge b-muted">${U.esc(k.status)}</span>` : ''}${toechterHtml(k.id, tiefe + 1)}</div>`).join('')}</div>`;
+  };
+  const toechter = toechterHtml(q.id, 1);
+  const ahnenLinie = ahnen.length
+    ? `<div class="small muted mb8">Abstammung: ${ahnen.map((a) => koeniginLabel(a)).join(' <span style="opacity:.5">←</span> ')}</div>`
+    : '';
+  const dieseHtml = `<div class="kpill" style="font-weight:700">${koeniginLabel(q)} <span class="badge b-honey">diese</span></div>`;
+  return (ahnenLinie || toechter)
+    ? `${ahnenLinie}${dieseHtml}${toechter ? `<div class="small muted mt8 mb4">Nachkommen (Töchter):</div>${toechter}` : '<div class="small muted mt8">Noch keine Töchter erfasst.</div>'}`
+    : `<div class="small muted">Kein Stammbaum: weder Muttertier noch Töchter hinterlegt. Trage bei „Bearbeiten“ das Muttertier ein oder lege Königinnen mit dieser als Mutter an.</div>`;
+}
 
 /* =====================================================================
    MODUL: ZUCHT (Serien, automatischer Zuchtkalender, Aufgaben, PDF)
@@ -2583,6 +2666,26 @@ Views.wanderungen = {
   },
 };
 
+/** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF */
+async function honigEtikettForm(c) {
+  const ernten = await idMap('ernten');
+  const sorte = (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || '';
+  const imk = S.get('imkerei');
+  if (!imk.name || !imk.ort) UI.toast('Tipp: Imkerei-Name & Anschrift in den Einstellungen ausfüllen – sie gehören aufs Etikett', 'err');
+  UI.formModal({
+    title: `Honig-Etikett · Los ${c.losnummer}`, wide: true,
+    fields: [
+      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: c.etikettNotiz || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
+      { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
+      { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: c.bestandGlaeser || c.anzahlGlaeser || 10 },
+      { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
+      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${U.fmtNum(c.glasGroesseG, 0)} g), MHD${c.mhd ? ' (' + U.fmtDate(c.mhd) + ')' : ' – bitte an der Charge hinterlegen'}, Losnummer und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
+    ],
+    saveText: 'Etiketten-PDF erzeugen',
+    async onSave(v) { await Pdf.honigEtikett(c, v); },
+  });
+}
+
 /* =====================================================================
    MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, QR, Bestand,
    Verkäufe mit automatischem Lagerabzug + Kassenbuch-Buchung)
@@ -2799,8 +2902,10 @@ Views.honig = {
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
         ${c.bestandGlaeser > 0 ? `<button class="btn btn-ghost" data-vk>${icon('euro')} Verkauf</button>` : ''}
+        <button class="btn btn-ghost" data-etikett>${icon('doc')} Etikett</button>
         <button class="btn btn-primary" data-qr>${icon('qr')} QR-Code erzeugen</button>`,
     });
+    $('[data-etikett]', m.el).onclick = () => honigEtikettForm(c);
     $('#bestand-save', m.el).onclick = async () => {
       const n = parseInt($('#bestand-inp', m.el).value, 10);
       if (isNaN(n) || n < 0) return UI.toast('Ungültige Anzahl', 'err');
@@ -3267,25 +3372,29 @@ Views.inventar = {
     main.innerHTML = pageHead('Inventar & Material', `${list.length} Positionen · Gesamtwert ${U.fmtEur(wert)}`,
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Position</button>`) +
       `<div class="card">` + (list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th>Kategorie</th><th class="num">Stück</th><th class="num">Preis</th><th class="num">Wert</th><th>Zuordnung</th><th>Anschaffung</th><th class="no-print"></th></tr></thead>
-        <tbody>${list.map((i) => `<tr><td><b>${U.esc(i.bezeichnung)}</b>${i.notiz ? `<br><span class="small muted">${U.esc(i.notiz)}</span>` : ''}</td><td>${U.esc(i.kategorie || '–')}</td>
+        <tbody>${list.map((i) => { const abgelaufen = i.ablauf && i.ablauf < U.todayIso(); const laueftAb = i.ablauf && !abgelaufen && U.daysBetween(U.todayIso(), i.ablauf) <= MHD_WARN_TAGE; const knapp = i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand;
+          const badge = abgelaufen ? '<span class="badge b-danger">abgelaufen</span>' : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>` : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
+          return `<tr><td><b>${U.esc(i.bezeichnung)}</b> ${badge}${i.notiz ? `<br><span class="small muted">${U.esc(i.notiz)}</span>` : ''}</td><td>${U.esc(i.kategorie || '–')}</td>
           <td class="num">${i.stueckzahl || 1}</td><td class="num">${U.fmtEur(i.preis)}</td><td class="num"><b>${U.fmtEur((i.preis || 0) * (i.stueckzahl || 1))}</b></td>
           <td>${U.esc(staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–')}</td><td>${U.fmtDate(i.anschaffung) || '–'}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`).join('')}</tbody></table></div>`
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>`
       : emptyState('box', 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
     const form = (i) => UI.formModal({
       title: i ? 'Position bearbeiten' : 'Neue Inventar-Position',
       fields: [
         { key: 'bezeichnung', label: 'Bezeichnung', required: true, placeholder: 'z. B. Zanderbeute komplett' },
         { key: 'kategorie', label: 'Kategorie', type: 'select', options: INVENTAR_KATEGORIEN.map((k) => ({ v: k, l: k })) },
-        { key: 'stueckzahl', label: 'Stückzahl', type: 'number', default: 1, required: true },
+        { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
         { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
         { key: 'anschaffung', label: 'Anschaffungsdatum', type: 'date' },
+        { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', hint: 'Für Verbrauchsmaterial wie Varroa-Mittel oder Futter – die App erinnert vor Ablauf.' },
+        { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
         { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
         { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       values: i || {},
-      async onSave(v) { v.stueckzahl = Math.round(v.stueckzahl || 1); await DB.put('inventar', Object.assign(i || {}, v)); UI.toast('Inventar gespeichert'); renderRoute(); },
+      async onSave(v) { v.stueckzahl = Math.round(v.stueckzahl || 1); await DB.put('inventar', Object.assign(i || {}, v)); pruefeMhd(); UI.toast('Inventar gespeichert'); renderRoute(); },
       onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
     });
     const add = () => form(null);
@@ -3462,6 +3571,90 @@ Views.zeiten = {
 };
 
 /* =====================================================================
+   MODUL: IMKER-RECHNER (lokale Alltagsrechner, kein Server)
+   ===================================================================== */
+Views.rechner = {
+  title: 'Rechner',
+  async render(main) {
+    main.innerHTML = pageHead('Imker-Rechner', 'Kleine Helfer für den Alltag – rechnen direkt auf dem Gerät') + `
+      <div class="card"><div class="card-title">${icon('euro')}<h2>Honigpreis-Kalkulation</h2></div>
+        <p class="small muted mb12">Was muss ein Glas mindestens kosten, damit sich deine Arbeit lohnt?</p>
+        <div class="grid2">
+          <div class="field"><label>Glasgröße (g)</label><input class="inp rk" data-hp="glas" inputmode="decimal" value="500"></div>
+          <div class="field"><label>Glas + Deckel (€)</label><input class="inp rk" data-hp="glaskosten" inputmode="decimal" value="0,55"></div>
+          <div class="field"><label>Etikett (€)</label><input class="inp rk" data-hp="etikett" inputmode="decimal" value="0,10"></div>
+          <div class="field"><label>Honig-Kosten je kg (€)</label><input class="inp rk" data-hp="honigkg" inputmode="decimal" value="0" placeholder="Erzeugung/Einkauf"></div>
+          <div class="field"><label>Arbeitszeit je Glas (min)</label><input class="inp rk" data-hp="zeit" inputmode="decimal" value="3"></div>
+          <div class="field"><label>Stundensatz (€)</label><input class="inp rk" data-hp="stundensatz" inputmode="decimal" value="15"></div>
+          <div class="field"><label>Gewinnaufschlag (%)</label><input class="inp rk" data-hp="aufschlag" inputmode="decimal" value="20"></div>
+        </div>
+        <div id="hp-out" class="stat-grid mt8"></div>
+      </div>
+
+      <div class="card"><div class="card-title">${icon('honig')}<h2>Wassergehalt bewerten</h2></div>
+        <p class="small muted mb12">Refraktometer-Wert eingeben – ist der Honig verkehrsfähig?</p>
+        <div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
+        <div id="wg-out"></div>
+      </div>
+
+      <div class="card"><div class="card-title">${icon('flask')}<h2>Zuckersirup-Mischung</h2></div>
+        <p class="small muted mb12">Wie viel Zucker und Wasser für die gewünschte Sirup-Menge?</p>
+        <div class="grid2">
+          <div class="field"><label>Gewünschte Sirup-Menge (kg)</label><input class="inp rk" data-zs="menge" inputmode="decimal" value="5"></div>
+          <div class="field"><label>Mischverhältnis</label><select class="inp rk" data-zs="verh"><option value="3:2">3:2 (Winterfutter, dick)</option><option value="1:1">1:1 (Reizfütterung, dünn)</option></select></div>
+        </div>
+        <div id="zs-out" class="mt8"></div>
+      </div>
+
+      <div class="card"><div class="card-title">${icon('box')}<h2>Winterfutter-Bedarf</h2></div>
+        <p class="small muted mb12">Gesamter Futterbedarf und geschätzte Zuckermenge fürs ganze Volk.</p>
+        <div class="grid2">
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-wf="voelker" inputmode="numeric" value="${(await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length || 5}"></div>
+          <div class="field"><label>Futter je Volk (kg)</label><input class="inp rk" data-wf="jeVolk" inputmode="decimal" value="15"></div>
+        </div>
+        <div id="wf-out" class="stat-grid mt8"></div>
+      </div>`;
+
+    const num = (sel) => U.parseNum($(sel, main)?.value);
+    const rechne = () => {
+      // Honigpreis
+      const glas = num('[data-hp="glas"]') || 500, gk = num('[data-hp="glaskosten"]') || 0, et = num('[data-hp="etikett"]') || 0,
+        hkg = num('[data-hp="honigkg"]') || 0, zeit = num('[data-hp="zeit"]') || 0, satz = num('[data-hp="stundensatz"]') || 0, auf = num('[data-hp="aufschlag"]') || 0;
+      const material = gk + et + (hkg * glas / 1000);
+      const arbeit = (zeit / 60) * satz;
+      const selbst = material + arbeit;
+      const vk = selbst * (1 + auf / 100);
+      $('#hp-out', main).innerHTML = `
+        <div class="stat"><div class="s-label">Selbstkosten je Glas</div><div class="s-value">${U.fmtEur(selbst)}</div><div class="s-sub">Material ${U.fmtEur(material)} + Arbeit ${U.fmtEur(arbeit)}</div></div>
+        <div class="stat"><div class="s-label">Empf. Verkaufspreis</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtEur(vk)}</div><div class="s-sub">inkl. ${U.fmtNum(auf, 0)} % Aufschlag</div></div>
+        <div class="stat"><div class="s-label">Preis je kg</div><div class="s-value">${glas > 0 ? U.fmtEur(vk / (glas / 1000)) : '–'}</div></div>`;
+      // Wassergehalt
+      const w = num('[data-wg="wert"]');
+      let wb;
+      if (isNaN(w)) wb = '';
+      else if (w < 18) wb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – sehr gut. Unter 18 % (Qualität Deutscher Imkerbund/„Echter Deutscher Honig“).</span></div>`;
+      else if (w <= 20) wb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – verkehrsfähig (Honigverordnung erlaubt bis 20 %), aber nicht Premium. Zügig verkaufen.</span></div>`;
+      else wb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – über 20 %: nicht verkehrsfähig, Gärgefahr. Nicht als Honig verkaufen.</span></div>`;
+      $('#wg-out', main).innerHTML = wb;
+      // Zuckersirup
+      const zm = num('[data-zs="menge"]') || 0, verh = $('[data-zs="verh"]', main).value;
+      const zAnteil = verh === '3:2' ? 3 / 5 : 1 / 2;
+      const zucker = zm * zAnteil, wasser = zm * (1 - zAnteil);
+      $('#zs-out', main).innerHTML = `<div class="flex-wrap"><span class="kpill">Zucker: <b>${U.fmtNum(zucker, 1)} kg</b></span><span class="kpill">Wasser: <b>${U.fmtNum(wasser, 1)} L</b></span><span class="kpill">ergibt ~${U.fmtNum(zm, 1)} kg Sirup</span></div>`;
+      // Winterfutter
+      const vv = Math.round(num('[data-wf="voelker"]') || 0), je = num('[data-wf="jeVolk"]') || 0;
+      const gesamt = vv * je;
+      $('#wf-out', main).innerHTML = `
+        <div class="stat"><div class="s-label">Gesamt-Winterfutter</div><div class="s-value">${U.fmtNum(gesamt, 0)} kg</div><div class="s-sub">${vv} Völker × ${U.fmtNum(je)} kg</div></div>
+        <div class="stat"><div class="s-label">≈ Zuckerbedarf</div><div class="s-value">${U.fmtNum(gesamt, 0)} kg</div><div class="s-sub">grober Richtwert (Wasser verdunstet)</div></div>`;
+    };
+    main.addEventListener('input', (e) => { if (e.target.classList.contains('rk')) rechne(); });
+    main.addEventListener('change', (e) => { if (e.target.classList.contains('rk')) rechne(); });
+    rechne();
+  },
+};
+
+/* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
 const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
@@ -3531,6 +3724,15 @@ Views.meldungen = {
           <button class="btn btn-ghost btn-sm" id="exp-c">${icon('download')} CSV</button>
         </div>
       </div>
+      <div class="card"><div class="card-title">${icon('merge')}<h2>Aus anderer App importieren</h2></div>
+        <p class="small muted mb12">Wechselst du von einer anderen Imker-App (BeeManager, iBeekeeper, BeeInTouch …)? Exportiere dort deine Daten als <b>CSV oder Excel</b> und lade die Datei hier hoch. Du ordnest die Spalten einmal zu (die App rät sie meist selbst) – Völker, Stände usw. werden übernommen, kein Neu-Eintippen.</p>
+        <div class="flex-wrap no-print">
+          <select class="inp" id="imp-entity" style="width:auto;min-width:180px">${Object.entries(Importer.ENTITIES).map(([k, e]) => `<option value="${k}">${e.label}</option>`).join('')}</select>
+          <label class="btn btn-primary">${icon('upload')} Datei wählen<input type="file" accept=".csv,.xlsx,.xls,.tsv,text/csv" class="hidden" id="imp-file"></label>
+        </div>
+        <div class="hint mt8">Tipp: Importiere zuerst die <b>Stände</b>, dann die <b>Völker</b> (damit die Zuordnung klappt), danach Durchsichten/Behandlungen/Ernten.</div>
+        <div id="imp-zone" class="mt12"></div>
+      </div>
       <div class="card"><div class="card-title">${icon('upload')}<h2>PDF auslesen</h2></div>
         <p class="small muted mb12">Lade ein PDF hoch (z. B. altes Bestandsbuch oder Erntebericht). Der Text wird extrahiert; erkannte Behandlungs- oder Ernteeinträge kannst du als Vorschlag übernehmen.</p>
         <label class="btn btn-ghost no-print">${icon('upload')} PDF auswählen<input type="file" accept="application/pdf" class="hidden" id="pdf-in"></label>
@@ -3539,6 +3741,184 @@ Views.meldungen = {
     $('#exp-x').onclick = () => Xlsx.exportModule($('#exp-store').value, 'xlsx');
     $('#exp-c').onclick = () => Xlsx.exportModule($('#exp-store').value, 'csv');
     $('#pdf-in').onchange = (e) => { if (e.target.files[0]) PdfImport.read(e.target.files[0], $('#pdf-out')); };
+    $('#imp-file').onchange = (e) => { if (e.target.files[0]) Importer.start($('#imp-entity').value, e.target.files[0], $('#imp-zone')); e.target.value = ''; };
+  },
+};
+
+/* =====================================================================
+   IMPORT aus anderen Apps: CSV/Excel einlesen (SheetJS), Spalten per
+   Auto-Raten + manueller Zuordnung auf unsere Felder abbilden,
+   Referenzen (Volk→Stand, Durchsicht→Volk) über den Namen auflösen.
+   ===================================================================== */
+const Importer = {
+  // Zielfelder je Entität; aliases = mögliche Spaltenüberschriften (klein, ohne Sonderzeichen)
+  ENTITIES: {
+    staende: { label: 'Bienenstände', store: 'staende', felder: [
+      { key: 'name', label: 'Name', required: true, aliases: ['name', 'stand', 'standort', 'bezeichnung', 'apiary', 'bienenstand', 'standname'] },
+      { key: 'lat', label: 'Breitengrad', type: 'num', aliases: ['lat', 'breite', 'breitengrad', 'latitude'] },
+      { key: 'lng', label: 'Längengrad', type: 'num', aliases: ['lng', 'lon', 'lange', 'laenge', 'langengrad', 'longitude'] },
+      { key: 'notizen', label: 'Notizen', aliases: ['notiz', 'notizen', 'bemerkung', 'kommentar', 'note', 'comment', 'beschreibung'] },
+    ], build: (v) => ({ name: v.name, lat: v.lat ?? null, lng: v.lng ?? null, notizen: v.notizen || '' }) },
+    voelker: { label: 'Völker', store: 'voelker', refs: { stand: 'staende' }, felder: [
+      { key: 'name', label: 'Bezeichnung/Name', required: true, aliases: ['name', 'volk', 'volkname', 'bezeichnung', 'colony', 'hive', 'stock', 'nummer', 'nr', 'volksnummer'] },
+      { key: 'stand', label: 'Bienenstand (Name)', aliases: ['stand', 'standort', 'apiary', 'bienenstand', 'standname'] },
+      { key: 'beutentyp', label: 'Beutentyp', aliases: ['beute', 'beutentyp', 'beuten', 'hivetype', 'beutenart'] },
+      { key: 'beutenkennung', label: 'Beutenkennung', aliases: ['kennung', 'beutenkennung', 'tag', 'label'] },
+      { key: 'raehmchenmass', label: 'Rähmchenmaß', aliases: ['rahmchen', 'raehmchen', 'rahmchenmass', 'mass', 'frame', 'rahmenmass'] },
+      { key: 'notizen', label: 'Notizen', aliases: ['notiz', 'notizen', 'bemerkung', 'kommentar', 'note'] },
+    ], build: (v, refs) => ({ name: v.name, standId: refs.stand || null, koeniginId: null, beutentyp: v.beutentyp || '', beutenkennung: v.beutenkennung || '', raehmchenmass: v.raehmchenmass || '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Importiert' }], notizen: v.notizen || '' }) },
+    koeniginnen: { label: 'Königinnen', store: 'koeniginnen', felder: [
+      { key: 'jahrgang', label: 'Jahrgang', required: true, type: 'num', aliases: ['jahrgang', 'jahr', 'year', 'geburtsjahr'] },
+      { key: 'herkunft', label: 'Herkunft', aliases: ['herkunft', 'origin', 'quelle'] },
+      { key: 'linie', label: 'Rasse/Linie', aliases: ['linie', 'rasse', 'race', 'line', 'zuchtlinie'] },
+      { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
+    ], build: (v) => ({ jahrgang: Math.round(v.jahrgang), herkunft: v.herkunft || '', linie: v.linie || '', status: 'aktiv', historie: [], notiz: v.notiz || '' }) },
+    stockkarten: { label: 'Durchsichten (Stockkarte)', store: 'stockkarten', refs: { volk: 'voelker' }, felder: [
+      { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive', 'volkname', 'stock'] },
+      { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'durchsicht'] },
+      { key: 'volksstaerke', label: 'Volksstärke (1-5)', type: 'num', aliases: ['starke', 'staerke', 'volksstarke', 'strength'] },
+      { key: 'brutbild', label: 'Brutbild (1-5)', type: 'num', aliases: ['brut', 'brutbild', 'brood'] },
+      { key: 'sanftmut', label: 'Sanftmut (1-5)', type: 'num', aliases: ['sanftmut', 'ruhe', 'temperament'] },
+      { key: 'futter', label: 'Futter', aliases: ['futter', 'feed', 'vorrat'] },
+      { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note', 'kommentar', 'text'] },
+    ], build: (v, refs) => ({ volkId: refs.volk, datum: v.datum, volksstaerke: v.volksstaerke || null, brutbild: v.brutbild || null, sanftmut: v.sanftmut || null, futter: v.futter || '', weiselzellen: false, notiz: v.notiz || '' }) },
+    behandlungen: { label: 'Behandlungen', store: 'behandlungen', refs: { volk: 'voelker' }, felder: [
+      { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive'] },
+      { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag'] },
+      { key: 'mittel', label: 'Mittel', required: true, aliases: ['mittel', 'medikament', 'behandlung', 'treatment', 'praparat', 'wirkstoff'] },
+      { key: 'menge', label: 'Menge', type: 'num', aliases: ['menge', 'dosis', 'amount', 'dose'] },
+      { key: 'einheit', label: 'Einheit', aliases: ['einheit', 'unit'] },
+      { key: 'anwendungsart', label: 'Anwendungsart', aliases: ['anwendung', 'anwendungsart', 'methode', 'method'] },
+      { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
+    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: 0, notiz: v.notiz || '' }) },
+    ernten: { label: 'Ernten', store: 'ernten', refs: { volk: 'voelker' }, felder: [
+      { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive'] },
+      { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'erntedatum'] },
+      { key: 'sorte', label: 'Sorte', aliases: ['sorte', 'honig', 'variety', 'tracht', 'honigsorte'] },
+      { key: 'mengeKg', label: 'Menge (kg)', required: true, type: 'num', aliases: ['menge', 'kg', 'ertrag', 'amount', 'gewicht', 'mengekg'] },
+      { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
+    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, produktart: 'Honig', sorte: v.sorte || 'Honig', mengeKg: v.mengeKg, trachtId: null, notiz: v.notiz || '' }) },
+    kontakte: { label: 'Kunden/Lieferanten', store: 'kontakte', felder: [
+      { key: 'name', label: 'Name/Firma', required: true, aliases: ['name', 'firma', 'kunde', 'kontakt', 'company'] },
+      { key: 'strasse', label: 'Straße', aliases: ['strasse', 'straße', 'street', 'adresse'] },
+      { key: 'plz', label: 'PLZ', aliases: ['plz', 'zip', 'postleitzahl'] },
+      { key: 'ort', label: 'Ort', aliases: ['ort', 'stadt', 'city'] },
+      { key: 'email', label: 'E-Mail', aliases: ['email', 'mail', 'e-mail'] },
+      { key: 'telefon', label: 'Telefon', aliases: ['telefon', 'tel', 'phone', 'handy'] },
+    ], build: (v) => ({ typ: 'kunde', name: v.name, strasse: v.strasse || '', plz: v.plz || '', ort: v.ort || '', email: v.email || '', telefon: v.telefon || '', notiz: '' }) },
+    kassenbuch: { label: 'Kassenbuch', store: 'kassenbuch', felder: [
+      { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag'] },
+      { key: 'betrag', label: 'Betrag (€)', required: true, type: 'num', aliases: ['betrag', 'summe', 'amount', 'euro', 'preis', 'wert'] },
+      { key: 'typ', label: 'Art (Einnahme/Ausgabe)', aliases: ['art', 'typ', 'type', 'einnahmeausgabe'] },
+      { key: 'kategorie', label: 'Kategorie', aliases: ['kategorie', 'category', 'gruppe'] },
+      { key: 'beschreibung', label: 'Beschreibung', aliases: ['beschreibung', 'text', 'zweck', 'description', 'notiz', 'bemerkung'] },
+    ], build: (v) => { const t = /aus|ausgab|expense|-/.test(String(v.typ || '').toLowerCase()) || v.betrag < 0 ? 'ausgabe' : 'einnahme'; return { datum: v.datum, typ: t, kategorie: v.kategorie || 'Sonstiges', betrag: Math.abs(v.betrag), steuersatz: 0, kontaktId: null, beschreibung: v.beschreibung || '', rechnungId: null }; } },
+  },
+  _norm: (s) => String(s || '').toLowerCase().replace(/[^a-z0-9äöü]/g, '').replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u'),
+  /** flexibles Datum → ISO (TT.MM.JJJJ, JJJJ-MM-TT, TT/MM/JJJJ, Excel-Serial) */
+  parseDate(v) {
+    if (v === null || v === undefined || v === '') return null;
+    if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+    if (/^\d{4,5}$/.test(s)) { const d = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
+    return null;
+  },
+  async start(entityKey, file, zone) {
+    zone.innerHTML = `<div class="small muted">Datei wird gelesen …</div>`;
+    let rows;
+    try {
+      const XLSX = await Xlsx.lib();
+      const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+    } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} <span class="b-msg">Datei konnte nicht gelesen werden: ${U.esc(e.message)}</span></div>`; return; }
+    if (!rows.length) { zone.innerHTML = `<div class="banner warn">${icon('warn')} <span class="b-msg">Keine Datenzeilen gefunden.</span></div>`; return; }
+    const spalten = Object.keys(rows[0]);
+    const ent = Importer.ENTITIES[entityKey];
+    // Auto-Zuordnung: je Zielfeld die am besten passende Spalte raten
+    const guess = {};
+    for (const f of ent.felder) {
+      const treffer = spalten.find((sp) => { const n = Importer._norm(sp); return f.aliases.some((a) => n === a || n.includes(a) || a.includes(n)); });
+      guess[f.key] = treffer || '';
+    }
+    zone.innerHTML = `
+      <div class="banner info mb12">${icon('info')} <span class="b-msg"><b>${rows.length}</b> Zeilen in „${U.esc(file.name)}“ gefunden. Ordne die Spalten den Feldern zu (Vorschläge sind schon gesetzt):</span></div>
+      <div class="rows mb12">${ent.felder.map((f) => `<div class="row" style="min-height:46px">
+        <span class="r-main" style="flex:1"><span class="r-title">${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</span></span>
+        <select class="inp" data-map="${f.key}" style="width:auto;min-width:150px;max-width:60%">
+          <option value="">– nicht übernehmen –</option>
+          ${spalten.map((sp) => `<option value="${U.esc(sp)}" ${guess[f.key] === sp ? 'selected' : ''}>${U.esc(sp)}</option>`).join('')}
+        </select></div>`).join('')}</div>
+      <div id="imp-preview" class="mb12"></div>
+      <div class="flex-wrap no-print"><button class="btn btn-primary" id="imp-go">${icon('merge')} ${rows.length} Zeilen importieren</button><button class="btn btn-ghost" id="imp-cancel">Abbrechen</button></div>`;
+    const readMap = () => { const map = {}; $$('[data-map]', zone).forEach((s) => { if (s.value) map[s.dataset.map] = s.value; }); return map; };
+    const preview = () => {
+      const map = readMap();
+      const p = $('#imp-preview', zone);
+      p.innerHTML = `<div class="small muted mb8">Vorschau (erste 3 Zeilen):</div><div class="tbl-wrap"><table class="tbl"><thead><tr>${ent.felder.filter((f) => map[f.key]).map((f) => `<th>${U.esc(f.label)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.slice(0, 3).map((r) => `<tr>${ent.felder.filter((f) => map[f.key]).map((f) => `<td>${U.esc(String(r[map[f.key]] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    };
+    preview();
+    zone.addEventListener('change', (e) => { if (e.target.matches('[data-map]')) preview(); });
+    $('#imp-cancel', zone).onclick = () => { zone.innerHTML = ''; };
+    $('#imp-go', zone).onclick = async () => {
+      const map = readMap();
+      const fehlend = ent.felder.filter((f) => f.required && !map[f.key]);
+      if (fehlend.length) return UI.toast('Bitte Pflichtfelder zuordnen: ' + fehlend.map((f) => f.label).join(', '), 'err');
+      await Importer.run(entityKey, rows, map, zone);
+    };
+  },
+  /** Namens-Index für Referenzauflösung (Stand/Volk per Name → id) */
+  async _nameIndex(store) { const m = new Map(); for (const r of await DB.getAll(store)) m.set(Importer._norm(r.name), r.id); return m; },
+  async run(entityKey, rows, map, zone) {
+    const ent = Importer.ENTITIES[entityKey];
+    const refIdx = {};
+    for (const rk of Object.keys(ent.refs || {})) refIdx[rk] = await Importer._nameIndex(ent.refs[rk]);
+    let ok = 0, uebersprungen = 0; const probleme = [];
+    for (const r of rows) {
+      // Rohwerte je Zielfeld ziehen + typisieren
+      const v = {};
+      for (const f of ent.felder) {
+        if (!map[f.key]) continue;
+        let raw = r[map[f.key]];
+        if (raw === '' || raw === null || raw === undefined) { v[f.key] = undefined; continue; }
+        if (f.type === 'num') { const n = U.parseNum(raw); v[f.key] = isNaN(n) ? undefined : n; }
+        else if (f.type === 'date') v[f.key] = Importer.parseDate(raw);
+        else v[f.key] = String(raw).trim();
+      }
+      // Pflichtfelder prüfen
+      if (ent.felder.some((f) => f.required && (v[f.key] === undefined || v[f.key] === null || v[f.key] === ''))) { uebersprungen++; continue; }
+      // Referenzen auflösen (Volk→Stand, Durchsicht→Volk): fehlt der Bezug, ggf. anlegen bzw. überspringen
+      const refs = {};
+      let skip = false;
+      for (const rk of Object.keys(ent.refs || {})) {
+        const name = v[rk];
+        if (!name) { refs[rk] = null; continue; }
+        const key = Importer._norm(name);
+        let id = refIdx[rk].get(key);
+        if (!id) {
+          if (rk === 'stand') { const st = await DB.put('staende', { name, lat: null, lng: null, notizen: '' }); id = st.id; refIdx[rk].set(key, id); }
+          else { // Volk-Referenz fehlt → Zeile überspringen (Volk muss existieren)
+            skip = true; if (!probleme.includes(name)) probleme.push(name);
+          }
+        }
+        refs[rk] = id || null;
+      }
+      if (skip) { uebersprungen++; continue; }
+      const rec = ent.build(v, refs);
+      const saved = await DB.put(ent.store, rec);
+      // neu angelegte Stände/Völker sofort in den Namensindex (für Folgezeilen)
+      if (entityKey === 'staende' || entityKey === 'voelker') { /* eigener Index nicht nötig hier */ }
+      ok++;
+    }
+    if (entityKey === 'staende' || entityKey === 'voelker') { /* Referenz-Caches anderer Importe veralten – egal, sie werden je Import neu gebaut */ }
+    let msg = `${ok} ${ent.label} importiert`;
+    if (uebersprungen) msg += `, ${uebersprungen} übersprungen`;
+    zone.innerHTML = `<div class="banner ${ok ? 'info' : 'warn'}">${icon(ok ? 'check' : 'warn')} <span class="b-msg"><b>${msg}.</b>${probleme.length ? ` Nicht gefundene Völker (erst Völker importieren): ${U.esc(probleme.slice(0, 8).join(', '))}${probleme.length > 8 ? ' …' : ''}.` : ''}</span></div>`;
+    UI.toast(msg);
+    window._changedSinceBackup = true;
   },
 };
 
@@ -3941,17 +4321,26 @@ const Backup = {
    datum einer Charge mit Restbestand näher rückt oder überschritten ist.
    ===================================================================== */
 async function pruefeMhd() {
-  const chargen = (await DB.getAll('chargen')).filter((c) => c.mhd && c.bestandGlaeser > 0);
   const offeneMhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && !a.erledigt);
   const heute = U.todayIso();
-  for (const c of chargen) {
-    const tage = U.daysBetween(heute, c.mhd);
-    if (tage > MHD_WARN_TAGE) continue; // noch weit weg
-    if (offeneMhdAufgaben.some((a) => a.refId === c.id)) continue; // schon erinnert
-    const titel = tage < 0
+  const schonErinnert = (refId) => offeneMhdAufgaben.some((a) => a.refId === refId);
+  // Honig-Chargen mit Restbestand
+  for (const c of (await DB.getAll('chargen')).filter((c) => c.mhd && c.bestandGlaeser > 0)) {
+    if (U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
+    const titel = c.mhd < heute
       ? `MHD überschritten: Los ${c.losnummer} (${c.bestandGlaeser} Gläser)`
       : `MHD läuft ab: Los ${c.losnummer} am ${U.fmtDate(c.mhd)} (${c.bestandGlaeser} Gläser)`;
     await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
+  }
+  // Betriebsmittel/Inventar: Ablaufdatum (MHD) und Mindestbestand
+  for (const it of await DB.getAll('inventar')) {
+    if (schonErinnert(it.id)) continue;
+    if (it.ablauf && U.daysBetween(heute, it.ablauf) <= MHD_WARN_TAGE) {
+      const titel = it.ablauf < heute ? `Abgelaufen: ${it.bezeichnung}` : `Läuft ab: ${it.bezeichnung} am ${U.fmtDate(it.ablauf)}`;
+      await DB.put('aufgaben', { titel, faellig: it.ablauf, erledigt: false, quelle: 'mhd', refId: it.id, notiz: 'Betriebsmittel vor Ablauf ersetzen (z. B. Varroa-Mittel).' });
+    } else if (it.mindestbestand > 0 && (it.stueckzahl || 0) <= it.mindestbestand) {
+      await DB.put('aufgaben', { titel: `Bestand niedrig: ${it.bezeichnung} (${it.stueckzahl} ≤ ${it.mindestbestand})`, faellig: heute, erledigt: false, quelle: 'mhd', refId: it.id, notiz: 'Nachbestellen.' });
+    }
   }
 }
 
@@ -4239,6 +4628,42 @@ const Pdf = {
       const body = chargen.map((c) => [c.losnummer, U.fmtDate(c.abfuelldatum), `${U.fmtNum(c.glasGroesseG, 0)} g`, String(c.anzahlGlaeser), String(c.bestandGlaeser), U.fmtDate(c.mhd) || '–', (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ')]);
       this.table(doc, { head: ['Los', 'Abgefüllt', 'Glas', 'Anzahl', 'Bestand', 'MHD', 'Ernten'], body, startY: y });
       this.finish(doc, `chargen-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Honig-Etiketten (Honigverordnungs-Pflichtangaben) ---------- */
+  async honigEtikett(c, opts) {
+    try {
+      const jsPDF = await this.lib();
+      const imk = S.get('imkerei');
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
+      // Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite
+      const LW = 90, LH = 54, cols = 2, rows = 5, mx = 12, my = 14, gapx = 6, gapy = 3.6;
+      const qr = opts.mitQr ? await makeQr(`Los: ${c.losnummer}\n${opts.bezeichnung}\n${imk.name || ''}`).catch(() => null) : null;
+      for (let i = 0; i < anzahl; i++) {
+        const posOnPage = i % (cols * rows);
+        if (i > 0 && posOnPage === 0) doc.addPage();
+        const col = posOnPage % cols, row = Math.floor(posOnPage / cols);
+        const x = mx + col * (LW + gapx), yy = my + row * (LH + gapy);
+        doc.setDrawColor(210, 195, 160).setLineWidth(0.3).roundedRect(x, yy, LW, LH, 3, 3);
+        // Logo-Ecke
+        try { doc.addImage(await this.logoDataUrl(), 'PNG', x + 4, yy + 4, 9, 9); } catch (e) {}
+        doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(120, 80, 0);
+        doc.text(imk.name || 'Imkerei', x + 16, yy + 10, { maxWidth: LW - 20 });
+        doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(38, 38, 43);
+        doc.text(opts.bezeichnung, x + 6, yy + 22, { maxWidth: LW - 12 });
+        doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(40);
+        doc.text(`Nettofüllmenge: ${U.fmtNum(c.glasGroesseG, 0)} g`, x + 6, yy + 30);
+        doc.setFontSize(8.5).setTextColor(90);
+        let ly = yy + 37;
+        const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += 3.8; };
+        zeile(`Ursprungsland: ${opts.ursprung}`);
+        zeile(`mind. haltbar bis: ${U.fmtDate(c.mhd) || '__________'}   Los: ${c.losnummer}`);
+        zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
+        if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
+      }
+      this.finish(doc, `etiketten-los-${c.losnummer}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -4648,6 +5073,9 @@ Views.einstellungen = {
         <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
         <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
         <div class="flex-wrap no-print"><input class="inp" id="skf-name" placeholder="Feldname …" style="max-width:200px"><select class="inp" id="skf-typ" style="width:auto"><option value="check">Ja/Nein</option><option value="text">Text</option><option value="zahl">Zahl</option><option value="rating">Bewertung 1–5</option></select><button class="btn btn-ghost btn-sm" id="skf-add">${icon('plus')} Hinzufügen</button></div>
+        <h3 class="mt16 mb8">Durchsicht-Vorlagen</h3>
+        <p class="small muted mb12">Vorlagen entstehen beim Speichern einer Durchsicht (Feld „als Vorlage speichern“). Als Schnell-Button im Stockkarte-Tab verfügbar.</p>
+        <div class="rows" id="skv-list">${(S.get('stockkartenVorlagen') || []).map((vl, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">Stärke ${vl.werte.volksstaerke || '–'} · Brut ${vl.werte.brutbild || '–'}${vl.werte.futter ? ' · ' + U.esc(vl.werte.futter) : ''}</span></span><button class="btn btn-xs btn-ghost no-print" data-skvdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
       </div>
 
       <div class="card"><div class="card-title">${icon('trash')}<h2>Papierkorb</h2></div>
@@ -4777,6 +5205,12 @@ Views.einstellungen = {
       if (!(await UI.confirm({ title: 'Feld entfernen?', text: `„${skFelder[+b.dataset.skfdel].name}“ wird aus dem Durchsicht-Formular entfernt (bereits erfasste Werte bleiben in den alten Durchsichten erhalten).`, confirmText: 'Entfernen' }))) return;
       skFelder.splice(+b.dataset.skfdel, 1); await S.set('stockkartenFelder', skFelder); renderRoute();
     });
+    const skVorlagen = S.get('stockkartenVorlagen') || [];
+    $('#skv-list').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-skvdel]'); if (!b) return;
+      if (!(await UI.confirm({ title: 'Vorlage löschen?', text: `„${skVorlagen[+b.dataset.skvdel].name}“ wird gelöscht.`, confirmText: 'Löschen' }))) return;
+      skVorlagen.splice(+b.dataset.skvdel, 1); await S.set('stockkartenVorlagen', skVorlagen); renderRoute();
+    });
   },
 };
 
@@ -4841,8 +5275,8 @@ Object.assign(window, {
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
-  varroaAmpel, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
-  pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE,
+  varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
+  pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

@@ -47,6 +47,21 @@
 14. ✅ **Reporting**: Völkerentwicklung (aktive Völker je Jahresende), Honigertrag je Volk/Stand/Tracht/Jahr (umschaltbar), Behandlungsübersicht, Einnahmen/Ausgaben – jeweils Diagramm + Tabelle + PDF-Export
 15. ✅ **Aufgaben/Kalender**: Fälligkeiten mit Gruppen (überfällig/heute/Woche/später/erledigt), Monatskalender mit Aufgaben-Punkten, Auto-Aufgaben aus Zuchtserien, Behandlungs-Wartezeiten und Fütterungs-Wiedervorlagen
 
+## v0.39: Honig-Etiketten, Stockkarten-Vorlagen, Zucht-Stammbaum (2026-07-04)
+- ✅ **Honig-Etiketten-PDF** (`Pdf.honigEtikett`, Charge-Detail → Etikett): druckfertiger Bogen (90×54 mm, 10/Seite) mit Honigverordnungs-Pflichtangaben (Bezeichnung, Nettofüllmenge, Imkerei-Name+Anschrift, Ursprungsland, MHD, Los) + Logo, optional QR; `honigEtikettForm` sammelt Bezeichnung/Ursprung/Anzahl
+- ✅ **Stockkarten-Vorlagen** (Setting `stockkartenVorlagen`): Durchsicht als Vorlage speichern (Feld im Formular), Schnell-Buttons im Stockkarte-Tab öffnen das Formular vorbefüllt; Verwaltung/Löschen in den Einstellungen
+- ✅ **Königinnen-Zucht-Stammbaum**: `koeniginnen.mutterId`, `koeniginStammbaumHtml` zeigt Ahnenlinie aufwärts + Töchter rekursiv (Tiefe 3, zyklensicher); Muttertier-Auswahl im Königinnen-Formular
+
+## v0.38: Imker-Rechner, Betriebsmittel-Warnung, Varroa-Befallsmethoden (2026-07-04)
+- ✅ **Imker-Rechner** (neuer Bereich, Route `#/rechner`): Honigpreis-Kalkulation (Material+Arbeit+Aufschlag → VK/Glas + je kg), Wassergehalt-Ampel (<18/≤20/>20 %), Zuckersirup 3:2 & 1:1, Winterfutter-Bedarf – reine lokale Formeln
+- ✅ **Betriebsmittel-Warnung**: Inventar um `ablauf` (MHD) + `mindestbestand`; `pruefeMhd()` prüft auch Inventar → Auto-Aufgabe bei nahem Ablauf/niedrigem Bestand; Badge in der Inventarliste
+- ✅ **Varroa-Befallsmethoden**: neben Milben/Tag (Bodenschieber/Gemüll) jetzt Milben je 100 Bienen (Auswaschen/Puderzucker, `probeBienen`) mit eigener Ampel (`varroaAmpelBefall`, ~3 %); `varroaMetrik` vereinheitlicht Anzeige/Chart
+
+## v0.37: Universal-Datenimport (Umstieg von anderer App, 2026-07-04)
+- ✅ **CSV/Excel-Import mit Spalten-Zuordnung** (Meldungen & Export → „Aus anderer App importieren“): `Importer`-Modul liest CSV/Excel (SheetJS), rät die Spalten automatisch (Alias-Matching), manuelle Zuordnung + Vorschau, Import für Stände, Völker, Königinnen, Durchsichten, Behandlungen, Ernten, Kontakte, Kassenbuch
+- ✅ **Referenzauflösung über Namen**: Volk→Stand und Durchsicht/Behandlung/Ernte→Volk werden per Name verknüpft; fehlender Stand wird automatisch angelegt, fehlendes Volk führt zum Überspringen mit Hinweis (erst Völker importieren)
+- ✅ **Flexible Datums-/Zahlenerkennung** (`Importer.parseDate`: TT.MM.JJJJ, JJJJ-MM-TT, T/M/JJ, Excel-Serial; Dezimalkomma) – quellenunabhängig, funktioniert mit Exporten aus BeeManager/iBeekeeper/BeeInTouch u. a.
+
 ## v0.35–0.36: Hochformat-Feinschliff (Design-Audit 2026-07-04)
 - ✅ Grundursachen behoben: `.grid2/.grid3 > * { min-width:0 }` (Kalender/Dashboard sprengten sonst den Viewport → Seiten-Scroll), `.btn { white-space:normal; max-width:100% }` (lange Buttons brechen um statt zu überlaufen)
 - ✅ Text-Clipping ergänzt (inline → block+ellipsis wirkt erst dann): `.row .r-title/.r-sub` (v0.35), `.stat .s-value`, `.markt-tile .mt-name/.mt-rest`; Volk-Historie bricht sauber um

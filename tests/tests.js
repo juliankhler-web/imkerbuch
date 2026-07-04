@@ -284,6 +284,60 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- Königinnen-Stammbaum ---------- */
+test('koeniginStammbaumHtml: Ahnenlinie aufwärts + Töchter', async (w) => {
+  const oma = await w.DB.put('koeniginnen', { jahrgang: 2023, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: null });
+  const mutter = await w.DB.put('koeniginnen', { jahrgang: 2024, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: oma.id });
+  const q = await w.DB.put('koeniginnen', { jahrgang: 2025, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: mutter.id });
+  const tochter = await w.DB.put('koeniginnen', { jahrgang: 2026, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: q.id });
+  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  const html = w.koeniginStammbaumHtml(q, qm);
+  assert(html.includes('Abstammung'), 'Ahnenlinie angezeigt');
+  assert(html.includes('2024') && html.includes('2023'), 'Mutter + Großmutter in der Linie');
+  assert(html.includes('2026'), 'Tochter als Nachkomme');
+  assert(html.includes('diese'), 'aktuelle Königin markiert');
+});
+test('koeniginStammbaumHtml: Zyklen brechen ab (kein Endlos)', async (w) => {
+  const a = await w.DB.put('koeniginnen', { jahrgang: 2020, status: 'aktiv', historie: [], mutterId: null });
+  const b = await w.DB.put('koeniginnen', { jahrgang: 2021, status: 'aktiv', historie: [], mutterId: a.id });
+  a.mutterId = b.id; await w.DB.put('koeniginnen', a); // künstlicher Zyklus
+  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  const html = w.koeniginStammbaumHtml(a, qm); // darf nicht hängen
+  assert(typeof html === 'string' && html.length > 0, 'terminiert trotz Zyklus');
+});
+
+/* ---------- Universal-Import ---------- */
+test('Importer.parseDate: erkennt gängige Datumsformate → ISO', (w) => {
+  assertEq(w.Importer.parseDate('03.07.2026'), '2026-07-03', 'TT.MM.JJJJ');
+  assertEq(w.Importer.parseDate('2026-7-3'), '2026-07-03', 'JJJJ-M-T mit Auffüllen');
+  assertEq(w.Importer.parseDate('3/7/26'), '2026-07-03', 'T/M/JJ');
+  assertEq(w.Importer.parseDate(''), null, 'leer → null');
+  assertEq(w.Importer.parseDate('kein datum'), null, 'Unsinn → null');
+});
+test('Importer: Spalten-Auto-Zuordnung + Import mit Referenzauflösung', async (w) => {
+  // Stände importieren
+  const standRows = [{ 'Standort-Name': 'Importstand A', 'GPS Breite': '51,1', 'GPS Länge': '9,2' }];
+  // Auto-Guess prüfen: 'Standort-Name' → name, 'GPS Breite' → lat
+  await w.Importer.run('staende', standRows, { name: 'Standort-Name', lat: 'GPS Breite', lng: 'GPS Länge' }, document.createElement('div'));
+  const stand = (await w.DB.getAll('staende')).find((s) => s.name === 'Importstand A');
+  assert(stand, 'Stand importiert');
+  assertNah(stand.lat, 51.1, 0.001, 'Breitengrad mit Dezimalkomma');
+  // Völker importieren, Referenz auf Stand per Name
+  const volkRows = [
+    { Bezeichnung: 'Importvolk 1', Bienenstand: 'Importstand A', Beute: 'Zander' },
+    { Bezeichnung: 'Importvolk 2', Bienenstand: 'Gibt-es-nicht' }, // Stand wird angelegt
+  ];
+  await w.Importer.run('voelker', volkRows, { name: 'Bezeichnung', stand: 'Bienenstand', beutentyp: 'Beute' }, document.createElement('div'));
+  const v1 = (await w.DB.getAll('voelker')).find((v) => v.name === 'Importvolk 1');
+  assert(v1 && v1.standId === stand.id, 'Volk 1 dem existierenden Stand zugeordnet');
+  assert((await w.DB.getAll('staende')).some((s) => s.name === 'Gibt-es-nicht'), 'fehlender Stand automatisch angelegt');
+});
+test('Importer: Durchsicht ohne existierendes Volk wird übersprungen', async (w) => {
+  const rows = [{ Volk: 'Voelklein-gibts-nicht-xyz', Datum: '01.06.2026', Notiz: 'Test' }];
+  await w.Importer.run('stockkarten', rows, { volk: 'Volk', datum: 'Datum', notiz: 'Notiz' }, document.createElement('div'));
+  assert(!(await w.DB.getAll('stockkarten')).some((s) => s.notiz === 'Test'), 'keine Durchsicht ohne Volk angelegt');
+});
+
 /* ---------- MHD-Wächter ---------- */
 test('pruefeMhd: warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate', async (w) => {
   const heute = new Date(w.U.todayIso() + 'T12:00:00');
@@ -299,6 +353,21 @@ test('pruefeMhd: warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine D
   await w.pruefeMhd(); // erneut
   const tasks2 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && a.refId === nah.id);
   assertEq(tasks2.length, 1, 'kein Duplikat bei erneutem Lauf');
+});
+
+/* ---------- Varroa-Befall (Auswaschen/Puderzucker) ---------- */
+test('varroaAmpelBefall + varroaMetrik: Milben je 100 Bienen', (w) => {
+  assertEq(w.varroaAmpelBefall(0.8).stufe, 'gruen', '≤1 % grün');
+  assertEq(w.varroaAmpelBefall(2).stufe, 'gelb', '≤3 % gelb');
+  assertEq(w.varroaAmpelBefall(5).stufe, 'rot', '>3 % rot');
+  // Auswaschmethode: 9 Milben / 300 Bienen = 3 % → gelb (Grenze)
+  const m = w.varroaMetrik({ methode: 'Auswaschmethode', probeBienen: 300, milben: 9, datum: '2026-07-15' });
+  assertEq(m.wert, 3, '9/300×100 = 3');
+  assertEq(m.einheit, '/100 Bienen');
+  assertEq(m.ampel.stufe, 'gelb');
+  // Bodenschieber bleibt Milben/Tag
+  const f = w.varroaMetrik({ methode: 'Bodenschieber (natürlicher Fall)', tageZaehl: 7, milben: 84, datum: '2026-07-15' });
+  assertEq(f.wert, 12, '84/7 = 12'); assertEq(f.einheit, '/Tag');
 });
 
 /* ---------- Varroa-Ampel ---------- */

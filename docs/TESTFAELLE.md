@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-04 · Automatisiert: **33 Testfälle, alle grün**
+> Stand: 2026-07-04 · Automatisiert: **39 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -23,39 +23,46 @@ Funktionsweise:
 
 | # | Testfall | Prüft |
 |---|---|---|
-| 1 | U.parseNum: deutsches Zahlenformat | `1.234,56` → 1234.56, Komma, Punkt, NaN-Fälle |
-| 2 | U.fmtDate / fmtNum / fmtEur | `TT.MM.JJJJ`, Dezimalkomma, €-Format, null → „–“ |
-| 3 | U.addDays / daysBetween | Monats-/Jahresgrenzen |
-| 4 | dataURL↔Blob Roundtrip | MIME + Inhalt bleiben erhalten |
-| 5 | queenColor | internationale Zeichenfarben 2022–2027 |
-| 6 | zuchtTermine | Offsets 0/2/10/12/13/19/28, Schlupf = Tag 12 |
-| 7 | rechnungSummen | Brutto, USt 7/19 % herausgerechnet, §19 ohne USt |
-| 8 | zielIdAus / zielFormValues | Volk/Stand-Auflösung, Fehler bei fehlender Auswahl |
-| 9 | DB.put | UUID, createdAt, lastModified, get |
-| 10 | softDel → Papierkorb → Restore | Original weg, im Korb, Wiederherstellung vollständig |
-| 11 | DB.purgeTrash | nur Einträge > 30 Tage werden entfernt |
-| 12 | applyMerge: neuer gewinnt | Merge per UUID+lastModified, keine Duplikate |
-| 13 | applyMerge: älterer verliert | älterer Import überschreibt nicht |
-| 14 | applyMerge: Anhang ohne Datei | Metadaten ohne Blob werden übersprungen |
-| 15 | buildData + applyReplace | Export→Restore-Roundtrip erhält alle Store-Zählungen |
-| 16 | Backup-Dateiname | `imkerbuch-backup-JJJJ-MM-TT-HHMM.json` |
-| 17 | snapshotInternal | rollierend max. 10, keine Blobs, nicht rekursiv |
-| 18 | S.set/S.get | Settings persistieren über Neuladen |
-| 19 | reminderInfo | Stufen ok / gelb (≥7 Tage) / rot (≥14 Tage) |
-| 20 | Notif.faellige | überfällig + heute; erledigte/zukünftige/ohne Datum ausgenommen |
-| 21 | Notif.icsFuerAufgaben | gültiges VCALENDAR, nur offene mit Datum, Alarm, Escaping, stabile UID |
-| 22 | PdfImport.parse: Erkennung | Behandlung/Ernte aus Datum + Stichwort, TT.MM.JJ(JJ) → ISO |
-| 23 | PdfImport.parse: Dedup | gleiches Datum + Stichwort nur einmal |
-| 24 | verkaufErfassen | Bestand 10→7, Einnahme im Kassenbuch, Überverkauf abgelehnt ohne Nebenwirkung |
-| 25 | verkaufStornieren | Bestand wiederhergestellt, Buchung + Verkauf im Papierkorb |
-| 26 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, null-Kategorie → „Sonstiges“, sortiert |
-| 27 | UI.pie | SVG-Segmente, Prozentanteile, Gesamtsumme, leerer Zustand |
-| 28 | pruefeMhd | warnt bei nahem/überschrittenem MHD, nicht bei fernem/leerem, keine Duplikate |
-| 29 | varroaAmpel | saisonale Schwellen (Juli/Januar), Grenzwert = grün |
-| 30 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
-| 31 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
-| 32 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
-| 33 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
+| 1 | Name | — |
+| 2 | U.parseNum | deutsches Zahlenformat |
+| 3 | U.fmtDate / fmtNum / fmtEur | — |
+| 4 | U.addDays / daysBetween (Monats-/Jahresgrenzen) | — |
+| 5 | U.dataURLToBlob / blobToDataURL Roundtrip | — |
+| 6 | queenColor | internationale Zeichenfarben |
+| 7 | zuchtTermine | Zuchtkalender ab Umlarvtag |
+| 8 | rechnungSummen | Brutto & enthaltene USt |
+| 9 | zielIdAus / zielFormValues (Formular-Helfer) | — |
+| 10 | DB.put vergibt UUID, createdAt, lastModified | — |
+| 11 | DB.softDel → Papierkorb → trashRestore | — |
+| 12 | DB.purgeTrash | nur Einträge > 30 Tage löschen |
+| 13 | Backup.applyMerge | neuer gewinnt, keine Duplikate |
+| 14 | Backup.applyMerge | älterer Import verliert |
+| 15 | Backup.applyMerge | Anhang ohne Datei wird übersprungen |
+| 16 | Backup.buildData + applyReplace | Roundtrip erhält Daten |
+| 17 | Backup | Dateiname imkerbuch-backup-JJJJ-MM-TT-HHMM.json |
+| 18 | Backup.snapshotInternal | rollierend, ohne Anhang-Blobs |
+| 19 | S.set / S.get Roundtrip (persistiert) | — |
+| 20 | Backup.reminderInfo | Stufen ok/gelb/rot |
+| 21 | Notif.faellige | überfällig + heute, ohne erledigte/zukünftige/ohne Datum |
+| 22 | Notif.icsFuerAufgaben | gültiger Kalender mit Alarm und Escaping |
+| 23 | PdfImport.parse | erkennt Behandlung und Ernte am Datum + Stichwort |
+| 24 | PdfImport.parse | dedupliziert gleiche Treffer |
+| 25 | Regression | View-Listener leaken nicht über Seitenwechsel |
+| 26 | verkaufErfassen | mindert Bestand, bucht Einnahme, lehnt Überverkauf ab |
+| 27 | verkaufStornieren | Bestand zurück, Buchung + Verkauf im Papierkorb |
+| 28 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, ohne Kategorie = Sonstiges |
+| 29 | UI.pie | Donut mit Anteilen und Legende |
+| 30 | koeniginStammbaumHtml | Ahnenlinie aufwärts + Töchter |
+| 31 | koeniginStammbaumHtml | Zyklen brechen ab (kein Endlos) |
+| 32 | Importer.parseDate | erkennt gängige Datumsformate → ISO |
+| 33 | Importer | Spalten-Auto-Zuordnung + Import mit Referenzauflösung |
+| 34 | Importer | Durchsicht ohne existierendes Volk wird übersprungen |
+| 35 | pruefeMhd | warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate |
+| 36 | varroaAmpelBefall + varroaMetrik | Milben je 100 Bienen |
+| 37 | varroaAmpel | saisonale Schwellen (Juli streng, Januar sehr streng) |
+| 38 | Reporting.fahrtStatistik | Kilometer und Fahrten je Jahr |
+| 39 | Version & Changelog konsistent (Update-Fenster-Grundlag | — |
+| 40 | syncZuchtAufgaben | 7 Termine als Aufgaben |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

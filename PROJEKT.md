@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-04 · **v0.36 · Alle Module + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-04 · **v0.39 · Alle Module + Import + 6 Wettbewerbs-Features komplett + Nachträge (…, Marktverkauf, MHD-Wächter, eigene Stockkarten-Felder, Bienenprodukte), 33/33 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -70,6 +70,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-07-04 (v0.39)**: Wettbewerbs-Auftrag Teil 3/3 abgeschlossen: **Honig-Etiketten-PDF** (`Pdf.honigEtikett`/`honigEtikettForm`, Honigverordnungs-Pflichtangaben, optional QR), **Stockkarten-Vorlagen** (`stockkartenVorlagen`, Schnell-Buttons + Speichern im Formular + Verwaltung in Einstellungen), **Zucht-Stammbaum** (`koeniginnen.mutterId`, `koeniginStammbaumHtml` Ahnen+Töchter zyklensicher). Alle 7 Auftrags-Features (Import + Rechner + Betriebsmittel + Varroa-Befall + Etiketten + Vorlagen + Stammbaum) fertig. 39/39 grün.
+
+- **2026-07-04 (v0.38)**: Aus der Wettbewerbsanalyse (Julian-Auftrag, Teil 2/3): **Imker-Rechner** (`Views.rechner`, NAV+Route: Honigpreis/Wassergehalt/Sirup/Futter), **Betriebsmittel-Warnung** (Inventar `ablauf`+`mindestbestand`, `pruefeMhd` erweitert, Badge), **Varroa-Befallsmethoden** (`varroaAmpelBefall`/`varroaMetrik`, Milben je 100 Bienen für Auswaschen/Puderzucker via `probeBienen`, `VARROA_BEFALL_METHODEN`). 37/37 grün. NOCH OFFEN: Honig-Etiketten, Stockkarten-Vorlagen, Zucht-Stammbaum.
+
+- **2026-07-04 (v0.37)**: **Universal-Datenimport** für Umsteiger. `Importer`-Modul: CSV/Excel via SheetJS lesen, Spalten-Auto-Guess (Alias-Matching) + manuelle Zuordnung + Vorschau; Entitäten Stände/Völker/Königinnen/Durchsichten/Behandlungen/Ernten/Kontakte/Kassenbuch; `parseDate` flexibel; Referenzauflösung Volk→Stand/Durchsicht→Volk per Name (`_nameIndex`), fehlender Stand wird angelegt. In Meldungen & Export. 36/36 grün. NOCH OFFEN in diesem Auftrag (Julian): Honig-Etiketten, Imker-Rechner, Betriebsmittel-Warnung, Stockkarten-Vorlagen, Zucht-Stammbaum, Varroa-Zusatzmethoden.
 
 - **2026-07-04 (v0.35/0.36)**: **Hochformat-Design-Audit** (paralleler Multi-Agent-Code-Audit über Workflow, 6 Kategorien + adversariale Verifikation, danach Live-Prüfung aller Routen hell+dunkel). Grundursachen: `.grid2/.grid3>*{min-width:0}` (Kalender/Dashboard sprengten Viewport), `.btn{white-space:normal;max-width:100%}`. Clipping ergänzt: `.row .r-title/.r-sub` (v0.35), `.stat .s-value`, `.markt-tile .mt-name/.mt-rest`; Volk-Historie bricht um; `.page-head .ph-text` min-width→0; Pie-Legende; `.sheet-grid` 4→3 Spalten <390px; Banner-Text fließt als `.b-msg` statt zerrissen. Kein horizontaler Seiten-Scroll mehr auf 19 Routen. 33/33 grün.
 

@@ -48,6 +48,7 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 | `makeQr` | QR-Codes (qrcode-generator) als PNG-DataURL |
 | `Notif` | Erinnerungen: `faellige()` (überfällig+heute), `check()` (Badge + max. 1 Systemmeldung/Tag via SW-`showNotification`, Drossel in Setting `letzteNotif`), `badge()` (Badging API), `icsFuerAufgaben()`/`icsExport()` (Kalender-Export mit VALARM); SW-`notificationclick` fokussiert die App auf `#/aufgaben` |
 | `Xlsx` | Excel-/CSV-Export (SheetJS), `Xlsx.defs()` = zentrale Spaltendefinitionen (auch vom Komplett-PDF genutzt) |
+| `Importer` | Universal-CSV/Excel-Import aus Fremd-Apps: `ENTITIES`-Config (Zielfelder + Alias-Listen je Store), Auto-Spalten-Guess, Mapping-UI, `parseDate` (flexibel), Referenzauflösung Volk→Stand/Durchsicht→Volk über Namen (`_nameIndex`), legt fehlende Stände an |
 | `Pdf` | Alle PDF-Dokumente (jsPDF + AutoTable) mit einheitlichem Kopf/Fuß |
 | `PdfImport` | pdf.js-Textextraktion + Übernahme-Heuristik |
 | `boot()` | Startsequenz: DB → Settings → Theme → Chrome → Router → SW → Wizard |
