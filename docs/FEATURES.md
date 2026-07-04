@@ -47,6 +47,12 @@
 14. ✅ **Reporting**: Völkerentwicklung (aktive Völker je Jahresende), Honigertrag je Volk/Stand/Tracht/Jahr (umschaltbar), Behandlungsübersicht, Einnahmen/Ausgaben – jeweils Diagramm + Tabelle + PDF-Export
 15. ✅ **Aufgaben/Kalender**: Fälligkeiten mit Gruppen (überfällig/heute/Woche/später/erledigt), Monatskalender mit Aufgaben-Punkten, Auto-Aufgaben aus Zuchtserien, Behandlungs-Wartezeiten und Fütterungs-Wiedervorlagen
 
+## v0.33: Volk-QR, Varroa-Kontrolle & Sammel-Erfassung (Nachtrag 2026-07-04, von BeeInTouch/iBeekeeper inspiriert)
+- ✅ **QR-Code je Volk** (Volk → QR-Code): kodiert den Direktlink `…#/volk/<id>`, druckbarer Etikettenbogen (`qrEtikettDruck`) fürs Beutendach – Kamera-Scan öffnet die Stockkarte des Volks
+- ✅ **Varroa-Kontrolle** (Volk → Tab „Varroa“): Zählung mit Methode (Bodenschieber/Puderzucker/Auswaschen/Gemüll) + Zähltage → Milben/Tag, Verlaufsdiagramm, **Ampel gegen saisonale Schwellen** (`VARROA_SCHWELLEN`, natürlicher Totenfall, ohne Gewähr); eigener Store `varroa` (DB v4), in Excel/Backup/Komplett-PDF
+- ✅ **Sammel-Erfassung** (Völker-Liste → Sammel-Erfassung): Durchsicht / Fütterung / Varroa-Zählung mit einem Formular für mehrere ausgewählte Völker gleichzeitig
+- Bewusst NICHT übernommen: Team-/Mitarbeiterfunktionen und Community-Statistiken der Wettbewerber (bräuchten Server/Konto und würden das 100-%-lokal-Prinzip aufgeben)
+
 ## v0.32: Klickbare Kacheln & Fahrtenbuch (Nachtrag 2026-07-04, auf Julians Wunsch)
 - ✅ **Dashboard-Kacheln klickbar**: Tipp auf eine Kachel springt in den passenden Bereich (Völker→Völker, Aufgaben→Aufgaben, Ertrag→Reporting, Wetter→Stände, Sicherung→Einstellungen); Buttons/Links in der Kachel behalten Vorrang
 - ✅ **Fahrtenbuch für die Steuer**: je Stand Entfernung von zu Hause hinterlegbar (`kmEntfernung`), „Fahrt erfassen“ am Stand-Detail + unter Reporting → Fahrten (km vorbelegt mit 2 × Entfernung, Zweck-Vorschläge); Übersicht mit km/Fahrten/Pauschale (0,30 €/km) je Jahr und je Stand; **Fahrtenbuch-PDF** als Steuer-Nachweis; eigener Store `fahrten` (DB v3), in Excel/Backup/Komplett-PDF enthalten

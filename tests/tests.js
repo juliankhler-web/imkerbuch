@@ -284,6 +284,19 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- Varroa-Ampel ---------- */
+test('varroaAmpel: saisonale Schwellen (Juli streng, Januar sehr streng)', (w) => {
+  // Juli: gruen<=5, gelb<=10
+  assertEq(w.varroaAmpel(3, '2026-07-15').stufe, 'gruen', '3/Tag im Juli = grün');
+  assertEq(w.varroaAmpel(8, '2026-07-15').stufe, 'gelb', '8/Tag im Juli = gelb');
+  assertEq(w.varroaAmpel(15, '2026-07-15').stufe, 'rot', '15/Tag im Juli = rot');
+  // Januar strenger: gruen<=0,5
+  assertEq(w.varroaAmpel(1, '2026-01-15').stufe, 'gelb', '1/Tag im Januar bereits gelb');
+  assertEq(w.varroaAmpel(0.4, '2026-01-15').stufe, 'gruen', '0,4/Tag im Januar grün');
+  // Grenzwert genau auf gruen zählt als grün
+  assertEq(w.varroaAmpel(5, '2026-07-15').stufe, 'gruen', 'genau auf der grünen Schwelle');
+});
+
 /* ---------- Fahrtenbuch ---------- */
 test('Reporting.fahrtStatistik: Kilometer und Fahrten je Jahr', (w) => {
   const s = w.Reporting.fahrtStatistik([

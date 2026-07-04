@@ -55,7 +55,7 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 ## Datenmodell (IndexedDB `imkerbuch`, Version 1)
 
 Jeder Datensatz: `id` (UUID), `createdAt`, `lastModified` (ISO). keyPath `id`, außer `settings` (`key`).
-Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **Version 2** (2026-07-04): Store `verkaeufe` ergänzt – `onupgradeneeded` legt fehlende Stores an, bestehende Daten bleiben unberührt.
+Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen** (`onupgradeneeded` legt nur fehlende Stores an, bestehende Daten bleiben): v2 `verkaeufe`, v3 `fahrten`, v4 `varroa`.
 
 | Store | Wichtigste Felder |
 |---|---|
@@ -65,6 +65,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **Version 2** (2
 | `stockkarten` | volkId, datum, volksstaerke/brutbild/sanftmut (1–5), futter, weiselzellen, notiz |
 | `fuetterungen` | volkId, datum, futterart, mengeKg, winterfutter |
 | `gewichte` | volkId, datum, gewichtKg |
+| `varroa` (v4) | volkId, datum, methode, tageZaehl, milben, notiz – Milben/Tag = milben/tageZaehl; Ampel via `varroaAmpel()` gegen `VARROA_SCHWELLEN` (monatlich) |
 | `koeniginnen` | jahrgang (→ Farbe via `queenColor`), herkunft, linie, status, historie[{volkId,von,bis}], notiz |
 | `zuchtserien` | name, startdatum, anzahl, termine[{tag,titel,datum}] (aus `zuchtTermine()`), notiz |
 | `behandlungen` | zielTyp/zielId (volk/stand), datum, mittel, menge, einheit, anwendungsart, wartezeitTage, notiz |

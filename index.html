@@ -384,6 +384,8 @@ const ICONS = {
   chart:'<path d="M4 4.5v15h16"/><path d="M8.5 15.5v-4.5M13 15.5V7.5M17.5 15.5v-2.5"/>',
   task:'<circle cx="12" cy="12" r="8.6"/><path d="m8.4 12.4 2.5 2.5 4.9-5.4"/>',
   uhr:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2.2"/>',
+  varroa:'<circle cx="12" cy="12" r="4.5"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>',
+  check2:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.5 2.5L16 9"/>',
   kalender:'<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M4 10.5h16M8.5 3.5v4M15.5 3.5v4"/>',
   gear:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9"/>',
   trash:'<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 13.5h9.2L17.5 7M10 11v6M14 11v6"/>',
@@ -543,8 +545,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.32';
+const APP_VERSION = '0.33';
 const CHANGELOG = [
+  { version: '0.33', datum: '2026-07-04', punkte: [
+    'QR-Code je Volk: Etikett drucken, ans Beutendach kleben – Kamera scannen öffnet direkt die Stockkarte dieses Volks (Volk → QR-Code)',
+    'Varroa-Kontrolle: Milbenfall zählen (Bodenschieber, Puderzucker, Auswaschen), Milben/Tag mit Verlaufsdiagramm und Ampel gegen saisonale Schwellenwerte (Volk → Varroa)',
+    'Sammel-Erfassung: eine Durchsicht oder Fütterung mit einem Formular für mehrere Völker gleichzeitig anlegen (Völker-Liste → Sammel-Erfassung)',
+  ] },
   { version: '0.32', datum: '2026-07-04', punkte: [
     'Dashboard-Kacheln sind jetzt klickbar: Tipp auf „Völker“, „Aufgaben“ & Co. springt direkt in den passenden Bereich',
     'Fahrtenbuch für die Steuer: je Stand die Entfernung von zu Hause hinterlegen, Fahrten mit einem Tipp erfassen (km vorbelegt)',
@@ -627,6 +634,23 @@ const VORSCHLAEGE = {
 };
 /* Kilometerpauschale (Reisekosten) fürs Fahrtenbuch */
 const KM_PAUSCHALE = 0.30;
+
+/* Varroa-Methoden und saisonale Handlungsschwellen (natürlicher Milbentotenfall,
+   Milben je Tag) – Richtwerte in Anlehnung an Bieneninstitute, ohne Gewähr.
+   Ampel: <= gruen = grün · <= gelb = gelb · darüber = rot (Behandlung prüfen). */
+const VARROA_METHODEN = ['Bodenschieber (natürlicher Fall)', 'Puderzuckermethode', 'Auswaschmethode', 'Gemülldiagnose'];
+const VARROA_SCHWELLEN = { // Monat (1–12): {gruen, gelb} Milben/Tag
+  1: { gruen: 0.5, gelb: 1 }, 2: { gruen: 0.5, gelb: 1 }, 3: { gruen: 1, gelb: 2 }, 4: { gruen: 2, gelb: 4 },
+  5: { gruen: 3, gelb: 6 }, 6: { gruen: 5, gelb: 10 }, 7: { gruen: 5, gelb: 10 }, 8: { gruen: 5, gelb: 10 },
+  9: { gruen: 3, gelb: 6 }, 10: { gruen: 1, gelb: 3 }, 11: { gruen: 0.5, gelb: 1 }, 12: { gruen: 0.5, gelb: 1 },
+};
+/** Milben/Tag → Ampelstufe für den Monat des Datums */
+function varroaAmpel(milbenProTag, datumIso) {
+  const s = VARROA_SCHWELLEN[+String(datumIso).slice(5, 7)] || { gruen: 3, gelb: 6 };
+  if (milbenProTag <= s.gruen) return { stufe: 'gruen', badge: 'b-ok', text: 'unkritisch' };
+  if (milbenProTag <= s.gelb) return { stufe: 'gelb', badge: 'b-warn', text: 'beobachten' };
+  return { stufe: 'rot', badge: 'b-danger', text: 'Behandlung prüfen' };
+}
 /** Vorschläge + bereits selbst verwendete Werte eines Feldes kombinieren */
 async function gelernteWerte(presets, store, feld) {
   const eigene = new Set();
@@ -638,8 +662,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 3, _db: null, // v2: + verkaeufe · v3: + fahrten
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 4, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -1767,6 +1791,44 @@ async function openVolkForm(volk, defaults = {}, onDone) {
   });
 }
 
+/** QR-Code eines Volks: kodiert den Direktlink zur Stockkarte, druckbar fürs Beutendach */
+async function volkQrAnzeigen(v) {
+  const url = location.origin + location.pathname + '#/volk/' + v.id;
+  const m = UI.modal({
+    title: `QR-Code · ${v.name}`,
+    body: `<p class="small muted mb12">Drucken, laminieren und ans Beutendach kleben. Mit der Handy-Kamera scannen öffnet direkt die Stockkarte dieses Volks.</p>
+      <div id="vqr-zone" style="text-align:center"><span class="muted small">QR-Code wird erzeugt …</span></div>`,
+    footer: `<button class="btn btn-ghost" data-close2>Schließen</button><button class="btn btn-primary" data-print id="vqr-print" disabled>${icon('print')} Etikett drucken</button>`,
+  });
+  $('[data-close2]', m.el).onclick = () => m.close(true);
+  try {
+    const dataUrl = await makeQr(url);
+    $('#vqr-zone', m.el).innerHTML = `<img src="${dataUrl}" alt="QR-Code ${U.esc(v.name)}" style="width:200px;height:200px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px">
+      <div class="small muted mt8">${U.esc(v.name)}${v.beutenkennung ? ' · ' + U.esc(v.beutenkennung) : ''}</div>`;
+    $('#vqr-print', m.el).disabled = false;
+    $('#vqr-print', m.el).onclick = () => qrEtikettDruck(`${v.name}${v.beutenkennung ? ' · ' + v.beutenkennung : ''}`, dataUrl);
+  } catch (e) { $('#vqr-zone', m.el).innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
+}
+/** Druckbogen mit mehreren gleichen QR-Etiketten (generisch für Volk/Charge) */
+function qrEtikettDruck(titel, dataUrl, anzahl = 6) {
+  const div = document.createElement('div');
+  div.className = 'qr-print print-only';
+  div.innerHTML = `<h2 style="margin-bottom:8px">${U.esc(titel)} – QR-Etiketten</h2>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12mm;margin-top:8mm">
+      ${Array.from({ length: anzahl }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:40mm;height:40mm"><div style="font-size:9pt;margin-top:2mm">${U.esc(titel)}</div></div>`).join('')}
+    </div>`;
+  document.body.appendChild(div);
+  document.body.classList.add('qr-printing');
+  if (!$('#qr-print-style')) {
+    const st = document.createElement('style'); st.id = 'qr-print-style';
+    st.textContent = `@media print{ body.qr-printing .app, body.qr-printing #modal-root, body.qr-printing #banners, body.qr-printing .bottomnav {display:none!important} }`;
+    document.head.appendChild(st);
+  }
+  const cleanup = () => { div.remove(); document.body.classList.remove('qr-printing'); window.removeEventListener('afterprint', cleanup); };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+}
+
 Views.voelker = {
   title: 'Völker',
   async render(main) {
@@ -1778,7 +1840,7 @@ Views.voelker = {
     const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand)), (v) => v.name.toLowerCase());
     const aktive = voelker.filter((v) => v.status === 'aktiv');
     main.innerHTML = pageHead('Völker', `${aktive.length} aktiv${voelker.length - aktive.length ? ` · ${voelker.length - aktive.length} aufgelöst/vereinigt` : ''}`,
-      `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neues Volk</button>`) +
+      `<span class="flex-wrap no-print">${aktive.length ? `<button class="btn btn-ghost btn-sm" id="sammel">${icon('check2')} Sammel-Erfassung</button>` : ''}<button class="btn btn-primary" id="add">${icon('plus')} Neues Volk</button></span>`) +
       `<div class="chip-row mb16 no-print">
         <button class="chip ${!filterStand && !showAlte ? 'active' : ''}" data-f="">Alle aktiven</button>
         ${[...staende.values()].map((s) => `<button class="chip ${filterStand === s.id ? 'active' : ''}" data-f="${s.id}">${U.esc(s.name)}</button>`).join('')}
@@ -1795,6 +1857,8 @@ Views.voelker = {
       }).join('') + `</div>` : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`)) + `</div>`;
     const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
     bindAdd(add);
+    const sammel = $('#sammel');
+    if (sammel) sammel.onclick = () => sammelErfassung(list.filter((v) => v.status === 'aktiv'));
     main.addEventListener('click', (e) => {
       const c = e.target.closest('.chip');
       if (c) { if (c.hasAttribute('data-alte')) { Views.voelker._alte = !showAlte; Views.voelker._stand = ''; } else { Views.voelker._stand = c.dataset.f; Views.voelker._alte = false; } return renderRoute(); }
@@ -1802,6 +1866,78 @@ Views.voelker = {
     });
   },
 };
+
+/** Sammel-Erfassung: eine Durchsicht oder Fütterung mit einem Formular für mehrere Völker */
+function sammelErfassung(voelker) {
+  if (!voelker.length) return UI.toast('Keine aktiven Völker', 'err');
+  const m = UI.modal({
+    title: 'Sammel-Erfassung',
+    body: `<div class="field"><label>Was möchtest du für mehrere Völker erfassen?</label>
+        <select class="inp" id="se-art"><option value="stockkarte">Durchsicht (Stockkarte)</option><option value="fuetterung">Fütterung</option><option value="varroa">Varroa-Zählung</option></select></div>
+      <div class="field"><label>Völker auswählen</label>
+        <div class="flex-wrap mb8"><button type="button" class="btn btn-xs btn-ghost" id="se-all">Alle</button><button type="button" class="btn btn-xs btn-ghost" id="se-none">Keine</button></div>
+        <div id="se-list" style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:4px 10px">
+          ${voelker.map((v) => `<label class="check-line"><input type="checkbox" value="${v.id}" checked> <span>${U.esc(v.name)}${v.beutenkennung ? ' · ' + U.esc(v.beutenkennung) : ''}</span></label>`).join('')}
+        </div><div class="hint mt8" id="se-count"></div></div>`,
+    footer: `<button class="btn btn-ghost" data-cancel>Abbrechen</button><button class="btn btn-primary" data-next>Weiter</button>`,
+  });
+  const boxes = () => $$('#se-list input', m.el);
+  const updateCount = () => { $('#se-count', m.el).textContent = `${boxes().filter((b) => b.checked).length} von ${voelker.length} ausgewählt`; };
+  $('#se-all', m.el).onclick = () => { boxes().forEach((b) => b.checked = true); updateCount(); };
+  $('#se-none', m.el).onclick = () => { boxes().forEach((b) => b.checked = false); updateCount(); };
+  $('#se-list', m.el).addEventListener('change', updateCount);
+  updateCount();
+  $('[data-cancel]', m.el).onclick = () => m.close();
+  $('[data-next]', m.el).onclick = async () => {
+    const ids = boxes().filter((b) => b.checked).map((b) => b.value);
+    if (!ids.length) return UI.toast('Bitte mindestens ein Volk wählen', 'err');
+    const art = $('#se-art', m.el).value;
+    m.close(true);
+    await sammelFormular(art, ids, voelker);
+  };
+}
+/** Formular für die Sammel-Erfassung – speichert denselben Eintrag je gewähltem Volk */
+async function sammelFormular(art, volkIds, voelker) {
+  const namen = volkIds.map((id) => voelker.find((v) => v.id === id)?.name).filter(Boolean);
+  const hinweis = { type: 'static', key: '_hint', html: `<div class="banner info">${icon('info')} Wird für <b>${volkIds.length} Völker</b> angelegt: ${U.esc(namen.slice(0, 6).join(', '))}${namen.length > 6 ? ' …' : ''}</div>` };
+  if (art === 'stockkarte') {
+    UI.formModal({
+      title: 'Sammel-Durchsicht', wide: true,
+      fields: [hinweis,
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'volksstaerke', label: 'Volksstärke', type: 'rating' }, { key: 'brutbild', label: 'Brutbild', type: 'rating' },
+        { key: 'sanftmut', label: 'Sanftmut', type: 'rating' }, { key: 'futter', label: 'Futter' },
+        { key: 'weiselzellen', label: 'Weiselzellen vorhanden', type: 'check' }, { key: 'notiz', label: 'Notiz', type: 'textarea' },
+      ],
+      saveText: `Für ${volkIds.length} Völker speichern`,
+      async onSave(val) { for (const id of volkIds) await DB.put('stockkarten', { volkId: id, ...val }); UI.toast(`Durchsicht für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+    });
+  } else if (art === 'fuetterung') {
+    UI.formModal({
+      title: 'Sammel-Fütterung', wide: true,
+      fields: [hinweis,
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
+        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true },
+        { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
+      ],
+      saveText: `Für ${volkIds.length} Völker speichern`,
+      async onSave(val) { for (const id of volkIds) await DB.put('fuetterungen', { volkId: id, ...val }); UI.toast(`Fütterung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+    });
+  } else {
+    UI.formModal({
+      title: 'Sammel-Varroazählung', wide: true,
+      fields: [hinweis,
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'methode', label: 'Methode', type: 'select', required: true, default: VARROA_METHODEN[0], options: VARROA_METHODEN.map((mm) => ({ v: mm, l: mm })) },
+        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7 },
+        { key: 'milben', label: 'Gezählte Milben je Volk', type: 'number', required: true, hint: 'Bei stark unterschiedlichem Milbenfall besser einzeln je Volk erfassen.' },
+      ],
+      saveText: `Für ${volkIds.length} Völker speichern`,
+      async onSave(val) { val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1; for (const id of volkIds) await DB.put('varroa', { volkId: id, ...val }); UI.toast(`Varroa-Zählung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+    });
+  }
+}
 
 Views.volk = {
   title: 'Volk',
@@ -1817,6 +1953,7 @@ Views.volk = {
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('voelker')">${icon('back')} Alle Völker</button>
       ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''} ${v.raehmchenmass ? '· ' + U.esc(v.raehmchenmass) : ''}`, `
         <span class="flex-wrap no-print">
+          <button class="btn btn-ghost btn-sm" id="qr">${icon('qr')} QR-Code</button>
           <button class="btn btn-ghost btn-sm" id="edit">${icon('pencil')} Bearbeiten</button>
           <button class="btn btn-ghost btn-sm" id="dup">${icon('copy')} Duplizieren</button>
           ${v.status === 'aktiv' ? `<button class="btn btn-ghost btn-sm" id="merge">${icon('merge')} Vereinigen</button>
@@ -1831,13 +1968,15 @@ Views.volk = {
       </div>`;
     $('#tabbar').appendChild(UI.tabs([
       { id: 'stockkarte', label: 'Stockkarte' }, { id: 'futter', label: 'Fütterung' },
-      { id: 'gewicht', label: 'Gewicht' }, { id: 'notizen', label: 'Notizen & Anhänge' },
+      { id: 'varroa', label: 'Varroa' }, { id: 'gewicht', label: 'Gewicht' }, { id: 'notizen', label: 'Notizen & Anhänge' },
     ], tab, (t) => { Views.volk._tab = t; renderRoute(); }));
     const box = $('#tab-content');
     if (tab === 'stockkarte') await Views.volk.tabStockkarte(box, v);
     else if (tab === 'futter') await Views.volk.tabFutter(box, v);
+    else if (tab === 'varroa') await Views.volk.tabVarroa(box, v);
     else if (tab === 'gewicht') await Views.volk.tabGewicht(box, v);
     else await Views.volk.tabNotizen(box, v);
+    $('#qr').onclick = () => volkQrAnzeigen(v);
     $('#edit').onclick = () => openVolkForm(v, {}, renderRoute);
     $('#dup').onclick = async () => {
       if (!(await UI.confirm({ title: 'Volk duplizieren?', text: 'Es wird eine Kopie der Stammdaten angelegt (ohne Stockkarte und ohne Königin).', confirmText: 'Duplizieren', danger: false }))) return;
@@ -1961,6 +2100,46 @@ Views.volk = {
     });
     $('#fAdd', box).onclick = () => form(null);
     box.addEventListener('click', (e) => { const b = e.target.closest('[data-fe]'); if (b) form(list.find((x) => x.id === b.dataset.fe)); });
+  },
+
+  /* ---------- Varroa-Kontrolle (Milbenfall, Milben/Tag, Ampel) ---------- */
+  async tabVarroa(box, v) {
+    const list = U.sortBy((await DB.getAll('varroa')).filter((x) => x.volkId === v.id), (x) => x.datum);
+    const proTag = (x) => (x.tageZaehl > 0 ? x.milben / x.tageZaehl : x.milben);
+    const letzte = list.length ? list[list.length - 1] : null;
+    const letztAmpel = letzte ? varroaAmpel(proTag(letzte), letzte.datum) : null;
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('varroa')}<h2>Varroa-Kontrolle</h2><button class="btn btn-primary btn-sm no-print" id="vAdd">${icon('plus')} Zählung</button></div>
+      ${letzte ? `<div class="flex-wrap mb12"><span class="badge ${letztAmpel.badge}">${U.fmtNum(proTag(letzte), 1)} Milben/Tag · ${letztAmpel.text}</span><span class="small muted">letzte Zählung ${U.fmtDate(letzte.datum)}</span></div>` : ''}
+      ${list.length ? UI.chart({ type: 'line', labels: list.map((x) => U.fmtDate(x.datum).slice(0, 6)), series: [{ name: 'Milben/Tag', values: list.map(proTag), color: '#B3362B' }], height: 180, unit: '/Tag' }) : ''}
+      ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Tage</th><th class="num">Milben</th><th class="num">Milben/Tag</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
+        <tbody>${[...list].reverse().map((x) => { const a = varroaAmpel(proTag(x), x.datum);
+          return `<tr><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${x.tageZaehl || '–'}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(proTag(x), 1)}</b></td><td><span class="badge ${a.badge}">${a.text}</span></td>
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${x.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
+        <div class="hint mt8">Ampel nach saisonalen Richtwerten für den natürlichen Milbentotenfall (ohne Gewähr). „Behandlung prüfen“ heißt: Diagnose ernst nehmen und ggf. behandeln – die Behandlung selbst dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
+      : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (z. B. Bodenschieber) zeigt früh, wann behandelt werden muss.')}
+    </div>`;
+    const form = (x) => UI.formModal({
+      title: x ? 'Varroa-Zählung bearbeiten' : 'Varroa-Zählung',
+      fields: [
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'methode', label: 'Methode', type: 'select', required: true, default: VARROA_METHODEN[0], options: VARROA_METHODEN.map((mm) => ({ v: mm, l: mm })) },
+        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7, hint: 'Wie viele Tage lag der Schieber ein? Milben/Tag = Milben ÷ Tage. Bei Puderzucker/Auswaschen: 1.' },
+        { key: 'milben', label: 'Gezählte Milben', type: 'number', required: true },
+        { key: 'notiz', label: 'Notiz', type: 'textarea' },
+      ],
+      values: x || {},
+      async onSave(val) {
+        val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1;
+        await DB.put('varroa', Object.assign(x || { volkId: v.id }, val));
+        const a = varroaAmpel(val.tageZaehl > 0 ? val.milben / val.tageZaehl : val.milben, val.datum);
+        UI.toast(a.stufe === 'rot' ? '⚠️ Gespeichert – Schwelle überschritten, Behandlung prüfen' : 'Zählung gespeichert');
+        renderRoute();
+      },
+      onDelete: papierkorbDelete('varroa', x, 'Zählung löschen?', 'Wandert in den Papierkorb.'),
+    });
+    $('#vAdd', box).onclick = () => form(null);
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-ve]'); if (b) form(list.find((x) => x.id === b.dataset.ve)); });
   },
 
   /* ---------- Gewichtsverlauf ---------- */
@@ -3143,7 +3322,7 @@ Views.zeiten = {
 /* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -3747,6 +3926,7 @@ const Xlsx = {
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
+      varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, 'Milben/Tag': x.tageZaehl > 0 ? Math.round((x.milben / x.tageZaehl) * 10) / 10 : x.milben, Notiz: x.notiz })) },
       wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
     };
   },
@@ -4079,7 +4259,7 @@ const Pdf = {
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
       const defs = await Xlsx.defs();
-      const kapitel = ['staende', 'voelker', 'stockkarten', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'];
+      const kapitel = ['staende', 'voelker', 'stockkarten', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'];
       for (const key of kapitel) {
         const def = defs[key];
         const rows = await def.rows();
@@ -4479,6 +4659,7 @@ Object.assign(window, {
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
+  varroaAmpel, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-04 · **v0.32 · Alle Module + Nachträge (Verkauf, Zeiterfassung, Vorschläge, Fahrtenbuch, klickbare Kacheln, Versionssystem), 31/31 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-04 · **v0.33 · Alle Module + Nachträge (…, Volk-QR, Varroa-Kontrolle, Sammel-Erfassung), 32/32 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -69,6 +69,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-07-04 (v0.33)**: Von BeeInTouch/iBeekeeper inspirierte Features: (1) **QR-Code je Volk** (`volkQrAnzeigen`/`qrEtikettDruck`, kodiert `#/volk/<id>` → Scan öffnet Stockkarte). (2) **Varroa-Kontrolle** (Store `varroa` DB v4, Milben/Tag, Verlauf, Ampel `varroaAmpel`/`VARROA_SCHWELLEN`). (3) **Sammel-Erfassung** (`sammelErfassung`/`sammelFormular`: Durchsicht/Fütterung/Varroa für mehrere Völker). Team-/Community-Features bewusst ausgelassen (Server nötig). 32/32 grün. Marktanalyse in dieser Sitzung: Einmalkauf ~19,99 € als USP vs. Abo-Konkurrenz; Play-Store via TWA (kein Umbau).
 
 - **2026-07-04 (v0.32)**: Dashboard-Kacheln klickbar (data-ziel + Delegation, Buttons/Links behalten Vorrang). Fahrtenbuch: `staende.kmEntfernung`, Store `fahrten` (DB v3), `fahrtForm` (km = 2×Entfernung vorbelegt), Reporting → Fahrten (km/Pauschale je Jahr + je Stand), `Pdf.fahrtenbuch(jahr)` als Steuer-Nachweis. 31/31 Tests grün.
 - **2026-07-04 (v0.31)**: Versionssystem: `APP_VERSION` + `CHANGELOG` + einmaliges „Was ist neu?“-Fenster nach Updates (Regel: bei jedem Update fortschreiben!).

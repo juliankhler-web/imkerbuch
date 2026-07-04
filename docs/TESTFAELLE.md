@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-04 · Automatisiert: **31 Testfälle, alle grün**
+> Stand: 2026-07-04 · Automatisiert: **32 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -50,10 +50,11 @@ Funktionsweise:
 | 25 | verkaufStornieren | Bestand wiederhergestellt, Buchung + Verkauf im Papierkorb |
 | 26 | Reporting.zeiten | Minuten → Stunden je Tätigkeit, null-Kategorie → „Sonstiges“, sortiert |
 | 27 | UI.pie | SVG-Segmente, Prozentanteile, Gesamtsumme, leerer Zustand |
-| 28 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
-| 29 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
-| 30 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
-| 31 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
+| 28 | varroaAmpel | saisonale Schwellen (Juli/Januar), Grenzwert = grün |
+| 29 | Reporting.fahrtStatistik | km + Fahrten je Jahr, ohne Datum ignoriert, absteigend sortiert |
+| 30 | Version & Changelog | APP_VERSION = neuester Eintrag, vollständige Einträge, keine Duplikate |
+| 31 | Regression: Listener-Leak | Seitenwechsel Trachten→Zucht: Klick öffnet Zucht-Detail, kein fremdes Formular (renderRoute ersetzt `#main` pro Render) |
+| 32 | syncZuchtAufgaben | 7 Aufgaben je Serie, erneuter Sync dupliziert nicht |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 
