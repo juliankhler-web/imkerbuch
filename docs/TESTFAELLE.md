@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-04 · Automatisiert: **42 Testfälle, alle grün**
+> Stand: 2026-07-05 · Automatisiert: **47 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -63,8 +63,13 @@ Funktionsweise:
 | 38 | gelernteWerte | Presets + gelernte DB-Werte, dedupliziert & sortiert |
 | 39 | Vorschlagslisten & Inventar-Kategorien | futter/einheit/inventar gefüllt, neue Kategorien vorhanden |
 | 40 | pageHead | Aktionen in eigenem .ph-actions-Container (verhindert Titel/Button-Overlap) |
-| 41 | Version & Changelog konsistent | Update-Fenster-Grundlage |
-| 42 | syncZuchtAufgaben | 7 Termine als Aufgaben |
+| 41 | U.fmtDate | Datum ohne Zeitzonen-Drift (string-basiert, kein new Date) |
+| 42 | U.addDays | Tageswechsel über Monats-/DST-/Jahresgrenzen ohne Drift |
+| 43 | UI.formModal | Save-Pfad zuverlässig: Komma-Zahl, Datum unverändert, Pflichtfeld/NaN blockt, Modal schließt nur bei Erfolg |
+| 44 | fahrtSchnellBuchen | Ein-Klick bucht Hin-/Rückweg (2 × Entfernung), heutiges Datum, ins Fahrtenbuch |
+| 45 | fahrtSchnellBuchen | ohne hinterlegte Entfernung → Formular statt Sofortbuchung |
+| 46 | Version & Changelog konsistent | Update-Fenster-Grundlage |
+| 47 | syncZuchtAufgaben | 7 Termine als Aufgaben |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

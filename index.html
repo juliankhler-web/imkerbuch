@@ -568,8 +568,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.41';
+const APP_VERSION = '0.43';
 const CHANGELOG = [
+  { version: '0.43', datum: '2026-07-05', punkte: [
+    'Neues Dashboard-Widget „Fahrt zum Stand": bucht mit einem Tipp die Fahrt zu einem Bienenstand (heutiges Datum + Hin- & Rückweg) direkt ins Fahrtenbuch – Pauschale und PDF für die Steuer inklusive. Ständen ohne hinterlegte Entfernung wird beim Tippen das Formular geöffnet, um die km einzutragen.',
+  ] },
+  { version: '0.42', datum: '2026-07-05', punkte: [
+    'Zuverlässigkeit gehärtet: Der Ungespeichert-Schutz bleibt jetzt scharf, falls ein Speichern fehlschlägt (kein stiller Verlust von Eingaben). Datums- und Speicher-Verhalten sind zusätzlich mit automatischen Tests abgesichert – genau die Fehler (Datum verschiebt sich, „speichert nicht"), an denen viele andere Imker-Apps scheitern.',
+  ] },
   { version: '0.41', datum: '2026-07-04', punkte: [
     'Layout-Korrektur: Auf schmalen Handy-Breiten (z. B. iPhone) wurde die Seitenüberschrift („Völker“ usw.) von den Buttons daneben überdeckt/abgeschnitten. Titel und Aktionen rutschen jetzt sauber untereinander – gilt für alle Seiten',
   ] },
@@ -818,8 +824,8 @@ const S = {
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
-    dashboardWidgets: ['voelker', 'aufgaben', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
-    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null,
+    dashboardWidgets: ['voelker', 'aufgaben', 'fahrt', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
+    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
@@ -970,7 +976,9 @@ const UI = {
     $('[data-cancel]', m.el).onclick = () => m.close();
     $('[data-save]', m.el).onclick = async () => {
       const v = collect(); if (!v) return;
-      try { FormGuard.dirty = false; await onSave(v); m.close(true); }
+      // dirty erst NACH erfolgreichem Speichern zurücksetzen – wirft onSave, bleibt der
+      // Ungespeichert-Schutz scharf und das Formular offen (kein stiller Datenverlust).
+      try { await onSave(v); FormGuard.dirty = false; m.close(true); }
       catch (e) { console.error(e); UI.toast(e.message || 'Speichern fehlgeschlagen', 'err'); }
     };
     if (onDelete) $('[data-del]', m.el).onclick = async () => { if (await onDelete()) m.close(true); };
@@ -1453,6 +1461,20 @@ const DASH_WIDGETS = {
       ${t.length ? `<div class="rows">${t.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(a.titel)}</div></div>
         <span class="badge ${a.faellig && a.faellig < today ? 'b-danger' : 'b-honey'}">${a.faellig ? U.fmtDate(a.faellig) : 'offen'}</span></div>`).join('')}</div>` : '<div class="muted small">Nichts offen – sehr gut! 🐝</div>'}</div>`;
   }},
+  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'reporting', async html() {
+    const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
+    if (!staende.length) return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2></div><div class="muted small">Lege einen Bienenstand an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
+    const rows = staende.slice(0, 4).map((s) => {
+      const km = s.kmEntfernung ? s.kmEntfernung * 2 : 0;
+      const btn = km
+        ? `<button class="btn btn-primary btn-sm no-print" onclick="fahrtSchnellBuchen('${s.id}')">${icon('plus')} Fahrt buchen</button>`
+        : `<button class="btn btn-ghost btn-sm no-print" onclick="fahrtForm('${s.id}')">km festlegen</button>`;
+      return `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(s.name)}</div><div class="r-sub">${km ? `${U.fmtNum(km)} km hin & zurück` : 'Entfernung nicht gesetzt'}</div></div>${btn}</div>`;
+    }).join('');
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2><a href="#/reporting" class="small">Fahrten</a></div>
+      <div class="rows">${rows}</div>
+      <div class="hint mt8">Ein Tipp bucht heutiges Datum + Hin- &amp; Rückweg ins Fahrtenbuch (Pauschale/PDF).</div></div>`;
+  }},
   behandlungen: { label: 'Letzte Behandlungen', ziel: 'behandlungen', async html() {
     const b = U.sortBy(await DB.getAll('behandlungen'), (x) => x.datum, true).slice(0, 3);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('flask')}<h2>Letzte Behandlungen</h2><a href="#/behandlungen" class="small">Alle</a></div>
@@ -1492,6 +1514,12 @@ const DASH_WIDGETS = {
 Views.dashboard = {
   title: 'Dashboard',
   async render(main) {
+    // Einmalige Migration: neues Fahrt-Widget bei bestehenden Nutzern einblenden
+    if (!S.get('fahrtWidgetSeen')) {
+      const dw = [...S.get('dashboardWidgets')];
+      if (!dw.includes('fahrt')) { dw.splice(Math.min(2, dw.length), 0, 'fahrt'); await S.set('dashboardWidgets', dw); }
+      await S.set('fahrtWidgetSeen', true);
+    }
     const vorname = S.get('profil').vorname || '';
     const h = new Date().getHours();
     const gruss = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend';
@@ -1688,6 +1716,18 @@ async function fahrtForm(vorStandId = '') {
     const vorschlag = kmVon(standSel.value);
     if (vorschlag !== '') { kmInp.value = String(vorschlag).replace('.', ','); FormGuard.dirty = true; }
   });
+}
+
+/** Ein-Klick-Fahrt vom Dashboard: bucht heute + Hin-/Rückweg für einen Stand.
+    Ohne hinterlegte Entfernung fällt es aufs volle Formular zurück (km eingeben). */
+async function fahrtSchnellBuchen(standId) {
+  const st = await DB.get('staende', standId);
+  if (!st) return UI.toast('Stand nicht gefunden', 'err');
+  if (!st.kmEntfernung) return fahrtForm(standId);
+  const km = st.kmEntfernung * 2;
+  await DB.put('fahrten', { datum: U.todayIso(), standId: st.id, km, zweck: 'Fahrt zum Stand', notiz: '' });
+  UI.toast(`Fahrt gebucht: ${U.fmtNum(km)} km zu ${st.name}`);
+  renderRoute();
 }
 
 function standFormFields() {

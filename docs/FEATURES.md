@@ -84,6 +84,7 @@
 ## v0.32: Klickbare Kacheln & Fahrtenbuch (Nachtrag 2026-07-04, auf Julians Wunsch)
 - ✅ **Dashboard-Kacheln klickbar**: Tipp auf eine Kachel springt in den passenden Bereich (Völker→Völker, Aufgaben→Aufgaben, Ertrag→Reporting, Wetter→Stände, Sicherung→Einstellungen); Buttons/Links in der Kachel behalten Vorrang
 - ✅ **Fahrtenbuch für die Steuer**: je Stand Entfernung von zu Hause hinterlegbar (`kmEntfernung`), „Fahrt erfassen“ am Stand-Detail + unter Reporting → Fahrten (km vorbelegt mit 2 × Entfernung, Zweck-Vorschläge); Übersicht mit km/Fahrten/Pauschale (0,30 €/km) je Jahr und je Stand; **Fahrtenbuch-PDF** als Steuer-Nachweis; eigener Store `fahrten` (DB v3), in Excel/Backup/Komplett-PDF enthalten
+- ✅ **Dashboard-Widget „Fahrt zum Stand“ (Ein-Klick, v0.43)**: bucht mit einem Tipp die Fahrt zu einem Stand (heutiges Datum + Hin-/Rückweg = 2 × `kmEntfernung`) direkt ins Fahrtenbuch via `fahrtSchnellBuchen()`; Stände ohne hinterlegte Entfernung öffnen beim Tippen das Formular; bei Bestandsnutzern einmalig automatisch eingeblendet (`fahrtWidgetSeen`)
 - ✅ **Versionssystem** (ab 0.31): `APP_VERSION` + `CHANGELOG`, „Was ist neu?“-Fenster einmalig nach jedem Update, Version in Sidebar + Einstellungen
 
 ## Verkauf, Zeiterfassung & Vorschlagslisten (Nachtrag 2026-07-04, auf Julians Wunsch)

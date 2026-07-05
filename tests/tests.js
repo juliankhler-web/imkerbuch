@@ -429,6 +429,90 @@ test('pageHead: Aktionen in eigenem .ph-actions-Container (verhindert Titel-Over
   assert(!d2.querySelector('.ph-actions'), 'ohne Aktionen kein .ph-actions');
 });
 
+/* ---------- Verlässlichkeit: Datum & Speichern (die Fehlerklassen der Konkurrenz) ---------- */
+test('U.fmtDate: Datum ohne Zeitzonen-Drift (string-basiert, kein new Date)', (w) => {
+  const U = w.U;
+  assertEq(U.fmtDate('2026-01-01'), '01.01.2026', 'Jahresanfang bleibt derselbe Tag');
+  assertEq(U.fmtDate('2026-12-31'), '31.12.2026', 'Silvester driftet nicht auf den 30.');
+  assertEq(U.fmtDate('2026-03-29'), '29.03.2026', 'EU-Sommerzeit-Umstellungstag driftet nicht');
+  assertEq(U.fmtDate('2026-07-05T09:30:00.000Z'), '05.07.2026', 'nimmt nur den Datumsteil eines Zeitstempels');
+  const t = U.todayIso();
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(t), 'todayIso ist YYYY-MM-DD');
+  const n = new Date();
+  const lokal = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  assertEq(t, lokal, 'todayIso spiegelt das lokale Kalenderdatum (nicht UTC-verschoben)');
+});
+
+test('U.addDays: Tageswechsel über Monats-/DST-/Jahresgrenzen ohne Drift', (w) => {
+  const U = w.U;
+  assertEq(U.addDays('2026-03-29', 1), '2026-03-30', 'über die EU-Sommerzeit-Nacht bleibt es +1 Tag');
+  assertEq(U.addDays('2026-10-25', 1), '2026-10-26', 'über die Winterzeit-Nacht +1 Tag');
+  assertEq(U.addDays('2026-02-28', 1), '2026-03-01', 'Nicht-Schaltjahr: Februar → März');
+  assertEq(U.addDays('2024-02-28', 1), '2024-02-29', 'Schaltjahr behält den 29. Februar');
+  assertEq(U.addDays('2026-12-31', 1), '2027-01-01', 'Jahreswechsel');
+  assertEq(U.addDays('2026-07-05', 0), '2026-07-05', 'addDays(…, 0) ist Identität (kein Drift)');
+});
+
+test('UI.formModal: speichert zuverlässig (Komma-Zahl, Datum ohne Drift, Pflichtfeld/NaN blockt)', async (w) => {
+  const root = () => w.document.querySelector('#modal-root');
+  const fill = (m, key, val) => { const el = m.el.querySelector('#f-' + key); el.value = val; el.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  const clickSave = (m) => m.el.querySelector('[data-save]').click();
+  const tick = () => new Promise((r) => setTimeout(r, 30));
+
+  // 1) Erfolgreiches Speichern: deutsches Dezimalkomma → Punkt, Datum unverändert
+  let saved = null;
+  const m1 = w.UI.formModal({ title: 'T1', fields: [
+    { key: 'name', label: 'Name', required: true },
+    { key: 'menge', label: 'Menge', type: 'number' },
+    { key: 'datum', label: 'Datum', type: 'date' },
+  ], onSave: (v) => { saved = v; } });
+  fill(m1, 'name', 'Imme'); fill(m1, 'menge', '2,5'); fill(m1, 'datum', '2026-03-29');
+  clickSave(m1); await tick();
+  assertEq(saved, { name: 'Imme', menge: 2.5, datum: '2026-03-29' }, 'Komma→Punkt, Datum unverändert, persistiert');
+  assert(!m1.el.isConnected, 'Modal schließt nach erfolgreichem Speichern');
+
+  // 2) Leeres Pflichtfeld → kein Save, Modal bleibt offen
+  let saved2 = false;
+  const m2 = w.UI.formModal({ title: 'T2', fields: [{ key: 'name', label: 'Name', required: true }], onSave: () => { saved2 = true; } });
+  clickSave(m2); await tick();
+  assert(saved2 === false, 'leeres Pflichtfeld verhindert das Speichern');
+  assert(root().contains(m2.el), 'Modal bleibt bei Validierungsfehler offen');
+  await m2.close(true);
+
+  // 3) Ungültige Zahl → blockt (kein stilles NaN)
+  let saved3 = false;
+  const m3 = w.UI.formModal({ title: 'T3', fields: [{ key: 'z', label: 'Zahl', type: 'number', required: true }], onSave: () => { saved3 = true; } });
+  fill(m3, 'z', 'abc'); clickSave(m3); await tick();
+  assert(saved3 === false, 'nicht-numerische Eingabe wird nicht als NaN gespeichert');
+  await m3.close(true);
+  w.FormGuard.dirty = false;
+});
+
+/* ---------- Dashboard: Ein-Klick-Fahrt ---------- */
+test('fahrtSchnellBuchen: Ein-Klick bucht Hin-/Rückweg ins Fahrtenbuch', async (w) => {
+  const st = await w.DB.put('staende', { name: 'Ein-Klick-Stand', kmEntfernung: 12 });
+  const vorher = (await w.DB.getAll('fahrten')).filter((f) => f.standId === st.id).length;
+  await w.fahrtSchnellBuchen(st.id);
+  const nach = (await w.DB.getAll('fahrten')).filter((f) => f.standId === st.id);
+  assertEq(nach.length, vorher + 1, 'genau eine Fahrt gebucht');
+  const f = nach[nach.length - 1];
+  assertEq(f.km, 24, 'km = 2 × Entfernung (Hin- und Rückweg)');
+  assertEq(f.datum, w.U.todayIso(), 'heutiges Datum');
+  assert(f.zweck && f.standId === st.id, 'Zweck + Stand-Bezug gesetzt');
+});
+
+test('fahrtSchnellBuchen: ohne hinterlegte Entfernung → Formular statt Sofortbuchung', async (w) => {
+  const st = await w.DB.put('staende', { name: 'Ohne-km-Stand' });
+  const vorher = (await w.DB.getAll('fahrten')).length;
+  await w.fahrtSchnellBuchen(st.id);
+  await new Promise((r) => setTimeout(r, 40));
+  assertEq((await w.DB.getAll('fahrten')).length, vorher, 'ohne Entfernung wird nicht blind gebucht');
+  const modal = w.document.querySelector('#modal-root .modal-back');
+  assert(modal, 'stattdessen öffnet das Fahrt-Formular (km eingeben)');
+  w.FormGuard.dirty = false;
+  const cancel = modal.querySelector('[data-cancel]'); if (cancel) cancel.click();
+});
+
 /* ---------- Version & Changelog ---------- */
 test('Version & Changelog konsistent (Update-Fenster-Grundlage)', (w) => {
   assertEq(w.APP_VERSION, w.CHANGELOG[0].version, 'APP_VERSION = neuester Changelog-Eintrag');

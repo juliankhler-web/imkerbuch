@@ -1,7 +1,7 @@
 /* ImkerBuch Service Worker – Offline-Fähigkeit
    Strategie: App-Shell cache-first mit Hintergrund-Update,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v041';
+const CACHE = 'imkerbuch-v043';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png'];
 // CDN-Hosts, deren Antworten dauerhaft gecacht werden (Bibliotheken, unveränderlich versioniert)
 const CDN_HOSTS = ['cdn.sheetjs.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
