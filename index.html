@@ -568,8 +568,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.45';
+const APP_VERSION = '0.46';
 const CHANGELOG = [
+  { version: '0.46', datum: '2026-07-05', punkte: [
+    'Rechnungs-PDF neu im Geschäftsbrief-Format nach DIN 5008: Logo größer oben rechts, kein Absenderblock mehr am oberen Rand, Empfängeranschrift sitzt im genormten Anschriftfeld (passt ins Fenster von Briefumschlägen), Infoblock mit Rechnungsnr./Datum rechts, Falz- und Lochmarken zum Falten, und die Absenderangaben stehen jetzt dezent in der Fußzeile.',
+  ] },
   { version: '0.45', datum: '2026-07-05', punkte: [
     'Rechnungen können jetzt drei Besteuerungsarten: Regelbesteuerung, Kleinunternehmer (§ 19 UStG) und – neu – Pauschalierung für land- und forstwirtschaftliche Betriebe (§ 24 UStG). Bei § 24 erscheint der korrekte Hinweis „Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von 7,8 %." Der Durchschnittssatz ist unter Einstellungen → Steuer & Rechnungen einstellbar.',
   ] },
@@ -4664,13 +4667,13 @@ const Pdf = {
     if (untertitel) { doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(110); doc.text(untertitel, 14, y); y += 6; }
     return y + 2;
   },
-  table(doc, { head, body, startY, widths }) {
+  table(doc, { head, body, startY, widths, margin }) {
     doc.autoTable({
       head: [head], body, startY,
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: [40, 37, 30] },
       headStyles: { fillColor: [232, 160, 19], textColor: [36, 26, 5], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [250, 246, 239] },
-      columnStyles: widths || {}, margin: { left: 14, right: 14 },
+      columnStyles: widths || {}, margin: margin || { left: 14, right: 14 },
     });
     return doc.lastAutoTable.finalY;
   },
@@ -4779,19 +4782,28 @@ const Pdf = {
       const imk = S.get('imkerei');
       const jsPDF = await this.lib();
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-      try { doc.addImage(await this.logoDataUrl(), 'PNG', 150, 14, 22, 22); } catch (e) {}
+      // Falz- und Lochmarken (DIN 676) fürs Fensterkuvert – Falten bei 105/210 mm, Lochung bei 148,5 mm
+      doc.setDrawColor(180).setLineWidth(0.2);
+      doc.line(2, 105, 6, 105); doc.line(2, 210, 6, 210); doc.line(2, 148.5, 7, 148.5);
+      // Logo oben rechts, größer – KEIN Absendertext am oberen Rand
+      try { doc.addImage(await this.logoDataUrl(), 'PNG', 156, 12, 34, 34); } catch (e) {}
+      // Anschriftfeld DIN 5008 (Form B): kleine Rücksendeangabe, darunter der Empfänger – sichtbar im Umschlagfenster
+      doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(120);
+      const absender = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+      if (absender) doc.text(absender, 25, 45);
+      doc.setDrawColor(150).setLineWidth(0.1); doc.line(25, 46.5, 105, 46.5);
+      doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(25, 25, 25);
+      const empf = kunde ? [kunde.name, kunde.strasse || '', [kunde.plz, kunde.ort].filter(Boolean).join(' ')].filter(Boolean) : ['(kein Kunde ausgewählt)'];
+      doc.text(empf, 25, 53);
+      // Infoblock rechts, auf Höhe der Anschrift
+      doc.setFontSize(9.5);
+      let iy = 53;
+      const infoRows = [['Rechnungsnr.', r.nummer || '(Entwurf)'], ['Datum', U.fmtDate(r.datum)]];
+      if (imk.registriernummer) infoRows.push(['Reg.-Nr.', imk.registriernummer]);
+      for (const [label, val] of infoRows) { doc.setTextColor(120).text(label, 140, iy); doc.setTextColor(30).text(String(val), 190, iy, { align: 'right' }); iy += 5; }
+      // Betreff (unter dem Anschriftfeld)
       doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(38, 38, 43);
-      doc.text(imk.name || 'Imkerei', 14, 20);
-      doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(100);
-      doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon || '', imk.email || ''].filter(Boolean), 14, 26);
-      doc.setFontSize(7.5).setTextColor(130);
-      doc.text(`${imk.name || ''} · ${imk.strasse || ''} · ${[imk.plz, imk.ort].filter(Boolean).join(' ')}`, 14, 52);
-      doc.setFontSize(10.5).setTextColor(38, 38, 43);
-      if (kunde) doc.text([kunde.name, kunde.strasse || '', [kunde.plz, kunde.ort].filter(Boolean).join(' ')].filter(Boolean), 14, 58);
-      doc.setFont('helvetica', 'bold').setFontSize(15);
-      doc.text(`Rechnung ${r.nummer || '(Entwurf)'}`, 14, 84);
-      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(100);
-      doc.text(`Rechnungsdatum: ${U.fmtDate(r.datum)}`, 196, 84, { align: 'right' });
+      doc.text(`Rechnung ${r.nummer || '(Entwurf)'}`, 25, 96);
       if (r.status !== 'festgeschrieben') {
         doc.saveGraphicsState(); doc.setGState(new doc.GState({ opacity: 0.13 }));
         doc.setFont('helvetica', 'bold').setFontSize(60).setTextColor(180, 60, 40);
@@ -4802,7 +4814,7 @@ const Pdf = {
       const zeigtUst = rechnungSteuerart(r) === 'regel';
       const body = r.positionen.map((p, i) => [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis), zeigtUst ? `${p.steuersatz || 0} %` : '', U.fmtEur(p.menge * p.einzelpreis)]);
       const head = zeigtUst ? ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', 'USt.', 'Summe'] : ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', '', 'Summe'];
-      let y = this.table(doc, { head, body, startY: 92, widths: { 1: { cellWidth: 80 }, 5: { halign: 'right' }, 3: { halign: 'right' }, 2: { halign: 'right' } } });
+      let y = this.table(doc, { head, body, startY: 104, margin: { left: 25, right: 14 }, widths: { 1: { cellWidth: 74 }, 5: { halign: 'right' }, 3: { halign: 'right' }, 2: { halign: 'right' } } });
       y += 8;
       doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
       doc.text(`Gesamtbetrag: ${U.fmtEur(brutto)}`, 196, y, { align: 'right' });
@@ -4812,15 +4824,22 @@ const Pdf = {
       const hinweis = rechnungHinweis(r);
       if (hinweis) { const lines = doc.splitTextToSize(hinweis, 150); doc.text(lines, 196, y, { align: 'right' }); y += lines.length * 4.2 + 1; }
       y += 8;
-      doc.setFontSize(9.5).setTextColor(60);
-      doc.text('Vielen Dank für Ihren Einkauf!', 14, y);
+      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(60);
+      doc.text('Vielen Dank für Ihren Einkauf!', 25, y);
       if (r.qrAufDruck) {
         try {
           const eigenes = S.get('rechnungQr'); // hochgeladenes QR-Bild bevorzugen
           const qr = eigenes || await makeQr(`Rechnung ${r.nummer || 'Entwurf'}\n${imk.name || ''}\nBetrag: ${U.fmtEur(brutto)}\nDatum: ${U.fmtDate(r.datum)}`);
           const fmt = eigenes && /image\/jpe?g/.test(eigenes) ? 'JPEG' : 'PNG';
-          doc.addImage(qr, fmt, 172, y - 4, 24, 24);
+          doc.addImage(qr, fmt, 170, y - 4, 24, 24);
         } catch (e) {}
+      }
+      // Fußzeile mit Absenderangaben (da oben kein Absendertext steht)
+      const foot = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email].filter(Boolean).join('   ·   ');
+      if (foot) {
+        doc.setDrawColor(210).setLineWidth(0.2); doc.line(25, 285, 196, 285);
+        doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(140);
+        doc.text(doc.splitTextToSize(foot, 171), 110.5, 289, { align: 'center' });
       }
       this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
