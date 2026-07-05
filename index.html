@@ -568,8 +568,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.43';
+const APP_VERSION = '0.45';
 const CHANGELOG = [
+  { version: '0.45', datum: '2026-07-05', punkte: [
+    'Rechnungen können jetzt drei Besteuerungsarten: Regelbesteuerung, Kleinunternehmer (§ 19 UStG) und – neu – Pauschalierung für land- und forstwirtschaftliche Betriebe (§ 24 UStG). Bei § 24 erscheint der korrekte Hinweis „Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von 7,8 %." Der Durchschnittssatz ist unter Einstellungen → Steuer & Rechnungen einstellbar.',
+  ] },
+  { version: '0.44', datum: '2026-07-05', punkte: [
+    'Neues Dashboard-Widget „Zeiterfassung": Stunden dieses Jahres und die Top-Tätigkeiten direkt auf der Startseite, ein Tipp führt zur vollen Auswertung.',
+    'Rechnungen: Du kannst jetzt einen eigenen QR-Code hochladen (Einstellungen → Steuer & Rechnungen), z. B. deinen Bezahl-/PayPal- oder Überweisungs-Code. Kreuzt du bei der Rechnung „QR-Code auf die Rechnung drucken" an, erscheint dein Bild auf dem PDF.',
+  ] },
   { version: '0.43', datum: '2026-07-05', punkte: [
     'Neues Dashboard-Widget „Fahrt zum Stand": bucht mit einem Tipp die Fahrt zu einem Bienenstand (heutiges Datum + Hin- & Rückweg) direkt ins Fahrtenbuch – Pauschale und PDF für die Steuer inklusive. Ständen ohne hinterlegte Entfernung wird beim Tippen das Formular geöffnet, um die km einzutragen.',
   ] },
@@ -817,15 +824,16 @@ const S = {
     profil: { vorname: '' },
     imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', tskNummer: '' },
     logo: null, logoImHeader: false,
-    steuer: { kleinunternehmer: true, saetze: [7, 19] },
+    steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     rechnungskreis: { prefix: 'RE-', next: 1 },
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
-    dashboardWidgets: ['voelker', 'aufgaben', 'fahrt', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
-    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false,
+    dashboardWidgets: ['voelker', 'aufgaben', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
+    rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
+    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
@@ -1475,6 +1483,17 @@ const DASH_WIDGETS = {
       <div class="rows">${rows}</div>
       <div class="hint mt8">Ein Tipp bucht heutiges Datum + Hin- &amp; Rückweg ins Fahrtenbuch (Pauschale/PDF).</div></div>`;
   }},
+  zeiten: { label: 'Zeiterfassung (Stunden je Tätigkeit)', ziel: 'zeiten', async html() {
+    const jahr = U.todayIso().slice(0, 4);
+    const datumVon = (a) => a.faellig || (a.lastModified || '').slice(0, 10);
+    const list = (await DB.getAll('aufgaben')).filter((a) => a.erledigt && a.zeitMinuten > 0 && datumVon(a).startsWith(jahr));
+    const posten = Reporting.zeiten(list).slice(0, 3);
+    const gesamtStd = U.sum(list, (a) => a.zeitMinuten) / 60;
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('uhr')}<h2>Zeiterfassung ${jahr}</h2><a href="#/zeiten" class="small">Details</a></div>
+      <div class="flex-wrap" style="align-items:baseline;gap:8px"><div class="s-value" style="font-size:26px">${U.fmtNum(gesamtStd, 1)}</div><span class="muted small">Stunden · ${list.length} ${list.length === 1 ? 'Eintrag' : 'Einträge'}</span></div>
+      ${posten.length ? `<div class="rows mt8">${posten.map((p) => `<div class="row" style="min-height:34px;padding:5px 4px"><span class="r-main"><span class="r-title" style="font-weight:500">${U.esc(p.label)}</span></span><span class="badge b-honey">${U.fmtNum(p.wert, 1)} h</span></div>`).join('')}</div>`
+        : '<div class="muted small mt8">Noch keine Zeiten erfasst – hake eine Aufgabe ab, dann fragt die App nach der Dauer.</div>'}</div>`;
+  }},
   behandlungen: { label: 'Letzte Behandlungen', ziel: 'behandlungen', async html() {
     const b = U.sortBy(await DB.getAll('behandlungen'), (x) => x.datum, true).slice(0, 3);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('flask')}<h2>Letzte Behandlungen</h2><a href="#/behandlungen" class="small">Alle</a></div>
@@ -1514,11 +1533,13 @@ const DASH_WIDGETS = {
 Views.dashboard = {
   title: 'Dashboard',
   async render(main) {
-    // Einmalige Migration: neues Fahrt-Widget bei bestehenden Nutzern einblenden
-    if (!S.get('fahrtWidgetSeen')) {
+    // Einmalige Migration: neue Widgets bei bestehenden Nutzern EINMAL einblenden
+    // (Flag je Widget respektiert bewusstes Entfernen – wird nie erneut hinzugefügt)
+    for (const [id, flag, pos] of [['fahrt', 'fahrtWidgetSeen', 2], ['zeiten', 'zeitenWidgetSeen', 3]]) {
+      if (S.get(flag)) continue;
       const dw = [...S.get('dashboardWidgets')];
-      if (!dw.includes('fahrt')) { dw.splice(Math.min(2, dw.length), 0, 'fahrt'); await S.set('dashboardWidgets', dw); }
-      await S.set('fahrtWidgetSeen', true);
+      if (!dw.includes(id)) { dw.splice(Math.min(pos, dw.length), 0, id); await S.set('dashboardWidgets', dw); }
+      await S.set(flag, true);
     }
     const vorname = S.get('profil').vorname || '';
     const h = new Date().getHours();
@@ -3272,12 +3293,26 @@ Views.kassenbuch = {
    MODUL: RECHNUNGEN (Positionen aus Honigbestand, §19/USt, PDF,
    Festschreiben = fortlaufende Nummer + Bestand runter + Kassenbuch)
    ===================================================================== */
+const STEUERARTEN = { regel: 'Regelbesteuerung', klein: 'Kleinunternehmer (§ 19 UStG)', pauschal24: 'Pauschalierung Land-/Forstwirtschaft (§ 24 UStG)' };
+/** Steuerart einer Rechnung, mit Rückwärtskompatibilität zum alten booleschen kleinunternehmer-Feld. */
+function rechnungSteuerart(r) { return r.steuerart || (r.kleinunternehmer ? 'klein' : 'regel'); }
+/** Pflicht-/Rechtshinweis unter dem Rechnungsbetrag (null = Regelbesteuerung, dort nur die USt-Zeilen). */
+function rechnungHinweis(r) {
+  const art = rechnungSteuerart(r);
+  if (art === 'klein') return 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).';
+  if (art === 'pauschal24') return `Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von ${U.fmtNum(r.pauschalsatz != null ? r.pauschalsatz : 7.8, 1)} %.`;
+  return null;
+}
 function rechnungSummen(r) {
   const brutto = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
   const steuern = {};
-  if (!r.kleinunternehmer) for (const p of r.positionen) {
+  const art = rechnungSteuerart(r);
+  if (art === 'regel') for (const p of r.positionen) {
     const satz = p.steuersatz || 0;
     if (satz > 0) steuern[satz] = (steuern[satz] || 0) + (p.menge * p.einzelpreis) * (satz / (100 + satz));
+  } else if (art === 'pauschal24') {
+    const satz = r.pauschalsatz != null ? r.pauschalsatz : 7.8; // enthaltene Pauschal-USt auf die Gesamtsumme
+    if (satz > 0 && brutto > 0) steuern[satz] = brutto * (satz / (100 + satz));
   }
   return { brutto, steuern };
 }
@@ -3298,7 +3333,9 @@ Views.rechnungen = {
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
     const add = async () => {
-      const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], kleinunternehmer: S.get('steuer').kleinunternehmer, status: 'entwurf', qrAufDruck: false });
+      const stg = S.get('steuer');
+      const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
+      const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, status: 'entwurf', qrAufDruck: false });
       navTo('rechnung/' + r.id);
     };
     bindAdd(add);
@@ -3313,7 +3350,9 @@ Views.rechnung = {
     const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
     const chargen = await DB.getAll('chargen');
     const entwurf = r.status === 'entwurf';
+    const art = rechnungSteuerart(r);
     const { brutto, steuern } = rechnungSummen(r);
+    const zeigtUst = art === 'regel';
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('rechnungen')">${icon('back')} Alle Rechnungen</button>
       ${pageHead(r.nummer || 'Rechnung (Entwurf)', `${U.fmtDate(r.datum)} · Status: ${r.status}`, `
@@ -3330,18 +3369,24 @@ Views.rechnung = {
             : `<div class="kpill">${U.esc(kunden.find((k) => k.id === r.kundeId)?.name || '–')}</div>`}</div>
           <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${r.datum}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
         </div>
-        ${entwurf ? `<label class="check-line"><input type="checkbox" id="r-klein" ${r.kleinunternehmer ? 'checked' : ''}> <span>Kleinunternehmerregelung § 19 UStG (keine USt-Ausweisung)</span></label>
-        <label class="check-line"><input type="checkbox" id="r-qr" ${r.qrAufDruck ? 'checked' : ''}> <span>QR-Code der Imkerei auf der Rechnung drucken</span></label>` : ''}
+        ${entwurf ? `<div class="field"><label>Besteuerung</label>
+          <select class="inp" id="r-steuerart">
+            <option value="regel" ${art === 'regel' ? 'selected' : ''}>Regelbesteuerung (USt 7 / 19 %)</option>
+            <option value="klein" ${art === 'klein' ? 'selected' : ''}>Kleinunternehmer § 19 UStG (keine USt)</option>
+            <option value="pauschal24" ${art === 'pauschal24' ? 'selected' : ''}>Pauschalierung § 24 UStG · Land-/Forstwirtschaft (${U.fmtNum(r.pauschalsatz != null ? r.pauschalsatz : 7.8, 1)} %)</option>
+          </select><div class="hint">Für die meisten Imker gilt § 24 (Durchschnittssatz) oder § 19 (Kleinunternehmer). Den Pauschalsatz stellst du unter Einstellungen → Steuer &amp; Rechnungen ein.</div></div>
+        <label class="check-line"><input type="checkbox" id="r-qr" ${r.qrAufDruck ? 'checked' : ''}> <span>QR-Code auf die Rechnung drucken</span></label>
+        <div class="hint">${S.get('rechnungQr') ? 'Nutzt deinen hochgeladenen QR-Code (Einstellungen → Steuer &amp; Rechnungen).' : 'Lade unter Einstellungen → Steuer &amp; Rechnungen einen eigenen QR-Code hoch (z. B. Bezahl-Code). Ohne eigenes Bild wird ein Info-QR mit Rechnungsnummer und Betrag gedruckt.'}</div>` : ''}
       </div>
       <div class="card">
         <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${entwurf ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
-        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${r.kleinunternehmer ? '' : '<th class="num">USt</th>'}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
-          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${r.kleinunternehmer ? '' : `<td class="num">${p.steuersatz || 0} %</td>`}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis)}</b></td>
+        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
+          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtUst ? `<td class="num">${p.steuersatz || 0} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis)}</b></td>
             ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${i}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
             <div style="font-size:19px;font-weight:800">Gesamtbetrag: ${U.fmtEur(brutto)}</div>
-            ${r.kleinunternehmer ? `<div class="small muted">Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.</div>`
-              : Object.entries(steuern).map(([satz, val]) => `<div class="small muted">enthaltene USt ${satz} %: ${U.fmtEur(val)}</div>`).join('')}
+            ${Object.entries(steuern).map(([satz, val]) => `<div class="small muted">enthaltene USt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur(val)}</div>`).join('')}
+            ${rechnungHinweis(r) ? `<div class="small muted" style="max-width:420px;margin-left:auto">${rechnungHinweis(r)}</div>` : ''}
           </div>`
         : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand oder freie Positionen hinzu.')}
       </div>`;
@@ -3349,7 +3394,7 @@ Views.rechnung = {
     if (entwurf) {
       $('#r-kunde').onchange = (e) => saveField(() => { r.kundeId = e.target.value || null; });
       $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
-      $('#r-klein').onchange = (e) => { r.kleinunternehmer = e.target.checked; DB.put('rechnungen', r).then(renderRoute); };
+      $('#r-steuerart').onchange = (e) => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); DB.put('rechnungen', r).then(renderRoute); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
       $('#addPos').onclick = () => Views.rechnung.posForm(r, chargen);
       main.addEventListener('click', async (e) => {
@@ -3383,7 +3428,7 @@ Views.rechnung = {
         { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Charge automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
         { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
-        { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => !r.kleinunternehmer },
+        { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
         let text = v.text, chargeId = null;
@@ -4530,7 +4575,7 @@ const Xlsx = {
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), 'Ziel (Stand)': staende.get(f.standId)?.name || '', Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
-      rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, '§19 UStG': r.kleinunternehmer ? 'ja' : 'nein' })) },
+      rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
       inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Stückzahl: i.stueckzahl, 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
@@ -4754,23 +4799,27 @@ const Pdf = {
         doc.restoreGraphicsState();
       }
       const { brutto, steuern } = rechnungSummen(r);
-      const body = r.positionen.map((p, i) => [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis), r.kleinunternehmer ? '' : `${p.steuersatz || 0} %`, U.fmtEur(p.menge * p.einzelpreis)]);
-      const head = r.kleinunternehmer ? ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', '', 'Summe'] : ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', 'USt.', 'Summe'];
+      const zeigtUst = rechnungSteuerart(r) === 'regel';
+      const body = r.positionen.map((p, i) => [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis), zeigtUst ? `${p.steuersatz || 0} %` : '', U.fmtEur(p.menge * p.einzelpreis)]);
+      const head = zeigtUst ? ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', 'USt.', 'Summe'] : ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', '', 'Summe'];
       let y = this.table(doc, { head, body, startY: 92, widths: { 1: { cellWidth: 80 }, 5: { halign: 'right' }, 3: { halign: 'right' }, 2: { halign: 'right' } } });
       y += 8;
       doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
       doc.text(`Gesamtbetrag: ${U.fmtEur(brutto)}`, 196, y, { align: 'right' });
       y += 6;
       doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(110);
-      if (r.kleinunternehmer) { doc.text('Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).', 196, y, { align: 'right' }); y += 5; }
-      else for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${satz} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
+      for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${U.fmtNum(+satz, 1)} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
+      const hinweis = rechnungHinweis(r);
+      if (hinweis) { const lines = doc.splitTextToSize(hinweis, 150); doc.text(lines, 196, y, { align: 'right' }); y += lines.length * 4.2 + 1; }
       y += 8;
       doc.setFontSize(9.5).setTextColor(60);
       doc.text('Vielen Dank für Ihren Einkauf!', 14, y);
       if (r.qrAufDruck) {
         try {
-          const qr = await makeQr(`Rechnung ${r.nummer || 'Entwurf'}\n${imk.name || ''}\nBetrag: ${U.fmtEur(brutto)}\nDatum: ${U.fmtDate(r.datum)}`);
-          doc.addImage(qr, 'PNG', 172, y - 4, 24, 24);
+          const eigenes = S.get('rechnungQr'); // hochgeladenes QR-Bild bevorzugen
+          const qr = eigenes || await makeQr(`Rechnung ${r.nummer || 'Entwurf'}\n${imk.name || ''}\nBetrag: ${U.fmtEur(brutto)}\nDatum: ${U.fmtDate(r.datum)}`);
+          const fmt = eigenes && /image\/jpe?g/.test(eigenes) ? 'JPEG' : 'PNG';
+          doc.addImage(qr, fmt, 172, y - 4, 24, 24);
         } catch (e) {}
       }
       this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`);
@@ -5017,6 +5066,7 @@ Views.einstellungen = {
   title: 'Einstellungen',
   async render(main) {
     const profil = S.get('profil'), imk = S.get('imkerei'), f = S.get('features'), steuer = S.get('steuer'), kreis = S.get('rechnungskreis');
+    const steuerArt = steuer.art || (steuer.kleinunternehmer ? 'klein' : 'regel');
     const logo = S.get('logo');
     const snaps = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
     const typen = S.get('dokumentTypen');
@@ -5084,12 +5134,34 @@ Views.einstellungen = {
       </div>
 
       <div class="card"><div class="card-title">${icon('euro')}<h2>Steuer & Rechnungen</h2></div>
-        <label class="check-line"><input type="checkbox" id="st-klein" ${steuer.kleinunternehmer ? 'checked' : ''}> <span>Kleinunternehmerregelung § 19 UStG (Standard für neue Rechnungen)</span></label>
+        <div class="field"><label>Besteuerung (Standard für neue Rechnungen)</label>
+          <select class="inp" id="st-art">
+            <option value="regel" ${steuerArt === 'regel' ? 'selected' : ''}>Regelbesteuerung (USt 7 / 19 %)</option>
+            <option value="klein" ${steuerArt === 'klein' ? 'selected' : ''}>Kleinunternehmer § 19 UStG</option>
+            <option value="pauschal24" ${steuerArt === 'pauschal24' ? 'selected' : ''}>Pauschalierung § 24 UStG · Land-/Forstwirtschaft</option>
+          </select>
+        </div>
+        <div class="field" id="st-pausch-wrap" style="${steuerArt === 'pauschal24' ? '' : 'display:none'}"><label>Durchschnittssatz § 24 (%)</label>
+          <input class="inp" id="st-pausch" inputmode="decimal" value="${U.fmtNum(steuer.pauschalsatz != null ? steuer.pauschalsatz : 7.8, 1)}">
+          <div class="hint">Aktueller pauschaler Durchschnittssatz für land- und forstwirtschaftliche Betriebe (2025/2026: 7,8 %). Erscheint als „enthaltene pauschalierende Umsatzsteuer“ auf der Rechnung.</div>
+        </div>
         <div class="grid2 mt12">
           <div class="field"><label>Rechnungsnummern-Präfix</label><input class="inp" id="rk-prefix" value="${U.esc(kreis.prefix)}"></div>
           <div class="field"><label>Nächste Nummer</label><input class="inp" id="rk-next" inputmode="numeric" value="${kreis.next}"></div>
         </div>
         <div class="hint">Nächste Rechnung erhält: <b>${U.esc(kreis.prefix)}${String(kreis.next).padStart(4, '0')}</b></div>
+        <div class="mt12" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <div style="width:74px;height:74px;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden">
+            ${S.get('rechnungQr') ? `<img src="${S.get('rechnungQr')}" style="max-width:100%;max-height:100%">` : `<span class="muted" style="font-size:11px;text-align:center">kein<br>QR</span>`}
+          </div>
+          <div style="flex:1;min-width:180px">
+            <div class="flex-wrap no-print">
+              <label class="btn btn-ghost btn-sm">${icon('upload')} QR-Code hochladen<input type="file" accept="image/png,image/jpeg" class="hidden" id="rqr-file"></label>
+              ${S.get('rechnungQr') ? `<button class="btn btn-danger btn-sm" id="rqr-del">${icon('trash')} Entfernen</button>` : ''}
+            </div>
+            <div class="hint mt8">Eigener QR-Code (z. B. Bezahl-/PayPal-Code oder Überweisungs-QR). Erscheint auf Rechnungen, sobald du dort „QR-Code auf die Rechnung drucken“ ankreuzt.</div>
+          </div>
+        </div>
       </div>
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
@@ -5195,8 +5267,24 @@ Views.einstellungen = {
     if (ld) ld.onclick = async () => { await S.set('logo', null); await S.set('logoImHeader', false); UI.toast('Logo entfernt'); applyHeaderLogo(); renderRoute(); };
     $('#logo-header').onchange = async (e) => { await S.set('logoImHeader', e.target.checked); applyHeaderLogo(); };
 
+    /* Rechnungs-QR-Code hochladen/entfernen */
+    const rqrFile = $('#rqr-file');
+    if (rqrFile) rqrFile.onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try { await S.set('rechnungQr', await U.blobToDataURL(await U.resizeImage(file, 512, 0.92))); UI.toast('QR-Code gespeichert'); renderRoute(); }
+      catch (err) { UI.toast('QR-Code konnte nicht verarbeitet werden: ' + err.message, 'err'); }
+    };
+    const rqrDel = $('#rqr-del');
+    if (rqrDel) rqrDel.onclick = async () => { await S.set('rechnungQr', null); UI.toast('QR-Code entfernt'); renderRoute(); };
+
     /* Steuer & Rechnungskreis */
-    $('#st-klein').onchange = async (e) => { steuer.kleinunternehmer = e.target.checked; await S.set('steuer', steuer); };
+    $('#st-art').onchange = async (e) => {
+      steuer.art = e.target.value; steuer.kleinunternehmer = (e.target.value === 'klein');
+      const pw = $('#st-pausch-wrap'); if (pw) pw.style.display = e.target.value === 'pauschal24' ? '' : 'none';
+      await S.set('steuer', steuer);
+    };
+    const stP = $('#st-pausch');
+    if (stP) stP.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { steuer.pauschalsatz = v; await S.set('steuer', steuer); } };
     const saveKreis = U.debounce(async () => {
       kreis.prefix = $('#rk-prefix').value;
       const n = parseInt($('#rk-next').value, 10);
@@ -5336,7 +5424,8 @@ Object.assign(window, {
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
-  gelernteWerte, INVENTAR_KATEGORIEN, pageHead,
+  gelernteWerte, INVENTAR_KATEGORIEN, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
+  rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

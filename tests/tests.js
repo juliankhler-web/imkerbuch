@@ -513,6 +513,33 @@ test('fahrtSchnellBuchen: ohne hinterlegte Entfernung → Formular statt Sofortb
   const cancel = modal.querySelector('[data-cancel]'); if (cancel) cancel.click();
 });
 
+/* ---------- Rechnung: § 24 Pauschalierung (Land-/Forstwirtschaft) ---------- */
+test('rechnungSummen: § 24 Pauschalierung – enthaltene pauschale USt auf die Gesamtsumme', (w) => {
+  const r = { steuerart: 'pauschal24', pauschalsatz: 7.8, positionen: [{ menge: 6, einzelpreis: 6.5, steuersatz: 0 }, { menge: 2, einzelpreis: 5, steuersatz: 0 }] };
+  const { brutto, steuern } = w.rechnungSummen(r);
+  assertNah(brutto, 49, 0.001, 'Brutto = Summe menge × einzelpreis');
+  assertNah(steuern[7.8], 49 * 7.8 / 107.8, 0.001, 'enthaltene Pauschal-USt = brutto × 7,8/107,8');
+});
+
+test('rechnungSteuerart + rechnungHinweis: drei Modelle inkl. Rückwärtskompatibilität', (w) => {
+  assertEq(w.rechnungSteuerart({ kleinunternehmer: true }), 'klein', 'altes Feld true → § 19');
+  assertEq(w.rechnungSteuerart({ kleinunternehmer: false }), 'regel', 'altes Feld false → Regelbesteuerung');
+  assertEq(w.rechnungSteuerart({ steuerart: 'pauschal24', kleinunternehmer: false }), 'pauschal24', 'neues Feld hat Vorrang');
+  assert(/§ 19/.test(w.rechnungHinweis({ steuerart: 'klein' })), '§ 19-Hinweis vorhanden');
+  assertEq(w.rechnungHinweis({ steuerart: 'regel' }), null, 'Regelbesteuerung ohne Sonderhinweis');
+  const h = w.rechnungHinweis({ steuerart: 'pauschal24', pauschalsatz: 7.8 });
+  assert(/§ 24/.test(h) && /295/.test(h) && /7,8 %/.test(h), '§ 24-Hinweis mit Art. 295 ff. MwStSystRL + Satz 7,8 %');
+});
+
+/* ---------- Dashboard-Widgets rendern fehlerfrei ---------- */
+test('DASH_WIDGETS: alle Dashboard-Widgets liefern HTML ohne Fehler', async (w) => {
+  assert(w.DASH_WIDGETS.fahrt && w.DASH_WIDGETS.zeiten, 'Fahrt- und Zeiterfassungs-Widget vorhanden');
+  for (const [id, def] of Object.entries(w.DASH_WIDGETS)) {
+    const html = await def.html();
+    assert(typeof html === 'string', `Widget ${id} liefert einen String`);
+  }
+});
+
 /* ---------- Version & Changelog ---------- */
 test('Version & Changelog konsistent (Update-Fenster-Grundlage)', (w) => {
   assertEq(w.APP_VERSION, w.CHANGELOG[0].version, 'APP_VERSION = neuester Changelog-Eintrag');

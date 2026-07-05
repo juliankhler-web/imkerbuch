@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-05 · Automatisiert: **47 Testfälle, alle grün**
+> Stand: 2026-07-05 · Automatisiert: **50 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -68,8 +68,11 @@ Funktionsweise:
 | 43 | UI.formModal | Save-Pfad zuverlässig: Komma-Zahl, Datum unverändert, Pflichtfeld/NaN blockt, Modal schließt nur bei Erfolg |
 | 44 | fahrtSchnellBuchen | Ein-Klick bucht Hin-/Rückweg (2 × Entfernung), heutiges Datum, ins Fahrtenbuch |
 | 45 | fahrtSchnellBuchen | ohne hinterlegte Entfernung → Formular statt Sofortbuchung |
-| 46 | Version & Changelog konsistent | Update-Fenster-Grundlage |
-| 47 | syncZuchtAufgaben | 7 Termine als Aufgaben |
+| 46 | rechnungSummen | § 24 Pauschalierung: enthaltene pauschale USt = brutto × 7,8/107,8 |
+| 47 | rechnungSteuerart + rechnungHinweis | drei Steuermodelle (Regel/§19/§24) inkl. Rückwärtskompatibilität + korrekte Rechtstexte |
+| 48 | DASH_WIDGETS | alle Dashboard-Widgets (inkl. Fahrt + Zeiterfassung) liefern HTML ohne Fehler |
+| 49 | Version & Changelog konsistent | Update-Fenster-Grundlage |
+| 50 | syncZuchtAufgaben | 7 Termine als Aufgaben |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 
