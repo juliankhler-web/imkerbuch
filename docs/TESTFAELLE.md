@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-05 · Automatisiert: **50 Testfälle, alle grün**
+> Stand: 2026-07-06 · Automatisiert: **51 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -73,6 +73,7 @@ Funktionsweise:
 | 48 | DASH_WIDGETS | alle Dashboard-Widgets (inkl. Fahrt + Zeiterfassung) liefern HTML ohne Fehler |
 | 49 | Version & Changelog konsistent | Update-Fenster-Grundlage |
 | 50 | syncZuchtAufgaben | 7 Termine als Aufgaben |
+| 51 | Demo.create/reset | Beispieldaten befüllen alle Module ohne Fehler (≥13 Völker, Königinnen, Ernten, Rechnungen, Chargen, Zeiterfassung) |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

@@ -558,3 +558,14 @@ test('syncZuchtAufgaben: 7 Termine als Aufgaben', async (w) => {
   const nochmal = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'zucht' && a.refId === serie.id);
   assertEq(nochmal.length, 7, 'Sync ersetzt statt dupliziert');
 });
+
+/* ---------- Beispieldaten (Demo) ---------- */
+test('Demo.create/reset: befüllt alle Module ohne Fehler (Smoke)', async (w) => {
+  await w.Demo.reset();
+  assert((await w.DB.getAll('voelker')).length >= 13, 'mind. 13 Völker angelegt');
+  assert((await w.DB.getAll('koeniginnen')).length >= 6, 'Königinnen (mit Stammbaum) vorhanden');
+  assert((await w.DB.getAll('ernten')).length >= 8, 'Ernten über mehrere Jahre');
+  assert((await w.DB.getAll('rechnungen')).length >= 1, 'mindestens eine Rechnung');
+  assert((await w.DB.getAll('chargen')).length >= 3, 'Honig-Chargen vorhanden');
+  assert((await w.DB.getAll('aufgaben')).some((a) => a.erledigt && a.zeitMinuten > 0), 'Zeiterfassung befüllt');
+});

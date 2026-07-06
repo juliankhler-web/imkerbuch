@@ -568,8 +568,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.46';
+const APP_VERSION = '0.47';
 const CHANGELOG = [
+  { version: '0.47', datum: '2026-07-06', punkte: [
+    'Neu unter Einstellungen → „Beispieldaten laden": füllt die App auf Wunsch mit umfangreichen Demo-Daten (15 Völker über 3 Stände, Königinnen mit Stammbaum, Stockkarten, Varroa, Behandlungen, Trachten, Wanderungen, Ernten mehrerer Jahre, Chargen, Verkäufe, Kassenbuch, Rechnungen, Inventar, Fahrten, Zeiterfassung, Reporting) – ideal zum Ausprobieren. Ersetzt vorhandene Daten (mit Rückfrage).',
+  ] },
   { version: '0.46', datum: '2026-07-05', punkte: [
     'Rechnungs-PDF neu im Geschäftsbrief-Format nach DIN 5008: Logo größer oben rechts, kein Absenderblock mehr am oberen Rand, Empfängeranschrift sitzt im genormten Anschriftfeld (passt ins Fenster von Briefumschlägen), Infoblock mit Rechnungsnr./Datum rechts, Falz- und Lochmarken zum Falten, und die Absenderangaben stehen jetzt dezent in der Fußzeile.',
   ] },
@@ -1665,38 +1668,155 @@ const Wizard = {
 };
 
 const Demo = {
-  /** Beispieldaten für den Rundgang */
+  /** Alle Datenspeicher leeren (Einstellungen bleiben) und volle Beispieldaten laden. */
+  async reset() { for (const s of DB.STORES) if (s !== 'settings') await DB.clear(s); await this.create(); },
+  /** Umfangreiche Beispieldaten für Rundgang & Screenshots (deckt alle Module ab). */
   async create() {
-    const heute = U.todayIso(), jahr = heute.slice(0, 4);
-    const st1 = await DB.put('staende', { name: 'Heimstand Obstwiese', lat: 51.3127, lng: 9.4797, notizen: 'Hinter der Scheune, Morgensonne.' });
-    const st2 = await DB.put('staende', { name: 'Wanderstand Rapsfeld', lat: 51.2544, 'lng': 9.3811, notizen: 'Nur Mai–Juni belegt.' });
-    const q1 = await DB.put('koeniginnen', { jahrgang: +jahr - 1, herkunft: 'Eigene Nachzucht', linie: 'Carnica Linie T', status: 'aktiv', historie: [], notiz: '' });
-    const q2 = await DB.put('koeniginnen', { jahrgang: +jahr, herkunft: 'Belegstelle', linie: 'Buckfast B7', status: 'aktiv', historie: [], notiz: '' });
-    const v1 = await DB.put('voelker', { name: 'Demo-Volk Anna', standId: st1.id, koeniginId: q1.id, beutentyp: 'Zander', beutenkennung: 'Z-01', raehmchenmass: 'Zander', status: 'aktiv', historie: [{ datum: U.addDays(heute, -400), text: 'Volk angelegt' }], notizen: 'Sanftmütig, starker Frühjahrsstart.' });
-    const v2 = await DB.put('voelker', { name: 'Demo-Volk Berta', standId: st1.id, koeniginId: q2.id, beutentyp: 'Zander', beutenkennung: 'Z-02', raehmchenmass: 'Zander', status: 'aktiv', historie: [{ datum: U.addDays(heute, -300), text: 'Ableger gebildet' }], notizen: '' });
-    q1.historie.push({ volkId: v1.id, von: U.addDays(heute, -400), bis: null }); await DB.put('koeniginnen', q1);
-    q2.historie.push({ volkId: v2.id, von: U.addDays(heute, -300), bis: null }); await DB.put('koeniginnen', q2);
-    await DB.put('stockkarten', { volkId: v1.id, datum: U.addDays(heute, -21), volksstaerke: 4, brutbild: 5, sanftmut: 5, futter: 'ausreichend', weiselzellen: false, notiz: 'Alle Brutstadien, sehr ruhig auf der Wabe.' });
-    await DB.put('stockkarten', { volkId: v1.id, datum: U.addDays(heute, -7), volksstaerke: 5, brutbild: 4, sanftmut: 4, futter: 'gut', weiselzellen: false, notiz: 'Honigraum zu 70 % voll.' });
-    await DB.put('stockkarten', { volkId: v2.id, datum: U.addDays(heute, -7), volksstaerke: 3, brutbild: 3, sanftmut: 5, futter: 'knapp', weiselzellen: true, notiz: '2 Weiselzellen gebrochen, Futterteig gegeben.' });
-    await DB.put('fuetterungen', { volkId: v2.id, datum: U.addDays(heute, -6), futterart: 'Futterteig', mengeKg: 2.5, winterfutter: false });
-    for (let i = 8; i >= 0; i--) await DB.put('gewichte', { volkId: v1.id, datum: U.addDays(heute, -i * 7), gewichtKg: 38 + (8 - i) * 1.9 + (i % 3) * 0.4 });
-    await DB.put('behandlungen', { zielTyp: 'volk', zielId: v1.id, datum: `${+jahr - 1}-08-12`, mittel: 'Ameisensäure 60 %', menge: 200, einheit: 'ml', anwendungsart: 'Verdunster (Nassenheider)', wartezeitTage: 0, notiz: 'Nach Abschleudern.' });
-    await DB.put('behandlungen', { zielTyp: 'stand', zielId: st1.id, datum: `${+jahr - 1}-12-27`, mittel: 'Oxalsäure 3,5 %', menge: 35, einheit: 'ml', anwendungsart: 'Träufeln', wartezeitTage: 0, notiz: 'Brutfrei, 4 °C.' });
-    const tr = await DB.put('trachten', { bezeichnung: `Raps ${jahr}`, pflanze: 'Raps', von: `${jahr}-04-20`, bis: `${jahr}-06-05`, region: 'Feldmark Nord', standIds: [st2.id] });
-    await DB.put('wanderungen', { zielTyp: 'stand', zielId: st1.id, vonOrt: 'Heimstand', nachOrt: 'Rapsfeld Feldmark Nord', datum: `${jahr}-04-22`, rueckDatum: `${jahr}-06-07`, trachtId: tr.id, notiz: '4 Völker gewandert.' });
-    const e1 = await DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${+jahr - 1}-06-15`, sorte: 'Frühtracht', mengeKg: 18.4, trachtId: null, notiz: '' });
-    const e2 = await DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${jahr}-06-10`, sorte: 'Raps', mengeKg: 22.7, trachtId: tr.id, notiz: 'Wassergehalt 17,2 %' });
-    await DB.put('chargen', { losnummer: `${jahr}-01`, abfuelldatum: `${jahr}-06-20`, ernteIds: [e2.id], glasGroesseG: 500, anzahlGlaeser: 40, bestandGlaeser: 34, mhd: `${+jahr + 2}-06-20`, etikettNotiz: 'Rapshonig, cremig gerührt' });
+    const heute = U.todayIso(), Y = +heute.slice(0, 4);
+    const d = (n) => U.addDays(heute, n);
+    const ymd = (y, m, dd) => `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+
+    const st1 = await DB.put('staende', { name: 'Heimstand Obstwiese', lat: 51.3127, lng: 9.4797, kmEntfernung: 3, notizen: 'Hinter der Scheune, Morgensonne.' });
+    const st2 = await DB.put('staende', { name: 'Wanderstand Rapsfeld', lat: 51.2544, lng: 9.3811, kmEntfernung: 14, notizen: 'Nur Mai–Juni belegt.' });
+    const st3 = await DB.put('staende', { name: 'Lindenallee Ost', lat: 51.3402, lng: 9.5210, kmEntfernung: 9, notizen: 'Spättracht Linde.' });
+
+    const mkQ = (jg, herk, linie, mutterId) => DB.put('koeniginnen', { jahrgang: jg, herkunft: herk, linie, status: 'aktiv', historie: [], notiz: '', mutterId: mutterId || null });
+    const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null);
+    const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id);
+    const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id);
+    const qD = await mkQ(Y - 2, 'Belegstelle Norderney', 'Carnica Sklenar', qB.id);
+    const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id);
+    const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null);
+    const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id);
+
+    const V = {};
+    const VN = [
+      ['Anna', Y - 4, st1, 'Zander', qB], ['Berta', Y - 4, st1, 'Zander', qC],
+      ['Clara', Y - 3, st1, 'Zander', qD], ['Dora', Y - 3, st1, 'Deutsch Normal', null], ['Emma', Y - 3, st2, 'Zander', qE],
+      ['Frida', Y - 2, st2, 'Zander', qF], ['Greta', Y - 2, st1, 'Dadant', qG], ['Hanna', Y - 2, st3, 'Zander', null],
+      ['Ida', Y - 1, st3, 'Zander', null], ['Jana', Y - 1, st1, 'Deutsch Normal', null], ['Kira', Y - 1, st2, 'Zander', null],
+      ['Lena', Y, st1, 'Zander', null], ['Mara', Y, st3, 'Zander', null],
+    ];
+    let ki = 1;
+    for (const [nm, yr, stx, bt, q] of VN) {
+      const kenn = (bt === 'Zander' ? 'Z' : bt === 'Dadant' ? 'D' : 'DN') + '-' + String(ki).padStart(2, '0');
+      const v = await DB.put('voelker', { name: 'Volk ' + nm, standId: stx.id, koeniginId: q ? q.id : null, beutentyp: bt, beutenkennung: kenn, raehmchenmass: bt === 'Dadant' ? 'Dadant' : bt === 'Deutsch Normal' ? 'DN' : 'Zander', status: 'aktiv', historie: [{ datum: ymd(yr, 4, 12), text: 'Volk angelegt' }], notizen: '' });
+      V[nm] = v; ki++;
+      if (q) { q.historie.push({ volkId: v.id, von: ymd(yr, 4, 12), bis: null }); await DB.put('koeniginnen', q); }
+    }
+    await DB.put('voelker', { name: 'Volk Nora', standId: st1.id, koeniginId: null, beutentyp: 'Zander', beutenkennung: 'Z-14', raehmchenmass: 'Zander', status: 'aufgeloest', historie: [{ datum: ymd(Y - 3, 5, 1), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 9, 10), text: 'Volk aufgelöst (drohnenbrütig)' }], notizen: '' });
+    await DB.put('voelker', { name: 'Volk Olga', standId: st1.id, koeniginId: null, beutentyp: 'Zander', beutenkennung: 'Z-15', raehmchenmass: 'Zander', status: 'vereinigt', historie: [{ datum: ymd(Y - 2, 4, 20), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 8, 5), text: 'Vereinigt mit „Volk Anna“' }], notizen: '' });
+
+    let si = 0;
+    for (const nm of ['Anna', 'Berta', 'Clara', 'Emma', 'Frida', 'Greta', 'Ida', 'Lena']) {
+      const v = V[nm];
+      await DB.put('stockkarten', { volkId: v.id, datum: d(-42 + si), volksstaerke: 4 + (si % 2), brutbild: 4, sanftmut: 4 + (si % 2), futter: ['ausreichend', 'gut', 'knapp', 'reichlich'][si % 4], weiselzellen: si % 5 === 0, notiz: ['Alle Brutstadien, ruhig.', 'Honigraum füllt sich.', 'Sanft auf der Wabe.', 'Futter kontrolliert.'][si % 4] });
+      await DB.put('stockkarten', { volkId: v.id, datum: d(-14 + si), volksstaerke: 5, brutbild: 5, sanftmut: 5, futter: 'gut', weiselzellen: false, notiz: 'Starkes Volk, Honigraum zu 70 % voll.' });
+      si++;
+    }
+    let vi = 0;
+    for (const nm of ['Anna', 'Clara', 'Emma', 'Frida', 'Greta', 'Ida']) {
+      const v = V[nm];
+      await DB.put('varroa', { volkId: v.id, datum: d(-30 + vi), methode: 'Bodenschieber (natürlicher Fall)', milben: 2 + vi * 3, tageZaehl: 3, probeBienen: 0 });
+      await DB.put('varroa', { volkId: v.id, datum: d(-8 + vi), methode: 'Puderzuckermethode', milben: 1 + vi, tageZaehl: 0, probeBienen: 300 });
+      vi++;
+    }
+    for (const nm of ['Anna', 'Berta', 'Dora', 'Emma', 'Greta']) await DB.put('fuetterungen', { volkId: V[nm].id, datum: d(-9), futterart: 'Zuckersirup 3:2', mengeKg: 5, winterfutter: false });
+    await DB.put('fuetterungen', { volkId: V['Anna'].id, datum: ymd(Y - 1, 9, 20), futterart: 'Winterfutter (fertig)', mengeKg: 12, winterfutter: true });
+    for (let i = 10; i >= 0; i--) await DB.put('gewichte', { volkId: V['Anna'].id, datum: d(-i * 5), gewichtKg: 34 + (10 - i) * 1.6 + (i % 3) * 0.5 });
+
+    for (const b of [
+      ['volk', V['Anna'].id, ymd(Y - 1, 8, 12), 'Ameisensäure 60 %', 200, 'ml', 'Verdunster (Nassenheider)', 'Nach Abschleudern.'],
+      ['stand', st1.id, ymd(Y - 1, 12, 27), 'Oxalsäure 3,5 %', 35, 'ml', 'Träufeln', 'Brutfrei, 4 °C.'],
+      ['volk', V['Frida'].id, ymd(Y, 8, 5), 'Ameisensäure 85 %', 180, 'ml', 'Schwammtuch', ''],
+      ['stand', st2.id, ymd(Y - 1, 7, 15), 'Thymol (Thymovar)', 2, 'Streifen', 'Auflegen (Rähmchen)', '2 Streifen je Volk.'],
+      ['volk', V['Greta'].id, ymd(Y, 1, 3), 'Oxalsäure', 3, 'ml', 'Sprühen', 'Brutfrei.'],
+    ]) await DB.put('behandlungen', { zielTyp: b[0], zielId: b[1], datum: b[2], mittel: b[3], menge: b[4], einheit: b[5], anwendungsart: b[6], wartezeitTage: 0, notiz: b[7] });
+
+    const trR = await DB.put('trachten', { bezeichnung: `Raps ${Y}`, pflanze: 'Raps', von: ymd(Y, 4, 20), bis: ymd(Y, 6, 5), region: 'Feldmark Nord', standIds: [st2.id] });
+    const trL = await DB.put('trachten', { bezeichnung: `Linde ${Y}`, pflanze: 'Linde', von: ymd(Y, 6, 15), bis: ymd(Y, 7, 10), region: 'Lindenallee Ost', standIds: [st3.id] });
+    await DB.put('trachten', { bezeichnung: `Obstblüte ${Y}`, pflanze: 'Obstblüte', von: ymd(Y, 4, 1), bis: ymd(Y, 4, 25), region: 'Obstwiese', standIds: [st1.id] });
+    await DB.put('trachten', { bezeichnung: `Waldtracht ${Y - 1}`, pflanze: 'Waldtracht', von: ymd(Y - 1, 6, 20), bis: ymd(Y - 1, 8, 1), region: 'Reinhardswald', standIds: [st3.id] });
+    await DB.put('wanderungen', { zielTyp: 'stand', zielId: st2.id, vonOrt: 'Heimstand Obstwiese', nachOrt: 'Rapsfeld Feldmark Nord', datum: ymd(Y, 4, 22), rueckDatum: ymd(Y, 6, 7), trachtId: trR.id, notiz: '5 Völker gewandert.' });
+    await DB.put('wanderungen', { zielTyp: 'stand', zielId: st3.id, vonOrt: 'Heimstand Obstwiese', nachOrt: 'Lindenallee Ost', datum: ymd(Y, 6, 12), rueckDatum: ymd(Y, 7, 12), trachtId: trL.id, notiz: '3 Völker zur Linde.' });
+
+    let eRaps, eLinde, eFrueh;
+    for (const [nm, dt, so, kg, tr] of [
+      [V['Anna'], ymd(Y - 2, 6, 15), 'Frühtracht', 17.5, null], [V['Berta'], ymd(Y - 2, 7, 20), 'Sommertracht', 21, null], [V['Clara'], ymd(Y - 2, 8, 1), 'Waldtracht', 15, null],
+      [V['Anna'], ymd(Y - 1, 6, 10), 'Raps', 22.7, trR], [V['Emma'], ymd(Y - 1, 6, 12), 'Raps', 19.8, trR], [V['Frida'], ymd(Y - 1, 7, 5), 'Linde', 24.5, trL], [V['Greta'], ymd(Y - 1, 7, 28), 'Sommerblüte', 18, null],
+      [V['Anna'], ymd(Y, 6, 8), 'Raps', 24.2, trR], [V['Emma'], ymd(Y, 6, 9), 'Raps', 20.6, trR], [V['Frida'], ymd(Y, 7, 2), 'Linde', 26.1, trL],
+    ]) {
+      const e = await DB.put('ernten', { zielTyp: 'volk', zielId: nm.id, datum: dt, sorte: so, mengeKg: kg, trachtId: tr ? tr.id : null, notiz: so === 'Raps' ? 'Wassergehalt 17,2 %' : '' });
+      if (so === 'Raps' && dt.startsWith(String(Y))) eRaps = e;
+      if (so === 'Linde' && dt.startsWith(String(Y))) eLinde = e;
+      if (so === 'Frühtracht') eFrueh = e;
+    }
+    await DB.put('chargen', { losnummer: `${Y}-01`, abfuelldatum: ymd(Y, 6, 20), ernteIds: eRaps ? [eRaps.id] : [], glasGroesseG: 500, anzahlGlaeser: 120, bestandGlaeser: 104, mhd: ymd(Y + 2, 6, 20), etikettNotiz: 'Rapshonig, cremig gerührt' });
+    const chLinde = await DB.put('chargen', { losnummer: `${Y}-02`, abfuelldatum: ymd(Y, 7, 18), ernteIds: eLinde ? [eLinde.id] : [], glasGroesseG: 500, anzahlGlaeser: 80, bestandGlaeser: 63, mhd: ymd(Y + 2, 7, 18), etikettNotiz: 'Lindenblütenhonig' });
+    await DB.put('chargen', { losnummer: `${Y}-03`, abfuelldatum: ymd(Y, 7, 25), ernteIds: eLinde ? [eLinde.id] : [], glasGroesseG: 250, anzahlGlaeser: 60, bestandGlaeser: 52, mhd: ymd(Y + 2, 7, 25), etikettNotiz: 'Lindenhonig 250 g' });
+    await DB.put('chargen', { losnummer: `${Y - 1}-01`, abfuelldatum: ymd(Y - 1, 6, 20), ernteIds: eFrueh ? [eFrueh.id] : [], glasGroesseG: 500, anzahlGlaeser: 100, bestandGlaeser: 0, mhd: ymd(Y + 1, 6, 20), etikettNotiz: 'Frühtrachthonig (ausverkauft)' });
+
     const k1 = await DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Müller', strasse: 'Dorfstraße 12', plz: '34123', ort: 'Kassel', email: 'info@hofladen-mueller.de', telefon: '0561 123456', notiz: 'Nimmt monatlich 12 Gläser.' });
+    const k2 = await DB.put('kontakte', { typ: 'kunde', name: 'Café Sonnenschein', strasse: 'Marktplatz 3', plz: '34117', ort: 'Kassel', email: '', telefon: '0561 998877', notiz: '' });
+    await DB.put('kontakte', { typ: 'kunde', name: 'Stammkunde Meyer (Wochenmarkt)', strasse: '', plz: '', ort: '', email: '', telefon: '', notiz: 'Bar am Marktstand.' });
     await DB.put('kontakte', { typ: 'lieferant', name: 'Imkereibedarf Wabe & Co', strasse: 'Industrieweg 8', plz: '34266', ort: 'Niestetal', email: '', telefon: '', notiz: '' });
-    await DB.put('kassenbuch', { datum: U.addDays(heute, -20), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 78, steuersatz: 0, kontaktId: k1.id, beschreibung: '12 Gläser Rapshonig 500 g', rechnungId: null });
-    await DB.put('kassenbuch', { datum: U.addDays(heute, -34), typ: 'ausgabe', kategorie: 'Gläser/Etiketten', betrag: 42.9, steuersatz: 19, kontaktId: null, beschreibung: '100 Neutralgläser 500 g', rechnungId: null });
-    await DB.put('inventar', { bezeichnung: 'Zanderbeute komplett', kategorie: 'Beute', anschaffung: `${+jahr - 2}-03-10`, preis: 189, stueckzahl: 4, standId: st1.id, volkId: null, notiz: '' });
-    await DB.put('inventar', { bezeichnung: 'Honigschleuder 4 Waben', kategorie: 'Gerät', anschaffung: `${+jahr - 3}-05-02`, preis: 649, stueckzahl: 1, standId: null, volkId: null, notiz: 'Edelstahl, Handantrieb' });
-    await DB.put('aufgaben', { titel: 'Futterkontrolle Demo-Volk Berta', faellig: U.addDays(heute, 2), erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
-    await DB.put('aufgaben', { titel: 'Mittelwände einlöten', faellig: U.addDays(heute, 9), erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
-    UI.toast('Demo-Daten geladen');
+    await DB.put('kontakte', { typ: 'lieferant', name: 'Glaswerk Nord', strasse: '', plz: '', ort: 'Hamburg', email: '', telefon: '', notiz: 'Neutralgläser 500/250 g.' });
+    try { await verkaufErfassen({ chargeId: chLinde.id, anzahl: 12, preisJeGlas: 7.5, kontaktId: k1.id, datum: d(-18), notiz: 'Hofladen' }); } catch (e) {}
+    try { await verkaufErfassen({ chargeId: chLinde.id, anzahl: 5, preisJeGlas: 8, kontaktId: k2.id, datum: d(-9), notiz: 'Café' }); } catch (e) {}
+
+    for (const [dt, ty, ka, be, sr, bs] of [
+      [ymd(Y - 2, 7, 10), 'einnahme', 'Honigverkauf', 420, 0, 'Saison-Honig ' + (Y - 2)],
+      [ymd(Y - 2, 3, 5), 'ausgabe', 'Gläser/Etiketten', 180, 19, 'Gläser ' + (Y - 2)],
+      [ymd(Y - 2, 8, 1), 'ausgabe', 'Varroa-Behandlung', 65, 19, 'Ameisensäure'],
+      [ymd(Y - 1, 7, 12), 'einnahme', 'Honigverkauf', 680, 0, 'Saison-Honig ' + (Y - 1)],
+      [ymd(Y - 1, 5, 2), 'ausgabe', 'Zucker/Futter', 210, 7, 'Winterfutter'],
+      [ymd(Y - 1, 3, 20), 'ausgabe', 'Gläser/Etiketten', 240, 19, 'Gläser ' + (Y - 1)],
+      [ymd(Y - 1, 4, 1), 'ausgabe', 'Standmiete', 60, 0, 'Rapsfeld'],
+      [d(-45), 'einnahme', 'Honigverkauf', 96, 0, 'Wochenmarkt'],
+      [d(-34), 'ausgabe', 'Gläser/Etiketten', 129, 19, '300 Neutralgläser'],
+      [d(-60), 'ausgabe', 'Wachs/Mittelwände', 88, 19, 'Mittelwände'],
+      [d(-12), 'ausgabe', 'Varroa-Behandlung', 48, 19, 'Oxalsäure + AS'],
+    ]) await DB.put('kassenbuch', { datum: dt, typ: ty, kategorie: ka, betrag: be, steuersatz: sr, kontaktId: null, beschreibung: bs, rechnungId: null });
+
+    await DB.put('rechnungen', { nummer: 'RE-0001', datum: d(-22), kundeId: k1.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'festgeschrieben', qrAufDruck: false, positionen: [{ text: 'Rapshonig 500 g', menge: 12, einzelpreis: 6.5, steuersatz: 0, chargeId: null }, { text: 'Lindenhonig 500 g', menge: 6, einzelpreis: 7, steuersatz: 0, chargeId: null }] });
+    await DB.put('rechnungen', { nummer: null, datum: d(-2), kundeId: k2.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'entwurf', qrAufDruck: false, positionen: [{ text: 'Lindenhonig 250 g', menge: 10, einzelpreis: 4.5, steuersatz: 0, chargeId: null }] });
+
+    for (const iv of [
+      { bezeichnung: 'Zanderbeute komplett', kategorie: 'Beute', anschaffung: ymd(Y - 2, 3, 10), preis: 189, stueckzahl: 6 },
+      { bezeichnung: 'Dadant-Beute', kategorie: 'Beute', anschaffung: ymd(Y - 1, 3, 1), preis: 210, stueckzahl: 2 },
+      { bezeichnung: 'Honigschleuder 4 Waben', kategorie: 'Gerät', anschaffung: ymd(Y - 3, 5, 2), preis: 649, stueckzahl: 1, notiz: 'Edelstahl, Handantrieb' },
+      { bezeichnung: 'Smoker', kategorie: 'Gerät', anschaffung: ymd(Y - 2, 4, 1), preis: 39, stueckzahl: 2 },
+      { bezeichnung: 'Rähmchen Zander', kategorie: 'Rähmchen', anschaffung: ymd(Y - 1, 2, 1), preis: 0.8, stueckzahl: 200 },
+      { bezeichnung: 'Ameisensäure 60 %', kategorie: 'Behandlungsmittel', anschaffung: ymd(Y, 3, 1), preis: 12.9, stueckzahl: 3, ablauf: d(40), mindestbestand: 2 },
+      { bezeichnung: 'Oxalsäure Dihydrat', kategorie: 'Behandlungsmittel', anschaffung: ymd(Y - 1, 11, 1), preis: 9.5, stueckzahl: 1, ablauf: d(-10), mindestbestand: 2 },
+      { bezeichnung: 'Futtersirup 3:2 (Kanister)', kategorie: 'Futter', anschaffung: ymd(Y, 7, 1), preis: 22, stueckzahl: 1, mindestbestand: 4 },
+    ]) await DB.put('inventar', Object.assign({ standId: null, volkId: null, notiz: '' }, iv));
+
+    for (const [dt, sid, km, zw] of [
+      [ymd(Y, 4, 22), st2.id, 28, 'Wanderung zum Raps'], [ymd(Y, 5, 10), st2.id, 28, 'Durchsicht'], [ymd(Y, 6, 8), st2.id, 28, 'Honigernte'],
+      [ymd(Y, 6, 12), st3.id, 18, 'Wanderung zur Linde'], [ymd(Y, 7, 2), st3.id, 18, 'Honigernte'],
+      [d(-12), st1.id, 6, 'Behandlung'], [d(-5), st1.id, 6, 'Durchsicht'],
+    ]) await DB.put('fahrten', { datum: dt, standId: sid, km, zweck: zw, notiz: '' });
+
+    for (const [t, f] of [['Varroa-Kontrolle alle Völker', d(1)], ['Honigräume aufsetzen (Linde)', d(3)], ['Winterfütterung einplanen', d(10)], ['Mittelwände einlöten', d(6)]])
+      await DB.put('aufgaben', { titel: t, faellig: f, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+    for (const [t, m, k] of [
+      ['Frühjahrsdurchsicht alle Völker', 180, 'Durchsicht & Völkerpflege'], ['Honig geschleudert (Raps)', 210, 'Ernte & Schleudern'],
+      ['Gläser abgefüllt & etikettiert', 95, 'Abfüllen & Etikettieren'], ['AS-Behandlung Stand 1', 45, 'Behandlung'],
+      ['Wanderung zur Linde', 120, 'Wanderung & Transport'], ['Umlarven Zuchtserie A', 60, 'Zucht'],
+      ['Rechnung Hofladen geschrieben', 25, 'Verwaltung & Büro'], ['Durchsicht Stand Rapsfeld', 75, 'Durchsicht & Völkerpflege'],
+      ['Honig geschleudert (Linde)', 150, 'Ernte & Schleudern'], ['Marktverkauf vorbereitet', 40, 'Verkauf & Vermarktung'],
+    ]) await DB.put('aufgaben', { titel: t, faellig: d(-30 + Math.round(Math.abs(m) / 10)), erledigt: true, zeitMinuten: m, kategorie: k, quelle: 'manuell', refId: null, notiz: '' });
+
+    const zStart = d(-3);
+    const zs = await DB.put('zuchtserien', { name: 'Serie A', startdatum: zStart, anzahl: 24, termine: zuchtTermine(zStart), notiz: 'Carnica Linie T · Zuchtmutter Volk Anna, Pflegevolk Volk Berta.' });
+    await syncZuchtAufgaben(zs);
+
+    await DB.put('wetter', { standId: st1.id, datum: d(-1), tempC: 19.5, windKmh: 8, niederschlagMm: 0, bemerkung: 'Sonnig', quelle: 'manuell' });
+    await DB.put('wetter', { standId: st1.id, datum: d(-2), tempC: 16, windKmh: 14, niederschlagMm: 2.5, bemerkung: 'Wechselhaft', quelle: 'manuell' });
+    await DB.put('wetter', { standId: st1.id, datum: d(-3), tempC: 22, windKmh: 6, niederschlagMm: 0, bemerkung: '', quelle: 'open-meteo' });
+
+    UI.toast('Beispieldaten geladen');
   },
 };
 
@@ -5207,6 +5327,11 @@ Views.einstellungen = {
           </select></div>
       </div>
 
+      <div class="card"><div class="card-title">${icon('box')}<h2>Beispieldaten</h2></div>
+        <div class="hint mb8">Füllt die App mit umfangreichen Demo-Daten (Stände, Völker, Königinnen, Honig, Rechnungen, Reporting, Zeiterfassung …) – ideal zum Ausprobieren oder für Screenshots. <b>Ersetzt alle aktuell vorhandenen Daten.</b></div>
+        <button class="btn btn-ghost no-print" id="demo-load">${icon('box')} Beispieldaten laden</button>
+      </div>
+
       <div class="card"><div class="card-title">${icon('doc')}<h2>Dokumententypen</h2></div>
         <p class="small muted mb12">Eigene Typen für Anhänge (z. B. „Kaufbeleg“, „Gesundheitszeugnis“) – zuweisbar und filterbar an jedem Dokument.</p>
         <div class="chip-row mb12" id="typ-list">${typen.map((t, i) => `<span class="chip">${U.esc(t)} <button data-tdel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
@@ -5330,6 +5455,10 @@ Views.einstellungen = {
       reg.showNotification('🐝 ImkerBuch', { body: 'Probe-Benachrichtigung – so melden sich fällige Aufgaben.', tag: 'imkerbuch-test', icon: 'icon-192.png' });
     };
     $('#theme-sel').onchange = async (e) => { await S.set('darkMode', e.target.value); applyTheme(); };
+    $('#demo-load').onclick = async () => {
+      if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher ggf. eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
+      await Demo.reset(); navTo('dashboard');
+    };
 
     /* Dokumententypen */
     $('#typ-add').onclick = async () => {
