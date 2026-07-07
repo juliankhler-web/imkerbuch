@@ -1,6 +1,6 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
-> Stand: 2026-07-06 · Automatisiert: **51 Testfälle, alle grün**
+> Stand: 2026-07-07 · Automatisiert: **52 Testfälle, alle grün**
 
 ## Testsetup
 
@@ -74,6 +74,7 @@ Funktionsweise:
 | 49 | Version & Changelog konsistent | Update-Fenster-Grundlage |
 | 50 | syncZuchtAufgaben | 7 Termine als Aufgaben |
 | 51 | Demo.create/reset | Beispieldaten befüllen alle Module ohne Fehler (≥13 Völker, Königinnen, Ernten, Rechnungen, Chargen, Zeiterfassung) |
+| 52 | brandLogoSvg (Homescreen-Logo) | Neues Marken-Logo (3 Waben, eindeutige Gradient-IDs); Header/Sidebar zeigen es als Standard – nur wenn KEIN eigenes Logo gesetzt ist; ein eigenes Nutzer-Logo wird nicht überschrieben; `logoSvg()` (PDFs) bleibt |
 
 ## Manuelle Smoke-Checkliste (nicht automatisierbar)
 

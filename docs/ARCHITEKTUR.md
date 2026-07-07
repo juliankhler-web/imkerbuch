@@ -28,7 +28,7 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 
 | Namespace / Bereich | Verantwortung |
 |---|---|
-| `ICONS`, `icon()`, `logoSvg()` | Inline-SVG-Iconset + Waben-Logo |
+| `ICONS`, `icon()`, `logoSvg()`, `brandLogoSvg()` | Inline-SVG-Iconset + zwei Waben-Logos: `logoSvg()` (1 gefüllt + 2 Outline) = Default für PDFs/Onboarding/Einstellungen; `brandLogoSvg()` (3 gefüllte Amber-Waben, wie Play-Store, eigene Gradient-ID je Aufruf) = nur Homescreen-Header/Sidebar. `applyHeaderLogo()` zeigt aber immer zuerst ein eigenes Nutzer-Logo (`S.get('logo')` + `logoImHeader`). |
 | `U` | Utilities: `uuid`, `esc`, Datums-/Zahlenformat de-DE (`fmtDate`, `fmtNum`, `fmtEur`, `parseNum`), `addDays`, `resizeImage`, `loadScript` (CDN lazy), `download`, Blob↔DataURL |
 | `DB` | IndexedDB-Wrapper: `put` (UUID + `createdAt` + `lastModified`), `getAll`, `softDel` → Papierkorb, `trashRestore`, `purgeTrash` (30 Tage), `bulkPut` |
 | `S` | Settings (Key-Value-Store, beim Start in den Speicher geladen, `S.get`/`S.set`) |

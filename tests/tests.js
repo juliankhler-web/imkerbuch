@@ -569,3 +569,35 @@ test('Demo.create/reset: befüllt alle Module ohne Fehler (Smoke)', async (w) =>
   assert((await w.DB.getAll('chargen')).length >= 3, 'Honig-Chargen vorhanden');
   assert((await w.DB.getAll('aufgaben')).some((a) => a.erledigt && a.zeitMinuten > 0), 'Zeiterfassung befüllt');
 });
+
+/* ---------- Marken-Logo (Homescreen) ---------- */
+test('brandLogoSvg: neues Homescreen-Logo, eigenes Nutzer-Logo bleibt unberührt', async (w) => {
+  // neues Logo = 3 gefüllte Amber-Waben mit Verlauf
+  const a = w.brandLogoSvg(26), b = w.brandLogoSvg(26);
+  assert(/<svg/.test(a) && /linearGradient/.test(a), 'SVG mit Amber-Verlauf');
+  assertEq((a.match(/<path/g) || []).length, 3, 'genau 3 Waben');
+  // eindeutige Gradient-IDs → keine DOM-Kollision bei Header + Sidebar
+  const idA = (a.match(/id="(ibHex\d+)"/) || [])[1], idB = (b.match(/id="(ibHex\d+)"/) || [])[1];
+  assert(idA && idB && idA !== idB, 'jede Instanz eigene Gradient-ID');
+  // altes Waben-Logo bleibt für PDFs/Onboarding erhalten
+  assert(w.logoSvg().includes('#E8A013'), 'logoSvg() (PDFs) unverändert');
+
+  const doc = w.document, brand = () => doc.getElementById('tb-brand');
+  assert(brand(), '#tb-brand vorhanden');
+  const origLogo = w.S.get('logo'), origFlag = w.S.get('logoImHeader');
+  try {
+    // ohne eigenes Logo: Homescreen-Header zeigt neues Marken-Logo
+    await w.S.set('logo', null); await w.S.set('logoImHeader', false);
+    w.applyHeaderLogo();
+    assert(/url\(#ibHex/.test(brand().innerHTML), 'Header nutzt neues Marken-Logo als Standard');
+    // eigenes Logo im Header: wird NICHT vom neuen Logo überschrieben
+    const px = 'data:image/png;base64,iVBORw0KGgo=';
+    await w.S.set('logo', px); await w.S.set('logoImHeader', true);
+    w.applyHeaderLogo();
+    const h = brand().innerHTML;
+    assert(h.includes(px) && !/url\(#ibHex/.test(h), 'eigenes Logo bleibt, Standard wird nicht drübergelegt');
+  } finally {
+    await w.S.set('logo', origLogo || null); await w.S.set('logoImHeader', origFlag || false);
+    w.applyHeaderLogo();
+  }
+});

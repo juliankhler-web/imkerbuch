@@ -6,7 +6,8 @@
 > Stand: 2026-07-03
 
 ## Branding & PWA
-- ✅ Waben-Logo (3 Hexagone, 1 gefüllt Amber, 2 Outline Anthrazit) als Inline-SVG (`logoSvg()`)
+- ✅ Waben-Logo (3 Hexagone, 1 gefüllt Amber, 2 Outline Anthrazit) als Inline-SVG (`logoSvg()`) – Default für PDFs/Onboarding/Einstellungen
+- ✅ Neues Marken-Logo im Homescreen-Header/Sidebar (3 gefüllte Amber-Waben mit Verlauf, `brandLogoSvg()`, passend zu den Play-Store-Grafiken; v0.48). Ein eigenes hochgeladenes Logo mit „im App-Header anzeigen" behält Vorrang; PDFs bleiben unverändert.
 - ✅ App-Icons 192/512 (+180 Apple) aus dem Logo (`icons.py`), Favicon als SVG-Data-URI
 - ✅ `manifest.json`, `service-worker.js`, offline-fähig, als PWA installierbar
 - ✅ Responsive Mobile-First: Bottom-Nav (mobil) / Sidebar (Desktop), Touch-Ziele ≥ 44 px
