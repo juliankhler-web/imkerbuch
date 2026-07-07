@@ -2747,6 +2747,34 @@ Views.behandlungen = {
     main.innerHTML = pageHead('Behandlungen', 'Bestandsbuch nach TAMG – alle Anwendungen dokumentiert',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.bestandsbuch()">${icon('doc')} Bestandsbuch (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Behandlung</button></span>`) +
+      `<style>.rk-section{margin-bottom:6px}.rk-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-radius .15s}.rk-head.open{border-radius:12px 12px 0 0;border-bottom-color:transparent}.rk-ic{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;flex-shrink:0}.rk-ic svg{width:18px;height:18px}.rk-info{flex:1;min-width:0}.rk-label{display:block;font-weight:600;font-size:14px}.rk-desc{display:block;font-size:12px;color:var(--muted);margin-top:1px}.rk-chev{font-size:11px;color:var(--muted);transition:transform .2s}.rk-head.open .rk-chev{transform:rotate(90deg)}.rk-body{background:var(--card-bg);border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;padding:14px}</style>
+      <div class="rk-section" style="margin-bottom:12px"><button class="rk-head" type="button"><span class="rk-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span><span class="rk-info"><span class="rk-label">Dosierungsrechner</span><span class="rk-desc">Schnell die richtige Menge berechnen</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">
+        <div class="field"><label>Behandlungsmethode</label>
+          <select class="inp rk" id="eb-mittel">
+            <option value="os-traeufeln">Oxalsäure – Träufeln (Winter, brutfrei)</option>
+            <option value="os-verdampfen">Oxalsäure – Verdampfen (Winter, brutfrei)</option>
+            <option value="as-langzeit">Ameisensäure 60 % – Langzeit (Sommer)</option>
+            <option value="ms-spruehen">Milchsäure 15 % – Sprühen (Ableger)</option>
+          </select>
+        </div>
+        <div class="eb-grp" data-bg="os-traeufeln"><div class="grid2">
+          <div class="field"><label>Besetzte Wabengassen</label><input class="inp rk" data-eb="gassen" inputmode="numeric" value="7"></div>
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv1" inputmode="numeric" value="1"></div>
+        </div><div class="hint mt6">3,5 % OS-Dihydrat-Lösung · 5 ml/Gasse · max. 50 ml/Volk</div></div>
+        <div class="eb-grp" data-bg="os-verdampfen" style="display:none"><div class="grid2">
+          <div class="field"><label>Zargen pro Volk</label><input class="inp rk" data-eb="zargen" inputmode="numeric" value="2"></div>
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv2" inputmode="numeric" value="1"></div>
+        </div><div class="hint mt6">1 g OS-Dihydrat pro Zarge · Verdampfer · Atemschutz!</div></div>
+        <div class="eb-grp" data-bg="as-langzeit" style="display:none"><div class="grid2">
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv3" inputmode="numeric" value="1"></div>
+          <div class="field"><label>ml pro Verdunster</label><input class="inp rk" data-eb="asfuellung" inputmode="numeric" value="200"></div>
+        </div><div class="hint mt6">60 % AS im Langzeitverdunster · nach letzter Ernte · 15–25 °C · 14 Tage</div></div>
+        <div class="eb-grp" data-bg="ms-spruehen" style="display:none"><div class="grid2">
+          <div class="field"><label>Waben (beidseitig)</label><input class="inp rk" data-eb="mswaben" inputmode="numeric" value="5"></div>
+          <div class="field"><label>Ableger-Anzahl</label><input class="inp rk" data-eb="bv4" inputmode="numeric" value="1"></div>
+        </div><div class="hint mt6">15 % Milchsäure · 7–8 ml pro Wabenseite · nur brutfreie Waben</div></div>
+        <div id="eb-out" class="mt8"></div>
+      </div></div>` +
       `<div class="card">` + (list.length ? `<div class="rows">` + list.map((b) => `
         <button class="row" data-id="${b.id}">
           <span class="r-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span>
@@ -2757,10 +2785,42 @@ Views.behandlungen = {
     const add = () => Views.behandlungen.form(null);
     bindAdd(add);
     main.addEventListener('click', (e) => {
+      const head = e.target.closest('.rk-head');
+      if (head) {
+        const body = head.nextElementSibling;
+        if (body?.classList.contains('rk-body')) { const isOpen = head.classList.contains('open'); head.classList.toggle('open'); body.style.display = isOpen ? 'none' : ''; if (!isOpen) { rechneEB(); head.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }
+        return;
+      }
       const r = e.target.closest('.row[data-id]'); if (!r) return;
       const b = list.find((x) => x.id === r.dataset.id);
       if (b) Views.behandlungen.detail(b, zn(b));
     });
+    const numEB = (sel) => U.parseNum($(sel, main)?.value);
+    const rechneEB = () => {
+      const bm = $('#eb-mittel', main)?.value;
+      if (!bm) return;
+      $$('.eb-grp', main).forEach((g) => g.style.display = g.dataset.bg === bm ? '' : 'none');
+      let bhtml = '';
+      if (bm === 'os-traeufeln') {
+        const g = Math.round(numEB('[data-eb="gassen"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv1"]') || 1));
+        const mlV = Math.min(g * 5, 50), mlG = mlV * v;
+        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${mlV} ml</div><div class="s-sub">${g} Gassen × 5 ml${g * 5 > 50 ? ' (max. 50)' : ''}</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L</div></div></div>`;
+      } else if (bm === 'os-verdampfen') {
+        const z = Math.round(numEB('[data-eb="zargen"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv2"]') || 1));
+        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${z} g</div><div class="s-sub">${z} Zargen × 1 g</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${z * v} g</div></div></div>`;
+      } else if (bm === 'as-langzeit') {
+        const v = Math.max(1, Math.round(numEB('[data-eb="bv3"]') || 1)), f = Math.round(numEB('[data-eb="asfuellung"]') || 200);
+        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${f} ml</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${f * v} ml</div><div class="s-sub">${U.fmtNum(f * v / 1000, 2)} L AS 60 %</div></div></div>`;
+      } else if (bm === 'ms-spruehen') {
+        const w = Math.round(numEB('[data-eb="mswaben"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv4"]') || 1));
+        const mlA = w * 2 * 8;
+        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Ableger</div><div class="s-value">${mlA} ml</div><div class="s-sub">${w} Waben × 2 × 8 ml</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Ableger)` : ''}</div><div class="s-value">${mlA * v} ml</div></div></div>`;
+      }
+      const out = $('#eb-out', main);
+      if (out) out.innerHTML = bhtml;
+    };
+    main.addEventListener('input', (e) => { if (e.target.closest('.rk-body')) rechneEB(); });
+    main.addEventListener('change', (e) => { if (e.target.closest('.rk-body')) rechneEB(); });
   },
   async form(b) {
     const ziel = await zielFelder(b || {});
@@ -3839,10 +3899,15 @@ Views.zeiten = {
 Views.rechner = {
   title: 'Rechner',
   async render(main) {
-    main.innerHTML = pageHead('Imker-Rechner', 'Kleine Helfer für den Alltag – rechnen direkt auf dem Gerät') + `
-      <div class="card"><div class="card-title">${icon('euro')}<h2>Honigpreis-Kalkulation</h2></div>
-        <p class="small muted mb12">Was muss ein Glas mindestens kosten, damit sich deine Arbeit lohnt?</p>
-        <div class="grid2">
+    const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    const grp = (l) => `<div class="rk-grp">${l}</div>`;
+    const rk = (ic, label, desc, body) => `<div class="rk-section"><button class="rk-head" type="button"><span class="rk-ic">${icon(ic)}</span><span class="rk-info"><span class="rk-label">${label}</span><span class="rk-desc">${desc}</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">${body}</div></div>`;
+    main.innerHTML = pageHead('Imker-Rechner', 'Kleine Helfer für den Alltag – rechnen direkt auf dem Gerät') +
+      `<style>.rk-grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--honey-deep);padding:18px 0 6px;margin:0 4px}.rk-section{margin-bottom:6px}.rk-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:var(--card-bg);border:1px solid var(--border);border-radius:12px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-radius .15s}.rk-head.open{border-radius:12px 12px 0 0;border-bottom-color:transparent}.rk-ic{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:var(--honey-bg);color:var(--honey-deep);flex-shrink:0}.rk-ic svg{width:18px;height:18px}.rk-info{flex:1;min-width:0}.rk-label{display:block;font-weight:600;font-size:14px}.rk-desc{display:block;font-size:12px;color:var(--muted);margin-top:1px}.rk-chev{font-size:11px;color:var(--muted);transition:transform .2s}.rk-head.open .rk-chev{transform:rotate(90deg)}.rk-body{background:var(--card-bg);border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;padding:14px}</style>` +
+
+      grp('Honig & Vermarktung') +
+      rk('euro', 'Honigpreis-Kalkulation', 'Was muss ein Glas mindestens kosten?',
+        `<div class="grid2">
           <div class="field"><label>Glasgröße (g)</label><input class="inp rk" data-hp="glas" inputmode="decimal" value="500"></div>
           <div class="field"><label>Glas + Deckel (€)</label><input class="inp rk" data-hp="glaskosten" inputmode="decimal" value="0,55"></div>
           <div class="field"><label>Etikett (€)</label><input class="inp rk" data-hp="etikett" inputmode="decimal" value="0,10"></div>
@@ -3851,65 +3916,258 @@ Views.rechner = {
           <div class="field"><label>Stundensatz (€)</label><input class="inp rk" data-hp="stundensatz" inputmode="decimal" value="15"></div>
           <div class="field"><label>Gewinnaufschlag (%)</label><input class="inp rk" data-hp="aufschlag" inputmode="decimal" value="20"></div>
         </div>
-        <div id="hp-out" class="stat-grid mt8"></div>
-      </div>
+        <div id="hp-out" class="stat-grid mt8"></div>`) +
 
-      <div class="card"><div class="card-title">${icon('honig')}<h2>Wassergehalt bewerten</h2></div>
-        <p class="small muted mb12">Refraktometer-Wert eingeben – ist der Honig verkehrsfähig?</p>
-        <div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
-        <div id="wg-out"></div>
-      </div>
+      rk('honig', 'Wassergehalt bewerten', 'Refraktometer-Wert prüfen',
+        `<div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
+        <div id="wg-out"></div>`) +
 
-      <div class="card"><div class="card-title">${icon('flask')}<h2>Zuckersirup-Mischung</h2></div>
-        <p class="small muted mb12">Wie viel Zucker und Wasser für die gewünschte Sirup-Menge?</p>
-        <div class="grid2">
+      rk('euro', 'Wirtschaftlichkeit pro Volk', 'Lohnt sich die Imkerei finanziell?',
+        `<div class="grid2">
+          <div class="field"><label>Honig-Ertrag je Volk (kg)</label><input class="inp rk" data-wi="ertrag" inputmode="decimal" value="20"></div>
+          <div class="field"><label>Verkaufspreis je kg (€)</label><input class="inp rk" data-wi="preis" inputmode="decimal" value="12"></div>
+          <div class="field"><label>Kosten je Volk/Jahr (€)</label><input class="inp rk" data-wi="kosten" inputmode="decimal" value="50" placeholder="Behandlung, Futter, Material"></div>
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-wi="voelker" inputmode="numeric" value="${aktiveV || 5}"></div>
+        </div>
+        <div id="wi-out" class="stat-grid mt8"></div>`) +
+
+      grp('Fütterung') +
+      rk('flask', 'Zuckersirup-Mischung', 'Zucker und Wasser berechnen',
+        `<div class="grid2">
           <div class="field"><label>Gewünschte Sirup-Menge (kg)</label><input class="inp rk" data-zs="menge" inputmode="decimal" value="5"></div>
           <div class="field"><label>Mischverhältnis</label><select class="inp rk" data-zs="verh"><option value="3:2">3:2 (Winterfutter, dick)</option><option value="1:1">1:1 (Reizfütterung, dünn)</option></select></div>
         </div>
-        <div id="zs-out" class="mt8"></div>
-      </div>
+        <div id="zs-out" class="mt8"></div>`) +
 
-      <div class="card"><div class="card-title">${icon('box')}<h2>Winterfutter-Bedarf</h2></div>
-        <p class="small muted mb12">Gesamter Futterbedarf und geschätzte Zuckermenge fürs ganze Volk.</p>
-        <div class="grid2">
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-wf="voelker" inputmode="numeric" value="${(await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length || 5}"></div>
+      rk('box', 'Winterfutter-Bedarf', 'Gesamtmenge fürs Einwintern',
+        `<div class="grid2">
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-wf="voelker" inputmode="numeric" value="${aktiveV || 5}"></div>
           <div class="field"><label>Futter je Volk (kg)</label><input class="inp rk" data-wf="jeVolk" inputmode="decimal" value="15"></div>
         </div>
-        <div id="wf-out" class="stat-grid mt8"></div>
-      </div>`;
+        <div id="wf-out" class="stat-grid mt8"></div>`) +
 
+      grp('Varroa & Behandlung') +
+      rk('varroa', 'Behandlungsrechner', 'Dosierung für zugelassene Mittel',
+        `<div class="field"><label>Behandlungsmethode</label>
+          <select class="inp rk" id="beh-mittel">
+            <option value="os-traeufeln">Oxalsäure – Träufeln (Winter, brutfrei)</option>
+            <option value="os-verdampfen">Oxalsäure – Verdampfen (Winter, brutfrei)</option>
+            <option value="as-langzeit">Ameisensäure 60 % – Langzeit (Sommer)</option>
+            <option value="ms-spruehen">Milchsäure 15 % – Sprühen (Ableger)</option>
+          </select>
+        </div>
+        <div class="beh-grp" data-bg="os-traeufeln"><div class="grid2">
+          <div class="field"><label>Besetzte Wabengassen</label><input class="inp rk" data-beh="gassen" inputmode="numeric" value="7"></div>
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv1" inputmode="numeric" value="${aktiveV || 1}"></div>
+        </div><div class="hint mt6">3,5 % OS-Dihydrat-Lösung · 5 ml/Gasse · max. 50 ml/Volk · 1× pro Winter · brutfrei (Dez.)</div></div>
+        <div class="beh-grp" data-bg="os-verdampfen" style="display:none"><div class="grid2">
+          <div class="field"><label>Zargen pro Volk</label><input class="inp rk" data-beh="zargen" inputmode="numeric" value="2"></div>
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv2" inputmode="numeric" value="${aktiveV || 1}"></div>
+        </div><div class="hint mt6">1 g OS-Dihydrat pro Zarge · Verdampfer (z. B. Varrox) · Flugloch verschließen · Atemschutz!</div></div>
+        <div class="beh-grp" data-bg="as-langzeit" style="display:none"><div class="grid2">
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv3" inputmode="numeric" value="${aktiveV || 1}"></div>
+          <div class="field"><label>ml pro Verdunster</label><input class="inp rk" data-beh="asfuellung" inputmode="numeric" value="200"></div>
+        </div><div class="hint mt6">60 % AS im Langzeitverdunster · nach letzter Ernte Juli/Aug · bei 15–25 °C · 14 Tage</div></div>
+        <div class="beh-grp" data-bg="ms-spruehen" style="display:none"><div class="grid2">
+          <div class="field"><label>Waben (beidseitig)</label><input class="inp rk" data-beh="mswaben" inputmode="numeric" value="5"></div>
+          <div class="field"><label>Ableger-Anzahl</label><input class="inp rk" data-beh="bv4" inputmode="numeric" value="1"></div>
+        </div><div class="hint mt6">15 % Milchsäure · 7–8 ml pro Wabenseite · nur brutfreie Waben · beliebig wiederholbar</div></div>
+        <div id="beh-out" class="mt8"></div>`) +
+
+      rk('varroa', 'Varroa-Befallsrate', 'Auswaschprobe auswerten',
+        `<div class="grid2">
+          <div class="field"><label>Gezählte Milben</label><input class="inp rk" data-vb="milben" inputmode="numeric" value="3"></div>
+          <div class="field"><label>Bienen in Probe</label><input class="inp rk" data-vb="bienen" inputmode="numeric" value="300" placeholder="ca. 300 = 1 Messlöffel"></div>
+        </div>
+        <div class="hint mt6">Puderzucker- oder Auswasch-Methode: ~300 Bienen (~100 ml), Milben zählen.</div>
+        <div id="vb-out" class="mt8"></div>`) +
+
+      rk('flask', 'OS-Lösung ansetzen', '3,5 % Träufellösung selbst mischen',
+        `<div class="field" style="max-width:220px"><label>Gewünschte Menge (ml)</label><input class="inp rk" data-osl="menge" inputmode="numeric" value="1000"></div>
+        <div class="hint mt6">Standardrezept: 35 g OS-Dihydrat + 500 ml Wasser + 500 g Zucker = ~1000 ml. Zucker nicht weglassen – schützt die Bienen.</div>
+        <div id="osl-out" class="mt8"></div>`) +
+
+      rk('flask', 'Ameisensäure verdünnen', 'Von 85 % auf 60 % verdünnen',
+        `<div class="grid2">
+          <div class="field"><label>Gewünschte Menge 60 % (ml)</label><input class="inp rk" data-asv="menge" inputmode="numeric" value="500"></div>
+          <div class="field"><label>Ausgangskonzentration (%)</label><input class="inp rk" data-asv="konz" inputmode="decimal" value="85"></div>
+        </div>
+        <div class="hint mt6">C₁ × V₁ = C₂ × V₂ · dest. Wasser verwenden · AS zum Wasser geben, nie umgekehrt! · Handschuhe + Brille!</div>
+        <div id="asv-out" class="mt8"></div>`) +
+
+      grp('Volk & Material') +
+      rk('box', 'Volksstärke schätzen', 'Bienenzahl aus Wabengassen',
+        `<div class="field" style="max-width:220px"><label>Besetzte Wabengassen</label><input class="inp rk" data-vs="gassen" inputmode="numeric" value="8"></div>
+        <div class="hint mt6">Faustregel: ~2 500 Bienen pro voll besetzter Wabengasse (DN/Zander). Im Hochsommer bis 40 000–60 000 Bienen.</div>
+        <div id="vs-out" class="mt8"></div>`) +
+
+      rk('box', 'Rähmchen- & Mittelwand-Bedarf', 'Material für die Saison planen',
+        `<div class="grid2">
+          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-rm="voelker" inputmode="numeric" value="${aktiveV || 5}"></div>
+          <div class="field"><label>Zargen pro Volk</label><input class="inp rk" data-rm="zargen" inputmode="numeric" value="3"></div>
+          <div class="field"><label>Rähmchen pro Zarge</label><input class="inp rk" data-rm="proZarge" inputmode="numeric" value="10"></div>
+          <div class="field"><label>Reserve (%)</label><input class="inp rk" data-rm="reserve" inputmode="numeric" value="20"></div>
+        </div>
+        <div class="hint mt6">Reserve für Schwärme, Ableger und Ersatz. Pro Mittelwand (DN) ca. 110 g Wachs.</div>
+        <div id="rm-out" class="stat-grid mt8"></div>`) +
+
+      grp('Wachs & Produkte') +
+      rk('honig', 'Wachsertrag', 'Reinwachs aus Altwachs berechnen',
+        `<div class="grid2">
+          <div class="field"><label>Altwachs (kg)</label><input class="inp rk" data-we="menge" inputmode="decimal" value="5"></div>
+          <div class="field"><label>Schmelzmethode</label><select class="inp rk" data-we="methode"><option value="dampf">Dampfwachsschmelzer (~65 %)</option><option value="sonne">Sonnenwachsschmelzer (~40 %)</option></select></div>
+        </div>
+        <div id="we-out" class="mt8"></div>`) +
+
+      rk('honig', 'Kerzenrechner', 'Wie viele Kerzen aus deinem Wachs?',
+        `<div class="grid2">
+          <div class="field"><label>Verfügbares Wachs (g)</label><input class="inp rk" data-kr="wachs" inputmode="numeric" value="500"></div>
+          <div class="field"><label>Kerzentyp</label><select class="inp rk" data-kr="typ"><option value="stumpe">Stumpenkerze (~200 g)</option><option value="tafel">Tafelkerze (~80 g)</option><option value="teelicht">Teelicht (~15 g)</option><option value="baum">Baumkerze (~10 g)</option></select></div>
+        </div>
+        <div id="kr-out" class="mt8"></div>`) +
+
+      rk('flask', 'Propolis-Tinktur', 'Propolis-Lösung ansetzen',
+        `<div class="grid2">
+          <div class="field"><label>Propolis roh (g)</label><input class="inp rk" data-pt="propolis" inputmode="numeric" value="20"></div>
+          <div class="field"><label>Alkohol</label><select class="inp rk" data-pt="alk"><option value="96">96 % Ethanol</option><option value="70" selected>70 % (Apotheke)</option><option value="40">40 % (Wodka)</option></select></div>
+        </div>
+        <div class="hint mt6">Standard 1:4 (Propolis:Alkohol). 4–6 Wochen dunkel ziehen lassen, täglich schütteln, durch Kaffeefilter abseihen.</div>
+        <div id="pt-out" class="mt8"></div>`);
+
+    main.addEventListener('click', (e) => {
+      const head = e.target.closest('.rk-head');
+      if (!head) return;
+      const body = head.nextElementSibling;
+      if (!body || !body.classList.contains('rk-body')) return;
+      const isOpen = head.classList.contains('open');
+      head.classList.toggle('open');
+      body.style.display = isOpen ? 'none' : '';
+      if (!isOpen) { rechne(); head.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+    });
     const num = (sel) => U.parseNum($(sel, main)?.value);
     const rechne = () => {
-      // Honigpreis
       const glas = num('[data-hp="glas"]') || 500, gk = num('[data-hp="glaskosten"]') || 0, et = num('[data-hp="etikett"]') || 0,
         hkg = num('[data-hp="honigkg"]') || 0, zeit = num('[data-hp="zeit"]') || 0, satz = num('[data-hp="stundensatz"]') || 0, auf = num('[data-hp="aufschlag"]') || 0;
       const material = gk + et + (hkg * glas / 1000);
       const arbeit = (zeit / 60) * satz;
       const selbst = material + arbeit;
       const vk = selbst * (1 + auf / 100);
-      $('#hp-out', main).innerHTML = `
+      const hpOut = $('#hp-out', main);
+      if (hpOut) hpOut.innerHTML = `
         <div class="stat"><div class="s-label">Selbstkosten je Glas</div><div class="s-value">${U.fmtEur(selbst)}</div><div class="s-sub">Material ${U.fmtEur(material)} + Arbeit ${U.fmtEur(arbeit)}</div></div>
         <div class="stat"><div class="s-label">Empf. Verkaufspreis</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtEur(vk)}</div><div class="s-sub">inkl. ${U.fmtNum(auf, 0)} % Aufschlag</div></div>
         <div class="stat"><div class="s-label">Preis je kg</div><div class="s-value">${glas > 0 ? U.fmtEur(vk / (glas / 1000)) : '–'}</div></div>`;
-      // Wassergehalt
       const w = num('[data-wg="wert"]');
       let wb;
       if (isNaN(w)) wb = '';
-      else if (w < 18) wb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – sehr gut. Unter 18 % (Qualität Deutscher Imkerbund/„Echter Deutscher Honig“).</span></div>`;
-      else if (w <= 20) wb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – verkehrsfähig (Honigverordnung erlaubt bis 20 %), aber nicht Premium. Zügig verkaufen.</span></div>`;
-      else wb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – über 20 %: nicht verkehrsfähig, Gärgefahr. Nicht als Honig verkaufen.</span></div>`;
-      $('#wg-out', main).innerHTML = wb;
-      // Zuckersirup
-      const zm = num('[data-zs="menge"]') || 0, verh = $('[data-zs="verh"]', main).value;
+      else if (w < 18) wb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – sehr gut. Unter 18 % (DIB-Qualität).</span></div>`;
+      else if (w <= 20) wb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – verkehrsfähig (bis 20 %), aber nicht Premium.</span></div>`;
+      else wb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(w, 1)} %</b> – über 20 %: nicht verkehrsfähig, Gärgefahr.</span></div>`;
+      const wgOut = $('#wg-out', main);
+      if (wgOut) wgOut.innerHTML = wb;
+      const wiE = num('[data-wi="ertrag"]') || 0, wiP = num('[data-wi="preis"]') || 0,
+        wiK = num('[data-wi="kosten"]') || 0, wiV = Math.max(1, Math.round(num('[data-wi="voelker"]') || 1));
+      const wiErloes = wiE * wiP, wiGewinn = wiErloes - wiK, wiGesamt = wiGewinn * wiV;
+      const wiOut = $('#wi-out', main);
+      if (wiOut) wiOut.innerHTML = `
+        <div class="stat"><div class="s-label">Erlös je Volk</div><div class="s-value">${U.fmtEur(wiErloes)}</div><div class="s-sub">${U.fmtNum(wiE)} kg × ${U.fmtEur(wiP)}/kg</div></div>
+        <div class="stat"><div class="s-label">Gewinn je Volk</div><div class="s-value">${U.fmtEur(wiGewinn)}</div><div class="s-sub">abzgl. ${U.fmtEur(wiK)} Kosten</div></div>
+        <div class="stat"><div class="s-label">Gesamt (${wiV} Völker)</div><div class="s-value">${U.fmtEur(wiGesamt)}</div></div>`;
+      const zm = num('[data-zs="menge"]') || 0, verh = $('[data-zs="verh"]', main)?.value;
       const zAnteil = verh === '3:2' ? 3 / 5 : 1 / 2;
       const zucker = zm * zAnteil, wasser = zm * (1 - zAnteil);
-      $('#zs-out', main).innerHTML = `<div class="flex-wrap"><span class="kpill">Zucker: <b>${U.fmtNum(zucker, 1)} kg</b></span><span class="kpill">Wasser: <b>${U.fmtNum(wasser, 1)} L</b></span><span class="kpill">ergibt ~${U.fmtNum(zm, 1)} kg Sirup</span></div>`;
-      // Winterfutter
+      const zsOut = $('#zs-out', main);
+      if (zsOut) zsOut.innerHTML = `<div class="flex-wrap"><span class="kpill">Zucker: <b>${U.fmtNum(zucker, 1)} kg</b></span><span class="kpill">Wasser: <b>${U.fmtNum(wasser, 1)} L</b></span><span class="kpill">ergibt ~${U.fmtNum(zm, 1)} kg Sirup</span></div>`;
       const vv = Math.round(num('[data-wf="voelker"]') || 0), je = num('[data-wf="jeVolk"]') || 0;
       const gesamt = vv * je;
-      $('#wf-out', main).innerHTML = `
+      const wfOut = $('#wf-out', main);
+      if (wfOut) wfOut.innerHTML = `
         <div class="stat"><div class="s-label">Gesamt-Winterfutter</div><div class="s-value">${U.fmtNum(gesamt, 0)} kg</div><div class="s-sub">${vv} Völker × ${U.fmtNum(je)} kg</div></div>
         <div class="stat"><div class="s-label">≈ Zuckerbedarf</div><div class="s-value">${U.fmtNum(gesamt, 0)} kg</div><div class="s-sub">grober Richtwert (Wasser verdunstet)</div></div>`;
+      const bm = $('#beh-mittel', main)?.value;
+      if (bm) {
+        $$('.beh-grp', main).forEach((g) => g.style.display = g.dataset.bg === bm ? '' : 'none');
+        let bhtml = '';
+        if (bm === 'os-traeufeln') {
+          const g = Math.round(num('[data-beh="gassen"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv1"]') || 1));
+          const mlV = Math.min(g * 5, 50), mlG = mlV * v;
+          bhtml = `<div class="stat-grid">
+            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${mlV} ml</div><div class="s-sub">${g} Gassen × 5 ml${g * 5 > 50 ? ' (max. 50)' : ''}</div></div>
+            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L OS-Lösung 3,5 %</div></div></div>`;
+        } else if (bm === 'os-verdampfen') {
+          const z = Math.round(num('[data-beh="zargen"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv2"]') || 1));
+          const gV = z, gG = gV * v;
+          bhtml = `<div class="stat-grid">
+            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${gV} g</div><div class="s-sub">${z} Zargen × 1 g</div></div>
+            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${gG} g</div><div class="s-sub">OS-Dihydrat (Pulver)</div></div></div>`;
+        } else if (bm === 'as-langzeit') {
+          const v = Math.max(1, Math.round(num('[data-beh="bv3"]') || 1)), f = Math.round(num('[data-beh="asfuellung"]') || 200);
+          const mlG = f * v;
+          bhtml = `<div class="stat-grid">
+            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${f} ml</div><div class="s-sub">60 % AS je Verdunster</div></div>
+            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L Ameisensäure 60 %</div></div></div>`;
+        } else if (bm === 'ms-spruehen') {
+          const w = Math.round(num('[data-beh="mswaben"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv4"]') || 1));
+          const mlA = w * 2 * 8, mlG = mlA * v;
+          bhtml = `<div class="stat-grid">
+            <div class="stat"><div class="s-label">Pro Ableger</div><div class="s-value">${mlA} ml</div><div class="s-sub">${w} Waben × 2 Seiten × 8 ml</div></div>
+            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Ableger)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L Milchsäure 15 %</div></div></div>`;
+        }
+        const behOut = $('#beh-out', main);
+        if (behOut) behOut.innerHTML = bhtml;
+      }
+      const vbM = num('[data-vb="milben"]') || 0, vbB = num('[data-vb="bienen"]') || 0;
+      const vbRate = vbB > 0 ? (vbM / vbB) * 100 : 0;
+      const vbOut = $('#vb-out', main);
+      if (vbOut) {
+        let vbb;
+        if (vbRate < 1) vbb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – unkritisch. Kein akuter Handlungsbedarf.</span></div>`;
+        else if (vbRate <= 3) vbb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – erhöht. Engmaschig kontrollieren.</span></div>`;
+        else vbb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – kritisch! Sofort behandeln.</span></div>`;
+        vbOut.innerHTML = vbb;
+      }
+      const oslM = num('[data-osl="menge"]') || 1000;
+      const oslF = oslM / 1000;
+      const oslOut = $('#osl-out', main);
+      if (oslOut) oslOut.innerHTML = `<div class="flex-wrap"><span class="kpill">OS-Dihydrat: <b>${U.fmtNum(35 * oslF, 0)} g</b></span><span class="kpill">Zucker: <b>${U.fmtNum(500 * oslF, 0)} g</b></span><span class="kpill">Wasser: <b>${U.fmtNum(500 * oslF, 0)} ml</b></span><span class="kpill">ergibt ~${U.fmtNum(oslM, 0)} ml (3,5 %)</span></div>`;
+      const asvM = num('[data-asv="menge"]') || 500, asvK = num('[data-asv="konz"]') || 85;
+      const asvOut = $('#asv-out', main);
+      if (asvOut) {
+        if (asvK <= 60) { asvOut.innerHTML = `<div class="banner warn">${icon('info')} <span class="b-msg">Ausgangskonzentration muss über 60 % liegen.</span></div>`; }
+        else { const asvAS = (60 / asvK) * asvM, asvW = asvM - asvAS; asvOut.innerHTML = `<div class="flex-wrap"><span class="kpill">AS ${U.fmtNum(asvK, 0)} %: <b>${U.fmtNum(asvAS, 0)} ml</b></span><span class="kpill">Dest. Wasser: <b>${U.fmtNum(asvW, 0)} ml</b></span><span class="kpill">ergibt ${U.fmtNum(asvM, 0)} ml AS 60 %</span></div>`; }
+      }
+      const vsG = Math.round(num('[data-vs="gassen"]') || 0);
+      const vsMin = vsG * 2000, vsMax = vsG * 3000;
+      let vsB;
+      if (vsG <= 3) vsB = 'Schwach – ggf. vereinigen';
+      else if (vsG <= 6) vsB = 'Mittelstark – aufbauen lassen';
+      else if (vsG <= 9) vsB = 'Gut – normales Volk';
+      else vsB = 'Sehr stark – schwarmgefährdet';
+      const vsOut = $('#vs-out', main);
+      if (vsOut) vsOut.innerHTML = `<div class="stat-grid">
+        <div class="stat"><div class="s-label">Geschätzte Bienenzahl</div><div class="s-value">${U.fmtNum(vsMin, 0)} – ${U.fmtNum(vsMax, 0)}</div><div class="s-sub">${vsG} Gassen × 2 000–3 000</div></div>
+        <div class="stat"><div class="s-label">Bewertung</div><div class="s-value" style="font-size:14px">${vsB}</div></div></div>`;
+      const rmV = Math.round(num('[data-rm="voelker"]') || 0), rmZ = Math.round(num('[data-rm="zargen"]') || 0),
+        rmPz = Math.round(num('[data-rm="proZarge"]') || 10), rmRes = num('[data-rm="reserve"]') || 0;
+      const rmBasis = rmV * rmZ * rmPz, rmGesamt = Math.ceil(rmBasis * (1 + rmRes / 100)), rmWachs = rmGesamt * 0.11;
+      const rmOut = $('#rm-out', main);
+      if (rmOut) rmOut.innerHTML = `
+        <div class="stat"><div class="s-label">Rähmchen gesamt</div><div class="s-value">${rmGesamt}</div><div class="s-sub">${rmBasis} + ${U.fmtNum(rmRes, 0)} % Reserve</div></div>
+        <div class="stat"><div class="s-label">Mittelwände</div><div class="s-value">${rmGesamt} Stk.</div><div class="s-sub">≈ ${U.fmtNum(rmWachs, 1)} kg Wachs</div></div>`;
+      const weM = num('[data-we="menge"]') || 0, weMeth = $('[data-we="methode"]', main)?.value;
+      const weFaktor = weMeth === 'sonne' ? 0.40 : 0.65;
+      const weE = weM * weFaktor;
+      const weOut = $('#we-out', main);
+      if (weOut) weOut.innerHTML = `<div class="flex-wrap"><span class="kpill">Reinwachs: <b>≈ ${U.fmtNum(weE, 1)} kg</b></span><span class="kpill">Ausbeute: <b>${Math.round(weFaktor * 100)} %</b></span><span class="kpill">Trester: <b>≈ ${U.fmtNum(weM - weE, 1)} kg</b></span></div>`;
+      const krW = num('[data-kr="wachs"]') || 0, krTyp = $('[data-kr="typ"]', main)?.value;
+      const krG = { stumpe: 200, tafel: 80, teelicht: 15, baum: 10 }[krTyp] || 200;
+      const krN = krG > 0 ? Math.floor(krW / krG) : 0;
+      const krOut = $('#kr-out', main);
+      if (krOut) krOut.innerHTML = `<div class="flex-wrap"><span class="kpill">Kerzen: <b>${krN} Stück</b></span><span class="kpill">je <b>${krG} g</b></span><span class="kpill">Restwachs: <b>${U.fmtNum(krW - krN * krG, 0)} g</b></span></div>`;
+      const ptP = num('[data-pt="propolis"]') || 0, ptAlk = num('[data-pt="alk"]') || 70;
+      const ptMl = ptP * 4, ptGes = ptP + ptMl;
+      const ptOut = $('#pt-out', main);
+      if (ptOut) ptOut.innerHTML = `<div class="flex-wrap"><span class="kpill">Alkohol ${ptAlk} %: <b>${ptMl} ml</b></span><span class="kpill">Ergibt: <b>≈ ${ptGes} ml</b> Tinktur</span><span class="kpill">Ziehzeit: <b>4–6 Wochen</b></span></div>`;
     };
     main.addEventListener('input', (e) => { if (e.target.classList.contains('rk')) rechne(); });
     main.addEventListener('change', (e) => { if (e.target.classList.contains('rk')) rechne(); });
@@ -5309,11 +5567,11 @@ const LERN_KAPITEL = [
     { svg: `<svg viewBox="0 0 180 150" width="100%" style="max-height:150px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Varroamilbe als Warnsymbol"><circle cx="90" cy="72" r="54" fill="none" stroke="#B3362B" stroke-width="4" stroke-dasharray="9 8"/><g stroke="#5a2610" stroke-width="4" stroke-linecap="round"><line x1="60" y1="58" x2="38" y2="46"/><line x1="57" y1="72" x2="32" y2="70"/><line x1="60" y1="86" x2="38" y2="98"/><line x1="66" y1="94" x2="54" y2="110"/><line x1="120" y1="58" x2="142" y2="46"/><line x1="123" y1="72" x2="148" y2="70"/><line x1="120" y1="86" x2="142" y2="98"/><line x1="114" y1="94" x2="126" y2="110"/></g><ellipse cx="90" cy="72" rx="34" ry="26" fill="#8a3b18"/><ellipse cx="90" cy="67" rx="25" ry="15" fill="#a4551f" opacity=".7"/><ellipse cx="80" cy="62" rx="6" ry="4" fill="#fff" opacity=".25"/></svg>`, h: 'Der wichtigste Gegner: die Varroamilbe', p: 'Die Varroamilbe ist eine winzige, rotbraune Milbe, die auf den Bienen und in der Brut sitzt und sie schwächt. Unbehandelt geht ein Volk daran im Winter fast sicher ein.', note: 'Fast jedes Volk in Deutschland hat Varroa. Die Frage ist nicht ob, sondern wie stark – und wann du behandelst.' },
     { h: 'Zählen statt raten', p: 'Wie stark der Befall ist, siehst du am „natürlichen Milbenfall": Du legst eine Bodeneinlage (Windel) ein und zählst nach ein paar Tagen die heruntergefallenen Milben pro Tag.', note: 'Steigt der tägliche Milbenfall im Sommer stark an, wird es Zeit zu handeln. ImkerBuch hat dafür sogar eine Ampel.' },
     { h: 'Behandeln nach der Ernte', p: 'Die Hauptbehandlung kommt direkt nach der letzten Honigernte im Spätsommer – meist mit Ameisensäure. Wichtig: erst ernten, dann behandeln, damit keine Säure in den Honig kommt.', note: '„Die Einwinterung beginnt im August" – die Sommerbehandlung entscheidet über den Winter.' },
-    { h: 'Die Winterbehandlung', p: 'Im brutfreien Dezember folgt die Restentmilbung, meist mit Oxalsäure. Weil dann keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden gut erreicht.', note: 'Halte dich immer genau an die Anleitung des Mittels – Dosierung und Zeitpunkt sind entscheidend.' },
+    { h: 'Die Winterbehandlung', p: 'Im brutfreien Dezember folgt die Restentmilbung, meist mit Oxalsäure. Weil dann keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden gut erreicht.', note: 'Halte dich immer genau an die Anleitung des Mittels – Dosierung und Zeitpunkt sind entscheidend. Unter „Rechner" findest du den Behandlungsrechner für die genaue Dosierung.' },
     { h: 'Dokumentiere die Behandlung', p: 'Jede Behandlung musst du festhalten (das schreibt auch das Arzneimittelrecht vor). Öffne „Behandlungen" und trag ein, was du wann womit gemacht hast.', note: 'Sauber dokumentiert bist du auf der sicheren Seite – und siehst nächstes Jahr, was gewirkt hat.' },
   ], aktion: { label: 'Zu Behandlungen – Varroa dokumentieren', route: 'behandlungen' } },
   { id: 11, titel: 'Einfüttern & Einwintern', steps: [
-    { svg: `<svg viewBox="0 0 170 168" width="100%" style="max-height:166px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bienenstock im Winter mit Schnee"><rect x="0" y="140" width="170" height="28" fill="#e8eef2"/><ellipse cx="85" cy="146" rx="60" ry="8" fill="#f2f6f9"/><rect x="55" y="80" width="60" height="60" rx="3" fill="#cb9c56"/><rect x="55" y="62" width="60" height="20" rx="3" fill="#cb9c56"/><rect x="74" y="128" width="22" height="7" rx="3" fill="#2a1c0c"/><path d="M46 58 h78 v6 a6 6 0 0 1 -6 6 h-66 a6 6 0 0 1 -6 -6 z" fill="#eef3f7"/><ellipse cx="85" cy="58" rx="42" ry="8" fill="#fff"/><g fill="#bcd0e0"><circle cx="28" cy="40" r="3"/><circle cx="132" cy="30" r="3"/><circle cx="44" cy="96" r="2.6"/><circle cx="140" cy="104" r="2.6"/><circle cx="24" cy="120" r="2.6"/><circle cx="150" cy="70" r="2.6"/></g></svg>`, h: 'Warum du füttern musst', p: 'Du hast dem Volk den Honig genommen – jetzt gibst du ihm Winterfutter zurück. Nach der Varroabehandlung im Spätsommer fütterst du mit Zuckersirup oder Futterteig auf, damit das Volk genug Vorrat hat.', note: 'Ein durchschnittliches Volk braucht je nach Region grob 15–20 kg Winterfutter. Dein Pate sagt dir die passende Menge.' },
+    { svg: `<svg viewBox="0 0 170 168" width="100%" style="max-height:166px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bienenstock im Winter mit Schnee"><rect x="0" y="140" width="170" height="28" fill="#e8eef2"/><ellipse cx="85" cy="146" rx="60" ry="8" fill="#f2f6f9"/><rect x="55" y="80" width="60" height="60" rx="3" fill="#cb9c56"/><rect x="55" y="62" width="60" height="20" rx="3" fill="#cb9c56"/><rect x="74" y="128" width="22" height="7" rx="3" fill="#2a1c0c"/><path d="M46 58 h78 v6 a6 6 0 0 1 -6 6 h-66 a6 6 0 0 1 -6 -6 z" fill="#eef3f7"/><ellipse cx="85" cy="58" rx="42" ry="8" fill="#fff"/><g fill="#bcd0e0"><circle cx="28" cy="40" r="3"/><circle cx="132" cy="30" r="3"/><circle cx="44" cy="96" r="2.6"/><circle cx="140" cy="104" r="2.6"/><circle cx="24" cy="120" r="2.6"/><circle cx="150" cy="70" r="2.6"/></g></svg>`, h: 'Warum du füttern musst', p: 'Du hast dem Volk den Honig genommen – jetzt gibst du ihm Winterfutter zurück. Nach der Varroabehandlung im Spätsommer fütterst du mit Zuckersirup oder Futterteig auf, damit das Volk genug Vorrat hat.', note: 'Ein durchschnittliches Volk braucht je nach Region grob 15–20 kg Winterfutter. Unter „Rechner" berechnen dir der Sirup-Mischer und der Winterfutter-Rechner die richtige Menge.' },
     { h: 'In Ruhe auffüttern', p: 'Du gibst das Futter portionsweise über ein Futtergeschirr oben auf. Die Bienen tragen es ein und lagern es als Vorrat. Das machst du im Spätsommer bis Frühherbst, solange es noch mild ist.', note: 'Nicht zu spät füttern: Bei kaltem Wetter nehmen die Bienen das Futter nicht mehr gut ab.' },
     { h: 'Winterfest machen', p: 'Zum Einwintern verkleinerst du das Flugloch und legst ein Mäusegitter davor – damit sich keine Maus im warmen Stock einnistet. Der Stand sollte trocken stehen.', note: 'Bienen kommen mit Kälte gut klar. Feuchtigkeit und Mäuse sind die größeren Feinde im Winter.' },
     { h: 'Ruhe bis zum Frühjahr', p: 'Jetzt heißt es: Ruhe geben. Die Bienen bilden eine Wintertraube und wärmen sich gegenseitig. Nur die Restentmilbung im Dezember und ein gelegentlicher Blick von außen stehen noch an.', note: 'Nicht öffnen! Jedes Öffnen im Winter kostet die Bienen wertvolle Wärme.' },
@@ -5349,6 +5607,13 @@ const FAQ_THEMEN = [
     { f: 'Woran erkenne ich, ob die Königin noch da ist?', a: 'Wenn du frische Eier (winzige weiße Stifte am Zellboden) findest, war die Königin in den letzten 3 Tagen da. Du musst sie nicht jedes Mal sehen.' },
     { f: 'Was mache ich, wenn mein Volk weisellos ist?', a: 'Prüfe genau: Gibt es Nachschaffungszellen? Dann ziehen die Bienen sich selbst eine neue Königin. Wenn nicht, hänge eine Brutwabe mit jüngsten Eiern aus einem anderen Volk ein – daraus können sie eine Königin nachziehen.' },
     { f: 'Wie erkenne ich ein gesundes Brutbild?', a: 'Geschlossenes, gleichmäßig verdeckeltes Brutnest ohne Lücken, leicht gewölbte Deckel. Löchriges Brutbild (viele leere Zellen dazwischen) kann auf eine schwache Königin oder Krankheit hindeuten.' },
+    { f: 'Wie viele Völker soll ich als Anfänger halten?', a: 'Starte mit 2–3 Völkern. Eines allein ist riskant: Geht etwas schief, kannst du z. B. keine Brutwabe zum Retten entnehmen. Mehr als 5 im ersten Jahr überfordern schnell.' },
+    { f: 'Wie stark sollte ein Volk sein?', a: 'Im Sommer besetzt ein starkes Volk 10–12 Dadant-Waben oder 20+ Zander-Rähmchen (ca. 40.000–60.000 Bienen). Im Winter schrumpft es auf 10.000–15.000 Bienen.' },
+    { f: 'Was ist „einengen" und wann mache ich das?', a: 'Einengen heißt, leere Waben am Rand entfernen und das Brutnest mit einem Schied begrenzen. Das hält das Volk warm und kompakt – sinnvoll im Frühjahr bei schwachen Völkern oder nach Ablegerbildung.' },
+    { f: 'Was bedeutet „erweitern"?', a: 'Wenn das Brutnest voll besetzt ist und die Bienen keinen Platz mehr haben, setzt du eine neue Zarge auf (Brutraum erweitern) oder gibst den Honigraum. Zu spätes Erweitern fördert Schwarmstimmung.' },
+    { f: 'Wann setze ich den Honigraum auf?', a: 'Sobald die Bienen im Frühjahr die oberen Rähmchen belagern und die Kirsche blüht (ca. April). Absperrgitter dazwischen, damit die Königin nicht nach oben wandert.' },
+    { f: 'Was ist ein Absperrgitter?', a: 'Ein Gitter zwischen Brut- und Honigraum mit Schlitzen, durch die nur Arbeiterinnen (4,2 mm) passen, nicht die größere Königin. So bleibt der Honigraum brutfrei und der Honig sauber.' },
+    { f: 'Wie vereinige ich zwei Völker?', a: 'Zeitungspapier-Methode: Lege eine Lage Zeitungspapier (mit kleinen Schlitzen) auf das untere Volk und setze das obere darauf. Die Bienen nagen sich langsam durch und gewöhnen sich aneinander. Die schwächere Königin vorher entfernen.' },
   ] },
   { id: 'schwarm', label: 'Schwarm', icon: 'merge', fragen: [
     { f: 'Woran erkenne ich Schwarmstimmung?', a: 'Die Bienen bauen Weiselzellen (große, erdnussförmige Zellen am Wabenrand). Das Volk wird unruhig, viele Bienen hängen als „Bart" vor dem Flugloch. Weiselzellen sind das sicherste Zeichen.' },
@@ -5356,55 +5621,104 @@ const FAQ_THEMEN = [
     { f: 'Wie bilde ich einen Ableger?', a: 'Entnimm 1–2 Brutwaben mit ansitzenden Bienen und einer offenen Weiselzelle oder jüngsten Eiern. Setze sie in eine neue kleine Beute am neuen Standort. Futterwabe dazu, Flugloch klein halten.' },
     { f: 'Mein Schwarm hängt im Baum – was tun?', a: 'Ruhe bewahren. Stelle einen offenen Kasten darunter, schüttle oder kehre den Schwarm hinein. Wenn die Königin drin ist, marschieren die anderen nach. Am Abend ans Flugloch fegen und verschließen.' },
     { f: 'Kann ich einen Schwarm verhindern?', a: 'Ganz verhindern ist schwierig – aber du kannst den Trieb durch Raum geben (rechtzeitig Honigraum aufsetzen), Ablegerbildung und regelmäßige Kontrolle stark reduzieren.' },
+    { f: 'Was ist eine Schwarmvorwegnahme?', a: 'Du simulierst den Schwarm selbst: Die alte Königin kommt mit Flugbienen in eine neue Beute (= „Kunstschwarm"), das Restvolk zieht sich eine neue Königin. Kein unkontrollierter Schwarmabgang.' },
+    { f: 'Wann ist Schwarmzeit?', a: 'Typisch Mai bis Ende Juni, manchmal bis Mitte Juli. Bei warmem Wetter und starken Völkern kann es aber auch früher losgehen. In der Schwarmzeit wöchentlich kontrollieren!' },
+    { f: 'Was ist ein Vorschwarm vs. Nachschwarm?', a: 'Der Vorschwarm geht mit der alten, begatteten Königin ab – er ist groß und stark. Nachschwärme gehen mit jungen, unbegatteten Königinnen ab, sind kleiner und weniger überlebensfähig.' },
+    { f: 'Darf ich einen fremden Schwarm einfangen?', a: 'Rechtlich: Ja, ein herrenloser Schwarm darf eingefangen werden. Aber: Erst den Besitzer ermitteln (Nachbar-Imker fragen), der hat 2 Tage Vorrang. Melde den Fund im Verein oder bei der Feuerwehr.' },
+    { f: 'Wie vermeide ich Schwarmverluste in meiner Abwesenheit?', a: 'Vor dem Urlaub: Schwarmkontrolle, alle Weiselzellen brechen (Notlösung!), Raum geben, Ableger bilden. Idealerweise einen Imkerkollegen bitten, in der Schwarmzeit wöchentlich reinzuschauen.' },
   ] },
   { id: 'koenigin', label: 'Königin', icon: 'crown', fragen: [
     { f: 'Wie finde ich die Königin?', a: 'Suche auf den Brutwaben – sie ist länger als die Arbeiterinnen, hat einen längeren Hinterleib und bewegt sich ruhig. Tipp: Farblich markierte Königinnen (Zeichenplättchen) sind viel leichter zu finden.' },
     { f: 'Muss ich die Königin zeichnen?', a: 'Nicht zwingend, aber es hilft enorm: Du findest sie schneller und erkennst am Farbcode das Geburtsjahr (international genormte Farben im 5-Jahres-Zyklus).' },
     { f: 'Wie alt sollte eine Königin sein?', a: 'Am leistungsfähigsten ist sie in den ersten 2 Jahren. Ab dem 3. Jahr lässt die Legeleistung oft nach. Viele Imker wechseln die Königin alle 2 Jahre oder bei schlechtem Brutbild.' },
     { f: 'Wie setze ich eine neue Königin zu?', a: 'Im Zusetzkäfig: Die alte Königin entfernen, die neue im verschlossenen Käfig zwischen die Brutwaben hängen. Die Bienen nehmen ihren Duft auf und befreien sie nach 2–3 Tagen durch den Futterteig-Verschluss.' },
+    { f: 'Welche Zeichenfarben gibt es?', a: 'Internationaler 5-Jahres-Zyklus: Weiß (1/6), Gelb (2/7), Rot (3/8), Grün (4/9), Blau (5/0). 2026 = Weiß. Ein Opalith-Plättchen wird auf den Thorax geklebt.' },
+    { f: 'Was ist stille Umweiselung?', a: 'Die Bienen ersetzen ihre alte Königin ohne Schwarm: Sie ziehen eine neue heran, die alte wird abgestoßen. Kommt bei älteren oder nachlassenden Königinnen vor – leicht zu übersehen, weil kein Schwarm abgeht.' },
+    { f: 'Wie erkenne ich eine gut begattete Königin?', a: 'Am gleichmäßigen Brutbild: geschlossene Flächen verdeckelter Brut, wenig Lücken, Eier einzeln in Zellen (nicht mehrere). Eine schlecht begattete Königin legt lückig oder wird buckelbrütig (nur Drohnen).' },
+    { f: 'Was ist Buckelbrütigkeit?', a: 'Wenn eine unbegattete Königin oder legende Arbeiterinnen nur unbefruchtete Eier legen: Es schlüpfen nur Drohnen aus Arbeiterinnenzellen (die Deckel wölben sich „buckelig"). Das Volk ist verloren – auflösen oder umweiseln.' },
+    { f: 'Woher bekomme ich eine neue Königin?', a: 'Vom Züchter im Imkerverein, von zertifizierten Königinnenzüchtern (AGT, Buckfast), oder selbst nachziehen aus deinem besten Volk. Achte auf Gesundheitszeugnis und regionale Anpassung.' },
+    { f: 'Kann ich Königinnen selbst nachziehen?', a: 'Ja, ab dem 2.–3. Jahr: Umlarven aus deinem besten Volk (jüngste Larven <1 Tag) in Weiselnäpfchen, Starter/Finisher-Volk pflegt sie. Nach 12 Tagen schlüpft die junge Königin, dann Begattungsflug.' },
   ] },
   { id: 'varroa', label: 'Varroa & Gesundheit', icon: 'varroa', fragen: [
     { f: 'Wie zähle ich den Milbenfall?', a: 'Lege die Bodeneinlage (Windel/Diagnosegitter) ein und lass sie 3 Tage liegen. Zähle die Milben und teile durch die Anzahl Tage → Milben pro Tag. ImkerBuch rechnet das automatisch.' },
     { f: 'Ab wann muss ich behandeln?', a: 'Richtwert im Hochsommer: ab ca. 5–10 Milben/Tag wird es kritisch. Im Frühjahr und Herbst gelten niedrigere Schwellen. ImkerBuch zeigt dir eine Ampel (grün/gelb/rot).' },
-    { f: 'Welche Behandlungsmittel gibt es?', a: 'Am verbreitetsten: Ameisensäure (Sommer, nach der Ernte), Oxalsäure (Winter, brutfrei) und Milchsäure (für Ableger). Alles zugelassene Tierarzneimittel – halte dich genau an die Dosierung.' },
+    { f: 'Welche Behandlungsmittel gibt es?', a: 'Zugelassen in Deutschland: Ameisensäure 60 % (Sommer, nach Ernte – 200 ml im Verdunster oder MAQS-Streifen), Oxalsäure 3,5 % Träufeln oder Sublimation (Winter, brutfrei – 5 ml/Gasse bzw. 1 g/Zarge), Milchsäure 15 % (Sprühen für Ableger – 8 ml/Wabenseite). Thymol-Produkte (Apiguard, ApiLife Var) als Sommer-Alternative. Alle verschreibungspflichtig und dokumentationspflichtig.', link: 'rechner' },
     { f: 'Was ist Amerikanische Faulbrut (AFB)?', a: 'Eine anzeigepflichtige Bienenseuche: Die Larven sterben ab, es riecht faulig, eine braune, fadenziehende Masse bleibt in den Zellen. Verdacht sofort dem Veterinäramt melden! Für Menschen harmlos.' },
     { f: 'Was tun bei Kalkbrut?', a: 'Kalkbrut (weiße, harte „Mumien" auf dem Bodenbrett) ist meistens ein Zeichen für ein geschwächtes oder kaltes Volk. Königin prüfen, Volk einengen, warmer Standort. Geht oft von selbst vorbei.' },
+    { f: 'Was ist die Puderzucker-Methode?', a: 'Eine Diagnosemethode: Ca. 300 Bienen (½ Tasse) in ein Glas schütteln, Puderzucker drauf, schütteln – Milben lösen sich und fallen durch ein Gitter. Die Bienen kommen unversehrt zurück ins Volk.' },
+    { f: 'Was ist die Auswaschmethode?', a: 'Ähnlich wie Puderzucker, aber mit Alkohol oder Spülmittel-Wasser: ½ Tasse Bienen in ein Glas mit Lösung schütteln, Milben zählen. Genauer als Puderzucker, aber die Bienen überleben nicht.' },
+    { f: 'Wie funktioniert die Ameisensäure-Behandlung?', a: 'Nach der letzten Ernte im Juli/August: 200 ml Ameisensäure 60 % im Langzeitverdunster (z. B. Nassenheider Professional) – verdunstet über 14 Tage bei 15–25 °C. Einziges Mittel, das auch in verdeckelter Brut wirkt. Alternative: MAQS-Streifen (2 Gelplatten pro Volk, 7 Tage). Flugloch ganz öffnen, nicht bei über 30 °C anwenden. Handschuhe und Schutzbrille tragen!', link: 'rechner' },
+    { f: 'Wie funktioniert die Oxalsäure-Behandlung?', a: 'Im brutfreien Dezember: Träufeln – 3,5 % OS-Dihydrat-Lösung (Fertigpräparat z. B. Oxuvar oder selbst: 35 g OS + 500 ml Wasser + 500 g Zucker), 5 ml pro besetzte Wabengasse, max. 50 ml pro Volk. Oder: Verdampfung mit Gerät (z. B. Varrox) – 1 g OS-Dihydrat pro Zarge, Flugloch 10–15 Min. verschließen, Atemschutz tragen! Nur 1× pro Winter. Wirksamkeit ca. 95 % bei Brutfreiheit.', link: 'rechner' },
+    { f: 'Was ist Nosemose?', a: 'Eine Darmkrankheit durch den Einzeller Nosema. Zeichen: Kotflecken am Flugloch im Frühjahr, aufgeblähte Hinterleiber, flugunfähige Bienen. Vorbeugen: Starke Völker, frische Waben, nicht zu feucht überwintern.' },
+    { f: 'Was sind Varroatoleranz und VSH?', a: 'Einige Bienenlinien (z. B. VSH = Varroa Sensitive Hygiene) erkennen befallene Zellen und räumen sie aus. Langfristiges Zuchtziel – aber aktuell kein Ersatz für die Behandlung.' },
   ] },
   { id: 'honig', label: 'Honig & Ernte', icon: 'honig', fragen: [
     { f: 'Wann ist der Honig reif?', a: 'Wenn mindestens 2/3 der Zellen verdeckelt sind und der Wassergehalt unter 18 % liegt (Refraktometer). Zu feuchter Honig kann gären.' },
     { f: 'Wie schleudere ich Honig?', a: 'Waben entdeckeln (Entdeckelungsgabel oder -messer), in die Schleuder stellen, erst langsam, dann schneller drehen. Honig läuft unten durch das Sieb in den Eimer.' },
     { f: 'Brauche ich ein Refraktometer?', a: 'Dringend empfohlen. Es kostet ca. 20–30 € und zeigt dir den Wassergehalt. Unter 18 % ist Pflicht für DIB-Honig, unter 20 % für Verkauf allgemein.' },
     { f: 'Was muss aufs Etikett?', a: 'Pflichtangaben: „Honig" (Sorte optional), Nettofüllmenge (g), Mindesthaltbarkeitsdatum, Name und Anschrift des Imkers, Losnummer, Herkunftsland „Deutscher Honig".' },
+    { f: 'Wie lagere ich Honig richtig?', a: 'Dunkel, trocken, kühl (10–18 °C) in sauberen Gläsern. Honig ist praktisch unbegrenzt haltbar – aber Licht und Wärme zerstören Enzyme und Aroma. MHD üblicherweise 2 Jahre.' },
+    { f: 'Was ist Cremehonig?', a: 'Fein gerührter Honig, der durch regelmäßiges Rühren während der Kristallisation eine cremige, streichfähige Konsistenz bekommt. Gleicher Honig, nur feiner kristallisiert – kein Zusatzstoff.' },
+    { f: 'Warum kristallisiert mein Honig?', a: 'Das ist natürlich und ein Qualitätsmerkmal! Honig mit hohem Traubenzuckeranteil (z. B. Raps) kristallisiert schnell, Waldhonig langsam. Durch sanftes Erwärmen (max. 40 °C) wird er wieder flüssig.' },
+    { f: 'Was ist der DIB-Einheitsdeckel?', a: 'Das grüne Imker-Honigglas des Deutschen Imkerbunds. Nur DIB-Mitglieder dürfen es nutzen. Vorteil: Wiedererkennungswert, strenge Qualitätsregeln (max. 18 % Wasser). Nachteil: teurer, mehr Auflagen.' },
+    { f: 'Wie entdeckele ich richtig?', a: 'Mit der Entdeckelungsgabel von unten nach oben kratzen oder mit dem heißen Entdeckelungsmesser die Deckel abschneiden. Über einem Entdeckelungsgeschirr arbeiten – das Wachs abtropfen lassen.' },
+    { f: 'Darf ich meinen Honig erwärmen?', a: 'Ja, aber vorsichtig: Maximal 40 °C, sonst gehen wertvolle Enzyme (Invertase, Diastase) kaputt. Honig nie in der Mikrowelle oder im kochenden Wasserbad erhitzen. DIB erlaubt max. 40 °C.' },
   ] },
   { id: 'fuetterung', label: 'Fütterung', icon: 'flask', fragen: [
     { f: 'Wann muss ich füttern?', a: 'Nach der letzten Honigernte im Spätsommer (August/September). Das Volk braucht Wintervorrat – du fütterst auf, was du entnommen hast. Auch Ableger brauchen manchmal Futter.' },
-    { f: 'Was füttere ich?', a: 'Invertzuckersirup (fertig kaufen) oder selbst angerührte Zuckerlösung (3:2 Zucker/Wasser). Kein Honig füttern – Seuchengefahr! Futterteig eignet sich für Notfütterungen.' },
-    { f: 'Wie viel braucht ein Volk?', a: 'Je nach Region 15–20 kg Wintervorrat. Das sind ca. 15–20 Liter Sirup. Wiege die Beute: Ein gut gefüttertes Volk wiegt (je nach Beutentyp) 30–35 kg.' },
+    { f: 'Was füttere ich?', a: 'Am besten: Fertig-Invertzuckersirup (Apiinvert, Ambrosia) – direkt einsatzbereit, ca. 1,30–1,80 €/kg. Oder: Selbst angerührte Zuckerlösung 3:2 (3 Teile Zucker, 2 Teile warmes Wasser). Nie Honig aus fremden Quellen verfüttern – Seuchengefahr (v. a. AFB-Sporen)! Futterteig (Fondant) nur für Notfütterungen oder im Zusetzkäfig.', link: 'rechner' },
+    { f: 'Wie viel braucht ein Volk?', a: 'Je nach Region 15–20 kg Wintervorrat. 1 L Sirup (3:2) wiegt ca. 1,27 kg und ergibt nach Einlagerung ca. 1 kg Futter. Für 15 kg brauchst du also ca. 12–15 L Sirup. Wiege die Beute: Zander (2 Zargen) eingewintert ca. 30–35 kg, Dadant ca. 32–38 kg. Zu wenig Futter = häufigste Ursache für Winterverluste!', link: 'rechner' },
     { f: 'Woran erkenne ich Futtermangel?', a: 'Wenig verdeckelte Honig-/Futterzellen auf den Randwaben, leichte Beute, Bienen wirken unruhig. Im Extremfall findest du verhungerte Bienen mit dem Kopf in leeren Zellen.' },
+    { f: 'Was ist Räuberei?', a: 'Wenn fremde Bienen versuchen, Futter aus deiner Beute zu stehlen – oft durch den Geruch von offenem Sirup ausgelöst. Zeichen: hektisches Fliegen, Kämpfe am Flugloch. Sofort Flugloch verengen und abends füttern!' },
+    { f: 'Wie mische ich Zuckerlösung an?', a: 'Herbstfütterung 3:2 (dick): 3 kg Zucker + 2 L warmes Wasser = ca. 4 L Sirup. Für 10 L: 7,5 kg Zucker + 5 L Wasser. Zucker einrieseln lassen und rühren bis gelöst. Lauwarm geben, nie kochend. Reizfütterung im Frühjahr: 1:1 (gleiche Teile, dünn). Alternativ fertigen Invertzuckersirup (Apiinvert, Ambrosia) – gleich gebrauchsfertig.', link: 'rechner' },
+    { f: 'Was ist Futterteig und wann nutze ich ihn?', a: 'Eine feste Zucker-Honig-Masse, die direkt auf die Rähmchen gelegt wird. Für Notfütterung im zeitigen Frühjahr oder beim Zusetzen einer Königin im Käfig. Wird langsamer abgenommen als Sirup.' },
+    { f: 'Soll ich flüssig oder fest füttern?', a: 'Herbstauffütterung: Flüssig (Sirup) – wird schnell abgenommen und eingelagert. Notfütterung im Frühjahr: Fest (Futterteig) – kein Risiko von Räuberei, funktioniert auch bei Kälte.' },
+    { f: 'Kann ich zu viel füttern?', a: 'Ja: Wenn das gesamte Brutnest mit Futter vollgetragen wird, hat die Königin keinen Platz mehr zum Legen. Im Herbst also dosiert füttern und wiegen, nicht blindlings auffüllen.' },
   ] },
   { id: 'winter', label: 'Überwinterung', icon: 'wetter', fragen: [
     { f: 'Wann wintern die Bienen ein?', a: 'Ab etwa Oktober bilden sie die Wintertraube. Die Aktivität nimmt ab, die Königin stoppt die Eiablage. Die „Winterbienen" (langlebiger, mehr Fettpolster) übernehmen.' },
     { f: 'Darf ich im Winter öffnen?', a: 'Nein – jedes Öffnen kostet Wärme und stört die Traube. Nur von außen kontrollieren: Steht die Beute gerade? Kein Specht-/Mausschaden? Ist das Flugloch frei?' },
     { f: 'Was ist die Winterbehandlung?', a: 'Im brutfreien Dezember träufelst oder verdampfst du Oxalsäure – die Restentmilbung gegen Varroa. Weil keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden erreicht.' },
     { f: 'Was mache ich bei Totenfall im Winter?', a: 'Ein schmaler Streifen toter Bienen auf dem Bodenbrett ist normal (natürlicher Totenfall). Beunruhigend: Massenhaft tote Bienen, nasser Bodenbrett oder Kotflecken am Flugloch.' },
+    { f: 'Was sind Winterbienen?', a: 'Bienen, die ab September schlüpfen. Sie haben größere Fettpolster, mehr Speicherprotein (Vitellogenin) und leben 4–6 Monate statt 6 Wochen. Sie halten das Volk über den Winter am Leben.' },
+    { f: 'Wie schütze ich vor Spechten und Mäusen?', a: 'Mäusegitter (Lochblech, 8 mm) vor das Flugloch – ab Oktober. Gegen Spechte: Netz oder Styroporplatten um die Beute. Mäuse bauen Nester im warmen Stock und zerstören Waben.' },
+    { f: 'Brauche ich eine Isolierung im Winter?', a: 'Meistens nicht – ein gesundes Volk hält sich selbst warm (Wintertraube, 35 °C Kern). Wichtiger: Zugluft vermeiden, Kondenswasser-Abfluss sichern. In extremen Lagen kann eine leichte Isolierung helfen.' },
+    { f: 'Wann beginnt der Reinigungsflug?', a: 'An den ersten warmen Tagen im Februar/März (ab ca. 10 °C) fliegen die Bienen aus, um ihren Darm zu entleeren. Ein gutes Zeichen: Volk hat überlebt! Danach kann man vorsichtig den ersten Blick wagen.' },
+    { f: 'Was mache ich, wenn ein Volk tot ist?', a: 'Nicht sofort räumen: Schau dir das Bild an – wo sitzen die toten Bienen, wie sehen die Waben aus? Fotos machen. Häufigste Ursachen: Varroa (verkrüppelte Bienen/Flügel), Futtermangel (Köpfe in leeren Zellen), Königinnenverlust.' },
   ] },
   { id: 'ausruestung', label: 'Ausrüstung', icon: 'gear', fragen: [
     { f: 'Was brauche ich zum Start?', a: 'Mindestens: 1–2 Beuten (Zargen + Boden + Deckel), Rähmchen + Mittelwände, Stockmeißel, Smoker, Abkehrbesen, Imkerschleier und helle Schutzkleidung.' },
     { f: 'Zander, DNM oder Dadant?', a: 'Alle funktionieren. Nimm das Maß, das dein Pate und dein Verein nutzen – dann könnt ihr Waben und Ableger tauschen. Region schlägt Theorie.' },
     { f: 'Brauche ich sofort eine Schleuder?', a: 'Nein. Die meisten Vereine verleihen Schleudern an ihre Mitglieder. Kaufe erst eine eigene, wenn du mehrere Völker hast und regelmäßig erntest.' },
     { f: 'Handschuhe tragen oder nicht?', a: 'Anfänger: Ja, das gibt Sicherheit. Erfahrene arbeiten oft ohne – man spürt die Bienen besser und arbeitet feiner. Latexhandschuhe sind ein Mittelweg.' },
+    { f: 'Was kostet der Einstieg?', a: 'Rechne mit 800–1.500 € für 2 Völker mit Beuten, Grundausstattung (Smoker, Stockmeißel, Schleier, Besen) und Bienen. Schleuder erst leihen. Förderprogramme mancher Bundesländer decken bis 50 %.' },
+    { f: 'Was ist ein Stockmeißel?', a: 'DAS Werkzeug des Imkers: Ein flacher Metallhebel zum Lockern verkitteter Rähmchen, Abheben des Deckels und Abkratzen von Wachsbrücken. Ohne Stockmeißel geht nichts – immer griffbereit haben.' },
+    { f: 'Wie benutze ich den Smoker richtig?', a: 'Brennmaterial (Holzspäne, Eierpappe, Smoker-Pellets) anzünden, langsam pumpen bis gleichmäßiger, kühler Rauch kommt. 2–3 Rauchstöße ins Flugloch oder von oben. Nie heißen Rauch direkt auf die Bienen!' },
+    { f: 'Welche Schutzkleidung brauche ich?', a: 'Mindestens: Imkerschleier (Gesichtsschutz). Ideal: helle, langärmlige Kleidung, Gummistiefel (Hosenbeine drüber). Keine dunkle oder wollige Kleidung – das macht die Bienen aggressiv.' },
+    { f: 'Was sind Mittelwände?', a: 'Wachsplatten mit vorgeprägtem Zellmuster, die du in die Rähmchen einlötest. Die Bienen bauen darauf ihre Waben aus. Kaufe nur rückstandsfreies Wachs (zertifiziert) oder recycele eigenes Wachs.' },
+    { f: 'Wie löte ich Mittelwände ein?', a: 'Drähte im Rähmchen spannen (4 waagerechte Drähte), Mittelwand anlegen, mit einem Einlöttrafo oder Akku den Draht erhitzen – er schmilzt ins Wachs und fixiert die Mittelwand. Nicht zu heiß, sonst schmilzt die ganze Platte.' },
   ] },
   { id: 'recht', label: 'Recht & Meldepflicht', icon: 'meldung', fragen: [
     { f: 'Wo muss ich meine Bienen anmelden?', a: 'Beim Veterinäramt deines Landkreises (kostenlos) und bei der Tierseuchenkasse deines Bundeslands (kleiner Jahresbeitrag). Beides ist Pflicht.' },
     { f: 'Was ist die Tierseuchenkasse?', a: 'Sie versichert dich im Seuchenfall (z. B. Faulbrut-Sperrgebiet) und gibt dir eine Registriernummer. Der Beitrag beträgt je nach Bundesland wenige Euro pro Volk.' },
     { f: 'Darf ich Honig einfach so verkaufen?', a: 'Kleine Mengen direkt an Endverbraucher (Haustürverkauf) ja. Aber: Etikett mit Pflichtangaben, Lebensmittelhygiene, eventuell Gewerbeanmeldung bei regelmäßigem Verkauf. Als § 24-Pauschallandwirt gelten besondere Steuerregeln.' },
     { f: 'Was ist ein Gesundheitszeugnis?', a: 'Brauchst du zum Wandern (Bienen an einen anderen Standort bringen). Der Amtstierarzt bestätigt, dass deine Völker frei von anzeigepflichtigen Seuchen sind.' },
+    { f: 'Bin ich Landwirt oder Gewerbetreibender?', a: 'Imkerei bis ca. 30 Völker gilt steuerlich als Landwirtschaft (Urproduktion). Darüber hinaus oder bei stark verarbeiteten Produkten (Kerzen, Kosmetik) kann Gewerbe anfallen. Tipp: § 24 UStG Pauschalierung nutzen.' },
+    { f: 'Was ist § 24 UStG (Pauschalierung)?', a: 'Landwirte/Imker können die Umsatzsteuer pauschal abrechnen: Du berechnest 7,8 % USt auf deine Verkäufe, behältst sie aber – ohne Vorsteuerabzug, ohne USt-Erklärung. Gilt automatisch, solange du Landwirt bist.' },
+    { f: 'Brauche ich eine Betriebshaftpflicht?', a: 'Dringend empfohlen: Wenn deine Bienen einen Verkehrsunfall oder Sachschaden verursachen, haftest du. Viele Imkervereine (z. B. DIB-Mitglieder) haben eine Gruppenversicherung inklusive.' },
+    { f: 'Was ist bei einem Faulbrut-Sperrgebiet?', a: 'Deine Völker werden amtlich untersucht (Futterkranzprobe). Du darfst keine Völker ein- oder ausführen und keinen Honig verfüttern. Kann Monate dauern. Kosten übernimmt teilweise die Tierseuchenkasse.' },
+    { f: 'Darf ich in der Stadt/im Garten imkern?', a: 'Grundsätzlich ja – Bienenhaltung ist ein Grundrecht (Urproduktion). Aber: Nachbarschaftsrecht beachten (Flugbahn nicht über Gehweg/Terrasse), Bebauungsplan prüfen, Vermieter fragen. 3 Meter Abstand zur Grundstücksgrenze einhalten.' },
   ] },
   { id: 'vermehrung', label: 'Vermehrung & Zucht', icon: 'egg', fragen: [
     { f: 'Wie vermehre ich meine Völker?', a: 'Am einfachsten durch Ableger: Brutwabe mit Bienen und einer Weiselzelle in eine eigene Beute. Das Jungvolk zieht sich eine eigene Königin heran. So wächst dein Bestand ohne Zukauf.' },
     { f: 'Wann ist der beste Zeitpunkt für Ableger?', a: 'Mai bis Anfang Juli – dann ist die Tracht gut, die Völker stark, und der Ableger hat genug Zeit, sich bis zum Winter aufzubauen.' },
     { f: 'Was ist der Unterschied zwischen Nachschaffung und Schwarmzelle?', a: 'Schwarmzellen bauen die Bienen am Wabenrand, wenn sie schwärmen wollen (Vermehrungstrieb). Nachschaffungszellen bauen sie mitten in der Wabe, wenn die Königin fehlt (Notfall-Rettung).' },
     { f: 'Lohnt sich Zucht für Anfänger?', a: 'Im ersten Jahr nicht – lerne erst die Grundlagen. Ab dem 2.–3. Jahr kannst du gezielt von deinen besten Völkern (sanftmütig, ertragreich, schwarmträge) nachziehen.' },
+    { f: 'Was ist Umlarven?', a: 'Die Methode der Königinnenzucht: Mit einer dünnen Nadel (Umlarvlöffel) eine jüngste Larve (<1 Tag alt) aus einer Arbeiterzelle heben und in ein Weiselnäpfchen setzen. Ein Pflegevolk füttert sie zur Königin auf.' },
+    { f: 'Was ist ein Starter/Finisher?', a: 'Starter: Ein weiselloses, starkes Volk, das die umgelarvten Näpfchen annimmt und 24 h pflegt. Finisher: Ein weiselrichtiges Volk, das die Zellen nach dem Starter fertig pflegt (über Absperrgitter). Oder: Ein Volk übernimmt beides.' },
+    { f: 'Wie funktioniert die Belegstellenbegattung?', a: 'Junge Königinnen kommen in Mini-Begattungskästchen auf eine Belegstelle (isolierter Standort mit Drohnen einer bestimmten Zuchtlinie). Nach 1–2 Wochen ist die Königin begattet und legt.' },
+    { f: 'Was ist instrumentelle Besamung?', a: 'Künstliche Befruchtung unter dem Mikroskop: Sperma ausgewählter Drohnen wird direkt in die Königin injiziert. Sehr genaue Zucht, aber teures Equipment und viel Erfahrung nötig.' },
+    { f: 'Was sind Zuchtwerte?', a: 'Kenndaten eines Volkes für Zuchtentscheidungen: Honigleistung, Sanftmut, Schwarmträgheit, Varroa-Toleranz, Winterfestigkeit. Zertifizierte Züchter (z. B. AGT, GdeB) dokumentieren diese Werte über Generationen.' },
   ] },
 ];
 const FAQ_SYNONYME = {
@@ -5443,7 +5757,7 @@ function faqSuche(query) {
     for (const fq of thema.fragen) {
       const text = (fq.f + ' ' + fq.a).toLowerCase();
       if ([...expanded].some((e) => text.includes(e))) {
-        results.push({ thema, f: fq.f, a: fq.a });
+        results.push({ thema, f: fq.f, a: fq.a, link: fq.link });
       }
     }
   }
@@ -5591,38 +5905,55 @@ Views.imkerschule = {
   renderFaq(main) {
     const V = Views.imkerschule;
     const results = V._faqQuery ? faqSuche(V._faqQuery) : [];
-    const thema = V._faqThema ? FAQ_THEMEN.find((t) => t.id === V._faqThema) : null;
-    main.innerHTML = pageHead('Imkerschule · Frag ein Thema', 'Antworten auf häufige Imker-Fragen') + `
+    const faqAccHtml = (fragen, themaLabel) => fragen.map((fq, i) => `<div class="faq-acc" style="border-bottom:${i < fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
+      <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(fq.f)}</span>${themaLabel ? `<span class="small muted" style="flex-shrink:0">${U.esc(themaLabel)}</span>` : ''}<span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
+      <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${fq.link ? `<div class="faq-rlink" data-route="${fq.link}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
+    </div>`).join('');
+    main.innerHTML = pageHead('Imkerschule · Frag ein Thema', `${FAQ_THEMEN.reduce((s, t) => s + t.fragen.length, 0)} Antworten auf häufige Imker-Fragen`) + `
       <div style="display:flex;gap:6px;margin-bottom:14px">
         <button class="btn btn-sm btn-ghost" id="tab-pfad">Lernpfad</button>
         <button class="btn btn-sm btn-primary" id="tab-faq">Frag ein Thema</button>
       </div>
       <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;background:var(--bg)">
-        <span style="width:18px;height:18px;flex-shrink:0;color:var(--muted)">${icon('search')}</span><input type="search" id="faq-search" placeholder="Suche z. B. „weisellos", „Schwarm" …" value="${U.esc(V._faqQuery)}" style="border:none;background:transparent;flex:1;outline:none;font-size:14px;color:var(--fg)">
+        <span style="width:18px;height:18px;flex-shrink:0;color:var(--muted)">${icon('search')}</span><input type="search" id="faq-search" placeholder="Suche z. B. „weisellos", „Schwarm" …" value="${U.esc(V._faqQuery)}" style="border:none;background:transparent;flex:1;outline:none;font-size:14px;color:var(--fg)">
       </div>
-      ${V._faqQuery && results.length ? `<div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" data-idx="${i}" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:12px 15px;cursor:pointer">
-        <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:500">${U.esc(r.f)}</span><span class="small muted">${U.esc(r.thema.label)}</span><span style="color:var(--muted);font-size:12px">▼</span></div>
-        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}</div>
+      ${V._faqQuery && results.length ? `<div class="small muted" style="margin-bottom:6px">${results.length} Treffer</div><div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
+        <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(r.f)}</span><span class="small muted" style="flex-shrink:0">${U.esc(r.thema.label)}</span><span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
+        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${r.link ? `<div class="faq-rlink" data-route="${r.link}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
       </div>`).join('')}</div>` : ''}
       ${V._faqQuery && !results.length ? '<div class="hint">Keine Treffer – versuch einen anderen Begriff.</div>' : ''}
-      ${!V._faqQuery ? `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">${FAQ_THEMEN.map((t) => `<div class="faq-tile" data-tid="${t.id}" style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center;cursor:pointer">
-        <div style="width:28px;height:28px;color:#E9A21C;margin:0 auto 4px">${icon(t.icon)}</div>
-        <div style="font-size:13px;font-weight:500">${U.esc(t.label)}</div>
-        <div class="small muted">${t.fragen.length} Fragen</div>
-      </div>`).join('')}</div>` : ''}
-      ${thema ? `<div class="small muted" style="margin-bottom:6px">${U.esc(thema.label)} (${thema.fragen.length} Fragen)</div>
-        <div class="card" style="padding:0;overflow:hidden">${thema.fragen.map((fq, i) => `<div class="faq-acc" data-idx="${i}" style="border-bottom:${i < thema.fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:12px 15px;cursor:pointer">
-          <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:500">${U.esc(fq.f)}</span><span style="color:var(--muted);font-size:12px">▼</span></div>
-          <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}</div>
-        </div>`).join('')}</div>
-        <button class="btn btn-ghost btn-sm mt8" id="faq-back-tiles">‹ Alle Themen</button>` : ''}`;
+      ${!V._faqQuery ? FAQ_THEMEN.map((t) => `<div class="faq-topic" data-tid="${t.id}" style="margin-bottom:8px">
+        <div class="faq-tile-head" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:pointer;user-select:none">
+          <span style="width:24px;height:24px;color:#E9A21C;flex-shrink:0">${icon(t.icon)}</span>
+          <span style="flex:1;font-size:14px;font-weight:600">${U.esc(t.label)}</span>
+          <span class="small muted" style="flex-shrink:0">${t.fragen.length}</span>
+          <span class="faq-topic-chev" style="color:var(--muted);font-size:12px;transition:transform .2s">▶</span>
+        </div>
+        <div class="faq-topic-body" style="display:none;border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;overflow:hidden">${faqAccHtml(t.fragen)}</div>
+      </div>`).join('') : ''}`;
     $('#tab-pfad').onclick = () => { V._tab = 'pfad'; renderRoute(); };
     $('#tab-faq').onclick = () => { V._tab = 'faq'; renderRoute(); };
     const si = $('#faq-search');
-    if (si) { si.focus(); si.addEventListener('input', U.debounce(() => { V._faqQuery = si.value; V._faqThema = null; renderRoute(); }, 250)); }
-    main.querySelectorAll('.faq-tile').forEach((el) => el.onclick = () => { V._faqThema = el.dataset.tid; V._faqQuery = ''; renderRoute(); });
-    main.querySelectorAll('.faq-acc').forEach((el) => el.onclick = () => { const ans = el.querySelector('.faq-ans'); ans.style.display = ans.style.display === 'none' ? '' : 'none'; });
-    const bb = $('#faq-back-tiles'); if (bb) bb.onclick = () => { V._faqThema = null; renderRoute(); };
+    if (si) { si.focus(); si.addEventListener('input', U.debounce(() => { V._faqQuery = si.value; renderRoute(); }, 250)); }
+    main.querySelectorAll('.faq-tile-head').forEach((el) => el.onclick = () => {
+      const topic = el.closest('.faq-topic');
+      const body = topic.querySelector('.faq-topic-body');
+      const chev = topic.querySelector('.faq-topic-chev');
+      const open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : '';
+      chev.textContent = open ? '▶' : '▼';
+      el.style.borderRadius = open ? '10px' : '10px 10px 0 0';
+      if (!open) topic.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    main.querySelectorAll('.faq-acc').forEach((el) => el.onclick = (e) => {
+      e.stopPropagation();
+      const ans = el.querySelector('.faq-ans');
+      const chev = el.querySelector('.faq-chev');
+      const open = ans.style.display !== 'none';
+      ans.style.display = open ? 'none' : '';
+      if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
+    });
+    main.querySelectorAll('.faq-rlink').forEach((el) => el.onclick = (e) => { e.stopPropagation(); location.hash = el.dataset.route; });
   },
   showLevelPicker() {
     const st = ISchule.st();
