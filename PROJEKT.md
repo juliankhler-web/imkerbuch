@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-07 · **v0.50 · Alle Module + Imkerschule (11 Kapitel mit SVG + geführten Aktionen) + Marken-Logo + Rechtsseiten + Landing Page + Store-Assets, 54/54 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-07 · **v0.51 · Imkerschule Phase 2 (Erfahrungsstufen + FAQ + Just-in-time) + alle Module + Marken-Logo + Rechtsseiten + Landing Page + Store-Assets, 60/60 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -49,12 +49,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 - **App komplett gebaut** (index.html, ~3.900 Zeilen): 15 Fachmodule, PWA/offline, Backup-System (Export/Teilen/Import mit Merge/Snapshots/Auto-Sicherung/Reminder), Excel-Gesamtexport, alle PDFs (Bestandsbuch, Wanderbuch, Zuchtbuch, Chargen, Rechnung, Meldungen, Reports, Kassenbuch-Jahr, Komplettausdruck), PDF-Import, OCR, Sprachnotizen mit Whisper-Option, Anhänge, Einrichtungsassistent, Demo-Daten, Dark Mode.
 - **Verifiziert im Browser** (mobil + Desktop 1280px, Dark + Light): Wizard→Demo-Daten, ALLE Views einzeln geöffnet, Open-Meteo live, Zucht-Aufgaben-Automatik, Behandlung→Wartezeit-Aufgabe, Volk vereinigen (Historie beidseitig), kompletter Rechnungs-Flow inkl. Storno über die UI (Festschreiben: RE-0001, Bestand 34→28, Kassenbuch-Buchung; Storno: Bestand zurück auf 34, Gegenbuchung −39 €), Widget-Konfiguration, Papierkorb-Restore, PDF/Excel/QR-Erzeugung ohne Fehler.
-- **Testsuite**: 54/54 grün (Format-Utils, Zuchtkalender, Rechnungssummen, DB/Papierkorb, Merge-Regeln, Backup-Roundtrip, Snapshots, Reminder-Stufen, PDF-Import-Heuristik, Listener-Leak-Regression, Aufgaben-Sync, Imkerschule-Lektionen).
+- **Testsuite**: 60/60 grün (Format-Utils, Zuchtkalender, Rechnungssummen, DB/Papierkorb, Merge-Regeln, Backup-Roundtrip, Snapshots, Reminder-Stufen, PDF-Import-Heuristik, Listener-Leak-Regression, Aufgaben-Sync, Imkerschule-Lektionen, Level-Berechnung, FAQ-Suche, JIT-Empfehlungen).
 - **DRY-Refactoring** angewendet: `bindAdd` (14×), `zielIdAus` (4×), `zielFormValues` (3×), `papierkorbDelete` (11×) ersetzen die früheren Kopien; öffentliche Modul-Oberfläche explizit am `window`.
 
 ## Offene Punkte
 
-- **Imkerschule Phase 2**: Erfahrungsstufen-Onboarding (2 objektive Fragen → Level) + „Frag ein Thema" (durchsuchbare FAQ) + Just-in-time-Kopplung (Monat+Volkszustand → passende Lektion)
 - **TWA-Packaging**: PWABuilder + assetlinks.json für Google Play
 - **Play Console Setup**: 12-Tester-Regel (14 Tage), Store-Listing, Screenshots hochladen
 - **CDN-Bibliotheken self-hosten** (für „100% lokal"-Versprechen)
@@ -75,6 +74,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-07-07 (v0.51)**: **Imkerschule Phase 2** – (1) Erfahrungsstufen-Onboarding: 2 objektive Fragen (Jahre/Völker) → automatische Level-Berechnung (Anfänger/Fortgeschritten/Erfahren), überspringbare Lektionen je Level, nachträglicher Level-Picker per Modal. (2) „Frag ein Thema" FAQ: 10 Themenkacheln (Völkerführung bis Vermehrung), 42+ Fragen mit Accordion-Antworten, Volltextsuche mit Synonym-Erweiterung (z.B. „weisellos" → „keine königin"). (3) Just-in-time-Kopplung: saisonale Banner im Lernpfad (Monat → passende Lektion), Varroa-Ampel-Warnung bei Rot, Fütterungs-Erinnerung Aug/Sep. Dashboard-Widget „Lerntipp" zeigt aktuellen saisonalen Tipp. 6 neue Tests (Level/FAQ/JIT). 60/60 grün. SW → v052.
 - **2026-07-07 (v0.50)**: **Imkerschule** – kompletter Lernpfad, 11 Kapitel ALLE mit ausführlichem Inhalt (5–6 Schritte), selbstgezeichneten SVG-Illustrationen und geführten App-Aktionen (Lernen = echte Daten anlegen). Kapitel: Bienenvolk verstehen, Beute & Standort, Völkerführung, Schwarmkontrolle, Honigernte, Varroa, Königinnenzucht, Wanderimkerei, Bienenprodukte, Wirtschaftlichkeit, Rechtliches. + **Landing Page** (`landing.html`) im Honig-Anthrazit-Look mit Hero, USPs, Features, Galerie, Imkerschule-Teaser, Preis 14,99€. 54/54 grün. SW → v051.
 - **2026-07-07 (v0.49)**: **Rechtsseiten** – `impressum.html`, `datenschutz.html`, `agb.html` mit Julians echten Daten, verlinkt unter Einstellungen→Rechtliches.
 - **2026-07-07 (v0.48)**: **Neues Marken-Logo** – `brandLogoSvg()` (3 Amber-Waben), nur Homescreen-Ansicht; Nutzer-Logo wird NICHT überschrieben.

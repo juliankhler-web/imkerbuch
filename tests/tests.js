@@ -641,3 +641,67 @@ test('Imkerschule: Lernpfad, Fortschritt persistiert & geführte Aktion', async 
   });
   const s = w.S.get('imkerschule'); delete s.done[1]; await w.S.set('imkerschule', s);
 });
+
+/* ---------- Imkerschule Phase 2: Erfahrungsstufen ---------- */
+test('ISchule.levelFromAnswers: Level-Berechnung', (w) => {
+  assertEq(w.ISchule.levelFromAnswers('0', '0-1'), 'anfaenger', 'Neuling');
+  assertEq(w.ISchule.levelFromAnswers('1-2', '2-5'), 'fortgeschritten', '1-2 Jahre + 2-5 Völker');
+  assertEq(w.ISchule.levelFromAnswers('1-2', '0-1'), 'fortgeschritten', '1-2 Jahre allein reicht');
+  assertEq(w.ISchule.levelFromAnswers('0', '2-5'), 'fortgeschritten', '2-5 Völker allein reicht');
+  assertEq(w.ISchule.levelFromAnswers('3+', '0-1'), 'erfahren', '3+ Jahre = erfahren');
+  assertEq(w.ISchule.levelFromAnswers('1-2', '6+'), 'erfahren', '1-2 Jahre + 6+ Völker = erfahren');
+  assertEq(w.ISchule.levelFromAnswers('0', '6+'), 'fortgeschritten', '0 Jahre + 6+ Völker = fortgeschritten');
+});
+test('ISchule.skipableIds: überspringbare Lektionen je Level', (w) => {
+  const orig = w.S.get('imkerschule');
+  const s = { ...orig, level: 'anfaenger' };
+  w.S.data.imkerschule = s;
+  assertEq(w.ISchule.skipableIds().length, 0, 'Anfänger: nichts überspringbar');
+  s.level = 'fortgeschritten';
+  assertEq(w.ISchule.skipableIds(), [1, 2, 3], 'Fortgeschritten: 1-3');
+  s.level = 'erfahren';
+  assertEq(w.ISchule.skipableIds(), [1, 2, 3, 4, 5], 'Erfahren: 1-5');
+  w.S.data.imkerschule = orig;
+});
+test('ISchule.setLevel: Level setzen + onboarded Flag', async (w) => {
+  const orig = w.S.get('imkerschule');
+  await w.ISchule.setLevel('erfahren');
+  const s = w.ISchule.st();
+  assertEq(s.level, 'erfahren', 'Level gesetzt');
+  assertEq(s.onboarded, true, 'onboarded Flag gesetzt');
+  assertEq(w.ISchule.levelLabel(), 'Erfahren', 'labelLabel() gibt Erfahren');
+  await w.S.set('imkerschule', orig);
+});
+
+/* ---------- Imkerschule Phase 2: FAQ-Suche ---------- */
+test('FAQ_THEMEN: 10 Themen mit Fragen', (w) => {
+  assertEq(w.FAQ_THEMEN.length, 10, '10 FAQ-Themen');
+  w.FAQ_THEMEN.forEach((t) => {
+    assert(t.id && t.label && t.icon, 'Thema hat id/label/icon: ' + t.id);
+    assert(t.fragen.length >= 4, 'Thema ' + t.id + ' hat ≥ 4 Fragen');
+    t.fragen.forEach((fq) => {
+      assert(fq.f && fq.a, 'FAQ hat Frage + Antwort in ' + t.id);
+    });
+  });
+});
+test('faqSuche: Volltextsuche mit Synonymen', (w) => {
+  const r1 = w.faqSuche('weisellos');
+  assert(r1.length >= 1, '"weisellos" findet mindestens 1 Treffer');
+  assert(r1.some((r) => r.f.toLowerCase().includes('weisellos')), 'direkter Treffer');
+  const r2 = w.faqSuche('keine königin');
+  assert(r2.length >= 1, 'Synonym "keine königin" findet Treffer');
+  const r3 = w.faqSuche('xyzgarbage');
+  assertEq(r3.length, 0, 'Unsinn findet nichts');
+  const r4 = w.faqSuche('honig');
+  assert(r4.length >= 2, '"honig" findet mehrere Treffer');
+});
+
+/* ---------- Imkerschule Phase 2: JIT-Empfehlungen ---------- */
+test('jitEmpfehlungen: saisonale Tipps', async (w) => {
+  const tipps = await w.jitEmpfehlungen();
+  assert(Array.isArray(tipps), 'gibt Array zurück');
+  tipps.forEach((t) => {
+    assert(t.titel && t.text, 'Tipp hat titel + text');
+    assert(t.kapId || t.typ, 'Tipp hat kapId oder typ');
+  });
+});

@@ -181,9 +181,9 @@ html[data-theme="dark"] .btn-dark{color:#1B1B1F}
 button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
 .row .r-ic{width:40px;height:40px;border-radius:12px;background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .row .r-ic svg{width:19px;height:19px}
-.row .r-main{flex:1;min-width:0}
-.row .r-title{display:block;font-weight:650;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.row .r-sub{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .r-main,.ischule-row .r-main{flex:1;min-width:0}
+.row .r-title,.ischule-row .r-title{display:block;font-weight:650;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .r-sub,.ischule-row .r-sub{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .r-side{text-align:right;font-size:13px;flex-shrink:0}
 .row .chev{color:var(--muted);flex-shrink:0;width:16px;height:16px}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
@@ -438,6 +438,7 @@ const ICONS = {
   restore:'<path d="M4 8.5A8.6 8.6 0 1 1 3.4 12"/><path d="M4 3.5v5h5M12 8v4.5l3 2"/>',
   check:'<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   play:'<path d="M8 5.5v13l10-6.5Z"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6"/><path d="m15.5 15.5 5 5"/>',
   euro:'<path d="M17.5 5.7A7 7 0 1 0 17.5 18.3M4.2 10.2h9M4.2 13.8h8"/>',
   excel:'<path d="M6.5 3.5h8l4 4v13h-12Z"/><path d="m9.3 11 5 6M14.3 11l-5 6"/>',
   merge:'<path d="M7 3.5v6a6 6 0 0 0 6 6h4.5"/><path d="m14.5 12.5 3 3-3 3M7 13.5v7"/>',
@@ -575,8 +576,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.50';
+const APP_VERSION = '0.51';
 const CHANGELOG = [
+  { version: '0.51', datum: '2026-07-07', punkte: [
+    'Imkerschule Phase 2: Beim ersten Besuch bestimmst du dein Erfahrungslevel über zwei kurze Fragen – Anfänger, Fortgeschritten oder Erfahren. Fortgeschrittene und Erfahrene können Basis-Lektionen überspringen.',
+    '„Frag ein Thema": Neue Rubrik in der Imkerschule – 10 durchsuchbare Themenkacheln (Schwarm, Varroa, Königin …) mit häufigen Fragen und Antworten. Volltextsuche mit Synonymen (z. B. „weisellos" findet „keine Königin").',
+    'Saisonale Lernempfehlungen: Auf dem Dashboard und in der Imkerschule erscheinen jetzt passende Tipps je nach Monat und Zustand deiner Völker (Varroa-Ampel, Fütterung …).',
+  ] },
   { version: '0.50', datum: '2026-07-07', punkte: [
     'NEU: „Imkerschule" – ein geführter Lernpfad für Einsteiger. Schritt für Schritt vom ersten Interesse bis zum ersten eigenen Volk, in kurzen Lektionen mit Merksätzen und Erfolgen. Das Besondere: Jede Lektion mündet direkt in eine echte Aktion in der App (z. B. legst du in Lektion 6 dein erstes Volk gleich an) – so füllt sich dein Imkerbuch, während du lernst. Wähle dein Level (Anfänger), dein Fortschritt wird gespeichert. Erste Kapitel sind da, weitere folgen. Zu finden im Menü unter „Lernen → Imkerschule".',
   ] },
@@ -853,9 +859,9 @@ const S = {
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
-    dashboardWidgets: ['voelker', 'aufgaben', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
+    dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
     rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
-    imkerschule: { level: 'anfaenger', done: {} },
+    imkerschule: { level: 'anfaenger', done: {}, onboarded: false },
     darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
@@ -1545,6 +1551,17 @@ const DASH_WIDGETS = {
     }, 50);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2><a href="#/stand/${stand.id}" class="small">${U.esc(stand.name)}</a></div><div id="dash-wetter">${inner}</div></div>`;
   }},
+  lerntipp: { label: 'Saisonaler Lerntipp', ziel: 'imkerschule', async html() {
+    const tips = await jitEmpfehlungen();
+    if (!tips.length) return '';
+    const t = tips[0];
+    return `<div class="card" style="margin:0;background:${t.danger ? 'rgba(179,54,43,.06)' : 'rgba(233,162,28,.06)'}">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <span style="font-size:20px;color:${t.danger ? '#B3362B' : '#E9A21C'};flex-shrink:0">${icon(t.icon)}</span>
+        <div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;margin-bottom:2px">${U.esc(t.titel)}</div><div class="small muted">${U.esc(t.text)}</div>
+        <a href="#/imkerschule" class="small" style="color:${t.danger ? '#B3362B' : '#E9A21C'};margin-top:4px;display:inline-block">Imkerschule öffnen ›</a></div>
+      </div></div>`;
+  }},
   sicherung: { label: 'Letzte Sicherung', ziel: 'einstellungen', async html() {
     const info = Backup.reminderInfo();
     const badge = info.tage === null ? '<span class="badge b-danger">noch nie</span>'
@@ -1560,7 +1577,7 @@ Views.dashboard = {
   async render(main) {
     // Einmalige Migration: neue Widgets bei bestehenden Nutzern EINMAL einblenden
     // (Flag je Widget respektiert bewusstes Entfernen – wird nie erneut hinzugefügt)
-    for (const [id, flag, pos] of [['fahrt', 'fahrtWidgetSeen', 2], ['zeiten', 'zeitenWidgetSeen', 3]]) {
+    for (const [id, flag, pos] of [['fahrt', 'fahrtWidgetSeen', 2], ['zeiten', 'zeitenWidgetSeen', 3], ['lerntipp', 'lerntippWidgetSeen', 2]]) {
       if (S.get(flag)) continue;
       const dw = [...S.get('dashboardWidgets')];
       if (!dw.includes(id)) { dw.splice(Math.min(pos, dw.length), 0, id); await S.set('dashboardWidgets', dw); }
@@ -5304,47 +5321,330 @@ const LERN_KAPITEL = [
   ], aktion: { label: 'Zur Fütterung – Menge eintragen', route: 'voelker' } },
 ];
 const ISchule = {
-  st() { return S.get('imkerschule') || { level: 'anfaenger', done: {} }; },
+  st() { return S.get('imkerschule') || { level: 'anfaenger', done: {}, onboarded: false }; },
   isDone(id) { return !!this.st().done[id]; },
   async setDone(id) { const s = this.st(); s.done = s.done || {}; s.done[id] = true; await S.set('imkerschule', s); },
   doneCount() { return LERN_KAPITEL.filter((k) => this.isDone(k.id)).length; },
   pct() { return Math.round(this.doneCount() / LERN_KAPITEL.length * 100); },
   nextOpen() { return LERN_KAPITEL.find((k) => !k.comingSoon && !this.isDone(k.id)); },
+  async setLevel(lv) { const s = this.st(); s.level = lv; s.onboarded = true; await S.set('imkerschule', s); },
+  levelLabel() { return { anfaenger: 'Anfänger', fortgeschritten: 'Fortgeschritten', erfahren: 'Erfahren' }[this.st().level] || 'Anfänger'; },
+  levelFromAnswers(jahre, voelker) {
+    if (jahre === '3+' || (jahre === '1-2' && voelker === '6+')) return 'erfahren';
+    if (jahre === '1-2' || voelker === '2-5' || voelker === '6+') return 'fortgeschritten';
+    return 'anfaenger';
+  },
+  skipableIds() {
+    const lv = this.st().level;
+    if (lv === 'erfahren') return [1, 2, 3, 4, 5];
+    if (lv === 'fortgeschritten') return [1, 2, 3];
+    return [];
+  },
 };
+
+/* --- FAQ-Daten „Frag ein Thema" --- */
+const FAQ_THEMEN = [
+  { id: 'voelker', label: 'Völkerführung', icon: 'home', fragen: [
+    { f: 'Wie oft muss ich nach meinen Bienen schauen?', a: 'In der aktiven Saison (April–August) alle 7–10 Tage, in der Schwarmzeit sogar wöchentlich. Im Winter lässt du die Bienen in Ruhe – nur ein gelegentlicher Blick von außen reicht.' },
+    { f: 'Woran erkenne ich, ob die Königin noch da ist?', a: 'Wenn du frische Eier (winzige weiße Stifte am Zellboden) findest, war die Königin in den letzten 3 Tagen da. Du musst sie nicht jedes Mal sehen.' },
+    { f: 'Was mache ich, wenn mein Volk weisellos ist?', a: 'Prüfe genau: Gibt es Nachschaffungszellen? Dann ziehen die Bienen sich selbst eine neue Königin. Wenn nicht, hänge eine Brutwabe mit jüngsten Eiern aus einem anderen Volk ein – daraus können sie eine Königin nachziehen.' },
+    { f: 'Wie erkenne ich ein gesundes Brutbild?', a: 'Geschlossenes, gleichmäßig verdeckeltes Brutnest ohne Lücken, leicht gewölbte Deckel. Löchriges Brutbild (viele leere Zellen dazwischen) kann auf eine schwache Königin oder Krankheit hindeuten.' },
+  ] },
+  { id: 'schwarm', label: 'Schwarm', icon: 'merge', fragen: [
+    { f: 'Woran erkenne ich Schwarmstimmung?', a: 'Die Bienen bauen Weiselzellen (große, erdnussförmige Zellen am Wabenrand). Das Volk wird unruhig, viele Bienen hängen als „Bart" vor dem Flugloch. Weiselzellen sind das sicherste Zeichen.' },
+    { f: 'Was mache ich mit Weiselzellen?', a: 'Nicht einfach ausbrechen – das verzögert den Schwarm nur. Besser: Bilde einen Ableger (Brutwabe mit Bienen in eigene Beute), das nimmt den Schwarmtrieb. Oder nutze eine gezielte Schwarmvorwegnahme.' },
+    { f: 'Wie bilde ich einen Ableger?', a: 'Entnimm 1–2 Brutwaben mit ansitzenden Bienen und einer offenen Weiselzelle oder jüngsten Eiern. Setze sie in eine neue kleine Beute am neuen Standort. Futterwabe dazu, Flugloch klein halten.' },
+    { f: 'Mein Schwarm hängt im Baum – was tun?', a: 'Ruhe bewahren. Stelle einen offenen Kasten darunter, schüttle oder kehre den Schwarm hinein. Wenn die Königin drin ist, marschieren die anderen nach. Am Abend ans Flugloch fegen und verschließen.' },
+    { f: 'Kann ich einen Schwarm verhindern?', a: 'Ganz verhindern ist schwierig – aber du kannst den Trieb durch Raum geben (rechtzeitig Honigraum aufsetzen), Ablegerbildung und regelmäßige Kontrolle stark reduzieren.' },
+  ] },
+  { id: 'koenigin', label: 'Königin', icon: 'crown', fragen: [
+    { f: 'Wie finde ich die Königin?', a: 'Suche auf den Brutwaben – sie ist länger als die Arbeiterinnen, hat einen längeren Hinterleib und bewegt sich ruhig. Tipp: Farblich markierte Königinnen (Zeichenplättchen) sind viel leichter zu finden.' },
+    { f: 'Muss ich die Königin zeichnen?', a: 'Nicht zwingend, aber es hilft enorm: Du findest sie schneller und erkennst am Farbcode das Geburtsjahr (international genormte Farben im 5-Jahres-Zyklus).' },
+    { f: 'Wie alt sollte eine Königin sein?', a: 'Am leistungsfähigsten ist sie in den ersten 2 Jahren. Ab dem 3. Jahr lässt die Legeleistung oft nach. Viele Imker wechseln die Königin alle 2 Jahre oder bei schlechtem Brutbild.' },
+    { f: 'Wie setze ich eine neue Königin zu?', a: 'Im Zusetzkäfig: Die alte Königin entfernen, die neue im verschlossenen Käfig zwischen die Brutwaben hängen. Die Bienen nehmen ihren Duft auf und befreien sie nach 2–3 Tagen durch den Futterteig-Verschluss.' },
+  ] },
+  { id: 'varroa', label: 'Varroa & Gesundheit', icon: 'varroa', fragen: [
+    { f: 'Wie zähle ich den Milbenfall?', a: 'Lege die Bodeneinlage (Windel/Diagnosegitter) ein und lass sie 3 Tage liegen. Zähle die Milben und teile durch die Anzahl Tage → Milben pro Tag. ImkerBuch rechnet das automatisch.' },
+    { f: 'Ab wann muss ich behandeln?', a: 'Richtwert im Hochsommer: ab ca. 5–10 Milben/Tag wird es kritisch. Im Frühjahr und Herbst gelten niedrigere Schwellen. ImkerBuch zeigt dir eine Ampel (grün/gelb/rot).' },
+    { f: 'Welche Behandlungsmittel gibt es?', a: 'Am verbreitetsten: Ameisensäure (Sommer, nach der Ernte), Oxalsäure (Winter, brutfrei) und Milchsäure (für Ableger). Alles zugelassene Tierarzneimittel – halte dich genau an die Dosierung.' },
+    { f: 'Was ist Amerikanische Faulbrut (AFB)?', a: 'Eine anzeigepflichtige Bienenseuche: Die Larven sterben ab, es riecht faulig, eine braune, fadenziehende Masse bleibt in den Zellen. Verdacht sofort dem Veterinäramt melden! Für Menschen harmlos.' },
+    { f: 'Was tun bei Kalkbrut?', a: 'Kalkbrut (weiße, harte „Mumien" auf dem Bodenbrett) ist meistens ein Zeichen für ein geschwächtes oder kaltes Volk. Königin prüfen, Volk einengen, warmer Standort. Geht oft von selbst vorbei.' },
+  ] },
+  { id: 'honig', label: 'Honig & Ernte', icon: 'honig', fragen: [
+    { f: 'Wann ist der Honig reif?', a: 'Wenn mindestens 2/3 der Zellen verdeckelt sind und der Wassergehalt unter 18 % liegt (Refraktometer). Zu feuchter Honig kann gären.' },
+    { f: 'Wie schleudere ich Honig?', a: 'Waben entdeckeln (Entdeckelungsgabel oder -messer), in die Schleuder stellen, erst langsam, dann schneller drehen. Honig läuft unten durch das Sieb in den Eimer.' },
+    { f: 'Brauche ich ein Refraktometer?', a: 'Dringend empfohlen. Es kostet ca. 20–30 € und zeigt dir den Wassergehalt. Unter 18 % ist Pflicht für DIB-Honig, unter 20 % für Verkauf allgemein.' },
+    { f: 'Was muss aufs Etikett?', a: 'Pflichtangaben: „Honig" (Sorte optional), Nettofüllmenge (g), Mindesthaltbarkeitsdatum, Name und Anschrift des Imkers, Losnummer, Herkunftsland „Deutscher Honig".' },
+  ] },
+  { id: 'fuetterung', label: 'Fütterung', icon: 'flask', fragen: [
+    { f: 'Wann muss ich füttern?', a: 'Nach der letzten Honigernte im Spätsommer (August/September). Das Volk braucht Wintervorrat – du fütterst auf, was du entnommen hast. Auch Ableger brauchen manchmal Futter.' },
+    { f: 'Was füttere ich?', a: 'Invertzuckersirup (fertig kaufen) oder selbst angerührte Zuckerlösung (3:2 Zucker/Wasser). Kein Honig füttern – Seuchengefahr! Futterteig eignet sich für Notfütterungen.' },
+    { f: 'Wie viel braucht ein Volk?', a: 'Je nach Region 15–20 kg Wintervorrat. Das sind ca. 15–20 Liter Sirup. Wiege die Beute: Ein gut gefüttertes Volk wiegt (je nach Beutentyp) 30–35 kg.' },
+    { f: 'Woran erkenne ich Futtermangel?', a: 'Wenig verdeckelte Honig-/Futterzellen auf den Randwaben, leichte Beute, Bienen wirken unruhig. Im Extremfall findest du verhungerte Bienen mit dem Kopf in leeren Zellen.' },
+  ] },
+  { id: 'winter', label: 'Überwinterung', icon: 'wetter', fragen: [
+    { f: 'Wann wintern die Bienen ein?', a: 'Ab etwa Oktober bilden sie die Wintertraube. Die Aktivität nimmt ab, die Königin stoppt die Eiablage. Die „Winterbienen" (langlebiger, mehr Fettpolster) übernehmen.' },
+    { f: 'Darf ich im Winter öffnen?', a: 'Nein – jedes Öffnen kostet Wärme und stört die Traube. Nur von außen kontrollieren: Steht die Beute gerade? Kein Specht-/Mausschaden? Ist das Flugloch frei?' },
+    { f: 'Was ist die Winterbehandlung?', a: 'Im brutfreien Dezember träufelst oder verdampfst du Oxalsäure – die Restentmilbung gegen Varroa. Weil keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden erreicht.' },
+    { f: 'Was mache ich bei Totenfall im Winter?', a: 'Ein schmaler Streifen toter Bienen auf dem Bodenbrett ist normal (natürlicher Totenfall). Beunruhigend: Massenhaft tote Bienen, nasser Bodenbrett oder Kotflecken am Flugloch.' },
+  ] },
+  { id: 'ausruestung', label: 'Ausrüstung', icon: 'gear', fragen: [
+    { f: 'Was brauche ich zum Start?', a: 'Mindestens: 1–2 Beuten (Zargen + Boden + Deckel), Rähmchen + Mittelwände, Stockmeißel, Smoker, Abkehrbesen, Imkerschleier und helle Schutzkleidung.' },
+    { f: 'Zander, DNM oder Dadant?', a: 'Alle funktionieren. Nimm das Maß, das dein Pate und dein Verein nutzen – dann könnt ihr Waben und Ableger tauschen. Region schlägt Theorie.' },
+    { f: 'Brauche ich sofort eine Schleuder?', a: 'Nein. Die meisten Vereine verleihen Schleudern an ihre Mitglieder. Kaufe erst eine eigene, wenn du mehrere Völker hast und regelmäßig erntest.' },
+    { f: 'Handschuhe tragen oder nicht?', a: 'Anfänger: Ja, das gibt Sicherheit. Erfahrene arbeiten oft ohne – man spürt die Bienen besser und arbeitet feiner. Latexhandschuhe sind ein Mittelweg.' },
+  ] },
+  { id: 'recht', label: 'Recht & Meldepflicht', icon: 'meldung', fragen: [
+    { f: 'Wo muss ich meine Bienen anmelden?', a: 'Beim Veterinäramt deines Landkreises (kostenlos) und bei der Tierseuchenkasse deines Bundeslands (kleiner Jahresbeitrag). Beides ist Pflicht.' },
+    { f: 'Was ist die Tierseuchenkasse?', a: 'Sie versichert dich im Seuchenfall (z. B. Faulbrut-Sperrgebiet) und gibt dir eine Registriernummer. Der Beitrag beträgt je nach Bundesland wenige Euro pro Volk.' },
+    { f: 'Darf ich Honig einfach so verkaufen?', a: 'Kleine Mengen direkt an Endverbraucher (Haustürverkauf) ja. Aber: Etikett mit Pflichtangaben, Lebensmittelhygiene, eventuell Gewerbeanmeldung bei regelmäßigem Verkauf. Als § 24-Pauschallandwirt gelten besondere Steuerregeln.' },
+    { f: 'Was ist ein Gesundheitszeugnis?', a: 'Brauchst du zum Wandern (Bienen an einen anderen Standort bringen). Der Amtstierarzt bestätigt, dass deine Völker frei von anzeigepflichtigen Seuchen sind.' },
+  ] },
+  { id: 'vermehrung', label: 'Vermehrung & Zucht', icon: 'egg', fragen: [
+    { f: 'Wie vermehre ich meine Völker?', a: 'Am einfachsten durch Ableger: Brutwabe mit Bienen und einer Weiselzelle in eine eigene Beute. Das Jungvolk zieht sich eine eigene Königin heran. So wächst dein Bestand ohne Zukauf.' },
+    { f: 'Wann ist der beste Zeitpunkt für Ableger?', a: 'Mai bis Anfang Juli – dann ist die Tracht gut, die Völker stark, und der Ableger hat genug Zeit, sich bis zum Winter aufzubauen.' },
+    { f: 'Was ist der Unterschied zwischen Nachschaffung und Schwarmzelle?', a: 'Schwarmzellen bauen die Bienen am Wabenrand, wenn sie schwärmen wollen (Vermehrungstrieb). Nachschaffungszellen bauen sie mitten in der Wabe, wenn die Königin fehlt (Notfall-Rettung).' },
+    { f: 'Lohnt sich Zucht für Anfänger?', a: 'Im ersten Jahr nicht – lerne erst die Grundlagen. Ab dem 2.–3. Jahr kannst du gezielt von deinen besten Völkern (sanftmütig, ertragreich, schwarmträge) nachziehen.' },
+  ] },
+];
+const FAQ_SYNONYME = {
+  'weisellos': ['keine königin', 'königin weg', 'königin fehlt', 'ohne königin', 'weisellosigkeit'],
+  'weiselzelle': ['schwarmzelle', 'nachschaffungszelle', 'königinnenzelle'],
+  'schwarm': ['schwärmen', 'schwarmstimmung', 'schwarmtrieb', 'geschwärmt'],
+  'varroa': ['milbe', 'milben', 'varroamilbe', 'varroose'],
+  'ableger': ['jungvolk', 'kunstschwarm'],
+  'königin': ['weisel', 'stockmutter'],
+  'drohn': ['drohne', 'drohnen', 'männchen'],
+  'durchsicht': ['kontrolle', 'völkerkontrolle', 'nachschau'],
+  'brutbild': ['brutnest', 'brut', 'eier', 'stifte'],
+  'faulbrut': ['afb', 'amerikanische faulbrut'],
+  'rähmchen': ['rahmen', 'wabe', 'waben'],
+  'smoker': ['rauch', 'rauchen'],
+  'futterteig': ['zuckerteig', 'fondant'],
+  'oxalsäure': ['oxal', 'restentmilbung', 'winterbehandlung'],
+  'ameisensäure': ['as', 'sommerbehandlung'],
+};
+
+function faqSuche(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+  const tokens = q.split(/\s+/);
+  const expanded = new Set(tokens);
+  for (const t of tokens) {
+    for (const [key, syns] of Object.entries(FAQ_SYNONYME)) {
+      if (key.includes(t) || syns.some((s) => s.includes(t))) {
+        expanded.add(key);
+        syns.forEach((s) => expanded.add(s));
+      }
+    }
+  }
+  const results = [];
+  for (const thema of FAQ_THEMEN) {
+    for (const fq of thema.fragen) {
+      const text = (fq.f + ' ' + fq.a).toLowerCase();
+      if ([...expanded].some((e) => text.includes(e))) {
+        results.push({ thema, f: fq.f, a: fq.a });
+      }
+    }
+  }
+  return results;
+}
+
+/* --- Just-in-time Lernempfehlungen --- */
+const SAISON_EMPFEHLUNGEN = [
+  { monate: [3, 4], titel: 'Frühjahr: Zeit für die erste Durchsicht', text: 'Sobald die Bienen fliegen und es über 12 °C ist – schau nach Futter und Brut.', kapitelId: 7, icon: 'sun' },
+  { monate: [5, 6], titel: 'Schwarmzeit: Wöchentlich kontrollieren', text: 'Jetzt unbedingt alle 7 Tage auf Weiselzellen prüfen – sonst schwärmt es.', kapitelId: 8, icon: 'alert-triangle' },
+  { monate: [6, 7], titel: 'Honigernte steht an', text: 'Sind die Waben verdeckelt? Dann wird es Zeit fürs Schleudern.', kapitelId: 9, icon: 'droplet' },
+  { monate: [7, 8], titel: 'Varroa behandeln', text: 'Direkt nach der letzten Ernte: Ameisensäure-Behandlung, bevor die Winterbienen schlüpfen.', kapitelId: 10, icon: 'bug' },
+  { monate: [8, 9], titel: 'Jetzt auffüttern', text: 'Dein Volk braucht 15–20 kg Wintervorrat. Füttere zügig auf, solange es warm genug ist.', kapitelId: 11, icon: 'flask' },
+  { monate: [10, 11], titel: 'Einwintern: Mäusegitter und Ruhe', text: 'Flugloch verkleinern, Mäusegitter rein – dann in Ruhe lassen.', kapitelId: 11, icon: 'snowflake' },
+  { monate: [12], titel: 'Restentmilbung im brutfreien Dezember', text: 'Oxalsäure jetzt, wenn das Volk brutfrei ist – so erwischst du die letzten Milben.', kapitelId: 10, icon: 'bug' },
+  { monate: [1, 2], titel: 'Winterruhe: Nicht öffnen!', text: 'Die Bienen wärmen sich in der Traube. Lass sie in Ruhe und plane dein nächstes Bienenjahr.', kapitelId: 4, icon: 'snowflake' },
+];
+
+async function jitEmpfehlungen() {
+  const monat = new Date().getMonth() + 1;
+  const tips = [];
+  const saisonTipp = SAISON_EMPFEHLUNGEN.find((e) => e.monate.includes(monat));
+  if (saisonTipp) tips.push({ typ: 'saison', ...saisonTipp });
+  try {
+    const varroas = await DB.getAll('varroa');
+    const voelker = await DB.getAll('voelker');
+    const aktive = voelker.filter((v) => v.status === 'aktiv');
+    for (const v of aktive) {
+      const letzte = U.sortBy(varroas.filter((x) => x.volkId === v.id), (x) => x.datum, true)[0];
+      if (!letzte) continue;
+      const m = varroaMetrik(letzte);
+      if (m.ampel.stufe === 'rot') {
+        tips.push({ typ: 'varroa', titel: `Varroa-Befall hoch bei „${v.name}"`, text: `${m.wert} Milben${m.einheit} – jetzt behandeln.`, kapitelId: 10, icon: 'alert-triangle', danger: true });
+      }
+    }
+    if (aktive.length > 0 && [8, 9].includes(monat)) {
+      const fuetterungen = await DB.getAll('fuetterungen');
+      const diesesSaison = fuetterungen.filter((f) => { const m = +(f.datum || '').slice(5, 7); return m >= 7 && m <= 9 && (f.datum || '').slice(0, 4) === String(new Date().getFullYear()); });
+      if (!diesesSaison.length) {
+        tips.push({ typ: 'fuetterung', titel: 'Noch keine Auffütterung eingetragen', text: 'Hast du nach der Ernte schon gefüttert? Trag die Fütterung ein, damit du den Überblick behältst.', kapitelId: 11, icon: 'flask' });
+      }
+    }
+  } catch (_) {}
+  return tips;
+}
 Views.imkerschule = {
-  title: 'Imkerschule', _open: null, _phase: 'content', _step: 0,
+  title: 'Imkerschule', _open: null, _phase: 'content', _step: 0, _tab: 'pfad', _faqThema: null, _faqQuery: '',
   async render(main) {
     const V = Views.imkerschule;
-    if (!V._open) return V.renderPfad(main);
-    const k = LERN_KAPITEL.find((x) => x.id === V._open);
-    if (!k) { V._open = null; return V.renderPfad(main); }
-    if (k.comingSoon) return V.renderSoon(main, k);
-    if (V._phase === 'done') return V.renderDone(main, k);
-    return V.renderStep(main, k);
+    const st = ISchule.st();
+    if (!st.onboarded) return V.renderOnboarding(main);
+    if (V._open) {
+      const k = LERN_KAPITEL.find((x) => x.id === V._open);
+      if (!k) { V._open = null; return V.renderPfad(main); }
+      if (k.comingSoon) return V.renderSoon(main, k);
+      if (V._phase === 'done') return V.renderDone(main, k);
+      return V.renderStep(main, k);
+    }
+    if (V._tab === 'faq') return V.renderFaq(main);
+    return V.renderPfad(main);
   },
-  renderPfad(main) {
-    const done = ISchule.doneCount(), pct = ISchule.pct();
-    main.innerHTML = pageHead('Imkerschule', 'Schritt für Schritt in die Imkerei – im eigenen Tempo') + `
+  renderOnboarding(main) {
+    main.innerHTML = pageHead('Imkerschule', 'Wie erfahren bist du?') + `
       <div class="card">
-        <div class="flex-wrap" style="align-items:center;margin-bottom:10px"><span class="kpill">Anfänger</span><span class="spacer"></span><span class="small muted">${done} von ${LERN_KAPITEL.length} Lektionen</span></div>
+        <p style="margin:0 0 18px">Zwei kurze Fragen, damit die Imkerschule zu dir passt.</p>
+        <div style="margin-bottom:16px">
+          <div style="font-weight:500;margin-bottom:8px">Wie lange imkerst du?</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="ob-jahre">
+            <button class="btn btn-ghost btn-sm ob-j" data-v="0">Fange gerade an</button>
+            <button class="btn btn-ghost btn-sm ob-j" data-v="1-2">1–2 Jahre</button>
+            <button class="btn btn-ghost btn-sm ob-j" data-v="3+">3+ Jahre</button>
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-weight:500;margin-bottom:8px">Wie viele Völker hast du?</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="ob-voelker">
+            <button class="btn btn-ghost btn-sm ob-v" data-v="0-1">0–1</button>
+            <button class="btn btn-ghost btn-sm ob-v" data-v="2-5">2–5</button>
+            <button class="btn btn-ghost btn-sm ob-v" data-v="6+">6+</button>
+          </div>
+        </div>
+        <div id="ob-result" style="text-align:center;margin:18px 0 8px;display:none">
+          <div class="muted small" style="margin-bottom:6px">Dein Level:</div>
+          <span class="kpill" id="ob-level-pill"></span>
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:12px">
+        <button class="btn btn-primary" id="ob-go" disabled style="padding:10px 28px">Los geht's ›</button>
+      </div>
+      <div class="hint mt8">Du kannst dein Level jederzeit in der Imkerschule ändern.</div>`;
+    let jahre = null, voelker = null;
+    const update = () => {
+      if (!jahre || !voelker) return;
+      const lv = ISchule.levelFromAnswers(jahre, voelker);
+      const labels = { anfaenger: 'Anfänger', fortgeschritten: 'Fortgeschritten', erfahren: 'Erfahren' };
+      $('#ob-level-pill').textContent = labels[lv];
+      $('#ob-result').style.display = '';
+      $('#ob-go').disabled = false;
+      $('#ob-go').onclick = async () => { await ISchule.setLevel(lv); renderRoute(); };
+    };
+    $$('.ob-j').forEach((b) => b.onclick = () => { $$('.ob-j').forEach((x) => x.classList.remove('btn-primary')); b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); $$('.ob-j').filter((x) => x !== b).forEach((x) => { x.classList.add('btn-ghost'); x.classList.remove('btn-primary'); }); jahre = b.dataset.v; update(); });
+    $$('.ob-v').forEach((b) => b.onclick = () => { $$('.ob-v').forEach((x) => x.classList.remove('btn-primary')); b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); $$('.ob-v').filter((x) => x !== b).forEach((x) => { x.classList.add('btn-ghost'); x.classList.remove('btn-primary'); }); voelker = b.dataset.v; update(); });
+  },
+  async renderPfad(main) {
+    const done = ISchule.doneCount(), pct = ISchule.pct();
+    const skipable = ISchule.skipableIds();
+    const tips = await jitEmpfehlungen();
+    const jitHtml = tips.length ? tips.map((t) => `<div style="background:${t.danger ? 'rgba(179,54,43,.08)' : 'rgba(233,162,28,.08)'};border:1px solid ${t.danger ? 'rgba(179,54,43,.25)' : 'rgba(233,162,28,.25)'};border-radius:10px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
+      <span style="font-size:20px;color:${t.danger ? '#B3362B' : '#E9A21C'};flex-shrink:0">${icon(t.icon)}</span>
+      <div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;margin-bottom:2px">${U.esc(t.titel)}</div><div class="small muted">${U.esc(t.text)}</div>
+      <div class="jit-open small" data-kid="${t.kapitelId}" style="color:${t.danger ? '#B3362B' : '#E9A21C'};cursor:pointer;margin-top:4px;font-weight:500">Lektion öffnen ›</div></div></div>`).join('') : '';
+    main.innerHTML = pageHead('Imkerschule', 'Schritt für Schritt in die Imkerei – im eigenen Tempo',
+      `<button class="btn btn-ghost btn-sm no-print" id="is-level-btn">${icon('user')} ${U.esc(ISchule.levelLabel())}</button>`) + `
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button class="btn btn-sm ${this._tab === 'pfad' ? 'btn-primary' : 'btn-ghost'}" id="tab-pfad">Lernpfad</button>
+        <button class="btn btn-sm ${this._tab === 'faq' ? 'btn-primary' : 'btn-ghost'}" id="tab-faq">Frag ein Thema</button>
+      </div>
+      ${jitHtml}
+      <div class="card">
+        <div class="flex-wrap" style="align-items:center;margin-bottom:10px"><span class="kpill">${U.esc(ISchule.levelLabel())}</span><span class="spacer"></span><span class="small muted">${done} von ${LERN_KAPITEL.length} Lektionen</span></div>
         <div style="height:9px;border-radius:999px;background:var(--line);overflow:hidden"><div style="height:100%;width:${pct}%;background:#E9A21C;transition:width .4s"></div></div>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         ${LERN_KAPITEL.map((k, i) => {
           const d = ISchule.isDone(k.id);
-          const cur = !d && !k.comingSoon && LERN_KAPITEL.slice(0, i).every((p) => ISchule.isDone(p.id) || p.comingSoon);
-          const glyph = d ? '✓' : (k.comingSoon ? '⏳' : (cur ? '▶' : '○'));
+          const skip = skipable.includes(k.id) && !d;
+          const cur = !d && !k.comingSoon && !skip && LERN_KAPITEL.slice(0, i).every((p) => ISchule.isDone(p.id) || p.comingSoon || skipable.includes(p.id));
+          const glyph = d ? '✓' : (skip ? '⏭' : (k.comingSoon ? '⏳' : (cur ? '▶' : '○')));
           const gcol = d ? 'var(--ok)' : (cur ? '#E9A21C' : 'var(--muted)');
           const last = i === LERN_KAPITEL.length - 1;
-          return `<div class="ischule-row" data-k="${k.id}" style="display:flex;align-items:center;gap:12px;padding:14px 15px;${last ? '' : 'border-bottom:1px solid var(--line);'}cursor:pointer;${cur ? 'background:rgba(233,162,28,.08);' : ''}">
+          return `<div class="ischule-row" data-k="${k.id}" style="display:flex;align-items:center;gap:12px;padding:14px 15px;${last ? '' : 'border-bottom:1px solid var(--line);'}cursor:pointer;${cur ? 'background:rgba(233,162,28,.08);' : ''}${skip ? 'opacity:.6;' : ''}">
             <span style="font-size:16px;width:20px;text-align:center;color:${gcol}">${glyph}</span>
-            <span class="r-main"><span class="r-title" style="${cur ? 'color:#E9A21C' : (k.comingSoon ? 'color:var(--muted)' : '')}">${k.id} · ${U.esc(k.titel)}</span>${k.comingSoon ? '<span class="r-sub">Bald verfügbar</span>' : (d ? '<span class="r-sub">abgeschlossen</span>' : '')}</span>
-            ${k.comingSoon ? '' : `<span class="small" style="color:#E9A21C">${d ? 'Nochmal' : 'Öffnen'} ›</span>`}
+            <span class="r-main"><span class="r-title" style="${cur ? 'color:#E9A21C' : (k.comingSoon ? 'color:var(--muted)' : '')}">${k.id} · ${U.esc(k.titel)}</span>${skip ? '<span class="r-sub">übersprungen (Level)</span>' : (k.comingSoon ? '<span class="r-sub">Bald verfügbar</span>' : (d ? '<span class="r-sub">abgeschlossen</span>' : ''))}</span>
+            ${k.comingSoon ? '' : `<span class="small" style="color:#E9A21C">${d ? 'Nochmal' : (skip ? 'Trotzdem' : 'Öffnen')} ›</span>`}
           </div>`;
         }).join('')}
       </div>
       <div class="hint mt8">Tipp: Jede Lektion endet damit, dass du das Gelernte direkt in der App anlegst – so füllt sich dein Imkerbuch, während du lernst.</div>`;
     main.querySelectorAll('.ischule-row').forEach((el) => el.onclick = () => { const V = Views.imkerschule; V._open = +el.dataset.k; V._phase = 'content'; V._step = 0; renderRoute(); });
+    main.querySelectorAll('.jit-open').forEach((el) => el.onclick = (e) => { e.stopPropagation(); const V = Views.imkerschule; V._open = +el.dataset.kid; V._phase = 'content'; V._step = 0; renderRoute(); });
+    $('#tab-faq').onclick = () => { Views.imkerschule._tab = 'faq'; renderRoute(); };
+    $('#tab-pfad').onclick = () => { Views.imkerschule._tab = 'pfad'; renderRoute(); };
+    $('#is-level-btn').onclick = () => Views.imkerschule.showLevelPicker();
+  },
+  renderFaq(main) {
+    const V = Views.imkerschule;
+    const results = V._faqQuery ? faqSuche(V._faqQuery) : [];
+    const thema = V._faqThema ? FAQ_THEMEN.find((t) => t.id === V._faqThema) : null;
+    main.innerHTML = pageHead('Imkerschule · Frag ein Thema', 'Antworten auf häufige Imker-Fragen') + `
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button class="btn btn-sm btn-ghost" id="tab-pfad">Lernpfad</button>
+        <button class="btn btn-sm btn-primary" id="tab-faq">Frag ein Thema</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;background:var(--bg)">
+        <span style="width:18px;height:18px;flex-shrink:0;color:var(--muted)">${icon('search')}</span><input type="search" id="faq-search" placeholder="Suche z. B. „weisellos", „Schwarm" …" value="${U.esc(V._faqQuery)}" style="border:none;background:transparent;flex:1;outline:none;font-size:14px;color:var(--fg)">
+      </div>
+      ${V._faqQuery && results.length ? `<div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" data-idx="${i}" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:12px 15px;cursor:pointer">
+        <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:500">${U.esc(r.f)}</span><span class="small muted">${U.esc(r.thema.label)}</span><span style="color:var(--muted);font-size:12px">▼</span></div>
+        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}</div>
+      </div>`).join('')}</div>` : ''}
+      ${V._faqQuery && !results.length ? '<div class="hint">Keine Treffer – versuch einen anderen Begriff.</div>' : ''}
+      ${!V._faqQuery ? `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">${FAQ_THEMEN.map((t) => `<div class="faq-tile" data-tid="${t.id}" style="background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center;cursor:pointer">
+        <div style="width:28px;height:28px;color:#E9A21C;margin:0 auto 4px">${icon(t.icon)}</div>
+        <div style="font-size:13px;font-weight:500">${U.esc(t.label)}</div>
+        <div class="small muted">${t.fragen.length} Fragen</div>
+      </div>`).join('')}</div>` : ''}
+      ${thema ? `<div class="small muted" style="margin-bottom:6px">${U.esc(thema.label)} (${thema.fragen.length} Fragen)</div>
+        <div class="card" style="padding:0;overflow:hidden">${thema.fragen.map((fq, i) => `<div class="faq-acc" data-idx="${i}" style="border-bottom:${i < thema.fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:12px 15px;cursor:pointer">
+          <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:14px;font-weight:500">${U.esc(fq.f)}</span><span style="color:var(--muted);font-size:12px">▼</span></div>
+          <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}</div>
+        </div>`).join('')}</div>
+        <button class="btn btn-ghost btn-sm mt8" id="faq-back-tiles">‹ Alle Themen</button>` : ''}`;
+    $('#tab-pfad').onclick = () => { V._tab = 'pfad'; renderRoute(); };
+    $('#tab-faq').onclick = () => { V._tab = 'faq'; renderRoute(); };
+    const si = $('#faq-search');
+    if (si) { si.focus(); si.addEventListener('input', U.debounce(() => { V._faqQuery = si.value; V._faqThema = null; renderRoute(); }, 250)); }
+    main.querySelectorAll('.faq-tile').forEach((el) => el.onclick = () => { V._faqThema = el.dataset.tid; V._faqQuery = ''; renderRoute(); });
+    main.querySelectorAll('.faq-acc').forEach((el) => el.onclick = () => { const ans = el.querySelector('.faq-ans'); ans.style.display = ans.style.display === 'none' ? '' : 'none'; });
+    const bb = $('#faq-back-tiles'); if (bb) bb.onclick = () => { V._faqThema = null; renderRoute(); };
+  },
+  showLevelPicker() {
+    const st = ISchule.st();
+    const opts = [
+      { key: 'anfaenger', label: 'Anfänger', sub: 'Alle Lektionen, Schritt für Schritt' },
+      { key: 'fortgeschritten', label: 'Fortgeschritten', sub: 'Basis-Lektionen 1–3 überspringbar' },
+      { key: 'erfahren', label: 'Erfahren', sub: 'Lektionen 1–5 überspringbar, Kurzreferenz' },
+    ];
+    const m = UI.modal({
+      title: 'Erfahrungslevel ändern',
+      body: `<div class="rows" id="lvl-pick">${opts.map((o) => `<div class="row" data-lv="${o.key}" style="cursor:pointer;padding:12px 8px;${st.level === o.key ? 'background:rgba(233,162,28,.1);' : ''}">
+        <span class="r-main"><span class="r-title" style="font-weight:500">${o.label}</span><span class="r-sub">${o.sub}</span></span>
+        ${st.level === o.key ? '<span style="color:#E9A21C;font-size:16px">✓</span>' : ''}
+      </div>`).join('')}</div>`,
+      footer: '<button class="btn btn-ghost" data-cancel>Abbrechen</button>',
+    });
+    $$('#lvl-pick .row', m.el).forEach((r) => r.onclick = async () => {
+      await ISchule.setLevel(r.dataset.lv);
+      m.close(true);
+      renderRoute();
+    });
+    $('[data-cancel]', m.el).onclick = () => m.close();
   },
   renderStep(main, k) {
     const V = Views.imkerschule, step = k.steps[V._step], total = k.steps.length, isLast = V._step >= total - 1;
@@ -5798,7 +6098,7 @@ Object.assign(window, {
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
   gelernteWerte, INVENTAR_KATEGORIEN, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
-  LERN_KAPITEL, ISchule, openVolkForm,
+  LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME,
 });
 
 document.addEventListener('DOMContentLoaded', boot);
