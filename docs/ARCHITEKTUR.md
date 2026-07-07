@@ -38,7 +38,8 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 | `Anhang` | Foto-/Dokument-Anhänge: Galerie, Viewer, Dokumententypen, OCR-Anbindung |
 | `Ocr` | Tesseract.js (deu), lazy |
 | `Voice`, `Sprachnotiz` | MediaRecorder, Web-Speech-Live-Diktat, Whisper offline (transformers.js, 16-kHz-Resampling) |
-| `Views.*` | Ein Eintrag je Modul: dashboard, staende/stand, voelker/volk, koeniginnen, zucht, behandlungen, trachten, wanderungen, honig (inkl. Verkäufe-Tab), kassenbuch, rechnungen/rechnung, inventar, aufgaben, zeiten (Zeiterfassung mit Torte), meldungen, reporting, einstellungen, papierkorb |
+| `Views.*` | Ein Eintrag je Modul: dashboard, staende/stand, voelker/volk, koeniginnen, zucht, behandlungen, trachten, wanderungen, honig (inkl. Verkäufe-Tab), kassenbuch, rechnungen/rechnung, inventar, aufgaben, imkerschule (Lernmodul), zeiten (Zeiterfassung mit Torte), meldungen, reporting, einstellungen, papierkorb |
+| Imkerschule | `LERN_KAPITEL` (Lektions-Daten), `ISchule` (Fortschritt via `S`), `Views.imkerschule` (interner State `_open/_phase/_step`, re-rendert per `renderRoute()`). Geführte Aktion = Lektion ruft eine echte App-Funktion (z. B. `openVolkForm(null,{},onDone)`); `onDone` hakt die Lektion ab. Fortschritt in Settings-Key `imkerschule` (kein eigener Store). |
 | `verkaufErfassen`/`verkaufStornieren`, `verkaufForm` | Verkaufslogik: Bestandsprüfung → Chargen-Abzug → Kassenbuch-Einnahme (Storno kehrt beides um) |
 | `zeitDialog`, `VORSCHLAEGE` + `gelernteWerte()` | Zeit-Schnellabfrage beim Aufgaben-Abhaken; zentrale Vorschlagslisten + Lernen aus Bestandsdaten für `suggest`-Felder |
 | `APP_VERSION` + `CHANGELOG` + `zeigeUpdateFenster()` | Versionierung (ab 0.31, bei jedem Update hochzählen!): nach einem Update sieht der Nutzer einmalig „Was ist neu?“ (Vergleich mit Setting `letzteGeseheneVersion`; Neuinstallationen ohne Fenster); Version in Sidebar-Fuß + Einstellungen |

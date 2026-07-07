@@ -10,6 +10,8 @@
 - ✅ Neues Marken-Logo im Homescreen-Header/Sidebar (3 gefüllte Amber-Waben mit Verlauf, `brandLogoSvg()`, passend zu den Play-Store-Grafiken; v0.48). Ein eigenes hochgeladenes Logo mit „im App-Header anzeigen" behält Vorrang; PDFs bleiben unverändert.
 - ✅ App-Icons 192/512 (+180 Apple) aus dem Logo (`icons.py`), Favicon als SVG-Data-URI
 - ✅ `manifest.json`, `service-worker.js`, offline-fähig, als PWA installierbar
+- ✅ **Imkerschule (v0.50)** – geführtes Lernmodul für Einsteiger (Menü „Lernen"): Lernpfad mit 11 Kapiteln (`LERN_KAPITEL`), Level Anfänger, Fortschritt in Settings (`ISchule`, überlebt Neuladen). Kernidee „Lernen = Anlegen": jede Lektion mündet in eine echte App-Aktion – Kap. 6 „Dein erstes Volk" öffnet direkt `openVolkForm`, beim Speichern hakt sich die Lektion automatisch ab (Erfolgs-Screen + Konfetti). Kap. 1–6 mit Inhalt, 7–11 als „bald". Konzept: `docs/LERNMODUL_KONZEPT.md`
+- ✅ Rechtstexte für die Veröffentlichung (v0.49): `impressum.html` (§5 DDG), `datenschutz.html` (DSGVO, auf die App zugeschnitten – lokal-first, ehrlich zu CDN/Wetter/Whisper), `agb.html` (AGB + Widerrufsbelehrung digitale Inhalte); im App-Look, offline gecacht, verlinkt unter Einstellungen → „Rechtliches". Veröffentlichungs-Checkliste: `docs/VEROEFFENTLICHUNG.md`
 - ✅ Responsive Mobile-First: Bottom-Nav (mobil) / Sidebar (Desktop), Touch-Ziele ≥ 44 px
 - ✅ Design Honig/Amber + Anthrazit, Karten-Layout, dezente Animationen, Dark Mode (auto/hell/dunkel)
 

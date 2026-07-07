@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-07-06 · **v0.47 · Alle Module + Dashboard-Widgets + Rechnungs-QR + 3 Steuermodelle inkl. § 24 + Rechnungs-PDF DIN 5008 + umfangreiche Beispieldaten (Demo), 51/51 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-07-07 · **v0.50 · Alle Module + Imkerschule (11 Kapitel mit SVG + geführten Aktionen) + Marken-Logo + Rechtsseiten + Landing Page + Store-Assets, 54/54 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -31,7 +31,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 - **App-URL: https://juliankhler-web.github.io/imkerbuch/** (GitHub Pages, Branch `main`, root)
 - Repo: https://github.com/juliankhler-web/imkerbuch (öffentlich; von Julian am 2026-07-03 bestätigt)
-- ⚠️ **Historie divergiert**: Der GitHub-Stand entstand per Web-Upload (eigener Commit), das lokale Repo hat seine eigene Historie. Alternative zu Web-Upload: einmalig Push-Auth einrichten (PAT/SSH) und `git push --force origin main`. Remote `origin` ist lokal bereits gesetzt.
+- Push via HTTPS + osxkeychain-Credential-Helper eingerichtet (2026-07-07). `git push origin main` funktioniert direkt.
 - iPhone-Installation: URL in Safari → Teilen → „Zum Home-Bildschirm“ + Schalter „Als Web-App öffnen“ AN (schützt vor Safaris 7-Tage-Datenlöschung).
 - ⚠️ **Wenn „pages build and deployment“ fehlschlägt** (Actions-Tab, roter Lauf, Meldung „Deployment failed, try again later.“): Das ist ein vorübergehender GitHub-Hänger, NICHT unser Code (der `build`-Schritt ist grün). Fix: Actions → fehlgeschlagenen Lauf → „Re-run failed jobs“. Bleibt er in „Queued“ hängen, hilft ein neuer, winziger Commit (triggert sauberes Deployment). Live-Version prüfen: `curl -sL https://juliankhler-web.github.io/imkerbuch/index.html | grep APP_VERSION`.
 
@@ -49,12 +49,16 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 - **App komplett gebaut** (index.html, ~3.900 Zeilen): 15 Fachmodule, PWA/offline, Backup-System (Export/Teilen/Import mit Merge/Snapshots/Auto-Sicherung/Reminder), Excel-Gesamtexport, alle PDFs (Bestandsbuch, Wanderbuch, Zuchtbuch, Chargen, Rechnung, Meldungen, Reports, Kassenbuch-Jahr, Komplettausdruck), PDF-Import, OCR, Sprachnotizen mit Whisper-Option, Anhänge, Einrichtungsassistent, Demo-Daten, Dark Mode.
 - **Verifiziert im Browser** (mobil + Desktop 1280px, Dark + Light): Wizard→Demo-Daten, ALLE Views einzeln geöffnet, Open-Meteo live, Zucht-Aufgaben-Automatik, Behandlung→Wartezeit-Aufgabe, Volk vereinigen (Historie beidseitig), kompletter Rechnungs-Flow inkl. Storno über die UI (Festschreiben: RE-0001, Bestand 34→28, Kassenbuch-Buchung; Storno: Bestand zurück auf 34, Gegenbuchung −39 €), Widget-Konfiguration, Papierkorb-Restore, PDF/Excel/QR-Erzeugung ohne Fehler.
-- **Testsuite**: 23/23 grün (Format-Utils, Zuchtkalender, Rechnungssummen, DB/Papierkorb, Merge-Regeln, Backup-Roundtrip, Snapshots, Reminder-Stufen, PDF-Import-Heuristik, Listener-Leak-Regression, Aufgaben-Sync).
+- **Testsuite**: 54/54 grün (Format-Utils, Zuchtkalender, Rechnungssummen, DB/Papierkorb, Merge-Regeln, Backup-Roundtrip, Snapshots, Reminder-Stufen, PDF-Import-Heuristik, Listener-Leak-Regression, Aufgaben-Sync, Imkerschule-Lektionen).
 - **DRY-Refactoring** angewendet: `bindAdd` (14×), `zielIdAus` (4×), `zielFormValues` (3×), `papierkorbDelete` (11×) ersetzen die früheren Kopien; öffentliche Modul-Oberfläche explizit am `window`.
 
 ## Offene Punkte
 
-- Manuelle Smoke-Checkliste am echten Smartphone durchgehen ([docs/TESTFAELLE.md](docs/TESTFAELLE.md#manuelle-smoke-checkliste-nicht-automatisierbar)) – insbesondere Kamera, Mikrofon/Whisper, Web-Share, PWA-Install, FS-Access-Backup-Ordner.
+- **Imkerschule Phase 2**: Erfahrungsstufen-Onboarding (2 objektive Fragen → Level) + „Frag ein Thema" (durchsuchbare FAQ) + Just-in-time-Kopplung (Monat+Volkszustand → passende Lektion)
+- **TWA-Packaging**: PWABuilder + assetlinks.json für Google Play
+- **Play Console Setup**: 12-Tester-Regel (14 Tage), Store-Listing, Screenshots hochladen
+- **CDN-Bibliotheken self-hosten** (für „100% lokal"-Versprechen)
+- Manuelle Smoke-Checkliste am echten Smartphone durchgehen ([docs/TESTFAELLE.md](docs/TESTFAELLE.md#manuelle-smoke-checkliste-nicht-automatisierbar))
 - Optional (Ideen, nicht beauftragt): Etiketten-Layout konfigurierbar, Varroa-Zählung als eigenes Feld, CSV-Import.
 
 ## Bekannte Bugs
@@ -71,6 +75,9 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-07-07 (v0.50)**: **Imkerschule** – kompletter Lernpfad, 11 Kapitel ALLE mit ausführlichem Inhalt (5–6 Schritte), selbstgezeichneten SVG-Illustrationen und geführten App-Aktionen (Lernen = echte Daten anlegen). Kapitel: Bienenvolk verstehen, Beute & Standort, Völkerführung, Schwarmkontrolle, Honigernte, Varroa, Königinnenzucht, Wanderimkerei, Bienenprodukte, Wirtschaftlichkeit, Rechtliches. + **Landing Page** (`landing.html`) im Honig-Anthrazit-Look mit Hero, USPs, Features, Galerie, Imkerschule-Teaser, Preis 14,99€. 54/54 grün. SW → v051.
+- **2026-07-07 (v0.49)**: **Rechtsseiten** – `impressum.html`, `datenschutz.html`, `agb.html` mit Julians echten Daten, verlinkt unter Einstellungen→Rechtliches.
+- **2026-07-07 (v0.48)**: **Neues Marken-Logo** – `brandLogoSvg()` (3 Amber-Waben), nur Homescreen-Ansicht; Nutzer-Logo wird NICHT überschrieben.
 - **2026-07-06 (v0.47)**: **Umfangreiche Beispieldaten** (Julian: „fülle den Demo-Modus komplett" – für Store-Screenshots). `Demo.create()` massiv erweitert (3 Stände, 15 Völker inkl. 2 Archiv, 7 Königinnen mit Stammbaum, Stockkarten/Varroa/Behandlungen/Trachten/Wanderungen, 10 Ernten über 3 Jahre → volle Reporting-Balken, 4 Chargen + 2 Verkäufe, 13 Kassenbuchungen mehrjährig, 2 Rechnungen § 24, 8 Inventar inkl. MHD-/Bestandswarnungen, 7 Fahrten, 21 Aufgaben inkl. 10 mit Zeiterfassung, Zuchtserie, Wetter). Neu `Demo.reset()` (leert alle Daten-Stores außer settings, dann create). Settings-Button „Beispieldaten laden" (Rückfrage, dandanch navTo dashboard). Smoke-Test #51. Live im Dark Mode verifiziert (Reporting-Honigertrag-Balken + Zeiterfassung-Widget gefüllt, keine Konsolenfehler). 51/51 grün. SW → v047.
 - **2026-07-05 (v0.46)**: **Rechnungs-PDF nach DIN 5008 (Fensterkuvert)** (Julian: „in diesem Stil, Logo größer, Text ganz oben weg, genormt für Fensterumschläge"). `Pdf.rechnung`-Kopf neu: Logo 34 mm oben rechts (statt 22 mm), Absender-Header oben ENTFERNT, Anschriftfeld links x=25 mm mit kleiner Rücksendeangabe + Empfänger auf Fensterhöhe (y≈45–62 mm), Infoblock rechts (Nr./Datum/Reg-Nr), Betreff bei y=96, Tabelle startY=104 mit `margin.left=25`, Falz-/Lochmarken (105/210/148,5 mm), Absender in Fußzeile. `Pdf.table` um optionalen `margin`-Parameter erweitert (Default unverändert → keine anderen PDFs betroffen). Alle 3 Steuervarianten + QR fehlerfrei erzeugt. ⚠️ Julians Referenz-PDF lag im macOS-Pasteboard-Container (`shared-pasteboard`) → systemseitig NICHT lesbar (EPERM, auch ohne Sandbox); Layout nach DIN-Norm gebaut, Feinabgleich offen bis Julian die PDF in zugänglichen Ordner legt. 50/50 grün. SW → v046.
 - **2026-07-05 (v0.45)**: **§ 24 UStG Pauschalierung (Land-/Forstwirtschaft)** – Julian ist Pauschallandwirt, nicht § 19. Steuermodell von boolean `kleinunternehmer` auf 3 Arten erweitert: `regel` / `klein` (§19) / `pauschal24` (§24). Neue Helfer `rechnungSteuerart(r)` (rückwärtskompatibel) + `rechnungHinweis(r)` (§-Rechtstexte, single source für Bildschirm+PDF), `rechnungSummen` rechnet Pauschal-USt = brutto×satz/(100+satz). Auswahl je Rechnung + Default in Einstellungen (`steuer.art`, `steuer.pauschalsatz`=7,8). § 24-Text: „Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von 7,8 %." Touch-Points: create/view/posForm-showIf/PDF/Excel-Spalte alle auf `rechnungSteuerart` umgestellt. 2 Tests (#46/#47). 50/50 grün. SW → v045. Damit ist Julians ursprüngliche Rückfrage „§-Satz stimmt nicht" gelöst.

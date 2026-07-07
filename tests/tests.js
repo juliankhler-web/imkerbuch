@@ -601,3 +601,43 @@ test('brandLogoSvg: neues Homescreen-Logo, eigenes Nutzer-Logo bleibt unberührt
     w.applyHeaderLogo();
   }
 });
+
+/* ---------- Rechtstexte (Veröffentlichung) ---------- */
+test('Rechtstexte: Impressum/Datenschutz/AGB erreichbar & ohne offene Platzhalter', async (w) => {
+  const pflicht = { 'impressum.html': 'Impressum', 'datenschutz.html': 'Datenschutzerklärung', 'agb.html': 'Widerruf' };
+  for (const file in pflicht) {
+    const r = await w.fetch(file, { cache: 'no-store' });
+    assert(r.ok, file + ' erreichbar (HTTP ' + r.status + ')');
+    const t = await r.text();
+    assert(t.includes(pflicht[file]), file + ' enthält „' + pflicht[file] + '"');
+    assert(!/\[(Vor- und Nachname|Straße und Hausnummer|PLZ und Ort|deine|Monat Jahr|USt-IdNr)/.test(t), file + ' enthält keine offenen [Platzhalter] mehr');
+  }
+});
+
+/* ---------- Imkerschule (Lernmodul) ---------- */
+test('Imkerschule: Lernpfad, Fortschritt persistiert & geführte Aktion', async (w) => {
+  assert(w.Views.imkerschule && typeof w.Views.imkerschule.render === 'function', 'View vorhanden');
+  assertEq(w.LERN_KAPITEL.length, 11, '11 Kapitel im Lernpfad');
+  const k6 = w.LERN_KAPITEL.find((k) => k.id === 6);
+  assert(k6 && k6.aktion && typeof k6.aktion.run === 'function', 'Kap. 6 mündet in geführte Aktion (Volk anlegen)');
+  assert(w.LERN_KAPITEL.every((k) => Array.isArray(k.steps) && k.steps.length >= 4), 'alle 11 Kapitel haben Inhalt');
+  [7, 8, 9, 10, 11].forEach((id) => {
+    const kap = w.LERN_KAPITEL.find((k) => k.id === id);
+    assert(kap.aktion && (typeof kap.aktion.run === 'function' || typeof kap.aktion.route === 'string'), 'Kap. ' + id + ' hat eine geführte Aktion');
+    assert(kap.steps.some((st) => st.svg && st.svg.includes('<svg')), 'Kap. ' + id + ' hat eine Zeichnung');
+  });
+  // Fortschritt: setDone schreibt in Settings und überlebt Neuladen
+  await w.ISchule.setDone(1);
+  assert(w.ISchule.isDone(1), 'Lektion 1 erledigt');
+  assert(w.ISchule.pct() > 0, 'Fortschritt in Prozent steigt');
+  await w.S.load();
+  assert(w.ISchule.isDone(1), 'Fortschritt überlebt Neuladen (in Settings gespeichert)');
+  [1, 2, 3, 4, 5, 6].forEach((id) => {
+    const kap = w.LERN_KAPITEL.find((k) => k.id === id);
+    assert(kap.steps.some((st) => st.svg && st.svg.includes('<svg')), 'Kap. ' + id + ' hat eine Zeichnung (Inline-SVG)');
+  });
+  [1, 2, 3, 4, 5, 6].forEach((id) => {
+    assert(w.LERN_KAPITEL.find((k) => k.id === id).steps.length >= 5, 'Kap. ' + id + ' ist ausführlich (≥ 5 Schritte)');
+  });
+  const s = w.S.get('imkerschule'); delete s.done[1]; await w.S.set('imkerschule', s);
+});
