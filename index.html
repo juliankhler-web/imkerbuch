@@ -583,8 +583,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.54';
+const APP_VERSION = '0.55';
 const CHANGELOG = [
+  { version: '0.55', datum: '2026-07-10', punkte: [
+    'Neuer Bereich „Fahrtenbuch": alle Fahrten auf einen Blick, jede lässt sich antippen und bearbeiten. Neben den Fahrten zu den Ständen kannst du jetzt auch eigene Fahrten anlegen – Einkauf, Schulung, Besorgung, Imkerverein und mehr.',
+    '„Reporting" heißt jetzt „Statistiken".',
+  ] },
   { version: '0.54', datum: '2026-07-10', punkte: [
     'Auswahl-Felder (Funktion im Betrieb, Beutentyp, Honigsorte, Grund der Wanderung …) funktionieren jetzt zuverlässig auf iPhone und Android – vorher zeigte das Dropdown dort teils keine Vorschläge.',
     'Kassenbuch: neue Ausgaben-Kategorie „Allgemeine Geschäftskosten".',
@@ -795,7 +799,7 @@ const VORSCHLAEGE = {
   anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
   sorte: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume'],
   pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
-  fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf'],
+  fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf', 'Einkauf/Besorgung', 'Schulung/Weiterbildung', 'Imkerverein/Versammlung', 'Werkstatt/Reparatur'],
   futter: ['ausreichend', 'gut', 'reichlich', 'knapp', 'muss gefüttert werden', '1 Futterwabe', '2 Futterwaben', '3 Futterwaben', 'verdeckelt'],
   einheit: ['ml', 'g', 'Streifen', 'Tablette', 'Stück', 'Beutel'],
   inventar: ['Beute komplett', 'Zarge', 'Rähmchen', 'Absperrgitter', 'Smoker', 'Stockmeißel', 'Abkehrbesen', 'Honigschleuder', 'Entdeckelungsgeschirr', 'Refraktometer', 'Futtertrog', 'Mittelwände', 'Ameisensäure', 'Oxalsäure', 'Bienenflucht', 'Anhänger', 'Waage'],
@@ -1044,6 +1048,7 @@ const UI = {
     });
     const form = $('form', m.el);
     form.addEventListener('input', () => { FormGuard.dirty = true; updateShowIf(); });
+    form.addEventListener('change', () => { FormGuard.dirty = true; updateShowIf(); }); // Selects lösen zuverlässig 'change' aus → Ein-/Ausblenden (showIf) funktioniert überall
     form.addEventListener('submit', (e) => e.preventDefault());
     // Auswahl-Dropdowns (eigenes Combo statt <datalist>): tippen filtert, Tippen/Tap wählt
     $$('.combo', form).forEach((combo) => {
@@ -1211,9 +1216,10 @@ const NAV = [
   { route: 'honig', label: 'Honig & Chargen', ic: 'honig' },
   { route: 'kassenbuch', label: 'Kassenbuch', ic: 'kasse' },
   { route: 'rechnungen', label: 'Rechnungen', ic: 'rechnung' },
+  { route: 'fahrten', label: 'Fahrtenbuch', ic: 'truck' },
   { route: 'inventar', label: 'Inventar', ic: 'box' },
   { sec: 'Auswertung' },
-  { route: 'reporting', label: 'Reporting', ic: 'chart' },
+  { route: 'reporting', label: 'Statistiken', ic: 'chart' },
   { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
   { route: 'rechner', label: 'Rechner', ic: 'rechner' },
   { route: 'meldungen', label: 'Meldungen & Export', ic: 'meldung' },
@@ -1592,7 +1598,7 @@ const DASH_WIDGETS = {
       ${t.length ? `<div class="rows">${t.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(a.titel)}</div></div>
         <span class="badge ${a.faellig && a.faellig < today ? 'b-danger' : 'b-honey'}">${a.faellig ? U.fmtDate(a.faellig) : 'offen'}</span></div>`).join('')}</div>` : '<div class="muted small">Nichts offen – sehr gut! 🐝</div>'}</div>`;
   }},
-  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'reporting', _alle: false, async html() {
+  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'fahrten', _alle: false, async html() {
     const alle = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
     if (!alle.length) return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2></div><div class="muted small">Lege einen Bienenstand an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
     const { sorted: staende, besuche } = staendeNachBesuchen(alle, await DB.getAll('fahrten'));
@@ -1611,7 +1617,7 @@ const DASH_WIDGETS = {
       ? `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${staende.length}" onclick="fahrtWidgetToggle(this)">
            <span class="fw-txt">${offen ? 'Weniger' : `Alle ${staende.length} Stände`}</span> <span class="fw-chev">${offen ? '▲' : '▼'}</span></button>`
       : '';
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2><a href="#/reporting" class="small">Fahrten</a></div>
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2><a href="#/fahrten" class="small">Fahrtenbuch</a></div>
       <div class="rows">${rows}</div>${mehr}
       <div class="hint mt8">Ein Tipp bucht heutiges Datum + Hin- &amp; Rückweg ins Fahrtenbuch (Pauschale/PDF).</div></div>`;
   }},
@@ -1635,7 +1641,7 @@ const DASH_WIDGETS = {
     const ernten = await DB.getAll('ernten');
     const byYear = U.groupBy(ernten, (e) => (e.datum || '').slice(0, 4));
     const years = [...byYear.keys()].filter(Boolean).sort().slice(-5);
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Reporting</a></div>
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Statistiken</a></div>
       ${years.length ? UI.chart({ type: 'bars', labels: years, series: [{ name: 'kg', values: years.map((y) => U.sum(byYear.get(y), (e) => e.mengeKg)) }], height: 160, unit: 'kg' }) : '<div class="muted small">Noch keine Ernten erfasst.</div>'}</div>`;
   }},
   wetter: { label: 'Wetter am Stand', ziel: 'staende', async html() {
@@ -1934,7 +1940,10 @@ const Demo = {
       [ymd(Y, 4, 22), st2.id, 28, 'Wanderung zum Raps'], [ymd(Y, 5, 10), st2.id, 28, 'Durchsicht'], [ymd(Y, 6, 8), st2.id, 28, 'Honigernte'],
       [ymd(Y, 6, 12), st3.id, 18, 'Wanderung zur Linde'], [ymd(Y, 7, 2), st3.id, 18, 'Honigernte'],
       [d(-12), st1.id, 6, 'Behandlung'], [d(-5), st1.id, 6, 'Durchsicht'],
-    ]) await DB.put('fahrten', { datum: dt, standId: sid, km, zweck: zw, notiz: '' });
+    ]) await DB.put('fahrten', { datum: dt, standId: sid, km, zweck: zw, freiZiel: '', notiz: '' });
+    // freie Fahrten (ohne Stand): Einkauf, Schulung
+    await DB.put('fahrten', { datum: d(-20), standId: null, freiZiel: 'Imkerbedarf Müller', km: 34, zweck: 'Einkauf/Besorgung', notiz: 'Gläser + Mittelwände' });
+    await DB.put('fahrten', { datum: ymd(Y, 3, 2), standId: null, freiZiel: 'Imkerverein Jahreshauptversammlung', km: 22, zweck: 'Imkerverein/Versammlung', notiz: '' });
 
     for (const [t, f] of [['Varroa-Kontrolle alle Völker', d(1)], ['Honigräume aufsetzen (Linde)', d(3)], ['Winterfütterung einplanen', d(10)], ['Mittelwände einlöten', d(6)]])
       await DB.put('aufgaben', { titel: t, faellig: f, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
@@ -1973,29 +1982,43 @@ const Wetter = {
 };
 
 /** Fahrt erfassen (Fahrtenbuch): km vorbelegt mit 2 × Stand-Entfernung */
-async function fahrtForm(vorStandId = '') {
+/** Fahrt-Formular. Erster Parameter wahlweise ein bestehender Fahrt-Datensatz (Bearbeiten)
+    oder eine Stand-ID als Vorauswahl (Neuanlage). Unterstützt Fahrten zu einem Stand UND
+    freie Fahrten (Einkauf, Schulung, Besorgung …) ohne Stand. */
+async function fahrtForm(arg = '', onDone) {
+  const bearbeiten = arg && typeof arg === 'object' ? arg : null;
+  const vorStandId = bearbeiten ? '' : (arg || '');
   const staende = await DB.getAll('staende');
-  if (!staende.length) return UI.toast('Lege zuerst einen Bienenstand an', 'err');
   const kmVon = (standId) => { const st = staende.find((x) => x.id === standId); return st && st.kmEntfernung ? st.kmEntfernung * 2 : ''; };
+  const FREI = '__frei__';
+  const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
+  const startZiel = bearbeiten ? (bearbeiten.standId || FREI) : (vorStandId || (staende[0] ? staende[0].id : FREI));
   const m = UI.formModal({
-    title: 'Fahrt erfassen',
+    title: bearbeiten ? 'Fahrt bearbeiten' : 'Fahrt erfassen',
     fields: [
-      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-      { key: 'standId', label: 'Bienenstand / Ziel', type: 'select', required: true, default: vorStandId || staende[0].id, options: staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })) },
-      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: kmVon(vorStandId || staende[0].id) },
-      { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true },
-      { key: 'notiz', label: 'Notiz', placeholder: 'z. B. mit Anhänger' },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: bearbeiten ? bearbeiten.datum : U.todayIso() },
+      { key: 'ziel', label: 'Ziel', type: 'select', required: true, default: startZiel, options: zielOpts },
+      { key: 'freiZiel', label: 'Wohin / Beschreibung', placeholder: 'z. B. Imkerbedarf Müller, Schulung Bienengesundheit', showIf: (f) => f.ziel === FREI },
+      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: bearbeiten ? bearbeiten.km : kmVon(startZiel) },
+      { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true, default: bearbeiten ? bearbeiten.zweck : '' },
+      { key: 'notiz', label: 'Notiz', placeholder: 'z. B. mit Anhänger', default: bearbeiten ? bearbeiten.notiz : '' },
     ],
-    saveText: 'Fahrt buchen',
+    values: bearbeiten ? { freiZiel: bearbeiten.freiZiel || '' } : {},
+    saveText: bearbeiten ? 'Speichern' : 'Fahrt buchen',
     async onSave(v) {
-      await DB.put('fahrten', { datum: v.datum, standId: v.standId, km: v.km, zweck: v.zweck, notiz: v.notiz });
-      UI.toast('Fahrt erfasst'); renderRoute();
+      const frei = v.ziel === FREI;
+      if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw new Error('Bitte Ziel/Beschreibung oder Zweck angeben.');
+      const rec = Object.assign(bearbeiten || {}, { datum: v.datum, standId: frei ? null : v.ziel, freiZiel: frei ? (v.freiZiel || '').trim() : '', km: v.km, zweck: v.zweck, notiz: v.notiz });
+      await DB.put('fahrten', rec);
+      UI.toast(bearbeiten ? 'Fahrt gespeichert' : 'Fahrt erfasst');
+      if (onDone) onDone(); else renderRoute();
     },
+    onDelete: bearbeiten ? papierkorbDelete('fahrten', bearbeiten, 'Fahrt löschen?', 'Wandert in den Papierkorb (30 Tage).') : undefined,
   });
-  // Stand-Wechsel im Formular → km-Vorschlag aktualisieren (nur wenn Feld leer oder alter Vorschlag)
-  const standSel = $('#f-standId', m.el), kmInp = $('#f-km', m.el);
-  standSel.addEventListener('change', () => {
-    const vorschlag = kmVon(standSel.value);
+  // Ziel-Wechsel → km-Vorschlag aktualisieren (nur bei Stand mit hinterlegter Entfernung)
+  const zielSel = $('#f-ziel', m.el), kmInp = $('#f-km', m.el);
+  zielSel.addEventListener('change', () => {
+    const vorschlag = kmVon(zielSel.value);
     if (vorschlag !== '') { kmInp.value = String(vorschlag).replace('.', ','); FormGuard.dirty = true; }
   });
 }
@@ -2121,7 +2144,7 @@ Views.stand = {
         ${fahrten.length ? `<div class="rows">${fahrten.slice(0, 5).map((f) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-main"><span class="r-title">${U.esc(f.zweck || 'Fahrt')}</span><span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
           <span class="badge b-blue">${U.fmtNum(f.km)} km</span></div>`).join('')}</div>
-          <div class="small muted mt8">${jahrAktuell}: ${U.fmtNum(U.sum(fahrten.filter((f) => (f.datum || '').startsWith(jahrAktuell)), (f) => f.km))} km zu diesem Stand · komplette Übersicht + Fahrtenbuch-PDF unter <a href="#/reporting">Reporting → Fahrten</a></div>`
+          <div class="small muted mt8">${jahrAktuell}: ${U.fmtNum(U.sum(fahrten.filter((f) => (f.datum || '').startsWith(jahrAktuell)), (f) => f.km))} km zu diesem Stand · komplette Übersicht + Fahrtenbuch-PDF unter <a href="#/fahrten">Fahrtenbuch</a></div>`
         : `<div class="muted small">Noch keine Fahrt erfasst. Mit hinterlegter Entfernung ist eine Fahrt in zwei Tipps gebucht – für die Kilometer-Übersicht (Steuer).</div>`}
       </div>
       <div class="card">
@@ -3017,7 +3040,7 @@ Views.trachten = {
           <span class="r-sub">${U.esc(t.pflanze || '')}${t.von ? ` · ${U.fmtDate(t.von)} – ${U.fmtDate(t.bis)}` : ''}${t.region ? ' · ' + U.esc(t.region) : ''}${(t.standIds || []).length ? ' · ' + t.standIds.map((s) => U.esc(staende.get(s)?.name || '')).filter(Boolean).join(', ') : ''}</span></span>
           <span class="r-side"><b>${U.fmtNum(kg)} kg</b><br><span class="muted small">Ertrag</span></span>
           ${icon('chevR', 'chev')}</button>`;
-      }).join('') + `</div>` : emptyState('flower', 'Noch keine Tracht angelegt. Trachten lassen sich Ständen und Wanderungen zuordnen und im Reporting auswerten.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Tracht</button>`)) + `</div>`;
+      }).join('') + `</div>` : emptyState('flower', 'Noch keine Tracht angelegt. Trachten lassen sich Ständen und Wanderungen zuordnen und in den Statistiken auswerten.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Tracht</button>`)) + `</div>`;
     const staendeArr = [...staende.values()];
     const form = async (t) => UI.formModal({
       title: t ? 'Tracht bearbeiten' : 'Neue Tracht',
@@ -4908,13 +4931,13 @@ const Reporting = {
   },
 };
 Views.reporting = {
-  title: 'Reporting',
+  title: 'Statistiken',
   async render(main) {
     const typ = Views.reporting._typ || 'voelker';
     const gruppe = Views.reporting._gruppe || 'volk';
-    main.innerHTML = pageHead('Reporting', 'Auswertungen über alle Bereiche – jeder Report als PDF exportierbar') + `
+    main.innerHTML = pageHead('Statistiken', 'Auswertungen über alle Bereiche – jede Statistik als PDF exportierbar') + `
       <div class="chip-row mb16 no-print">
-        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben'], ['fahrten', 'Fahrten (km)']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
+        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
       </div><div id="rep"></div>`;
     const box = $('#rep');
     if (typ === 'voelker') {
@@ -4980,6 +5003,47 @@ Views.reporting = {
     main.addEventListener('click', (e) => {
       const t = e.target.closest('[data-typ]'); if (t) { Views.reporting._typ = t.dataset.typ; return renderRoute(); }
       const g = e.target.closest('[data-grp]'); if (g) { Views.reporting._gruppe = g.dataset.grp; renderRoute(); }
+    });
+  },
+};
+
+/* =====================================================================
+   MODUL: FAHRTENBUCH (alle Fahrten – Stände + freie Fahrten, Steuer-Nachweis)
+   ===================================================================== */
+/** Anzeigename des Fahrtziels: Stand-Name, sonst freie Beschreibung bzw. Zweck. */
+function fahrtZielName(f, staende) {
+  if (f.standId) return staende.get(f.standId)?.name || 'gelöschter Stand';
+  return (f.freiZiel || '').trim() || f.zweck || 'Andere Fahrt';
+}
+Views.fahrten = {
+  title: 'Fahrtenbuch',
+  async render(main) {
+    const alle = await DB.getAll('fahrten');
+    const staende = await idMap('staende');
+    const jahre = [...new Set(alle.map((f) => (f.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
+    const jahr = Views.fahrten._jahr || jahre[0] || U.todayIso().slice(0, 4);
+    const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
+    const kmJahr = U.sum(list, (f) => f.km);
+    main.innerHTML = pageHead('Fahrtenbuch', 'Alle Fahrten – zu den Ständen und sonstige (Einkauf, Schulung, Besorgung). Als Nachweis fürs Finanzamt.',
+      `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahr}')">${icon('doc')} Fahrtenbuch ${jahr} (PDF)</button>
+       <button class="btn btn-primary" id="add">${icon('plus')} Fahrt</button></span>`) +
+      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
+      <div class="stat-grid mb16">
+        <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahr}</div><div class="s-value">${U.fmtNum(kmJahr)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fahrt' : 'Fahrten'}</div></div>
+        <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahr}</div><div class="s-value">${U.fmtEur(kmJahr * KM_PAUSCHALE)}</div><div class="s-sub">bei ${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
+      </div>
+      <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
+        <button class="row" data-id="${f.id}">
+          <span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(fahrtZielName(f, staende))}${f.zweck ? ` · ${U.esc(f.zweck)}` : ''}</span>
+          <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
+          <span class="r-side"><b>${U.fmtNum(f.km)} km</b></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
+      : emptyState('truck', 'Noch keine Fahrt erfasst. Fahrten zu den Ständen buchst du in zwei Tipps – oder trage hier Einkäufe, Schulungen und Besorgungen ein.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Fahrt</button>`)) + `</div>
+      <div class="hint mt12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt dorthin schnell gebucht. Das Fahrtenbuch-PDF eignet sich als Steuer-Nachweis (Pauschale ohne Gewähr, Satz je nach Fall).</div>`;
+    bindAdd(() => fahrtForm(null));
+    main.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-jahr]'); if (c) { Views.fahrten._jahr = c.dataset.jahr; return renderRoute(); }
+      const r = e.target.closest('.row[data-id]'); if (r) { const f = list.find((x) => x.id === r.dataset.id); if (f) fahrtForm(f); }
     });
   },
 };
@@ -5410,7 +5474,7 @@ const Xlsx = {
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => (await DB.getAll('verkaeufe')).map((v) => ({ Datum: d(v.datum), Los: chargenM.get(v.chargeId)?.losnummer || '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz })) },
-      fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), 'Ziel (Stand)': staende.get(f.standId)?.name || '', Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
+      fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
@@ -5736,9 +5800,9 @@ const Pdf = {
       const staende = await idMap('staende');
       const kmSumme = U.sum(fahrten, (f) => f.km);
       const { doc, y } = await this.newDoc(`Fahrtenbuch ${jahr}`, `${fahrten.length} Fahrten · ${U.fmtNum(kmSumme)} km · Kilometerpauschale (${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km): ${U.fmtEur(kmSumme * KM_PAUSCHALE)}`);
-      const body = fahrten.map((f) => [U.fmtDate(f.datum), staende.get(f.standId)?.name || '–', f.zweck || '', U.fmtNum(f.km), f.notiz || '']);
+      const body = fahrten.map((f) => [U.fmtDate(f.datum), fahrtZielName(f, staende), f.zweck || '', U.fmtNum(f.km), f.notiz || '']);
       body.push(['', '', 'Summe', U.fmtNum(kmSumme), '']);
-      this.table(doc, { head: ['Datum', 'Ziel (Bienenstand)', 'Zweck', 'km', 'Notiz'], body, startY: y, widths: { 3: { halign: 'right' } } });
+      this.table(doc, { head: ['Datum', 'Ziel', 'Zweck', 'km', 'Notiz'], body, startY: y, widths: { 3: { halign: 'right' } } });
       this.finish(doc, `fahrtenbuch-${jahr}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
