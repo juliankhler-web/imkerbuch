@@ -705,3 +705,154 @@ test('jitEmpfehlungen: saisonale Tipps', async (w) => {
     assert(t.kapId || t.typ, 'Tipp hat kapId oder typ');
   });
 });
+
+/* ---------- Volk-Stammdaten: Funktion im Betrieb + Beutentyp ersetzt Rähmchenmaß ---------- */
+test('VORSCHLAEGE.volksfunktion enthält alle Betriebsfunktionen', (w) => {
+  const f = w.VORSCHLAEGE.volksfunktion;
+  assert(Array.isArray(f), 'ist eine Liste');
+  ['Wirtschaftsvolk', 'Wirtschaftsvolk Zuchtstoff', 'Ableger', 'Schwarm', 'Pflegevolk Königin', 'Pflegevolk Bienenmasse']
+    .forEach((n) => assert(f.includes(n), n + ' vorhanden'));
+  assertEq(new Set(f).size, f.length, 'keine Duplikate');
+});
+test('VORSCHLAEGE.beutentyp ersetzt das Rähmchenmaß', (w) => {
+  assert(!w.VORSCHLAEGE.raehmchenmass, 'Liste raehmchenmass ist abgeschafft');
+  const bt = w.VORSCHLAEGE.beutentyp;
+  ['Mini Plus Trogbeute', 'Mini Plus', 'Dadant US 12er', 'Dadant Ablegerkasten']
+    .forEach((n) => assert(bt.includes(n), n + ' im Dropdown'));
+  assert(bt.length >= 20, 'ausreichend Auswahl (' + bt.length + ')');
+  assertEq(new Set(bt).size, bt.length, 'keine Duplikate');
+});
+test('Migration: Rähmchenmaß geht im Beutentyp auf', async (w) => {
+  const mitBeute = await w.DB.put('voelker', { name: 'MigTestA', beutentyp: 'Zander', raehmchenmass: 'Zander', status: 'aktiv' });
+  const ohneBeute = await w.DB.put('voelker', { name: 'MigTestB', beutentyp: '', raehmchenmass: 'Dadant Blatt', status: 'aktiv' });
+  await w.S.set('raehmchenmassMigriert', false);
+  await w.migriereRaehmchenmass();
+  const a = await w.DB.get('voelker', mitBeute.id);
+  const b = await w.DB.get('voelker', ohneBeute.id);
+  assert(!('raehmchenmass' in a), 'Altfeld entfernt');
+  assertEq(a.beutentyp, 'Zander', 'vorhandener Beutentyp bleibt unangetastet');
+  assert(!('raehmchenmass' in b), 'Altfeld auch hier entfernt');
+  assertEq(b.beutentyp, 'Dadant Blatt', 'fehlender Beutentyp erbt das alte Rähmchenmaß');
+  assert(w.S.get('raehmchenmassMigriert'), 'Flag gesetzt – läuft nur einmal');
+});
+
+/* ---------- Dashboard-Kachel „Fahrt zum Stand“: Top 5 nach Besuchshäufigkeit ---------- */
+test('staendeNachBesuchen: meistbesuchte Stände zuerst', (w) => {
+  const staende = [{ id: 'a', name: 'Zeta' }, { id: 'b', name: 'Alpha' }, { id: 'c', name: 'Mitte' }];
+  const fahrten = [{ standId: 'c' }, { standId: 'c' }, { standId: 'a' }, { standId: 'weg' }, {}];
+  const { sorted, besuche } = w.staendeNachBesuchen(staende, fahrten);
+  assertEq(sorted.map((s) => s.id).join(','), 'c,a,b', 'nach Häufigkeit, dann alphabetisch');
+  assertEq(besuche.get('c'), 2, 'Besuche gezählt');
+  assertEq(besuche.get('b') || 0, 0, 'Stand ohne Fahrt = 0');
+  assertEq(staende.map((s) => s.id).join(','), 'a,b,c', 'Original-Liste nicht mutiert');
+});
+test('staendeNachBesuchen: ohne Fahrten rein alphabetisch', (w) => {
+  const { sorted } = w.staendeNachBesuchen([{ id: '1', name: 'Bravo' }, { id: '2', name: 'alpha' }], []);
+  assertEq(sorted.map((s) => s.name).join(','), 'alpha,Bravo', 'Groß-/Kleinschreibung egal');
+  assertEq(w.staendeNachBesuchen([], []).sorted.length, 0, 'leere Liste ok');
+});
+
+/* ---------- Wanderung: Stand → Völker → Ziel-Stand ---------- */
+test('wanderungPruefen: fachliche Validierung', (w) => {
+  assert(w.wanderungPruefen({}), 'ohne Von-Stand → Fehler');
+  assert(w.wanderungPruefen({ vonStandId: 'a' }), 'ohne Völker → Fehler');
+  assert(w.wanderungPruefen({ vonStandId: 'a', volkIds: [] }), 'leere Völkerliste → Fehler');
+  assert(w.wanderungPruefen({ vonStandId: 'a', volkIds: ['v1'] }), 'ohne Ziel-Stand → Fehler');
+  const gleich = w.wanderungPruefen({ vonStandId: 'a', volkIds: ['v1'], nachStandId: 'a' });
+  assert(gleich && /derselbe/.test(gleich), 'Ziel == Ausgangsstand → Fehler');
+  assertEq(w.wanderungPruefen({ vonStandId: 'a', volkIds: ['v1'], nachStandId: 'b' }), null, 'gültige Wanderung → null');
+});
+test('wanderungVoelkerUmziehen: setzt Stand + Historie, alles andere bleibt', async (w) => {
+  const a = await w.DB.put('staende', { name: 'WandVon' });
+  const b = await w.DB.put('staende', { name: 'WandNach' });
+  const v1 = await w.DB.put('voelker', { name: 'WVolk1', standId: a.id, status: 'aktiv', beutentyp: 'Zander', funktion: 'Wirtschaftsvolk', koeniginId: 'q1', historie: [] });
+  const v2 = await w.DB.put('voelker', { name: 'WVolk2', standId: b.id, status: 'aktiv', historie: [] }); // steht schon am Ziel
+  const bewegt = await w.wanderungVoelkerUmziehen([v1.id, v2.id, 'geloescht-xyz'], b.id, '2026-05-01', 'WandVon', 'WandNach', [a.id]);
+  assertEq(bewegt, 1, 'nur ein Volk musste bewegt werden');
+  const n1 = await w.DB.get('voelker', v1.id);
+  assertEq(n1.standId, b.id, 'Volk steht auf dem Ziel-Stand');
+  assertEq(n1.beutentyp, 'Zander', 'Beutentyp unverändert');
+  assertEq(n1.funktion, 'Wirtschaftsvolk', 'Funktion unverändert');
+  assertEq(n1.koeniginId, 'q1', 'Königin unverändert');
+  assertEq(n1.historie.length, 1, 'Historie-Eintrag geschrieben');
+  assert(/WandVon/.test(n1.historie[0].text) && /WandNach/.test(n1.historie[0].text), 'Historie nennt beide Stände');
+  assertEq((await w.DB.get('voelker', v2.id)).historie.length, 0, 'Volk am Ziel bekommt keinen Eintrag');
+});
+test('wanderungVoelkerUmziehen: erlaubteQuellen begrenzt die Korrektur', async (w) => {
+  const start = await w.DB.put('staende', { name: 'StartStand' });
+  const altZiel = await w.DB.put('staende', { name: 'AltZiel' });
+  const neuZiel = await w.DB.put('staende', { name: 'NeuZiel' });
+  const woanders = await w.DB.put('staende', { name: 'Woanders' });
+  const amAltenZiel = await w.DB.put('voelker', { name: 'WVolk3', standId: altZiel.id, status: 'aktiv', historie: [] });
+  const nachgetragen = await w.DB.put('voelker', { name: 'WVolk5', standId: start.id, status: 'aktiv', historie: [] });
+  const verzogen = await w.DB.put('voelker', { name: 'WVolk4', standId: woanders.id, status: 'aktiv', historie: [] });
+  const quellen = [start.id, altZiel.id];
+  const bewegt = await w.wanderungVoelkerUmziehen([amAltenZiel.id, nachgetragen.id, verzogen.id], neuZiel.id, '2026-05-02', 'StartStand', 'NeuZiel', quellen);
+  assertEq(bewegt, 2, 'Volk am alten Ziel + nachgetragenes Volk vom Startstand wandern');
+  assertEq((await w.DB.get('voelker', amAltenZiel.id)).standId, neuZiel.id, 'vom alten Ziel nachgezogen');
+  assertEq((await w.DB.get('voelker', nachgetragen.id)).standId, neuZiel.id, 'nachtraeglich ergaenztes Volk wandert mit');
+  assertEq((await w.DB.get('voelker', verzogen.id)).standId, woanders.id, 'zwischenzeitlich verzogenes Volk bleibt unangetastet');
+});
+test('altdatenVorbelegung: leitet Stände aus alten Wanderungen ab, rät aber nichts', (w) => {
+  const st = [{ id: 's1', name: 'Heim' }, { id: 's2', name: 'Raps' }, { id: 's3', name: 'Doppelt' }, { id: 's4', name: 'Doppelt' }];
+  assertEq(w.altdatenVorbelegung({ zielTyp: 'stand', zielId: 's2', vonOrt: 'Heim', nachOrt: 'Raps' }, st), { vonStandId: 's1', nachStandId: 's2' }, 'beide Orte eindeutig');
+  assertEq(w.altdatenVorbelegung({ vonOrt: 'Doppelt', nachOrt: 'Raps' }, st), { nachStandId: 's2' }, 'mehrdeutiger Name wird nicht geraten');
+  assertEq(w.altdatenVorbelegung({ zielTyp: 'stand', zielId: 's2', vonOrt: 'Unbekannt', nachOrt: 'Unbekannt2' }, st), { nachStandId: 's2' }, 'Ziel aus zielId');
+  assertEq(w.altdatenVorbelegung({ zielTyp: 'volk', zielId: 'v9', vonOrt: 'Unbekannt', nachOrt: 'Unbekannt2' }, st), {}, 'zielTyp volk liefert keinen Stand');
+  assertEq(w.altdatenVorbelegung({ vonStandId: 's1', nachStandId: 's2', vonOrt: 'x', nachOrt: 'y' }, st), {}, 'neues Format bleibt unangetastet');
+});
+
+/* ---------- Wanderung: Fehler aus dem adversarialen Review ---------- */
+test('wanderungVoelkerUmziehen: Volk ohne Stand (Stand gelöscht) wandert mit', async (w) => {
+  const a = await w.DB.put('staende', { name: 'RevA' });
+  const ziel = await w.DB.put('staende', { name: 'RevZiel' });
+  const heimatlos = await w.DB.put('voelker', { name: 'RevHeimatlos', standId: null, status: 'aktiv', historie: [] });
+  const fremd = await w.DB.put('staende', { name: 'RevFremd' });
+  const aufFremd = await w.DB.put('voelker', { name: 'RevFremdVolk', standId: fremd.id, status: 'aktiv', historie: [] });
+  const bewegt = await w.wanderungVoelkerUmziehen([heimatlos.id, aufFremd.id], ziel.id, '2026-05-03', 'RevA', 'RevZiel', [a.id]);
+  assertEq(bewegt, 1, 'nur das heimatlose Volk wandert');
+  assertEq((await w.DB.get('voelker', heimatlos.id)).standId, ziel.id, 'Volk ohne Stand wurde zugeordnet');
+  assertEq((await w.DB.get('voelker', aufFremd.id)).standId, fremd.id, 'Volk auf fremdem Stand bleibt');
+});
+test('wanderungVoelkerUmziehen: kein doppelter Historien-Eintrag', async (w) => {
+  const a = await w.DB.put('staende', { name: 'DupA' });
+  const b = await w.DB.put('staende', { name: 'DupB' });
+  const v = await w.DB.put('voelker', { name: 'DupVolk', standId: a.id, status: 'aktiv', historie: [] });
+  await w.wanderungVoelkerUmziehen([v.id], b.id, '2026-05-04', 'DupA', 'DupB', [a.id]);
+  // Volk manuell zurück auf A, dann dieselbe Wanderung erneut anwenden
+  const zurueck = await w.DB.get('voelker', v.id);
+  zurueck.standId = a.id; await w.DB.put('voelker', zurueck);
+  await w.wanderungVoelkerUmziehen([v.id], b.id, '2026-05-04', 'DupA', 'DupB', [a.id]);
+  const nach = await w.DB.get('voelker', v.id);
+  assertEq(nach.standId, b.id, 'wieder am Ziel');
+  assertEq(nach.historie.filter((h) => /Gewandert/.test(h.text)).length, 1, 'Historien-Eintrag nicht doppelt');
+});
+test('wanderungVoelkerUmziehen: identischer Text an anderem Datum wird eigenständig geloggt', async (w) => {
+  const a = await w.DB.put('staende', { name: 'DatA' });
+  const b = await w.DB.put('staende', { name: 'DatB' });
+  const v = await w.DB.put('voelker', { name: 'DatVolk', standId: a.id, status: 'aktiv', historie: [] });
+  await w.wanderungVoelkerUmziehen([v.id], b.id, '2026-05-04', 'DatA', 'DatB', [a.id]);
+  const zurueck = await w.DB.get('voelker', v.id); zurueck.standId = a.id; await w.DB.put('voelker', zurueck);
+  await w.wanderungVoelkerUmziehen([v.id], b.id, '2026-06-09', 'DatA', 'DatB', [a.id]);
+  const nach = await w.DB.get('voelker', v.id);
+  assertEq(nach.historie.filter((h) => /Gewandert/.test(h.text)).length, 2, 'zweite Wanderung an anderem Datum wird geloggt');
+});
+
+/* ---------- Wanderung: Grund der Wanderung (ersetzt „Zugeordnete Tracht") ---------- */
+test('VORSCHLAEGE.wanderungsgrund enthält Trachten + Belegstelle', (w) => {
+  const g = w.VORSCHLAEGE.wanderungsgrund;
+  ['Linde', 'Waldtracht', 'Belegstelle'].forEach((n) => assert(g.includes(n), n + ' vorhanden'));
+  assert(g.length >= 10, 'genug Auswahl (' + g.length + ')');
+  assertEq(new Set(g).size, g.length, 'keine Duplikate');
+});
+test('wanderungGrund: Freitext gewinnt, Altdaten fallen auf die Tracht zurück', (w) => {
+  const trachten = new Map([['t1', { bezeichnung: 'Raps 2026' }]]);
+  assertEq(w.wanderungGrund({ grund: 'Belegstelle' }, trachten), 'Belegstelle', 'Freitext');
+  assertEq(w.wanderungGrund({ grund: '  Linde  ' }, trachten), 'Linde', 'getrimmt');
+  assertEq(w.wanderungGrund({ trachtId: 't1' }, trachten), 'Raps 2026', 'Altdatensatz nutzt Tracht');
+  assertEq(w.wanderungGrund({ grund: '', trachtId: 't1' }, trachten), 'Raps 2026', 'leerer Grund fällt zurück');
+  assertEq(w.wanderungGrund({ grund: 'Heide', trachtId: 't1' }, trachten), 'Heide', 'Freitext schlägt Tracht');
+  assertEq(w.wanderungGrund({ trachtId: 'weg' }, trachten), '', 'gelöschte Tracht → leer');
+  assertEq(w.wanderungGrund({}, trachten), '', 'nichts gesetzt → leer');
+  assertEq(w.wanderungGrund({ grund: 'X' }, undefined), 'X', 'ohne trachten-Map robust');
+});

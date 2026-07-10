@@ -719,8 +719,20 @@ const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Behandlun
 const VORSCHLAEGE = {
   rasse: ['Carnica', 'Buckfast', 'Ligustica (Italiener)', 'Mellifera (Dunkle Biene)', 'Elgon', 'Landbiene/Mix'],
   herkunft: ['Eigene Nachzucht', 'Belegstelle', 'Standbegattung', 'Künstliche Besamung', 'Zukauf Züchter', 'Schwarm'],
-  beutentyp: ['Zander', 'Deutsch Normalmaß (DNM)', 'Dadant US', 'Dadant Blatt', 'Langstroth', 'Segeberger', 'Warré', 'Top-Bar-Hive', 'Mini-Plus'],
-  raehmchenmass: ['Zander', 'Zander 1,5', 'DNM', 'DNM 1,5', 'Dadant US', 'Dadant Blatt', 'Langstroth', 'Halbzarge/Flachzarge', 'Mini-Plus'],
+  // Beutentyp = System + Bauform (ersetzt das frühere Feld „Rähmchenmaß“).
+  // Reihenfolge: gängige Magazine → Dadant-Familie → Kleineinheiten → alternative/regionale Beuten.
+  beutentyp: [
+    'Zander', 'Zander 1,5', 'Deutsch Normalmaß (DNM)', 'DNM 1,5', 'DNM Flachzarge',
+    'Segeberger (DNM)', 'Spitzdachbeute', 'Langstroth', 'Hohenheimer Einfachbeute', 'Kuntzsch',
+    'Dadant US 12er', 'Dadant US 10er', 'Dadant modifiziert (Bruder Adam)', 'Dadant Blatt', 'Dadant Ablegerkasten',
+    'Mini Plus', 'Mini Plus Trogbeute', 'Ablegerkasten', 'Apidea', 'Kieler Begattungskästchen',
+    'EWK (Einwabenkästchen)', 'Kirchhainer Begattungskästchen',
+    'Trogbeute', 'Einraumbeute (ERB)', 'Warré', 'Top-Bar-Hive', 'Bienenkiste', 'Lagerbeute',
+    'Hinterbehandlungsbeute', 'Schweizerkasten',
+  ],
+  volksfunktion: ['Wirtschaftsvolk', 'Wirtschaftsvolk Zuchtstoff', 'Ableger', 'Schwarm', 'Kunstschwarm', 'Pflegevolk Königin', 'Pflegevolk Bienenmasse', 'Begattungsvolk', 'Drohnenvolk', 'Reservevolk'],
+  // Grund einer Wanderung: Trachten zuerst (häufigster Fall), dann betriebliche Gründe
+  wanderungsgrund: ['Rapsblüte', 'Obstblüte', 'Löwenzahn', 'Robinie (Akazie)', 'Linde', 'Edelkastanie', 'Sonnenblume', 'Phacelia', 'Waldtracht', 'Tannentracht', 'Heide', 'Belegstelle', 'Bestäubungseinsatz', 'Rückkehr zum Heimstand', 'Einwinterung', 'Standplatzwechsel'],
   futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. ApiInvert)', 'Futterteig', 'Eigener Honig'],
   mittel: ['Ameisensäure 60 % ad us. vet.', 'Ameisensäure 85 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
   anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
@@ -949,7 +961,7 @@ const UI = {
       } else if (f.type === 'multicheck') {
         const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
         const sel = Array.isArray(v) ? v : [];
-        return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div></div>`;
+        return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
       } else if (f.type === 'static') {
         return `<div class="field" data-field="${f.key}">${f.html}</div>`;
       } else if (f.type === 'suggest') {
@@ -1500,18 +1512,27 @@ const DASH_WIDGETS = {
       ${t.length ? `<div class="rows">${t.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(a.titel)}</div></div>
         <span class="badge ${a.faellig && a.faellig < today ? 'b-danger' : 'b-honey'}">${a.faellig ? U.fmtDate(a.faellig) : 'offen'}</span></div>`).join('')}</div>` : '<div class="muted small">Nichts offen – sehr gut! 🐝</div>'}</div>`;
   }},
-  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'reporting', async html() {
-    const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
-    if (!staende.length) return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2></div><div class="muted small">Lege einen Bienenstand an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
-    const rows = staende.slice(0, 4).map((s) => {
+  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'reporting', _alle: false, async html() {
+    const alle = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
+    if (!alle.length) return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2></div><div class="muted small">Lege einen Bienenstand an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
+    const { sorted: staende, besuche } = staendeNachBesuchen(alle, await DB.getAll('fahrten'));
+    const TOP = 5;
+    const offen = DASH_WIDGETS.fahrt._alle;
+    const rows = staende.map((s, i) => {
       const km = s.kmEntfernung ? s.kmEntfernung * 2 : 0;
+      const n = besuche.get(s.id) || 0;
       const btn = km
         ? `<button class="btn btn-primary btn-sm no-print" onclick="fahrtSchnellBuchen('${s.id}')">${icon('plus')} Fahrt buchen</button>`
         : `<button class="btn btn-ghost btn-sm no-print" onclick="fahrtForm('${s.id}')">km festlegen</button>`;
-      return `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(s.name)}</div><div class="r-sub">${km ? `${U.fmtNum(km)} km hin & zurück` : 'Entfernung nicht gesetzt'}</div></div>${btn}</div>`;
+      const versteckt = i >= TOP && !offen;
+      return `<div class="row fahrt-row" style="min-height:44px;padding:8px 4px${versteckt ? ';display:none' : ''}" ${i >= TOP ? 'data-mehr' : ''}><div class="r-main"><div class="r-title">${U.esc(s.name)}</div><div class="r-sub">${km ? `${U.fmtNum(km)} km hin & zurück` : 'Entfernung nicht gesetzt'}${n ? ` · ${n} ${n === 1 ? 'Fahrt' : 'Fahrten'}` : ''}</div></div>${btn}</div>`;
     }).join('');
+    const mehr = staende.length > TOP
+      ? `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${staende.length}" onclick="fahrtWidgetToggle(this)">
+           <span class="fw-txt">${offen ? 'Weniger' : `Alle ${staende.length} Stände`}</span> <span class="fw-chev">${offen ? '▲' : '▼'}</span></button>`
+      : '';
     return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2><a href="#/reporting" class="small">Fahrten</a></div>
-      <div class="rows">${rows}</div>
+      <div class="rows">${rows}</div>${mehr}
       <div class="hint mt8">Ein Tipp bucht heutiges Datum + Hin- &amp; Rückweg ins Fahrtenbuch (Pauschale/PDF).</div></div>`;
   }},
   zeiten: { label: 'Zeiterfassung (Stunden je Tätigkeit)', ziel: 'zeiten', async html() {
@@ -1689,7 +1710,7 @@ const Wizard = {
         const imk = S.get('imkerei'); imk.name = state.imkerei || imk.name; await S.set('imkerei', imk);
         let standId = null;
         if (state.standName) { const st = await DB.put('staende', { name: state.standName, lat: null, lng: null, notizen: '' }); standId = st.id; }
-        if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, beutentyp: state.beutentyp, beutenkennung: '', raehmchenmass: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
+        if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: state.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
         if (withDemo) await Demo.create();
         await S.set('wizardDone', true);
         back.remove();
@@ -1727,21 +1748,21 @@ const Demo = {
 
     const V = {};
     const VN = [
-      ['Anna', Y - 4, st1, 'Zander', qB], ['Berta', Y - 4, st1, 'Zander', qC],
-      ['Clara', Y - 3, st1, 'Zander', qD], ['Dora', Y - 3, st1, 'Deutsch Normal', null], ['Emma', Y - 3, st2, 'Zander', qE],
-      ['Frida', Y - 2, st2, 'Zander', qF], ['Greta', Y - 2, st1, 'Dadant', qG], ['Hanna', Y - 2, st3, 'Zander', null],
-      ['Ida', Y - 1, st3, 'Zander', null], ['Jana', Y - 1, st1, 'Deutsch Normal', null], ['Kira', Y - 1, st2, 'Zander', null],
-      ['Lena', Y, st1, 'Zander', null], ['Mara', Y, st3, 'Zander', null],
+      ['Anna', Y - 4, st1, 'Zander', qB, 'Wirtschaftsvolk Zuchtstoff'], ['Berta', Y - 4, st1, 'Zander', qC, 'Pflegevolk Königin'],
+      ['Clara', Y - 3, st1, 'Zander', qD, 'Wirtschaftsvolk'], ['Dora', Y - 3, st1, 'Deutsch Normalmaß (DNM)', null, 'Wirtschaftsvolk'], ['Emma', Y - 3, st2, 'Zander', qE, 'Wirtschaftsvolk'],
+      ['Frida', Y - 2, st2, 'Zander', qF, 'Wirtschaftsvolk'], ['Greta', Y - 2, st1, 'Dadant US 12er', qG, 'Pflegevolk Bienenmasse'], ['Hanna', Y - 2, st3, 'Zander', null, 'Wirtschaftsvolk'],
+      ['Ida', Y - 1, st3, 'Zander', null, 'Wirtschaftsvolk'], ['Jana', Y - 1, st1, 'Deutsch Normalmaß (DNM)', null, 'Wirtschaftsvolk'], ['Kira', Y - 1, st2, 'Zander', null, 'Reservevolk'],
+      ['Lena', Y, st1, 'Mini Plus', null, 'Ableger'], ['Mara', Y, st3, 'Zander', null, 'Schwarm'],
     ];
     let ki = 1;
-    for (const [nm, yr, stx, bt, q] of VN) {
-      const kenn = (bt === 'Zander' ? 'Z' : bt === 'Dadant' ? 'D' : 'DN') + '-' + String(ki).padStart(2, '0');
-      const v = await DB.put('voelker', { name: 'Volk ' + nm, standId: stx.id, koeniginId: q ? q.id : null, beutentyp: bt, beutenkennung: kenn, raehmchenmass: bt === 'Dadant' ? 'Dadant' : bt === 'Deutsch Normal' ? 'DN' : 'Zander', status: 'aktiv', historie: [{ datum: ymd(yr, 4, 12), text: 'Volk angelegt' }], notizen: '' });
+    for (const [nm, yr, stx, bt, q, fn] of VN) {
+      const kenn = (bt.startsWith('Zander') ? 'Z' : bt.startsWith('Dadant') ? 'D' : bt.startsWith('Mini') ? 'M' : 'DN') + '-' + String(ki).padStart(2, '0');
+      const v = await DB.put('voelker', { name: 'Volk ' + nm, standId: stx.id, koeniginId: q ? q.id : null, funktion: fn, beutentyp: bt, beutenkennung: kenn, status: 'aktiv', historie: [{ datum: ymd(yr, 4, 12), text: 'Volk angelegt' }], notizen: '' });
       V[nm] = v; ki++;
       if (q) { q.historie.push({ volkId: v.id, von: ymd(yr, 4, 12), bis: null }); await DB.put('koeniginnen', q); }
     }
-    await DB.put('voelker', { name: 'Volk Nora', standId: st1.id, koeniginId: null, beutentyp: 'Zander', beutenkennung: 'Z-14', raehmchenmass: 'Zander', status: 'aufgeloest', historie: [{ datum: ymd(Y - 3, 5, 1), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 9, 10), text: 'Volk aufgelöst (drohnenbrütig)' }], notizen: '' });
-    await DB.put('voelker', { name: 'Volk Olga', standId: st1.id, koeniginId: null, beutentyp: 'Zander', beutenkennung: 'Z-15', raehmchenmass: 'Zander', status: 'vereinigt', historie: [{ datum: ymd(Y - 2, 4, 20), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 8, 5), text: 'Vereinigt mit „Volk Anna“' }], notizen: '' });
+    await DB.put('voelker', { name: 'Volk Nora', standId: st1.id, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: 'Zander', beutenkennung: 'Z-14', status: 'aufgeloest', historie: [{ datum: ymd(Y - 3, 5, 1), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 9, 10), text: 'Volk aufgelöst (drohnenbrütig)' }], notizen: '' });
+    await DB.put('voelker', { name: 'Volk Olga', standId: st1.id, koeniginId: null, funktion: 'Ableger', beutentyp: 'Zander', beutenkennung: 'Z-15', status: 'vereinigt', historie: [{ datum: ymd(Y - 2, 4, 20), text: 'Volk angelegt' }, { datum: ymd(Y - 1, 8, 5), text: 'Vereinigt mit „Volk Anna“' }], notizen: '' });
 
     let si = 0;
     for (const nm of ['Anna', 'Berta', 'Clara', 'Emma', 'Frida', 'Greta', 'Ida', 'Lena']) {
@@ -1773,8 +1794,9 @@ const Demo = {
     const trL = await DB.put('trachten', { bezeichnung: `Linde ${Y}`, pflanze: 'Linde', von: ymd(Y, 6, 15), bis: ymd(Y, 7, 10), region: 'Lindenallee Ost', standIds: [st3.id] });
     await DB.put('trachten', { bezeichnung: `Obstblüte ${Y}`, pflanze: 'Obstblüte', von: ymd(Y, 4, 1), bis: ymd(Y, 4, 25), region: 'Obstwiese', standIds: [st1.id] });
     await DB.put('trachten', { bezeichnung: `Waldtracht ${Y - 1}`, pflanze: 'Waldtracht', von: ymd(Y - 1, 6, 20), bis: ymd(Y - 1, 8, 1), region: 'Reinhardswald', standIds: [st3.id] });
-    await DB.put('wanderungen', { zielTyp: 'stand', zielId: st2.id, vonOrt: 'Heimstand Obstwiese', nachOrt: 'Rapsfeld Feldmark Nord', datum: ymd(Y, 4, 22), rueckDatum: ymd(Y, 6, 7), trachtId: trR.id, notiz: '5 Völker gewandert.' });
-    await DB.put('wanderungen', { zielTyp: 'stand', zielId: st3.id, vonOrt: 'Heimstand Obstwiese', nachOrt: 'Lindenallee Ost', datum: ymd(Y, 6, 12), rueckDatum: ymd(Y, 7, 12), trachtId: trL.id, notiz: '3 Völker zur Linde.' });
+    await DB.put('wanderungen', { vonStandId: st1.id, nachStandId: st2.id, volkIds: [V.Emma.id, V.Frida.id, V.Kira.id], vonOrt: st1.name, nachOrt: st2.name, datum: ymd(Y, 4, 22), grund: trR.bezeichnung, trachtId: trR.id, notiz: 'Zur Rapsblüte gewandert.' });
+    await DB.put('wanderungen', { vonStandId: st1.id, nachStandId: st3.id, volkIds: [V.Hanna.id, V.Ida.id], vonOrt: st1.name, nachOrt: st3.name, datum: ymd(Y, 6, 12), grund: trL.bezeichnung, trachtId: trL.id, notiz: 'Zur Linde gewandert.' });
+    await DB.put('wanderungen', { vonStandId: st1.id, nachStandId: st3.id, volkIds: [V.Berta.id], vonOrt: st1.name, nachOrt: st3.name, datum: ymd(Y, 5, 18), grund: 'Belegstelle', trachtId: null, notiz: 'Königin zur Belegstelle gebracht.' });
 
     let eRaps, eLinde, eFrueh;
     for (const [nm, dt, so, kg, tr] of [
@@ -1900,6 +1922,29 @@ async function fahrtForm(vorStandId = '') {
 
 /** Ein-Klick-Fahrt vom Dashboard: bucht heute + Hin-/Rückweg für einen Stand.
     Ohne hinterlegte Entfernung fällt es aufs volle Formular zurück (km eingeben). */
+/** Stände nach Besuchshäufigkeit sortieren (meiste gebuchte Fahrten zuerst),
+    bei Gleichstand alphabetisch. Liefert auch die Besuchszahlen je Stand-ID. */
+function staendeNachBesuchen(staende, fahrten) {
+  const besuche = new Map();
+  for (const f of fahrten) if (f.standId) besuche.set(f.standId, (besuche.get(f.standId) || 0) + 1);
+  const sorted = [...staende].sort((a, b) =>
+    (besuche.get(b.id) || 0) - (besuche.get(a.id) || 0) ||
+    (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()));
+  return { sorted, besuche };
+}
+
+/** Klappt die Dashboard-Kachel „Fahrt zum Stand“ zwischen Top 5 und allen Ständen um.
+    Der Zustand liegt am Widget, damit er ein Neu-Rendern (z. B. nach „Fahrt buchen“) überlebt. */
+function fahrtWidgetToggle(btn) {
+  const offen = !DASH_WIDGETS.fahrt._alle;
+  DASH_WIDGETS.fahrt._alle = offen;
+  const card = btn.closest('.card');
+  if (card) card.querySelectorAll('.fahrt-row[data-mehr]').forEach((r) => { r.style.display = offen ? '' : 'none'; });
+  const txt = btn.querySelector('.fw-txt'), chev = btn.querySelector('.fw-chev');
+  if (txt) txt.textContent = offen ? 'Weniger' : `Alle ${btn.dataset.n} Stände`;
+  if (chev) chev.textContent = offen ? '▲' : '▼';
+}
+
 async function fahrtSchnellBuchen(standId) {
   const st = await DB.get('staende', standId);
   if (!st) return UI.toast('Stand nicht gefunden', 'err');
@@ -2001,7 +2046,7 @@ Views.stand = {
       </div>
       <div class="card">
         <div class="card-title">${icon('volk')}<h2>Völker an diesem Stand</h2><button class="btn btn-ghost btn-sm no-print" id="addVolk">${icon('plus')} Volk</button></div>
-        ${voelker.length ? `<div class="rows">${voelker.map((v) => `<button class="row" data-volk="${v.id}"><span class="r-ic">${icon('volk')}</span><span class="r-main"><span class="r-title">${U.esc(v.name)}</span><span class="r-sub">${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : '<div class="muted small">Keine aktiven Völker an diesem Stand.</div>'}
+        ${voelker.length ? `<div class="rows">${voelker.map((v) => `<button class="row" data-volk="${v.id}"><span class="r-ic">${icon('volk')}</span><span class="r-main"><span class="r-title">${U.esc(v.name)}</span><span class="r-sub">${U.esc(v.funktion || '')} ${v.beutenkennung ? (v.funktion ? '· ' : '') + U.esc(v.beutenkennung) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : '<div class="muted small">Keine aktiven Völker an diesem Stand.</div>'}
       </div>
       <div class="card">
         <div class="card-title">${icon('wetter')}<h2>Wetter</h2>
@@ -2065,16 +2110,16 @@ async function openVolkForm(volk, defaults = {}, onDone) {
   const staende = await DB.getAll('staende');
   const qOpts = await koeniginOptions();
   const beutenOpts = await gelernteWerte(VORSCHLAEGE.beutentyp, 'voelker', 'beutentyp');
-  const massOpts = await gelernteWerte(VORSCHLAEGE.raehmchenmass, 'voelker', 'raehmchenmass');
+  const funktionOpts = await gelernteWerte(VORSCHLAEGE.volksfunktion, 'voelker', 'funktion');
   UI.formModal({
     title: volk ? 'Volk bearbeiten' : 'Neues Volk',
     fields: [
       { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Volk 3' },
       { key: 'standId', label: 'Bienenstand', type: 'select', options: staende.map((s) => ({ v: s.id, l: s.name })) },
+      { key: 'funktion', label: 'Funktion im Betrieb', type: 'suggest', options: funktionOpts, placeholder: 'z. B. Wirtschaftsvolk' },
       { key: 'koeniginId', label: 'Königin', type: 'select', options: qOpts },
       { key: 'beutentyp', label: 'Beutentyp', type: 'suggest', options: beutenOpts },
       { key: 'beutenkennung', label: 'Beutenkennung', placeholder: 'z. B. Z-07' },
-      { key: 'raehmchenmass', label: 'Rähmchenmaß', type: 'suggest', options: massOpts },
       { key: 'notizen', label: 'Notizen', type: 'textarea' },
     ],
     values: volk || Object.assign({ }, defaults),
@@ -2082,6 +2127,7 @@ async function openVolkForm(volk, defaults = {}, onDone) {
       const alt = volk ? volk.koeniginId : null;
       const rec = Object.assign(volk || { status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }] }, v);
       rec.standId = v.standId || null; rec.koeniginId = v.koeniginId || null;
+      delete rec.raehmchenmass; // abgeschafft: geht im Beutentyp auf
       const saved = await DB.put('voelker', rec);
       if (alt !== rec.koeniginId) {
         if (alt) { const q = await DB.get('koeniginnen', alt); if (q) { (q.historie || []).forEach((h) => { if (h.volkId === saved.id && !h.bis) h.bis = U.todayIso(); }); await DB.put('koeniginnen', q); } }
@@ -2154,7 +2200,7 @@ Views.voelker = {
         return `<button class="row" data-id="${v.id}">
           <span class="r-ic">${icon('volk')}</span>
           <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
-          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.beutentyp ? ' · ' + U.esc(v.beutentyp) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${q.jahrgang}` : ''}</span></span>
+          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${q.jahrgang}` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`)) + `</div>`;
     const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
@@ -2253,7 +2299,7 @@ Views.volk = {
     const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${v.status}</span>`;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('voelker')">${icon('back')} Alle Völker</button>
-      ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''} ${v.raehmchenmass ? '· ' + U.esc(v.raehmchenmass) : ''}`, `
+      ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : ''}${v.funktion ? U.esc(v.funktion) + ' · ' : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}`, `
         <span class="flex-wrap no-print">
           <button class="btn btn-ghost btn-sm" id="qr">${icon('qr')} QR-Code</button>
           <button class="btn btn-ghost btn-sm" id="edit">${icon('pencil')} Bearbeiten</button>
@@ -2282,7 +2328,7 @@ Views.volk = {
     $('#edit').onclick = () => openVolkForm(v, {}, renderRoute);
     $('#dup').onclick = async () => {
       if (!(await UI.confirm({ title: 'Volk duplizieren?', text: 'Es wird eine Kopie der Stammdaten angelegt (ohne Stockkarte und ohne Königin).', confirmText: 'Duplizieren', danger: false }))) return;
-      const copy = { name: v.name + ' (Kopie)', standId: v.standId, koeniginId: null, beutentyp: v.beutentyp, beutenkennung: '', raehmchenmass: v.raehmchenmass, status: 'aktiv', historie: [{ datum: U.todayIso(), text: `Als Kopie von „${v.name}“ angelegt` }], notizen: '' };
+      const copy = { name: v.name + ' (Kopie)', standId: v.standId, koeniginId: null, funktion: v.funktion || '', beutentyp: v.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: `Als Kopie von „${v.name}“ angelegt` }], notizen: '' };
       const nv = await DB.put('voelker', copy); UI.toast('Kopie angelegt'); navTo('volk/' + nv.id);
     };
     const dis = $('#dissolve');
@@ -2916,47 +2962,208 @@ Views.trachten = {
 /* =====================================================================
    MODUL: WANDERUNGEN (Volk/Stand, Tracht, Wanderbuch-PDF)
    ===================================================================== */
+/** Grund einer Wanderung als Klartext. Neue Datensätze tragen ihn als Freitext in `grund`,
+    ältere nur als Verweis auf einen Tracht-Datensatz. `trachten` ist eine idMap. */
+function wanderungGrund(w, trachten) {
+  return (w.grund || '').trim() || trachten?.get(w.trachtId)?.bezeichnung || '';
+}
+
+/** Wanderungen aus dem alten Format (zielTyp/zielId + Freitext vonOrt/nachOrt) kennen keine
+    Stand-IDs. Was sich eindeutig zuordnen lässt, wird fürs Formular vorbelegt – der Rest bleibt leer,
+    damit nichts geraten wird. Die Völker muss man in jedem Fall selbst wählen (gab es früher nicht). */
+function altdatenVorbelegung(w, staende) {
+  const out = {};
+  const perName = (name) => {
+    if (!name) return '';
+    const treffer = staende.filter((s) => s.name === name);
+    return treffer.length === 1 ? treffer[0].id : ''; // nur bei eindeutigem Namen
+  };
+  if (!w.vonStandId) { const id = perName(w.vonOrt); if (id) out.vonStandId = id; }
+  if (!w.nachStandId) {
+    const id = perName(w.nachOrt) || (w.zielTyp === 'stand' && staende.some((s) => s.id === w.zielId) ? w.zielId : '');
+    if (id) out.nachStandId = id;
+  }
+  return out;
+}
+
+/** Prüft eine Wanderung fachlich. Gibt eine Fehlermeldung zurück oder null, wenn alles passt. */
+function wanderungPruefen({ vonStandId, nachStandId, volkIds }) {
+  if (!vonStandId) return 'Bitte den Stand wählen, von dem die Völker wandern.';
+  if (!volkIds || !volkIds.length) return 'Bitte mindestens ein Volk auswählen.';
+  if (!nachStandId) return 'Bitte den Stand wählen, zu dem die Völker wandern.';
+  if (vonStandId === nachStandId) return 'Ziel-Stand und Ausgangs-Stand dürfen nicht derselbe sein.';
+  return null;
+}
+
+/** Setzt die gewanderten Völker auf den Ziel-Stand um und schreibt es in ihre Historie.
+    `erlaubteQuellen` (Liste von Stand-IDs) begrenzt den Umzug auf Völker, die noch auf einem
+    dieser Stände stehen. Beim Bearbeiten sind das der Ausgangs-Stand und das bisherige Ziel –
+    ein Volk, das inzwischen ganz woanders steht, wird so nie zurückgeholt.
+    Alle übrigen Volk-Daten (Königin, Beutentyp, Stockkarte …) bleiben unberührt. */
+async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, nachName, erlaubteQuellen) {
+  const quellen = erlaubteQuellen && erlaubteQuellen.length ? new Set(erlaubteQuellen) : null;
+  let bewegt = 0;
+  const text = `Gewandert: „${vonName}“ → „${nachName}“`;
+  for (const id of volkIds) {
+    const volk = await DB.get('voelker', id);
+    if (!volk) continue;                               // zwischenzeitlich gelöscht
+    if (volk.standId === nachStandId) continue;        // steht schon dort
+    // Ein Volk ohne Stand (z. B. weil sein Stand gelöscht wurde) darf immer mitwandern.
+    // Nur wer bewusst auf einem anderen Stand steht, bleibt unangetastet.
+    if (quellen && volk.standId && !quellen.has(volk.standId)) continue;
+    volk.standId = nachStandId;
+    volk.historie = volk.historie || [];
+    if (!volk.historie.some((h) => h.datum === datum && h.text === text)) volk.historie.push({ datum, text });
+    await DB.put('voelker', volk);
+    bewegt++;
+  }
+  return bewegt;
+}
+
 Views.wanderungen = {
   title: 'Wanderungen',
   async render(main) {
     const list = U.sortBy(await DB.getAll('wanderungen'), (w) => w.datum, true);
     const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
+    // Stand-Namen live auflösen; vonOrt/nachOrt sind nur der Fallback für gelöschte Stände + Altdaten
+    const ortVon = (w) => staende.get(w.vonStandId)?.name || w.vonOrt || '?';
+    const ortNach = (w) => staende.get(w.nachStandId)?.name || w.nachOrt || '?';
     const zn = (w) => (w.zielTyp === 'volk' ? voelker.get(w.zielId)?.name : staende.get(w.zielId)?.name) || 'gelöscht';
+    const sub = (w) => {
+      const teile = [U.fmtDate(w.datum)];
+      if (Array.isArray(w.volkIds)) {
+        const n = w.volkIds.length;
+        const namen = w.volkIds.map((id) => voelker.get(id)?.name).filter(Boolean);
+        teile.push(`${n} ${n === 1 ? 'Volk' : 'Völker'}${namen.length && n <= 3 ? ': ' + U.esc(namen.join(', ')) : ''}`);
+      } else if (w.zielTyp) teile.push(`${w.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(w))}“`); // Altdaten
+      const grund = wanderungGrund(w, trachten);
+      if (grund) teile.push(U.esc(grund));
+      return teile.join(' · ');
+    };
     main.innerHTML = pageHead('Wanderungen', 'Wanderbewegungen dokumentieren – als Wanderbuch exportierbar',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.wanderbuch()">${icon('doc')} Wanderbuch (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Wanderung</button></span>`) +
       `<div class="card">` + (list.length ? `<div class="rows">` + list.map((w) => `
         <button class="row" data-id="${w.id}">
           <span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(w.vonOrt || '?')} → ${U.esc(w.nachOrt)}</span>
-          <span class="r-sub">${U.fmtDate(w.datum)}${w.rueckDatum ? ' – ' + U.fmtDate(w.rueckDatum) : ''} · ${w.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(w))}“${w.trachtId ? ' · Tracht: ' + U.esc(trachten.get(w.trachtId)?.bezeichnung || '') : ''}</span></span>
+          <span class="r-main"><span class="r-title">${U.esc(ortVon(w))} → ${U.esc(ortNach(w))}</span>
+          <span class="r-sub">${sub(w)}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('truck', 'Noch keine Wanderung erfasst.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Wanderung</button>`)) + `</div>`;
     const form = async (w) => {
-      const ziel = await zielFelder(w || {});
+      const staendeArr = await DB.getAll('staende');
+      if (staendeArr.length < 2) return UI.toast('Für eine Wanderung brauchst du mindestens zwei Bienenstände.', 'err');
+      // Auch nicht mehr aktive Völker müssen wählbar bleiben, wenn sie zu dieser Wanderung
+      // gehören – sonst fielen sie beim Speichern still aus dem Datensatz.
+      const gewandert = new Set(w?.volkIds || []);
+      const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv' || gewandert.has(v.id)), (v) => v.name.toLowerCase());
       const trachtenArr = await DB.getAll('trachten');
-      const standNamen = (await DB.getAll('staende')).map((s) => s.name).filter(Boolean);
-      const vonOpts = await gelernteWerte(standNamen, 'wanderungen', 'vonOrt');
-      const nachOpts = await gelernteWerte(standNamen, 'wanderungen', 'nachOrt');
-      UI.formModal({
+      const standOpts = staendeArr.map((s) => ({ v: s.id, l: s.name }));
+      const namen = (id) => staendeArr.find((s) => s.id === id)?.name || '?';
+      const vorbelegt = w ? altdatenVorbelegung(w, staendeArr) : {};
+      const vonUrspruenglich = w ? (w.vonStandId || vorbelegt.vonStandId || '') : '';
+      // Grund-Vorschläge: Standardliste + die eigenen Tracht-Bezeichnungen + bereits getippte Gründe
+      const trachtNamen = trachtenArr.map((t) => (t.bezeichnung || '').trim()).filter(Boolean);
+      const grundPresets = [...VORSCHLAEGE.wanderungsgrund, ...trachtNamen.filter((n) => !VORSCHLAEGE.wanderungsgrund.includes(n))];
+      const grundOpts = await gelernteWerte(grundPresets, 'wanderungen', 'grund');
+      // Tippt man exakt den Namen einer angelegten Tracht, bleibt die Verknüpfung erhalten
+      const trachtNachName = new Map(trachtenArr.map((t) => [(t.bezeichnung || '').trim().toLowerCase(), t.id]));
+      const m = UI.formModal({
         title: w ? 'Wanderung bearbeiten' : 'Neue Wanderung', wide: true,
         fields: [
-          ...ziel,
-          { key: 'vonOrt', label: 'Von (Ort)', type: 'suggest', options: vonOpts, placeholder: 'z. B. Heimstand' },
-          { key: 'nachOrt', label: 'Nach (Ort)', type: 'suggest', required: true, options: nachOpts, placeholder: 'z. B. Rapsfeld Feldmark Nord' },
-          { key: 'datum', label: 'Datum Hinwanderung', type: 'date', required: true, default: U.todayIso() },
-          { key: 'rueckDatum', label: 'Rückwanderung (optional)', type: 'date' },
-          { key: 'trachtId', label: 'Zugeordnete Tracht', type: 'select', options: trachtenArr.map((t) => ({ v: t.id, l: t.bezeichnung })) },
+          { key: 'vonStandId', label: '1. Von welchem Stand?', type: 'select', required: true, options: standOpts },
+          { key: 'volkIds', label: '2. Welche Völker wandern?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.status !== 'aktiv' ? ` (${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'})` : '') })) },
+          { key: 'nachStandId', label: '3. Zu welchem Stand?', type: 'select', required: true, options: standOpts },
+          { key: 'datum', label: '4. Datum der Wanderung', type: 'date', required: true, default: U.todayIso() },
+          { key: 'grund', label: 'Grund der Wanderung', type: 'suggest', options: grundOpts, placeholder: 'z. B. Linde, Waldtracht, Belegstelle' },
           { key: 'notiz', label: 'Notiz', type: 'textarea' },
+          { key: 'hinw', type: 'static', html: `<div class="hint">${w
+            ? 'Änderst du den Ziel-Stand, werden die Völker nachgezogen – aber nur die, die noch am bisherigen Ziel stehen.'
+            : 'Die ausgewählten Völker werden automatisch dem Ziel-Stand zugeordnet. Alle übrigen Daten (Königin, Beutentyp, Stockkarte, Behandlungen) bleiben unverändert.'}</div>` },
         ],
-        values: zielFormValues(w),
+        values: w ? { ...w, volkIds: w.volkIds || [], grund: wanderungGrund(w, trachten), ...vorbelegt } : {},
         async onSave(v) {
-          const zielId = zielIdAus(v);
-          await DB.put('wanderungen', Object.assign(w || {}, { zielTyp: v.zielTyp, zielId, vonOrt: v.vonOrt, nachOrt: v.nachOrt, datum: v.datum, rueckDatum: v.rueckDatum, trachtId: v.trachtId || null, notiz: v.notiz }));
-          UI.toast('Wanderung gespeichert'); renderRoute();
+          const fehler = wanderungPruefen(v);
+          if (fehler) throw new Error(fehler);
+          const vonName = namen(v.vonStandId), nachName = namen(v.nachStandId);
+          const zielVorher = w?.nachStandId;
+          const alteIds = w?.volkIds || [];
+          // Passt der Grund auf eine angelegte Tracht, bleibt die Verknüpfung bestehen und
+          // der Text wird auf deren Schreibweise normalisiert („RAPS 2026“ → „Raps 2026“).
+          const eingabe = (v.grund || '').trim();
+          const trefferId = trachtNachName.get(eingabe.toLowerCase()) || null;
+          const grund = trefferId ? (trachtenArr.find((t) => t.id === trefferId)?.bezeichnung || eingabe) : eingabe;
+          const rec = Object.assign(w || {}, {
+            vonStandId: v.vonStandId, nachStandId: v.nachStandId, volkIds: v.volkIds,
+            vonOrt: vonName, nachOrt: nachName, // Klartext-Fallback fürs Wanderbuch
+            datum: v.datum, grund, trachtId: trefferId,
+            notiz: v.notiz,
+          });
+          delete rec.zielTyp; delete rec.zielId; delete rec.rueckDatum; // abgeschafft
+          await DB.put('wanderungen', rec);
+          // Beim Bearbeiten nur umziehen, wenn Ziel oder Völkerauswahl sich geändert haben –
+          // eine reine Notiz-Korrektur darf kein Volk bewegen.
+          const nurMetadaten = w && zielVorher === v.nachStandId && alteIds.length === v.volkIds.length && v.volkIds.every((id) => alteIds.includes(id));
+          // Das bisherige Ziel zählt nur dann als erlaubte Quelle, wenn der Ausgangs-Stand
+          // unverändert blieb. Sonst würde ein Stand-Wechsel fremde Völker mitverschleppen.
+          const quellen = w && v.vonStandId === vonUrspruenglich ? [v.vonStandId, zielVorher].filter(Boolean) : [v.vonStandId];
+          const bewegt = nurMetadaten ? 0 : await wanderungVoelkerUmziehen(v.volkIds, v.nachStandId, v.datum, vonName, nachName, quellen);
+          UI.toast(bewegt ? `Wanderung gespeichert · ${bewegt} ${bewegt === 1 ? 'Volk' : 'Völker'} stehen jetzt auf „${nachName}“` : 'Wanderung gespeichert');
+          renderRoute();
         },
-        onDelete: papierkorbDelete('wanderungen', w, 'Wanderung löschen?', 'Wandert in den Papierkorb.'),
+        onDelete: papierkorbDelete('wanderungen', w, 'Wanderung löschen?', 'Wandert in den Papierkorb. Die Völker bleiben, wo sie stehen.'),
       });
+      // --- Schritt-Logik: Völker hängen am gewählten Ausgangs-Stand ---
+      const vonSel = $('#f-vonStandId', m.el), nachSel = $('#f-nachStandId', m.el);
+      const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
+      // Pflicht-Selects starten neutral, damit man bewusst wählt (statt stiller Vorauswahl)
+      for (const [sel, wert] of [[vonSel, vonUrspruenglich], [nachSel, w ? (w.nachStandId || vorbelegt.nachStandId || '') : '']]) {
+        sel.insertBefore(new Option('– bitte wählen –', ''), sel.firstChild);
+        sel.value = wert || '';
+      }
+      const leerHinweis = document.createElement('div');
+      leerHinweis.className = 'hint';
+      leerHinweis.style.display = 'none';
+      box.parentNode.insertBefore(leerHinweis, box.nextSibling);
+      const bar = document.createElement('div');
+      bar.className = 'flex-wrap mb8';
+      bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
+        <span class="small muted" data-zahl></span>`;
+      wrap.insertBefore(bar, box);
+      const zeilen = () => $$('label.check-line', box);
+      const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
+      const zahlAktualisieren = () => {
+        const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length;
+        $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : '';
+      };
+      const filtern = () => {
+        const vonId = vonSel.value;
+        // Bereits gewanderte Völker stehen am Ziel, nicht mehr am Ausgangs-Stand – sie bleiben
+        // sichtbar, ABER nur solange der Ausgangs-Stand der ursprüngliche ist. Wechselt man ihn,
+        // dürfen sie nicht stillschweigend angehakt bleiben und mitverschoben werden.
+        const gewandertGilt = !!vonId && vonId === vonUrspruenglich;
+        zeilen().forEach((lab) => {
+          const inp = $('input', lab);
+          const volk = alleVoelker.find((x) => x.id === inp.value);
+          const zeig = !!vonId && volk && (volk.standId === vonId || (gewandertGilt && gewandert.has(volk.id)));
+          lab.style.display = zeig ? '' : 'none';
+          if (!zeig) inp.checked = false; // versteckte Völker nie mitspeichern
+        });
+        const n = sichtbare().length;
+        leerHinweis.style.display = vonId && !n ? '' : 'none';
+        leerHinweis.textContent = vonId && !n ? `Auf „${namen(vonId)}“ steht kein aktives Volk.` : '';
+        bar.style.display = n ? '' : 'none';
+        // Ziel darf nicht der Ausgangs-Stand sein
+        [...nachSel.options].forEach((o) => { o.disabled = !!o.value && o.value === vonId; });
+        if (nachSel.value && nachSel.value === vonId) nachSel.value = '';
+        zahlAktualisieren();
+      };
+      vonSel.addEventListener('change', filtern);
+      box.addEventListener('change', zahlAktualisieren);
+      $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahlAktualisieren(); };
+      $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahlAktualisieren(); };
+      filtern();
     };
     const add = () => form(null);
     bindAdd(add);
@@ -4283,11 +4490,11 @@ const Importer = {
     voelker: { label: 'Völker', store: 'voelker', refs: { stand: 'staende' }, felder: [
       { key: 'name', label: 'Bezeichnung/Name', required: true, aliases: ['name', 'volk', 'volkname', 'bezeichnung', 'colony', 'hive', 'stock', 'nummer', 'nr', 'volksnummer'] },
       { key: 'stand', label: 'Bienenstand (Name)', aliases: ['stand', 'standort', 'apiary', 'bienenstand', 'standname'] },
+      { key: 'funktion', label: 'Funktion im Betrieb', aliases: ['funktion', 'volksfunktion', 'rolle', 'volkstyp', 'typ', 'einsatz', 'zweck', 'purpose', 'role'] },
       { key: 'beutentyp', label: 'Beutentyp', aliases: ['beute', 'beutentyp', 'beuten', 'hivetype', 'beutenart'] },
       { key: 'beutenkennung', label: 'Beutenkennung', aliases: ['kennung', 'beutenkennung', 'tag', 'label'] },
-      { key: 'raehmchenmass', label: 'Rähmchenmaß', aliases: ['rahmchen', 'raehmchen', 'rahmchenmass', 'mass', 'frame', 'rahmenmass'] },
       { key: 'notizen', label: 'Notizen', aliases: ['notiz', 'notizen', 'bemerkung', 'kommentar', 'note'] },
-    ], build: (v, refs) => ({ name: v.name, standId: refs.stand || null, koeniginId: null, beutentyp: v.beutentyp || '', beutenkennung: v.beutenkennung || '', raehmchenmass: v.raehmchenmass || '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Importiert' }], notizen: v.notizen || '' }) },
+    ], build: (v, refs) => ({ name: v.name, standId: refs.stand || null, koeniginId: null, funktion: v.funktion || '', beutentyp: v.beutentyp || '', beutenkennung: v.beutenkennung || '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Importiert' }], notizen: v.notizen || '' }) },
     koeniginnen: { label: 'Königinnen', store: 'koeniginnen', felder: [
       { key: 'jahrgang', label: 'Jahrgang', required: true, type: 'num', aliases: ['jahrgang', 'jahr', 'year', 'geburtsjahr'] },
       { key: 'herkunft', label: 'Herkunft', aliases: ['herkunft', 'origin', 'quelle'] },
@@ -4979,12 +5186,12 @@ const Xlsx = {
     const d = this._d;
     return {
       staende: { blatt: 'Stände', rows: async () => (await DB.getAll('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
-      voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Rähmchenmaß: v.raehmchenmass, Status: v.status, Notizen: v.notizen })) },
+      voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await DB.getAll('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
       koeniginnen: { blatt: 'Königinnen', rows: async () => (await DB.getAll('koeniginnen')).map((q) => ({ Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Herkunft: q.herkunft, Linie: q.linie, Status: q.status, 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz })) },
       zuchtserien: { blatt: 'Zucht', rows: async () => (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Anzahl Zellen': z.anzahl, Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })) },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
-      wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Rückwanderung: d(w.rueckDatum), 'Volk/Stand': ziel(w), Von: w.vonOrt, Nach: w.nachOrt, Tracht: trachten.get(w.trachtId)?.bezeichnung || '', Notiz: w.notiz })) },
+      wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte, 'Menge (kg)': e.mengeKg, Tracht: trachten.get(e.trachtId)?.bezeichnung || '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
@@ -5123,8 +5330,11 @@ const Pdf = {
       const list = U.sortBy(await DB.getAll('wanderungen'), (w) => w.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
       const { doc, y } = await this.newDoc('Wanderbuch', 'Alle Wanderbewegungen der Imkerei');
-      const body = list.map((w) => [U.fmtDate(w.datum), w.rueckDatum ? U.fmtDate(w.rueckDatum) : '–', (w.zielTyp === 'volk' ? 'Volk ' + (voelker.get(w.zielId)?.name || '?') : 'Stand ' + (staende.get(w.zielId)?.name || '?')), w.vonOrt || '–', w.nachOrt, trachten.get(w.trachtId)?.bezeichnung || '–', w.notiz || '']);
-      this.table(doc, { head: ['Hin', 'Zurück', 'Volk/Stand', 'Von', 'Nach', 'Tracht', 'Notiz'], body, startY: y });
+      const wVoelker = (w) => Array.isArray(w.volkIds)
+        ? `${w.volkIds.length}: ${w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ')}`
+        : (w.zielTyp === 'volk' ? 'Volk ' + (voelker.get(w.zielId)?.name || '?') : 'Stand ' + (staende.get(w.zielId)?.name || '?')); // Altdaten
+      const body = list.map((w) => [U.fmtDate(w.datum), staende.get(w.vonStandId)?.name || w.vonOrt || '–', staende.get(w.nachStandId)?.name || w.nachOrt || '–', wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
+      this.table(doc, { head: ['Datum', 'Von', 'Nach', 'Völker', 'Grund', 'Notiz'], body, startY: y });
       this.finish(doc, `wanderbuch-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -6390,12 +6600,26 @@ function warmupBibliotheken() {
   }, 6000);
 }
 
+/** Einmalige Migration: „Rähmchenmaß“ ist abgeschafft und geht im Beutentyp auf.
+    Völker ohne Beutentyp erben den alten Wert, damit keine Info verloren geht. */
+async function migriereRaehmchenmass() {
+  if (S.get('raehmchenmassMigriert')) return;
+  for (const v of await DB.getAll('voelker')) {
+    if (!('raehmchenmass' in v)) continue;
+    if (!v.beutentyp && v.raehmchenmass) v.beutentyp = v.raehmchenmass;
+    delete v.raehmchenmass;
+    await DB.put('voelker', v);
+  }
+  await S.set('raehmchenmassMigriert', true);
+}
+
 async function boot() {
   try { await DB.open(); } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>ImkerBuch kann nicht starten</h2><p>IndexedDB ist nicht verfügbar (privater Modus?): ${U.esc(e.message)}</p></div>`;
     return;
   }
   await S.load();
+  await migriereRaehmchenmass();
   applyTheme();
   renderChrome();
   applyHeaderLogo();
@@ -6429,7 +6653,7 @@ Object.assign(window, {
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
   gelernteWerte, INVENTAR_KATEGORIEN, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
-  LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME,
+  LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
 });
 
 document.addEventListener('DOMContentLoaded', boot);

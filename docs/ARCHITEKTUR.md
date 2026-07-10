@@ -63,7 +63,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 |---|---|
 | `staende` | name, lat, lng, kmEntfernung (einfache Strecke fürs Fahrtenbuch), notizen |
 | `wetter` | standId, datum, tempC, windKmh, niederschlagMm, bemerkung, quelle (`manuell`/`open-meteo`) |
-| `voelker` | name, standId, koeniginId, beutentyp, beutenkennung, raehmchenmass, status (`aktiv`/`aufgeloest`/`vereinigt`), historie[{datum,text}], notizen |
+| `voelker` | name, standId, koeniginId, funktion, beutentyp, beutenkennung, status (`aktiv`/`aufgeloest`/`vereinigt`), historie[{datum,text}], notizen |
 | `stockkarten` | volkId, datum, volksstaerke/brutbild/sanftmut (1–5), futter, weiselzellen, notiz, zusatz{} (eigene Felder aus Setting `stockkartenFelder`) |
 | `fuetterungen` | volkId, datum, futterart, mengeKg, winterfutter |
 | `gewichte` | volkId, datum, gewichtKg |
@@ -72,7 +72,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | `zuchtserien` | name, startdatum, anzahl, termine[{tag,titel,datum}] (aus `zuchtTermine()`), notiz |
 | `behandlungen` | zielTyp/zielId (volk/stand), datum, mittel, menge, einheit, anwendungsart, wartezeitTage, notiz |
 | `trachten` | bezeichnung, pflanze, von, bis, region, standIds[] |
-| `wanderungen` | zielTyp/zielId, vonOrt, nachOrt, datum, rueckDatum, trachtId, notiz |
+| `wanderungen` | vonStandId, nachStandId, volkIds[], vonOrt/nachOrt (Klartext-Fallback), datum, grund (Freitext, z. B. Linde/Belegstelle), trachtId (nur wenn grund auf eine Tracht passt), notiz · setzt beim Speichern die standId der gewanderten Völker |
 | `ernten` | zielTyp/zielId, datum, produktart (Honig/Wachs/Pollen/…), sorte, mengeKg, trachtId, notiz |
 | `chargen` | losnummer, abfuelldatum, ernteIds[], glasGroesseG, anzahlGlaeser, bestandGlaeser, mhd, etikettNotiz, verkaufspreis (Standardpreis fürs Marktverkauf) |
 | `verkaeufe` (v2) | datum, chargeId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId – geschrieben nur über `verkaufErfassen()`/`verkaufStornieren()` (Bestands- + Kassenbuch-Kopplung) |
