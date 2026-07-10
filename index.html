@@ -137,6 +137,10 @@ main{flex:1;padding:20px 18px calc(30px + env(safe-area-inset-bottom));max-width
 .card-title{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
 .card-title h2{flex:1}
 .card-title svg{width:19px;height:19px;color:var(--honey-dark)}
+/* Aufklappbare Einstellungs-Kacheln */
+.set-head{cursor:pointer;margin-bottom:0;user-select:none}
+.set-head .set-chev{font-size:12px;color:var(--muted);flex-shrink:0;margin-left:4px}
+.set-body{margin-top:14px}
 .page-head{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px;flex-wrap:wrap}
 /* ph-text bekommt eine Mindestbreite (aber nie mehr als die volle Zeile), damit der Titel
    nicht auf wenige Pixel gestaucht wird und über die Buttons läuft. Passt er samt Actions
@@ -583,8 +587,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.55';
+const APP_VERSION = '0.56';
 const CHANGELOG = [
+  { version: '0.56', datum: '2026-07-10', punkte: [
+    'Einstellungen aufgeräumt: Die Bereiche sind jetzt aufklappbare Kacheln – tippe eine Überschrift an, um sie zu öffnen oder zu schließen. So bleibt die Seite übersichtlich.',
+    'Kilometerpauschale fürs Fahrtenbuch ist jetzt einstellbar (Einstellungen → Steuer & Rechnungen), Standard bleibt 0,30 €/km.',
+  ] },
   { version: '0.55', datum: '2026-07-10', punkte: [
     'Neuer Bereich „Fahrtenbuch": alle Fahrten auf einen Blick, jede lässt sich antippen und bearbeiten. Neben den Fahrten zu den Ständen kannst du jetzt auch eigene Fahrten anlegen – Einkauf, Schulung, Besorgung, Imkerverein und mehr.',
     '„Reporting" heißt jetzt „Statistiken".',
@@ -926,6 +934,7 @@ const S = {
     imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', tskNummer: '' },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
+    kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
     rechnungskreis: { prefix: 'RE-', next: 1 },
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
@@ -4973,12 +4982,12 @@ Views.reporting = {
             <button class="btn btn-primary btn-sm" onclick="fahrtForm()">${icon('plus')} Fahrt</button></span></div>
         <div class="stat-grid mb16">
           <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahrAkt}</div><div class="s-value">${U.fmtNum(akt.km)}</div><div class="s-sub">${akt.anzahl} Fahrten</div></div>
-          <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahrAkt}</div><div class="s-value">${U.fmtEur(akt.km * KM_PAUSCHALE)}</div><div class="s-sub">bei ${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
+          <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahrAkt}</div><div class="s-value">${U.fmtEur(akt.km * S.get('kmPauschale'))}</div><div class="s-sub">bei ${S.get('kmPauschale').toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
           <div class="stat"><div class="s-label">${icon('chart')} Kilometer gesamt</div><div class="s-value">${U.fmtNum(U.sum(jahre, (j) => j.km))}</div></div>
         </div>
         <div class="hint mb12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt in zwei Tipps gebucht. Das Fahrtenbuch-PDF eignet sich als Nachweis für die Steuer (Pauschale ohne Gewähr, Satz je nach Fall).</div>
         ${jahre.length ? `<div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Fahrten</th><th class="num">Kilometer</th><th class="num">Pauschale</th></tr></thead>
-          <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * KM_PAUSCHALE)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+          <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * S.get('kmPauschale'))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${proStand.size ? `<h3 class="mb8">Je Stand (${jahrAkt})</h3><div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Stand</th><th class="num">Fahrten</th><th class="num">Kilometer</th></tr></thead>
           <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(staende.get(sid)?.name || 'gelöscht')}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${letzte.length ? `<h3 class="mb8">Letzte Fahrten</h3><div class="rows">${letzte.map((f) => `<div class="row" style="min-height:46px">
@@ -5024,13 +5033,14 @@ Views.fahrten = {
     const jahr = Views.fahrten._jahr || jahre[0] || U.todayIso().slice(0, 4);
     const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
     const kmJahr = U.sum(list, (f) => f.km);
+    const kmSatz = S.get('kmPauschale');
     main.innerHTML = pageHead('Fahrtenbuch', 'Alle Fahrten – zu den Ständen und sonstige (Einkauf, Schulung, Besorgung). Als Nachweis fürs Finanzamt.',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahr}')">${icon('doc')} Fahrtenbuch ${jahr} (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Fahrt</button></span>`) +
       (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahr}</div><div class="s-value">${U.fmtNum(kmJahr)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fahrt' : 'Fahrten'}</div></div>
-        <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahr}</div><div class="s-value">${U.fmtEur(kmJahr * KM_PAUSCHALE)}</div><div class="s-sub">bei ${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
+        <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahr}</div><div class="s-value">${U.fmtEur(kmJahr * kmSatz)}</div><div class="s-sub">bei ${kmSatz.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
       </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
         <button class="row" data-id="${f.id}">
@@ -5799,7 +5809,8 @@ const Pdf = {
       const fahrten = U.sortBy((await DB.getAll('fahrten')).filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum);
       const staende = await idMap('staende');
       const kmSumme = U.sum(fahrten, (f) => f.km);
-      const { doc, y } = await this.newDoc(`Fahrtenbuch ${jahr}`, `${fahrten.length} Fahrten · ${U.fmtNum(kmSumme)} km · Kilometerpauschale (${KM_PAUSCHALE.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km): ${U.fmtEur(kmSumme * KM_PAUSCHALE)}`);
+      const kmSatz = S.get('kmPauschale');
+      const { doc, y } = await this.newDoc(`Fahrtenbuch ${jahr}`, `${fahrten.length} Fahrten · ${U.fmtNum(kmSumme)} km · Kilometerpauschale (${kmSatz.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km): ${U.fmtEur(kmSumme * kmSatz)}`);
       const body = fahrten.map((f) => [U.fmtDate(f.datum), fahrtZielName(f, staende), f.zweck || '', U.fmtNum(f.km), f.notiz || '']);
       body.push(['', '', 'Summe', U.fmtNum(kmSumme), '']);
       this.table(doc, { head: ['Datum', 'Ziel', 'Zweck', 'km', 'Notiz'], body, startY: y, widths: { 3: { halign: 'right' } } });
@@ -6618,6 +6629,10 @@ Views.einstellungen = {
           <input class="inp" id="st-pausch" inputmode="decimal" value="${U.fmtNum(steuer.pauschalsatz != null ? steuer.pauschalsatz : 7.8, 1)}">
           <div class="hint">Aktueller pauschaler Durchschnittssatz für land- und forstwirtschaftliche Betriebe (2025/2026: 7,8 %). Erscheint als „enthaltene pauschalierende Umsatzsteuer“ auf der Rechnung.</div>
         </div>
+        <div class="field mt12"><label>Kilometerpauschale fürs Fahrtenbuch (€/km)</label>
+          <input class="inp" id="st-km" inputmode="decimal" style="max-width:200px" value="${U.fmtNum(S.get('kmPauschale'), 2)}">
+          <div class="hint">Satz für die Kilometer-Auswertung im Fahrtenbuch (Standard 0,30 €/km). Ohne Gewähr – je nach Steuerfall.</div>
+        </div>
         <div class="grid2 mt12">
           <div class="field"><label>Rechnungsnummern-Präfix</label><input class="inp" id="rk-prefix" value="${U.esc(kreis.prefix)}"></div>
           <div class="field"><label>Nächste Nummer</label><input class="inp" id="rk-next" inputmode="numeric" value="${kreis.next}"></div>
@@ -6779,6 +6794,8 @@ Views.einstellungen = {
     };
     const stP = $('#st-pausch');
     if (stP) stP.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { steuer.pauschalsatz = v; await S.set('steuer', steuer); } };
+    const stKm = $('#st-km');
+    if (stKm) stKm.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { await S.set('kmPauschale', v); UI.toast('Kilometerpauschale gespeichert'); } else { e.target.value = U.fmtNum(S.get('kmPauschale'), 2); UI.toast('Bitte einen gültigen Betrag eingeben', 'err'); } };
     const saveKreis = U.debounce(async () => {
       kreis.prefix = $('#rk-prefix').value;
       const n = parseInt($('#rk-next').value, 10);
@@ -6870,8 +6887,42 @@ Views.einstellungen = {
       if (!(await UI.confirm({ title: 'Vorlage löschen?', text: `„${skVorlagen[+b.dataset.skvdel].name}“ wird gelöscht.`, confirmText: 'Löschen' }))) return;
       skVorlagen.splice(+b.dataset.skvdel, 1); await S.set('stockkartenVorlagen', skVorlagen); renderRoute();
     });
+
+    // Einstellungen als aufklappbare Kacheln: jede Karte einklappen, Titel zum Auf-/Zuklappen.
+    // Läuft NACH dem Anhängen aller Handler – die Elemente behalten ihre Listener beim Verschieben.
+    macheEinstellungenAufklappbar(main);
   },
 };
+
+/** Wandelt die Karten der Einstellungen in aufklappbare Kacheln um (Accordion).
+    Der Zustand (welche offen sind) überlebt ein Neu-Rendern über Views.einstellungen._offen. */
+Views.einstellungen._offen = Views.einstellungen._offen || {};
+function macheEinstellungenAufklappbar(main) {
+  const offen = Views.einstellungen._offen;
+  $$('.card', main).forEach((card, i) => {
+    const kopf = card.querySelector('.card-title');
+    const h2 = kopf && kopf.querySelector('h2');
+    if (!kopf || !h2) return;
+    const key = h2.textContent.trim() || ('karte-' + i);
+    // Alles nach dem Titel in einen einklappbaren Körper verschieben
+    const body = document.createElement('div');
+    body.className = 'set-body';
+    while (kopf.nextSibling) body.appendChild(kopf.nextSibling);
+    card.appendChild(body);
+    kopf.classList.add('set-head');
+    kopf.insertAdjacentHTML('beforeend', '<span class="set-chev">▶</span>');
+    const auf = !!offen[key];
+    body.style.display = auf ? '' : 'none';
+    kopf.querySelector('.set-chev').textContent = auf ? '▼' : '▶';
+    kopf.addEventListener('click', (e) => {
+      if (e.target.closest('button, a, input, select, label, textarea')) return; // Bedienelemente im Kopf nicht als Klapp-Klick werten
+      const jetztAuf = body.style.display === 'none';
+      body.style.display = jetztAuf ? '' : 'none';
+      kopf.querySelector('.set-chev').textContent = jetztAuf ? '▼' : '▶';
+      offen[key] = jetztAuf;
+    });
+  });
+}
 
 /** Eigenes Logo optional im App-Header/Sidebar anzeigen */
 function applyHeaderLogo() {
