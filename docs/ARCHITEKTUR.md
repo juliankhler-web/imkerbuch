@@ -73,7 +73,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | `behandlungen` | zielTyp/zielId (volk/stand), datum, mittel, menge, einheit, anwendungsart, wartezeitTage, notiz |
 | `trachten` | bezeichnung, pflanze, von, bis, region, standIds[] |
 | `wanderungen` | vonStandId, nachStandId, volkIds[], vonOrt/nachOrt (Klartext-Fallback), datum, grund (Freitext, z. B. Linde/Belegstelle), trachtId (nur wenn grund auf eine Tracht passt), notiz · setzt beim Speichern die standId der gewanderten Völker |
-| `ernten` | zielTyp/zielId, datum, produktart (Honig/Wachs/Pollen/…), sorte, mengeKg, trachtId, notiz |
+| `ernten` | zielTyp/zielId, schleuderung (1–3), datum, produktart, sorte (optional), mengeKg, wassergehalt (%), notiz · Sorte+Wassergehalt kommen meist per Laborergebnis (Honig-Tab „Sorten“) |
 | `chargen` | losnummer, abfuelldatum, ernteIds[], glasGroesseG, anzahlGlaeser, bestandGlaeser, mhd, etikettNotiz, verkaufspreis (Standardpreis fürs Marktverkauf) |
 | `verkaeufe` (v2) | datum, chargeId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId – geschrieben nur über `verkaufErfassen()`/`verkaufStornieren()` (Bestands- + Kassenbuch-Kopplung) |
 | `fahrten` (v3) | datum, standId, km, zweck, notiz – Fahrtenbuch; km vorbelegt aus `staende.kmEntfernung × 2`; Auswertung `Reporting.fahrtStatistik`, Pauschale `KM_PAUSCHALE` (0,30 €/km), PDF `Pdf.fahrtenbuch(jahr)` |

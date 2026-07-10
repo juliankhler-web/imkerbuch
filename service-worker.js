@@ -1,7 +1,8 @@
 /* ImkerBuch Service Worker – Offline-Fähigkeit
-   Strategie: App-Shell cache-first mit Hintergrund-Update,
+   Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
+   sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v059';
+const CACHE = 'imkerbuch-v061';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html'];
 // CDN-Hosts, deren Antworten dauerhaft gecacht werden (Bibliotheken, unveränderlich versioniert)
 const CDN_HOSTS = ['cdn.sheetjs.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
@@ -38,20 +39,36 @@ self.addEventListener('fetch', (e) => {
   if (BYPASS_HOSTS.some((h) => url.hostname.endsWith(h))) return; // network-only
   // Testbetrieb nie cachen: Testseite und App-unter-Test immer frisch laden
   if (url.pathname.includes('/tests/') || url.searchParams.has('testdb')) return;
+  // Das SW-Skript selbst nie über den SW ausliefern (Browser aktualisiert es direkt)
+  if (url.pathname.endsWith('service-worker.js')) return;
 
   if (url.origin === location.origin) {
-    // App-Shell: cache-first, im Hintergrund aktualisieren (stale-while-revalidate)
-    e.respondWith(
-      caches.match(e.request).then((cached) => {
-        const fresh = fetch(e.request)
+    const istSeite = e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html');
+    if (istSeite) {
+      // HTML: NETWORK-FIRST – online immer die neueste Version, offline aus dem Cache.
+      // Löst „ich lade hoch, aber die App zeigt weiter das Alte“.
+      e.respondWith(
+        fetch(e.request)
           .then((res) => {
-            if (res && res.ok) caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+            if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./index.html', copy)); }
             return res;
           })
-          .catch(() => cached);
-        return cached || fresh;
-      })
-    );
+          .catch(() => caches.match(e.request).then((c) => c || caches.match('./index.html') || caches.match('./')))
+      );
+    } else {
+      // übrige App-Dateien (Icons, Manifest, Rechtsseiten): stale-while-revalidate
+      e.respondWith(
+        caches.match(e.request).then((cached) => {
+          const fresh = fetch(e.request)
+            .then((res) => {
+              if (res && res.ok) caches.open(CACHE).then((c) => c.put(e.request, res.clone()));
+              return res;
+            })
+            .catch(() => cached);
+          return cached || fresh;
+        })
+      );
+    }
   } else if (CDN_HOSTS.some((h) => url.hostname.endsWith(h))) {
     // Bibliotheken: cache-first, einmal geladen = offline verfügbar
     e.respondWith(

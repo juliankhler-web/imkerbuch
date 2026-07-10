@@ -576,8 +576,18 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.51';
+const APP_VERSION = '0.52';
 const CHANGELOG = [
+  { version: '0.52', datum: '2026-07-10', punkte: [
+    'Updates kommen jetzt automatisch: Sobald du online bist, lädt die App beim Öffnen immer die neueste Version – kein Cache-Ärger mehr.',
+    'Imker-Rechner: 14 Rechner zum Ausklappen (Honigpreis, Varroa-Behandlung mit Dosierung, Zuckersirup, Winterfutter, Wachs, Kerzen u. v. m.).',
+    'Völker: neues Feld „Funktion im Betrieb" (Wirtschaftsvolk, Ableger, Pflegevolk …) und eine viel größere Beutentyp-Auswahl. Das alte „Rähmchenmaß" geht darin auf.',
+    'Wanderung neu gedacht: Du wählst Ausgangs-Stand → Völker → Ziel-Stand, und die Völker werden automatisch umgezogen. Neues Feld „Grund der Wanderung" (Linde, Waldtracht, Belegstelle …).',
+    'Honig: Ernten bekommen Schleuderung (1–3) und Wassergehalt. Neuer Tab „Sorten" mit Labor-Workflow – Laborergebnis einmal eintragen, es landet auf allen Ernten der Schleuderung. Honigsorten pflegst du in den Einstellungen.',
+    'Zeiterfassung: alte Einträge lassen sich jetzt nachträglich bearbeiten und löschen.',
+    'Dashboard: „Fahrt zum Stand" zeigt die 5 meistbesuchten Stände, ausklappbar auf alle.',
+    'Backup: Auf dem Computer (Chrome) kannst du den Speicherort jetzt selbst wählen statt immer „Downloads".',
+  ] },
   { version: '0.51', datum: '2026-07-07', punkte: [
     'Imkerschule Phase 2: Beim ersten Besuch bestimmst du dein Erfahrungslevel über zwei kurze Fragen – Anfänger, Fortgeschritten oder Erfahren. Fortgeschrittene und Erfahrene können Basis-Lektionen überspringen.',
     '„Frag ein Thema": Neue Rubrik in der Imkerschule – 10 durchsuchbare Themenkacheln (Schwarm, Varroa, Königin …) mit häufigen Fragen und Antworten. Volltextsuche mit Synonymen (z. B. „weisellos" findet „keine Königin").',
@@ -678,6 +688,38 @@ function changelogModal(eintraege) {
   });
   $('[data-ok]', m.el).onclick = () => m.close(true);
 }
+/** Manueller Update-Check: fragt die frische index.html vom Server ab (Cache umgangen),
+    liest deren APP_VERSION und bietet bei Unterschied das Neuladen an. Funktioniert auch,
+    wenn noch der alte Service-Worker aktiv ist – dank eindeutigem Cache-Bust-Parameter. */
+async function pruefeAufUpdate(btn) {
+  const setBtn = (txt, dis) => { if (btn) { btn.innerHTML = txt; btn.disabled = !!dis; } };
+  const original = btn ? btn.innerHTML : '';
+  setBtn('Suche …', true);
+  try {
+    const res = await fetch('./index.html?update=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('Server nicht erreichbar (Status ' + res.status + ')');
+    const html = await res.text();
+    const m = html.match(/APP_VERSION\s*=\s*'([^']+)'/);
+    const live = m && m[1];
+    setBtn(original, false);
+    if (!live) return UI.toast('Version konnte nicht gelesen werden.', 'err');
+    if (live === APP_VERSION) return UI.toast(`Du hast bereits die neueste Version (v${APP_VERSION}).`);
+    const ok = await UI.confirm({
+      title: `Neue Version v${live} verfügbar`,
+      text: `Du nutzt gerade v${APP_VERSION}. Jetzt auf v${live} aktualisieren? Die App lädt einmal neu – deine Daten bleiben auf dem Gerät erhalten.`,
+      confirmText: 'Jetzt aktualisieren',
+    });
+    if (!ok) return;
+    // Frische erzwingen: Service-Worker aktualisieren + alle Caches leeren, dann neu laden.
+    try { const regs = (await navigator.serviceWorker?.getRegistrations()) || []; await Promise.all(regs.map((r) => r.update().catch(() => {}))); } catch (e) { /* egal */ }
+    try { const keys = await caches.keys(); await Promise.all(keys.map((k) => caches.delete(k))); } catch (e) { /* egal */ }
+    location.reload();
+  } catch (e) {
+    setBtn(original, false);
+    UI.toast('Update-Prüfung fehlgeschlagen – bist du online? (' + (e.message || 'Fehler') + ')', 'err');
+  }
+}
+
 /** Nach einem Update einmalig die Neuigkeiten seit der zuletzt gesehenen Version zeigen */
 async function zeigeUpdateFenster() {
   if (TEST_MODE || !S.get('wizardDone')) return;
@@ -1800,12 +1842,12 @@ const Demo = {
     await DB.put('wanderungen', { vonStandId: st1.id, nachStandId: st3.id, volkIds: [V.Berta.id], vonOrt: st1.name, nachOrt: st3.name, datum: ymd(Y, 5, 18), grund: 'Belegstelle', trachtId: null, notiz: 'Königin zur Belegstelle gebracht.' });
 
     let eRaps, eLinde, eFrueh;
-    for (const [nm, dt, so, kg, tr] of [
-      [V['Anna'], ymd(Y - 2, 6, 15), 'Frühtracht', 17.5, null], [V['Berta'], ymd(Y - 2, 7, 20), 'Sommertracht', 21, null], [V['Clara'], ymd(Y - 2, 8, 1), 'Waldtracht', 15, null],
-      [V['Anna'], ymd(Y - 1, 6, 10), 'Raps', 22.7, trR], [V['Emma'], ymd(Y - 1, 6, 12), 'Raps', 19.8, trR], [V['Frida'], ymd(Y - 1, 7, 5), 'Linde', 24.5, trL], [V['Greta'], ymd(Y - 1, 7, 28), 'Sommerblüte', 18, null],
-      [V['Anna'], ymd(Y, 6, 8), 'Raps', 24.2, trR], [V['Emma'], ymd(Y, 6, 9), 'Raps', 20.6, trR], [V['Frida'], ymd(Y, 7, 2), 'Linde', 26.1, trL],
+    for (const [nm, dt, so, kg, tr, sl, wg] of [
+      [V['Anna'], ymd(Y - 2, 6, 15), 'Frühtracht', 17.5, null, 1, 17.8], [V['Berta'], ymd(Y - 2, 7, 20), 'Sommertracht', 21, null, 2, 17.2], [V['Clara'], ymd(Y - 2, 8, 1), 'Waldtracht', 15, null, 3, 16.4],
+      [V['Anna'], ymd(Y - 1, 6, 10), 'Raps', 22.7, trR, 1, 17.1], [V['Emma'], ymd(Y - 1, 6, 12), 'Raps', 19.8, trR, 1, 17.4], [V['Frida'], ymd(Y - 1, 7, 5), 'Linde', 24.5, trL, 2, 16.9], [V['Greta'], ymd(Y - 1, 7, 28), 'Sommerblüte', 18, null, 2, 18.1],
+      [V['Anna'], ymd(Y, 6, 8), 'Raps', 24.2, trR, 1, 17.2], [V['Emma'], ymd(Y, 6, 9), 'Raps', 20.6, trR, 1, 17.0], [V['Frida'], ymd(Y, 7, 2), 'Linde', 26.1, trL, 2, 16.8],
     ]) {
-      const e = await DB.put('ernten', { zielTyp: 'volk', zielId: nm.id, datum: dt, sorte: so, mengeKg: kg, trachtId: tr ? tr.id : null, notiz: so === 'Raps' ? 'Wassergehalt 17,2 %' : '' });
+      const e = await DB.put('ernten', { zielTyp: 'volk', zielId: nm.id, schleuderung: sl || null, datum: dt, produktart: 'Honig', sorte: so, mengeKg: kg, wassergehalt: wg ?? null, trachtId: tr ? tr.id : null, notiz: '' });
       if (so === 'Raps' && dt.startsWith(String(Y))) eRaps = e;
       if (so === 'Linde' && dt.startsWith(String(Y))) eLinde = e;
       if (so === 'Frühtracht') eFrueh = e;
@@ -4937,8 +4979,28 @@ const Backup = {
 
   /* ---------- Export: Download & Teilen ---------- */
   async exportDownload() {
-    U.download(await this.buildBlob(), this.dateiname());
-    await this.markExternal(); UI.toast('Backup heruntergeladen');
+    const name = this.dateiname();
+    // Chrome/Edge (Desktop): echten „Speichern unter“-Dialog zeigen, damit der Ordner frei wählbar ist.
+    // Wichtig: den Datei-Dialog ZUERST öffnen (solange der Klick noch „frisch“ ist), dann erst die Datei bauen.
+    let handle = null;
+    if (window.showSaveFilePicker) {
+      try {
+        handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'ImkerBuch-Sicherung', accept: { 'application/json': ['.json'] } }] });
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // Nutzer hat den Dialog abgebrochen
+        handle = null; // sonst: klassischer Download als Fallback
+      }
+    }
+    const blob = await this.buildBlob();
+    if (handle) {
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      await this.markExternal(); UI.toast('Backup gespeichert');
+      return;
+    }
+    U.download(blob, name);
+    await this.markExternal(); UI.toast('Backup heruntergeladen (Ordner „Downloads“)');
   },
   /** „Sicherung senden“: Web Share API Level 2 mit Datei, sonst Download + mailto */
   async share() {
@@ -5308,7 +5370,7 @@ const Xlsx = {
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
-      ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte, 'Menge (kg)': e.mengeKg, Tracht: trachten.get(e.trachtId)?.bezeichnung || '', Notiz: e.notiz })) },
+      ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => (await DB.getAll('verkaeufe')).map((v) => ({ Datum: d(v.datum), Los: chargenM.get(v.chargeId)?.losnummer || '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz })) },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), 'Ziel (Stand)': staende.get(f.standId)?.name || '', Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
@@ -5797,20 +5859,20 @@ const PdfImport = {
     return out.slice(0, 20);
   },
   async ernteQuickForm(prefill) {
-    const ziel = await zielFelder({});
+    const ziel = await zielFelder({}, 'Geerntet wurde');
     UI.formModal({
       title: 'Ernte übernehmen', wide: true,
       fields: [
         ...ziel,
         { key: 'datum', label: 'Erntedatum', type: 'date', required: true },
-        { key: 'sorte', label: 'Sorte', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
+        { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte'), placeholder: 'optional – ggf. später vom Labor' },
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       values: prefill,
       async onSave(v) {
         const zielId = zielIdAus(v);
-        await DB.put('ernten', { zielTyp: v.zielTyp, zielId, datum: v.datum, sorte: v.sorte, mengeKg: v.mengeKg, trachtId: null, notiz: v.notiz });
+        await DB.put('ernten', { zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: null, schleuderung: null, notiz: v.notiz });
         UI.toast('Ernte übernommen');
       },
     });
@@ -6515,6 +6577,12 @@ Views.einstellungen = {
         <div class="flex no-print"><input class="inp" id="taet-neu" placeholder="Neue Tätigkeit …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="taet-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
+      <div class="card"><div class="card-title">${icon('honig')}<h2>Honigsorten</h2></div>
+        <p class="small muted mb12">Auswahl für das Sorten-Feld bei Ernten und Laborergebnissen – frei anpassbar. Eigene Eingaben im Ernte-Formular bleiben trotzdem jederzeit möglich.</p>
+        <div class="chip-row mb12" id="sorte-list">${S.get('honigsorten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-sortedel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
+        <div class="flex no-print"><input class="inp" id="sorte-neu" placeholder="Neue Honigsorte …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="sorte-add">${icon('plus')} Hinzufügen</button></div>
+      </div>
+
       <div class="card"><div class="card-title">${icon('buch')}<h2>Eigene Stockkarten-Felder</h2></div>
         <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
         <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
@@ -6544,8 +6612,9 @@ Views.einstellungen = {
           <span class="small muted">Stand ${U.fmtDate(CHANGELOG[0].datum)}</span>
           <span class="spacer"></span>
           <button class="btn btn-ghost btn-sm no-print" onclick="changelogModal(CHANGELOG)">${icon('buch')} Was ist neu?</button>
+          <button class="btn btn-primary btn-sm no-print" id="check-update" onclick="pruefeAufUpdate(this)">${icon('download')} Nach Updates suchen</button>
         </div>
-        <div class="hint mt8">Nach jedem Update zeigt die App die Neuerungen automatisch einmalig an.</div>
+        <div class="hint mt8">„Nach Updates suchen“ fragt direkt beim Server nach der neuesten Version und lädt sie auf Wunsch – hilft, falls die App mal am alten Stand hängt.</div>
       </div>`;
 
     /* Sicherung */
@@ -6667,6 +6736,20 @@ Views.einstellungen = {
       taetigkeiten.splice(+b.dataset.taetdel, 1); await S.set('taetigkeiten', taetigkeiten); renderRoute();
     });
 
+    /* Honigsorten */
+    const honigsorten = S.get('honigsorten');
+    $('#sorte-add').onclick = async () => {
+      const v = $('#sorte-neu').value.trim();
+      if (!v) return;
+      if (honigsorten.includes(v)) return UI.toast('Sorte existiert bereits', 'err');
+      honigsorten.push(v); await S.set('honigsorten', honigsorten); renderRoute();
+    };
+    $('#sorte-list').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-sortedel]'); if (!b) return;
+      if (!(await UI.confirm({ title: 'Honigsorte entfernen?', text: `„${honigsorten[+b.dataset.sortedel]}“ wird aus der Auswahl entfernt (bestehende Ernten behalten ihre Sorte).`, confirmText: 'Entfernen' }))) return;
+      honigsorten.splice(+b.dataset.sortedel, 1); await S.set('honigsorten', honigsorten); renderRoute();
+    });
+
     /* Eigene Stockkarten-Felder */
     const skFelder = S.get('stockkartenFelder') || [];
     $('#skf-add').onclick = async () => {
@@ -6769,6 +6852,7 @@ Object.assign(window, {
   gelernteWerte, INVENTAR_KATEGORIEN, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
+  staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 
 document.addEventListener('DOMContentLoaded', boot);
