@@ -245,6 +245,13 @@ input.inp,select.inp,textarea.inp{
 textarea.inp{min-height:84px;resize:vertical}
 input.inp:focus,select.inp:focus,textarea.inp:focus{border-color:var(--honey);box-shadow:0 0 0 3px color-mix(in srgb,var(--honey) 22%,transparent)}
 select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="%23999" stroke-width="2" stroke-linecap="round"/></svg>');background-repeat:no-repeat;background-position:right 13px center;padding-right:36px}
+/* Eigenes „Auswählen-oder-Eintippen“-Dropdown (ersetzt <datalist>, das auf iOS/Android unzuverlässig ist) */
+.combo{position:relative}
+.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="%23999" stroke-width="2" stroke-linecap="round"/></svg>');background-repeat:no-repeat;background-position:right 13px center;padding-right:36px}
+.combo-list{margin-top:6px;border:1.5px solid var(--line2);border-radius:var(--r-sm);background:var(--card);max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.combo-opt{padding:12px 13px;cursor:pointer;font-size:14.5px;border-bottom:1px solid var(--line)}
+.combo-opt:last-child{border-bottom:0}
+.combo-opt:active,.combo-opt:hover{background:color-mix(in srgb,var(--honey) 16%,transparent)}
 .check-line{display:flex;align-items:center;gap:10px;padding:9px 0;cursor:pointer;font-size:14.5px;font-weight:550}
 .check-line input{width:21px;height:21px;accent-color:var(--honey);flex-shrink:0}
 .rating{display:flex;gap:4px}
@@ -581,6 +588,8 @@ const CHANGELOG = [
   { version: '0.53', datum: '2026-07-10', punkte: [
     'Automatische Updates verbessert: Die App lädt sich jetzt von selbst einmal neu, sobald eine neue Version bereitliegt – kein Neuinstallieren und kein manuelles Nachladen mehr nötig.',
     'Neuer Knopf „Nach Updates suchen" unter Einstellungen → Version: fragt direkt beim Server nach und holt die neueste Version, falls die App mal am alten Stand hängt.',
+    'Auswahl-Felder (Funktion im Betrieb, Beutentyp, Honigsorte, Grund der Wanderung …) funktionieren jetzt zuverlässig auf iPhone und Android – vorher zeigte das Dropdown dort teils keine Vorschläge.',
+    'Kassenbuch: neue Ausgaben-Kategorie „Allgemeine Geschäftskosten".',
   ] },
   { version: '0.52', datum: '2026-07-10', punkte: [
     'Updates kommen jetzt automatisch: Sobald du online bist, lädt die App beim Öffnen immer die neueste Version – kein Cache-Ärger mehr.',
@@ -756,7 +765,7 @@ const ZUCHT_KALENDER = [
 
 const KASSEN_KATEGORIEN = {
   einnahme: ['Honigverkauf', 'Völker-/Ablegerverkauf', 'Wachs/Sonstige Produkte', 'Förderung/Zuschuss', 'Sonstige Einnahme'],
-  ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Versicherung/Beiträge', 'Sonstige Ausgabe'],
+  ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Versicherung/Beiträge', 'Allgemeine Geschäftskosten', 'Sonstige Ausgabe'],
 };
 const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Behandlungsmittel', 'Futter', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
 
@@ -1012,10 +1021,13 @@ const UI = {
       } else if (f.type === 'static') {
         return `<div class="field" data-field="${f.key}">${f.html}</div>`;
       } else if (f.type === 'suggest') {
-        // Eingabefeld mit Vorschlagsliste (datalist): Vorauswahl per Dropdown, freies Eintippen möglich
+        // Eigenes Auswahl-Dropdown (kein <datalist> – das zeigt auf iOS/Android oft keine Optionen):
+        // Eingabefeld + auf-/zuklappbare Optionsliste. Freies Eintippen bleibt möglich.
         const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
-        inner = `<input class="inp" id="${fid(f.key)}" list="${fid(f.key)}-dl" placeholder="${U.esc(f.placeholder || 'auswählen oder eintippen …')}" value="${U.esc(v)}" autocomplete="off">
-          <datalist id="${fid(f.key)}-dl">${opts.map((o) => `<option value="${U.esc(o)}"></option>`).join('')}</datalist>`;
+        inner = `<div class="combo">
+          <input class="inp combo-inp" id="${fid(f.key)}" placeholder="${U.esc(f.placeholder || 'auswählen oder eintippen …')}" value="${U.esc(v)}" autocomplete="off">
+          <div class="combo-list" style="display:none">${opts.map((o) => `<div class="combo-opt" data-v="${U.esc(o)}">${U.esc(o)}</div>`).join('')}</div>
+        </div>`;
       } else if (f.type === 'number') {
         inner = `<input class="inp" id="${fid(f.key)}" inputmode="decimal" placeholder="${U.esc(f.placeholder || 'z. B. 12,5')}" value="${v === '' ? '' : U.esc(String(v).replace('.', ','))}">`;
       } else {
@@ -1031,6 +1043,25 @@ const UI = {
     const form = $('form', m.el);
     form.addEventListener('input', () => { FormGuard.dirty = true; updateShowIf(); });
     form.addEventListener('submit', (e) => e.preventDefault());
+    // Auswahl-Dropdowns (eigenes Combo statt <datalist>): tippen filtert, Tippen/Tap wählt
+    $$('.combo', form).forEach((combo) => {
+      const inp = $('.combo-inp', combo), list = $('.combo-list', combo);
+      const opts = $$('.combo-opt', list);
+      const zeigen = (test) => { let sichtbar = false; opts.forEach((o) => { const zeig = test(o); o.style.display = zeig ? '' : 'none'; if (zeig) sichtbar = true; }); list.style.display = sichtbar ? '' : 'none'; };
+      const alleZeigen = () => zeigen(() => true); // beim Antippen: ganze Liste (auch zum Wechseln)
+      const filtern = () => { const q = inp.value.trim().toLowerCase(); zeigen((o) => !q || o.textContent.toLowerCase().includes(q)); }; // beim Tippen: filtern
+      inp.addEventListener('focus', alleZeigen);
+      inp.addEventListener('click', alleZeigen);
+      inp.addEventListener('input', filtern);
+      inp.addEventListener('blur', () => setTimeout(() => { list.style.display = 'none'; }, 250));
+      list.addEventListener('click', (e) => {
+        const o = e.target.closest('.combo-opt'); if (!o) return;
+        inp.value = o.dataset.v;
+        FormGuard.dirty = true;
+        inp.dispatchEvent(new Event('input', { bubbles: true })); // dirty + showIf aktualisieren
+        list.style.display = 'none';
+      });
+    });
     // Rating-Buttons
     $$('.rating', form).forEach((r) => r.addEventListener('click', (e) => {
       const b = e.target.closest('button'); if (!b) return;
