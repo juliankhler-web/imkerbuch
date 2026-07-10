@@ -576,8 +576,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.52';
+const APP_VERSION = '0.53';
 const CHANGELOG = [
+  { version: '0.53', datum: '2026-07-10', punkte: [
+    'Automatische Updates verbessert: Die App lädt sich jetzt von selbst einmal neu, sobald eine neue Version bereitliegt – kein Neuinstallieren und kein manuelles Nachladen mehr nötig.',
+    'Neuer Knopf „Nach Updates suchen" unter Einstellungen → Version: fragt direkt beim Server nach und holt die neueste Version, falls die App mal am alten Stand hängt.',
+  ] },
   { version: '0.52', datum: '2026-07-10', punkte: [
     'Updates kommen jetzt automatisch: Sobald du online bist, lädt die App beim Öffnen immer die neueste Version – kein Cache-Ärger mehr.',
     'Imker-Rechner: 14 Rechner zum Ausklappen (Honigpreis, Varroa-Behandlung mit Dosierung, Zuckersirup, Winterfutter, Wachs, Kerzen u. v. m.).',
@@ -6829,7 +6833,19 @@ async function boot() {
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('service-worker.js').catch((e) => console.warn('Service Worker nicht registriert:', e.message));
+    // Automatisches Update: Übernimmt ein neuer Service-Worker die Kontrolle (nach einem Upload),
+    // lädt die App EINMAL von selbst neu → neueste Version ohne Neuinstallieren, ohne Cache-Ärger.
+    const hatteController = !!navigator.serviceWorker.controller; // beim allerersten Install false → kein Reload
+    let swReload = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (swReload || !hatteController) return;
+      swReload = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('service-worker.js').then((reg) => {
+      reg.update().catch(() => {}); // sofort nach einem neuen SW schauen
+      setInterval(() => reg.update().catch(() => {}), 30 * 60 * 1000); // und regelmäßig, falls die App lange offen bleibt
+    }).catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }
   if (!S.get('wizardDone') && !TEST_MODE) {
     Wizard.run();
