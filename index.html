@@ -744,7 +744,7 @@ const VORSCHLAEGE = {
   inventar: ['Beute komplett', 'Zarge', 'Rähmchen', 'Absperrgitter', 'Smoker', 'Stockmeißel', 'Abkehrbesen', 'Honigschleuder', 'Entdeckelungsgeschirr', 'Refraktometer', 'Futtertrog', 'Mittelwände', 'Ameisensäure', 'Oxalsäure', 'Bienenflucht', 'Anhänger', 'Waage'],
 };
 /* Bienenprodukte für die Ernte (Honig ist Standard) */
-const BIENENPRODUKTE = ['Honig', 'Wabenhonig', 'Wachs', 'Pollen', 'Propolis', 'Gelée Royale', 'Met', 'Bienengift', 'Ableger/Volk'];
+const BIENENPRODUKTE = ['Honig', 'Wabenhonig', 'Pollen', 'Propolis'];
 /* Ab wie vielen Tagen vor MHD die App warnt */
 const MHD_WARN_TAGE = 60;
 /* Kilometerpauschale (Reisekosten) fürs Fahrtenbuch */
@@ -869,6 +869,7 @@ const S = {
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
+    honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
     dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
@@ -2769,11 +2770,11 @@ Views.zucht = {
 /* =====================================================================
    MODUL: BEHANDLUNGEN / BESTANDSBUCH (TAMG-konform, Beleg-Anhang)
    ===================================================================== */
-async function zielFelder(defaults = {}) {
+async function zielFelder(defaults = {}, label = 'Behandelt wurde') {
   const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
   const staende = await DB.getAll('staende');
   return [
-    { key: 'zielTyp', label: 'Behandelt wurde', type: 'select', required: true, default: defaults.zielTyp || 'volk', options: [{ v: 'volk', l: 'Einzelnes Volk' }, { v: 'stand', l: 'Ganzer Stand' }] },
+    { key: 'zielTyp', label, type: 'select', required: true, default: defaults.zielTyp || 'volk', options: [{ v: 'volk', l: 'Einzelnes Volk' }, { v: 'stand', l: 'Ganzer Stand' }] },
     { key: 'zielVolk', label: 'Volk', type: 'select', options: voelker.map((v) => ({ v: v.id, l: v.name })), showIf: (f) => f.zielTyp === 'volk' },
     { key: 'zielStand', label: 'Stand', type: 'select', options: staende.map((s) => ({ v: s.id, l: s.name })), showIf: (f) => f.zielTyp === 'stand' },
   ];
@@ -3239,18 +3240,35 @@ async function verkaufForm(vorChargeId = '') {
     },
   });
 }
+/** Überträgt ein Laborergebnis (Sorte + Wassergehalt) auf mehrere Ernten auf einmal.
+    Gibt die Zahl der tatsächlich aktualisierten Ernten zurück. */
+async function laborErgebnisUebernehmen(ernteIds, sorte, wassergehalt) {
+  const s = (sorte || '').trim();
+  const w = (wassergehalt === '' || wassergehalt == null) ? null : wassergehalt;
+  let n = 0;
+  for (const id of ernteIds || []) {
+    const e = await DB.get('ernten', id);
+    if (!e) continue;                         // zwischenzeitlich gelöscht
+    e.sorte = s;
+    e.wassergehalt = w;
+    await DB.put('ernten', e);
+    n++;
+  }
+  return n;
+}
 Views.honig = {
   title: 'Honig & Chargen',
   async render(main) {
     const tab = Views.honig._tab || 'ernten';
     main.innerHTML = pageHead('Honig', 'Ernten, Abfüllungen mit Losnummern und Bestandsübersicht') + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar').appendChild(UI.tabs([
-      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' },
+      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' }, { id: 'sorten', label: 'Sorten' },
     ], tab, (t) => { Views.honig._tab = t; renderRoute(); }));
     const box = $('#tab-content');
     if (tab === 'ernten') await Views.honig.tabErnten(box);
     else if (tab === 'chargen') await Views.honig.tabChargen(box);
     else if (tab === 'verkaeufe') await Views.honig.tabVerkaeufe(box);
+    else if (tab === 'sorten') await Views.honig.tabSorten(box);
     else await Views.honig.tabBestand(box);
   },
 
@@ -3288,39 +3306,45 @@ Views.honig = {
   /* ---------- Ernten ---------- */
   async tabErnten(box) {
     const list = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
-    const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
+    const voelker = await idMap('voelker'), staende = await idMap('staende');
     const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
     const jahr = U.todayIso().slice(0, 4);
     const kgJahr = U.sum(list.filter((e) => (e.datum || '').startsWith(jahr)), (e) => e.mengeKg);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('honig')}<h2>Ernten</h2><span class="badge b-honey">${jahr}: ${U.fmtNum(kgJahr)} kg</span>
         <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Ernte</button></div>
-      ${list.length ? `<div class="rows">` + list.map((e) => `
+      ${list.length ? `<div class="rows">` + list.map((e) => {
+        const sub = [U.fmtDate(e.datum), `${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(e))}“`];
+        if (e.schleuderung) sub.push(`${e.schleuderung}. Schleuderung`);
+        if (e.wassergehalt != null) sub.push(`${U.fmtNum(e.wassergehalt, 1)} % Wasser`);
+        return `
         <button class="row" data-id="${e.id}">
           <span class="r-ic">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(e.sorte)}${e.produktart && e.produktart !== 'Honig' ? ` <span class="badge b-violet">${U.esc(e.produktart)}</span>` : ''}</span>
-          <span class="r-sub">${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(e))}“${e.trachtId ? ' · ' + U.esc(trachten.get(e.trachtId)?.bezeichnung || '') : ''}</span></span>
-          <span class="r-side"><b>${U.fmtNum(e.mengeKg)} kg</b></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
+          <span class="r-main"><span class="r-title">${e.sorte ? U.esc(e.sorte) : '<span class="muted">Sorte offen</span>'}${e.produktart && e.produktart !== 'Honig' ? ` <span class="badge b-violet">${U.esc(e.produktart)}</span>` : ''}</span>
+          <span class="r-sub">${sub.join(' · ')}</span></span>
+          <span class="r-side"><b>${U.fmtNum(e.mengeKg)} kg</b></span>${icon('chevR', 'chev')}</button>`;
+      }).join('') + `</div>`
       : emptyState('honig', 'Noch keine Ernte erfasst. Aus Ernten entstehen später Chargen mit Losnummern.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Ernte</button>`)}
     </div>`;
     const form = async (e) => {
-      const ziel = await zielFelder(e || {});
-      const trachtenArr = await DB.getAll('trachten');
+      const ziel = await zielFelder(e || {}, 'Geerntet wurde');
+      const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
       UI.formModal({
         title: e ? 'Ernte bearbeiten' : 'Ernte erfassen', wide: true,
         fields: [
+          { key: 'schleuderung', label: 'Schleuderung', type: 'select', options: [{ v: 1, l: '1. Schleuderung' }, { v: 2, l: '2. Schleuderung' }, { v: 3, l: '3. Schleuderung' }], hint: 'Für die spätere Zuordnung des Laborergebnisses (Tab „Sorten“).' },
           ...ziel,
           { key: 'datum', label: 'Erntedatum', type: 'date', required: true, default: U.todayIso() },
-          { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: BIENENPRODUKTE.map((p) => ({ v: p, l: p })) },
-          { key: 'sorte', label: 'Sorte / Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.sorte, 'ernten', 'sorte') },
           { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
-          { key: 'trachtId', label: 'Tracht', type: 'select', options: trachtenArr.map((t) => ({ v: t.id, l: t.bezeichnung })) },
-          { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Wassergehalt' },
+          { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: BIENENPRODUKTE.map((p) => ({ v: p, l: p })) },
+          { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'auswählen, eintippen oder später vom Labor', hint: 'Sorten pflegst du unter Einstellungen → „Honigsorten“.' },
+          { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', placeholder: 'z. B. 17,2 – meist erst nach dem Labor' },
+          { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Lagerort, Fass-Nr., Auffälligkeiten' },
         ],
         values: zielFormValues(e),
         async onSave(v) {
           const zielId = zielIdAus(v);
-          await DB.put('ernten', Object.assign(e || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte, mengeKg: v.mengeKg, trachtId: v.trachtId || null, notiz: v.notiz }));
+          await DB.put('ernten', Object.assign(e || {}, { zielTyp: v.zielTyp, zielId, schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: v.wassergehalt ?? null, notiz: v.notiz }));
           UI.toast('Ernte gespeichert'); renderRoute();
         },
         onDelete: papierkorbDelete('ernten', e, 'Ernte löschen?', 'Wandert in den Papierkorb.'),
@@ -3329,6 +3353,85 @@ Views.honig = {
     const add = () => form(null);
     bindAdd(add, box);
     box.addEventListener('click', (ev) => { const r = ev.target.closest('.row[data-id]'); if (r) form(list.find((x) => x.id === r.dataset.id)); });
+  },
+
+  /* ---------- Sorten & Laborergebnisse ---------- */
+  async tabSorten(box) {
+    const list = await DB.getAll('ernten');
+    const honig = list.filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig');
+    const offen = honig.filter((e) => !e.sorte);
+    const g = U.groupBy(honig.filter((e) => e.sorte), (e) => e.sorte);
+    const sortenRows = [...g.entries()].map(([sorte, items]) => {
+      const mitW = items.filter((e) => e.wassergehalt != null);
+      return { sorte, kg: U.sum(items, (e) => e.mengeKg), n: items.length, avgW: mitW.length ? U.sum(mitW, (e) => e.wassergehalt) / mitW.length : null };
+    }).sort((a, b) => b.kg - a.kg);
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('honig')}<h2>Sorten & Laborergebnisse</h2>
+        <button class="btn btn-primary btn-sm no-print" id="lab">${icon('plus')} Laborergebnis eintragen</button></div>
+      <p class="small muted mb12">Nach der Schleuderung schickst du eine Probe ins Labor. Kommt das Ergebnis zurück, trägst du hier <b>Sorte</b> und <b>Wassergehalt</b> ein – die App überträgt beides auf alle Ernten der gewählten Schleuderung. Die Sorten selbst pflegst du unter Einstellungen → „Honigsorten“.</p>
+      ${offen.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${offen.length} ${offen.length === 1 ? 'Ernte wartet' : 'Ernten warten'}</b> noch auf ein Laborergebnis (${U.fmtNum(U.sum(offen, (e) => e.mengeKg))} kg ohne Sorte).</span></div>` : ''}
+      ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Ernten</th><th class="num">Menge</th><th class="num">Ø Wasser</th></tr></thead>
+        <tbody>${sortenRows.map((r) => `<tr><td>${U.esc(r.sorte)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td></tr>`).join('')}</tbody></table></div>`
+        : (offen.length ? '' : emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.'))}
+    </div>`;
+    $('#lab', box).onclick = () => Views.honig.laborForm();
+  },
+  async laborForm() {
+    const alle = U.sortBy((await DB.getAll('ernten')).filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig'), (e) => e.datum, true);
+    if (!alle.length) return UI.toast('Erst Ernten (Schleuderungen) erfassen, dann Laborergebnisse eintragen.', 'err');
+    const voelker = await idMap('voelker'), staende = await idMap('staende');
+    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
+    const label = (e) => `${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' ? '' : 'Stand '}${zn(e)} · ${U.fmtNum(e.mengeKg)} kg${e.sorte ? ' · ' + e.sorte : ''}${e.wassergehalt != null ? ' · ' + U.fmtNum(e.wassergehalt, 1) + ' %' : ''}`;
+    const schleuderungById = new Map(alle.map((e) => [e.id, e.schleuderung || 0]));
+    const hatSorte = new Map(alle.map((e) => [e.id, !!e.sorte]));
+    const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
+    const m = UI.formModal({
+      title: 'Laborergebnis eintragen', wide: true,
+      fields: [
+        { key: 'schleuderung', label: '1. Welche Schleuderung?', type: 'select', required: true, options: [1, 2, 3].map((n) => ({ v: n, l: `${n}. Schleuderung` })) },
+        { key: 'auswahl', label: '2. Betroffene Ernten (Datum · Volk · Menge)', type: 'multicheck', required: true, options: alle.map((e) => ({ v: e.id, l: label(e) })) },
+        { key: 'sorte', label: '3. Honigsorte (Laborergebnis)', type: 'suggest', required: true, options: sortenOpts, placeholder: 'z. B. Raps' },
+        { key: 'wassergehalt', label: '4. Wassergehalt in % (Laborergebnis)', type: 'number', required: true, placeholder: 'z. B. 17,2' },
+      ],
+      values: {},
+      async onSave(v) {
+        const n = await laborErgebnisUebernehmen(v.auswahl, v.sorte, v.wassergehalt);
+        UI.toast(`Laborergebnis auf ${n} ${n === 1 ? 'Ernte' : 'Ernten'} übertragen`);
+        renderRoute();
+      },
+    });
+    // Schritt-Logik: Ernte-Auswahl folgt der gewählten Schleuderung (wie im Wanderungs-Formular)
+    const sel = $('#f-schleuderung', m.el);
+    const box = $('#f-auswahl', m.el), wrap = $('[data-field="auswahl"]', m.el);
+    sel.insertBefore(new Option('– bitte wählen –', ''), sel.firstChild);
+    sel.value = '';
+    const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
+    box.parentNode.insertBefore(leer, box.nextSibling);
+    const bar = document.createElement('div'); bar.className = 'flex-wrap mb8';
+    bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle</button><button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button><span class="small muted" data-zahl></span>`;
+    wrap.insertBefore(bar, box);
+    const zeilen = () => $$('label.check-line', box);
+    const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
+    const zahl = () => { const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length; $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; };
+    const filtern = () => {
+      const sc = +sel.value || 0;
+      zeilen().forEach((lab) => {
+        const inp = $('input', lab);
+        const zeig = !!sc && schleuderungById.get(inp.value) === sc;
+        lab.style.display = zeig ? '' : 'none';
+        inp.checked = zeig && !hatSorte.get(inp.value); // noch offene Ernten gleich vorhaken
+      });
+      const n = sichtbare().length;
+      leer.style.display = sc && !n ? '' : 'none';
+      leer.textContent = sc && !n ? `Keine Honigernte mit ${sc}. Schleuderung gefunden. Trage sie zuerst unter „Ernten“ ein.` : '';
+      bar.style.display = n ? '' : 'none';
+      zahl();
+    };
+    sel.addEventListener('change', filtern);
+    box.addEventListener('change', zahl);
+    $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
+    $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
+    filtern();
   },
 
   /* ---------- Chargen (Losnummern, QR, Rückverfolgung) ---------- */
@@ -3358,7 +3461,7 @@ Views.honig = {
       fields: [
         { key: 'losnummer', label: 'Losnummer', required: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`, hint: 'Erscheint auf dem Etikett und im QR-Code.' },
         { key: 'abfuelldatum', label: 'Abfülldatum', type: 'date', required: true, default: U.todayIso() },
-        { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte} · ${U.fmtNum(e.mengeKg)} kg` })) },
+        { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg` })) },
         { key: 'glasGroesseG', label: 'Glasgröße (g)', type: 'number', required: true, default: 500 },
         { key: 'anzahlGlaeser', label: 'Anzahl Gläser', type: 'number', required: true },
         { key: 'verkaufspreis', label: 'Verkaufspreis je Glas (€)', type: 'number', hint: 'Optional – wird im Marktverkauf als Standardpreis vorgeschlagen.' },
@@ -3397,7 +3500,7 @@ Views.honig = {
         <h3 class="mb8">Rückverfolgung: Glas → Charge → Ernte → Volk</h3>
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(e.sorte)} · ${U.fmtNum(e.mengeKg)} kg</span>
+          <span class="r-main"><span class="r-title">${e.sorte ? U.esc(e.sorte) : 'Ernte'} · ${U.fmtNum(e.mengeKg)} kg</span>
           <span class="r-sub">geerntet ${U.fmtDate(e.datum)} aus ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(quelle)}“</span></span></div>`).join('') || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
         <div class="flex-wrap mb12">
           <label class="small muted">Bestand korrigieren:</label>
@@ -4078,25 +4181,37 @@ Views.zeiten = {
         ${UI.pie({ posten: stunden, einheit: 'h' })}
       </div>
       <div class="card"><div class="card-title">${icon('buch')}<h2>Letzte Einträge</h2></div>
-        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 30).map((a) => `<div class="row" style="min-height:46px">
-          <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}</span></span>
-          <span class="badge b-honey">${a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min'}</span></div>`).join('')}</div>`
+        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 60).map((a) => `<button class="row" data-id="${a.id}" style="min-height:46px">
+          <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}${a.quelle && a.quelle !== 'manuell' ? ' · aus Aufgabe' : ''}</span></span>
+          <span class="badge b-honey">${a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min'}</span>${icon('chevR', 'chev')}</button>`).join('')}</div>
+          <p class="hint mt8">Tippe einen Eintrag an, um Dauer, Tätigkeit oder Datum zu ändern.</p>`
         : emptyState('uhr', 'Noch keine Zeiten erfasst. Hake eine Aufgabe ab (die App fragt dann nach der Dauer) oder trage hier eine Zeit nach.')}
       </div>`;
-    bindAdd(() => UI.formModal({
-      title: 'Zeit nachtragen',
-      fields: [
-        { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
-        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-        { key: 'kategorie', label: 'Tätigkeit', type: 'select', required: true, options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
-        { key: 'zeitMinuten', label: 'Dauer (Minuten)', type: 'number', required: true },
-      ],
-      async onSave(v) {
-        await DB.put('aufgaben', { titel: v.titel, faellig: v.datum, erledigt: true, quelle: 'manuell', refId: null, notiz: '', kategorie: v.kategorie, zeitMinuten: Math.round(v.zeitMinuten) });
-        UI.toast('Zeit erfasst'); renderRoute();
-      },
-    }));
-    main.addEventListener('click', (e) => { const c = e.target.closest('[data-jahr]'); if (c) { Views.zeiten._jahr = c.dataset.jahr; renderRoute(); } });
+    const form = (a) => {
+      // Alte Tätigkeit erhalten, falls sie inzwischen aus den Einstellungen entfernt wurde
+      const kats = [...S.get('taetigkeiten')];
+      if (a && a.kategorie && !kats.includes(a.kategorie)) kats.push(a.kategorie);
+      UI.formModal({
+        title: a ? 'Zeiteintrag bearbeiten' : 'Zeit nachtragen',
+        fields: [
+          { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
+          { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+          { key: 'kategorie', label: 'Tätigkeit', type: 'select', required: true, options: kats.map((t) => ({ v: t, l: t })) },
+          { key: 'zeitMinuten', label: 'Dauer (Minuten)', type: 'number', required: true },
+        ],
+        values: a ? { titel: a.titel, datum: datumVon(a), kategorie: a.kategorie || 'Sonstiges', zeitMinuten: a.zeitMinuten } : {},
+        async onSave(v) {
+          await DB.put('aufgaben', Object.assign(a || { quelle: 'manuell', refId: null, notiz: '' }, { titel: v.titel, faellig: v.datum, erledigt: true, kategorie: v.kategorie, zeitMinuten: Math.round(v.zeitMinuten) }));
+          UI.toast(a ? 'Zeiteintrag aktualisiert' : 'Zeit erfasst'); renderRoute();
+        },
+        onDelete: a ? papierkorbDelete('aufgaben', a, 'Zeiteintrag löschen?', 'Wandert in den Papierkorb.') : undefined,
+      });
+    };
+    bindAdd(() => form(null));
+    main.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-jahr]'); if (c) { Views.zeiten._jahr = c.dataset.jahr; return renderRoute(); }
+      const r = e.target.closest('.row[data-id]'); if (r) { const a = list.find((x) => x.id === r.dataset.id); if (a) form(a); }
+    });
   },
 };
 
@@ -4673,10 +4788,10 @@ const Reporting = {
   /** Honigertrag gruppiert nach volk|stand|tracht|jahr */
   async ertrag(gruppe) {
     const ernten = await DB.getAll('ernten');
-    const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
+    const voelker = await idMap('voelker'), staende = await idMap('staende');
     const key = (e) => {
       if (gruppe === 'jahr') return (e.datum || '').slice(0, 4) || '?';
-      if (gruppe === 'tracht') return e.trachtId ? trachten.get(e.trachtId)?.bezeichnung || 'gelöscht' : 'ohne Tracht';
+      if (gruppe === 'sorte') return e.sorte || 'ohne Sorte';
       if (gruppe === 'stand') { if (e.zielTyp === 'stand') return staende.get(e.zielId)?.name || 'gelöscht'; const v = voelker.get(e.zielId); return v && v.standId ? staende.get(v.standId)?.name || 'gelöscht' : 'ohne Stand'; }
       return e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name || 'gelöscht' : `Stand: ${staende.get(e.zielId)?.name || 'gelöscht'}`;
     };
@@ -4730,11 +4845,11 @@ Views.reporting = {
         ${labels.length ? UI.chart({ type: 'line', labels, series: [{ name: 'Völker', values }], height: 220 }) : emptyState('volk', 'Noch keine Völker erfasst.')}</div>`;
     } else if (typ === 'ertrag') {
       const rows = await Reporting.ertrag(gruppe);
-      box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${({ volk: 'Volk', stand: 'Stand', tracht: 'Tracht', jahr: 'Jahr' })[gruppe]}</h2>
+      box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('ertrag')">${icon('doc')} PDF</button></div>
-        <div class="seg mb12 no-print">${[['volk', 'Volk'], ['stand', 'Stand'], ['tracht', 'Tracht'], ['jahr', 'Jahr']].map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${id}">${l}</button>`).join('')}</div>
+        <div class="seg mb12 no-print">${[['volk', 'Volk'], ['stand', 'Stand'], ['sorte', 'Sorte'], ['jahr', 'Jahr']].map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${id}">${l}</button>`).join('')}</div>
         ${rows.length ? UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.k), series: [{ name: 'kg', values: rows.slice(0, 12).map((r) => r.kg) }], height: 210, unit: 'kg' }) +
-        `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>${({ volk: 'Volk', stand: 'Stand', tracht: 'Tracht', jahr: 'Jahr' })[gruppe]}</th><th class="num">Ernten</th><th class="num">Menge (kg)</th></tr></thead>
+        `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</th><th class="num">Ernten</th><th class="num">Menge (kg)</th></tr></thead>
         <tbody>${rows.map((r) => `<tr><td>${U.esc(r.k)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('honig', 'Noch keine Ernten erfasst.')}</div>`;
     } else if (typ === 'behandlungen') {
       const rows = await Reporting.behandlungsUebersicht();
@@ -5356,7 +5471,7 @@ const Pdf = {
       const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.abfuelldatum);
       const ernten = await idMap('ernten');
       const { doc, y } = await this.newDoc('Honig-Chargenübersicht', 'Rückverfolgbarkeit: Charge → Ernte');
-      const body = chargen.map((c) => [c.losnummer, U.fmtDate(c.abfuelldatum), `${U.fmtNum(c.glasGroesseG, 0)} g`, String(c.anzahlGlaeser), String(c.bestandGlaeser), U.fmtDate(c.mhd) || '–', (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ')]);
+      const body = chargen.map((c) => [c.losnummer, U.fmtDate(c.abfuelldatum), `${U.fmtNum(c.glasGroesseG, 0)} g`, String(c.anzahlGlaeser), String(c.bestandGlaeser), U.fmtDate(c.mhd) || '–', (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ')]);
       this.table(doc, { head: ['Los', 'Abgefüllt', 'Glas', 'Anzahl', 'Bestand', 'MHD', 'Ernten'], body, startY: y });
       this.finish(doc, `chargen-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
