@@ -587,8 +587,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.56';
+const APP_VERSION = '0.57';
 const CHANGELOG = [
+  { version: '0.57', datum: '2026-07-11', punkte: [
+    'Großer Qualitäts-Check der ganzen App: 10 Fehler behoben – u. a. zwei Absturzursachen in der kommenden iPhone-App (Kamera/Mikrofon), zwei Sicherheitslücken bei Adressfeldern, Speicherlecks bei Foto-Vorschauen und Sprachnotizen.',
+    'Ertrags-Statistik als PDF zeigt jetzt korrekt die Auswertung „je Sorte" (vorher stand dort doppelt „je Volk").',
+    'Bearbeiten alter Einträge ändert nichts mehr ungefragt: Ernten behalten ihr Produkt (z. B. Wachs), Kassenbuch-Buchungen ihre Kategorie.',
+  ] },
   { version: '0.56', datum: '2026-07-10', punkte: [
     'Einstellungen aufgeräumt: Die Bereiche sind jetzt aufklappbare Kacheln – tippe eine Überschrift an, um sie zu öffnen oder zu schließen. So bleibt die Seite übersichtlich.',
     'Kilometerpauschale fürs Fahrtenbuch ist jetzt einstellbar (Einstellungen → Steuer & Rechnungen), Standard bleibt 0,30 €/km.',
@@ -805,7 +810,6 @@ const VORSCHLAEGE = {
   futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. ApiInvert)', 'Futterteig', 'Eigener Honig'],
   mittel: ['Ameisensäure 60 % ad us. vet.', 'Ameisensäure 85 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
   anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
-  sorte: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume'],
   pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
   fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf', 'Einkauf/Besorgung', 'Schulung/Weiterbildung', 'Imkerverein/Versammlung', 'Werkstatt/Reparatur'],
   futter: ['ausreichend', 'gut', 'reichlich', 'knapp', 'muss gefüttert werden', '1 Futterwabe', '2 Futterwaben', '3 Futterwaben', 'verdeckelt'],
@@ -1373,8 +1377,8 @@ const Anhang = {
             <input type="file" accept=".pdf,.doc,.docx,.txt,image/*,application/pdf" class="hidden" data-add-doc></label>` : ''}
         </div>
         <div class="hint small muted">Anhänge werden lokal gespeichert. Fotos werden automatisch verkleinert; Dokumente möglichst unter 5 MB halten, sonst werden Backups groß.</div>`;
-      // Thumbnails über Blob-URLs
-      for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${a.id}"]`, el); if (img) img.src = URL.createObjectURL(a.blob); }
+      // Thumbnails über Blob-URLs; nach dem Laden freigeben, sonst leckt jeder Re-Render Speicher
+      for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${a.id}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
       const ff = $('[data-filter]', el); if (ff) ff.onchange = () => { filter = ff.value; render(); };
       $('[data-add-foto]', el).onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;
@@ -1524,7 +1528,9 @@ const Sprachnotiz = {
   section({ parentTyp, parentId, onText = null }) {
     const el = document.createElement('div');
     let recorder = null, chunks = [], live = null, liveText = '';
+    let blobUrls = []; // beim Re-Render alte Audio-URLs freigeben (sonst Speicherleck)
     const render = async () => {
+      blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls = [];
       const items = await Anhang.list(parentTyp, parentId, ['audio']);
       const whisperOn = S.get('features').whisper;
       el.innerHTML = `
@@ -1543,7 +1549,7 @@ const Sprachnotiz = {
           ${a.transkript ? `<div class="small muted" style="padding:0 4px 10px">„${U.esc(a.transkript)}“ ${onText ? `<button class="btn btn-xs btn-ghost" data-take="${a.id}">In Notiz übernehmen</button>` : ''}</div>` : ''}`).join('') || '<div class="hint small muted">Noch keine Sprachnotizen.</div>'}
         </div>
         <div data-progress></div>`;
-      for (const a of items) { const row = $(`[data-id="${a.id}"] audio`, el); if (row) row.src = URL.createObjectURL(a.blob); }
+      for (const a of items) { const row = $(`[data-id="${a.id}"] audio`, el); if (row) { const u = URL.createObjectURL(a.blob); blobUrls.push(u); row.src = u; } }
       $('[data-rec]', el).onclick = () => (recorder ? stopRec() : startRec());
       $('[data-list]', el).addEventListener('click', async (e) => {
         const take = e.target.closest('[data-take]');
@@ -3039,15 +3045,17 @@ Views.trachten = {
     const trachten = U.sortBy(await DB.getAll('trachten'), (t) => t.von || '', true);
     const ernten = await DB.getAll('ernten');
     const staende = await idMap('staende');
-    main.innerHTML = pageHead('Trachten', 'Trachtquellen verwalten und Erträge zuordnen',
+    main.innerHTML = pageHead('Trachten', 'Trachtquellen verwalten – zuordenbar zu Ständen und Wanderungen',
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Tracht</button>`) +
       `<div class="card">` + (trachten.length ? `<div class="rows">` + trachten.map((t) => {
+        // Ertrag je Tracht stammt aus Alt-Ernten mit Tracht-Verknüpfung; neue Ernten werden
+        // nach Sorte ausgewertet (Honig → Sorten / Statistiken) – daher nur zeigen, wenn vorhanden.
         const kg = U.sum(ernten.filter((e) => e.trachtId === t.id), (e) => e.mengeKg);
         return `<button class="row" data-id="${t.id}">
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('flower')}</span>
           <span class="r-main"><span class="r-title">${U.esc(t.bezeichnung)}</span>
           <span class="r-sub">${U.esc(t.pflanze || '')}${t.von ? ` · ${U.fmtDate(t.von)} – ${U.fmtDate(t.bis)}` : ''}${t.region ? ' · ' + U.esc(t.region) : ''}${(t.standIds || []).length ? ' · ' + t.standIds.map((s) => U.esc(staende.get(s)?.name || '')).filter(Boolean).join(', ') : ''}</span></span>
-          <span class="r-side"><b>${U.fmtNum(kg)} kg</b><br><span class="muted small">Ertrag</span></span>
+          ${kg > 0 ? `<span class="r-side"><b>${U.fmtNum(kg)} kg</b><br><span class="muted small">Ertrag</span></span>` : ''}
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('flower', 'Noch keine Tracht angelegt. Trachten lassen sich Ständen und Wanderungen zuordnen und in den Statistiken auswerten.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Tracht</button>`)) + `</div>`;
     const staendeArr = [...staende.values()];
@@ -3447,7 +3455,9 @@ Views.honig = {
           ...ziel,
           { key: 'datum', label: 'Erntedatum', type: 'date', required: true, default: U.todayIso() },
           { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
-          { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: BIENENPRODUKTE.map((p) => ({ v: p, l: p })) },
+          // Alt-Ernten können Produkte tragen, die es in der Auswahl nicht mehr gibt (z. B. „Wachs“) –
+          // den Bestandswert mit anbieten, sonst würde er beim Speichern still zu „Honig“.
+          { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: [...new Set([...BIENENPRODUKTE, ...(e && e.produktart ? [e.produktart] : [])])].map((p) => ({ v: p, l: p })) },
           { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'auswählen, eintippen oder später vom Labor', hint: 'Sorten pflegst du unter Einstellungen → „Honigsorten“.' },
           { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', placeholder: 'z. B. 17,2 – meist erst nach dem Labor' },
           { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Lagerort, Fass-Nr., Auffälligkeiten' },
@@ -3838,13 +3848,17 @@ Views.kassenbuch = {
   async form(k) {
     const kontakte = await DB.getAll('kontakte');
     const beschrOpts = await gelernteWerte([], 'kassenbuch', 'beschreibung');
+    // Bestehende Kategorie erhalten, auch wenn sie nicht (mehr) in der Standardliste steht –
+    // sonst würde sie beim Speichern still auf „Sonstiges“ zurückfallen.
+    const einKats = [...KASSEN_KATEGORIEN.einnahme], ausKats = [...KASSEN_KATEGORIEN.ausgabe];
+    if (k && k.kategorie) { const liste = k.typ === 'einnahme' ? einKats : ausKats; if (!liste.includes(k.kategorie)) liste.push(k.kategorie); }
     UI.formModal({
       title: k ? 'Buchung bearbeiten' : 'Neue Buchung',
       fields: [
         { key: 'typ', label: 'Art', type: 'select', required: true, default: 'einnahme', options: [{ v: 'einnahme', l: 'Einnahme' }, { v: 'ausgabe', l: 'Ausgabe' }] },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-        { key: 'katEin', label: 'Kategorie', type: 'select', options: KASSEN_KATEGORIEN.einnahme.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'einnahme' },
-        { key: 'katAus', label: 'Kategorie', type: 'select', options: KASSEN_KATEGORIEN.ausgabe.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'ausgabe' },
+        { key: 'katEin', label: 'Kategorie', type: 'select', options: einKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'einnahme' },
+        { key: 'katAus', label: 'Kategorie', type: 'select', options: ausKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'ausgabe' },
         { key: 'betrag', label: 'Betrag (€)', type: 'number', required: true },
         { key: 'steuersatz', label: 'Steuersatz', type: 'select', default: '0', options: [{ v: '0', l: '0 % / keine' }, { v: '7', l: '7 %' }, { v: '19', l: '19 %' }] },
         { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${c.typ})` })) },
@@ -3881,7 +3895,7 @@ Views.kassenbuch = {
         <button class="row" data-id="${c.id}">
           <span class="r-ic">${icon('meldung')}</span>
           <span class="r-main"><span class="r-title">${U.esc(c.name)} <span class="badge ${c.typ === 'kunde' ? 'b-honey' : 'b-blue'}">${c.typ}</span></span>
-          <span class="r-sub">${[c.strasse, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')}${c.telefon ? ' · ' + U.esc(c.telefon) : ''}${c.email ? ' · ' + U.esc(c.email) : ''}</span></span>
+          <span class="r-sub">${U.esc([c.strasse, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}${c.telefon ? ' · ' + U.esc(c.telefon) : ''}${c.email ? ' · ' + U.esc(c.email) : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('meldung', 'Noch keine Kontakte. Kunden brauchst du für Rechnungen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Kontakt</button>`)}
     </div>`;
@@ -5842,9 +5856,9 @@ const Pdf = {
         return this.finish(doc, `report-voelker-${U.todayIso()}.pdf`);
       }
       if (typ === 'ertrag') {
-        const { doc, y } = await this.newDoc('Report: Honigertrag', 'Summen je Volk, Stand, Tracht und Jahr');
+        const { doc, y } = await this.newDoc('Report: Honigertrag', 'Summen je Volk, Stand, Sorte und Jahr');
         let yy = y;
-        for (const [gruppe, label] of [['volk', 'je Volk'], ['stand', 'je Stand'], ['tracht', 'je Tracht'], ['jahr', 'je Jahr']]) {
+        for (const [gruppe, label] of [['volk', 'je Volk'], ['stand', 'je Stand'], ['sorte', 'je Sorte'], ['jahr', 'je Jahr']]) {
           const rows = await Reporting.ertrag(gruppe);
           doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
           if (yy > 250) { doc.addPage(); yy = 20; }
@@ -6591,8 +6605,8 @@ Views.einstellungen = {
         <div class="detail-kv mb12">
           <dt>Vorname</dt><dd>${U.esc(profil.vorname) || '–'}</dd>
           <dt>Imkerei</dt><dd>${U.esc(imk.name) || '–'}</dd>
-          <dt>Anschrift</dt><dd>${[imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '–'}</dd>
-          <dt>Kontakt</dt><dd>${[imk.telefon, imk.email].filter(Boolean).join(' · ') || '–'}</dd>
+          <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
+          <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
           <dt>Registriernummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
           <dt>TSK-Nummer</dt><dd>${U.esc(imk.tskNummer) || '–'}</dd>
         </div>
