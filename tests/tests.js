@@ -56,9 +56,9 @@ test('queenColor: internationale Zeichenfarben', (w) => {
 });
 test('zuchtTermine: Zuchtkalender ab Umlarvtag', (w) => {
   const t = w.zuchtTermine('2026-07-03');
-  assertEq(t.map((x) => x.tag), [0, 2, 10, 12, 13, 19, 28], 'Tages-Offsets');
+  assertEq(t.map((x) => x.tag), [0, 1, 5, 10, 12, 13, 19, 34, 41], 'Tages-Offsets (fachlich korrigiert)');
   assertEq(t[0].datum, '2026-07-03', 'Umlarven = Starttag');
-  assertEq(t.find((x) => x.titel.includes('Schlupf')).datum, '2026-07-15', 'Schlupf Tag 12');
+  assertEq(t.find((x) => x.tag === 12).datum, '2026-07-15', 'Schlupf Tag 12');
 });
 test('rechnungSummen: Brutto & enthaltene USt', (w) => {
   const r = { kleinunternehmer: false, positionen: [{ menge: 6, einzelpreis: 6.5, steuersatz: 7 }, { menge: 1, einzelpreis: 10, steuersatz: 19 }] };
@@ -549,14 +549,15 @@ test('Version & Changelog konsistent (Update-Fenster-Grundlage)', (w) => {
 });
 
 /* ---------- Aufgaben-Automatik ---------- */
-test('syncZuchtAufgaben: 7 Termine als Aufgaben', async (w) => {
+test('syncZuchtAufgaben: je Kalenderschritt eine Aufgabe', async (w) => {
+  const n = w.ZUCHT_KALENDER.length;
   const serie = await w.DB.put('zuchtserien', { name: 'Test-Serie', startdatum: '2026-07-01', anzahl: 10, termine: w.zuchtTermine('2026-07-01'), notiz: '' });
   await w.syncZuchtAufgaben(serie);
   const tasks = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'zucht' && a.refId === serie.id);
-  assertEq(tasks.length, 7, 'eine Aufgabe je Kalenderschritt');
+  assertEq(tasks.length, n, 'eine Aufgabe je Kalenderschritt');
   await w.syncZuchtAufgaben(serie); // erneut → keine Duplikate
   const nochmal = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'zucht' && a.refId === serie.id);
-  assertEq(nochmal.length, 7, 'Sync ersetzt statt dupliziert');
+  assertEq(nochmal.length, n, 'Sync ersetzt statt dupliziert');
 });
 
 /* ---------- Beispieldaten (Demo) ---------- */
@@ -855,4 +856,150 @@ test('wanderungGrund: Freitext gewinnt, Altdaten fallen auf die Tracht zurück',
   assertEq(w.wanderungGrund({ trachtId: 'weg' }, trachten), '', 'gelöschte Tracht → leer');
   assertEq(w.wanderungGrund({}, trachten), '', 'nichts gesetzt → leer');
   assertEq(w.wanderungGrund({ grund: 'X' }, undefined), 'X', 'ohne trachten-Map robust');
+});
+
+/* ---------- Ernte-Umbau: Produkte, Honigsorten, Laborergebnis ---------- */
+test('BIENENPRODUKTE auf Honig-Produkte reduziert', (w) => {
+  const p = w.BIENENPRODUKTE;
+  ['Honig', 'Wabenhonig', 'Pollen', 'Propolis'].forEach((n) => assert(p.includes(n), n + ' vorhanden'));
+  ['Wachs', 'Gelée Royale', 'Met', 'Bienengift', 'Ableger/Volk'].forEach((n) => assert(!p.includes(n), n + ' entfernt'));
+});
+test('Honigsorten sind einstellbar (Settings-Default vorhanden)', (w) => {
+  const s = w.S.get('honigsorten');
+  assert(Array.isArray(s) && s.length >= 5, 'Default-Liste vorhanden');
+  assert(s.includes('Raps') && s.includes('Linde'), 'gängige Sorten dabei');
+});
+test('laborErgebnisUebernehmen: Sorte + Wassergehalt auf mehrere Ernten', async (w) => {
+  const a = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'vx', schleuderung: 1, datum: '2026-06-15', produktart: 'Honig', sorte: '', mengeKg: 20, wassergehalt: null, notiz: '' });
+  const b = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'vy', schleuderung: 1, datum: '2026-06-16', produktart: 'Honig', sorte: '', mengeKg: 18, wassergehalt: null, notiz: '' });
+  const n = await w.laborErgebnisUebernehmen([a.id, b.id, 'geloescht-xyz'], '  Raps  ', 17.2);
+  assertEq(n, 2, 'zwei Ernten aktualisiert, gelöschte ignoriert');
+  const na = await w.DB.get('ernten', a.id), nb = await w.DB.get('ernten', b.id);
+  assertEq(na.sorte, 'Raps', 'Sorte getrimmt übernommen');
+  assertEq(na.wassergehalt, 17.2, 'Wassergehalt übernommen');
+  assertEq(nb.sorte, 'Raps', 'auch zweite Ernte');
+  assertEq(na.mengeKg, 20, 'Menge unverändert');
+  assertEq(na.schleuderung, 1, 'Schleuderung unverändert');
+});
+test('Reporting.ertrag: Gruppierung nach Sorte', async (w) => {
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'vz', datum: '2026-06-01', produktart: 'Honig', sorte: 'ReptestSorte', mengeKg: 5, wassergehalt: null });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'vz', datum: '2026-06-02', produktart: 'Honig', sorte: 'ReptestSorte', mengeKg: 7, wassergehalt: null });
+  const rows = await w.Reporting.ertrag('sorte');
+  const r = rows.find((x) => x.k === 'ReptestSorte');
+  assert(r, 'Sorte taucht in der Gruppierung auf');
+  assertEq(r.kg, 12, 'Menge je Sorte summiert');
+});
+
+/* ---------- Fahrtenbuch: Stand-Fahrten + freie Fahrten ---------- */
+test('fahrtZielName: Stand-Name, sonst freies Ziel/Zweck', (w) => {
+  const staende = new Map([['s1', { name: 'Heimstand' }]]);
+  assertEq(w.fahrtZielName({ standId: 's1' }, staende), 'Heimstand', 'Stand-Name');
+  assertEq(w.fahrtZielName({ standId: 'weg' }, staende), 'gelöschter Stand', 'gelöschter Stand');
+  assertEq(w.fahrtZielName({ standId: null, freiZiel: 'Imkerbedarf Müller' }, staende), 'Imkerbedarf Müller', 'freies Ziel');
+  assertEq(w.fahrtZielName({ standId: null, freiZiel: '', zweck: 'Schulung/Weiterbildung' }, staende), 'Schulung/Weiterbildung', 'Fallback Zweck');
+  assertEq(w.fahrtZielName({ standId: null }, staende), 'Andere Fahrt', 'letzter Fallback');
+});
+test('VORSCHLAEGE.fahrtzweck enthält freie Zwecke', (w) => {
+  ['Einkauf/Besorgung', 'Schulung/Weiterbildung', 'Imkerverein/Versammlung'].forEach((z) => assert(w.VORSCHLAEGE.fahrtzweck.includes(z), z + ' vorhanden'));
+});
+
+/* ---------- Fütterung: Sammel-Erfassung mit Stand-/Funktions-Filter ---------- */
+test('passtZuFilter: Stand + Funktion + nur aktive', (w) => {
+  const v = { status: 'aktiv', standId: 's1', funktion: 'Wirtschaftsvolk' };
+  assert(w.passtZuFilter(v, '', ''), 'leere Filter = passt');
+  assert(w.passtZuFilter(v, 's1', ''), 'richtiger Stand');
+  assert(!w.passtZuFilter(v, 's2', ''), 'falscher Stand');
+  assert(w.passtZuFilter(v, 's1', 'Wirtschaftsvolk'), 'Stand + Funktion');
+  assert(!w.passtZuFilter(v, '', 'Ableger'), 'falsche Funktion');
+  assert(!w.passtZuFilter({ ...v, status: 'aufgeloest' }, '', ''), 'inaktive nie');
+  assert(!w.passtZuFilter({ status: 'aktiv', standId: 's1' }, '', 'Wirtschaftsvolk'), 'Volk ohne Funktion passt nicht zu Funktions-Filter');
+});
+test('fuetterungFuerVoelker: legt je Volk einen Datensatz an', async (w) => {
+  const v1 = await w.DB.put('voelker', { name: 'FütTest1', status: 'aktiv' });
+  const v2 = await w.DB.put('voelker', { name: 'FütTest2', status: 'aktiv' });
+  const n = await w.fuetterungFuerVoelker([v1.id, v2.id], { datum: '2026-08-01', futterart: 'Zuckerwasser 3:2', mengeKg: 5, winterfutter: true, wiedervorlageTage: 7 });
+  assertEq(n, 2, 'zwei Datensätze');
+  const alle = (await w.DB.getAll('fuetterungen')).filter((f) => [v1.id, v2.id].includes(f.volkId));
+  assertEq(alle.length, 2, 'beide in der DB');
+  assertEq(alle[0].mengeKg, 5, 'Menge übernommen');
+  assert(alle.every((f) => f.winterfutter === true), 'Winterfutter-Haken übernommen');
+  assert(alle.every((f) => !('wiedervorlageTage' in f)), 'Formular-Hilfsfeld wird nicht mitgespeichert');
+  assertEq(await w.fuetterungFuerVoelker([], { datum: 'x' }), 0, 'leere Auswahl = 0');
+});
+
+/* ---------- Zucht: Kennung, Zuchtnote, Töchter aus Serie ---------- */
+test('zuchtNote: Durchschnitt der bewerteten Merkmale (0 zählt nicht)', (w) => {
+  assertEq(w.zuchtNote({ sanftmut: 4, wabensitz: 4, schwarm: 4, entwicklung: 4 }), 4, 'alle 4');
+  assertEq(w.zuchtNote({ sanftmut: 4, wabensitz: 3, schwarm: 0, entwicklung: 0 }), 3.5, 'nur bewertete zählen');
+  assertEq(w.zuchtNote({}), 0, 'nichts bewertet = 0');
+  assertEq(w.zuchtNote(null), 0, 'null robust');
+});
+test('naechsteKennung: fortlaufend je Kürzel+Jahr, eindeutig', async (w) => {
+  const bestand = (await w.DB.getAll('koeniginnen')).length;
+  await w.DB.put('koeniginnen', { kennung: 'ZZ-30-001', jahrgang: 2030, status: 'aktiv' });
+  await w.DB.put('koeniginnen', { kennung: 'ZZ-30-004', jahrgang: 2030, status: 'aktiv' });
+  const alt = w.S.get('imkerei');
+  await w.S.set('imkerei', { ...alt, name: 'Zeidler Zunft' }); // Kürzel ZZ
+  const k = await w.naechsteKennung(2030);
+  assertEq(k, 'ZZ-30-005', 'zählt über die höchste vorhandene Nummer hinaus');
+  const k2 = await w.naechsteKennung(2031);
+  assertEq(k2, 'ZZ-31-001', 'anderes Jahr beginnt bei 001');
+  await w.S.set('imkerei', alt);
+});
+test('erzeugeToechter: erben Mutter/Anpaarung/Linie/Jahrgang + eindeutige Kennungen', async (w) => {
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'M-99-001', jahrgang: 1999, linie: 'Carnica X', status: 'aktiv' });
+  const vater = await w.DB.put('koeniginnen', { kennung: 'V-99-001', jahrgang: 1999, status: 'aktiv' });
+  const serie = { id: 'serie-test-xy', name: 'Testserie', linie: 'Carnica X', zuchtmutterId: mutter.id, anpaarung: 'besamung', vatervolkId: vater.id, belegstelle: '' };
+  const n = await w.erzeugeToechter(serie, 3, 2027);
+  assertEq(n, 3, 'drei Töchter');
+  const toechter = (await w.DB.getAll('koeniginnen')).filter((q) => q.serieId === 'serie-test-xy');
+  assertEq(toechter.length, 3, 'drei in der DB mit Serien-Rückreferenz');
+  assert(toechter.every((t) => t.mutterId === mutter.id), 'Mutter vererbt');
+  assert(toechter.every((t) => t.vatervolkId === vater.id && t.anpaarung === 'besamung'), 'Vaterseite vererbt');
+  assert(toechter.every((t) => t.jahrgang === 2027 && t.linie === 'Carnica X'), 'Jahrgang + Linie vererbt');
+  assertEq(new Set(toechter.map((t) => t.kennung)).size, 3, 'Kennungen eindeutig');
+});
+test('Zuchtkalender: fachlich korrigierte Tage', (w) => {
+  const tage = Object.fromEntries(w.ZUCHT_KALENDER.map((z) => [z.tag, z.titel]));
+  assert(tage[5] && /erdeckel/.test(tage[5]), 'Verdeckelung an Tag 5 ergänzt');
+  assert(tage[1], 'Annahme an Tag 1');
+  assert(tage[12] && /chlupf/.test(tage[12]), 'Schlupf Tag 12');
+  assert(tage[41], 'Legekontrolle-Deadline Tag 41');
+  assert(!tage[2], 'alter Annahme-Tag 2 entfernt');
+});
+test('setBewertung: schreibt Bewertung + Bewertungsdatum an die Königin', async (w) => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'BW-27-001', jahrgang: 2027, status: 'aktiv', historie: [], bewertung: {} });
+  const ok = await w.setBewertung(q.id, { sanftmut: 4, wabensitz: 3, schwarm: 2, entwicklung: 4, honigKg: 30 }, '2027-06-01');
+  assert(ok, 'true bei Erfolg');
+  const nach = await w.DB.get('koeniginnen', q.id);
+  assertEq(nach.bewertung.sanftmut, 4, 'Sanftmut gespeichert');
+  assertEq(nach.bewertung.honigKg, 30, 'Honig gespeichert');
+  assertEq(nach.bewertetAm, '2027-06-01', 'Bewertungsdatum gespeichert');
+  assertEq(w.zuchtNote(nach.bewertung), 3.3, 'Zuchtnote aus den vier Merkmalen');
+  assert(!(await w.setBewertung('gibts-nicht', {}, '2027-06-01')), 'false bei unbekannter Königin');
+});
+test('umweiseln: neue Königin einsetzen, alte auf umgeweiselt, Historie sauber', async (w) => {
+  const alt = await w.DB.put('koeniginnen', { kennung: 'ALT-27-001', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const volk = await w.DB.put('voelker', { name: 'Umweisel-Volk A', status: 'aktiv', koeniginId: alt.id, historie: [] });
+  // Zuordnung der alten Königin öffnen (wie beim Zuweisen im Volk-Formular)
+  alt.historie = [{ volkId: volk.id, von: '2026-04-01', bis: null }]; await w.DB.put('koeniginnen', alt);
+  const neu = await w.DB.put('koeniginnen', { kennung: 'NEU-27-001', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const ok = await w.umweiseln(volk.id, neu.id, '2027-05-15');
+  assert(ok, 'true bei Erfolg');
+  const vNach = await w.DB.get('voelker', volk.id);
+  const altNach = await w.DB.get('koeniginnen', alt.id);
+  const neuNach = await w.DB.get('koeniginnen', neu.id);
+  assertEq(vNach.koeniginId, neu.id, 'Volk trägt jetzt die neue Königin');
+  assertEq(altNach.status, 'umgeweiselt', 'alte Königin auf umgeweiselt gesetzt');
+  assertEq(altNach.historie[0].bis, '2027-05-15', 'alte Zuordnung beendet');
+  const offen = (neuNach.historie || []).find((h) => h.volkId === volk.id && !h.bis);
+  assert(offen && offen.von === '2027-05-15', 'neue Königin hat offene Zuordnung ab Datum');
+});
+test('umweiseln: löst die neue Königin aus einem anderen Volk', async (w) => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'MOVE-27-001', jahrgang: 2027, status: 'aktiv', historie: [{ volkId: null, von: '2026-04-01', bis: null }] });
+  const vAlt = await w.DB.put('voelker', { name: 'Herkunft-Volk', status: 'aktiv', koeniginId: q.id, historie: [] });
+  const vNeu = await w.DB.put('voelker', { name: 'Ziel-Volk', status: 'aktiv', koeniginId: null, historie: [] });
+  await w.umweiseln(vNeu.id, q.id, '2027-05-20');
+  assertEq((await w.DB.get('voelker', vAlt.id)).koeniginId, null, 'altes Volk hat die Königin verloren');
+  assertEq((await w.DB.get('voelker', vNeu.id)).koeniginId, q.id, 'Ziel-Volk hat sie erhalten');
 });

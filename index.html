@@ -596,8 +596,18 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.60';
+const APP_VERSION = '0.62';
 const CHANGELOG = [
+  { version: '0.62', datum: '2026-07-13', punkte: [
+    'Zucht: Zwei neue Sammel-Abläufe bei den Königinnen – wie bei der Fütterung erst Stand/Funktion filtern, dann viele Völker auf einmal bearbeiten.',
+    '„Bewertungs-Runde": Bewerte einen ganzen (Prüf-)Stand am selben Tag – Volk für Volk Sanftmut, Wabensitz, Schwarmträgheit, Entwicklung und Honig, ohne jede Königin einzeln zu öffnen.',
+    '„Umweiseln": Ordne mehreren Völkern in einem Schritt neue Königinnen zu (z. B. frisch erzeugte Töchter). Die bisherige Königin wird automatisch auf „umgeweiselt" gesetzt, Historie inklusive.',
+  ] },
+  { version: '0.61', datum: '2026-07-12', punkte: [
+    'Zucht rundum überarbeitet (fachlich recherchiert): Der Zuchtkalender ist jetzt korrekt – mit Verdeckelung an Tag 5, Annahme an Tag 1 und Legekontrolle als Deadline. Königinnen bekommen eine automatische Zuchtbuch-Kennung, eine Vaterseite (Anpaarung: Standbegattung/Belegstelle/Besamung mit Vatervolk) und eine Bewertung (Sanftmut, Wabensitz, Schwarmträgheit, Entwicklung, Honig) mit Zuchtnote.',
+    'Der Stammbaum zeigt jetzt beide Seiten – Mutter- UND Vaterlinie – und die Töchter.',
+    'Neu: Aus einer Zuchtserie lassen sich mit einem Klick alle Töchter-Königinnen anlegen; sie erben Mutter, Anpaarung, Linie, Jahrgang und bekommen fortlaufende Kennungen. Serien führen jetzt Zuchtmutter, geplante Anpaarung und Verlaufszahlen (angenommen/geschlüpft/begattet).',
+  ] },
   { version: '0.60', datum: '2026-07-12', punkte: [
     'Neuer Bereich „Fütterung": Füttere viele Völker auf einmal – Stand wählen, optional nach Funktion filtern (z. B. nur Wirtschaftsvölker), Völker anhaken, fertig. Jede Fütterung landet automatisch in der Stockkarte jedes Volks, im Excel-Export und in der neuen Jahres-PDF-Liste.',
   ] },
@@ -791,15 +801,39 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const QUEEN_COLORS = { 1: ['Weiß', '#EDEDED'], 6: ['Weiß', '#EDEDED'], 2: ['Gelb', '#F2C230'], 7: ['Gelb', '#F2C230'], 3: ['Rot', '#C43B2F'], 8: ['Rot', '#C43B2F'], 4: ['Grün', '#3E8A3E'], 9: ['Grün', '#3E8A3E'], 5: ['Blau', '#2D6FB3'], 0: ['Blau', '#2D6FB3'] };
 const queenColor = (jahrgang) => QUEEN_COLORS[Math.abs(jahrgang) % 10] || ['?', '#999'];
 
+/** Züchter-/Standkürzel für die Königinnen-Kennung: aus Imkerei-Name bzw. Vorname abgeleitet. */
+function zuechterKuerzel() {
+  const imk = S.get('imkerei') || {};
+  const quelle = (imk.name || (S.get('profil') || {}).vorname || '').trim();
+  const ini = quelle.split(/\s+/).map((w) => w[0] || '').join('').toUpperCase().replace(/[^A-ZÄÖÜ]/g, '').slice(0, 3);
+  return ini || 'IB';
+}
+/** Nächste freie Kennung im Muster KÜRZEL-JJ-NNN (fortlaufend je Kürzel+Jahr). */
+async function naechsteKennung(jahrgang) {
+  const kuerzel = zuechterKuerzel();
+  const jj = String(Math.abs(Math.round(jahrgang || new Date().getFullYear()))).slice(-2);
+  const praefix = `${kuerzel}-${jj}-`;
+  let max = 0;
+  for (const k of await DB.getAll('koeniginnen')) {
+    if ((k.kennung || '').startsWith(praefix)) { const n = parseInt(k.kennung.slice(praefix.length), 10); if (!isNaN(n)) max = Math.max(max, n); }
+  }
+  return praefix + String(max + 1).padStart(3, '0');
+}
+
 /* Zuchtkalender: Tage ab Umlarvtag */
+/* Zuchtkalender – Tage ab Umlarven (Tag 0 = ~1 Tag alte Made). Fachlich geprüft:
+   Verdeckelung Tag 5, Schlupf Tag 12 (= 15 Tage nach Eiablage), Verschulen zwingend
+   vor Tag 12, Legekontrolle ~4 Wochen nach dem Bestücken der Begattungseinheiten. */
 const ZUCHT_KALENDER = [
   { tag: 0, titel: 'Umlarven' },
-  { tag: 2, titel: 'Annahme kontrollieren' },
-  { tag: 10, titel: 'Zellen käfigen / verschulen' },
+  { tag: 1, titel: 'Annahme kontrollieren' },
+  { tag: 5, titel: 'Verdeckelung kontrollieren' },
+  { tag: 10, titel: 'Zellen verschulen/käfigen – spätestens vor dem Schlupf!' },
   { tag: 12, titel: 'Schlupf der Königinnen' },
-  { tag: 13, titel: 'Begattungseinheiten bilden' },
-  { tag: 19, titel: 'Begattungsflüge (Wetter beachten)' },
-  { tag: 28, titel: 'Kontrolle Legebeginn' },
+  { tag: 13, titel: 'Begattungseinheiten bestücken' },
+  { tag: 19, titel: 'Begattungsflug-Fenster (Wetter beachten)' },
+  { tag: 34, titel: 'Begattungskontrolle – erste Stifte?' },
+  { tag: 41, titel: 'Legekontrolle spätestens (sonst umweiseln)' },
 ];
 
 const KASSEN_KATEGORIEN = {
@@ -1859,14 +1893,19 @@ const Demo = {
     const st2 = await DB.put('staende', { name: 'Wanderstand Rapsfeld', lat: 51.2544, lng: 9.3811, kmEntfernung: 14, notizen: 'Nur Mai–Juni belegt.' });
     const st3 = await DB.put('staende', { name: 'Lindenallee Ost', lat: 51.3402, lng: 9.5210, kmEntfernung: 9, notizen: 'Spättracht Linde.' });
 
-    const mkQ = (jg, herk, linie, mutterId) => DB.put('koeniginnen', { jahrgang: jg, herkunft: herk, linie, status: 'aktiv', historie: [], notiz: '', mutterId: mutterId || null });
-    const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null);
-    const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id);
-    const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id);
-    const qD = await mkQ(Y - 2, 'Belegstelle Norderney', 'Carnica Sklenar', qB.id);
-    const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id);
-    const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null);
-    const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id);
+    let qn = 0;
+    const mkQ = (jg, herk, linie, mutterId, extra = {}) => DB.put('koeniginnen', Object.assign({
+      kennung: `IK-${String(jg).slice(-2)}-${String(++qn).padStart(3, '0')}`, jahrgang: jg, herkunft: herk, linie, status: 'aktiv',
+      historie: [], notiz: '', mutterId: mutterId || null, anpaarung: '', belegstelle: '', vatervolkId: null, bewertung: {},
+    }, extra));
+    const bew = (sanftmut, wabensitz, schwarm, entwicklung, honigKg) => ({ bewertung: { sanftmut, wabensitz, schwarm, entwicklung, honigKg } });
+    const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null, bew(4, 4, 3, 4, 32));
+    const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, { anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney', ...bew(4, 3, 4, 3, 27) });
+    const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, bew(3, 4, 3, 4, 29));
+    const qD = await mkQ(Y - 2, 'Belegstelle', 'Carnica Sklenar', qB.id, { anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney' });
+    const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id, { anpaarung: 'besamung', vatervolkId: qA.id, ...bew(4, 4, 4, 4, 31) });
+    const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 26));
+    const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id, { anpaarung: 'standbegattung', vatervolkId: qC.id });
 
     const V = {};
     const VN = [
@@ -1992,7 +2031,7 @@ const Demo = {
     ]) await DB.put('aufgaben', { titel: t, faellig: d(-30 + Math.round(Math.abs(m) / 10)), erledigt: true, zeitMinuten: m, kategorie: k, quelle: 'manuell', refId: null, notiz: '' });
 
     const zStart = d(-3);
-    const zs = await DB.put('zuchtserien', { name: 'Serie A', startdatum: zStart, anzahl: 24, termine: zuchtTermine(zStart), notiz: 'Carnica Linie T · Zuchtmutter Volk Anna, Pflegevolk Volk Berta.' });
+    const zs = await DB.put('zuchtserien', { name: 'Serie A', startdatum: zStart, anzahl: 24, termine: zuchtTermine(zStart), linie: 'Carnica Linie T', zuchtmutterId: qA.id, anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney', vatervolkId: null, angenommen: 18, geschluepft: 16, begattet: 11, notiz: 'Pflegevolk Volk Berta · Starter/Finisher.' });
     await syncZuchtAufgaben(zs);
 
     await DB.put('wetter', { standId: st1.id, datum: d(-1), tempC: 19.5, windKmh: 8, niederschlagMm: 0, bemerkung: 'Sonnig', quelle: 'manuell' });
@@ -2720,19 +2759,24 @@ Views.koeniginnen = {
     const voelker = await idMap('voelker');
     const statusBadge = { aktiv: 'b-ok', verloren: 'b-danger', umgeweiselt: 'b-muted' };
     main.innerHTML = pageHead('Königinnen', `${queens.filter((q) => q.status === 'aktiv').length} aktiv`,
-      `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Königin</button>`) +
+      `<span class="flex-wrap no-print">${queens.length ? `<button class="btn btn-ghost btn-sm" id="bewerten">${icon('crown')} Bewertungs-Runde</button>
+        <button class="btn btn-ghost btn-sm" id="umweiseln">${icon('crown')} Umweiseln</button>` : ''}
+        <button class="btn btn-primary" id="add">${icon('plus')} Neue Königin</button></span>`) +
       `<div class="card">` + (queens.length ? `<div class="rows">` + queens.map((q) => {
         const [farbe, hex] = queenColor(q.jahrgang);
         const aktuelleZuordnung = (q.historie || []).find((h) => !h.bis);
         const volk = aktuelleZuordnung ? voelker.get(aktuelleZuordnung.volkId) : null;
+        const note = zuchtNote(q.bewertung);
         return `<button class="row" data-id="${q.id}">
           <span class="r-ic" style="background:${hex}22"><span class="dot" style="background:${hex};width:16px;height:16px"></span></span>
-          <span class="r-main"><span class="r-title">Jahrgang ${q.jahrgang} (${farbe}) <span class="badge ${statusBadge[q.status] || 'b-muted'}">${U.esc(q.status)}</span></span>
+          <span class="r-main"><span class="r-title">${q.kennung ? U.esc(q.kennung) : `Jahrgang ${q.jahrgang}`} <span class="small muted">(${farbe})</span> <span class="badge ${statusBadge[q.status] || 'b-muted'}">${U.esc(q.status)}</span></span>
           <span class="r-sub">${U.esc(q.linie || '')}${q.linie && q.herkunft ? ' · ' : ''}${U.esc(q.herkunft || '')}${volk ? ` · in „${U.esc(volk.name)}“` : ' · nicht zugeordnet'}</span></span>
-          ${icon('chevR', 'chev')}</button>`;
+          ${note ? `<span class="r-side"><b>⌀ ${U.fmtNum(note, 1)}</b><br><span class="muted small">Zuchtnote</span></span>` : ''}${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('crown', 'Noch keine Königinnen erfasst. Der Jahrgang bestimmt automatisch die Zeichenfarbe.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Königin</button>`)) + `</div>`;
     const add = () => Views.koeniginnen.form(null);
     bindAdd(add);
+    const bew = $('#bewerten', main); if (bew) bew.onclick = () => Views.koeniginnen.bewertungsRunde();
+    const umw = $('#umweiseln', main); if (umw) umw.onclick = () => Views.koeniginnen.sammelUmweiseln();
     main.addEventListener('click', (e) => {
       const b = e.target.closest('.row[data-id]'); if (!b) return;
       const q = queens.find((x) => x.id === b.dataset.id);
@@ -2744,20 +2788,41 @@ Views.koeniginnen = {
     const herkunftOpts = await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft');
     const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
     const andereQueens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.id !== (q && q.id)), (k) => k.jahrgang, true);
+    const qOpts = andereQueens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }));
+    const belegOpts = await gelernteWerte(['Belegstelle', 'Standbegattung'], 'koeniginnen', 'belegstelle');
+    const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
+    const kennungVorschlag = q ? (q.kennung || '') : await naechsteKennung(jahr);
+    const b = q && q.bewertung || {};
     UI.formModal({
       title: q ? 'Königin bearbeiten' : 'Neue Königin',
       fields: [
-        { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, hint: `Zeichenfarbe wird automatisch bestimmt (${jahr} = ${queenColor(jahr)[0]}).` },
-        { key: 'herkunft', label: 'Herkunft', type: 'suggest', options: herkunftOpts },
+        { key: 'kennung', label: 'Kennung', placeholder: 'z. B. JK-26-014', hint: 'Eindeutige Zuchtbuch-Kennung – Vorschlag automatisch, frei änderbar.' },
+        { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, hint: `Zeichenfarbe automatisch (${jahr} = ${queenColor(jahr)[0]}).` },
         { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: rasseOpts },
-        { key: 'mutterId', label: 'Muttertier (Zuchtmutter)', type: 'select', options: andereQueens.map((k) => ({ v: k.id, l: `${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` })), hint: 'Für den Zucht-Stammbaum – von welcher Königin stammt sie ab?' },
+        { key: 'herkunft', label: 'Herkunft', type: 'suggest', options: herkunftOpts },
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
+        { key: '_absTitel', type: 'static', html: '<h3 class="mt8 mb8">Abstammung</h3>' },
+        { key: 'mutterId', label: 'Mutter (Zuchtmutter, 2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt sie mütterlicherseits ab?' },
+        { key: 'anpaarung', label: 'Anpaarung (Vaterseite)', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }] },
+        { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
+        { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Königin, die die Drohnen stellt.' },
+        { key: '_bewTitel', type: 'static', html: '<h3 class="mt8 mb8">Bewertung (Zuchtauslese)</h3><div class="hint mb8">Optional – Skala 1–4, 4 = bester Wert. Hilft bei der Auswahl der Zuchtmütter.</div>' },
+        { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note },
+        { key: 'bWabensitz', label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', default: 0, options: note },
+        { key: 'bSchwarm', label: 'Schwarmträgheit', type: 'select', default: 0, options: note },
+        { key: 'bEntwicklung', label: 'Volksentwicklung', type: 'select', default: 0, options: note },
+        { key: 'bHonigKg', label: 'Honigertrag (kg)', type: 'number', placeholder: 'z. B. 28' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
-      values: q || {},
+      values: q ? { ...q, kennung: kennungVorschlag, bSanftmut: b.sanftmut || 0, bWabensitz: b.wabensitz || 0, bSchwarm: b.schwarm || 0, bEntwicklung: b.entwicklung || 0, bHonigKg: b.honigKg ?? '' } : { kennung: kennungVorschlag },
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
-        const rec = Object.assign(q || { historie: [] }, v);
+        const bewertung = { sanftmut: +v.bSanftmut || 0, wabensitz: +v.bWabensitz || 0, schwarm: +v.bSchwarm || 0, entwicklung: +v.bEntwicklung || 0, honigKg: (v.bHonigKg === '' || v.bHonigKg == null) ? null : v.bHonigKg };
+        const rec = Object.assign(q || { historie: [] }, {
+          kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
+          mutterId: v.mutterId || null, anpaarung: v.anpaarung || '', belegstelle: v.anpaarung === 'belegstelle' ? v.belegstelle : '', vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          bewertung,
+        });
         const saved = await DB.put('koeniginnen', rec);
         // Bei Verlust/Umweiselung: Zuordnung im Volk beenden
         if (v.status !== 'aktiv') {
@@ -2783,14 +2848,26 @@ Views.koeniginnen = {
     const hist = U.sortBy(q.historie || [], (h) => h.von, true);
     const qm = await idMap('koeniginnen');
     const stammbaum = koeniginStammbaumHtml(q, qm);
+    const anpaarungText = { standbegattung: 'Standbegattung', belegstelle: `Belegstelle${q.belegstelle ? ' · ' + U.esc(q.belegstelle) : ''}`, besamung: 'Künstliche Besamung' }[q.anpaarung] || '–';
+    const vaterHtml = q.vatervolkId && qm.get(q.vatervolkId) ? koeniginLabel(qm.get(q.vatervolkId)) : (q.anpaarung === 'belegstelle' && q.belegstelle ? U.esc(q.belegstelle) : '<span class="muted">–</span>');
+    const b = q.bewertung || {};
+    const note = zuchtNote(b);
+    const punkte = (n) => n ? '◆'.repeat(n) + '◇'.repeat(4 - n) : '<span class="muted">nicht bewertet</span>';
+    const bewZeile = (label, wert) => `<dt>${label}</dt><dd>${punkte(wert)}</dd>`;
+    const hatBewertung = note || b.honigKg != null;
     const m = UI.modal({
-      title: `Königin ${q.jahrgang} (${farbe})`, wide: true,
+      title: q.kennung ? `Königin ${U.esc(q.kennung)}` : `Königin ${q.jahrgang} (${farbe})`, wide: true,
       body: `<div class="detail-kv mb12">
-          <dt>Zeichenfarbe</dt><dd><span class="dot" style="background:${hex}"></span> ${farbe}</dd>
-          <dt>Herkunft</dt><dd>${U.esc(q.herkunft) || '–'}</dd><dt>Linie</dt><dd>${U.esc(q.linie) || '–'}</dd>
-          <dt>Muttertier</dt><dd>${q.mutterId && qm.get(q.mutterId) ? koeniginLabel(qm.get(q.mutterId)) : '<span class="muted">–</span>'}</dd>
+          ${q.kennung ? `<dt>Kennung</dt><dd><b>${U.esc(q.kennung)}</b></dd>` : ''}
+          <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${q.jahrgang} (${farbe})</dd>
+          <dt>Linie</dt><dd>${U.esc(q.linie) || '–'}</dd><dt>Herkunft</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
+          <dt>Mutter (2a)</dt><dd>${q.mutterId && qm.get(q.mutterId) ? koeniginLabel(qm.get(q.mutterId)) : '<span class="muted">–</span>'}</dd>
+          <dt>Anpaarung</dt><dd>${anpaarungText}</dd>
+          <dt>Vaterseite (4a)</dt><dd>${vaterHtml}</dd>
           <dt>Status</dt><dd>${U.esc(q.status)}</dd><dt>Notiz</dt><dd>${U.esc(q.notiz) || '–'}</dd>
         </div>
+        ${hatBewertung ? `<h3 class="mb8">Bewertung${note ? ` · Zuchtnote ⌀ ${U.fmtNum(note, 1)}` : ''}</h3>
+        <div class="detail-kv mb12">${bewZeile('Sanftmut', b.sanftmut)}${bewZeile('Wabensitz', b.wabensitz)}${bewZeile('Schwarmträgheit', b.schwarm)}${bewZeile('Volksentwicklung', b.entwicklung)}<dt>Honigertrag</dt><dd>${b.honigKg != null ? U.fmtNum(b.honigKg) + ' kg' : '–'}</dd></div>` : ''}
         <h3 class="mb8">Zucht-Stammbaum</h3>
         <div class="mb12">${stammbaum}</div>
         <h3 class="mb8">Zuordnungshistorie</h3>
@@ -2803,30 +2880,152 @@ Views.koeniginnen = {
     $('[data-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'koenigin', parentId: q.id, titel: 'Dokumente & Fotos (z. B. Zuchtnachweis)' }));
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.koeniginnen.form(q); };
   },
+
+  /* ---- Bewertungs-Runde: Stand/Funktion filtern → viele Völker der Reihe nach benoten ---- */
+  async bewertungsRunde() {
+    const staende = await DB.getAll('staende');
+    const qm = await idMap('koeniginnen');
+    // nur aktive Völker, die eine (existierende) Königin haben – die wir benoten können
+    const voelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv' && v.koeniginId && qm.get(v.koeniginId)), (v) => v.name.toLowerCase());
+    if (!voelker.length) return UI.toast('Kein aktives Volk mit zugeordneter Königin. Weise zuerst Königinnen zu.', 'err');
+    const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelker.map((v) => v.funktion).filter(Boolean)])];
+    const m = UI.formModal({
+      title: 'Bewertungs-Runde', wide: true,
+      fields: [
+        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So bewertest du z. B. nur die Wirtschaftsvölker.' },
+        { key: 'volkIds', label: '3. Welche Völker bewerten?', type: 'multicheck', required: true, options: voelker.map((v) => ({ v: v.id, l: `${v.name} · ${koeniginKurz(qm.get(v.koeniginId))}` })) },
+        { key: 'datum', label: '4. Bewertungsdatum', type: 'date', required: true, default: U.todayIso() },
+      ],
+      values: {},
+      onSave: async (v) => {
+        const gewaehlt = voelker.filter((x) => (v.volkIds || []).includes(x.id));
+        if (!gewaehlt.length) throw new Error('Bitte mindestens ein Volk wählen.');
+        Views.koeniginnen.bewertenStep2(gewaehlt, qm, v.datum);
+      },
+    });
+    verdrahteVolkFilter(m, voelker);
+  },
+  async bewertenStep2(voelker, qm, datum) {
+    const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
+    const fields = [{ key: '_hint', type: 'static', html: `<div class="hint mb8">Skala 1–4 (4 = bester Wert), am ${U.fmtDate(datum)}. Leere Felder lassen die bisherige Bewertung unverändert.</div>` }];
+    const values = {};
+    voelker.forEach((v) => {
+      const q = qm.get(v.koeniginId), b = q.bewertung || {}, alt = zuchtNote(b);
+      fields.push({ key: '_h_' + q.id, type: 'static', html: `<h3 class="mt8 mb4">${U.esc(v.name)} <span class="small muted">· ${U.esc(koeniginKurz(q))}${alt ? ` · bisher ⌀ ${U.fmtNum(alt, 1)}` : ''}</span></h3>` });
+      fields.push({ key: 's_' + q.id, label: 'Sanftmut', type: 'select', options: note });
+      fields.push({ key: 'w_' + q.id, label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', options: note });
+      fields.push({ key: 'c_' + q.id, label: 'Schwarmträgheit', type: 'select', options: note });
+      fields.push({ key: 'e_' + q.id, label: 'Volksentwicklung', type: 'select', options: note });
+      fields.push({ key: 'h_' + q.id, label: 'Honigertrag (kg)', type: 'number', placeholder: 'optional' });
+      values['s_' + q.id] = b.sanftmut || 0; values['w_' + q.id] = b.wabensitz || 0;
+      values['c_' + q.id] = b.schwarm || 0; values['e_' + q.id] = b.entwicklung || 0;
+      values['h_' + q.id] = b.honigKg ?? '';
+    });
+    UI.formModal({
+      title: `Bewerten · ${voelker.length} ${voelker.length === 1 ? 'Volk' : 'Völker'}`, wide: true,
+      fields, values,
+      onSave: async (v) => {
+        let n = 0;
+        for (const volk of voelker) {
+          const id = volk.koeniginId;
+          const bewertung = { sanftmut: +v['s_' + id] || 0, wabensitz: +v['w_' + id] || 0, schwarm: +v['c_' + id] || 0, entwicklung: +v['e_' + id] || 0, honigKg: (v['h_' + id] === '' || v['h_' + id] == null) ? null : v['h_' + id] };
+          if (await setBewertung(id, bewertung, datum)) n++;
+        }
+        UI.toast(`${n} ${n === 1 ? 'Königin' : 'Königinnen'} bewertet`); renderRoute();
+      },
+    });
+  },
+
+  /* ---- Sammel-Umweiseln: gefilterte Völker wählen → je Volk eine freie Königin zuordnen ---- */
+  async sammelUmweiseln() {
+    const staende = await DB.getAll('staende');
+    const qm = await idMap('koeniginnen');
+    const alleVoelker = await DB.getAll('voelker');
+    const voelker = U.sortBy(alleVoelker.filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
+    if (!voelker.length) return UI.toast('Lege zuerst Völker an.', 'err');
+    // verfügbare Königinnen: aktiv und keinem aktiven Volk zugeordnet (inkl. frisch erzeugter Töchter)
+    const belegt = new Set(alleVoelker.filter((v) => v.status === 'aktiv' && v.koeniginId).map((v) => v.koeniginId));
+    const frei = U.sortBy((await DB.getAll('koeniginnen')).filter((q) => q.status === 'aktiv' && !belegt.has(q.id)), (q) => q.jahrgang, true);
+    if (!frei.length) return UI.toast('Keine freie Königin vorhanden. Erzeuge z. B. Töchter aus einer Zuchtserie.', 'err');
+    const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelker.map((v) => v.funktion).filter(Boolean)])];
+    const m = UI.formModal({
+      title: 'Sammel-Umweiseln', wide: true,
+      fields: [
+        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))] },
+        { key: 'volkIds', label: '3. Welche Völker umweiseln?', type: 'multicheck', required: true, options: voelker.map((v) => ({ v: v.id, l: `${v.name} · ${v.koeniginId && qm.get(v.koeniginId) ? 'aktuell ' + koeniginKurz(qm.get(v.koeniginId)) : 'weisellos'}` })) },
+        { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
+      ],
+      values: {},
+      onSave: async (v) => {
+        const gewaehlt = voelker.filter((x) => (v.volkIds || []).includes(x.id));
+        if (!gewaehlt.length) throw new Error('Bitte mindestens ein Volk wählen.');
+        Views.koeniginnen.umweiselnStep2(gewaehlt, frei, qm, v.datum);
+      },
+    });
+    verdrahteVolkFilter(m, voelker);
+  },
+  async umweiselnStep2(voelker, frei, qm, datum) {
+    const opts = [{ v: '', l: '– nicht ändern –' }, ...frei.map((q) => ({ v: q.id, l: `${koeniginKurz(q)}${q.linie ? ' · ' + q.linie : ''} (${queenColor(q.jahrgang)[0]})` }))];
+    const fields = [{ key: '_hint', type: 'static', html: `<div class="hint mb8">Ordne jedem Volk eine freie Königin zu (am ${U.fmtDate(datum)}). Die bisherige Königin wird auf „umgeweiselt“ gesetzt. Jede Königin nur einmal wählen.</div>` }];
+    voelker.forEach((v) => {
+      const akt = v.koeniginId && qm.get(v.koeniginId);
+      fields.push({ key: 'q_' + v.id, label: `${v.name}${akt ? ' · aktuell ' + koeniginKurz(akt) : ' · weisellos'}`, type: 'select', default: '', options: opts });
+    });
+    UI.formModal({
+      title: `Umweiseln · ${voelker.length} ${voelker.length === 1 ? 'Volk' : 'Völker'}`, wide: true,
+      fields, values: {},
+      onSave: async (v) => {
+        const paare = voelker.map((volk) => ({ volkId: volk.id, queenId: v['q_' + volk.id] })).filter((p) => p.queenId);
+        if (!paare.length) throw new Error('Keiner der Völker hat eine neue Königin zugeordnet bekommen.');
+        const ids = paare.map((p) => p.queenId);
+        const dupId = ids.find((id, i) => ids.indexOf(id) !== i);
+        if (dupId) { const q = qm.get(dupId) || frei.find((x) => x.id === dupId); throw new Error(`„${q ? koeniginKurz(q) : 'Königin'}“ ist mehrfach gewählt – jede Königin kann nur in ein Volk.`); }
+        let n = 0;
+        for (const p of paare) if (await umweiseln(p.volkId, p.queenId, datum)) n++;
+        UI.toast(`${n} ${n === 1 ? 'Volk' : 'Völker'} umgeweiselt`); renderRoute();
+      },
+    });
+  },
 };
-/** Kurzlabel einer Königin */
-function koeniginLabel(k) { return k ? `${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
-/** Stammbaum: Ahnenlinie aufwärts + Nachkommen (Töchter, rekursiv begrenzt) */
+/** Reiner Klartext-Name einer Königin (für Optionslisten, die HTML escapen). */
+function koeniginKurz(k) { return k ? (k.kennung || ('Jg. ' + k.jahrgang)) : '–'; }
+/** Kurzlabel einer Königin (Kennung falls vorhanden, sonst Jahrgang+Farbe) */
+function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
+/** Durchschnittliche Zuchtnote aus den vier 1–4-Merkmalen (nur bewertete zählen). */
+function zuchtNote(b) {
+  if (!b) return 0;
+  const w = [b.sanftmut, b.wabensitz, b.schwarm, b.entwicklung].filter((n) => n > 0);
+  return w.length ? Math.round((w.reduce((a, n) => a + n, 0) / w.length) * 10) / 10 : 0;
+}
+/** Beidseitiger Stammbaum: Mutterlinie (2a) UND Vaterlinie (4a/Belegstelle) aufwärts + Töchter. */
 function koeniginStammbaumHtml(q, qm) {
-  // Vorfahren (Mutterlinie aufwärts)
-  const ahnen = []; let cur = q.mutterId ? qm.get(q.mutterId) : null; const gesehen = new Set([q.id]);
-  while (cur && !gesehen.has(cur.id) && ahnen.length < 8) { ahnen.push(cur); gesehen.add(cur.id); cur = cur.mutterId ? qm.get(cur.mutterId) : null; }
-  // Nachkommen (Töchter) rekursiv, Tiefe 3
   const alle = [...qm.values()];
+  // Ahnenlinie aufwärts – jede Ebene mit Mutter (2a) und Vaterseite (4a)
+  const ahnHtml = (k, tiefe, gesehen) => {
+    if (!k || tiefe > 4 || gesehen.has(k.id)) return '';
+    gesehen.add(k.id);
+    const mutter = k.mutterId ? qm.get(k.mutterId) : null;
+    const vater = k.vatervolkId ? qm.get(k.vatervolkId) : null;
+    const zeilen = [];
+    if (mutter) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--muted)">♀ Mutter:</span> ${koeniginLabel(mutter)}${ahnHtml(mutter, tiefe + 1, gesehen)}</div>`);
+    if (vater) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--blue)">♂ Vaterseite:</span> ${koeniginLabel(vater)}${ahnHtml(vater, tiefe + 1, gesehen)}</div>`);
+    else if (k.anpaarung === 'belegstelle' && k.belegstelle) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--blue)">♂ Vaterseite:</span> ${U.esc(k.belegstelle)} <span class="muted">(Belegstelle)</span></div>`);
+    return zeilen.length ? `<div class="small" style="margin-left:14px;border-left:2px solid var(--line);padding-left:12px;margin-top:2px">${zeilen.join('')}</div>` : '';
+  };
+  // Töchter rekursiv (Mutterlinie abwärts)
   const toechterHtml = (mutterId, tiefe) => {
     if (tiefe > 3) return '';
     const kinder = U.sortBy(alle.filter((k) => k.mutterId === mutterId), (k) => k.jahrgang, true);
     if (!kinder.length) return '';
-    return `<div style="margin-left:16px;border-left:2px solid var(--line);padding-left:12px">${kinder.map((k) => `<div class="small" style="padding:3px 0">${koeniginLabel(k)}${k.status !== 'aktiv' ? ` <span class="badge b-muted">${U.esc(k.status)}</span>` : ''}${toechterHtml(k.id, tiefe + 1)}</div>`).join('')}</div>`;
+    return `<div style="margin-left:14px;border-left:2px solid var(--line);padding-left:12px">${kinder.map((k) => `<div class="small" style="padding:3px 0">${koeniginLabel(k)}${k.status !== 'aktiv' ? ` <span class="badge b-muted">${U.esc(k.status)}</span>` : ''}${toechterHtml(k.id, tiefe + 1)}</div>`).join('')}</div>`;
   };
+  const ahnen = ahnHtml(q, 1, new Set());
   const toechter = toechterHtml(q.id, 1);
-  const ahnenLinie = ahnen.length
-    ? `<div class="small muted mb8">Abstammung: ${ahnen.map((a) => koeniginLabel(a)).join(' <span style="opacity:.5">←</span> ')}</div>`
-    : '';
   const dieseHtml = `<div class="kpill" style="font-weight:700">${koeniginLabel(q)} <span class="badge b-honey">diese</span></div>`;
-  return (ahnenLinie || toechter)
-    ? `${ahnenLinie}${dieseHtml}${toechter ? `<div class="small muted mt8 mb4">Nachkommen (Töchter):</div>${toechter}` : '<div class="small muted mt8">Noch keine Töchter erfasst.</div>'}`
-    : `<div class="small muted">Kein Stammbaum: weder Muttertier noch Töchter hinterlegt. Trage bei „Bearbeiten“ das Muttertier ein oder lege Königinnen mit dieser als Mutter an.</div>`;
+  if (!ahnen && !toechter) return `<div class="small muted">Noch kein Stammbaum: Trage bei „Bearbeiten“ Mutter und Vaterseite ein, oder lege Töchter mit dieser Königin als Mutter an.</div>`;
+  return `${ahnen ? `<div class="small muted mb4">Abstammung:</div>${ahnen}<div class="mt8"></div>` : ''}${dieseHtml}${toechter ? `<div class="small muted mt8 mb4">Nachkommen (Töchter):</div>${toechter}` : ''}`;
 }
 
 /* =====================================================================
@@ -2840,6 +3039,69 @@ async function syncZuchtAufgaben(serie) {
   const alte = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'zucht' && a.refId === serie.id && !a.erledigt);
   for (const a of alte) await DB.del('aufgaben', a.id);
   for (const t of serie.termine) await DB.put('aufgaben', { titel: `${serie.name}: ${t.titel}`, faellig: t.datum, erledigt: false, quelle: 'zucht', refId: serie.id, notiz: `Tag ${t.tag} der Zuchtserie` });
+}
+/** Erzeugt n Töchter-Königinnen aus einer Serie: erben Mutter(2a)/Anpaarung(4a)/Linie/Jahrgang,
+    bekommen fortlaufende Kennungen und eine Rückreferenz auf die Serie. Gibt die Anzahl zurück. */
+async function erzeugeToechter(serie, n, jahrgang) {
+  let erzeugt = 0;
+  for (let i = 0; i < n; i++) {
+    const kennung = await naechsteKennung(jahrgang); // fortlaufend, prüft Bestand nach jedem Anlegen
+    await DB.put('koeniginnen', {
+      kennung, jahrgang, linie: serie.linie || '', herkunft: 'Eigene Nachzucht', status: 'aktiv',
+      mutterId: serie.zuchtmutterId || null, anpaarung: serie.anpaarung || '',
+      belegstelle: serie.anpaarung === 'belegstelle' ? (serie.belegstelle || '') : '',
+      vatervolkId: (serie.anpaarung === 'besamung' || serie.anpaarung === 'standbegattung') ? (serie.vatervolkId || null) : null,
+      bewertung: {}, serieId: serie.id, serieName: serie.name, historie: [], notiz: `Aus Zuchtserie „${serie.name}“`,
+    });
+    erzeugt++;
+  }
+  return erzeugt;
+}
+/** Setzt die Bewertung einer Königin (mit optionalem Bewertungsdatum). Gibt true bei Erfolg. */
+async function setBewertung(queenId, bewertung, datum) {
+  const q = await DB.get('koeniginnen', queenId);
+  if (!q) return false;
+  q.bewertung = bewertung;
+  if (datum) q.bewertetAm = datum;
+  await DB.put('koeniginnen', q);
+  return true;
+}
+/** Weiselt ein Volk auf eine neue Königin um: beendet die Zuordnung der bisherigen
+    Königin (Status → umgeweiselt), löst die neue aus einem etwaigen anderen Volk und
+    trägt die neue Zuordnung in Volk + Königin ein. Gibt true bei Erfolg. */
+async function umweiseln(volkId, queenId, datum) {
+  const volk = await DB.get('voelker', volkId);
+  const neu = await DB.get('koeniginnen', queenId);
+  if (!volk || !neu) return false;
+  datum = datum || U.todayIso();
+  const altId = volk.koeniginId;
+  if (altId && altId !== queenId) {
+    const alt = await DB.get('koeniginnen', altId);
+    if (alt) {
+      (alt.historie || []).forEach((h) => { if (h.volkId === volkId && !h.bis) h.bis = datum; });
+      alt.status = 'umgeweiselt';
+      await DB.put('koeniginnen', alt);
+    }
+  }
+  // neue Königin aus einem etwaigen anderen Volk lösen (darf nur in einem Volk sitzen)
+  for (const v of await DB.getAll('voelker')) {
+    if (v.id !== volkId && v.koeniginId === queenId) {
+      v.koeniginId = null;
+      v.historie = v.historie || [];
+      v.historie.push({ datum, text: `Königin ${neu.kennung || neu.jahrgang} umgesetzt` });
+      await DB.put('voelker', v);
+    }
+  }
+  (neu.historie || []).forEach((h) => { if (!h.bis) h.bis = datum; });
+  neu.historie = neu.historie || [];
+  neu.historie.push({ volkId, von: datum, bis: null });
+  neu.status = 'aktiv';
+  await DB.put('koeniginnen', neu);
+  volk.koeniginId = queenId;
+  volk.historie = volk.historie || [];
+  volk.historie.push({ datum, text: `Umgeweiselt auf Königin ${neu.kennung || neu.jahrgang}` });
+  await DB.put('voelker', volk);
+  return true;
 }
 Views.zucht = {
   title: 'Zucht',
@@ -2863,19 +3125,37 @@ Views.zucht = {
       if (s) Views.zucht.detail(s);
     });
   },
-  form(s) {
+  async form(s) {
+    const queens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.status === 'aktiv'), (k) => k.jahrgang, true);
+    const qOpts = [{ v: '', l: '– keine –' }, ...queens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }))];
+    const belegOpts = await gelernteWerte(['Belegstelle', 'Standbegattung'], 'koeniginnen', 'belegstelle');
     UI.formModal({
-      title: s ? 'Zuchtserie bearbeiten' : 'Neue Zuchtserie',
+      title: s ? 'Zuchtserie bearbeiten' : 'Neue Zuchtserie', wide: true,
       fields: [
         { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Serie A – Carnica' },
         { key: 'startdatum', label: 'Startdatum (Umlarvtag)', type: 'date', required: true, default: U.todayIso() },
-        { key: 'anzahl', label: 'Anzahl Zellen', type: 'number', required: true, default: 10 },
-        { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Zuchtmutter, Pflegevolk' },
+        { key: 'anzahl', label: 'Umgelarvte Zellen', type: 'number', required: true, default: 10 },
+        { key: '_hTitel', type: 'static', html: '<h3 class="mt8 mb8">Herkunft (wird an die Töchter vererbt)</h3>' },
+        { key: 'zuchtmutterId', label: 'Zuchtmutter (2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt der Zuchtstoff?' },
+        { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie') },
+        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }] },
+        { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
+        { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung' },
+        { key: '_vTitel', type: 'static', html: '<h3 class="mt8 mb8">Verlauf (optional)</h3><div class="hint mb8">Zwischenzahlen zur Erfolgskontrolle – Faustregel: je Stufe fällt rund ein Drittel aus.</div>' },
+        { key: 'angenommen', label: 'Angenommene Zellen', type: 'number' },
+        { key: 'geschluepft', label: 'Geschlüpfte Königinnen', type: 'number' },
+        { key: 'begattet', label: 'Begattete Königinnen', type: 'number' },
+        { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Pflegevolk, Starter/Finisher' },
       ],
       values: s || {},
       async onSave(v) {
         v.anzahl = Math.round(v.anzahl);
-        const rec = Object.assign(s || {}, v);
+        const rec = Object.assign(s || {}, {
+          name: v.name, startdatum: v.startdatum, anzahl: v.anzahl, linie: v.linie, notiz: v.notiz,
+          zuchtmutterId: v.zuchtmutterId || null, anpaarung: v.anpaarung || '',
+          belegstelle: v.anpaarung === 'belegstelle' ? v.belegstelle : '', vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          angenommen: v.angenommen ?? null, geschluepft: v.geschluepft ?? null, begattet: v.begattet ?? null,
+        });
         rec.termine = zuchtTermine(rec.startdatum);
         const saved = await DB.put('zuchtserien', rec);
         await syncZuchtAufgaben(saved);
@@ -2889,19 +3169,51 @@ Views.zucht = {
       } : null,
     });
   },
-  detail(s) {
+  async detail(s) {
     const heute = U.todayIso();
+    const qm = await idMap('koeniginnen');
+    const zm = s.zuchtmutterId && qm.get(s.zuchtmutterId);
+    const vv = s.vatervolkId && qm.get(s.vatervolkId);
+    const anpaarungText = { standbegattung: 'Standbegattung', belegstelle: `Belegstelle${s.belegstelle ? ' · ' + U.esc(s.belegstelle) : ''}`, besamung: 'Künstliche Besamung' }[s.anpaarung] || '';
+    const bereitsErzeugt = (await DB.getAll('koeniginnen')).filter((k) => k.serieId === s.id).length;
+    // Funnel nur zeigen, wenn Zwischenzahlen erfasst wurden
+    const funnel = [['umgelarvt', s.anzahl], ['angenommen', s.angenommen], ['geschlüpft', s.geschluepft], ['begattet', s.begattet]].filter(([, n]) => n != null && n !== '');
     const m = UI.modal({
       title: s.name, wide: true,
-      body: `<div class="flex-wrap mb12"><span class="kpill">Umlarven: ${U.fmtDate(s.startdatum)}</span><span class="kpill">${s.anzahl} Zellen</span></div>
+      body: `<div class="flex-wrap mb12"><span class="kpill">Umlarven: ${U.fmtDate(s.startdatum)}</span><span class="kpill">${s.anzahl} Zellen</span>${s.linie ? `<span class="kpill">${U.esc(s.linie)}</span>` : ''}</div>
+        ${(zm || anpaarungText) ? `<div class="detail-kv mb12">${zm ? `<dt>Zuchtmutter (2a)</dt><dd>${koeniginLabel(zm)}</dd>` : ''}${anpaarungText ? `<dt>Anpaarung (4a)</dt><dd>${vv ? koeniginLabel(vv) + ' · ' : ''}${anpaarungText}</dd>` : ''}</div>` : ''}
+        ${funnel.length > 1 ? `<div class="stat-grid mb12">${funnel.map(([l, n]) => `<div class="stat"><div class="s-label">${l}</div><div class="s-value">${n}</div></div>`).join('')}</div>` : ''}
         ${s.notiz ? `<p class="small muted mb12">${U.esc(s.notiz)}</p>` : ''}
+        ${bereitsErzeugt ? `<div class="banner info mb12">${icon('info')} <span class="b-msg">Aus dieser Serie wurden bereits <b>${bereitsErzeugt} Töchter</b> als Königinnen angelegt.</span></div>` : ''}
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tag</th><th>Schritt</th><th>Datum</th><th></th></tr></thead>
         <tbody>${s.termine.map((t) => `<tr><td>Tag ${t.tag}</td><td>${U.esc(t.titel)}</td><td>${U.fmtDate(t.datum)}</td>
           <td>${t.datum < heute ? '<span class="badge b-muted">vorbei</span>' : t.datum === heute ? '<span class="badge b-honey">heute</span>' : '<span class="badge b-ok">geplant</span>'}</td></tr>`).join('')}</tbody></table></div>`,
-      footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button><button class="btn btn-primary" data-pdf>${icon('doc')} Zuchtbuch (PDF)</button>`,
+      footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button><button class="btn btn-ghost" data-pdf>${icon('doc')} Zuchtbuch (PDF)</button><button class="btn btn-primary" data-toechter>${icon('crown')} Töchter erzeugen</button>`,
     });
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.zucht.form(s); };
     $('[data-pdf]', m.el).onclick = () => Pdf.zuchtbuch(s.id);
+    $('[data-toechter]', m.el).onclick = () => { m.close(true); Views.zucht.toechterForm(s); };
+  },
+
+  /** Legt in einem Schwung Töchter-Königinnen an, die Herkunft + Anpaarung der Serie erben. */
+  async toechterForm(s) {
+    const schlupfTermin = (s.termine || []).find((t) => t.tag === 12);
+    const jahr = +(schlupfTermin?.datum || s.startdatum || U.todayIso()).slice(0, 4);
+    const vorschlag = s.begattet || s.geschluepft || s.anzahl || 1;
+    const kennungBasis = await naechsteKennung(jahr);
+    UI.formModal({
+      title: `Töchter erzeugen · ${s.name}`,
+      fields: [
+        { key: 'anzahl', label: 'Wie viele Töchter anlegen?', type: 'number', required: true, default: vorschlag, hint: `Erben Mutter, Anpaarung, Linie und Jahrgang ${jahr} (${queenColor(jahr)[0]}). Kennungen ab ${kennungBasis}.` },
+      ],
+      values: {},
+      async onSave(v) {
+        const n = Math.max(1, Math.round(v.anzahl));
+        const erzeugt = await erzeugeToechter(s, n, jahr);
+        UI.toast(`${erzeugt} ${erzeugt === 1 ? 'Tochter' : 'Töchter'} angelegt – unter „Königinnen“`);
+        navTo('koeniginnen');
+      },
+    });
   },
 };
 
@@ -3081,6 +3393,45 @@ async function fuetterungFuerVoelker(volkIds, daten) {
   return n;
 }
 
+/** Verdrahtet Stand-/Funktions-Filter + „Alle/Keine“ + Live-Zähler auf einem
+    formModal mit den Feldern standId, funktion und volkIds (multicheck).
+    Gemeinsam genutzt von Fütterung, Bewertungs-Runde und Sammel-Umweiseln. */
+function verdrahteVolkFilter(m, alleVoelker) {
+  const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
+  const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
+  const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
+  box.parentNode.insertBefore(leer, box.nextSibling);
+  const bar = document.createElement('div');
+  bar.className = 'flex-wrap mb8';
+  bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
+    <span class="small muted" data-zahl></span>`;
+  wrap.insertBefore(bar, box);
+  const zeilen = () => $$('label.check-line', box);
+  const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
+  const zahl = () => { const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length; $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; };
+  const filtern = () => {
+    zeilen().forEach((lab) => {
+      const inp = $('input', lab);
+      const volk = alleVoelker.find((x) => x.id === inp.value);
+      const zeig = !!volk && passtZuFilter(volk, standSel.value, funkSel.value);
+      lab.style.display = zeig ? '' : 'none';
+      if (!zeig) inp.checked = false; // versteckte Völker nie mitverarbeiten
+    });
+    const n = sichtbare().length;
+    leer.style.display = n ? 'none' : '';
+    leer.textContent = n ? '' : 'Kein aktives Volk passt zu dieser Auswahl.';
+    bar.style.display = n ? '' : 'none';
+    zahl();
+  };
+  standSel.addEventListener('change', filtern);
+  funkSel.addEventListener('change', filtern);
+  box.addEventListener('change', zahl);
+  $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
+  $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
+  filtern();
+}
+
 Views.fuetterung = {
   title: 'Fütterung',
   async render(main) {
@@ -3162,40 +3513,8 @@ Views.fuetterung = {
         renderRoute();
       },
     });
-    // Schritt-Logik wie bei der Wanderung: Stand- und Funktions-Wahl filtern die Völkerliste
-    const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
-    const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
-    const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
-    box.parentNode.insertBefore(leer, box.nextSibling);
-    const bar = document.createElement('div');
-    bar.className = 'flex-wrap mb8';
-    bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
-      <span class="small muted" data-zahl></span>`;
-    wrap.insertBefore(bar, box);
-    const zeilen = () => $$('label.check-line', box);
-    const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
-    const zahl = () => { const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length; $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; };
-    const filtern = () => {
-      zeilen().forEach((lab) => {
-        const inp = $('input', lab);
-        const volk = alleVoelker.find((x) => x.id === inp.value);
-        const zeig = !!volk && passtZuFilter(volk, standSel.value, funkSel.value);
-        lab.style.display = zeig ? '' : 'none';
-        if (!zeig) inp.checked = false; // versteckte Völker nie mitfüttern
-      });
-      const n = sichtbare().length;
-      leer.style.display = n ? 'none' : '';
-      leer.textContent = n ? '' : 'Kein aktives Volk passt zu dieser Auswahl.';
-      bar.style.display = n ? '' : 'none';
-      zahl();
-    };
-    standSel.addEventListener('change', filtern);
-    funkSel.addEventListener('change', filtern);
-    box.addEventListener('change', zahl);
-    $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
-    $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
-    filtern();
+    // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
+    verdrahteVolkFilter(m, alleVoelker);
   },
 };
 
@@ -5653,8 +5972,8 @@ const Xlsx = {
       staende: { blatt: 'Stände', rows: async () => (await DB.getAll('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
       voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await DB.getAll('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
-      koeniginnen: { blatt: 'Königinnen', rows: async () => (await DB.getAll('koeniginnen')).map((q) => ({ Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Herkunft: q.herkunft, Linie: q.linie, Status: q.status, 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz })) },
-      zuchtserien: { blatt: 'Zucht', rows: async () => (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Anzahl Zellen': z.anzahl, Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })) },
+      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await DB.getAll('koeniginnen')).map((q) => { const b = q.bewertung || {}; return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Sanftmut: b.sanftmut || '', Wabensitz: b.wabensitz || '', Schwarmträgheit: b.schwarm || '', Entwicklung: b.entwicklung || '', 'Honig (kg)': b.honigKg ?? '', Zuchtnote: zuchtNote(b) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
+      zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
@@ -5808,7 +6127,11 @@ const Pdf = {
   async zuchtbuch(serieId) {
     try {
       const s = await DB.get('zuchtserien', serieId);
-      const { doc, y } = await this.newDoc(`Zuchtbuch – ${s.name}`, `Umlarvtag: ${U.fmtDate(s.startdatum)} · ${s.anzahl} Zellen${s.notiz ? ' · ' + s.notiz : ''}`);
+      const km = await idMap('koeniginnen');
+      const zmLabel = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; };
+      const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle' + (s.belegstelle ? ' ' + s.belegstelle : ''), besamung: 'künstliche Besamung' }[s.anpaarung] || '';
+      const herkunft = [s.linie, s.zuchtmutterId ? 'Zuchtmutter ' + zmLabel(s.zuchtmutterId) : '', anp].filter(Boolean).join(' · ');
+      const { doc, y } = await this.newDoc(`Zuchtbuch – ${s.name}`, `Umlarvtag: ${U.fmtDate(s.startdatum)} · ${s.anzahl} Zellen${herkunft ? ' · ' + herkunft : ''}${s.notiz ? ' · ' + s.notiz : ''}`);
       const body = s.termine.map((t) => [`Tag ${t.tag}`, t.titel, U.fmtDate(t.datum), '']);
       this.table(doc, { head: ['Tag', 'Arbeitsschritt', 'Datum', 'Erledigt / Ergebnis'], body, startY: y, widths: { 3: { cellWidth: 55 } } });
       this.finish(doc, `zuchtbuch-${s.name.replace(/[^\wäöüß-]+/gi, '_')}.pdf`);
