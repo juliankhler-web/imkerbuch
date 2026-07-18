@@ -596,8 +596,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.62';
+const APP_VERSION = '0.63';
 const CHANGELOG = [
+  { version: '0.63', datum: '2026-07-13', punkte: [
+    'Behandlung jetzt als Sammel-Erfassung – genau wie bei der Fütterung: Stand wählen, optional nach Funktion filtern (z. B. nur Wirtschaftsvölker), Völker anhaken, Mittel/Menge/Wartezeit eintragen. Für jedes Volk entsteht automatisch ein eigener Bestandsbuch-Eintrag (TAMG), und bei Wartezeit wird eine Erinnerung zum Ende angelegt.',
+  ] },
   { version: '0.62', datum: '2026-07-13', punkte: [
     'Zucht: Zwei neue Sammel-Abläufe bei den Königinnen – wie bei der Fütterung erst Stand/Funktion filtern, dann viele Völker auf einmal bearbeiten.',
     '„Bewertungs-Runde": Bewerte einen ganzen (Prüf-)Stand am selben Tag – Volk für Volk Sanftmut, Wabensitz, Schwarmträgheit, Entwicklung und Honig, ohne jede Königin einzeln zu öffnen.',
@@ -3279,7 +3282,7 @@ Views.behandlungen = {
           <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${b.wartezeitTage} Tage` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('flask', 'Noch keine Behandlung dokumentiert. Jede Anwendung gehört ins Bestandsbuch – inklusive Mittel, Menge und Wartezeit.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Behandlung</button>`)) + `</div>`;
-    const add = () => Views.behandlungen.form(null);
+    const add = () => Views.behandlungen.sammelForm();
     bindAdd(add);
     main.addEventListener('click', (e) => {
       const head = e.target.closest('.rk-head');
@@ -3367,6 +3370,45 @@ Views.behandlungen = {
     $('[data-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'behandlung', parentId: b.id, titel: 'Belege (Foto / PDF)' }));
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.behandlungen.form(b); };
   },
+
+  /** Sammel-Behandlung im Fütterungs-Stil: Stand → Funktion → Völker → Mittel/Menge.
+      Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an (TAMG). */
+  async sammelForm() {
+    const staende = await DB.getAll('staende');
+    const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
+    if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann behandelst du sie hier gesammelt.', 'err');
+    const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...alleVoelker.map((v) => v.funktion).filter(Boolean)])];
+    const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
+    const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
+    const m = UI.formModal({
+      title: 'Behandlung erfassen', wide: true,
+      fields: [
+        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So behandelst du z. B. nur die Wirtschaftsvölker.' },
+        { key: 'volkIds', label: '3. Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
+        { key: 'datum', label: '4. Datum der Anwendung', type: 'date', required: true, default: U.todayIso() },
+        { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
+        { key: 'menge', label: 'Menge je Volk', type: 'number', required: true },
+        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
+        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
+        { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
+        { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
+      ],
+      values: {},
+      async onSave(v) {
+        const n = await behandlungFuerVoelker(v.volkIds, v);
+        if (v.wartezeitTage > 0) {
+          const ende = U.addDays(v.datum, Math.round(v.wartezeitTage));
+          await DB.put('aufgaben', { titel: `Wartezeit endet: ${v.mittel} (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
+          Notif.check();
+        }
+        UI.toast(`Behandlung für ${n} ${n === 1 ? 'Volk' : 'Völker'} dokumentiert`);
+        renderRoute();
+      },
+    });
+    // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
+    verdrahteVolkFilter(m, alleVoelker);
+  },
 };
 
 /* =====================================================================
@@ -3388,6 +3430,17 @@ async function fuetterungFuerVoelker(volkIds, daten) {
   let n = 0;
   for (const id of volkIds || []) {
     await DB.put('fuetterungen', { volkId: id, datum: daten.datum, futterart: daten.futterart, mengeKg: daten.mengeKg, winterfutter: !!daten.winterfutter });
+    n++;
+  }
+  return n;
+}
+
+/** Legt dieselbe Behandlung als eigenen Bestandsbuch-Eintrag für mehrere Völker an
+    (TAMG: je Volk ein Eintrag). Gibt die Anzahl zurück. */
+async function behandlungFuerVoelker(volkIds, daten) {
+  let n = 0;
+  for (const id of volkIds || []) {
+    await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: daten.wartezeitTage || 0, notiz: daten.notiz || '' });
     n++;
   }
   return n;
