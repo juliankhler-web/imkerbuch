@@ -596,8 +596,22 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.69';
+const APP_VERSION = '0.73';
 const CHANGELOG = [
+  { version: '0.73', datum: '2026-07-13', punkte: [
+    'Inventar und Material sind jetzt zwei getrennte Bereiche: „Inventar“ (langlebige Gebrauchsgüter wie Beuten, Zargen, Geräte) und „Verbrauchsmaterial“ (Behandlungsmittel, Futter, Gläser, Etiketten …). Beide mit Jahr-/Art-Filter, Gesamtübersicht und eigenem PDF. Bestehende Einträge werden automatisch richtig zugeordnet.',
+  ] },
+  { version: '0.72', datum: '2026-07-13', punkte: [
+    'Der Bereich „Honig & Verkauf“ heißt jetzt „Ernte und Abfüllung“.',
+    'Inventar erweitert: Filter nach Jahr und nach Art, eine Gesamtübersicht (Kennzahlen + Aufstellung je Art) und ein PDF-Export „Inventar (PDF)“.',
+  ] },
+  { version: '0.71', datum: '2026-07-13', punkte: [
+    'Neu: Verkäufe als druckfertige PDF-Übersicht (Datum, Produkt, Los, Anzahl, Preis, Betrag, Käufer + Summenzeile) – Button „Liste (PDF)“ im Tab Verkäufe.',
+    'PDFs überarbeitet: Titel und Untertitel brechen jetzt sauber um (nichts läuft mehr über den Rand), Tabellen haben feine Gitterlinien und sauberen Zeilenumbruch. Die Chargenübersicht ist übersichtlicher (Charge fett, Abfüllungen eingerückt, feste Spaltenbreiten).',
+  ] },
+  { version: '0.70', datum: '2026-07-13', punkte: [
+    'Der Bereich „Honig & Chargen“ heißt jetzt „Honig & Verkauf“ – so ist auf einen Blick klar, dass hier alles vom Ernten über Chargen und Abfüllung bis zum Bestand und Verkauf zusammenläuft.',
+  ] },
   { version: '0.69', datum: '2026-07-13', punkte: [
     'Einheitlich „Gebinde“ statt „Gläser“: Ein 20-kg-Gebinde ist ein Eimer, kein Glas. Im Bestand steht jetzt beim Gebinde die Größe (z. B. 20 kg) und daneben nur noch die reine Anzahl – ohne „Gläser“. Gilt auch für Abfüllung, Verkauf und Marktverkauf.',
   ] },
@@ -864,7 +878,12 @@ const KASSEN_KATEGORIEN = {
   einnahme: ['Honigverkauf', 'Völker-/Ablegerverkauf', 'Wachs/Sonstige Produkte', 'Förderung/Zuschuss', 'Sonstige Einnahme'],
   ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Versicherung/Beiträge', 'Allgemeine Geschäftskosten', 'Sonstige Ausgabe'],
 };
-const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Behandlungsmittel', 'Futter', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
+// Inventar = langlebige Gebrauchsgüter; Verbrauchsmaterial = Verbrauchsgüter (Mittel, Futter, Gläser …)
+const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
+const MATERIAL_KATEGORIEN = ['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände', 'Sonstiges'];
+const VERBRAUCH_KATEGORIEN = new Set(['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände']);
+/** Bereich eines Inventar-Datensatzes: gespeichertes typ-Feld, sonst aus der Kategorie abgeleitet. */
+function inventarTyp(i) { return i.typ || (VERBRAUCH_KATEGORIEN.has(i.kategorie) ? 'verbrauch' : 'inventar'); }
 
 /* Sinnvolle Vorschlagslisten für Eingabefelder (Typ 'suggest'):
    vorausgewählt per Dropdown, eigenes Eintippen bleibt immer möglich. */
@@ -1319,11 +1338,12 @@ const NAV = [
   { route: 'wanderungen', label: 'Wanderungen', ic: 'truck' },
   { route: 'trachten', label: 'Trachten', ic: 'flower' },
   { sec: 'Ernte & Geschäft' },
-  { route: 'honig', label: 'Honig & Chargen', ic: 'honig' },
+  { route: 'honig', label: 'Ernte und Abfüllung', ic: 'honig' },
   { route: 'kassenbuch', label: 'Kassenbuch', ic: 'kasse' },
   { route: 'rechnungen', label: 'Rechnungen', ic: 'rechnung' },
   { route: 'fahrten', label: 'Fahrtenbuch', ic: 'truck' },
   { route: 'inventar', label: 'Inventar', ic: 'box' },
+  { route: 'material', label: 'Verbrauchsmaterial', ic: 'flask' },
   { sec: 'Auswertung' },
   { route: 'reporting', label: 'Statistiken', ic: 'chart' },
   { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
@@ -1380,7 +1400,7 @@ function renderChrome() {
     { route: 'dashboard', label: 'Start', ic: 'home' },
     { route: 'voelker', label: 'Völker', ic: 'volk' },
     { route: 'aufgaben', label: 'Aufgaben', ic: 'task' },
-    { route: 'honig', label: 'Honig', ic: 'honig' },
+    { route: 'honig', label: 'Ernte', ic: 'honig' },
   ];
   bn.innerHTML = bnItems.map((n) => `<button data-route="${n.route}"><span class="bn-pill">${icon(n.ic)}</span>${n.label}</button>`).join('') +
     `<button data-more><span class="bn-pill">${icon('mehr')}</span>Mehr</button>`;
@@ -3977,10 +3997,10 @@ async function laborErgebnisUebernehmen(ernteIds, sorte, wassergehalt) {
   return n;
 }
 Views.honig = {
-  title: 'Honig & Chargen',
+  title: 'Ernte und Abfüllung',
   async render(main) {
     const tab = Views.honig._tab || 'ernten';
-    main.innerHTML = pageHead('Honig', 'Ernten, Abfüllungen mit Losnummern und Bestandsübersicht') + `<div id="tabbar"></div><div id="tab-content"></div>`;
+    main.innerHTML = pageHead('Ernte und Abfüllung', 'Von der Ernte über Chargen und Abfüllung bis zum Bestand und Verkauf') + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar').appendChild(UI.tabs([
       { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'abfuellung', label: 'Abfüllung' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' }, { id: 'sorten', label: 'Sorten' },
     ], tab, (t) => { Views.honig._tab = t; renderRoute(); }));
@@ -4001,7 +4021,7 @@ Views.honig = {
     const umsatzJahr = U.sum(list.filter((v) => (v.datum || '').startsWith(jahr)), (v) => v.betrag);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${jahr}: ${U.fmtEur(umsatzJahr)}</span>
-        <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
+        <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="Pdf.verkaeufe()">${icon('doc')} Liste (PDF)</button><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
       <p class="small muted mb12">Verkauft wird aus einer <b>Abfüllung</b> (Gebinde). Jeder Verkauf zieht die Gebinde automatisch vom Bestand dieser Abfüllung ab und bucht die Einnahme im Kassenbuch. Für den Wochenmarkt gibt es den großen <b>Marktverkauf</b>-Kassenmodus. Stornieren macht beides rückgängig.</p>
       ${list.length ? `<div class="rows">` + list.map((v) => {
         const a = abf.get(v.abfuellungId); const c = a ? chargen.get(a.chargeId) : null;
@@ -4855,44 +4875,80 @@ Views.rechnung = {
 /* =====================================================================
    MODUL: INVENTAR / MATERIAL (Anlagen, Zuordnung, Gesamtwert)
    ===================================================================== */
+/** Gemeinsame Render-Funktion für Inventar UND Verbrauchsmaterial (nur Datenteilmenge/Labels unterscheiden sich). */
+async function renderInventarBereich(main, cfg) {
+  const view = cfg.view;
+  const staende = await idMap('staende'), voelker = await idMap('voelker');
+  const alle = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => i.bezeichnung.toLowerCase());
+  const jahre = [...new Set(alle.map((i) => (i.anschaffung || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+  const hatOhneJahr = alle.some((i) => !i.anschaffung);
+  const arten = [...new Set(alle.map((i) => i.kategorie).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  const jahr = view._jahr || '', art = view._art || '';
+  const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
+  const list = alle.filter(passt);
+  const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
+  const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
+  const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
+    .map(([k, items]) => ({ k, n: items.length, stueck: U.sum(items, (i) => i.stueckzahl || 1), wert: U.sum(items, wertVon) }))
+    .sort((a, b) => b.wert - a.wert);
+  const chip = (label, val, cur, attr) => `<button class="chip ${String(cur) === String(val) ? 'active' : ''}" data-${attr}="${U.esc(val)}">${U.esc(label)}</button>`;
+  main.innerHTML = pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`,
+    `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button><button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button></span>`) +
+    (alle.length ? `
+    <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
+    <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}</div>
+    <div class="stat-grid mb16">
+      <div class="stat"><div class="s-label">${icon(cfg.ic)} Positionen</div><div class="s-value">${list.length}</div></div>
+      <div class="stat"><div class="s-label">Stück gesamt</div><div class="s-value">${stueck}</div></div>
+      <div class="stat"><div class="s-label">${icon('euro')} Wert${jahr || art ? ' (Auswahl)' : ''}</div><div class="s-value">${U.fmtEur(wert)}</div></div>
+    </div>
+    <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
+      ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Stück</th><th class="num">Wert</th></tr></thead>
+        <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${r.stueck}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${stueck}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
+    </div>` : '') +
+    `<div class="card">` + (alle.length ? (list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th>Kategorie</th><th class="num">Stück</th><th class="num">Preis</th><th class="num">Wert</th><th>Zuordnung</th><th>Anschaffung</th><th class="no-print"></th></tr></thead>
+      <tbody>${list.map((i) => { const abgelaufen = i.ablauf && i.ablauf < U.todayIso(); const laueftAb = i.ablauf && !abgelaufen && U.daysBetween(U.todayIso(), i.ablauf) <= MHD_WARN_TAGE; const knapp = i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand;
+        const badge = abgelaufen ? '<span class="badge b-danger">abgelaufen</span>' : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>` : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
+        return `<tr><td><b>${U.esc(i.bezeichnung)}</b> ${badge}${i.notiz ? `<br><span class="small muted">${U.esc(i.notiz)}</span>` : ''}</td><td>${U.esc(i.kategorie || '–')}</td>
+        <td class="num">${i.stueckzahl || 1}</td><td class="num">${U.fmtEur(i.preis)}</td><td class="num"><b>${U.fmtEur(wertVon(i))}</b></td>
+        <td>${U.esc(staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–')}</td><td>${U.fmtDate(i.anschaffung) || '–'}</td>
+        <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>`
+      : '<p class="small muted">Keine Positionen passen zu Jahr/Art-Auswahl.</p>')
+    : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
+  const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
+  const form = async (i) => UI.formModal({
+    title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
+    fields: [
+      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.inventar, 'inventar', 'bezeichnung'), placeholder: cfg.typ === 'verbrauch' ? 'z. B. Ameisensäure 60 %' : 'z. B. Zanderbeute komplett' },
+      { key: 'kategorie', label: 'Kategorie', type: 'select', options: cfg.kategorien.map((k) => ({ v: k, l: k })) },
+      { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
+      { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
+      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Kaufdatum' : 'Anschaffungsdatum', type: 'date' },
+      { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', hint: 'Für Verbrauchsmaterial wie Varroa-Mittel oder Futter – die App erinnert vor Ablauf.' },
+      { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
+      { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
+      { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
+      { key: 'notiz', label: 'Notiz', type: 'textarea' },
+    ],
+    values: i || {},
+    async onSave(v) { v.stueckzahl = Math.round(v.stueckzahl || 1); await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute(); },
+    onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
+  });
+  bindAdd(() => form(null));
+  main.addEventListener('click', (e) => {
+    const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
+    const a = e.target.closest('[data-art]'); if (a) { view._art = a.dataset.art; return renderRoute(); }
+    const b = e.target.closest('[data-edit]'); if (b) form(alle.find((x) => x.id === b.dataset.edit));
+  });
+}
 Views.inventar = {
   title: 'Inventar',
-  async render(main) {
-    const list = U.sortBy(await DB.getAll('inventar'), (i) => i.bezeichnung.toLowerCase());
-    const staende = await idMap('staende'), voelker = await idMap('voelker');
-    const wert = U.sum(list, (i) => (i.preis || 0) * (i.stueckzahl || 1));
-    main.innerHTML = pageHead('Inventar & Material', `${list.length} Positionen · Gesamtwert ${U.fmtEur(wert)}`,
-      `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Position</button>`) +
-      `<div class="card">` + (list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th>Kategorie</th><th class="num">Stück</th><th class="num">Preis</th><th class="num">Wert</th><th>Zuordnung</th><th>Anschaffung</th><th class="no-print"></th></tr></thead>
-        <tbody>${list.map((i) => { const abgelaufen = i.ablauf && i.ablauf < U.todayIso(); const laueftAb = i.ablauf && !abgelaufen && U.daysBetween(U.todayIso(), i.ablauf) <= MHD_WARN_TAGE; const knapp = i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand;
-          const badge = abgelaufen ? '<span class="badge b-danger">abgelaufen</span>' : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>` : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
-          return `<tr><td><b>${U.esc(i.bezeichnung)}</b> ${badge}${i.notiz ? `<br><span class="small muted">${U.esc(i.notiz)}</span>` : ''}</td><td>${U.esc(i.kategorie || '–')}</td>
-          <td class="num">${i.stueckzahl || 1}</td><td class="num">${U.fmtEur(i.preis)}</td><td class="num"><b>${U.fmtEur((i.preis || 0) * (i.stueckzahl || 1))}</b></td>
-          <td>${U.esc(staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–')}</td><td>${U.fmtDate(i.anschaffung) || '–'}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>`
-      : emptyState('box', 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
-    const form = async (i) => UI.formModal({
-      title: i ? 'Position bearbeiten' : 'Neue Inventar-Position',
-      fields: [
-        { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.inventar, 'inventar', 'bezeichnung'), placeholder: 'z. B. Zanderbeute komplett' },
-        { key: 'kategorie', label: 'Kategorie', type: 'select', options: INVENTAR_KATEGORIEN.map((k) => ({ v: k, l: k })) },
-        { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
-        { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
-        { key: 'anschaffung', label: 'Anschaffungsdatum', type: 'date' },
-        { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', hint: 'Für Verbrauchsmaterial wie Varroa-Mittel oder Futter – die App erinnert vor Ablauf.' },
-        { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
-        { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
-        { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
-        { key: 'notiz', label: 'Notiz', type: 'textarea' },
-      ],
-      values: i || {},
-      async onSave(v) { v.stueckzahl = Math.round(v.stueckzahl || 1); await DB.put('inventar', Object.assign(i || {}, v)); pruefeMhd(); UI.toast('Inventar gespeichert'); renderRoute(); },
-      onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
-    });
-    const add = () => form(null);
-    bindAdd(add);
-    main.addEventListener('click', (e) => { const b = e.target.closest('[data-edit]'); if (b) form(list.find((x) => x.id === b.dataset.edit)); });
-  },
+  render(main) { return renderInventarBereich(main, { view: Views.inventar, typ: 'inventar', titel: 'Inventar', subtitle: 'langlebige Gebrauchsgüter (Beuten, Geräte …)', kategorien: INVENTAR_KATEGORIEN, ic: 'box', leer: 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …' }); },
+};
+Views.material = {
+  title: 'Verbrauchsmaterial',
+  render(main) { return renderInventarBereich(main, { view: Views.material, typ: 'verbrauch', titel: 'Verbrauchsmaterial', subtitle: 'Verbrauchsgüter (Mittel, Futter, Gläser …)', kategorien: MATERIAL_KATEGORIEN, ic: 'flask', leer: 'Noch kein Verbrauchsmaterial erfasst – Behandlungsmittel, Futter, Gläser, Etiketten …' }); },
 };
 
 /* =====================================================================
@@ -6316,26 +6372,35 @@ const Pdf = {
   },
   async header(doc, titel, untertitel = '') {
     const imk = S.get('imkerei');
+    const usable = 182; // A4 210 mm − 2×14 mm Rand
     try { doc.addImage(await this.logoDataUrl(), 'PNG', 14, 12, 16, 16); } catch (e) {}
     doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(38, 38, 43);
-    doc.text(imk.name || 'ImkerBuch', 34, 18);
+    doc.text(imk.name || 'ImkerBuch', 34, 18, { maxWidth: usable - 20 });
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(120);
     const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? 'Reg.-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
-    if (adr) doc.text(adr, 34, 23, { maxWidth: 160 });
+    if (adr) doc.text(adr, 34, 23, { maxWidth: usable - 20 });
     doc.setDrawColor(232, 160, 19).setLineWidth(0.8).line(14, 31, 196, 31);
+    // Titel und Untertitel umbrechen, damit nichts über den rechten Rand hinausläuft
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(38, 38, 43);
-    doc.text(titel, 14, 41);
-    let y = 46;
-    if (untertitel) { doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(110); doc.text(untertitel, 14, y); y += 6; }
-    return y + 2;
+    const tLines = doc.splitTextToSize(String(titel || ''), usable);
+    doc.text(tLines, 14, 40);
+    let y = 40 + tLines.length * 6.6;
+    if (untertitel) {
+      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(110);
+      const sLines = doc.splitTextToSize(String(untertitel), usable);
+      doc.text(sLines, 14, y + 1);
+      y += 1 + sLines.length * 4.6;
+    }
+    return y + 3;
   },
   table(doc, { head, body, startY, widths, margin }) {
     doc.autoTable({
       head: [head], body, startY,
-      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: [40, 37, 30] },
-      headStyles: { fillColor: [232, 160, 19], textColor: [36, 26, 5], fontStyle: 'bold' },
+      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: [40, 37, 30], overflow: 'linebreak', valign: 'middle', lineWidth: 0.1, lineColor: [226, 216, 196] },
+      headStyles: { fillColor: [232, 160, 19], textColor: [36, 26, 5], fontStyle: 'bold', overflow: 'linebreak' },
       alternateRowStyles: { fillColor: [250, 246, 239] },
       columnStyles: widths || {}, margin: margin || { left: 14, right: 14 },
+      tableWidth: 'auto', rowPageBreak: 'avoid',
     });
     return doc.lastAutoTable.finalY;
   },
@@ -6348,6 +6413,7 @@ const Pdf = {
       doc.text(`Seite ${i} von ${n}`, 196, 290, { align: 'right' });
       doc.text(`Erstellt mit ImkerBuch am ${U.fmtDate(U.todayIso())}`, 14, 290);
     }
+    if (this.noDownloadForTest) { this.lastDocForTest = doc; return; } // Test-Seam: kein Download
     doc.save(dateiname);
     UI.toast('PDF erstellt');
   },
@@ -6403,14 +6469,68 @@ const Pdf = {
       const ernten = await idMap('ernten');
       const { doc, y } = await this.newDoc('Honig-Chargenübersicht', 'Rückverfolgbarkeit: Charge → Abfüllung → Ernte');
       const body = [];
+      const kopf = { fontStyle: 'bold', fillColor: [245, 236, 218] };
       for (const c of chargen) {
         const sorten = (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ');
         const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
-        body.push([`Los ${c.losnummer}`, `${U.fmtNum(c.mengeKg || 0, 1)} kg`, `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei`, U.fmtDate(c.mhd) || '–', sorten]);
-        for (const a of abf) body.push([`  ↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} im Bestand`, U.fmtDate(a.datum), '']);
+        body.push([
+          { content: `Los ${c.losnummer}`, styles: kopf },
+          { content: `${U.fmtNum(c.mengeKg || 0, 1)} kg`, styles: kopf },
+          { content: `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei`, styles: kopf },
+          { content: U.fmtDate(c.mhd) || '–', styles: kopf },
+          { content: sorten, styles: kopf },
+        ]);
+        for (const a of abf) body.push([`↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} im Bestand`, U.fmtDate(a.datum), '']);
       }
-      this.table(doc, { head: ['Los / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'MHD / Datum', 'Ernten'], body, startY: y });
+      this.table(doc, { head: ['Los / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'MHD / Datum', 'Ernten'], body, startY: y, widths: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 } } });
       this.finish(doc, `chargen-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Verkäufe-Übersicht ---------- */
+  async verkaeufe(jahr) {
+    try {
+      const alle = U.sortBy(await DB.getAll('verkaeufe'), (v) => v.datum);
+      const list = jahr ? alle.filter((v) => (v.datum || '').startsWith(String(jahr))) : alle;
+      const abf = await idMap('abfuellungen'), chargen = await idMap('chargen'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
+      const umsatz = U.sum(list, (v) => v.betrag), stueck = U.sum(list, (v) => v.anzahl);
+      const { doc, y } = await this.newDoc(`Verkäufe${jahr ? ' ' + jahr : ' – Übersicht'}`, `${list.length} ${list.length === 1 ? 'Verkauf' : 'Verkäufe'} · ${stueck} Gebinde · Umsatz ${U.fmtEur(umsatz)}`);
+      const body = list.map((v) => {
+        const a = abf.get(v.abfuellungId), c = a ? chargen.get(a.chargeId) : null;
+        return [U.fmtDate(v.datum), a ? `${gebindeLabel(a.gebindeG)} · ${honigName(c, ernten)}` : 'Gebinde', c ? 'Los ' + c.losnummer : '–', String(v.anzahl), U.fmtEur(v.preisJeGlas), U.fmtEur(v.betrag), kontakte.get(v.kontaktId)?.name || ''];
+      });
+      body.push([
+        { content: 'Summe', styles: { fontStyle: 'bold' } }, '', '',
+        { content: String(stueck), styles: { fontStyle: 'bold', halign: 'right' } }, '',
+        { content: U.fmtEur(umsatz), styles: { fontStyle: 'bold', halign: 'right' } }, '',
+      ]);
+      this.table(doc, { head: ['Datum', 'Produkt', 'Los', 'Anzahl', 'à (€)', 'Betrag (€)', 'Käufer'], body, startY: y, widths: { 0: { cellWidth: 20 }, 2: { cellWidth: 20 }, 3: { cellWidth: 16, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' }, 5: { cellWidth: 22, halign: 'right' } } });
+      this.finish(doc, `verkaeufe-${jahr || 'alle'}-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Inventar / Verbrauchsmaterial (Gesamtübersicht + Liste) ---------- */
+  async inventar(jahr, art, typ, titel) {
+    try {
+      const staende = await idMap('staende'), voelker = await idMap('voelker');
+      let alle = U.sortBy(await DB.getAll('inventar'), (i) => `${i.kategorie || 'zzz'}·${i.bezeichnung.toLowerCase()}`);
+      if (typ) alle = alle.filter((i) => inventarTyp(i) === typ);
+      const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
+      const list = alle.filter(passt);
+      const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
+      const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
+      const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + art : ''].filter(Boolean).join(' · ');
+      const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · ${stueck} Stück · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
+      // Übersicht nach Art
+      const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
+        .map(([k, items]) => [k, String(items.length), String(U.sum(items, (i) => i.stueckzahl || 1)), U.fmtEur(U.sum(items, wertVon))])
+        .sort((a, b) => a[0].localeCompare(b[0], 'de'));
+      proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, { content: String(stueck), styles: { fontStyle: 'bold' } }, { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
+      let yy = this.table(doc, { head: ['Art', 'Positionen', 'Stück', 'Wert'], body: proArt, startY: y, widths: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } } });
+      // Detailliste
+      const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', String(i.stueckzahl || 1), U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
+      this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Stück', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 14, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
+      this.finish(doc, `${(titel || 'inventar').toLowerCase()}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -6839,8 +6959,8 @@ const LERN_KAPITEL = [
     { h: 'Wann ist der Honig reif?', p: 'Honig ist reif, wenn die Bienen die Zellen mit Wachs verdeckelt haben und der Wassergehalt niedrig ist. Faustregel: mindestens zwei Drittel der Wabe verdeckelt.', note: 'Zu früh geernteter Honig hat zu viel Wasser und kann gären. Lieber ein paar Tage warten.' },
     { h: 'Ernten & Schleudern', p: 'Du nimmst die vollen Honigwaben ab, entdeckelst sie und schleuderst den Honig in einer Schleuder heraus. Danach wird er gesiebt und ruht kurz, bevor du ihn abfüllst.', note: 'Die Schleuder musst du nicht kaufen – die meisten Vereine verleihen eine an ihre Mitglieder.' },
     { h: 'Abfüllen & Losnummer', p: 'Zum Schluss füllst du den Honig in saubere Gläser. Für den Verkauf brauchst du ein Etikett mit den Pflichtangaben und eine Losnummer – so ist jede Charge nachvollziehbar.', note: 'In ImkerBuch erfasst du jede Ernte als Charge mit Losnummer – das macht das Etikett später kinderleicht.' },
-    { h: 'Erfasse deine Ernte', p: 'Öffne „Honig & Chargen" und trag deine erste Ernte ein – Menge, Sorte und das Volk, von dem sie stammt.', note: 'So weißt du immer, wie viel Honig von welchem Volk kam.' },
-  ], aktion: { label: 'Zu Honig & Chargen – Ernte erfassen', route: 'honig' } },
+    { h: 'Erfasse deine Ernte', p: 'Öffne „Ernte und Abfüllung" und trag deine erste Ernte ein – Menge, Sorte und das Volk, von dem sie stammt.', note: 'So weißt du immer, wie viel Honig von welchem Volk kam.' },
+  ], aktion: { label: 'Zu Ernte und Abfüllung – Ernte erfassen', route: 'honig' } },
   { id: 10, titel: 'Varroa & Bienengesundheit', steps: [
     { svg: `<svg viewBox="0 0 180 150" width="100%" style="max-height:150px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Varroamilbe als Warnsymbol"><circle cx="90" cy="72" r="54" fill="none" stroke="#B3362B" stroke-width="4" stroke-dasharray="9 8"/><g stroke="#5a2610" stroke-width="4" stroke-linecap="round"><line x1="60" y1="58" x2="38" y2="46"/><line x1="57" y1="72" x2="32" y2="70"/><line x1="60" y1="86" x2="38" y2="98"/><line x1="66" y1="94" x2="54" y2="110"/><line x1="120" y1="58" x2="142" y2="46"/><line x1="123" y1="72" x2="148" y2="70"/><line x1="120" y1="86" x2="142" y2="98"/><line x1="114" y1="94" x2="126" y2="110"/></g><ellipse cx="90" cy="72" rx="34" ry="26" fill="#8a3b18"/><ellipse cx="90" cy="67" rx="25" ry="15" fill="#a4551f" opacity=".7"/><ellipse cx="80" cy="62" rx="6" ry="4" fill="#fff" opacity=".25"/></svg>`, h: 'Der wichtigste Gegner: die Varroamilbe', p: 'Die Varroamilbe ist eine winzige, rotbraune Milbe, die auf den Bienen und in der Brut sitzt und sie schwächt. Unbehandelt geht ein Volk daran im Winter fast sicher ein.', note: 'Fast jedes Volk in Deutschland hat Varroa. Die Frage ist nicht ob, sondern wie stark – und wann du behandelst.' },
     { h: 'Zählen statt raten', p: 'Wie stark der Befall ist, siehst du am „natürlichen Milbenfall": Du legst eine Bodeneinlage (Windel) ein und zählst nach ein paar Tagen die heruntergefallenen Milben pro Tag.', note: 'Steigt der tägliche Milbenfall im Sommer stark an, wird es Zeit zu handeln. ImkerBuch hat dafür sogar eine Ampel.' },
@@ -7774,6 +7894,18 @@ async function migriereChargenAbfuellung() {
   await S.set('abfuellungMigriert', true);
 }
 
+/** Einmalige Migration: Inventar-Datensätze bekommen ein `typ` (inventar | verbrauch),
+    abgeleitet aus der Kategorie, damit die Trennung Inventar/Verbrauchsmaterial stabil ist. */
+async function migriereInventarTyp() {
+  if (S.get('inventarTypMigriert')) return;
+  for (const i of await DB.getAll('inventar')) {
+    if (i.typ) continue;
+    i.typ = VERBRAUCH_KATEGORIEN.has(i.kategorie) ? 'verbrauch' : 'inventar';
+    await DB.put('inventar', i);
+  }
+  await S.set('inventarTypMigriert', true);
+}
+
 async function boot() {
   try { await DB.open(); } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>ImkerBuch kann nicht starten</h2><p>IndexedDB ist nicht verfügbar (privater Modus?): ${U.esc(e.message)}</p></div>`;
@@ -7782,6 +7914,7 @@ async function boot() {
   await S.load();
   await migriereRaehmchenmass();
   await migriereChargenAbfuellung();
+  await migriereInventarTyp();
   applyTheme();
   renderChrome();
   applyHeaderLogo();
@@ -7825,7 +7958,7 @@ Object.assign(window, {
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
-  gelernteWerte, INVENTAR_KATEGORIEN, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
+  gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
