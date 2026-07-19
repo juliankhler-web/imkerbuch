@@ -596,8 +596,20 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.63';
+const APP_VERSION = '0.66';
 const CHANGELOG = [
+  { version: '0.66', datum: '2026-07-13', punkte: [
+    'Verkauf ist jetzt klar auf die Abfüllung bezogen: Du wählst „Welche Abfüllung (Gebinde)?“ (z. B. 500 g · Lindenblütenhonig) und die Anzahl Gebinde – ohne Umweg über die Charge.',
+    'Bestand ist jetzt nach Charge gruppiert: je Los siehst du Gesamtmenge, abgefüllte Menge und noch freie kg sowie pro Gebinde die Gläser im Bestand mit kg – alle Zahlen verrechnen sich automatisch miteinander.',
+  ] },
+  { version: '0.65', datum: '2026-07-13', punkte: [
+    'Charge und Abfüllung sind jetzt getrennt: Eine Charge ist ein Los mit Gesamtmenge (kg) – ohne Glasgröße, Abfülldatum oder Verkaufspreis. Das Abfüllen läuft im neuen Tab „Abfüllung“.',
+    'Neuer Tab „Abfüllung“: Charge wählen, in Gebinde abfüllen (20 kg, 500 g, 250 g, 50 g … oder eigene Größe), auch mehrere Gebinde auf einmal. Die Menge wird automatisch von der freien Restmenge der Charge abgezogen – zu viel geht nicht.',
+    'Verkauf, Marktverkauf und Rechnungen beziehen sich jetzt auf die einzelnen Abfüllungen (Gebinde), der Bestand wird dort geführt. Bestehende Chargen werden beim Update automatisch und verlustfrei ins neue Modell übernommen.',
+  ] },
+  { version: '0.64', datum: '2026-07-13', punkte: [
+    'Alle Auswahl-Menüs (Dropdowns) sind jetzt alphabetisch sortiert – Stände, Völker, Königinnen, Kunden, Sorten, Tätigkeiten, Mittel, Beutentypen usw. lassen sich viel schneller finden. Die Sortierung ist zahlen-bewusst (7 kommt vor 19) und deutsch (Umlaute korrekt), Platzhalter wie „Alle Stände“ bleiben oben. Bewusst geordnete Skalen (z. B. die Bewertung 4→1) behalten ihre Reihenfolge.',
+  ] },
   { version: '0.63', datum: '2026-07-13', punkte: [
     'Behandlung jetzt als Sammel-Erfassung – genau wie bei der Fütterung: Stand wählen, optional nach Funktion filtern (z. B. nur Wirtschaftsvölker), Völker anhaken, Mittel/Menge/Wartezeit eintragen. Für jedes Volk entsteht automatisch ein eigener Bestandsbuch-Eintrag (TAMG), und bei Wartezeit wird eine Erinnerung zum Ende angelegt.',
   ] },
@@ -924,8 +936,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 4, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 5, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -1019,6 +1031,20 @@ const S = {
 const FormGuard = { dirty: false };
 window.addEventListener('beforeunload', (e) => { if (FormGuard.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
+/** Sortiert Dropdown-Optionen alphanumerisch (deutsch, zahlen-bewusst: „7“ vor „19“,
+    Umlaute korrekt). Platzhalter mit leerem Wert (z. B. „Alle Stände“, „– unbekannt –“)
+    bleiben oben. keepOrder=true lässt bewusst geordnete Menüs (z. B. Bewertung 4→1) unangetastet.
+    string=true für suggest-Listen (Array aus Strings), sonst {v,l}-Objekte. */
+function optionenSortiert(opts, string = false, keepOrder = false) {
+  if (keepOrder || !Array.isArray(opts)) return opts || [];
+  const label = (o) => String(string ? o : (o && o.l != null ? o.l : ''));
+  const wert = (o) => (string ? o : (o ? o.v : o));
+  const pinned = [], rest = [];
+  for (const o of opts) ((wert(o) === '' || wert(o) == null) ? pinned : rest).push(o);
+  rest.sort((a, b) => label(a).localeCompare(label(b), 'de', { numeric: true, sensitivity: 'base' }));
+  return [...pinned, ...rest];
+}
+
 const UI = {
   toast(msg, type = 'ok') {
     const t = document.createElement('div');
@@ -1082,7 +1108,7 @@ const UI = {
       const v = val(f);
       let inner = '';
       if (f.type === 'select') {
-        const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
+        const opts = optionenSortiert((typeof f.options === 'function' ? f.options() : f.options) || [], false, f.keepOrder);
         inner = `<select class="inp" id="${fid(f.key)}">${f.required ? '' : '<option value="">–</option>'}${opts.map((o) => `<option value="${U.esc(o.v)}" ${String(o.v) === String(v) ? 'selected' : ''}>${U.esc(o.l)}</option>`).join('')}</select>`;
       } else if (f.type === 'textarea') {
         inner = `<textarea class="inp" id="${fid(f.key)}" placeholder="${U.esc(f.placeholder || '')}">${U.esc(v)}</textarea>`;
@@ -1091,7 +1117,7 @@ const UI = {
       } else if (f.type === 'rating') {
         return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}</label><div class="rating" id="${fid(f.key)}" data-val="${v || 0}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" class="${v >= n ? 'active' : ''}">${n}</button>`).join('')}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}</div>`;
       } else if (f.type === 'multicheck') {
-        const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
+        const opts = optionenSortiert((typeof f.options === 'function' ? f.options() : f.options) || [], false, f.keepOrder);
         const sel = Array.isArray(v) ? v : [];
         return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
       } else if (f.type === 'static') {
@@ -1099,7 +1125,7 @@ const UI = {
       } else if (f.type === 'suggest') {
         // Eigenes Auswahl-Dropdown (kein <datalist> – das zeigt auf iOS/Android oft keine Optionen):
         // Eingabefeld + auf-/zuklappbare Optionsliste. Freies Eintippen bleibt möglich.
-        const opts = (typeof f.options === 'function' ? f.options() : f.options) || [];
+        const opts = optionenSortiert((typeof f.options === 'function' ? f.options() : f.options) || [], true, f.keepOrder);
         inner = `<div class="combo">
           <input class="inp combo-inp" id="${fid(f.key)}" placeholder="${U.esc(f.placeholder || 'auswählen oder eintippen …')}" value="${U.esc(v)}" autocomplete="off">
           <div class="combo-list" style="display:none">${opts.map((o) => `<div class="combo-opt" data-v="${U.esc(o)}">${U.esc(o)}</div>`).join('')}</div>
@@ -1973,18 +1999,22 @@ const Demo = {
       if (so === 'Linde' && dt.startsWith(String(Y))) eLinde = e;
       if (so === 'Frühtracht') eFrueh = e;
     }
-    await DB.put('chargen', { losnummer: `${Y}-01`, abfuelldatum: ymd(Y, 6, 20), ernteIds: eRaps ? [eRaps.id] : [], glasGroesseG: 500, anzahlGlaeser: 120, bestandGlaeser: 104, mhd: ymd(Y + 2, 6, 20), etikettNotiz: 'Rapshonig, cremig gerührt' });
-    const chLinde = await DB.put('chargen', { losnummer: `${Y}-02`, abfuelldatum: ymd(Y, 7, 18), ernteIds: eLinde ? [eLinde.id] : [], glasGroesseG: 500, anzahlGlaeser: 80, bestandGlaeser: 63, mhd: ymd(Y + 2, 7, 18), etikettNotiz: 'Lindenblütenhonig' });
-    await DB.put('chargen', { losnummer: `${Y}-03`, abfuelldatum: ymd(Y, 7, 25), ernteIds: eLinde ? [eLinde.id] : [], glasGroesseG: 250, anzahlGlaeser: 60, bestandGlaeser: 52, mhd: ymd(Y + 2, 7, 25), etikettNotiz: 'Lindenhonig 250 g' });
-    await DB.put('chargen', { losnummer: `${Y - 1}-01`, abfuelldatum: ymd(Y - 1, 6, 20), ernteIds: eFrueh ? [eFrueh.id] : [], glasGroesseG: 500, anzahlGlaeser: 100, bestandGlaeser: 0, mhd: ymd(Y + 1, 6, 20), etikettNotiz: 'Frühtrachthonig (ausverkauft)' });
+    // Chargen = Lose (Gesamtmenge kg); Abfüllung erfolgt separat je Gebinde
+    const chRaps = await DB.put('chargen', { losnummer: `${Y}-01`, ernteIds: eRaps ? [eRaps.id] : [], mengeKg: 62, mhd: ymd(Y + 2, 6, 20), etikettNotiz: 'Rapshonig, cremig gerührt' });
+    await DB.put('abfuellungen', { chargeId: chRaps.id, datum: ymd(Y, 6, 20), gebindeG: 500, anzahl: 120, bestand: 104 });
+    const chLinde = await DB.put('chargen', { losnummer: `${Y}-02`, ernteIds: eLinde ? [eLinde.id] : [], mengeKg: 60, mhd: ymd(Y + 2, 7, 18), etikettNotiz: 'Lindenblütenhonig' });
+    const aLinde500 = await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 18), gebindeG: 500, anzahl: 80, bestand: 63 });
+    await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 25), gebindeG: 250, anzahl: 60, bestand: 52 });
+    const chFrueh = await DB.put('chargen', { losnummer: `${Y - 1}-01`, ernteIds: eFrueh ? [eFrueh.id] : [], mengeKg: 50, mhd: ymd(Y + 1, 6, 20), etikettNotiz: 'Frühtrachthonig (ausverkauft)' });
+    await DB.put('abfuellungen', { chargeId: chFrueh.id, datum: ymd(Y - 1, 6, 20), gebindeG: 500, anzahl: 100, bestand: 0 });
 
     const k1 = await DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Müller', strasse: 'Dorfstraße 12', plz: '34123', ort: 'Kassel', email: 'info@hofladen-mueller.de', telefon: '0561 123456', notiz: 'Nimmt monatlich 12 Gläser.' });
     const k2 = await DB.put('kontakte', { typ: 'kunde', name: 'Café Sonnenschein', strasse: 'Marktplatz 3', plz: '34117', ort: 'Kassel', email: '', telefon: '0561 998877', notiz: '' });
     await DB.put('kontakte', { typ: 'kunde', name: 'Stammkunde Meyer (Wochenmarkt)', strasse: '', plz: '', ort: '', email: '', telefon: '', notiz: 'Bar am Marktstand.' });
     await DB.put('kontakte', { typ: 'lieferant', name: 'Imkereibedarf Wabe & Co', strasse: 'Industrieweg 8', plz: '34266', ort: 'Niestetal', email: '', telefon: '', notiz: '' });
     await DB.put('kontakte', { typ: 'lieferant', name: 'Glaswerk Nord', strasse: '', plz: '', ort: 'Hamburg', email: '', telefon: '', notiz: 'Neutralgläser 500/250 g.' });
-    try { await verkaufErfassen({ chargeId: chLinde.id, anzahl: 12, preisJeGlas: 7.5, kontaktId: k1.id, datum: d(-18), notiz: 'Hofladen' }); } catch (e) {}
-    try { await verkaufErfassen({ chargeId: chLinde.id, anzahl: 5, preisJeGlas: 8, kontaktId: k2.id, datum: d(-9), notiz: 'Café' }); } catch (e) {}
+    try { await verkaufErfassen({ abfuellungId: aLinde500.id, anzahl: 12, preisJeGlas: 7.5, kontaktId: k1.id, datum: d(-18), notiz: 'Hofladen' }); } catch (e) {}
+    try { await verkaufErfassen({ abfuellungId: aLinde500.id, anzahl: 5, preisJeGlas: 8, kontaktId: k2.id, datum: d(-9), notiz: 'Café' }); } catch (e) {}
 
     for (const [dt, ty, ka, be, sr, bs] of [
       [ymd(Y - 2, 7, 10), 'einnahme', 'Honigverkauf', 420, 0, 'Saison-Honig ' + (Y - 2)],
@@ -2000,8 +2030,8 @@ const Demo = {
       [d(-12), 'ausgabe', 'Varroa-Behandlung', 48, 19, 'Oxalsäure + AS'],
     ]) await DB.put('kassenbuch', { datum: dt, typ: ty, kategorie: ka, betrag: be, steuersatz: sr, kontaktId: null, beschreibung: bs, rechnungId: null });
 
-    await DB.put('rechnungen', { nummer: 'RE-0001', datum: d(-22), kundeId: k1.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'festgeschrieben', qrAufDruck: false, positionen: [{ text: 'Rapshonig 500 g', menge: 12, einzelpreis: 6.5, steuersatz: 0, chargeId: null }, { text: 'Lindenhonig 500 g', menge: 6, einzelpreis: 7, steuersatz: 0, chargeId: null }] });
-    await DB.put('rechnungen', { nummer: null, datum: d(-2), kundeId: k2.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'entwurf', qrAufDruck: false, positionen: [{ text: 'Lindenhonig 250 g', menge: 10, einzelpreis: 4.5, steuersatz: 0, chargeId: null }] });
+    await DB.put('rechnungen', { nummer: 'RE-0001', datum: d(-22), kundeId: k1.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'festgeschrieben', qrAufDruck: false, positionen: [{ text: 'Rapshonig 500 g', menge: 12, einzelpreis: 6.5, steuersatz: 0, abfuellungId: null }, { text: 'Lindenhonig 500 g', menge: 6, einzelpreis: 7, steuersatz: 0, abfuellungId: null }] });
+    await DB.put('rechnungen', { nummer: null, datum: d(-2), kundeId: k2.id, steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, status: 'entwurf', qrAufDruck: false, positionen: [{ text: 'Lindenhonig 250 g', menge: 10, einzelpreis: 4.5, steuersatz: 0, abfuellungId: null }] });
 
     for (const iv of [
       { bezeichnung: 'Zanderbeute komplett', kategorie: 'Beute', anschaffung: ymd(Y - 2, 3, 10), preis: 189, stueckzahl: 6 },
@@ -2810,10 +2840,10 @@ Views.koeniginnen = {
         { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
         { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Königin, die die Drohnen stellt.' },
         { key: '_bewTitel', type: 'static', html: '<h3 class="mt8 mb8">Bewertung (Zuchtauslese)</h3><div class="hint mb8">Optional – Skala 1–4, 4 = bester Wert. Hilft bei der Auswahl der Zuchtmütter.</div>' },
-        { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note },
-        { key: 'bWabensitz', label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', default: 0, options: note },
-        { key: 'bSchwarm', label: 'Schwarmträgheit', type: 'select', default: 0, options: note },
-        { key: 'bEntwicklung', label: 'Volksentwicklung', type: 'select', default: 0, options: note },
+        { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note, keepOrder: true },
+        { key: 'bWabensitz', label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', default: 0, options: note, keepOrder: true },
+        { key: 'bSchwarm', label: 'Schwarmträgheit', type: 'select', default: 0, options: note, keepOrder: true },
+        { key: 'bEntwicklung', label: 'Volksentwicklung', type: 'select', default: 0, options: note, keepOrder: true },
         { key: 'bHonigKg', label: 'Honigertrag (kg)', type: 'number', placeholder: 'z. B. 28' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
@@ -2916,10 +2946,10 @@ Views.koeniginnen = {
     voelker.forEach((v) => {
       const q = qm.get(v.koeniginId), b = q.bewertung || {}, alt = zuchtNote(b);
       fields.push({ key: '_h_' + q.id, type: 'static', html: `<h3 class="mt8 mb4">${U.esc(v.name)} <span class="small muted">· ${U.esc(koeniginKurz(q))}${alt ? ` · bisher ⌀ ${U.fmtNum(alt, 1)}` : ''}</span></h3>` });
-      fields.push({ key: 's_' + q.id, label: 'Sanftmut', type: 'select', options: note });
-      fields.push({ key: 'w_' + q.id, label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', options: note });
-      fields.push({ key: 'c_' + q.id, label: 'Schwarmträgheit', type: 'select', options: note });
-      fields.push({ key: 'e_' + q.id, label: 'Volksentwicklung', type: 'select', options: note });
+      fields.push({ key: 's_' + q.id, label: 'Sanftmut', type: 'select', options: note, keepOrder: true });
+      fields.push({ key: 'w_' + q.id, label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', options: note, keepOrder: true });
+      fields.push({ key: 'c_' + q.id, label: 'Schwarmträgheit', type: 'select', options: note, keepOrder: true });
+      fields.push({ key: 'e_' + q.id, label: 'Volksentwicklung', type: 'select', options: note, keepOrder: true });
       fields.push({ key: 'h_' + q.id, label: 'Honigertrag (kg)', type: 'number', placeholder: 'optional' });
       values['s_' + q.id] = b.sanftmut || 0; values['w_' + q.id] = b.wabensitz || 0;
       values['c_' + q.id] = b.schwarm || 0; values['e_' + q.id] = b.entwicklung || 0;
@@ -3826,23 +3856,23 @@ Views.wanderungen = {
   },
 };
 
-/** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF */
-async function honigEtikettForm(c) {
+/** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF (je Abfüllung/Gebinde) */
+async function honigEtikettForm(a, c) {
   const ernten = await idMap('ernten');
-  const sorte = (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || '';
+  const sorte = c ? (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || '' : '';
   const imk = S.get('imkerei');
   if (!imk.name || !imk.ort) UI.toast('Tipp: Imkerei-Name & Anschrift in den Einstellungen ausfüllen – sie gehören aufs Etikett', 'err');
   UI.formModal({
-    title: `Honig-Etikett · Los ${c.losnummer}`, wide: true,
+    title: `Honig-Etikett · Los ${c ? c.losnummer : '?'} · ${gebindeLabel(a.gebindeG)}`, wide: true,
     fields: [
-      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: c.etikettNotiz || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
+      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
-      { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: c.bestandGlaeser || c.anzahlGlaeser || 10 },
+      { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
       { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
-      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${U.fmtNum(c.glasGroesseG, 0)} g), MHD${c.mhd ? ' (' + U.fmtDate(c.mhd) + ')' : ' – bitte an der Charge hinterlegen'}, Losnummer und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
+      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), MHD${c && c.mhd ? ' (' + U.fmtDate(c.mhd) + ')' : ' – bitte an der Charge hinterlegen'}, Losnummer und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
     ],
     saveText: 'Etiketten-PDF erzeugen',
-    async onSave(v) { await Pdf.honigEtikett(c, v); },
+    async onSave(v) { await Pdf.honigEtikett(a, c, v); },
   });
 }
 
@@ -3850,46 +3880,66 @@ async function honigEtikettForm(c) {
    MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, QR, Bestand,
    Verkäufe mit automatischem Lagerabzug + Kassenbuch-Buchung)
    ===================================================================== */
-/** Verkauf erfassen: prüft Bestand, mindert die Charge, bucht die Einnahme */
-async function verkaufErfassen({ chargeId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
-  const c = await DB.get('chargen', chargeId);
-  if (!c) throw new Error('Bitte eine Charge auswählen.');
+/* --- Gebinde-Helfer: Charge = Los-Bestand (kg), Abfüllung = Gläser eines Gebindes --- */
+const GEBINDE_PRESETS = [20000, 10000, 1000, 500, 250, 125, 50]; // Gramm; 20 kg = Hobbock
+/** Gebindegröße lesbar: „500 g“, „20 kg“. */
+function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
+/** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
+function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
+/** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
+function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle)) * 1000) / 1000; }
+/** Abfüllungs-Kurzlabel: „Los 25-01 · 500 g“. */
+function abfLabel(a, charge) { return `Los ${charge ? charge.losnummer : '?'} · ${gebindeLabel(a.gebindeG)}`; }
+/** Anzeigename des Honigs einer Charge (Sorte aus Ernte, sonst Etikett-Bezeichnung, sonst „Honig“). */
+function honigName(charge, erntenMap) {
+  if (!charge) return 'Honig';
+  const sorte = (charge.ernteIds || []).map((id) => erntenMap && erntenMap.get(id)?.sorte).filter(Boolean)[0];
+  return sorte || charge.etikettNotiz || 'Honig';
+}
+
+/** Verkauf erfassen: prüft Bestand der Abfüllung, mindert die Gläser, bucht die Einnahme */
+async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
+  const a = await DB.get('abfuellungen', abfuellungId);
+  if (!a) throw new Error('Bitte eine Abfüllung auswählen.');
   anzahl = Math.round(anzahl);
   if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
-  if (anzahl > c.bestandGlaeser) throw new Error(`Nur ${c.bestandGlaeser} Gläser im Bestand von Los ${c.losnummer}.`);
+  if (anzahl > a.bestand) throw new Error(`Nur ${a.bestand} Gläser im Bestand dieser Abfüllung.`);
+  const c = await DB.get('chargen', a.chargeId);
+  const los = c ? c.losnummer : '?';
   const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
-  c.bestandGlaeser -= anzahl;
-  await DB.put('chargen', c);
-  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${U.fmtNum(c.glasGroesseG, 0)} g (Los ${c.losnummer})`, rechnungId: null });
-  return DB.put('verkaeufe', { datum, chargeId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id });
+  a.bestand -= anzahl;
+  await DB.put('abfuellungen', a);
+  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Los ${los})`, rechnungId: null });
+  return DB.put('verkaeufe', { datum, abfuellungId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id });
 }
 /** Verkauf stornieren: Bestand zurückbuchen, Kassenbuch-Buchung + Verkauf in den Papierkorb */
 async function verkaufStornieren(verkaufId) {
   const v = await DB.get('verkaeufe', verkaufId);
   if (!v) return;
-  const c = await DB.get('chargen', v.chargeId);
-  if (c) { c.bestandGlaeser += v.anzahl; await DB.put('chargen', c); }
+  const a = await DB.get('abfuellungen', v.abfuellungId);
+  if (a) { a.bestand += v.anzahl; await DB.put('abfuellungen', a); }
   if (v.kassenbuchId) await DB.softDel('kassenbuch', v.kassenbuchId);
   await DB.softDel('verkaeufe', verkaufId);
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
-async function verkaufForm(vorChargeId = '') {
-  const chargen = (await DB.getAll('chargen')).filter((c) => c.bestandGlaeser > 0);
-  if (!chargen.length) return UI.toast('Kein Bestand vorhanden – lege zuerst eine Charge an', 'err');
+async function verkaufForm(vorAbfuellungId = '') {
+  const abf = (await DB.getAll('abfuellungen')).filter((a) => a.bestand > 0);
+  if (!abf.length) return UI.toast('Kein Gläser-Bestand vorhanden – fülle zuerst eine Charge ab (Tab „Abfüllung“)', 'err');
+  const chargen = await idMap('chargen'), ernten = await idMap('ernten');
   const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
   UI.formModal({
     title: 'Verkauf erfassen',
     fields: [
-      { key: 'chargeId', label: 'Charge (Ernte)', type: 'select', required: true, default: vorChargeId, options: chargen.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(c.glasGroesseG, 0)} g · ${c.bestandGlaeser} verfügbar` })) },
-      { key: 'anzahl', label: 'Anzahl Gläser', type: 'number', required: true, default: 1 },
-      { key: 'preisJeGlas', label: 'Preis je Glas (€)', type: 'number', required: true },
+      { key: 'abfuellungId', label: 'Welche Abfüllung (Gebinde)?', type: 'select', required: true, default: vorAbfuellungId, options: abf.map((a) => ({ v: a.id, l: `${gebindeLabel(a.gebindeG)} · ${honigName(chargen.get(a.chargeId), ernten)} · ${a.bestand} verfügbar` })) },
+      { key: 'anzahl', label: 'Anzahl Gebinde', type: 'number', required: true, default: 1 },
+      { key: 'preisJeGlas', label: 'Preis je Gebinde (€)', type: 'number', required: true },
       { key: 'kontaktId', label: 'Verkauft an', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional – Kunden legst du unter Kassenbuch → Kunden & Lieferanten an.' },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. Haustürverkauf, Wochenmarkt' },
     ],
     saveText: 'Verkauf buchen',
     async onSave(v) {
-      await verkaufErfassen({ chargeId: v.chargeId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
+      await verkaufErfassen({ abfuellungId: v.abfuellungId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
       UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute();
     },
   });
@@ -3916,11 +3966,12 @@ Views.honig = {
     const tab = Views.honig._tab || 'ernten';
     main.innerHTML = pageHead('Honig', 'Ernten, Abfüllungen mit Losnummern und Bestandsübersicht') + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar').appendChild(UI.tabs([
-      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' }, { id: 'sorten', label: 'Sorten' },
+      { id: 'ernten', label: 'Ernten' }, { id: 'chargen', label: 'Chargen' }, { id: 'abfuellung', label: 'Abfüllung' }, { id: 'bestand', label: 'Bestand' }, { id: 'verkaeufe', label: 'Verkäufe' }, { id: 'sorten', label: 'Sorten' },
     ], tab, (t) => { Views.honig._tab = t; renderRoute(); }));
     const box = $('#tab-content');
     if (tab === 'ernten') await Views.honig.tabErnten(box);
     else if (tab === 'chargen') await Views.honig.tabChargen(box);
+    else if (tab === 'abfuellung') await Views.honig.tabAbfuellung(box);
     else if (tab === 'verkaeufe') await Views.honig.tabVerkaeufe(box);
     else if (tab === 'sorten') await Views.honig.tabSorten(box);
     else await Views.honig.tabBestand(box);
@@ -3929,18 +3980,18 @@ Views.honig = {
   /* ---------- Verkäufe (Lagerabzug + Kassenbuch automatisch) ---------- */
   async tabVerkaeufe(box) {
     const list = U.sortBy(await DB.getAll('verkaeufe'), (v) => v.datum, true);
-    const chargen = await idMap('chargen'), kontakte = await idMap('kontakte');
+    const abf = await idMap('abfuellungen'), chargen = await idMap('chargen'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
     const jahr = U.todayIso().slice(0, 4);
     const umsatzJahr = U.sum(list.filter((v) => (v.datum || '').startsWith(jahr)), (v) => v.betrag);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${jahr}: ${U.fmtEur(umsatzJahr)}</span>
         <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
-      <p class="small muted mb12">Jeder Verkauf zieht die Gläser automatisch vom Chargen-Bestand ab und bucht die Einnahme im Kassenbuch. Für den Wochenmarkt gibt es den großen <b>Marktverkauf</b>-Kassenmodus. Stornieren macht beides rückgängig.</p>
+      <p class="small muted mb12">Verkauft wird aus einer <b>Abfüllung</b> (Gebinde). Jeder Verkauf zieht die Gläser automatisch vom Bestand dieser Abfüllung ab und bucht die Einnahme im Kassenbuch. Für den Wochenmarkt gibt es den großen <b>Marktverkauf</b>-Kassenmodus. Stornieren macht beides rückgängig.</p>
       ${list.length ? `<div class="rows">` + list.map((v) => {
-        const c = chargen.get(v.chargeId);
+        const a = abf.get(v.abfuellungId); const c = a ? chargen.get(a.chargeId) : null;
         return `<div class="row">
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
-          <span class="r-main"><span class="r-title">${v.anzahl} × ${c ? U.fmtNum(c.glasGroesseG, 0) + ' g (Los ' + U.esc(c.losnummer) + ')' : 'Glas'} · ${U.fmtEur(v.betrag)}</span>
+          <span class="r-main"><span class="r-title">${v.anzahl} × ${a ? U.esc(gebindeLabel(a.gebindeG)) + ' · ' + U.esc(honigName(c, ernten)) : 'Gebinde'} · ${U.fmtEur(v.betrag)}</span>
           <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
           <button class="btn btn-xs btn-danger no-print" data-storno="${v.id}">Stornieren</button>
         </div>`;
@@ -4092,16 +4143,20 @@ Views.honig = {
 
   /* ---------- Chargen (Losnummern, QR, Rückverfolgung) ---------- */
   async tabChargen(box) {
-    const list = U.sortBy(await DB.getAll('chargen'), (c) => c.abfuelldatum, true);
+    const list = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
     const ernten = await idMap('ernten');
+    const abfAlle = await DB.getAll('abfuellungen');
     box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('qr')}<h2>Chargen / Abfüllungen</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
-      ${list.length ? `<div class="rows">` + list.map((c) => `
-        <button class="row" data-id="${c.id}">
+      <div class="card-title">${icon('qr')}<h2>Chargen (Lose)</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
+      <p class="small muted mb12">Eine Charge ist ein Los Honig mit Losnummer und Gesamtmenge. Abgefüllt wird separat im Tab <b>Abfüllung</b> – von dort wird die Menge automatisch abgezogen.</p>
+      ${list.length ? `<div class="rows">` + list.map((c) => {
+        const rest = chargeRestKg(c, abfAlle);
+        return `<button class="row" data-id="${c.id}">
           <span class="r-ic">${icon('qr')}</span>
           <span class="r-main"><span class="r-title">Los ${U.esc(c.losnummer)}</span>
-          <span class="r-sub">${U.fmtDate(c.abfuelldatum)} · ${c.anzahlGlaeser} × ${U.fmtNum(c.glasGroesseG, 0)} g · ${(c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ') || 'ohne Ernte-Zuordnung'}</span></span>
-          <span class="r-side"><b>${c.bestandGlaeser}</b><br><span class="muted small">im Bestand</span></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
+          <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ') || 'ohne Ernte-Zuordnung'}</span></span>
+          <span class="r-side"><b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">nicht abgefüllt</span></span>${icon('chevR', 'chev')}</button>`;
+      }).join('') + `</div>`
       : emptyState('qr', 'Noch keine Charge. Eine Charge (Losnummer) macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`)}
     </div>`;
     const add = () => Views.honig.chargeForm(null);
@@ -4112,72 +4167,70 @@ Views.honig = {
     const ernten = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
     const jahr = U.todayIso().slice(0, 4);
     const bestehende = await DB.getAll('chargen');
+    // Vorschlag Gesamtmenge = Summe der gewählten Ernten (nur als Startwert; frei änderbar)
     UI.formModal({
-      title: c ? 'Charge bearbeiten' : 'Neue Charge / Abfüllung', wide: true,
+      title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
         { key: 'losnummer', label: 'Losnummer', required: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`, hint: 'Erscheint auf dem Etikett und im QR-Code.' },
-        { key: 'abfuelldatum', label: 'Abfülldatum', type: 'date', required: true, default: U.todayIso() },
         { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg` })) },
-        { key: 'glasGroesseG', label: 'Glasgröße (g)', type: 'number', required: true, default: 500 },
-        { key: 'anzahlGlaeser', label: 'Anzahl Gläser', type: 'number', required: true },
-        { key: 'verkaufspreis', label: 'Verkaufspreis je Glas (€)', type: 'number', hint: 'Optional – wird im Marktverkauf als Standardpreis vorgeschlagen.' },
+        { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', required: true, hint: 'Die geschleuderte Honigmenge dieses Loses. Beim Abfüllen wird davon abgezogen.' },
         { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date', hint: `Die App erinnert automatisch ${MHD_WARN_TAGE} Tage vor Ablauf.` },
         { key: 'etikettNotiz', label: 'Etikettendaten / Bezeichnung', type: 'textarea', placeholder: 'z. B. Rapshonig, cremig gerührt' },
       ],
       values: c || {},
       async onSave(v) {
-        v.anzahlGlaeser = Math.round(v.anzahlGlaeser);
-        const rec = Object.assign(c || {}, v);
-        if (!c) rec.bestandGlaeser = v.anzahlGlaeser;
-        else if (v.anzahlGlaeser !== c.anzahlGlaeser) rec.bestandGlaeser = Math.max(0, rec.bestandGlaeser + (v.anzahlGlaeser - c.anzahlGlaeser));
+        const rec = Object.assign(c || {}, { losnummer: v.losnummer, ernteIds: v.ernteIds || [], mengeKg: v.mengeKg, mhd: v.mhd, etikettNotiz: v.etikettNotiz });
         await DB.put('chargen', rec); UI.toast('Charge gespeichert'); renderRoute();
       },
-      onDelete: papierkorbDelete('chargen', c, 'Charge löschen?', 'Wandert in den Papierkorb.'),
+      onDelete: c ? async () => {
+        const abf = (await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id);
+        if (abf.length && !(await UI.confirm({ title: 'Charge mit Abfüllungen löschen?', text: `Zu dieser Charge gehören ${abf.length} Abfüllung(en). Nur die Charge wandert in den Papierkorb; die Abfüllungen bleiben (dann ohne Charge-Zuordnung). Lösche bei Bedarf zuerst die Abfüllungen.`, confirmText: 'Trotzdem löschen', danger: true }))) return false;
+        await DB.softDel('chargen', c.id); UI.toast('Charge gelöscht'); renderRoute(); return true;
+      } : null,
     });
   },
   async chargeDetail(c) {
     const ernten = await idMap('ernten');
     const voelker = await idMap('voelker'), staende = await idMap('staende');
+    const abf = U.sortBy((await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
     const kette = (c.ernteIds || []).map((id) => {
       const e = ernten.get(id); if (!e) return null;
       const quelle = e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name;
       return { e, quelle: quelle || 'gelöscht' };
     }).filter(Boolean);
-    const verkauft = c.anzahlGlaeser - c.bestandGlaeser;
+    const rest = chargeRestKg(c, abf);
+    const glaeserGesamt = U.sum(abf, (a) => a.anzahl);
+    const glaeserBestand = U.sum(abf, (a) => a.bestand);
     const m = UI.modal({
       title: `Charge ${c.losnummer}`, wide: true,
       body: `
         <div class="stat-grid mb12">
-          <div class="stat"><div class="s-label">Abgefüllt</div><div class="s-value">${c.anzahlGlaeser}</div><div class="s-sub">à ${U.fmtNum(c.glasGroesseG, 0)} g</div></div>
-          <div class="stat"><div class="s-label">Im Bestand</div><div class="s-value">${c.bestandGlaeser}</div><div class="s-sub">${verkauft} abverkauft</div></div>
+          <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)}</div><div class="s-sub">kg im Los</div></div>
+          <div class="stat"><div class="s-label">Nicht abgefüllt</div><div class="s-value">${U.fmtNum(rest, 1)}</div><div class="s-sub">kg frei</div></div>
           <div class="stat"><div class="s-label">MHD</div><div class="s-value" style="font-size:16px">${U.fmtDate(c.mhd) || '–'}</div></div>
         </div>
         ${c.etikettNotiz ? `<p class="small mb12"><b>Etikett:</b> ${U.esc(c.etikettNotiz)}</p>` : ''}
-        <h3 class="mb8">Rückverfolgung: Glas → Charge → Ernte → Volk</h3>
+        <h3 class="mb8">Abfüllungen dieser Charge</h3>
+        <div class="rows mb12">${abf.length ? abf.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px">
+          <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
+          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${a.anzahl} Gläser</span>
+          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)} · noch ${a.bestand} im Bestand</span></span>
+          <button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${a.id}">${icon('doc')} Etikett</button></div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
+        ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gläsern im Bestand.</p>` : ''}
+        <h3 class="mb8">Rückverfolgung: Charge → Ernte → Volk</h3>
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${e.sorte ? U.esc(e.sorte) : 'Ernte'} · ${U.fmtNum(e.mengeKg)} kg</span>
           <span class="r-sub">geerntet ${U.fmtDate(e.datum)} aus ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(quelle)}“</span></span></div>`).join('') || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
-        <div class="flex-wrap mb12">
-          <label class="small muted">Bestand korrigieren:</label>
-          <input class="inp" id="bestand-inp" inputmode="numeric" style="width:90px;min-height:38px" value="${c.bestandGlaeser}">
-          <button class="btn btn-sm btn-ghost" id="bestand-save">Übernehmen</button>
-        </div>
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
-        ${c.bestandGlaeser > 0 ? `<button class="btn btn-ghost" data-vk>${icon('euro')} Verkauf</button>` : ''}
-        <button class="btn btn-ghost" data-etikett>${icon('doc')} Etikett</button>
+        ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}
         <button class="btn btn-primary" data-qr>${icon('qr')} QR-Code erzeugen</button>`,
     });
-    $('[data-etikett]', m.el).onclick = () => honigEtikettForm(c);
-    $('#bestand-save', m.el).onclick = async () => {
-      const n = parseInt($('#bestand-inp', m.el).value, 10);
-      if (isNaN(n) || n < 0) return UI.toast('Ungültige Anzahl', 'err');
-      c.bestandGlaeser = n; await DB.put('chargen', c); UI.toast('Bestand aktualisiert'); renderRoute();
-    };
+    $$('[data-etikett-abf]', m.el).forEach((b) => b.onclick = () => { const a = abf.find((x) => x.id === b.dataset.etikettAbf); if (a) honigEtikettForm(a, c); });
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.honig.chargeForm(c); };
-    const vkBtn = $('[data-vk]', m.el);
-    if (vkBtn) vkBtn.onclick = () => { m.close(true); verkaufForm(c.id); };
+    const abfBtn = $('[data-abf]', m.el);
+    if (abfBtn) abfBtn.onclick = () => { m.close(true); Views.honig.abfuellForm(c.id); };
     $('[data-qr]', m.el).onclick = async () => {
       const zone = $('#qr-zone', m.el);
       zone.innerHTML = '<span class="muted small">QR-Code wird erzeugt …</span>';
@@ -4193,7 +4246,7 @@ Views.honig = {
   async qrDataUrl(c, erntenMap) {
     const imk = S.get('imkerei');
     const sorten = (c.ernteIds || []).map((id) => erntenMap.get(id)?.sorte).filter(Boolean).join(', ');
-    const text = [`Los: ${c.losnummer}`, `Abgefüllt: ${U.fmtDate(c.abfuelldatum)}`, c.mhd ? `MHD: ${U.fmtDate(c.mhd)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
+    const text = [`Los: ${c.losnummer}`, c.mhd ? `MHD: ${U.fmtDate(c.mhd)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
     return makeQr(text);
   },
   /** Druckansicht: Bogen mit QR-Codes fürs Etikett */
@@ -4216,27 +4269,128 @@ Views.honig = {
     window.print();
   },
 
-  /* ---------- Bestandsübersicht ---------- */
+  /* ---------- Abfüllung (Charge → Gebinde/Gläser, zieht kg von der Charge ab) ---------- */
+  async tabAbfuellung(box) {
+    const abf = U.sortBy(await DB.getAll('abfuellungen'), (a) => a.datum, true);
+    const chargen = await idMap('chargen');
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('honig')}<h2>Abfüllung</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Abfüllen</button></div>
+      <p class="small muted mb12">Wähle eine Charge und fülle sie in Gebinde ab (z. B. 500 g, 250 g). Die abgefüllte Menge wird automatisch von der Charge abgezogen – mehrere Gebinde auf einmal möglich.</p>
+      ${abf.length ? `<div class="rows">` + abf.map((a) => {
+        const c = chargen.get(a.chargeId);
+        return `<button class="row" data-id="${a.id}">
+          <span class="r-ic">${icon('honig')}</span>
+          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Los ${U.esc(c ? c.losnummer : '?')}</span>
+          <span class="r-sub">${U.fmtDate(a.datum)} · ${a.anzahl} abgefüllt · noch ${a.bestand} im Bestand</span></span>
+          <span class="r-side"><b>${a.bestand}</b><br><span class="muted small">Gläser</span></span>${icon('chevR', 'chev')}</button>`;
+      }).join('') + `</div>`
+      : emptyState('honig', 'Noch nichts abgefüllt. Lege zuerst eine Charge an, dann füllst du sie hier in Gläser ab.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Abfüllung</button>`)}
+    </div>`;
+    bindAdd(() => Views.honig.abfuellForm(), box);
+    box.addEventListener('click', (ev) => { const r = ev.target.closest('.row[data-id]'); if (r) Views.honig.abfuellEditForm(abf.find((x) => x.id === r.dataset.id)); });
+  },
+  /** Abfüllen: eine Charge in ein oder mehrere Gebinde abfüllen (zieht kg intelligent ab). */
+  async abfuellForm(vorChargeId = '') {
+    const abfAlle = await DB.getAll('abfuellungen');
+    const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
+    const frei = chargen.filter((c) => chargeRestKg(c, abfAlle) > 0.0001);
+    if (!frei.length) return UI.toast('Keine Charge mit freier Restmenge. Lege zuerst eine Charge an (Tab „Chargen“).', 'err');
+    const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl Gläser' }));
+    UI.formModal({
+      title: 'Abfüllen', wide: true,
+      fields: [
+        { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', required: true, default: vorChargeId, options: frei.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` })) },
+        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, default: U.todayIso() },
+        { key: '_g', type: 'static', html: '<h3 class="mt8 mb4">Gebinde</h3><div class="hint mb8">Trage bei den passenden Größen die Anzahl Gläser ein – auch mehrere Größen auf einmal.</div>' },
+        ...gebindeFelder,
+        { key: 'eigenesG', label: 'Eigenes Gebinde – Größe (g)', type: 'number', placeholder: 'z. B. 30' },
+        { key: 'eigenesN', label: 'Eigenes Gebinde – Anzahl Gläser', type: 'number' },
+      ],
+      values: {},
+      async onSave(v) {
+        const posten = [];
+        for (const g of GEBINDE_PRESETS) { const n = Math.round(v['g_' + g] || 0); if (n > 0) posten.push({ gebindeG: g, anzahl: n }); }
+        if (v.eigenesG > 0 && Math.round(v.eigenesN || 0) > 0) posten.push({ gebindeG: Math.round(v.eigenesG), anzahl: Math.round(v.eigenesN) });
+        if (!posten.length) throw new Error('Bitte bei mindestens einem Gebinde eine Anzahl eintragen.');
+        const charge = await DB.get('chargen', v.chargeId);
+        const rest = chargeRestKg(charge, await DB.getAll('abfuellungen'));
+        const brauchtKg = posten.reduce((s, p) => s + p.anzahl * p.gebindeG / 1000, 0);
+        if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Los ${charge.losnummer} frei.`);
+        let glaeser = 0;
+        for (const p of posten) { await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }); glaeser += p.anzahl; }
+        UI.toast(`${glaeser} Gläser in ${posten.length} Gebinde${posten.length === 1 ? '' : 'n'} abgefüllt`); renderRoute();
+      },
+    });
+  },
+  /** Einzelne Abfüllung korrigieren oder löschen (freigegebene kg fließen automatisch zurück). */
+  async abfuellEditForm(a) {
+    if (!a) return;
+    const c = await DB.get('chargen', a.chargeId);
+    UI.formModal({
+      title: `Abfüllung bearbeiten · Los ${c ? c.losnummer : '?'}`, wide: true,
+      fields: [
+        { key: 'gebindeG', label: 'Gebindegröße (g)', type: 'number', required: true },
+        { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true },
+        { key: 'bestand', label: 'Davon noch im Bestand', type: 'number', required: true, hint: 'Wird durch Verkäufe automatisch gemindert.' },
+        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true },
+      ],
+      values: a,
+      async onSave(v) {
+        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: Math.round(v.anzahl), bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum }));
+        UI.toast('Abfüllung gespeichert'); renderRoute();
+      },
+      onDelete: papierkorbDelete('abfuellungen', a, 'Abfüllung löschen?', 'Wandert in den Papierkorb; die Menge zählt wieder als frei in der Charge.'),
+    });
+  },
+
+  /* ---------- Bestandsübersicht: je Charge, Gebinde intelligent verrechnet ---------- */
   async tabBestand(box) {
-    const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.abfuelldatum, true);
+    const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
+    const abfAlle = await DB.getAll('abfuellungen');
     const ernten = await idMap('ernten');
-    const totalGlaeser = U.sum(chargen, (c) => c.bestandGlaeser);
-    const totalKg = U.sum(chargen, (c) => (c.bestandGlaeser * c.glasGroesseG) / 1000);
+    // Gesamtsummen (über alle Chargen)
+    const totalGlaeser = U.sum(abfAlle, (a) => a.bestand);
+    const totalKgGlaeser = U.sum(abfAlle, (a) => (a.bestand * a.gebindeG) / 1000);
+    const totalFreiKg = U.sum(chargen, (c) => chargeRestKg(c, abfAlle));
+    const kgFmt = (g) => U.fmtNum(g / 1000, 1); // Gramm-Summe → kg
+    const chargenHtml = chargen.map((c) => {
+      const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
+      const glaeserBestand = U.sum(abf, (a) => a.bestand);
+      const gBestand = U.sum(abf, (a) => a.bestand * a.gebindeG);       // Gramm im Bestand
+      const gAbgefuellt = U.sum(abf, (a) => a.anzahl * a.gebindeG);     // Gramm je abgefüllt
+      const freiKg = chargeRestKg(c, abfAlle);
+      const zeilen = abf.map((a) => `<tr>
+        <td><b>${gebindeLabel(a.gebindeG)}</b></td>
+        <td class="num">${a.bestand} Glä.</td>
+        <td class="num">${U.fmtNum(a.bestand * a.gebindeG / 1000, 1)} kg</td>
+        <td class="num">${a.anzahl - a.bestand}</td>
+        <td class="no-print">${a.bestand > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${a.id}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('');
+      return `<div class="card">
+        <div class="card-title">${icon('qr')}<h2>Los ${U.esc(c.losnummer)} · ${U.esc(honigName(c, ernten))}</h2>${c.mhd ? `<span class="badge b-honey">MHD ${U.fmtDate(c.mhd)}</span>` : ''}</div>
+        <div class="stat-grid mb12">
+          <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)} kg</div></div>
+          <div class="stat"><div class="s-label">Abgefüllt</div><div class="s-value">${kgFmt(gAbgefuellt)} kg</div><div class="s-sub">${U.sum(abf, (a) => a.anzahl)} Gläser gesamt</div></div>
+          <div class="stat"><div class="s-label">Noch nicht abgefüllt</div><div class="s-value">${U.fmtNum(freiKg, 1)} kg</div></div>
+        </div>
+        ${abf.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th class="num">Verkauft</th><th class="no-print"></th></tr></thead>
+          <tbody>${zeilen}
+          <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe im Bestand</td><td class="num">${glaeserBestand} Glä.</td><td class="num">${kgFmt(gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
+          </tbody></table></div>`
+        : `<p class="small muted">Noch nichts abgefüllt. ${freiKg > 0 ? `<button class="btn btn-xs btn-ghost no-print" data-abf="${c.id}">${icon('plus')} Jetzt abfüllen</button>` : ''}</p>`}
+      </div>`;
+    }).join('');
     box.innerHTML = `
       <div class="stat-grid mb16">
-        <div class="stat"><div class="s-label">${icon('honig')} Gläser im Bestand</div><div class="s-value">${totalGlaeser}</div></div>
-        <div class="stat"><div class="s-label">${icon('gewicht')} Menge im Bestand</div><div class="s-value">${U.fmtNum(totalKg, 1)} kg</div></div>
+        <div class="stat"><div class="s-label">${icon('honig')} Gläser im Bestand</div><div class="s-value">${totalGlaeser}</div><div class="s-sub">${U.fmtNum(totalKgGlaeser, 1)} kg im Lager</div></div>
+        <div class="stat"><div class="s-label">${icon('gewicht')} Noch nicht abgefüllt</div><div class="s-value">${U.fmtNum(totalFreiKg, 1)} kg</div></div>
         <div class="stat"><div class="s-label">${icon('qr')} Chargen</div><div class="s-value">${chargen.length}</div></div>
       </div>
-      <div class="card"><div class="card-title">${icon('honig')}<h2>Bestand je Charge</h2>
-        <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.chargenuebersicht()">${icon('doc')} Chargenübersicht (PDF)</button></div>
-      ${chargen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Los</th><th>Sorte</th><th class="num">Glas</th><th class="num">Abgefüllt</th><th class="num">Bestand</th><th class="num">Abverkauft</th><th>MHD</th><th class="no-print"></th></tr></thead>
-        <tbody>${chargen.map((c) => `<tr><td><b>${U.esc(c.losnummer)}</b></td><td>${(c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ') || '–'}</td>
-          <td class="num">${U.fmtNum(c.glasGroesseG, 0)} g</td><td class="num">${c.anzahlGlaeser}</td><td class="num"><b>${c.bestandGlaeser}</b></td><td class="num">${c.anzahlGlaeser - c.bestandGlaeser}</td><td>${U.fmtDate(c.mhd) || '–'}</td>
-          <td class="no-print">${c.bestandGlaeser > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${c.id}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
-      : emptyState('honig', 'Noch kein Bestand – lege zuerst eine Charge an.')}
-      </div>`;
-    box.addEventListener('click', (e) => { const b = e.target.closest('[data-verkauf]'); if (b) verkaufForm(b.dataset.verkauf); });
+      <div class="flex-wrap mb12 no-print"><span class="spacer"></span><button class="btn btn-ghost btn-sm" onclick="Pdf.chargenuebersicht()">${icon('doc')} Chargenübersicht (PDF)</button></div>
+      ${chargen.length ? chargenHtml : emptyState('honig', 'Noch kein Bestand – lege eine Charge an und fülle sie im Tab „Abfüllung“ ab.')}`;
+    box.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-verkauf]'); if (b) return verkaufForm(b.dataset.verkauf);
+      const ab = e.target.closest('[data-abf]'); if (ab) return Views.honig.abfuellForm(ab.dataset.abf);
+    });
   },
 };
 
@@ -4247,29 +4401,30 @@ Views.honig = {
    ===================================================================== */
 Views.markt = {
   title: 'Marktverkauf',
-  _korb: {}, // chargeId -> anzahl
+  _korb: {}, // abfuellungId -> anzahl
   async render(main) {
-    const chargen = U.sortBy((await DB.getAll('chargen')).filter((c) => c.bestandGlaeser > 0), (c) => c.losnummer);
-    const ernten = await idMap('ernten');
+    const abf = U.sortBy((await DB.getAll('abfuellungen')).filter((a) => a.bestand > 0), (a) => a.gebindeG, true);
+    const chargen = await idMap('chargen'), ernten = await idMap('ernten');
     const korb = Views.markt._korb;
-    // Positionen ohne Bestand/Charge aus dem Korb entfernen
-    for (const id of Object.keys(korb)) { const c = chargen.find((x) => x.id === id); if (!c || korb[id] > c.bestandGlaeser) delete korb[id]; }
-    const preis = (c) => Views.markt._preise?.[c.id] ?? c.verkaufspreis ?? 0;
-    const summe = Object.entries(korb).reduce((s, [id, n]) => { const c = chargen.find((x) => x.id === id); return s + (c ? n * preis(c) : 0); }, 0);
+    // Positionen ohne Bestand/Abfüllung aus dem Korb entfernen
+    for (const id of Object.keys(korb)) { const a = abf.find((x) => x.id === id); if (!a || korb[id] > a.bestand) delete korb[id]; }
+    const preis = (a) => Views.markt._preise?.[a.id] ?? 0;
+    const summe = Object.entries(korb).reduce((s, [id, n]) => { const a = abf.find((x) => x.id === id); return s + (a ? n * preis(a) : 0); }, 0);
     const anzahlKorb = Object.values(korb).reduce((a, b) => a + b, 0);
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('honig')">${icon('back')} Zurück</button>
       ${pageHead('Marktverkauf', 'Glas antippen legt es in den Warenkorb. „Kassieren“ bucht Bestand + Kassenbuch.')}
-      ${chargen.length ? `<div class="markt-grid mb16">${chargen.map((c) => {
-        const name = (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || c.etikettNotiz || 'Honig';
-        const imKorb = korb[c.id] || 0;
-        return `<button class="markt-tile" data-tile="${c.id}" ${imKorb >= c.bestandGlaeser ? 'disabled' : ''}>
+      ${abf.length ? `<div class="markt-grid mb16">${abf.map((a) => {
+        const c = chargen.get(a.chargeId);
+        const name = (c && (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0]) || (c && c.etikettNotiz) || 'Honig';
+        const imKorb = korb[a.id] || 0;
+        return `<button class="markt-tile" data-tile="${a.id}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
-          <span class="mt-rest">${U.fmtNum(c.glasGroesseG, 0)} g · Los ${U.esc(c.losnummer)} · ${c.bestandGlaeser - imKorb} übrig</span>
-          <span class="mt-preis">${preis(c) ? U.fmtEur(preis(c)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
+          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Los ${U.esc(c ? c.losnummer : '?')} · ${a.bestand - imKorb} übrig</span>
+          <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
         </button>`;
       }).join('')}</div>`
-      : emptyState('honig', 'Kein Bestand vorhanden. Lege zuerst eine Charge mit Gläsern an.')}
+      : emptyState('honig', 'Kein Glas-Bestand vorhanden. Fülle zuerst eine Charge im Tab „Abfüllung“ ab.')}
       ${anzahlKorb ? `<div class="markt-korb">
         <div class="flex-wrap mb8"><b style="flex:1">Warenkorb: ${anzahlKorb} ${anzahlKorb === 1 ? 'Glas' : 'Gläser'}</b><span style="font-size:22px;font-weight:800">${U.fmtEur(summe)}</span></div>
         <div class="flex-wrap"><button class="btn btn-ghost btn-sm" id="wechsel">${icon('euro')} Wechselgeld</button><button class="btn btn-ghost btn-sm" id="leeren">Leeren</button><span class="spacer"></span><button class="btn btn-primary" id="kassieren">${icon('check')} Kassieren</button></div>
@@ -4277,26 +4432,24 @@ Views.markt = {
     main.addEventListener('click', async (e) => {
       const tile = e.target.closest('[data-tile]');
       if (tile) {
-        const c = chargen.find((x) => x.id === tile.dataset.tile);
-        if (!preis(c)) return Views.markt.preisSetzen(c);
-        korb[c.id] = (korb[c.id] || 0) + 1;
+        const a = abf.find((x) => x.id === tile.dataset.tile);
+        if (!preis(a)) return Views.markt.preisSetzen(a, chargen.get(a.chargeId));
+        korb[a.id] = (korb[a.id] || 0) + 1;
         return renderRoute();
       }
       if (e.target.closest('#leeren')) { Views.markt._korb = {}; return renderRoute(); }
       if (e.target.closest('#wechsel')) return Views.markt.wechselgeld(summe);
-      if (e.target.closest('#kassieren')) return Views.markt.kassieren(korb, chargen, preis, summe);
+      if (e.target.closest('#kassieren')) return Views.markt.kassieren(korb, abf, preis, summe);
     });
   },
-  preisSetzen(c) {
+  preisSetzen(a, c) {
     UI.formModal({
       title: 'Verkaufspreis je Glas',
-      fields: [{ key: 'preis', label: `Preis für Los ${c.losnummer} (${U.fmtNum(c.glasGroesseG, 0)} g)`, type: 'number', required: true, default: c.verkaufspreis || '' },
-        { key: 'merken', label: 'Als Standardpreis dieser Charge merken', type: 'check', default: true }],
+      fields: [{ key: 'preis', label: `Preis für Los ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: Views.markt._preise?.[a.id] || '' }],
       saveText: 'Übernehmen',
       async onSave(v) {
         Views.markt._preise = Views.markt._preise || {};
-        Views.markt._preise[c.id] = v.preis;
-        if (v.merken) { c.verkaufspreis = v.preis; await DB.put('chargen', c); }
+        Views.markt._preise[a.id] = v.preis;
         renderRoute();
       },
     });
@@ -4315,14 +4468,14 @@ Views.markt = {
       $('#wg-out', m.el).innerHTML = isNaN(geg) ? '' : geg < summe ? `<span style="color:var(--danger)">fehlen ${U.fmtEur(summe - geg)}</span>` : `Rückgeld: <span style="color:var(--ok)">${U.fmtEur(geg - summe)}</span>`;
     };
   },
-  async kassieren(korb, chargen, preis, summe) {
+  async kassieren(korb, abf, preis, summe) {
     const posten = Object.entries(korb);
     if (!posten.length) return;
     if (!(await UI.confirm({ title: 'Verkauf kassieren?', text: `${posten.reduce((a, [, n]) => a + n, 0)} Gläser für ${U.fmtEur(summe)} – Bestand wird gemindert und im Kassenbuch gebucht.`, confirmText: 'Kassieren', danger: false }))) return;
     let fehler = 0;
     for (const [id, n] of posten) {
-      const c = chargen.find((x) => x.id === id);
-      try { await verkaufErfassen({ chargeId: id, anzahl: n, preisJeGlas: preis(c), notiz: 'Marktverkauf' }); }
+      const a = abf.find((x) => x.id === id);
+      try { await verkaufErfassen({ abfuellungId: id, anzahl: n, preisJeGlas: preis(a), notiz: 'Marktverkauf' }); }
       catch (e) { fehler++; console.error(e); }
     }
     Views.markt._korb = {};
@@ -4537,7 +4690,8 @@ Views.rechnung = {
     const r = await DB.get('rechnungen', id);
     if (!r) { main.innerHTML = emptyState('warn', 'Rechnung nicht gefunden.'); return; }
     const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
-    const chargen = await DB.getAll('chargen');
+    const abfAlle = await DB.getAll('abfuellungen');
+    const chargenM = await idMap('chargen');
     const entwurf = r.status === 'entwurf';
     const art = rechnungSteuerart(r);
     const { brutto, steuern } = rechnungSummen(r);
@@ -4553,7 +4707,7 @@ Views.rechnung = {
       <div class="card">
         <div class="grid2">
           <div class="field"><label>Kunde ${entwurf ? '<span class="req">*</span>' : ''}</label>
-            ${entwurf ? `<select class="inp" id="r-kunde"><option value="">– wählen –</option>${kunden.map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
+            ${entwurf ? `<select class="inp" id="r-kunde"><option value="">– wählen –</option>${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
             <div class="hint">Kunden legst du unter Kassenbuch → Kunden & Lieferanten an.</div>`
             : `<div class="kpill">${U.esc(kunden.find((k) => k.id === r.kundeId)?.name || '–')}</div>`}</div>
           <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${r.datum}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
@@ -4585,7 +4739,7 @@ Views.rechnung = {
       $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
       $('#r-steuerart').onchange = (e) => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); DB.put('rechnungen', r).then(renderRoute); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
-      $('#addPos').onclick = () => Views.rechnung.posForm(r, chargen);
+      $('#addPos').onclick = () => Views.rechnung.posForm(r, abfAlle, chargenM);
       main.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-pdel]');
         if (b && (await UI.confirm({ title: 'Position entfernen?', text: '', confirmText: 'Entfernen' }))) { r.positionen.splice(+b.dataset.pdel, 1); await DB.put('rechnungen', r); renderRoute(); }
@@ -4594,12 +4748,12 @@ Views.rechnung = {
         if (!(await UI.confirm({ title: 'Rechnungsentwurf löschen?', text: 'Wandert in den Papierkorb.' }))) return;
         await DB.softDel('rechnungen', r.id); navTo('rechnungen');
       };
-      $('#final').onclick = () => Views.rechnung.festschreiben(r, chargen);
+      $('#final').onclick = () => Views.rechnung.festschreiben(r, abfAlle);
     }
     const st = $('#storno');
     if (st) st.onclick = async () => {
       if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: 'Der Honigbestand wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
-      for (const p of r.positionen) if (p.chargeId) { const c = await DB.get('chargen', p.chargeId); if (c) { c.bestandGlaeser += p.menge; await DB.put('chargen', c); } }
+      for (const p of r.positionen) if (p.abfuellungId) { const a = await DB.get('abfuellungen', p.abfuellungId); if (a) { a.bestand += p.menge; await DB.put('abfuellungen', a); } }
       const { brutto } = rechnungSummen(r);
       await DB.put('kassenbuch', { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id });
       r.status = 'storniert'; await DB.put('rechnungen', r);
@@ -4607,45 +4761,46 @@ Views.rechnung = {
     };
     $('#pdf').onclick = () => Pdf.rechnung(r.id);
   },
-  posForm(r, chargen) {
-    const verf = chargen.filter((c) => c.bestandGlaeser > 0);
+  posForm(r, abf, chargenM) {
+    const verf = (abf || []).filter((a) => a.bestand > 0);
     UI.formModal({
       title: 'Position hinzufügen',
       fields: [
-        { key: 'quelle', label: 'Art der Position', type: 'select', required: true, default: 'charge', options: [{ v: 'charge', l: 'Honig aus Bestand (Charge)' }, { v: 'frei', l: 'Freie Position' }] },
-        { key: 'chargeId', label: 'Charge', type: 'select', options: verf.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(c.glasGroesseG, 0)} g · ${c.bestandGlaeser} verfügbar` })), showIf: (f) => f.quelle === 'charge' },
-        { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Charge automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
+        { key: 'quelle', label: 'Art der Position', type: 'select', required: true, default: 'charge', options: [{ v: 'charge', l: 'Honig aus Bestand (Abfüllung)' }, { v: 'frei', l: 'Freie Position' }] },
+        { key: 'abfuellungId', label: 'Abfüllung', type: 'select', options: verf.map((a) => { const c = chargenM.get(a.chargeId); return { v: a.id, l: `${abfLabel(a, c)} · ${a.bestand} verfügbar` }; }), showIf: (f) => f.quelle === 'charge' },
+        { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Abfüllung automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
         { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
-        let text = v.text, chargeId = null;
+        let text = v.text, abfuellungId = null;
         if (v.quelle === 'charge') {
-          const c = verf.find((x) => x.id === v.chargeId);
-          if (!c) throw new Error('Bitte eine Charge wählen.');
-          if (v.menge > c.bestandGlaeser) throw new Error(`Nur ${c.bestandGlaeser} Gläser im Bestand.`);
-          text = `Honig ${c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${U.fmtNum(c.glasGroesseG, 0)} g Glas (Los ${c.losnummer})`;
-          chargeId = c.id;
+          const a = verf.find((x) => x.id === v.abfuellungId);
+          if (!a) throw new Error('Bitte eine Abfüllung wählen.');
+          if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser im Bestand.`);
+          const c = chargenM.get(a.chargeId);
+          text = `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Los ${c ? c.losnummer : '?'})`;
+          abfuellungId = a.id;
         }
         if (!text) throw new Error('Bitte eine Bezeichnung angeben.');
-        r.positionen.push({ text, chargeId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, steuersatz: +v.steuersatz || 0 });
+        r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, steuersatz: +v.steuersatz || 0 });
         await DB.put('rechnungen', r); renderRoute();
       },
     });
   },
-  async festschreiben(r, chargen) {
+  async festschreiben(r, abf) {
     if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
     if (!r.positionen.length) return UI.toast('Die Rechnung hat keine Positionen', 'err');
-    for (const p of r.positionen) if (p.chargeId) {
-      const c = chargen.find((x) => x.id === p.chargeId);
-      if (c && p.menge > c.bestandGlaeser) return UI.toast(`Bestand von Los ${c.losnummer} reicht nicht (${c.bestandGlaeser} verfügbar)`, 'err');
+    for (const p of r.positionen) if (p.abfuellungId) {
+      const a = abf.find((x) => x.id === p.abfuellungId);
+      if (a && p.menge > a.bestand) return UI.toast(`Bestand dieser Abfüllung reicht nicht (${a.bestand} verfügbar)`, 'err');
     }
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
     const kreis = S.get('rechnungskreis');
     r.nummer = `${kreis.prefix}${String(kreis.next).padStart(4, '0')}`;
     kreis.next += 1; await S.set('rechnungskreis', kreis);
-    for (const p of r.positionen) if (p.chargeId) { const c = await DB.get('chargen', p.chargeId); if (c) { c.bestandGlaeser -= p.menge; await DB.put('chargen', c); } }
+    for (const p of r.positionen) if (p.abfuellungId) { const a = await DB.get('abfuellungen', p.abfuellungId); if (a) { a.bestand -= p.menge; await DB.put('abfuellungen', a); } }
     const { brutto } = rechnungSummen(r);
     await DB.put('kassenbuch', { datum: r.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Rechnung ${r.nummer}`, rechnungId: r.id });
     r.status = 'festgeschrieben'; await DB.put('rechnungen', r);
@@ -4804,7 +4959,7 @@ function zeitDialog(a) {
     body: `<p class="small muted mb12">„${U.esc(a.titel)}“ – landet in deiner <a href="#/zeiten">Zeiterfassung</a>.</p>
       <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${n}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
       <div class="field"><label>Oder Minuten eingeben</label><input class="inp" id="zt-min" inputmode="numeric" placeholder="z. B. 25"></div>
-      <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${taetigkeiten.map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>`,
+      <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${optionenSortiert(taetigkeiten, true).map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>`,
     footer: `<button class="btn btn-ghost" data-skip>Ohne Zeit</button><button class="btn btn-primary" data-ok>Speichern</button>`,
   });
   const speichern = async (min) => {
@@ -5160,7 +5315,7 @@ Views.rechner = {
 /* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -5889,12 +6044,16 @@ async function pruefeMhd() {
   const offeneMhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && !a.erledigt);
   const heute = U.todayIso();
   const schonErinnert = (refId) => offeneMhdAufgaben.some((a) => a.refId === refId);
-  // Honig-Chargen mit Restbestand
-  for (const c of (await DB.getAll('chargen')).filter((c) => c.mhd && c.bestandGlaeser > 0)) {
-    if (U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
+  // Honig-Chargen mit Restbestand (Gläser im Bestand ODER noch nicht abgefüllte Menge)
+  const abfAlle = await DB.getAll('abfuellungen');
+  for (const c of (await DB.getAll('chargen')).filter((c) => c.mhd)) {
+    const glaeser = U.sum(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.bestand);
+    const restKg = chargeRestKg(c, abfAlle);
+    if ((glaeser <= 0 && restKg <= 0.0001) || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
+    const menge = glaeser > 0 ? `${glaeser} Gläser` : `${U.fmtNum(restKg, 1)} kg`;
     const titel = c.mhd < heute
-      ? `MHD überschritten: Los ${c.losnummer} (${c.bestandGlaeser} Gläser)`
-      : `MHD läuft ab: Los ${c.losnummer} am ${U.fmtDate(c.mhd)} (${c.bestandGlaeser} Gläser)`;
+      ? `MHD überschritten: Los ${c.losnummer} (${menge})`
+      : `MHD läuft ab: Los ${c.losnummer} am ${U.fmtDate(c.mhd)} (${menge})`;
     await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
   }
   // Betriebsmittel/Inventar: Ablaufdatum (MHD) und Mindestbestand
@@ -6031,8 +6190,9 @@ const Xlsx = {
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
-      chargen: { blatt: 'Chargen', rows: async () => (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, Abfülldatum: d(c.abfuelldatum), 'Glasgröße (g)': c.glasGroesseG, 'Anzahl Gläser': c.anzahlGlaeser, Bestand: c.bestandGlaeser, MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })) },
-      verkaeufe: { blatt: 'Verkäufe', rows: async () => (await DB.getAll('verkaeufe')).map((v) => ({ Datum: d(v.datum), Los: chargenM.get(v.chargeId)?.losnummer || '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz })) },
+      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })); } },
+      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Los: chargenM.get(a.chargeId)?.losnummer || '', Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), 'Anzahl abgefüllt': a.anzahl, Bestand: a.bestand })) },
+      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: (a && chargenM.get(a.chargeId)?.losnummer) || '', Gebinde: a ? gebindeLabel(a.gebindeG) : '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
@@ -6194,25 +6354,33 @@ const Pdf = {
   /* ---------- Honig-Chargenübersicht ---------- */
   async chargenuebersicht() {
     try {
-      const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.abfuelldatum);
+      const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer);
+      const abfAlle = await DB.getAll('abfuellungen');
       const ernten = await idMap('ernten');
-      const { doc, y } = await this.newDoc('Honig-Chargenübersicht', 'Rückverfolgbarkeit: Charge → Ernte');
-      const body = chargen.map((c) => [c.losnummer, U.fmtDate(c.abfuelldatum), `${U.fmtNum(c.glasGroesseG, 0)} g`, String(c.anzahlGlaeser), String(c.bestandGlaeser), U.fmtDate(c.mhd) || '–', (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ')]);
-      this.table(doc, { head: ['Los', 'Abgefüllt', 'Glas', 'Anzahl', 'Bestand', 'MHD', 'Ernten'], body, startY: y });
+      const { doc, y } = await this.newDoc('Honig-Chargenübersicht', 'Rückverfolgbarkeit: Charge → Abfüllung → Ernte');
+      const body = [];
+      for (const c of chargen) {
+        const sorten = (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ');
+        const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
+        body.push([`Los ${c.losnummer}`, `${U.fmtNum(c.mengeKg || 0, 1)} kg`, `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei`, U.fmtDate(c.mhd) || '–', sorten]);
+        for (const a of abf) body.push([`  ↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} im Bestand`, U.fmtDate(a.datum), '']);
+      }
+      this.table(doc, { head: ['Los / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'MHD / Datum', 'Ernten'], body, startY: y });
       this.finish(doc, `chargen-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
   /* ---------- Honig-Etiketten (Honigverordnungs-Pflichtangaben) ---------- */
-  async honigEtikett(c, opts) {
+  async honigEtikett(a, c, opts) {
     try {
       const jsPDF = await this.lib();
       const imk = S.get('imkerei');
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
+      const los = c ? c.losnummer : '?', mhd = c ? c.mhd : null;
       // Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite
       const LW = 90, LH = 54, cols = 2, rows = 5, mx = 12, my = 14, gapx = 6, gapy = 3.6;
-      const qr = opts.mitQr ? await makeQr(`Los: ${c.losnummer}\n${opts.bezeichnung}\n${imk.name || ''}`).catch(() => null) : null;
+      const qr = opts.mitQr ? await makeQr(`Los: ${los}\n${opts.bezeichnung}\n${imk.name || ''}`).catch(() => null) : null;
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);
         if (i > 0 && posOnPage === 0) doc.addPage();
@@ -6226,16 +6394,16 @@ const Pdf = {
         doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(38, 38, 43);
         doc.text(opts.bezeichnung, x + 6, yy + 22, { maxWidth: LW - 12 });
         doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(40);
-        doc.text(`Nettofüllmenge: ${U.fmtNum(c.glasGroesseG, 0)} g`, x + 6, yy + 30);
+        doc.text(`Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`, x + 6, yy + 30);
         doc.setFontSize(8.5).setTextColor(90);
         let ly = yy + 37;
         const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += 3.8; };
         zeile(`Ursprungsland: ${opts.ursprung}`);
-        zeile(`mind. haltbar bis: ${U.fmtDate(c.mhd) || '__________'}   Los: ${c.losnummer}`);
+        zeile(`mind. haltbar bis: ${U.fmtDate(mhd) || '__________'}   Los: ${los}`);
         zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
-      this.finish(doc, `etiketten-los-${c.losnummer}.pdf`);
+      this.finish(doc, `etiketten-los-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -7530,6 +7698,38 @@ async function migriereRaehmchenmass() {
   await S.set('raehmchenmassMigriert', true);
 }
 
+/** Einmalige Migration: alte Charge (Glasgröße + Anzahl + Bestand + Abfülldatum) wird
+    aufgeteilt in eine reine Los-Charge (Gesamtmenge kg) + eine Abfüllung. Verkäufe und
+    Rechnungs-Positionen wandern von chargeId auf abfuellungId. Keine Daten gehen verloren. */
+async function migriereChargenAbfuellung() {
+  if (S.get('abfuellungMigriert')) return;
+  const map = {}; // alte chargeId -> neue abfuellungId
+  for (const c of await DB.getAll('chargen')) {
+    if (!('glasGroesseG' in c) && !('anzahlGlaeser' in c) && !('bestandGlaeser' in c)) continue; // bereits neu
+    const gebindeG = c.glasGroesseG || 500;
+    const anzahl = Math.round(c.anzahlGlaeser || 0);
+    const bestand = (c.bestandGlaeser != null) ? c.bestandGlaeser : anzahl;
+    if (anzahl > 0) {
+      const a = await DB.put('abfuellungen', { chargeId: c.id, datum: c.abfuelldatum || U.todayIso(), gebindeG, anzahl, bestand });
+      map[c.id] = a.id;
+    }
+    c.mengeKg = Math.round(anzahl * gebindeG / 1000 * 1000) / 1000;
+    delete c.glasGroesseG; delete c.anzahlGlaeser; delete c.bestandGlaeser; delete c.abfuelldatum; delete c.verkaufspreis;
+    await DB.put('chargen', c);
+  }
+  for (const v of await DB.getAll('verkaeufe')) {
+    if (v.abfuellungId || !v.chargeId) continue;
+    v.abfuellungId = map[v.chargeId] || null; delete v.chargeId;
+    await DB.put('verkaeufe', v);
+  }
+  for (const r of await DB.getAll('rechnungen')) {
+    let changed = false;
+    for (const p of (r.positionen || [])) if (p.chargeId && !p.abfuellungId) { p.abfuellungId = map[p.chargeId] || null; delete p.chargeId; changed = true; }
+    if (changed) await DB.put('rechnungen', r);
+  }
+  await S.set('abfuellungMigriert', true);
+}
+
 async function boot() {
   try { await DB.open(); } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>ImkerBuch kann nicht starten</h2><p>IndexedDB ist nicht verfügbar (privater Modus?): ${U.esc(e.message)}</p></div>`;
@@ -7537,6 +7737,7 @@ async function boot() {
   }
   await S.load();
   await migriereRaehmchenmass();
+  await migriereChargenAbfuellung();
   applyTheme();
   renderChrome();
   applyHeaderLogo();
