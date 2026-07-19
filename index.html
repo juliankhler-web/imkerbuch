@@ -229,6 +229,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .empty .e-text{font-size:14px;max-width:340px}
 .chip-row{display:flex;gap:7px;flex-wrap:wrap}
 .chip{padding:7px 14px;border-radius:999px;border:1.5px solid var(--line2);font-size:13px;font-weight:600;background:var(--card);transition:all .15s;min-height:36px}
+.chip svg{width:15px;height:15px;vertical-align:-2px;flex:0 0 auto}
 .chip.active{background:var(--honey);color:#241A05;border-color:var(--honey);box-shadow:0 4px 10px -5px rgba(232,160,19,.55)}
 .seg{display:inline-flex;background:var(--card2);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px}
 .seg button{padding:7px 15px;border-radius:999px;font-size:13.5px;font-weight:600;color:var(--muted);min-height:36px}
@@ -596,8 +597,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.75';
+const APP_VERSION = '0.77';
 const CHANGELOG = [
+  { version: '0.77', datum: '2026-07-13', punkte: [
+    'Fahrtenbuch: Häufige Fahrten als Vorlagen – z. B. zwischen zwei Bienenständen oder oft gefahrene Strecken (Einkauf, Verein …). Einmal anlegen, dann im Fahrtenbuch antippen und die Fahrt ist in einem Tipp gebucht.',
+    'Beim Erfassen einer Fahrt kannst du sie direkt „als häufige Fahrt merken", dann steht sie künftig als Vorauswahl bereit. Vorlagen verwalten (anlegen/bearbeiten/löschen) über den Button „Verwalten".',
+  ] },
+  { version: '0.76', datum: '2026-07-13', punkte: [
+    'Profil/Imkereidaten: „Meldepflicht Tierseuchenkasse (TSK)?“ als Ja/Nein – bei „Ja“ trägst du die TSK-/Melde-Nummer ein, die dann auf der Tierseuchenkassen-Meldung erscheint.',
+  ] },
   { version: '0.75', datum: '2026-07-13', punkte: [
     'PDFs öffnen jetzt zuverlässig (auch in Firefox): Statt eines stillen Downloads wird die PDF im neuen Tab geöffnet (dort ansehen, speichern oder drucken); am Handy/in der App erscheint das System-Menü zum Öffnen/Teilen/Sichern.',
     'Komplettausdruck (Gesamt-Export) ist jetzt im Querformat – dadurch sind breite Tabellen wie die Königinnen (18 Spalten) sauber lesbar.',
@@ -1059,7 +1067,7 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
+    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
@@ -1068,6 +1076,7 @@ const S = {
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
+    fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
     dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
@@ -2108,6 +2117,11 @@ const Demo = {
     // freie Fahrten (ohne Stand): Einkauf, Schulung
     await DB.put('fahrten', { datum: d(-20), standId: null, freiZiel: 'Imkerbedarf Müller', km: 34, zweck: 'Einkauf/Besorgung', notiz: 'Gläser + Mittelwände' });
     await DB.put('fahrten', { datum: ymd(Y, 3, 2), standId: null, freiZiel: 'Imkerverein Jahreshauptversammlung', km: 22, zweck: 'Imkerverein/Versammlung', notiz: '' });
+    // wiederverwendbare Fahrt-Vorlagen (zwischen Ständen + häufige Strecke)
+    await S.set('fahrtvorlagen', [
+      { id: U.uuid(), name: `${st1.name} → ${st3.name}`, km: 24, zweck: 'Wanderung & Transport', standId: null, freiZiel: `${st1.name} → ${st3.name}` },
+      { id: U.uuid(), name: 'Imkerbedarf Müller', km: 34, zweck: 'Einkauf/Besorgung', standId: null, freiZiel: 'Imkerbedarf Müller' },
+    ]);
 
     for (const [t, f] of [['Varroa-Kontrolle alle Völker', d(1)], ['Honigräume aufsetzen (Linde)', d(3)], ['Winterfütterung einplanen', d(10)], ['Mittelwände einlöten', d(6)]])
       await DB.put('aufgaben', { titel: t, faellig: f, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
@@ -2149,32 +2163,41 @@ const Wetter = {
 /** Fahrt-Formular. Erster Parameter wahlweise ein bestehender Fahrt-Datensatz (Bearbeiten)
     oder eine Stand-ID als Vorauswahl (Neuanlage). Unterstützt Fahrten zu einem Stand UND
     freie Fahrten (Einkauf, Schulung, Besorgung …) ohne Stand. */
-async function fahrtForm(arg = '', onDone) {
+async function fahrtForm(arg = '', onDone, prefill = null) {
   const bearbeiten = arg && typeof arg === 'object' ? arg : null;
   const vorStandId = bearbeiten ? '' : (arg || '');
   const staende = await DB.getAll('staende');
   const kmVon = (standId) => { const st = staende.find((x) => x.id === standId); return st && st.kmEntfernung ? st.kmEntfernung * 2 : ''; };
   const FREI = '__frei__';
   const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
-  const startZiel = bearbeiten ? (bearbeiten.standId || FREI) : (vorStandId || (staende[0] ? staende[0].id : FREI));
+  // Startwerte: Bearbeiten > Vorlage-Prefill > vorgewählter Stand
+  const quelle = bearbeiten || prefill;
+  const startZiel = quelle ? (quelle.standId || FREI) : (vorStandId || (staende[0] ? staende[0].id : FREI));
   const m = UI.formModal({
     title: bearbeiten ? 'Fahrt bearbeiten' : 'Fahrt erfassen',
     fields: [
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: bearbeiten ? bearbeiten.datum : U.todayIso() },
       { key: 'ziel', label: 'Ziel', type: 'select', required: true, default: startZiel, options: zielOpts },
       { key: 'freiZiel', label: 'Wohin / Beschreibung', placeholder: 'z. B. Imkerbedarf Müller, Schulung Bienengesundheit', showIf: (f) => f.ziel === FREI },
-      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: bearbeiten ? bearbeiten.km : kmVon(startZiel) },
-      { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true, default: bearbeiten ? bearbeiten.zweck : '' },
+      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: quelle && quelle.km != null && quelle.km !== '' ? quelle.km : kmVon(startZiel) },
+      { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true, default: quelle ? quelle.zweck : '' },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. mit Anhänger', default: bearbeiten ? bearbeiten.notiz : '' },
+      ...(bearbeiten ? [] : [{ key: 'alsVorlage', label: 'Als häufige Fahrt merken (Vorlage)', type: 'check' }]),
     ],
-    values: bearbeiten ? { freiZiel: bearbeiten.freiZiel || '' } : {},
+    values: quelle ? { freiZiel: quelle.freiZiel || '' } : {},
     saveText: bearbeiten ? 'Speichern' : 'Fahrt buchen',
     async onSave(v) {
       const frei = v.ziel === FREI;
       if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw new Error('Bitte Ziel/Beschreibung oder Zweck angeben.');
       const rec = Object.assign(bearbeiten || {}, { datum: v.datum, standId: frei ? null : v.ziel, freiZiel: frei ? (v.freiZiel || '').trim() : '', km: v.km, zweck: v.zweck, notiz: v.notiz });
       await DB.put('fahrten', rec);
-      UI.toast(bearbeiten ? 'Fahrt gespeichert' : 'Fahrt erfasst');
+      if (v.alsVorlage) {
+        const name = frei ? (rec.freiZiel || rec.zweck || 'Fahrt') : (staende.find((s) => s.id === rec.standId)?.name || 'Fahrt');
+        const vorlagen = S.get('fahrtvorlagen') || [];
+        vorlagen.push({ id: U.uuid(), name, km: rec.km, zweck: rec.zweck, standId: rec.standId, freiZiel: rec.freiZiel });
+        await S.set('fahrtvorlagen', vorlagen);
+      }
+      UI.toast(bearbeiten ? 'Fahrt gespeichert' : (v.alsVorlage ? 'Fahrt erfasst + als Vorlage gemerkt' : 'Fahrt erfasst'));
       if (onDone) onDone(); else renderRoute();
     },
     onDelete: bearbeiten ? papierkorbDelete('fahrten', bearbeiten, 'Fahrt löschen?', 'Wandert in den Papierkorb (30 Tage).') : undefined,
@@ -5860,6 +5883,7 @@ Views.fahrten = {
   async render(main) {
     const alle = await DB.getAll('fahrten');
     const staende = await idMap('staende');
+    const vorlagen = S.get('fahrtvorlagen') || [];
     const jahre = [...new Set(alle.map((f) => (f.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
     const jahr = Views.fahrten._jahr || jahre[0] || U.todayIso().slice(0, 4);
     const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
@@ -5873,6 +5897,10 @@ Views.fahrten = {
         <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahr}</div><div class="s-value">${U.fmtNum(kmJahr)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fahrt' : 'Fahrten'}</div></div>
         <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahr}</div><div class="s-value">${U.fmtEur(kmJahr * kmSatz)}</div><div class="s-sub">bei ${kmSatz.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
       </div>
+      <div class="card mb16"><div class="card-title">${icon('truck')}<h2>Häufige Fahrten</h2><button class="btn btn-ghost btn-sm no-print" id="vorlagen-verwalten">${icon('pencil')} Verwalten</button></div>
+        <p class="small muted mb8">Tippe eine Vorlage an, um die Fahrt schnell zu buchen – z. B. zwischen zwei Ständen oder eine oft gefahrene Strecke.</p>
+        <div class="chip-row">${vorlagen.length ? vorlagen.map((vl) => `<button class="chip" data-vorlage="${vl.id}">${icon('truck')} ${U.esc(vl.name)} · ${U.fmtNum(vl.km)} km</button>`).join('') : '<span class="muted small">Noch keine Vorlagen. Lege welche über „Verwalten" an – oder hake beim Erfassen „Als häufige Fahrt merken" an.</span>'}</div>
+      </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
         <button class="row" data-id="${f.id}">
           <span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
@@ -5882,9 +5910,77 @@ Views.fahrten = {
       : emptyState('truck', 'Noch keine Fahrt erfasst. Fahrten zu den Ständen buchst du in zwei Tipps – oder trage hier Einkäufe, Schulungen und Besorgungen ein.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Fahrt</button>`)) + `</div>
       <div class="hint mt12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt dorthin schnell gebucht. Das Fahrtenbuch-PDF eignet sich als Steuer-Nachweis (Pauschale ohne Gewähr, Satz je nach Fall).</div>`;
     bindAdd(() => fahrtForm(null));
+    $('#vorlagen-verwalten', main).onclick = () => Views.fahrten.vorlagenManager();
     main.addEventListener('click', (e) => {
       const c = e.target.closest('[data-jahr]'); if (c) { Views.fahrten._jahr = c.dataset.jahr; return renderRoute(); }
+      const vl = e.target.closest('[data-vorlage]'); if (vl) { const t = vorlagen.find((x) => x.id === vl.dataset.vorlage); if (t) fahrtForm(null, null, t); return; }
       const r = e.target.closest('.row[data-id]'); if (r) { const f = list.find((x) => x.id === r.dataset.id); if (f) fahrtForm(f); }
+    });
+  },
+
+  /** Verwaltung der Fahrt-Vorlagen (Liste + Anlegen/Bearbeiten/Löschen). */
+  async vorlagenManager() {
+    const vorlagen = S.get('fahrtvorlagen') || [];
+    const m = UI.modal({
+      title: 'Häufige Fahrten verwalten', wide: true,
+      body: `<p class="small muted mb12">Vorlagen für wiederkehrende Fahrten – zwischen zwei Ständen oder freie Strecken. Im Fahrtenbuch tippst du sie dann nur noch an.</p>
+        <div class="rows" id="vl-list">${vorlagen.length ? vorlagen.map((vl) => `<div class="row"><span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">${U.fmtNum(vl.km)} km${vl.zweck ? ' · ' + U.esc(vl.zweck) : ''}</span></span>
+          <button class="btn btn-xs btn-ghost no-print" data-vl-edit="${vl.id}">${icon('pencil')}</button>
+          <button class="btn btn-xs btn-danger no-print" data-vl-del="${vl.id}">${icon('trash')}</button></div>`).join('') : '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
+        <button class="btn btn-primary mt12" id="vl-add">${icon('plus')} Neue Vorlage</button>`,
+      footer: `<button class="btn btn-ghost" data-close2>Schließen</button>`,
+    });
+    $('[data-close2]', m.el).onclick = () => m.close();
+    $('#vl-add', m.el).onclick = () => { m.close(true); Views.fahrten.vorlageForm(null); };
+    m.el.addEventListener('click', async (e) => {
+      const ed = e.target.closest('[data-vl-edit]'); if (ed) { m.close(true); return Views.fahrten.vorlageForm(vorlagen.find((x) => x.id === ed.dataset.vlEdit)); }
+      const del = e.target.closest('[data-vl-del]');
+      if (del && (await UI.confirm({ title: 'Vorlage löschen?', text: '', confirmText: 'Löschen' }))) {
+        await S.set('fahrtvorlagen', (S.get('fahrtvorlagen') || []).filter((x) => x.id !== del.dataset.vlDel));
+        m.close(true); Views.fahrten.vorlagenManager();
+      }
+    });
+  },
+
+  /** Vorlage anlegen/bearbeiten: zwischen zwei Ständen oder freie Fahrt. */
+  async vorlageForm(vl) {
+    const staende = await DB.getAll('staende');
+    const standOpts = staende.map((s) => ({ v: s.id, l: s.name }));
+    const typ = vl ? (vl.standId ? 'stand' : (/ → /.test(vl.freiZiel || '') ? 'zwischen' : 'frei')) : 'zwischen';
+    UI.formModal({
+      title: vl ? 'Vorlage bearbeiten' : 'Neue Fahrt-Vorlage', wide: true,
+      fields: [
+        { key: 'typ', label: 'Art der Fahrt', type: 'select', required: true, default: typ, options: [{ v: 'zwischen', l: 'Zwischen zwei Ständen' }, { v: 'stand', l: 'Zu einem Stand' }, { v: 'frei', l: 'Andere Fahrt (Einkauf, Schulung …)' }] },
+        { key: 'vonStandId', label: 'Von Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'zwischen' },
+        { key: 'nachStandId', label: 'Nach Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'zwischen' },
+        { key: 'standId', label: 'Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'stand' },
+        { key: 'freiZiel', label: 'Wohin / Beschreibung', placeholder: 'z. B. Imkerbedarf Müller', showIf: (f) => f.typ === 'frei' },
+        { key: 'name', label: 'Name der Vorlage', hint: 'Optional – wird sonst automatisch gebildet.' },
+        { key: 'km', label: 'Kilometer (gesamt)', type: 'number', required: true },
+        { key: 'zweck', label: 'Zweck', type: 'suggest', options: VORSCHLAEGE.fahrtzweck },
+      ],
+      values: vl ? { ...vl } : {},
+      async onSave(v) {
+        const nm = (id) => staende.find((s) => s.id === id)?.name || '';
+        let standId = null, freiZiel = '', autoName = '';
+        if (v.typ === 'zwischen') {
+          if (!v.vonStandId || !v.nachStandId) throw new Error('Bitte Von- und Nach-Stand wählen.');
+          freiZiel = `${nm(v.vonStandId)} → ${nm(v.nachStandId)}`; autoName = freiZiel;
+        } else if (v.typ === 'stand') {
+          if (!v.standId) throw new Error('Bitte einen Stand wählen.');
+          standId = v.standId; autoName = nm(v.standId);
+        } else {
+          if (!(v.freiZiel || '').trim()) throw new Error('Bitte eine Beschreibung angeben.');
+          freiZiel = v.freiZiel.trim(); autoName = freiZiel;
+        }
+        const rec = { id: vl ? vl.id : U.uuid(), name: (v.name || '').trim() || autoName, km: v.km, zweck: v.zweck || '', standId, freiZiel };
+        const list = S.get('fahrtvorlagen') || [];
+        const i = list.findIndex((x) => x.id === rec.id);
+        if (i >= 0) list[i] = rec; else list.push(rec);
+        await S.set('fahrtvorlagen', list);
+        UI.toast('Vorlage gespeichert'); renderRoute();
+      },
     });
   },
 };
@@ -6742,6 +6838,7 @@ const Pdf = {
       const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); doc.text(String(wert || '–'), 75, yy); yy += 7; };
       zeile('Tierhalter:', imk.name);
       zeile('Landw. Betriebsnummer:', imk.registriernummer);
+      if (imk.tskPflicht === 'ja' && imk.tskNummer) zeile('TSK-/Melde-Nummer:', imk.tskNummer);
       zeile('Zu meldende Völkerzahl:', voelker.length);
       const body = staende.map((s) => [s.name, String(voelker.filter((v) => v.standId === s.id).length)]);
       this.table(doc, { head: ['Standort', 'Völker'], body, startY: yy + 2 });
@@ -7556,6 +7653,7 @@ Views.einstellungen = {
           <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
           <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
           <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
+          <dt>Meldepflicht TSK</dt><dd>${imk.tskPflicht === 'ja' ? `Ja${imk.tskNummer ? ' · Nr. ' + U.esc(imk.tskNummer) : ''}` : 'Nein'}</dd>
           <dt>Bio-Imkerei</dt><dd>${imk.bio === 'ja' ? `<span class="badge b-ok">Ja</span> ${U.esc(bioZertText(imk))}` : 'Nein'}</dd>
         </div>
         <div class="flex-wrap no-print">
@@ -7722,6 +7820,8 @@ Views.einstellungen = {
         { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
         { key: 'telefon', label: 'Telefon' }, { key: 'email', label: 'E-Mail' },
         { key: 'registriernummer', label: 'Landwirtschaftliche Betriebsnummer' },
+        { key: 'tskPflicht', label: 'Meldepflicht Tierseuchenkasse (TSK)?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
+        { key: 'tskNummer', label: 'TSK-/Melde-Nummer', showIf: (f) => f.tskPflicht === 'ja', hint: 'Erscheint auf der Tierseuchenkassen-Meldung.' },
         { key: '_bioT', type: 'static', html: '<h3 class="mt8 mb8">Bio-Zertifizierung</h3>' },
         { key: 'bio', label: 'Bio-Imkerei?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
         { key: 'bioKontrollstelle', label: 'Öko-Kontrollstelle', type: 'suggest', options: KONTROLLSTELLEN, placeholder: 'DE-ÖKO-… auswählen oder eintippen', hint: 'Deine Kontrollstelle – erscheint als DE-ÖKO-Code auf dem Bio-Etikett.', showIf: (f) => f.bio === 'ja' },
@@ -7730,7 +7830,7 @@ Views.einstellungen = {
         { key: '_euhint', type: 'static', html: '<div class="hint">Ohne Verbandszugehörigkeit gilt automatisch das <b>EU-Bio-Siegel</b>.</div>', showIf: (f) => f.bio === 'ja' && f.bioVerbandJN !== 'ja' },
       ],
       values: imk,
-      async onSave(v) { const merged = Object.assign({}, imk, v); delete merged.tskNummer; await S.set('imkerei', merged); UI.toast('Gespeichert'); renderRoute(); },
+      async onSave(v) { await S.set('imkerei', Object.assign({}, imk, v)); UI.toast('Gespeichert'); renderRoute(); },
     });
 
     /* Logo */
