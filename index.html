@@ -596,8 +596,17 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.73';
+const APP_VERSION = '0.75';
 const CHANGELOG = [
+  { version: '0.75', datum: '2026-07-13', punkte: [
+    'PDFs öffnen jetzt zuverlässig (auch in Firefox): Statt eines stillen Downloads wird die PDF im neuen Tab geöffnet (dort ansehen, speichern oder drucken); am Handy/in der App erscheint das System-Menü zum Öffnen/Teilen/Sichern.',
+    'Komplettausdruck (Gesamt-Export) ist jetzt im Querformat – dadurch sind breite Tabellen wie die Königinnen (18 Spalten) sauber lesbar.',
+  ] },
+  { version: '0.74', datum: '2026-07-13', punkte: [
+    'Profil/Imkereidaten: „Registriernummer“ heißt jetzt „Landwirtschaftliche Betriebsnummer“, die TSK-Nummer ist entfallen.',
+    'Neu: Bio-Imkerei (Ja/Nein). Bei „Ja“ wählst du deine Öko-Kontrollstelle (amtliche DE-ÖKO-Liste) und – falls vorhanden – einen oder mehrere Verbände (Demeter, Bioland, Naturland …); ohne Verband gilt automatisch EU-Bio.',
+    'Bio aufs Etikett: Der Kontrollstellen-Code und EU-Bio/Verband werden aufs Honig-Etikett gedruckt. Offizielle Verbands-/Bio-Logos kannst du als Bild hochladen (Einstellungen → Bio-Logos) – sie erscheinen dann mit auf dem Etikett.',
+  ] },
   { version: '0.73', datum: '2026-07-13', punkte: [
     'Inventar und Material sind jetzt zwei getrennte Bereiche: „Inventar“ (langlebige Gebrauchsgüter wie Beuten, Zargen, Geräte) und „Verbrauchsmaterial“ (Behandlungsmittel, Futter, Gläser, Etiketten …). Beide mit Jahr-/Art-Filter, Gesamtübersicht und eigenem PDF. Bestehende Einträge werden automatisch richtig zugeordnet.',
   ] },
@@ -882,6 +891,24 @@ const KASSEN_KATEGORIEN = {
 const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
 const MATERIAL_KATEGORIEN = ['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände', 'Sonstiges'];
 const VERBRAUCH_KATEGORIEN = new Set(['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände']);
+// Amtliche deutsche Öko-Kontrollstellen (BLE-Liste, Code + Name) – als Auswahl, frei ergänzbar
+const KONTROLLSTELLEN = [
+  'DE-ÖKO-001 – Kiwa BCS Öko-Garantie GmbH', 'DE-ÖKO-003 – Lacon GmbH', 'DE-ÖKO-005 – Ecocert Deutschland GmbH',
+  'DE-ÖKO-006 – ABCERT AG', 'DE-ÖKO-007 – Prüfgesellschaft ökologischer Landbau mbH', 'DE-ÖKO-009 – LC Landwirtschafts-Consulting GmbH',
+  'DE-ÖKO-012 – AGRECO R. F. Göderz GmbH', 'DE-ÖKO-013 – QC&I GmbH', 'DE-ÖKO-022 – Kontrollgesellschaft ökologischer Landbau mbH',
+  'DE-ÖKO-034 – Fachgesellschaft ÖKO-Kontrolle mbH', 'DE-ÖKO-037 – ÖkoP Zertifizierungs GmbH', 'DE-ÖKO-039 – GfRS Gesellschaft für Ressourcenschutz mbH',
+  'DE-ÖKO-044 – Eurofins ARS PROBATA GmbH', 'DE-ÖKO-060 – QAL GmbH', 'DE-ÖKO-064 – ABCG (Agrar-Beratungs- und Controll GmbH)',
+  'DE-ÖKO-070 – Control Union Certifications Germany GmbH', 'DE-ÖKO-071 – Milchprüfring Baden-Württemberg', 'DE-ÖKO-072 – GSCI Services GmbH',
+  'DE-ÖKO-073 – Bio-Kontroll Institut GmbH', 'DE-ÖKO-074 – SGS Austria Controll-Co. Ges.m.b.H.',
+];
+// Deutsche Öko-Anbauverbände (Mehrfachauswahl möglich); ohne Verband gilt automatisch EU-Bio
+const BIO_VERBAENDE = ['Demeter', 'Bioland', 'Naturland', 'Biokreis', 'Biopark', 'Gäa', 'Ecoland', 'Verbund Ökohöfe'];
+/** Bio-Zertifizierung als Text: „DE-ÖKO-006 … · Demeter" bzw. „… · EU-Bio". Leer, wenn keine Bio-Imkerei. */
+function bioZertText(imk) {
+  if (!imk || imk.bio !== 'ja') return '';
+  const verb = (imk.bioVerbandJN === 'ja' && (imk.bioVerband || []).length) ? imk.bioVerband.join(', ') : 'EU-Bio';
+  return [imk.bioKontrollstelle || '', verb].filter(Boolean).join(' · ');
+}
 /** Bereich eines Inventar-Datensatzes: gespeichertes typ-Feld, sonst aus der Kategorie abgeleitet. */
 function inventarTyp(i) { return i.typ || (VERBRAUCH_KATEGORIEN.has(i.kategorie) ? 'verbrauch' : 'inventar'); }
 
@@ -1032,7 +1059,7 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', tskNummer: '' },
+    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
@@ -5460,11 +5487,11 @@ Views.meldungen = {
       <div class="card"><div class="card-title">${icon('meldung')}<h2>Behördenmeldungen</h2></div>
         <div class="detail-kv mb12">
           <dt>Imkerei</dt><dd>${U.esc(imk.name) || '<span class="muted">nicht hinterlegt</span>'}</dd>
-          <dt>Registriernummer</dt><dd>${U.esc(imk.registriernummer) || '<span class="muted">nicht hinterlegt</span>'}</dd>
+          <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '<span class="muted">nicht hinterlegt</span>'}</dd>
           <dt>Völker (aktiv)</dt><dd>${voelker.length}</dd>
           <dt>Standorte</dt><dd>${staende.length}</dd>
         </div>
-        ${fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Imkereidaten unvollständig – bitte in den <a href="#/einstellungen">Einstellungen</a> ergänzen (Name, Anschrift, Registriernummer).</span></div>` : ''}
+        ${fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Imkereidaten unvollständig – bitte in den <a href="#/einstellungen">Einstellungen</a> ergänzen (Name, Anschrift, Betriebsnummer).</span></div>` : ''}
         <div class="flex-wrap no-print">
           <button class="btn btn-primary" onclick="Pdf.bestandsmeldung()">${icon('doc')} Bestandsmeldung Veterinäramt (PDF)</button>
           <button class="btn btn-ghost" onclick="Pdf.tierseuchenkasse()">${icon('doc')} Tierseuchenkasse (PDF)</button>
@@ -6372,14 +6399,15 @@ const Pdf = {
   },
   async header(doc, titel, untertitel = '') {
     const imk = S.get('imkerei');
-    const usable = 182; // A4 210 mm − 2×14 mm Rand
+    const W = doc.internal.pageSize.getWidth(); // seiten-maß-abhängig → Hoch- und Querformat
+    const usable = W - 28; // 2×14 mm Rand
     try { doc.addImage(await this.logoDataUrl(), 'PNG', 14, 12, 16, 16); } catch (e) {}
     doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(38, 38, 43);
     doc.text(imk.name || 'ImkerBuch', 34, 18, { maxWidth: usable - 20 });
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(120);
-    const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? 'Reg.-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
+    const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
     if (adr) doc.text(adr, 34, 23, { maxWidth: usable - 20 });
-    doc.setDrawColor(232, 160, 19).setLineWidth(0.8).line(14, 31, 196, 31);
+    doc.setDrawColor(232, 160, 19).setLineWidth(0.8).line(14, 31, W - 14, 31);
     // Titel und Untertitel umbrechen, damit nichts über den rechten Rand hinausläuft
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(38, 38, 43);
     const tLines = doc.splitTextToSize(String(titel || ''), usable);
@@ -6404,18 +6432,37 @@ const Pdf = {
     });
     return doc.lastAutoTable.finalY;
   },
-  /** Fußzeile mit Seitenzahlen auf allen Seiten, dann speichern */
+  /** Fußzeile mit Seitenzahlen auf allen Seiten, dann ausgeben */
   finish(doc, dateiname) {
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n; i++) {
       doc.setPage(i);
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(150);
-      doc.text(`Seite ${i} von ${n}`, 196, 290, { align: 'right' });
-      doc.text(`Erstellt mit ImkerBuch am ${U.fmtDate(U.todayIso())}`, 14, 290);
+      doc.text(`Seite ${i} von ${n}`, W - 14, H - 7, { align: 'right' });
+      doc.text(`Erstellt mit ImkerBuch am ${U.fmtDate(U.todayIso())}`, 14, H - 7);
     }
     if (this.noDownloadForTest) { this.lastDocForTest = doc; return; } // Test-Seam: kein Download
-    doc.save(dateiname);
-    UI.toast('PDF erstellt');
+    this.ausgeben(doc, dateiname);
+  },
+  /** PDF ausgeben – zuverlässig über Browser hinweg (Firefox öffnete den Download nicht).
+      Mobil/App: System-Teilen (Öffnen/Sichern/Teilen). Desktop: im neuen Tab ansehen ODER dort speichern. */
+  async ausgeben(doc, dateiname) {
+    const blob = doc.output('blob');
+    const mobil = IST_NATIVE_APP || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
+    if (mobil && navigator.share) {
+      try {
+        const file = new File([blob], dateiname, { type: 'application/pdf' });
+        if (!navigator.canShare || navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: dateiname }); return; }
+      } catch (e) { if (e && e.name === 'AbortError') return; } // Nutzer hat abgebrochen
+    }
+    const url = URL.createObjectURL(blob);
+    // Im neuen Tab öffnen → Firefox/Chrome zeigen die PDF mit eigenem „Speichern/Drucken"
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    UI.toast('PDF geöffnet');
   },
 
   /* ---------- Bestandsbuch (TAMG) ---------- */
@@ -6424,7 +6471,7 @@ const Pdf = {
       const list = U.sortBy(await DB.getAll('behandlungen'), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
-      const { doc, y } = await this.newDoc('Bestandsbuch – Anwendung von Arzneimitteln', `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Reg.-Nr.: ${imk.registriernummer || '–'}`);
+      const { doc, y } = await this.newDoc('Bestandsbuch – Anwendung von Arzneimitteln', `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
       const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? 'Volk ' + (voelker.get(b.zielId)?.name || '?') : 'Stand ' + (staende.get(b.zielId)?.name || '?')), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', b.wartezeitTage ? `${b.wartezeitTage} Tage` : '–', b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${U.todayIso()}.pdf`);
@@ -6565,6 +6612,21 @@ const Pdf = {
         zeile(`Ursprungsland: ${opts.ursprung}`);
         zeile(`mind. haltbar bis: ${U.fmtDate(mhd) || '__________'}   Los: ${los}`);
         zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
+        // Bio-Zertifizierung: Kontrollstellen-Code (Pflichtangabe) + EU-Bio/Verband
+        if (imk.bio === 'ja') {
+          const bioCode = (imk.bioKontrollstelle || '').split('–')[0].trim();
+          const bioVerb = (imk.bioVerbandJN === 'ja' && (imk.bioVerband || []).length) ? imk.bioVerband.join('/') : 'EU-Bio';
+          doc.setFont('helvetica', 'bold').setTextColor(60, 110, 40);
+          zeile(`Öko: ${[bioCode, bioVerb].filter(Boolean).join(' · ')}`);
+          doc.setFont('helvetica', 'normal').setTextColor(90);
+          // hochgeladene Bio-Logos klein unten links (nur Rastergrafiken)
+          let lx = x + 6; const lyImg = yy + LH - 12, grenze = qr ? (x + LW - 20) : (x + LW - 7);
+          for (const lg of (imk.bioLogos || []).slice(0, 3)) {
+            if (typeof lg !== 'string' || lg.startsWith('data:image/svg')) continue;
+            if (lx + 10 > grenze) break;
+            try { doc.addImage(lg, lg.includes('image/jpeg') ? 'JPEG' : 'PNG', lx, lyImg, 9, 9); lx += 11; } catch (e) {}
+          }
+        }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
       this.finish(doc, `etiketten-los-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`);
@@ -6596,7 +6658,7 @@ const Pdf = {
       doc.setFontSize(9.5);
       let iy = 53;
       const infoRows = [['Rechnungsnr.', r.nummer || '(Entwurf)'], ['Datum', U.fmtDate(r.datum)]];
-      if (imk.registriernummer) infoRows.push(['Reg.-Nr.', imk.registriernummer]);
+      if (imk.registriernummer) infoRows.push(['Betriebs-Nr.', imk.registriernummer]);
       for (const [label, val] of infoRows) { doc.setTextColor(120).text(label, 140, iy); doc.setTextColor(30).text(String(val), 190, iy, { align: 'right' }); iy += 5; }
       // Betreff (unter dem Anschriftfeld)
       doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(38, 38, 43);
@@ -6655,7 +6717,7 @@ const Pdf = {
       zeile('Name des Tierhalters:', imk.name);
       zeile('Anschrift:', [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '));
       zeile('Telefon / E-Mail:', [imk.telefon, imk.email].filter(Boolean).join(' / '));
-      zeile('Registriernummer (VVVO):', imk.registriernummer);
+      zeile('Landw. Betriebsnummer:', imk.registriernummer);
       zeile('Anzahl Bienenvölker:', voelker.length);
       zeile('Anzahl Standorte:', staende.length);
       zeile('Datum der Meldung:', U.fmtDate(U.todayIso()));
@@ -6679,8 +6741,7 @@ const Pdf = {
       let yy = y + 4;
       const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); doc.text(String(wert || '–'), 75, yy); yy += 7; };
       zeile('Tierhalter:', imk.name);
-      zeile('TSK-/Melde-Nummer:', imk.tskNummer);
-      zeile('Registriernummer (VVVO):', imk.registriernummer);
+      zeile('Landw. Betriebsnummer:', imk.registriernummer);
       zeile('Zu meldende Völkerzahl:', voelker.length);
       const body = staende.map((s) => [s.name, String(voelker.filter((v) => v.standId === s.id).length)]);
       this.table(doc, { head: ['Standort', 'Völker'], body, startY: yy + 2 });
@@ -6771,16 +6832,18 @@ const Pdf = {
       UI.toast('Komplettausdruck wird erstellt …');
       const jsPDF = await this.lib();
       const imk = S.get('imkerei');
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      // Querformat: viele Module (z. B. Königinnen mit 18 Spalten) sind sonst zu gequetscht
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const cx = doc.internal.pageSize.getWidth() / 2;
       // Deckblatt
-      try { doc.addImage(await this.logoDataUrl(), 'PNG', 80, 60, 50, 50); } catch (e) {}
+      try { doc.addImage(await this.logoDataUrl(), 'PNG', cx - 22, 40, 44, 44); } catch (e) {}
       doc.setFont('helvetica', 'bold').setFontSize(26).setTextColor(38, 38, 43);
-      doc.text(imk.name || 'Meine Imkerei', 105, 130, { align: 'center' });
+      doc.text(imk.name || 'Meine Imkerei', cx, 100, { align: 'center' });
       doc.setFont('helvetica', 'normal').setFontSize(12).setTextColor(110);
-      doc.text('Komplettausdruck der Imkerei-Verwaltung', 105, 140, { align: 'center' });
-      doc.text(`Stand: ${U.fmtDate(U.todayIso())}`, 105, 148, { align: 'center' });
+      doc.text('Komplettausdruck der Imkerei-Verwaltung', cx, 110, { align: 'center' });
+      doc.text(`Stand: ${U.fmtDate(U.todayIso())}`, cx, 118, { align: 'center' });
       doc.setFontSize(9).setTextColor(150);
-      doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? 'Reg.-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · '), 105, 160, { align: 'center' });
+      doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · '), cx, 130, { align: 'center' });
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
       const defs = await Xlsx.defs();
@@ -7492,14 +7555,19 @@ Views.einstellungen = {
           <dt>Imkerei</dt><dd>${U.esc(imk.name) || '–'}</dd>
           <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
           <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
-          <dt>Registriernummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
-          <dt>TSK-Nummer</dt><dd>${U.esc(imk.tskNummer) || '–'}</dd>
+          <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
+          <dt>Bio-Imkerei</dt><dd>${imk.bio === 'ja' ? `<span class="badge b-ok">Ja</span> ${U.esc(bioZertText(imk))}` : 'Nein'}</dd>
         </div>
         <div class="flex-wrap no-print">
           <button class="btn btn-ghost btn-sm" id="edit-profil">${icon('pencil')} Profil</button>
           <button class="btn btn-ghost btn-sm" id="edit-imkerei">${icon('pencil')} Imkereidaten</button>
         </div>
         <div class="hint mt8">Die Imkereidaten erscheinen auf allen PDF-Dokumenten und Rechnungen.</div>
+        ${imk.bio === 'ja' ? `<div class="mt12" style="border-top:1px solid var(--line);padding-top:12px">
+          <div class="flex-wrap" style="justify-content:space-between"><b>Bio-Logos</b><label class="btn btn-ghost btn-sm no-print" style="cursor:pointer">${icon('camera')} Logo hinzufügen<input type="file" id="biologo-file" accept="image/*" hidden></label></div>
+          <div class="hint mb8">Lade die offiziellen Logo-Dateien deiner Kontrollstelle / deines Verbands hoch (bekommst du als zertifiziertes Mitglied). Sie erscheinen dann auf dem Honig-Etikett.</div>
+          <div class="flex-wrap" id="biologo-list">${(imk.bioLogos || []).map((l, idx) => `<div style="position:relative;width:64px;height:64px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${l}" style="max-width:100%;max-height:100%"><button class="icon-btn no-print" data-biologo-del="${idx}" style="position:absolute;top:-8px;right:-8px;background:var(--danger);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px">✕</button></div>`).join('') || '<span class="muted small">Noch keine Bio-Logos hochgeladen.</span>'}</div>
+        </div>` : ''}
       </div>
 
       <div class="card"><div class="card-title">${icon('camera')}<h2>Eigenes Logo</h2></div>
@@ -7653,11 +7721,16 @@ Views.einstellungen = {
         { key: 'name', label: 'Name der Imkerei' }, { key: 'strasse', label: 'Straße & Nr.' },
         { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
         { key: 'telefon', label: 'Telefon' }, { key: 'email', label: 'E-Mail' },
-        { key: 'registriernummer', label: 'Registriernummer / Veterinärnummer (VVVO)' },
-        { key: 'tskNummer', label: 'Tierseuchenkassen-Nummer' },
+        { key: 'registriernummer', label: 'Landwirtschaftliche Betriebsnummer' },
+        { key: '_bioT', type: 'static', html: '<h3 class="mt8 mb8">Bio-Zertifizierung</h3>' },
+        { key: 'bio', label: 'Bio-Imkerei?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
+        { key: 'bioKontrollstelle', label: 'Öko-Kontrollstelle', type: 'suggest', options: KONTROLLSTELLEN, placeholder: 'DE-ÖKO-… auswählen oder eintippen', hint: 'Deine Kontrollstelle – erscheint als DE-ÖKO-Code auf dem Bio-Etikett.', showIf: (f) => f.bio === 'ja' },
+        { key: 'bioVerbandJN', label: 'Verbandszugehörigkeit?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein – nur EU-Bio' }, { v: 'ja', l: 'Ja' }], showIf: (f) => f.bio === 'ja' },
+        { key: 'bioVerband', label: 'Verband / Verbände (Mehrfachauswahl)', type: 'multicheck', options: BIO_VERBAENDE.map((v) => ({ v, l: v })), showIf: (f) => f.bio === 'ja' && f.bioVerbandJN === 'ja' },
+        { key: '_euhint', type: 'static', html: '<div class="hint">Ohne Verbandszugehörigkeit gilt automatisch das <b>EU-Bio-Siegel</b>.</div>', showIf: (f) => f.bio === 'ja' && f.bioVerbandJN !== 'ja' },
       ],
       values: imk,
-      async onSave(v) { await S.set('imkerei', v); UI.toast('Gespeichert'); renderRoute(); },
+      async onSave(v) { const merged = Object.assign({}, imk, v); delete merged.tskNummer; await S.set('imkerei', merged); UI.toast('Gespeichert'); renderRoute(); },
     });
 
     /* Logo */
@@ -7674,6 +7747,23 @@ Views.einstellungen = {
     const ld = $('#logo-del');
     if (ld) ld.onclick = async () => { await S.set('logo', null); await S.set('logoImHeader', false); UI.toast('Logo entfernt'); applyHeaderLogo(); renderRoute(); };
     $('#logo-header').onchange = async (e) => { await S.set('logoImHeader', e.target.checked); applyHeaderLogo(); };
+
+    /* Bio-Logos hochladen/entfernen (offizielle Verbands-/Kontrollstellen-Logos des Nutzers) */
+    const bioFile = $('#biologo-file');
+    if (bioFile) bioFile.onchange = async (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      try {
+        // immer rastern (auch SVG) → sicher aufs PDF druckbar
+        const dataUrl = await U.blobToDataURL(await U.resizeImage(file, 400, 0.92));
+        const cur = S.get('imkerei'); cur.bioLogos = [...(cur.bioLogos || []), dataUrl];
+        await S.set('imkerei', cur); UI.toast('Bio-Logo hinzugefügt'); renderRoute();
+      } catch (err) { UI.toast('Logo konnte nicht verarbeitet werden: ' + err.message, 'err'); }
+    };
+    $('#biologo-list')?.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-biologo-del]'); if (!b) return;
+      const cur = S.get('imkerei'); (cur.bioLogos || []).splice(+b.dataset.biologoDel, 1);
+      await S.set('imkerei', cur); UI.toast('Bio-Logo entfernt'); renderRoute();
+    });
 
     /* Rechnungs-QR-Code hochladen/entfernen */
     const rqrFile = $('#rqr-file');
