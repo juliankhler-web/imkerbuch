@@ -597,8 +597,17 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.78';
+const APP_VERSION = '0.81';
 const CHANGELOG = [
+  { version: '0.81', datum: '2026-07-13', punkte: [
+    'Inventar und Verbrauchsmaterial: Du kannst jetzt eigene Kategorien anlegen – einfach im Kategorie-Feld eintippen statt nur auswählen. Die neue Kategorie steht danach automatisch als Vorschlag und als Filter zur Verfügung (getrennt je Bereich).',
+  ] },
+  { version: '0.80', datum: '2026-07-13', punkte: [
+    'Kassenbuch: Neuer Reiter „Allgemeine Geschäftskosten“ neben „Kunden & Lieferanten“ – zeigt alle Buchungen dieser Kategorie mit Jahres-Summe, und „Buchung“ legt sie direkt richtig kategorisiert an.',
+  ] },
+  { version: '0.79', datum: '2026-07-13', punkte: [
+    'Volk anlegen/bearbeiten: Direkt beim Feld „Königin“ gibt es jetzt „Neue Königin anlegen“ – du legst die Königin ohne Umweg an, sie wird sofort ausgewählt und deine Eingaben im Volk-Formular bleiben erhalten.',
+  ] },
   { version: '0.78', datum: '2026-07-13', punkte: [
     'Königinnen: Die Zuordnungshistorie lässt sich jetzt selbst bearbeiten – Einträge antippen zum Ändern, neue über „Zuordnung hinzufügen“, Löschen inklusive. Der offene Eintrag (ohne „Bis“) bestimmt, in welchem Volk die Königin sitzt; die Volk-Zuordnung wird automatisch mitgeführt.',
   ] },
@@ -2404,7 +2413,7 @@ async function openVolkForm(volk, defaults = {}, onDone) {
   const qOpts = await koeniginOptions();
   const beutenOpts = await gelernteWerte(VORSCHLAEGE.beutentyp, 'voelker', 'beutentyp');
   const funktionOpts = await gelernteWerte(VORSCHLAEGE.volksfunktion, 'voelker', 'funktion');
-  UI.formModal({
+  const m = UI.formModal({
     title: volk ? 'Volk bearbeiten' : 'Neues Volk',
     fields: [
       { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Volk 3' },
@@ -2430,6 +2439,28 @@ async function openVolkForm(volk, defaults = {}, onDone) {
       UI.toast('Volk gespeichert'); if (onDone) onDone();
     },
   });
+  // Shortcut: neue Königin direkt hier anlegen – ohne das Volk-Formular zu verlassen
+  const qWrap = $('[data-field="koeniginId"]', m.el);
+  if (qWrap) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-ghost btn-sm no-print';
+    btn.style.marginTop = '6px';
+    btn.innerHTML = `${icon('plus')} Neue Königin anlegen`;
+    qWrap.insertBefore(btn, $('.err', qWrap));
+    btn.onclick = () => Views.koeniginnen.form(null, (neu) => {
+      const sel = $('#f-koeniginId', m.el);
+      if (!sel) return;
+      const opt = document.createElement('option');
+      opt.value = neu.id;
+      opt.textContent = `${neu.kennung ? neu.kennung + ' · ' : ''}${neu.jahrgang} ${queenColor(neu.jahrgang)[0]} · ${neu.linie || neu.herkunft || 'Königin'}`;
+      sel.appendChild(opt);
+      sel.value = neu.id;
+      // erst nach dem Schließen des Königin-Dialogs setzen (formModal setzt dirty davor auf false)
+      setTimeout(() => { FormGuard.dirty = true; }, 0);
+      UI.toast('Königin angelegt und ausgewählt');
+    });
+  }
 }
 
 /** QR-Code eines Volks: kodiert den Direktlink zur Stockkarte, druckbar fürs Beutendach */
@@ -2898,7 +2929,7 @@ Views.koeniginnen = {
       if (q) Views.koeniginnen.detail(q, voelker);
     });
   },
-  async form(q) {
+  async form(q, onDone) {
     const jahr = new Date().getFullYear();
     const herkunftOpts = await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft');
     const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
@@ -2949,7 +2980,8 @@ Views.koeniginnen = {
           (saved.historie || []).forEach((h) => { if (!h.bis) h.bis = U.todayIso(); });
           await DB.put('koeniginnen', saved);
         }
-        UI.toast('Königin gespeichert'); renderRoute();
+        UI.toast('Königin gespeichert');
+        if (onDone) onDone(saved); else renderRoute(); // onDone: z. B. Shortcut aus dem Volk-Formular
       },
       onDelete: q ? async () => {
         if (!(await UI.confirm({ title: 'Königin löschen?', text: 'Wandert in den Papierkorb (30 Tage). Völker verlieren die Zuordnung.' }))) return false;
@@ -4674,11 +4706,13 @@ Views.kassenbuch = {
     const tab = Views.kassenbuch._tab || 'buchungen';
     main.innerHTML = pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei') + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar').appendChild(UI.tabs([
-      { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' }, { id: 'auswertung', label: 'Auswertung' },
+      { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' },
+      { id: 'geschaeftskosten', label: 'Allgemeine Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
     ], tab, (t) => { Views.kassenbuch._tab = t; renderRoute(); }));
     const box = $('#tab-content');
     if (tab === 'buchungen') await Views.kassenbuch.tabBuchungen(box);
     else if (tab === 'kontakte') await Views.kassenbuch.tabKontakte(box);
+    else if (tab === 'geschaeftskosten') await Views.kassenbuch.tabGeschaeftskosten(box);
     else await Views.kassenbuch.tabAuswertung(box);
   },
 
@@ -4714,7 +4748,39 @@ Views.kassenbuch = {
       const r = e.target.closest('.row[data-id]'); if (r) Views.kassenbuch.detail(all.find((x) => x.id === r.dataset.id), kontakte);
     });
   },
-  async form(k) {
+  /** Eigener Reiter für die laufenden allgemeinen Geschäftskosten (Kategorie-Filter). */
+  async tabGeschaeftskosten(box) {
+    const KAT = 'Allgemeine Geschäftskosten';
+    const all = U.sortBy((await DB.getAll('kassenbuch')).filter((k) => k.kategorie === KAT), (k) => k.datum, true);
+    const kontakte = await idMap('kontakte');
+    const jahre = [...new Set(all.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
+    const jahr = Views.kassenbuch._jahrGk || jahre[0] || U.todayIso().slice(0, 4);
+    const list = all.filter((k) => (k.datum || '').startsWith(jahr));
+    const summe = U.sum(list, (k) => k.betrag);
+    box.innerHTML = `
+      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr-gk="${j}">${j}</button>`).join('')}</div>` : ''}
+      <div class="stat-grid mb16">
+        <div class="stat"><div class="s-label">${icon('euro')} Geschäftskosten ${jahr}</div><div class="s-value" style="color:var(--danger)">${U.fmtEur(summe)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Buchung' : 'Buchungen'}</div></div>
+        <div class="stat"><div class="s-label">Gesamt (alle Jahre)</div><div class="s-value">${U.fmtEur(U.sum(all, (k) => k.betrag))}</div></div>
+      </div>
+      <div class="card"><div class="card-title">${icon('kasse')}<h2>Allgemeine Geschäftskosten ${jahr}</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Buchung</button></div>
+        <p class="small muted mb12">Laufende Betriebskosten ohne eigene Kategorie – z. B. Porto, Büromaterial, Kontoführung, Software, Beiträge. Die Buchungen stehen auch im Reiter „Buchungen“.</p>
+      ${list.length ? `<div class="rows">` + list.map((k) => `
+        <button class="row" data-id="${k.id}">
+          <span class="r-ic" style="background:var(--danger-bg);color:var(--danger)">${icon('euro')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(k.beschreibung || KAT)}</span>
+          <span class="r-sub">${U.fmtDate(k.datum)}${k.kontaktId ? ' · ' + U.esc(kontakte.get(k.kontaktId)?.name || '') : ''}${k.steuersatz ? ` · ${k.steuersatz} % USt` : ''}</span></span>
+          <span class="r-side" style="color:var(--danger)"><b>– ${U.fmtEur(Math.abs(k.betrag))}</b></span>
+          ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
+      : emptyState('kasse', `Keine allgemeinen Geschäftskosten in ${jahr} gebucht.`, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Buchung</button>`)}
+      </div>`;
+    bindAdd(() => Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: KAT, datum: U.todayIso() }), box);
+    box.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-jahr-gk]'); if (c) { Views.kassenbuch._jahrGk = c.dataset.jahrGk; return renderRoute(); }
+      const r = e.target.closest('.row[data-id]'); if (r) Views.kassenbuch.detail(all.find((x) => x.id === r.dataset.id), kontakte);
+    });
+  },
+  async form(k, vorgabe) {
     const kontakte = await DB.getAll('kontakte');
     const beschrOpts = await gelernteWerte([], 'kassenbuch', 'beschreibung');
     // Bestehende Kategorie erhalten, auch wenn sie nicht (mehr) in der Standardliste steht –
@@ -4733,7 +4799,7 @@ Views.kassenbuch = {
         { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${c.typ})` })) },
         { key: 'beschreibung', label: 'Beschreibung', type: 'suggest', options: beschrOpts, placeholder: 'z. B. 12 Gläser Rapshonig' },
       ],
-      values: k ? { ...k, katEin: k.typ === 'einnahme' ? k.kategorie : '', katAus: k.typ === 'ausgabe' ? k.kategorie : '' } : {},
+      values: k ? { ...k, katEin: k.typ === 'einnahme' ? k.kategorie : '', katAus: k.typ === 'ausgabe' ? k.kategorie : '' } : (vorgabe || {}),
       async onSave(v) {
         const kategorie = (v.typ === 'einnahme' ? v.katEin : v.katAus) || 'Sonstiges';
         await DB.put('kassenbuch', Object.assign(k || {}, { typ: v.typ, datum: v.datum, kategorie, betrag: v.betrag, steuersatz: +v.steuersatz || 0, kontaktId: v.kontaktId || null, beschreibung: v.beschreibung }));
@@ -5038,7 +5104,10 @@ async function renderInventarBereich(main, cfg) {
     title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
     fields: [
       { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.inventar, 'inventar', 'bezeichnung'), placeholder: cfg.typ === 'verbrauch' ? 'z. B. Ameisensäure 60 %' : 'z. B. Zanderbeute komplett' },
-      { key: 'kategorie', label: 'Kategorie', type: 'select', options: cfg.kategorien.map((k) => ({ v: k, l: k })) },
+      // Kategorie frei erweiterbar: Vorschläge = Standardliste + bereits genutzte Kategorien dieses Bereichs
+      { key: 'kategorie', label: 'Kategorie', type: 'suggest', placeholder: 'auswählen oder eigene Kategorie eintippen',
+        options: [...new Set([...cfg.kategorien, ...alle.map((i) => i.kategorie).filter(Boolean)])],
+        hint: 'Du kannst auch eine eigene Kategorie eintippen – sie steht dir danach zur Auswahl.' },
       { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Kaufdatum' : 'Anschaffungsdatum', type: 'date' },
