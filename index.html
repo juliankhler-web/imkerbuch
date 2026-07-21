@@ -597,8 +597,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.88';
+const APP_VERSION = '0.89';
 const CHANGELOG = [
+  { version: '0.89', datum: '2026-07-13', punkte: [
+    'Automatische Sicherung: Beim Aktivieren wird sofort eine erste Sicherung erstellt – danach läuft der Timer ab diesem Zeitpunkt.',
+    'Neuer Countdown-Ring in den Einstellungen: Er zeigt, wie viel Zeit bis zur nächsten Sicherung bleibt, mit Datum und Uhrzeit der nächsten sowie der letzten Sicherung. Ist sie fällig, wird der Ring rot.',
+    'Nach jeder automatischen Sicherung gibt es eine Bestätigung – und eine Push-Benachrichtigung (wenn Benachrichtigungen aktiviert sind) mit Zeitpunkt und dem nächsten Termin.',
+  ] },
   { version: '0.88', datum: '2026-07-13', punkte: [
     'Dashboard-Kachel „Fahrten“ aufgeräumt: Der erklärende Hinweistext unter den Einträgen ist entfallen – die Kachel ist damit kompakter.',
   ] },
@@ -6472,15 +6477,30 @@ const Backup = {
       return true;
     } catch (e) { console.error('Ordner-Backup fehlgeschlagen', e); return false; }
   },
+  /** Zeitpunkt der nächsten fälligen Auto-Sicherung (ISO) – null, wenn nicht aktiv/„beim Schließen“. */
+  naechsteSicherung() {
+    const f = S.get('features');
+    if (!f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return null;
+    const last = S.get('letzteAutoSicherung');
+    if (!last) return U.nowIso();
+    const tage = f.autoBackup.intervall === 'taeglich' ? 1 : 7;
+    return new Date(new Date(last).getTime() + tage * 86400000).toISOString();
+  },
   /** fällige Auto-Sicherung ausführen (Snapshot + extern) */
   async runAuto(quelle = 'intervall') {
     await this.snapshotInternal('auto');
     let extern = false;
     if (S.get('backupDirHandle')) extern = await this.writeToDir();
     else { U.download(await this.buildBlob(), this.dateiname()); extern = true; }
-    await S.set('letzteAutoSicherung', U.nowIso());
+    const jetzt = U.nowIso();
+    await S.set('letzteAutoSicherung', jetzt);
     if (extern) await this.markExternal();
-    UI.toast('Automatische Sicherung erstellt');
+    UI.toast(quelle === 'aktivierung' ? 'Erste Sicherung erstellt' : 'Automatische Sicherung erstellt');
+    const naechste = this.naechsteSicherung();
+    Notif.zeigen('🐝 Sicherung erstellt',
+      `${U.fmtDateTime(jetzt)}${extern ? ' · als Datei gesichert' : ''}${naechste ? `\nNächste: ${U.fmtDateTime(naechste)}` : ''}`,
+      'imkerbuch-backup', '/einstellungen');
+    return jetzt;
   },
   initAuto() {
     const tick = async () => {
@@ -6506,6 +6526,57 @@ const Backup = {
     });
   },
 };
+
+/** Restzeit lesbar: kurz fürs Ringinnere, lang für den Fließtext. */
+function backupRestText(ms) {
+  if (ms <= 0) return { kurz: 'fällig', lang: 'jetzt fällig' };
+  // gerundet statt abgeschnitten: sonst stünde 5 Minuten nach der Sicherung schon „in 6 Tagen“ statt „in 7 Tagen“
+  const tageRoh = ms / 86400000;
+  if (tageRoh >= 0.9) { const t = Math.round(tageRoh); return { kurz: `${t} T`, lang: `${t} ${t === 1 ? 'Tag' : 'Tagen'}` }; }
+  const stdRoh = ms / 3600000;
+  if (stdRoh >= 0.9) { const h = Math.round(stdRoh); return { kurz: `${h} h`, lang: `${h} ${h === 1 ? 'Stunde' : 'Stunden'}` }; }
+  const m = Math.max(1, Math.round(ms / 60000));
+  return { kurz: `${m} m`, lang: `${m} ${m === 1 ? 'Minute' : 'Minuten'}` };
+}
+/** Countdown-Ring bis zur nächsten automatischen Sicherung (leer, wenn nicht aktiv). */
+function backupRingHtml() {
+  const f = S.get('features');
+  if (!f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return '';
+  const last = S.get('letzteAutoSicherung');
+  const gesamtMs = (f.autoBackup.intervall === 'taeglich' ? 1 : 7) * 86400000;
+  const naechste = Backup.naechsteSicherung(); // eine Quelle für „wann ist die nächste dran“
+  if (!naechste) return '';
+  const naechsteMs = new Date(naechste).getTime();
+  const restMs = Math.max(0, naechsteMs - Date.now());
+  const anteil = Math.max(0, Math.min(1, restMs / gesamtMs)); // 1 = frisch gesichert, 0 = fällig
+  const R = 26, UMF = 2 * Math.PI * R;
+  const rest = backupRestText(restMs);
+  const faellig = restMs <= 0;
+  return `<div class="flex-wrap mt12" id="backup-ring" style="gap:14px;align-items:center">
+    <svg width="64" height="64" viewBox="0 0 64 64" style="flex:0 0 auto">
+      <circle cx="32" cy="32" r="${R}" fill="none" stroke="var(--line)" stroke-width="6"/>
+      <circle cx="32" cy="32" r="${R}" fill="none" stroke="${faellig ? 'var(--danger)' : 'var(--honey)'}" stroke-width="6" stroke-linecap="round"
+        stroke-dasharray="${UMF.toFixed(1)}" stroke-dashoffset="${(UMF * (1 - anteil)).toFixed(1)}" transform="rotate(-90 32 32)"/>
+      <text x="32" y="37" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">${rest.kurz}</text>
+    </svg>
+    <div style="min-width:min(100%,12rem)">
+      <div><b>Nächste Sicherung</b></div>
+      <div class="small ${faellig ? '' : 'muted'}">${faellig ? '<span class="badge b-warn">jetzt fällig</span>' : `${U.fmtDateTime(new Date(naechsteMs).toISOString())} · in ${rest.lang}`}</div>
+      <div class="small muted">Zuletzt: ${last ? U.fmtDateTime(last) : '<span class="badge b-danger">noch nie</span>'}</div>
+    </div></div>`;
+}
+/** Hält den Ring aktuell, solange er sichtbar ist (räumt sich selbst auf). */
+function backupRingStart() {
+  if (window._backupRingTimer) { clearInterval(window._backupRingTimer); window._backupRingTimer = null; }
+  window._backupRingTimer = setInterval(() => {
+    const el = document.getElementById('backup-ring');
+    if (!el) { clearInterval(window._backupRingTimer); window._backupRingTimer = null; return; }
+    const neu = backupRingHtml();
+    if (!neu) { el.remove(); return; }
+    const tmp = document.createElement('div'); tmp.innerHTML = neu;
+    el.innerHTML = tmp.firstElementChild.innerHTML;
+  }, 30000);
+}
 /* =====================================================================
    MHD-WÄCHTER: legt automatisch Aufgaben an, wenn das Mindesthaltbarkeits-
    datum einer Charge mit Restbestand näher rückt oder überschritten ist.
@@ -6558,6 +6629,16 @@ const Notif = {
   async anfordern() {
     if (!this.unterstuetzt()) return 'unsupported';
     try { return await Notification.requestPermission(); } catch (e) { return 'denied'; }
+  },
+  /** Einzelne Benachrichtigung senden (z. B. nach einer automatischen Sicherung). */
+  async zeigen(titel, body, tag = 'imkerbuch', ziel = '/aufgaben') {
+    if (!S.get('features').benachrichtigungen || this.status() !== 'granted') return false;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return false;
+      await reg.showNotification(titel, { body, tag, data: { ziel }, icon: 'icon-192.png', badge: 'icon-192.png' });
+      return true;
+    } catch (e) { console.warn('Benachrichtigung fehlgeschlagen', e); return false; }
   },
   /** überfällige + heute fällige, offene Aufgaben */
   faellige(aufgaben, heute = U.todayIso()) {
@@ -7883,7 +7964,8 @@ Views.einstellungen = {
           <button class="btn btn-ghost btn-sm" id="ab-dir">${icon('download')} Backup-Ordner wählen</button>
           <span class="small muted">${S.get('backupDirName') ? `Ordner: „${U.esc(S.get('backupDirName'))}“` : 'Kein Ordner gewählt → Datei wird automatisch heruntergeladen.'}</span>
         </div>
-        <div class="hint mt8">Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich werden intern die letzten 10 Snapshots behalten.</div>
+        ${backupRingHtml()}
+        <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich werden intern die letzten 10 Snapshots behalten.</div>
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
         <h3 class="mb8 mt16">Interne Snapshots (${snaps.length}/10)</h3>
         <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
@@ -8050,10 +8132,17 @@ Views.einstellungen = {
     main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap); });
     $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Snapshot angelegt'); renderRoute(); };
     const saveFeatures = async () => { await S.set('features', f); };
-    $('#ab-aktiv').onchange = async (e) => { f.autoBackup.aktiv = e.target.checked; await saveFeatures(); renderRoute(); };
-    $('#ab-intervall').onchange = async (e) => { f.autoBackup.intervall = e.target.value; await saveFeatures(); };
+    $('#ab-aktiv').onchange = async (e) => {
+      f.autoBackup.aktiv = e.target.checked;
+      await saveFeatures();
+      // Beim Aktivieren sofort eine erste Sicherung erstellen, damit der Timer einen Startpunkt hat
+      if (e.target.checked && f.autoBackup.intervall !== 'schliessen') { try { await Backup.runAuto('aktivierung'); } catch (err) { UI.toast('Sicherung fehlgeschlagen: ' + err.message, 'err'); } }
+      renderRoute();
+    };
+    $('#ab-intervall').onchange = async (e) => { f.autoBackup.intervall = e.target.value; await saveFeatures(); renderRoute(); };
     $('#ab-dir').onclick = async () => { if (await Backup.chooseDir()) renderRoute(); };
     $('#ab-frage').onchange = async (e) => { f.backupBeimSchliessen = e.target.checked; await saveFeatures(); };
+    backupRingStart(); // Countdown-Ring live halten
 
     /* Profil / Imkerei */
     $('#edit-profil').onclick = () => UI.formModal({

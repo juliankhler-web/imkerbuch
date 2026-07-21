@@ -2,7 +2,7 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v093';
+const CACHE = 'imkerbuch-v094';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/xlsx.full.min.js'];
@@ -23,14 +23,16 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-/* Klick auf eine Erinnerung: App fokussieren und zu den Aufgaben springen */
+/* Klick auf eine Erinnerung: App fokussieren und zum passenden Bereich springen
+   (Aufgaben-Erinnerung → Aufgaben, Sicherungs-Meldung → Einstellungen) */
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const ziel = (e.notification.data && e.notification.data.ziel) || '/aufgaben';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       const app = list.find((c) => 'focus' in c);
-      if (app) { app.navigate(app.url.split('#')[0] + '#/aufgaben').catch(() => {}); return app.focus(); }
-      return self.clients.openWindow('./#/aufgaben');
+      if (app) { app.navigate(app.url.split('#')[0] + '#' + ziel).catch(() => {}); return app.focus(); }
+      return self.clients.openWindow('./#' + ziel);
     })
   );
 });
