@@ -597,8 +597,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.81';
+const APP_VERSION = '0.83';
 const CHANGELOG = [
+  { version: '0.83', datum: '2026-07-13', punkte: [
+    'Die Kennung der Königin wird jetzt überall mit angezeigt – in der Königin-Auswahl beim Volk, in der Völkerliste, in der Volk-Ansicht, im Volk-Verlauf und im Excel-Export. So lassen sich Königinnen eindeutig auseinanderhalten.',
+  ] },
+  { version: '0.82', datum: '2026-07-13', punkte: [
+    'Königin bearbeiten: Bei „Mutter (2a)“ und „Vatervolk / Drohnenlinie (4a)“ kannst du die Königin jetzt direkt neu anlegen – mit Kennung, Jahrgang, Linie usw. Sie wird sofort ausgewählt, deine bisherigen Eingaben bleiben erhalten.',
+  ] },
   { version: '0.81', datum: '2026-07-13', punkte: [
     'Inventar und Verbrauchsmaterial: Du kannst jetzt eigene Kategorien anlegen – einfach im Kategorie-Feld eintippen statt nur auswählen. Die neue Kategorie steht danach automatisch als Vorschlag und als Filter zur Verfügung (getrennt je Bereich).',
   ] },
@@ -2405,7 +2411,8 @@ Views.stand = {
    ===================================================================== */
 async function koeniginOptions() {
   const qs = (await DB.getAll('koeniginnen')).filter((q) => q.status === 'aktiv');
-  return qs.map((q) => ({ v: q.id, l: `${q.jahrgang} ${queenColor(q.jahrgang)[0]} · ${q.linie || q.herkunft || 'Königin'}` }));
+  // Kennung zuerst – sie unterscheidet die Königinnen eindeutig
+  return qs.map((q) => ({ v: q.id, l: `${q.kennung ? q.kennung + ' · ' : ''}${q.jahrgang} ${queenColor(q.jahrgang)[0]} · ${q.linie || q.herkunft || 'Königin'}` }));
 }
 /** Volk anlegen/bearbeiten inkl. Pflege der Königinnen-Zuordnungshistorie */
 async function openVolkForm(volk, defaults = {}, onDone) {
@@ -2524,7 +2531,7 @@ Views.voelker = {
         return `<button class="row" data-id="${v.id}">
           <span class="r-ic">${icon('volk')}</span>
           <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
-          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${q.jahrgang}` : ''}</span></span>
+          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`)) + `</div>`;
     const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
@@ -2632,7 +2639,7 @@ Views.volk = {
           <button class="btn btn-danger btn-sm" id="dissolve">Auflösen</button>` : ''}
         </span>`)}
       <div class="flex-wrap mb16">${statusBadge}
-        ${q ? `<span class="kpill"><span class="dot" style="background:${qc[1]}"></span> Königin ${q.jahrgang} (${qc[0]})${q.linie ? ' · ' + U.esc(q.linie) : ''}</span>` : '<span class="kpill muted">keine Königin zugeordnet</span>'}
+        ${q ? `<span class="kpill"><span class="dot" style="background:${qc[1]}"></span> Königin ${q.kennung ? U.esc(q.kennung) + ' · ' : ''}${q.jahrgang} (${qc[0]})${q.linie ? ' · ' + U.esc(q.linie) : ''}</span>` : '<span class="kpill muted">keine Königin zugeordnet</span>'}
       </div>
       <div id="tabbar"></div><div id="tab-content"></div>
       <div class="card"><div class="card-title">${icon('buch')}<h2>Historie</h2></div>
@@ -2939,7 +2946,7 @@ Views.koeniginnen = {
     const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
     const kennungVorschlag = q ? (q.kennung || '') : await naechsteKennung(jahr);
     const b = q && q.bewertung || {};
-    UI.formModal({
+    const m = UI.formModal({
       title: q ? 'Königin bearbeiten' : 'Neue Königin',
       fields: [
         { key: 'kennung', label: 'Kennung', placeholder: 'z. B. JK-26-014', hint: 'Eindeutige Zuchtbuch-Kennung – Vorschlag automatisch, frei änderbar.' },
@@ -2974,7 +2981,7 @@ Views.koeniginnen = {
         if (v.status !== 'aktiv') {
           for (const volk of await DB.getAll('voelker')) if (volk.koeniginId === saved.id) {
             volk.koeniginId = null;
-            volk.historie.push({ datum: U.todayIso(), text: `Königin ${saved.jahrgang} ${v.status}` });
+            volk.historie.push({ datum: U.todayIso(), text: `Königin ${koeniginKurz(saved)} ${v.status}` });
             await DB.put('voelker', volk);
           }
           (saved.historie || []).forEach((h) => { if (!h.bis) h.bis = U.todayIso(); });
@@ -2989,6 +2996,33 @@ Views.koeniginnen = {
         await DB.softDel('koeniginnen', q.id); UI.toast('Gelöscht'); renderRoute(); return true;
       } : null,
     });
+    // Shortcuts: Mutter (2a) bzw. Vaterseite (4a) direkt hier neu anlegen – ohne das Formular zu verlassen
+    const queenShortcut = (feldKey, label) => {
+      const wrap = $(`[data-field="${feldKey}"]`, m.el);
+      if (!wrap) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-sm no-print';
+      btn.style.marginTop = '6px';
+      btn.innerHTML = `${icon('plus')} ${label}`;
+      wrap.insertBefore(btn, $('.err', wrap));
+      btn.onclick = () => Views.koeniginnen.form(null, (neu) => {
+        const text = `${neu.kennung ? neu.kennung + ' · ' : ''}${neu.jahrgang} ${queenColor(neu.jahrgang)[0]}${neu.linie ? ' · ' + neu.linie : ''}`;
+        // neue Königin in beiden Abstammungs-Feldern anbieten, im angeklickten auswählen
+        for (const key of ['mutterId', 'vatervolkId']) {
+          const sel = $(`#f-${key}`, m.el);
+          if (!sel) continue;
+          const opt = document.createElement('option');
+          opt.value = neu.id; opt.textContent = text;
+          sel.appendChild(opt);
+          if (key === feldKey) sel.value = neu.id;
+        }
+        setTimeout(() => { FormGuard.dirty = true; }, 0); // formModal setzt dirty davor auf false
+        UI.toast('Königin angelegt und ausgewählt');
+      });
+    };
+    queenShortcut('mutterId', 'Neue Mutter anlegen');
+    queenShortcut('vatervolkId', 'Neue Vater-Königin anlegen');
   },
   async detail(q, voelker) {
     const [farbe, hex] = queenColor(q.jahrgang);
@@ -6541,7 +6575,7 @@ const Xlsx = {
     const d = this._d;
     return {
       staende: { blatt: 'Stände', rows: async () => (await DB.getAll('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
-      voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
+      voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await DB.getAll('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
       koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await DB.getAll('koeniginnen')).map((q) => { const b = q.bewertung || {}; return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Sanftmut: b.sanftmut || '', Wabensitz: b.wabensitz || '', Schwarmträgheit: b.schwarm || '', Entwicklung: b.entwicklung || '', 'Honig (kg)': b.honigKg ?? '', Zuchtnote: zuchtNote(b) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
