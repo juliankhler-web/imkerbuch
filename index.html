@@ -597,8 +597,24 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.83';
+const APP_VERSION = '0.88';
 const CHANGELOG = [
+  { version: '0.88', datum: '2026-07-13', punkte: [
+    'Dashboard-Kachel „Fahrten“ aufgeräumt: Der erklärende Hinweistext unter den Einträgen ist entfallen – die Kachel ist damit kompakter.',
+  ] },
+  { version: '0.87', datum: '2026-07-13', punkte: [
+    'Dashboard-Kachel „Fahrten“ ist jetzt anpassbar: Über „Anpassen“ wählst du selbst, welche Schnellzugriffe erscheinen – Bienenstände UND deine eigenen Fahrt-Vorlagen (z. B. „Heimstand → Lindenallee“ oder „Imkerbedarf“). Hinzufügen und entfernen jederzeit; ohne Auswahl bleibt es bei den 5 meistbesuchten Ständen.',
+    'Fachbegriff korrigiert: Die Königin, deren Drohnen die Anpaarung stellen, heißt „Drohnenmutter“ (4a-Volk) – nicht „Vater-Königin“.',
+  ] },
+  { version: '0.86', datum: '2026-07-13', punkte: [
+    'Vatervolk besser auffindbar: Bei „Anpaarung“ steht jetzt der Hinweis, dass das Feld für das Vatervolk (Drohnenlinie) erst nach Wahl von „Standbegattung“ oder „Künstliche Besamung“ erscheint – gilt für Königin und Zuchtserie.',
+  ] },
+  { version: '0.85', datum: '2026-07-13', punkte: [
+    'Volk-Ansicht: Oben neben „aktiv“ steht jetzt auch die Beutenkennung als eigene Kachel (z. B. „Beute Z-07“) – zusammen mit der Königin samt Kennung.',
+  ] },
+  { version: '0.84', datum: '2026-07-13', punkte: [
+    'Zuchtserie: Auch bei „Zuchtmutter (2a)“ und „Vatervolk / Drohnenlinie (4a)“ kannst du die Königin jetzt direkt neu anlegen – sie wird sofort ausgewählt, deine Eingaben bleiben erhalten.',
+  ] },
   { version: '0.83', datum: '2026-07-13', punkte: [
     'Die Kennung der Königin wird jetzt überall mit angezeigt – in der Königin-Auswahl beim Volk, in der Völkerliste, in der Volk-Ansicht, im Volk-Verlauf und im Excel-Export. So lassen sich Königinnen eindeutig auseinanderhalten.',
   ] },
@@ -1095,6 +1111,7 @@ const S = {
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
     fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
+    fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
     dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
@@ -1780,28 +1797,50 @@ const DASH_WIDGETS = {
       ${t.length ? `<div class="rows">${t.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(a.titel)}</div></div>
         <span class="badge ${a.faellig && a.faellig < today ? 'b-danger' : 'b-honey'}">${a.faellig ? U.fmtDate(a.faellig) : 'offen'}</span></div>`).join('')}</div>` : '<div class="muted small">Nichts offen – sehr gut! 🐝</div>'}</div>`;
   }},
-  fahrt: { label: 'Fahrt zum Stand (Ein-Klick)', ziel: 'fahrten', _alle: false, async html() {
-    const alle = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
-    if (!alle.length) return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2></div><div class="muted small">Lege einen Bienenstand an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
-    const { sorted: staende, besuche } = staendeNachBesuchen(alle, await DB.getAll('fahrten'));
-    const TOP = 5;
-    const offen = DASH_WIDGETS.fahrt._alle;
-    const rows = staende.map((s, i) => {
+  fahrt: { label: 'Fahrten (Schnellzugriff)', ziel: 'fahrten', _alle: false, async html() {
+    const staendeAlle = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
+    const vorlagen = S.get('fahrtvorlagen') || [];
+    const auswahl = S.get('fahrtWidgetAuswahl') || [];
+    const kopf = `<div class="card-title">${icon('truck')}<h2>Fahrten</h2>
+      <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="fahrtWidgetKonfig()">${icon('pencil')} Anpassen</button><a href="#/fahrten" class="small">Fahrtenbuch</a></span></div>`;
+    if (!staendeAlle.length && !vorlagen.length) {
+      return `<div class="card" style="margin:0">${kopf}<div class="muted small">Lege einen Bienenstand oder eine Fahrt-Vorlage an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div></div>`;
+    }
+    const { sorted: staende, besuche } = staendeNachBesuchen(staendeAlle, await DB.getAll('fahrten'));
+    // `mehr` markiert Zeilen fürs Auf-/Zuklappen, `versteckt` blendet sie initial aus (zwei getrennte Dinge)
+    const zeile = (titel, sub, btn, { mehr = false, versteckt = false } = {}) => `<div class="row fahrt-row" style="min-height:44px;padding:8px 4px${versteckt ? ';display:none' : ''}" ${mehr ? 'data-mehr' : ''}><div class="r-main"><div class="r-title">${titel}</div><div class="r-sub">${sub}</div></div>${btn}</div>`;
+    const standZeile = (s, opt) => {
       const km = s.kmEntfernung ? s.kmEntfernung * 2 : 0;
       const n = besuche.get(s.id) || 0;
       const btn = km
         ? `<button class="btn btn-primary btn-sm no-print" onclick="fahrtSchnellBuchen('${s.id}')">${icon('plus')} Fahrt buchen</button>`
         : `<button class="btn btn-ghost btn-sm no-print" onclick="fahrtForm('${s.id}')">km festlegen</button>`;
-      const versteckt = i >= TOP && !offen;
-      return `<div class="row fahrt-row" style="min-height:44px;padding:8px 4px${versteckt ? ';display:none' : ''}" ${i >= TOP ? 'data-mehr' : ''}><div class="r-main"><div class="r-title">${U.esc(s.name)}</div><div class="r-sub">${km ? `${U.fmtNum(km)} km hin & zurück` : 'Entfernung nicht gesetzt'}${n ? ` · ${n} ${n === 1 ? 'Fahrt' : 'Fahrten'}` : ''}</div></div>${btn}</div>`;
-    }).join('');
-    const mehr = staende.length > TOP
-      ? `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${staende.length}" onclick="fahrtWidgetToggle(this)">
-           <span class="fw-txt">${offen ? 'Weniger' : `Alle ${staende.length} Stände`}</span> <span class="fw-chev">${offen ? '▲' : '▼'}</span></button>`
-      : '';
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('truck')}<h2>Fahrt zum Stand</h2><a href="#/fahrten" class="small">Fahrtenbuch</a></div>
-      <div class="rows">${rows}</div>${mehr}
-      <div class="hint mt8">Ein Tipp bucht heutiges Datum + Hin- &amp; Rückweg ins Fahrtenbuch (Pauschale/PDF).</div></div>`;
+      return zeile(U.esc(s.name), `${km ? `${U.fmtNum(km)} km hin &amp; zurück` : 'Entfernung nicht gesetzt'}${n ? ` · ${n} ${n === 1 ? 'Fahrt' : 'Fahrten'}` : ''}`, btn, opt);
+    };
+    const vorlageZeile = (vl) => zeile(
+      U.esc(vl.name),
+      `${vl.km ? `${U.fmtNum(vl.km)} km` : 'km nicht gesetzt'}${vl.zweck ? ' · ' + U.esc(vl.zweck) : ''}`,
+      `<button class="btn btn-primary btn-sm no-print" onclick="fahrtVorlageBuchen('${vl.id}')">${icon('plus')} Fahrt buchen</button>`);
+    let rows = '', mehr = '';
+    if (auswahl.length) {
+      // eigene Auswahl (Stände und/oder eigene Fahrt-Vorlagen)
+      rows = auswahl.map((key) => {
+        const [typ, id] = key.split(':');
+        if (typ === 'stand') { const s = staende.find((x) => x.id === id); return s ? standZeile(s, {}) : ''; }
+        const vl = vorlagen.find((x) => x.id === id); return vl ? vorlageZeile(vl) : '';
+      }).join('');
+      if (!rows) rows = '<div class="muted small">Die gewählten Einträge gibt es nicht mehr – bitte unter „Anpassen“ neu wählen.</div>';
+    } else {
+      // Standard: die 5 meistbesuchten Stände, aufklappbar
+      const TOP = 5, offen = DASH_WIDGETS.fahrt._alle;
+      rows = staende.map((s, i) => standZeile(s, { mehr: i >= TOP, versteckt: i >= TOP && !offen })).join('');
+      if (staende.length > TOP) {
+        mehr = `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${staende.length}" onclick="fahrtWidgetToggle(this)">
+           <span class="fw-txt">${offen ? 'Weniger' : `Alle ${staende.length} Stände`}</span> <span class="fw-chev">${offen ? '▲' : '▼'}</span></button>`;
+      }
+    }
+    return `<div class="card" style="margin:0">${kopf}
+      <div class="rows">${rows}</div>${mehr}</div>`;
   }},
   zeiten: { label: 'Zeiterfassung (Stunden je Tätigkeit)', ziel: 'zeiten', async html() {
     const jahr = U.todayIso().slice(0, 4);
@@ -2253,6 +2292,36 @@ function fahrtWidgetToggle(btn) {
   if (chev) chev.textContent = offen ? '▲' : '▼';
 }
 
+/** Ein-Klick-Fahrt aus einer eigenen Fahrt-Vorlage (Dashboard-Schnellzugriff). */
+async function fahrtVorlageBuchen(vorlageId) {
+  const vl = (S.get('fahrtvorlagen') || []).find((x) => x.id === vorlageId);
+  if (!vl) return UI.toast('Vorlage nicht gefunden', 'err');
+  if (!vl.km) return fahrtForm(null, null, vl); // ohne Kilometer erst ins Formular
+  await DB.put('fahrten', { datum: U.todayIso(), standId: vl.standId || null, freiZiel: vl.freiZiel || '', km: vl.km, zweck: vl.zweck || '', notiz: '' });
+  UI.toast(`Fahrt gebucht: ${U.fmtNum(vl.km)} km · ${vl.name}`);
+  renderRoute();
+}
+
+/** Dashboard-Kachel „Fahrten“ anpassen: welche Stände und eigenen Fahrten als Schnellzugriff erscheinen. */
+async function fahrtWidgetKonfig() {
+  const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
+  const vorlagen = S.get('fahrtvorlagen') || [];
+  const opts = [
+    ...staende.map((s) => ({ v: 'stand:' + s.id, l: `Stand: ${s.name}` })),
+    ...vorlagen.map((v) => ({ v: 'vorlage:' + v.id, l: `Eigene Fahrt: ${v.name}${v.km ? ' · ' + U.fmtNum(v.km) + ' km' : ''}` })),
+  ];
+  if (!opts.length) return UI.toast('Lege zuerst einen Bienenstand oder eine Fahrt-Vorlage an (Fahrtenbuch → Häufige Fahrten).', 'err');
+  UI.formModal({
+    title: 'Fahrten-Kachel anpassen', wide: true,
+    fields: [
+      { key: '_h', type: 'static', html: '<div class="hint mb8">Wähle, welche Schnellzugriffe im Dashboard stehen – Bienenstände und deine eigenen Fahrt-Vorlagen. Nichts ausgewählt = automatisch die 5 meistbesuchten Stände. Eigene Fahrten legst du im Fahrtenbuch unter „Häufige Fahrten“ an.</div>' },
+      { key: 'auswahl', label: 'Im Dashboard anzeigen', type: 'multicheck', options: opts },
+    ],
+    values: { auswahl: S.get('fahrtWidgetAuswahl') || [] },
+    async onSave(v) { await S.set('fahrtWidgetAuswahl', v.auswahl || []); UI.toast('Kachel angepasst'); renderRoute(); },
+  });
+}
+
 async function fahrtSchnellBuchen(standId) {
   const st = await DB.get('staende', standId);
   if (!st) return UI.toast('Stand nicht gefunden', 'err');
@@ -2639,6 +2708,7 @@ Views.volk = {
           <button class="btn btn-danger btn-sm" id="dissolve">Auflösen</button>` : ''}
         </span>`)}
       <div class="flex-wrap mb16">${statusBadge}
+        ${v.beutenkennung ? `<span class="kpill" style="white-space:nowrap">${icon('volk')} Beute ${U.esc(v.beutenkennung)}</span>` : ''}
         ${q ? `<span class="kpill"><span class="dot" style="background:${qc[1]}"></span> Königin ${q.kennung ? U.esc(q.kennung) + ' · ' : ''}${q.jahrgang} (${qc[0]})${q.linie ? ' · ' + U.esc(q.linie) : ''}</span>` : '<span class="kpill muted">keine Königin zugeordnet</span>'}
       </div>
       <div id="tabbar"></div><div id="tab-content"></div>
@@ -2956,9 +3026,9 @@ Views.koeniginnen = {
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
         { key: '_absTitel', type: 'static', html: '<h3 class="mt8 mb8">Abstammung</h3>' },
         { key: 'mutterId', label: 'Mutter (Zuchtmutter, 2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt sie mütterlicherseits ab?' },
-        { key: 'anpaarung', label: 'Anpaarung (Vaterseite)', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }] },
+        { key: 'anpaarung', label: 'Anpaarung (Vaterseite)', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ trägst du stattdessen deren Namen ein.' },
         { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
-        { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Königin, die die Drohnen stellt.' },
+        { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Die Drohnenmutter – die Königin des 4a-Volks, deren Drohnen die Anpaarung stellen.' },
         { key: '_bewTitel', type: 'static', html: '<h3 class="mt8 mb8">Bewertung (Zuchtauslese)</h3><div class="hint mb8">Optional – Skala 1–4, 4 = bester Wert. Hilft bei der Auswahl der Zuchtmütter.</div>' },
         { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note, keepOrder: true },
         { key: 'bWabensitz', label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', default: 0, options: note, keepOrder: true },
@@ -2997,32 +3067,9 @@ Views.koeniginnen = {
       } : null,
     });
     // Shortcuts: Mutter (2a) bzw. Vaterseite (4a) direkt hier neu anlegen – ohne das Formular zu verlassen
-    const queenShortcut = (feldKey, label) => {
-      const wrap = $(`[data-field="${feldKey}"]`, m.el);
-      if (!wrap) return;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn btn-ghost btn-sm no-print';
-      btn.style.marginTop = '6px';
-      btn.innerHTML = `${icon('plus')} ${label}`;
-      wrap.insertBefore(btn, $('.err', wrap));
-      btn.onclick = () => Views.koeniginnen.form(null, (neu) => {
-        const text = `${neu.kennung ? neu.kennung + ' · ' : ''}${neu.jahrgang} ${queenColor(neu.jahrgang)[0]}${neu.linie ? ' · ' + neu.linie : ''}`;
-        // neue Königin in beiden Abstammungs-Feldern anbieten, im angeklickten auswählen
-        for (const key of ['mutterId', 'vatervolkId']) {
-          const sel = $(`#f-${key}`, m.el);
-          if (!sel) continue;
-          const opt = document.createElement('option');
-          opt.value = neu.id; opt.textContent = text;
-          sel.appendChild(opt);
-          if (key === feldKey) sel.value = neu.id;
-        }
-        setTimeout(() => { FormGuard.dirty = true; }, 0); // formModal setzt dirty davor auf false
-        UI.toast('Königin angelegt und ausgewählt');
-      });
-    };
-    queenShortcut('mutterId', 'Neue Mutter anlegen');
-    queenShortcut('vatervolkId', 'Neue Vater-Königin anlegen');
+    const abstammungsFelder = ['mutterId', 'vatervolkId'];
+    koeniginNeuShortcut(m, 'mutterId', 'Neue Mutter anlegen', abstammungsFelder);
+    koeniginNeuShortcut(m, 'vatervolkId', 'Neue Drohnenmutter anlegen', abstammungsFelder);
   },
   async detail(q, voelker) {
     const [farbe, hex] = queenColor(q.jahrgang);
@@ -3214,6 +3261,32 @@ Views.koeniginnen = {
 };
 /** Reiner Klartext-Name einer Königin (für Optionslisten, die HTML escapen). */
 function koeniginKurz(k) { return k ? (k.kennung || ('Jg. ' + k.jahrgang)) : '–'; }
+/** Hängt an ein Königinnen-Select im Formular einen „neu anlegen“-Shortcut.
+    `felder` = alle Select-Keys, denen die neue Königin ebenfalls angeboten wird;
+    ausgewählt wird sie nur im angeklickten Feld. */
+function koeniginNeuShortcut(m, feldKey, label, felder) {
+  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  if (!wrap) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost btn-sm no-print';
+  btn.style.marginTop = '6px';
+  btn.innerHTML = `${icon('plus')} ${label}`;
+  wrap.insertBefore(btn, $('.err', wrap));
+  btn.onclick = () => Views.koeniginnen.form(null, (neu) => {
+    const text = `${neu.kennung ? neu.kennung + ' · ' : ''}${neu.jahrgang} ${queenColor(neu.jahrgang)[0]}${neu.linie ? ' · ' + neu.linie : ''}`;
+    for (const key of (felder && felder.length ? felder : [feldKey])) {
+      const sel = $(`#f-${key}`, m.el);
+      if (!sel) continue;
+      const opt = document.createElement('option');
+      opt.value = neu.id; opt.textContent = text;
+      sel.appendChild(opt);
+      if (key === feldKey) sel.value = neu.id;
+    }
+    setTimeout(() => { FormGuard.dirty = true; }, 0); // formModal setzt dirty davor auf false
+    UI.toast('Königin angelegt und ausgewählt');
+  });
+}
 /** Kurzlabel einer Königin (Kennung falls vorhanden, sonst Jahrgang+Farbe) */
 function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
 /** Durchschnittliche Zuchtnote aus den vier 1–4-Merkmalen (nur bewertete zählen). */
@@ -3374,7 +3447,7 @@ Views.zucht = {
     const queens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.status === 'aktiv'), (k) => k.jahrgang, true);
     const qOpts = [{ v: '', l: '– keine –' }, ...queens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }))];
     const belegOpts = await gelernteWerte(['Belegstelle', 'Standbegattung'], 'koeniginnen', 'belegstelle');
-    UI.formModal({
+    const m = UI.formModal({
       title: s ? 'Zuchtserie bearbeiten' : 'Neue Zuchtserie', wide: true,
       fields: [
         { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Serie A – Carnica' },
@@ -3383,7 +3456,7 @@ Views.zucht = {
         { key: '_hTitel', type: 'static', html: '<h3 class="mt8 mb8">Herkunft (wird an die Töchter vererbt)</h3>' },
         { key: 'zuchtmutterId', label: 'Zuchtmutter (2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt der Zuchtstoff?' },
         { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie') },
-        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }] },
+        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ trägst du stattdessen deren Namen ein.' },
         { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
         { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung' },
         { key: '_vTitel', type: 'static', html: '<h3 class="mt8 mb8">Verlauf (optional)</h3><div class="hint mb8">Zwischenzahlen zur Erfolgskontrolle – Faustregel: je Stufe fällt rund ein Drittel aus.</div>' },
@@ -3413,6 +3486,10 @@ Views.zucht = {
         await DB.softDel('zuchtserien', s.id); UI.toast('Gelöscht'); renderRoute(); return true;
       } : null,
     });
+    // Zuchtmutter (2a) bzw. Vatervolk (4a) direkt hier neu anlegen
+    const herkunftsFelder = ['zuchtmutterId', 'vatervolkId'];
+    koeniginNeuShortcut(m, 'zuchtmutterId', 'Neue Zuchtmutter anlegen', herkunftsFelder);
+    koeniginNeuShortcut(m, 'vatervolkId', 'Neue Drohnenmutter anlegen', herkunftsFelder);
   },
   async detail(s) {
     const heute = U.todayIso();
