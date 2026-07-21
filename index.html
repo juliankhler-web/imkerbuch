@@ -597,8 +597,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.77';
+const APP_VERSION = '0.78';
 const CHANGELOG = [
+  { version: '0.78', datum: '2026-07-13', punkte: [
+    'Königinnen: Die Zuordnungshistorie lässt sich jetzt selbst bearbeiten – Einträge antippen zum Ändern, neue über „Zuordnung hinzufügen“, Löschen inklusive. Der offene Eintrag (ohne „Bis“) bestimmt, in welchem Volk die Königin sitzt; die Volk-Zuordnung wird automatisch mitgeführt.',
+  ] },
   { version: '0.77', datum: '2026-07-13', punkte: [
     'Fahrtenbuch: Häufige Fahrten als Vorlagen – z. B. zwischen zwei Bienenständen oder oft gefahrene Strecken (Einkauf, Verein …). Einmal anlegen, dann im Fahrtenbuch antippen und die Fahrt ist in einem Tipp gebucht.',
     'Beim Erfassen einer Fahrt kannst du sie direkt „als häufige Fahrt merken", dann steht sie künftig als Vorauswahl bereit. Vorlagen verwalten (anlegen/bearbeiten/löschen) über den Button „Verwalten".',
@@ -2983,14 +2986,56 @@ Views.koeniginnen = {
         <h3 class="mb8">Zucht-Stammbaum</h3>
         <div class="mb12">${stammbaum}</div>
         <h3 class="mb8">Zuordnungshistorie</h3>
-        <div class="rows mb12">${hist.map((h) => `<div class="row" style="min-height:42px;padding:8px 4px">
-          <span class="r-main"><span class="r-title">${U.esc(voelker.get(h.volkId)?.name || 'gelöschtes Volk')}</span>
-          <span class="r-sub">${U.fmtDate(h.von)} – ${h.bis ? U.fmtDate(h.bis) : 'heute'}</span></span></div>`).join('') || '<span class="muted small">Noch nie einem Volk zugeordnet.</span>'}</div>
+        <div class="rows mb8">${hist.map((h) => `<button class="row" style="min-height:42px;padding:8px 4px" data-hist="${(q.historie || []).indexOf(h)}">
+          <span class="r-main"><span class="r-title">${U.esc(voelker.get(h.volkId)?.name || 'gelöschtes Volk')}${!h.bis ? ' <span class="badge b-ok">aktuell</span>' : ''}</span>
+          <span class="r-sub">${U.fmtDate(h.von)} – ${h.bis ? U.fmtDate(h.bis) : 'heute'}</span></span>${icon('pencil', 'chev')}</button>`).join('') || '<span class="muted small">Noch nie einem Volk zugeordnet.</span>'}</div>
+        <button class="btn btn-ghost btn-sm mb12 no-print" data-hist-add>${icon('plus')} Zuordnung hinzufügen</button>
         <div data-anhang></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
     });
     $('[data-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'koenigin', parentId: q.id, titel: 'Dokumente & Fotos (z. B. Zuchtnachweis)' }));
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.koeniginnen.form(q); };
+    $('[data-hist-add]', m.el).onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, null); };
+    $$('[data-hist]', m.el).forEach((b) => { b.onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, +b.dataset.hist); }; });
+  },
+
+  /** Zuordnungs-Historie einer Königin von Hand pflegen (anlegen/ändern/löschen).
+      Die Volk-Zuordnung wird danach automatisch konsistent gehalten. */
+  async historieForm(q, idx) {
+    const voelker = U.sortBy(await DB.getAll('voelker'), (v) => v.name.toLowerCase());
+    const eintrag = idx != null ? (q.historie || [])[idx] : null;
+    const neuOeffnen = async () => {
+      const frisch = await DB.get('koeniginnen', q.id);
+      if (frisch) Views.koeniginnen.detail(frisch, await idMap('voelker'));
+    };
+    UI.formModal({
+      title: eintrag ? 'Zuordnung bearbeiten' : 'Zuordnung hinzufügen', wide: true,
+      fields: [
+        { key: 'volkId', label: 'Volk', type: 'select', required: true, options: voelker.map((v) => ({ v: v.id, l: v.name + (v.status !== 'aktiv' ? ` (${v.status})` : '') })) },
+        { key: 'von', label: 'Von', type: 'date', required: true, default: U.todayIso() },
+        { key: 'bis', label: 'Bis', type: 'date', hint: 'Leer lassen, solange die Königin in diesem Volk sitzt („aktuell“).' },
+      ],
+      values: eintrag || {},
+      async onSave(v) {
+        if (v.bis && v.bis < v.von) throw new Error('„Bis“ darf nicht vor „Von“ liegen.');
+        const liste = [...(q.historie || [])];
+        const neu = { volkId: v.volkId, von: v.von, bis: v.bis || null };
+        if (idx != null) liste[idx] = neu; else liste.push(neu);
+        if (liste.filter((h) => !h.bis).length > 1) throw new Error('Es darf nur eine offene Zuordnung geben. Trage bei der älteren ein „Bis“-Datum ein.');
+        q.historie = U.sortBy(liste, (h) => h.von);
+        await DB.put('koeniginnen', q);
+        await koeniginHistorieSync(q);
+        UI.toast('Zuordnung gespeichert'); renderRoute(); neuOeffnen();
+      },
+      onDelete: eintrag ? async () => {
+        if (!(await UI.confirm({ title: 'Zuordnung löschen?', text: 'Der Eintrag wird aus der Historie entfernt.' }))) return false;
+        q.historie = (q.historie || []).filter((_, i) => i !== idx);
+        await DB.put('koeniginnen', q);
+        await koeniginHistorieSync(q);
+        UI.toast('Eintrag gelöscht'); renderRoute(); neuOeffnen();
+        return true;
+      } : null,
+    });
   },
 
   /* ---- Bewertungs-Runde: Stand/Funktion filtern → viele Völker der Reihe nach benoten ---- */
@@ -3214,6 +3259,28 @@ async function umweiseln(volkId, queenId, datum) {
   volk.historie.push({ datum, text: `Umgeweiselt auf Königin ${neu.kennung || neu.jahrgang}` });
   await DB.put('voelker', volk);
   return true;
+}
+/** Hält die Volk-Zuordnung konsistent zur (von Hand bearbeitbaren) Königinnen-Historie:
+    Der einzige offene Eintrag (ohne „bis“) bestimmt, in welchem Volk die Königin sitzt.
+    Gibt die Ziel-Volk-ID zurück (null = die Königin sitzt in keinem Volk). */
+async function koeniginHistorieSync(q) {
+  const offen = (q.historie || []).filter((h) => !h.bis);
+  const zielVolkId = offen.length === 1 ? offen[0].volkId : null;
+  // Völker lösen, die diese Königin führen, aber nicht (mehr) das Ziel sind
+  for (const v of await DB.getAll('voelker')) {
+    if (v.koeniginId === q.id && v.id !== zielVolkId) { v.koeniginId = null; await DB.put('voelker', v); }
+  }
+  if (!zielVolkId) return null;
+  const volk = await DB.get('voelker', zielVolkId);
+  if (!volk || volk.koeniginId === q.id) return zielVolkId;
+  // bisherige Königin des Ziel-Volks freigeben und deren offene Zuordnung schließen
+  if (volk.koeniginId) {
+    const alt = await DB.get('koeniginnen', volk.koeniginId);
+    if (alt) { (alt.historie || []).forEach((h) => { if (h.volkId === volk.id && !h.bis) h.bis = U.todayIso(); }); await DB.put('koeniginnen', alt); }
+  }
+  volk.koeniginId = q.id;
+  await DB.put('voelker', volk);
+  return zielVolkId;
 }
 Views.zucht = {
   title: 'Zucht',
