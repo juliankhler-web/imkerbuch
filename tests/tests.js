@@ -342,6 +342,10 @@ test('Startbildschirm: 7 Waben als Ring, im Uhrzeigersinn versetzt', (w) => {
     const el = huelle.querySelector('#splash');
     const waben = [...el.querySelectorAll('.sp-wabe')];
     assertEq(waben.length + 1, 7, 'Mittelwabe + 6 außen');
+    // Aufbau: Logo + Name oben, Animation mittig, Statuszeile unten (beim Start leer)
+    assert(el.querySelector('.splash-kopf svg'), 'Logo im Kopf');
+    assertEq(el.querySelector('.splash-wort').textContent, 'ImkerBuch');
+    assertEq(el.querySelector('.splash-status').textContent, '', 'Statuszeile beim normalen Start leer');
     const mitte = (n) => { const r = n.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; };
     const c = mitte(el.querySelector('.sp-mitte'));
     const abstaende = waben.map((x) => Math.hypot(...mitte(x).map((v, i) => v - c[i])));
@@ -399,7 +403,7 @@ test('Startbildschirm: kommt beim Update zurück und meldet die neue Version', a
     w.Splash.zeigen('Neue Version wird geladen …');
     const el = w.document.getElementById('splash');
     assert(el, 'Startbildschirm ist wieder da');
-    assertEq(el.querySelector('.splash-sub').textContent, 'Neue Version wird geladen …');
+    assertEq(el.querySelector('.splash-status').textContent, 'Neue Version wird geladen …');
     assertEq(el.classList.contains('weg'), false, 'wird sichtbar eingeblendet, nicht ausgeblendet');
     assert(el.getAttribute('aria-label').includes('Neue Version'), 'auch für Screenreader');
     assertEq(el.querySelectorAll('.sp-wabe').length, 6, 'Animation ist vollständig dabei');
