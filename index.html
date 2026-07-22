@@ -432,6 +432,18 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
   </svg>
   <div><div class="splash-wort">ImkerBuch</div><div class="splash-sub">wird geladen …</div></div>
 </div>
+<script>
+/* Nach einem Update lädt sich die App selbst neu. Dann soll hier nicht „wird geladen“,
+   sondern „Neue Version wird geladen“ stehen. Läuft direkt hinter dem Element, also
+   noch vor dem ersten Bild – sonst würde der Text sichtbar umspringen. */
+try {
+  if (sessionStorage.getItem('ib.aktualisiert')) {
+    sessionStorage.removeItem('ib.aktualisiert');
+    document.querySelector('#splash .splash-sub').textContent = 'Neue Version wird geladen …';
+    document.getElementById('splash').setAttribute('aria-label', 'ImkerBuch – Neue Version wird geladen');
+  }
+} catch (e) {}
+</script>
 <div class="app">
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main-wrap">
@@ -652,6 +664,7 @@ const APP_VERSION = '0.90';
 const CHANGELOG = [
   { version: '0.90', datum: '2026-07-13', punkte: [
     'Neuer Startbildschirm: Beim Öffnen der App läuft jetzt eine Waben-Animation, bis alles geladen ist.',
+    'Auch beim Aktualisieren: Holt sich die App eine neue Version, erscheint der Startbildschirm mit dem Hinweis „Neue Version wird geladen“ – vorher wirkte das Neuladen wie ein Aussetzer.',
     'Die App startet außerdem sofort im richtigen Design – im Dunkelmodus blitzt beim Öffnen nichts mehr hell auf.',
   ] },
   { version: '0.89', datum: '2026-07-13', punkte: [
@@ -1578,15 +1591,34 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if
    damit er nicht auf schnellen Geräten nur kurz aufblitzt. */
 const Splash = {
   el: null,
+  vorlage: '', // Markup, um ihn beim Update noch einmal einzublenden
   MIN_MS: 1000,   // eine volle Runde der Animation
   MAX_MS: 8000,   // Notbremse: hängt der Start, wird trotzdem freigegeben
   erledigt: false,
   init() {
     this.el = document.getElementById('splash');
     if (!this.el) return;
+    this.vorlage = this.el.outerHTML;
     // Testseite: nicht im Weg – die Vorlage bleibt aber für den Geometrie-Test erhalten
-    if (TEST_MODE) { window.__splashHtmlFuerTest = this.el.outerHTML; this.el.remove(); this.el = null; return; }
+    if (TEST_MODE) { window.__splashHtmlFuerTest = this.vorlage; this.el.remove(); this.el = null; return; }
     setTimeout(() => this.weg(), this.MAX_MS);
+  },
+  text(t) {
+    if (!this.el) return;
+    const n = this.el.querySelector('.splash-sub');
+    if (n) n.textContent = t;
+    this.el.setAttribute('aria-label', 'ImkerBuch – ' + t);
+  },
+  /* Erneut einblenden – für das Neuladen nach einem Update. Er bleibt dann stehen
+     (weg() ist schon abgehakt), bis die neue Version geladen ist. */
+  zeigen(t) {
+    if (!this.el && this.vorlage) {
+      document.body.insertAdjacentHTML('afterbegin', this.vorlage);
+      this.el = document.getElementById('splash');
+      if (this.el) this.el.classList.remove('weg');
+    }
+    this.erledigt = true;
+    this.text(t);
   },
   weg() {
     if (!this.el || this.erledigt) return;
@@ -8545,7 +8577,11 @@ async function boot() {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (swReload || !hatteController) return;
       swReload = true;
-      location.reload();
+      // Startbildschirm zeigen, damit das Neuladen nicht wie ein Aussetzer wirkt –
+      // und merken, dass er nach dem Neuladen „Neue Version“ statt „wird geladen“ sagt.
+      try { sessionStorage.setItem('ib.aktualisiert', '1'); } catch (e) {}
+      Splash.zeigen('Neue Version wird geladen …');
+      setTimeout(() => location.reload(), 300); // kurz stehen lassen, damit die Meldung ankommt
     });
     navigator.serviceWorker.register('service-worker.js').then((reg) => {
       reg.update().catch(() => {}); // sofort nach einem neuen SW schauen

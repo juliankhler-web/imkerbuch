@@ -387,6 +387,27 @@ test('Startbildschirm: verschwindet frühestens nach einer vollen Runde', async 
   assert(await ausgeblendet(c), 'zweiter Aufruf schadet nicht');
   c.remove();
 });
+test('Startbildschirm: kommt beim Update zurück und meldet die neue Version', async (w) => {
+  // Nach einem Update lädt sich die App selbst neu – dann soll der Startbildschirm
+  // wieder erscheinen, statt dass das Neuladen wie ein Aussetzer wirkt.
+  const alteVorlage = w.Splash.vorlage, altesEl = w.Splash.el, altErledigt = w.Splash.erledigt;
+  try {
+    w.Splash.vorlage = w.__splashHtmlFuerTest;
+    w.Splash.el = null;          // Zustand „schon ausgeblendet“
+    w.Splash.erledigt = true;
+    w.Splash.zeigen('Neue Version wird geladen …');
+    const el = w.document.getElementById('splash');
+    assert(el, 'Startbildschirm ist wieder da');
+    assertEq(el.querySelector('.splash-sub').textContent, 'Neue Version wird geladen …');
+    assertEq(el.classList.contains('weg'), false, 'wird sichtbar eingeblendet, nicht ausgeblendet');
+    assert(el.getAttribute('aria-label').includes('Neue Version'), 'auch für Screenreader');
+    assertEq(el.querySelectorAll('.sp-wabe').length, 6, 'Animation ist vollständig dabei');
+    w.Splash.weg(); // darf ihn nicht wegnehmen – er soll bis zum Neuladen stehen bleiben
+    await new Promise((r) => setTimeout(r, 60));
+    assertEq(w.document.getElementById('splash').classList.contains('weg'), false, 'bleibt bis zum Neuladen stehen');
+    el.remove();
+  } finally { w.Splash.vorlage = alteVorlage; w.Splash.el = altesEl; w.Splash.erledigt = altErledigt; }
+});
 test('Startbildschirm: im Testbetrieb sofort entfernt', (w) => {
   assert(w.TEST_MODE, 'Testseite läuft mit ?testdb');
   assertEq(w.document.getElementById('splash'), null, 'Splash.init() räumt ihn im Testbetrieb weg');
