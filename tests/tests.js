@@ -350,8 +350,9 @@ test('Startbildschirm: 7 Waben als Ring, im Uhrzeigersinn versetzt', (w) => {
     const winkel = waben.map((x) => { const p = mitte(x); return Math.round((Math.atan2(p[1] - c[1], p[0] - c[0]) * 180 / Math.PI + 450) % 360); });
     assertEq(winkel, [360, 60, 120, 180, 240, 300], 'im 60°-Abstand rundherum, beginnend oben');
     const verzoegerung = waben.map((x) => Math.round(parseFloat(w.getComputedStyle(x).animationDelay) * 1000));
-    assertEq(verzoegerung, [0, 167, 333, 500, 667, 833], 'Leuchten wandert im Uhrzeigersinn, 1 s pro Runde');
-    assertEq(w.getComputedStyle(waben[0]).animationDuration, '1s');
+    assertEq(verzoegerung, [0, 333, 667, 1000, 1333, 1667], 'Leuchten wandert im Uhrzeigersinn, 2 s pro Runde');
+    assertEq(w.getComputedStyle(waben[0]).animationDuration, '2s');
+    assertEq(w.Splash.MIN_MS, 2000, 'Mindestanzeige = eine volle Runde');
   } finally { huelle.remove(); }
 });
 test('Startbildschirm: verschwindet frühestens nach einer vollen Runde', async (w) => {
