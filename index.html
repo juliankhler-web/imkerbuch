@@ -9,6 +9,18 @@
 <title>ImkerBuch</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
+<script>
+/* Design VOR dem ersten Zeichnen setzen. Die echte Einstellung liegt in IndexedDB und
+   ist erst nach S.load() da – bis dahin würde die App (und der Startbildschirm) im
+   Dunkelmodus hell aufblitzen. Darum spiegelt applyTheme() den Modus in localStorage,
+   und hier wird er sofort angewandt. IndexedDB bleibt die Wahrheitsquelle. */
+try {
+  var m = localStorage.getItem('ib.darkMode') || 'auto';
+  var d = m === 'dunkel' || (m === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = d ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]').content = d ? '#161619' : '#FAF6EF';
+} catch (e) {}
+</script>
 <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="%23FFF8EA"/><g stroke-linejoin="round"><path d="M20 10.5 30.5 16.5 30.5 28.5 20 34.5 9.5 28.5 9.5 16.5Z" fill="%23E8A013" stroke="%23E8A013" stroke-width="3"/><path d="M42 22.5 52.5 28.5 52.5 40.5 42 46.5 31.5 40.5 31.5 28.5Z" fill="none" stroke="%232A2A30" stroke-width="3"/><path d="M20 34.5 30.5 40.5 30.5 52.5 20 58.5 9.5 52.5 9.5 40.5Z" fill="none" stroke="%232A2A30" stroke-width="3"/></g></svg>'>
 <style>
 /* =====================================================================
@@ -293,6 +305,32 @@ select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="
 .sheet-grid button:hover{background:var(--card2)}
 .sheet-grid .sg-ic{width:44px;height:44px;border-radius:14px;background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center}
 .sheet-grid .sg-ic svg{width:21px;height:21px}
+/* ---- Startbildschirm: Waben-Ladeanimation bei jedem App-Start ----
+   Nachgezeichnet aus "Load HIVE" (LottieFiles): 7 Sechsecke, ein oranges Leuchten
+   wandert im Uhrzeigersinn herum, jede Wabe schrumpft dabei kurz von 110 % auf 104 %.
+   Als SVG+CSS statt als Lottie-Datei, damit kein 150-KB-Abspieler geladen werden muss –
+   der Startbildschirm soll das Laden überbrücken, nicht verlängern. */
+#splash{position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;transition:opacity .32s ease;
+  --wabe-ruhe:#FCE3BF;--wabe-glanz:#DD6F01}
+/* Auf dem hellen Creme-Hintergrund wäre das Original-Creme fast unsichtbar → kräftigerer Honigton */
+:root[data-theme="light"] #splash{--wabe-ruhe:#F0D3A0}
+#splash polygon{fill:var(--wabe-ruhe)}
+#splash .sp-glanz{fill:var(--wabe-glanz)}
+#splash.weg{opacity:0;pointer-events:none}
+#splash svg{width:min(34vw,150px);height:auto}
+.splash-wort{font-size:20px;font-weight:700;letter-spacing:.3px;color:var(--text)}
+.splash-sub{font-size:13px;color:var(--muted);margin-top:3px;text-align:center}
+.sp-wabe,.sp-glanz{transform-box:view-box;transform-origin:0 0}
+.sp-wabe{transform:translate(var(--x),var(--y)) scale(1.10);animation:sp-puls 1000ms linear infinite}
+.sp-glanz{opacity:0;animation:sp-glanz 1000ms linear infinite}
+.sp-mitte{transform:translate(499px,500px) scale(1.10)}
+@keyframes sp-puls{
+  0%{transform:translate(var(--x),var(--y)) scale(1.10);animation-timing-function:cubic-bezier(.232,0,.864,1)}
+  16.667%{transform:translate(var(--x),var(--y)) scale(1.04);animation-timing-function:cubic-bezier(.16,0,.824,1)}
+  33.333%,100%{transform:translate(var(--x),var(--y)) scale(1.10)}}
+@keyframes sp-glanz{0%{opacity:0}6.667%,26.667%{opacity:1}33.333%,100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.sp-wabe,.sp-glanz{animation:none}.sp-glanz{opacity:.55}}
+@media print{#splash{display:none}}
 #toast-root{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + 14px + env(safe-area-inset-bottom));z-index:200;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
 @media(min-width:901px){#toast-root{bottom:24px}}
 .toast{
@@ -381,6 +419,19 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 </style>
 </head>
 <body>
+<!-- Startbildschirm – steht bewusst als erstes im HTML, damit er ohne JavaScript sofort sichtbar ist -->
+<div id="splash" role="status" aria-label="ImkerBuch wird geladen">
+  <svg viewBox="0 0 1000 1000" aria-hidden="true">
+    <g class="sp-mitte"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:498.9px;--y:355.281px;animation-delay:0ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:0ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:625.011px;--y:426.843px;animation-delay:167ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:167ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:625.423px;--y:573.157px;animation-delay:333ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:333ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:499px;--y:644.719px;animation-delay:500ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:500ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:373.073px;--y:573.157px;animation-delay:667ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:667ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+    <g class="sp-wabe" style="--x:372.661px;--y:426.843px;animation-delay:833ms"><polygon points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/><polygon class="sp-glanz" style="animation-delay:833ms" points="0,-71.021 61.507,-35.511 61.507,35.511 0,71.021 -61.507,35.511 -61.507,-35.511"/></g>
+  </svg>
+  <div><div class="splash-wort">ImkerBuch</div><div class="splash-sub">wird geladen …</div></div>
+</div>
 <div class="app">
   <aside class="sidebar" id="sidebar"></aside>
   <div class="main-wrap">
@@ -597,8 +648,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.89';
+const APP_VERSION = '0.90';
 const CHANGELOG = [
+  { version: '0.90', datum: '2026-07-13', punkte: [
+    'Neuer Startbildschirm: Beim Öffnen der App läuft jetzt eine Waben-Animation, bis alles geladen ist.',
+    'Die App startet außerdem sofort im richtigen Design – im Dunkelmodus blitzt beim Öffnen nichts mehr hell auf.',
+  ] },
   { version: '0.89', datum: '2026-07-13', punkte: [
     'Automatische Sicherung: Beim Aktivieren wird sofort eine erste Sicherung erstellt – danach läuft der Timer ab diesem Zeitpunkt.',
     'Neuer Countdown-Ring in den Einstellungen: Er zeigt, wie viel Zeit bis zur nächsten Sicherung bleibt, mit Datum und Uhrzeit der nächsten sowie der letzten Sicherung. Ist sie fällig, wird der Ring rot.',
@@ -1513,8 +1568,38 @@ function applyTheme() {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const meta = $('meta[name="theme-color"]');
   if (meta) meta.content = dark ? '#161619' : '#FAF6EF';
+  // Spiegel für das Kopf-Skript: beim nächsten Start sofort das richtige Design (kein Aufblitzen)
+  try { localStorage.setItem('ib.darkMode', mode || 'auto'); } catch (e) {}
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S.get('darkMode') === 'auto') applyTheme(); });
+
+/* Startbildschirm mit der Waben-Animation. Läuft bei JEDEM App-Start und verschwindet,
+   sobald die App fertig geladen ist – aber frühestens nach einer vollen Runde (1 s),
+   damit er nicht auf schnellen Geräten nur kurz aufblitzt. */
+const Splash = {
+  el: null,
+  MIN_MS: 1000,   // eine volle Runde der Animation
+  MAX_MS: 8000,   // Notbremse: hängt der Start, wird trotzdem freigegeben
+  erledigt: false,
+  init() {
+    this.el = document.getElementById('splash');
+    if (!this.el) return;
+    // Testseite: nicht im Weg – die Vorlage bleibt aber für den Geometrie-Test erhalten
+    if (TEST_MODE) { window.__splashHtmlFuerTest = this.el.outerHTML; this.el.remove(); this.el = null; return; }
+    setTimeout(() => this.weg(), this.MAX_MS);
+  },
+  weg() {
+    if (!this.el || this.erledigt) return;
+    this.erledigt = true;
+    const el = this.el;
+    // performance.now() = Millisekunden seit dem Seitenaufruf, also seit der Startbildschirm sichtbar ist
+    setTimeout(() => {
+      el.classList.add('weg');
+      setTimeout(() => el.remove(), 350);
+      this.el = null;
+    }, Math.max(0, this.MIN_MS - performance.now()));
+  },
+};
 
 /* Wiederkehrende UI-Bausteine */
 const emptyState = (ic, text, btnHtml = '') => `<div class="empty">${icon(ic)}<div class="e-text">${text}</div>${btnHtml}</div>`;
@@ -8433,6 +8518,7 @@ async function migriereInventarTyp() {
 }
 
 async function boot() {
+  Splash.init();
   try { await DB.open(); } catch (e) {
     document.body.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif"><h2>ImkerBuch kann nicht starten</h2><p>IndexedDB ist nicht verfügbar (privater Modus?): ${U.esc(e.message)}</p></div>`;
     return;
@@ -8471,6 +8557,7 @@ async function boot() {
     S.set('letzteGeseheneVersion', APP_VERSION); // Neuinstallation: kein „Was ist neu?“-Fenster
   }
   await renderRoute();
+  Splash.weg(); // App ist gezeichnet – Startbildschirm ausblenden
   Backup.updateBanners();
   zeigeUpdateFenster();
   window.appReady = true; // Signal für die Testseite
@@ -8479,7 +8566,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,

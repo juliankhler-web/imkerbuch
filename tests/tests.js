@@ -329,6 +329,69 @@ test('PdfImport.parse: dedupliziert gleiche Treffer', (w) => {
   assertEq(treffer.length, 1, 'gleiches Datum + Stichwort nur einmal');
 });
 
+/* ---------- Startbildschirm (Waben-Ladeanimation) ---------- */
+test('Startbildschirm: 7 Waben als Ring, im Uhrzeigersinn versetzt', (w) => {
+  // Im Testbetrieb entfernt Splash.init() den Startbildschirm sofort – darum aus der
+  // ausgelieferten Vorlage neu aufbauen und im echten Dokument der App vermessen.
+  const roh = w.__splashHtmlFuerTest;
+  assert(roh, 'Vorlage des Startbildschirms vorhanden');
+  const huelle = w.document.createElement('div');
+  huelle.innerHTML = roh;
+  w.document.body.appendChild(huelle);
+  try {
+    const el = huelle.querySelector('#splash');
+    const waben = [...el.querySelectorAll('.sp-wabe')];
+    assertEq(waben.length + 1, 7, 'Mittelwabe + 6 außen');
+    const mitte = (n) => { const r = n.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; };
+    const c = mitte(el.querySelector('.sp-mitte'));
+    const abstaende = waben.map((x) => Math.hypot(...mitte(x).map((v, i) => v - c[i])));
+    // 2 px Spielraum: die Original-Vorlage ist selbst minimal asymmetrisch (Mitte liegt bei x=499, der Ring bei 498.8)
+    assert(Math.max(...abstaende) - Math.min(...abstaende) < 2.5, 'alle 6 etwa gleich weit von der Mitte: ' + abstaende.map((a) => a.toFixed(1)));
+    const winkel = waben.map((x) => { const p = mitte(x); return Math.round((Math.atan2(p[1] - c[1], p[0] - c[0]) * 180 / Math.PI + 450) % 360); });
+    assertEq(winkel, [360, 60, 120, 180, 240, 300], 'im 60°-Abstand rundherum, beginnend oben');
+    const verzoegerung = waben.map((x) => Math.round(parseFloat(w.getComputedStyle(x).animationDelay) * 1000));
+    assertEq(verzoegerung, [0, 167, 333, 500, 667, 833], 'Leuchten wandert im Uhrzeigersinn, 1 s pro Runde');
+    assertEq(w.getComputedStyle(waben[0]).animationDuration, '1s');
+  } finally { huelle.remove(); }
+});
+test('Startbildschirm: verschwindet frühestens nach einer vollen Runde', async (w) => {
+  const attrappe = () => { const el = w.document.createElement('div'); w.document.body.appendChild(el); return el; };
+  // In Zyklen statt Millisekunden warten: Hintergrund-Tabs drosseln Timer stark,
+  // eine Messung an der Wanduhr wäre hier unzuverlässig.
+  const ausgeblendet = async (el, zyklen = 25) => {
+    for (let i = 0; i < zyklen; i++) { if (el.classList.contains('weg')) return true; await new Promise((r) => setTimeout(r, 20)); }
+    return el.classList.contains('weg');
+  };
+
+  // a) Runde abgelaufen (MIN_MS 0) → blendet aus
+  const a = attrappe();
+  const pA = Object.assign({}, w.Splash, { el: a, erledigt: false, MIN_MS: 0 });
+  pA.weg();
+  assert(await ausgeblendet(a), 'blendet aus, wenn die Runde durch ist');
+  assertEq(pA.el, null, 'gibt die Referenz frei');
+  a.remove();
+
+  // b) Runde noch lange nicht durch → blendet NICHT vorzeitig aus (kein Aufblitzen)
+  const b = attrappe();
+  const pB = Object.assign({}, w.Splash, { el: b, erledigt: false, MIN_MS: w.performance.now() + 30000 });
+  pB.weg();
+  assertEq(await ausgeblendet(b, 5), false, 'wartet die Runde ab, statt kurz aufzublitzen');
+  assert(pB.erledigt, 'ist aber schon angestoßen');
+  b.remove();
+
+  // c) Doppelter Aufruf (Notbremse + regulärer Weg) darf nichts kaputtmachen
+  const c = attrappe();
+  const pC = Object.assign({}, w.Splash, { el: c, erledigt: false, MIN_MS: 0 });
+  pC.weg();
+  pC.weg();
+  assert(await ausgeblendet(c), 'zweiter Aufruf schadet nicht');
+  c.remove();
+});
+test('Startbildschirm: im Testbetrieb sofort entfernt', (w) => {
+  assert(w.TEST_MODE, 'Testseite läuft mit ?testdb');
+  assertEq(w.document.getElementById('splash'), null, 'Splash.init() räumt ihn im Testbetrieb weg');
+});
+
 /* ---------- Regression: Router ersetzt #main (Listener-Leak) ---------- */
 test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => {
   // Bug 2026-07-03: Trachten-Listener blieb an #main hängen und öffnete beim
