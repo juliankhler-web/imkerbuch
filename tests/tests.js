@@ -175,6 +175,113 @@ test('Backup.reminderInfo: Stufen ok/gelb/rot', async (w) => {
   await w.S.set('letzteExterneSicherung', null);
 });
 
+/* ---------- Automatische Sicherung: Termin, Countdown, Ring ---------- */
+async function autoBackupAn(w, intervall, letzte) {
+  const f = w.S.get('features');
+  f.autoBackup.aktiv = true; f.autoBackup.intervall = intervall;
+  await w.S.set('features', f);
+  await w.S.set('letzteAutoSicherung', letzte);
+}
+test('Backup.naechsteSicherung: Intervall ab letzter Sicherung, sofort wenn noch nie', async (w) => {
+  const letzte = new Date('2026-05-10T08:00:00Z').toISOString();
+  await autoBackupAn(w, 'woechentlich', letzte);
+  assertEq(w.Backup.naechsteSicherung(), new Date('2026-05-17T08:00:00Z').toISOString(), 'wöchentlich = +7 Tage');
+  await autoBackupAn(w, 'taeglich', letzte);
+  assertEq(w.Backup.naechsteSicherung(), new Date('2026-05-11T08:00:00Z').toISOString(), 'täglich = +1 Tag');
+  await autoBackupAn(w, 'woechentlich', null);
+  assert(w.Backup.naechsteSicherung(), 'ohne letzte Sicherung sofort fällig');
+  await autoBackupAn(w, 'schliessen', letzte);
+  assertEq(w.Backup.naechsteSicherung(), null, 'beim Schließen = kein Termin');
+  const f = w.S.get('features'); f.autoBackup.aktiv = false; await w.S.set('features', f);
+  assertEq(w.Backup.naechsteSicherung(), null, 'deaktiviert = kein Termin');
+});
+test('backupRestText: rundet, statt Tage abzuschneiden', (w) => {
+  const T = 86400000, H = 3600000, M = 60000;
+  assertEq(w.backupRestText(7 * T).lang, '7 Tagen');
+  assertEq(w.backupRestText(7 * T - 5 * M).lang, '7 Tagen', 'kurz nach der Sicherung nicht schon 6 Tage');
+  assertEq(w.backupRestText(6.4 * T).lang, '6 Tagen');
+  assertEq(w.backupRestText(T).lang, '1 Tag', 'Einzahl');
+  assertEq(w.backupRestText(14 * H).lang, '14 Stunden');
+  assertEq(w.backupRestText(55 * M).lang, '1 Stunde');
+  assertEq(w.backupRestText(3 * M).lang, '3 Minuten');
+  assertEq(w.backupRestText(20000).lang, '1 Minute', 'nie „0 Minuten“');
+  assertEq(w.backupRestText(0).lang, 'jetzt fällig');
+  assertEq(w.backupRestText(-5000).lang, 'jetzt fällig');
+});
+test('backupRingHtml: nur wenn aktiv, Ring läuft ab, fällig wird rot', async (w) => {
+  const f = w.S.get('features'); f.autoBackup.aktiv = false; await w.S.set('features', f);
+  assertEq(w.backupRingHtml(), '', 'deaktiviert: kein Ring');
+  await autoBackupAn(w, 'schliessen', w.U.nowIso());
+  assertEq(w.backupRingHtml(), '', '„beim Schließen“: kein Ring');
+
+  const ringKreis = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d.querySelectorAll('circle')[1]; };
+  const offset = (html) => parseFloat(ringKreis(html).getAttribute('stroke-dashoffset'));
+  await autoBackupAn(w, 'woechentlich', w.U.nowIso());
+  const voll = w.backupRingHtml();
+  assert(offset(voll) < 1, 'frisch gesichert: Ring voll');
+  assert(voll.includes('7 T'), 'zeigt 7 Tage: ' + voll);
+
+  await autoBackupAn(w, 'woechentlich', new Date(Date.now() - 3.5 * 86400000).toISOString());
+  const halb = w.backupRingHtml();
+  const umfang = parseFloat(ringKreis(halb).getAttribute('stroke-dasharray'));
+  assert(Math.abs(offset(halb) - umfang / 2) < 2, 'halbe Zeit = halber Ring');
+
+  await autoBackupAn(w, 'woechentlich', new Date(Date.now() - 9 * 86400000).toISOString());
+  const faellig = w.backupRingHtml();
+  assert(faellig.includes('var(--danger)'), 'überfällig: roter Ring');
+  assert(faellig.includes('jetzt fällig'), 'überfällig: Hinweis im Text');
+
+  await autoBackupAn(w, 'woechentlich', null);
+  assert(w.backupRingHtml().includes('noch nie'), 'ohne Sicherung: „noch nie“');
+  const f2 = w.S.get('features'); f2.autoBackup.aktiv = false; await w.S.set('features', f2);
+});
+test('Backup.runAuto: sichert, merkt sich den Zeitpunkt, meldet sich', async (w) => {
+  await autoBackupAn(w, 'woechentlich', null);
+  const features = w.S.get('features'); features.benachrichtigungen = true; await w.S.set('features', features);
+  const origDl = w.U.download; let downloads = 0; w.U.download = () => { downloads++; };
+  const origReg = w.navigator.serviceWorker.getRegistration.bind(w.navigator.serviceWorker);
+  const origStatus = w.Notif.status; w.Notif.status = () => 'granted';
+  let push = null;
+  w.navigator.serviceWorker.getRegistration = async () => ({ showNotification: (t, o) => { push = { titel: t, ...o }; } });
+  try {
+    const zeit = await w.Backup.runAuto('aktivierung');
+    assertEq(downloads, 1, 'ohne Ordner: Datei-Download');
+    const neuster = w.U.sortBy(await w.DB.getAll('snapshots'), (s) => s.datum, true)[0];
+    assertEq(neuster.grund, 'auto', 'interner Snapshot angelegt (Liste rollt bei 10)');
+    assertEq(w.S.get('letzteAutoSicherung'), zeit, 'Zeitpunkt gemerkt → Timer startet neu');
+    assert(push && push.titel.includes('Sicherung erstellt'), 'Push gesendet: ' + JSON.stringify(push));
+    assert(push.body.includes('Nächste:'), 'Push nennt den nächsten Termin: ' + push.body);
+    assertEq(push.data.ziel, '/einstellungen', 'Klick führt zu den Einstellungen');
+  } finally {
+    w.U.download = origDl; w.navigator.serviceWorker.getRegistration = origReg; w.Notif.status = origStatus;
+    const f = w.S.get('features'); f.autoBackup.aktiv = false; f.benachrichtigungen = false; await w.S.set('features', f);
+    await w.S.set('letzteAutoSicherung', null);
+  }
+});
+test('Notif.zeigen: schweigt ohne Berechtigung oder wenn abgeschaltet', async (w) => {
+  const origReg = w.navigator.serviceWorker.getRegistration.bind(w.navigator.serviceWorker);
+  const origStatus = w.Notif.status;
+  let push = null;
+  w.navigator.serviceWorker.getRegistration = async () => ({ showNotification: (t, o) => { push = { titel: t, ...o }; } });
+  const f = w.S.get('features');
+  try {
+    f.benachrichtigungen = false; await w.S.set('features', f);
+    w.Notif.status = () => 'granted';
+    assertEq(await w.Notif.zeigen('A', 'B'), false, 'abgeschaltet: kein Push');
+    assertEq(push, null);
+    f.benachrichtigungen = true; await w.S.set('features', f);
+    w.Notif.status = () => 'denied';
+    assertEq(await w.Notif.zeigen('A', 'B'), false, 'ohne Berechtigung: kein Push');
+    assertEq(push, null);
+    w.Notif.status = () => 'granted';
+    assertEq(await w.Notif.zeigen('A', 'B'), true);
+    assertEq(push.data.ziel, '/aufgaben', 'Standardziel bleibt Aufgaben');
+  } finally {
+    w.navigator.serviceWorker.getRegistration = origReg; w.Notif.status = origStatus;
+    f.benachrichtigungen = false; await w.S.set('features', f);
+  }
+});
+
 /* ---------- Erinnerungen: Fälligkeit + Kalender-Export ---------- */
 test('Notif.faellige: überfällig + heute, ohne erledigte/zukünftige/ohne Datum', (w) => {
   const heute = '2026-07-03';
@@ -241,28 +348,78 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
 });
 
 /* ---------- Verkauf: Lagerabzug + Kassenbuch-Automatik ---------- */
-test('verkaufErfassen: mindert Bestand, bucht Einnahme, lehnt Überverkauf ab', async (w) => {
-  const c = await w.DB.put('chargen', { losnummer: 'T-01', abfuelldatum: '2026-06-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 10, mhd: '', etikettNotiz: '' });
-  const v = await w.verkaufErfassen({ chargeId: c.id, anzahl: 3, preisJeGlas: 6.5 });
-  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 7, 'Bestand 10 → 7');
+test('verkaufErfassen: mindert Abfüllungs-Bestand, bucht Einnahme, lehnt Überverkauf ab', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'T-01', ernteIds: [], mengeKg: 5, mhd: '', etikettNotiz: '' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-06-01', gebindeG: 500, anzahl: 10, bestand: 10 });
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 3, preisJeGlas: 6.5 });
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 7, 'Bestand 10 → 7');
   assertNah(v.betrag, 19.5, 0.001, 'Betrag = Anzahl × Preis');
   const kb = await w.DB.get('kassenbuch', v.kassenbuchId);
   assert(kb && kb.typ === 'einnahme' && kb.kategorie === 'Honigverkauf', 'Einnahme im Kassenbuch');
   assertNah(kb.betrag, 19.5, 0.001, 'Kassenbuch-Betrag');
   let fehler = false;
-  try { await w.verkaufErfassen({ chargeId: c.id, anzahl: 99, preisJeGlas: 1 }); } catch (e) { fehler = true; }
+  try { await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 99, preisJeGlas: 1 }); } catch (e) { fehler = true; }
   assert(fehler, 'Überverkauf wirft Fehler');
-  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 7, 'Bestand nach Fehlversuch unverändert');
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 7, 'Bestand nach Fehlversuch unverändert');
 });
 test('verkaufStornieren: Bestand zurück, Buchung + Verkauf im Papierkorb', async (w) => {
-  const c = await w.DB.put('chargen', { losnummer: 'T-02', abfuelldatum: '2026-06-01', ernteIds: [], glasGroesseG: 250, anzahlGlaeser: 5, bestandGlaeser: 5, mhd: '', etikettNotiz: '' });
-  const v = await w.verkaufErfassen({ chargeId: c.id, anzahl: 2, preisJeGlas: 4 });
+  const c = await w.DB.put('chargen', { losnummer: 'T-02', ernteIds: [], mengeKg: 1.25, mhd: '', etikettNotiz: '' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-06-01', gebindeG: 250, anzahl: 5, bestand: 5 });
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 2, preisJeGlas: 4 });
   await w.verkaufStornieren(v.id);
-  assertEq((await w.DB.get('chargen', c.id)).bestandGlaeser, 5, 'Bestand wiederhergestellt');
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 5, 'Bestand wiederhergestellt');
   assert(!(await w.DB.get('verkaeufe', v.id)), 'Verkauf entfernt');
   assert(!(await w.DB.get('kassenbuch', v.kassenbuchId)), 'Buchung entfernt');
   const korb = await w.DB.getAll('papierkorb');
   assert(korb.some((t) => t.store === 'kassenbuch' && t.daten.id === v.kassenbuchId), 'Buchung liegt im Papierkorb');
+});
+test('ernteBelegung: schon zugeordnete Ernten, aktuelle Charge ausgenommen', (w) => {
+  const chargen = [
+    { id: 'c1', losnummer: '26-01', ernteIds: ['e1', 'e2'] },
+    { id: 'c2', losnummer: '26-02', ernteIds: ['e3'] },
+  ];
+  const b = w.ernteBelegung(chargen);
+  assertEq(b.get('e1'), '26-01', 'e1 ist in Los 26-01');
+  assertEq(b.get('e3'), '26-02', 'e3 ist in Los 26-02');
+  assert(!b.has('e9'), 'freie Ernte nicht belegt');
+  // Beim Bearbeiten von c1 dürfen dessen eigene Ernten NICHT als belegt gelten
+  const bEdit = w.ernteBelegung(chargen, 'c1');
+  assert(!bEdit.has('e1') && !bEdit.has('e2'), 'eigene Ernten der bearbeiteten Charge frei');
+  assertEq(bEdit.get('e3'), '26-02', 'fremde Ernte weiter belegt');
+});
+test('chargeRestKg / gebindeLabel: kg-Abzug beim Abfüllen', (w) => {
+  assertEq(w.gebindeLabel(500), '500 g', '500 g');
+  assertEq(w.gebindeLabel(20000), '20 kg', '20 kg');
+  assertEq(w.gebindeLabel(250), '250 g', '250 g');
+  const c = { id: 'c1', mengeKg: 30 };
+  const abf = [{ chargeId: 'c1', gebindeG: 500, anzahl: 20 }, { chargeId: 'c1', gebindeG: 250, anzahl: 40 }, { chargeId: 'other', gebindeG: 500, anzahl: 100 }];
+  // 20×500g = 10 kg, 40×250g = 10 kg → 20 kg abgefüllt, 10 kg frei
+  assertEq(w.chargeRestKg(c, abf), 10, '30 kg − 20 kg = 10 kg frei');
+});
+test('MHD-Wächter (pruefeMhd): jetzt über Abfüllungs-Bestand', async (w) => {
+  const inTagen = (n) => w.U.addDays(w.U.todayIso(), n);
+  const c = await w.DB.put('chargen', { losnummer: 'MHD-abf', ernteIds: [], mengeKg: 5, mhd: inTagen(20) });
+  await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 4 });
+  await w.pruefeMhd();
+  const auf = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && a.refId === c.id);
+  assertEq(auf.length, 1, 'eine MHD-Erinnerung für die Charge mit Rest-Gläsern');
+  assert(/4 Gläser/.test(auf[0].titel), 'zeigt die Gläser-Anzahl');
+});
+test('migriereChargenAbfuellung: alte Charge → Charge(kg) + Abfüllung, Verkauf umgehängt', async (w) => {
+  await w.S.set('abfuellungMigriert', false);
+  const c = await w.DB.put('chargen', { losnummer: 'MIG-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 100, bestandGlaeser: 80, abfuelldatum: '2026-06-01', mhd: '2028-06-01', etikettNotiz: 'Alt', verkaufspreis: 6 });
+  const vk = await w.DB.put('verkaeufe', { datum: '2026-06-10', chargeId: c.id, anzahl: 5, preisJeGlas: 6, betrag: 30, kontaktId: null, notiz: '', kassenbuchId: null });
+  await w.migriereChargenAbfuellung();
+  const cNach = await w.DB.get('chargen', c.id);
+  assertEq(cNach.mengeKg, 50, '100 × 500 g = 50 kg Gesamtmenge');
+  assert(!('glasGroesseG' in cNach) && !('bestandGlaeser' in cNach) && !('abfuelldatum' in cNach), 'Alt-Felder entfernt');
+  const abf = (await w.DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id);
+  assertEq(abf.length, 1, 'eine Abfüllung angelegt');
+  assertEq(abf[0].gebindeG, 500, 'Gebinde 500 g übernommen');
+  assertEq(abf[0].bestand, 80, 'Bestand 80 übernommen');
+  const vkNach = await w.DB.get('verkaeufe', vk.id);
+  assertEq(vkNach.abfuellungId, abf[0].id, 'Verkauf auf die Abfüllung umgehängt');
+  assert(!('chargeId' in vkNach), 'alter chargeId-Schlüssel entfernt');
 });
 
 /* ---------- Zeiterfassung ---------- */
@@ -342,9 +499,12 @@ test('Importer: Durchsicht ohne existierendes Volk wird übersprungen', async (w
 test('pruefeMhd: warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate', async (w) => {
   const heute = new Date(w.U.todayIso() + 'T12:00:00');
   const inTagen = (n) => { const d = new Date(heute); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  const nah = await w.DB.put('chargen', { losnummer: 'MHD-nah', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 5, mhd: inTagen(30) });
-  const fern = await w.DB.put('chargen', { losnummer: 'MHD-fern', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 5, mhd: inTagen(400) });
-  const leer = await w.DB.put('chargen', { losnummer: 'MHD-leer', abfuelldatum: '2026-01-01', ernteIds: [], glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 0, mhd: inTagen(10) });
+  const nah = await w.DB.put('chargen', { losnummer: 'MHD-nah', ernteIds: [], mengeKg: 5, mhd: inTagen(30) });
+  await w.DB.put('abfuellungen', { chargeId: nah.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 5 });
+  const fern = await w.DB.put('chargen', { losnummer: 'MHD-fern', ernteIds: [], mengeKg: 5, mhd: inTagen(400) });
+  await w.DB.put('abfuellungen', { chargeId: fern.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 5 });
+  const leer = await w.DB.put('chargen', { losnummer: 'MHD-leer', ernteIds: [], mengeKg: 5, mhd: inTagen(10) });
+  await w.DB.put('abfuellungen', { chargeId: leer.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 0 });
   await w.pruefeMhd();
   const tasks1 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd');
   assert(tasks1.some((a) => a.refId === nah.id), 'nahes MHD → Aufgabe');
@@ -410,9 +570,15 @@ test('gelernteWerte: Presets + gelernte DB-Werte, dedupliziert & sortiert', asyn
   assertEq(mit, [P + 'Alpha', P + 'Gamma', P + 'Beta'], 'Presets voran, kein Duplikat von Alpha');
 });
 
-test('Vorschlagslisten & Inventar-Kategorien vorhanden', (w) => {
+test('Vorschlagslisten & Inventar-/Material-Kategorien getrennt', (w) => {
   ['futter', 'einheit', 'inventar'].forEach((k) => assert(Array.isArray(w.VORSCHLAEGE[k]) && w.VORSCHLAEGE[k].length > 0, `VORSCHLAEGE.${k} gefüllt`));
-  assert(w.INVENTAR_KATEGORIEN.includes('Behandlungsmittel') && w.INVENTAR_KATEGORIEN.includes('Futter'), 'neue Inventar-Kategorien vorhanden');
+  // Inventar = Gebrauchsgüter, Verbrauchsmaterial = Verbrauchsgüter – sauber getrennt
+  assert(w.INVENTAR_KATEGORIEN.includes('Beute') && !w.INVENTAR_KATEGORIEN.includes('Behandlungsmittel'), 'Inventar ohne Verbrauchsgüter');
+  assert(w.MATERIAL_KATEGORIEN.includes('Behandlungsmittel') && w.MATERIAL_KATEGORIEN.includes('Futter'), 'Verbrauchsmaterial-Kategorien vorhanden');
+  // Bereichs-Ableitung: Behandlungsmittel → verbrauch, Beute → inventar
+  assertEq(w.inventarTyp({ kategorie: 'Behandlungsmittel' }), 'verbrauch', 'Behandlungsmittel = Verbrauch');
+  assertEq(w.inventarTyp({ kategorie: 'Beute' }), 'inventar', 'Beute = Inventar');
+  assertEq(w.inventarTyp({ kategorie: 'Sonstiges', typ: 'verbrauch' }), 'verbrauch', 'gespeichertes typ hat Vorrang');
 });
 
 /* ---------- Seitenkopf-Layout (kein Titel/Button-Overlap) ---------- */
@@ -926,6 +1092,33 @@ test('fuetterungFuerVoelker: legt je Volk einen Datensatz an', async (w) => {
   assert(alle.every((f) => !('wiedervorlageTage' in f)), 'Formular-Hilfsfeld wird nicht mitgespeichert');
   assertEq(await w.fuetterungFuerVoelker([], { datum: 'x' }), 0, 'leere Auswahl = 0');
 });
+test('behandlungFuerVoelker: je Volk ein Bestandsbuch-Eintrag (TAMG)', async (w) => {
+  const v1 = await w.DB.put('voelker', { name: 'BehTest1', status: 'aktiv' });
+  const v2 = await w.DB.put('voelker', { name: 'BehTest2', status: 'aktiv' });
+  const n = await w.behandlungFuerVoelker([v1.id, v2.id], { datum: '2026-08-02', mittel: 'Ameisensäure 60 %', menge: 200, einheit: 'ml', anwendungsart: 'Langzeitverdunster', wartezeitTage: 0, notiz: 'Charge AS-2026-1' });
+  assertEq(n, 2, 'zwei Einträge');
+  const alle = (await w.DB.getAll('behandlungen')).filter((b) => [v1.id, v2.id].includes(b.zielId));
+  assertEq(alle.length, 2, 'beide in der DB');
+  assert(alle.every((b) => b.zielTyp === 'volk'), 'jeweils auf das Volk gebucht');
+  assert(alle.every((b) => b.mittel === 'Ameisensäure 60 %' && b.menge === 200 && b.einheit === 'ml'), 'Mittel/Menge/Einheit übernommen');
+  assert(alle.every((b) => b.notiz === 'Charge AS-2026-1'), 'Charge-Notiz übernommen');
+  assertEq(await w.behandlungFuerVoelker([], { datum: 'x' }), 0, 'leere Auswahl = 0');
+});
+test('optionenSortiert: alphanumerisch, deutsch, zahlen-bewusst, Platzhalter oben', (w) => {
+  // {v,l}-Objekte: Zahlen numerisch (7 vor 19), nicht als Text (sonst 19 vor 7)
+  const steuer = w.optionenSortiert([{ v: '19', l: '19 %' }, { v: '7', l: '7 %' }, { v: '0', l: '0 % / keine' }]);
+  assertEq(steuer.map((o) => o.v), ['0', '7', '19'], '0,7,19 numerisch korrekt');
+  // Platzhalter mit leerem Wert bleibt oben, Rest alphabetisch
+  const staende = w.optionenSortiert([{ v: '', l: 'Alle Stände' }, { v: 'b', l: 'Zander-Stand' }, { v: 'a', l: 'Apfelwiese' }]);
+  assertEq(staende.map((o) => o.l), ['Alle Stände', 'Apfelwiese', 'Zander-Stand'], 'Platzhalter oben, dann A→Z');
+  // String-Liste (suggest) mit Losnummern
+  assertEq(w.optionenSortiert(['Los 10', 'Los 2', 'Los 1'], true), ['Los 1', 'Los 2', 'Los 10'], 'Strings numerisch');
+  // Deutsche Sortierung inkl. Umlaut-Faltung
+  assertEq(w.optionenSortiert(['Zander', 'Ableger', 'Öko'], true), ['Ableger', 'Öko', 'Zander'], 'deutsch inkl. Umlaut');
+  // keepOrder lässt die Reihenfolge unangetastet (Bewertung 4→1)
+  const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 1, l: '1 – schwach' }];
+  assertEq(w.optionenSortiert(note, false, true).map((o) => o.v), [0, 4, 1], 'keepOrder unverändert');
+});
 
 /* ---------- Zucht: Kennung, Zuchtnote, Töchter aus Serie ---------- */
 test('zuchtNote: Durchschnitt der bewerteten Merkmale (0 zählt nicht)', (w) => {
@@ -967,6 +1160,12 @@ test('Zuchtkalender: fachlich korrigierte Tage', (w) => {
   assert(tage[41], 'Legekontrolle-Deadline Tag 41');
   assert(!tage[2], 'alter Annahme-Tag 2 entfernt');
 });
+test('bioZertText: Kontrollstelle + EU-Bio bzw. Verbände; leer wenn keine Bio-Imkerei', (w) => {
+  assertEq(w.bioZertText({ bio: 'nein' }), '', 'keine Bio-Imkerei → leer');
+  assertEq(w.bioZertText({ bio: 'ja', bioKontrollstelle: 'DE-ÖKO-006 – ABCERT AG', bioVerbandJN: 'nein' }), 'DE-ÖKO-006 – ABCERT AG · EU-Bio', 'ohne Verband → EU-Bio automatisch');
+  assertEq(w.bioZertText({ bio: 'ja', bioKontrollstelle: 'DE-ÖKO-006 – ABCERT AG', bioVerbandJN: 'ja', bioVerband: ['Demeter', 'Bioland'] }), 'DE-ÖKO-006 – ABCERT AG · Demeter, Bioland', 'mit Verbänden (mehrere)');
+  assertEq(w.bioZertText({ bio: 'ja', bioKontrollstelle: '', bioVerbandJN: 'ja', bioVerband: [] }), 'EU-Bio', 'Verband ja aber leer → EU-Bio');
+});
 test('setBewertung: schreibt Bewertung + Bewertungsdatum an die Königin', async (w) => {
   const q = await w.DB.put('koeniginnen', { kennung: 'BW-27-001', jahrgang: 2027, status: 'aktiv', historie: [], bewertung: {} });
   const ok = await w.setBewertung(q.id, { sanftmut: 4, wabensitz: 3, schwarm: 2, entwicklung: 4, honigKg: 30 }, '2027-06-01');
@@ -994,6 +1193,38 @@ test('umweiseln: neue Königin einsetzen, alte auf umgeweiselt, Historie sauber'
   assertEq(altNach.historie[0].bis, '2027-05-15', 'alte Zuordnung beendet');
   const offen = (neuNach.historie || []).find((h) => h.volkId === volk.id && !h.bis);
   assert(offen && offen.von === '2027-05-15', 'neue Königin hat offene Zuordnung ab Datum');
+});
+test('koeniginHistorieSync: offener Eintrag bestimmt das Volk', async (w) => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'HS-27-001', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const vA = await w.DB.put('voelker', { name: 'HistSync A', status: 'aktiv', koeniginId: null, historie: [] });
+  // offener Eintrag → Volk bekommt die Königin
+  q.historie = [{ volkId: vA.id, von: '2027-04-01', bis: null }];
+  await w.DB.put('koeniginnen', q);
+  assertEq(await w.koeniginHistorieSync(q), vA.id, 'Ziel-Volk = offener Eintrag');
+  assertEq((await w.DB.get('voelker', vA.id)).koeniginId, q.id, 'Volk führt die Königin');
+  // Eintrag geschlossen → Volk wieder frei
+  q.historie = [{ volkId: vA.id, von: '2027-04-01', bis: '2027-08-01' }];
+  await w.DB.put('koeniginnen', q);
+  assertEq(await w.koeniginHistorieSync(q), null, 'kein offener Eintrag → kein Volk');
+  assertEq((await w.DB.get('voelker', vA.id)).koeniginId, null, 'Volk wieder ohne Königin');
+});
+test('koeniginHistorieSync: Umhängen löst altes Volk und verdrängt die dortige Königin', async (w) => {
+  const q1 = await w.DB.put('koeniginnen', { kennung: 'HS-27-010', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const q2 = await w.DB.put('koeniginnen', { kennung: 'HS-27-011', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const vA = await w.DB.put('voelker', { name: 'HistSync C', status: 'aktiv', koeniginId: null, historie: [] });
+  const vB = await w.DB.put('voelker', { name: 'HistSync D', status: 'aktiv', koeniginId: q2.id, historie: [] });
+  q2.historie = [{ volkId: vB.id, von: '2027-03-01', bis: null }]; await w.DB.put('koeniginnen', q2);
+  // q1 sitzt erst in A …
+  q1.historie = [{ volkId: vA.id, von: '2027-04-01', bis: null }]; await w.DB.put('koeniginnen', q1);
+  await w.koeniginHistorieSync(q1);
+  assertEq((await w.DB.get('voelker', vA.id)).koeniginId, q1.id, 'q1 in Volk A');
+  // … dann wird der offene Eintrag auf B umgehängt
+  q1.historie = [{ volkId: vB.id, von: '2027-05-01', bis: null }]; await w.DB.put('koeniginnen', q1);
+  await w.koeniginHistorieSync(q1);
+  assertEq((await w.DB.get('voelker', vA.id)).koeniginId, null, 'Volk A wieder frei');
+  assertEq((await w.DB.get('voelker', vB.id)).koeniginId, q1.id, 'Volk B führt jetzt q1');
+  const q2n = await w.DB.get('koeniginnen', q2.id);
+  assert(q2n.historie[0].bis, 'verdrängte Königin: offene Zuordnung wurde geschlossen');
 });
 test('umweiseln: löst die neue Königin aus einem anderen Volk', async (w) => {
   const q = await w.DB.put('koeniginnen', { kennung: 'MOVE-27-001', jahrgang: 2027, status: 'aktiv', historie: [{ volkId: null, von: '2026-04-01', bis: null }] });
