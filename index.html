@@ -670,8 +670,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.96';
+const APP_VERSION = '0.97';
 const CHANGELOG = [
+  { version: '0.97', datum: '2026-07-22', punkte: [
+    'Königin-Übersicht: Die Detailkarte verwendet jetzt dieselben Begriffe wie das Bearbeiten (Herkunft / Linie, Anpaarung, Drohnenlinie). Bei einer Belegstellen-Königin steht die Belegstelle klar in einer eigenen Zeile – nicht mehr doppelt und nicht mehr fälschlich als Vatervolk.',
+  ] },
   { version: '0.96', datum: '2026-07-22', punkte: [
     'Königin-Formular ist jetzt breiter – lange Einträge wie Belegstelle oder Vatervolk unter „Drohnenlinie“ werden komplett angezeigt und nicht mehr abgeschnitten.',
   ] },
@@ -3298,8 +3301,12 @@ Views.koeniginnen = {
     const hist = U.sortBy(q.historie || [], (h) => h.von, true);
     const qm = await idMap('koeniginnen');
     const stammbaum = koeniginStammbaumHtml(q, qm);
-    const anpaarungText = { standbegattung: 'Standbegattung', belegstelle: `Belegstelle${q.belegstelle ? ' · ' + U.esc(q.belegstelle) : ''}`, besamung: 'Künstliche Besamung' }[q.anpaarung] || '–';
-    const vaterHtml = q.vatervolkId && qm.get(q.vatervolkId) ? koeniginLabel(qm.get(q.vatervolkId)) : (q.anpaarung === 'belegstelle' && q.belegstelle ? U.esc(q.belegstelle) : '<span class="muted">–</span>');
+    // Gleiche Begriffe/Struktur wie im Bearbeiten-Formular: Drohnenlinie = Anpaarungsart,
+    // darunter je nach Wahl die Belegstelle ODER das Vatervolk (nicht beides, nichts doppelt).
+    const anpaarungMethode = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Künstliche Besamung' }[q.anpaarung] || '–';
+    const belegRec = q.belegstelleId ? await DB.get('belegstellen', q.belegstelleId) : null;
+    const belegAnzeige = belegRec ? U.esc(belegstelleLabel(belegRec)) : (q.belegstelle ? U.esc(q.belegstelle) : '');
+    const vaterHtml = q.vatervolkId && qm.get(q.vatervolkId) ? koeniginLabel(qm.get(q.vatervolkId)) : '<span class="muted">–</span>';
     const b = q.bewertung || {};
     const note = zuchtNote(b);
     const punkte = (n) => n ? '◆'.repeat(n) + '◇'.repeat(4 - n) : '<span class="muted">nicht bewertet</span>';
@@ -3312,8 +3319,9 @@ Views.koeniginnen = {
           <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${q.jahrgang} (${farbe})</dd>
           <dt>Herkunft / Linie</dt><dd>${U.esc(q.linie) || '–'}</dd><dt>Anpaarung</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
           <dt>Mutter (2a)</dt><dd>${q.mutterId && qm.get(q.mutterId) ? koeniginLabel(qm.get(q.mutterId)) : '<span class="muted">–</span>'}</dd>
-          <dt>Drohnenlinie</dt><dd>${anpaarungText}</dd>
-          <dt>Vatervolk (4a)</dt><dd>${vaterHtml}</dd>
+          <dt>Drohnenlinie</dt><dd>${anpaarungMethode}</dd>
+          ${q.anpaarung === 'belegstelle' ? `<dt>Belegstelle</dt><dd>${belegAnzeige || '<span class="muted">–</span>'}</dd>` : ''}
+          ${(q.anpaarung === 'standbegattung' || q.anpaarung === 'besamung') ? `<dt>Vatervolk (4a)</dt><dd>${vaterHtml}</dd>` : ''}
           <dt>Status</dt><dd>${U.esc(q.status)}</dd><dt>Notiz</dt><dd>${U.esc(q.notiz) || '–'}</dd>
         </div>
         ${hatBewertung ? `<h3 class="mb8">Bewertung${note ? ` · Zuchtnote ⌀ ${U.fmtNum(note, 1)}` : ''}</h3>
