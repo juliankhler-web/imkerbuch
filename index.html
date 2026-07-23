@@ -673,7 +673,8 @@ const CDN = {
 const APP_VERSION = '0.92';
 const CHANGELOG = [
   { version: '0.92', datum: '2026-07-22', punkte: [
-    'Neuer Bereich „Belegstellen“ in den Einstellungen: Belegstellen mit Drohnenlinie, Ort und Betreiber anlegen und verwalten.',
+    'Neuer Bereich „Belegstellen“ in den Einstellungen: Belegstellen mit Drohnenlinie, Ort, Betreiber und Belegstellenleiter (Name und Anschrift) anlegen und verwalten.',
+    'Belegstelle mit Koordinaten: Standort übernehmen oder Breiten-/Längengrad eintragen – dann öffnet ein Tipp die Belegstelle direkt in Google Maps oder OpenStreetMap.',
     'In der Zucht (Königin und Zuchtserie) wählst du die Belegstelle jetzt aus dieser Liste aus – und kannst dort mit einem Tipp direkt eine neue anlegen, ohne in die Einstellungen zu wechseln.',
     'Zeit nachtragen: eine neue Tätigkeit lässt sich jetzt direkt im Formular anlegen – kein Umweg mehr über die Einstellungen.',
     'Ernte erfassen und Laborergebnis: eine neue Honigsorte kannst du ebenfalls gleich vor Ort anlegen; sie wird in die Sorten-Liste übernommen.',
@@ -2187,7 +2188,7 @@ const Demo = {
     const st2 = await DB.put('staende', { name: 'Wanderstand Rapsfeld', lat: 51.2544, lng: 9.3811, kmEntfernung: 14, notizen: 'Nur Mai–Juni belegt.' });
     const st3 = await DB.put('staende', { name: 'Lindenallee Ost', lat: 51.3402, lng: 9.5210, kmEntfernung: 9, notizen: 'Spättracht Linde.' });
 
-    const belegNorderney = await DB.put('belegstellen', { name: 'Belegstelle Norderney', rasse: 'Carnica Sklenar', ort: 'Insel Norderney', betreiber: '', notiz: 'Anerkannte Carnica-Belegstelle.' });
+    const belegNorderney = await DB.put('belegstellen', { name: 'Belegstelle Norderney', rasse: 'Carnica Sklenar', ort: 'Insel Norderney', lat: 53.7071, lng: 7.1560, betreiber: 'Imkerverband Weser-Ems', leiterName: 'Hans Meyer', leiterAdresse: 'Deichstraße 5, 26548 Norderney', notiz: 'Anerkannte Carnica-Belegstelle.' });
 
     let qn = 0;
     const mkQ = (jg, herk, linie, mutterId, extra = {}) => DB.put('koeniginnen', Object.assign({
@@ -2496,6 +2497,8 @@ function bindGeoButton(m) {
       (pos) => {
         $('#f-lat', m.el).value = String(pos.coords.latitude.toFixed(5)).replace('.', ',');
         $('#f-lng', m.el).value = String(pos.coords.longitude.toFixed(5)).replace('.', ',');
+        // Input-Event, damit abhängige Anzeigen (z. B. Belegstellen-Kartenlinks) sich aktualisieren
+        $('#f-lat', m.el).dispatchEvent(new Event('input')); $('#f-lng', m.el).dispatchEvent(new Event('input'));
         status.textContent = 'Standort übernommen ✓'; FormGuard.dirty = true;
       },
       (err) => { status.textContent = 'Fehlgeschlagen: ' + err.message; },
@@ -2517,22 +2520,31 @@ function openStandForm(stand, onDone) {
 
 /* Belegstelle = Ort zur kontrollierten Anpaarung (Standbegattung mit anerkannter Drohnenlinie).
    Eigener Datensatz, damit man sie einmal anlegt und in der Zucht bequem auswählt. */
-function belegstelleFormFields() {
+function belegstelleFormFields(rasseOpts) {
   return [
     { key: 'name', label: 'Name der Belegstelle', required: true, placeholder: 'z. B. Belegstelle Norderney' },
-    { key: 'rasse', label: 'Angebotene Rasse / Drohnenlinie', type: 'suggest', options: VORSCHLAEGE.rasse, hint: 'Welche Drohnenlinie steht dort an – z. B. „Carnica Sklenar“.' },
-    { key: 'ort', label: 'Ort / Anschrift', placeholder: 'z. B. Insel Norderney' },
+    { key: 'rasse', label: 'Aktuelle Drohnenlinie / Rasse', type: 'suggest', options: rasseOpts || VORSCHLAEGE.rasse, hint: 'Welche Drohnenlinie steht dort an – z. B. „Carnica Sklenar“. Einfach eintippen; einmal erfasste Linien stehen künftig als Vorschlag bereit.' },
+    { key: 'ort', label: 'Ort / Anschrift der Belegstelle', placeholder: 'z. B. Insel Norderney' },
+    { key: 'geo', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" data-geo>${icon('pin')} Aktuellen Standort übernehmen</button> <span class="small muted" data-geo-status></span>` },
+    { key: 'lat', label: 'Breitengrad', type: 'number', placeholder: 'z. B. 53,7071' },
+    { key: 'lng', label: 'Längengrad', type: 'number', placeholder: 'z. B. 7,1560' },
+    { key: 'karte', type: 'static', html: `<div data-beleg-map class="small"></div>` },
     { key: 'betreiber', label: 'Betreiber / Verein', placeholder: 'z. B. Landesverband …' },
+    { key: '_leiterTitel', type: 'static', html: '<h3 class="mt8 mb8">Belegstellenleiter</h3>' },
+    { key: 'leiterName', label: 'Name', placeholder: 'z. B. Hans Meyer' },
+    { key: 'leiterAdresse', label: 'Anschrift', type: 'textarea', placeholder: 'Straße, PLZ Ort' },
     { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'Belegzeitraum, Anmeldung, Kosten …' },
   ];
 }
-function openBelegstelleForm(bs, onDone) {
-  UI.formModal({
+async function openBelegstelleForm(bs, onDone) {
+  const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'belegstellen', 'rasse'); // Presets + bereits erfasste Drohnenlinien
+  const m = UI.formModal({
     title: bs ? 'Belegstelle bearbeiten' : 'Neue Belegstelle',
-    fields: belegstelleFormFields(), values: bs || {},
+    fields: belegstelleFormFields(rasseOpts), values: bs || {},
     async onSave(v) {
       const saved = await DB.put('belegstellen', Object.assign(bs || {}, {
-        name: (v.name || '').trim(), rasse: (v.rasse || '').trim(), ort: (v.ort || '').trim(), betreiber: (v.betreiber || '').trim(), notiz: v.notiz || '',
+        name: (v.name || '').trim(), rasse: (v.rasse || '').trim(), ort: (v.ort || '').trim(), lat: v.lat, lng: v.lng, betreiber: (v.betreiber || '').trim(),
+        leiterName: (v.leiterName || '').trim(), leiterAdresse: (v.leiterAdresse || '').trim(), notiz: v.notiz || '',
       }));
       UI.toast('Belegstelle gespeichert');
       if (onDone) onDone(saved); else renderRoute();
@@ -2542,6 +2554,19 @@ function openBelegstelleForm(bs, onDone) {
       await DB.softDel('belegstellen', bs.id); UI.toast('Gelöscht'); renderRoute(); return true;
     } : null,
   });
+  bindGeoButton(m); // „Aktuellen Standort übernehmen“ füllt lat/lng
+  // Kartenlinks (Google Maps / OpenStreetMap) live aus den eingegebenen Koordinaten
+  const box = $('[data-beleg-map]', m.el);
+  const refreshKarte = () => {
+    const la = U.parseNum($('#f-lat', m.el).value), ln = U.parseNum($('#f-lng', m.el).value);
+    if ($('#f-lat', m.el).value && $('#f-lng', m.el).value && !isNaN(la) && !isNaN(ln)) {
+      const l = U.mapsLinks(la, ln);
+      box.innerHTML = `${icon('pin')} <a href="${l.google}" target="_blank" rel="noopener">Google Maps</a> · <a href="${l.osm}" target="_blank" rel="noopener">OpenStreetMap</a>`;
+    } else { box.innerHTML = '<span class="muted">Koordinaten eingeben oder Standort übernehmen – dann erscheinen hier Kartenlinks.</span>'; }
+  };
+  $('#f-lat', m.el).addEventListener('input', refreshKarte);
+  $('#f-lng', m.el).addEventListener('input', refreshKarte);
+  refreshKarte();
 }
 /** Kurzlabel einer Belegstelle: Name, bei Bedarf mit Drohnenlinie. */
 function belegstelleLabel(b) { return b ? (b.rasse ? `${b.name} · ${b.rasse}` : b.name) : ''; }
@@ -8335,7 +8360,7 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('crown')}<h2>Belegstellen</h2></div>
         <p class="small muted mb12">Bienenbelegstellen zur kontrollierten Anpaarung. Einmal angelegt, kannst du sie in der Zucht (bei Königin und Zuchtserie unter „Belegstelle“) direkt auswählen – dort auch neu anlegen.</p>
-        <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${b.id}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.rasse, b.ort, b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
+        <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${b.id}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.rasse, b.ort, b.leiterName ? 'Leiter: ' + b.leiterName : b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
         <button class="btn btn-ghost btn-sm no-print" id="beleg-add">${icon('plus')} Belegstelle hinzufügen</button>
       </div>
 
