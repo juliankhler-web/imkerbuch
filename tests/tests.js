@@ -438,22 +438,24 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
 
 /* ---------- Belegstellen: Verwaltung + Zucht-Verknüpfung ---------- */
 test('Belegstelle: DB-Roundtrip (Leiter, Koordinaten) + Kurzlabel', async (w) => {
-  const b = await w.DB.put('belegstellen', { name: 'Belegstelle Test', rasse: 'Carnica Sklenar', ort: 'Insel X', lat: 53.7071, lng: 7.156, betreiber: 'Verband', leiterName: 'Hans Meyer', leiterAdresse: 'Deichstr. 5, 26548 Norderney', notiz: '' });
+  const b = await w.DB.put('belegstellen', { name: 'Belegstelle Test', rasse: 'Carnica', drohnenlinie: 'Carnica Sklenar', ort: 'Insel X', lat: 53.7071, lng: 7.156, betreiber: 'Verband', leiterName: 'Hans Meyer', leiterAdresse: 'Deichstr. 5, 26548 Norderney', notiz: '' });
   const geladen = await w.DB.get('belegstellen', b.id);
   assertEq(geladen.leiterName, 'Hans Meyer', 'Belegstellenleiter gespeichert');
   assertEq(geladen.leiterAdresse, 'Deichstr. 5, 26548 Norderney', 'Anschrift gespeichert');
+  assertEq(geladen.drohnenlinie, 'Carnica Sklenar', 'aktuelle Drohnenlinie gespeichert');
   assertEq(geladen.lat, 53.7071, 'Koordinaten gespeichert');
-  assertEq(w.belegstelleLabel(geladen), 'Belegstelle Test · Carnica Sklenar', 'Label zeigt Name · Rasse');
-  assertEq(w.belegstelleLabel({ name: 'Nur Name' }), 'Nur Name', 'ohne Rasse nur der Name');
+  assertEq(w.belegstelleLabel(geladen), 'Belegstelle Test · Carnica Sklenar', 'Label zeigt Name · Drohnenlinie');
+  assertEq(w.belegstelleLabel({ name: 'N', rasse: 'Carnica' }), 'N · Carnica', 'ohne Drohnenlinie fällt auf die Herkunft zurück');
+  assertEq(w.belegstelleLabel({ name: 'Nur Name' }), 'Nur Name', 'ohne alles nur der Name');
   // Kartenlinks aus den Koordinaten
   const l = w.U.mapsLinks(geladen.lat, geladen.lng);
   assert(l.google.includes('53.7071') && l.google.includes('7.156'), 'Google-Maps-Link mit Koordinaten');
   assert(l.osm.includes('mlat=53.7071'), 'OpenStreetMap-Link mit Koordinaten');
 });
 test('Belegstelle: Formular lernt erfasste Drohnenlinien als Vorschlag', async (w) => {
-  await w.DB.put('belegstellen', { name: 'Lern-Belegstelle', rasse: 'Buckfast Sondertest-Linie', ort: '', betreiber: '', notiz: '' });
-  const opts = await w.gelernteWerte(w.VORSCHLAEGE.rasse, 'belegstellen', 'rasse');
-  assert(opts.includes('Buckfast Sondertest-Linie'), 'zuvor erfasste Drohnenlinie steht als Vorschlag bereit');
+  await w.DB.put('belegstellen', { name: 'Lern-Belegstelle', rasse: 'Carnica', drohnenlinie: 'Sklenar Sondertest-Linie', ort: '', betreiber: '', notiz: '' });
+  const opts = await w.gelernteWerte([], 'belegstellen', 'drohnenlinie');
+  assert(opts.includes('Sklenar Sondertest-Linie'), 'zuvor erfasste Drohnenlinie steht als Vorschlag bereit');
 });
 test('migriereBelegstellen: alte Freitext-Belegstelle wird Datensatz + verknüpft, ohne Dubletten', async (w) => {
   // zwei Königinnen mit derselben Freitext-Belegstelle, eine Zuchtserie mit anderer
