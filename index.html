@@ -670,8 +670,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.91';
+const APP_VERSION = '0.92';
 const CHANGELOG = [
+  { version: '0.92', datum: '2026-07-22', punkte: [
+    'Neuer Bereich „Belegstellen“ in den Einstellungen: Belegstellen mit Drohnenlinie, Ort und Betreiber anlegen und verwalten.',
+    'In der Zucht (Königin und Zuchtserie) wählst du die Belegstelle jetzt aus dieser Liste aus – und kannst dort mit einem Tipp direkt eine neue anlegen, ohne in die Einstellungen zu wechseln.',
+    'Zeit nachtragen: eine neue Tätigkeit lässt sich jetzt direkt im Formular anlegen – kein Umweg mehr über die Einstellungen.',
+    'Ernte erfassen und Laborergebnis: eine neue Honigsorte kannst du ebenfalls gleich vor Ort anlegen; sie wird in die Sorten-Liste übernommen.',
+  ] },
   { version: '0.91', datum: '2026-07-22', punkte: [
     'Startbildschirm neu aufgeteilt: Logo und „ImkerBuch“ stehen jetzt oben am Rand, die Waben-Animation läuft mittig im Bild.',
     'Die Waben sind deutlich größer, und eine Runde dauert jetzt 2 statt 1 Sekunde – man sieht sie beim Start einmal ganz durchlaufen.',
@@ -1121,8 +1127,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 5, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 6, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -2181,16 +2187,18 @@ const Demo = {
     const st2 = await DB.put('staende', { name: 'Wanderstand Rapsfeld', lat: 51.2544, lng: 9.3811, kmEntfernung: 14, notizen: 'Nur Mai–Juni belegt.' });
     const st3 = await DB.put('staende', { name: 'Lindenallee Ost', lat: 51.3402, lng: 9.5210, kmEntfernung: 9, notizen: 'Spättracht Linde.' });
 
+    const belegNorderney = await DB.put('belegstellen', { name: 'Belegstelle Norderney', rasse: 'Carnica Sklenar', ort: 'Insel Norderney', betreiber: '', notiz: 'Anerkannte Carnica-Belegstelle.' });
+
     let qn = 0;
     const mkQ = (jg, herk, linie, mutterId, extra = {}) => DB.put('koeniginnen', Object.assign({
       kennung: `IK-${String(jg).slice(-2)}-${String(++qn).padStart(3, '0')}`, jahrgang: jg, herkunft: herk, linie, status: 'aktiv',
-      historie: [], notiz: '', mutterId: mutterId || null, anpaarung: '', belegstelle: '', vatervolkId: null, bewertung: {},
+      historie: [], notiz: '', mutterId: mutterId || null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null, bewertung: {},
     }, extra));
     const bew = (sanftmut, wabensitz, schwarm, entwicklung, honigKg) => ({ bewertung: { sanftmut, wabensitz, schwarm, entwicklung, honigKg } });
     const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null, bew(4, 4, 3, 4, 32));
-    const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, { anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney', ...bew(4, 3, 4, 3, 27) });
+    const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, { anpaarung: 'belegstelle', belegstelle: belegNorderney.name, belegstelleId: belegNorderney.id, ...bew(4, 3, 4, 3, 27) });
     const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, bew(3, 4, 3, 4, 29));
-    const qD = await mkQ(Y - 2, 'Belegstelle', 'Carnica Sklenar', qB.id, { anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney' });
+    const qD = await mkQ(Y - 2, 'Belegstelle', 'Carnica Sklenar', qB.id, { anpaarung: 'belegstelle', belegstelle: belegNorderney.name, belegstelleId: belegNorderney.id });
     const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id, { anpaarung: 'besamung', vatervolkId: qA.id, ...bew(4, 4, 4, 4, 31) });
     const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 26));
     const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id, { anpaarung: 'standbegattung', vatervolkId: qC.id });
@@ -2328,7 +2336,7 @@ const Demo = {
     ]) await DB.put('aufgaben', { titel: t, faellig: d(-30 + Math.round(Math.abs(m) / 10)), erledigt: true, zeitMinuten: m, kategorie: k, quelle: 'manuell', refId: null, notiz: '' });
 
     const zStart = d(-3);
-    const zs = await DB.put('zuchtserien', { name: 'Serie A', startdatum: zStart, anzahl: 24, termine: zuchtTermine(zStart), linie: 'Carnica Linie T', zuchtmutterId: qA.id, anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney', vatervolkId: null, angenommen: 18, geschluepft: 16, begattet: 11, notiz: 'Pflegevolk Volk Berta · Starter/Finisher.' });
+    const zs = await DB.put('zuchtserien', { name: 'Serie A', startdatum: zStart, anzahl: 24, termine: zuchtTermine(zStart), linie: 'Carnica Linie T', zuchtmutterId: qA.id, anpaarung: 'belegstelle', belegstelle: belegNorderney.name, belegstelleId: belegNorderney.id, vatervolkId: null, angenommen: 18, geschluepft: 16, begattet: 11, notiz: 'Pflegevolk Volk Berta · Starter/Finisher.' });
     await syncZuchtAufgaben(zs);
 
     await DB.put('wetter', { standId: st1.id, datum: d(-1), tempC: 19.5, windKmh: 8, niederschlagMm: 0, bemerkung: 'Sonnig', quelle: 'manuell' });
@@ -2506,6 +2514,37 @@ function openStandForm(stand, onDone) {
   });
   bindGeoButton(m);
 }
+
+/* Belegstelle = Ort zur kontrollierten Anpaarung (Standbegattung mit anerkannter Drohnenlinie).
+   Eigener Datensatz, damit man sie einmal anlegt und in der Zucht bequem auswählt. */
+function belegstelleFormFields() {
+  return [
+    { key: 'name', label: 'Name der Belegstelle', required: true, placeholder: 'z. B. Belegstelle Norderney' },
+    { key: 'rasse', label: 'Angebotene Rasse / Drohnenlinie', type: 'suggest', options: VORSCHLAEGE.rasse, hint: 'Welche Drohnenlinie steht dort an – z. B. „Carnica Sklenar“.' },
+    { key: 'ort', label: 'Ort / Anschrift', placeholder: 'z. B. Insel Norderney' },
+    { key: 'betreiber', label: 'Betreiber / Verein', placeholder: 'z. B. Landesverband …' },
+    { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'Belegzeitraum, Anmeldung, Kosten …' },
+  ];
+}
+function openBelegstelleForm(bs, onDone) {
+  UI.formModal({
+    title: bs ? 'Belegstelle bearbeiten' : 'Neue Belegstelle',
+    fields: belegstelleFormFields(), values: bs || {},
+    async onSave(v) {
+      const saved = await DB.put('belegstellen', Object.assign(bs || {}, {
+        name: (v.name || '').trim(), rasse: (v.rasse || '').trim(), ort: (v.ort || '').trim(), betreiber: (v.betreiber || '').trim(), notiz: v.notiz || '',
+      }));
+      UI.toast('Belegstelle gespeichert');
+      if (onDone) onDone(saved); else renderRoute();
+    },
+    onDelete: bs ? async () => {
+      if (!(await UI.confirm({ title: 'Belegstelle löschen?', text: 'Wandert in den Papierkorb (30 Tage). Bereits zugeordnete Königinnen behalten den Namen.' }))) return false;
+      await DB.softDel('belegstellen', bs.id); UI.toast('Gelöscht'); renderRoute(); return true;
+    } : null,
+  });
+}
+/** Kurzlabel einer Belegstelle: Name, bei Bedarf mit Drohnenlinie. */
+function belegstelleLabel(b) { return b ? (b.rasse ? `${b.name} · ${b.rasse}` : b.name) : ''; }
 
 Views.staende = {
   title: 'Bienenstände',
@@ -3149,7 +3188,9 @@ Views.koeniginnen = {
     const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
     const andereQueens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.id !== (q && q.id)), (k) => k.jahrgang, true);
     const qOpts = andereQueens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }));
-    const belegOpts = await gelernteWerte(['Belegstelle', 'Standbegattung'], 'koeniginnen', 'belegstelle');
+    const belegstellen = U.sortBy(await DB.getAll('belegstellen'), (b) => b.name.toLowerCase());
+    const belegName = new Map(belegstellen.map((b) => [b.id, b.name]));
+    const belegOpts = belegstellen.map((b) => ({ v: b.id, l: belegstelleLabel(b) })); // leeres „–“ fügt das Formular selbst hinzu
     const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
     const kennungVorschlag = q ? (q.kennung || '') : await naechsteKennung(jahr);
     const b = q && q.bewertung || {};
@@ -3163,8 +3204,8 @@ Views.koeniginnen = {
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
         { key: '_absTitel', type: 'static', html: '<h3 class="mt8 mb8">Abstammung</h3>' },
         { key: 'mutterId', label: 'Mutter (Zuchtmutter, 2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt sie mütterlicherseits ab?' },
-        { key: 'anpaarung', label: 'Anpaarung (Vaterseite)', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ trägst du stattdessen deren Namen ein.' },
-        { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
+        { key: 'anpaarung', label: 'Anpaarung (Vaterseite)', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ wählst du eine deiner Belegstellen.' },
+        { key: 'belegstelleId', label: 'Belegstelle', type: 'select', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle', hint: 'Aus deinen Belegstellen (Einstellungen). Eine neue kannst du direkt hier unten anlegen.' },
         { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Die Drohnenmutter – die Königin des 4a-Volks, deren Drohnen die Anpaarung stellen.' },
         { key: '_bewTitel', type: 'static', html: '<h3 class="mt8 mb8">Bewertung (Zuchtauslese)</h3><div class="hint mb8">Optional – Skala 1–4, 4 = bester Wert. Hilft bei der Auswahl der Zuchtmütter.</div>' },
         { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note, keepOrder: true },
@@ -3180,7 +3221,10 @@ Views.koeniginnen = {
         const bewertung = { sanftmut: +v.bSanftmut || 0, wabensitz: +v.bWabensitz || 0, schwarm: +v.bSchwarm || 0, entwicklung: +v.bEntwicklung || 0, honigKg: (v.bHonigKg === '' || v.bHonigKg == null) ? null : v.bHonigKg };
         const rec = Object.assign(q || { historie: [] }, {
           kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
-          mutterId: v.mutterId || null, anpaarung: v.anpaarung || '', belegstelle: v.anpaarung === 'belegstelle' ? v.belegstelle : '', vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          mutterId: v.mutterId || null, anpaarung: v.anpaarung || '',
+          belegstelleId: v.anpaarung === 'belegstelle' ? (v.belegstelleId || null) : null,
+          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || '') : '', // Name mitschreiben für Anzeige/PDF/Stammbaum
+          vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
           bewertung,
         });
         const saved = await DB.put('koeniginnen', rec);
@@ -3207,6 +3251,7 @@ Views.koeniginnen = {
     const abstammungsFelder = ['mutterId', 'vatervolkId'];
     koeniginNeuShortcut(m, 'mutterId', 'Neue Mutter anlegen', abstammungsFelder);
     koeniginNeuShortcut(m, 'vatervolkId', 'Neue Drohnenmutter anlegen', abstammungsFelder);
+    belegstelleNeuShortcut(m, 'belegstelleId');
   },
   async detail(q, voelker) {
     const [farbe, hex] = queenColor(q.jahrgang);
@@ -3424,6 +3469,60 @@ function koeniginNeuShortcut(m, feldKey, label, felder) {
     UI.toast('Königin angelegt und ausgewählt');
   });
 }
+/** Shortcut im Zucht-Formular: direkt beim „Belegstelle“-Feld eine neue anlegen,
+    ohne das Formular zu verlassen – wird sofort ausgewählt. */
+function belegstelleNeuShortcut(m, feldKey = 'belegstelleId') {
+  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  if (!wrap) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost btn-sm no-print';
+  btn.style.marginTop = '6px';
+  btn.innerHTML = `${icon('plus')} Neue Belegstelle anlegen`;
+  wrap.insertBefore(btn, $('.err', wrap));
+  btn.onclick = () => openBelegstelleForm(null, (neu) => {
+    const sel = $(`#f-${feldKey}`, m.el);
+    if (sel) { const opt = document.createElement('option'); opt.value = neu.id; opt.textContent = belegstelleLabel(neu); sel.appendChild(opt); sel.value = neu.id; }
+    setTimeout(() => { FormGuard.dirty = true; }, 0); // formModal setzt dirty davor auf false
+    UI.toast('Belegstelle angelegt und ausgewählt');
+  });
+}
+/** Shortcut an einem Auswahlfeld, dessen Optionen aus einer Einstellungs-Liste kommen
+    (Tätigkeiten, Honigsorten …): einen neuen Wert direkt hier anlegen – er wird in die
+    Liste übernommen (auch für künftige Formulare) und sofort ausgewählt. Funktioniert
+    für select und für das eigene „suggest“-Dropdown (combo). */
+function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalter }) {
+  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  if (!wrap) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost btn-sm no-print';
+  btn.style.marginTop = '6px';
+  btn.innerHTML = `${icon('plus')} ${label}`;
+  wrap.insertBefore(btn, $('.err', wrap));
+  btn.onclick = () => UI.formModal({
+    title: titel,
+    fields: [{ key: 'wert', label: titel, required: true, placeholder: platzhalter }],
+    values: {},
+    async onSave(v) {
+      const wert = (v.wert || '').trim();
+      if (!wert) throw new Error('Bitte einen Namen eingeben.');
+      const liste = [...S.get(settingKey)];
+      if (!liste.some((x) => x.toLowerCase() === wert.toLowerCase())) { liste.push(wert); await S.set(settingKey, liste); }
+      const field = $(`#f-${feldKey}`, m.el);
+      if (field && field.tagName === 'SELECT') {
+        if (![...field.options].some((o) => o.value === wert)) { const opt = document.createElement('option'); opt.value = wert; opt.textContent = wert; field.appendChild(opt); }
+        field.value = wert;
+      } else if (field && field.classList.contains('combo-inp')) {
+        const liste2 = $('.combo-list', field.closest('.combo'));
+        if (liste2 && ![...liste2.children].some((o) => o.dataset.v === wert)) { const opt = document.createElement('div'); opt.className = 'combo-opt'; opt.dataset.v = wert; opt.textContent = wert; liste2.appendChild(opt); }
+        field.value = wert;
+      }
+      setTimeout(() => { FormGuard.dirty = true; }, 0); // formModal setzt dirty davor auf false
+      UI.toast('Hinzugefügt und ausgewählt');
+    },
+  });
+}
 /** Kurzlabel einer Königin (Kennung falls vorhanden, sonst Jahrgang+Farbe) */
 function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
 /** Durchschnittliche Zuchtnote aus den vier 1–4-Merkmalen (nur bewertete zählen). */
@@ -3583,7 +3682,9 @@ Views.zucht = {
   async form(s) {
     const queens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.status === 'aktiv'), (k) => k.jahrgang, true);
     const qOpts = [{ v: '', l: '– keine –' }, ...queens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }))];
-    const belegOpts = await gelernteWerte(['Belegstelle', 'Standbegattung'], 'koeniginnen', 'belegstelle');
+    const belegstellen = U.sortBy(await DB.getAll('belegstellen'), (b) => b.name.toLowerCase());
+    const belegName = new Map(belegstellen.map((b) => [b.id, b.name]));
+    const belegOpts = belegstellen.map((b) => ({ v: b.id, l: belegstelleLabel(b) })); // leeres „–“ fügt das Formular selbst hinzu
     const m = UI.formModal({
       title: s ? 'Zuchtserie bearbeiten' : 'Neue Zuchtserie', wide: true,
       fields: [
@@ -3593,8 +3694,8 @@ Views.zucht = {
         { key: '_hTitel', type: 'static', html: '<h3 class="mt8 mb8">Herkunft (wird an die Töchter vererbt)</h3>' },
         { key: 'zuchtmutterId', label: 'Zuchtmutter (2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt der Zuchtstoff?' },
         { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie') },
-        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ trägst du stattdessen deren Namen ein.' },
-        { key: 'belegstelle', label: 'Belegstelle (Name/Ort)', type: 'suggest', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle' },
+        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ wählst du eine deiner Belegstellen.' },
+        { key: 'belegstelleId', label: 'Belegstelle', type: 'select', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle', hint: 'Aus deinen Belegstellen (Einstellungen). Eine neue kannst du direkt hier unten anlegen.' },
         { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung' },
         { key: '_vTitel', type: 'static', html: '<h3 class="mt8 mb8">Verlauf (optional)</h3><div class="hint mb8">Zwischenzahlen zur Erfolgskontrolle – Faustregel: je Stufe fällt rund ein Drittel aus.</div>' },
         { key: 'angenommen', label: 'Angenommene Zellen', type: 'number' },
@@ -3608,7 +3709,9 @@ Views.zucht = {
         const rec = Object.assign(s || {}, {
           name: v.name, startdatum: v.startdatum, anzahl: v.anzahl, linie: v.linie, notiz: v.notiz,
           zuchtmutterId: v.zuchtmutterId || null, anpaarung: v.anpaarung || '',
-          belegstelle: v.anpaarung === 'belegstelle' ? v.belegstelle : '', vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          belegstelleId: v.anpaarung === 'belegstelle' ? (v.belegstelleId || null) : null,
+          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || '') : '',
+          vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
           angenommen: v.angenommen ?? null, geschluepft: v.geschluepft ?? null, begattet: v.begattet ?? null,
         });
         rec.termine = zuchtTermine(rec.startdatum);
@@ -3627,6 +3730,7 @@ Views.zucht = {
     const herkunftsFelder = ['zuchtmutterId', 'vatervolkId'];
     koeniginNeuShortcut(m, 'zuchtmutterId', 'Neue Zuchtmutter anlegen', herkunftsFelder);
     koeniginNeuShortcut(m, 'vatervolkId', 'Neue Drohnenmutter anlegen', herkunftsFelder);
+    belegstelleNeuShortcut(m, 'belegstelleId');
   },
   async detail(s) {
     const heute = U.todayIso();
@@ -4467,7 +4571,7 @@ Views.honig = {
     const form = async (e) => {
       const ziel = await zielFelder(e || {}, 'Geerntet wurde');
       const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
-      UI.formModal({
+      const m = UI.formModal({
         title: e ? 'Ernte bearbeiten' : 'Ernte erfassen', wide: true,
         fields: [
           { key: 'schleuderung', label: 'Schleuderung', type: 'select', options: [{ v: 1, l: '1. Schleuderung' }, { v: 2, l: '2. Schleuderung' }, { v: 3, l: '3. Schleuderung' }], hint: 'Für die spätere Zuordnung des Laborergebnisses (Tab „Sorten“).' },
@@ -4477,7 +4581,7 @@ Views.honig = {
           // Alt-Ernten können Produkte tragen, die es in der Auswahl nicht mehr gibt (z. B. „Wachs“) –
           // den Bestandswert mit anbieten, sonst würde er beim Speichern still zu „Honig“.
           { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: [...new Set([...BIENENPRODUKTE, ...(e && e.produktart ? [e.produktart] : [])])].map((p) => ({ v: p, l: p })) },
-          { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'auswählen, eintippen oder später vom Labor', hint: 'Sorten pflegst du unter Einstellungen → „Honigsorten“.' },
+          { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'auswählen, eintippen oder später vom Labor' },
           { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', placeholder: 'z. B. 17,2 – meist erst nach dem Labor' },
           { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Lagerort, Fass-Nr., Auffälligkeiten' },
         ],
@@ -4489,6 +4593,7 @@ Views.honig = {
         },
         onDelete: papierkorbDelete('ernten', e, 'Ernte löschen?', 'Wandert in den Papierkorb.'),
       });
+      listenwertNeuShortcut(m, 'sorte', 'honigsorten', { label: 'Neue Honigsorte anlegen', titel: 'Neue Honigsorte', platzhalter: 'z. B. Phaceliahonig' });
     };
     const add = () => form(null);
     bindAdd(add, box);
@@ -4540,6 +4645,7 @@ Views.honig = {
         renderRoute();
       },
     });
+    listenwertNeuShortcut(m, 'sorte', 'honigsorten', { label: 'Neue Honigsorte anlegen', titel: 'Neue Honigsorte', platzhalter: 'z. B. Phaceliahonig' });
     // Schritt-Logik: Ernte-Auswahl folgt der gewählten Schleuderung (wie im Wanderungs-Formular)
     const sel = $('#f-schleuderung', m.el);
     const box = $('#f-auswahl', m.el), wrap = $('[data-field="auswahl"]', m.el);
@@ -5540,7 +5646,7 @@ Views.zeiten = {
       // Alte Tätigkeit erhalten, falls sie inzwischen aus den Einstellungen entfernt wurde
       const kats = [...S.get('taetigkeiten')];
       if (a && a.kategorie && !kats.includes(a.kategorie)) kats.push(a.kategorie);
-      UI.formModal({
+      const m = UI.formModal({
         title: a ? 'Zeiteintrag bearbeiten' : 'Zeit nachtragen',
         fields: [
           { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
@@ -5555,6 +5661,7 @@ Views.zeiten = {
         },
         onDelete: a ? papierkorbDelete('aufgaben', a, 'Zeiteintrag löschen?', 'Wandert in den Papierkorb.') : undefined,
       });
+      listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neue Tätigkeit anlegen', titel: 'Neue Tätigkeit', platzhalter: 'z. B. Rähmchen drahten' });
     };
     bindAdd(() => form(null));
     main.addEventListener('click', (e) => {
@@ -5849,7 +5956,7 @@ Views.rechner = {
 /* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -8072,6 +8179,7 @@ Views.einstellungen = {
     const steuerArt = steuer.art || (steuer.kleinunternehmer ? 'klein' : 'regel');
     const logo = S.get('logo');
     const snaps = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
+    const belegstellen = U.sortBy(await DB.getAll('belegstellen'), (b) => b.name.toLowerCase());
     const typen = S.get('dokumentTypen');
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
 
@@ -8225,6 +8333,12 @@ Views.einstellungen = {
         <div class="flex no-print"><input class="inp" id="sorte-neu" placeholder="Neue Honigsorte …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="sorte-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
+      <div class="card"><div class="card-title">${icon('crown')}<h2>Belegstellen</h2></div>
+        <p class="small muted mb12">Bienenbelegstellen zur kontrollierten Anpaarung. Einmal angelegt, kannst du sie in der Zucht (bei Königin und Zuchtserie unter „Belegstelle“) direkt auswählen – dort auch neu anlegen.</p>
+        <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${b.id}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.rasse, b.ort, b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
+        <button class="btn btn-ghost btn-sm no-print" id="beleg-add">${icon('plus')} Belegstelle hinzufügen</button>
+      </div>
+
       <div class="card"><div class="card-title">${icon('buch')}<h2>Eigene Stockkarten-Felder</h2></div>
         <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
         <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
@@ -8263,6 +8377,10 @@ Views.einstellungen = {
     $('#imp-file').onchange = (e) => { if (e.target.files[0]) Backup.importFile(e.target.files[0]); e.target.value = ''; };
     main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap); });
     $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Snapshot angelegt'); renderRoute(); };
+
+    /* Belegstellen */
+    $('#beleg-add').onclick = () => openBelegstelleForm(null, renderRoute);
+    main.addEventListener('click', async (e) => { const b = e.target.closest('[data-belegedit]'); if (b) { const rec = await DB.get('belegstellen', b.dataset.belegedit); if (rec) openBelegstelleForm(rec, renderRoute); } });
     const saveFeatures = async () => { await S.set('features', f); };
     $('#ab-aktiv').onchange = async (e) => {
       f.autoBackup.aktiv = e.target.checked;
@@ -8564,6 +8682,29 @@ async function migriereInventarTyp() {
   await S.set('inventarTypMigriert', true);
 }
 
+/** Einmalige Migration: alte Freitext-Belegstellen (nur Name als String auf Königin/Zuchtserie)
+    werden zu echten Belegstellen-Datensätzen und per belegstelleId verknüpft. */
+async function migriereBelegstellen() {
+  if (S.get('belegstellenMigriert')) return;
+  const nachName = new Map(); // name (klein, getrimmt) -> id
+  for (const b of await DB.getAll('belegstellen')) if (b.name) nachName.set(b.name.trim().toLowerCase(), b.id);
+  const sorgeFuer = async (name) => {
+    const key = name.trim().toLowerCase();
+    if (nachName.has(key)) return nachName.get(key);
+    const b = await DB.put('belegstellen', { name: name.trim(), rasse: '', ort: '', betreiber: '', notiz: '' });
+    nachName.set(key, b.id);
+    return b.id;
+  };
+  for (const store of ['koeniginnen', 'zuchtserien']) {
+    for (const rec of await DB.getAll(store)) {
+      if (rec.belegstelleId || !rec.belegstelle) continue;
+      rec.belegstelleId = await sorgeFuer(rec.belegstelle);
+      await DB.put(store, rec);
+    }
+  }
+  await S.set('belegstellenMigriert', true);
+}
+
 async function boot() {
   Splash.init();
   try { await DB.open(); } catch (e) {
@@ -8574,6 +8715,7 @@ async function boot() {
   await migriereRaehmchenmass();
   await migriereChargenAbfuellung();
   await migriereInventarTyp();
+  await migriereBelegstellen();
   applyTheme();
   renderChrome();
   applyHeaderLogo();
@@ -8625,6 +8767,7 @@ Object.assign(window, {
   gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
+  openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 

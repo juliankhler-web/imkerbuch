@@ -436,6 +436,77 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
   w.location.hash = '#/dashboard'; await warte();
 });
 
+/* ---------- Belegstellen: Verwaltung + Zucht-Verknüpfung ---------- */
+test('Belegstelle: DB-Roundtrip + Kurzlabel (mit/ohne Rasse)', async (w) => {
+  const b = await w.DB.put('belegstellen', { name: 'Belegstelle Test', rasse: 'Carnica Sklenar', ort: 'Insel X', betreiber: '', notiz: '' });
+  const geladen = await w.DB.get('belegstellen', b.id);
+  assertEq(geladen.name, 'Belegstelle Test');
+  assertEq(w.belegstelleLabel(geladen), 'Belegstelle Test · Carnica Sklenar', 'Label zeigt Name · Rasse');
+  assertEq(w.belegstelleLabel({ name: 'Nur Name' }), 'Nur Name', 'ohne Rasse nur der Name');
+});
+test('migriereBelegstellen: alte Freitext-Belegstelle wird Datensatz + verknüpft, ohne Dubletten', async (w) => {
+  // zwei Königinnen mit derselben Freitext-Belegstelle, eine Zuchtserie mit anderer
+  const q1 = await w.DB.put('koeniginnen', { kennung: 'BM-1', jahrgang: 2026, status: 'aktiv', historie: [], anpaarung: 'belegstelle', belegstelle: 'Belegstelle Wangerooge' });
+  const q2 = await w.DB.put('koeniginnen', { kennung: 'BM-2', jahrgang: 2026, status: 'aktiv', historie: [], anpaarung: 'belegstelle', belegstelle: 'belegstelle wangerooge' }); // andere Schreibung
+  const zs = await w.DB.put('zuchtserien', { name: 'BM-Serie', startdatum: '2026-05-01', anzahl: 5, termine: [], anpaarung: 'belegstelle', belegstelle: 'Belegstelle Spiekeroog' });
+  const vorher = (await w.DB.getAll('belegstellen')).length;
+  await w.S.set('belegstellenMigriert', false);
+  await w.migriereBelegstellen();
+  const alle = await w.DB.getAll('belegstellen');
+  const wanger = alle.filter((b) => b.name.toLowerCase() === 'belegstelle wangerooge');
+  assertEq(wanger.length, 1, 'gleiche Belegstelle (Groß/klein) nur einmal angelegt');
+  assertEq(alle.length, vorher + 2, 'zwei neue Belegstellen (Wangerooge + Spiekeroog)');
+  assertEq((await w.DB.get('koeniginnen', q1.id)).belegstelleId, wanger[0].id, 'q1 verknüpft');
+  assertEq((await w.DB.get('koeniginnen', q2.id)).belegstelleId, wanger[0].id, 'q2 auf dieselbe Belegstelle verknüpft');
+  assert((await w.DB.get('zuchtserien', zs.id)).belegstelleId, 'Zuchtserie verknüpft');
+});
+test('migriereBelegstellen: läuft nur einmal (Flag)', async (w) => {
+  await w.S.set('belegstellenMigriert', true);
+  const q = await w.DB.put('koeniginnen', { kennung: 'BM-3', jahrgang: 2026, status: 'aktiv', historie: [], anpaarung: 'belegstelle', belegstelle: 'Nicht migrieren' });
+  await w.migriereBelegstellen();
+  assertEq((await w.DB.get('koeniginnen', q.id)).belegstelleId, undefined, 'bei gesetztem Flag keine erneute Migration');
+});
+test('Zucht-Formular: Belegstelle ist Auswahl aus der Liste + „neu anlegen“-Shortcut', async (w) => {
+  const bs = await w.DB.put('belegstellen', { name: 'Auswahl-Belegstelle', rasse: 'Buckfast', ort: '', betreiber: '', notiz: '' });
+  await w.Views.koeniginnen.form(null);
+  await new Promise((r) => setTimeout(r, 80));
+  try {
+    const sel = w.document.getElementById('f-belegstelleId');
+    assert(sel && sel.tagName === 'SELECT', 'Belegstelle ist ein Auswahlfeld (nicht mehr Freitext)');
+    assert([...sel.options].some((o) => o.value === bs.id), 'die angelegte Belegstelle steht zur Auswahl');
+    const wrap = sel.closest('[data-field="belegstelleId"]');
+    assert([...wrap.querySelectorAll('button')].some((b) => /Belegstelle anlegen/.test(b.textContent)), 'Shortcut zum Neu-Anlegen ist vorhanden');
+  } finally {
+    w.FormGuard.dirty = false;
+    const back = w.document.querySelector('#modal-root .modal-back:last-child [data-cancel]') || w.document.querySelector('#modal-root [data-close]');
+    if (back) back.click();
+  }
+});
+test('listenwertNeuShortcut: neuer Wert landet in der Einstellungs-Liste und im Feld', async (w) => {
+  const vorher = [...w.S.get('honigsorten')];
+  const neu = 'Testhonig ' + vorher.length; // eindeutig
+  // Minimales Feld-Markup wie im formModal (suggest = combo)
+  const host = w.document.createElement('div');
+  host.innerHTML = `<div class="field" data-field="sorte"><label>Honigsorte</label><div class="combo"><input class="inp combo-inp" id="f-sorte" value=""><div class="combo-list"></div></div><div class="err"></div></div>`;
+  w.document.body.appendChild(host);
+  const m = { el: host };
+  w.listenwertNeuShortcut(m, 'sorte', 'honigsorten', { label: 'Neue Honigsorte anlegen', titel: 'Neue Honigsorte', platzhalter: '' });
+  const btn = host.querySelector('button');
+  assert(btn && /Honigsorte anlegen/.test(btn.textContent), 'Shortcut-Button eingefügt');
+  btn.click();
+  await new Promise((r) => setTimeout(r, 60));
+  const eingabe = w.document.querySelector('#modal-root .modal-back:last-child #f-wert');
+  assert(eingabe, 'Eingabe-Dialog offen');
+  eingabe.value = neu; eingabe.dispatchEvent(new Event('input'));
+  const ok = w.document.querySelector('#modal-root .modal-back:last-child [data-save]');
+  ok.click();
+  await new Promise((r) => setTimeout(r, 80));
+  assert(w.S.get('honigsorten').includes(neu), 'neue Honigsorte in der Einstellungs-Liste gespeichert');
+  assertEq(w.document.getElementById('f-sorte').value, neu, 'und im Feld ausgewählt');
+  host.remove();
+  await w.S.set('honigsorten', vorher); // aufräumen
+});
+
 /* ---------- Verkauf: Lagerabzug + Kassenbuch-Automatik ---------- */
 test('verkaufErfassen: mindert Abfüllungs-Bestand, bucht Einnahme, lehnt Überverkauf ab', async (w) => {
   const c = await w.DB.put('chargen', { losnummer: 'T-01', ernteIds: [], mengeKg: 5, mhd: '', etikettNotiz: '' });
