@@ -305,6 +305,19 @@ select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="
 .sheet-grid button:hover{background:var(--card2)}
 .sheet-grid .sg-ic{width:44px;height:44px;border-radius:14px;background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center}
 .sheet-grid .sg-ic svg{width:21px;height:21px}
+/* ---- Zucht-Stammbaum: Mutterlinie als durchgehendes Rückgrat, Drohnenvölker
+   als einklappbare Seitenzweige. Nur das Rückgrat ist immer sichtbar – damit
+   bleibt auch Generation 9 eine lesbare Liste statt 1.023 Kästchen. ---- */
+.sb-node{display:flex;align-items:center;gap:7px;padding:4px 0;padding-left:9px;border-left:2px solid var(--line);font-size:13.5px}
+.sb-node.sb-mut{border-left-color:var(--honey)}
+.sb-gen{font-size:10.5px;color:var(--muted);min-width:15px;flex:0 0 auto}
+.sb-spacer{width:22px;flex:0 0 auto}
+.sb-inhalt{min-width:0;overflow-wrap:anywhere}
+.sb-node .badge{flex:0 0 auto}
+.sb-tog{width:22px;height:22px;flex:0 0 auto;border:1px solid var(--line2);border-radius:7px;font-size:12px;line-height:1;color:var(--text);background:var(--card2)}
+.sb-zweig{background:var(--card2);border-radius:10px;padding:2px 0;margin:3px 0}
+.sb-tiefe{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sb-tiefe input[type=range]{flex:1 1 120px;max-width:220px}
 /* ---- Startbildschirm: Waben-Ladeanimation bei jedem App-Start ----
    Nachgezeichnet aus "Load HIVE" (LottieFiles): 7 Sechsecke, ein oranges Leuchten
    wandert im Uhrzeigersinn herum, jede Wabe schrumpft dabei kurz von 110 % auf 104 %.
@@ -670,8 +683,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.98';
+const APP_VERSION = '0.99';
 const CHANGELOG = [
+  { version: '0.99', datum: '2026-07-22', punkte: [
+    'Zucht-Stammbaum neu dargestellt: Die Mutterlinie läuft jetzt als durchgehende Liste, jedes Drohnenvolk hängt als Zweig daran und lässt sich mit „+“ aufklappen – so bleibt der Stammbaum auch über viele Generationen lesbar.',
+    'Neuer Regler „Generationen“ (2 bis 9): Du bestimmst selbst, wie weit zurück angezeigt wird. Darunter steht, wie weit deine Mutterlinie tatsächlich reicht.',
+  ] },
   { version: '0.98', datum: '2026-07-22', punkte: [
     'Beispieldaten enthalten jetzt drei Belegstellen (Norderney, Baltrum, Gehlberg) mit Leiter und teils Koordinaten – so lässt sich die Belegstellen-Auswahl in der Zucht besser ausprobieren.',
   ] },
@@ -3305,7 +3322,11 @@ Views.koeniginnen = {
     const [farbe, hex] = queenColor(q.jahrgang);
     const hist = U.sortBy(q.historie || [], (h) => h.von, true);
     const qm = await idMap('koeniginnen');
-    const stammbaum = koeniginStammbaumHtml(q, qm);
+    // Stammbaum-Zustand überlebt das Neuzeichnen (Tiefe + aufgeklappte Drohnen-Zweige)
+    const V = Views.koeniginnen;
+    if (!V._sbTiefe) V._sbTiefe = 5;
+    if (!V._sbOffen) V._sbOffen = new Set();
+    const stammbaum = koeniginStammbaumHtml(q, qm, V._sbTiefe, V._sbOffen);
     // Gleiche Begriffe/Struktur wie im Bearbeiten-Formular: Drohnenlinie = Anpaarungsart,
     // darunter je nach Wahl die Belegstelle ODER das Vatervolk (nicht beides, nichts doppelt).
     const anpaarungMethode = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Künstliche Besamung' }[q.anpaarung] || '–';
@@ -3332,7 +3353,12 @@ Views.koeniginnen = {
         ${hatBewertung ? `<h3 class="mb8">Bewertung${note ? ` · Zuchtnote ⌀ ${U.fmtNum(note, 1)}` : ''}</h3>
         <div class="detail-kv mb12">${bewZeile('Sanftmut', b.sanftmut)}${bewZeile('Wabensitz', b.wabensitz)}${bewZeile('Schwarmträgheit', b.schwarm)}${bewZeile('Volksentwicklung', b.entwicklung)}<dt>Honigertrag</dt><dd>${b.honigKg != null ? U.fmtNum(b.honigKg) + ' kg' : '–'}</dd></div>` : ''}
         <h3 class="mb8">Zucht-Stammbaum</h3>
-        <div class="mb12">${stammbaum}</div>
+        <div class="sb-tiefe mb8 no-print">
+          <span class="small muted">Generationen</span>
+          <input type="range" id="sb-tiefe" min="2" max="9" step="1" value="${V._sbTiefe}">
+          <span class="small"><b id="sb-tiefe-out">${V._sbTiefe}</b></span>
+        </div>
+        <div class="mb12" id="sb-box">${stammbaum}</div>
         <h3 class="mb8">Zuordnungshistorie</h3>
         <div class="rows mb8">${hist.map((h) => `<button class="row" style="min-height:42px;padding:8px 4px" data-hist="${(q.historie || []).indexOf(h)}">
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(h.volkId)?.name || 'gelöschtes Volk')}${!h.bis ? ' <span class="badge b-ok">aktuell</span>' : ''}</span>
@@ -3345,6 +3371,16 @@ Views.koeniginnen = {
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.koeniginnen.form(q); };
     $('[data-hist-add]', m.el).onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, null); };
     $$('[data-hist]', m.el).forEach((b) => { b.onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, +b.dataset.hist); }; });
+    /* Stammbaum: Tiefe schieben und Drohnen-Zweige auf-/zuklappen – nur der Baum wird neu gezeichnet */
+    const sbBox = $('#sb-box', m.el);
+    const sbZeichnen = () => { sbBox.innerHTML = koeniginStammbaumHtml(q, qm, V._sbTiefe, V._sbOffen); };
+    $('#sb-tiefe', m.el).oninput = (e) => { V._sbTiefe = +e.target.value; $('#sb-tiefe-out', m.el).textContent = V._sbTiefe; sbZeichnen(); };
+    sbBox.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sbz]'); if (!b) return;
+      const k = b.dataset.sbz;
+      if (V._sbOffen.has(k)) V._sbOffen.delete(k); else V._sbOffen.add(k);
+      sbZeichnen();
+    });
   },
 
   /** Zuordnungs-Historie einer Königin von Hand pflegen (anlegen/ändern/löschen).
@@ -3585,32 +3621,75 @@ function zuchtNote(b) {
   return w.length ? Math.round((w.reduce((a, n) => a + n, 0) / w.length) * 10) / 10 : 0;
 }
 /** Beidseitiger Stammbaum: Mutterlinie (2a) UND Vaterlinie (4a/Belegstelle) aufwärts + Töchter. */
-function koeniginStammbaumHtml(q, qm) {
+function koeniginStammbaumHtml(q, qm, tiefe = 5, offen = new Set()) {
   const alle = [...qm.values()];
-  // Ahnenlinie aufwärts – jede Ebene mit Mutter (2a) und Vaterseite (4a)
-  const ahnHtml = (k, tiefe, gesehen) => {
-    if (!k || tiefe > 4 || gesehen.has(k.id)) return '';
-    gesehen.add(k.id);
-    const mutter = k.mutterId ? qm.get(k.mutterId) : null;
-    const vater = k.vatervolkId ? qm.get(k.vatervolkId) : null;
-    const zeilen = [];
-    if (mutter) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--muted)">♀ Mutter:</span> ${koeniginLabel(mutter)}${ahnHtml(mutter, tiefe + 1, gesehen)}</div>`);
-    if (vater) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--blue)">♂ Vaterseite:</span> ${koeniginLabel(vater)}${ahnHtml(vater, tiefe + 1, gesehen)}</div>`);
-    else if (k.anpaarung === 'belegstelle' && k.belegstelle) zeilen.push(`<div style="padding:2px 0"><span style="color:var(--blue)">♂ Vaterseite:</span> ${U.esc(k.belegstelle)} <span class="muted">(Belegstelle)</span></div>`);
-    return zeilen.length ? `<div class="small" style="margin-left:14px;border-left:2px solid var(--line);padding-left:12px;margin-top:2px">${zeilen.join('')}</div>` : '';
+  const einr = (g) => `margin-left:${Math.min(g, 9) * 10}px`;
+  /** eine Zeile im Rückgrat bzw. Seitenzweig */
+  const zeile = (g, rolle, inhalt, knopf = '') => {
+    const mut = rolle === 'Mutter';
+    return `<div class="sb-node${mut ? ' sb-mut' : ''}" style="${einr(g)}">
+      ${knopf || '<span class="sb-spacer"></span>'}
+      <span class="sb-gen">${g}.</span>
+      <span class="badge ${mut ? 'b-honey' : 'b-muted'}">${rolle}</span>
+      <span class="sb-inhalt">${inhalt}</span></div>`;
+  };
+  /** Seitenzweig eines Drohnenvolks: dessen eigene Mutterlinie, zwei Ebenen tief */
+  const zweigHtml = (k, gStart) => {
+    const out = [];
+    let c = k; const gesehen = new Set([k.id]);
+    for (let i = 0; i < 2; i++) {
+      const m2 = c.mutterId ? qm.get(c.mutterId) : null;
+      const v2 = c.vatervolkId ? qm.get(c.vatervolkId) : null;
+      if (m2) out.push(zeile(gStart + i, 'Mutter', koeniginLabel(m2)));
+      if (v2) out.push(zeile(gStart + i, 'Drohnenvolk', koeniginLabel(v2)));
+      else if (c.anpaarung === 'belegstelle' && c.belegstelle) out.push(zeile(gStart + i, 'Belegstelle', U.esc(c.belegstelle)));
+      if (!m2 || gesehen.has(m2.id)) break;
+      gesehen.add(m2.id); c = m2;
+    }
+    return `<div class="sb-zweig">${out.length ? out.join('')
+      : `<div class="sb-node" style="${einr(gStart)}"><span class="sb-spacer"></span><span class="small muted">keine weitere Abstammung erfasst</span></div>`}</div>`;
+  };
+  /** Rückgrat: Mutterlinie durchgehend, je Generation das Drohnenvolk als Zweig */
+  const ahnHtml = () => {
+    const rows = [];
+    let cur = q; const gesehen = new Set([q.id]);
+    let generationen = 0;
+    for (let g = 1; g <= tiefe; g++) {
+      const mutter = cur.mutterId ? qm.get(cur.mutterId) : null;
+      const vater = cur.vatervolkId ? qm.get(cur.vatervolkId) : null;
+      const beleg = cur.anpaarung === 'belegstelle' && cur.belegstelle ? cur.belegstelle : '';
+      if (!mutter && !vater && !beleg) break;
+      generationen = g;
+      if (mutter) rows.push(zeile(g, 'Mutter', koeniginLabel(mutter)));
+      if (vater) {
+        const key = 'v' + vater.id + '-' + g;
+        const auf = offen.has(key);
+        rows.push(zeile(g, 'Drohnenvolk', koeniginLabel(vater),
+          `<button type="button" class="sb-tog" data-sbz="${key}" title="${auf ? 'Zweig zuklappen' : 'Abstammung des Drohnenvolks zeigen'}">${auf ? '−' : '+'}</button>`));
+        if (auf) rows.push(zweigHtml(vater, g + 1));
+      } else if (beleg) {
+        rows.push(zeile(g, 'Belegstelle', U.esc(beleg)));
+      }
+      if (!mutter || gesehen.has(mutter.id)) break;
+      gesehen.add(mutter.id); cur = mutter;
+    }
+    return { html: rows.join(''), generationen };
   };
   // Töchter rekursiv (Mutterlinie abwärts)
-  const toechterHtml = (mutterId, tiefe) => {
-    if (tiefe > 3) return '';
+  const toechterHtml = (mutterId, t) => {
+    if (t > 3) return '';
     const kinder = U.sortBy(alle.filter((k) => k.mutterId === mutterId), (k) => k.jahrgang, true);
     if (!kinder.length) return '';
-    return `<div style="margin-left:14px;border-left:2px solid var(--line);padding-left:12px">${kinder.map((k) => `<div class="small" style="padding:3px 0">${koeniginLabel(k)}${k.status !== 'aktiv' ? ` <span class="badge b-muted">${U.esc(k.status)}</span>` : ''}${toechterHtml(k.id, tiefe + 1)}</div>`).join('')}</div>`;
+    return `<div style="margin-left:14px;border-left:2px solid var(--line);padding-left:12px">${kinder.map((k) => `<div class="small" style="padding:3px 0">${koeniginLabel(k)}${k.status !== 'aktiv' ? ` <span class="badge b-muted">${U.esc(k.status)}</span>` : ''}${toechterHtml(k.id, t + 1)}</div>`).join('')}</div>`;
   };
-  const ahnen = ahnHtml(q, 1, new Set());
+  const { html: ahnen, generationen } = ahnHtml();
   const toechter = toechterHtml(q.id, 1);
-  const dieseHtml = `<div class="kpill" style="font-weight:700">${koeniginLabel(q)} <span class="badge b-honey">diese</span></div>`;
-  if (!ahnen && !toechter) return `<div class="small muted">Noch kein Stammbaum: Trage bei „Bearbeiten“ Mutter und Vaterseite ein, oder lege Töchter mit dieser Königin als Mutter an.</div>`;
-  return `${ahnen ? `<div class="small muted mb4">Abstammung:</div>${ahnen}<div class="mt8"></div>` : ''}${dieseHtml}${toechter ? `<div class="small muted mt8 mb4">Nachkommen (Töchter):</div>${toechter}` : ''}`;
+  const kopf = `<div class="sb-node sb-mut" style="font-weight:700"><span class="sb-spacer"></span><span class="sb-gen">0.</span><span class="badge b-honey">diese</span><span class="sb-inhalt">${koeniginLabel(q)}</span></div>`;
+  if (!ahnen && !toechter) return `<div class="small muted">Noch kein Stammbaum: Trage bei „Bearbeiten“ Mutter und Drohnenlinie ein, oder lege Töchter mit dieser Königin als Mutter an.</div>`;
+  return `${ahnen
+    ? `<div class="small muted mb4">Abstammung – Mutterlinie läuft durch, Drohnenvölker mit „+“ aufklappen:</div>${kopf}${ahnen}
+       <div class="small muted mt4">Mutterlinie reicht ${generationen} ${generationen === 1 ? 'Generation' : 'Generationen'} zurück${generationen >= tiefe ? ' – Anzeigegrenze erreicht, Tiefe erhöhen' : ''}.</div>`
+    : kopf}${toechter ? `<div class="small muted mt8 mb4">Nachkommen (Töchter):</div>${toechter}` : ''}`;
 }
 
 /* =====================================================================

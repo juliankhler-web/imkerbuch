@@ -627,6 +627,37 @@ test('koeniginStammbaumHtml: Ahnenlinie aufwärts + Töchter', async (w) => {
   assert(html.includes('2026'), 'Tochter als Nachkomme');
   assert(html.includes('diese'), 'aktuelle Königin markiert');
 });
+test('koeniginStammbaumHtml: Mutterlinie als Rückgrat, Drohnenvolk als klappbarer Zweig', async (w) => {
+  const dm = await w.DB.put('koeniginnen', { kennung: 'SB-DM', jahrgang: 2022, status: 'aktiv', historie: [], mutterId: null });
+  const oma = await w.DB.put('koeniginnen', { kennung: 'SB-OMA', jahrgang: 2023, status: 'aktiv', historie: [], mutterId: null });
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'SB-MUT', jahrgang: 2024, status: 'aktiv', historie: [], mutterId: oma.id });
+  const q = await w.DB.put('koeniginnen', { kennung: 'SB-Q', jahrgang: 2025, status: 'aktiv', historie: [], mutterId: mutter.id, anpaarung: 'besamung', vatervolkId: dm.id });
+  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+
+  const zu = w.koeniginStammbaumHtml(q, qm, 5, new Set());
+  assert(zu.includes('SB-MUT') && zu.includes('SB-OMA'), 'Mutterlinie läuft durch: Mutter + Großmutter sichtbar');
+  assert(zu.includes('Drohnenvolk') && zu.includes('SB-DM'), 'Drohnenvolk als eigene Zeile');
+  assert(zu.includes('data-sbz='), 'Drohnenzweig hat einen Aufklapp-Knopf');
+  assertEq(zu.includes('sb-zweig'), false, 'Zweig ist zunächst zugeklappt');
+
+  const key = (zu.match(/data-sbz="([^"]+)"/) || [])[1];
+  assert(key, 'Zweig-Schlüssel gefunden');
+  const auf = w.koeniginStammbaumHtml(q, qm, 5, new Set([key]));
+  assert(auf.includes('sb-zweig'), 'aufgeklappter Zweig wird gerendert');
+  assert(auf.length > zu.length, 'aufgeklappt zeigt mehr als zugeklappt');
+});
+test('koeniginStammbaumHtml: Tiefe begrenzt die Generationen', async (w) => {
+  let vorherId = null;
+  for (let jg = 2018; jg <= 2026; jg++) vorherId = (await w.DB.put('koeniginnen', { kennung: 'TIEF-' + jg, jahrgang: jg, status: 'aktiv', historie: [], mutterId: vorherId })).id;
+  const q = await w.DB.get('koeniginnen', vorherId);
+  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  const zaehl = (html) => (html.match(/class="badge b-honey">Mutter</g) || []).length;
+  assertEq(zaehl(w.koeniginStammbaumHtml(q, qm, 2, new Set())), 2, 'Tiefe 2 → 2 Mutter-Zeilen');
+  assertEq(zaehl(w.koeniginStammbaumHtml(q, qm, 5, new Set())), 5, 'Tiefe 5 → 5 Mutter-Zeilen');
+  const tief = w.koeniginStammbaumHtml(q, qm, 9, new Set());
+  assert(zaehl(tief) >= 8, 'Tiefe 9 zeigt die ganze erfasste Linie: ' + zaehl(tief));
+  assert(w.koeniginStammbaumHtml(q, qm, 2, new Set()).includes('Anzeigegrenze erreicht'), 'Hinweis, wenn die Anzeige begrenzt ist');
+});
 test('koeniginStammbaumHtml: Zyklen brechen ab (kein Endlos)', async (w) => {
   const a = await w.DB.put('koeniginnen', { jahrgang: 2020, status: 'aktiv', historie: [], mutterId: null });
   const b = await w.DB.put('koeniginnen', { jahrgang: 2021, status: 'aktiv', historie: [], mutterId: a.id });
