@@ -683,8 +683,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.00';
+const APP_VERSION = '1.01';
 const CHANGELOG = [
+  { version: '1.01', datum: '2026-07-24', punkte: [
+    'Belegstelle neu aufgebaut: Zuerst die Herkunft (Buckfast, Carnica, Elgon, Ligustica, Mellifera, Landbiene/Mix), danach Name und aktuelle Drohnenlinie – die Vorschläge richten sich nach der gewählten Herkunft.',
+    'Unter der Herkunft steht jetzt, welche Stammbaum-Quelle es dafür überhaupt gibt: eigenes Datenpaket möglich (Buckfast/Elgon), nur Verlinkung zu BeeBreed (Carnica/Ligustica/Mellifera) oder gar kein Register (Landbiene/Mix).',
+    'Den Namen der Belegstelle kannst du frei eintippen oder aus einer Liste übernehmen; bei Übernahme aus dem Verzeichnis füllt die App Ort, Betreiber, Leiter und Koordinaten mit – aber nur leere Felder, deine Eingaben bleiben.',
+  ] },
   { version: '1.00', datum: '2026-07-24', punkte: [
     'Zuchtbuch-Kennungen werden jetzt erkannt: sowohl BeeBreed-Codes (z. B. DE-2-123-45-2024) als auch die Buckfast-Pedigree-Schreibweise (z. B. B66(TR) oder B22.2.07(KK)1dr) – inklusive mehrgenerationiger Abstammungszeilen.',
     'Beispieldaten enthalten jetzt eine Buckfast-Linie über 9 Generationen mit echten Pedigree-Kennungen – damit lässt sich der Stammbaum bis zum Anschlag ausprobieren.',
@@ -1245,6 +1250,10 @@ const S = {
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
+    /* Verzeichnis bekannter Belegstellen – Startpunkt leer. Füllt sich aus einer
+       Verbandsliste oder später aus einem Zuchtdatenbank-Paket. Einträge:
+       { name, herkunft, ort, betreiber, lat, lng, drohnenlinien: [] } */
+    belegstellenVerzeichnis: [],
     fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
@@ -1383,8 +1392,10 @@ const UI = {
     // Auswahl-Dropdowns (eigenes Combo statt <datalist>): tippen filtert, Tippen/Tap wählt
     $$('.combo', form).forEach((combo) => {
       const inp = $('.combo-inp', combo), list = $('.combo-list', combo);
-      const opts = $$('.combo-opt', list);
-      const zeigen = (test) => { let sichtbar = false; opts.forEach((o) => { const zeig = test(o); o.style.display = zeig ? '' : 'none'; if (zeig) sichtbar = true; }); list.style.display = sichtbar ? '' : 'none'; };
+      // Optionen bei JEDEM Zugriff neu lesen – sie können sich zur Laufzeit ändern
+      // (abhängige Auswahl wie Herkunft → Drohnenlinie, oder „neu anlegen“-Shortcut).
+      const opts = () => $$('.combo-opt', list);
+      const zeigen = (test) => { let sichtbar = false; opts().forEach((o) => { const zeig = test(o); o.style.display = zeig ? '' : 'none'; if (zeig) sichtbar = true; }); list.style.display = sichtbar ? '' : 'none'; };
       const alleZeigen = () => zeigen(() => true); // beim Antippen: ganze Liste (auch zum Wechseln)
       const filtern = () => { const q = inp.value.trim().toLowerCase(); zeigen((o) => !q || o.textContent.toLowerCase().includes(q)); }; // beim Tippen: filtern
       inp.addEventListener('focus', alleZeigen);
@@ -2579,12 +2590,35 @@ function openStandForm(stand, onDone) {
   bindGeoButton(m);
 }
 
+/* Startvorschläge für Drohnenlinien je Herkunft. Bewusst klein gehalten – nur
+   allgemein etablierte Linien. Alles Weitere lernt die App aus deinen Einträgen
+   oder kommt später aus einem Zuchtdatenbank-Paket. */
+const DROHNENLINIEN_START = {
+  Carnica: ['Carnica Celle', 'Carnica Peschetz', 'Carnica Singer', 'Carnica Sklenar', 'Carnica Troiseck'],
+};
+/* Welche Stammbaum-Quelle es je Herkunft überhaupt gibt. Das Formular sagt damit
+   ehrlich, was möglich ist, statt leere Auswahllisten anzubieten.
+   Belegt: Kehrle-Register (Buckfast; Königinnen ab 2023 Apimondia Open Source),
+   BeeBreed des Leibniz-Instituts (Carnica/Mellifera/Ligustica; proprietär, kein Export). */
+const BEEBREED_URL = 'https://www2.hu-berlin.de/beebreed/ZWS/';
+const ZUCHTDB_QUELLEN = {
+  'Buckfast': { art: 'paket', text: 'Stammbäume liegen im Kehrle-Register. Königinnen ab 2023 stehen unter Apimondia-Open-Source-Lizenz – ein Datenpaket ist möglich, sobald ein Export vorliegt.' },
+  'Elgon': { art: 'paket', text: 'Elgon läuft im Buckfast-Pedigree-System (Kürzel „EL“ statt „B“) – dasselbe Paket deckt es mit ab.' },
+  'Carnica': { art: 'link', text: 'In BeeBreed geführt (Stammbaum-Browser), aber ohne Datenexport – die App kann nur dorthin verlinken.' },
+  'Ligustica (Italiener)': { art: 'link', text: 'In BeeBreed geführt, ohne Datenexport – nur Verlinkung möglich.' },
+  'Mellifera (Dunkle Biene)': { art: 'link', text: 'In BeeBreed geführt, ohne Datenexport. SICAMM ist Dachverband ohne offene Stammbaum-Datenbank – nur Verlinkung.' },
+  'Landbiene/Mix': { art: 'keins', text: 'Kein Zuchtregister – eine Mischbiene hat keine standardisierte Abstammung. Hier zählt allein deine eigene Erfassung.' },
+};
+function zuchtdbQuelle(herkunft) { return ZUCHTDB_QUELLEN[String(herkunft || '').trim()] || null; }
+
 /* Belegstelle = Ort zur kontrollierten Anpaarung (Standbegattung mit anerkannter Drohnenlinie).
-   Eigener Datensatz, damit man sie einmal anlegt und in der Zucht bequem auswählt. */
-function belegstelleFormFields(rasseOpts, drohnenlinieOpts) {
+   Eigener Datensatz, damit man sie einmal anlegt und in der Zucht bequem auswählt.
+   Feldfolge nach Julians Vorgabe: Herkunft steuert Name und Drohnenlinie. */
+function belegstelleFormFields(rasseOpts, drohnenlinieOpts, nameOpts) {
   return [
-    { key: 'name', label: 'Name der Belegstelle', required: true, placeholder: 'z. B. Belegstelle Norderney' },
-    { key: 'rasse', label: 'Herkunft', type: 'suggest', options: rasseOpts || VORSCHLAEGE.rasse, hint: 'Rasse / Herkunft der Anlage – z. B. Carnica, Buckfast.' },
+    { key: 'rasse', label: 'Herkunft', type: 'suggest', options: rasseOpts || VORSCHLAEGE.rasse, placeholder: 'z. B. Buckfast, Carnica …', hint: 'Zuerst die Rasse – sie steuert die Vorschläge darunter.' },
+    { key: 'quelle', type: 'static', html: '<div data-beleg-quelle class="hint"></div>' },
+    { key: 'name', label: 'Name der Belegstelle', required: true, type: 'suggest', options: nameOpts || [], placeholder: 'eigenen Namen eintippen oder wählen …', hint: 'Frei eintippen – oder eine bekannte aus der Liste übernehmen.' },
     { key: 'drohnenlinie', label: 'Aktuelle Drohnenlinie', type: 'suggest', options: drohnenlinieOpts || [], placeholder: 'z. B. Carnica Sklenar', hint: 'Die aktuell angebotene Drohnenlinie – frei eintragen; einmal erfasste Linien stehen künftig als Vorschlag bereit.' },
     { key: 'ort', label: 'Ort / Anschrift der Belegstelle', placeholder: 'z. B. Insel Norderney' },
     { key: 'geo', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" data-geo>${icon('pin')} Aktuellen Standort übernehmen</button> <span class="small muted" data-geo-status></span>` },
@@ -2600,10 +2634,19 @@ function belegstelleFormFields(rasseOpts, drohnenlinieOpts) {
 }
 async function openBelegstelleForm(bs, onDone) {
   const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'belegstellen', 'rasse'); // Presets + bereits erfasste Herkünfte
-  const drohnenlinieOpts = await gelernteWerte([], 'belegstellen', 'drohnenlinie'); // bereits erfasste Drohnenlinien
+  const alleBeleg = await DB.getAll('belegstellen');
+  const verzeichnis = S.get('belegstellenVerzeichnis') || [];
+  const eigeneNamen = [...new Set(alleBeleg.map((b) => (b.name || '').trim()).filter(Boolean))];
+  const gelernteLinien = [...new Set(alleBeleg.map((b) => (b.drohnenlinie || '').trim()).filter(Boolean))];
+  /** bereits erfasste Linien – zur gewählten Herkunft passend, sonst alle */
+  const linienZuHerkunft = (h) => {
+    if (!h) return gelernteLinien;
+    const passend = alleBeleg.filter((b) => !b.rasse || (b.rasse || '').trim() === h).map((b) => (b.drohnenlinie || '').trim()).filter(Boolean);
+    return passend.length ? [...new Set(passend)] : [];
+  };
   const m = UI.formModal({
     title: bs ? 'Belegstelle bearbeiten' : 'Neue Belegstelle',
-    fields: belegstelleFormFields(rasseOpts, drohnenlinieOpts), values: bs || {},
+    fields: belegstelleFormFields(rasseOpts, gelernteLinien, eigeneNamen), values: bs || {},
     async onSave(v) {
       const saved = await DB.put('belegstellen', Object.assign(bs || {}, {
         name: (v.name || '').trim(), rasse: (v.rasse || '').trim(), drohnenlinie: (v.drohnenlinie || '').trim(), ort: (v.ort || '').trim(), lat: v.lat, lng: v.lng, betreiber: (v.betreiber || '').trim(),
@@ -2630,6 +2673,45 @@ async function openBelegstelleForm(bs, onDone) {
   $('#f-lat', m.el).addEventListener('input', refreshKarte);
   $('#f-lng', m.el).addEventListener('input', refreshKarte);
   refreshKarte();
+
+  /* Kaskade: die Herkunft steuert den Quellen-Hinweis und die Vorschläge
+     für Name und Drohnenlinie. Freies Eintippen bleibt überall möglich. */
+  const fRasse = $('#f-rasse', m.el), fName = $('#f-name', m.el);
+  const quelleBox = $('[data-beleg-quelle]', m.el);
+  const comboFuellen = (key, werte) => {
+    const inp = $(`#f-${key}`, m.el); if (!inp) return;
+    const liste = $('.combo-list', inp.closest('.combo')); if (!liste) return;
+    liste.innerHTML = optionenSortiert([...new Set(werte.filter(Boolean))], true)
+      .map((o) => `<div class="combo-opt" data-v="${U.esc(o)}">${U.esc(o)}</div>`).join('');
+  };
+  const kaskade = () => {
+    const h = (fRasse.value || '').trim();
+    const q = zuchtdbQuelle(h);
+    quelleBox.innerHTML = !h
+      ? 'Wähle zuerst die Herkunft – danach passen die Vorschläge darunter.'
+      : q
+        ? `${U.esc(q.text)}${q.art === 'link' ? ` <a href="${BEEBREED_URL}" target="_blank" rel="noopener">BeeBreed öffnen</a>` : ''}`
+        : 'Zu dieser Herkunft ist keine Stammbaum-Datenbank bekannt – hier zählt deine eigene Erfassung.';
+    const ausVerzeichnis = verzeichnis.filter((e) => !h || !e.herkunft || e.herkunft === h).map((e) => e.name);
+    comboFuellen('name', [...eigeneNamen, ...ausVerzeichnis]);
+    const linienDerStelle = verzeichnis.filter((e) => e.name === fName.value.trim()).flatMap((e) => e.drohnenlinien || []);
+    comboFuellen('drohnenlinie', [...(DROHNENLINIEN_START[h] || []), ...linienZuHerkunft(h), ...linienDerStelle]);
+  };
+  fRasse.addEventListener('input', kaskade);
+  /* Name aus dem Verzeichnis übernommen → leere Felder ergänzen, nie überschreiben */
+  fName.addEventListener('input', () => {
+    const treffer = verzeichnis.find((e) => e.name === fName.value.trim());
+    if (!treffer) return;
+    const wennLeer = (key, wert) => { const el = $(`#f-${key}`, m.el); if (el && !el.value && wert) el.value = wert; };
+    if (!fRasse.value && treffer.herkunft) fRasse.value = treffer.herkunft;
+    wennLeer('ort', treffer.ort); wennLeer('betreiber', treffer.betreiber);
+    wennLeer('leiterName', treffer.leiterName); wennLeer('leiterAdresse', treffer.leiterAdresse);
+    if (treffer.lat != null) wennLeer('lat', U.fmtNum(treffer.lat, 5));
+    if (treffer.lng != null) wennLeer('lng', U.fmtNum(treffer.lng, 5));
+    wennLeer('drohnenlinie', (treffer.drohnenlinien || [])[0]);
+    kaskade(); refreshKarte(); FormGuard.dirty = true;
+  });
+  kaskade();
 }
 /** Kurzlabel einer Belegstelle: Name, bei Bedarf mit aktueller Drohnenlinie (sonst Herkunft). */
 function belegstelleLabel(b) { if (!b) return ''; const zus = b.drohnenlinie || b.rasse; return zus ? `${b.name} · ${zus}` : b.name; }
@@ -8983,7 +9065,7 @@ Object.assign(window, {
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
-  kennungParse, kennungJahr,
+  kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 

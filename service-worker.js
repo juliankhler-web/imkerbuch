@@ -2,7 +2,7 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v105';
+const CACHE = 'imkerbuch-v106';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/xlsx.full.min.js'];

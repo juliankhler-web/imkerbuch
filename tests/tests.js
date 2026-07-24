@@ -614,6 +614,49 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- Belegstelle: Herkunft steuert Quelle und Vorschläge ---------- */
+test('zuchtdbQuelle: je Herkunft die richtige Stammbaum-Quelle', (w) => {
+  assertEq(w.zuchtdbQuelle('Buckfast').art, 'paket', 'Buckfast: eigenes Paket möglich (Kehrle, ab 2023 open source)');
+  assertEq(w.zuchtdbQuelle('Elgon').art, 'paket', 'Elgon läuft im Buckfast-System');
+  assertEq(w.zuchtdbQuelle('Carnica').art, 'link', 'Carnica: BeeBreed ohne Export → nur Verlinkung');
+  assertEq(w.zuchtdbQuelle('Ligustica (Italiener)').art, 'link');
+  assertEq(w.zuchtdbQuelle('Mellifera (Dunkle Biene)').art, 'link');
+  assertEq(w.zuchtdbQuelle('Landbiene/Mix').art, 'keins', 'Mischbiene: kein Register');
+  assertEq(w.zuchtdbQuelle('Phantasierasse'), null, 'Unbekanntes ergibt keine Quelle');
+  assertEq(w.zuchtdbQuelle(''), null);
+  assertEq(w.zuchtdbQuelle('  Carnica  ').art, 'link', 'Leerzeichen werden ignoriert');
+});
+test('zuchtdbQuelle: alle Herkünfte aus der Vorschlagsliste sind abgedeckt', (w) => {
+  const ohne = w.VORSCHLAEGE.rasse.filter((r) => !w.zuchtdbQuelle(r));
+  assertEq(ohne, [], 'keine Herkunft ohne Quellen-Angabe: ' + ohne.join(', '));
+});
+test('Belegstelle-Formular: Reihenfolge Herkunft → Name → Drohnenlinie', async (w) => {
+  await w.openBelegstelleForm(null);
+  await new Promise((r) => setTimeout(r, 120));
+  try {
+    const el = w.document.querySelector('#modal-root .modal-back:last-child');
+    const felder = [...el.querySelectorAll('[data-field]')].map((f) => f.dataset.field);
+    assertEq(felder.slice(0, 4), ['rasse', 'quelle', 'name', 'drohnenlinie'], 'Herkunft zuerst, dann Quellenhinweis, Name, Drohnenlinie');
+    assert(el.querySelector('[data-beleg-quelle]'), 'Quellen-Hinweis vorhanden');
+    // Herkunft wechseln → Hinweis folgt
+    const fR = el.querySelector('#f-rasse');
+    fR.value = 'Carnica'; fR.dispatchEvent(new Event('input'));
+    const box = el.querySelector('[data-beleg-quelle]');
+    assert(/BeeBreed/.test(box.textContent), 'Carnica nennt BeeBreed: ' + box.textContent.slice(0, 40));
+    assert(box.querySelector('a'), 'bei „nur Verlinkung“ gibt es einen Link');
+    fR.value = 'Buckfast'; fR.dispatchEvent(new Event('input'));
+    assert(/Kehrle/.test(box.textContent), 'Buckfast nennt das Kehrle-Register');
+    assertEq(!!box.querySelector('a'), false, 'bei eigenem Paket kein BeeBreed-Link');
+    // Drohnenlinien-Vorschläge folgen der Herkunft
+    const linien = (h) => { fR.value = h; fR.dispatchEvent(new Event('input')); return [...el.querySelector('#f-drohnenlinie').closest('.combo').querySelectorAll('.combo-opt')].map((o) => o.dataset.v); };
+    assert(linien('Carnica').includes('Carnica Sklenar'), 'Carnica bringt Startvorschläge');
+    assertEq(linien('Landbiene/Mix').some((l) => /^Carnica/.test(l)), false, 'unter Landbiene keine Carnica-Linien');
+  } finally {
+    w.FormGuard.dirty = false;
+    (w.document.querySelector('#modal-root .modal-back:last-child [data-cancel]') || w.document.querySelector('#modal-root [data-close]'))?.click();
+  }
+});
+
 /* ---------- Zuchtbuch-Kennungen: BeeBreed + Buckfast-Pedigree ---------- */
 test('kennungParse: BeeBreed-Code = Länderkürzel + 4 Zahlen', (w) => {
   const p = w.kennungParse('DE-2-123-45-2024');
