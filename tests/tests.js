@@ -614,6 +614,56 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- Zuchtbuch-Kennungen: BeeBreed + Buckfast-Pedigree ---------- */
+test('kennungParse: BeeBreed-Code = Länderkürzel + 4 Zahlen', (w) => {
+  const p = w.kennungParse('DE-2-123-45-2024');
+  assertEq(p.system, 'beebreed');
+  assertEq(p.land, 'DE'); assertEq(p.verband, 2); assertEq(p.zuechter, 123);
+  assertEq(p.zuchtbuch, 45); assertEq(p.jahrgang, 2024);
+  assertEq(p.verbandscode, 'DE-2', 'Verbandscode = Land + Verband (gilt je einer Rasse)');
+  assertEq(w.kennungParse('AT 5 7 12 2019').code, 'AT-5-7-12-2019', 'auch mit Leerzeichen getrennt');
+});
+test('kennungParse: Buckfast-Code mit Züchtercode', (w) => {
+  const p = w.kennungParse('B66(TR)');
+  assertEq(p.system, 'buckfast');
+  assertEq(p.rasseKuerzel, 'B'); assertEq(p.nummer, '66'); assertEq(p.zuechter, 'TR');
+  assertEq(p.generationen.length, 0, 'ohne „=“ keine Generationen');
+  assertEq(w.kennungParse('EL47(SE)').rasseKuerzel, 'EL', 'Elgon-Kürzel EL erkannt');
+});
+test('kennungParse: Kehrle-Schreibweise mit Jahr in der Nummer + Drohnenvolk-Marke', (w) => {
+  const p = w.kennungParse('B22.2.07(KK)1dr');
+  assertEq(p.system, 'buckfast');
+  assertEq(p.nummer, '22.2.07');
+  assertEq(p.jahrgang, 2007, 'Jahr aus der letzten Nummern-Komponente');
+  assertEq(p.istDrohnenvolk, true, '„1dr“ kennzeichnet ein Drohnenvolk');
+});
+test('kennungParse: mehrgenerationige Pedigree-Zeile zerlegen', (w) => {
+  const p = w.kennungParse('B66(TR)=.96-B173(TR)xB169(TR): .94-B2(TR)xB224(PJ)');
+  assertEq(p.code, 'B66(TR)', 'Kopf ist die Königin selbst');
+  assertEq(p.generationen.length, 2, 'zwei Generationen durch „:“ getrennt');
+  assertEq(p.generationen[0], { jahr: 1996, mutter: 'B173(TR)', vatervolk: 'B169(TR)', anpaarung: 'standbegattung' });
+  assertEq(p.generationen[1], { jahr: 1994, mutter: 'B2(TR)', vatervolk: 'B224(PJ)', anpaarung: 'standbegattung' });
+});
+test('kennungParse: „ins“ bedeutet künstliche Besamung', (w) => {
+  const p = w.kennungParse('B66(TR)=.20-B173(TR) ins B1(BW)');
+  assertEq(p.generationen[0].anpaarung, 'besamung');
+  assertEq(p.generationen[0].mutter, 'B173(TR)');
+  assertEq(p.generationen[0].vatervolk, 'B1(BW)');
+  assertEq(p.generationen[0].jahr, 2020);
+});
+test('kennungParse: Unsinn und Leeres ergeben null', (w) => {
+  assertEq(w.kennungParse(''), null);
+  assertEq(w.kennungParse('   '), null);
+  assertEq(w.kennungParse('irgendwas'), null);
+  assertEq(w.kennungParse('JK-26-014'), null, 'eigene freie Kennung ist kein Registercode');
+});
+test('kennungJahr: zweistellige Jahre sinnvoll auflösen', (w) => {
+  assertEq(w.kennungJahr('96'), 1996);
+  assertEq(w.kennungJahr('07'), 2007);
+  assertEq(w.kennungJahr('24'), 2024);
+  assertEq(w.kennungJahr('2024'), 2024);
+});
+
 /* ---------- Königinnen-Stammbaum ---------- */
 test('koeniginStammbaumHtml: Ahnenlinie aufwärts + Töchter', async (w) => {
   const oma = await w.DB.put('koeniginnen', { jahrgang: 2023, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: null });

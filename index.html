@@ -683,8 +683,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '0.99';
+const APP_VERSION = '1.00';
 const CHANGELOG = [
+  { version: '1.00', datum: '2026-07-24', punkte: [
+    'Zuchtbuch-Kennungen werden jetzt erkannt: sowohl BeeBreed-Codes (z. B. DE-2-123-45-2024) als auch die Buckfast-Pedigree-Schreibweise (z. B. B66(TR) oder B22.2.07(KK)1dr) – inklusive mehrgenerationiger Abstammungszeilen.',
+    'Beispieldaten enthalten jetzt eine Buckfast-Linie über 9 Generationen mit echten Pedigree-Kennungen – damit lässt sich der Stammbaum bis zum Anschlag ausprobieren.',
+  ] },
   { version: '0.99', datum: '2026-07-22', punkte: [
     'Zucht-Stammbaum neu dargestellt: Die Mutterlinie läuft jetzt als durchgehende Liste, jedes Drohnenvolk hängt als Zweig daran und lässt sich mit „+“ aufklappen – so bleibt der Stammbaum auch über viele Generationen lesbar.',
     'Neuer Regler „Generationen“ (2 bis 9): Du bestimmst selbst, wie weit zurück angezeigt wird. Darunter steht, wie weit deine Mutterlinie tatsächlich reicht.',
@@ -2242,6 +2246,25 @@ const Demo = {
     const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 26));
     const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id, { anpaarung: 'standbegattung', vatervolkId: qC.id });
 
+    /* Tiefe Buckfast-Linie über 9 Generationen, Kennungen in echter
+       Pedigree-Notation (B<Nr>.<Nr>.<Jahr>(Züchtercode)). Damit lässt sich der
+       Stammbaum bis zum Anschlag (Regler 9) und das Aufklappen der
+       Drohnenvölker mit realistischen Daten durchprobieren. */
+    let bfVorher = null;
+    for (let g = 9; g >= 0; g--) {
+      const jahr = Y - g, jj = String(jahr).slice(-2);
+      const dm = await DB.put('koeniginnen', {
+        kennung: `B${310 + g}.1.${jj}(KK)`, jahrgang: jahr, herkunft: 'Zukauf Züchter', linie: 'Buckfast', status: 'umgeweiselt',
+        historie: [], notiz: 'Drohnenmutter (4a) der Buckfast-Testlinie.', mutterId: null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null, bewertung: {},
+      });
+      const q = await DB.put('koeniginnen', {
+        kennung: `B${110 + g}.2.${jj}(JK)`, jahrgang: jahr, herkunft: 'Eigene Nachzucht', linie: 'Buckfast', status: g === 0 ? 'aktiv' : 'umgeweiselt',
+        historie: [], notiz: g === 0 ? 'Jüngste Königin der tiefen Buckfast-Testlinie.' : '', mutterId: bfVorher,
+        anpaarung: 'besamung', belegstelle: '', belegstelleId: null, vatervolkId: dm.id, bewertung: {},
+      });
+      bfVorher = q.id;
+    }
+
     const V = {};
     const VN = [
       ['Anna', Y - 4, st1, 'Zander', qB, 'Wirtschaftsvolk Zuchtstoff'], ['Berta', Y - 4, st1, 'Zander', qC, 'Pflegevolk Königin'],
@@ -3621,6 +3644,66 @@ function zuchtNote(b) {
   return w.length ? Math.round((w.reduce((a, n) => a + n, 0) / w.length) * 10) / 10 : 0;
 }
 /** Beidseitiger Stammbaum: Mutterlinie (2a) UND Vaterlinie (4a/Belegstelle) aufwärts + Töchter. */
+/* ---------------------------------------------------------------------
+   ZUCHTBUCH-KENNUNGEN: die zwei gängigen Systeme erkennen und zerlegen.
+
+   · BeeBreed (Carnica / Mellifera / Ligustica, Leibniz-Institut LIB):
+     Länderkürzel (ISO-3166-alpha-2) + VIER Zahlen – (Landes-)Verband,
+     Züchternummer, Zuchtbuchnummer, Jahrgang der Geburt. Beispiel
+     „DE-2-123-45-2024“. Wichtig: Ein Verbandscode (Land + Verband) gilt je
+     genau EINER Bienenrasse – ein Verband mit mehreren Rassen bekommt mehrere
+     Nummern. Belegstellencodes tragen zusätzlich das Jahr und sind nur für
+     dieses Jahr gültig; Besamercodes dagegen bleiben.
+     Bezeichnungen dort: 1a = geprüftes Volk, 2a = Mutterkönigin,
+     4a = Mutter der Drohnenvölker (= wie bei uns „Vatervolk (4a)“).
+
+   · Buckfast-Pedigree (Kehrle-Register / GdeB): Rassekürzel (B, EL, P …) +
+     Nummer + (Züchtercode), z. B. „B66(TR)“ oder „B22.2.07(KK)1dr“.
+     Abstammung steht in EINER Zeile:
+       B66(TR)=.96-B173(TR)xB169(TR): .94-B2(TR)xB224(PJ)
+     „=“ führt die Eltern ein · „x“ Anpaarung · „ins“ künstliche Besamung ·
+     „:“ trennt die Generationen · „.96-“ ist das Schlupfjahr der Generation.
+
+   Gespeichert werden weiterhin nur Kanten (mutterId / vatervolkId) – der
+   Parser dient dem Import und der Prüfung eingetippter Kennungen. --------- */
+const BUCKFAST_TEIL = /[A-Z]{1,3}\s*[0-9]+(?:\.[0-9]+)*\s*\([A-Za-z0-9]{1,5}\)/g;
+const BEEBREED_CODE = /^([A-Z]{2})[-\s.](\d{1,3})[-\s.](\d{1,4})[-\s.](\d{1,5})[-\s.](\d{4})$/;
+const BUCKFAST_CODE = /^([A-Z]{1,3})\s*([0-9]+(?:\.[0-9]+)*)\s*\(([A-Za-z0-9]{1,5})\)\s*(.*)$/;
+/** zweistellige Jahresangabe zu einer vollen Jahreszahl (96 → 1996, 07 → 2007) */
+function kennungJahr(j) { const n = +j; return String(j).length === 2 ? (n > 50 ? 1900 + n : 2000 + n) : n; }
+/** Erkennt das System und zerlegt die Kennung; null, wenn nichts passt. */
+function kennungParse(text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const bb = s.match(BEEBREED_CODE);
+  if (bb) return {
+    system: 'beebreed', code: `${bb[1]}-${bb[2]}-${bb[3]}-${bb[4]}-${bb[5]}`,
+    land: bb[1], verband: +bb[2], verbandscode: `${bb[1]}-${bb[2]}`,
+    zuechter: +bb[3], zuchtbuch: +bb[4], jahrgang: +bb[5],
+  };
+  const kopf = s.split('=')[0].trim();
+  const bf = kopf.match(BUCKFAST_CODE);
+  if (!bf) return null;
+  const res = {
+    system: 'buckfast', code: kopf, rasseKuerzel: bf[1], nummer: bf[2], zuechter: bf[3],
+    zusatz: (bf[4] || '').trim(), istDrohnenvolk: /dr\b/i.test(bf[4] || ''), jahrgang: null, generationen: [],
+  };
+  const nteile = bf[2].split('.'); // Kehrle-Schreibweise trägt das Jahr in der Nummer: B22.2.07
+  if (nteile.length >= 3) res.jahrgang = kennungJahr(nteile[nteile.length - 1]);
+  for (const teil of (s.includes('=') ? s.slice(s.indexOf('=') + 1) : '').split(':')) {
+    const t = teil.trim(); if (!t) continue;
+    const jahr = (t.match(/^\.?(\d{2,4})\s*-/) || [])[1] || null;
+    const paar = t.replace(/^\.?\d{2,4}\s*-/, '');
+    const codes = (paar.match(BUCKFAST_TEIL) || []).map((x) => x.trim());
+    res.generationen.push({
+      jahr: jahr ? kennungJahr(jahr) : null,
+      mutter: codes[0] || '', vatervolk: codes[1] || '',
+      anpaarung: /\bins\b/i.test(paar) ? 'besamung' : (codes[1] ? 'standbegattung' : ''),
+    });
+  }
+  return res;
+}
+
 function koeniginStammbaumHtml(q, qm, tiefe = 5, offen = new Set()) {
   const alle = [...qm.values()];
   const einr = (g) => `margin-left:${Math.min(g, 9) * 10}px`;
@@ -8900,6 +8983,7 @@ Object.assign(window, {
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
+  kennungParse, kennungJahr,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 
