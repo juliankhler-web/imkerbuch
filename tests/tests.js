@@ -687,6 +687,78 @@ test('Anpassen-Liste: „Start“ ist fest (kein Minus/Griff), Höchstzahl greif
   } finally { host.remove(); }
 });
 
+/* ---------- Bunte Bereichs-Icons (iconBunt / ICONS_BUNT) ---------- */
+const IC_KLASSEN = ['a', 'ad', 'al', 'w', 'p', 'pn', 'g', 'gl', 'v', 'vl', 'b', 'bl', 'r', 's', 'sl', 'k', 'd'];
+
+test('iconBunt: jeder Bereich der NAV hat ein buntes Icon', (w) => {
+  const ohne = w.NAV.filter((n) => n.route).filter((n) => !w.ICONS_BUNT[n.ic]).map((n) => `${n.route}→${n.ic}`);
+  assertEq(ohne, [], 'kein Bereich fällt auf das monochrome Icon zurück');
+});
+test('iconBunt: jede Dashboard-Kachel hat ein buntes Icon', (w) => {
+  const ohne = Object.keys(w.DASH_WIDGETS).filter((k) => !w.ICONS_BUNT[w.DASH_WIDGETS[k].ic]).map((k) => `${k}→${w.DASH_WIDGETS[k].ic}`);
+  assertEq(ohne, [], 'alle Widget-Icons sind bunt vorhanden');
+});
+test('iconBunt: genau ein <svg class="ci"> mit viewBox, keine id-Attribute', (w) => {
+  Object.keys(w.ICONS_BUNT).forEach((name) => {
+    const html = w.iconBunt(name);
+    const box = w.document.createElement('div'); box.innerHTML = html;
+    assertEq(box.children.length, 1, name + ': genau ein Wurzelelement');
+    const svg = box.firstElementChild;
+    assertEq(svg.tagName.toLowerCase(), 'svg', name + ': Wurzel ist ein SVG');
+    assert(svg.classList.contains('ci'), name + ': trägt die Klasse ci');
+    assertEq(svg.getAttribute('viewBox'), '0 0 24 24', name + ': 24er-Raster');
+    // Verläufe/clipPath mit fester id würden sich im DOM gegenseitig überschreiben,
+    // weil dasselbe Icon gleichzeitig in Seitenleiste, Leiste und Sheet steht.
+    assertEq(html.includes('id='), false, name + ': keine feste SVG-id');
+    assert(svg.children.length > 0, name + ': hat Formen');
+  });
+});
+test('iconBunt: Farben nur über erlaubte Klassen, nie hart als fill', (w) => {
+  Object.keys(w.ICONS_BUNT).forEach((name) => {
+    const html = w.ICONS_BUNT[name];
+    assertEq(/fill="#/.test(html), false, name + ': keine hart codierte Farbe (sonst kein Dunkelmodus)');
+    const klassen = [...html.matchAll(/class="([^"]+)"/g)].map((m) => m[1]);
+    assert(klassen.length > 0, name + ': mindestens eine Farbklasse');
+    const fremd = klassen.filter((k) => !IC_KLASSEN.includes(k));
+    assertEq(fremd, [], name + ': nur bekannte Farbklassen');
+  });
+});
+test('iconBunt: unbekannter Name fällt monochrom zurück statt leer', (w) => {
+  const html = w.iconBunt('gibtsnicht123');
+  assert(html.includes('<svg'), 'liefert trotzdem ein SVG');
+  assert(html.includes('currentColor'), 'nämlich das monochrome');
+  assertEq(html.includes('class="ci"'), false, 'ohne ci-Klasse');
+});
+test('icon(): Bedien-Icons bleiben monochrom (Schutz vor versehentlichem Umbau)', (w) => {
+  ['plus', 'x', 'warn', 'chevR', 'pencil'].forEach((n) => {
+    const html = w.icon(n);
+    assert(html.includes('stroke="currentColor"'), n + ': erbt die Textfarbe');
+    assert(html.includes('fill="none"'), n + ': ungefüllt');
+    assertEq(html.includes('class="ci"'), false, n + ': nicht bunt');
+  });
+});
+test('NAV: kein Icon doppelt belegt (Fahrtenbuch/Material entdoppelt)', (w) => {
+  const routen = w.NAV.filter((n) => n.route);
+  const zaehler = {};
+  routen.forEach((n) => { (zaehler[n.ic] = zaehler[n.ic] || []).push(n.route); });
+  const doppelt = Object.keys(zaehler).filter((ic) => zaehler[ic].length > 1).map((ic) => `${ic}: ${zaehler[ic].join('+')}`);
+  assertEq(doppelt, [], 'jeder Bereich hat ein eigenes Symbol');
+  assertEq(w.bereichIcon('fahrten'), 'auto');
+  assertEq(w.bereichIcon('material'), 'material');
+  assertEq(w.bereichIcon('wanderungen'), 'truck', 'Wanderungen behält den Lkw');
+});
+test('Untere Leiste und Anpassen-Liste zeichnen die bunten Icons', (w) => {
+  w.renderBottomNav();
+  const bn = w.document.getElementById('bottomnav');
+  assert(bn.querySelector('.bn-pill svg.ci'), 'untere Leiste nutzt bunte Icons');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    w.dashCfgListe(host, { aktiv: ['voelker'], verf: ['kassenbuch'] },
+      { label: w.dashLabel, icon: w.dashIcon, aktivTitel: 'Aktiv', hinweis: '' });
+    assertEq(host.querySelectorAll('.cfg-ic svg.ci').length, 2, 'beide Listen zeichnen bunt');
+  } finally { host.remove(); }
+});
+
 /* ---------- Belegstelle: Herkunft steuert Quelle und Vorschläge ---------- */
 test('zuchtdbQuelle: je Herkunft die richtige Stammbaum-Quelle', (w) => {
   assertEq(w.zuchtdbQuelle('Buckfast').art, 'paket', 'Buckfast: eigenes Paket möglich (Kehrle, ab 2023 open source)');
