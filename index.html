@@ -40,6 +40,9 @@ try {
   --ic-green:#4E9430; --ic-green-l:#8CC968; --ic-violet:#7355C4; --ic-violet-l:#AE99E8;
   --ic-blue:#2F73B8; --ic-blue-l:#8FC3EA; --ic-red:#C0402F;
   --ic-slate:#6F6758; --ic-slate-l:#B2A897; --ic-ink:#3A3226; --ic-dark:#3B342A;
+  /* Kacheltöne: die Kachel unter dem Icon nimmt die Leitfarbe des Symbols auf.
+     Amber braucht keinen eigenen Ton – das ist --honey-soft, der Standard. */
+  --ton-gruen:#E7F2DD; --ton-blau:#E3EFFA; --ton-violett:#EDE8FA; --ton-rot:#FAE7E3; --ton-grau:#EAE7DE;
   --shadow:0 1px 2px rgba(60,45,10,.05),0 10px 30px -14px rgba(60,45,10,.22);
   --shadow-lg:0 4px 12px rgba(40,30,10,.08),0 24px 60px -20px rgba(40,30,10,.35);
   --r:20px; --r-sm:12px;
@@ -60,6 +63,9 @@ html[data-theme="dark"]{
   --ic-green:#78BE4E; --ic-green-l:#A6DC83; --ic-violet:#A184E4; --ic-violet-l:#C9B7F4;
   --ic-blue:#5FA0DE; --ic-blue-l:#AFD6F4; --ic-red:#E06E5D;
   --ic-slate:#A79E8E; --ic-slate-l:#CBC3B4; --ic-ink:#3A3228; --ic-dark:#D8CFBC;
+  /* grau muss im Dunkelmodus deutlich heller sein als die Fensterfläche (--card),
+     sonst verschwindet die Kachel bei Rechner/Einstellungen/„Mehr“ fast ganz. */
+  --ton-gruen:#223317; --ton-blau:#16283A; --ton-violett:#271F3A; --ton-rot:#3A1F1B; --ton-grau:#39352C;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.5);
   --shadow-lg:0 4px 12px rgba(0,0,0,.4),0 24px 60px -20px rgba(0,0,0,.7);
 }
@@ -374,6 +380,14 @@ select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="
 .sg-ic{background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .sheet-grid .sg-ic{width:60px;height:60px;border-radius:18px}
 .sheet-grid .sg-ic svg{width:28px;height:28px}
+/* Kacheltöne – MÜSSEN nach .sg-ic/.cfg-ic stehen, beide setzen selbst ein
+   background:var(--honey-soft) mit derselben Spezifität. Ohne Ton-Klasse
+   bleibt es honigfarben, das ist der Standard (Amber-Symbole). */
+.ton-gruen{background:var(--ton-gruen)}
+.ton-blau{background:var(--ton-blau)}
+.ton-violett{background:var(--ton-violett)}
+.ton-rot{background:var(--ton-rot)}
+.ton-grau{background:var(--ton-grau)}
 /* ---- Zucht-Stammbaum: Mutterlinie als durchgehendes Rückgrat, Drohnenvölker
    als einklappbare Seitenzweige. Nur das Rückgrat ist immer sichtbar – damit
    bleibt auch Generation 9 eine lesbare Liste statt 1.023 Kästchen. ---- */
@@ -674,6 +688,25 @@ function iconBunt(name) {
   if (!inner) return icon(name);
   return `<svg class="ci" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
 }
+
+/* Kachelton je Bereichs-Icon: die Kachel nimmt die Leitfarbe des Symbols auf.
+   Hier stehen nur die Abweichungen – alles Nicht-Genannte ist amber (Honig),
+   weil der Kern der Imkerei nun einmal durchgehend amber gezeichnet ist. */
+const ICON_TON = {
+  task: 'gruen', kasse: 'gruen', meldung: 'gruen', share: 'gruen',
+  truck: 'blau', auto: 'blau', chart: 'blau', wetter: 'blau',
+  flask: 'violett', flower: 'violett',
+  trash: 'rot',
+  rechner: 'grau', gear: 'grau', mehr: 'grau',
+};
+/** Kachelton eines Icons ('amber' = Standard, ohne eigene CSS-Klasse). */
+function iconTon(name) { return ICON_TON[name] || 'amber'; }
+/** Komplette Icon-Kachel: Wrapper mit Ton + buntes Symbol darin.
+    cls ist die vorhandene Kachelklasse ('sg-ic' bzw. 'cfg-ic'). */
+function iconKachel(name, cls) {
+  const ton = iconTon(name);
+  return `<span class="${cls}${ton === 'amber' ? '' : ' ton-' + ton}">${iconBunt(name)}</span>`;
+}
 /** ImkerBuch-Waben-Logo (3 Hexagone) als Inline-SVG */
 function logoSvg(size = 28) {
   return `<svg viewBox="0 0 64 64" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><g stroke-linejoin="round"><path d="M20 10.5 30.5 16.5 30.5 28.5 20 34.5 9.5 28.5 9.5 16.5Z" fill="#E8A013" stroke="#E8A013" stroke-width="3"/><path d="M42 22.5 52.5 28.5 52.5 40.5 42 46.5 31.5 40.5 31.5 28.5Z" fill="none" stroke="currentColor" stroke-width="3"/><path d="M20 34.5 30.5 40.5 30.5 52.5 20 58.5 9.5 52.5 9.5 40.5Z" fill="none" stroke="currentColor" stroke-width="3"/></g></svg>`;
@@ -808,8 +841,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.04';
+const APP_VERSION = '1.05';
 const CHANGELOG = [
+  { version: '1.05', datum: '2026-07-25', punkte: [
+    'Die Kachel hinter dem Symbol trägt jetzt dessen Farbe: grün bei Aufgaben, Kassenbuch, Meldungen und Sicherung, blau bei Wanderungen, Fahrtenbuch, Statistiken und Wetter, violett bei Behandlungen und Trachten, rot beim Papierkorb, grau bei Rechner, Einstellungen und „Mehr“. Alles rund um die Bienen bleibt honigfarben.',
+    'Zu sehen unter „Alle Bereiche“ und beim Anpassen von Dashboard und Schnellzugriff. In der unteren Leiste bleibt die Kachel des aktiven Eintrags absichtlich honigfarben – sonst würde beim Tippen die Farbe mitwandern.',
+  ] },
   { version: '1.04', datum: '2026-07-25', punkte: [
     'Jeder Bereich hat jetzt sein eigenes farbiges Symbol – eigens für ImkerBuch gezeichnet: Biene, Beute, Krone, Weiselzellen am Zuchtrahmen, Honigglas, Futtereimer, Wabenrähmchen und so weiter. Du erkennst einen Bereich damit an Form und Farbe, statt die Beschriftung lesen zu müssen.',
     'Die farbigen Symbole stehen genau dort, wo du suchst: in der Seitenleiste, in der unteren Leiste, unter „Alle Bereiche“ und beim Anpassen von Dashboard und Schnellzugriff. Innerhalb eines Bereichs bleiben die Symbole schlicht – sonst würden Knöpfe und Warnhinweise in der Farbe untergehen.',
@@ -1790,7 +1827,7 @@ function openMoreSheet() {
   const items = NAV.filter((n) => n.route);
   const m = UI.modal({
     title: 'Alle Bereiche',
-    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${n.route}"><span class="sg-ic">${iconBunt(n.ic)}</span>${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>`,
+    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${n.route}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>`,
   });
   $('.sheet-grid', m.el).addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -2399,7 +2436,7 @@ function dashCfgListe(host, st, opts) {
       const fix = opts.fixFirst && i === 0;
       const row = document.createElement('div'); row.className = 'cfg-row'; row.dataset.id = entry;
       row.innerHTML = `${fix ? '<span class="cfg-fix" title="fest">🔒</span>' : `<button class="cfg-btn cfg-minus" data-minus aria-label="entfernen">−</button>`}
-        <span class="cfg-ic">${iconBunt(opts.icon(entry))}</span>
+        ${iconKachel(opts.icon(entry), 'cfg-ic')}
         <span class="cfg-name">${U.esc(opts.label(entry))}</span>
         ${fix ? '<span class="cfg-fix">Start</span>' : '<span class="cfg-grip" data-grip title="verschieben" aria-label="verschieben">⁝⁝</span>'}`;
       aE.appendChild(row);
@@ -2408,7 +2445,7 @@ function dashCfgListe(host, st, opts) {
     st.verf.forEach((entry) => {
       const row = document.createElement('div'); row.className = 'cfg-row'; row.dataset.id = entry;
       row.innerHTML = `<button class="cfg-btn cfg-plus" data-plus aria-label="hinzufügen">+</button>
-        <span class="cfg-ic">${iconBunt(opts.icon(entry))}</span>
+        ${iconKachel(opts.icon(entry), 'cfg-ic')}
         <span class="cfg-name">${U.esc(opts.label(entry))}</span>`;
       vE.appendChild(row);
     });
@@ -9370,7 +9407,7 @@ Object.assign(window, {
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,
   BEREICHE, bereichKurz, bereichIcon, dashAlleEintraege, dashBlock, dashLabel, dashIcon, dashIstLink, dashCfgListe, renderBottomNav,
-  ICONS, icon, ICONS_BUNT, iconBunt,
+  ICONS, icon, ICONS_BUNT, iconBunt, ICON_TON, iconTon, iconKachel,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 

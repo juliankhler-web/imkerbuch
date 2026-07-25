@@ -747,6 +747,51 @@ test('NAV: kein Icon doppelt belegt (Fahrtenbuch/Material entdoppelt)', (w) => {
   assertEq(w.bereichIcon('material'), 'material');
   assertEq(w.bereichIcon('wanderungen'), 'truck', 'Wanderungen behält den Lkw');
 });
+const IC_TOENE = ['amber', 'gruen', 'blau', 'violett', 'rot', 'grau'];
+
+test('iconTon: jeder Bereich und jede Kachel hat einen bekannten Ton', (w) => {
+  const namen = [...w.NAV.filter((n) => n.route).map((n) => n.ic), ...Object.keys(w.DASH_WIDGETS).map((k) => w.DASH_WIDGETS[k].ic)];
+  const fremd = [...new Set(namen)].filter((ic) => !IC_TOENE.includes(w.iconTon(ic)));
+  assertEq(fremd, [], 'kein unbekannter Kachelton');
+  const unbekannt = Object.keys(w.ICON_TON).filter((k) => !IC_TOENE.includes(w.ICON_TON[k]));
+  assertEq(unbekannt, [], 'die Ton-Tabelle nennt nur definierte Töne');
+  // Ein Ton ohne CSS-Klasse wäre unsichtbar – amber ist der Standard und braucht keine.
+  const ohneKlasse = [...new Set(Object.values(w.ICON_TON))].filter((t) => t === 'amber');
+  assertEq(ohneKlasse, [], 'amber steht nie in der Tabelle, es ist der Rückfall');
+});
+test('iconTon: die Zuordnung folgt der Leitfarbe des Symbols', (w) => {
+  assertEq(w.iconTon('volk'), 'amber', 'Biene ist amber');
+  assertEq(w.iconTon('honig'), 'amber', 'Honigglas ist amber');
+  assertEq(w.iconTon('kasse'), 'gruen', 'Geldschein ist grün');
+  assertEq(w.iconTon('auto'), 'blau', 'Auto ist blau');
+  assertEq(w.iconTon('flask'), 'violett', 'Behandlungsflasche ist violett');
+  assertEq(w.iconTon('trash'), 'rot', 'Papierkorb ist rot');
+  assertEq(w.iconTon('gear'), 'grau', 'Zahnrad ist grau');
+});
+test('iconKachel: Wrapper trägt Kachelklasse + Ton, Symbol steckt darin', (w) => {
+  const box = w.document.createElement('div');
+  box.innerHTML = w.iconKachel('kasse', 'sg-ic');
+  const span = box.firstElementChild;
+  assertEq(span.tagName.toLowerCase(), 'span');
+  assert(span.classList.contains('sg-ic'), 'behält die Kachelklasse');
+  assert(span.classList.contains('ton-gruen'), 'bekommt den Ton');
+  assert(span.querySelector('svg.ci'), 'buntes Symbol steckt drin');
+  // Amber ist der Standard und darf KEINE Ton-Klasse setzen, sonst müsste
+  // man --honey-soft doppelt pflegen.
+  box.innerHTML = w.iconKachel('volk', 'cfg-ic');
+  const amber = box.firstElementChild;
+  assert(amber.classList.contains('cfg-ic'), 'Kachelklasse da');
+  assertEq([...amber.classList].filter((c) => c.startsWith('ton-')), [], 'amber ohne Ton-Klasse');
+});
+test('Alle Bereiche: Kacheln bekommen die Töne, nicht alle honigfarben', (w) => {
+  const html = w.NAV.filter((n) => n.route).map((n) => w.iconKachel(n.ic, 'sg-ic')).join('');
+  const box = w.document.createElement('div'); box.innerHTML = html;
+  const kacheln = [...box.children];
+  assertEq(kacheln.length, w.NAV.filter((n) => n.route).length, 'je Bereich eine Kachel');
+  const mitTon = kacheln.filter((k) => [...k.classList].some((c) => c.startsWith('ton-')));
+  assert(mitTon.length >= 8, 'mindestens acht Bereiche weichen von Honig ab, gefunden: ' + mitTon.length);
+  assert(kacheln.length - mitTon.length >= 8, 'die Imkerei bleibt honigfarben');
+});
 test('Untere Leiste und Anpassen-Liste zeichnen die bunten Icons', (w) => {
   w.renderBottomNav();
   const bn = w.document.getElementById('bottomnav');
