@@ -614,6 +614,70 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
+/* ---------- Dashboard: alle Bereiche als Kachel + Verknüpfungen ---------- */
+test('dashAlleEintraege: reiche Widgets + jeder Bereich als Verknüpfung', (w) => {
+  const alle = w.dashAlleEintraege();
+  assert(alle.includes('voelker'), 'reiches Widget dabei');
+  assert(alle.includes('link:koeniginnen'), 'Königinnen als Verknüpfung');
+  assert(alle.includes('link:kassenbuch'), 'Kassenbuch als Verknüpfung');
+  assertEq(alle.filter((e) => e === 'link:dashboard').length, 0, 'kein Link aufs Dashboard selbst');
+  assertEq(new Set(alle).size, alle.length, 'keine Duplikate');
+});
+test('dashLabel/dashIcon: Widget vs. Verknüpfung', (w) => {
+  assertEq(w.dashIstLink('link:koeniginnen'), true);
+  assertEq(w.dashIstLink('voelker'), false);
+  assertEq(w.dashLabel('link:koeniginnen'), 'Königinnen');
+  assertEq(w.dashIcon('link:koeniginnen'), 'crown', 'Icon aus dem Bereich');
+  assert(/Völker/.test(w.dashLabel('voelker')), 'reiches Widget behält sein Label');
+});
+test('dashBlock: Verknüpfungskachel rendert mit Ziel + Icon-Kachel', async (w) => {
+  const b = await w.dashBlock('link:kassenbuch');
+  assertEq(b.ziel, 'kassenbuch', 'Klickziel = Route');
+  assert(/ib-link/.test(b.html) && /ib-ic/.test(b.html), 'große Icon-Kachel');
+  assert(/Kassenbuch/.test(b.html), 'Name enthalten');
+});
+test('dashBlock: reiches Widget liefert sein HTML', async (w) => {
+  const b = await w.dashBlock('voelker');
+  assert(b && /Völker/.test(b.html), 'Völker-Widget');
+  assertEq(b.ziel, 'voelker');
+});
+test('bereichKurz/bereichIcon: aus der NAV abgeleitet', (w) => {
+  assertEq(w.bereichKurz('honig'), 'Ernte');
+  assertEq(w.bereichKurz('material'), 'Verbrauchsmaterial');
+  assertEq(w.bereichIcon('koeniginnen'), 'crown');
+  assert(w.BEREICHE.dashboard, 'Dashboard ist ein Bereich');
+});
+test('Anpassen-Liste: Minus verschiebt nach unten, Plus zurück, Reihenfolge bleibt', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const st = { aktiv: ['voelker', 'aufgaben'], verf: ['link:zucht'] };
+  w.dashCfgListe(host, st, { label: w.dashLabel, icon: w.dashIcon, aktivTitel: 'Aktiv', hinweis: '' });
+  try {
+    // erstes Minus (voelker) → nach verf (oben)
+    host.querySelector('[data-aktiv] [data-minus]').click();
+    assertEq(st.aktiv, ['aufgaben'], 'voelker entfernt');
+    assertEq(st.verf[0], 'voelker', 'landet oben in verfügbar');
+    // Plus auf voelker → zurück ans Ende von aktiv
+    [...host.querySelectorAll('[data-verf] .cfg-row')].find((r) => r.dataset.id === 'voelker').querySelector('[data-plus]').click();
+    assertEq(st.aktiv, ['aufgaben', 'voelker'], 'wieder aktiv, hinten angehängt');
+  } finally { host.remove(); }
+});
+test('Anpassen-Liste: „Start“ ist fest (kein Minus/Griff), Höchstzahl greift', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const st = { aktiv: ['dashboard', 'voelker'], verf: ['aufgaben', 'honig', 'zucht'] };
+  w.dashCfgListe(host, st, { label: w.bereichKurz, icon: w.bereichIcon, fixFirst: true, max: 4, aktivTitel: 'Leiste', hinweis: '' });
+  try {
+    const ersteZeile = host.querySelector('[data-aktiv] .cfg-row');
+    assertEq(ersteZeile.querySelector('[data-minus]'), null, 'erste Zeile ohne Entfernen-Knopf');
+    assert(ersteZeile.querySelector('.cfg-fix'), 'erste Zeile als fest markiert');
+    // bis 4 auffüllen, dann muss der nächste Plus abgelehnt werden
+    host.querySelectorAll('[data-verf] [data-plus]')[0].click(); // aufgaben → 3
+    host.querySelectorAll('[data-verf] [data-plus]')[0].click(); // honig → 4
+    assertEq(st.aktiv.length, 4);
+    host.querySelectorAll('[data-verf] [data-plus]')[0]?.click(); // zucht → abgelehnt
+    assertEq(st.aktiv.length, 4, 'mehr als 4 werden nicht aufgenommen');
+  } finally { host.remove(); }
+});
+
 /* ---------- Belegstelle: Herkunft steuert Quelle und Vorschläge ---------- */
 test('zuchtdbQuelle: je Herkunft die richtige Stammbaum-Quelle', (w) => {
   assertEq(w.zuchtdbQuelle('Buckfast').art, 'paket', 'Buckfast: eigenes Paket möglich (Kehrle, ab 2023 open source)');
