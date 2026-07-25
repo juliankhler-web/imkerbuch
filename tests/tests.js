@@ -614,32 +614,41 @@ test('UI.pie: Donut mit Anteilen und Legende', (w) => {
   assert(w.UI.pie({ posten: [] }).includes('Noch keine Daten'), 'leerer Zustand');
 });
 
-/* ---------- Dashboard: alle Bereiche als Kachel + Verknüpfungen ---------- */
-test('dashAlleEintraege: reiche Widgets + jeder Bereich als Verknüpfung', (w) => {
+/* ---------- Dashboard: nur Widgets mit echtem Inhalt ---------- */
+test('dashAlleEintraege: nur reiche Widgets, keine Symbol-Verknüpfungen', (w) => {
   const alle = w.dashAlleEintraege();
-  assert(alle.includes('voelker'), 'reiches Widget dabei');
-  assert(alle.includes('link:koeniginnen'), 'Königinnen als Verknüpfung');
-  assert(alle.includes('link:kassenbuch'), 'Kassenbuch als Verknüpfung');
-  assertEq(alle.filter((e) => e === 'link:dashboard').length, 0, 'kein Link aufs Dashboard selbst');
+  assert(alle.includes('voelker') && alle.includes('kassenbuch'), 'echte Widgets dabei');
+  assertEq(alle.filter((e) => e.startsWith('link:')).length, 0, 'keine „link:“-Einträge mehr');
   assertEq(new Set(alle).size, alle.length, 'keine Duplikate');
 });
-test('dashLabel/dashIcon: Widget vs. Verknüpfung', (w) => {
-  assertEq(w.dashIstLink('link:koeniginnen'), true);
-  assertEq(w.dashIstLink('voelker'), false);
-  assertEq(w.dashLabel('link:koeniginnen'), 'Königinnen');
-  assertEq(w.dashIcon('link:koeniginnen'), 'crown', 'Icon aus dem Bereich');
-  assert(/Völker/.test(w.dashLabel('voelker')), 'reiches Widget behält sein Label');
-});
-test('dashBlock: Verknüpfungskachel rendert mit Ziel + Icon-Kachel', async (w) => {
-  const b = await w.dashBlock('link:kassenbuch');
-  assertEq(b.ziel, 'kassenbuch', 'Klickziel = Route');
-  assert(/ib-link/.test(b.html) && /ib-ic/.test(b.html), 'große Icon-Kachel');
-  assert(/Kassenbuch/.test(b.html), 'Name enthalten');
-});
-test('dashBlock: reiches Widget liefert sein HTML', async (w) => {
+test('dashBlock: reiches Widget liefert HTML, unbekanntes/altes „link:“ → null', async (w) => {
   const b = await w.dashBlock('voelker');
   assert(b && /Völker/.test(b.html), 'Völker-Widget');
   assertEq(b.ziel, 'voelker');
+  assertEq(await w.dashBlock('link:koeniginnen'), null, 'alte Verknüpfung wird übersprungen');
+  assertEq(await w.dashBlock('gibtsnicht'), null);
+});
+test('Kassenbuch-Widget: Einnahmen − Ausgaben = Saldo (nur laufendes Jahr)', async (w) => {
+  const jahr = new Date().getFullYear();
+  await w.DB.put('kassenbuch', { datum: jahr + '-03-01', typ: 'einnahme', betrag: 100, kategorie: 'Test', beschreibung: '' });
+  await w.DB.put('kassenbuch', { datum: jahr + '-04-01', typ: 'ausgabe', betrag: 30, kategorie: 'Test', beschreibung: '' });
+  await w.DB.put('kassenbuch', { datum: (jahr - 1) + '-04-01', typ: 'einnahme', betrag: 999999, kategorie: 'Vorjahr', beschreibung: '' });
+  // erwartete Summen aus ALLEN Buchungen dieses Jahres (Testdatenbank kann Demo-Daten enthalten)
+  const bu = (await w.DB.getAll('kassenbuch')).filter((b) => (b.datum || '').startsWith(String(jahr)));
+  const ein = w.U.sum(bu.filter((b) => b.typ === 'einnahme'), (b) => b.betrag || 0);
+  const aus = w.U.sum(bu.filter((b) => b.typ === 'ausgabe'), (b) => b.betrag || 0);
+  const html = await w.DASH_WIDGETS.kassenbuch.html();
+  assert(html.includes(w.U.fmtEur(ein)), 'Einnahmen-Summe des Jahres');
+  assert(html.includes(w.U.fmtEur(aus)), 'Ausgaben-Summe des Jahres');
+  assert(html.includes(w.U.fmtEur(ein - aus)), 'Saldo = Einnahmen − Ausgaben');
+  assertEq(html.includes('999.999') || html.includes('999999'), false, 'Vorjahres-Buchung zählt nicht mit');
+});
+test('Bestand-Widget: nur Positionen unter dem Mindestbestand', async (w) => {
+  await w.DB.put('inventar', { bezeichnung: 'Knapp-Test-Mittel', typ: 'verbrauch', stueckzahl: 1, mindestbestand: 4 });
+  await w.DB.put('inventar', { bezeichnung: 'Voll-Test-Mittel', typ: 'verbrauch', stueckzahl: 9, mindestbestand: 2 });
+  const html = await w.DASH_WIDGETS.bestand.html();
+  assert(html.includes('Knapp-Test-Mittel'), 'knappe Position wird gelistet');
+  assertEq(html.includes('Voll-Test-Mittel'), false, 'ausreichende Position nicht');
 });
 test('bereichKurz/bereichIcon: aus der NAV abgeleitet', (w) => {
   assertEq(w.bereichKurz('honig'), 'Ernte');
@@ -649,7 +658,7 @@ test('bereichKurz/bereichIcon: aus der NAV abgeleitet', (w) => {
 });
 test('Anpassen-Liste: Minus verschiebt nach unten, Plus zurück, Reihenfolge bleibt', (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
-  const st = { aktiv: ['voelker', 'aufgaben'], verf: ['link:zucht'] };
+  const st = { aktiv: ['voelker', 'aufgaben'], verf: ['kassenbuch'] };
   w.dashCfgListe(host, st, { label: w.dashLabel, icon: w.dashIcon, aktivTitel: 'Aktiv', hinweis: '' });
   try {
     // erstes Minus (voelker) → nach verf (oben)

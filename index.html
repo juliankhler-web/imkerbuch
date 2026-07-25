@@ -218,12 +218,7 @@ html[data-theme="dark"] .stat{box-shadow:var(--shadow)}
 /* Gleiche Kachelhöhe je Zeile (v. a. Querformat mit 2 Spalten) */
 .grid2>.dash-klick{height:100%}
 .grid2>.dash-klick>.stat,.grid2>.dash-klick>.card{height:100%;box-sizing:border-box}
-/* Verknüpfungskachel (Bereich ohne eigenes Daten-Widget): großes Icon + Name */
-.stat.ib-link{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;min-height:104px}
-.ib-link .ib-ic{width:60px;height:60px;border-radius:18px}
-.ib-link .ib-ic svg{width:28px;height:28px}
-.ib-link-name{font-size:15px;font-weight:600;color:var(--text)}
-/* Dashboard-/Leiste-Anpassen: Minus/Plus-Liste im Screenshot-Prinzip */
+/* Dashboard-/Schnellzugriff-Anpassen: Minus/Plus-Liste im Screenshot-Prinzip */
 .cfg-grp{font-size:11.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);margin:4px 2px 8px}
 .cfg-list{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
 .cfg-row{display:flex;align-items:center;gap:11px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 11px}
@@ -326,8 +321,8 @@ select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="
 @media(max-width:430px){.sheet-grid{grid-template-columns:repeat(3,1fr)}}
 .sheet-grid button{display:flex;flex-direction:column;align-items:center;gap:9px;padding:14px 4px;border-radius:16px;font-size:12.5px;font-weight:600;color:var(--text)}
 .sheet-grid button:hover{background:var(--card2)}
-/* Gefärbte Icon-Kachel – größer & clean; auch für Dashboard-Verknüpfungskacheln (.ib-ic) */
-.sg-ic,.ib-ic{background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+/* Gefärbte Icon-Kachel – größer & clean (Alle-Bereiche-Sheet) */
+.sg-ic{background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .sheet-grid .sg-ic{width:60px;height:60px;border-radius:18px}
 .sheet-grid .sg-ic svg{width:28px;height:28px}
 /* ---- Zucht-Stammbaum: Mutterlinie als durchgehendes Rückgrat, Drohnenvölker
@@ -712,9 +707,9 @@ const APP_VERSION = '1.02';
 const CHANGELOG = [
   { version: '1.02', datum: '2026-07-25', punkte: [
     'Dashboard komplett anpassbar: Über „Widgets“ öffnest du eine Liste im Screenshot-Stil – rotes − nimmt eine Kachel weg, grünes + fügt sie hinzu, mit dem Griff ⁝⁝ verschiebst du sie per Finger.',
-    'Jeder Bereich lässt sich aufs Dashboard legen – auch die ohne eigenes Daten-Widget (Königinnen, Zucht, Kassenbuch …) erscheinen dann als große Verknüpfungskachel.',
+    'Neue Info-Kacheln mit echtem Inhalt zum Hinzufügen: Königinnen (Anzahl + Ø Zuchtnote), Zucht (nächste Termine), Kassenbuch (Einnahmen/Ausgaben/Saldo), Niedrige Bestände und Rechnungen (Entwürfe + Jahresumsatz).',
     'Schnellzugriff selbst bestimmen: Im selben Fenster (Tab „Schnellzugriff“) wählst du, welche bis zu vier Bereiche unten in der Leiste stehen. „Start“ bleibt fest der erste.',
-    '„Alle Bereiche“ und die Kacheln haben jetzt größere, klar gefärbte Icons – Bereiche sind schneller zu finden.',
+    '„Alle Bereiche“ hat jetzt größere, klar gefärbte Icons – Bereiche sind schneller zu finden.',
     'Querformat: Die Kacheln stehen in einer Reihe jetzt gleich hoch statt unterschiedlich groß.',
   ] },
   { version: '1.01', datum: '2026-07-24', punkte: [
@@ -2134,6 +2129,52 @@ const DASH_WIDGETS = {
       <div class="flex-wrap">${badge}<span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Sicherung senden</button></div>
       ${info.stufe !== 'ok' ? `<div class="hint mt8">Bitte regelmäßig sichern – die Daten liegen nur auf diesem Gerät.</div>` : ''}</div>`;
   }},
+  koeniginnen: { label: 'Königinnen', ic: 'crown', ziel: 'koeniginnen', async html() {
+    const aktiv = (await DB.getAll('koeniginnen')).filter((k) => k.status === 'aktiv');
+    const noten = aktiv.map((k) => zuchtNote(k.bewertung)).filter((n) => n > 0);
+    const schnitt = noten.length ? Math.round(noten.reduce((a, n) => a + n, 0) / noten.length * 10) / 10 : 0;
+    return `<div class="stat"><div class="s-label">${icon('crown')} Königinnen</div><div class="s-value">${aktiv.length}</div><div class="s-sub">aktiv${noten.length ? ` · Ø Zuchtnote ${U.fmtNum(schnitt, 1)}` : ''}</div></div>`;
+  }},
+  zucht: { label: 'Zuchtserien & nächste Termine', ic: 'egg', ziel: 'zucht', async html() {
+    const serien = await DB.getAll('zuchtserien');
+    const kopf = `<div class="card-title">${icon('egg')}<h2>Zucht</h2><a href="#/zucht" class="small">Alle</a></div>`;
+    if (!serien.length) return `<div class="card" style="margin:0">${kopf}<div class="muted small">Noch keine Zuchtserie – lege eine an, dann erscheinen die Termine hier.</div></div>`;
+    const heute = U.todayIso();
+    const termine = serien.flatMap((s) => (s.termine || []).map((t) => ({ ...t, serie: s.name })))
+      .filter((t) => t.datum >= heute).sort((a, b) => a.datum.localeCompare(b.datum)).slice(0, 3);
+    return `<div class="card" style="margin:0">${kopf}
+      <div class="small muted mb4">${serien.length} ${serien.length === 1 ? 'Serie' : 'Serien'} · nächste Termine</div>
+      ${termine.length ? `<div class="rows">${termine.map((t) => `<div class="row" style="min-height:42px;padding:7px 4px"><div class="r-main"><div class="r-title">${U.esc(t.serie)}: ${U.esc(t.titel)}</div></div><span class="badge b-honey">${U.fmtDate(t.datum)}</span></div>`).join('')}</div>` : '<div class="muted small">Keine anstehenden Termine.</div>'}</div>`;
+  }},
+  kassenbuch: { label: 'Kassenbuch (Jahr)', ic: 'kasse', ziel: 'kassenbuch', async html() {
+    const jahr = String(new Date().getFullYear());
+    const bu = (await DB.getAll('kassenbuch')).filter((b) => (b.datum || '').startsWith(jahr));
+    const ein = U.sum(bu.filter((b) => b.typ === 'einnahme'), (b) => b.betrag || 0);
+    const aus = U.sum(bu.filter((b) => b.typ === 'ausgabe'), (b) => b.betrag || 0);
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('kasse')}<h2>Kassenbuch ${jahr}</h2><a href="#/kassenbuch" class="small">Alle</a></div>
+      <div class="grid3" style="gap:8px">
+        <div><div class="small muted">Einnahmen</div><div style="font-weight:700;color:#2E7D46">${U.fmtEur(ein)}</div></div>
+        <div><div class="small muted">Ausgaben</div><div style="font-weight:700;color:#B3362B">${U.fmtEur(aus)}</div></div>
+        <div><div class="small muted">Saldo</div><div style="font-weight:800">${U.fmtEur(ein - aus)}</div></div>
+      </div></div>`;
+  }},
+  bestand: { label: 'Niedrige Bestände', ic: 'box', ziel: 'material', async html() {
+    const knapp = (await DB.getAll('inventar')).filter((i) => i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand);
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('box')}<h2>Niedrige Bestände</h2><a href="#/material" class="small">Material</a></div>
+      ${knapp.length ? `<div class="rows">${knapp.map((i) => `<div class="row" style="min-height:42px;padding:7px 4px"><div class="r-main"><div class="r-title">${U.esc(i.bezeichnung)}</div></div><span class="badge b-danger">${U.fmtNum(i.stueckzahl || 0)} / ${U.fmtNum(i.mindestbestand)}</span></div>`).join('')}</div>` : '<div class="muted small">Alle Bestände über dem Mindestwert. 🐝</div>'}</div>`;
+  }},
+  rechnungen: { label: 'Rechnungen (Jahr)', ic: 'rechnung', ziel: 'rechnungen', async html() {
+    const alle = await DB.getAll('rechnungen');
+    const kopf = (t) => `<div class="card-title">${icon('rechnung')}<h2>${t}</h2><a href="#/rechnungen" class="small">Alle</a></div>`;
+    if (!alle.length) return `<div class="card" style="margin:0">${kopf('Rechnungen')}<div class="muted small">Noch keine Rechnung erstellt.</div></div>`;
+    const jahr = String(new Date().getFullYear());
+    const entwuerfe = alle.filter((r) => r.status === 'entwurf');
+    const jahrRe = alle.filter((r) => (r.datum || '').startsWith(jahr));
+    const umsatz = U.sum(jahrRe, (r) => rechnungSummen(r).brutto);
+    return `<div class="card" style="margin:0">${kopf('Rechnungen ' + jahr)}
+      <div class="flex-wrap"><span class="badge ${entwuerfe.length ? 'b-warn' : 'b-ok'}">${entwuerfe.length} ${entwuerfe.length === 1 ? 'Entwurf' : 'Entwürfe'}</span><span class="spacer"></span><b>${U.fmtEur(umsatz)}</b></div>
+      <div class="hint mt8">${jahrRe.length} ${jahrRe.length === 1 ? 'Rechnung' : 'Rechnungen'} dieses Jahr.</div></div>`;
+  }},
 };
 
 /* Kurz-Labels für die Kachel-/Sheet-Optik (ein Wort, wo möglich). */
@@ -2150,22 +2191,16 @@ const BEREICHE = Object.fromEntries(NAV.filter((n) => n.route).map((n) => [n.rou
 function bereichKurz(route) { return (BEREICHE[route] || {}).label || route; }
 function bereichIcon(route) { return (BEREICHE[route] || {}).ic || 'home'; }
 
-/* Ein Dashboard-Eintrag ist entweder ein „reiches“ Widget (Schlüssel aus DASH_WIDGETS)
-   oder eine Verknüpfungskachel „link:<route>“ für jeden anderen Bereich. */
+/* Aufs Dashboard kommen nur „reiche“ Widgets mit echtem Inhalt (keine reinen
+   Symbol-Verknüpfungen – die wären ohne Inhalt sinnlos). „link:“-Einträge aus
+   früheren Ständen werden still übersprungen. */
 function dashIstLink(entry) { return typeof entry === 'string' && entry.startsWith('link:'); }
-function dashLinkRoute(entry) { return entry.slice(5); }
-function dashLabel(entry) { return dashIstLink(entry) ? bereichKurz(dashLinkRoute(entry)) : (DASH_WIDGETS[entry] ? DASH_WIDGETS[entry].label : entry); }
-function dashIcon(entry) { return dashIstLink(entry) ? bereichIcon(dashLinkRoute(entry)) : ((DASH_WIDGETS[entry] && DASH_WIDGETS[entry].ic) || 'gear'); }
-/** verfügbare Einträge: alle reichen Widgets + jeder Bereich als Verknüpfung */
-function dashAlleEintraege() {
-  return [...Object.keys(DASH_WIDGETS), ...Object.keys(BEREICHE).filter((r) => r !== 'dashboard').map((r) => 'link:' + r)];
-}
-/** HTML eines Eintrags fürs Dashboard: reiches Widget oder Verknüpfungskachel */
+function dashLabel(entry) { return DASH_WIDGETS[entry] ? DASH_WIDGETS[entry].label : entry; }
+function dashIcon(entry) { return (DASH_WIDGETS[entry] && DASH_WIDGETS[entry].ic) || 'gear'; }
+/** verfügbare Einträge: alle reichen Widgets (mit Inhalt) */
+function dashAlleEintraege() { return Object.keys(DASH_WIDGETS); }
+/** HTML eines Widgets fürs Dashboard (null, wenn unbekannt/leer). */
 async function dashBlock(entry) {
-  if (dashIstLink(entry)) {
-    const r = dashLinkRoute(entry);
-    return { ziel: r, html: `<div class="stat ib-link"><span class="ib-ic">${icon(bereichIcon(r))}</span><div class="ib-link-name">${U.esc(bereichKurz(r))}</div></div>` };
-  }
   const w = DASH_WIDGETS[entry];
   if (!w) return null;
   const html = await w.html();
@@ -2204,8 +2239,8 @@ Views.dashboard = {
     });
   },
   configure() {
-    // Nur gültige Einträge übernehmen (falls ein Widget/Bereich mal wegfällt)
-    const dashAktiv = S.get('dashboardWidgets').filter((e) => dashIstLink(e) ? BEREICHE[dashLinkRoute(e)] : DASH_WIDGETS[e]);
+    // Nur echte Widgets übernehmen (alte „link:“-Verknüpfungen fallen weg)
+    const dashAktiv = S.get('dashboardWidgets').filter((e) => DASH_WIDGETS[e]);
     const dashVerf = dashAlleEintraege().filter((e) => !dashAktiv.includes(e));
     const navAktiv = S.get('bottomNav').filter((r) => BEREICHE[r]);
     if (navAktiv[0] !== 'dashboard') { navAktiv.unshift('dashboard'); } // „Start“ immer erster
