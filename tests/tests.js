@@ -1082,6 +1082,118 @@ test('pageHead: Aktionen in eigenem .ph-actions-Container (verhindert Titel-Over
   assert(!d2.querySelector('.ph-actions'), 'ohne Aktionen kein .ph-actions');
 });
 
+/* ---------- Diagramme: Wert unter dem Finger ---------- */
+test('UI.chart: liefert die Messpunkte für die Finger-Anzeige mit', (w) => {
+  const html = w.UI.chart({ type: 'line', labels: ['2024', '2025', '2026'], series: [{ name: 'Völker', values: [10, 11, 31] }], unit: '' });
+  const box = w.document.createElement('div'); box.innerHTML = html;
+  const el = box.querySelector('.chart-box');
+  assert(el, 'chart-box vorhanden');
+  assert(el.dataset.chart, 'data-chart gesetzt');
+  const d = JSON.parse(el.dataset.chart);
+  assertEq(d.p.length, 3, 'ein Messpunkt je Beschriftung');
+  assertEq(d.p[2].l, '2026');
+  assertEq(d.p[2].w[0].t, '31', 'Wert als fertiger Text');
+  assert(d.p[0].x < d.p[1].x && d.p[1].x < d.p[2].x, 'x-Werte steigen');
+  // Die Bauteile für die Anzeige müssen im Markup stecken
+  assert(box.querySelector('.ch-fuehrung'), 'Führungslinie');
+  assert(box.querySelector('.ch-marken'), 'Markierungs-Gruppe');
+  assert(box.querySelector('.ch-wert'), 'Wertanzeige');
+});
+test('UI.chart: Einheit wird angehängt, Lücken werden übersprungen', (w) => {
+  const d = JSON.parse(w.document.createRange().createContextualFragment(
+    w.UI.chart({ type: 'line', labels: ['a', 'b', 'c'], series: [{ name: 'kg', values: [5, null, 7] }], unit: 'kg' })
+  ).querySelector('.chart-box').dataset.chart);
+  assertEq(d.p.length, 2, 'der leere Messpunkt fällt weg');
+  assertEq(d.p[0].w[0].t, '5 kg', 'Einheit steht dabei');
+  assertEq(d.p.map((p) => p.l), ['a', 'c']);
+});
+test('UI.chart: zwei Reihen liefern beide Werte je Messpunkt', (w) => {
+  const d = JSON.parse(w.document.createRange().createContextualFragment(
+    w.UI.chart({
+      type: 'bars', labels: ['2025'], unit: '€',
+      series: [{ name: 'Einnahmen', values: [680], color: '#4C8A2E' }, { name: 'Ausgaben', values: [510], color: '#B3362B' }],
+    })
+  ).querySelector('.chart-box').dataset.chart);
+  assertEq(d.p[0].w.length, 2, 'beide Reihen');
+  assertEq(d.p[0].w.map((s) => s.n + ' ' + s.t), ['Einnahmen 680 €', 'Ausgaben 510 €']);
+  assertEq(d.p[0].w[0].c, '#4C8A2E', 'Farbe der Reihe wird mitgegeben');
+});
+test('chartInteraktiv: hängt sich genau einmal an und legt die Markierungen an', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  host.innerHTML = w.UI.chart({
+    labels: ['a', 'b'], type: 'bars',
+    series: [{ name: 'x', values: [1, 2] }, { name: 'y', values: [3, 4] }],
+  });
+  try {
+    const box = host.querySelector('.chart-box');
+    assertEq(box.dataset.live, undefined, 'vorher unbehandelt');
+    w.chartInteraktiv(host);
+    assertEq(box.dataset.live, '1', 'markiert');
+    assertEq(box.querySelectorAll('.ch-marken circle').length, 2, 'je Reihe ein Markierungspunkt');
+    w.chartInteraktiv(host); // zweiter Durchlauf darf nichts verdoppeln
+    assertEq(box.querySelectorAll('.ch-marken circle').length, 2, 'nicht verdoppelt');
+  } finally { host.remove(); }
+});
+
+/* ---------- Tabellen: Kärtchen statt waagerecht scrollen ---------- */
+function tabelleBauen(w, koepfe, zeilen) {
+  const d = w.document.createElement('div');
+  d.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>${koepfe.map((k) => `<th>${k}</th>`).join('')}</tr></thead>`
+    + `<tbody>${zeilen.map((z) => `<tr>${z.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return d;
+}
+test('tabellenBeschriften: schreibt den Spaltenkopf auf jede Zelle', (w) => {
+  const d = tabelleBauen(w, ['Art', 'Positionen', 'Wert'], [['Futter', '3', '96,00 €']]);
+  w.tabellenBeschriften(d);
+  const tds = [...d.querySelectorAll('tbody td')];
+  assertEq(tds.map((td) => td.dataset.label), ['Art', 'Positionen', 'Wert']);
+  assertEq(d.querySelector('table').dataset.beschriftet, '1');
+});
+test('tabellenBeschriften: Spalten ohne Kopf sind Knopf-Spalten', (w) => {
+  const d = tabelleBauen(w, ['Datum', 'Menge (kg)', ''], [['02.07.2026', '12', '<button>x</button>']]);
+  w.tabellenBeschriften(d);
+  const tds = [...d.querySelectorAll('tbody td')];
+  assertEq(tds[1].dataset.label, 'Menge (kg)');
+  assertEq(tds[2].dataset.label, undefined, 'keine Beschriftung für die Knopf-Spalte');
+  assertEq(tds[2].dataset.aktion, '1', 'als Knopf-Spalte markiert');
+});
+test('tabellenBeschriften: Zeilen mit anderer Spaltenzahl bleiben ein Block', (w) => {
+  const d = tabelleBauen(w, ['Jahr', 'Fahrten', 'Kilometer'], [['2026', '4', '120']]);
+  const tb = d.querySelector('tbody');
+  tb.insertAdjacentHTML('beforeend', '<tr><td colspan="3">Keine Fahrten in diesem Jahr</td></tr>');
+  w.tabellenBeschriften(d);
+  const zeilen = [...tb.querySelectorAll('tr')];
+  assertEq(zeilen[0].dataset.voll, undefined, 'normale Zeile wird beschriftet');
+  assertEq(zeilen[1].dataset.voll, '1', 'colspan-Zeile bleibt ganz');
+  assertEq(zeilen[1].querySelector('td').dataset.label, undefined, 'und bekommt keine Beschriftung');
+});
+test('tabellenBeschriften: läuft nicht zweimal über dieselbe Tabelle', (w) => {
+  const d = tabelleBauen(w, ['A', 'B'], [['1', '2']]);
+  w.tabellenBeschriften(d);
+  d.querySelector('tbody td').dataset.label = 'HANDGESETZT';
+  w.tabellenBeschriften(d); // darf nichts überschreiben
+  assertEq(d.querySelector('tbody td').dataset.label, 'HANDGESETZT');
+});
+test('Tabellen-Kärtchen: erste Spalte ist Überschrift, Wertzeilen sind zweispaltig', (w) => {
+  /* Der Fehler beim Bauen war eine Spezifitäts-Falle: „table.tbl td{display:block}“
+     überstimmt „.tbl td{display:flex}“, dann kleben Beschriftung und Wert rechts
+     aneinander. Diese Prüfung liest die Regeln aus dem Stylesheet. */
+  let flexRegel = null, blockFalle = null;
+  [...w.document.styleSheets].forEach((sheet) => {
+    let regeln; try { regeln = [...sheet.cssRules]; } catch (e) { return; }
+    regeln.forEach((r) => {
+      if (!r.media || !String(r.conditionText || r.media.mediaText).includes('560px')) return;
+      [...r.cssRules].forEach((k) => {
+        const sel = k.selectorText || '';
+        if (/(^|,)\s*\.tbl td\s*$/.test(sel) && k.style.display === 'flex') flexRegel = sel;
+        if (/table\.tbl td/.test(sel) && k.style.display === 'block') blockFalle = sel;
+      });
+    });
+  });
+  assert(flexRegel, '.tbl td wird im Handy-Bereich auf flex gestellt');
+  assertEq(blockFalle, null, 'kein spezifischeres table.tbl td{display:block}, das das überstimmt');
+});
+
 /* ---------- Reiter: Umbruch statt waagerechtem Scrollen ---------- */
 /* Breite eines 375-px-Handys abzüglich Seitenrand von main – so schmal wird es
    in der Praxis. Passt es hier, passt es überall. */

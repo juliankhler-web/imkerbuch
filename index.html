@@ -311,6 +311,45 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--card2)}
 .tbl td.num,.tbl th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* =====================================================================
+   TABELLEN AUF SCHMALEN BILDSCHIRMEN: aus jeder Zeile wird ein Kärtchen –
+   links die Spaltenbeschriftung, rechts der Wert. Damit entfällt das
+   waagerechte Wischen, man scrollt nur noch nach unten.
+   Die Beschriftung kommt aus data-label, das tabellenBeschriften() aus dem
+   Tabellenkopf übernimmt – deshalb muss keine der 17 Tabellen von Hand
+   angefasst werden. Ab 561 px bleibt es eine ganz normale Tabelle.
+   ===================================================================== */
+@media(max-width:560px){
+  .tbl-wrap{overflow:visible;border:none;border-radius:0}
+  /* td bewusst NICHT hier mit aufführen: „table.tbl td“ wäre spezifischer als
+     „.tbl td“ weiter unten und würde dessen display:flex überstimmen – dann
+     klebten Beschriftung und Wert rechts aneinander. */
+  table.tbl,table.tbl tbody,table.tbl tr{display:block;width:auto}
+  table.tbl thead{display:none}
+  table.tbl th{position:static} /* sticky ergibt ohne Kopfzeile keinen Sinn */
+  table.tbl tr{
+    border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);
+    padding:9px 12px;margin-bottom:8px;
+  }
+  table.tbl tr:last-child{margin-bottom:0}
+  .tbl tr:hover td{background:transparent} /* sonst färbt sich das ganze Kärtchen */
+  .tbl td{
+    border-bottom:none;padding:3px 0;display:flex;gap:12px;
+    justify-content:space-between;align-items:baseline;text-align:right;
+  }
+  .tbl td:empty{display:none} /* absichtlich leere Zellen sollen keine Leerzeile erzeugen */
+  .tbl td[data-label]::before{
+    content:attr(data-label);color:var(--muted);font-size:11.5px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.04em;text-align:left;flex:0 0 auto;
+  }
+  /* Die erste Spalte ist die Überschrift des Kärtchens, nicht ein Wert mit Beschriftung. */
+  .tbl td:first-child{display:block;text-align:left;font-weight:700;font-size:14.5px;padding-bottom:4px}
+  .tbl td:first-child::before{display:none}
+  /* Spalten ohne Kopfzeile (Bearbeiten/Löschen) nach rechts, mit etwas Luft. */
+  .tbl td[data-aktion]{justify-content:flex-end;padding-top:6px}
+  /* Zeilen, die nicht zum Kopf passen (Hinweiszeilen), bleiben ein Block. */
+  .tbl tr[data-voll] td{display:block;text-align:left}
+}
 .empty{
   text-align:center;padding:38px 20px;color:var(--muted);
   display:flex;flex-direction:column;align-items:center;gap:10px;
@@ -473,8 +512,24 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .audio-row audio{flex:1;height:38px;min-width:0}
 .rec-pulse{width:11px;height:11px;border-radius:50%;background:var(--danger);animation:pulse 1.1s infinite}
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
-.chart-box{width:100%;overflow:hidden}
-.chart-box svg{display:block;width:100%;height:auto}
+.chart-box{width:100%;overflow:hidden;position:relative}
+/* touch-action:pan-y – waagerechtes Wischen gehört uns (Wert ablesen), senkrechtes
+   bleibt beim Browser, damit man die Seite weiter scrollen kann, auch wenn der
+   Finger auf dem Diagramm landet. */
+.chart-box svg{display:block;width:100%;height:auto;touch-action:pan-y}
+.ch-fuehrung{stroke:var(--honey);stroke-width:1.5;stroke-dasharray:4 3;opacity:0;pointer-events:none}
+.ch-marken circle{stroke:var(--card);stroke-width:2.5}
+.ch-marken{opacity:0;pointer-events:none}
+.ch-wert{
+  position:absolute;top:0;left:0;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;
+  background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:5px 10px;
+  font-size:12.5px;color:var(--text);box-shadow:var(--shadow);white-space:nowrap;
+  pointer-events:none;opacity:0;transition:opacity .12s;z-index:2;
+}
+.ch-wert .ch-l{color:var(--muted)}
+.ch-wert b{font-weight:700;font-variant-numeric:tabular-nums}
+.ch-an .ch-fuehrung,.ch-an .ch-marken,.ch-an .ch-wert{opacity:1}
+@media print{.ch-fuehrung,.ch-marken,.ch-wert{display:none}}
 .chart-box .axis{font-size:10px;fill:var(--muted)}
 .chart-box .gridline{stroke:var(--line);stroke-width:1}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
@@ -853,8 +908,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.06';
+const APP_VERSION = '1.07';
 const CHANGELOG = [
+  { version: '1.07', datum: '2026-07-25', punkte: [
+    'Statistiken kann man jetzt ablesen: Fahre mit dem Finger über ein Diagramm, dann folgt eine Linie und oben steht der Wert an dieser Stelle – bei Einnahmen und Ausgaben gleichzeitig beide. Gilt für alle Statistiken: Völkerentwicklung, Honigertrag, Varroa, Gewicht, Wetter, Fahrten und Kassenbuch.',
+    'Tabellen musste man auf dem Handy seitlich wegschieben, um die letzten Spalten zu sehen. Jetzt wird auf schmalen Bildschirmen aus jeder Zeile ein Kärtchen: oben die Bezeichnung, darunter je Spalte Beschriftung und Wert. Du scrollst nur noch nach unten.',
+    'Das betrifft alle Tabellen der App – Inventar, Verbrauchsmaterial, Fütterung, Varroa, Gewicht, Wetter, Honigsorten, Bestand, Kassenbuch, Rechnungspositionen und die Statistik-Tabellen. Auf Tablet und Rechner bleibt die Tabelle eine Tabelle.',
+  ] },
   { version: '1.06', datum: '2026-07-25', punkte: [
     'Die Reiter oben rutschen jetzt in eine zweite Zeile, wenn sie nicht in eine passen. Bisher lagen die letzten außerhalb des Bildes und man musste sie mit dem Finger heranziehen – bei „Ernte und Abfüllung“ war das „Bestand“, beim Volk „Notizen & Anhänge“, im Kassenbuch die „Auswertung“.',
     'Gilt für alle Reiter in der App auf einmal. Auf breiten Bildschirmen bleibt alles wie vorher in einer Zeile.',
@@ -1703,7 +1763,25 @@ const UI = {
       }
     });
     const legend = series.length > 1 ? `<div class="legend">${series.map((s, si) => `<span><i style="background:${s.color || defaultColors[si % defaultColors.length]}"></i>${U.esc(s.name || '')}</span>`).join('')}</div>` : '';
-    return `<div class="chart-box"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}</svg>${legend}</div>`;
+    /* Messpunkte für die Finger-Anzeige mitgeben: die ganze Rechnerei bleibt hier,
+       chartInteraktiv() muss nur noch den nächsten Punkt zur Fingerposition finden.
+       x/y sind Koordinaten im viewBox-Raster (0…W), nicht Bildschirmpixel. */
+    const punkte = labels.map((l, i) => ({
+      x: +(padL + slot * (i + 0.5)).toFixed(1),
+      l: String(l),
+      w: series.map((s, si) => {
+        const v = s.values[i];
+        if (v === null || v === undefined || isNaN(v)) return null;
+        return {
+          n: s.name || '', t: U.fmtNum(v) + (unit ? ' ' + unit : ''),
+          y: +y(v).toFixed(1), c: s.color || defaultColors[si % defaultColors.length],
+        };
+      }).filter(Boolean),
+    })).filter((p) => p.w.length);
+    const daten = U.esc(JSON.stringify({ t: +padT.toFixed(1), b: +(padT + ih).toFixed(1), p: punkte }));
+    return `<div class="chart-box" data-chart="${daten}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}`
+      + `<line class="ch-fuehrung" x1="0" y1="${padT}" x2="0" y2="${padT + ih}"/><g class="ch-marken"></g></svg>`
+      + `<div class="ch-wert"></div>${legend}</div>`;
   },
 
   /** Tortendiagramm (Donut) mit Legende: posten = [{label, wert}], einheit z. B. 'h' */
@@ -1776,6 +1854,110 @@ function currentRoute() {
   return { route: route || 'dashboard', param: param ? decodeURIComponent(param) : null };
 }
 function navTo(route) { location.hash = '#/' + route; }
+
+/* =====================================================================
+   NACHBEREITUNG NACH DEM ZEICHNEN
+   Zwei Dinge lassen sich nicht im HTML-String erledigen, weil sie den
+   fertigen Baum brauchen:
+   · Diagramme: Wert unter dem Finger anzeigen (Zeiger-Ereignisse).
+   · Tabellen: Spaltenköpfe auf die Zellen schreiben, damit sie auf schmalen
+     Bildschirmen als Kärtchen mit Beschriftung erscheinen können.
+   Beides läuft über einen Beobachter auf dem Dokument, damit auch nachgeladene
+   Bereiche erfasst werden – Reiterwechsel, Fenster, Statistik-Tabs. Jedes
+   Element wird per Markierung nur EINMAL angefasst, der Beobachter ist also
+   billig, auch wenn er oft feuert.
+   ===================================================================== */
+
+/** Diagramm bedienbar machen: Führungslinie + Wert folgen dem Finger/Zeiger. */
+function chartInteraktiv(root = document) {
+  $$('.chart-box[data-chart]:not([data-live])', root).forEach((box) => {
+    box.dataset.live = '1';
+    let d;
+    try { d = JSON.parse(box.dataset.chart); } catch (e) { return; }
+    if (!d || !d.p || !d.p.length) return;
+    const svg = $('svg', box), linie = $('.ch-fuehrung', box), marken = $('.ch-marken', box), wert = $('.ch-wert', box);
+    if (!svg || !linie || !marken || !wert) return;
+    const W = 640; // Breite des viewBox-Rasters, siehe UI.chart
+    /* Markierungspunkte EINMAL anlegen und danach nur noch verschieben. Würde man
+       sie beim Ziehen per innerHTML neu erzeugen, löste jede Fingerbewegung den
+       Beobachter oben wieder aus. */
+    const maxS = Math.max(...d.p.map((p) => p.w.length));
+    marken.innerHTML = Array.from({ length: maxS }, () => '<circle r="6" cx="-99" cy="-99"/>').join('');
+    const kreise = $$('circle', marken);
+    let zuletzt = -1;
+    const zeigen = (clientX) => {
+      const r = svg.getBoundingClientRect();
+      if (!r.width) return;
+      const sx = ((clientX - r.left) / r.width) * W;
+      let i = 0, nah = Infinity;
+      d.p.forEach((p, k) => { const ab = Math.abs(p.x - sx); if (ab < nah) { nah = ab; i = k; } });
+      box.classList.add('ch-an');
+      if (i === zuletzt) return; // gleicher Messpunkt → nichts neu zeichnen (ruckelfrei)
+      zuletzt = i;
+      const p = d.p[i];
+      linie.setAttribute('x1', p.x); linie.setAttribute('x2', p.x);
+      kreise.forEach((k, j) => {
+        const s = p.w[j];
+        if (!s) { k.setAttribute('cx', -99); return; }
+        k.setAttribute('cx', p.x); k.setAttribute('cy', s.y); k.setAttribute('fill', s.c);
+      });
+      wert.innerHTML = `<span class="ch-l">${U.esc(p.l)}</span>`
+        + p.w.map((s) => `<span>${s.n ? U.esc(s.n) + ' ' : ''}<b>${U.esc(s.t)}</b></span>`).join('');
+      // Waagerecht einpassen, damit die Anzeige an den Rändern nicht abgeschnitten wird
+      const bw = wert.offsetWidth;
+      wert.style.left = Math.max(0, Math.min(r.width - bw, (p.x / W) * r.width - bw / 2)) + 'px';
+    };
+    const weg = () => { box.classList.remove('ch-an'); zuletzt = -1; };
+    svg.addEventListener('pointermove', (e) => zeigen(e.clientX));
+    svg.addEventListener('pointerdown', (e) => zeigen(e.clientX));
+    svg.addEventListener('pointercancel', weg);
+    // Bei der Maus verschwindet die Anzeige beim Verlassen. Beim Finger bleibt der
+    // zuletzt gelesene Wert stehen – sonst wäre er in dem Moment weg, in dem man
+    // hinschauen will.
+    svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') weg(); });
+  });
+}
+
+/** Spaltenkopf je Zelle hinterlegen (data-label), damit Tabellen auf schmalen
+    Bildschirmen als Kärtchen lesbar sind. Läuft über den Kopf der Tabelle, damit
+    keine der 18 Tabellen von Hand nachgezogen werden muss. */
+function tabellenBeschriften(root = document) {
+  $$('table.tbl:not([data-beschriftet])', root).forEach((t) => {
+    t.dataset.beschriftet = '1';
+    const koepfe = $$('thead th', t).map((th) => th.textContent.trim());
+    if (!koepfe.length) return;
+    $$('tbody tr', t).forEach((tr) => {
+      const zellen = [...tr.children];
+      // Zeilen, die nicht dem Kopf entsprechen (Summen-/Hinweiszeilen mit colspan),
+      // bleiben als Block stehen statt als Beschriftung-Wert-Paare.
+      if (zellen.some((td) => td.colSpan > 1) || zellen.length !== koepfe.length) { tr.dataset.voll = '1'; return; }
+      zellen.forEach((td, i) => {
+        const k = koepfe[i];
+        if (k) td.dataset.label = k; else td.dataset.aktion = '1';
+      });
+    });
+  });
+}
+
+/** Nach jedem Zeichnen aufräumen. Idempotent – mehrfacher Aufruf kostet fast nichts. */
+function nachRender(root = document) {
+  tabellenBeschriften(root);
+  chartInteraktiv(root);
+}
+
+let _nrGeplant = false;
+function nachRenderBeobachten() {
+  nachRender();
+  if (typeof MutationObserver !== 'function') return;
+  new MutationObserver(() => {
+    if (_nrGeplant) return;
+    _nrGeplant = true;
+    // Absichtlich setTimeout und NICHT requestAnimationFrame: rAF ruht in einem
+    // Hintergrund-Tab. Die App würde dort still ohne Tabellen-Beschriftung und
+    // ohne Diagramm-Bedienung laufen, bis der Tab wieder nach vorn kommt.
+    setTimeout(() => { _nrGeplant = false; nachRender(); }, 0);
+  }).observe(document.body, { childList: true, subtree: true });
+}
 
 async function renderRoute() {
   const { route, param } = currentRoute();
@@ -9373,6 +9555,7 @@ async function boot() {
   applyTheme();
   renderChrome();
   applyHeaderLogo();
+  nachRenderBeobachten(); // Diagramm-Bedienung + Tabellen-Beschriftung, auch für Nachgeladenes
   DB.purgeTrash();
   window.addEventListener('hashchange', renderRoute);
   Backup.initAuto();
@@ -9425,6 +9608,7 @@ Object.assign(window, {
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,
   BEREICHE, bereichKurz, bereichIcon, dashAlleEintraege, dashBlock, dashLabel, dashIcon, dashIstLink, dashCfgListe, renderBottomNav,
   ICONS, icon, ICONS_BUNT, iconBunt, ICON_TON, iconTon, iconKachel,
+  chartInteraktiv, tabellenBeschriften, nachRender,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 
