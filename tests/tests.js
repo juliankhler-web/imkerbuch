@@ -1082,6 +1082,99 @@ test('pageHead: Aktionen in eigenem .ph-actions-Container (verhindert Titel-Over
   assert(!d2.querySelector('.ph-actions'), 'ohne Aktionen kein .ph-actions');
 });
 
+/* ---------- Reiter: Umbruch statt waagerechtem Scrollen ---------- */
+/* Breite eines 375-px-Handys abzüglich Seitenrand von main – so schmal wird es
+   in der Praxis. Passt es hier, passt es überall. */
+const HANDY_BREIT = 343;
+const REITER_LANG = [
+  { id: 'ernten', label: 'Ernte' }, { id: 'sorten', label: 'Sorte' }, { id: 'chargen', label: 'Charge' },
+  { id: 'abfuellung', label: 'Abfüllung' }, { id: 'verkaeufe', label: 'Verkauf' }, { id: 'bestand', label: 'Bestand' },
+];
+
+test('Reiter-Zeile: bricht um und scrollt nicht mehr waagerecht', (w) => {
+  const el = w.UI.tabs(REITER_LANG, 'ernten', () => {});
+  w.document.body.appendChild(el);
+  try {
+    const cs = w.getComputedStyle(el);
+    assertEq(cs.flexWrap, 'wrap', 'Reiter dürfen umbrechen');
+    assert(cs.overflowX !== 'auto' && cs.overflowX !== 'scroll', 'keine Scrollleiste mehr, ist: ' + cs.overflowX);
+  } finally { el.remove(); }
+});
+test('Reiter-Zeile: auf Handybreite ragt kein Reiter aus dem Bild', (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = `width:${HANDY_BREIT}px;position:absolute;left:-9999px;top:0`;
+  w.document.body.appendChild(host);
+  const el = w.UI.tabs(REITER_LANG, 'ernten', () => {});
+  host.appendChild(el);
+  try {
+    assert(el.scrollWidth <= el.clientWidth + 1, `nichts ragt seitlich heraus (${el.scrollWidth} > ${el.clientWidth})`);
+    const knopf = el.querySelector('button');
+    assert(el.offsetHeight > knopf.offsetHeight * 1.5, 'sechs Reiter verteilen sich auf mehrere Zeilen');
+    // Der eigentliche Fehler war: „Bestand“ lag außerhalb. Also jeden einzeln prüfen.
+    const kasten = el.getBoundingClientRect();
+    [...el.querySelectorAll('button')].forEach((b) => {
+      const r = b.getBoundingClientRect();
+      assert(r.right <= kasten.right + 1, `„${b.textContent}“ liegt im sichtbaren Bereich`);
+      assert(r.left >= kasten.left - 1, `„${b.textContent}“ beginnt nicht links außerhalb`);
+    });
+  } finally { host.remove(); }
+});
+test('Reiter-Zeile: auch die langen Kassenbuch-Beschriftungen passen', (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = `width:${HANDY_BREIT}px;position:absolute;left:-9999px;top:0`;
+  w.document.body.appendChild(host);
+  const el = w.UI.tabs([
+    { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' },
+    { id: 'geschaeftskosten', label: 'Allgemeine Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
+  ], 'buchungen', () => {});
+  host.appendChild(el);
+  try {
+    assert(el.scrollWidth <= el.clientWidth + 1, `nichts ragt heraus (${el.scrollWidth} > ${el.clientWidth})`);
+    // Der längste Reiter darf für sich allein nicht breiter als das Handy sein,
+    // sonst hilft auch der Umbruch nicht mehr.
+    const breiteste = Math.max(...[...el.querySelectorAll('button')].map((b) => b.offsetWidth));
+    assert(breiteste <= HANDY_BREIT, `längster Reiter passt in eine Zeile (${breiteste} px)`);
+  } finally { host.remove(); }
+});
+/* Der eigentliche Fehler bei Königinnen und Verbrauchsmaterial: .ph-actions hatte
+   flex-shrink:0, wurde also nie schmaler – dadurch kam der flex-wrap DARIN nie zum
+   Zug und „Neue Königin“ stand 139 px außerhalb des Bildes. */
+test('Kopfzeile: Aktionsknöpfe brechen um statt seitlich herauszuragen', (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = `width:${HANDY_BREIT}px;position:absolute;left:-9999px;top:0`;
+  w.document.body.appendChild(host);
+  host.innerHTML = w.pageHead('Königinnen', '21 aktiv',
+    '<span class="flex-wrap no-print">'
+    + '<button class="btn btn-ghost btn-sm">Bewertungs-Runde</button>'
+    + '<button class="btn btn-ghost btn-sm">Umweiseln</button>'
+    + '<button class="btn btn-primary">Neue Königin</button></span>');
+  try {
+    const kopf = host.querySelector('.page-head').getBoundingClientRect();
+    const knoepfe = [...host.querySelectorAll('.ph-actions .btn')];
+    assertEq(knoepfe.length, 3, 'drei Knöpfe im Test');
+    knoepfe.forEach((b) => {
+      const r = b.getBoundingClientRect();
+      assert(r.right <= kopf.right + 1, `„${b.textContent.trim()}“ bleibt im Bild`);
+    });
+    const akt = host.querySelector('.ph-actions');
+    assert(akt.getBoundingClientRect().width <= HANDY_BREIT + 1,
+      `Aktionsblock passt in die Breite (${Math.round(akt.getBoundingClientRect().width)} px)`);
+    // Er darf schrumpfen – genau das war vorher durch flex-shrink:0 verboten.
+    assert(w.getComputedStyle(akt).flexShrink !== '0', 'Aktionsblock darf schmaler werden');
+  } finally { host.remove(); }
+});
+test('Reiter-Zeile: auf breitem Bildschirm bleibt es eine Zeile', (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = 'width:1000px;position:absolute;left:-9999px;top:0';
+  w.document.body.appendChild(host);
+  const el = w.UI.tabs(REITER_LANG, 'ernten', () => {});
+  host.appendChild(el);
+  try {
+    const knopf = el.querySelector('button');
+    assert(el.offsetHeight < knopf.offsetHeight * 1.5, 'am Schreibtisch weiterhin einzeilig');
+  } finally { host.remove(); }
+});
+
 /* ---------- Verlässlichkeit: Datum & Speichern (die Fehlerklassen der Konkurrenz) ---------- */
 test('U.fmtDate: Datum ohne Zeitzonen-Drift (string-basiert, kein new Date)', (w) => {
   const U = w.U;
