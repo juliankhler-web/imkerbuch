@@ -1133,6 +1133,19 @@ test('Inventar: Liste als kompakte Zeilen statt Tabelle', async (w) => {
   } finally { host.remove(); }
 });
 
+test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
+  /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
+     damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
+     läuft gegen Verbrauchsmaterial, wo es nur eine Handvoll Einträge gibt. */
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    const anzahl = host.querySelectorAll('.rows .row[data-edit]').length;
+    assert(anzahl > 0, 'Testlage: es gibt überhaupt Positionen');
+    assert(host.querySelector('#suche'), `Suchfeld vorhanden (bei ${anzahl} Positionen)`);
+  } finally { host.remove(); }
+});
+
 /* ---------- Diagramme: Wert unter dem Finger ---------- */
 test('UI.chart: liefert die Messpunkte für die Finger-Anzeige mit', (w) => {
   const html = w.UI.chart({ type: 'line', labels: ['2024', '2025', '2026'], series: [{ name: 'Völker', values: [10, 11, 31] }], unit: '' });

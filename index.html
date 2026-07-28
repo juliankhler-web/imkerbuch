@@ -264,6 +264,10 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
 .row .r-title,.ischule-row .r-title{display:block;font-weight:650;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .r-sub,.ischule-row .r-sub{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .r-side{text-align:right;font-size:13px;flex-shrink:0}
+/* Zeilen mit Warnhinweis (abgelaufen / MHD / Bestand niedrig) dürfen zweizeilig
+   werden: sonst frisst der Hinweis die ganze Zeile und von der Kategorie bleibt
+   „Behandl…“ übrig. Nur diese wenigen Zeilen werden höher. */
+.row.hat-hinweis .r-sub{white-space:normal}
 .row .chev{color:var(--muted);flex-shrink:0;width:16px;height:16px}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .stat{background:var(--card);border:1px solid transparent;border-radius:var(--r);padding:14px 16px;box-shadow:0 2px 4px rgba(122,80,0,.04),0 12px 28px -14px rgba(122,80,0,.22)}
@@ -908,8 +912,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.08';
+const APP_VERSION = '1.09';
 const CHANGELOG = [
+  { version: '1.09', datum: '2026-07-25', punkte: [
+    'Das Suchfeld bei Inventar und Verbrauchsmaterial ist jetzt immer da. Vorher erschien es erst ab neun Positionen – dadurch war die Suche bei kleineren Listen unsichtbar.',
+    'Positionen mit einem Hinweis („abgelaufen“, „MHD …“, „Bestand niedrig“) zeigen jetzt Hinweis UND Kategorie – vorher war die Zeile nach dem Hinweis abgeschnitten.',
+  ] },
   { version: '1.08', datum: '2026-07-25', punkte: [
     'Inventar und Verbrauchsmaterial zeigen ihre Positionen jetzt als kompakte Liste statt als Tabelle oder gestapelte Kärtchen – eine Zeile je Position, wie du es von Völkern und Königinnen kennst: Bezeichnung, darunter Kategorie, Stückzahl mit Einzelpreis und Zuordnung, rechts der Gesamtwert. Ein Tipp auf die Zeile öffnet das Bearbeiten-Fenster.',
     'Damit passen etwa viermal so viele Positionen auf den Bildschirm wie vorher.',
@@ -6304,7 +6312,7 @@ async function renderInventarBereich(main, cfg) {
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const teile = [i.kategorie, menge, zuord, i.notiz].filter(Boolean);
-    return `<button class="row" data-edit="${i.id}">
+    return `<button class="row${badge ? ' hat-hinweis' : ''}" data-edit="${i.id}">
       <span class="r-ic">${icon(cfg.ic)}</span>
       <span class="r-main">
         <span class="r-title">${U.esc(i.bezeichnung)}</span>
@@ -6331,7 +6339,11 @@ async function renderInventarBereich(main, cfg) {
         <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${stueck}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
     </div>` : '') +
     `<div class="card">`
-      + (alle.length > 8 ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
+      /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
+         es erst ab neun – dadurch war die Suche unsichtbar und unfindbar. Ein Feld,
+         das man bei wenigen Einträgen nicht braucht, stört weniger als eine
+         Funktion, von der niemand weiß. */
+      + (alle.length ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
       + (alle.length
         ? (list.length
           ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${list.map(zeile).join('')}</div>`
