@@ -908,8 +908,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.07';
+const APP_VERSION = '1.08';
 const CHANGELOG = [
+  { version: '1.08', datum: '2026-07-25', punkte: [
+    'Inventar und Verbrauchsmaterial zeigen ihre Positionen jetzt als kompakte Liste statt als Tabelle oder gestapelte Kärtchen – eine Zeile je Position, wie du es von Völkern und Königinnen kennst: Bezeichnung, darunter Kategorie, Stückzahl mit Einzelpreis und Zuordnung, rechts der Gesamtwert. Ein Tipp auf die Zeile öffnet das Bearbeiten-Fenster.',
+    'Damit passen etwa viermal so viele Positionen auf den Bildschirm wie vorher.',
+    'Neu: ein Suchfeld über der Liste (ab neun Positionen). Es sucht in Bezeichnung, Kategorie, Notiz und Zuordnung. Mehrere Wörter werden verknüpft – „rähmchen zander“ findet nur, was beides enthält. Darunter steht, wie viele Positionen von wie vielen gerade angezeigt werden.',
+  ] },
   { version: '1.07', datum: '2026-07-25', punkte: [
     'Statistiken kann man jetzt ablesen: Fahre mit dem Finger über ein Diagramm, dann folgt eine Linie und oben steht der Wert an dieser Stelle – bei Einnahmen und Ausgaben gleichzeitig beide. Gilt für alle Statistiken: Völkerentwicklung, Honigertrag, Varroa, Gewicht, Wetter, Fahrten und Kassenbuch.',
     'Tabellen musste man auf dem Handy seitlich wegschieben, um die letzten Spalten zu sehen. Jetzt wird auf schmalen Bildschirmen aus jeder Zeile ein Kärtchen: oben die Bezeichnung, darunter je Spalte Beschriftung und Wert. Du scrollst nur noch nach unten.',
@@ -6249,6 +6254,16 @@ Views.rechnung = {
    MODUL: INVENTAR / MATERIAL (Anlagen, Zuordnung, Gesamtwert)
    ===================================================================== */
 /** Gemeinsame Render-Funktion für Inventar UND Verbrauchsmaterial (nur Datenteilmenge/Labels unterscheiden sich). */
+/** Trifft eine Inventar-/Materialposition den Suchtext? Mehrere Wörter werden
+    UND-verknüpft (»rähmchen zander« findet nur, was beides enthält). Gesucht wird
+    über Bezeichnung, Kategorie, Notiz und die Zuordnung zu Stand oder Volk. */
+function positionTrifft(i, suchtext, zuordnung = '') {
+  const s = String(suchtext || '').trim().toLowerCase();
+  if (!s) return true;
+  const heu = [i.bezeichnung, i.kategorie, i.notiz, zuordnung].filter(Boolean).join(' ').toLowerCase();
+  return s.split(/\s+/).every((w) => heu.includes(w));
+}
+
 async function renderInventarBereich(main, cfg) {
   const view = cfg.view;
   const staende = await idMap('staende'), voelker = await idMap('voelker');
@@ -6258,12 +6273,47 @@ async function renderInventarBereich(main, cfg) {
   const arten = [...new Set(alle.map((i) => i.kategorie).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
   const jahr = view._jahr || '', art = view._art || '';
   const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
-  const list = alle.filter(passt);
+  /* Suche: mehrere Wörter werden UND-verknüpft, gesucht wird über Bezeichnung,
+     Kategorie, Notiz und Zuordnung. Sie wirkt wie die Jahr/Art-Auswahl auf die
+     ganze Ansicht – Kennzahlen und Übersicht folgen mit, damit die Zahlen zur
+     angezeigten Liste passen. */
+  const suchtext = (view._suche || '').trim().toLowerCase();
+  const zuordnungVon = (i) => staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '';
+  const list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
   const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
   const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
   const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
     .map(([k, items]) => ({ k, n: items.length, stueck: U.sum(items, (i) => i.stueckzahl || 1), wert: U.sum(items, wertVon) }))
     .sort((a, b) => b.wert - a.wert);
+  /* Eine Position = eine Zeile, wie in den Völker- und Königinnen-Listen.
+     Die ganze Zeile trägt data-edit und öffnet damit das Bearbeiten-Fenster –
+     der delegierte Klick-Listener unten kennt dieses Muster bereits. */
+  const zeile = (i) => {
+    const abgelaufen = i.ablauf && i.ablauf < U.todayIso();
+    const laueftAb = i.ablauf && !abgelaufen && U.daysBetween(U.todayIso(), i.ablauf) <= MHD_WARN_TAGE;
+    const knapp = i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand;
+    const badge = abgelaufen ? '<span class="badge b-danger">abgelaufen</span>'
+      : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>`
+        : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
+    const zuord = zuordnungVon(i);
+    const stk = i.stueckzahl || 1;
+    // „3 × 7,20 €“ sagt Stückzahl und Einzelpreis in einem Zug – rechts steht dann
+    // nur die Summe. Das hält die Wertspalte schmal, damit vom Untertitel etwas
+    // übrig bleibt statt nach zwei Wörtern abgeschnitten zu werden.
+    const menge = i.preis ? `${stk} × ${U.fmtEur(i.preis)}` : `${stk} Stück`;
+    // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
+    // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
+    const teile = [i.kategorie, menge, zuord, i.notiz].filter(Boolean);
+    return `<button class="row" data-edit="${i.id}">
+      <span class="r-ic">${icon(cfg.ic)}</span>
+      <span class="r-main">
+        <span class="r-title">${U.esc(i.bezeichnung)}</span>
+        <span class="r-sub">${badge ? badge + ' ' : ''}${U.esc(teile.join(' · '))}</span>
+      </span>
+      <span class="r-side"><b>${U.fmtEur(wertVon(i))}</b></span>
+      ${icon('chevR', 'chev')}
+    </button>`;
+  };
   const chip = (label, val, cur, attr) => `<button class="chip ${String(cur) === String(val) ? 'active' : ''}" data-${attr}="${U.esc(val)}">${U.esc(label)}</button>`;
   main.innerHTML = pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`,
     `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button><button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button></span>`) +
@@ -6273,22 +6323,20 @@ async function renderInventarBereich(main, cfg) {
     <div class="stat-grid mb16">
       <div class="stat"><div class="s-label">${icon(cfg.ic)} Positionen</div><div class="s-value">${list.length}</div></div>
       <div class="stat"><div class="s-label">Stück gesamt</div><div class="s-value">${stueck}</div></div>
-      <div class="stat"><div class="s-label">${icon('euro')} Wert${jahr || art ? ' (Auswahl)' : ''}</div><div class="s-value">${U.fmtEur(wert)}</div></div>
+      <div class="stat"><div class="s-label">${icon('euro')} Wert${jahr || art || suchtext ? ' (Auswahl)' : ''}</div><div class="s-value">${U.fmtEur(wert)}</div></div>
     </div>
     <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
       ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Stück</th><th class="num">Wert</th></tr></thead>
         <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${r.stueck}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
         <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${stueck}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
     </div>` : '') +
-    `<div class="card">` + (alle.length ? (list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th>Kategorie</th><th class="num">Stück</th><th class="num">Preis</th><th class="num">Wert</th><th>Zuordnung</th><th>Anschaffung</th><th class="no-print"></th></tr></thead>
-      <tbody>${list.map((i) => { const abgelaufen = i.ablauf && i.ablauf < U.todayIso(); const laueftAb = i.ablauf && !abgelaufen && U.daysBetween(U.todayIso(), i.ablauf) <= MHD_WARN_TAGE; const knapp = i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand;
-        const badge = abgelaufen ? '<span class="badge b-danger">abgelaufen</span>' : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>` : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
-        return `<tr><td><b>${U.esc(i.bezeichnung)}</b> ${badge}${i.notiz ? `<br><span class="small muted">${U.esc(i.notiz)}</span>` : ''}</td><td>${U.esc(i.kategorie || '–')}</td>
-        <td class="num">${i.stueckzahl || 1}</td><td class="num">${U.fmtEur(i.preis)}</td><td class="num"><b>${U.fmtEur(wertVon(i))}</b></td>
-        <td>${U.esc(staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–')}</td><td>${U.fmtDate(i.anschaffung) || '–'}</td>
-        <td class="no-print"><button class="btn btn-xs btn-ghost" data-edit="${i.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>`
-      : '<p class="small muted">Keine Positionen passen zu Jahr/Art-Auswahl.</p>')
-    : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
+    `<div class="card">`
+      + (alle.length > 8 ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
+      + (alle.length
+        ? (list.length
+          ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${list.map(zeile).join('')}</div>`
+          : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc(view._suche)}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
+        : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
   const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
   const form = async (i) => UI.formModal({
     title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
@@ -6317,6 +6365,21 @@ async function renderInventarBereich(main, cfg) {
     const a = e.target.closest('[data-art]'); if (a) { view._art = a.dataset.art; return renderRoute(); }
     const b = e.target.closest('[data-edit]'); if (b) form(alle.find((x) => x.id === b.dataset.edit));
   });
+  /* Suche: Tastendrücke kurz sammeln, dann neu zeichnen – sonst liest die App bei
+     jedem Buchstaben die Datenbank. Danach Fokus und Schreibmarke zurücksetzen,
+     sonst schließt sich auf dem Handy die Tastatur mitten im Wort. */
+  const sfeld = $('#suche', main);
+  if (sfeld) {
+    sfeld.oninput = () => {
+      view._suche = sfeld.value;
+      clearTimeout(view._sucheTimer);
+      view._sucheTimer = setTimeout(async () => {
+        await renderRoute();
+        const frisch = $('#suche');
+        if (frisch) { frisch.focus(); frisch.setSelectionRange(frisch.value.length, frisch.value.length); }
+      }, 220);
+    };
+  }
 }
 Views.inventar = {
   title: 'Inventar',
@@ -9609,6 +9672,7 @@ Object.assign(window, {
   BEREICHE, bereichKurz, bereichIcon, dashAlleEintraege, dashBlock, dashLabel, dashIcon, dashIstLink, dashCfgListe, renderBottomNav,
   ICONS, icon, ICONS_BUNT, iconBunt, ICON_TON, iconTon, iconKachel,
   chartInteraktiv, tabellenBeschriften, nachRender,
+  positionTrifft,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 

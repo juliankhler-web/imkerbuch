@@ -1082,6 +1082,57 @@ test('pageHead: Aktionen in eigenem .ph-actions-Container (verhindert Titel-Over
   assert(!d2.querySelector('.ph-actions'), 'ohne Aktionen kein .ph-actions');
 });
 
+/* ---------- Inventar/Material: Suche und kompakte Zeilen ---------- */
+const POS = { bezeichnung: 'Zander Rähmchen', kategorie: 'Rähmchen', notiz: 'aus Kiefer', stueckzahl: 60, preis: 1.15 };
+
+test('positionTrifft: leere Suche lässt alles durch', (w) => {
+  assertEq(w.positionTrifft(POS, ''), true);
+  assertEq(w.positionTrifft(POS, '   '), true, 'nur Leerzeichen zählt als leer');
+  assertEq(w.positionTrifft(POS, undefined), true);
+});
+test('positionTrifft: findet über Bezeichnung, Kategorie, Notiz und Zuordnung', (w) => {
+  assertEq(w.positionTrifft(POS, 'zander'), true, 'Bezeichnung');
+  assertEq(w.positionTrifft(POS, 'rähmchen'), true, 'Kategorie');
+  assertEq(w.positionTrifft(POS, 'kiefer'), true, 'Notiz');
+  assertEq(w.positionTrifft(POS, 'obstwiese'), false, 'ohne Zuordnung kein Treffer');
+  assertEq(w.positionTrifft(POS, 'obstwiese', 'Heimstand Obstwiese'), true, 'mit Zuordnung');
+});
+test('positionTrifft: Groß-/Kleinschreibung und Umlaute sind egal', (w) => {
+  assertEq(w.positionTrifft(POS, 'ZANDER'), true);
+  assertEq(w.positionTrifft(POS, 'Rähmchen'), true);
+  assertEq(w.positionTrifft(POS, 'RÄHMCHEN'), true);
+});
+test('positionTrifft: mehrere Wörter werden UND-verknüpft', (w) => {
+  assertEq(w.positionTrifft(POS, 'rähmchen zander'), true, 'beides enthalten – Reihenfolge egal');
+  assertEq(w.positionTrifft(POS, 'zander kiefer'), true, 'quer über zwei Felder');
+  assertEq(w.positionTrifft(POS, 'zander beute'), false, 'ein Wort fehlt → kein Treffer');
+  assertEq(w.positionTrifft(POS, '  zander   kiefer  '), true, 'mehrfache Leerzeichen');
+});
+test('positionTrifft: fehlende Felder werfen nicht', (w) => {
+  assertEq(w.positionTrifft({ bezeichnung: 'Nur Name' }, 'name'), true);
+  assertEq(w.positionTrifft({}, 'irgendwas'), false, 'ohne Inhalt kein Treffer');
+  assertEq(w.positionTrifft({}, ''), true, 'aber leere Suche trifft trotzdem');
+});
+test('Inventar: Liste als kompakte Zeilen statt Tabelle', async (w) => {
+  // Feste id, damit wiederholte Testläufe die Test-Datenbank nicht zumüllen
+  await w.DB.put('inventar', { id: 'test-zeile-inventar', typ: 'inventar', bezeichnung: 'Zeilen-Test-Beute', kategorie: 'Beuten', stueckzahl: 2, preis: 100 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.inventar.render(host);
+    assertEq(host.querySelector('.rows .row[data-edit]') !== null, true, 'Positionen sind klickbare Zeilen');
+    const zeile = [...host.querySelectorAll('.rows .row[data-edit]')].find((r) => /Zeilen-Test-Beute/.test(r.textContent));
+    assert(zeile, 'die angelegte Position steht in der Liste');
+    assert(zeile.querySelector('.r-title'), 'Titel');
+    assert(zeile.querySelector('.r-sub'), 'Untertitel mit Kategorie/Menge');
+    assert(/2 × /.test(zeile.querySelector('.r-sub').textContent), 'Stückzahl × Einzelpreis im Untertitel');
+    assert(/200/.test(zeile.querySelector('.r-side').textContent), 'Gesamtwert rechts');
+    // Die Positionsliste darf keine Tabelle mehr sein – die Übersichtskarte schon.
+    const listenTabellen = [...host.querySelectorAll('table.tbl')].filter((t) => /Zeilen-Test-Beute/.test(t.textContent));
+    assertEq(listenTabellen.length, 0, 'die Positionsliste ist keine Tabelle mehr');
+    assert(host.querySelector('table.tbl'), 'die Gesamtübersicht nach Art bleibt eine Tabelle');
+  } finally { host.remove(); }
+});
+
 /* ---------- Diagramme: Wert unter dem Finger ---------- */
 test('UI.chart: liefert die Messpunkte für die Finger-Anzeige mit', (w) => {
   const html = w.UI.chart({ type: 'line', labels: ['2024', '2025', '2026'], series: [{ name: 'Völker', values: [10, 11, 31] }], unit: '' });
