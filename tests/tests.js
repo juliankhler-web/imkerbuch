@@ -1146,6 +1146,20 @@ test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w
   } finally { host.remove(); }
 });
 
+test('Zuckersirup-Rechner: Mischverhältnis ohne Bemerkung, Werte unverändert', async (w) => {
+  /* Die Auswahl zeigt nur noch „3:2“ und „1:1“. Wichtig: die value-Attribute müssen
+     bleiben, denn daran hängt die Rechnung (3:2 → 3/5 Zucker). */
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.rechner.render(host);
+    const sel = host.querySelector('[data-zs="verh"]');
+    assert(sel, 'Mischverhältnis-Auswahl vorhanden');
+    const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent.trim() }));
+    assertEq(opts.map((o) => o.v), ['3:2', '1:1'], 'Werte für die Rechnung unverändert');
+    assertEq(opts.map((o) => o.t), ['3:2', '1:1'], 'Beschriftung ohne Bemerkung dahinter');
+  } finally { host.remove(); }
+});
+
 /* ---------- Diagramme: Wert unter dem Finger ---------- */
 test('UI.chart: liefert die Messpunkte für die Finger-Anzeige mit', (w) => {
   const html = w.UI.chart({ type: 'line', labels: ['2024', '2025', '2026'], series: [{ name: 'Völker', values: [10, 11, 31] }], unit: '' });
