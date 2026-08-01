@@ -915,11 +915,23 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.16';
+const APP_VERSION = '1.17';
 const CHANGELOG = [
+  { version: '1.17', datum: '2026-08-01', punkte: [
+    'Rechnungspositionen haben jetzt ein Feld „Pfand je Gebinde“ – für Glas, Eimer oder Kiste. Der Pfand steht als eigene Spalte in der Rechnung und wird in der Summe getrennt ausgewiesen.',
+    'Neu: Rabatt und Skonto, bewusst getrennt. <b>Rabatt</b> (Prozent oder Betrag, mit Grund wie „Großkunde“) mindert die Rechnung sofort und damit auch die Umsatzsteuer. <b>Skonto</b> wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen („bei Zahlung bis … 2 %“) – es wirkt erst, wenn wirklich früh gezahlt wird.',
+    'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt von Rabatt und Skonto ausgenommen.',
+    'Kunden lassen sich jetzt dort anlegen, wo man sie braucht: in der Rechnung direkt neben der Kundenauswahl und ebenso beim Verkauf. Der neue Kunde ist sofort gesetzt – der Umweg über Kassenbuch → Kunden & Lieferanten fällt weg.',
+    'Die erste Fütterung darf eine eigene Menge haben – der Rest verteilt sich dann gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
+    'Der Futter-Rechner kennt jetzt Anzahl der Fütterungen, Abstand in Tagen und den Beginn. Die wichtigste Zahl steht als eigene Kachel: <b>Liter Sirup je Volk und Fütterung</b> – dazu, wie viel du je Termin für alle Völker ansetzen musst, und die Termine im Klartext.',
+    'Neuer Knopf „Plan als Aufgaben“: legt für jeden Termin eine Aufgabe an – mit Menge je Volk im Titel und der Ansatzmenge in der Notiz.',
+    '„Als Fütterung übernehmen“ übernimmt jetzt eine einzelne Gabe (nicht die Gesamtmenge) und setzt den Abstand gleich als Wiedervorlage.',
+  ] },
   { version: '1.16', datum: '2026-08-01', punkte: [
     'Im Kalender lässt sich jetzt jeder Tag antippen: ein freier Tag öffnet gleich das Formular mit diesem Datum, ein belegter zeigt erst, was ansteht – mit „Neue Aufgabe“ darunter.',
     'Die Aufgaben in dieser Tagesübersicht kannst du direkt antippen, um sie zu bearbeiten; Volk und aktueller Stand stehen auch dort.',
+    'Hängt eine Aufgabe am ganzen Stand, steht in der Liste jetzt auch die Völkerzahl dabei – z. B. „Heimstand Obstwiese · 7 Völker“. Sie wird bei jeder Anzeige neu gezählt.',
+    'Auch bei Aufgaben, die schon vorher entstanden sind, steht Volk und Stand jetzt dabei – Behandlungs-Aufgaben werden dafür einmalig ans Volk gehängt. Selbst angelegte Aufgaben ohne Volk bleiben ohne Zeile, bis du sie öffnest und einen Stand oder ein Volk wählst.',
     'Beim Anlegen einer Aufgabe steht die Völkerzahl wieder dabei: wählst du kein einzelnes Volk, siehst du, für wie viele Völker am gewählten Stand die Aufgabe gilt – der Funktions-Filter zählt mit.',
   ] },
   { version: '1.15', datum: '2026-08-01', punkte: [
@@ -4910,6 +4922,30 @@ async function behandlungFuerVoelker(volkIds, daten) {
 /** Wie verdrahteVolkFilter, aber für eine Auswahlliste mit genau einem Volk:
     Stand und Funktion blenden die Einträge aus, die nicht passen. Wird von der
     Aufgabe benutzt – dort gehört eine Aufgabe zu einem Volk, nicht zu vielen. */
+/** Kunden-/Lieferanten-Formular. Wird an mehreren Stellen gebraucht: im
+    Kassenbuch, in der Rechnung und beim Verkauf – überall soll man einen Kunden
+    anlegen können, ohne den Vorgang zu verlassen. onSaved bekommt den
+    gespeicherten Kontakt; ohne onSaved wird nur neu gezeichnet. */
+async function kontaktForm(c, { typ, onSaved } = {}) {
+  return UI.formModal({
+    title: c ? 'Kontakt bearbeiten' : (typ === 'kunde' ? 'Neuer Kunde' : 'Neuer Kontakt'),
+    fields: [
+      { key: 'typ', label: 'Art', type: 'select', required: true, default: typ || 'kunde', options: [{ v: 'kunde', l: 'Kunde' }, { v: 'lieferant', l: 'Lieferant' }] },
+      { key: 'name', label: 'Name / Firma', required: true },
+      { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort', type: 'suggest', options: await gelernteWerte([], 'kontakte', 'ort') },
+      { key: 'email', label: 'E-Mail' }, { key: 'telefon', label: 'Telefon' },
+      { key: 'notiz', label: 'Notiz', type: 'textarea' },
+    ],
+    values: c || (typ ? { typ } : {}),
+    async onSave(v) {
+      const gespeichert = await DB.put('kontakte', Object.assign(c || {}, v));
+      UI.toast('Kontakt gespeichert');
+      if (onSaved) await onSaved(gespeichert); else renderRoute();
+    },
+    onDelete: papierkorbDelete('kontakte', c, 'Kontakt löschen?', 'Wandert in den Papierkorb.'),
+  });
+}
+
 function verdrahteVolkAuswahl(m, alleVoelker) {
   const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el), volkSel = $('#f-volkId', m.el);
   if (!standSel || !funkSel || !volkSel) return;
@@ -5032,7 +5068,9 @@ Views.fuetterung = {
       title: 'Futter-Rechner', wide: true,
       body: `<div class="small muted mb12">Vom Bedarf zum Einkauf – und danach gleich als Fütterung eintragen.</div>
         ${futterRechnerHtml(aktiveV)}`,
-      footer: `<button class="btn btn-ghost" data-zu>Schließen</button><button class="btn btn-primary" data-take>${icon('plus')} Als Fütterung übernehmen</button>`,
+      footer: `<button class="btn btn-ghost" data-zu>Schließen</button>
+        <button class="btn btn-ghost" data-plan>${icon('kalender')} Plan als Aufgaben</button>
+        <button class="btn btn-primary" data-take>${icon('plus')} Als Fütterung übernehmen</button>`,
     });
     let plan = null;
     const rechne = () => { plan = futterRechnerRechnen(m.el); };
@@ -5040,15 +5078,41 @@ Views.fuetterung = {
     m.el.addEventListener('change', rechne);
     rechne();
     $('[data-zu]', m.el).onclick = () => m.close();
+    const eins = (n) => Math.round(n * 10) / 10;
     $('[data-take]', m.el).onclick = () => {
-      const eins = (n) => Math.round(n * 10) / 10;
-      // „Menge (kg)“ ist bei Zuckerwasser der reine Zucker – deshalb kommt der
-      // Zucker je Volk ins Mengenfeld und nicht das Sirupgewicht.
+      /* Übernommen wird EINE Gabe: „Menge (kg)“ ist bei Zuckerwasser der reine
+         Zucker, deshalb der Zucker je Volk und Fütterung – nicht das Sirupgewicht.
+         Der Abstand landet als Wiedervorlage, damit die nächste Gabe nicht
+         untergeht. */
       const vor = plan && plan.voelker > 0
-        ? { futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.zuckerJeVolk), winterfutter: true }
+        ? { datum: plan.beginn, futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.gabeErste.zucker), winterfutter: true,
+            wiedervorlageTage: plan.anzahl > 1 ? plan.abstand : null }
         : {};
       m.close(true);
       Views.fuetterung.sammelForm(vor);
+    };
+    $('[data-plan]', m.el).onclick = async () => {
+      if (!plan || plan.voelker < 1 || plan.jeVolk <= 0) return UI.toast('Bitte erst Völker und Futtermenge eintragen.', 'err');
+      const liste = plan.termine.map((t, i) => `${i + 1}. ${U.fmtDate(t)} – ${U.fmtNum(plan.gaben[i].sirup.liter, 1)} L je Volk`).join('<br>');
+      const ok = await UI.confirm({
+        title: `${plan.anzahl} ${plan.anzahl === 1 ? 'Aufgabe' : 'Aufgaben'} anlegen?`,
+        text: `Sirup ${plan.verh} je Volk:<br>${liste}`,
+        confirmText: 'Anlegen', danger: false,
+      });
+      if (!ok) return;
+      for (let i = 0; i < plan.termine.length; i++) {
+        const g = plan.gaben[i];
+        await DB.put('aufgaben', {
+          titel: `Fütterung ${i + 1}/${plan.anzahl}: ${U.fmtNum(g.sirup.liter, 1)} L Sirup je Volk`,
+          faellig: plan.termine[i], erledigt: false, quelle: 'fuetterung', refId: null, kategorie: 'Fütterung',
+          notiz: `Je Volk ${U.fmtNum(g.zucker, 1)} kg Zucker + ${U.fmtNum(g.wasser, 1)} L Wasser (${plan.verh}). `
+            + `Für ${plan.voelker} Völker ${U.fmtNum(g.ansatz.liter, 1)} L ansetzen.`,
+        });
+      }
+      Notif.check();
+      m.close(true);
+      UI.toast(`${plan.anzahl} ${plan.anzahl === 1 ? 'Aufgabe' : 'Aufgaben'} angelegt`);
+      navTo('aufgaben');
     };
   },
 
@@ -5442,13 +5506,14 @@ async function verkaufForm(vorAbfuellungId = '') {
   if (!abf.length) return UI.toast('Kein abgefüllter Bestand vorhanden – fülle zuerst eine Charge ab (Tab „Abfüllung“)', 'err');
   const chargen = await idMap('chargen'), ernten = await idMap('ernten');
   const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
-  UI.formModal({
+  const m = UI.formModal({
     title: 'Verkauf erfassen',
     fields: [
       { key: 'abfuellungId', label: 'Welche Abfüllung (Gebinde)?', type: 'select', required: true, default: vorAbfuellungId, options: abf.map((a) => ({ v: a.id, l: `${gebindeLabel(a.gebindeG)} · ${honigName(chargen.get(a.chargeId), ernten)} · ${a.bestand} verfügbar` })) },
       { key: 'anzahl', label: 'Anzahl Gebinde', type: 'number', required: true, default: 1 },
       { key: 'preisJeGlas', label: 'Preis je Gebinde (€)', type: 'number', required: true },
-      { key: 'kontaktId', label: 'Verkauft an', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional – Kunden legst du unter Kassenbuch → Kunden & Lieferanten an.' },
+      { key: 'kontaktId', label: 'Verkauft an', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional.' },
+      { key: '_kundeNeu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" id="vk-kunde-neu">${icon('plus')} Neuer Kunde</button>` },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. Haustürverkauf, Wochenmarkt' },
     ],
@@ -5456,6 +5521,20 @@ async function verkaufForm(vorAbfuellungId = '') {
     async onSave(v) {
       await verkaufErfassen({ abfuellungId: v.abfuellungId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
       UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute();
+    },
+  });
+  /* Neuen Kunden mitten im Verkauf anlegen: der Eintrag wird der Auswahlliste
+     hinzugefügt und gleich gesetzt, das halb gefüllte Formular bleibt stehen. */
+  const neuKnopf = $('#vk-kunde-neu', m.el);
+  if (neuKnopf) neuKnopf.onclick = () => kontaktForm(null, {
+    typ: 'kunde',
+    onSaved: (k) => {
+      const sel = $('#f-kontaktId', m.el);
+      if (!sel) return;
+      const opt = document.createElement('option');
+      opt.value = k.id; opt.textContent = k.name;
+      sel.appendChild(opt); sel.value = k.id;
+      FormGuard.dirty = true;
     },
   });
 }
@@ -6166,19 +6245,7 @@ Views.kassenbuch = {
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('meldung', 'Noch keine Kontakte. Kunden brauchst du für Rechnungen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Kontakt</button>`)}
     </div>`;
-    const form = async (c) => UI.formModal({
-      title: c ? 'Kontakt bearbeiten' : 'Neuer Kontakt',
-      fields: [
-        { key: 'typ', label: 'Art', type: 'select', required: true, default: 'kunde', options: [{ v: 'kunde', l: 'Kunde' }, { v: 'lieferant', l: 'Lieferant' }] },
-        { key: 'name', label: 'Name / Firma', required: true },
-        { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort', type: 'suggest', options: await gelernteWerte([], 'kontakte', 'ort') },
-        { key: 'email', label: 'E-Mail' }, { key: 'telefon', label: 'Telefon' },
-        { key: 'notiz', label: 'Notiz', type: 'textarea' },
-      ],
-      values: c || {},
-      async onSave(v) { await DB.put('kontakte', Object.assign(c || {}, v)); UI.toast('Kontakt gespeichert'); renderRoute(); },
-      onDelete: papierkorbDelete('kontakte', c, 'Kontakt löschen?', 'Wandert in den Papierkorb.'),
-    });
+    const form = (c) => kontaktForm(c);
     const add = () => form(null);
     bindAdd(add, box);
     box.addEventListener('click', (e) => { const r = e.target.closest('.row[data-id]'); if (r) form(list.find((x) => x.id === r.dataset.id)); });
@@ -6224,18 +6291,57 @@ function rechnungHinweis(r) {
   if (art === 'pauschal24') return `Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von ${U.fmtNum(r.pauschalsatz != null ? r.pauschalsatz : 7.8, 1)} %.`;
   return null;
 }
+const PFAND_UST_VORGABE = 19;      // Pfand auf Mehrweggebinde wird üblich mit 19 % ausgewiesen
+const ZAHLUNGSZIEL_VORGABE = 14;   // Tage
+
+/** Rabatt in Euro. Prozent bezieht sich auf den Warenwert – der Pfand bleibt
+    außen vor, ein Pfand ist kein Erlös, auf den man Rabatt gibt. */
+function rechnungRabatt(r, waren) {
+  const wert = Math.max(0, Number(r.rabattWert) || 0);
+  if (wert <= 0) return 0;
+  if ((r.rabattTyp || 'prozent') === 'betrag') return Math.min(wert, waren);
+  return waren * Math.min(100, wert) / 100;
+}
+
+/* Rabatt und Skonto sind ausdrücklich zwei verschiedene Dinge:
+   – RABATT mindert die Rechnung sofort. Er geht vom Warenwert ab und mindert
+     damit auch die ausgewiesene Umsatzsteuer.
+   – SKONTO ist nur eine Zahlungsbedingung. Er wird NICHT vom Gesamtbetrag
+     abgezogen, sondern als Angebot ausgewiesen („bei Zahlung bis … 2 %").
+     Wirksam wird er erst, wenn der Kunde früh zahlt – dann ist die Minderung
+     beim Zahlungseingang zu buchen.
+   Der Pfand wird getrennt ausgewiesen und ist von Rabatt und Skonto ausgenommen. */
 function rechnungSummen(r) {
-  const brutto = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
+  const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
+  const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
+  const rabatt = rechnungRabatt(r, waren);
+  const nachRabatt = Math.max(0, waren - rabatt);
+  const brutto = nachRabatt + pfand;
   const steuern = {};
   const art = rechnungSteuerart(r);
-  if (art === 'regel') for (const p of r.positionen) {
-    const satz = p.steuersatz || 0;
-    if (satz > 0) steuern[satz] = (steuern[satz] || 0) + (p.menge * p.einzelpreis) * (satz / (100 + satz));
+  if (art === 'regel') {
+    const faktor = waren > 0 ? nachRabatt / waren : 1;   // Rabatt anteilig auf alle Sätze
+    for (const p of r.positionen) {
+      const satz = p.steuersatz || 0;
+      const wert = p.menge * p.einzelpreis * faktor;
+      if (satz > 0 && wert > 0) steuern[satz] = (steuern[satz] || 0) + wert * (satz / (100 + satz));
+    }
+    const ps = r.pfandSteuersatz != null ? r.pfandSteuersatz : PFAND_UST_VORGABE;
+    if (pfand > 0 && ps > 0) steuern[ps] = (steuern[ps] || 0) + pfand * (ps / (100 + ps));
   } else if (art === 'pauschal24') {
     const satz = r.pauschalsatz != null ? r.pauschalsatz : 7.8; // enthaltene Pauschal-USt auf die Gesamtsumme
     if (satz > 0 && brutto > 0) steuern[satz] = brutto * (satz / (100 + satz));
   }
-  return { brutto, steuern };
+  const zielTage = r.zahlungszielTage != null ? Math.max(0, Math.round(r.zahlungszielTage)) : ZAHLUNGSZIEL_VORGABE;
+  const skontoProzent = Math.min(100, Math.max(0, Number(r.skontoProzent) || 0));
+  let skonto = null;
+  if (skontoProzent > 0) {
+    const tage = Math.max(0, Math.round(Number(r.skontoTage) || 0));
+    const betrag = nachRabatt * skontoProzent / 100;      // Pfand bleibt skontofrei
+    skonto = { prozent: skontoProzent, tage, basis: nachRabatt, betrag, zahlbetrag: brutto - betrag, faellig: U.addDays(r.datum, tage) };
+  }
+  return { waren, pfand, rabatt, nachRabatt, brutto, steuern, skonto,
+    zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
 }
 Views.rechnungen = {
   title: 'Rechnungen',
@@ -6273,7 +6379,9 @@ Views.rechnung = {
     const chargenM = await idMap('chargen');
     const entwurf = r.status === 'entwurf';
     const art = rechnungSteuerart(r);
-    const { brutto, steuern } = rechnungSummen(r);
+    const sum = rechnungSummen(r);
+    const { brutto, steuern } = sum;
+    const zeigtPfand = r.positionen.some((p) => Number(p.pfand) > 0);
     const zeigtUst = art === 'regel';
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('rechnungen')">${icon('back')} Alle Rechnungen</button>
@@ -6286,8 +6394,10 @@ Views.rechnung = {
       <div class="card">
         <div class="grid2">
           <div class="field"><label>Kunde ${entwurf ? '<span class="req">*</span>' : ''}</label>
-            ${entwurf ? `<select class="inp" id="r-kunde"><option value="">– wählen –</option>${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
-            <div class="hint">Kunden legst du unter Kassenbuch → Kunden & Lieferanten an.</div>`
+            ${entwurf ? `<div class="flex-wrap" style="gap:6px;align-items:center">
+              <select class="inp" id="r-kunde" style="flex:1 1 160px;min-width:0"><option value="">– wählen –</option>${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
+              <button class="btn btn-ghost btn-sm no-print" id="r-kunde-neu" style="flex:0 0 auto">${icon('plus')} Neuer Kunde</button></div>
+            <div class="hint">Neuen Kunden gleich hier anlegen – er wird sofort für diese Rechnung übernommen.</div>`
             : `<div class="kpill">${U.esc(kunden.find((k) => k.id === r.kundeId)?.name || '–')}</div>`}</div>
           <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${r.datum}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
         </div>
@@ -6300,14 +6410,38 @@ Views.rechnung = {
         <label class="check-line"><input type="checkbox" id="r-qr" ${r.qrAufDruck ? 'checked' : ''}> <span>QR-Code auf die Rechnung drucken</span></label>
         <div class="hint">${S.get('rechnungQr') ? 'Nutzt deinen hochgeladenen QR-Code (Einstellungen → Steuer &amp; Rechnungen).' : 'Lade unter Einstellungen → Steuer &amp; Rechnungen einen eigenen QR-Code hoch (z. B. Bezahl-Code). Ohne eigenes Bild wird ein Info-QR mit Rechnungsnummer und Betrag gedruckt.'}</div>` : ''}
       </div>
+      ${entwurf ? `<div class="card">
+        <div class="card-title">${icon('euro')}<h2>Rabatt, Skonto & Zahlung</h2></div>
+        <div class="grid2">
+          <div class="field"><label>Rabatt-Art</label><select class="inp" id="r-rabattTyp">
+            <option value="prozent" ${(r.rabattTyp || 'prozent') === 'prozent' ? 'selected' : ''}>Prozent vom Warenwert</option>
+            <option value="betrag" ${r.rabattTyp === 'betrag' ? 'selected' : ''}>Fester Betrag (€)</option></select></div>
+          <div class="field"><label>Rabatt-Wert</label><input class="inp" id="r-rabattWert" inputmode="decimal" value="${r.rabattWert != null ? U.fmtNum(r.rabattWert, 2) : ''}" placeholder="0">
+            <div class="hint">Mindert die Rechnung sofort und damit auch die Umsatzsteuer.</div></div>
+          <div class="field"><label>Rabatt-Grund</label><input class="inp" id="r-rabattGrund" list="rabattGruende" value="${U.esc(r.rabattGrund || '')}" placeholder="z. B. Großkunde">
+            <datalist id="rabattGruende">${['Großkunde', 'Stammkunde', 'Abnahmemenge', 'Aktion', 'Wiederverkäufer'].map((g) => `<option value="${g}">`).join('')}</datalist></div>
+          <div class="field"><label>Pfand: USt-Satz</label><select class="inp" id="r-pfandUst" ${zeigtUst ? '' : 'disabled'}>
+            ${[0, 7, 19].map((v) => `<option value="${v}" ${(r.pfandSteuersatz != null ? r.pfandSteuersatz : PFAND_UST_VORGABE) === v ? 'selected' : ''}>${v} %</option>`).join('')}</select>
+            <div class="hint">${zeigtUst ? 'Pfand auf Mehrweggebinde wird üblicherweise mit 19 % ausgewiesen – im Zweifel mit dem Steuerberater klären.' : 'Nur bei Regelbesteuerung relevant.'}</div></div>
+          <div class="field"><label>Zahlungsziel (Tage)</label><input class="inp" id="r-ziel" inputmode="numeric" value="${r.zahlungszielTage != null ? r.zahlungszielTage : ZAHLUNGSZIEL_VORGABE}"></div>
+          <div class="field"><label>Skonto (%)</label><input class="inp" id="r-skonto" inputmode="decimal" value="${r.skontoProzent != null ? U.fmtNum(r.skontoProzent, 1) : ''}" placeholder="0"></div>
+          <div class="field"><label>Skonto-Frist (Tage)</label><input class="inp" id="r-skontoTage" inputmode="numeric" value="${r.skontoTage != null ? r.skontoTage : 7}">
+            <div class="hint">Skonto wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen – es wirkt erst, wenn früh gezahlt wird.</div></div>
+        </div>
+      </div>` : ''}
       <div class="card">
         <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${entwurf ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
-        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
-          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtUst ? `<td class="num">${p.steuersatz || 0} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis)}</b></td>
+        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
+          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${p.steuersatz || 0} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
             ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${i}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
-            <div style="font-size:19px;font-weight:800">Gesamtbetrag: ${U.fmtEur(brutto)}</div>
+            ${sum.rabatt > 0 || sum.pfand > 0 ? `<div class="small muted">Warenwert: ${U.fmtEur(sum.waren)}</div>` : ''}
+            ${sum.rabatt > 0 ? `<div class="small muted">Rabatt${r.rabattGrund ? ` (${U.esc(r.rabattGrund)})` : ''}${(r.rabattTyp || 'prozent') === 'prozent' ? ` ${U.fmtNum(r.rabattWert, 1)} %` : ''}: −${U.fmtEur(sum.rabatt)}</div>` : ''}
+            ${sum.pfand > 0 ? `<div class="small muted">Pfand (getrennt ausgewiesen): ${U.fmtEur(sum.pfand)}</div>` : ''}
+            <div style="font-size:19px;font-weight:800">Gesamtbetrag: ${U.fmtEur(sum.brutto)}</div>
             ${Object.entries(steuern).map(([satz, val]) => `<div class="small muted">enthaltene USt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur(val)}</div>`).join('')}
+            <div class="small muted">Zahlbar bis ${U.fmtDate(sum.zahlungsziel.faellig)} (${sum.zahlungsziel.tage} Tage).</div>
+            ${sum.skonto ? `<div class="small muted">Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)}: ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto = ${U.fmtEur(sum.skonto.betrag)} → Zahlbetrag ${U.fmtEur(sum.skonto.zahlbetrag)}. <b>Nicht im Gesamtbetrag abgezogen</b> – wird erst beim Zahlungseingang wirksam.</div>` : ''}
             ${rechnungHinweis(r) ? `<div class="small muted" style="max-width:420px;margin-left:auto">${rechnungHinweis(r)}</div>` : ''}
           </div>`
         : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand oder freie Positionen hinzu.')}
@@ -6315,9 +6449,22 @@ Views.rechnung = {
     const saveField = async (fn) => { fn(); await DB.put('rechnungen', r); };
     if (entwurf) {
       $('#r-kunde').onchange = (e) => saveField(() => { r.kundeId = e.target.value || null; });
+      // Kunde anlegen, ohne die Rechnung zu verlassen – der neue Kunde ist gleich gesetzt
+      $('#r-kunde-neu').onclick = () => kontaktForm(null, {
+        typ: 'kunde',
+        onSaved: async (k) => { r.kundeId = k.id; await DB.put('rechnungen', r); renderRoute(); },
+      });
       $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
       $('#r-steuerart').onchange = (e) => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); DB.put('rechnungen', r).then(renderRoute); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
+      const neuZeichnen = async (fn) => { fn(); await DB.put('rechnungen', r); renderRoute(); };
+      $('#r-rabattTyp').onchange = (e) => neuZeichnen(() => { r.rabattTyp = e.target.value; });
+      $('#r-rabattWert').onchange = (e) => neuZeichnen(() => { r.rabattWert = U.parseNum(e.target.value) || 0; });
+      $('#r-rabattGrund').onchange = (e) => saveField(() => { r.rabattGrund = e.target.value.trim(); });
+      $('#r-pfandUst').onchange = (e) => neuZeichnen(() => { r.pfandSteuersatz = +e.target.value; });
+      $('#r-ziel').onchange = (e) => neuZeichnen(() => { r.zahlungszielTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
+      $('#r-skonto').onchange = (e) => neuZeichnen(() => { r.skontoProzent = Math.max(0, U.parseNum(e.target.value) || 0); });
+      $('#r-skontoTage').onchange = (e) => neuZeichnen(() => { r.skontoTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
       $('#addPos').onclick = () => Views.rechnung.posForm(r, abfAlle, chargenM);
       main.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-pdel]');
@@ -6350,6 +6497,7 @@ Views.rechnung = {
         { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Abfüllung automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
         { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
+        { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen und ist von Rabatt und Skonto ausgenommen. 0 oder leer = kein Pfand.' },
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
@@ -6363,7 +6511,7 @@ Views.rechnung = {
           abfuellungId = a.id;
         }
         if (!text) throw new Error('Bitte eine Bezeichnung angeben.');
-        r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, steuersatz: +v.steuersatz || 0 });
+        r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
         await DB.put('rechnungen', r); renderRoute();
       },
     });
@@ -6564,7 +6712,9 @@ function aufgabeBezug(a, voelker, staende) {
   const id = aufgabeVolkId(a, voelker);
   if (!id) {
     if (!a || !a.standId) return null;
-    return { volkId: null, volkName: '', standId: a.standId, standName: standName(a.standId) || 'gelöschter Stand' };
+    // ohne einzelnes Volk gehört die Aufgabe dem ganzen Stand – dann zählt die Anzahl
+    const anzahl = [...voelker.values()].filter((v) => v.status === 'aktiv' && v.standId === a.standId).length;
+    return { volkId: null, volkName: '', standId: a.standId, standName: standName(a.standId) || 'gelöschter Stand', voelkerAmStand: anzahl };
   }
   const v = voelker.get(id);
   if (!v) return null;
@@ -6591,6 +6741,18 @@ async function aufgabenAbgleich() {
   const alle = await DB.getAll('aufgaben');
   const voelker = await idMap('voelker');
   const staende = await idMap('staende');
+  /* Nachziehen für Aufgaben, die vor dieser Fassung entstanden sind: eine
+     Behandlungs-Aufgabe trägt in refId die Behandlung, nicht das Volk. Das Volk
+     steht dort in zielTyp/zielId – einmal übernehmen, dann greift alles weitere. */
+  const ohneVolk = alle.filter((a) => !a.erledigt && !a.volkId && a.quelle === 'behandlung' && a.refId);
+  if (ohneVolk.length) {
+    const behandlungen = await idMap('behandlungen');
+    for (const a of ohneVolk) {
+      const b = behandlungen.get(a.refId);
+      if (b && b.zielTyp === 'volk' && voelker.has(b.zielId)) { a.volkId = b.zielId; await DB.put('aufgaben', a); }
+      else if (b && b.zielTyp === 'stand' && !a.standId && staende.has(b.zielId)) { a.standId = b.zielId; await DB.put('aufgaben', a); }
+    }
+  }
   const merk = S.get('aufgabenHinweise') || { offen: [], weg: [] };
   merk.offen = merk.offen || []; merk.weg = merk.weg || [];
   const weg = new Set(merk.weg);
@@ -6652,7 +6814,11 @@ Views.aufgaben = {
        frisch gelesen – deshalb ist die Zeile nach einer Wanderung sofort aktuell. */
     const bezugZeile = (a) => {
       const b = aufgabeBezug(a, voelker, staende);
-      return b ? `<span class="r-bezug">${icon('truck')} ${U.esc(b.volkName)} · ${U.esc(b.standName)}</span>` : '';
+      if (!b) return '';
+      const teile = [b.volkName, b.standName].filter(Boolean);
+      // Aufgabe am ganzen Stand: dann muss man sehen, um wie viele Völker es geht
+      if (!b.volkName && b.voelkerAmStand != null) teile.push(`${b.voelkerAmStand} ${b.voelkerAmStand === 1 ? 'Volk' : 'Völker'}`);
+      return `<span class="r-bezug">${icon('truck')} ${U.esc(teile.join(' · '))}</span>`;
     };
     const rows = (items, cls) => items.map((a) => `
       <div class="row" style="min-height:50px">
@@ -6688,7 +6854,7 @@ Views.aufgaben = {
     const calState = Views.aufgaben._cal || (Views.aufgaben._cal = { y: +heute.slice(0, 4), m: +heute.slice(5, 7) - 1 });
     const drawCal = () => {
       const first = new Date(calState.y, calState.m, 1);
-      $('#cal-title').textContent = first.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+      $('#cal-title', main).textContent = first.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
       const startIdx = (first.getDay() + 6) % 7; // Montag = 0
       const cells = [];
       for (let i = 0; i < 42; i++) {
@@ -6699,11 +6865,11 @@ Views.aufgaben = {
         cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${iso}" title="${tasks.length ? `${tasks.length} ${tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'} – antippen` : 'Neue Aufgabe an diesem Tag'}">
           ${d.getDate()}${tasks.length ? `<span class="c-dots">${tasks.slice(0, 3).map((t) => `<i class="${t.faellig < heute ? 'overdue' : ''}"></i>`).join('')}</span>` : ''}</div>`);
       }
-      $('#cal').innerHTML = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="c-head">${d}</div>`).join('') + cells.join('');
+      $('#cal', main).innerHTML = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="c-head">${d}</div>`).join('') + cells.join('');
     };
     drawCal();
-    $('#cal-prev').onclick = () => { calState.m--; if (calState.m < 0) { calState.m = 11; calState.y--; } drawCal(); };
-    $('#cal-next').onclick = () => { calState.m++; if (calState.m > 11) { calState.m = 0; calState.y++; } drawCal(); };
+    $('#cal-prev', main).onclick = () => { calState.m--; if (calState.m < 0) { calState.m = 11; calState.y--; } drawCal(); };
+    $('#cal-next', main).onclick = () => { calState.m++; if (calState.m > 11) { calState.m = 0; calState.y++; } drawCal(); };
     /* Eine Aufgabe darf an einem Stand oder an einem einzelnen Volk hängen.
        Stand und Funktion filtern dabei die Volk-Auswahl, damit man in großen
        Beständen genau das richtige findet. Gespeichert wird nur standId/volkId –
@@ -6746,7 +6912,7 @@ Views.aufgaben = {
       return m;
     };
     const add = () => form(null);
-    bindAdd(add);
+    bindAdd(add, main);
     main.addEventListener('click', async (e) => {
       const hw = e.target.closest('[data-hinweis]');
       if (hw) { await aufgabeHinweisWeg(hw.dataset.hinweis); return renderRoute(); }
@@ -6969,6 +7135,12 @@ function futterRechnerHtml(aktiveV) {
       <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-fr="voelker" inputmode="numeric" value="${aktiveV || 6}"></div>
       <div class="field"><label>Minderung beim Eindicken (%)</label><input class="inp rk" data-fr="minderung" inputmode="decimal" value="${FUTTER_MINDERUNG}">
         <span class="small muted">Das Volk verbraucht fürs Eindicken selbst Futter – üblich 10–20 %.</span></div>
+      <div class="field"><label>Anzahl Fütterungen</label><input class="inp rk" data-fr="anzahl" inputmode="numeric" value="4">
+        <span class="small muted">Die Gesamtmenge wird darauf verteilt.</span></div>
+      <div class="field"><label>Abstand (Tage)</label><input class="inp rk" data-fr="abstand" inputmode="numeric" value="7"></div>
+      <div class="field"><label>1. Fütterung (kg Futter je Volk)</label><input class="inp rk" data-fr="erste" inputmode="decimal" placeholder="gleichmäßig">
+        <span class="small muted">Leer = alle Gaben gleich groß. Trägst du hier etwas ein, verteilt sich der Rest gleichmäßig auf die weiteren Fütterungen.</span></div>
+      <div class="field"><label>Erste Fütterung am</label><input class="inp rk" type="date" data-fr="beginn" value="${U.todayIso()}"></div>
     </div>
     <div class="fr-out mt12"></div>`;
 }
@@ -6980,6 +7152,9 @@ function futterRechnerRechnen(root) {
   const mind = num('[data-fr="minderung"]');
   const jeVolk = num('[data-fr="jeVolk"]') || 0;
   const voelker = Math.max(0, Math.round(num('[data-fr="voelker"]') || 0));
+  const anzahl = Math.max(1, Math.round(num('[data-fr="anzahl"]') || 1));
+  const abstand = Math.max(0, Math.round(num('[data-fr="abstand"]') || 0));
+  const beginn = $('[data-fr="beginn"]', root)?.value || U.todayIso();
 
   // Hinweg: Bedarf → Zucker → Wasser → Sirup, erst je Volk, dann hochgerechnet
   const zuckerJeVolk = zuckerFuerFutter(jeVolk, mind);
@@ -6988,19 +7163,42 @@ function futterRechnerRechnen(root) {
   const zucker = zuckerJeVolk * voelker, wasser = wasserJeVolk * voelker;
   const sirup = sirupAnsetzen(zucker, wasser);
   const saecke = Math.ceil(zucker / 25);
+  /* Die Gesamtmenge je Volk auf die Fütterungen verteilen. Die erste Gabe darf
+     eine eigene Größe haben (Anfüttern) – der Rest teilt sich dann gleichmäßig
+     auf die weiteren Termine. Ohne Angabe sind alle Gaben gleich groß. */
+  const ersteEingabe = num('[data-fr="erste"]');
+  const gleichmaessig = jeVolk / anzahl;
+  const ersteFutter = (ersteEingabe > 0 && anzahl > 1) ? Math.min(ersteEingabe, jeVolk) : gleichmaessig;
+  const restFutter = anzahl > 1 ? Math.max(0, (jeVolk - ersteFutter) / (anzahl - 1)) : 0;
+  /** Eine Gabe je Volk: Futter → Zucker → Wasser → Sirup. */
+  const gabe = (futterKg) => {
+    const z = zuckerFuerFutter(futterKg, mind);
+    const w = wasserFuerVerhaeltnis(z, verh);
+    return { futter: futterKg, zucker: z, wasser: w, sirup: sirupAnsetzen(z, w), ansatz: sirupAnsetzen(z * voelker, w * voelker) };
+  };
+  const gabeErste = gabe(ersteFutter);
+  const gabeRest = gabe(restFutter);
+  const eigeneErste = anzahl > 1 && Math.abs(ersteFutter - restFutter) > 0.005;
+  const gaben = Array.from({ length: anzahl }, (_, i) => (i === 0 ? gabeErste : gabeRest));
+  const termine = Array.from({ length: anzahl }, (_, i) => U.addDays(beginn, i * abstand));
   const out = $('.fr-out', root);
   if (out) out.innerHTML = `
     <div class="stat-grid">
       <div class="stat"><div class="s-label">Zucker kaufen</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(zucker, 1)} kg</div><div class="s-sub">${saecke > 0 ? `${saecke} ${saecke === 1 ? 'Sack' : 'Säcke'} à 25 kg` : '–'}</div></div>
       <div class="stat"><div class="s-label">Wasser dazu</div><div class="s-value">${U.fmtNum(wasser, 1)} L</div><div class="s-sub">Verhältnis ${verh}</div></div>
       <div class="stat"><div class="s-label">Sirup ansetzen</div><div class="s-value">${U.fmtNum(sirup.liter, 1)} L</div><div class="s-sub">${U.fmtNum(sirup.masseKg, 1)} kg · ${U.fmtNum(sirup.dichte, 2)} kg/L</div></div>
-      <div class="stat"><div class="s-label">Futter gesamt</div><div class="s-value">${U.fmtNum(jeVolk * voelker, 0)} kg</div><div class="s-sub">${voelker} Völker × ${U.fmtNum(jeVolk)} kg</div></div>
+      <div class="stat"><div class="s-label">${eigeneErste ? '1. Fütterung je Volk' : 'Je Volk und Fütterung'}</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(gabeErste.sirup.liter, 1)} L</div><div class="s-sub">${U.fmtNum(gabeErste.zucker, 1)} kg Zucker · ${U.fmtNum(gabeErste.futter, 1)} kg Futter</div></div>
+      ${eigeneErste ? `<div class="stat"><div class="s-label">Folgefütterungen je Volk</div><div class="s-value">${U.fmtNum(gabeRest.sirup.liter, 1)} L</div><div class="s-sub">${U.fmtNum(gabeRest.zucker, 1)} kg Zucker · ${anzahl - 1} × ${U.fmtNum(gabeRest.futter, 1)} kg Futter</div></div>` : ''}
     </div>
-    ${voelker > 0 && jeVolk > 0 ? `<div class="small muted mt8">Je Volk: <b>${U.fmtNum(zuckerJeVolk, 1)} kg Zucker</b> + ${U.fmtNum(wasserJeVolk, 1)} L Wasser = ${U.fmtNum(sirupJeVolk.liter, 1)} L Sirup.</div>` : ''}`;
+    ${voelker > 0 && jeVolk > 0 ? `<div class="small muted mt8">Je Volk gesamt: <b>${U.fmtNum(zuckerJeVolk, 1)} kg Zucker</b> + ${U.fmtNum(wasserJeVolk, 1)} L Wasser = ${U.fmtNum(sirupJeVolk.liter, 1)} L Sirup, verteilt auf ${anzahl} ${anzahl === 1 ? 'Fütterung' : `Fütterungen alle ${abstand} Tage`}.</div>
+    <div class="small muted mt8">Je Termin für alle ${voelker} Völker ansetzen: ${eigeneErste ? `beim 1. Mal <b>${U.fmtNum(gabeErste.ansatz.liter, 1)} L</b>, danach je <b>${U.fmtNum(gabeRest.ansatz.liter, 1)} L</b>` : `<b>${U.fmtNum(gabeErste.ansatz.liter, 1)} L</b>`}.</div>
+    <div class="small muted mt8">Termine: ${termine.map((t, i) => `${U.fmtDate(t)} (${U.fmtNum(gaben[i].sirup.liter, 1)} L)`).join(' · ')}</div>` : ''}`;
 
   return { voelker, jeVolk, verh, minderung: mind ?? FUTTER_MINDERUNG,
     bedarf: jeVolk * voelker, zucker, wasser, sirup,
-    zuckerJeVolk, wasserJeVolk, sirupJeVolk };
+    zuckerJeVolk, wasserJeVolk, sirupJeVolk,
+    anzahl, abstand, beginn, termine,
+    gabeErste, gabeRest, gaben, eigeneErste };
 }
 
 /* ---------------------------------------------------------------------
@@ -8391,7 +8589,7 @@ const Xlsx = {
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
-      rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
+      rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
       inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Stückzahl: i.stueckzahl, 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
@@ -8737,17 +8935,41 @@ const Pdf = {
         doc.text(r.status === 'storniert' ? 'STORNIERT' : 'ENTWURF', 105, 160, { align: 'center', angle: 30 });
         doc.restoreGraphicsState();
       }
-      const { brutto, steuern } = rechnungSummen(r);
+      const sum = rechnungSummen(r);
+      const { brutto, steuern } = sum;
       const zeigtUst = rechnungSteuerart(r) === 'regel';
-      const body = r.positionen.map((p, i) => [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis), zeigtUst ? `${p.steuersatz || 0} %` : '', U.fmtEur(p.menge * p.einzelpreis)]);
-      const head = zeigtUst ? ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', 'USt.', 'Summe'] : ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis', '', 'Summe'];
-      let y = this.table(doc, { head, body, startY: 104, margin: { left: 25, right: 14 }, widths: { 1: { cellWidth: 74 }, 5: { halign: 'right' }, 3: { halign: 'right' }, 2: { halign: 'right' } } });
-      y += 8;
+      const zeigtPfand = r.positionen.some((p) => Number(p.pfand) > 0);
+      const body = r.positionen.map((p, i) => {
+        const zeile = [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis)];
+        if (zeigtPfand) zeile.push(p.pfand ? U.fmtEur(p.pfand) : '–');
+        zeile.push(zeigtUst ? `${p.steuersatz || 0} %` : '');
+        zeile.push(U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0)));
+        return zeile;
+      });
+      const head = ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis'];
+      if (zeigtPfand) head.push('Pfand');
+      head.push(zeigtUst ? 'USt.' : '', 'Summe');
+      const letzte = head.length - 1;
+      let y = this.table(doc, { head, body, startY: 104, margin: { left: 25, right: 14 },
+        widths: { 1: { cellWidth: zeigtPfand ? 62 : 74 }, 2: { halign: 'right' }, 3: { halign: 'right' }, [letzte]: { halign: 'right' }, ...(zeigtPfand ? { 4: { halign: 'right' } } : {}) } });
+      y += 6;
+      doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);
+      if (sum.rabatt > 0 || sum.pfand > 0) { doc.text(`Warenwert: ${U.fmtEur(sum.waren)}`, 196, y, { align: 'right' }); y += 4.5; }
+      if (sum.rabatt > 0) {
+        const grund = [r.rabattGrund, (r.rabattTyp || 'prozent') === 'prozent' ? `${U.fmtNum(r.rabattWert, 1)} %` : null].filter(Boolean).join(', ');
+        doc.text(`Rabatt${grund ? ` (${grund})` : ''}: -${U.fmtEur(sum.rabatt)}`, 196, y, { align: 'right' }); y += 4.5;
+      }
+      if (sum.pfand > 0) { doc.text(`Pfand (Mehrweggebinde): ${U.fmtEur(sum.pfand)}`, 196, y, { align: 'right' }); y += 4.5; }
+      y += 2;
       doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
       doc.text(`Gesamtbetrag: ${U.fmtEur(brutto)}`, 196, y, { align: 'right' });
       y += 6;
       doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(110);
       for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${U.fmtNum(+satz, 1)} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
+      const zahlung = `Zahlbar ohne Abzug bis ${U.fmtDate(sum.zahlungsziel.faellig)}.`
+        + (sum.skonto ? ` Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)} gewähren wir ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto (${U.fmtEur(sum.skonto.betrag)}), Zahlbetrag dann ${U.fmtEur(sum.skonto.zahlbetrag)}.` : '');
+      const zLines = doc.splitTextToSize(zahlung, 150);
+      doc.text(zLines, 196, y, { align: 'right' }); y += zLines.length * 4.2 + 1;
       const hinweis = rechnungHinweis(r);
       if (hinweis) { const lines = doc.splitTextToSize(hinweis, 150); doc.text(lines, 196, y, { align: 'right' }); y += lines.length * 4.2 + 1; }
       y += 8;
@@ -10199,7 +10421,7 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
-  selbstkostenGlas, SELBSTKOSTEN_VORGABE,
+  selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, PFAND_UST_VORGABE, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,

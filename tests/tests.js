@@ -1284,6 +1284,271 @@ test('Futter-Rechner: Futter je Volk → Zucker, Wasser, Sirup', (w) => {
     assertEq(host.querySelector('[data-fr="zucker"]'), null, 'und kein Zucker-Eingabefeld');
   } finally { host.remove(); }
 });
+test('Futter-Rechner: verteilt auf Fütterungen – Liter je Volk und Gabe', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  host.innerHTML = w.futterRechnerHtml(6);
+  try {
+    assert(host.querySelector('[data-fr="anzahl"]'), 'Anzahl Fütterungen');
+    assert(host.querySelector('[data-fr="abstand"]'), 'Abstand in Tagen');
+    assert(host.querySelector('[data-fr="beginn"]'), 'Beginn');
+    assert(host.querySelector('[data-fr="erste"]'), 'eigene Menge für die 1. Fütterung');
+    const plan = w.futterRechnerRechnen(host);
+    assertEq(plan.anzahl, 4, 'vier Gaben vorbelegt');
+    assertEq(plan.abstand, 7, 'sieben Tage Abstand');
+    assertEq(plan.eigeneErste, false, 'ohne Eingabe sind alle Gaben gleich');
+    nah(plan.gabeErste.futter, 15 / 4, 0.001, 'Futter je Gabe = Gesamtmenge / Anzahl');
+    nah(plan.gabeErste.zucker, 3.676, 0.01, 'Zucker je Volk und Gabe');
+    nah(plan.gabeErste.wasser, 2.451, 0.01, 'Wasser je Volk und Gabe bei 3:2');
+    nah(plan.gabeErste.sirup.liter, 4.76, 0.05, 'Liter Sirup je Volk und Gabe');
+    // die Gaben müssen sich zur Gesamtmenge aufaddieren
+    nah(plan.gaben.reduce((a, g) => a + g.zucker, 0), plan.zuckerJeVolk, 0.01, 'Gaben ergeben zusammen die Gesamtmenge');
+    nah(plan.gabeErste.ansatz.liter, plan.gabeErste.sirup.liter * 6, 0.05, 'Ansatzmenge je Termin');
+    assertEq(plan.termine.length, 4, 'vier Termine');
+    assertEq(plan.termine[0], plan.beginn, 'erster Termin ist der Beginn');
+    assertEq(w.U.daysBetween(plan.termine[0], plan.termine[3]), 21, '3 × 7 Tage bis zum letzten');
+    const out = host.querySelector('.fr-out').textContent;
+    assert(/Je Volk und Fütterung/.test(out), 'eigene Kachel für die Gabe');
+    assert(/Termine:/.test(out), 'Termine stehen im Klartext');
+  } finally { host.remove(); }
+});
+test('Futter-Rechner: eine Fütterung = ungeteilte Gesamtmenge', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  host.innerHTML = w.futterRechnerHtml(6);
+  try {
+    host.querySelector('[data-fr="anzahl"]').value = '1';
+    const plan = w.futterRechnerRechnen(host);
+    nah(plan.gabeErste.zucker, plan.zuckerJeVolk, 0.001, 'eine Gabe = alles');
+    assertEq(plan.termine.length, 1, 'ein Termin');
+    assertEq(plan.eigeneErste, false, 'bei einer Gabe gibt es keine Sonderrolle');
+    // eine eigene erste Menge darf bei nur einer Fütterung nichts verbiegen
+    host.querySelector('[data-fr="erste"]').value = '5';
+    nah(w.futterRechnerRechnen(host).gabeErste.futter, 15, 0.001, 'die einzige Gabe bleibt die Gesamtmenge');
+    // Unsinn abfangen
+    host.querySelector('[data-fr="anzahl"]').value = '0';
+    assertEq(w.futterRechnerRechnen(host).anzahl, 1, 'null Fütterungen werden auf eine gehoben');
+  } finally { host.remove(); }
+});
+test('Futter-Rechner: erste Gabe eigenständig, Rest gleichmäßig', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  host.innerHTML = w.futterRechnerHtml(6);
+  try {
+    host.querySelector('[data-fr="anzahl"]').value = '4';
+    host.querySelector('[data-fr="erste"]').value = '6';        // 6 kg zuerst, Rest 9 kg auf 3 Gaben
+    const plan = w.futterRechnerRechnen(host);
+    assertEq(plan.eigeneErste, true, 'erste Gabe ist als eigene erkannt');
+    nah(plan.gabeErste.futter, 6, 0.001, '6 kg in der ersten Gabe');
+    nah(plan.gabeRest.futter, 3, 0.001, '9 kg auf 3 Folgegaben');
+    // in Summe muss weiter die Gesamtmenge herauskommen
+    nah(plan.gaben.reduce((a, g) => a + g.futter, 0), 15, 0.001, 'zusammen wieder 15 kg');
+    nah(plan.gaben.reduce((a, g) => a + g.zucker, 0), plan.zuckerJeVolk, 0.01, 'und derselbe Zuckerbedarf');
+    assert(plan.gabeErste.sirup.liter > plan.gabeRest.sirup.liter, 'erste Gabe ist die größere');
+    // eine erste Gabe über der Gesamtmenge wird gedeckelt, Rest wird 0
+    host.querySelector('[data-fr="erste"]').value = '99';
+    const zuviel = w.futterRechnerRechnen(host);
+    nah(zuviel.gabeErste.futter, 15, 0.001, 'auf die Gesamtmenge gedeckelt');
+    assertEq(zuviel.gabeRest.futter, 0, 'dann bleibt für die Folgegaben nichts');
+    // Ausgabe muss beide Größen zeigen
+    host.querySelector('[data-fr="erste"]').value = '6';
+    w.futterRechnerRechnen(host);
+    const out = host.querySelector('.fr-out').textContent;
+    assert(/1\. Fütterung je Volk/.test(out), 'Kachel für die erste Gabe');
+    assert(/Folgefütterungen je Volk/.test(out), 'Kachel für die Folgegaben');
+  } finally { host.remove(); }
+});
+test('Futter-Rechner: „Plan als Aufgaben" legt je Termin eine Aufgabe an', async (w) => {
+  const vorher = (await w.DB.getAll('aufgaben')).map((a) => a.id);
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  const feld = m.querySelector('[data-fr="erste"]');
+  feld.value = '6';                                          // erste Gabe größer
+  feld.dispatchEvent(new w.Event('input', { bubbles: true })); // damit das Blatt selbst neu rechnet
+  await new Promise((r) => setTimeout(r, 100));
+  const plan = w.futterRechnerRechnen(m);
+  assertEq(plan.eigeneErste, true, 'Ausgangslage: erste Gabe ist eigenständig');
+  try {
+    m.querySelector('[data-plan]').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const frage = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/Aufgaben anlegen/.test(frage.querySelector('h2').textContent), `Rückfrage fehlt: ${frage.querySelector('h2').textContent}`);
+    frage.querySelector('[data-yes]').click();
+    await new Promise((r) => setTimeout(r, 700));
+    const neu = (await w.DB.getAll('aufgaben')).filter((a) => !vorher.includes(a.id));
+    assertEq(neu.length, plan.anzahl, `${plan.anzahl} Aufgaben erwartet, ${neu.length} angelegt`);
+    const sortiert = neu.slice().sort((a, b) => a.faellig.localeCompare(b.faellig));
+    assertEq(sortiert.map((a) => a.faellig), plan.termine, 'Termine stimmen');
+    assert(/Fütterung 1\/4/.test(sortiert[0].titel), `Titel falsch: ${sortiert[0].titel}`);
+    assert(/L Sirup je Volk/.test(sortiert[0].titel), 'Menge je Volk im Titel');
+    assert(/ansetzen/.test(sortiert[0].notiz), 'Ansatzmenge in der Notiz');
+    assertEq(sortiert[0].kategorie, 'Fütterung', 'Tätigkeit für die Zeiterfassung gesetzt');
+    // die erste Aufgabe muss die größere Menge tragen
+    const liter = (t) => w.U.parseNum((t.match(/([\d,.]+) L/) || [])[1]);
+    assert(liter(sortiert[0].titel) > liter(sortiert[1].titel), `erste Gabe nicht größer: ${sortiert[0].titel} / ${sortiert[1].titel}`);
+    for (const a of neu) await w.DB.del('aufgaben', a.id);
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    w.location.hash = '#/dashboard';           // navTo der Anlegen-Aktion zurücknehmen
+    await new Promise((r) => setTimeout(r, 200));
+  }
+});
+
+/* ---------- Rechnung: Pfand, Rabatt und Skonto ---------- */
+const RE = (pos, extra = {}) => ({ datum: '2026-08-01', kundeId: 'k1', positionen: pos, steuerart: 'klein', kleinunternehmer: true, status: 'entwurf', ...extra });
+
+test('rechnungSummen: Pfand wird getrennt ausgewiesen', (w) => {
+  const r = RE([{ text: 'Honig 500 g', menge: 10, einzelpreis: 6, pfand: 0.5, steuersatz: 0 }]);
+  const s = w.rechnungSummen(r);
+  assertEq(s.waren, 60, 'Warenwert ohne Pfand');
+  assertEq(s.pfand, 5, '10 × 0,50 €');
+  assertEq(s.brutto, 65, 'Gesamtbetrag mit Pfand');
+  // ohne Pfand-Angabe bleibt alles wie vorher
+  const ohne = w.rechnungSummen(RE([{ text: 'x', menge: 2, einzelpreis: 7, steuersatz: 0 }]));
+  assertEq(ohne.pfand, 0, 'kein Pfand');
+  assertEq(ohne.brutto, 14, 'Gesamtbetrag unverändert');
+});
+test('rechnungSummen: Rabatt mindert sofort, Pfand bleibt außen vor', (w) => {
+  const pos = [{ text: 'Honig', menge: 10, einzelpreis: 6, pfand: 0.5, steuersatz: 0 }];
+  const prozent = w.rechnungSummen(RE(pos, { rabattTyp: 'prozent', rabattWert: 10, rabattGrund: 'Großkunde' }));
+  assertEq(prozent.rabatt, 6, '10 % von 60 € Warenwert – nicht von 65 €');
+  assertEq(prozent.brutto, 59, '60 − 6 + 5 Pfand');
+  const betrag = w.rechnungSummen(RE(pos, { rabattTyp: 'betrag', rabattWert: 7.5 }));
+  assertEq(betrag.rabatt, 7.5, 'fester Betrag');
+  assertEq(betrag.brutto, 57.5, '60 − 7,50 + 5');
+  // Rabatt kann den Warenwert nicht übersteigen
+  const zuviel = w.rechnungSummen(RE(pos, { rabattTyp: 'betrag', rabattWert: 999 }));
+  assertEq(zuviel.rabatt, 60, 'auf den Warenwert gedeckelt');
+  assertEq(zuviel.brutto, 5, 'es bleibt der Pfand');
+  assertEq(w.rechnungSummen(RE(pos, { rabattTyp: 'prozent', rabattWert: 0 })).rabatt, 0, 'ohne Wert kein Rabatt');
+});
+test('rechnungSummen: Skonto wird NICHT abgezogen, nur ausgewiesen', (w) => {
+  const r = RE([{ text: 'Honig', menge: 10, einzelpreis: 6, pfand: 0.5, steuersatz: 0 }], { skontoProzent: 2, skontoTage: 7, zahlungszielTage: 14 });
+  const s = w.rechnungSummen(r);
+  assertEq(s.brutto, 65, 'Gesamtbetrag bleibt voll – Skonto ist nur eine Bedingung');
+  assert(s.skonto, 'Skonto ausgewiesen');
+  assertEq(s.skonto.prozent, 2, '2 %');
+  nah(s.skonto.betrag, 1.2, 0.001, '2 % von 60 € – der Pfand ist skontofrei');
+  nah(s.skonto.zahlbetrag, 63.8, 0.001, 'Zahlbetrag bei früher Zahlung');
+  assertEq(s.skonto.faellig, '2026-08-08', 'Skonto-Frist 7 Tage');
+  assertEq(s.zahlungsziel.faellig, '2026-08-15', 'Zahlungsziel 14 Tage');
+  assertEq(w.rechnungSummen(RE([{ text: 'x', menge: 1, einzelpreis: 5 }])).skonto, null, 'ohne Angabe kein Skonto');
+});
+test('rechnungSummen: Rabatt und Skonto gleichzeitig', (w) => {
+  const r = RE([{ text: 'Honig', menge: 10, einzelpreis: 6, pfand: 0.5, steuersatz: 0 }],
+    { rabattTyp: 'prozent', rabattWert: 10, skontoProzent: 2, skontoTage: 7 });
+  const s = w.rechnungSummen(r);
+  assertEq(s.brutto, 59, 'Rabatt drin, Skonto nicht');
+  nah(s.skonto.betrag, 1.08, 0.001, 'Skonto auf den rabattierten Warenwert (54 €)');
+  nah(s.skonto.zahlbetrag, 57.92, 0.001, 'Zahlbetrag bei früher Zahlung');
+});
+test('rechnungSummen: Umsatzsteuer folgt Rabatt und Pfand', (w) => {
+  const pos = [{ text: 'Honig', menge: 10, einzelpreis: 10.7, pfand: 1, steuersatz: 7 }];
+  const ohne = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false }));
+  nah(ohne.steuern[7], 107 * 7 / 107, 0.01, '7 % aus 107 € Warenwert');
+  nah(ohne.steuern[19], 10 * 19 / 119, 0.01, 'Pfand mit 19 % (Vorgabe)');
+  // Rabatt muss die Steuerbasis anteilig mindern
+  const mit = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false, rabattTyp: 'prozent', rabattWert: 10 }));
+  nah(mit.steuern[7], ohne.steuern[7] * 0.9, 0.01, 'USt sinkt um 10 %');
+  nah(mit.steuern[19], ohne.steuern[19], 0.001, 'Pfand-USt bleibt – kein Rabatt auf Pfand');
+  // eigener Pfand-Satz
+  const p0 = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false, pfandSteuersatz: 0 }));
+  assertEq(p0.steuern[19], undefined, 'Pfand-Satz 0 ergibt keine 19-%-Zeile');
+  // Kleinunternehmer: gar keine USt
+  assertEq(Object.keys(w.rechnungSummen(RE(pos)).steuern).length, 0, '§ 19: keine USt');
+  // Pauschalierung: auf den Gesamtbetrag inkl. Pfand
+  const p24 = w.rechnungSummen(RE(pos, { steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8 }));
+  nah(p24.steuern[7.8], 117 * 7.8 / 107.8, 0.01, 'Pauschalsatz auf 117 €');
+});
+test('Rechnung: Pfand-Feld, Rabatt- und Skonto-Karte in der Ansicht', async (w) => {
+  const stg = w.S.get('steuer');
+  const r = await w.DB.put('rechnungen', RE([{ text: 'Honig 500 g', abfuellungId: null, menge: 6, einzelpreis: 7, pfand: 0.5, steuersatz: 0 }],
+    { nummer: null, kundeId: null, pauschalsatz: 7.8, qrAufDruck: false, rabattTyp: 'prozent', rabattWert: 5, rabattGrund: 'Großkunde', skontoProzent: 2, skontoTage: 7 }));
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.rechnung.render(host, r.id);
+    const txt = host.textContent;
+    assert(/Rabatt, Skonto & Zahlung/.test(txt), 'eigene Karte vorhanden');
+    assert(host.querySelector('#r-rabattWert') && host.querySelector('#r-skonto') && host.querySelector('#r-skontoTage'), 'Felder für Rabatt und Skonto');
+    assert(host.querySelector('#r-ziel'), 'Zahlungsziel');
+    assert(/Pfand/.test(txt), 'Pfand wird ausgewiesen');
+    assert(/Großkunde/.test(txt), 'Rabatt-Grund steht dabei');
+    assert(/Nicht im Gesamtbetrag abgezogen/.test(txt), 'Skonto ist klar als Bedingung benannt');
+    assert(/Zahlbar bis/.test(txt), 'Fälligkeit steht dabei');
+    // die Positionstabelle muss eine Pfand-Spalte haben
+    const kopf = [...host.querySelectorAll('.tbl thead th')].map((e) => e.textContent.trim());
+    assert(kopf.includes('Pfand'), `Pfand-Spalte fehlt: ${kopf.join(' | ')}`);
+  } finally { host.remove(); await w.DB.del('rechnungen', r.id); }
+});
+test('Rechnungs-PDF baut mit Pfand, Rabatt und Skonto', async (w) => {
+  const r = await w.DB.put('rechnungen', RE([{ text: 'Honig 500 g', abfuellungId: null, menge: 6, einzelpreis: 7, pfand: 0.5, steuersatz: 0 }],
+    { nummer: 'RE-TEST', status: 'festgeschrieben', pauschalsatz: 7.8, qrAufDruck: false, rabattTyp: 'betrag', rabattWert: 3, rabattGrund: 'Aktion', skontoProzent: 2, skontoTage: 7 }));
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.Pdf.rechnung(r.id);
+    const doc = w.Pdf.lastDocForTest;
+    assert(doc, 'PDF wurde gebaut');
+    assert(/Pfand/.test(JSON.stringify(doc.lastAutoTable.head || '')), 'Pfand-Spalte in der PDF');
+  } finally { w.Pdf.noDownloadForTest = false; await w.DB.del('rechnungen', r.id); }
+});
+
+/* ---------- Kunden dort anlegen, wo man sie braucht ---------- */
+test('Rechnung: neuer Kunde direkt im Formular, sofort gesetzt', async (w) => {
+  const stg = w.S.get('steuer');
+  const r = await w.DB.put('rechnungen', { nummer: null, datum: w.U.todayIso(), kundeId: null, positionen: [], steuerart: stg.art || 'klein', kleinunternehmer: true, pauschalsatz: 7.8, status: 'entwurf', qrAufDruck: false });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  let neuerKunde = null;
+  try {
+    await w.Views.rechnung.render(host, r.id);
+    const knopf = host.querySelector('#r-kunde-neu');
+    assert(knopf, 'Knopf „Neuer Kunde" steht neben der Auswahl');
+    assert(!/Kassenbuch → Kunden/.test(host.textContent), 'kein Verweis auf den Umweg mehr');
+    knopf.click();
+    await new Promise((x) => setTimeout(x, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/Neuer Kunde/.test(m.querySelector('h2').textContent), `Formular fehlt: ${m.querySelector('h2').textContent}`);
+    assertEq(m.querySelector('#f-typ').value, 'kunde', 'Art ist auf Kunde vorbelegt');
+    m.querySelector('#f-name').value = 'Testkunde Sofort';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((x) => setTimeout(x, 600));
+    neuerKunde = (await w.DB.getAll('kontakte')).find((k) => k.name === 'Testkunde Sofort');
+    assert(neuerKunde, 'Kontakt wurde gespeichert');
+    assertEq((await w.DB.get('rechnungen', r.id)).kundeId, neuerKunde.id, 'und ist gleich für die Rechnung gesetzt');
+  } finally {
+    host.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    await w.DB.del('rechnungen', r.id);
+    if (neuerKunde) await w.DB.del('kontakte', neuerKunde.id);
+  }
+});
+test('Verkauf: neuer Kunde landet in der Auswahl und ist gewählt', async (w) => {
+  const abf = (await w.DB.getAll('abfuellungen')).filter((a) => a.bestand > 0);
+  assert(abf.length, 'Testdaten: abgefüllter Bestand vorhanden');
+  await w.verkaufForm();
+  await new Promise((x) => setTimeout(x, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let neuerKunde = null;
+  try {
+    const knopf = m.querySelector('#vk-kunde-neu');
+    assert(knopf, 'Knopf „Neuer Kunde" im Verkaufsformular');
+    knopf.click();
+    await new Promise((x) => setTimeout(x, 250));
+    const km = [...w.document.querySelectorAll('.modal-back')].pop();
+    km.querySelector('#f-name').value = 'Marktkunde Sofort';
+    km.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((x) => setTimeout(x, 600));
+    neuerKunde = (await w.DB.getAll('kontakte')).find((k) => k.name === 'Marktkunde Sofort');
+    assert(neuerKunde, 'Kontakt gespeichert');
+    const sel = m.querySelector('#f-kontaktId');
+    assertEq(sel.value, neuerKunde.id, 'in der Auswahl gesetzt');
+    assert([...sel.options].some((o) => o.textContent === 'Marktkunde Sofort'), 'als Eintrag hinzugefügt');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    if (neuerKunde) await w.DB.del('kontakte', neuerKunde.id);
+  }
+});
+
 test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
   const jahr = w.U.todayIso().slice(0, 4);
   const v = (await w.DB.getAll('voelker'))[0];
@@ -1604,6 +1869,22 @@ test('Kalender: belegter Tag zeigt die Liste mit „Neue Aufgabe"', async (w) =>
   } finally { host.remove(); await w.DB.del('aufgaben', a.id); }
 });
 
+test('Bestehende Behandlungs-Aufgabe wird ans Volk gehängt', async (w) => {
+  /* Aufgaben von vor dieser Fassung tragen in refId die Behandlung, nicht das
+     Volk. Der Abgleich muss das Volk einmalig übernehmen, sonst bleibt die
+     lebende Zeile bei bereits vorhandenen Aufgaben leer. */
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+  const b = await w.DB.put('behandlungen', { datum: w.U.todayIso(), mittel: 'Ameisensäure 60 %', zielTyp: 'volk', zielId: volk.id, menge: 30, einheit: 'ml' });
+  const a = await w.DB.put('aufgaben', { titel: 'Wartezeit endet', faellig: w.U.todayIso(), erledigt: false, quelle: 'behandlung', refId: b.id, notiz: '' });
+  try {
+    assertEq(a.volkId, undefined, 'Ausgangslage: kein Volk gespeichert');
+    await w.aufgabenAbgleich();
+    const nach = await w.DB.get('aufgaben', a.id);
+    assertEq(nach.volkId, volk.id, 'Volk wurde nachgezogen');
+    const bez = w.aufgabeBezug(nach, await w.idMap('voelker'), await w.idMap('staende'));
+    assertEq(bez.volkName, volk.name, 'und die lebende Zeile greift');
+  } finally { await w.DB.del('aufgaben', a.id); await w.DB.del('behandlungen', b.id); }
+});
 test('Aufgabe nur am Stand: lebende Zeile zeigt den Stand', async (w) => {
   const stand = (await w.DB.getAll('staende'))[0];
   const a = await w.DB.put('aufgaben', { titel: 'Zaun prüfen', faellig: w.U.todayIso(), erledigt: false, quelle: 'manuell', refId: null, standId: stand.id, notiz: '' });
@@ -1613,6 +1894,18 @@ test('Aufgabe nur am Stand: lebende Zeile zeigt den Stand', async (w) => {
     assert(b, 'Bezug auch ohne Volk');
     assertEq(b.volkName, '', 'kein Volk');
     assertEq(b.standName, stand.name, 'Stand steht da');
+    // die Völkerzahl des Standes gehört dazu
+    const erwartet = (await w.DB.getAll('voelker')).filter((v) => v.status === 'aktiv' && v.standId === stand.id).length;
+    assertEq(b.voelkerAmStand, erwartet, 'Anzahl der Völker am Stand');
+    // und sie muss in der Liste auch auftauchen
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      await w.Views.aufgaben.render(host);
+      const zeilen = [...host.querySelectorAll('.r-bezug')].map((e) => e.textContent);
+      const treffer = zeilen.find((t) => t.includes(stand.name));
+      assert(treffer, `Zeile mit dem Stand fehlt: ${zeilen.slice(0, 3).join(' | ')}`);
+      assert(new RegExp(`${erwartet} ${erwartet === 1 ? 'Volk' : 'Völker'}`).test(treffer), `Völkerzahl fehlt in „${treffer}"`);
+    } finally { host.remove(); }
     // und der Abgleich darf dafür keinen Hinweis erzeugen
     await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
     await w.aufgabenAbgleich();
