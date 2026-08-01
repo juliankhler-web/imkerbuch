@@ -1279,9 +1279,9 @@ test('Futter-Rechner: Futter je Volk → Zucker, Wasser, Sirup', (w) => {
     const out = host.querySelector('.fr-out').textContent;
     assert(/88,2 kg/.test(out), 'Zuckerbedarf steht in der Ausgabe');
     assert(/Säcke/.test(out), 'Säcke à 25 kg genannt');
-    // Gegenrichtung: 25 kg Zucker → 25,5 kg eingelagert
-    const zurueck = host.querySelector('.fr-zurueck').textContent;
-    assert(/25,5/.test(zurueck), `Gegenprobe fehlt: ${zurueck.slice(0, 120)}`);
+    // die Gegenrichtung („Zucker übrig“) ist bewusst entfallen – nur eine Richtung
+    assertEq(host.querySelector('.fr-zurueck'), null, 'keine Gegenrichtung im Rechner');
+    assertEq(host.querySelector('[data-fr="zucker"]'), null, 'und kein Zucker-Eingabefeld');
   } finally { host.remove(); }
 });
 test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
@@ -1489,6 +1489,73 @@ test('Aufgaben-Abgleich: erledigte Aufgaben melden nichts mehr', async (w) => {
     await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
   }
 });
+test('Neue Aufgabe: Stand und Volk sind auswählbar, Stand filtert die Völker', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 150));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const stand = m.querySelector('#f-standId'), funk = m.querySelector('#f-funktion'), volk = m.querySelector('#f-volkId');
+    assert(stand && funk && volk, 'Stand-, Funktions- und Volk-Auswahl vorhanden');
+    const sichtbar = () => [...volk.options].filter((o) => o.value && !o.hidden);
+    const vorher = sichtbar().length;
+    assert(vorher > 0, 'Völker stehen zur Auswahl');
+    // auf einen Stand filtern: es dürfen nur noch Völker dieses Standes bleiben
+    const voelker = (await w.DB.getAll('voelker')).filter((v) => v.status === 'aktiv' && v.standId);
+    const zielStand = voelker[0].standId;
+    stand.value = zielStand; stand.dispatchEvent(new w.Event('change'));
+    const nachher = sichtbar().map((o) => o.value);
+    assert(nachher.length > 0 && nachher.length < vorher, `Filter greift nicht (${nachher.length} von ${vorher})`);
+    const alleAmStand = nachher.every((id) => voelker.find((v) => v.id === id)?.standId === zielStand);
+    assert(alleAmStand, 'nur Völker des gewählten Standes bleiben übrig');
+    assert([...volk.options].some((o) => !o.value && !o.hidden), '„kein einzelnes Volk“ bleibt wählbar');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); }
+});
+test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 150));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const stand = m.querySelector('#f-standId'), volk = m.querySelector('#f-volkId');
+    const ziel = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+    volk.value = ziel.id; volk.dispatchEvent(new w.Event('change'));
+    assertEq(stand.value, ziel.standId, 'Stand-Filter springt auf den Stand des Volks');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); }
+});
+test('Aufgabe nur am Stand: lebende Zeile zeigt den Stand', async (w) => {
+  const stand = (await w.DB.getAll('staende'))[0];
+  const a = await w.DB.put('aufgaben', { titel: 'Zaun prüfen', faellig: w.U.todayIso(), erledigt: false, quelle: 'manuell', refId: null, standId: stand.id, notiz: '' });
+  const voelker = await w.idMap('voelker'), staende = await w.idMap('staende');
+  try {
+    const b = w.aufgabeBezug(a, voelker, staende);
+    assert(b, 'Bezug auch ohne Volk');
+    assertEq(b.volkName, '', 'kein Volk');
+    assertEq(b.standName, stand.name, 'Stand steht da');
+    // und der Abgleich darf dafür keinen Hinweis erzeugen
+    await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+    await w.aufgabenAbgleich();
+    const h = (await w.aufgabenAbgleich()).filter((x) => x.aufgabeId === a.id);
+    assertEq(h.length, 0, 'ein Stand wandert nicht von selbst – kein Hinweis');
+  } finally { await w.DB.del('aufgaben', a.id); await w.S.set('aufgabenHinweise', { offen: [], weg: [] }); }
+});
+test('Imkereidaten: Mitgliedsnummer der Berufsgenossenschaft', async (w) => {
+  const vorher = w.S.get('imkerei');
+  try {
+    await w.S.set('imkerei', { ...vorher, bgNummer: '12 345 678' });
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      await w.Views.einstellungen.render(host);
+      assert(/Berufsgenossenschaft/.test(host.textContent), 'Zeile in „Profil & Imkerei“');
+      assert(/12 345 678/.test(host.textContent), 'Nummer wird angezeigt');
+    } finally { host.remove(); }
+  } finally { await w.S.set('imkerei', vorher); }
+});
+
 test('Aufgaben-Ansicht: zeigt Volk und aktuellen Stand als eigene Zeile', async (w) => {
   const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
   const stand = await w.DB.get('staende', volk.standId);

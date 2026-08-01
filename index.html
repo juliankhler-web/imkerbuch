@@ -915,13 +915,18 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.14';
+const APP_VERSION = '1.15';
 const CHANGELOG = [
+  { version: '1.15', datum: '2026-08-01', punkte: [
+    'Beim Anlegen einer Aufgabe wählst du jetzt Bienenstand und Volk aus – einzeln anklickbar und mit Filter: erst Stand, wahlweise noch die Funktion (z. B. nur Wirtschaftsvölker), dann das Volk. Wählst du ein Volk, springt der Stand-Filter von selbst mit.',
+    'Damit greift die Nachführung auch bei Aufgaben, die du selbst anlegst: wanderst du das Volk später woanders hin, zeigt die Aufgabe sofort den neuen Stand – und oben erscheint einmal der Hinweis dazu.',
+    'Eine Aufgabe darf auch nur an einem Stand hängen, ohne einzelnes Volk – dann steht in der Aufgabe der Stand.',
+    'Bei den Imkereidaten gibt es ein Feld für die Mitgliedsnummer der Berufsgenossenschaft (SVLFG). Sie erscheint in „Profil & Imkerei“.',
+  ] },
   { version: '1.14', datum: '2026-08-01', punkte: [
     'Berichtigt: Die Zuckermenge deiner bisherigen Fütterungen wurde falsch gerechnet. Bei „Menge (kg)“ trägt man den reinen Zucker ein (nicht Liter Sirup) – die App hatte davon noch 60 % abgezogen. Jetzt zählt die Menge voll als Zucker, und in PDF und Kachel stehen wieder deine echten Werte. Kein Eintrag musste dafür geändert werden.',
     'Aus zwei Futter-Rechnern ist einer geworden, und der steht dort, wo gefüttert wird: im Reiter „Fütterung“. Im Rechner ist die Gruppe „Fütterung“ dafür entfallen.',
     'Die Reihenfolge folgt jetzt dem Gedanken: eingelagertes Futter je Volk, Verhältnis, Anzahl Völker – heraus kommt, wie viel Zucker du kaufen musst (auch in Säcken), wie viel Wasser dazukommt und wie viel Liter Sirup das wird, je Volk und gesamt.',
-    'Klein darunter die Gegenrichtung: Zucker übrig? Dann siehst du, wie viel eingelagertes Futter daraus wird und für wie viele Völker das reicht.',
     '„Als Fütterung übernehmen“ schreibt jetzt den reinen Zucker je Volk ins Mengenfeld – passend dazu, wie das Feld benutzt wird.',
   ] },
   { version: '1.13', datum: '2026-08-01', punkte: [
@@ -1543,7 +1548,7 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
+    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
@@ -4897,6 +4902,38 @@ async function behandlungFuerVoelker(volkIds, daten) {
 /** Verdrahtet Stand-/Funktions-Filter + „Alle/Keine“ + Live-Zähler auf einem
     formModal mit den Feldern standId, funktion und volkIds (multicheck).
     Gemeinsam genutzt von Fütterung, Bewertungs-Runde und Sammel-Umweiseln. */
+/** Wie verdrahteVolkFilter, aber für eine Auswahlliste mit genau einem Volk:
+    Stand und Funktion blenden die Einträge aus, die nicht passen. Wird von der
+    Aufgabe benutzt – dort gehört eine Aufgabe zu einem Volk, nicht zu vielen. */
+function verdrahteVolkAuswahl(m, alleVoelker) {
+  const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el), volkSel = $('#f-volkId', m.el);
+  if (!standSel || !funkSel || !volkSel) return;
+  const alle = [...volkSel.options].map((o) => ({ o, volk: alleVoelker.find((x) => x.id === o.value) }));
+  const hinweis = document.createElement('div');
+  hinweis.className = 'hint'; hinweis.style.display = 'none';
+  volkSel.parentNode.insertBefore(hinweis, volkSel.nextSibling);
+  const filtern = () => {
+    let sichtbar = 0;
+    alle.forEach(({ o, volk }) => {
+      if (!volk) { o.hidden = false; return; }                 // „kein Volk“ bleibt immer wählbar
+      const zeig = passtZuFilter(volk, standSel.value, funkSel.value);
+      o.hidden = !zeig;
+      if (zeig) sichtbar++;
+      if (!zeig && volkSel.value === o.value) volkSel.value = '';  // nie ein verstecktes Volk speichern
+    });
+    hinweis.style.display = sichtbar ? 'none' : '';
+    hinweis.textContent = sichtbar ? '' : 'Kein aktives Volk passt zu dieser Auswahl.';
+  };
+  standSel.addEventListener('change', filtern);
+  funkSel.addEventListener('change', filtern);
+  // Umgekehrt: wählt man ein Volk, springt der Stand-Filter auf dessen Stand
+  volkSel.addEventListener('change', () => {
+    const volk = alleVoelker.find((x) => x.id === volkSel.value);
+    if (volk && volk.standId && standSel.value !== volk.standId) { standSel.value = volk.standId; filtern(); }
+  });
+  filtern();
+}
+
 function verdrahteVolkFilter(m, alleVoelker) {
   const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
   const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
@@ -6507,16 +6544,20 @@ function aufgabeVolkId(a, voelker) {
   if (a.refId && voelker.has(a.refId)) return a.refId;
   return null;
 }
-/** Aktueller Bezug einer Aufgabe – immer frisch aus Volk und Stand gelesen. */
+/** Aktueller Bezug einer Aufgabe – immer frisch aus Volk und Stand gelesen.
+    Hängt die Aufgabe nur an einem Stand, steht eben nur der Stand da. */
 function aufgabeBezug(a, voelker, staende) {
+  const standName = (id) => { const st = id ? staende.get(id) : null; return st ? st.name : (id ? 'gelöschter Stand' : ''); };
   const id = aufgabeVolkId(a, voelker);
-  if (!id) return null;
+  if (!id) {
+    if (!a || !a.standId) return null;
+    return { volkId: null, volkName: '', standId: a.standId, standName: standName(a.standId) || 'gelöschter Stand' };
+  }
   const v = voelker.get(id);
   if (!v) return null;
-  const st = v.standId ? staende.get(v.standId) : null;
   return {
     volkId: id, volkName: v.name || '', standId: v.standId || null,
-    standName: st ? st.name : (v.standId ? 'gelöschter Stand' : 'ohne Stand'),
+    standName: standName(v.standId) || 'ohne Stand',
   };
 }
 /** Text des Hinweises. Getrennt gehalten, damit er testbar bleibt. */
@@ -6553,6 +6594,8 @@ async function aufgabenAbgleich() {
     const key = aufgabeHinweisKey(a, alt, neu);
     a.kontext = zustand;
     await DB.put('aufgaben', a);
+    // Hinweise gibt es nur für Aufgaben mit Volk – der Stand allein wandert nicht von selbst
+    if (!neu.volkName) continue;
     if (weg.has(key) || schonOffen.has(key)) continue;
     merk.offen.push({ key, aufgabeId: a.id, text: aufgabeHinweisText(a, alt, neu) });
     schonOffen.add(key);
@@ -6646,19 +6689,47 @@ Views.aufgaben = {
     drawCal();
     $('#cal-prev').onclick = () => { calState.m--; if (calState.m < 0) { calState.m = 11; calState.y--; } drawCal(); };
     $('#cal-next').onclick = () => { calState.m++; if (calState.m > 11) { calState.m = 0; calState.y++; } drawCal(); };
-    const form = (a) => UI.formModal({
-      title: a ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
-      fields: [
-        { key: 'titel', label: 'Aufgabe', required: true, placeholder: 'z. B. Futterkontrolle Volk 3' },
-        { key: 'faellig', label: 'Fällig am', type: 'date' },
-        { key: 'kategorie', label: 'Tätigkeit (Zeiterfassung)', type: 'select', options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
-        { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
-        { key: 'notiz', label: 'Notiz', type: 'textarea' },
-      ],
-      values: a || {},
-      async onSave(v) { v.zeitMinuten = v.zeitMinuten ? Math.round(v.zeitMinuten) : null; await DB.put('aufgaben', Object.assign(a || { erledigt: false, quelle: 'manuell', refId: null }, v)); UI.toast('Aufgabe gespeichert'); renderRoute(); },
-      onDelete: papierkorbDelete('aufgaben', a, 'Aufgabe löschen?', 'Wandert in den Papierkorb.'),
-    });
+    /* Eine Aufgabe darf an einem Stand oder an einem einzelnen Volk hängen.
+       Stand und Funktion filtern dabei die Volk-Auswahl, damit man in großen
+       Beständen genau das richtige findet. Gespeichert wird nur standId/volkId –
+       den aktuellen Stand liest die Anzeige immer frisch beim Volk nach. */
+    const staendeAlle = U.sortBy(await DB.getAll('staende'), (x) => x.name.toLowerCase());
+    const voelkerAktiv = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
+    const funktionenAlle = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelkerAktiv.map((v) => v.funktion).filter(Boolean)])];
+    const form = (a) => {
+      const m = UI.formModal({
+        title: a ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
+        fields: [
+          { key: 'titel', label: 'Aufgabe', required: true, placeholder: 'z. B. Futterkontrolle' },
+          { key: 'faellig', label: 'Fällig am', type: 'date' },
+          { key: 'standId', label: 'Bienenstand', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staendeAlle.map((st) => ({ v: st.id, l: st.name }))], hint: 'Filtert die Völker unten – und ist der Bezug, wenn du kein einzelnes Volk wählst.' },
+          { key: 'funktion', label: 'Funktion (nur Filter)', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionenAlle.map((f) => ({ v: f, l: f }))] },
+          { key: 'volkId', label: 'Volk', type: 'select', options: [{ v: '', l: 'kein einzelnes Volk' }, ...voelkerAktiv.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') }))], hint: 'Wandert das Volk, zeigt die Aufgabe von selbst den neuen Stand.' },
+          { key: 'kategorie', label: 'Tätigkeit (Zeiterfassung)', type: 'select', options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
+          { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
+          { key: 'notiz', label: 'Notiz', type: 'textarea' },
+        ],
+        values: a || {},
+        async onSave(v) {
+          v.zeitMinuten = v.zeitMinuten ? Math.round(v.zeitMinuten) : null;
+          delete v.funktion;                                     // reiner Filter, nichts zum Merken
+          const rec = Object.assign(a || { erledigt: false, quelle: 'manuell', refId: null }, v);
+          delete rec.kontext;                                    // Bezug neu bestimmen lassen
+          await DB.put('aufgaben', rec);
+          await aufgabenAbgleich();                              // Zustand sofort festhalten
+          UI.toast('Aufgabe gespeichert'); renderRoute();
+        },
+        onDelete: papierkorbDelete('aufgaben', a, 'Aufgabe löschen?', 'Wandert in den Papierkorb.'),
+      });
+      // Beim Bearbeiten den Stand-Filter auf den Stand des Volks stellen
+      if (a && a.volkId) {
+        const volk = voelkerAktiv.find((x) => x.id === a.volkId);
+        const sel = $('#f-standId', m.el);
+        if (volk && volk.standId && sel) sel.value = volk.standId;
+      }
+      verdrahteVolkAuswahl(m, voelkerAktiv);
+      return m;
+    };
     const add = () => form(null);
     bindAdd(add);
     main.addEventListener('click', async (e) => {
@@ -6808,6 +6879,9 @@ function wasserFuerVerhaeltnis(zuckerKg, verhaeltnis) {
 }
 
 /** Eingelagertes Winterfutter aus einer Zuckermenge. */
+/* Gegenstück zu zuckerFuerFutter. In der Oberfläche nicht mehr benutzt, aber die
+   direkte Formulierung der Fachregel (× 1,2, dann −15 %) – die Tests prüfen damit,
+   dass zuckerFuerFutter hin und zurück stimmt. Nicht entfernen. */
 function futterAusZucker(zuckerKg, minderungProzent = FUTTER_MINDERUNG) {
   const theoretisch = Math.max(0, zuckerKg || 0) * FUTTER_FAKTOR;
   const m = Math.min(90, Math.max(0, minderungProzent ?? FUTTER_MINDERUNG)) / 100;
@@ -6855,10 +6929,9 @@ function zuckerAusFuetterung(f) {
    NICHT mehr – ein Rechner, nicht zwei. Die Ausgabe läuft über Klassen statt
    ids, damit das Blatt neben anderen Ansichten im Dokument sein darf.
 
-   Denkrichtung ist die des Imkers: „So viel eingelagertes Futter will ich je
-   Volk, in diesem Verhältnis, für so viele Völker“ → wie viel Zucker kaufe ich,
-   wie viel Wasser kommt dazu, wie viel Sirup wird das. Die Gegenrichtung (Zucker
-   übrig, was wird daraus?) hängt klein darunter. */
+   Denkrichtung ist die des Imkers, und nur diese: „So viel eingelagertes Futter
+   will ich je Volk, in diesem Verhältnis, für so viele Völker“ → wie viel Zucker
+   kaufe ich, wie viel Wasser kommt dazu, wie viel Sirup wird das. */
 function futterRechnerHtml(aktiveV) {
   return `<div class="grid2">
       <div class="field"><label>Eingelagertes Futter je Volk (kg)</label><input class="inp rk" data-fr="jeVolk" inputmode="decimal" value="15">
@@ -6868,10 +6941,7 @@ function futterRechnerHtml(aktiveV) {
       <div class="field"><label>Minderung beim Eindicken (%)</label><input class="inp rk" data-fr="minderung" inputmode="decimal" value="${FUTTER_MINDERUNG}">
         <span class="small muted">Das Volk verbraucht fürs Eindicken selbst Futter – üblich 10–20 %.</span></div>
     </div>
-    <div class="fr-out mt12"></div>
-    <div class="small muted mt16 mb8" style="font-weight:600">Andersrum: Zucker übrig?</div>
-    <div class="field" style="max-width:240px"><label>Zucker (kg)</label><input class="inp rk" data-fr="zucker" inputmode="decimal" value="25"></div>
-    <div class="fr-zurueck mt8"></div>`;
+    <div class="fr-out mt12"></div>`;
 }
 /** Rechnet den Futter-Rechner innerhalb von root und gibt den Plan zurück,
     damit der Fütterungs-Reiter die Werte übernehmen kann. */
@@ -6899,23 +6969,9 @@ function futterRechnerRechnen(root) {
     </div>
     ${voelker > 0 && jeVolk > 0 ? `<div class="small muted mt8">Je Volk: <b>${U.fmtNum(zuckerJeVolk, 1)} kg Zucker</b> + ${U.fmtNum(wasserJeVolk, 1)} L Wasser = ${U.fmtNum(sirupJeVolk.liter, 1)} L Sirup.</div>` : ''}`;
 
-  // Gegenrichtung: vorhandener Zucker → eingelagertes Futter und Ansetz-Mengen
-  const zuckerDa = num('[data-fr="zucker"]') || 0;
-  const futter = futterAusZucker(zuckerDa, mind);
-  const wasserDa = wasserFuerVerhaeltnis(zuckerDa, verh);
-  const sirupDa = sirupAnsetzen(zuckerDa, wasserDa);
-  const zurueck = $('.fr-zurueck', root);
-  if (zurueck) zurueck.innerHTML = `
-    <div class="stat-grid">
-      <div class="stat"><div class="s-label">Wird eingelagert</div><div class="s-value">${U.fmtNum(futter.tatsaechlich, 1)} kg</div><div class="s-sub">theoretisch ${U.fmtNum(futter.theoretisch, 1)} kg, abzüglich ${U.fmtNum(mind ?? FUTTER_MINDERUNG, 0)} %</div></div>
-      <div class="stat"><div class="s-label">Als ${verh} angesetzt</div><div class="s-value">${U.fmtNum(sirupDa.liter, 1)} L</div><div class="s-sub">+ ${U.fmtNum(wasserDa, 1)} L Wasser</div></div>
-    </div>
-    ${zuckerDa > 0 && jeVolk > 0 ? `<div class="small muted mt8">Reicht für <b>${U.fmtNum(futter.tatsaechlich / jeVolk, 1)} Völker</b> mit je ${U.fmtNum(jeVolk)} kg.</div>` : ''}`;
-
   return { voelker, jeVolk, verh, minderung: mind ?? FUTTER_MINDERUNG,
     bedarf: jeVolk * voelker, zucker, wasser, sirup,
-    zuckerJeVolk, wasserJeVolk, sirupJeVolk,
-    zuckerDa, futterAusZuckerDa: futter };
+    zuckerJeVolk, wasserJeVolk, sirupJeVolk };
 }
 
 /* ---------------------------------------------------------------------
@@ -9559,6 +9615,7 @@ Views.einstellungen = {
           <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
           <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
           <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
+          <dt>Berufsgenossenschaft</dt><dd>${U.esc(imk.bgNummer) || '–'}</dd>
           <dt>Meldepflicht TSK</dt><dd>${imk.tskPflicht === 'ja' ? `Ja${imk.tskNummer ? ' · Nr. ' + U.esc(imk.tskNummer) : ''}` : 'Nein'}</dd>
           <dt>Bio-Imkerei</dt><dd>${imk.bio === 'ja' ? `<span class="badge b-ok">Ja</span> ${U.esc(bioZertText(imk))}` : 'Nein'}</dd>
         </div>
@@ -9743,6 +9800,7 @@ Views.einstellungen = {
         { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
         { key: 'telefon', label: 'Telefon' }, { key: 'email', label: 'E-Mail' },
         { key: 'registriernummer', label: 'Landwirtschaftliche Betriebsnummer' },
+        { key: 'bgNummer', label: 'Berufsgenossenschaft: Mitgliedsnummer', hint: 'Für Imkereien die SVLFG (Sozialversicherung für Landwirtschaft, Forsten und Gartenbau).' },
         { key: 'tskPflicht', label: 'Meldepflicht Tierseuchenkasse (TSK)?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
         { key: 'tskNummer', label: 'TSK-/Melde-Nummer', showIf: (f) => f.tskPflicht === 'ja', hint: 'Erscheint auf der Tierseuchenkassen-Meldung.' },
         { key: '_bioT', type: 'static', html: '<h3 class="mt8 mb8">Bio-Zertifizierung</h3>' },
@@ -10114,6 +10172,7 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   selbstkostenGlas, SELBSTKOSTEN_VORGABE,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
+  verdrahteVolkAuswahl, passtZuFilter,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 
