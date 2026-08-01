@@ -1213,12 +1213,14 @@ test('Winterfutter planen: 5 Völker × 15 kg ergibt eine belastbare Kette', (w)
   nah(w.futterAusZucker(zucker).tatsaechlich, bedarf, 0.01, 'deckt den Bedarf');
 });
 /* ---------- Verbrauchter Zucker: Eintrag schlägt Schätzung ---------- */
-test('zuckerAnteilAusFutterart: Verhältnis gewinnt vor dem Wort „Sirup“', (w) => {
-  assertEq(w.zuckerAnteilAusFutterart('Zuckerwasser 3:2'), 0.6, '3:2');
-  assertEq(w.zuckerAnteilAusFutterart('Zuckersirup 3:2'), 0.6, 'Zuckersirup 3:2 nicht als Fertigsirup lesen');
-  assertEq(w.zuckerAnteilAusFutterart('Zuckerwasser 1:1'), 0.5, '1:1');
-  nah(w.zuckerAnteilAusFutterart('Zuckerwasser 2:1'), 0.667, 0.001, '2:1');
-  nah(w.zuckerAnteilAusFutterart('Futterteig'), 0.92, 0.001, 'Futterteig');
+test('zuckerAnteilAusFutterart: bei Zuckerwasser ist die Menge schon der Zucker', (w) => {
+  /* So wird das Feld benutzt: bei Zuckerwasser trägt man kg reinen Zucker ein –
+     sonst stünde da Liter. Nur Fertigprodukte haben einen kleineren Anteil. */
+  assertEq(w.zuckerAnteilAusFutterart('Zuckerwasser 3:2'), 1, '3:2 – Menge ist der Zucker');
+  assertEq(w.zuckerAnteilAusFutterart('Zuckersirup 3:2'), 1, 'auch als Sirup benannt');
+  assertEq(w.zuckerAnteilAusFutterart('Zuckerwasser 1:1'), 1, '1:1');
+  assertEq(w.zuckerAnteilAusFutterart('Zuckerwasser 2:1'), 1, '2:1');
+  nah(w.zuckerAnteilAusFutterart('Futterteig'), 0.92, 0.001, 'Futterteig = Produktgewicht');
   nah(w.zuckerAnteilAusFutterart('Futtersirup (z. B. ApiInvert)'), 0.73, 0.001, 'Fertigsirup');
   assertEq(w.zuckerAnteilAusFutterart('Eigener Honig'), 0, 'Honig kostet keinen Zucker');
 });
@@ -1227,24 +1229,27 @@ test('zuckerAnteilAusFutterart: Unbekanntes bleibt unbekannt', (w) => {
   assertEq(w.zuckerAnteilAusFutterart(''), null, 'leer');
   assertEq(w.zuckerAnteilAusFutterart(undefined), null, 'undefined');
 });
-test('zuckerAusFuetterung: eigener Eintrag schlägt die Schätzung', (w) => {
-  const eigen = w.zuckerAusFuetterung({ futterart: 'Zuckerwasser 3:2', mengeKg: 24.5, zuckerKg: 14 });
-  assertEq(eigen.geschaetzt, false, 'nicht geschätzt');
-  assertEq(eigen.kg, 14, 'nimmt den eingetragenen Wert, nicht 14,7');
-  const gerechnet = w.zuckerAusFuetterung({ futterart: 'Zuckerwasser 3:2', mengeKg: 24.5 });
-  assertEq(gerechnet.geschaetzt, true, 'geschätzt');
-  nah(gerechnet.kg, 14.7, 0.01, '60 % von 24,5 kg');
+test('zuckerAusFuetterung: eingetragene kg zählen voll, Produkte werden geschätzt', (w) => {
+  const zuckerwasser = w.zuckerAusFuetterung({ futterart: 'Zuckerwasser 3:2', mengeKg: 5 });
+  assertEq(zuckerwasser.kg, 5, '5 kg eingetragen = 5 kg Zucker (nicht 3)');
+  assertEq(zuckerwasser.geschaetzt, false, 'kein Schätzwert, das ist der Eintrag');
+  const teig = w.zuckerAusFuetterung({ futterart: 'Futterteig', mengeKg: 5 });
+  nah(teig.kg, 4.6, 0.01, '92 % von 5 kg Teig');
+  assertEq(teig.geschaetzt, true, 'Produktgewicht wird umgerechnet, also geschätzt');
+  const eigen = w.zuckerAusFuetterung({ futterart: 'Futterteig', mengeKg: 5, zuckerKg: 4 });
+  assertEq(eigen.kg, 4, 'eigener Zuckerwert schlägt die Umrechnung');
+  assertEq(eigen.geschaetzt, false, 'und ist kein Schätzwert');
   assertEq(w.zuckerAusFuetterung({ futterart: 'Winterfutter (fertig)', mengeKg: 12 }), null, 'ohne Anhalt: null');
 });
 test('Übernahme aus dem Rechner ist in sich schlüssig', (w) => {
-  /* Der Rechner übergibt Sirup-kg und Zucker-kg je Volk. Die Schätzung aus der
-     Futterart muss denselben Zucker ergeben – sonst widersprechen sich Kachel
-     und Eintrag. */
+  /* Der Rechner schreibt den reinen Zucker je Volk ins Mengenfeld. Die
+     Rückrechnung muss genau denselben Wert liefern – sonst widersprechen sich
+     Kachel und Eintrag. */
   const zucker = w.zuckerFuerFutter(15);                       // ein Volk, 15 kg Bedarf
-  const wasser = w.wasserFuerVerhaeltnis(zucker, '3:2');
-  const sirup = w.sirupAnsetzen(zucker, wasser);
-  const eintrag = { futterart: 'Zuckerwasser 3:2', mengeKg: Math.round(sirup.masseKg * 10) / 10 };
-  nah(w.zuckerAusFuetterung(eintrag).kg, zucker, 0.1, 'Schätzung deckt sich mit dem Rechner');
+  const eintrag = { futterart: 'Zuckerwasser 3:2', mengeKg: Math.round(zucker * 10) / 10 };
+  const zurueck = w.zuckerAusFuetterung(eintrag);
+  nah(zurueck.kg, zucker, 0.06, 'Mengenfeld und Zuckerbedarf stimmen überein');
+  assertEq(zurueck.geschaetzt, false, 'und gilt nicht als Schätzung');
 });
 test('Fütterung: Rechner-Knopf und Zucker-Kachel sind da', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
@@ -1254,19 +1259,29 @@ test('Fütterung: Rechner-Knopf und Zucker-Kachel sind da', async (w) => {
     assert(/Zucker verbraucht/.test(host.textContent), 'Kachel Zucker verbraucht');
   } finally { host.remove(); }
 });
-test('Futter-Rechner-Blatt rechnet und liefert Werte je Volk', (w) => {
+test('Futter-Rechner: Futter je Volk → Zucker, Wasser, Sirup', (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
-  host.innerHTML = w.futterRechnerBedarfHtml(5) + w.futterRechnerZuckerHtml();
+  host.innerHTML = w.futterRechnerHtml(6);
   try {
     const plan = w.futterRechnerRechnen(host);
-    assertEq(plan.voelker, 5, '5 Völker');
-    assertEq(plan.bedarf, 75, '5 × 15 kg');
-    nah(plan.zucker, 73.53, 0.05, 'Zucker gesamt');
-    nah(plan.zuckerJeVolk, 14.7, 0.05, 'Zucker je Volk');
-    nah(plan.sirupKgJeVolk, 24.5, 0.05, 'Sirup je Volk in kg');
-    nah(plan.sirupLiterJeVolk, 19.1, 0.1, 'Sirup je Volk in Liter');
-    assert(/73,5/.test(host.querySelector('.fr-wf-out').textContent), 'Zuckerbedarf steht in der Ausgabe');
-    assert(host.querySelector('.fr-zs-out').textContent.includes('25,5'), 'Gegenprobe 25 kg → 25,5 kg');
+    assertEq(plan.voelker, 6, '6 Völker');
+    assertEq(plan.jeVolk, 15, '15 kg je Volk');
+    assertEq(plan.verh, '3:2', 'Vorbelegung dick');
+    nah(plan.zuckerJeVolk, 14.71, 0.02, 'Zucker je Volk');
+    nah(plan.wasserJeVolk, 9.8, 0.02, 'Wasser je Volk bei 3:2');
+    nah(plan.sirupJeVolk.liter, 19.06, 0.05, 'Sirup je Volk in Liter');
+    nah(plan.zucker, 88.24, 0.05, 'Zucker gesamt');
+    nah(plan.wasser, 58.82, 0.05, 'Wasser gesamt');
+    nah(plan.bedarf, 90, 0.01, 'Futterbedarf gesamt');
+    // Gesamtmengen müssen das Vielfache der Einzelmengen sein
+    nah(plan.zucker, plan.zuckerJeVolk * 6, 0.001, 'Zucker skaliert linear');
+    nah(plan.sirup.liter, plan.sirupJeVolk.liter * 6, 0.05, 'Sirup skaliert linear');
+    const out = host.querySelector('.fr-out').textContent;
+    assert(/88,2 kg/.test(out), 'Zuckerbedarf steht in der Ausgabe');
+    assert(/Säcke/.test(out), 'Säcke à 25 kg genannt');
+    // Gegenrichtung: 25 kg Zucker → 25,5 kg eingelagert
+    const zurueck = host.querySelector('.fr-zurueck').textContent;
+    assert(/25,5/.test(zurueck), `Gegenprobe fehlt: ${zurueck.slice(0, 120)}`);
   } finally { host.remove(); }
 });
 test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
@@ -1282,17 +1297,19 @@ test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
   } finally { w.Pdf.noDownloadForTest = false; }
 });
 
-test('Rechner: Volksstärke-Karte ist entfernt', async (w) => {
+test('Rechner: keine Futter-Rechner mehr – die stehen bei der Fütterung', async (w) => {
+  /* Volksstärke ist entfallen, und die Gruppe „Fütterung“ ist ganz aus dem
+     Rechner heraus: gefüttert wird im Reiter Fütterung, dort sitzt der Rechner. */
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.rechner.render(host);
     assertEq(host.querySelector('[data-vs="gassen"]'), null, 'keine Wabengassen-Eingabe mehr');
-    assertEq(/Volksstärke schätzen/.test(host.textContent), false, 'keine Karte mehr');
-    // die neuen Karten müssen da sein
-    assert(host.querySelector('[data-zs="zucker"]'), 'Zucker-Eingabe');
-    assert(host.querySelector('[data-zs="minderung"]'), 'Minderung einstellbar');
-    assert(host.querySelector('[data-wf="verh"]'), 'Verhältnis bei der Bedarfsplanung');
-    assert(host.querySelector('[data-wf="minderung"]'), 'Minderung bei der Bedarfsplanung');
+    assertEq(/Volksstärke schätzen/.test(host.textContent), false, 'keine Volksstärke-Karte');
+    assertEq(host.querySelector('[data-fr="jeVolk"]'), null, 'kein Futter-Rechner im Rechner');
+    assertEq(/Winterfutter planen|Zucker → Sirup/.test(host.textContent), false, 'auch die alten Karten sind weg');
+    // die übrigen Rechner müssen aber noch da sein
+    assert(host.querySelector('[data-sk="voelker"]'), 'Selbstkosten-Rechner');
+    assert(host.querySelector('#beh-mittel'), 'Behandlungsrechner');
   } finally { host.remove(); }
 });
 
@@ -1485,20 +1502,22 @@ test('Aufgaben-Ansicht: zeigt Volk und aktuellen Stand als eigene Zeile', async 
   } finally { host.remove(); await w.DB.del('aufgaben', a.id); }
 });
 
-test('Mischverhältnis: heißt „3:2 dick“ und „1:1 dünn“, Werte unverändert', async (w) => {
+test('Mischverhältnis: heißt „3:2 dick“ und „1:1 dünn“, Werte unverändert', (w) => {
   /* Beschriftung genau ein Wort dahinter – dick oder dünn, nichts weiter.
      Die value-Attribute müssen bleiben, denn daran hängt wasserFuerVerhaeltnis(). */
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  host.innerHTML = w.futterRechnerHtml(6);
   try {
-    await w.Views.rechner.render(host);
-    const sel = host.querySelector('[data-wf="verh"]');
+    const sel = host.querySelector('[data-fr="verh"]');
     assert(sel, 'Mischverhältnis-Auswahl vorhanden');
     const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent.trim() }));
     assertEq(opts.map((o) => o.v), ['3:2', '1:1'], 'Werte für die Rechnung unverändert');
     assertEq(opts.map((o) => o.t), ['3:2 dick', '1:1 dünn'], 'Beschriftung ist dick bzw. dünn – ohne weitere Erklärung');
-    // auch die Zeilen in „Zucker → Sirup & Futter“ tragen nur dick/dünn
-    const titel = [...host.querySelectorAll('.fr-zs-out .r-title')].map((e) => e.textContent.trim());
-    assertEq(titel, ['3:2 dick', '1:1 dünn'], 'Zeilen ohne Zusatz wie „fürs Winterfutter“');
+    // Umschalten auf 1:1 muss mehr Wasser ergeben
+    const dick = w.futterRechnerRechnen(host).wasserJeVolk;
+    sel.value = '1:1';
+    const duenn = w.futterRechnerRechnen(host).wasserJeVolk;
+    assert(duenn > dick, `1:1 muss mehr Wasser brauchen als 3:2 (${duenn} vs ${dick})`);
   } finally { host.remove(); }
 });
 
