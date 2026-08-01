@@ -1513,6 +1513,41 @@ test('Neue Aufgabe: Stand und Volk sind auswählbar, Stand filtert die Völker',
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); }
 });
+test('Neue Aufgabe: Völkerzahl steht dabei und folgt dem Filter', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 150));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const stand = m.querySelector('#f-standId'), funk = m.querySelector('#f-funktion'), volk = m.querySelector('#f-volkId');
+    const zeile = () => volk.parentNode.querySelector('.hint').textContent;
+    const voelker = (await w.DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
+    // ohne alles: Gesamtzahl, aber klar als „kein Bezug“ benannt
+    assert(new RegExp(`${voelker.length} Völker`).test(zeile()), `Gesamtzahl fehlt: ${zeile()}`);
+    // ganzer Stand gewählt: Zahl dieses Standes
+    const zielStand = voelker.find((v) => v.standId).standId;
+    const amStand = voelker.filter((v) => v.standId === zielStand).length;
+    stand.value = zielStand; stand.dispatchEvent(new w.Event('change'));
+    assert(/ganzen Stand/.test(zeile()), `Stand-Fall fehlt: ${zeile()}`);
+    assert(new RegExp(`${amStand} ${amStand === 1 ? 'Volk' : 'Völker'}`).test(zeile()), `Zahl am Stand falsch: ${zeile()}`);
+    // Funktions-Filter muss mitzählen
+    const funktion = voelker.find((v) => v.standId === zielStand && v.funktion)?.funktion;
+    if (funktion) {
+      const erwartet = voelker.filter((v) => v.standId === zielStand && v.funktion === funktion).length;
+      funk.value = funktion; funk.dispatchEvent(new w.Event('change'));
+      assert(new RegExp(`${erwartet} ${erwartet === 1 ? 'Volk' : 'Völker'}`).test(zeile()), `Funktions-Filter zählt nicht mit: ${zeile()}`);
+      assert(zeile().includes(funktion), 'Funktion wird benannt');
+    }
+    // ein einzelnes Volk gewählt: dann steht dessen Name da, keine Zahl
+    const eins = [...volk.options].find((o) => o.value && !o.hidden);
+    volk.value = eins.value; volk.dispatchEvent(new w.Event('change'));
+    const name = eins.textContent.split(' · ')[0];
+    assert(zeile().includes(name), `Volksname fehlt: ${zeile()}`);
+    assert(/Gilt nur für/.test(zeile()), `Einzelfall falsch benannt: ${zeile()}`);
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); }
+});
 test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
@@ -1527,6 +1562,48 @@ test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); }
 });
+test('Kalender: freier Tag öffnet gleich das Formular mit dem Datum', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const belegt = new Set((await w.DB.getAll('aufgaben')).filter((a) => !a.erledigt).map((a) => a.faellig));
+    const tage = [...host.querySelectorAll('.c-day[data-day]')];
+    assert(tage.length === 42, '6 Wochen im Monatsgitter');
+    assert(tage.every((t) => t.classList.contains('clickable')), 'jeder Tag ist antippbar, nicht nur belegte');
+    const frei = tage.find((t) => !belegt.has(t.dataset.day));
+    assert(frei, 'Testdaten: es gibt einen freien Tag');
+    frei.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(m && /Neue Aufgabe/.test(m.querySelector('h2').textContent), 'Formular geht direkt auf');
+    assertEq(m.querySelector('#f-faellig').value, frei.dataset.day, 'Datum ist vorbelegt');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); }
+});
+test('Kalender: belegter Tag zeigt die Liste mit „Neue Aufgabe"', async (w) => {
+  const heute = w.U.todayIso();
+  const a = await w.DB.put('aufgaben', { titel: 'Tagesliste prüfen', faellig: heute, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const tag = host.querySelector(`.c-day[data-day="${heute}"]`);
+    assert(tag, 'heutiger Tag im Gitter');
+    tag.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/Aufgaben am/.test(m.querySelector('h2').textContent), 'erst die Tagesübersicht');
+    assert(/Tagesliste prüfen/.test(m.textContent), 'die Aufgabe steht drin');
+    assert(m.querySelector('[data-neu]'), 'Knopf für eine neue Aufgabe');
+    assert(m.querySelector('[data-open]'), 'Aufgaben sind zum Bearbeiten antippbar');
+    // der Knopf muss das Formular mit diesem Datum öffnen
+    m.querySelector('[data-neu]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const f = [...w.document.querySelectorAll('.modal-back')].pop();
+    assertEq(f.querySelector('#f-faellig').value, heute, 'Datum übernommen');
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  } finally { host.remove(); await w.DB.del('aufgaben', a.id); }
+});
+
 test('Aufgabe nur am Stand: lebende Zeile zeigt den Stand', async (w) => {
   const stand = (await w.DB.getAll('staende'))[0];
   const a = await w.DB.put('aufgaben', { titel: 'Zaun prüfen', faellig: w.U.todayIso(), erledigt: false, quelle: 'manuell', refId: null, standId: stand.id, notiz: '' });

@@ -915,8 +915,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.15';
+const APP_VERSION = '1.16';
 const CHANGELOG = [
+  { version: '1.16', datum: '2026-08-01', punkte: [
+    'Im Kalender lässt sich jetzt jeder Tag antippen: ein freier Tag öffnet gleich das Formular mit diesem Datum, ein belegter zeigt erst, was ansteht – mit „Neue Aufgabe“ darunter.',
+    'Die Aufgaben in dieser Tagesübersicht kannst du direkt antippen, um sie zu bearbeiten; Volk und aktueller Stand stehen auch dort.',
+    'Beim Anlegen einer Aufgabe steht die Völkerzahl wieder dabei: wählst du kein einzelnes Volk, siehst du, für wie viele Völker am gewählten Stand die Aufgabe gilt – der Funktions-Filter zählt mit.',
+  ] },
   { version: '1.15', datum: '2026-08-01', punkte: [
     'Beim Anlegen einer Aufgabe wählst du jetzt Bienenstand und Volk aus – einzeln anklickbar und mit Filter: erst Stand, wahlweise noch die Funktion (z. B. nur Wirtschaftsvölker), dann das Volk. Wählst du ein Volk, springt der Stand-Filter von selbst mit.',
     'Damit greift die Nachführung auch bei Aufgaben, die du selbst anlegst: wanderst du das Volk später woanders hin, zeigt die Aufgabe sofort den neuen Stand – und oben erscheint einmal der Hinweis dazu.',
@@ -4910,8 +4915,9 @@ function verdrahteVolkAuswahl(m, alleVoelker) {
   if (!standSel || !funkSel || !volkSel) return;
   const alle = [...volkSel.options].map((o) => ({ o, volk: alleVoelker.find((x) => x.id === o.value) }));
   const hinweis = document.createElement('div');
-  hinweis.className = 'hint'; hinweis.style.display = 'none';
+  hinweis.className = 'hint';
   volkSel.parentNode.insertBefore(hinweis, volkSel.nextSibling);
+  const standName = (id) => [...standSel.options].find((o) => o.value === id)?.textContent || '';
   const filtern = () => {
     let sichtbar = 0;
     alle.forEach(({ o, volk }) => {
@@ -4921,15 +4927,22 @@ function verdrahteVolkAuswahl(m, alleVoelker) {
       if (zeig) sichtbar++;
       if (!zeig && volkSel.value === o.value) volkSel.value = '';  // nie ein verstecktes Volk speichern
     });
-    hinweis.style.display = sichtbar ? 'none' : '';
-    hinweis.textContent = sichtbar ? '' : 'Kein aktives Volk passt zu dieser Auswahl.';
+    /* Die Zahl gehört dazu: wählt man kein einzelnes Volk, muss man sehen, für
+       wie viele Völker die Aufgabe dann gilt – gefiltert wie eingestellt. */
+    const zahl = `${sichtbar} ${sichtbar === 1 ? 'Volk' : 'Völker'}`;
+    const nurFunktion = funkSel.value ? ` mit Funktion „${funkSel.value}“` : '';
+    if (!sichtbar) hinweis.textContent = 'Kein aktives Volk passt zu dieser Auswahl.';
+    else if (volkSel.value) hinweis.textContent = `Gilt nur für „${[...volkSel.options].find((o) => o.value === volkSel.value)?.textContent.split(' · ')[0] || ''}“.`;
+    else if (standSel.value) hinweis.textContent = `Kein einzelnes Volk gewählt: die Aufgabe gilt für den ganzen Stand „${standName(standSel.value)}“ – ${zahl}${nurFunktion}.`;
+    else hinweis.textContent = `Kein Stand und kein Volk gewählt: die Aufgabe hängt an keinem Volk (${zahl}${nurFunktion} im Bestand).`;
   };
   standSel.addEventListener('change', filtern);
   funkSel.addEventListener('change', filtern);
   // Umgekehrt: wählt man ein Volk, springt der Stand-Filter auf dessen Stand
   volkSel.addEventListener('change', () => {
     const volk = alleVoelker.find((x) => x.id === volkSel.value);
-    if (volk && volk.standId && standSel.value !== volk.standId) { standSel.value = volk.standId; filtern(); }
+    if (volk && volk.standId && standSel.value !== volk.standId) standSel.value = volk.standId;
+    filtern();
   });
   filtern();
 }
@@ -6659,7 +6672,8 @@ Views.aufgaben = {
       `<div class="grid2" style="grid-template-columns:1fr;max-width:none">
         <div class="card" id="cal-card"><div class="card-title">${icon('kalender')}<h2 id="cal-title"></h2>
           <span class="no-print"><button class="icon-btn" id="cal-prev">‹</button><button class="icon-btn" id="cal-next">›</button></span></div>
-          <div class="cal" id="cal"></div></div>
+          <div class="cal" id="cal"></div>
+          <div class="hint mt8 no-print">Tag antippen: freier Tag legt gleich eine Aufgabe an, belegter zeigt erst, was ansteht.</div></div>
         <div class="card">
           ${offen.length || erledigt.length ? `
             ${sec('Überfällig', grp.ueberfaellig, 'b-danger')}
@@ -6681,7 +6695,8 @@ Views.aufgaben = {
         const d = new Date(calState.y, calState.m, 1 - startIdx + i);
         const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         const tasks = all.filter((a) => a.faellig === iso && !a.erledigt);
-        cells.push(`<div class="c-day ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''} ${tasks.length ? 'clickable' : ''}" data-day="${iso}">
+        // jeder Tag ist antippbar: leerer Tag legt direkt an, belegter zeigt erst die Liste
+        cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${iso}" title="${tasks.length ? `${tasks.length} ${tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'} – antippen` : 'Neue Aufgabe an diesem Tag'}">
           ${d.getDate()}${tasks.length ? `<span class="c-dots">${tasks.slice(0, 3).map((t) => `<i class="${t.faellig < heute ? 'overdue' : ''}"></i>`).join('')}</span>` : ''}</div>`);
       }
       $('#cal').innerHTML = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="c-head">${d}</div>`).join('') + cells.join('');
@@ -6696,7 +6711,7 @@ Views.aufgaben = {
     const staendeAlle = U.sortBy(await DB.getAll('staende'), (x) => x.name.toLowerCase());
     const voelkerAktiv = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     const funktionenAlle = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelkerAktiv.map((v) => v.funktion).filter(Boolean)])];
-    const form = (a) => {
+    const form = (a, vorgabeDatum) => {
       const m = UI.formModal({
         title: a ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
         fields: [
@@ -6709,7 +6724,7 @@ Views.aufgaben = {
           { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
           { key: 'notiz', label: 'Notiz', type: 'textarea' },
         ],
-        values: a || {},
+        values: a || (vorgabeDatum ? { faellig: vorgabeDatum } : {}),
         async onSave(v) {
           v.zeitMinuten = v.zeitMinuten ? Math.round(v.zeitMinuten) : null;
           delete v.funktion;                                     // reiner Filter, nichts zum Merken
@@ -6745,10 +6760,24 @@ Views.aufgaben = {
       }
       const op = e.target.closest('[data-open]');
       if (op) { form(all.find((x) => x.id === op.dataset.open)); return; }
-      const day = e.target.closest('.c-day.clickable');
+      const day = e.target.closest('.c-day');
       if (day) {
-        const tasks = all.filter((a) => a.faellig === day.dataset.day && !a.erledigt);
-        UI.modal({ title: `Aufgaben am ${U.fmtDate(day.dataset.day)}`, body: `<div class="rows">${tasks.map((t) => `<div class="row"><span class="r-main"><span class="r-title">${U.esc(t.titel)}</span>${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</span>${quelleBadge(t)}</div>`).join('')}</div>` });
+        const iso = day.dataset.day;
+        const tasks = all.filter((a) => a.faellig === iso && !a.erledigt);
+        if (!tasks.length) return form(null, iso);          // freier Tag: gleich anlegen
+        const dm = UI.modal({
+          title: `Aufgaben am ${U.fmtDate(iso)}`,
+          body: `<div class="rows">${tasks.map((t) => `<button class="row" data-open="${t.id}" style="text-align:left;width:100%">
+            <span class="r-main"><span class="r-title">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</span>
+            <span class="r-side">${quelleBadge(t)}</span>${icon('chevR', 'chev')}</button>`).join('')}</div>`,
+          footer: `<button class="btn btn-ghost" data-zu>Schließen</button><button class="btn btn-primary" data-neu>${icon('plus')} Neue Aufgabe</button>`,
+        });
+        $('[data-zu]', dm.el).onclick = () => dm.close();
+        $('[data-neu]', dm.el).onclick = () => { dm.close(true); form(null, iso); };
+        $('.rows', dm.el).addEventListener('click', (ev) => {
+          const r = ev.target.closest('[data-open]');
+          if (r) { dm.close(true); form(all.find((x) => x.id === r.dataset.open)); }
+        });
       }
     });
   },
