@@ -920,9 +920,9 @@ const CHANGELOG = [
   { version: '1.17', datum: '2026-08-01', punkte: [
     'Rechnungspositionen haben jetzt ein Feld „Pfand je Gebinde“ – für Glas, Eimer oder Kiste. Der Pfand steht als eigene Spalte in der Rechnung und wird in der Summe getrennt ausgewiesen.',
     'Neu: Rabatt und Skonto, bewusst getrennt. <b>Rabatt</b> (Prozent oder Betrag, mit Grund wie „Großkunde“) mindert die Rechnung sofort und damit auch die Umsatzsteuer. <b>Skonto</b> wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen („bei Zahlung bis … 2 %“) – es wirkt erst, wenn wirklich früh gezahlt wird.',
-    'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt von Rabatt und Skonto ausgenommen.',
+    'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt außerhalb von Rabatt, Skonto und Umsatzsteuer – er wird nur ausgewiesen.',
     'Kunden lassen sich jetzt dort anlegen, wo man sie braucht: in der Rechnung direkt neben der Kundenauswahl und ebenso beim Verkauf. Der neue Kunde ist sofort gesetzt – der Umweg über Kassenbuch → Kunden & Lieferanten fällt weg.',
-    'Die erste Fütterung darf eine eigene Menge haben – der Rest verteilt sich dann gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
+    'Die erste Fütterung darf eine eigene Menge haben, und zwar in <b>Litern Sirup</b> – so wie du es einfüllst. Die App rechnet daraus, wie viel Futter das ergibt, und verteilt den Rest gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
     'Der Futter-Rechner kennt jetzt Anzahl der Fütterungen, Abstand in Tagen und den Beginn. Die wichtigste Zahl steht als eigene Kachel: <b>Liter Sirup je Volk und Fütterung</b> – dazu, wie viel du je Termin für alle Völker ansetzen musst, und die Termine im Klartext.',
     'Neuer Knopf „Plan als Aufgaben“: legt für jeden Termin eine Aufgabe an – mit Menge je Volk im Titel und der Ansatzmenge in der Notiz.',
     '„Als Fütterung übernehmen“ übernimmt jetzt eine einzelne Gabe (nicht die Gesamtmenge) und setzt den Abstand gleich als Wiedervorlage.',
@@ -6291,7 +6291,6 @@ function rechnungHinweis(r) {
   if (art === 'pauschal24') return `Anwendung der Durchschnittssatzbesteuerung nach Art. 295 ff. MwStSystRL und § 24 UStG. Der Rechnungsbetrag enthält eine pauschalierende Umsatzsteuer von ${U.fmtNum(r.pauschalsatz != null ? r.pauschalsatz : 7.8, 1)} %.`;
   return null;
 }
-const PFAND_UST_VORGABE = 19;      // Pfand auf Mehrweggebinde wird üblich mit 19 % ausgewiesen
 const ZAHLUNGSZIEL_VORGABE = 14;   // Tage
 
 /** Rabatt in Euro. Prozent bezieht sich auf den Warenwert – der Pfand bleibt
@@ -6310,7 +6309,9 @@ function rechnungRabatt(r, waren) {
      abgezogen, sondern als Angebot ausgewiesen („bei Zahlung bis … 2 %").
      Wirksam wird er erst, wenn der Kunde früh zahlt – dann ist die Minderung
      beim Zahlungseingang zu buchen.
-   Der Pfand wird getrennt ausgewiesen und ist von Rabatt und Skonto ausgenommen. */
+   Der Pfand wird getrennt ausgewiesen und bleibt außerhalb von Rabatt, Skonto
+   und Umsatzsteuer – wie ein Pfand steuerlich zu behandeln ist, entscheidet der
+   Betrieb mit seinem Steuerberater; die App weist ihn deshalb nur aus. */
 function rechnungSummen(r) {
   const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
   const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
@@ -6326,11 +6327,9 @@ function rechnungSummen(r) {
       const wert = p.menge * p.einzelpreis * faktor;
       if (satz > 0 && wert > 0) steuern[satz] = (steuern[satz] || 0) + wert * (satz / (100 + satz));
     }
-    const ps = r.pfandSteuersatz != null ? r.pfandSteuersatz : PFAND_UST_VORGABE;
-    if (pfand > 0 && ps > 0) steuern[ps] = (steuern[ps] || 0) + pfand * (ps / (100 + ps));
   } else if (art === 'pauschal24') {
-    const satz = r.pauschalsatz != null ? r.pauschalsatz : 7.8; // enthaltene Pauschal-USt auf die Gesamtsumme
-    if (satz > 0 && brutto > 0) steuern[satz] = brutto * (satz / (100 + satz));
+    const satz = r.pauschalsatz != null ? r.pauschalsatz : 7.8; // Pauschal-USt auf den Warenwert
+    if (satz > 0 && nachRabatt > 0) steuern[satz] = nachRabatt * (satz / (100 + satz));
   }
   const zielTage = r.zahlungszielTage != null ? Math.max(0, Math.round(r.zahlungszielTage)) : ZAHLUNGSZIEL_VORGABE;
   const skontoProzent = Math.min(100, Math.max(0, Number(r.skontoProzent) || 0));
@@ -6420,9 +6419,6 @@ Views.rechnung = {
             <div class="hint">Mindert die Rechnung sofort und damit auch die Umsatzsteuer.</div></div>
           <div class="field"><label>Rabatt-Grund</label><input class="inp" id="r-rabattGrund" list="rabattGruende" value="${U.esc(r.rabattGrund || '')}" placeholder="z. B. Großkunde">
             <datalist id="rabattGruende">${['Großkunde', 'Stammkunde', 'Abnahmemenge', 'Aktion', 'Wiederverkäufer'].map((g) => `<option value="${g}">`).join('')}</datalist></div>
-          <div class="field"><label>Pfand: USt-Satz</label><select class="inp" id="r-pfandUst" ${zeigtUst ? '' : 'disabled'}>
-            ${[0, 7, 19].map((v) => `<option value="${v}" ${(r.pfandSteuersatz != null ? r.pfandSteuersatz : PFAND_UST_VORGABE) === v ? 'selected' : ''}>${v} %</option>`).join('')}</select>
-            <div class="hint">${zeigtUst ? 'Pfand auf Mehrweggebinde wird üblicherweise mit 19 % ausgewiesen – im Zweifel mit dem Steuerberater klären.' : 'Nur bei Regelbesteuerung relevant.'}</div></div>
           <div class="field"><label>Zahlungsziel (Tage)</label><input class="inp" id="r-ziel" inputmode="numeric" value="${r.zahlungszielTage != null ? r.zahlungszielTage : ZAHLUNGSZIEL_VORGABE}"></div>
           <div class="field"><label>Skonto (%)</label><input class="inp" id="r-skonto" inputmode="decimal" value="${r.skontoProzent != null ? U.fmtNum(r.skontoProzent, 1) : ''}" placeholder="0"></div>
           <div class="field"><label>Skonto-Frist (Tage)</label><input class="inp" id="r-skontoTage" inputmode="numeric" value="${r.skontoTage != null ? r.skontoTage : 7}">
@@ -6461,7 +6457,6 @@ Views.rechnung = {
       $('#r-rabattTyp').onchange = (e) => neuZeichnen(() => { r.rabattTyp = e.target.value; });
       $('#r-rabattWert').onchange = (e) => neuZeichnen(() => { r.rabattWert = U.parseNum(e.target.value) || 0; });
       $('#r-rabattGrund').onchange = (e) => saveField(() => { r.rabattGrund = e.target.value.trim(); });
-      $('#r-pfandUst').onchange = (e) => neuZeichnen(() => { r.pfandSteuersatz = +e.target.value; });
       $('#r-ziel').onchange = (e) => neuZeichnen(() => { r.zahlungszielTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
       $('#r-skonto').onchange = (e) => neuZeichnen(() => { r.skontoProzent = Math.max(0, U.parseNum(e.target.value) || 0); });
       $('#r-skontoTage').onchange = (e) => neuZeichnen(() => { r.skontoTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
@@ -6497,7 +6492,7 @@ Views.rechnung = {
         { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Abfüllung automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
         { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
-        { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen und ist von Rabatt und Skonto ausgenommen. 0 oder leer = kein Pfand.' },
+        { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen und bleibt außerhalb von Rabatt, Skonto und Umsatzsteuer. 0 oder leer = kein Pfand.' },
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
@@ -7085,6 +7080,19 @@ function futterAusZucker(zuckerKg, minderungProzent = FUTTER_MINDERUNG) {
 
 /** Umkehrung – das ist die Rechnung, die man wirklich braucht: wie viel Zucker
     für eine gewünschte Menge TATSÄCHLICH eingelagertes Futter. */
+/** Zuckeranteil einer Mischung in Massenprozent: 3:2 = 60 %, 1:1 = 50 %. */
+function sirupAnteilProzent(verhaeltnis) { return verhaeltnis === '1:1' ? 50 : 60; }
+/** Wie viel reiner Zucker steckt in x Litern angesetztem Sirup?
+    Über die Dichte, denn Zuckerlösung ist nicht volumenaddierend. */
+function zuckerAusSirupLiter(liter, verhaeltnis) {
+  const anteil = sirupAnteilProzent(verhaeltnis);
+  const masse = Math.max(0, Number(liter) || 0) * sirupDichte(anteil);
+  return masse * anteil / 100;
+}
+/** Was am Ende von x Litern Sirup im Volk eingelagert ist. */
+function futterAusSirupLiter(liter, verhaeltnis, minderungProzent = FUTTER_MINDERUNG) {
+  return futterAusZucker(zuckerAusSirupLiter(liter, verhaeltnis), minderungProzent).tatsaechlich;
+}
 function zuckerFuerFutter(futterKg, minderungProzent = FUTTER_MINDERUNG) {
   const m = Math.min(90, Math.max(0, minderungProzent ?? FUTTER_MINDERUNG)) / 100;
   return Math.max(0, futterKg || 0) / (FUTTER_FAKTOR * (1 - m));
@@ -7138,8 +7146,8 @@ function futterRechnerHtml(aktiveV) {
       <div class="field"><label>Anzahl Fütterungen</label><input class="inp rk" data-fr="anzahl" inputmode="numeric" value="4">
         <span class="small muted">Die Gesamtmenge wird darauf verteilt.</span></div>
       <div class="field"><label>Abstand (Tage)</label><input class="inp rk" data-fr="abstand" inputmode="numeric" value="7"></div>
-      <div class="field"><label>1. Fütterung (kg Futter je Volk)</label><input class="inp rk" data-fr="erste" inputmode="decimal" placeholder="gleichmäßig">
-        <span class="small muted">Leer = alle Gaben gleich groß. Trägst du hier etwas ein, verteilt sich der Rest gleichmäßig auf die weiteren Fütterungen.</span></div>
+      <div class="field"><label>1. Fütterung (Liter Sirup je Volk)</label><input class="inp rk" data-fr="erste" inputmode="decimal" placeholder="gleichmäßig">
+        <span class="small muted">Was du beim ersten Mal je Volk einfüllst. Leer = alle Gaben gleich groß; sonst verteilt sich der Rest gleichmäßig auf die weiteren Fütterungen.</span></div>
       <div class="field"><label>Erste Fütterung am</label><input class="inp rk" type="date" data-fr="beginn" value="${U.todayIso()}"></div>
     </div>
     <div class="fr-out mt12"></div>`;
@@ -7166,9 +7174,12 @@ function futterRechnerRechnen(root) {
   /* Die Gesamtmenge je Volk auf die Fütterungen verteilen. Die erste Gabe darf
      eine eigene Größe haben (Anfüttern) – der Rest teilt sich dann gleichmäßig
      auf die weiteren Termine. Ohne Angabe sind alle Gaben gleich groß. */
-  const ersteEingabe = num('[data-fr="erste"]');
+  // eingegeben werden LITER Sirup – umgerechnet auf eingelagertes Futter
+  const ersteLiter = num('[data-fr="erste"]');
   const gleichmaessig = jeVolk / anzahl;
-  const ersteFutter = (ersteEingabe > 0 && anzahl > 1) ? Math.min(ersteEingabe, jeVolk) : gleichmaessig;
+  const ersteFutter = (ersteLiter > 0 && anzahl > 1)
+    ? Math.min(futterAusSirupLiter(ersteLiter, verh, mind), jeVolk)
+    : gleichmaessig;
   const restFutter = anzahl > 1 ? Math.max(0, (jeVolk - ersteFutter) / (anzahl - 1)) : 0;
   /** Eine Gabe je Volk: Futter → Zucker → Wasser → Sirup. */
   const gabe = (futterKg) => {
@@ -10421,7 +10432,8 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
-  selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, PFAND_UST_VORGABE, ZAHLUNGSZIEL_VORGABE, kontaktForm,
+  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter,
+  selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,

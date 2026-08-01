@@ -1328,24 +1328,37 @@ test('Futter-Rechner: eine Fütterung = ungeteilte Gesamtmenge', (w) => {
     assertEq(w.futterRechnerRechnen(host).anzahl, 1, 'null Fütterungen werden auf eine gehoben');
   } finally { host.remove(); }
 });
-test('Futter-Rechner: erste Gabe eigenständig, Rest gleichmäßig', (w) => {
+test('Liter Sirup → Zucker → eingelagertes Futter', (w) => {
+  /* Eingefüllt werden Liter. Gegenprobe: die Menge, die der Rechner für eine
+     Gabe ausrechnet, muss rückwärts wieder dieselbe Futtermenge ergeben. */
+  assertEq(w.sirupAnteilProzent('3:2'), 60, '3:2 sind 60 % Zucker');
+  assertEq(w.sirupAnteilProzent('1:1'), 50, '1:1 sind 50 %');
+  nah(w.zuckerAusSirupLiter(4.76, '3:2'), 3.674, 0.01, 'Zucker in 4,76 L Sirup 3:2');
+  nah(w.futterAusSirupLiter(4.76, '3:2'), 3.75, 0.02, 'daraus werden 3,75 kg Futter');
+  // 1:1 ist dünner: gleiche Liter, weniger Zucker
+  assert(w.zuckerAusSirupLiter(10, '1:1') < w.zuckerAusSirupLiter(10, '3:2'), '1:1 enthält weniger Zucker');
+  assertEq(w.zuckerAusSirupLiter(0, '3:2'), 0, 'null Liter, null Zucker');
+  assertEq(w.zuckerAusSirupLiter(-5, '3:2'), 0, 'negative Eingabe wird gekappt');
+});
+test('Futter-Rechner: erste Gabe in Liter, Rest gleichmäßig', (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   host.innerHTML = w.futterRechnerHtml(6);
   try {
     host.querySelector('[data-fr="anzahl"]').value = '4';
-    host.querySelector('[data-fr="erste"]').value = '6';        // 6 kg zuerst, Rest 9 kg auf 3 Gaben
+    host.querySelector('[data-fr="erste"]').value = '6';        // 6 LITER beim ersten Mal
     const plan = w.futterRechnerRechnen(host);
     assertEq(plan.eigeneErste, true, 'erste Gabe ist als eigene erkannt');
-    nah(plan.gabeErste.futter, 6, 0.001, '6 kg in der ersten Gabe');
-    nah(plan.gabeRest.futter, 3, 0.001, '9 kg auf 3 Folgegaben');
+    nah(plan.gabeErste.sirup.liter, 6, 0.05, 'die 6 Liter kommen als 6 Liter wieder heraus');
+    nah(plan.gabeErste.futter, w.futterAusSirupLiter(6, '3:2'), 0.01, 'Futter passend zu 6 L');
+    nah(plan.gabeRest.futter, (15 - plan.gabeErste.futter) / 3, 0.01, 'Rest gleichmäßig auf 3 Gaben');
     // in Summe muss weiter die Gesamtmenge herauskommen
-    nah(plan.gaben.reduce((a, g) => a + g.futter, 0), 15, 0.001, 'zusammen wieder 15 kg');
-    nah(plan.gaben.reduce((a, g) => a + g.zucker, 0), plan.zuckerJeVolk, 0.01, 'und derselbe Zuckerbedarf');
+    nah(plan.gaben.reduce((a, g) => a + g.futter, 0), 15, 0.01, 'zusammen wieder 15 kg Futter');
+    nah(plan.gaben.reduce((a, g) => a + g.zucker, 0), plan.zuckerJeVolk, 0.02, 'und derselbe Zuckerbedarf');
     assert(plan.gabeErste.sirup.liter > plan.gabeRest.sirup.liter, 'erste Gabe ist die größere');
-    // eine erste Gabe über der Gesamtmenge wird gedeckelt, Rest wird 0
+    // mehr Liter als insgesamt nötig: auf die Gesamtmenge gedeckelt
     host.querySelector('[data-fr="erste"]').value = '99';
     const zuviel = w.futterRechnerRechnen(host);
-    nah(zuviel.gabeErste.futter, 15, 0.001, 'auf die Gesamtmenge gedeckelt');
+    nah(zuviel.gabeErste.futter, 15, 0.01, 'auf die Gesamtmenge gedeckelt');
     assertEq(zuviel.gabeRest.futter, 0, 'dann bleibt für die Folgegaben nichts');
     // Ausgabe muss beide Größen zeigen
     host.querySelector('[data-fr="erste"]').value = '6';
@@ -1441,23 +1454,24 @@ test('rechnungSummen: Rabatt und Skonto gleichzeitig', (w) => {
   nah(s.skonto.betrag, 1.08, 0.001, 'Skonto auf den rabattierten Warenwert (54 €)');
   nah(s.skonto.zahlbetrag, 57.92, 0.001, 'Zahlbetrag bei früher Zahlung');
 });
-test('rechnungSummen: Umsatzsteuer folgt Rabatt und Pfand', (w) => {
+test('rechnungSummen: Umsatzsteuer folgt dem Rabatt, der Pfand bleibt steuerfrei', (w) => {
+  /* Auf den Pfand weist die App bewusst keine Umsatzsteuer aus – wie ein Pfand
+     steuerlich zu behandeln ist, entscheidet der Betrieb mit dem Steuerberater. */
   const pos = [{ text: 'Honig', menge: 10, einzelpreis: 10.7, pfand: 1, steuersatz: 7 }];
   const ohne = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false }));
   nah(ohne.steuern[7], 107 * 7 / 107, 0.01, '7 % aus 107 € Warenwert');
-  nah(ohne.steuern[19], 10 * 19 / 119, 0.01, 'Pfand mit 19 % (Vorgabe)');
+  assertEq(ohne.steuern[19], undefined, 'keine 19-%-Zeile für den Pfand');
+  assertEq(Object.keys(ohne.steuern), ['7'], 'nur der Warensatz erscheint');
   // Rabatt muss die Steuerbasis anteilig mindern
   const mit = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false, rabattTyp: 'prozent', rabattWert: 10 }));
   nah(mit.steuern[7], ohne.steuern[7] * 0.9, 0.01, 'USt sinkt um 10 %');
-  nah(mit.steuern[19], ohne.steuern[19], 0.001, 'Pfand-USt bleibt – kein Rabatt auf Pfand');
-  // eigener Pfand-Satz
-  const p0 = w.rechnungSummen(RE(pos, { steuerart: 'regel', kleinunternehmer: false, pfandSteuersatz: 0 }));
-  assertEq(p0.steuern[19], undefined, 'Pfand-Satz 0 ergibt keine 19-%-Zeile');
   // Kleinunternehmer: gar keine USt
   assertEq(Object.keys(w.rechnungSummen(RE(pos)).steuern).length, 0, '§ 19: keine USt');
-  // Pauschalierung: auf den Gesamtbetrag inkl. Pfand
+  // Pauschalierung: auf den Warenwert nach Rabatt, ohne Pfand
   const p24 = w.rechnungSummen(RE(pos, { steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8 }));
-  nah(p24.steuern[7.8], 117 * 7.8 / 107.8, 0.01, 'Pauschalsatz auf 117 €');
+  nah(p24.steuern[7.8], 107 * 7.8 / 107.8, 0.01, 'Pauschalsatz auf 107 €, nicht auf 117 €');
+  const p24r = w.rechnungSummen(RE(pos, { steuerart: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8, rabattTyp: 'prozent', rabattWert: 10 }));
+  nah(p24r.steuern[7.8], 96.3 * 7.8 / 107.8, 0.01, 'Rabatt mindert auch die Pauschal-USt');
 });
 test('Rechnung: Pfand-Feld, Rabatt- und Skonto-Karte in der Ansicht', async (w) => {
   const stg = w.S.get('steuer');
