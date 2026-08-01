@@ -1351,6 +1351,18 @@ test('selbstkostenGlas: hält Unsinn aus', (w) => {
   const neg = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, glas: -5, ruecklauf: 400, nutzungsdauer: 0 });
   assert(isFinite(neg.summe) && neg.summe >= 0, 'negative und überdrehte Eingaben werden gekappt');
 });
+test('Rechner: die alte Honigpreis-Kalkulation ist ersetzt, nicht verdoppelt', async (w) => {
+  /* Beide Karten haben dieselbe Frage beantwortet. Die schnelle ist entfallen –
+     wichtig ist, dass das Wort „Honigpreis“ bleibt, sonst findet es keiner. */
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.rechner.render(host);
+    assertEq(host.querySelector('[data-hp="glas"]'), null, 'keine Schnell-Kalkulation mehr');
+    assertEq(host.querySelector('#hp-out'), null, 'und keine verwaiste Ausgabe');
+    assert(/Honigpreis/.test(host.textContent), 'unter „Honigpreis“ weiter auffindbar');
+    assertEq((host.textContent.match(/Selbstkosten je Glas/g) || []).length >= 1, true, 'die Vollkostenrechnung ist da');
+  } finally { host.remove(); }
+});
 test('Rechner: Selbstkosten-Karte ist da und rechnet', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
@@ -1473,10 +1485,9 @@ test('Aufgaben-Ansicht: zeigt Volk und aktuellen Stand als eigene Zeile', async 
   } finally { host.remove(); await w.DB.del('aufgaben', a.id); }
 });
 
-test('Mischverhältnis: Auswahl ohne Bemerkung, Werte unverändert', async (w) => {
-  /* Die Auswahl zeigt nur „3:2“ und „1:1“. Wichtig: die value-Attribute müssen
-     bleiben, denn daran hängt wasserFuerVerhaeltnis(). Sie sitzt seit dem Umbau
-     in der Karte „Winterfutter planen“. */
+test('Mischverhältnis: heißt „3:2 dick“ und „1:1 dünn“, Werte unverändert', async (w) => {
+  /* Beschriftung genau ein Wort dahinter – dick oder dünn, nichts weiter.
+     Die value-Attribute müssen bleiben, denn daran hängt wasserFuerVerhaeltnis(). */
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.rechner.render(host);
@@ -1484,7 +1495,10 @@ test('Mischverhältnis: Auswahl ohne Bemerkung, Werte unverändert', async (w) =
     assert(sel, 'Mischverhältnis-Auswahl vorhanden');
     const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent.trim() }));
     assertEq(opts.map((o) => o.v), ['3:2', '1:1'], 'Werte für die Rechnung unverändert');
-    assertEq(opts.map((o) => o.t), ['3:2', '1:1'], 'Beschriftung ohne Bemerkung dahinter');
+    assertEq(opts.map((o) => o.t), ['3:2 dick', '1:1 dünn'], 'Beschriftung ist dick bzw. dünn – ohne weitere Erklärung');
+    // auch die Zeilen in „Zucker → Sirup & Futter“ tragen nur dick/dünn
+    const titel = [...host.querySelectorAll('.fr-zs-out .r-title')].map((e) => e.textContent.trim());
+    assertEq(titel, ['3:2 dick', '1:1 dünn'], 'Zeilen ohne Zusatz wie „fürs Winterfutter“');
   } finally { host.remove(); }
 });
 
