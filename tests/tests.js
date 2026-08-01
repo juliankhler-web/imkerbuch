@@ -1296,6 +1296,183 @@ test('Rechner: Volksstärke-Karte ist entfernt', async (w) => {
   } finally { host.remove(); }
 });
 
+/* ---------- Selbstkosten je Glas (Vollkostenrechnung) ---------- */
+test('selbstkostenGlas: trifft das Kalkulationsmodell der LWG', (w) => {
+  /* Gegenprobe gegen die veröffentlichte Beispielrechnung (6 Völker, 35 kg,
+     500 g, Direktvermarktung): dort 9,96 EUR/Glas bzw. 19,92 EUR/kg. Wir rechnen
+     die Lohnnebenkosten auf die gesamte Arbeitszeit und liegen daher etwas höher
+     – mehr als 3 % Abweichung wäre aber ein Fehler. */
+  const r = w.selbstkostenGlas(w.SELBSTKOSTEN_VORGABE);
+  assertEq(r.glaeser, 70, '35 kg / 500 g = 70 Gläser je Volk');
+  assert(Math.abs(r.summe - 9.96) / 9.96 < 0.03, `je Glas ${r.summe.toFixed(2)} EUR liegt nicht bei 9,96`);
+  assert(Math.abs(r.jeKg - 19.92) / 19.92 < 0.03, `je kg ${r.jeKg.toFixed(2)} EUR liegt nicht bei 19,92`);
+  nah(r.jeKg, r.summe * 2, 0.001, 'je kg = doppelter Glaspreis bei 500 g');
+});
+test('selbstkostenGlas: einzelne Posten sind nachrechenbar', (w) => {
+  const v = w.SELBSTKOSTEN_VORGABE;
+  const posten = (n) => w.selbstkostenGlas(v).posten.find((x) => x.name.startsWith(n)).euro;
+  // Pfand: 70 % kommen zurück, also nur 30 % des Glaspreises
+  nah(posten('Gebinde'), 0.51 * 0.3 + 0.13 + 0.03 + 0.29, 0.001, 'Gebinde mit Pfandrücklauf');
+  nah(posten('Futter'), 1.8 * 15 / 70, 0.001, 'Futter je Glas');
+  nah(posten('Arbeit'), 8.2 * 14 / 70, 0.001, 'Arbeit je Glas');
+  nah(posten('Lohnnebenkosten'), 8.2 * 14 / 70 * 0.29, 0.001, '29 % auf die Arbeit');
+  nah(posten('Abschreibung'), 725 / 15 / 70, 0.001, 'Investition über 15 Jahre');
+  nah(posten('Kapitalverzinsung'), 725 / 2 * 0.03 / 70, 0.001, '3 % auf das halbe Anlagevermögen');
+  nah(posten('Raumkosten'), 17 * 4.61 * 12 / 6 / 70, 0.001, 'Fläche geteilt auf 6 Völker');
+  nah(posten('Vertrieb'), 2 * 0.5, 0.001, '2 EUR/kg bei 500 g');
+});
+test('selbstkostenGlas: Wagnis liegt auf allen anderen Posten', (w) => {
+  const r = w.selbstkostenGlas(w.SELBSTKOSTEN_VORGABE);
+  nah(r.wagnis, r.zwischen * 0.1, 0.001, '10 % auf die Zwischensumme');
+  nah(r.summe, r.zwischen + r.wagnis, 0.001, 'Summe = Zwischensumme + Wagnis');
+  const ohne = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, wagnis: 0 });
+  assertEq(ohne.wagnis, 0, 'ohne Wagnis kein Aufschlag');
+  nah(ohne.summe, r.zwischen, 0.001, 'dann ist die Summe die Zwischensumme');
+});
+test('selbstkostenGlas: Vertriebsweg lässt die richtigen Posten wegfallen', (w) => {
+  const v = w.SELBSTKOSTEN_VORGABE;
+  const namen = (weg) => w.selbstkostenGlas({ ...v, weg }).posten.map((x) => x.name);
+  assert(namen('direkt').includes('Vertrieb'), 'Direkt: mit Vertriebspauschale');
+  assert(!namen('wiederverkaeufer').includes('Vertrieb'), 'Wiederverkäufer: ohne Vertrieb');
+  assert(namen('wiederverkaeufer').some((n) => n.startsWith('Gebinde')), 'Wiederverkäufer: Glas wird trotzdem gefüllt');
+  assert(!namen('grosshandel').some((n) => n.startsWith('Gebinde')), 'Großhandel: Lagergebinde, kein Glas');
+  const d = w.selbstkostenGlas({ ...v, weg: 'direkt' }).summe;
+  const wv = w.selbstkostenGlas({ ...v, weg: 'wiederverkaeufer' }).summe;
+  const gh = w.selbstkostenGlas({ ...v, weg: 'grosshandel' }).summe;
+  assert(d > wv && wv > gh, `Reihenfolge stimmt nicht: ${d.toFixed(2)} / ${wv.toFixed(2)} / ${gh.toFixed(2)}`);
+  // Großhandel spart zusätzlich die Abfüll-Stunden
+  nah(w.selbstkostenGlas({ ...v, weg: 'grosshandel' }).posten.find((x) => x.name === 'Arbeit').euro,
+    (8.2 - 2.3) * 14 / 70, 0.001, 'Arbeit ohne Abfüllen');
+});
+test('selbstkostenGlas: hält Unsinn aus', (w) => {
+  assertEq(w.selbstkostenGlas({}).summe, 0, 'ohne Eingaben keine Kosten');
+  const r = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, ertragKg: 0 });
+  assert(isFinite(r.summe), 'kein Ertrag darf nicht zu Unendlich führen');
+  const neg = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, glas: -5, ruecklauf: 400, nutzungsdauer: 0 });
+  assert(isFinite(neg.summe) && neg.summe >= 0, 'negative und überdrehte Eingaben werden gekappt');
+});
+test('Rechner: Selbstkosten-Karte ist da und rechnet', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.rechner.render(host);
+    assert(host.querySelector('[data-sk="voelker"]'), 'Völker-Eingabe');
+    assert(host.querySelector('[data-sk="weg"]'), 'Vertriebsweg-Auswahl');
+    assert(host.querySelector('[data-sk="investVolk"]'), 'Investition je Volk');
+    assert(host.querySelector('#sk-out').innerHTML.length > 100, 'Ergebnis wurde gerechnet');
+    assert(/Selbstkosten je Glas/.test(host.querySelector('#sk-out').textContent), 'Kopfzahl vorhanden');
+    assert(/Veitshöchheim/.test(host.textContent), 'Quelle genannt');
+  } finally { host.remove(); }
+});
+
+/* ---------- Aufgaben folgen dem Volk ---------- */
+test('aufgabeVolkId: findet das Volk über volkId und über refId', (w) => {
+  const voelker = new Map([['v1', { id: 'v1', name: 'Anna' }]]);
+  assertEq(w.aufgabeVolkId({ volkId: 'v1' }, voelker), 'v1', 'über volkId');
+  assertEq(w.aufgabeVolkId({ refId: 'v1' }, voelker), 'v1', 'ältere Aufgaben über refId');
+  assertEq(w.aufgabeVolkId({ refId: 'charge7' }, voelker), null, 'MHD-Aufgabe hat kein Volk');
+  assertEq(w.aufgabeVolkId({}, voelker), null, 'ohne Bezug');
+  assertEq(w.aufgabeVolkId(null, voelker), null, 'null');
+});
+test('aufgabeBezug: liest den Stand immer frisch', (w) => {
+  const staende = new Map([['s3', { id: 's3', name: 'Hausgarten' }], ['s4', { id: 's4', name: 'Waldrand' }]]);
+  const volk = { id: 'v1', name: 'Anna', standId: 's3' };
+  const voelker = new Map([['v1', volk]]);
+  const a = { id: 'a1', volkId: 'v1', titel: 'Fütterung prüfen' };
+  assertEq(w.aufgabeBezug(a, voelker, staende).standName, 'Hausgarten', 'vor der Wanderung');
+  volk.standId = 's4';                                  // Volk wandert
+  assertEq(w.aufgabeBezug(a, voelker, staende).standName, 'Waldrand', 'sofort der neue Stand');
+  volk.standId = null;
+  assertEq(w.aufgabeBezug(a, voelker, staende).standName, 'ohne Stand', 'Volk ohne Stand');
+  volk.standId = 'geloescht';
+  assertEq(w.aufgabeBezug(a, voelker, staende).standName, 'gelöschter Stand', 'Stand weg');
+});
+test('aufgabeHinweisKey: gleiche Änderung = ein Schlüssel, neue Änderung = neuer', (w) => {
+  const a = { id: 'a1', titel: 'T' };
+  const k1 = w.aufgabeHinweisKey(a, { standId: 's3', volkName: 'Anna' }, { standId: 's4', volkName: 'Anna' });
+  const k2 = w.aufgabeHinweisKey(a, { standId: 's3', volkName: 'Anna' }, { standId: 's4', volkName: 'Anna' });
+  const k3 = w.aufgabeHinweisKey(a, { standId: 's4', volkName: 'Anna' }, { standId: 's3', volkName: 'Anna' });
+  assertEq(k1, k2, 'dieselbe Änderung ergibt denselben Schlüssel');
+  assert(k1 !== k3, 'Rückwanderung ist eine neue Änderung');
+});
+test('aufgabeHinweisText: nennt Volk, neuen und alten Stand', (w) => {
+  const t = w.aufgabeHinweisText({ titel: 'Fütterung prüfen: Anna' },
+    { standId: 's3', standName: 'Hausgarten', volkName: 'Anna' },
+    { standId: 's4', standName: 'Waldrand', volkName: 'Anna' });
+  assert(/Anna/.test(t), 'Volk genannt');
+  assert(/Waldrand/.test(t), 'neuer Stand genannt');
+  assert(/Hausgarten/.test(t), 'alter Stand genannt');
+  const u = w.aufgabeHinweisText({ titel: 'T' },
+    { standId: 's3', standName: 'Hausgarten', volkName: 'Anna' },
+    { standId: 's3', standName: 'Hausgarten', volkName: 'Bella' });
+  assert(/heißt jetzt/.test(u), 'Umbenennung wird benannt');
+});
+test('Aufgaben-Abgleich: Wanderung meldet sich einmal, weggeklickt nie wieder', async (w) => {
+  const staende = await w.DB.getAll('staende');
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+  const ziel = staende.find((s) => s.id !== volk.standId);
+  assert(volk && ziel, 'Testdaten: Volk mit Stand und ein zweiter Stand');
+  const urStand = volk.standId;
+  await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  const a = await w.DB.put('aufgaben', { titel: 'Futterkontrolle', faellig: w.U.todayIso(), erledigt: false, quelle: 'fuetterung', refId: volk.id, volkId: volk.id, notiz: '' });
+  try {
+    await w.aufgabenAbgleich();                              // erster Lauf: nur merken
+    assertEq((w.S.get('aufgabenHinweise').offen || []).length, 0, 'beim Anlegen kein Hinweis');
+    assertEq((await w.DB.get('aufgaben', a.id)).kontext.standId, urStand, 'Zustand festgehalten');
+
+    volk.standId = ziel.id; await w.DB.put('voelker', volk); // Volk wandert
+    const h1 = (await w.aufgabenAbgleich()).filter((h) => h.aufgabeId === a.id);
+    assertEq(h1.length, 1, 'genau ein Hinweis');
+    assert(h1[0].text.includes(ziel.name), 'Hinweis nennt den neuen Stand');
+    assertEq((await w.DB.get('aufgaben', a.id)).kontext.standId, ziel.id, 'Aufgabe kennt den neuen Stand');
+
+    const h2 = (await w.aufgabenAbgleich()).filter((h) => h.aufgabeId === a.id);
+    assertEq(h2.length, 1, 'weitere Läufe verdoppeln den Hinweis nicht');
+
+    await w.aufgabeHinweisWeg(h1[0].key);                    // weggeklickt
+    const h3 = (await w.aufgabenAbgleich()).filter((h) => h.aufgabeId === a.id);
+    assertEq(h3.length, 0, 'weggeklickter Hinweis kommt nicht wieder');
+
+    volk.standId = urStand; await w.DB.put('voelker', volk);  // zurückgewandert
+    const h4 = (await w.aufgabenAbgleich()).filter((h) => h.aufgabeId === a.id);
+    assertEq(h4.length, 1, 'neue Änderung ergibt wieder einen Hinweis');
+    assert(h4[0].key !== h1[0].key, 'mit eigenem Schlüssel');
+  } finally {
+    volk.standId = urStand; await w.DB.put('voelker', volk);
+    await w.DB.del('aufgaben', a.id);
+    await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  }
+});
+test('Aufgaben-Abgleich: erledigte Aufgaben melden nichts mehr', async (w) => {
+  const staende = await w.DB.getAll('staende');
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+  const ziel = staende.find((s) => s.id !== volk.standId);
+  const urStand = volk.standId;
+  await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  const a = await w.DB.put('aufgaben', { titel: 'Schon erledigt', faellig: w.U.todayIso(), erledigt: true, quelle: 'fuetterung', refId: volk.id, volkId: volk.id, notiz: '' });
+  try {
+    await w.aufgabenAbgleich();
+    volk.standId = ziel.id; await w.DB.put('voelker', volk);
+    const h = (await w.aufgabenAbgleich()).filter((x) => x.aufgabeId === a.id);
+    assertEq(h.length, 0, 'erledigte Aufgabe erzeugt keinen Hinweis');
+  } finally {
+    volk.standId = urStand; await w.DB.put('voelker', volk);
+    await w.DB.del('aufgaben', a.id);
+    await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  }
+});
+test('Aufgaben-Ansicht: zeigt Volk und aktuellen Stand als eigene Zeile', async (w) => {
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+  const stand = await w.DB.get('staende', volk.standId);
+  const a = await w.DB.put('aufgaben', { titel: 'Lebende Zeile prüfen', faellig: w.U.todayIso(), erledigt: false, quelle: 'fuetterung', refId: volk.id, volkId: volk.id, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const zeile = [...host.querySelectorAll('.r-bezug')].map((e) => e.textContent).join(' | ');
+    assert(zeile.includes(volk.name), 'Volksname in der lebenden Zeile');
+    assert(zeile.includes(stand.name), 'aktueller Stand in der lebenden Zeile');
+  } finally { host.remove(); await w.DB.del('aufgaben', a.id); }
+});
+
 test('Mischverhältnis: Auswahl ohne Bemerkung, Werte unverändert', async (w) => {
   /* Die Auswahl zeigt nur „3:2“ und „1:1“. Wichtig: die value-Attribute müssen
      bleiben, denn daran hängt wasserFuerVerhaeltnis(). Sie sitzt seit dem Umbau

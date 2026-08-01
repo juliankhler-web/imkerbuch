@@ -268,6 +268,9 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
    werden: sonst frisst der Hinweis die ganze Zeile und von der Kategorie bleibt
    „Behandl…“ übrig. Nur diese wenigen Zeilen werden höher. */
 .row.hat-hinweis .r-sub{white-space:normal}
+/* lebende Zeile einer Aufgabe (Volk · aktueller Stand) – hebt sich von der Notiz ab */
+.row .r-bezug{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--honey-deep);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .r-bezug svg{width:13px;height:13px;flex-shrink:0}
 .row .chev{color:var(--muted);flex-shrink:0;width:16px;height:16px}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .stat{background:var(--card);border:1px solid transparent;border-radius:var(--r);padding:14px 16px;box-shadow:0 2px 4px rgba(122,80,0,.04),0 12px 28px -14px rgba(122,80,0,.22)}
@@ -912,8 +915,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.11';
+const APP_VERSION = '1.12';
 const CHANGELOG = [
+  { version: '1.12', datum: '2026-08-01', punkte: [
+    'Neu im Rechner: „Selbstkosten je Glas“ – eine ausführliche Vollkostenrechnung. Du gibst Betrieb, Ertrag, Gebinde, Futter, Arbeitszeit, Anlagen, Räume, Gemeinkosten und Vertrieb ein und siehst, was ein Glas mindestens kosten muss – aufgeschlüsselt nach Kostenart und zusätzlich je kg Honig.',
+    'Dazu ein Vergleich der drei Vertriebswege: Direktvermarktung, Wiederverkäufer und Großhandel. Beim Großhandel fallen Gebinde, Vertrieb und die Arbeitszeit fürs Abfüllen weg.',
+    'Alle Vorbelegungen sind überschreibbar und stammen aus dem Kalkulationsmodell der LWG Veitshöchheim (Mindestlohn 2026, Lohnnebenkosten DESTATIS, Miete IW, Ertrag und Verluste DEBIMO).',
+    'Aufgaben hängen jetzt am Volk, nicht an einer alten Notiz: wandert ein Volk auf einen anderen Stand, zeigt die Aufgabe sofort den neuen Stand. Dasselbe gilt, wenn du ein Volk umbenennst.',
+    'Wenn sich dadurch etwas ändert, erscheint oben bei den Aufgaben ein Hinweis – genau einmal. Klickst du ihn weg, kommt er nicht wieder; erst eine neue Änderung ergibt einen neuen Hinweis.',
+  ] },
   { version: '1.11', datum: '2026-07-25', punkte: [
     'Neu im Rechner: „Winterfutter planen“ rechnet von deinem Bedarf zurück. Du gibst Völkerzahl, Futter je Volk und Mischverhältnis ein und bekommst, wie viel Zucker du kaufen musst (auch in Säcken à 25 kg), wie viel Wasser dazu kommt und wie viel Liter Sirup daraus werden.',
     '„Zucker → Sirup & Futter“ rechnet die andere Richtung: Du gibst die Zuckermenge ein und siehst, wie viel theoretisch und wie viel tatsächlich im Stock eingelagert wird – und darunter für 3:2 und 1:1, wie viel Wasser dazu kommt und wie viele Liter Sirup das ergibt.',
@@ -1536,6 +1546,9 @@ const S = {
        { name, herkunft, ort, betreiber, lat, lng, drohnenlinien: [] } */
     belegstellenVerzeichnis: [],
     fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
+    /* Hinweise „Aufgabe hat sich geändert“: offen = noch anzuzeigen,
+       weg = weggeklickt und darf nie wieder kommen (Schlüssel je Änderung). */
+    aufgabenHinweise: { offen: [], weg: [] },
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
@@ -3784,7 +3797,7 @@ Views.volk = {
         const neu = !f;
         await DB.put('fuetterungen', Object.assign(f || { volkId: v.id }, val));
         if (neu && val.wiedervorlageTage > 0) {
-          await DB.put('aufgaben', { titel: `Fütterung prüfen: ${v.name}`, faellig: U.addDays(val.datum, Math.round(val.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: v.id, notiz: `Nach ${val.futterart} (${U.fmtNum(val.mengeKg)} kg) vom ${U.fmtDate(val.datum)}` });
+          await DB.put('aufgaben', { titel: `Fütterung prüfen: ${v.name}`, faellig: U.addDays(val.datum, Math.round(val.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: v.id, volkId: v.id, notiz: `Nach ${val.futterart} (${U.fmtNum(val.mengeKg)} kg) vom ${U.fmtDate(val.datum)}` });
           Notif.check();
         }
         UI.toast('Fütterung gespeichert'); renderRoute();
@@ -4772,7 +4785,7 @@ Views.behandlungen = {
         for (const a of alte) if (!a.erledigt) await DB.del('aufgaben', a.id);
         if (saved.wartezeitTage > 0) {
           const ende = U.addDays(saved.datum, saved.wartezeitTage);
-          await DB.put('aufgaben', { titel: `Wartezeit endet: ${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, notiz: '' });
+          await DB.put('aufgaben', { titel: `Wartezeit endet: ${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, volkId: saved.zielTyp === 'volk' ? saved.zielId : null, notiz: '' });
         }
         UI.toast('Behandlung gespeichert'); renderRoute();
       },
@@ -6460,10 +6473,102 @@ Views.material = {
 /* =====================================================================
    MODUL: AUFGABEN & KALENDER (inkl. Auto-Termine aus Zucht/Behandlung)
    ===================================================================== */
+/* ---------------------------------------------------------------------
+   Aufgaben mit lebendem Bezug
+
+   Eine Aufgabe merkt sich nur die Kennung ihres Volks. Volksname und Stand
+   werden bei JEDER Anzeige frisch gelesen – wandert ein Volk von Stand 3 auf
+   Stand 4, steht die neue Stelle sofort in der Aufgabe, ohne dass jemand die
+   Aufgabe anfassen muss.
+
+   Ändert sich dabei etwas, schreibt die Aufgabe den neuen Zustand fest und die
+   Aufgabenliste zeigt EINMAL einen Hinweis. Weggeklickt kommt genau dieser
+   Hinweis nie wieder (Schlüssel wandert in „weg“); eine neue Änderung ergibt
+   einen neuen Schlüssel und damit wieder einen Hinweis.
+   --------------------------------------------------------------------- */
+const HINWEIS_MERK_MAX = 300;      // weggeklickte Hinweise: die ältesten fallen raus
+
+/** Welches Volk gehört zu dieser Aufgabe? Neuere Aufgaben tragen volkId,
+    ältere (Fütterung/Behandlung je Volk) haben das Volk in refId. */
+function aufgabeVolkId(a, voelker) {
+  if (!a) return null;
+  if (a.volkId && voelker.has(a.volkId)) return a.volkId;
+  if (a.refId && voelker.has(a.refId)) return a.refId;
+  return null;
+}
+/** Aktueller Bezug einer Aufgabe – immer frisch aus Volk und Stand gelesen. */
+function aufgabeBezug(a, voelker, staende) {
+  const id = aufgabeVolkId(a, voelker);
+  if (!id) return null;
+  const v = voelker.get(id);
+  if (!v) return null;
+  const st = v.standId ? staende.get(v.standId) : null;
+  return {
+    volkId: id, volkName: v.name || '', standId: v.standId || null,
+    standName: st ? st.name : (v.standId ? 'gelöschter Stand' : 'ohne Stand'),
+  };
+}
+/** Text des Hinweises. Getrennt gehalten, damit er testbar bleibt. */
+function aufgabeHinweisText(a, alt, neu) {
+  const teile = [];
+  if (alt.volkName && alt.volkName !== neu.volkName) teile.push(`heißt jetzt „${neu.volkName}“`);
+  if (alt.standId !== neu.standId) teile.push(`steht jetzt auf „${neu.standName}“${alt.standName ? ` (vorher „${alt.standName}“)` : ''}`);
+  return `${neu.volkName}: ${teile.join(' und ')} – die Aufgabe „${a.titel}“ ist angepasst.`;
+}
+/** Schlüssel einer Änderung: gleiche Änderung = gleicher Schlüssel = nur ein Hinweis. */
+function aufgabeHinweisKey(a, alt, neu) {
+  return `${a.id}|${alt.standId || '-'}>${neu.standId || '-'}|${neu.volkName}`;
+}
+
+/** Gleicht alle offenen Aufgaben mit der Wirklichkeit ab und gibt die
+    anzuzeigenden Hinweise zurück. Schreibt nur, wenn sich wirklich etwas ändert. */
+async function aufgabenAbgleich() {
+  const alle = await DB.getAll('aufgaben');
+  const voelker = await idMap('voelker');
+  const staende = await idMap('staende');
+  const merk = S.get('aufgabenHinweise') || { offen: [], weg: [] };
+  merk.offen = merk.offen || []; merk.weg = merk.weg || [];
+  const weg = new Set(merk.weg);
+  const schonOffen = new Set(merk.offen.map((h) => h.key));
+  let merkGeaendert = false;
+  for (const a of alle) {
+    if (a.erledigt) continue;
+    const neu = aufgabeBezug(a, voelker, staende);
+    if (!neu) continue;
+    const zustand = { standId: neu.standId, standName: neu.standName, volkName: neu.volkName };
+    const alt = a.kontext;
+    if (!alt) { a.kontext = zustand; await DB.put('aufgaben', a); continue; }   // erstes Mal nur merken
+    if (alt.standId === neu.standId && alt.volkName === neu.volkName) continue;
+    const key = aufgabeHinweisKey(a, alt, neu);
+    a.kontext = zustand;
+    await DB.put('aufgaben', a);
+    if (weg.has(key) || schonOffen.has(key)) continue;
+    merk.offen.push({ key, aufgabeId: a.id, text: aufgabeHinweisText(a, alt, neu) });
+    schonOffen.add(key);
+    merkGeaendert = true;
+  }
+  // Hinweise zu inzwischen gelöschten Aufgaben nicht ewig mitschleppen
+  const ids = new Set(alle.map((a) => a.id));
+  const gefiltert = merk.offen.filter((h) => ids.has(h.aufgabeId));
+  if (gefiltert.length !== merk.offen.length) { merk.offen = gefiltert; merkGeaendert = true; }
+  if (merkGeaendert) await S.set('aufgabenHinweise', merk);
+  return merk.offen;
+}
+/** Hinweis weggeklickt: Schlüssel dauerhaft stummschalten. */
+async function aufgabeHinweisWeg(key) {
+  const merk = S.get('aufgabenHinweise') || { offen: [], weg: [] };
+  merk.offen = (merk.offen || []).filter((h) => h.key !== key);
+  merk.weg = [...new Set([...(merk.weg || []), key])].slice(-HINWEIS_MERK_MAX);
+  await S.set('aufgabenHinweise', merk);
+}
+
 Views.aufgaben = {
   title: 'Aufgaben & Kalender',
   async render(main) {
+    const hinweise = await aufgabenAbgleich();          // erst abgleichen, dann anzeigen
     const all = await DB.getAll('aufgaben');
+    const voelker = await idMap('voelker');
+    const staende = await idMap('staende');
     const heute = U.todayIso();
     const offen = U.sortBy(all.filter((a) => !a.erledigt), (a) => a.faellig || '9999');
     const erledigt = U.sortBy(all.filter((a) => a.erledigt), (a) => a.faellig || '', true).slice(0, 15);
@@ -6476,11 +6581,18 @@ Views.aufgaben = {
       else grp.spaeter.push(a);
     }
     const quelleBadge = (a) => a.quelle === 'zucht' ? '<span class="badge b-violet">Zucht</span>' : a.quelle === 'behandlung' ? '<span class="badge b-blue">Behandlung</span>' : a.quelle === 'fuetterung' ? '<span class="badge b-honey">Fütterung</span>' : a.quelle === 'mhd' ? '<span class="badge b-warn">MHD</span>' : '';
+    /* Volk und Stand stehen NICHT im gespeicherten Text, sondern werden hier
+       frisch gelesen – deshalb ist die Zeile nach einer Wanderung sofort aktuell. */
+    const bezugZeile = (a) => {
+      const b = aufgabeBezug(a, voelker, staende);
+      return b ? `<span class="r-bezug">${icon('truck')} ${U.esc(b.volkName)} · ${U.esc(b.standName)}</span>` : '';
+    };
     const rows = (items, cls) => items.map((a) => `
       <div class="row" style="min-height:50px">
         <label class="check-line no-print" style="padding:0"><input type="checkbox" data-check="${a.id}" ${a.erledigt ? 'checked' : ''}></label>
         <button class="r-main" data-open="${a.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
           <span class="r-title" style="${a.erledigt ? 'text-decoration:line-through;opacity:.55' : ''}">${U.esc(a.titel)} ${quelleBadge(a)}</span>
+          ${bezugZeile(a)}
           ${a.notiz ? `<span class="r-sub">${U.esc(a.notiz)}</span>` : ''}</button>
         <span class="badge ${cls}">${a.faellig ? U.fmtDate(a.faellig) : 'kein Datum'}</span>
       </div>`).join('');
@@ -6488,6 +6600,8 @@ Views.aufgaben = {
     main.innerHTML = pageHead('Aufgaben & Kalender', `${offen.length} offen`,
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Notif.icsExport()" title="Offene Aufgaben in den Kalender übernehmen – erinnert auch bei geschlossener App">${icon('kalender')} Kalender (.ics)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Neue Aufgabe</button></span>`) +
+      hinweise.map((h) => `<div class="banner warn no-print">${icon('info')} <span class="b-msg">${U.esc(h.text)}</span>
+        <button class="icon-btn" data-hinweis="${U.esc(h.key)}" title="Hinweis ausblenden" aria-label="Hinweis ausblenden">${icon('x')}</button></div>`).join('') +
       `<div class="grid2" style="grid-template-columns:1fr;max-width:none">
         <div class="card" id="cal-card"><div class="card-title">${icon('kalender')}<h2 id="cal-title"></h2>
           <span class="no-print"><button class="icon-btn" id="cal-prev">‹</button><button class="icon-btn" id="cal-next">›</button></span></div>
@@ -6537,6 +6651,8 @@ Views.aufgaben = {
     const add = () => form(null);
     bindAdd(add);
     main.addEventListener('click', async (e) => {
+      const hw = e.target.closest('[data-hinweis]');
+      if (hw) { await aufgabeHinweisWeg(hw.dataset.hinweis); return renderRoute(); }
       const chk = e.target.closest('[data-check]');
       if (chk) {
         const a = all.find((x) => x.id === chk.dataset.check);
@@ -6793,11 +6909,73 @@ function futterRechnerRechnen(root) {
     zuckerJeVolk: jeV(wfZucker), sirupKgJeVolk: jeV(wfSirup.masseKg), sirupLiterJeVolk: jeV(wfSirup.liter) };
 }
 
+/* ---------------------------------------------------------------------
+   Selbstkosten eines Glases Honig (Vollkostenrechnung)
+
+   Aufbau und Vorbelegung folgen dem Kalkulationsmodell "Kostenstruktur Honig"
+   der Bayerischen Landesanstalt fuer Weinbau und Gartenbau (LWG Veitshoechheim,
+   Institut fuer Bienenkunde und Imkerei, Stand 12.03.2026). Gerechnet wird hier
+   mit eigenen, offen gelegten Formeln - alle Werte sind ueberschreibbar. Die
+   Vorbelegungen stuetzen sich auf die dort genannten Quellen: Mindestlohn 2026
+   (13,90 EUR/h), Lohnnebenkosten 29 % (DESTATIS 2024), Miete Logistik
+   4,61 EUR/m2 (IW 2022), Honigertrag und Winterverluste (DEBIMO).
+
+   Bezugsgroesse ist ein Glas. Glaeser je Volk und Jahr = Ertrag / Gebindegroesse.
+   Vertriebsweg:
+     direkt           - alles, inklusive Vertriebspauschale
+     wiederverkaeufer - ohne Vertriebspauschale
+     grosshandel      - Verkauf im Lagergebinde: ohne Gebinde-Material, ohne
+                        Vertrieb, ohne die Arbeitszeit fuers Abfuellen
+   --------------------------------------------------------------------- */
+const SELBSTKOSTEN_VORGABE = {
+  voelker: 6, ertragKg: 35, gebindeG: 500, weg: 'direkt',
+  glas: 0.51, deckel: 0.13, einlage: 0.03, etikett: 0.29, ruecklauf: 70,
+  futterPreis: 1.8, futterKg: 15, materialVolk: 90,
+  stundenVolk: 8.2, stundenAbfuellen: 2.3, lohn: 14, sozial: 29,
+  investVolk: 725, nutzungsdauer: 15, zins: 3, flaecheM2: 17, raumPreis: 4.61,
+  gemeinVolk: 49, vertriebKg: 2, wagnis: 10,
+};
+function selbstkostenGlas(e) {
+  const z = (v, min = 0) => Math.max(min, Number(v) || 0);
+  const kgJeGlas = Math.max(0.001, z(e.gebindeG, 1) / 1000);
+  const glaeser = z(e.ertragKg) / kgJeGlas;                // Glaeser je Volk und Jahr
+  const jeGlas = (proVolkUndJahr) => (glaeser > 0 ? proVolkUndJahr / glaeser : 0);
+  const weg = e.weg || 'direkt';
+  const imGlas = weg !== 'grosshandel';                    // Grosshandel: Lagergebinde
+  const mitVertrieb = weg === 'direkt';
+  const voelker = Math.max(1, Math.round(z(e.voelker, 1)));
+
+  // Pfandglaeser kommen zurueck und kosten nur beim Schwund erneut
+  const gebinde = imGlas
+    ? z(e.glas) * (1 - Math.min(100, z(e.ruecklauf)) / 100) + z(e.deckel) + z(e.einlage) + z(e.etikett)
+    : 0;
+  const stunden = Math.max(0, z(e.stundenVolk) - (imGlas ? 0 : z(e.stundenAbfuellen)));
+  const lohn = jeGlas(stunden * z(e.lohn));
+  const invest = z(e.investVolk);
+  const posten = [
+    { name: 'Gebinde (Glas, Deckel, Etikett)', euro: gebinde },
+    { name: 'Futter', euro: jeGlas(z(e.futterPreis) * z(e.futterKg)) },
+    { name: 'Sonstiges Material', euro: jeGlas(z(e.materialVolk)) },
+    { name: 'Arbeit', euro: lohn },
+    { name: 'Lohnnebenkosten', euro: lohn * z(e.sozial) / 100 },
+    { name: 'Abschreibung', euro: jeGlas(invest / Math.max(1, z(e.nutzungsdauer, 1))) },
+    { name: 'Kapitalverzinsung', euro: jeGlas(invest / 2 * z(e.zins) / 100) },
+    { name: 'Raumkosten', euro: jeGlas(z(e.flaecheM2) * z(e.raumPreis) * 12 / voelker) },
+    { name: 'Gemeinkosten', euro: jeGlas(z(e.gemeinVolk)) },
+    { name: 'Vertrieb', euro: mitVertrieb ? z(e.vertriebKg) * kgJeGlas : 0 },
+  ].filter((x) => x.euro > 0);
+  const zwischen = posten.reduce((a, x) => a + x.euro, 0);
+  const wagnis = zwischen * z(e.wagnis) / 100;
+  const summe = zwischen + wagnis;
+  return { glaeser, kgJeGlas, posten, zwischen, wagnis, summe, jeKg: summe / kgJeGlas };
+}
+
 Views.rechner = {
   title: 'Rechner',
   async render(main) {
     const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     const grp = (l) => `<div class="rk-grp">${l}</div>`;
+    const skGrp = (l) => `<div class="small muted mt16 mb8" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">${l}</div>`;
     const rk = (ic, label, desc, body) => `<div class="rk-section"><button class="rk-head" type="button"><span class="rk-ic">${icon(ic)}</span><span class="rk-info"><span class="rk-label">${label}</span><span class="rk-desc">${desc}</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">${body}</div></div>`;
     main.innerHTML = pageHead('Imker-Rechner', 'Kleine Helfer für den Alltag – rechnen direkt auf dem Gerät') +
       `<style>.rk-grp{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--honey-deep);padding:18px 0 6px;margin:0 4px}.rk-section{margin-bottom:8px;border-radius:16px;box-shadow:0 2px 4px rgba(122,80,0,.04),0 10px 24px -14px rgba(122,80,0,.22)}.rk-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:var(--card);border-radius:16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-radius .15s}.rk-head.open{border-radius:16px 16px 0 0}.rk-ic{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:var(--honey-soft);color:var(--honey-deep);flex-shrink:0}.rk-ic svg{width:18px;height:18px}.rk-info{flex:1;min-width:0}.rk-label{display:block;font-weight:600;font-size:14px}.rk-desc{display:block;font-size:12px;color:var(--muted);margin-top:1px}.rk-chev{font-size:11px;color:var(--muted);transition:transform .2s}.rk-head.open .rk-chev{transform:rotate(90deg)}.rk-body{background:var(--card);border-top:1px solid var(--line);border-radius:0 0 16px 16px;padding:14px}</style>` +
@@ -6814,6 +6992,62 @@ Views.rechner = {
           <div class="field"><label>Gewinnaufschlag (%)</label><input class="inp rk" data-hp="aufschlag" inputmode="decimal" value="20"></div>
         </div>
         <div id="hp-out" class="stat-grid mt8"></div>`) +
+
+      rk('euro', 'Selbstkosten je Glas', 'Vollkostenrechnung – was das Glas mindestens kosten muss',
+        `<div class="small muted mb12">Alle Zahlen sind Vorbelegungen und überschreibbar. Aufbau und Vorbelegung nach dem Kalkulationsmodell der LWG Veitshöchheim (Stand 12.03.2026).</div>
+        ${skGrp('Betrieb & Ertrag')}
+        <div class="grid2">
+          <div class="field"><label>Anzahl Wirtschaftsvölker</label><input class="inp rk" data-sk="voelker" inputmode="numeric" value="${aktiveV || 6}"></div>
+          <div class="field"><label>Honigertrag (kg je Volk und Jahr)</label><input class="inp rk" data-sk="ertragKg" inputmode="decimal" value="35">
+            <span class="small muted">Ø 38,4 kg (DEBIMO 2010–2024)</span></div>
+          <div class="field"><label>Gebindegröße (g)</label><input class="inp rk" data-sk="gebindeG" inputmode="decimal" value="500"></div>
+          <div class="field"><label>Vertriebsweg</label><select class="inp rk" data-sk="weg">
+            <option value="direkt">Direktvermarktung</option><option value="wiederverkaeufer">Wiederverkäufer</option><option value="grosshandel">Großhandel (Lagergebinde)</option></select></div>
+        </div>
+        ${skGrp('Verkaufsgebinde je Glas')}
+        <div class="grid2">
+          <div class="field"><label>Glas (€)</label><input class="inp rk" data-sk="glas" inputmode="decimal" value="0,51"></div>
+          <div class="field"><label>Deckel (€)</label><input class="inp rk" data-sk="deckel" inputmode="decimal" value="0,13"></div>
+          <div class="field"><label>Deckeleinlage (€)</label><input class="inp rk" data-sk="einlage" inputmode="decimal" value="0,03"></div>
+          <div class="field"><label>Etikett / Gewährverschluss (€)</label><input class="inp rk" data-sk="etikett" inputmode="decimal" value="0,29"></div>
+          <div class="field"><label>Rücklauf Pfandgläser (%)</label><input class="inp rk" data-sk="ruecklauf" inputmode="decimal" value="70">
+            <span class="small muted">Ohne Pfandsystem 0 eintragen.</span></div>
+        </div>
+        ${skGrp('Betriebsmittel je Volk und Jahr')}
+        <div class="grid2">
+          <div class="field"><label>Futterkosten (€/kg)</label><input class="inp rk" data-sk="futterPreis" inputmode="decimal" value="1,80"></div>
+          <div class="field"><label>Futterverbrauch (kg je Volk)</label><input class="inp rk" data-sk="futterKg" inputmode="decimal" value="15"></div>
+          <div class="field"><label>Sonstiges Material (€ je Volk)</label><input class="inp rk" data-sk="materialVolk" inputmode="decimal" value="90">
+            <span class="small muted">Rähmchen, Mittelwände, Medikamente, Reinigung …</span></div>
+        </div>
+        ${skGrp('Arbeit')}
+        <div class="grid2">
+          <div class="field"><label>Arbeitszeit (Stunden je Volk und Jahr)</label><input class="inp rk" data-sk="stundenVolk" inputmode="decimal" value="8,2"></div>
+          <div class="field"><label>davon Abfüllen (Stunden)</label><input class="inp rk" data-sk="stundenAbfuellen" inputmode="decimal" value="2,3">
+            <span class="small muted">Fällt beim Großhandel weg.</span></div>
+          <div class="field"><label>Lohnansatz (€/Stunde)</label><input class="inp rk" data-sk="lohn" inputmode="decimal" value="14,00">
+            <span class="small muted">Mindestlohn 2026: 13,90 €</span></div>
+          <div class="field"><label>Lohnnebenkosten (%)</label><input class="inp rk" data-sk="sozial" inputmode="decimal" value="29"></div>
+        </div>
+        ${skGrp('Anlagen & Räume')}
+        <div class="grid2">
+          <div class="field"><label>Investition (€ je Volk)</label><input class="inp rk" data-sk="investVolk" inputmode="decimal" value="725">
+            <span class="small muted">Beuten, Schleuder, Geräte – ohne Gebäude.</span></div>
+          <div class="field"><label>Nutzungsdauer (Jahre)</label><input class="inp rk" data-sk="nutzungsdauer" inputmode="decimal" value="15"></div>
+          <div class="field"><label>Zinsansatz (%)</label><input class="inp rk" data-sk="zins" inputmode="decimal" value="3">
+            <span class="small muted">Auf das halbe Anlagevermögen.</span></div>
+          <div class="field"><label>Fläche für die Imkerei (m²)</label><input class="inp rk" data-sk="flaecheM2" inputmode="decimal" value="17">
+            <span class="small muted">Schleuderraum, Lager, Werkstatt – wird auf alle Völker verteilt. Modellwert: 17 m² bei 6 Völkern.</span></div>
+          <div class="field"><label>Raumkosten (€ je m² und Monat)</label><input class="inp rk" data-sk="raumPreis" inputmode="decimal" value="4,61"></div>
+        </div>
+        ${skGrp('Gemeinkosten, Vertrieb & Wagnis')}
+        <div class="grid2">
+          <div class="field"><label>Gemeinkosten (€ je Volk und Jahr)</label><input class="inp rk" data-sk="gemeinVolk" inputmode="decimal" value="49">
+            <span class="small muted">Beiträge, Versicherung, Fortbildung, KFZ, Telefon.</span></div>
+          <div class="field"><label>Vertriebskosten (€/kg Honig)</label><input class="inp rk" data-sk="vertriebKg" inputmode="decimal" value="2,00"></div>
+          <div class="field"><label>Unternehmenswagnis (%)</label><input class="inp rk" data-sk="wagnis" inputmode="decimal" value="10"></div>
+        </div>
+        <div id="sk-out" class="mt12"></div>`) +
 
       rk('honig', 'Wassergehalt bewerten', 'Refraktometer-Wert prüfen',
         `<div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
@@ -6954,6 +7188,28 @@ Views.rechner = {
         <div class="stat"><div class="s-label">Erlös je Volk</div><div class="s-value">${U.fmtEur(wiErloes)}</div><div class="s-sub">${U.fmtNum(wiE)} kg × ${U.fmtEur(wiP)}/kg</div></div>
         <div class="stat"><div class="s-label">Gewinn je Volk</div><div class="s-value">${U.fmtEur(wiGewinn)}</div><div class="s-sub">abzgl. ${U.fmtEur(wiK)} Kosten</div></div>
         <div class="stat"><div class="s-label">Gesamt (${wiV} Völker)</div><div class="s-value">${U.fmtEur(wiGesamt)}</div></div>`;
+      const skOut = $('#sk-out', main);
+      if (skOut) {
+        const sk = {};
+        $$('[data-sk]', main).forEach((el) => { sk[el.dataset.sk] = el.tagName === 'SELECT' ? el.value : U.parseNum(el.value); });
+        const r = selbstkostenGlas(sk);
+        const max = Math.max(...r.posten.map((x) => x.euro), 0.0001);
+        const zeilen = U.sortBy(r.posten, (x) => -x.euro).concat(r.wagnis > 0 ? [{ name: `Unternehmenswagnis (${U.fmtNum(sk.wagnis || 0, 0)} %)`, euro: r.wagnis }] : []);
+        const wegName = { direkt: 'Direktvermarktung', wiederverkaeufer: 'Wiederverkäufer', grosshandel: 'Großhandel' }[sk.weg || 'direkt'];
+        skOut.innerHTML = `
+          <div class="stat-grid">
+            <div class="stat"><div class="s-label">Selbstkosten je Glas</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtEur(r.summe)}</div><div class="s-sub">${U.fmtNum(sk.gebindeG || 500, 0)} g · ${wegName}</div></div>
+            <div class="stat"><div class="s-label">Je kg Honig</div><div class="s-value">${U.fmtEur(r.jeKg)}</div><div class="s-sub">${U.fmtNum(r.glaeser, 1)} Gläser je Volk</div></div>
+          </div>
+          <div class="small muted mt12 mb8" style="font-weight:600">Woraus sich das zusammensetzt</div>
+          <div class="rows">${zeilen.map((x) => `<div class="row" style="min-height:38px;padding:6px 4px">
+            <div class="r-main"><div class="r-title" style="font-weight:400">${U.esc(x.name)}</div>
+              <div style="height:5px;border-radius:3px;background:var(--honey);width:${Math.max(3, Math.round(x.euro / max * 100))}%;margin-top:4px"></div></div>
+            <div class="r-side"><b>${U.fmtEur(x.euro)}</b></div></div>`).join('')}</div>
+          <div class="small muted mt12">Vergleich der Vertriebswege: ${['direkt', 'wiederverkaeufer', 'grosshandel'].map((w) => `${{ direkt: 'Direkt', wiederverkaeufer: 'Wiederverkäufer', grosshandel: 'Großhandel' }[w]} ${U.fmtEur(selbstkostenGlas({ ...sk, weg: w }).summe)}`).join(' · ')}</div>
+          ${sk.weg === 'grosshandel' ? `<div class="small muted mt8">Beim Großhandel entfallen zusätzlich Teile der Raum- und Materialkosten fürs Abfüllen – dieser Wert ist deshalb eher die Obergrenze.</div>` : ''}
+          <div class="small muted mt8">Aufbau und Vorbelegung nach dem Kalkulationsmodell der LWG Veitshöchheim; Lohn nach Mindestlohn 2026, Lohnnebenkosten DESTATIS, Miete IW 2022, Ertrag und Verluste DEBIMO. Eigene Zahlen ergeben ein genaueres Bild.</div>`;
+      }
       futterRechnerRechnen(main);
       const bm = $('#beh-mittel', main)?.value;
       if (bm) {
@@ -9874,6 +10130,8 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerZuckerHtml, futterRechnerBedarfHtml,
+  selbstkostenGlas, SELBSTKOSTEN_VORGABE,
+  aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
 });
 
