@@ -919,9 +919,9 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.21';
+const APP_VERSION = '1.22';
 const CHANGELOG = [
-  { version: '1.21', datum: '2026-08-01', punkte: [
+  { version: '1.22', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
@@ -970,6 +970,7 @@ const CHANGELOG = [
     'Dazu ein Vergleich der drei Vertriebswege: Direktvermarktung, Wiederverkäufer und Großhandel. Beim Großhandel fallen Gebinde, Vertrieb und die Arbeitszeit fürs Abfüllen weg.',
     'Alle Vorbelegungen sind überschreibbar und stammen aus dem Kalkulationsmodell der LWG Veitshöchheim (Mindestlohn 2026, Lohnnebenkosten DESTATIS, Miete IW, Ertrag und Verluste DEBIMO).',
     'Aufgaben hängen jetzt am Volk, nicht an einer alten Notiz: wandert ein Volk auf einen anderen Stand, zeigt die Aufgabe sofort den neuen Stand. Dasselbe gilt, wenn du ein Volk umbenennst.',
+    'Der Hinweis hat jetzt einen Knopf „Aufgabe öffnen“: nach einer Wanderung willst du meist Termin oder Notiz anfassen, und den Weg über die Liste sparst du damit. Wer den Knopf benutzt, hat den Hinweis gesehen – er verschwindet dabei.',
     'Wenn sich dadurch etwas ändert, erscheint oben bei den Aufgaben ein Hinweis – genau einmal. Klickst du ihn weg, kommt er nicht wieder; erst eine neue Änderung ergibt einen neuen Hinweis.',
   ] },
   { version: '1.11', datum: '2026-07-25', punkte: [
@@ -6951,6 +6952,7 @@ Views.aufgaben = {
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Notif.icsExport()" title="Offene Aufgaben in den Kalender übernehmen – erinnert auch bei geschlossener App">${icon('kalender')} Kalender (.ics)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Neue Aufgabe</button></span>`) +
       hinweise.map((h) => `<div class="banner warn no-print">${icon('info')} <span class="b-msg">${U.esc(h.text)}</span>
+        <button class="btn btn-ghost btn-sm" data-hoeffnen="${h.aufgabeId}" data-hkey="${U.esc(h.key)}">${icon('pencil')} Aufgabe öffnen</button>
         <button class="icon-btn" data-hinweis="${U.esc(h.key)}" title="Hinweis ausblenden" aria-label="Hinweis ausblenden">${icon('x')}</button></div>`).join('') +
       `<div class="grid2" style="grid-template-columns:1fr;max-width:none">
         <div class="card" id="cal-card"><div class="card-title">${icon('kalender')}<h2 id="cal-title"></h2>
@@ -7040,6 +7042,16 @@ Views.aufgaben = {
     const add = () => form(null);
     bindAdd(add, main);
     main.addEventListener('click', async (e) => {
+      /* „Aufgabe öffnen": was sich durch eine Wanderung realistisch ändert, ist
+         Termin oder Notiz. Der Hinweis gilt damit als gesehen und verschwindet. */
+      const ho = e.target.closest('[data-hoeffnen]');
+      if (ho) {
+        const a = all.find((x) => x.id === ho.dataset.hoeffnen);
+        await aufgabeHinweisWeg(ho.dataset.hkey);
+        await renderRoute();
+        if (a) form(a);
+        return;
+      }
       const hw = e.target.closest('[data-hinweis]');
       if (hw) { await aufgabeHinweisWeg(hw.dataset.hinweis); return renderRoute(); }
       const chk = e.target.closest('[data-check]');

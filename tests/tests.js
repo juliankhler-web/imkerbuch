@@ -1984,6 +1984,46 @@ test('Aufgaben-Abgleich: Wanderung meldet sich einmal, weggeklickt nie wieder', 
     await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
   }
 });
+test('Hinweis: „Aufgabe öffnen" führt zur Aufgabe und gilt als gesehen', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const staende = await w.DB.getAll('staende');
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
+  const ziel = staende.find((s) => s.id !== volk.standId);
+  const urStand = volk.standId;
+  await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  const a = await w.DB.put('aufgaben', { titel: 'Hinweis-Probe', faellig: w.U.todayIso(), erledigt: false, quelle: 'manuell', refId: null, volkId: volk.id, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);                    // erster Abgleich: nur merken
+    volk.standId = ziel.id; await w.DB.put('voelker', volk); // wandern
+    await w.Views.aufgaben.render(host);
+    const knopf = [...host.querySelectorAll(`[data-hoeffnen="${a.id}"]`)][0];
+    assert(knopf, 'Knopf „Aufgabe öffnen" am Hinweis');
+    assert(/Aufgabe öffnen/.test(knopf.textContent), `Beschriftung: ${knopf.textContent}`);
+    const key = knopf.dataset.hkey;
+    assert(key, 'der Knopf kennt den Hinweis-Schlüssel');
+    knopf.click();
+    await new Promise((r) => setTimeout(r, 600));
+    // das Formular der richtigen Aufgabe geht auf
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(m && /Aufgabe bearbeiten/.test(m.querySelector('h2').textContent), `Formular fehlt: ${m && m.querySelector('h2').textContent}`);
+    assertEq(m.querySelector('#f-titel').value, 'Hinweis-Probe', 'und zwar die aus dem Hinweis');
+    // der Hinweis gilt als gesehen und kommt nicht wieder
+    const merk = w.S.get('aufgabenHinweise');
+    assert(merk.weg.includes(key), 'Schlüssel ist stummgeschaltet');
+    assertEq(merk.offen.filter((h) => h.aufgabeId === a.id).length, 0, 'kein offener Hinweis mehr');
+    m.remove(); w.FormGuard.dirty = false;
+    await w.Views.aufgaben.render(host);
+    assertEq(host.querySelectorAll(`[data-hoeffnen="${a.id}"]`).length, 0, 'auch nach dem Neuzeichnen weg');
+  } finally {
+    host.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    volk.standId = urStand; await w.DB.put('voelker', volk);
+    await w.DB.del('aufgaben', a.id);
+    await w.S.set('aufgabenHinweise', { offen: [], weg: [] });
+  }
+});
 test('Aufgaben-Abgleich: erledigte Aufgaben melden nichts mehr', async (w) => {
   const staende = await w.DB.getAll('staende');
   const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv' && v.standId);
