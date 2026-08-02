@@ -553,6 +553,7 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .cal .c-day .c-dots{display:flex;gap:2px;position:absolute;bottom:5px}
 .cal .c-day .c-dots i{width:5px;height:5px;border-radius:50%;background:var(--honey-dark)}
 .cal .c-day .c-dots i.overdue{background:var(--danger)}
+.cal .c-day .c-dots i.fertig{background:var(--ok)}       /* erledigt: grün – der Tag ist abgehakt */
 .cal .c-day.clickable:hover{background:var(--card2);cursor:pointer}
 .wizard-hex{display:flex;justify-content:center;margin:10px 0 16px}
 .wizard-hex svg{width:76px;height:76px;animation:hexFloat 3.4s ease-in-out infinite}
@@ -918,9 +919,9 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.20';
+const APP_VERSION = '1.21';
 const CHANGELOG = [
-  { version: '1.20', datum: '2026-08-01', punkte: [
+  { version: '1.21', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
@@ -941,6 +942,8 @@ const CHANGELOG = [
   ] },
   { version: '1.16', datum: '2026-08-01', punkte: [
     'Im Kalender lässt sich jetzt jeder Tag antippen: ein freier Tag öffnet gleich das Formular mit diesem Datum, ein belegter zeigt erst, was ansteht – mit „Neue Aufgabe“ darunter.',
+    'Erledigte Aufgaben stehen jetzt auch im Kalender: der Tag bekommt einen grünen Punkt, und in der Tagesübersicht steht der Eintrag ausgegraut mit grünem Vermerk „erledigt“ – nicht mehr durchgestrichen, damit der Titel lesbar bleibt. So findest du die erste, gerade erfasste Fütterung dort wieder.',
+    'Ist ein Termin vorbei und die Aufgabe nicht erledigt, ist der Punkt im Kalender rot und in der Tagesübersicht steht rot „überfällig“ daneben.',
     'Die Aufgaben in dieser Tagesübersicht kannst du direkt antippen, um sie zu bearbeiten; Volk und aktueller Stand stehen auch dort. Daneben sitzt ein Papierkorb-Symbol: damit löschst du eine Aufgabe sofort, ohne sie erst zu öffnen.',
     'Hängt eine Aufgabe am ganzen Stand, steht in der Liste jetzt auch die Völkerzahl dabei – z. B. „Heimstand Obstwiese · 7 Völker“. Sie wird bei jeder Anzeige neu gezählt.',
     'Auch bei Aufgaben, die schon vorher entstanden sind, steht Volk und Stand jetzt dabei – Behandlungs-Aufgaben werden dafür einmalig ans Volk gehängt. Selbst angelegte Aufgaben ohne Volk bleiben ohne Zeile, bis du sie öffnest und einen Stand oder ein Volk wählst.',
@@ -6938,7 +6941,7 @@ Views.aufgaben = {
       <div class="row" style="min-height:50px">
         <label class="check-line no-print" style="padding:0"><input type="checkbox" data-check="${a.id}" ${a.erledigt ? 'checked' : ''}></label>
         <button class="r-main" data-open="${a.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
-          <span class="r-title" style="${a.erledigt ? 'text-decoration:line-through;opacity:.55' : ''}">${U.esc(a.titel)} ${quelleBadge(a)}</span>
+          <span class="r-title" style="${a.erledigt ? 'opacity:.55' : ''}">${U.esc(a.titel)} ${quelleBadge(a)}</span>
           ${bezugZeile(a)}
           ${a.notiz ? `<span class="r-sub">${U.esc(a.notiz)}</span>` : ''}</button>
         <span class="badge ${cls}">${a.faellig ? U.fmtDate(a.faellig) : 'kein Datum'}</span>
@@ -6964,6 +6967,9 @@ Views.aufgaben = {
           : emptyState('task', 'Keine Aufgaben. Zuchtserien und Behandlungen mit Wartezeit erzeugen hier automatisch Termine.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Aufgabe</button>`)}
         </div>
       </div>`;
+    /* Alle Aufgaben eines Tages – offene zuerst, erledigte danach. Erledigte
+       gehören dazu: sie sind die Historie des Tages. */
+    const tagAufgaben = (iso) => U.sortBy(all.filter((a) => a.faellig === iso), (a) => (a.erledigt ? 1 : 0));
     // Monatskalender mit Aufgaben-Punkten
     const calState = Views.aufgaben._cal || (Views.aufgaben._cal = { y: +heute.slice(0, 4), m: +heute.slice(5, 7) - 1 });
     const drawCal = () => {
@@ -6974,10 +6980,16 @@ Views.aufgaben = {
       for (let i = 0; i < 42; i++) {
         const d = new Date(calState.y, calState.m, 1 - startIdx + i);
         const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const tasks = all.filter((a) => a.faellig === iso && !a.erledigt);
+        /* Erledigte zählen mit: ein Tag, an dem etwas erfasst wurde, darf nicht
+           leer aussehen – sonst findet man seine Historie im Kalender nicht. */
+        const tasks = tagAufgaben(iso);
+        const offeneT = tasks.filter((t) => !t.erledigt);
+        const titel = tasks.length
+          ? `${tasks.length} ${tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'}${offeneT.length < tasks.length ? ` (${tasks.length - offeneT.length} erledigt)` : ''} – antippen`
+          : 'Neue Aufgabe an diesem Tag';
         // jeder Tag ist antippbar: leerer Tag legt direkt an, belegter zeigt erst die Liste
-        cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${iso}" title="${tasks.length ? `${tasks.length} ${tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'} – antippen` : 'Neue Aufgabe an diesem Tag'}">
-          ${d.getDate()}${tasks.length ? `<span class="c-dots">${tasks.slice(0, 3).map((t) => `<i class="${t.faellig < heute ? 'overdue' : ''}"></i>`).join('')}</span>` : ''}</div>`);
+        cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${iso}" title="${titel}">
+          ${d.getDate()}${tasks.length ? `<span class="c-dots">${tasks.slice(0, 3).map((t) => `<i class="${t.erledigt ? 'fertig' : (t.faellig < heute ? 'overdue' : '')}"></i>`).join('')}</span>` : ''}</div>`);
       }
       $('#cal', main).innerHTML = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="c-head">${d}</div>`).join('') + cells.join('');
     };
@@ -7043,14 +7055,15 @@ Views.aufgaben = {
       const day = e.target.closest('.c-day');
       if (day) {
         const iso = day.dataset.day;
-        const tasks = all.filter((a) => a.faellig === iso && !a.erledigt);
+        const tasks = tagAufgaben(iso);
         if (!tasks.length) return form(null, iso);          // freier Tag: gleich anlegen
         const dm = UI.modal({
           title: `Aufgaben am ${U.fmtDate(iso)}`,
           body: `<div class="rows">${tasks.map((t) => `<div class="row">
             <button class="r-main" data-open="${t.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
-              <span class="r-title">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</button>
-            <span class="r-side">${quelleBadge(t)}</span>
+              <span class="r-title" style="${t.erledigt ? 'opacity:.55' : ''}">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</button>
+            <span class="r-side">${t.erledigt ? '<span class="badge b-ok">erledigt</span> '
+              : (t.faellig && t.faellig < heute ? '<span class="badge b-danger">überfällig</span> ' : '')}${quelleBadge(t)}</span>
             <button class="btn btn-xs btn-ghost" data-tdel="${t.id}" title="Aufgabe löschen" aria-label="Aufgabe löschen">${icon('trash')}</button>
           </div>`).join('')}</div>`,
           footer: `<button class="btn btn-ghost" data-zu>Schließen</button><button class="btn btn-primary" data-neu>${icon('plus')} Neue Aufgabe</button>`,

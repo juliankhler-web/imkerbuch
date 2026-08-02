@@ -2075,6 +2075,58 @@ test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); }
 });
+test('Kalender: erledigt grün und ausgegraut, überfällig rot', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const tag = w.U.addDays(w.U.todayIso(), -4);
+  const offen = await w.DB.put('aufgaben', { titel: 'Noch offen', faellig: tag, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  const fertig = await w.DB.put('aufgaben', { titel: 'Schon fertig', faellig: tag, erledigt: true, quelle: 'manuell', refId: null, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const zelle = host.querySelector(`.c-day[data-day="${tag}"]`);
+    assert(zelle, 'Tag im Gitter');
+    assert(/1 erledigt/.test(zelle.title), `Erledigte werden nicht gezählt: ${zelle.title}`);
+    const klassen = [...zelle.querySelectorAll('.c-dots i')].map((i) => i.className);
+    assert(klassen.includes('overdue'), `roter Punkt fehlt: ${klassen.join('|')}`);
+    assert(klassen.includes('fertig'), `grüner Punkt fehlt: ${klassen.join('|')}`);
+    // Tagesübersicht: Marken und Ausgrauen
+    zelle.click();
+    await new Promise((r) => setTimeout(r, 250));
+    const dm = [...w.document.querySelectorAll('.modal-back')].pop();
+    const zeilen = [...dm.querySelectorAll('.rows .row')].map((z) => ({
+      titel: z.querySelector('.r-title').textContent.trim(),
+      stil: z.querySelector('.r-title').getAttribute('style') || '',
+      seite: (z.querySelector('.r-side') || {}).textContent || '',
+    }));
+    const o = zeilen.find((z) => z.titel === 'Noch offen'), fe = zeilen.find((z) => z.titel === 'Schon fertig');
+    assert(o && fe, 'beide Aufgaben stehen in der Tagesübersicht');
+    assert(/überfällig/.test(o.seite), `„überfällig" fehlt: ${o.seite}`);
+    assertEq(o.stil, '', 'die offene ist nicht ausgegraut');
+    assert(/erledigt/.test(fe.seite), `„erledigt" fehlt: ${fe.seite}`);
+    assert(/opacity/.test(fe.stil), `die erledigte ist nicht ausgegraut: ${fe.stil}`);
+    assert(!/line-through/.test(fe.stil), 'erledigte werden nicht mehr durchgestrichen');
+  } finally {
+    host.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    await w.DB.del('aufgaben', offen.id); await w.DB.del('aufgaben', fertig.id);
+  }
+});
+test('Aufgabenliste: erledigte nur ausgegraut, nicht durchgestrichen', async (w) => {
+  const fertig = await w.DB.put('aufgaben', { titel: 'Abgehakt-Probe', faellig: w.U.todayIso(), erledigt: true, quelle: 'manuell', refId: null, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const zeile = [...host.querySelectorAll('.rows .r-title')].find((e) => e.textContent.includes('Abgehakt-Probe'));
+    assert(zeile, 'die erledigte Aufgabe steht in der Liste');
+    const stil = zeile.getAttribute('style') || '';
+    assert(/opacity/.test(stil), `nicht ausgegraut: ${stil}`);
+    assert(!/line-through/.test(stil), `durchgestrichen: ${stil}`);
+    // und keine einzige Zeile darf durchgestrichen sein
+    const alle = [...host.querySelectorAll('.rows .r-title')].map((e) => e.getAttribute('style') || '');
+    assert(!alle.some((t) => /line-through/.test(t)), 'irgendwo wird noch durchgestrichen');
+  } finally { host.remove(); await w.DB.del('aufgaben', fertig.id); }
+});
 test('Kalender: Aufgabe direkt aus der Tagesübersicht löschen', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const heute = w.U.todayIso();
