@@ -1402,7 +1402,7 @@ test('Rechner-Weg: Werte landen im Formular, Zähler geht gegen die Rechner-Zahl
   await new Promise((r) => setTimeout(r, 300));
   const f = [...w.document.querySelectorAll('.modal-back')].pop();
   try {
-    assert(/Fütterung erfassen/.test(f.querySelector('h2').textContent), 'Formular geht auf');
+    assertEq(f.querySelector('h2').textContent, 'Fütterung aus Futter-Rechner erfassen', 'Formular geht auf');
     assertEq(f.querySelector('#f-futterart').value, `Zuckerwasser ${plan.verh}`, 'Mischverhältnis übernommen');
     nah(w.U.parseNum(f.querySelector('#f-mengeKg').value), plan.gabeErste.zucker, 0.06, 'Menge je Volk übernommen');
     assertEq(f.querySelector('#f-datum').value, plan.beginn, 'Datum übernommen');
@@ -1428,6 +1428,114 @@ test('Rechner-Weg: Werte landen im Formular, Zähler geht gegen die Rechner-Zahl
     assertEq(zahl(), '1 von 1 ausgewählt', `nach dem Abwählen: ${zahl()}`);
     assert(!f.querySelector('[data-zahl]').classList.contains('zahl-warn'), 'Warnung ist weg');
     assertEq(f.querySelector('[data-anpassen]').closest('.ziel-warn').style.display, 'none', 'Warnkasten ausgeblendet');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+test('Rechner-Weg: eigener Titel, Liter-Hinweis, überflüssige Felder weg', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+  const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  setz('voelker', '2'); setz('anzahl', '3'); setz('abstand', '7'); setz('erste', '6');
+  await new Promise((r) => setTimeout(r, 100));
+  const plan = w.futterRechnerRechnen(rb);
+  rb.querySelector('[data-take]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    assertEq(f.querySelector('h2').textContent, 'Fütterung aus Futter-Rechner erfassen', 'eigener Titel');
+    // Liter und Zucker müssen im Formular stehen
+    const info = [...f.querySelectorAll('.hint')].map((h) => h.textContent).find((t) => /L Sirup/.test(t));
+    assert(info, 'Hinweis mit der Litermenge fehlt');
+    assert(info.includes(w.U.fmtNum(plan.gabeErste.sirup.liter, 1)), `Liter fehlen: ${info}`);
+    assert(info.includes(w.U.fmtNum(plan.gabeErste.zucker, 1)), `Zuckermenge fehlt: ${info}`);
+    assert(/2 × /.test(info), `Folgegaben fehlen: ${info}`);
+    // die drei Felder sind hier überflüssig und ausgeblendet
+    const versteckt = (id) => {
+      const e = f.querySelector(id);
+      return e ? w.getComputedStyle(e.closest('.field, .check-line')).display === 'none' : true;
+    };
+    assert(versteckt('#f-zuckerKg'), '„Davon reiner Zucker" ist hier doppelt');
+    assert(versteckt('#f-winterfutter'), '„Winterfutter" ergibt sich aus dem Verhältnis');
+    assert(versteckt('#f-wiedervorlageTage'), 'Erinnerung macht „Speichern + in Aufgaben"');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+test('Rechner-Weg: dick zählt als Winterfutter, dünn nicht', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  const vorher = (await w.DB.getAll('fuetterungen')).map((x) => x.id);
+  const durchlauf = async (verh) => {
+    await w.Views.fuetterung.rechnerBlatt();
+    await new Promise((r) => setTimeout(r, 200));
+    const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+    const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz('voelker', '1'); setz('anzahl', '1'); setz('verh', verh);
+    await new Promise((r) => setTimeout(r, 100));
+    rb.querySelector('[data-take]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const f = [...w.document.querySelectorAll('.modal-back')].pop();
+    [...f.querySelectorAll('#f-volkIds label.check-line')].filter((l) => l.style.display !== 'none')[0].querySelector('input').click();
+    f.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 600));
+  };
+  try {
+    await durchlauf('3:2');
+    await durchlauf('1:1');
+    const neu = (await w.DB.getAll('fuetterungen')).filter((x) => !vorher.includes(x.id));
+    assertEq(neu.length, 2, 'zwei Fütterungen gespeichert');
+    const dick = neu.find((x) => /3:2/.test(x.futterart)), duenn = neu.find((x) => /1:1/.test(x.futterart));
+    assert(dick && duenn, 'beide Verhältnisse gespeichert');
+    assertEq(dick.winterfutter, true, '3:2 dick gilt als Winterfutter');
+    assertEq(duenn.winterfutter, false, '1:1 dünn nicht');
+    for (const x of neu) await w.DB.del('fuetterungen', x.id);
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+test('Rechner-Weg: „Zurück zum Rechner" behält die Auswahl', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+  const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  setz('voelker', '2'); setz('anzahl', '3'); setz('abstand', '9');
+  await new Promise((r) => setTimeout(r, 100));
+  rb.querySelector('[data-take]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  let f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const kaesten = (mod) => [...mod.querySelectorAll('#f-volkIds label.check-line')]
+      .filter((l) => l.style.display !== 'none').map((l) => l.querySelector('input'));
+    assert(kaesten(f).length >= 2, 'genug Völker im Testbestand');
+    const gewaehlt = kaesten(f).slice(0, 2);
+    gewaehlt.forEach((i) => i.click());
+    const ids = gewaehlt.map((i) => i.value);
+    // zurück in den Rechner: Werte müssen stehen, nichts neu öffnen
+    const zurueck = f.querySelector('#f-zurueck');
+    assert(zurueck, 'Knopf „Zurück zum Rechner" fehlt');
+    zurueck.click();
+    await new Promise((r) => setTimeout(r, 350));
+    const rb2 = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/Futter-Rechner/.test(rb2.querySelector('h2').textContent), 'Rechner ist wieder offen');
+    assertEq(rb2.querySelector('[data-fr="anzahl"]').value, '3', 'Anzahl steht noch');
+    assertEq(rb2.querySelector('[data-fr="abstand"]').value, '9', 'Abstand steht noch');
+    assertEq(rb2.querySelector('[data-fr="voelker"]').value, '2', 'Völkerzahl steht noch');
+    // dort etwas ändern und wieder übernehmen
+    const setz2 = (k, v) => { const e = rb2.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz2('abstand', '5');
+    await new Promise((r) => setTimeout(r, 100));
+    rb2.querySelector('[data-take]').click();
+    await new Promise((r) => setTimeout(r, 350));
+    f = [...w.document.querySelectorAll('.modal-back')].pop();
+    const wiederGehakt = kaesten(f).filter((i) => i.checked).map((i) => i.value);
+    assertEq(wiederGehakt.sort(), ids.slice().sort(), 'die Häkchen sind wieder gesetzt');
+    assertEq(f.querySelector('[data-zahl]').textContent, '2 von 2 ausgewählt', 'Zähler passt weiter');
   } finally {
     w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
     w.FormGuard.dirty = false;

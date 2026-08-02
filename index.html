@@ -918,14 +918,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.18';
+const APP_VERSION = '1.19';
 const CHANGELOG = [
-  { version: '1.18', datum: '2026-08-01', punkte: [
+  { version: '1.19', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
     'Unten gibt es zwei Arten zu speichern: nur „Speichern“ oder „Speichern + in Aufgaben“. Letzteres legt für jede weitere Fütterung eine Aufgabe an – mit Termin aus dem Abstand, Menge je Volk und den gewählten Völkern.',
     'Der frühere Knopf „Plan als Aufgaben“ im Rechner ist damit entfallen; das macht jetzt das Speichern.',
+    'Das Formular heißt beim Rechner-Weg „Fütterung aus Futter-Rechner erfassen“ und zeigt direkt darin, wie viel Liter Sirup je Volk anzusetzen sind und wie viel reiner Zucker das ist. „Winterfutter“ und die Erinnerung sind dort ausgeblendet: 3:2 dick gilt als Winterfutter, 1:1 dünn als Reizfutter, und die Folgetermine macht „Speichern + in Aufgaben“.',
+    'Im Formular steht links „‹ Zurück zum Rechner“: du änderst kurz einen Wert und kommst zurück, ohne abzubrechen. Stand, Funktion und die schon gesetzten Häkchen bleiben dabei erhalten.',
   ] },
   { version: '1.17', datum: '2026-08-01', punkte: [
     'Rechnungspositionen haben jetzt ein Feld „Pfand je Gebinde“ – für Glas, Eimer oder Kiste. Der Pfand steht als eigene Spalte in der Rechnung und wird in der Summe getrennt ausgewiesen.',
@@ -5154,7 +5156,13 @@ Views.fuetterung = {
       if (!plan || plan.voelker < 1 || plan.jeVolk <= 0) return UI.toast('Bitte erst Völker und Futtermenge eintragen.', 'err');
       /* Übernommen wird die ERSTE Gabe: „Menge (kg)“ ist bei Zuckerwasser der
          reine Zucker, deshalb der Zucker je Volk – nicht das Sirupgewicht. */
-      const vor = { datum: plan.beginn, futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.gabeErste.zucker), winterfutter: true };
+      /* Kommt man aus dem Formular zurück („Zurück zum Rechner"), stehen dort
+         Stand, Funktion und die Häkchen – die nehmen wir wieder mit, damit man
+         nicht neu auswählen muss. Datum, Futterart und Menge kommen dagegen
+         frisch aus dem Rechner. */
+      const zurueck = (vorgabe && vorgabe._form) || {};
+      const vor = { volkIds: zurueck.volkIds || [], standId: zurueck.standId || '', funktion: zurueck.funktion || '',
+        datum: plan.beginn, futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.gabeErste.zucker), winterfutter: true };
       m.close(true);
       Views.fuetterung.sammelForm(vor, plan);
     };
@@ -5191,7 +5199,7 @@ Views.fuetterung = {
     // Funktions-Filter: Standardliste + alles, was in den Völkern tatsächlich steht
     const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...alleVoelker.map((v) => v.funktion).filter(Boolean)])];
     const m = UI.formModal({
-      title: 'Fütterung erfassen', wide: true,
+      title: plan ? 'Fütterung aus Futter-Rechner erfassen' : 'Fütterung erfassen', wide: true,
       fields: [
         { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
         { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So fütterst du z. B. nur die Wirtschaftsvölker.' },
@@ -5199,12 +5207,17 @@ Views.fuetterung = {
         { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
-        { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
-        { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
-        { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern eine Aufgabe an.' },
+        { key: '_ausRechner', type: 'static', showIf: () => !!plan, html: plan ? `<div class="hint">Aus dem Rechner: je Volk <b>${U.fmtNum(plan.gabeErste.sirup.liter, 1)} L Sirup ${plan.verh}</b> ansetzen – das sind die <b>${U.fmtNum(plan.gabeErste.zucker, 1)} kg reiner Zucker</b> im Feld darüber.${plan.anzahl > 1 ? ` Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.` : ''}</div>` : '' },
+        { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
+        { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
+        { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern eine Aufgabe an.', showIf: () => !plan },
       ],
       values: { ...vorbelegung },
       async onSave(v) {
+        /* Aus dem Rechner: „Winterfutter" und die Erinnerung stehen nicht im
+           Formular – dick (3:2) gilt als Winterfutter, dünn (1:1) als Reizfutter,
+           und die Folgetermine übernimmt „Speichern + in Aufgaben". */
+        if (plan) v.winterfutter = plan.verh === '3:2';
         const n = await fuetterungFuerVoelker(v.volkIds, v);
         let aufgaben = 0;
         if (auchAufgaben && plan) {
@@ -5219,12 +5232,29 @@ Views.fuetterung = {
         renderRoute();
       },
     });
+    /* Rückweg in den Rechner – nimmt Stand, Funktion und die Häkchen mit, damit
+       man nur die Rechenwerte ändert und nicht von vorn anfängt. */
+    const zumRechner = (voelkerNeu) => {
+      const zustand = {
+        volkIds: $$('#f-volkIds input:checked', m.el).map((i) => i.value),
+        standId: ($('#f-standId', m.el) || {}).value || '',
+        funktion: ($('#f-funktion', m.el) || {}).value || '',
+      };
+      m.close(true);
+      Views.fuetterung.rechnerBlatt({ ...plan, ...(voelkerNeu ? { voelker: voelkerNeu } : {}), _form: zustand });
+    };
     /* Aus dem Rechner: gegen die berechnete Völkerzahl zählen und zurück in den
        Rechner können, wenn man mehr Völker anhakt als gerechnet. */
-    verdrahteVolkFilter(m, alleVoelker, plan ? {
-      ziel: plan.voelker,
-      onAnpassen: (n) => { m.close(true); Views.fuetterung.rechnerBlatt({ ...plan, voelker: n }); },
-    } : null);
+    verdrahteVolkFilter(m, alleVoelker, plan ? { ziel: plan.voelker, onAnpassen: zumRechner } : null);
+    if (plan) {
+      const zurueckKnopf = document.createElement('button');
+      zurueckKnopf.className = 'btn btn-ghost';
+      zurueckKnopf.id = 'f-zurueck';
+      zurueckKnopf.textContent = '‹ Zurück zum Rechner';
+      zurueckKnopf.title = 'Werte im Rechner ändern – Auswahl bleibt erhalten';
+      zurueckKnopf.onclick = () => zumRechner(null);
+      m.foot.insertBefore(zurueckKnopf, m.foot.firstChild);
+    }
     // Zweiter Knopf: speichern UND die weiteren Fütterungen als Aufgaben anlegen
     let auchAufgaben = false;
     if (plan && plan.anzahl > 1) {
