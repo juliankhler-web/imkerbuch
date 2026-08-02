@@ -1447,12 +1447,14 @@ test('Rechner-Weg: eigener Titel, Liter-Hinweis, überflüssige Felder weg', asy
   const f = [...w.document.querySelectorAll('.modal-back')].pop();
   try {
     assertEq(f.querySelector('h2').textContent, 'Fütterung aus Futter-Rechner erfassen', 'eigener Titel');
-    // Liter und Zucker müssen im Formular stehen
-    const info = [...f.querySelectorAll('.hint')].map((h) => h.textContent).find((t) => /L Sirup/.test(t));
-    assert(info, 'Hinweis mit der Litermenge fehlt');
-    assert(info.includes(w.U.fmtNum(plan.gabeErste.sirup.liter, 1)), `Liter fehlen: ${info}`);
-    assert(info.includes(w.U.fmtNum(plan.gabeErste.zucker, 1)), `Zuckermenge fehlt: ${info}`);
-    assert(/2 × /.test(info), `Folgegaben fehlen: ${info}`);
+    // Liter stehen als eigenes Feld, nicht mehr nur als Hinweis
+    const lit = f.querySelector('#f-_sirupLiter');
+    assert(lit, 'Feld für die Liter fehlt');
+    nah(w.U.parseNum(lit.value), plan.gabeErste.sirup.liter, 0.06, 'Liter aus dem Rechner');
+    nah(w.U.parseNum(f.querySelector('#f-mengeKg').value), plan.gabeErste.zucker, 0.06, 'Zucker aus dem Rechner');
+    // was danach kommt, steht als kurzer Hinweis
+    const info = [...f.querySelectorAll('.hint')].map((h) => h.textContent).find((t) => /Danach/.test(t));
+    assert(info && /2 × /.test(info), `Folgegaben fehlen: ${info}`);
     // die drei Felder sind hier überflüssig und ausgeblendet
     const versteckt = (id) => {
       const e = f.querySelector(id);
@@ -1461,6 +1463,47 @@ test('Rechner-Weg: eigener Titel, Liter-Hinweis, überflüssige Felder weg', asy
     assert(versteckt('#f-zuckerKg'), '„Davon reiner Zucker" ist hier doppelt');
     assert(versteckt('#f-winterfutter'), '„Winterfutter" ergibt sich aus dem Verhältnis');
     assert(versteckt('#f-wiedervorlageTage'), 'Erinnerung macht „Speichern + in Aufgaben"');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+test('Liter ↔ Kilogramm: Rückrechnung stimmt in beide Richtungen', (w) => {
+  nah(w.literAusZucker(w.zuckerAusSirupLiter(6, '3:2'), '3:2'), 6, 0.001, 'hin und zurück bei 3:2');
+  nah(w.literAusZucker(w.zuckerAusSirupLiter(9, '1:1'), '1:1'), 9, 0.001, 'hin und zurück bei 1:1');
+  assertEq(w.literAusZucker(0, '3:2'), 0, 'null bleibt null');
+  assertEq(w.literAusZucker(-3, '3:2'), 0, 'negative Eingabe wird gekappt');
+  // dünner Sirup braucht mehr Liter für dieselbe Zuckermenge
+  assert(w.literAusZucker(5, '1:1') > w.literAusZucker(5, '3:2'), '1:1 braucht mehr Liter');
+});
+test('Rechner-Weg: eigenes Liter-Feld, das mit den Kilogramm mitrechnet', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+  const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  setz('voelker', '2'); setz('anzahl', '2'); setz('erste', '6');
+  await new Promise((r) => setTimeout(r, 100));
+  const plan = w.futterRechnerRechnen(rb);
+  rb.querySelector('[data-take]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const lit = f.querySelector('#f-_sirupLiter'), kg = f.querySelector('#f-mengeKg');
+    assert(lit, 'eigenes Feld für die Liter');
+    assert(w.getComputedStyle(lit.closest('.field')).display !== 'none', 'und es ist sichtbar');
+    nah(w.U.parseNum(lit.value), plan.gabeErste.sirup.liter, 0.06, 'Liter aus dem Rechner übernommen');
+    nah(w.U.parseNum(kg.value), plan.gabeErste.zucker, 0.06, 'Kilogramm passend dazu');
+    // Liter ändern: die Kilogramm müssen folgen
+    lit.value = '10'; lit.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(kg.value), w.zuckerAusSirupLiter(10, '3:2'), 0.06, 'Kilogramm folgen den Litern');
+    // Kilogramm ändern: die Liter müssen folgen
+    kg.value = '4,0'; kg.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(lit.value), w.literAusZucker(4, '3:2'), 0.06, 'Liter folgen den Kilogramm');
+    // Wechsel der Futterart auf 1:1 rechnet die Liter neu
+    const art = f.querySelector('#f-futterart');
+    art.value = 'Zuckerwasser 1:1'; art.dispatchEvent(new w.Event('change', { bubbles: true }));
+    nah(w.U.parseNum(lit.value), w.literAusZucker(4, '1:1'), 0.06, 'dünner Sirup braucht mehr Liter');
   } finally {
     w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
     w.FormGuard.dirty = false;
@@ -1566,10 +1609,14 @@ test('Rechner-Weg: „Speichern + in Aufgaben" legt die weiteren Fütterungen an
     const neueF = (await w.DB.getAll('fuetterungen')).filter((x) => !vorherF.includes(x.id));
     const neueA = (await w.DB.getAll('aufgaben')).filter((x) => !vorherA.includes(x.id));
     assertEq(neueF.length, 2, 'für beide Völker eine Fütterung gespeichert');
-    assertEq(neueA.length, 2, 'zwei Aufgaben für die 2. und 3. Fütterung');
+    assertEq(neueA.length, 3, 'für alle drei Fütterungen eine Aufgabe – auch die erste');
     const sortiert = neueA.slice().sort((a, b) => a.faellig.localeCompare(b.faellig));
-    assertEq(sortiert.map((a) => a.faellig), plan.termine.slice(1), 'Termine aus dem Abstand');
-    assert(/Fütterung 2\/3/.test(sortiert[0].titel), `Titel falsch: ${sortiert[0].titel}`);
+    assertEq(sortiert.map((a) => a.faellig), plan.termine, 'alle Termine, inklusive dem heutigen');
+    assert(/Fütterung 1\/3/.test(sortiert[0].titel), `Titel falsch: ${sortiert[0].titel}`);
+    // die erste ist schon geschehen: als erledigt in der Historie
+    assertEq(sortiert[0].erledigt, true, 'die heutige erste Fütterung steht als erledigt drin');
+    assertEq(sortiert[1].erledigt, false, 'die weiteren sind offen');
+    assertEq(sortiert[2].erledigt, false, 'auch die dritte ist offen');
     assert(/2 Völker/.test(sortiert[0].notiz), 'gewählte Völker in der Notiz');
     assertEq(sortiert[0].kategorie, 'Fütterung', 'Tätigkeit gesetzt');
     for (const a of neueA) await w.DB.del('aufgaben', a.id);
@@ -2028,6 +2075,35 @@ test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); }
 });
+test('Kalender: Aufgabe direkt aus der Tagesübersicht löschen', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const heute = w.U.todayIso();
+  const a = await w.DB.put('aufgaben', { titel: 'Sofort weg', faellig: heute, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    host.querySelector(`.c-day[data-day="${heute}"]`).click();
+    await new Promise((r) => setTimeout(r, 250));
+    const dm = [...w.document.querySelectorAll('.modal-back')].pop();
+    const knopf = dm.querySelector(`[data-tdel="${a.id}"]`);
+    assert(knopf, 'Papierkorb-Knopf an der Zeile');
+    knopf.click();
+    await new Promise((r) => setTimeout(r, 300));
+    // Rückfrage bestätigen
+    const frage = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/löschen\?/.test(frage.querySelector('h2').textContent), `Rückfrage fehlt: ${frage.querySelector('h2').textContent}`);
+    frage.querySelector('[data-yes]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    assertEq(await w.DB.get('aufgaben', a.id), undefined, 'Aufgabe ist weg');
+    const müll = (await w.DB.getAll('papierkorb')).some((x) => x.store === 'aufgaben' && x.daten && x.daten.id === a.id);
+    assert(müll, 'und liegt im Papierkorb');
+  } finally {
+    host.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+    if (await w.DB.get('aufgaben', a.id)) await w.DB.del('aufgaben', a.id);
+  }
+});
 test('Kalender: freier Tag öffnet gleich das Formular mit dem Datum', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
@@ -2061,6 +2137,7 @@ test('Kalender: belegter Tag zeigt die Liste mit „Neue Aufgabe"', async (w) =>
     assert(/Tagesliste prüfen/.test(m.textContent), 'die Aufgabe steht drin');
     assert(m.querySelector('[data-neu]'), 'Knopf für eine neue Aufgabe');
     assert(m.querySelector('[data-open]'), 'Aufgaben sind zum Bearbeiten antippbar');
+    assert(m.querySelector('[data-tdel]'), 'und direkt löschbar, ohne sie zu öffnen');
     // der Knopf muss das Formular mit diesem Datum öffnen
     m.querySelector('[data-neu]').click();
     await new Promise((r) => setTimeout(r, 200));

@@ -918,15 +918,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.19';
+const APP_VERSION = '1.20';
 const CHANGELOG = [
-  { version: '1.19', datum: '2026-08-01', punkte: [
+  { version: '1.20', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
-    'Unten gibt es zwei Arten zu speichern: nur „Speichern“ oder „Speichern + in Aufgaben“. Letzteres legt für jede weitere Fütterung eine Aufgabe an – mit Termin aus dem Abstand, Menge je Volk und den gewählten Völkern.',
+    'Unten gibt es zwei Arten zu speichern: nur „Speichern“ oder „Speichern + in Aufgaben“. Letzteres legt für <b>jede</b> Fütterung eine Aufgabe an – auch für die erste, die kommt gleich als erledigt hinein und steht damit in der Historie. Die weiteren bekommen ihren Termin aus dem Abstand, mit Menge je Volk und den gewählten Völkern.',
     'Der frühere Knopf „Plan als Aufgaben“ im Rechner ist damit entfallen; das macht jetzt das Speichern.',
-    'Das Formular heißt beim Rechner-Weg „Fütterung aus Futter-Rechner erfassen“ und zeigt direkt darin, wie viel Liter Sirup je Volk anzusetzen sind und wie viel reiner Zucker das ist. „Winterfutter“ und die Erinnerung sind dort ausgeblendet: 3:2 dick gilt als Winterfutter, 1:1 dünn als Reizfutter, und die Folgetermine macht „Speichern + in Aufgaben“.',
+    'Das Formular heißt beim Rechner-Weg „Fütterung aus Futter-Rechner erfassen“ und hat ein eigenes Feld „Sirup je Volk (Liter)“ – ändere die Liter, und die Zuckermenge darunter rechnet mit (und umgekehrt). „Winterfutter“ und die Erinnerung sind dort ausgeblendet: 3:2 dick gilt als Winterfutter, 1:1 dünn als Reizfutter, und die Folgetermine macht „Speichern + in Aufgaben“.',
     'Im Formular steht links „‹ Zurück zum Rechner“: du änderst kurz einen Wert und kommst zurück, ohne abzubrechen. Stand, Funktion und die schon gesetzten Häkchen bleiben dabei erhalten.',
   ] },
   { version: '1.17', datum: '2026-08-01', punkte: [
@@ -941,7 +941,7 @@ const CHANGELOG = [
   ] },
   { version: '1.16', datum: '2026-08-01', punkte: [
     'Im Kalender lässt sich jetzt jeder Tag antippen: ein freier Tag öffnet gleich das Formular mit diesem Datum, ein belegter zeigt erst, was ansteht – mit „Neue Aufgabe“ darunter.',
-    'Die Aufgaben in dieser Tagesübersicht kannst du direkt antippen, um sie zu bearbeiten; Volk und aktueller Stand stehen auch dort.',
+    'Die Aufgaben in dieser Tagesübersicht kannst du direkt antippen, um sie zu bearbeiten; Volk und aktueller Stand stehen auch dort. Daneben sitzt ein Papierkorb-Symbol: damit löschst du eine Aufgabe sofort, ohne sie erst zu öffnen.',
     'Hängt eine Aufgabe am ganzen Stand, steht in der Liste jetzt auch die Völkerzahl dabei – z. B. „Heimstand Obstwiese · 7 Völker“. Sie wird bei jeder Anzeige neu gezählt.',
     'Auch bei Aufgaben, die schon vorher entstanden sind, steht Volk und Stand jetzt dabei – Behandlungs-Aufgaben werden dafür einmalig ans Volk gehängt. Selbst angelegte Aufgaben ohne Volk bleiben ohne Zeile, bis du sie öffnest und einen Stand oder ein Volk wählst.',
     'Beim Anlegen einer Aufgabe steht die Völkerzahl wieder dabei: wählst du kein einzelnes Volk, siehst du, für wie viele Völker am gewählten Stand die Aufgabe gilt – der Funktions-Filter zählt mit.',
@@ -4907,17 +4907,19 @@ function passtZuFilter(volk, standId, funktion) {
   return true;
 }
 
-/** Legt für die WEITEREN Fütterungen des Plans je eine Aufgabe an (die erste
-    wird ja gerade erfasst). Termin, Menge je Volk und die gewählten Völker
-    stehen im Eintrag. Gibt die Zahl der angelegten Aufgaben zurück. */
+/** Legt für JEDE Fütterung des Plans eine Aufgabe an – auch für die erste, die
+    gerade erfasst wird: sie kommt gleich als erledigt hinein, damit sie in der
+    Historie steht. Termin, Menge je Volk und die gewählten Völker stehen im
+    Eintrag. Gibt die Zahl der angelegten Aufgaben zurück. */
 async function fuetterungsPlanAufgaben(plan, volkIds, alleVoelker) {
   const namen = volkIds.map((id) => (alleVoelker.find((v) => v.id === id) || {}).name).filter(Boolean);
+  const heute = U.todayIso();
   let angelegt = 0;
-  for (let i = 1; i < plan.anzahl; i++) {
+  for (let i = 0; i < plan.anzahl; i++) {
     const g = plan.gaben[i];
     await DB.put('aufgaben', {
       titel: `Fütterung ${i + 1}/${plan.anzahl}: ${U.fmtNum(g.sirup.liter, 1)} L Sirup je Volk`,
-      faellig: plan.termine[i], erledigt: false, quelle: 'fuetterung', refId: null,
+      faellig: plan.termine[i], erledigt: plan.termine[i] <= heute, quelle: 'fuetterung', refId: null,
       volkId: volkIds.length === 1 ? volkIds[0] : null, kategorie: 'Fütterung',
       notiz: `${volkIds.length} ${volkIds.length === 1 ? 'Volk' : 'Völker'}: ${namen.slice(0, 8).join(', ')}${namen.length > 8 ? ' …' : ''}. `
         + `Je Volk ${U.fmtNum(g.zucker, 1)} kg Zucker + ${U.fmtNum(g.wasser, 1)} L Wasser (${plan.verh}); `
@@ -5206,8 +5208,9 @@ Views.fuetterung = {
         { key: 'volkIds', label: '3. Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', showIf: () => !!plan, hint: 'Was du je Volk einfüllst. Ändert sich hier etwas, rechnet die Zuckermenge darunter mit.' },
         { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
-        { key: '_ausRechner', type: 'static', showIf: () => !!plan, html: plan ? `<div class="hint">Aus dem Rechner: je Volk <b>${U.fmtNum(plan.gabeErste.sirup.liter, 1)} L Sirup ${plan.verh}</b> ansetzen – das sind die <b>${U.fmtNum(plan.gabeErste.zucker, 1)} kg reiner Zucker</b> im Feld darüber.${plan.anzahl > 1 ? ` Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.` : ''}</div>` : '' },
+        { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern eine Aufgabe an.', showIf: () => !plan },
@@ -5232,6 +5235,26 @@ Views.fuetterung = {
         renderRoute();
       },
     });
+    /* Liter und Kilogramm sind zwei Blicke auf dieselbe Gabe: wer die Liter
+       ändert, ändert die Zuckermenge mit – und umgekehrt. Das Mischverhältnis
+       kommt aus der Futterart, damit auch ein Wechsel dort greift. */
+    if (plan) {
+      const lit = $('#f-_sirupLiter', m.el), kg = $('#f-mengeKg', m.el), art = $('#f-futterart', m.el);
+      const verh = () => (/1\s*:\s*1/.test((art && art.value) || '') ? '1:1' : '3:2');
+      let stille = false;
+      const setzeLiter = () => { lit.value = U.fmtNum(literAusZucker(U.parseNum(kg.value), verh()), 1); };
+      if (lit && kg) {
+        setzeLiter();
+        lit.addEventListener('input', () => {
+          if (stille) return; stille = true;
+          kg.value = U.fmtNum(zuckerAusSirupLiter(U.parseNum(lit.value), verh()), 1);
+          stille = false;
+        });
+        kg.addEventListener('input', () => { if (stille) return; stille = true; setzeLiter(); stille = false; });
+        if (art) art.addEventListener('change', () => { if (!stille) { stille = true; setzeLiter(); stille = false; } });
+      }
+    }
+
     /* Rückweg in den Rechner – nimmt Stand, Funktion und die Häkchen mit, damit
        man nur die Rechenwerte ändert und nicht von vorn anfängt. */
     const zumRechner = (voelkerNeu) => {
@@ -7024,14 +7047,27 @@ Views.aufgaben = {
         if (!tasks.length) return form(null, iso);          // freier Tag: gleich anlegen
         const dm = UI.modal({
           title: `Aufgaben am ${U.fmtDate(iso)}`,
-          body: `<div class="rows">${tasks.map((t) => `<button class="row" data-open="${t.id}" style="text-align:left;width:100%">
-            <span class="r-main"><span class="r-title">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</span>
-            <span class="r-side">${quelleBadge(t)}</span>${icon('chevR', 'chev')}</button>`).join('')}</div>`,
+          body: `<div class="rows">${tasks.map((t) => `<div class="row">
+            <button class="r-main" data-open="${t.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
+              <span class="r-title">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</button>
+            <span class="r-side">${quelleBadge(t)}</span>
+            <button class="btn btn-xs btn-ghost" data-tdel="${t.id}" title="Aufgabe löschen" aria-label="Aufgabe löschen">${icon('trash')}</button>
+          </div>`).join('')}</div>`,
           footer: `<button class="btn btn-ghost" data-zu>Schließen</button><button class="btn btn-primary" data-neu>${icon('plus')} Neue Aufgabe</button>`,
         });
         $('[data-zu]', dm.el).onclick = () => dm.close();
         $('[data-neu]', dm.el).onclick = () => { dm.close(true); form(null, iso); };
-        $('.rows', dm.el).addEventListener('click', (ev) => {
+        $('.rows', dm.el).addEventListener('click', async (ev) => {
+          // Löschen direkt aus der Tagesübersicht, ohne die Aufgabe zu öffnen
+          const d = ev.target.closest('[data-tdel]');
+          if (d) {
+            const t = all.find((x) => x.id === d.dataset.tdel);
+            if (!t) return;
+            const weg = papierkorbDelete('aufgaben', t, `„${t.titel}“ löschen?`);
+            dm.close(true);
+            if (weg) await weg();
+            return;
+          }
           const r = ev.target.closest('[data-open]');
           if (r) { dm.close(true); form(all.find((x) => x.id === r.dataset.open)); }
         });
@@ -7184,6 +7220,12 @@ function zuckerAusSirupLiter(liter, verhaeltnis) {
   const anteil = sirupAnteilProzent(verhaeltnis);
   const masse = Math.max(0, Number(liter) || 0) * sirupDichte(anteil);
   return masse * anteil / 100;
+}
+/** Umgekehrt: wie viele Liter Sirup ergeben x kg reinen Zucker? */
+function literAusZucker(zuckerKg, verhaeltnis) {
+  const anteil = sirupAnteilProzent(verhaeltnis);
+  const masse = Math.max(0, Number(zuckerKg) || 0) / (anteil / 100);
+  return masse / sirupDichte(anteil);
 }
 /** Was am Ende von x Litern Sirup im Volk eingelagert ist. */
 function futterAusSirupLiter(liter, verhaeltnis, minderungProzent = FUTTER_MINDERUNG) {
@@ -10528,7 +10570,7 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
-  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, fuetterungsPlanAufgaben, verdrahteVolkFilter,
+  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, fuetterungsPlanAufgaben, verdrahteVolkFilter,
   selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,
