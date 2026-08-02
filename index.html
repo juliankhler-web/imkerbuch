@@ -269,6 +269,9 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
    „Behandl…“ übrig. Nur diese wenigen Zeilen werden höher. */
 .row.hat-hinweis .r-sub{white-space:normal}
 /* lebende Zeile einer Aufgabe (Volk · aktueller Stand) – hebt sich von der Notiz ab */
+/* Völker-Zähler gegen eine Soll-Zahl aus dem Futter-Rechner */
+.zahl-warn{color:var(--danger);font-weight:800}
+.ziel-warn{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0;padding:10px 12px;border-radius:12px;background:var(--danger-soft,rgba(200,60,50,.12));color:var(--danger);font-size:13px}
 .row .r-bezug{display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--honey-deep);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .r-bezug svg{width:13px;height:13px;flex-shrink:0}
 .row .chev{color:var(--muted);flex-shrink:0;width:16px;height:16px}
@@ -915,8 +918,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.17';
+const APP_VERSION = '1.18';
 const CHANGELOG = [
+  { version: '1.18', datum: '2026-08-01', punkte: [
+    'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
+    'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
+    'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
+    'Unten gibt es zwei Arten zu speichern: nur „Speichern“ oder „Speichern + in Aufgaben“. Letzteres legt für jede weitere Fütterung eine Aufgabe an – mit Termin aus dem Abstand, Menge je Volk und den gewählten Völkern.',
+    'Der frühere Knopf „Plan als Aufgaben“ im Rechner ist damit entfallen; das macht jetzt das Speichern.',
+  ] },
   { version: '1.17', datum: '2026-08-01', punkte: [
     'Rechnungspositionen haben jetzt ein Feld „Pfand je Gebinde“ – für Glas, Eimer oder Kiste. Der Pfand steht als eigene Spalte in der Rechnung und wird in der Summe getrennt ausgewiesen.',
     'Neu: Rabatt und Skonto, bewusst getrennt. <b>Rabatt</b> (Prozent oder Betrag, mit Grund wie „Großkunde“) mindert die Rechnung sofort und damit auch die Umsatzsteuer. <b>Skonto</b> wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen („bei Zahlung bis … 2 %“) – es wirkt erst, wenn wirklich früh gezahlt wird.',
@@ -4895,6 +4905,27 @@ function passtZuFilter(volk, standId, funktion) {
   return true;
 }
 
+/** Legt für die WEITEREN Fütterungen des Plans je eine Aufgabe an (die erste
+    wird ja gerade erfasst). Termin, Menge je Volk und die gewählten Völker
+    stehen im Eintrag. Gibt die Zahl der angelegten Aufgaben zurück. */
+async function fuetterungsPlanAufgaben(plan, volkIds, alleVoelker) {
+  const namen = volkIds.map((id) => (alleVoelker.find((v) => v.id === id) || {}).name).filter(Boolean);
+  let angelegt = 0;
+  for (let i = 1; i < plan.anzahl; i++) {
+    const g = plan.gaben[i];
+    await DB.put('aufgaben', {
+      titel: `Fütterung ${i + 1}/${plan.anzahl}: ${U.fmtNum(g.sirup.liter, 1)} L Sirup je Volk`,
+      faellig: plan.termine[i], erledigt: false, quelle: 'fuetterung', refId: null,
+      volkId: volkIds.length === 1 ? volkIds[0] : null, kategorie: 'Fütterung',
+      notiz: `${volkIds.length} ${volkIds.length === 1 ? 'Volk' : 'Völker'}: ${namen.slice(0, 8).join(', ')}${namen.length > 8 ? ' …' : ''}. `
+        + `Je Volk ${U.fmtNum(g.zucker, 1)} kg Zucker + ${U.fmtNum(g.wasser, 1)} L Wasser (${plan.verh}); `
+        + `zusammen ${U.fmtNum(g.sirup.liter * volkIds.length, 1)} L ansetzen.`,
+    });
+    angelegt++;
+  }
+  return angelegt;
+}
+
 /** Legt dieselbe Fütterung für mehrere Völker an. Gibt die Anzahl zurück. */
 async function fuetterungFuerVoelker(volkIds, daten) {
   let n = 0;
@@ -4983,7 +5014,10 @@ function verdrahteVolkAuswahl(m, alleVoelker) {
   filtern();
 }
 
-function verdrahteVolkFilter(m, alleVoelker) {
+/* opts.ziel = Völkerzahl, auf die der Futter-Rechner gerechnet hat. Dann zählt
+   die Leiste gegen diese Zahl statt gegen die Liste, und bei mehr Völkern wird
+   sie rot – die berechneten Mengen stimmen dann nicht mehr. */
+function verdrahteVolkFilter(m, alleVoelker, opts = null) {
   const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
   const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
   const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
@@ -4994,9 +5028,33 @@ function verdrahteVolkFilter(m, alleVoelker) {
     <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
     <span class="small muted" data-zahl></span>`;
   wrap.insertBefore(bar, box);
+  const ziel = opts && opts.ziel > 0 ? Math.round(opts.ziel) : null;
+  let warn = null;
+  if (ziel) {
+    warn = document.createElement('div');
+    warn.className = 'ziel-warn';
+    warn.style.display = 'none';
+    warn.innerHTML = `<span data-warntext style="flex:1 1 160px;min-width:0"></span><button type="button" class="btn btn-danger btn-sm" data-anpassen></button>`;
+    wrap.insertBefore(warn, box);
+  }
   const zeilen = () => $$('label.check-line', box);
   const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
-  const zahl = () => { const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length; $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; };
+  const zahl = () => {
+    const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length;
+    const el = $('[data-zahl]', bar);
+    if (!ziel) { el.textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; return; }
+    el.textContent = `${n} von ${ziel} ausgewählt`;
+    el.classList.toggle('zahl-warn', n > ziel);
+    if (warn) {
+      warn.style.display = n > ziel ? '' : 'none';
+      if (n > ziel) {
+        $('[data-warntext]', warn).textContent = `Mehr Völker als berechnet – Zucker- und Sirupmenge stimmen nicht mehr (Rechner: ${ziel}).`;
+        const k = $('[data-anpassen]', warn);
+        k.textContent = `Futter-Rechner auf ${n} Völker anpassen`;
+        k.onclick = () => opts.onAnpassen && opts.onAnpassen(n);
+      }
+    }
+  };
   const filtern = () => {
     zeilen().forEach((lab) => {
       const inp = $('input', lab);
@@ -5017,6 +5075,7 @@ function verdrahteVolkFilter(m, alleVoelker) {
   $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
   $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
   filtern();
+  if (ziel) leer.textContent = leer.textContent || `Der Rechner ist auf ${ziel} ${ziel === 1 ? 'Volk' : 'Völker'} gerechnet.`;
 }
 
 Views.fuetterung = {
@@ -5036,8 +5095,8 @@ Views.fuetterung = {
     const zOffen = list.length - zList.length;
     main.innerHTML = pageHead('Fütterung', 'Viele Völker auf einmal füttern – nach Stand und Funktion gefiltert. Jede Fütterung landet automatisch beim Volk.',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fuetterungsliste('${jahr}')">${icon('doc')} Liste ${jahr} (PDF)</button>
-       <button class="btn btn-ghost btn-sm" id="frech">${icon('rechner')} Futter-Rechner</button>
-       <button class="btn btn-primary" id="add">${icon('plus')} Fütterung</button></span>`) +
+       <button class="btn btn-primary" id="add">${icon('plus')} Fütterung</button>
+       <button class="btn btn-primary" id="frech">${icon('plus')} Fütterung mit Futter-Rechner</button></span>`) +
       (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('futter')} Futter ${jahr}</div><div class="s-value">${U.fmtNum(kg)} kg</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fütterung' : 'Fütterungen'}</div></div>
@@ -5062,16 +5121,27 @@ Views.fuetterung = {
   /** Futter-Rechner direkt im Reiter: erst planen, dann mit einem Griff als
       Fütterung übernehmen. So landet die wirklich verbrauchte Zuckermenge im
       Eintrag – und damit in der Jahres-PDF und im Excel-Export. */
-  async rechnerBlatt() {
+  async rechnerBlatt(vorgabe = null) {
     const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     const m = UI.modal({
-      title: 'Futter-Rechner', wide: true,
-      body: `<div class="small muted mb12">Vom Bedarf zum Einkauf – und danach gleich als Fütterung eintragen.</div>
+      title: 'Fütterung mit Futter-Rechner', wide: true,
+      body: `<div class="small muted mb12">Erst rechnen, dann übernehmen – Menge, Verhältnis und Völkerzahl wandern ins Formular.</div>
         ${futterRechnerHtml(aktiveV)}`,
       footer: `<button class="btn btn-ghost" data-zu>Schließen</button>
-        <button class="btn btn-ghost" data-plan>${icon('kalender')} Plan als Aufgaben</button>
         <button class="btn btn-primary" data-take>${icon('plus')} Als Fütterung übernehmen</button>`,
     });
+    // zurück aus dem Formular („Rechner anpassen“): vorherige Eingaben wieder setzen
+    if (vorgabe) {
+      const setz = (k, v) => { const el = $(`[data-fr="${k}"]`, m.el); if (el && v != null && v !== '') el.value = v; };
+      setz('jeVolk', vorgabe.jeVolk != null ? U.fmtNum(vorgabe.jeVolk, 2) : null);
+      setz('verh', vorgabe.verh);
+      setz('voelker', vorgabe.voelker != null ? String(vorgabe.voelker) : null);
+      setz('minderung', vorgabe.minderung != null ? U.fmtNum(vorgabe.minderung, 0) : null);
+      setz('anzahl', vorgabe.anzahl != null ? String(vorgabe.anzahl) : null);
+      setz('abstand', vorgabe.abstand != null ? String(vorgabe.abstand) : null);
+      setz('beginn', vorgabe.beginn);
+      if (vorgabe.eigeneErste && vorgabe.gabeErste) setz('erste', U.fmtNum(vorgabe.gabeErste.sirup.liter, 1));
+    }
     let plan = null;
     const rechne = () => { plan = futterRechnerRechnen(m.el); };
     m.el.addEventListener('input', rechne);
@@ -5080,39 +5150,13 @@ Views.fuetterung = {
     $('[data-zu]', m.el).onclick = () => m.close();
     const eins = (n) => Math.round(n * 10) / 10;
     $('[data-take]', m.el).onclick = () => {
-      /* Übernommen wird EINE Gabe: „Menge (kg)“ ist bei Zuckerwasser der reine
-         Zucker, deshalb der Zucker je Volk und Fütterung – nicht das Sirupgewicht.
-         Der Abstand landet als Wiedervorlage, damit die nächste Gabe nicht
-         untergeht. */
-      const vor = plan && plan.voelker > 0
-        ? { datum: plan.beginn, futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.gabeErste.zucker), winterfutter: true,
-            wiedervorlageTage: plan.anzahl > 1 ? plan.abstand : null }
-        : {};
-      m.close(true);
-      Views.fuetterung.sammelForm(vor);
-    };
-    $('[data-plan]', m.el).onclick = async () => {
+      const eins = (n) => Math.round(n * 10) / 10;
       if (!plan || plan.voelker < 1 || plan.jeVolk <= 0) return UI.toast('Bitte erst Völker und Futtermenge eintragen.', 'err');
-      const liste = plan.termine.map((t, i) => `${i + 1}. ${U.fmtDate(t)} – ${U.fmtNum(plan.gaben[i].sirup.liter, 1)} L je Volk`).join('<br>');
-      const ok = await UI.confirm({
-        title: `${plan.anzahl} ${plan.anzahl === 1 ? 'Aufgabe' : 'Aufgaben'} anlegen?`,
-        text: `Sirup ${plan.verh} je Volk:<br>${liste}`,
-        confirmText: 'Anlegen', danger: false,
-      });
-      if (!ok) return;
-      for (let i = 0; i < plan.termine.length; i++) {
-        const g = plan.gaben[i];
-        await DB.put('aufgaben', {
-          titel: `Fütterung ${i + 1}/${plan.anzahl}: ${U.fmtNum(g.sirup.liter, 1)} L Sirup je Volk`,
-          faellig: plan.termine[i], erledigt: false, quelle: 'fuetterung', refId: null, kategorie: 'Fütterung',
-          notiz: `Je Volk ${U.fmtNum(g.zucker, 1)} kg Zucker + ${U.fmtNum(g.wasser, 1)} L Wasser (${plan.verh}). `
-            + `Für ${plan.voelker} Völker ${U.fmtNum(g.ansatz.liter, 1)} L ansetzen.`,
-        });
-      }
-      Notif.check();
+      /* Übernommen wird die ERSTE Gabe: „Menge (kg)“ ist bei Zuckerwasser der
+         reine Zucker, deshalb der Zucker je Volk – nicht das Sirupgewicht. */
+      const vor = { datum: plan.beginn, futterart: `Zuckerwasser ${plan.verh}`, mengeKg: eins(plan.gabeErste.zucker), winterfutter: true };
       m.close(true);
-      UI.toast(`${plan.anzahl} ${plan.anzahl === 1 ? 'Aufgabe' : 'Aufgaben'} angelegt`);
-      navTo('aufgaben');
+      Views.fuetterung.sammelForm(vor, plan);
     };
   },
 
@@ -5137,8 +5181,10 @@ Views.fuetterung = {
   },
 
   /** Sammel-Erfassung im Wanderungs-Stil: Stand → Funktion → Völker → Futter.
-      vorbelegung kommt aus dem Futter-Rechner (Menge und Zucker je Volk). */
-  async sammelForm(vorbelegung = {}) {
+      Kommt der Aufruf aus dem Futter-Rechner, steckt der ganze Plan in `plan`:
+      dann zählt die Völker-Auswahl gegen die berechnete Zahl und es gibt einen
+      zweiten Knopf, der die weiteren Fütterungen gleich als Aufgaben anlegt. */
+  async sammelForm(vorbelegung = {}, plan = null) {
     const staende = await DB.getAll('staende');
     const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann fütterst du sie hier gesammelt.', 'err');
@@ -5160,16 +5206,36 @@ Views.fuetterung = {
       values: { ...vorbelegung },
       async onSave(v) {
         const n = await fuetterungFuerVoelker(v.volkIds, v);
-        if (v.wiedervorlageTage > 0) {
+        let aufgaben = 0;
+        if (auchAufgaben && plan) {
+          aufgaben = await fuetterungsPlanAufgaben(plan, v.volkIds, alleVoelker);
+          Notif.check();
+        } else if (v.wiedervorlageTage > 0) {
           await DB.put('aufgaben', { titel: `Fütterung prüfen (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: U.addDays(v.datum, Math.round(v.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: null, notiz: `Nach ${v.futterart} (${U.fmtNum(v.mengeKg)} kg je Volk) vom ${U.fmtDate(v.datum)}` });
           Notif.check();
         }
-        UI.toast(`Fütterung für ${n} ${n === 1 ? 'Volk' : 'Völker'} gespeichert`);
+        UI.toast(`Fütterung für ${n} ${n === 1 ? 'Volk' : 'Völker'} gespeichert`
+          + (aufgaben ? ` · ${aufgaben} ${aufgaben === 1 ? 'Aufgabe' : 'Aufgaben'} angelegt` : ''));
         renderRoute();
       },
     });
-    // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
-    verdrahteVolkFilter(m, alleVoelker);
+    /* Aus dem Rechner: gegen die berechnete Völkerzahl zählen und zurück in den
+       Rechner können, wenn man mehr Völker anhakt als gerechnet. */
+    verdrahteVolkFilter(m, alleVoelker, plan ? {
+      ziel: plan.voelker,
+      onAnpassen: (n) => { m.close(true); Views.fuetterung.rechnerBlatt({ ...plan, voelker: n }); },
+    } : null);
+    // Zweiter Knopf: speichern UND die weiteren Fütterungen als Aufgaben anlegen
+    let auchAufgaben = false;
+    if (plan && plan.anzahl > 1) {
+      const speichern = $('.modal-foot .btn-primary', m.el);   // Referenz vor dem Anhängen holen
+      const knopf = document.createElement('button');
+      knopf.className = 'btn btn-primary';
+      knopf.innerHTML = `${icon('kalender')} Speichern + in Aufgaben`;
+      knopf.title = `Legt zusätzlich ${plan.anzahl - 1} ${plan.anzahl - 1 === 1 ? 'Aufgabe' : 'Aufgaben'} für die weiteren Fütterungen an`;
+      knopf.onclick = () => { auchAufgaben = true; speichern.click(); };
+      m.foot.appendChild(knopf);
+    }
   },
 };
 
@@ -10432,7 +10498,7 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
-  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter,
+  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, fuetterungsPlanAufgaben, verdrahteVolkFilter,
   selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,

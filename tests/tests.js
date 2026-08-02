@@ -1368,42 +1368,121 @@ test('Futter-Rechner: erste Gabe in Liter, Rest gleichmäßig', (w) => {
     assert(/Folgefütterungen je Volk/.test(out), 'Kachel für die Folgegaben');
   } finally { host.remove(); }
 });
-test('Futter-Rechner: „Plan als Aufgaben" legt je Termin eine Aufgabe an', async (w) => {
-  const vorher = (await w.DB.getAll('aufgaben')).map((a) => a.id);
-  await w.Views.fuetterung.rechnerBlatt();
-  await new Promise((r) => setTimeout(r, 250));
-  const m = [...w.document.querySelectorAll('.modal-back')].pop();
-  const feld = m.querySelector('[data-fr="erste"]');
-  feld.value = '6';                                          // erste Gabe größer
-  feld.dispatchEvent(new w.Event('input', { bubbles: true })); // damit das Blatt selbst neu rechnet
-  await new Promise((r) => setTimeout(r, 100));
-  const plan = w.futterRechnerRechnen(m);
-  assertEq(plan.eigeneErste, true, 'Ausgangslage: erste Gabe ist eigenständig');
+test('Fütterung: zwei Wege in der Kopfzeile', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
-    m.querySelector('[data-plan]').click();
-    await new Promise((r) => setTimeout(r, 250));
-    const frage = [...w.document.querySelectorAll('.modal-back')].pop();
-    assert(/Aufgaben anlegen/.test(frage.querySelector('h2').textContent), `Rückfrage fehlt: ${frage.querySelector('h2').textContent}`);
-    frage.querySelector('[data-yes]').click();
-    await new Promise((r) => setTimeout(r, 700));
-    const neu = (await w.DB.getAll('aufgaben')).filter((a) => !vorher.includes(a.id));
-    assertEq(neu.length, plan.anzahl, `${plan.anzahl} Aufgaben erwartet, ${neu.length} angelegt`);
-    const sortiert = neu.slice().sort((a, b) => a.faellig.localeCompare(b.faellig));
-    assertEq(sortiert.map((a) => a.faellig), plan.termine, 'Termine stimmen');
-    assert(/Fütterung 1\/4/.test(sortiert[0].titel), `Titel falsch: ${sortiert[0].titel}`);
-    assert(/L Sirup je Volk/.test(sortiert[0].titel), 'Menge je Volk im Titel');
-    assert(/ansetzen/.test(sortiert[0].notiz), 'Ansatzmenge in der Notiz');
-    assertEq(sortiert[0].kategorie, 'Fütterung', 'Tätigkeit für die Zeiterfassung gesetzt');
-    // die erste Aufgabe muss die größere Menge tragen
-    const liter = (t) => w.U.parseNum((t.match(/([\d,.]+) L/) || [])[1]);
-    assert(liter(sortiert[0].titel) > liter(sortiert[1].titel), `erste Gabe nicht größer: ${sortiert[0].titel} / ${sortiert[1].titel}`);
-    for (const a of neu) await w.DB.del('aufgaben', a.id);
+    await w.Views.fuetterung.render(host);
+    const knoepfe = [...host.querySelectorAll('.page-head button')].map((b) => b.textContent.trim());
+    assert(knoepfe.some((t) => /^\+?\s*Fütterung$/.test(t.replace(/\s+/g, ' '))), `„+ Fütterung" fehlt: ${knoepfe.join(' | ')}`);
+    assert(host.querySelector('#frech'), 'Knopf für den Rechner-Weg');
+    assert(/Fütterung mit Futter-Rechner/.test(host.querySelector('#frech').textContent), 'heißt „Fütterung mit Futter-Rechner"');
+  } finally { host.remove(); }
+});
+test('Rechner-Weg: nur ein Übernahme-Knopf, kein Plan-Knopf mehr', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    assert(m.querySelector('[data-take]'), 'Übernehmen vorhanden');
+    assertEq(m.querySelector('[data-plan]'), null, '„Plan als Aufgaben" ist entfallen');
+    assert(/Fütterung mit Futter-Rechner/.test(m.querySelector('h2').textContent), 'Titel passt zum Weg');
+  } finally { m.remove(); w.FormGuard.dirty = false; }
+});
+test('Rechner-Weg: Werte landen im Formular, Zähler geht gegen die Rechner-Zahl', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+  const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  setz('voelker', '1'); setz('jeVolk', '15'); setz('anzahl', '4'); setz('abstand', '7');
+  await new Promise((r) => setTimeout(r, 100));
+  const plan = w.futterRechnerRechnen(rb);
+  rb.querySelector('[data-take]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    assert(/Fütterung erfassen/.test(f.querySelector('h2').textContent), 'Formular geht auf');
+    assertEq(f.querySelector('#f-futterart').value, `Zuckerwasser ${plan.verh}`, 'Mischverhältnis übernommen');
+    nah(w.U.parseNum(f.querySelector('#f-mengeKg').value), plan.gabeErste.zucker, 0.06, 'Menge je Volk übernommen');
+    assertEq(f.querySelector('#f-datum').value, plan.beginn, 'Datum übernommen');
+    /* Der Rechner war auf 1 Volk gerechnet – so reicht der Testbestand immer,
+       egal wie viele Völker die vorherigen Tests übrig gelassen haben. */
+    const zahl = () => f.querySelector('[data-zahl]').textContent;
+    assertEq(zahl(), '0 von 1 ausgewählt', `Zähler falsch: ${zahl()}`);
+    const kaesten = () => [...f.querySelectorAll('#f-volkIds label.check-line')]
+      .filter((l) => l.style.display !== 'none').map((l) => l.querySelector('input'));
+    assert(kaesten().length >= 2, `Testbestand zu klein: ${kaesten().length} Völker`);
+    // genau eines: passt zur Rechner-Zahl, keine Warnung
+    kaesten().filter((i) => !i.checked)[0].click();
+    assertEq(zahl(), '1 von 1 ausgewählt', `nach einem Haken: ${zahl()}`);
+    assert(!f.querySelector('[data-zahl]').classList.contains('zahl-warn'), 'noch keine Warnung');
+    // eines mehr als berechnet: rot und Anpassen-Knopf
+    kaesten().filter((i) => !i.checked)[0].click();
+    assertEq(zahl(), '2 von 1 ausgewählt', `nach zwei Haken: ${zahl()}`);
+    assert(f.querySelector('[data-zahl]').classList.contains('zahl-warn'), 'Zahl ist rot markiert');
+    const anp = f.querySelector('[data-anpassen]');
+    assert(anp && /2 Völker/.test(anp.textContent), `Anpassen-Knopf fehlt: ${anp && anp.textContent}`);
+    // wieder abwählen: Warnung verschwindet
+    kaesten().filter((i) => i.checked)[0].click();
+    assertEq(zahl(), '1 von 1 ausgewählt', `nach dem Abwählen: ${zahl()}`);
+    assert(!f.querySelector('[data-zahl]').classList.contains('zahl-warn'), 'Warnung ist weg');
+    assertEq(f.querySelector('[data-anpassen]').closest('.ziel-warn').style.display, 'none', 'Warnkasten ausgeblendet');
   } finally {
     w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
     w.FormGuard.dirty = false;
-    w.location.hash = '#/dashboard';           // navTo der Anlegen-Aktion zurücknehmen
-    await new Promise((r) => setTimeout(r, 200));
   }
+});
+test('Rechner-Weg: „Speichern + in Aufgaben" legt die weiteren Fütterungen an', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  const vorherA = (await w.DB.getAll('aufgaben')).map((a) => a.id);
+  const vorherF = (await w.DB.getAll('fuetterungen')).map((f) => f.id);
+  await w.Views.fuetterung.rechnerBlatt();
+  await new Promise((r) => setTimeout(r, 200));
+  const rb = [...w.document.querySelectorAll('.modal-back')].pop();
+  const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  setz('voelker', '2'); setz('anzahl', '3'); setz('abstand', '10');
+  await new Promise((r) => setTimeout(r, 100));
+  const plan = w.futterRechnerRechnen(rb);
+  rb.querySelector('[data-take]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    [...f.querySelectorAll('#f-volkIds label.check-line')]
+      .filter((l) => l.style.display !== 'none').slice(0, 2)
+      .forEach((l) => l.querySelector('input').click());
+    const zweiter = [...f.querySelectorAll('.modal-foot .btn-primary')].pop();
+    assert(/in Aufgaben/.test(zweiter.textContent), `zweiter Knopf fehlt: ${zweiter.textContent}`);
+    zweiter.click();
+    await new Promise((r) => setTimeout(r, 800));
+    const neueF = (await w.DB.getAll('fuetterungen')).filter((x) => !vorherF.includes(x.id));
+    const neueA = (await w.DB.getAll('aufgaben')).filter((x) => !vorherA.includes(x.id));
+    assertEq(neueF.length, 2, 'für beide Völker eine Fütterung gespeichert');
+    assertEq(neueA.length, 2, 'zwei Aufgaben für die 2. und 3. Fütterung');
+    const sortiert = neueA.slice().sort((a, b) => a.faellig.localeCompare(b.faellig));
+    assertEq(sortiert.map((a) => a.faellig), plan.termine.slice(1), 'Termine aus dem Abstand');
+    assert(/Fütterung 2\/3/.test(sortiert[0].titel), `Titel falsch: ${sortiert[0].titel}`);
+    assert(/2 Völker/.test(sortiert[0].notiz), 'gewählte Völker in der Notiz');
+    assertEq(sortiert[0].kategorie, 'Fütterung', 'Tätigkeit gesetzt');
+    for (const a of neueA) await w.DB.del('aufgaben', a.id);
+    for (const x of neueF) await w.DB.del('fuetterungen', x.id);
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+test('Fütterung ohne Rechner: Zähler bleibt bei der Listenzahl', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;  // Reste vorheriger Tests
+  await w.Views.fuetterung.sammelForm();
+  await new Promise((r) => setTimeout(r, 250));
+  const f = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const aktive = (await w.DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    assertEq(f.querySelector('[data-zahl]').textContent, `0 von ${aktive} ausgewählt`, 'ohne Rechner zählt die ganze Liste');
+    assertEq(f.querySelector('[data-anpassen]'), null, 'kein Anpassen-Knopf');
+    assertEq([...f.querySelectorAll('.modal-foot .btn-primary')].length, 1, 'nur ein Speichern-Knopf');
+    assertEq(f.querySelector('#f-mengeKg').value, '', 'keine vorbelegte Menge');
+  } finally { f.remove(); w.FormGuard.dirty = false; }
 });
 
 /* ---------- Rechnung: Pfand, Rabatt und Skonto ---------- */
