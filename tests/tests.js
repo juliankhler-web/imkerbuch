@@ -1251,23 +1251,66 @@ test('Übernahme aus dem Rechner ist in sich schlüssig', (w) => {
   nah(zurueck.kg, zucker, 0.06, 'Mengenfeld und Zuckerbedarf stimmen überein');
   assertEq(zurueck.geschaetzt, false, 'und gilt nicht als Schätzung');
 });
+test('verhaeltnisAusFutterart: liest das Mischverhältnis heraus', (w) => {
+  assertEq(w.verhaeltnisAusFutterart('Zuckerwasser 3:2'), '3:2', '3:2');
+  assertEq(w.verhaeltnisAusFutterart('Zuckersirup 1:1'), '1:1', '1:1');
+  assertEq(w.verhaeltnisAusFutterart('Zuckerwasser 2 : 1'), '2:1', 'mit Leerzeichen');
+  assertEq(w.verhaeltnisAusFutterart('Futterteig'), null, 'Teig hat keins');
+  assertEq(w.verhaeltnisAusFutterart(''), null, 'leer');
+  nah(w.sirupAnteilProzent('3:2'), 60, 0.01, '3:2 = 60 %');
+  nah(w.sirupAnteilProzent('1:1'), 50, 0.01, '1:1 = 50 %');
+  nah(w.sirupAnteilProzent('2:1'), 66.667, 0.01, '2:1 = 66,7 %');
+  nah(w.sirupAnteilProzent(null), 60, 0.01, 'ohne Angabe wie 3:2');
+});
+test('sirupLiterAusFuetterung: Liter nur, wo ein Verhältnis dransteht', (w) => {
+  nah(w.sirupLiterAusFuetterung({ futterart: 'Zuckerwasser 1:1', mengeKg: 9 }), w.literAusZucker(9, '1:1'), 0.01, '9 kg Zucker als 1:1');
+  // dieselbe Zuckermenge dick angesetzt ergibt weniger Liter
+  assert(w.sirupLiterAusFuetterung({ futterart: 'Zuckerwasser 3:2', mengeKg: 9 })
+    < w.sirupLiterAusFuetterung({ futterart: 'Zuckerwasser 1:1', mengeKg: 9 }), '3:2 braucht weniger Liter');
+  assertEq(w.sirupLiterAusFuetterung({ futterart: 'Futterteig', mengeKg: 5 }), null, 'Teig wird nicht angesetzt');
+  assertEq(w.sirupLiterAusFuetterung({ futterart: 'Winterfutter (fertig)', mengeKg: 5 }), null, 'ohne Anhalt nichts');
+});
+test('Volk-Ansicht: keine doppelte Zuckerspalte, dafür die Liter', async (w) => {
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv');
+  const f1 = await w.DB.put('fuetterungen', { volkId: volk.id, datum: w.U.todayIso(), futterart: 'Zuckerwasser 1:1', mengeKg: 9, winterfutter: true });
+  const box = w.document.createElement('div'); w.document.body.appendChild(box);
+  try {
+    await w.Views.volk.tabFutter(box, volk);
+    let kopf = [...box.querySelectorAll('.tbl thead th')].map((e) => e.textContent.trim());
+    assert(kopf.includes('Sirup (L)'), `Literspalte fehlt: ${kopf.join(' | ')}`);
+    assert(!kopf.includes('davon Zucker (kg)'), `doppelte Zuckerspalte: ${kopf.join(' | ')}`);
+    const liter = w.literAusZucker(9, '1:1');
+    assert(box.textContent.includes(w.U.fmtNum(liter, 1)), `Litermenge fehlt (${w.U.fmtNum(liter, 1)})`);
+    // Futterteig: dort sagt die Zuckerspalte etwas Neues, also erscheint sie
+    const f2 = await w.DB.put('fuetterungen', { volkId: volk.id, datum: w.U.todayIso(), futterart: 'Futterteig', mengeKg: 5, winterfutter: true });
+    await w.Views.volk.tabFutter(box, volk);
+    kopf = [...box.querySelectorAll('.tbl thead th')].map((e) => e.textContent.trim());
+    assert(kopf.includes('davon Zucker (kg)'), `bei Teig muss die Zuckerspalte kommen: ${kopf.join(' | ')}`);
+    await w.DB.del('fuetterungen', f2.id);
+  } finally { box.remove(); await w.DB.del('fuetterungen', f1.id); }
+});
 test('Fütterung: Rechner-Knopf und Zucker-Kachel sind da', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.fuetterung.render(host);
     assert(host.querySelector('#frech'), 'Futter-Rechner im Reiter erreichbar');
-    assert(/Zucker verbraucht/.test(host.textContent), 'Kachel Zucker verbraucht');
+    const kacheln = [...host.querySelectorAll('.stat .s-label')].map((e) => e.textContent.trim());
+    assert(kacheln.some((t) => /^Zucker \d{4}$/.test(t)), `Zucker-Kachel fehlt: ${kacheln.join(' | ')}`);
+    assert(kacheln.some((t) => /Sirup angesetzt/.test(t)), `Sirup-Kachel fehlt: ${kacheln.join(' | ')}`);
+    assert(!kacheln.some((t) => /^Futter \d{4}$/.test(t)), 'die doppelte Futter-Kachel ist entfallen');
   } finally { host.remove(); }
 });
 test('Futter-Rechner: Futter je Volk → Zucker, Wasser, Sirup', (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   host.innerHTML = w.futterRechnerHtml(6);
   try {
+    assertEq(host.querySelector('[data-fr="verh"]').value, '1:1', 'Vorbelegung ist dünn');
+    host.querySelector('[data-fr="verh"]').value = '3:2';   // die Zahlen unten gelten für dick
     const plan = w.futterRechnerRechnen(host);
     assertEq(plan.voelker, 6, '6 Völker');
     assertEq(plan.jeVolk, 15, '15 kg je Volk');
-    assertEq(plan.verh, '3:2', 'Vorbelegung dick');
-    nah(plan.zuckerJeVolk, 14.71, 0.02, 'Zucker je Volk');
+    assertEq(plan.verh, '3:2', 'umgestellt auf dick');
+    nah(plan.zuckerJeVolk, 14.71, 0.02, 'Zucker je Volk – unabhängig vom Verhältnis');
     nah(plan.wasserJeVolk, 9.8, 0.02, 'Wasser je Volk bei 3:2');
     nah(plan.sirupJeVolk.liter, 19.06, 0.05, 'Sirup je Volk in Liter');
     nah(plan.zucker, 88.24, 0.05, 'Zucker gesamt');
@@ -1292,6 +1335,8 @@ test('Futter-Rechner: verteilt auf Fütterungen – Liter je Volk und Gabe', (w)
     assert(host.querySelector('[data-fr="abstand"]'), 'Abstand in Tagen');
     assert(host.querySelector('[data-fr="beginn"]'), 'Beginn');
     assert(host.querySelector('[data-fr="erste"]'), 'eigene Menge für die 1. Fütterung');
+    assertEq(host.querySelector('[data-fr="verh"]').value, '1:1', 'Vorbelegung ist 1:1 dünn');
+    host.querySelector('[data-fr="verh"]').value = '3:2';        // die Zahlen unten gelten für dick
     const plan = w.futterRechnerRechnen(host);
     assertEq(plan.anzahl, 4, 'vier Gaben vorbelegt');
     assertEq(plan.abstand, 7, 'sieben Tage Abstand');
@@ -1308,7 +1353,13 @@ test('Futter-Rechner: verteilt auf Fütterungen – Liter je Volk und Gabe', (w)
     assertEq(w.U.daysBetween(plan.termine[0], plan.termine[3]), 21, '3 × 7 Tage bis zum letzten');
     const out = host.querySelector('.fr-out').textContent;
     assert(/Je Volk und Fütterung/.test(out), 'eigene Kachel für die Gabe');
-    assert(/Termine:/.test(out), 'Termine stehen im Klartext');
+    assert(/Was an jedem Termin zu tun ist/.test(out), 'Tabelle mit den Terminen');
+    const zeilen = [...host.querySelectorAll('.fr-out table.tbl tbody tr')];
+    assertEq(zeilen.length, plan.anzahl + 1, 'je Termin eine Zeile plus Summe');
+    assert(zeilen[0].textContent.includes(w.U.fmtDate(plan.termine[0])), 'erster Termin in der Tabelle');
+    // die Ansatzmenge für alle Völker muss dort stehen, nicht selbst zu rechnen sein
+    assert(zeilen[0].textContent.includes(w.U.fmtNum(plan.gabeErste.zucker * plan.voelker, 1)), 'Zucker zum Abwiegen fehlt');
+    assert(zeilen[0].textContent.includes(w.U.fmtNum(plan.gabeErste.wasser * plan.voelker, 1)), 'Wasser fehlt');
   } finally { host.remove(); }
 });
 test('Futter-Rechner: eine Fütterung = ungeteilte Gesamtmenge', (w) => {
@@ -1345,6 +1396,7 @@ test('Futter-Rechner: erste Gabe in Liter, Rest gleichmäßig', (w) => {
   host.innerHTML = w.futterRechnerHtml(6);
   try {
     host.querySelector('[data-fr="anzahl"]').value = '4';
+    host.querySelector('[data-fr="verh"]').value = '3:2';
     host.querySelector('[data-fr="erste"]').value = '6';        // 6 LITER beim ersten Mal
     const plan = w.futterRechnerRechnen(host);
     assertEq(plan.eigeneErste, true, 'erste Gabe ist als eigene erkannt');
@@ -1482,7 +1534,7 @@ test('Rechner-Weg: eigenes Liter-Feld, das mit den Kilogramm mitrechnet', async 
   await new Promise((r) => setTimeout(r, 200));
   const rb = [...w.document.querySelectorAll('.modal-back')].pop();
   const setz = (k, v) => { const e = rb.querySelector(`[data-fr="${k}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
-  setz('voelker', '2'); setz('anzahl', '2'); setz('erste', '6');
+  setz('voelker', '2'); setz('anzahl', '2'); setz('erste', '6'); setz('verh', '3:2');
   await new Promise((r) => setTimeout(r, 100));
   const plan = w.futterRechnerRechnen(rb);
   rb.querySelector('[data-take]').click();
@@ -1806,10 +1858,26 @@ test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
     await w.Pdf.fuetterungsliste(jahr);
     const doc = w.Pdf.lastDocForTest;
     assert(doc, 'PDF wurde gebaut');
-    assert(/Zucker/.test(JSON.stringify(doc.lastAutoTable.head || '')), 'Spaltenkopf Zucker kg');
+    /* Dieser Eintrag hat 24,5 kg Menge und 14,7 kg eigenen Zucker – die Spalte
+       sagt hier also etwas Neues und muss erscheinen. Dazu die Litermenge. */
+    const kopf = JSON.stringify(doc.lastAutoTable.head || '');
+    assert(/Sirup L/.test(kopf), `Spaltenkopf „Sirup L" fehlt: ${kopf.slice(0, 220)}`);
+    assert(/davon Zucker/.test(kopf), `abweichender Zucker muss als Spalte kommen: ${kopf.slice(0, 220)}`);
   } finally { w.Pdf.noDownloadForTest = false; }
 });
 
+test('Fütterungs-PDF: keine doppelte Zuckerspalte bei Zuckerwasser', async (w) => {
+  const jahr = '2024';
+  const v = (await w.DB.getAll('voelker'))[0];
+  const f = await w.DB.put('fuetterungen', { volkId: v.id, datum: `${jahr}-08-15`, futterart: 'Zuckerwasser 1:1', mengeKg: 9, winterfutter: true });
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.Pdf.fuetterungsliste(jahr);
+    const kopf = JSON.stringify(w.Pdf.lastDocForTest.lastAutoTable.head || '');
+    assert(!/davon Zucker/.test(kopf), `Menge IST der Zucker – keine zweite Spalte: ${kopf.slice(0, 220)}`);
+    assert(/Sirup L/.test(kopf), 'dafür die Litermenge');
+  } finally { w.Pdf.noDownloadForTest = false; await w.DB.del('fuetterungen', f.id); }
+});
 test('Rechner: keine Futter-Rechner mehr – die stehen bei der Fütterung', async (w) => {
   /* Volksstärke ist entfallen, und die Gruppe „Fütterung“ ist ganz aus dem
      Rechner heraus: gefüttert wird im Reiter Fütterung, dort sitzt der Rechner. */
@@ -2317,10 +2385,12 @@ test('Mischverhältnis: heißt „3:2 dick“ und „1:1 dünn“, Werte unverä
   try {
     const sel = host.querySelector('[data-fr="verh"]');
     assert(sel, 'Mischverhältnis-Auswahl vorhanden');
+    assertEq(sel.value, '1:1', 'von Anfang an 1:1 dünn');
     const opts = [...sel.options].map((o) => ({ v: o.value, t: o.textContent.trim() }));
     assertEq(opts.map((o) => o.v), ['3:2', '1:1'], 'Werte für die Rechnung unverändert');
     assertEq(opts.map((o) => o.t), ['3:2 dick', '1:1 dünn'], 'Beschriftung ist dick bzw. dünn – ohne weitere Erklärung');
-    // Umschalten auf 1:1 muss mehr Wasser ergeben
+    // Umschalten muss die Wassermenge ändern
+    sel.value = '3:2';
     const dick = w.futterRechnerRechnen(host).wasserJeVolk;
     sel.value = '1:1';
     const duenn = w.futterRechnerRechnen(host).wasserJeVolk;

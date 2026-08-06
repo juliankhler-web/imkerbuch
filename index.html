@@ -553,6 +553,9 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .cal .c-day .c-dots{display:flex;gap:2px;position:absolute;bottom:5px}
 .cal .c-day .c-dots i{width:5px;height:5px;border-radius:50%;background:var(--honey-dark)}
 .cal .c-day .c-dots i.overdue{background:var(--danger)}
+/* Futter-Rechner: die Mengen, die man wirklich abwiegt, sollen ins Auge fallen */
+.tbl td.stark{font-weight:800;font-size:15px;color:var(--honey-deep)}
+.tbl th.stark{color:var(--honey-deep)}
 .cal .c-day .c-dots i.fertig{background:var(--ok)}       /* erledigt: grün – der Tag ist abgehakt */
 .cal .c-day.clickable:hover{background:var(--card2);cursor:pointer}
 .wizard-hex{display:flex;justify-content:center;margin:10px 0 16px}
@@ -919,9 +922,9 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.22';
+const APP_VERSION = '1.23';
 const CHANGELOG = [
-  { version: '1.22', datum: '2026-08-01', punkte: [
+  { version: '1.23', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
@@ -936,6 +939,10 @@ const CHANGELOG = [
     'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt außerhalb von Rabatt, Skonto und Umsatzsteuer – er wird nur ausgewiesen.',
     'Kunden lassen sich jetzt dort anlegen, wo man sie braucht: in der Rechnung direkt neben der Kundenauswahl und ebenso beim Verkauf. Der neue Kunde ist sofort gesetzt – der Umweg über Kassenbuch → Kunden & Lieferanten fällt weg.',
     'Die erste Fütterung darf eine eigene Menge haben, und zwar in <b>Litern Sirup</b> – so wie du es einfüllst. Die App rechnet daraus, wie viel Futter das ergibt, und verteilt den Rest gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
+    'Im Reiter „Fütterung" zeigten „Futter" und „Zucker verbraucht" dieselbe Zahl. Jetzt stehen dort drei verschiedene Größen: <b>Zucker</b> (kg), <b>Sirup angesetzt</b> (Liter) und der Zucker in den Winterfutter-Gaben. In der Liste steht unter den Kilogramm die Litermenge.',
+    'Beim Volk stand in der Fütterungs-Tabelle zweimal dieselbe Zahl („Menge" und „Zucker"), weil die Menge bei Zuckerwasser schon der reine Zucker ist. Die Zuckerspalte erscheint jetzt nur noch, wenn sie etwas Neues sagt – etwa bei Futterteig oder Fertigsirup. Dafür steht dort neu die Spalte „Sirup (L)": wie viel Liter tatsächlich ins Volk gelaufen sind, samt Summe darunter.',
+    'Das Mischverhältnis steht jetzt von Anfang an auf 1:1 dünn.',
+    'Der Futter-Rechner zeigt unter den Kacheln jetzt eine Tabelle „Was an jedem Termin zu tun ist“: je Termin steht dort, wie viel Zucker du abwiegen und wie viel Wasser du dazugeben musst, damit es für alle Völker reicht, und wie viel Liter je Volk hineingehen – plus eine Zeile für alle Gaben zusammen. Du musst nichts mehr selbst umrechnen; die Mengen zum Abwiegen stehen größer und in Honigfarbe, damit sie ins Auge fallen.',
     'Der Futter-Rechner kennt jetzt Anzahl der Fütterungen, Abstand in Tagen und den Beginn. Die wichtigste Zahl steht als eigene Kachel: <b>Liter Sirup je Volk und Fütterung</b> – dazu, wie viel du je Termin für alle Völker ansetzen musst, und die Termine im Klartext.',
     'Neuer Knopf „Plan als Aufgaben“: legt für jeden Termin eine Aufgabe an – mit Menge je Volk im Titel und der Ansatzmenge in der Notiz.',
     '„Als Fütterung übernehmen“ übernimmt jetzt eine einzelne Gabe (nicht die Gesamtmenge) und setzt den Abstand gleich als Wiedervorlage.',
@@ -3825,10 +3832,26 @@ Views.volk = {
     const list = U.sortBy((await DB.getAll('fuetterungen')).filter((f) => f.volkId === v.id), (f) => f.datum, true);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('honig')}<h2>Fütterungen</h2><button class="btn btn-primary btn-sm no-print" id="fAdd">${icon('plus')} Fütterung</button></div>
-      ${list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num">Menge (kg)</th><th class="num">Zucker (kg)</th><th>Winterfutter</th><th></th></tr></thead>
-        <tbody>${list.map((f) => { const z = zuckerAusFuetterung(f); return `<tr><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td><td class="num">${U.fmtNum(f.mengeKg)}</td><td class="num">${z ? (z.geschaetzt ? '≈ ' : '') + U.fmtNum(z.kg, 1) : '–'}</td><td>${f.winterfutter ? '<span class="badge b-blue">Winterfutter</span>' : '–'}</td>
-        <td class="no-print"><button class="btn btn-xs btn-ghost" data-fe="${f.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
-        <div class="small muted mt8">Gesamt: ${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''} · Zucker: ${(() => { const zs = list.map(zuckerAusFuetterung).filter(Boolean); return (zs.some((z) => z.geschaetzt) ? '≈ ' : '') + U.fmtNum(U.sum(zs, (z) => z.kg), 1); })()} kg</div>`
+      ${list.length ? (() => {
+        /* „Menge" ist bei Zuckerwasser schon der reine Zucker – dann wäre eine
+           zweite Zuckerspalte nur dieselbe Zahl. Sie erscheint deshalb nur, wenn
+           sie etwas Neues sagt (Futterteig, Fertigsirup). Dafür stehen die Liter
+           Sirup da: das ist die Menge, die tatsächlich ins Volk gelaufen ist. */
+        const zucker = list.map(zuckerAusFuetterung);
+        const liter = list.map(sirupLiterAusFuetterung);
+        const zeigtZucker = list.some((f, i) => zucker[i] && Math.abs(zucker[i].kg - (f.mengeKg || 0)) > 0.01);
+        const zeigtLiter = liter.some((l) => l != null);
+        const zSumme = U.sum(zucker.filter(Boolean), (z) => z.kg);
+        const lSumme = U.sum(liter.filter((l) => l != null), (l) => l);
+        return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num stark">Menge (kg)</th>${zeigtZucker ? '<th class="num">davon Zucker (kg)</th>' : ''}${zeigtLiter ? '<th class="num stark">Sirup (L)</th>' : ''}<th>Winterfutter</th><th></th></tr></thead>
+        <tbody>${list.map((f, i) => `<tr><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td>
+          <td class="num stark">${U.fmtNum(f.mengeKg)}</td>
+          ${zeigtZucker ? `<td class="num">${zucker[i] ? (zucker[i].geschaetzt ? '≈ ' : '') + U.fmtNum(zucker[i].kg, 1) : '–'}</td>` : ''}
+          ${zeigtLiter ? `<td class="num stark">${liter[i] != null ? U.fmtNum(liter[i], 1) : '–'}</td>` : ''}
+          <td>${f.winterfutter ? '<span class="badge b-blue">Winterfutter</span>' : '–'}</td>
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-fe="${f.id}">${icon('pencil')}</button></td></tr>`).join('')}</tbody></table></div>
+        <div class="small muted mt8">Gesamt: <b>${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg</b>${zeigtZucker ? ` · davon Zucker: ${U.fmtNum(zSumme, 1)} kg` : ' Zucker'}${zeigtLiter ? ` · angesetzt: <b>${U.fmtNum(lSumme, 1)} L</b> Sirup` : ''}${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''}</div>`;
+      })()
       : emptyState('honig', 'Noch keine Fütterung erfasst.')}
     </div>`;
     const form = async (f) => UI.formModal({
@@ -5094,29 +5117,35 @@ Views.fuetterung = {
     const jahre = [...new Set(alle.map((f) => (f.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
     const jahr = Views.fuetterung._jahr || jahre[0] || U.todayIso().slice(0, 4);
     const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
+    /* „Futter" und „Zucker verbraucht" waren zwei Kacheln mit derselben Zahl:
+       bei Zuckerwasser IST die erfasste Menge der reine Zucker. Jetzt steht der
+       Zucker einmal, daneben die angesetzten Liter – zwei verschiedene Größen. */
     const kg = U.sum(list, (f) => f.mengeKg);
-    const wKg = U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg);
-    // verbrauchter Zucker: eigene Einträge, sonst aus der Futterart geschätzt (≈)
-    const zList = list.map(zuckerAusFuetterung).filter(Boolean);
-    const zKg = U.sum(zList, (z) => z.kg);
-    const zGesch = zList.some((z) => z.geschaetzt);
-    const zOffen = list.length - zList.length;
+    const zList = list.map(zuckerAusFuetterung);
+    const zKg = U.sum(zList.filter(Boolean), (z) => z.kg);
+    const zGesch = zList.some((z) => z && z.geschaetzt);
+    const zOffen = zList.filter((z) => !z).length;
+    const wZucker = U.sum(list.map((f, i) => (f.winterfutter && zList[i] ? zList[i].kg : 0)), (x) => x);
+    const lList = list.map(sirupLiterAusFuetterung);
+    const lSumme = U.sum(lList.filter((l) => l != null), (l) => l);
+    const lAnzahl = lList.filter((l) => l != null).length;
+    const mengeAbweichend = Math.abs(kg - zKg) > 0.05;
     main.innerHTML = pageHead('Fütterung', 'Viele Völker auf einmal füttern – nach Stand und Funktion gefiltert. Jede Fütterung landet automatisch beim Volk.',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fuetterungsliste('${jahr}')">${icon('doc')} Liste ${jahr} (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Fütterung</button>
        <button class="btn btn-primary" id="frech">${icon('plus')} Fütterung mit Futter-Rechner</button></span>`) +
       (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
-        <div class="stat"><div class="s-label">${icon('futter')} Futter ${jahr}</div><div class="s-value">${U.fmtNum(kg)} kg</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fütterung' : 'Fütterungen'}</div></div>
-        <div class="stat"><div class="s-label">${icon('wetter')} davon Winterfutter</div><div class="s-value">${U.fmtNum(wKg)} kg</div></div>
-        <div class="stat"><div class="s-label">${icon('flask')} Zucker verbraucht</div><div class="s-value">${zGesch ? '≈ ' : ''}${U.fmtNum(zKg)} kg</div><div class="s-sub">${zGesch ? 'teils aus der Futterart gerechnet' : 'selbst eingetragen'}${zOffen ? ` · ${zOffen} ohne Angabe` : ''}</div></div>
+        <div class="stat"><div class="s-label">${icon('flask')} Zucker ${jahr}</div><div class="s-value">${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fütterung' : 'Fütterungen'}${mengeAbweichend ? ` · aus ${U.fmtNum(kg)} kg erfasster Menge` : ''}${zOffen ? ` · ${zOffen} ohne Angabe` : ''}</div></div>
+        <div class="stat"><div class="s-label">${icon('futter')} Sirup angesetzt</div><div class="s-value">${U.fmtNum(lSumme, 1)} L</div><div class="s-sub">${lAnzahl === list.length ? 'alle Einträge' : `bei ${lAnzahl} von ${list.length} Einträgen`} mit Mischverhältnis</div></div>
+        <div class="stat"><div class="s-label">${icon('wetter')} davon Winterfutter</div><div class="s-value">${U.fmtNum(wZucker, 1)} kg</div><div class="s-sub">Zucker in den Winterfutter-Gaben</div></div>
       </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
         <button class="row" data-id="${f.id}">
           <span class="r-ic">${icon('futter')}</span>
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(f.volkId)?.name || 'gelöschtes Volk')}${f.winterfutter ? ' <span class="badge b-blue">Winterfutter</span>' : ''}</span>
           <span class="r-sub">${U.fmtDate(f.datum)} · ${U.esc(f.futterart || '')}</span></span>
-          <span class="r-side"><b>${U.fmtNum(f.mengeKg)} kg</b></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
+          <span class="r-side"><b>${U.fmtNum(f.mengeKg)} kg</b>${sirupLiterAusFuetterung(f) != null ? `<br><span class="small muted">${U.fmtNum(sirupLiterAusFuetterung(f), 1)} L Sirup</span>` : ''}</span>${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('futter', 'Noch keine Fütterung erfasst. Mit einem Eintrag fütterst du gleich einen ganzen Stand – oder gefiltert nur z. B. die Wirtschaftsvölker.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Fütterung</button>`)) + `</div>`;
     bindAdd(() => Views.fuetterung.sammelForm());
     const fr = $('#frech', main); if (fr) fr.onclick = () => Views.fuetterung.rechnerBlatt();
@@ -7237,8 +7266,26 @@ function futterAusZucker(zuckerKg, minderungProzent = FUTTER_MINDERUNG) {
 
 /** Umkehrung – das ist die Rechnung, die man wirklich braucht: wie viel Zucker
     für eine gewünschte Menge TATSÄCHLICH eingelagertes Futter. */
-/** Zuckeranteil einer Mischung in Massenprozent: 3:2 = 60 %, 1:1 = 50 %. */
-function sirupAnteilProzent(verhaeltnis) { return verhaeltnis === '1:1' ? 50 : 60; }
+/** Mischverhältnis aus einer Futterart-Bezeichnung: „Zuckerwasser 3:2" → „3:2".
+    null, wenn keins drinsteht (Futterteig, Fertigsirup, Honig). */
+function verhaeltnisAusFutterart(futterart) {
+  const m = String(futterart || '').match(/(\d+)\s*:\s*(\d+)/);
+  return m ? `${m[1]}:${m[2]}` : null;
+}
+/** Zuckeranteil einer Mischung in Massenprozent: 3:2 = 60 %, 1:1 = 50 %, 2:1 = 66,7 %. */
+function sirupAnteilProzent(verhaeltnis) {
+  const m = String(verhaeltnis || '').match(/^(\d+)\s*:\s*(\d+)$/);
+  if (!m) return 60;
+  const z = +m[1], w = +m[2];
+  return z + w > 0 ? (z / (z + w)) * 100 : 60;
+}
+/** Liter Sirup einer erfassten Fütterung – null, wenn die Futterart kein
+    Mischverhältnis nennt (bei Teig oder Fertigsirup gibt es keine Ansatzmenge). */
+function sirupLiterAusFuetterung(f) {
+  const verh = verhaeltnisAusFutterart(f && f.futterart);
+  const z = zuckerAusFuetterung(f);
+  return verh && z ? literAusZucker(z.kg, verh) : null;
+}
 /** Wie viel reiner Zucker steckt in x Litern angesetztem Sirup?
     Über die Dichte, denn Zuckerlösung ist nicht volumenaddierend. */
 function zuckerAusSirupLiter(liter, verhaeltnis) {
@@ -7302,7 +7349,7 @@ function futterRechnerHtml(aktiveV) {
   return `<div class="grid2">
       <div class="field"><label>Eingelagertes Futter je Volk (kg)</label><input class="inp rk" data-fr="jeVolk" inputmode="decimal" value="15">
         <span class="small muted">Was am Ende im Volk stehen soll – üblich 15–18 kg.</span></div>
-      <div class="field"><label>Mischverhältnis</label><select class="inp rk" data-fr="verh"><option value="3:2">3:2 dick</option><option value="1:1">1:1 dünn</option></select></div>
+      <div class="field"><label>Mischverhältnis</label><select class="inp rk" data-fr="verh"><option value="3:2">3:2 dick</option><option value="1:1" selected>1:1 dünn</option></select></div>
       <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-fr="voelker" inputmode="numeric" value="${aktiveV || 6}"></div>
       <div class="field"><label>Minderung beim Eindicken (%)</label><input class="inp rk" data-fr="minderung" inputmode="decimal" value="${FUTTER_MINDERUNG}">
         <span class="small muted">Das Volk verbraucht fürs Eindicken selbst Futter – üblich 10–20 %.</span></div>
@@ -7364,9 +7411,25 @@ function futterRechnerRechnen(root) {
       <div class="stat"><div class="s-label">${eigeneErste ? '1. Fütterung je Volk' : 'Je Volk und Fütterung'}</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(gabeErste.sirup.liter, 1)} L</div><div class="s-sub">${U.fmtNum(gabeErste.zucker, 1)} kg Zucker · ${U.fmtNum(gabeErste.futter, 1)} kg Futter</div></div>
       ${eigeneErste ? `<div class="stat"><div class="s-label">Folgefütterungen je Volk</div><div class="s-value">${U.fmtNum(gabeRest.sirup.liter, 1)} L</div><div class="s-sub">${U.fmtNum(gabeRest.zucker, 1)} kg Zucker · ${anzahl - 1} × ${U.fmtNum(gabeRest.futter, 1)} kg Futter</div></div>` : ''}
     </div>
-    ${voelker > 0 && jeVolk > 0 ? `<div class="small muted mt8">Je Volk gesamt: <b>${U.fmtNum(zuckerJeVolk, 1)} kg Zucker</b> + ${U.fmtNum(wasserJeVolk, 1)} L Wasser = ${U.fmtNum(sirupJeVolk.liter, 1)} L Sirup, verteilt auf ${anzahl} ${anzahl === 1 ? 'Fütterung' : `Fütterungen alle ${abstand} Tage`}.</div>
-    <div class="small muted mt8">Je Termin für alle ${voelker} Völker ansetzen: ${eigeneErste ? `beim 1. Mal <b>${U.fmtNum(gabeErste.ansatz.liter, 1)} L</b>, danach je <b>${U.fmtNum(gabeRest.ansatz.liter, 1)} L</b>` : `<b>${U.fmtNum(gabeErste.ansatz.liter, 1)} L</b>`}.</div>
-    <div class="small muted mt8">Termine: ${termine.map((t, i) => `${U.fmtDate(t)} (${U.fmtNum(gaben[i].sirup.liter, 1)} L)`).join(' · ')}</div>` : ''}`;
+    ${voelker > 0 && jeVolk > 0 ? `<div class="small muted mt12">Je Volk über die ganze Auffütterung: <b>${U.fmtNum(zuckerJeVolk, 1)} kg Zucker</b> + ${U.fmtNum(wasserJeVolk, 1)} L Wasser = ${U.fmtNum(sirupJeVolk.liter, 1)} L Sirup${anzahl === 1 ? ' in einer Gabe' : `, verteilt auf ${anzahl} Gaben alle ${abstand} Tage`}.</div>
+    <div class="small muted mt12 mb8" style="font-weight:600">Was an jedem Termin zu tun ist</div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Termin</th><th class="num stark">Sirup je Volk</th><th class="num">Zucker je Volk</th><th class="num stark">Zucker abwiegen</th><th class="num stark">Wasser dazu</th><th class="num">Sirup ergibt</th></tr></thead>
+      <tbody>
+        ${termine.map((t, i) => `<tr><td><b>${i + 1}.</b> ${U.fmtDate(t)}</td>
+          <td class="num stark">${U.fmtNum(gaben[i].sirup.liter, 1)} L</td>
+          <td class="num">${U.fmtNum(gaben[i].zucker, 1)} kg</td>
+          <td class="num stark">${U.fmtNum(gaben[i].zucker * voelker, 1)} kg</td>
+          <td class="num stark">${U.fmtNum(gaben[i].wasser * voelker, 1)} L</td>
+          <td class="num">${U.fmtNum(gaben[i].ansatz.liter, 1)} L</td></tr>`).join('')}
+        <tr><td><b>Alle ${anzahl} zusammen</b></td>
+          <td class="num stark">${U.fmtNum(sirupJeVolk.liter, 1)} L</td>
+          <td class="num">${U.fmtNum(zuckerJeVolk, 1)} kg</td>
+          <td class="num stark">${U.fmtNum(zucker, 1)} kg</td>
+          <td class="num stark">${U.fmtNum(wasser, 1)} L</td>
+          <td class="num">${U.fmtNum(sirup.liter, 1)} L</td></tr>
+      </tbody></table></div>
+    <div class="small muted mt8">„Abwiegen" und „dazu" gelten für alle ${voelker} ${voelker === 1 ? 'Volk' : 'Völker'} zusammen – daraus wird die Litermenge rechts, und davon füllst du je Volk die Menge links ein.</div>` : ''}`;
 
   return { voelker, jeVolk, verh, minderung: mind ?? FUTTER_MINDERUNG,
     bedarf: jeVolk * voelker, zucker, wasser, sirup,
@@ -9221,19 +9284,38 @@ const Pdf = {
       const list = U.sortBy((await DB.getAll('fuetterungen')).filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum);
       const voelker = await idMap('voelker');
       const kg = U.sum(list, (f) => f.mengeKg);
-      // verbrauchter Zucker: eigener Eintrag, sonst aus der Futterart gerechnet (≈)
+      /* Zucker steht nur als eigene Spalte, wenn er von der erfassten Menge
+         abweicht – bei Zuckerwasser IST die Menge der Zucker. Dafür die Liter. */
       const zucker = list.map(zuckerAusFuetterung);
+      const liter = list.map(sirupLiterAusFuetterung);
       const zKg = U.sum(zucker.filter(Boolean), (z) => z.kg);
+      const lSumme = U.sum(liter.filter((l) => l != null), (l) => l);
       const zGesch = zucker.some((z) => z && z.geschaetzt);
       const zOffen = zucker.filter((z) => !z).length;
-      const { doc, y } = await this.newDoc(`Fütterungen ${jahr}`, `${list.length} Fütterungen · ${U.fmtNum(kg)} kg gesamt · davon Winterfutter ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg · Zucker ${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg`);
+      const zeigtZucker = list.some((f, i) => zucker[i] && Math.abs(zucker[i].kg - (f.mengeKg || 0)) > 0.01);
+      const zeigtLiter = liter.some((l) => l != null);
+      const kopf = ['Datum', 'Volk', 'Futterart', 'kg'];
+      if (zeigtZucker) kopf.push('davon Zucker kg');
+      if (zeigtLiter) kopf.push('Sirup L');
+      kopf.push('Winterfutter');
+      const { doc, y } = await this.newDoc(`Fütterungen ${jahr}`,
+        `${list.length} Fütterungen · Zucker ${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg`
+        + (zeigtLiter ? ` · angesetzt ${U.fmtNum(lSumme, 1)} L Sirup` : '')
+        + ` · davon Winterfutter ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg`);
       const body = list.map((f, i) => {
-        const z = zucker[i];
-        return [U.fmtDate(f.datum), voelker.get(f.volkId)?.name || 'gelöscht', f.futterart || '', U.fmtNum(f.mengeKg),
-          z ? (z.geschaetzt ? '≈ ' : '') + U.fmtNum(z.kg, 1) : '–', f.winterfutter ? 'ja' : ''];
+        const zeile = [U.fmtDate(f.datum), voelker.get(f.volkId)?.name || 'gelöscht', f.futterart || '', U.fmtNum(f.mengeKg)];
+        if (zeigtZucker) zeile.push(zucker[i] ? (zucker[i].geschaetzt ? '~ ' : '') + U.fmtNum(zucker[i].kg, 1) : '-');
+        if (zeigtLiter) zeile.push(liter[i] != null ? U.fmtNum(liter[i], 1) : '-');
+        zeile.push(f.winterfutter ? 'ja' : '');
+        return zeile;
       });
-      body.push(['', '', 'Summe', U.fmtNum(kg), (zGesch ? '≈ ' : '') + U.fmtNum(zKg, 1), '']);
-      const endY = this.table(doc, { head: ['Datum', 'Volk', 'Futterart', 'kg', 'Zucker kg', 'Winterfutter'], body, startY: y, widths: { 3: { halign: 'right' }, 4: { halign: 'right' } } });
+      const summe = ['', '', 'Summe', U.fmtNum(kg)];
+      if (zeigtZucker) summe.push((zGesch ? '~ ' : '') + U.fmtNum(zKg, 1));
+      if (zeigtLiter) summe.push(U.fmtNum(lSumme, 1));
+      summe.push('');
+      body.push(summe);
+      const rechts = {}; for (let i = 3; i < kopf.length - 1; i++) rechts[i] = { halign: 'right' };
+      const endY = this.table(doc, { head: kopf, body, startY: y, widths: rechts });
       if (zGesch || zOffen) {
         const H = doc.internal.pageSize.getHeight();
         let ny = endY + 6;
@@ -10595,7 +10677,8 @@ Object.assign(window, {
   chartInteraktiv, tabellenBeschriften, nachRender,
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
-  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, fuetterungsPlanAufgaben, verdrahteVolkFilter,
+  sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
+  fuetterungsPlanAufgaben, verdrahteVolkFilter,
   selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,
