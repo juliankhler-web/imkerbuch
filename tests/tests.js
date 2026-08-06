@@ -1866,6 +1866,134 @@ test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
   } finally { w.Pdf.noDownloadForTest = false; }
 });
 
+/* ---------- Charge aus vorhandenem Lagerbestand ---------- */
+test('Charge: ohne Ernten ist „Lagerbestand" vorbelegt', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const ernten = await w.DB.getAll('ernten');
+  await w.Views.honig.chargeForm(null);
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const sel = m.querySelector('#f-quelle');
+    assert(sel, 'Auswahl „Woher kommt der Honig?"');
+    assertEq([...sel.options].map((o) => o.value).filter(Boolean), ['ernte', 'lager', 'beides'], 'drei Wege');
+    // im Testbestand gibt es Ernten, also ist „Ernte" vorbelegt
+    assertEq(sel.value, ernten.length ? 'ernte' : 'lager', 'Vorbelegung passt zum Bestand');
+    assert(m.querySelector('#f-lagerKg'), 'Feld für die Lagermenge');
+    assert(m.querySelector('#f-lagerHerkunft'), 'Feld für die Herkunft');
+  } finally { m.remove(); w.FormGuard.dirty = false; }
+});
+test('Charge aus Lagerbestand: Menge zählt, ohne Ernte', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const vorher = (await w.DB.getAll('chargen')).map((c) => c.id);
+  await w.Views.honig.chargeForm(null);
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let neu = null;
+  try {
+    const sel = m.querySelector('#f-quelle');
+    sel.value = 'lager'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.querySelector('#f-losnummer').value = 'LAGER-TEST';
+    const lager = m.querySelector('#f-lagerKg');
+    lager.value = '18,5'; lager.dispatchEvent(new w.Event('input', { bubbles: true }));
+    m.querySelector('#f-lagerHerkunft').value = 'Restbestand Frühtracht 2025';
+    // die Gesamtmenge muss sich von selbst füllen
+    nah(w.U.parseNum(m.querySelector('#f-mengeKg').value), 18.5, 0.01, 'Gesamtmenge folgt dem Lagerbestand');
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 600));
+    neu = (await w.DB.getAll('chargen')).find((c) => !vorher.includes(c.id));
+    assert(neu, 'Charge gespeichert');
+    assertEq(neu.ernteIds.length, 0, 'keine Ernte zugeordnet');
+    nah(neu.lagerKg, 18.5, 0.01, 'Lagermenge festgehalten');
+    nah(neu.mengeKg, 18.5, 0.01, 'Gesamtmenge = Lagermenge');
+    assertEq(neu.lagerHerkunft, 'Restbestand Frühtracht 2025', 'Herkunft festgehalten');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (neu) await w.DB.del('chargen', neu.id);
+  }
+});
+test('Charge: Ernte und Lagerbestand zusammen addieren sich', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const vorher = (await w.DB.getAll('chargen')).map((c) => c.id);
+  // eigene, garantiert freie Ernte anlegen – im Testbestand sind alle vergeben
+  const volk = (await w.DB.getAll('voelker'))[0];
+  const ernte = await w.DB.put('ernten', { datum: w.U.todayIso(), sorte: 'Mix-Test-Tracht', mengeKg: 25, zielTyp: 'volk', zielId: volk.id });
+  await w.Views.honig.chargeForm(null);
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let neu = null;
+  try {
+    const sel = m.querySelector('#f-quelle');
+    sel.value = 'beides'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.querySelector('#f-losnummer').value = 'MIX-TEST';
+    const frei = [...m.querySelectorAll(`#f-ernteIds input[value="${ernte.id}"]`)][0];
+    assert(frei && !frei.disabled, 'die eigene Ernte steht zur Auswahl');
+    frei.click();
+    const ernteMenge = w.U.parseNum(m.querySelector('#f-mengeKg').value);
+    nah(ernteMenge, 25, 0.01, 'Erntemenge übernommen');
+    const lager = m.querySelector('#f-lagerKg');
+    lager.value = '10'; lager.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(m.querySelector('#f-mengeKg').value), ernteMenge + 10, 0.05, 'Lagerbestand wird addiert');
+    m.querySelector('#f-lagerHerkunft').value = 'Eimer vom Vorjahr';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 600));
+    neu = (await w.DB.getAll('chargen')).find((c) => !vorher.includes(c.id));
+    assert(neu, 'Charge gespeichert');
+    assertEq(neu.ernteIds.length, 1, 'eine Ernte drin');
+    nah(neu.lagerKg, 10, 0.01, 'und die Lagermenge');
+    nah(neu.mengeKg, ernteMenge + 10, 0.05, 'Gesamtmenge ist die Summe');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (neu) await w.DB.del('chargen', neu.id);
+    await w.DB.del('ernten', ernte.id);
+  }
+});
+test('Charge: ohne Ernte und ohne Lagermenge geht nicht', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const vorher = (await w.DB.getAll('chargen')).length;
+  await w.Views.honig.chargeForm(null);
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const sel = m.querySelector('#f-quelle');
+    sel.value = 'lager'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.querySelector('#f-losnummer').value = 'LEER-TEST';
+    m.querySelector('#f-mengeKg').value = '';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 500));
+    assertEq((await w.DB.getAll('chargen')).length, vorher, 'nichts gespeichert');
+    assert(w.document.querySelector('.modal-back'), 'das Formular bleibt offen');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+test('Charge-Liste und Rückverfolgung nennen den Lagerbestand', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'RV-TEST', ernteIds: [], lagerKg: 12, lagerHerkunft: 'Eimer aus 2025', mengeKg: 12, mhd: null, etikettNotiz: '' });
+  const box = w.document.createElement('div'); w.document.body.appendChild(box);
+  try {
+    await w.Views.honig.tabChargen(box);
+    const zeile = [...box.querySelectorAll('.row .r-sub')].map((e) => e.textContent).find((t) => /Lagerbestand/.test(t));
+    assert(zeile, 'die Liste nennt den Lagerbestand');
+    assert(/12/.test(zeile), `mit Menge: ${zeile}`);
+    // Detail: eigene Zeile in der Rückverfolgung
+    await w.Views.honig.chargeDetail(c);
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/Lagerbestand · 12 kg/.test(m.textContent), 'Rückverfolgung zeigt den Lagerbestand');
+    assert(/Eimer aus 2025/.test(m.textContent), 'samt Herkunft');
+    m.remove();
+    // ohne Herkunft: Hinweis
+    c.lagerHerkunft = ''; await w.DB.put('chargen', c);
+    await w.Views.honig.chargeDetail(c);
+    await new Promise((r) => setTimeout(r, 250));
+    const m2 = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/fehlt die Herkunftsangabe/.test(m2.textContent), 'Hinweis auf die fehlende Herkunft');
+    m2.remove();
+  } finally {
+    box.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    await w.DB.del('chargen', c.id);
+  }
+});
+
 test('Fütterungs-PDF: keine doppelte Zuckerspalte bei Zuckerwasser', async (w) => {
   const jahr = '2024';
   const v = (await w.DB.getAll('voelker'))[0];

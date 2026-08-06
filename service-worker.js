@@ -2,7 +2,7 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v131';
+const CACHE = 'imkerbuch-v132';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/xlsx.full.min.js'];
@@ -43,6 +43,10 @@ self.addEventListener('fetch', (e) => {
   if (BYPASS_HOSTS.some((h) => url.hostname.endsWith(h))) return; // network-only
   // Testbetrieb nie cachen: Testseite und App-unter-Test immer frisch laden
   if (url.pathname.includes('/tests/') || url.searchParams.has('testdb')) return;
+  /* Die Update-Prüfung muss den Service-Worker ganz umgehen. Sonst konnte sie im
+     Fehlerfall die zwischengespeicherte Seite lesen und meldete „du hast schon
+     die neueste Version", obwohl auf dem Server längst eine neuere lag. */
+  if (url.searchParams.has('update')) return;
   // Das SW-Skript selbst nie über den SW ausliefern (Browser aktualisiert es direkt)
   if (url.pathname.endsWith('service-worker.js')) return;
 

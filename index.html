@@ -922,9 +922,9 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.23';
+const APP_VERSION = '1.24';
 const CHANGELOG = [
-  { version: '1.23', datum: '2026-08-01', punkte: [
+  { version: '1.24', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
@@ -941,6 +941,10 @@ const CHANGELOG = [
     'Die erste Fütterung darf eine eigene Menge haben, und zwar in <b>Litern Sirup</b> – so wie du es einfüllst. Die App rechnet daraus, wie viel Futter das ergibt, und verteilt den Rest gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
     'Im Reiter „Fütterung" zeigten „Futter" und „Zucker verbraucht" dieselbe Zahl. Jetzt stehen dort drei verschiedene Größen: <b>Zucker</b> (kg), <b>Sirup angesetzt</b> (Liter) und der Zucker in den Winterfutter-Gaben. In der Liste steht unter den Kilogramm die Litermenge.',
     'Beim Volk stand in der Fütterungs-Tabelle zweimal dieselbe Zahl („Menge" und „Zucker"), weil die Menge bei Zuckerwasser schon der reine Zucker ist. Die Zuckerspalte erscheint jetzt nur noch, wenn sie etwas Neues sagt – etwa bei Futterteig oder Fertigsirup. Dafür steht dort neu die Spalte „Sirup (L)": wie viel Liter tatsächlich ins Volk gelaufen sind, samt Summe darunter.',
+    'Behoben: „Nach Updates suchen" konnte im Fehlerfall die zwischengespeicherte Seite lesen und meldete dann „du hast bereits die neueste Version", obwohl auf dem Server schon eine neuere lag. Die Prüfung umgeht den Zwischenspeicher jetzt vollständig und nennt in der Meldung auch die Version, die auf dem Server liegt.',
+    'Eine Charge lässt sich jetzt auch aus vorhandenem Lagerbestand anlegen – für Honig, der schon im Eimer stand, bevor du die App benutzt hast, und dem keine Ernte zuzuordnen ist. Bei „Neue Charge“ wählst du dazu oben „Aus vorhandenem Lagerbestand“ und trägst die Menge ein; hast du noch keine Ernte erfasst, ist das gleich vorbelegt.',
+    'Beides ist kombinierbar: mit „Beides zusammen“ hakst du Ernten an <b>und</b> gibst eine Lagermenge dazu – die Gesamtmenge addiert sich von selbst.',
+    'Zum Lagerbestand gehört ein Feld „Woher stammt dieser Lagerbestand?“. Ohne erfasste Ernte ist das der einzige Herkunftsnachweis, deshalb erinnert die Charge daran, wenn es leer bleibt. In der Rückverfolgung erscheint der Lagerbestand als eigene Zeile.',
     'Das Mischverhältnis steht jetzt von Anfang an auf 1:1 dünn.',
     'Der Futter-Rechner zeigt unter den Kacheln jetzt eine Tabelle „Was an jedem Termin zu tun ist“: je Termin steht dort, wie viel Zucker du abwiegen und wie viel Wasser du dazugeben musst, damit es für alle Völker reicht, und wie viel Liter je Volk hineingehen – plus eine Zeile für alle Gaben zusammen. Du musst nichts mehr selbst umrechnen; die Mengen zum Abwiegen stehen größer und in Honigfarbe, damit sie ins Auge fallen.',
     'Der Futter-Rechner kennt jetzt Anzahl der Fütterungen, Abstand in Tagen und den Beginn. Die wichtigste Zahl steht als eigene Kachel: <b>Liter Sirup je Volk und Fütterung</b> – dazu, wie viel du je Termin für alle Völker ansetzen musst, und die Termine im Klartext.',
@@ -1341,7 +1345,7 @@ async function pruefeAufUpdate(btn) {
     const live = m && m[1];
     setBtn(original, false);
     if (!live) return UI.toast('Version konnte nicht gelesen werden.', 'err');
-    if (live === APP_VERSION) return UI.toast(`Du hast bereits die neueste Version (v${APP_VERSION}).`);
+    if (live === APP_VERSION) return UI.toast(`Du hast bereits die neueste Version (v${APP_VERSION}) – auf dem Server liegt ebenfalls v${live}.`);
     const ok = await UI.confirm({
       title: `Neue Version v${live} verfügbar`,
       text: `Du nutzt gerade v${APP_VERSION}. Jetzt auf v${live} aktualisieren? Die App lädt einmal neu – deine Daten bleiben auf dem Gerät erhalten.`,
@@ -5902,7 +5906,11 @@ Views.honig = {
         return `<button class="row" data-id="${c.id}">
           <span class="r-ic">${icon('qr')}</span>
           <span class="r-main"><span class="r-title">Los ${U.esc(c.losnummer)}</span>
-          <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ') || 'ohne Ernte-Zuordnung'}</span></span>
+          <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(() => {
+            const sorten = (c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ');
+            const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
+            return [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
+          })()}</span></span>
           <span class="r-side"><b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">nicht abgefüllt</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>`
       : emptyState('qr', 'Noch keine Charge. Eine Charge (Losnummer) macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`)}
@@ -5915,22 +5923,42 @@ Views.honig = {
     const ernten = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
     const jahr = U.todayIso().slice(0, 4);
     const bestehende = await DB.getAll('chargen');
+    /* Wer die App mitten in der Saison anfängt, hat Honig im Lager, dem keine
+       Ernte zuzuordnen ist. Ohne Ernten in der App ist „Lagerbestand" die
+       sinnvolle Vorgabe; beides zusammen ist ausdrücklich erlaubt. */
+    const quelleVorgabe = c
+      ? ((c.lagerKg > 0 && (c.ernteIds || []).length) ? 'beides' : (c.lagerKg > 0 ? 'lager' : 'ernte'))
+      : (ernten.length ? 'ernte' : 'lager');
     const mengeMap = new Map(ernten.map((e) => [e.id, e.mengeKg || 0]));
     const summeAus = (ids) => Math.round((ids || []).reduce((s, id) => s + (mengeMap.get(id) || 0), 0) * 1000) / 1000;
     const m = UI.formModal({
       title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
         { key: 'losnummer', label: 'Losnummer', required: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`, hint: 'Erscheint auf dem Etikett und im QR-Code.' },
-        { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg` })) },
-        { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', hint: 'Wird automatisch aus den angehakten Ernten summiert – bei Bedarf überschreibbar (z. B. Verluste beim Schleudern).' },
+        { key: 'quelle', label: 'Woher kommt der Honig?', type: 'select', required: true, default: quelleVorgabe,
+          options: [{ v: 'ernte', l: 'Aus Ernten in dieser App' }, { v: 'lager', l: 'Aus vorhandenem Lagerbestand' }, { v: 'beides', l: 'Beides zusammen' }],
+          hint: 'Lagerbestand ist Honig, der schon vor der App-Nutzung im Eimer stand – ohne erfasste Ernte.' },
+        { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', showIf: (f) => (f.quelle || quelleVorgabe) !== 'lager',
+          options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg` })) },
+        { key: 'lagerKg', label: 'Menge aus Lagerbestand (kg)', type: 'number', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
+          hint: 'Wird zur Erntemenge addiert.' },
+        { key: 'lagerHerkunft', label: 'Woher stammt dieser Lagerbestand?', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
+          placeholder: 'z. B. Restbestand Frühtracht 2025, eigene Völker', hint: 'Für die Rückverfolgbarkeit: ohne erfasste Ernte ist diese Angabe der einzige Herkunftsnachweis.' },
+        { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', hint: 'Wird automatisch aus Ernten und Lagerbestand summiert – bei Bedarf überschreibbar (z. B. Verluste beim Schleudern).' },
         { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date', hint: `Die App erinnert automatisch ${MHD_WARN_TAGE} Tage vor Ablauf.` },
         { key: 'etikettNotiz', label: 'Etikettendaten / Bezeichnung', type: 'textarea', placeholder: 'z. B. Rapshonig, cremig gerührt' },
       ],
       values: c || {},
       async onSave(v) {
-        // Gesamtmenge automatisch aus den Ernten, sofern nicht manuell gesetzt
-        const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : summeAus(v.ernteIds);
-        const rec = Object.assign(c || {}, { losnummer: v.losnummer, ernteIds: v.ernteIds || [], mengeKg, mhd: v.mhd, etikettNotiz: v.etikettNotiz });
+        const nurLager = v.quelle === 'lager';
+        const ohneLager = v.quelle === 'ernte';
+        const ernteIds = nurLager ? [] : (v.ernteIds || []);
+        const lagerKg = ohneLager ? 0 : Math.max(0, Number(v.lagerKg) || 0);
+        if (!ernteIds.length && lagerKg <= 0) throw new Error('Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
+        // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
+        const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
+        const rec = Object.assign(c || {}, { losnummer: v.losnummer, ernteIds, lagerKg,
+          lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg, mhd: v.mhd, etikettNotiz: v.etikettNotiz });
         await DB.put('chargen', rec); UI.toast('Charge gespeichert'); renderRoute();
       },
       onDelete: c ? async () => {
@@ -5954,14 +5982,22 @@ Views.honig = {
         }
       });
     }
-    // Gesamtmenge live aus den angehakten Ernten berechnen (Julian-Wunsch: nicht selbst eintragen)
-    if (box && mengeInp) {
+    /* Gesamtmenge live aus Ernten UND Lagerbestand (Julian-Wunsch: nicht selbst
+       zusammenrechnen). Beides ist kombinierbar. */
+    const lagerInp = $('#f-lagerKg', m.el), quelleSel = $('#f-quelle', m.el);
+    if (mengeInp) {
       const rechne = () => {
-        const summe = $$('input:checked', box).reduce((s, i) => s + (mengeMap.get(i.value) || 0), 0);
+        const nurLager = quelleSel && quelleSel.value === 'lager';
+        const ohneLager = quelleSel && quelleSel.value === 'ernte';
+        const ernteSumme = (!nurLager && box) ? $$('input:checked', box).reduce((s, i) => s + (mengeMap.get(i.value) || 0), 0) : 0;
+        const lager = (!ohneLager && lagerInp) ? Math.max(0, U.parseNum(lagerInp.value) || 0) : 0;
+        const summe = ernteSumme + lager;
         mengeInp.value = summe ? U.fmtNum(Math.round(summe * 1000) / 1000) : '';
         FormGuard.dirty = true;
       };
-      box.addEventListener('change', rechne);
+      if (box) box.addEventListener('change', rechne);
+      if (lagerInp) lagerInp.addEventListener('input', rechne);
+      if (quelleSel) quelleSel.addEventListener('change', rechne);
       if (!c) rechne(); // neue Charge: direkt aus (evtl. vorausgewählten) Ernten
     }
   },
@@ -5997,7 +6033,13 @@ Views.honig = {
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${e.sorte ? U.esc(e.sorte) : 'Ernte'} · ${U.fmtNum(e.mengeKg)} kg</span>
-          <span class="r-sub">geerntet ${U.fmtDate(e.datum)} aus ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(quelle)}“</span></span></div>`).join('') || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
+          <span class="r-sub">geerntet ${U.fmtDate(e.datum)} aus ${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(quelle)}“</span></span></div>`).join('')
+          + (c.lagerKg > 0 ? `<div class="row" style="min-height:44px;padding:8px 4px">
+            <span class="r-ic" style="width:32px;height:32px">${icon('box')}</span>
+            <span class="r-main"><span class="r-title">Lagerbestand · ${U.fmtNum(c.lagerKg, 1)} kg</span>
+            <span class="r-sub">${c.lagerHerkunft ? U.esc(c.lagerHerkunft) : 'ohne Herkunftsangabe – bitte in der Charge ergänzen'}</span></span></div>` : '')
+          || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
+        ${c.lagerKg > 0 && !c.lagerHerkunft ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für den Lagerbestand fehlt die Herkunftsangabe. Ohne erfasste Ernte ist sie der einzige Nachweis, woher der Honig stammt.</span></div>` : ''}
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
         ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}
