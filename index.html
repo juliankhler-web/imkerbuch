@@ -922,9 +922,9 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.24';
+const APP_VERSION = '1.25';
 const CHANGELOG = [
-  { version: '1.24', datum: '2026-08-01', punkte: [
+  { version: '1.25', datum: '2026-08-01', punkte: [
     'Im Reiter „Fütterung“ stehen jetzt zwei Wege nebeneinander: „+ Fütterung“ wie bisher (alles selbst eintragen) und neu „+ Fütterung mit Futter-Rechner“.',
     'Beim Weg über den Rechner wandern Datum, Futterart mit Mischverhältnis und die Menge je Volk direkt ins Formular „Fütterung erfassen“ – du musst nichts abschreiben.',
     'Die Völker-Auswahl zählt dann gegen die Zahl aus dem Rechner: „0 von 6 ausgewählt“. Hakst du mehr Völker an, wird die Zahl rot und ein Knopf bietet an, den Rechner auf die neue Völkerzahl anzupassen – deine übrigen Eingaben bleiben dabei erhalten.',
@@ -941,6 +941,7 @@ const CHANGELOG = [
     'Die erste Fütterung darf eine eigene Menge haben, und zwar in <b>Litern Sirup</b> – so wie du es einfüllst. Die App rechnet daraus, wie viel Futter das ergibt, und verteilt den Rest gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
     'Im Reiter „Fütterung" zeigten „Futter" und „Zucker verbraucht" dieselbe Zahl. Jetzt stehen dort drei verschiedene Größen: <b>Zucker</b> (kg), <b>Sirup angesetzt</b> (Liter) und der Zucker in den Winterfutter-Gaben. In der Liste steht unter den Kilogramm die Litermenge.',
     'Beim Volk stand in der Fütterungs-Tabelle zweimal dieselbe Zahl („Menge" und „Zucker"), weil die Menge bei Zuckerwasser schon der reine Zucker ist. Die Zuckerspalte erscheint jetzt nur noch, wenn sie etwas Neues sagt – etwa bei Futterteig oder Fertigsirup. Dafür steht dort neu die Spalte „Sirup (L)": wie viel Liter tatsächlich ins Volk gelaufen sind, samt Summe darunter.',
+    'Liter Sirup lassen sich jetzt in <b>jedem</b> Fütterungs-Formular eintragen – beim Volk, beim Bearbeiten eines Eintrags, bei der Sammel-Fütterung und in der Sammel-Erfassung. Liter und Kilogramm rechnen in beide Richtungen mit; wechselst du die Futterart auf 1:1 oder 3:2, wird neu gerechnet. Bei Futterteig oder Fertigsirup ist das Liter-Feld ausgegraut, dort gibt es keine Ansatzmenge.',
     'Behoben: „Nach Updates suchen" konnte im Fehlerfall die zwischengespeicherte Seite lesen und meldete dann „du hast bereits die neueste Version", obwohl auf dem Server schon eine neuere lag. Die Prüfung umgeht den Zwischenspeicher jetzt vollständig und nennt in der Meldung auch die Version, die auf dem Server liegt.',
     'Eine Charge lässt sich jetzt auch aus vorhandenem Lagerbestand anlegen – für Honig, der schon im Eimer stand, bevor du die App benutzt hast, und dem keine Ernte zuzuordnen ist. Bei „Neue Charge“ wählst du dazu oben „Aus vorhandenem Lagerbestand“ und trägst die Menge ein; hast du noch keine Ernte erfasst, ist das gleich vorbelegt.',
     'Beides ist kombinierbar: mit „Beides zusammen“ hakst du Ernten an <b>und</b> gibst eine Lagermenge dazu – die Gesamtmenge addiert sich von selbst.',
@@ -3645,18 +3646,19 @@ async function sammelFormular(art, volkIds, voelker) {
       async onSave(val) { for (const id of volkIds) await DB.put('stockkarten', { volkId: id, ...val }); UI.toast(`Durchsicht für ${volkIds.length} Völker gespeichert`); renderRoute(); },
     });
   } else if (art === 'fuetterung') {
-    UI.formModal({
+    verdrahteSirupLiter(UI.formModal({
       title: 'Sammel-Fütterung', wide: true,
       fields: [hinweis,
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
       ],
       saveText: `Für ${volkIds.length} Völker speichern`,
-      async onSave(val) { for (const id of volkIds) await DB.put('fuetterungen', { volkId: id, ...val }); UI.toast(`Fütterung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
-    });
+      async onSave(val) { delete val._sirupLiter; for (const id of volkIds) await DB.put('fuetterungen', { volkId: id, ...val }); UI.toast(`Fütterung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+    }));
   } else {
     UI.formModal({
       title: 'Sammel-Varroazählung', wide: true,
@@ -3858,11 +3860,12 @@ Views.volk = {
       })()
       : emptyState('honig', 'Noch keine Fütterung erfasst.')}
     </div>`;
-    const form = async (f) => UI.formModal({
+    const form = async (f) => verdrahteSirupLiter(UI.formModal({
       title: f ? 'Fütterung bearbeiten' : 'Fütterung erfassen',
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
@@ -3871,6 +3874,7 @@ Views.volk = {
       values: f || {},
       async onSave(val) {
         const neu = !f;
+        delete val._sirupLiter;            // nur Anzeige, gespeichert wird der Zucker
         await DB.put('fuetterungen', Object.assign(f || { volkId: v.id }, val));
         if (neu && val.wiedervorlageTage > 0) {
           await DB.put('aufgaben', { titel: `Fütterung prüfen: ${v.name}`, faellig: U.addDays(val.datum, Math.round(val.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: v.id, volkId: v.id, notiz: `Nach ${val.futterart} (${U.fmtNum(val.mengeKg)} kg) vom ${U.fmtDate(val.datum)}` });
@@ -3879,7 +3883,7 @@ Views.volk = {
         UI.toast('Fütterung gespeichert'); renderRoute();
       },
       onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
-    });
+    }));
     $('#fAdd', box).onclick = () => form(null);
     box.addEventListener('click', (e) => { const b = e.target.closest('[data-fe]'); if (b) form(list.find((x) => x.id === b.dataset.fe)); });
   },
@@ -4938,6 +4942,40 @@ function passtZuFilter(volk, standId, funktion) {
   return true;
 }
 
+/** Verdrahtet ein Liter-Feld mit dem Mengenfeld einer Fütterung: Liter → reiner
+    Zucker und zurück, das Mischverhältnis kommt aus der Futterart. Nennt die
+    Futterart kein Verhältnis (Futterteig, Fertigsirup), wird das Liter-Feld
+    ausgegraut – dort gibt es keine Ansatzmenge. */
+function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
+  const lit = $('#f-_sirupLiter', m.el), kg = $('#f-mengeKg', m.el), art = $('#f-futterart', m.el);
+  if (!lit || !kg) return m;
+  const feld = lit.closest('.field');
+  let stille = false;
+  const verh = () => verhaeltnisAusFutterart(art ? art.value : null) || (art && art.value ? null : vorgabe);
+  const literAusFeld = () => {
+    const v = verh();
+    const z = U.parseNum(kg.value);
+    lit.value = v && z > 0 ? U.fmtNum(literAusZucker(z, v), 1) : '';
+  };
+  const zustand = () => {
+    const v = verh();
+    lit.disabled = !v;
+    if (feld) feld.style.opacity = v ? '' : '0.5';
+    if (!stille) literAusFeld();
+  };
+  lit.addEventListener('input', () => {
+    const v = verh();
+    if (stille || !v) return;
+    stille = true;
+    kg.value = U.fmtNum(zuckerAusSirupLiter(U.parseNum(lit.value), v), 1);
+    stille = false;
+  });
+  kg.addEventListener('input', () => { if (stille) return; stille = true; literAusFeld(); stille = false; });
+  if (art) { art.addEventListener('change', zustand); art.addEventListener('input', zustand); }
+  zustand();
+  return m;
+}
+
 /** Legt für JEDE Fütterung des Plans eine Aufgabe an – auch für die erste, die
     gerade erfasst wird: sie kommt gleich als erledigt hinein, damit sie in der
     Historie steht. Termin, Menge je Volk und die gewählten Völker stehen im
@@ -5209,11 +5247,12 @@ Views.fuetterung = {
 
   /** Einzelne Fütterung nachträglich bearbeiten oder löschen */
   async einzelForm(f, volkName) {
-    UI.formModal({
+    verdrahteSirupLiter(UI.formModal({
       title: `Fütterung bearbeiten · ${volkName}`,
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
@@ -5224,7 +5263,7 @@ Views.fuetterung = {
         UI.toast('Fütterung gespeichert'); renderRoute();
       },
       onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
-    });
+    }));
   },
 
   /** Sammel-Erfassung im Wanderungs-Stil: Stand → Funktion → Völker → Futter.
@@ -5245,7 +5284,7 @@ Views.fuetterung = {
         { key: 'volkIds', label: '3. Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
-        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', showIf: () => !!plan, hint: 'Was du je Volk einfüllst. Ändert sich hier etwas, rechnet die Zuckermenge darunter mit.' },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
         { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
@@ -5272,25 +5311,8 @@ Views.fuetterung = {
         renderRoute();
       },
     });
-    /* Liter und Kilogramm sind zwei Blicke auf dieselbe Gabe: wer die Liter
-       ändert, ändert die Zuckermenge mit – und umgekehrt. Das Mischverhältnis
-       kommt aus der Futterart, damit auch ein Wechsel dort greift. */
-    if (plan) {
-      const lit = $('#f-_sirupLiter', m.el), kg = $('#f-mengeKg', m.el), art = $('#f-futterart', m.el);
-      const verh = () => (/1\s*:\s*1/.test((art && art.value) || '') ? '1:1' : '3:2');
-      let stille = false;
-      const setzeLiter = () => { lit.value = U.fmtNum(literAusZucker(U.parseNum(kg.value), verh()), 1); };
-      if (lit && kg) {
-        setzeLiter();
-        lit.addEventListener('input', () => {
-          if (stille) return; stille = true;
-          kg.value = U.fmtNum(zuckerAusSirupLiter(U.parseNum(lit.value), verh()), 1);
-          stille = false;
-        });
-        kg.addEventListener('input', () => { if (stille) return; stille = true; setzeLiter(); stille = false; });
-        if (art) art.addEventListener('change', () => { if (!stille) { stille = true; setzeLiter(); stille = false; } });
-      }
-    }
+    // Liter und Kilogramm halten sich gegenseitig aktuell (gemeinsamer Helfer)
+    verdrahteSirupLiter(m, { vorgabe: plan ? plan.verh : null });
 
     /* Rückweg in den Rechner – nimmt Stand, Funktion und die Häkchen mit, damit
        man nur die Rechenwerte ändert und nicht von vorn anfängt. */

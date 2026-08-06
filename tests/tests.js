@@ -1866,6 +1866,64 @@ test('Fütterungs-PDF enthält die Zuckerspalte', async (w) => {
   } finally { w.Pdf.noDownloadForTest = false; }
 });
 
+test('Volk → Fütterung bearbeiten: Liter-Feld rechnet mit', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const volk = (await w.DB.getAll('voelker')).find((v) => v.status === 'aktiv');
+  const f = await w.DB.put('fuetterungen', { volkId: volk.id, datum: w.U.todayIso(), futterart: 'Zuckerwasser 1:1', mengeKg: 9, winterfutter: true });
+  const box = w.document.createElement('div'); w.document.body.appendChild(box);
+  try {
+    await w.Views.volk.tabFutter(box, volk);
+    box.querySelector(`[data-fe="${f.id}"]`).click();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const lit = m.querySelector('#f-_sirupLiter'), kg = m.querySelector('#f-mengeKg'), art = m.querySelector('#f-futterart');
+    assert(lit, 'Liter-Feld im Bearbeiten-Formular');
+    assertEq(lit.disabled, false, 'bei Zuckerwasser nutzbar');
+    nah(w.U.parseNum(lit.value), w.literAusZucker(9, '1:1'), 0.06, 'Liter aus den 9 kg gerechnet');
+    // Liter ändern → Kilogramm folgen
+    lit.value = '20'; lit.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(kg.value), w.zuckerAusSirupLiter(20, '1:1'), 0.06, 'Kilogramm folgen den Litern');
+    // Kilogramm ändern → Liter folgen
+    kg.value = '6'; kg.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(lit.value), w.literAusZucker(6, '1:1'), 0.06, 'Liter folgen den Kilogramm');
+    // Futterart ohne Verhältnis: Liter gibt es nicht
+    art.value = 'Futterteig'; art.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assertEq(lit.disabled, true, 'bei Futterteig ist das Liter-Feld gesperrt');
+    assertEq(lit.value, '', 'und leer');
+    // zurück auf 3:2: wieder nutzbar, neu gerechnet
+    art.value = 'Zuckerwasser 3:2'; art.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assertEq(lit.disabled, false, 'wieder nutzbar');
+    nah(w.U.parseNum(lit.value), w.literAusZucker(6, '3:2'), 0.06, 'dick gerechnet, also weniger Liter');
+    // speichern darf das Hilfsfeld nicht mitschreiben
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 600));
+    const nach = await w.DB.get('fuetterungen', f.id);
+    assertEq(nach._sirupLiter, undefined, 'das Liter-Feld wird nicht gespeichert');
+    nah(nach.mengeKg, 6, 0.01, 'die Menge ist gespeichert');
+  } finally {
+    box.remove();
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (await w.DB.get('fuetterungen', f.id)) await w.DB.del('fuetterungen', f.id);
+  }
+});
+test('Fütterung ohne Rechner: Liter-Feld ist auch dort', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  await w.Views.fuetterung.sammelForm();
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const lit = m.querySelector('#f-_sirupLiter');
+    assert(lit, 'Liter-Feld auch im normalen Weg');
+    assert(w.getComputedStyle(lit.closest('.field')).display !== 'none', 'und sichtbar');
+    // ohne Futterart noch gesperrt, mit Verhältnis nutzbar
+    const art = m.querySelector('#f-futterart');
+    art.value = 'Zuckerwasser 3:2'; art.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assertEq(lit.disabled, false, 'mit Verhältnis nutzbar');
+    lit.value = '10'; lit.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nah(w.U.parseNum(m.querySelector('#f-mengeKg').value), w.zuckerAusSirupLiter(10, '3:2'), 0.06, 'Menge folgt');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
 /* ---------- Charge aus vorhandenem Lagerbestand ---------- */
 test('Charge: ohne Ernten ist „Lagerbestand" vorbelegt', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
