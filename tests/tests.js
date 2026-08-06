@@ -2022,6 +2022,124 @@ test('Fütterung: Auswahl im Formular zieht beim Speichern ab', async (w) => {
   }
 });
 
+/* ---------- Materialabgang: verkaufen, verbrauchen, verlieren ---------- */
+test('abgangErloes: nur ein Verkauf bringt Erlös', (w) => {
+  assertEq(w.abgangErloes({ art: 'Verkauf', menge: 6, preis: 15 }), 90, '6 × 15 €');
+  assertEq(w.abgangErloes({ art: 'Verlust / Bruch', menge: 6, preis: 15 }), 0, 'Verlust bringt nichts');
+  assertEq(w.abgangErloes({ art: 'Verkauf', menge: 6 }), 0, 'ohne Preis kein Erlös');
+  assertEq(w.abgangErloes({ art: 'Verkauf', menge: -3, preis: 15 }), 0, 'negative Menge wird gekappt');
+  assertEq(w.abgangErloes(null), 0, 'null');
+  nah(w.abgangErloes({ art: 'Verkauf', menge: 2.5, preis: 14.9 }), 37.25, 0.001, 'Kommastellen');
+});
+test('Materialabgang: Verkauf zieht ab und bucht im Kassenbuch', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Mittelwände Abgang-Probe', kategorie: 'Wachs', stueckzahl: 25, einheit: 'kg', preis: 14 });
+  const vorherA = (await w.DB.getAll('materialabgaenge')).map((x) => x.id);
+  const vorherK = (await w.DB.getAll('kassenbuch')).map((x) => x.id);
+  await w.materialAbgangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' }, pos.id);
+  await new Promise((r) => setTimeout(r, 300));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let abg = null, kb = [];
+  try {
+    const setz = (id, val, ev) => { const e = m.querySelector(id); e.value = val; e.dispatchEvent(new w.Event(ev || 'input', { bubbles: true })); };
+    setz('#f-inventarId', pos.id, 'change');
+    setz('#f-menge', '6'); setz('#f-preis', '15'); setz('#f-belegNr', 'RE-TEST');
+    const info = m.querySelector('[data-abgang-info]').textContent;
+    assert(/19/.test(info), `Restbestand fehlt im Hinweis: ${info}`);
+    assert(/90/.test(info), `Erlös fehlt im Hinweis: ${info}`);
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 800));
+    // Bestand gemindert
+    nah((await w.DB.get('inventar', pos.id)).stueckzahl, 19, 0.01, '6 kg abgezogen');
+    // Abgang festgehalten, mit Bestand vorher/nachher
+    abg = (await w.DB.getAll('materialabgaenge')).find((x) => !vorherA.includes(x.id));
+    assert(abg, 'Abgang gespeichert');
+    assertEq(abg.art, 'Verkauf', 'als Verkauf');
+    assertEq(abg.menge, 6, 'Menge');
+    assertEq(abg.einheit, 'kg', 'Einheit aus der Position');
+    assertEq(abg.bestandVorher, 25, 'Bestand vorher festgehalten');
+    assertEq(abg.bestandNachher, 19, 'Bestand nachher festgehalten');
+    assertEq(abg.belegNr, 'RE-TEST', 'Belegnummer');
+    assertEq(w.abgangErloes(abg), 90, 'Erlös 90 €');
+    // Kassenbuch-Einnahme
+    kb = (await w.DB.getAll('kassenbuch')).filter((x) => !vorherK.includes(x.id));
+    assertEq(kb.length, 1, 'genau eine Buchung');
+    assertEq(kb[0].typ, 'einnahme', 'als Einnahme');
+    assertEq(kb[0].kategorie, 'Materialverkauf', 'eigene Kategorie');
+    assertEq(kb[0].betrag, 90, 'Betrag');
+    assert(/Mittelwände Abgang-Probe/.test(kb[0].beschreibung), 'Position im Text');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (abg) await w.DB.del('materialabgaenge', abg.id);
+    for (const k of kb) await w.DB.del('kassenbuch', k.id);
+    await w.DB.del('inventar', pos.id);
+  }
+});
+test('Materialabgang: Verlust zieht ab, ohne Kassenbuch-Buchung', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Bruch-Probe', stueckzahl: 10, einheit: 'Stück' });
+  const vorherA = (await w.DB.getAll('materialabgaenge')).map((x) => x.id);
+  const vorherK = (await w.DB.getAll('kassenbuch')).length;
+  await w.materialAbgangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' }, pos.id);
+  await new Promise((r) => setTimeout(r, 300));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let abg = null;
+  try {
+    const setz = (id, val, ev) => { const e = m.querySelector(id); e.value = val; e.dispatchEvent(new w.Event(ev || 'input', { bubbles: true })); };
+    setz('#f-inventarId', pos.id, 'change');
+    setz('#f-menge', '3'); setz('#f-art', 'Verlust / Bruch', 'change');
+    // Verkaufsfelder sind bei Verlust ausgeblendet
+    const sichtbar = (id) => { const e = m.querySelector(id); return e && w.getComputedStyle(e.closest('.field')).display !== 'none'; };
+    assertEq(sichtbar('#f-preis'), false, 'kein Preisfeld bei Verlust');
+    assertEq(sichtbar('#f-kontaktId'), false, 'kein Käufer bei Verlust');
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 800));
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 7, '3 Stück abgezogen');
+    abg = (await w.DB.getAll('materialabgaenge')).find((x) => !vorherA.includes(x.id));
+    assert(abg, 'Abgang gespeichert');
+    assertEq(abg.art, 'Verlust / Bruch', 'Grund festgehalten');
+    assertEq(w.abgangErloes(abg), 0, 'kein Erlös');
+    assertEq((await w.DB.getAll('kassenbuch')).length, vorherK, 'keine Kassenbuch-Buchung');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (abg) await w.DB.del('materialabgaenge', abg.id);
+    await w.DB.del('inventar', pos.id);
+  }
+});
+test('Abgangs-PDF: Jahresübersicht mit Summe und Gründen', async (w) => {
+  const jahr = '2025';
+  const a1 = await w.DB.put('materialabgaenge', { typ: 'verbrauch', bezeichnung: 'PDF-Probe A', einheit: 'kg', datum: `${jahr}-05-04`, menge: 4, art: 'Verkauf', preis: 12, kaeufer: 'Meier', belegNr: 'B-1', bestandVorher: 10, bestandNachher: 6 });
+  const a2 = await w.DB.put('materialabgaenge', { typ: 'verbrauch', bezeichnung: 'PDF-Probe B', einheit: 'Stück', datum: `${jahr}-06-02`, menge: 2, art: 'Verlust / Bruch', preis: 0, bestandVorher: 6, bestandNachher: 4 });
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.Pdf.materialAbgaenge(jahr, 'verbrauch', 'Verbrauchsmaterial');
+    const doc = w.Pdf.lastDocForTest;
+    assert(doc, 'PDF wurde gebaut');
+    const kopf = JSON.stringify(doc.lastAutoTable.head || '');
+    assert(/Grund/.test(kopf), `letzte Tabelle ist die Auswertung nach Grund: ${kopf.slice(0, 160)}`);
+  } finally { w.Pdf.noDownloadForTest = false; await w.DB.del('materialabgaenge', a1.id); await w.DB.del('materialabgaenge', a2.id); }
+});
+test('Verbrauchsmaterial: Zugang statt Kaufdatum, Ablaufdatum optional', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const label = (id) => { const e = m.querySelector(id); const l = e && e.closest('.field') && e.closest('.field').querySelector('label'); return l ? l.textContent.trim() : ''; };
+    assertEq(label('#f-anschaffung'), 'Zugang', 'heißt jetzt Zugang');
+    assert(/optional/i.test(label('#f-ablauf')), `Ablaufdatum als optional gekennzeichnet: ${label('#f-ablauf')}`);
+    assertEq(m.querySelector('#f-ablauf').required, false, 'und ist nicht verpflichtend');
+    // Einheit folgt der Bezeichnung
+    const bez = m.querySelector('#f-bezeichnung');
+    bez.value = 'Mittelwände Zander'; bez.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq(m.querySelector('#f-einheit').value, 'kg', 'Mittelwände in kg');
+    assert(/kg/.test(label('#f-stueckzahl')), `Bestandsfeld nennt die Einheit: ${label('#f-stueckzahl')}`);
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
 /* ---------- Landbedeckung automatisch (ohne Netz geprüft) ---------- */
 test('osmKategorie: bildet OSM-Schlüssel auf unsere Kategorien ab', (w) => {
   assertEq(w.osmKategorie({ landuse: 'farmland' }).name, 'Acker', 'Acker');

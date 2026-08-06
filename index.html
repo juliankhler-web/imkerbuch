@@ -927,8 +927,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.27';
+const APP_VERSION = '1.28';
 const CHANGELOG = [
+  { version: '1.28', datum: '2026-08-06', punkte: [
+    'Neu: <b>Abgang / Verkauf</b> bei Inventar und Verbrauchsmaterial. Damit buchst du Bestand raus – verkauft, selbst verbraucht, kaputt, verschenkt oder als Korrektur. Vorher siehst du, was der Bestand danach ist.',
+    'Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht (Kategorie „Materialverkauf") – mit Käufer und Belegnummer im Text. Damit fehlt der Erlös am Jahresende nicht.',
+    'Jeder Abgang bleibt erhalten: unter der Positionsliste stehen alle Abgänge des Jahres mit Datum, Menge, Grund, Preis und Erlös, samt Summe. Als PDF gibt es die Jahresübersicht „Abgänge" mit einer Auswertung nach Grund.',
+    'Im Datensatz stehen Bestand vorher und nachher – so bleibt nachvollziehbar, was der Abgang mit dem Lager gemacht hat, auch wenn die Position später bearbeitet wird.',
+    'Bei Verbrauchsmaterial heißt „Kaufdatum" jetzt <b>Zugang</b>, und das Ablaufdatum ist ausdrücklich als optional gekennzeichnet – ohne Datum erinnert die App auch nicht.',
+  ] },
   { version: '1.27', datum: '2026-08-06', punkte: [
     'Verbrauchsmaterial hat jetzt eine <b>Einheit</b> – Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Sie wird aus der Bezeichnung vorgeschlagen und ist überschreibbar; nur bei „Stück" wird auf ganze Zahlen gerundet. Die Beschriftung des Bestandsfeldes nennt die Einheit mit.',
     'Beim Erfassen einer <b>Fütterung</b> (mit und ohne Rechner) kannst du die passende Position aus dem Verbrauchsmaterial wählen – beim Speichern wird abgezogen. Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup, jeweils mal der Zahl der gefütterten Völker. Ein Hinweis zeigt vorher, was abgezogen wird und was übrig bleibt.',
@@ -1552,8 +1559,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 7, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 8, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialabgaenge', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -3401,7 +3408,7 @@ Views.staende = {
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('hive', 'Noch kein Bienenstand angelegt. Ein Stand bündelt Völker, Wetter und Wanderungen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Ersten Stand anlegen</button>`)) + `</div>`;
     const add = () => openStandForm(null, renderRoute);
-    bindAdd(add);
+    bindAdd(add, main);
     main.addEventListener('click', (e) => { const b = e.target.closest('.row[data-id]'); if (b) navTo('stand/' + b.dataset.id); });
   },
 };
@@ -3619,8 +3626,8 @@ Views.voelker = {
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`)) + `</div>`;
     const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
-    bindAdd(add);
-    const sammel = $('#sammel');
+    bindAdd(add, main);
+    const sammel = $('#sammel', main);
     if (sammel) sammel.onclick = () => sammelErfassung(list.filter((v) => v.status === 'aktiv'));
     main.addEventListener('click', (e) => {
       const c = e.target.closest('.chip');
@@ -7494,7 +7501,7 @@ function positionTrifft(i, suchtext, zuordnung = '') {
 
 async function renderInventarBereich(main, cfg) {
   const view = cfg.view;
-  const staende = await idMap('staende'), voelker = await idMap('voelker');
+  const staende = await idMap('staende'), voelker = await idMap('voelker'), kontakte = await idMap('kontakte');
   const alle = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => i.bezeichnung.toLowerCase());
   const jahre = [...new Set(alle.map((i) => (i.anschaffung || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const hatOhneJahr = alle.some((i) => !i.anschaffung);
@@ -7508,6 +7515,11 @@ async function renderInventarBereich(main, cfg) {
   const suchtext = (view._suche || '').trim().toLowerCase();
   const zuordnungVon = (i) => staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '';
   const list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
+  /* Abgänge dieses Bereichs – gefiltert wie die Liste, damit die Jahreswahl oben
+     auch für die Abgänge gilt. */
+  const abgaengeAlle = U.sortBy((await DB.getAll('materialabgaenge')).filter((a) => a.typ === cfg.typ), (a) => a.datum, true);
+  const abgaenge = abgaengeAlle.filter((a) => !jahr || jahr === '__ohne' || (a.datum || '').startsWith(jahr));
+  const abgangJahr = jahr && jahr !== '__ohne' ? jahr : U.todayIso().slice(0, 4);
   const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
   const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
   const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
@@ -7545,7 +7557,10 @@ async function renderInventarBereich(main, cfg) {
   };
   const chip = (label, val, cur, attr) => `<button class="chip ${String(cur) === String(val) ? 'active' : ''}" data-${attr}="${U.esc(val)}">${U.esc(label)}</button>`;
   main.innerHTML = pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`,
-    `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button><button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button></span>`) +
+    `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
+      <button class="btn btn-ghost btn-sm" id="abgang-pdf">${icon('doc')} Abgänge ${abgangJahr} (PDF)</button>
+      <button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button>
+      <button class="btn btn-primary" id="abgang">${icon('euro')} Abgang / Verkauf</button></span>`) +
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
     <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}</div>
@@ -7570,6 +7585,30 @@ async function renderInventarBereich(main, cfg) {
           ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${list.map(zeile).join('')}</div>`
           : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc(view._suche)}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
         : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
+  /* Abgänge sichtbar machen – sonst merkt niemand, dass es sie gibt. */
+  const erloesJahr = U.sum(abgaenge, abgangErloes);
+  main.insertAdjacentHTML('beforeend', `<div class="card mt16">
+    <div class="card-title">${icon('euro')}<h2>Abgänge und Verkäufe${jahr && jahr !== '__ohne' ? ` ${jahr}` : ''}</h2>
+      ${erloesJahr > 0 ? `<span class="badge b-ok">Erlös ${U.fmtEur(erloesJahr)}</span>` : ''}
+      <button class="btn btn-primary btn-sm no-print" id="abgang2">${icon('plus')} Abgang buchen</button></div>
+    <p class="small muted mb12">Verkauft, selbst verbraucht, kaputt oder verschenkt – hier bleibt jeder Abgang mit Datum und Menge nachvollziehbar. Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht.</p>
+    ${abgaenge.length ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Datum</th><th>Position</th><th>Grund</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Erlös</th><th>Käufer / Beleg</th></tr></thead>
+      <tbody>${abgaenge.map((a) => `<tr>
+        <td>${U.fmtDate(a.datum)}</td><td>${U.esc(a.bezeichnung || '')}</td>
+        <td>${U.esc(a.art || '')}</td>
+        <td class="num">${U.fmtNum(a.menge, 2)} ${U.esc(a.einheit || '')}</td>
+        <td class="num">${a.preis ? U.fmtEur(a.preis) : '–'}</td>
+        <td class="num">${abgangErloes(a) ? `<b>${U.fmtEur(abgangErloes(a))}</b>` : '–'}</td>
+        <td>${U.esc([a.kaeufer || (kontakte.get(a.kontaktId) || {}).name || '', a.belegNr].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+        <tr><td><b>Summe</b></td><td></td><td></td><td class="num"></td><td class="num"></td><td class="num"><b>${U.fmtEur(erloesJahr)}</b></td><td></td></tr>
+      </tbody></table></div>`
+    : '<div class="empty small">Noch kein Abgang gebucht.</div>'}
+  </div>`);
+  const abgangOeffnen = () => materialAbgangForm(cfg);
+  const ab1 = $('#abgang', main); if (ab1) ab1.onclick = abgangOeffnen;
+  const ab2 = $('#abgang2', main); if (ab2) ab2.onclick = abgangOeffnen;
+  const abPdf = $('#abgang-pdf', main); if (abPdf) abPdf.onclick = () => Pdf.materialAbgaenge(abgangJahr, cfg.typ, cfg.titel);
   const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
   const form = async (i) => verdrahteEinheit(UI.formModal({
     title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
@@ -7583,8 +7622,9 @@ async function renderInventarBereich(main, cfg) {
       { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN,
         hint: 'Richtet sich nach der Bezeichnung: Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Überschreibbar. Nur bei „Stück" wird auf ganze Zahlen gerundet.' },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
-      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Kaufdatum' : 'Anschaffungsdatum', type: 'date' },
-      { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', hint: 'Für Verbrauchsmaterial wie Varroa-Mittel oder Futter – die App erinnert vor Ablauf.' },
+      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date',
+        hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
+      { key: 'ablauf', label: 'Ablaufdatum / MHD (optional)', type: 'date', hint: 'Nur bei Material mit Haltbarkeit – etwa Varroa-Mittel oder Futter. Leer lassen ist in Ordnung; ohne Datum erinnert die App auch nicht.' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
       { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
       { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
@@ -7599,7 +7639,7 @@ async function renderInventarBereich(main, cfg) {
     },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
   }), !i);
-  bindAdd(() => form(null));
+  bindAdd(() => form(null), main);
   main.addEventListener('click', (e) => {
     const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
     const a = e.target.closest('[data-art]'); if (a) { view._art = a.dataset.art; return renderRoute(); }
@@ -8661,6 +8701,97 @@ function verdrahteEinheit(m, istNeu) {
   return m;
 }
 
+/* ---------------------------------------------------------------------
+   Materialabgang: Bestand rausbuchen, ohne dass es verloren geht
+
+   Material geht nicht nur in Völker: man verkauft Mittelwände weiter, verbraucht
+   etwas selbst, oder es geht kaputt. Bisher konnte man den Bestand nur still von
+   Hand kleiner machen – damit war der Vorgang weg. Jetzt entsteht ein Datensatz
+   mit Datum, Menge, Grund und (beim Verkauf) Käufer und Erlös. Der Erlös wandert
+   ins Kassenbuch, und die Jahresübersicht gibt es als PDF.
+
+   Bestand vorher/nachher stehen im Datensatz: so bleibt nachvollziehbar, was der
+   Abgang mit dem Lager gemacht hat, auch wenn die Position später bearbeitet wird.
+   --------------------------------------------------------------------- */
+const ABGANG_ARTEN = ['Verkauf', 'Eigenverbrauch', 'Verlust / Bruch', 'Verschenkt', 'Korrektur'];
+
+/** Erlös eines Abgangs (0, wenn kein Verkauf). */
+function abgangErloes(a) {
+  if (!a || a.art !== 'Verkauf') return 0;
+  return Math.round((Math.max(0, Number(a.menge) || 0) * Math.max(0, Number(a.preis) || 0)) * 100) / 100;
+}
+
+/** Formular für einen Abgang. cfg.typ begrenzt die Auswahl auf einen Bereich. */
+async function materialAbgangForm(cfg, vorPositionId = '') {
+  const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
+  if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
+  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
+  const m = UI.formModal({
+    title: 'Abgang / Verkauf buchen', wide: true,
+    fields: [
+      { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
+        options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'menge', label: 'Menge', type: 'number', required: true },
+      { key: 'art', label: 'Grund des Abgangs', type: 'select', required: true, default: 'Verkauf', options: ABGANG_ARTEN.map((a) => ({ v: a, l: a })) },
+      { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })), showIf: (f) => f.art === 'Verkauf' },
+      { key: 'kaeufer', label: 'oder Name frei eintragen', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. Imkerkollege Meier' },
+      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', showIf: (f) => f.art === 'Verkauf' },
+      { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. RE-0004 – oder leer bei Barverkauf',
+        hint: 'Freier Verweis. Eine Rechnung in der App wird davon nicht verändert.' },
+      { key: '_abgangInfo', type: 'static', html: '<div class="hint" data-abgang-info></div>' },
+      { key: 'notiz', label: 'Notiz', type: 'textarea' },
+    ],
+    values: { art: 'Verkauf' },
+    async onSave(v) {
+      const pos = posten.find((i) => i.id === v.inventarId);
+      if (!pos) throw new Error('Bitte eine Position wählen.');
+      const menge = Math.max(0, Number(v.menge) || 0);
+      if (menge <= 0) throw new Error('Bitte eine Menge größer als null eintragen.');
+      const buchung = await verbrauchAbziehen(pos.id, menge);
+      const rec = await DB.put('materialabgaenge', {
+        inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, einheit: verbrauchEinheit(pos),
+        datum: v.datum, menge, art: v.art, preis: v.art === 'Verkauf' ? (Number(v.preis) || 0) : 0,
+        kontaktId: v.art === 'Verkauf' ? (v.kontaktId || null) : null,
+        kaeufer: v.art === 'Verkauf' ? (v.kaeufer || '').trim() : '',
+        belegNr: v.art === 'Verkauf' ? (v.belegNr || '').trim() : '',
+        bestandVorher: buchung ? buchung.vorher : verbrauchBestand(pos),
+        bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
+        notiz: (v.notiz || '').trim(),
+      });
+      const erloes = abgangErloes(rec);
+      if (erloes > 0) {
+        const wer = rec.kaeufer || (kunden.find((k) => k.id === rec.kontaktId) || {}).name || '';
+        await DB.put('kassenbuch', { datum: rec.datum, typ: 'einnahme', kategorie: 'Materialverkauf', betrag: erloes, steuersatz: 0,
+          kontaktId: rec.kontaktId || null, rechnungId: null,
+          beschreibung: `${rec.bezeichnung}: ${U.fmtNum(rec.menge, 2)} ${rec.einheit}${wer ? ` an ${wer}` : ''}${rec.belegNr ? ` (${rec.belegNr})` : ''}` });
+      }
+      UI.toast(`${rec.art} gebucht: ${U.fmtNum(rec.menge, 2)} ${rec.einheit} ${rec.bezeichnung}`
+        + (erloes > 0 ? ` · ${U.fmtEur(erloes)} im Kassenbuch` : '')
+        + (buchung && buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${rec.einheit} fehlten im Bestand` : ''));
+      renderRoute();
+    },
+  });
+  // Live-Hinweis: Bestand nachher und Erlös
+  const info = $('[data-abgang-info]', m.el);
+  const zeige = () => {
+    const pos = posten.find((i) => i.id === ($('#f-inventarId', m.el) || {}).value);
+    if (!pos || !info) return;
+    const menge = U.parseNum(($('#f-menge', m.el) || {}).value) || 0;
+    const preis = U.parseNum(($('#f-preis', m.el) || {}).value) || 0;
+    const art = ($('#f-art', m.el) || {}).value;
+    const e = verbrauchEinheit(pos), bestand = verbrauchBestand(pos);
+    const rest = Math.max(0, bestand - menge);
+    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${e}</b> → nach dem Abgang <b>${U.fmtNum(rest, 2)} ${e}</b>`
+      + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '')
+      + (art === 'Verkauf' && menge > 0 && preis > 0 ? ` · Erlös <b>${U.fmtEur(menge * preis)}</b> wird als Einnahme gebucht` : '');
+  };
+  m.el.addEventListener('input', zeige);
+  m.el.addEventListener('change', zeige);
+  zeige();
+  return m;
+}
+
 /** Verbrauchsmaterial mit passender Einheit, alphabetisch. */
 async function verbrauchsPosten(einheiten) {
   const erlaubt = (Array.isArray(einheiten) ? einheiten : [einheiten]).filter(Boolean);
@@ -8726,7 +8857,7 @@ async function verbrauchBuchen(v, menge) {
   return buchung;
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialabgaenge: 'Materialabgang', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -10208,6 +10339,38 @@ const Pdf = {
   },
 
   /* ---------- Fahrtenbuch (Steuer-Nachweis) ---------- */
+  /* ---------- Materialabgänge eines Jahres ---------- */
+  async materialAbgaenge(jahr, typ, titel) {
+    try {
+      const kontakte = await idMap('kontakte');
+      const list = U.sortBy((await DB.getAll('materialabgaenge')).filter((a) => a.typ === typ && (a.datum || '').startsWith(jahr)), (a) => a.datum);
+      const erloes = U.sum(list, abgangErloes);
+      const proArt = [...U.groupBy(list, (a) => a.art || 'ohne Angabe').entries()]
+        .map(([k, items]) => ({ k, n: items.length, erloes: U.sum(items, abgangErloes) }))
+        .sort((a, b) => b.erloes - a.erloes || b.n - a.n);
+      const { doc, y } = await this.newDoc(`Abgänge ${titel} ${jahr}`,
+        `${list.length} ${list.length === 1 ? 'Abgang' : 'Abgänge'} · Erlös ${U.fmtEur(erloes)}`);
+      const body = list.map((a) => [U.fmtDate(a.datum), a.bezeichnung || '', a.art || '',
+        `${U.fmtNum(a.menge, 2)} ${a.einheit || ''}`,
+        a.preis ? U.fmtEur(a.preis) : '', abgangErloes(a) ? U.fmtEur(abgangErloes(a)) : '',
+        [a.kaeufer || (kontakte.get(a.kontaktId) || {}).name || '', a.belegNr].filter(Boolean).join(' · ')]);
+      body.push(['', '', '', '', 'Summe', U.fmtEur(erloes), '']);
+      let endY = this.table(doc, { head: ['Datum', 'Position', 'Grund', 'Menge', 'Preis', 'Erlös', 'Käufer / Beleg'], body, startY: y,
+        widths: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } } });
+      if (proArt.length) {
+        endY += 6;
+        doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(38, 38, 43);
+        doc.text('Nach Grund', 14, endY); endY += 2;
+        endY = this.table(doc, { head: ['Grund', 'Anzahl', 'Erlös'],
+          body: proArt.map((g) => [g.k, String(g.n), U.fmtEur(g.erloes)]), startY: endY + 2,
+          widths: { 1: { halign: 'right' }, 2: { halign: 'right' } } });
+      }
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130);
+      doc.text(doc.splitTextToSize('Verkaeufe sind zusaetzlich als Einnahme im Kassenbuch gebucht (Kategorie Materialverkauf).', 180), 14, endY + 6);
+      this.finish(doc, `abgaenge-${typ}-${jahr}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
   /* ---------- Bio-Unterlagen für die Öko-Kontrolle ---------- */
   async bioUnterlagen() {
     try {
@@ -11695,6 +11858,7 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
+  ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
