@@ -927,8 +927,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.26';
+const APP_VERSION = '1.27';
 const CHANGELOG = [
+  { version: '1.27', datum: '2026-08-06', punkte: [
+    'Verbrauchsmaterial hat jetzt eine <b>Einheit</b> – Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Sie wird aus der Bezeichnung vorgeschlagen und ist überschreibbar; nur bei „Stück" wird auf ganze Zahlen gerundet. Die Beschriftung des Bestandsfeldes nennt die Einheit mit.',
+    'Beim Erfassen einer <b>Fütterung</b> (mit und ohne Rechner) kannst du die passende Position aus dem Verbrauchsmaterial wählen – beim Speichern wird abgezogen. Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup, jeweils mal der Zahl der gefütterten Völker. Ein Hinweis zeigt vorher, was abgezogen wird und was übrig bleibt.',
+    'Dasselbe bei der <b>Behandlung</b>, einzeln und als Sammel-Erfassung: Menge je Volk × Anzahl der Völker wird vom gewählten Mittel abgezogen.',
+    'Reicht der Bestand nicht, geht er auf null und die App sagt dir, wie viel gefehlt hat – statt stillschweigend ins Minus zu laufen. Fällt der Bestand unter den Mindestbestand, greift die vorhandene Erinnerung.',
+    'Der GeoBox-Viewer stand mit einer Adresse in der App, die auf eine Fehlerseite führte. Jetzt stehen beide bekannten Adressen dort, mit dem klaren Hinweis, dass das Portal oft nicht erreichbar ist – die automatische Berechnung braucht es nicht.',
+  ] },
   { version: '1.26', datum: '2026-08-06', punkte: [
     'Neuer Reiter <b>Bio</b> mit zwei Bereichen für die Öko-Kontrolle.',
     '<b>Betriebsbeschreibung</b>: zwölf Abschnitte von „Betrieb und Verantwortliche" über Wachs, Fütterung und Tiergesundheit bis zu den Aufzeichnungen. Jeder Abschnitt hat einen Hinweis, was dort typischerweise hineingehört; oben siehst du, wie viele schon ausgefüllt sind.',
@@ -4866,7 +4873,8 @@ Views.behandlungen = {
     const ziel = await zielFelder(b || {});
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
-    UI.formModal({
+    const mittelPosten = await verbrauchsPosten(['ml', 'g', 'L', 'kg', 'Packung', 'Stück']);
+    const m = UI.formModal({
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true,
       fields: [
         ...ziel,
@@ -4876,6 +4884,7 @@ Views.behandlungen = {
         { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
         { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerungs-Aufgabe zum Ende angelegt.' },
+        ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird die Menge oben – wähle eine Position mit passender Einheit.' }),
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
       values: zielFormValues(b),
@@ -4890,10 +4899,12 @@ Views.behandlungen = {
           const ende = U.addDays(saved.datum, saved.wartezeitTage);
           await DB.put('aufgaben', { titel: `Wartezeit endet: ${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, volkId: saved.zielTyp === 'volk' ? saved.zielId : null, notiz: '' });
         }
+        await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0));
         UI.toast('Behandlung gespeichert'); renderRoute();
       },
       onDelete: papierkorbDelete('behandlungen', b, 'Behandlung löschen?', 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).'),
     });
+    verdrahteVerbrauch(m, mittelPosten, () => { const el = $('#f-menge', m.el); return el ? U.parseNum(el.value) : 0; });
   },
   detail(b, ziel) {
     const m = UI.modal({
@@ -4920,6 +4931,7 @@ Views.behandlungen = {
     const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...alleVoelker.map((v) => v.funktion).filter(Boolean)])];
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
+    const mittelPosten = await verbrauchsPosten(['ml', 'g', 'L', 'kg', 'Packung', 'Stück']);
     const m = UI.formModal({
       title: 'Behandlung erfassen', wide: true,
       fields: [
@@ -4932,11 +4944,13 @@ Views.behandlungen = {
         { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
         { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
+        ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird Menge je Volk × Anzahl der angehakten Völker.' }),
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
       values: {},
       async onSave(v) {
         const n = await behandlungFuerVoelker(v.volkIds, v);
+        await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0) * Math.max(1, n));
         if (v.wartezeitTage > 0) {
           const ende = U.addDays(v.datum, Math.round(v.wartezeitTage));
           await DB.put('aufgaben', { titel: `Wartezeit endet: ${v.mittel} (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
@@ -4948,6 +4962,10 @@ Views.behandlungen = {
     });
     // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
     verdrahteVolkFilter(m, alleVoelker);
+    verdrahteVerbrauch(m, mittelPosten, () => {
+      const el = $('#f-menge', m.el);
+      return (el ? U.parseNum(el.value) : 0) * Math.max(1, $$('#f-volkIds input:checked', m.el).length);
+    });
   },
 };
 
@@ -5020,6 +5038,32 @@ async function fuetterungsPlanAufgaben(plan, volkIds, alleVoelker) {
     angelegt++;
   }
   return angelegt;
+}
+
+/* Wie viel Material eine Fütterung verbraucht, hängt an der Einheit der
+   gewählten Position: kg-Positionen liefern reinen Zucker, Liter-Positionen den
+   angesetzten Sirup. Mal der Zahl der gefütterten Völker. */
+function fuetterungVerbrauch(v, posten, anzahlVoelker) {
+  const pos = (posten || []).find((i) => i.id === (v && v._verbrauchId));
+  if (!pos) return 0;
+  const n = Math.max(1, Math.round(anzahlVoelker || 1));
+  const zucker = Math.max(0, Number(v.zuckerKg) || Number(v.mengeKg) || 0);
+  if (verbrauchEinheit(pos) === 'L') {
+    let liter = Math.max(0, Number(v._sirupLiter) || 0);
+    if (!liter) { const verh = verhaeltnisAusFutterart(v.futterart); liter = verh ? literAusZucker(zucker, verh) : 0; }
+    return Math.round(liter * n * 1000) / 1000;
+  }
+  return Math.round(zucker * n * 1000) / 1000;
+}
+/** Dasselbe aus den Feldern eines offenen Formulars. */
+function fuetterungVerbrauchAusFormular(m, posten, anzahlVoelker) {
+  const wert = (id) => { const el = $(id, m.el); return el ? U.parseNum(el.value) : 0; };
+  const n = anzahlVoelker != null ? anzahlVoelker : $$('#f-volkIds input:checked', m.el).length;
+  const sel = $('#f-_verbrauchId', m.el), art = $('#f-futterart', m.el);
+  return fuetterungVerbrauch({
+    _verbrauchId: sel ? sel.value : '', futterart: art ? art.value : '',
+    mengeKg: wert('#f-mengeKg'), zuckerKg: wert('#f-zuckerKg'), _sirupLiter: wert('#f-_sirupLiter'),
+  }, posten, n);
 }
 
 /** Legt dieselbe Fütterung für mehrere Völker an. Gibt die Anzahl zurück. */
@@ -5270,7 +5314,8 @@ Views.fuetterung = {
 
   /** Einzelne Fütterung nachträglich bearbeiten oder löschen */
   async einzelForm(f, volkName) {
-    verdrahteSirupLiter(UI.formModal({
+    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung']);
+    const m = verdrahteSirupLiter(UI.formModal({
       title: `Fütterung bearbeiten · ${volkName}`,
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true },
@@ -5279,14 +5324,17 @@ Views.fuetterung = {
         { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
+        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
       ],
       values: f,
       async onSave(v) {
         await DB.put('fuetterungen', Object.assign(f, { datum: v.datum, futterart: v.futterart, mengeKg: v.mengeKg, zuckerKg: v.zuckerKg, winterfutter: v.winterfutter }));
+        await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, 1));
         UI.toast('Fütterung gespeichert'); renderRoute();
       },
       onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
     }));
+    verdrahteVerbrauch(m, zuckerPosten, () => fuetterungVerbrauchAusFormular(m, zuckerPosten, 1));
   },
 
   /** Sammel-Erfassung im Wanderungs-Stil: Stand → Funktion → Völker → Futter.
@@ -5295,6 +5343,7 @@ Views.fuetterung = {
       zweiten Knopf, der die weiteren Fütterungen gleich als Aufgaben anlegt. */
   async sammelForm(vorbelegung = {}, plan = null) {
     const staende = await DB.getAll('staende');
+    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung']);
     const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann fütterst du sie hier gesammelt.', 'err');
     // Funktions-Filter: Standardliste + alles, was in den Völkern tatsächlich steht
@@ -5312,6 +5361,7 @@ Views.fuetterung = {
         { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
+        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern eine Aufgabe an.', showIf: () => !plan },
       ],
       values: { ...vorbelegung },
@@ -5321,6 +5371,7 @@ Views.fuetterung = {
            und die Folgetermine übernimmt „Speichern + in Aufgaben". */
         if (plan) v.winterfutter = plan.verh === '3:2';
         const n = await fuetterungFuerVoelker(v.volkIds, v);
+        await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, n));
         let aufgaben = 0;
         if (auchAufgaben && plan) {
           aufgaben = await fuetterungsPlanAufgaben(plan, v.volkIds, alleVoelker);
@@ -5336,6 +5387,9 @@ Views.fuetterung = {
     });
     // Liter und Kilogramm halten sich gegenseitig aktuell (gemeinsamer Helfer)
     verdrahteSirupLiter(m, { vorgabe: plan ? plan.verh : null });
+    /* Der Abzug rechnet mit der Zahl der angehakten Völker – mehr Völker,
+       mehr Verbrauch. */
+    verdrahteVerbrauch(m, zuckerPosten, () => fuetterungVerbrauchAusFormular(m, zuckerPosten));
 
     /* Rückweg in den Rechner – nimmt Stand, Funktion und die Häkchen mit, damit
        man nur die Rechenwerte ändert und nicht von vorn anfängt. */
@@ -5771,7 +5825,15 @@ async function laborErgebnisUebernehmen(ernteIds, sorte, wassergehalt) {
    Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor. Vorbelegt sind
    3.500 m; die RLP-Anleitung zum Viewer arbeitet für ihre Umfragen mit 1.500 m.
    ===================================================================== */
-const GEOBOX_URL = 'https://geobox-i.de/GBV-RLP-Bienen/';
+/* Zwei bekannte Adressen des GeoBox-Viewers. Das Portal ist häufig nicht
+   erreichbar (beide Wege landeten beim Prüfen auf „Portal nicht erreichbar"),
+   deshalb ist die automatische Berechnung aus OpenStreetMap der verlässliche Weg
+   und der Viewer nur die Ergänzung für eine amtliche Zahl. */
+const GEOBOX_LINKS = [
+  { url: 'https://geobox-i.de/gbv-bienen/', label: 'GeoBox-Viewer Bienen' },
+  { url: 'https://geobox-i.de/GBV-RLP-Bienen/', label: 'GeoBox-Viewer Rheinland-Pfalz' },
+];
+const GEOBOX_URL = GEOBOX_LINKS[0].url;
 const BIO_UMKREIS_VORGABE = 3500;      // Meter
 const BIO_UMKREIS_WAHL = [1500, 3000, 3500, 5000];
 
@@ -6261,8 +6323,8 @@ Views.bio = {
     const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('hive')}<h2>Landbedeckung der Standorte</h2>
-        <a class="btn btn-ghost btn-sm no-print" href="${GEOBOX_URL}" target="_blank" rel="noopener">${icon('share')} GeoBox-Viewer öffnen</a></div>
-      <p class="small muted mb12">Die Anteile rechnet der <b>GeoBox-Viewer</b> aus: Punkt auf den Stand setzen, Umkreis einstellen, rechnen lassen – dann die Prozente hier eintragen. Die App ruft dort nichts ab, sie hält deine abgelesenen Werte mit Datum und Quelle fest. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
+        </div>
+      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landnutzung selbst. Von Hand eintragen geht weiter, ebenso über den GeoBox-Viewer, der aber oft nicht erreichbar ist. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
       ${staende.length ? `<div class="rows">${staende.map((st) => {
         const anteile = bioAnteile(st);
         const su = bioSummen(anteile);
@@ -6309,7 +6371,8 @@ Views.bio = {
           </div>
           <div class="small muted mt8" id="bio-status">Adresse eintippen – die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis aus OpenStreetMap.</div>
           <div class="hint mt8">OpenStreetMap ist keine amtliche Quelle und je Gegend unterschiedlich vollständig; der nicht erfasste Rest wird eigens ausgewiesen. Verlangt deine Kontrollstelle eine amtliche Zahl, nimm den GeoBox-Viewer (nur Rheinland-Pfalz) oder das Geoportal deines Landes – die Zeilen unten kannst du jederzeit überschreiben.</div>
-          <div class="flex-wrap mt8"><a class="btn btn-ghost btn-sm" href="${GEOBOX_URL}" target="_blank" rel="noopener">${icon('share')} GeoBox-Viewer öffnen</a></div>
+          <div class="flex-wrap mt8">${GEOBOX_LINKS.map((l) => `<a class="btn btn-ghost btn-sm" href="${l.url}" target="_blank" rel="noopener">${icon('share')} ${U.esc(l.label)}</a>`).join('')}</div>
+          <div class="hint mt8">Das GeoBox-Portal ist oft nicht erreichbar – beide Adressen meldeten beim Prüfen „Portal nicht erreichbar". Die Berechnung oben braucht es nicht.</div>
         </div>
         <div class="small muted mb8" style="font-weight:600">Anteile in Prozent</div>
         <div id="bio-zeilen"></div>
@@ -7465,7 +7528,8 @@ async function renderInventarBereich(main, cfg) {
     // „3 × 7,20 €“ sagt Stückzahl und Einzelpreis in einem Zug – rechts steht dann
     // nur die Summe. Das hält die Wertspalte schmal, damit vom Untertitel etwas
     // übrig bleibt statt nach zwei Wörtern abgeschnitten zu werden.
-    const menge = i.preis ? `${stk} × ${U.fmtEur(i.preis)}` : `${stk} Stück`;
+    const einheit = verbrauchEinheit(i);
+    const menge = i.preis ? `${stk} ${einheit} × ${U.fmtEur(i.preis)}` : `${stk} ${einheit}`;
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const teile = [i.kategorie, menge, zuord, i.notiz].filter(Boolean);
@@ -7507,7 +7571,7 @@ async function renderInventarBereich(main, cfg) {
           : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc(view._suche)}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
         : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
   const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
-  const form = async (i) => UI.formModal({
+  const form = async (i) => verdrahteEinheit(UI.formModal({
     title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
     fields: [
       { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.inventar, 'inventar', 'bezeichnung'), placeholder: cfg.typ === 'verbrauch' ? 'z. B. Ameisensäure 60 %' : 'z. B. Zanderbeute komplett' },
@@ -7516,6 +7580,8 @@ async function renderInventarBereich(main, cfg) {
         options: [...new Set([...cfg.kategorien, ...alle.map((i) => i.kategorie).filter(Boolean)])],
         hint: 'Du kannst auch eine eigene Kategorie eintippen – sie steht dir danach zur Auswahl.' },
       { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
+      { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN,
+        hint: 'Richtet sich nach der Bezeichnung: Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Überschreibbar. Nur bei „Stück" wird auf ganze Zahlen gerundet.' },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Kaufdatum' : 'Anschaffungsdatum', type: 'date' },
       { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', hint: 'Für Verbrauchsmaterial wie Varroa-Mittel oder Futter – die App erinnert vor Ablauf.' },
@@ -7525,9 +7591,14 @@ async function renderInventarBereich(main, cfg) {
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
     ],
     values: i || {},
-    async onSave(v) { v.stueckzahl = Math.round(v.stueckzahl || 1); await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute(); },
+    async onSave(v) {
+      // nur Stückgut wird gerundet – kg, Liter, ml dürfen Kommastellen haben
+      v.einheit = (v.einheit || 'Stück').trim() || 'Stück';
+      v.stueckzahl = v.einheit === 'Stück' ? Math.round(v.stueckzahl || 1) : Math.max(0, Number(v.stueckzahl) || 0);
+      await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
+    },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
-  });
+  }), !i);
   bindAdd(() => form(null));
   main.addEventListener('click', (e) => {
     const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
@@ -8529,6 +8600,132 @@ Views.rechner = {
 /* =====================================================================
    MODUL: PAPIERKORB (30 Tage Soft-Delete)
    ===================================================================== */
+/* ---------------------------------------------------------------------
+   Verbrauchsmaterial mit dem Alltag verbinden
+
+   Wer füttert, behandelt oder abfüllt, verbraucht Material. Bisher musste man
+   den Bestand von Hand nachziehen – das vergisst man. Jetzt kann man in den
+   Formularen die passende Position auswählen; beim Speichern wird abgezogen.
+
+   Einheiten sind dabei entscheidend: Zucker in kg, Sirup in Litern, Mittel in
+   ml oder g, Gläser in Stück. Die Auswahl zeigt deshalb nur Positionen mit
+   passender Einheit – sonst würde man Liter von Kilogramm abziehen.
+
+   Was gebucht wurde, steht im Datensatz (verbrauchId/verbrauchMenge), damit
+   nachvollziehbar bleibt, woher der Abzug kam. */
+const VERBRAUCH_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g', 'Packung', 'Sack'];
+
+/* Welche Einheit passt zu einer Position? Mittelwände und Wachs wiegt man,
+   Sirup füllt man in Litern, Säure dosiert man in Millilitern, Gläser zählt man.
+   Nur ein Vorschlag – überschreibbar. */
+const EINHEIT_VORSCHLAEGE = [
+  [/mittelwand|mittelwände|wachs|waben/i, 'kg'],
+  [/zucker|futterteig|teig|fondant/i, 'kg'],
+  [/sirup|invert|futtersaft/i, 'L'],
+  [/säure|saeure|oxal|ameisen|milchsäure|thymol/i, 'ml'],
+  [/glas|gläser|deckel|eimer|kiste|etikett|rähmchen|raehmchen|draht/i, 'Stück'],
+];
+function einheitVorschlag(text) {
+  const t = String(text || '');
+  for (const [re, einheit] of EINHEIT_VORSCHLAEGE) if (re.test(t)) return einheit;
+  return 'Stück';
+}
+
+/** Bestand einer Position als Zahl, egal wie sie gespeichert wurde. */
+function verbrauchBestand(pos) { return Math.max(0, Number(pos && pos.stueckzahl) || 0); }
+/** Einheit einer Position, mit „Stück" als Vorgabe für alte Einträge. */
+function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim() || 'Stück'; }
+
+/** Im Inventar-Formular: die Einheit folgt der Bezeichnung (nur bei neuen
+    Positionen), und die Beschriftung des Bestandsfeldes nennt die Einheit. */
+function verdrahteEinheit(m, istNeu) {
+  const bez = $('#f-bezeichnung', m.el), einheit = $('#f-einheit', m.el), stk = $('#f-stueckzahl', m.el);
+  if (!einheit) return m;
+  let vonHand = false;
+  einheit.addEventListener('input', () => { vonHand = true; beschrifte(); });
+  einheit.addEventListener('change', () => { vonHand = true; beschrifte(); });
+  function beschrifte() {
+    const e = (einheit.value || 'Stück').trim() || 'Stück';
+    const lab = stk && stk.closest('.field') && $('label', stk.closest('.field'));
+    if (lab) lab.textContent = e === 'Stück' ? 'Stückzahl / Bestand' : `Bestand (${e})`;
+    if (stk) stk.step = e === 'Stück' ? '1' : 'any';
+  }
+  if (bez && istNeu) {
+    bez.addEventListener('input', () => {
+      if (vonHand) return;                       // eigene Wahl nicht überschreiben
+      einheit.value = einheitVorschlag(bez.value);
+      beschrifte();
+    });
+  }
+  beschrifte();
+  return m;
+}
+
+/** Verbrauchsmaterial mit passender Einheit, alphabetisch. */
+async function verbrauchsPosten(einheiten) {
+  const erlaubt = (Array.isArray(einheiten) ? einheiten : [einheiten]).filter(Boolean);
+  const alle = (await DB.getAll('inventar')).filter((i) => i.typ === 'verbrauch');
+  const passend = erlaubt.length ? alle.filter((i) => erlaubt.includes(verbrauchEinheit(i))) : alle;
+  return U.sortBy(passend, (i) => (i.bezeichnung || '').toLowerCase());
+}
+
+/** Zieht eine Menge ab. Reicht der Bestand nicht, wird auf 0 gesetzt und die
+    fehlende Menge zurückgemeldet – verbraucht ist verbraucht, aber man soll es
+    erfahren. */
+async function verbrauchAbziehen(inventarId, menge) {
+  const m = Math.max(0, Number(menge) || 0);
+  if (!inventarId || m <= 0) return null;
+  const pos = await DB.get('inventar', inventarId);
+  if (!pos) return null;
+  const vorher = verbrauchBestand(pos);
+  const nachher = Math.max(0, vorher - m);
+  pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
+  await DB.put('inventar', pos);
+  pruefeMhd();
+  return { pos, vorher, nachher: pos.stueckzahl, abgezogen: m, gefehlt: Math.max(0, Math.round((m - vorher) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
+}
+
+/** Feld-Bausteine für ein Formular: Auswahl der Position und Live-Hinweis. */
+function verbrauchFelder(posten, { label = 'Vom Verbrauchsmaterial abziehen', hint = '' } = {}) {
+  return [
+    { key: '_verbrauchId', label, type: 'select',
+      options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })),
+      hint: posten.length ? (hint || 'Leer lassen heißt: Bestand nicht verändern.') : 'Kein passendes Verbrauchsmaterial angelegt – trage es unter „Verbrauchsmaterial" ein, dann kannst du hier abziehen.' },
+    { key: '_verbrauchInfo', type: 'static', html: '<div class="hint" data-verbrauch-info></div>' },
+  ];
+}
+
+/** Verdrahtet den Live-Hinweis: was wird abgezogen, was bleibt übrig.
+    mengeFn() liefert die aktuell zu buchende Menge aus dem Formular. */
+function verdrahteVerbrauch(m, posten, mengeFn) {
+  const sel = $('#f-_verbrauchId', m.el), info = $('[data-verbrauch-info]', m.el);
+  if (!sel || !info) return m;
+  const zeige = () => {
+    const pos = posten.find((i) => i.id === sel.value);
+    if (!pos) { info.textContent = 'Kein Abzug – der Bestand bleibt unverändert.'; return; }
+    const menge = Math.max(0, Number(mengeFn()) || 0);
+    const bestand = verbrauchBestand(pos), e = verbrauchEinheit(pos);
+    const rest = Math.max(0, bestand - menge);
+    info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
+      + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '');
+  };
+  sel.addEventListener('change', zeige);
+  m.el.addEventListener('input', zeige);
+  m.el.addEventListener('change', zeige);
+  zeige();
+  return m;
+}
+
+/** Bucht den Abzug beim Speichern und meldet es. Gibt die Buchung zurück. */
+async function verbrauchBuchen(v, menge) {
+  const buchung = await verbrauchAbziehen(v && v._verbrauchId, menge);
+  if (buchung) {
+    UI.toast(`${buchung.pos.bezeichnung}: ${U.fmtNum(buchung.abgezogen, 2)} ${buchung.einheit} abgezogen, Rest ${U.fmtNum(buchung.nachher, 2)} ${buchung.einheit}`
+      + (buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten im Bestand` : ''), buchung.gefehlt > 0 ? 'err' : undefined);
+  }
+  return buchung;
+}
+
 const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
@@ -11497,7 +11694,8 @@ Object.assign(window, {
   positionTrifft, sirupDichte, sirupAnsetzen, wasserFuerVerhaeltnis, futterAusZucker, zuckerFuerFutter, FUTTER_FAKTOR, FUTTER_MINDERUNG,
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
-  bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, BIO_BEREICHE, bioFristStatus,
+  VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
+  bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,

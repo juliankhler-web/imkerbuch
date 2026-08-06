@@ -1124,7 +1124,9 @@ test('Inventar: Liste als kompakte Zeilen statt Tabelle', async (w) => {
     assert(zeile, 'die angelegte Position steht in der Liste');
     assert(zeile.querySelector('.r-title'), 'Titel');
     assert(zeile.querySelector('.r-sub'), 'Untertitel mit Kategorie/Menge');
-    assert(/2 × /.test(zeile.querySelector('.r-sub').textContent), 'Stückzahl × Einzelpreis im Untertitel');
+    // seit der Einheit steht sie mit dabei: „2 Stück × 100,00 €"
+    assert(/2 Stück × /.test(zeile.querySelector('.r-sub').textContent),
+      `Menge mit Einheit × Einzelpreis erwartet: ${zeile.querySelector('.r-sub').textContent}`);
     assert(/200/.test(zeile.querySelector('.r-side').textContent), 'Gesamtwert rechts');
     // Die Positionsliste darf keine Tabelle mehr sein – die Übersichtskarte schon.
     const listenTabellen = [...host.querySelectorAll('table.tbl')].filter((t) => /Zeilen-Test-Beute/.test(t.textContent));
@@ -1922,6 +1924,102 @@ test('Fütterung ohne Rechner: Liter-Feld ist auch dort', async (w) => {
     lit.value = '10'; lit.dispatchEvent(new w.Event('input', { bubbles: true }));
     nah(w.U.parseNum(m.querySelector('#f-mengeKg').value), w.zuckerAusSirupLiter(10, '3:2'), 0.06, 'Menge folgt');
   } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+/* ---------- Verbrauchsmaterial mit dem Alltag verbunden ---------- */
+test('einheitVorschlag: Einheit richtet sich nach der Bezeichnung', (w) => {
+  assertEq(w.einheitVorschlag('Mittelwände Zander'), 'kg', 'Mittelwände wiegt man');
+  assertEq(w.einheitVorschlag('Wachs eigener Kreislauf'), 'kg', 'Wachs auch');
+  assertEq(w.einheitVorschlag('Öko-Zucker'), 'kg', 'Zucker in kg');
+  assertEq(w.einheitVorschlag('Futterteig'), 'kg', 'Teig in kg');
+  assertEq(w.einheitVorschlag('Futtersirup 3:2'), 'L', 'Sirup in Litern');
+  assertEq(w.einheitVorschlag('Ameisensäure 60 %'), 'ml', 'Säure in ml');
+  assertEq(w.einheitVorschlag('Gläser 500 g'), 'Stück', 'Gläser zählt man');
+  assertEq(w.einheitVorschlag('Stockmeißel'), 'Stück', 'Vorgabe ist Stück');
+  assertEq(w.einheitVorschlag(''), 'Stück', 'leer ergibt Stück');
+});
+test('verbrauchAbziehen: bucht ab und meldet, wenn der Bestand nicht reicht', async (w) => {
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Abzug-Probe', kategorie: 'Futter', stueckzahl: 20, einheit: 'kg' });
+  try {
+    const a = await w.verbrauchAbziehen(pos.id, 4.7);
+    assertEq(a.vorher, 20, 'Ausgangsbestand');
+    nah(a.nachher, 15.3, 0.001, 'Kommastellen bleiben bei kg erhalten');
+    assertEq(a.gefehlt, 0, 'nichts gefehlt');
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 15.3, 'im Bestand gespeichert');
+    // mehr abziehen als da ist: auf 0, mit Meldung
+    const b = await w.verbrauchAbziehen(pos.id, 100);
+    assertEq(b.nachher, 0, 'nie unter null');
+    nah(b.gefehlt, 84.7, 0.01, 'fehlende Menge wird gemeldet');
+    // Stückgut wird gerundet
+    const stk = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser-Probe', stueckzahl: 10, einheit: 'Stück' });
+    const c = await w.verbrauchAbziehen(stk.id, 3);
+    assertEq(c.nachher, 7, 'Stück bleibt ganzzahlig');
+    await w.DB.del('inventar', stk.id);
+    // ohne Auswahl oder Menge passiert nichts
+    assertEq(await w.verbrauchAbziehen(null, 5), null, 'ohne Position kein Abzug');
+    assertEq(await w.verbrauchAbziehen(pos.id, 0), null, 'ohne Menge kein Abzug');
+  } finally { await w.DB.del('inventar', pos.id); }
+});
+test('verbrauchsPosten: nur passende Einheiten zur Auswahl', async (w) => {
+  const a = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker-Probe', stueckzahl: 10, einheit: 'kg' });
+  const b = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Sirup-Probe', stueckzahl: 10, einheit: 'L' });
+  const c = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Glas-Probe', stueckzahl: 10, einheit: 'Stück' });
+  const d = await w.DB.put('inventar', { typ: 'anlage', bezeichnung: 'Schleuder-Probe', stueckzahl: 1, einheit: 'Stück' });
+  try {
+    const kg = (await w.verbrauchsPosten(['kg', 'L'])).map((x) => x.bezeichnung);
+    assert(kg.includes('Zucker-Probe') && kg.includes('Sirup-Probe'), 'kg und L dabei');
+    assert(!kg.includes('Glas-Probe'), 'Stück nicht dabei');
+    assert(!kg.includes('Schleuder-Probe'), 'Anlagen sind kein Verbrauchsmaterial');
+    // alte Einträge ohne Einheit gelten als Stück
+    const ohne = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Alt-Probe', stueckzahl: 5 });
+    assertEq(w.verbrauchEinheit(await w.DB.get('inventar', ohne.id)), 'Stück', 'Vorgabe für alte Einträge');
+    assert((await w.verbrauchsPosten(['Stück'])).some((x) => x.bezeichnung === 'Alt-Probe'), 'und tauchen bei Stück auf');
+    await w.DB.del('inventar', ohne.id);
+  } finally { for (const x of [a, b, c, d]) await w.DB.del('inventar', x.id); }
+});
+test('fuetterungVerbrauch: kg zieht Zucker ab, Liter den Sirup', (w) => {
+  const kgPos = { id: 'p1', einheit: 'kg', stueckzahl: 100 };
+  const lPos = { id: 'p2', einheit: 'L', stueckzahl: 100 };
+  const posten = [kgPos, lPos];
+  // 5 kg Zucker je Volk, 3 Völker
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p1', mengeKg: 5, futterart: 'Zuckerwasser 3:2' }, posten, 3), 15, '3 × 5 kg Zucker');
+  nah(w.fuetterungVerbrauch({ _verbrauchId: 'p2', mengeKg: 5, futterart: 'Zuckerwasser 3:2' }, posten, 3),
+    w.literAusZucker(5, '3:2') * 3, 0.05, 'Liter aus dem Verhältnis gerechnet');
+  // eingetragene Liter haben Vorrang vor der Rückrechnung
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p2', mengeKg: 5, _sirupLiter: 8, futterart: 'Zuckerwasser 3:2' }, posten, 2), 16, 'eingetragene Liter zählen');
+  // eigener Zuckerwert schlägt die Menge
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p1', mengeKg: 10, zuckerKg: 4, futterart: 'Futterteig' }, posten, 1), 4, 'zuckerKg gewinnt');
+  // Futterart ohne Verhältnis: keine Liter ableitbar
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p2', mengeKg: 5, futterart: 'Futterteig' }, posten, 1), 0, 'ohne Verhältnis keine Liter');
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: '', mengeKg: 5 }, posten, 3), 0, 'ohne Auswahl kein Verbrauch');
+});
+test('Fütterung: Auswahl im Formular zieht beim Speichern ab', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Formular-Probe', kategorie: 'Futter', stueckzahl: 40, einheit: 'kg' });
+  const vorherF = (await w.DB.getAll('fuetterungen')).map((x) => x.id);
+  await w.Views.fuetterung.sammelForm();
+  await new Promise((r) => setTimeout(r, 300));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const sel = m.querySelector('#f-_verbrauchId');
+    assert(sel, 'Auswahl im Fütterungs-Formular');
+    assert([...sel.options].some((o) => o.textContent.includes('Zucker Formular-Probe')), 'Position steht zur Wahl');
+    const kaesten = [...m.querySelectorAll('#f-volkIds label.check-line')].filter((l) => l.style.display !== 'none');
+    kaesten.slice(0, 2).forEach((l) => l.querySelector('input').click());
+    const setz = (id, val) => { const e = m.querySelector(id); e.value = val; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz('#f-futterart', 'Zuckerwasser 1:1'); setz('#f-mengeKg', '3');
+    sel.value = pos.id; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    const info = m.querySelector('[data-verbrauch-info]').textContent;
+    assert(/6/.test(info), `Live-Hinweis falsch: ${info}`);
+    assert(/34/.test(info), `Restbestand fehlt: ${info}`);
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 700));
+    nah((await w.DB.get('inventar', pos.id)).stueckzahl, 34, 0.01, '2 × 3 kg abgezogen');
+    for (const f of (await w.DB.getAll('fuetterungen')).filter((x) => !vorherF.includes(x.id))) await w.DB.del('fuetterungen', f.id);
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    await w.DB.del('inventar', pos.id);
+  }
 });
 
 /* ---------- Landbedeckung automatisch (ohne Netz geprüft) ---------- */
