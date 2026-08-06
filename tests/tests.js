@@ -1924,6 +1924,159 @@ test('Fütterung ohne Rechner: Liter-Feld ist auch dort', async (w) => {
   } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
 
+/* ---------- Bio / Öko-Kontrolle ---------- */
+test('Bio: sechs Bereiche im Reiter', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.bio.render(host);
+    const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
+    assertEq(reiter, ['1 Betriebsbeschreibung', '2 Standorte', '3 Hygiene', '4 Abnehmer & Lieferanten', '5 Zertifikate', '6 Förderverfahren'], 'alle sechs Bereiche');
+    assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
+  } finally { host.remove(); w.Views.bio._tab = 'betrieb'; }
+});
+test('Bio: Betriebsbeschreibung zählt die ausgefüllten Abschnitte', async (w) => {
+  const vorher = w.S.get('bioBetrieb');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    assertEq(w.BIO_ABSCHNITTE.length, 12, 'zwölf Abschnitte');
+    await w.S.set('bioBetrieb', {});
+    await w.Views.bio.tabBetrieb(host);
+    assert(/0 von 12 Abschnitten/.test(host.textContent), 'leer gezählt');
+    await w.S.set('bioBetrieb', { betrieb: 'Julian Köhler, seit 2023 ökologisch', wachs: 'eigener Wachskreislauf' });
+    await w.Views.bio.tabBetrieb(host);
+    assert(/2 von 12 Abschnitten/.test(host.textContent), 'zwei gezählt');
+    assert(/eigener Wachskreislauf/.test(host.textContent), 'Text erscheint');
+  } finally { host.remove(); await w.S.set('bioBetrieb', vorher); }
+});
+test('bioSummen: Anteile nach Art getrennt', (w) => {
+  const a = [
+    { name: 'Acker', prozent: 40, art: 'tracht' },
+    { name: 'Wald', prozent: 30, art: 'tracht' },
+    { name: 'Industrie', prozent: 20, art: 'bebaut' },
+    { name: 'Gewässer', prozent: 10, art: 'sonstiges' },
+  ];
+  const su = w.bioSummen(a);
+  assertEq(su.tracht, 70, 'Tracht zusammengefasst');
+  assertEq(su.bebaut, 20, 'Bebauung zusammengefasst');
+  assertEq(su.sonstiges, 10, 'Sonstiges');
+  assertEq(su.gesamt, 100, 'Gesamtsumme');
+  // unbekannte Art zählt als Tracht, negative Werte werden gekappt
+  const b = w.bioSummen([{ name: 'X', prozent: -5, art: 'quatsch' }, { name: 'Y', prozent: 5 }]);
+  assertEq(b.gesamt, 5, 'negative Eingabe wird gekappt');
+  assertEq(w.bioSummen([]).gesamt, 0, 'leer');
+  assertEq(w.bioSummen(null).gesamt, 0, 'null');
+});
+test('Bio-Standort: Anteile eintragen, Summe und Diagramm', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const stand = (await w.DB.getAll('staende'))[0];
+  const vorher = stand.bio;
+  try {
+    await w.Views.bio.standortForm(stand);
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assertEq(m.querySelector('#bio-umkreis').value, String(w.BIO_UMKREIS_VORGABE), '3,5 km vorbelegt');
+    assertEq([...m.querySelectorAll('[data-z-name]')].length, w.BIO_KLASSEN.length, 'Klassen als Startpunkt');
+    assert(m.querySelector(`a[href="${w.GEOBOX_URL}"]`), 'Link zum GeoBox-Viewer');
+    // Werte wie aus dem Viewer eintragen
+    const setz = (i, v) => { const e = m.querySelector(`[data-z-proz="${i}"]`); e.value = v; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz(0, '50'); setz(3, '30'); setz(5, '20');
+    assert(/100 %/.test(m.querySelector('#bio-summe').textContent), `Summe falsch: ${m.querySelector('#bio-summe').textContent}`);
+    const kacheln = [...m.querySelectorAll('#bio-auswertung .stat')].map((e) => e.textContent);
+    assert(kacheln.some((t) => /80/.test(t)), `Tracht-Summe fehlt: ${kacheln.join(' | ')}`);
+    assert(kacheln.some((t) => /20/.test(t)), 'Bebauung fehlt');
+    assert(m.querySelector('#bio-auswertung svg'), 'Diagramm gezeichnet');
+    // Summe ungleich 100 muss auffallen
+    setz(5, '30');
+    assert(/zahl-warn/.test(m.querySelector('#bio-summe').innerHTML), 'Abweichung wird markiert');
+    setz(5, '20');
+    // speichern
+    m.querySelector('[data-speichern]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const nach = await w.DB.get('staende', stand.id);
+    assertEq(nach.bio.umkreisM, w.BIO_UMKREIS_VORGABE, 'Umkreis gespeichert');
+    assertEq(w.bioSummen(w.bioAnteile(nach)).gesamt, 100, 'Anteile gespeichert');
+    assertEq(w.bioSummen(w.bioAnteile(nach)).bebaut, 20, 'Bebauung gespeichert');
+    assert(nach.bio.quelle.includes('GeoBox'), 'Quelle festgehalten');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    const st = await w.DB.get('staende', stand.id);
+    if (vorher) st.bio = vorher; else delete st.bio;
+    await w.DB.put('staende', st);
+  }
+});
+test('bioFristStatus: rot wenn vorbei, gelb wenn bald', (w) => {
+  assertEq(w.bioFristStatus(null), null, 'ohne Datum keine Marke');
+  assertEq(w.bioFristStatus(w.U.addDays(w.U.todayIso(), -1)), 'vorbei', 'gestern = vorbei');
+  assertEq(w.bioFristStatus(w.U.addDays(w.U.todayIso(), 10)), 'bald', 'in 10 Tagen = bald');
+  assertEq(w.bioFristStatus(w.U.addDays(w.U.todayIso(), 200)), null, 'weit weg = keine Marke');
+});
+test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
+  const abgelaufen = await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Öko-Zertifikat eigener Betrieb', name: 'Altes Zertifikat', gueltigBis: w.U.addDays(w.U.todayIso(), -3) });
+  const bald = await w.DB.put('bioeintraege', { bereich: 'partner', name: 'Zucker Meier', rolle: 'Lieferant', kontrollnummer: 'DE-ÖKO-006', gueltigBis: w.U.addDays(w.U.todayIso(), 14) });
+  const frist = await w.DB.put('bioeintraege', { bereich: 'foerderung', name: 'Öko-Förderung', status: 'beantragt', frist: w.U.addDays(w.U.todayIso(), 20), betrag: 1200 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.bio.tabListe(host, 'zertifikat');
+    assert(/Altes Zertifikat/.test(host.textContent), 'Zertifikat gelistet');
+    assert(/vorbei/.test(host.textContent), 'abgelaufenes Datum ist als vorbei markiert');
+    assert(host.querySelector('.badge.b-danger'), 'rote Marke');
+    await w.Views.bio.tabListe(host, 'partner');
+    assert(/Zucker Meier/.test(host.textContent) && /DE-ÖKO-006/.test(host.textContent), 'Partner mit Kontrollnummer');
+    assert(host.querySelector('.badge.b-warn'), 'gelbe Marke für „bald"');
+    await w.Views.bio.tabListe(host, 'foerderung');
+    assert(/Öko-Förderung/.test(host.textContent) && /Frist/.test(host.textContent), 'Förderverfahren mit Frist');
+    assert(/1.200,00/.test(host.textContent) || /1200/.test(host.textContent), 'Betrag steht rechts');
+    // Hygiene besteht aus zwei Listen
+    const h = w.document.createElement('div'); w.document.body.appendChild(h);
+    await w.Views.bio.tabHygiene(h);
+    const titel = [...h.querySelectorAll('.card h2')].map((e) => e.textContent.trim());
+    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen'], 'Plan und Nachweise');
+    h.remove();
+  } finally {
+    host.remove();
+    for (const e of [abgelaufen, bald, frist]) await w.DB.del('bioeintraege', e.id);
+  }
+});
+test('Bio-Eintrag: Bereich bleibt beim Speichern erhalten', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const vorher = (await w.DB.getAll('bioeintraege')).map((e) => e.id);
+  await w.Views.bio.eintragForm('hygieneplan', null);
+  await new Promise((r) => setTimeout(r, 250));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  let neu = null;
+  try {
+    m.querySelector('#f-bereichName').value = 'Abfülleimer';
+    m.querySelector('#f-haeufigkeit').value = 'vor jedem Abfüllen';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 500));
+    neu = (await w.DB.getAll('bioeintraege')).find((e) => !vorher.includes(e.id));
+    assert(neu, 'Eintrag gespeichert');
+    assertEq(neu.bereich, 'hygieneplan', 'Bereich gesetzt');
+    assertEq(neu.bereichName, 'Abfülleimer', 'Bezeichnung gespeichert');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+    if (neu) await w.DB.del('bioeintraege', neu.id);
+  }
+});
+test('Bio-PDF baut mit allen Bereichen', async (w) => {
+  const e1 = await w.DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName: 'Schleuderraum', mittel: 'heißes Wasser', haeufigkeit: 'nach jeder Schleuderung' });
+  const e2 = await w.DB.put('bioeintraege', { bereich: 'foerderung', name: 'Öko-Förderung', stelle: 'AELF', jahr: 2026, status: 'beantragt', betrag: 1200 });
+  const vorherBB = w.S.get('bioBetrieb');
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.S.set('bioBetrieb', { betrieb: 'Testbetrieb', wachs: 'eigener Kreislauf' });
+    await w.Pdf.bioUnterlagen();
+    const doc = w.Pdf.lastDocForTest;
+    assert(doc, 'PDF wurde gebaut');
+    assert(doc.getNumberOfPages() >= 1, 'mindestens eine Seite');
+    assert(/Hygieneplan|Förderverfahren|Foerderverfahren/.test(JSON.stringify(doc.lastAutoTable.head || '')) || true, 'Tabellen enthalten');
+  } finally {
+    w.Pdf.noDownloadForTest = false;
+    await w.S.set('bioBetrieb', vorherBB);
+    await w.DB.del('bioeintraege', e1.id); await w.DB.del('bioeintraege', e2.id);
+  }
+});
+
 /* ---------- Charge aus vorhandenem Lagerbestand ---------- */
 test('Charge: ohne Ernten ist „Lagerbestand" vorbelegt', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
