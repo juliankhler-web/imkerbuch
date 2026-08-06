@@ -3911,9 +3911,9 @@ test('CLC: eine Fläche über den ganzen Kreis ergibt 100 % Abdeckung', (w) => {
   const lat = 50, lon = 10, r = 1000;
   const erg = w.clcAnteileAusFeatures([clcFeature('311', [clcKasten(lat, lon, -1200, 1200, -1200, 1200)])], lat, lon, r);
   assertEq(erg.zeilen.length, 1, 'genau eine Zeile');
-  assertEq(erg.zeilen[0].name, 'Wald', '311 ist Wald');
-  assertEq(erg.zeilen[0].art, 'tracht', 'Wald ist Tracht');
-  nah(erg.zeilen[0].prozent, 100, 0.2, 'Wald füllt den Kreis');
+  assertEq(erg.zeilen[0].name, 'Laubwälder', '311 ist Laubwälder – der amtliche Name, nicht „Wald"');
+  assertEq(erg.zeilen[0].art, 'tracht', 'Laubwald ist Tracht');
+  nah(erg.zeilen[0].prozent, 100, 0.2, 'die Klasse füllt den Kreis');
   nah(erg.abdeckung, 100, 0.2, 'Abdeckung 100 % – das ist der Unterschied zu OpenStreetMap');
   assert(!erg.zeilen.some((z) => z.name === 'Nicht im amtlichen Datensatz'), 'keine Lückenzeile');
 });
@@ -3925,8 +3925,8 @@ test('CLC: Hälften, kleine Fläche und Löcher stimmen flächengenau', (w) => {
     clcFeature('312', [clcKasten(lat, lon, 0, 1200, -1200, 1200)]),
   ], lat, lon, r);
   const m1 = new Map(halb.zeilen.map((z) => [z.name, z.prozent]));
-  nah(m1.get('Acker'), 50, 0.2, 'westliche Hälfte = Acker');
-  nah(m1.get('Wald'), 50, 0.2, 'östliche Hälfte = Wald');
+  nah(m1.get('Nicht bewässertes Ackerland'), 50, 0.2, 'westliche Hälfte = Ackerland');
+  nah(m1.get('Nadelwälder'), 50, 0.2, 'östliche Hälfte = Nadelwälder');
   nah(halb.abdeckung, 100, 0.2, 'zusammen lückenlos');
 
   // 200 m × 400 m innerhalb des Kreises: exakt nachrechenbar
@@ -3935,14 +3935,14 @@ test('CLC: Hälften, kleine Fläche und Löcher stimmen flächengenau', (w) => {
     clcFeature('121', [clcKasten(lat, lon, 100, 300, -200, 200)]),
   ], lat, lon, r);
   const m2 = new Map(klein.zeilen.map((z) => [z.name, z.prozent]));
-  nah(m2.get('Industrie / Gewerbe'), (200 * 400) / (Math.PI * r * r) * 100, 0.05, 'kleine Industriefläche exakt');
+  nah(m2.get('Industrie-und Gewerbeflächen, öffentliche Einrichtungen'), (200 * 400) / (Math.PI * r * r) * 100, 0.05, 'kleine Industriefläche exakt');
 
   // Loch im Wald: die Fläche muss fehlen und als Lücke auftauchen
   const mitLoch = w.clcAnteileAusFeatures([
     clcFeature('311', [clcKasten(lat, lon, -1200, 1200, -1200, 1200), clcKasten(lat, lon, -100, 100, -100, 100)]),
   ], lat, lon, r);
   const lochProzent = (200 * 200) / (Math.PI * r * r) * 100;
-  nah(mitLoch.zeilen.find((z) => z.name === 'Wald').prozent, 100 - lochProzent, 0.3, 'Loch geht vom Wald ab');
+  nah(mitLoch.zeilen.find((z) => z.name === 'Laubwälder').prozent, 100 - lochProzent, 0.3, 'Loch geht vom Wald ab');
   const luecke = mitLoch.zeilen.find((z) => z.name === 'Nicht im amtlichen Datensatz');
   assert(luecke, 'das Loch wird als Lücke ausgewiesen, nicht verschluckt');
   nah(luecke.prozent, lochProzent, 0.3, 'Lücke so groß wie das Loch');
@@ -3955,7 +3955,7 @@ test('CLC: fehlende Flächen werden als Lücke ausgewiesen, unbekannte Schlüsse
   nah(halb.zeilen.find((z) => z.name === 'Nicht im amtlichen Datensatz').prozent, 50, 0.3, 'Rest offen ausgewiesen');
 
   const fremd = w.clcAnteileAusFeatures([clcFeature('999', [clcKasten(lat, lon, -1200, 1200, -1200, 1200)])], lat, lon, r);
-  assertEq(fremd.zeilen[0].name, 'Sonstige amtliche Fläche', 'unbekannter Schlüssel ist keine Lücke');
+  assert(fremd.zeilen[0].name.startsWith('Sonstige amtliche Fläche'), 'unbekannter Schlüssel ist keine Lücke: ' + fremd.zeilen[0].name);
   nah(fremd.abdeckung, 100, 0.2, 'die Fläche zählt trotzdem als abgedeckt');
 });
 
@@ -3969,29 +3969,35 @@ test('CLC: MultiPolygon wird vollständig gerechnet', (w) => {
     ] },
   };
   const erg = w.clcAnteileAusFeatures([f], lat, lon, r);
-  assertEq(erg.zeilen[0].name, 'Gewässer', '512 ist Gewässer');
+  assertEq(erg.zeilen[0].name, 'Wasserflächen', '512 ist Wasserflächen');
   nah(erg.zeilen[0].prozent, 2 * (200 * 200) / (Math.PI * r * r) * 100, 0.05, 'beide Teile gezählt');
 });
 
-test('CLC: Zuordnung amtlicher Schlüssel ist gültig und passt zu den Bio-Summen', (w) => {
+test('CLC: amtliche Klassenliste ist gültig, fein und passt zu den Bio-Summen', (w) => {
   const arten = new Set(['tracht', 'bebaut', 'sonstiges']);
-  for (const [code, [name, art]] of w.CLC_KARTE) {
+  for (const [code, [name, art]] of w.CLC_KLASSEN) {
     assert(/^\d{3}$/.test(code), `Schlüssel dreistellig: ${code}`);
     assert(name && name.length > 2, `Name gesetzt bei ${code}`);
     assert(arten.has(art), `Art gültig bei ${code}: ${art}`);
   }
-  assertEq(w.CLC_KARTE.get('311')[0], 'Wald', '311 Laubwald → Wald');
-  assertEq(w.CLC_KARTE.get('211')[0], 'Acker', '211 Ackerland → Acker');
-  assertEq(w.CLC_KARTE.get('231')[0], 'Grünland / Wiese', '231 Wiesen und Weiden → Grünland');
-  assertEq(w.CLC_KARTE.get('121')[1], 'bebaut', '121 Industrie zählt als bebaut');
-  assertEq(w.CLC_KARTE.get('112')[1], 'bebaut', '112 Siedlung zählt als bebaut');
-  assertEq(w.CLC_KARTE.get('512')[1], 'sonstiges', 'Wasserflächen sind weder Tracht noch bebaut');
-  // die Namen müssen dieselben sein wie bei OpenStreetMap, sonst sind die Quellen nicht vergleichbar
-  const osmNamen = new Set(w.OSM_KARTE ? w.OSM_KARTE.map((k) => k[2]) : []);
-  for (const n of ['Acker', 'Grünland / Wiese', 'Wald', 'Siedlung / Bebauung', 'Industrie / Gewerbe', 'Verkehrsflächen', 'Gewässer']) {
-    assert([...w.CLC_KARTE.values()].some(([nn]) => nn === n), `Zeile „${n}" gibt es auch amtlich`);
-    if (osmNamen.size) assert(osmNamen.has(n), `Zeile „${n}" heißt bei OpenStreetMap gleich`);
-  }
+  // die amtlichen Namen, wörtlich wie im Dienst – keine Sammelbegriffe mehr
+  assertEq(w.CLC_KLASSEN.get('311')[0], 'Laubwälder', '311');
+  assertEq(w.CLC_KLASSEN.get('312')[0], 'Nadelwälder', '312');
+  assertEq(w.CLC_KLASSEN.get('313')[0], 'Mischwälder', '313');
+  assertEq(w.CLC_KLASSEN.get('222')[0], 'Obst-und Beerenobstbestände', '222 – amtliche Schreibweise ohne Leerzeichen');
+  assertEq(w.CLC_KLASSEN.get('221')[0], 'Weinbauflächen', '221');
+  assertEq(w.CLC_KLASSEN.get('231')[0], 'Wiesen und Weiden', '231');
+  assertEq(w.CLC_KLASSEN.get('112')[1], 'bebaut', 'Siedlung zählt als bebaut');
+  assertEq(w.CLC_KLASSEN.get('512')[1], 'sonstiges', 'Wasserflächen sind weder Tracht noch bebaut');
+  assert(w.CLC_KLASSEN.size >= 35, `mindestens die 35 Klassen des Dienstes: ${w.CLC_KLASSEN.size}`);
+
+  // Namensvergleich für die Excel-Tabelle des GeoBox-Viewers
+  assertEq(w.clcArtAusName('Nadelwälder'), 'tracht', 'Name direkt getroffen');
+  assertEq(w.clcArtAusName('Industrie-und Gewerbeflächen, öffentliche Einrichtungen'), 'bebaut', 'amtliche Schreibweise');
+  assertEq(w.clcArtAusName('Industrie- und Gewerbeflächen, öffentliche Einrichtungen'), 'bebaut', 'mit Leerzeichen nach dem Bindestrich');
+  assertEq(w.clcArtAusName('  NADELWÄLDER '), 'tracht', 'Groß-/Kleinschreibung und Leerzeichen egal');
+  assertEq(w.clcArtAusName('Etwas völlig Neues'), 'sonstiges', 'Unbekanntes zählt vorsichtig als sonstiges, nicht als Tracht');
+
   // Summen: die drei Arten müssen zusammen den Kreis füllen
   const lat = 50, lon = 10, r = 1000;
   const erg = w.clcAnteileAusFeatures([
@@ -4074,4 +4080,103 @@ test('Abfüllen: Vorschlag nimmt keine leergelaufene Position, wenn eine mit Bes
     { id: 'glas', bezeichnung: 'Gläser 500 g', einheit: 'Stück', stueckzahl: 0 },
   ];
   assertEq(w.glasVorschlag(gemischt, 500), 'glas', 'Gebinde-Name wiegt schwerer als Bestand');
+});
+
+/* =====================================================================
+   GeoBox-Dienst (amtliche Auswertung) und die Rückfallkette
+   Netzfreie Teile: Umrechnung ins Bezugssystem, Tabellen-Auswertung,
+   Reihenfolge und Verhalten der Kette.
+   ===================================================================== */
+test('GeoBox: Umrechnung nach Web Mercator trifft bekannte Werte', (w) => {
+  const m = w.webMercator(0, 0);
+  nah(m.x, 0, 0.5, 'Nullmeridian');
+  nah(m.y, 0, 0.5, 'Äquator');
+  // Mayen (RLP), gegen die Referenzrechnung des Dienstes geprüft
+  const mayen = w.webMercator(50.3283, 7.2216);
+  nah(mayen.x, 803904.8, 2, 'x Mayen');
+  nah(mayen.y, 6503326.9, 2, 'y Mayen');
+  // 90° Ost = ein Viertel des Erdumfangs in Mercator-Metern
+  nah(w.webMercator(0, 90).x, 20037508.34 / 2, 1, '90° Ost');
+  assert(w.webMercator(50, 10).y > 0 && w.webMercator(-50, 10).y < 0, 'Vorzeichen der Breite');
+});
+
+test('GeoBox: Tabelle wird zu Anteilen, Prozente auf 0,1 statt ganze Prozent', (w) => {
+  const r = 3500, kreis = Math.PI * r * r;   // 38 484 510 m²
+  // echte Zeilenform des Dienstes (Spalten wie in der gelieferten Datei)
+  const tabelle = [
+    { OBJECTID: 1, Klassenname: 'Laubwälder', 'Gesamt (QKM)': 38, 'Fläche (qm)': 4798605, 'Prozent (%)': 12 },
+    { OBJECTID: 2, Klassenname: 'Nadelwälder', 'Gesamt (QKM)': 38, 'Fläche (qm)': 749167, 'Prozent (%)': 2 },
+    { OBJECTID: 3, Klassenname: 'Obst-und Beerenobstbestände', 'Gesamt (QKM)': 38, 'Fläche (qm)': 987710, 'Prozent (%)': 3 },
+    { OBJECTID: 4, Klassenname: 'Industrie-und Gewerbeflächen, öffentliche Einrichtungen', 'Gesamt (QKM)': 38, 'Fläche (qm)': 6205188, 'Prozent (%)': 16 },
+    { OBJECTID: 5, Klassenname: 'Wasserflächen', 'Gesamt (QKM)': 38, 'Fläche (qm)': 25097, 'Prozent (%)': 0 },
+    { OBJECTID: 6, Klassenname: '', 'Gesamt (QKM)': 38, 'Fläche (qm)': 0, 'Prozent (%)': 0 },   // Leerzeile: muss ignoriert werden
+  ];
+  const erg = w.gbvZeilenAusTabelle(tabelle, r);
+  const map = new Map(erg.zeilen.map((z) => [z.name, z]));
+  assert(!map.has(''), 'Leerzeile fällt raus');
+  // 0,1-Genauigkeit: der Dienst sagt 12 %, gerechnet sind es 12,5 %
+  nah(map.get('Laubwälder').prozent, (4798605 / kreis) * 100, 0.05, 'Laubwälder aus Quadratmetern');
+  assert(map.get('Laubwälder').prozent !== 12, 'nicht die gerundete Zahl des Dienstes übernommen');
+  assertEq(map.get('Laubwälder').art, 'tracht', 'Laubwälder sind Tracht');
+  assertEq(map.get('Industrie-und Gewerbeflächen, öffentliche Einrichtungen').art, 'bebaut', 'Industrie ist bebaut');
+  assertEq(map.get('Wasserflächen').art, 'sonstiges', 'Wasser ist sonstiges');
+  assertEq(erg.zeilen[0].name, 'Industrie-und Gewerbeflächen, öffentliche Einrichtungen', 'größter Anteil steht oben');
+  // hier fehlt der Großteil der Fläche → Lücke muss ausgewiesen werden
+  const luecke = erg.zeilen.find((z) => z.name === 'Nicht im amtlichen Datensatz');
+  assert(luecke, 'fehlende Fläche wird ausgewiesen');
+  nah(erg.zeilen.reduce((sum, z) => sum + z.prozent, 0), 100, 0.3, 'mit Lücke ergibt es 100 %');
+  // Spalten dürfen anders heißen
+  const anders = w.gbvZeilenAusTabelle([{ Klassenname: 'Wiesen und Weiden', 'Fläche m²': kreis }], r);
+  nah(anders.zeilen[0].prozent, 100, 0.2, 'andere Spaltenbeschriftung wird gefunden');
+  nah(anders.abdeckung, 100, 0.2, 'volle Abdeckung erkannt');
+  // gar keine Fläche → sprechender Fehler, damit die Kette weiterschalten kann
+  let gemeldet = '';
+  try { w.gbvZeilenAusTabelle([], r); } catch (e) { gemeldet = e.message; }
+  assert(/keine Flächen/i.test(gemeldet), `sprechender Fehler statt leerem Ergebnis: ${gemeldet}`);
+});
+
+test('GeoBox: Quellenkette hat die richtige Reihenfolge und meldet ihre Quelle', async (w) => {
+  const keys = w.LB_QUELLEN.map((q) => q.key);
+  assertEq(keys.join('>'), 'gbv>bkg>osm', 'erst GeoBox, dann BKG, dann OpenStreetMap');
+  assertEq(w.LB_QUELLEN[0].amtlich, true, 'GeoBox ist amtlich');
+  assertEq(w.LB_QUELLEN[1].amtlich, true, 'BKG ist amtlich');
+  assertEq(w.LB_QUELLEN[2].amtlich, false, 'OpenStreetMap ist nicht amtlich');
+  for (const q of w.LB_QUELLEN) assert(q.kurz && q.label && typeof q.fn === 'function', `Quelle ${q.key} vollständig`);
+
+  /* Kette mit ausgetauschten Funktionen prüfen: die erste Quelle fällt aus,
+     die zweite antwortet – und das Ergebnis muss sagen, wer geantwortet hat
+     und was zuvor schiefging. */
+  const echt = w.LB_QUELLEN.map((q) => q.fn);
+  const meldungen = [];
+  try {
+    w.LB_QUELLEN[0].fn = async () => { throw new Error('Dienst offline'); };
+    w.LB_QUELLEN[1].fn = async () => ({ zeilen: [{ name: 'Nadelwälder', art: 'tracht', prozent: 100 }], abdeckung: 100 });
+    w.LB_QUELLEN[2].fn = async () => { throw new Error('darf nicht dran kommen'); };
+    const erg = await w.landbedeckungErmitteln(50, 7, 3500, (t) => meldungen.push(t));
+    assertEq(erg.quelle.key, 'bkg', 'die zweite Quelle hat geantwortet');
+    assertEq(erg.zeilen[0].name, 'Nadelwälder', 'Zeilen kommen durch');
+    assertEq(erg.gescheitert.length, 1, 'der Ausfall ist vermerkt');
+    assert(/Dienst offline/.test(erg.gescheitert[0]), `Grund steht drin: ${erg.gescheitert[0]}`);
+    assert(meldungen.some((t) => /weiter mit/i.test(t)), 'der Wechsel wird gemeldet');
+
+    // leeres Ergebnis gilt als Ausfall, nicht als Antwort
+    w.LB_QUELLEN[1].fn = async () => ({ zeilen: [] });
+    w.LB_QUELLEN[2].fn = async () => ({ zeilen: [{ name: 'Acker', art: 'tracht', prozent: 100 }], abdeckung: 100 });
+    const erg2 = await w.landbedeckungErmitteln(50, 7, 3500, () => {});
+    assertEq(erg2.quelle.key, 'osm', 'leere Antwort schaltet weiter');
+
+    // nur eine Quelle erzwingen
+    w.LB_QUELLEN[0].fn = async () => ({ zeilen: [{ name: 'Wiesen und Weiden', art: 'tracht', prozent: 100 }], abdeckung: 100 });
+    const nurOsm = await w.landbedeckungErmitteln(50, 7, 3500, () => {}, 'osm');
+    assertEq(nurOsm.quelle.key, 'osm', 'Begrenzung auf eine Quelle greift');
+
+    // alle fallen aus → ein Fehler, der alle Gründe nennt
+    for (const q of w.LB_QUELLEN) q.fn = async () => { throw new Error('alles tot'); };
+    let fehler = '';
+    try { await w.landbedeckungErmitteln(50, 7, 3500, () => {}); } catch (e) { fehler = e.message; }
+    assert(/Keine Quelle/.test(fehler) && (fehler.match(/alles tot/g) || []).length === 3,
+      `alle drei Gründe im Fehler: ${fehler}`);
+  } finally {
+    w.LB_QUELLEN.forEach((q, i) => { q.fn = echt[i]; });
+  }
 });

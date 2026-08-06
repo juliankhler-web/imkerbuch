@@ -927,8 +927,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.29';
+const APP_VERSION = '1.30';
 const CHANGELOG = [
+  { version: '1.30', datum: '2026-08-06', punkte: [
+    'Bio → Standorte rechnet jetzt über <b>denselben amtlichen Dienst wie der GeoBox-Viewer Bienen</b> – die Auswertung, die deine Kontrollstelle kennt. Feine Aufschlüsselung statt Sammelbegriffen: Laubwälder, Nadelwälder, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen, Wiesen und Weiden … Dauer: wenige Sekunden.',
+    'Die Prozente rechnet die App aus den mitgelieferten Quadratmetern selbst – auf <b>0,1 %</b> genau. Der Viewer selbst rundet auf ganze Prozent (Summe 99 %).',
+    'Neu: <b>zwei automatische Rückfall-Ebenen.</b> Ist der Dienst offline, nimmt die App CORINE Land Cover des Bundesamtes für Kartographie und Geodäsie; schweigt auch das, OpenStreetMap. Welche Quelle geantwortet hat – und was zuvor nicht erreichbar war – steht danach im Feld „Quelle der Zahlen" und damit in den Unterlagen.',
+    'Die Klassennamen sind wörtlich die amtlichen (aus dem Dienst abgefragt, nicht selbst formuliert), deshalb passen alle Quellen zeilenweise zusammen und lassen sich über die Jahre vergleichen.',
+  ] },
   { version: '1.29', datum: '2026-08-06', punkte: [
     'Neu bei Bio → Standorte: <b>amtliche Landbedeckung auf Knopfdruck</b>. Die App holt CORINE Land Cover 5 ha vom Bundesamt für Kartographie und Geodäsie (offen lizenziert, dl-de/by-2-0) und rechnet die Anteile im Umkreis selbst aus – <b>lückenlos</b>, im Test 100,0 % des Kreises statt „ein Viertel nicht erfasst" wie bei OpenStreetMap.',
     'Beide Quellen bleiben wählbar: „Amtlich berechnen" ist die Zahl für die Kontrollstelle, „Schnell (OpenStreetMap)" ist feiner und aktueller, aber lückenhaft. Die Quelle wird mitgeschrieben und steht in den Bio-Unterlagen.',
@@ -6227,34 +6233,83 @@ const CLC_MAX = 4000;                  // Obergrenze der Abfrage
 const CLC_KREIS_ECKEN = 96;            // Vieleck, an dem gekappt wird
 const CLC_QUELLE_KURZ = 'CORINE Land Cover 5 ha 2018 (BKG, dl-de/by-2-0)';
 
-/* Amtlicher Klassenschlüssel (clc18) → unsere Zeile. Die Namen sind absichtlich
-   dieselben wie in BIO_KLASSEN, damit amtlich und OpenStreetMap vergleichbar
-   bleiben. Was hier fehlt, wird eigens ausgewiesen statt still verschluckt. */
-const CLC_KARTE = new Map([
-  ['111', ['Siedlung / Bebauung', 'bebaut']], ['112', ['Siedlung / Bebauung', 'bebaut']],
-  ['121', ['Industrie / Gewerbe', 'bebaut']],
-  ['122', ['Verkehrsflächen', 'bebaut']], ['123', ['Verkehrsflächen', 'bebaut']], ['124', ['Verkehrsflächen', 'bebaut']],
-  ['131', ['Abbau, Deponie, Baustelle', 'bebaut']], ['132', ['Abbau, Deponie, Baustelle', 'bebaut']],
-  ['133', ['Abbau, Deponie, Baustelle', 'bebaut']],
-  ['141', ['Sonstige Vegetation', 'tracht']], ['142', ['Sonstige Vegetation', 'tracht']],
-  ['211', ['Acker', 'tracht']], ['212', ['Acker', 'tracht']], ['213', ['Acker', 'tracht']],
-  ['221', ['Dauerkulturen (Obst, Wein)', 'tracht']], ['222', ['Dauerkulturen (Obst, Wein)', 'tracht']],
-  ['223', ['Dauerkulturen (Obst, Wein)', 'tracht']],
-  ['231', ['Grünland / Wiese', 'tracht']],
-  ['241', ['Acker', 'tracht']], ['242', ['Acker', 'tracht']],
-  ['243', ['Landwirtschaft mit Naturflächen', 'tracht']], ['244', ['Landwirtschaft mit Naturflächen', 'tracht']],
-  ['311', ['Wald', 'tracht']], ['312', ['Wald', 'tracht']], ['313', ['Wald', 'tracht']],
-  ['321', ['Sonstige Vegetation', 'tracht']], ['322', ['Sonstige Vegetation', 'tracht']],
-  ['323', ['Sonstige Vegetation', 'tracht']], ['324', ['Sonstige Vegetation', 'tracht']],
-  ['331', ['Offene Flächen', 'sonstiges']], ['332', ['Offene Flächen', 'sonstiges']],
-  ['333', ['Offene Flächen', 'sonstiges']], ['334', ['Offene Flächen', 'sonstiges']],
-  ['335', ['Offene Flächen', 'sonstiges']],
-  ['411', ['Sonstige Vegetation', 'tracht']], ['412', ['Sonstige Vegetation', 'tracht']],
-  ['421', ['Sonstige Vegetation', 'tracht']], ['422', ['Sonstige Vegetation', 'tracht']],
-  ['423', ['Offene Flächen', 'sonstiges']],
-  ['511', ['Gewässer', 'sonstiges']], ['512', ['Gewässer', 'sonstiges']],
-  ['521', ['Gewässer', 'sonstiges']], ['522', ['Gewässer', 'sonstiges']], ['523', ['Gewässer', 'sonstiges']],
+/* Amtliche Klassenliste (CORINE / Landbedeckungsmodell Deutschland).
+   Schlüssel → [amtlicher Klassenname, unsere Art].
+
+   Die Namen sind **wörtlich die amtlichen** – abgefragt beim Dienst
+   MIL_DE_LBM_DE2021_DB des Geoservice Rheinland-Pfalz (Feld `klassenname`),
+   nicht selbst formuliert. Genau diese Namen stehen auch in der Excel-Tabelle
+   des GeoBox-Viewers, deshalb passen beide Quellen zeilenweise zusammen.
+
+   Julians Punkt: die feine Aufschlüsselung ist die brauchbare. „Wald" sagt
+   wenig, „Nadelwälder / Laubwälder / Obst-und Beerenobstbestände" sagt für
+   die Tracht alles. Gruppiert wird nur noch für die Bewertung (art).
+
+   art: 'tracht' = Trachtfläche · 'bebaut' = Bebauung/Verkehr/Industrie ·
+   'sonstiges' = weder noch (Wasser, Fels, Gezeitenzone). */
+const CLC_KLASSEN = new Map([
+  ['111', ['Durchgängig städtische Prägung', 'bebaut']],
+  ['112', ['Nicht durchgängig städtische Prägung', 'bebaut']],
+  ['121', ['Industrie-und Gewerbeflächen, öffentliche Einrichtungen', 'bebaut']],
+  ['122', ['Straßen-, Eisenbahnnetze und funktionell zugeordnete Flächen', 'bebaut']],
+  ['123', ['Hafengebiete', 'bebaut']],
+  ['124', ['Flughäfen', 'bebaut']],
+  ['131', ['Abbauflächen', 'bebaut']],
+  ['132', ['Deponien und Abraumhalden', 'bebaut']],
+  ['133', ['Baustellen', 'bebaut']],
+  ['141', ['Städtische Grünflächen', 'tracht']],
+  ['142', ['Sport-und Freizeitanlagen', 'tracht']],
+  ['211', ['Nicht bewässertes Ackerland', 'tracht']],
+  ['212', ['Ständig bewässertes Ackerland', 'tracht']],
+  ['213', ['Reisfelder', 'tracht']],
+  ['221', ['Weinbauflächen', 'tracht']],
+  ['222', ['Obst-und Beerenobstbestände', 'tracht']],
+  ['223', ['Olivenhaine', 'tracht']],
+  ['231', ['Wiesen und Weiden', 'tracht']],
+  ['241', ['Einjährige Kulturen mit Dauerkulturen', 'tracht']],
+  ['242', ['Komplexe Parzellenstrukturen', 'tracht']],
+  ['243', ['Landwirtschaft und natürliche Bodenbedeckung', 'tracht']],
+  ['244', ['Land- und forstwirtschaftliche Flächen', 'tracht']],
+  ['311', ['Laubwälder', 'tracht']],
+  ['312', ['Nadelwälder', 'tracht']],
+  ['313', ['Mischwälder', 'tracht']],
+  ['321', ['Natürliches Grünland', 'tracht']],
+  ['322', ['Heiden und Moorheiden', 'tracht']],
+  ['323', ['Hartlaubbewuchs', 'tracht']],
+  ['324', ['Wald-Strauch-Übergangsstadien', 'tracht']],
+  ['331', ['Strände, Dünen und Sandflächen', 'sonstiges']],
+  ['332', ['Felsflächen ohne Vegetation', 'sonstiges']],
+  ['333', ['Flächen mit spärlicher Vegetation', 'sonstiges']],
+  ['334', ['Brandflächen', 'sonstiges']],
+  ['335', ['Gletscher und Dauerschneegebiete', 'sonstiges']],
+  ['411', ['Sümpfe', 'tracht']],
+  ['412', ['Torfmoore', 'tracht']],
+  ['421', ['Salzwiesen', 'tracht']],
+  ['422', ['Salinen', 'sonstiges']],
+  ['423', ['In der Gezeitenzone liegende Flächen', 'sonstiges']],
+  ['511', ['Gewässerläufe', 'sonstiges']],
+  ['512', ['Wasserflächen', 'sonstiges']],
+  ['521', ['Lagunen', 'sonstiges']],
+  ['522', ['Mündungsgebiete', 'sonstiges']],
+  ['523', ['Meere und Ozeane', 'sonstiges']],
 ]);
+
+/* Name → Art, für die Excel-Tabelle des GeoBox-Viewers: dort steht der
+   Klassenname, nicht der Schlüssel. Vergleich über einen genormten Schlüssel,
+   weil die amtliche Schreibweise Eigenheiten hat („Industrie-und
+   Gewerbeflächen" ohne Leerzeichen, unterschiedliche Bindestriche). */
+function clcNameSchluessel(name) {
+  return String(name || '').toLowerCase()
+    .replace(/[\u2010-\u2015]/g, '-')       // typografische Striche → normaler Bindestrich
+    .replace(/[^a-zà-ÿ0-9]+/g, '');          // alles Trennende weg
+}
+const CLC_NAME_ART = new Map([...CLC_KLASSEN.values()].map(([name, art]) => [clcNameSchluessel(name), art]));
+/** Art zu einem amtlichen Klassennamen. Unbekannt → 'sonstiges' (nicht Tracht:
+    lieber vorsichtig rechnen als die Trachtfläche schönen). */
+function clcArtAusName(name) {
+  return CLC_NAME_ART.get(clcNameSchluessel(name)) || 'sonstiges';
+}
+
 const CLC_UNBEKANNT = { name: 'Nicht im amtlichen Datensatz', art: 'sonstiges' };
 
 /** Kreis als konvexes Vieleck in Metern – konvex, weil nur daran gekappt
@@ -6341,7 +6396,8 @@ function clcAnteileAusFeatures(features, lat, lon, r) {
     erfasst += a;
     /* Unbekannter Schlüssel ist etwas anderes als eine Lücke im Datensatz –
        beides darf nicht in derselben Zeile landen. */
-    const [name, art] = CLC_KARTE.get(String((f.properties || {}).clc18 || '')) || ['Sonstige amtliche Fläche', 'sonstiges'];
+    const schluessel = String((f.properties || {}).clc18 || '');
+    const [name, art] = CLC_KLASSEN.get(schluessel) || [`Sonstige amtliche Fläche${schluessel ? ` (${schluessel})` : ''}`, 'sonstiges'];
     const eintrag = summe.get(name) || { name, art, flaeche: 0 };
     eintrag.flaeche += a;
     summe.set(name, eintrag);
@@ -6385,6 +6441,153 @@ async function clcLandbedeckung(lat, lon, radiusM, melde = () => {}) {
   const erg = clcAnteileAusFeatures(features, lat, lon, r);
   erg.abgeschnitten = features.length >= CLC_MAX;
   return erg;
+}
+
+/* ---------------------------------------------------------------------
+   GeoBox-Viewer Bienen: der amtliche Rechendienst dahinter
+
+   Der Viewer (geobox-i.de/gbv-bienen) ist nur die Oberfläche; gerechnet wird
+   auf dem Geoservice Rheinland-Pfalz. Der Rechendienst nimmt Standort und
+   Radius und liefert dieselbe Excel-Tabelle, die man im Viewer herunterlädt –
+   **ohne Zugangsdaten, mit erlaubtem CORS, in 5 bis 10 Sekunden und ~5 KB**.
+   Getestet: er deckt nicht nur Rheinland-Pfalz ab, ein Punkt in Bayern
+   funktioniert genauso (Feld `land` im Datensatz, LBM-DE ist bundesweit).
+
+   Warum das die erste Wahl ist: die Kontrollstelle kennt genau diese Zahlen,
+   die Aufschlüsselung ist fein (Nadelwälder, Obst-und Beerenobstbestände,
+   Weinbauflächen statt pauschal „Wald"), und die Datengrundlage ist neuer als
+   CLC5-2018.
+
+   Eine Verbesserung gegenüber dem Viewer erlauben wir uns: dessen Prozentwerte
+   sind auf ganze Prozent gerundet (Summe 99 %). Wir rechnen aus der
+   mitgelieferten Quadratmeterzahl selbst – auf 0,1 % genau.
+
+   Ablauf (ArcGIS-Geoprocessing, asynchron): submitJob → Status abfragen →
+   Ergebnis-URL holen → Datei laden → mit SheetJS lesen (liegt lokal in libs/,
+   die Datei ist eine alte .xls, kein xlsx).
+   --------------------------------------------------------------------- */
+const GBV_GP = 'https://geoservice.rlp.de/server/rest/services/LBMBienen2025/GPServer/LBM_Bienen2025';
+const GBV_QUELLE_KURZ = 'GeoBox-Viewer Bienen · Landbedeckungsmodell (Geoservice RLP)';
+const GBV_WARTE_MS = 120000;           // Gesamtgeduld für den Rechenauftrag
+const GBV_TAKT_MS = 2000;              // Abstand der Statusabfragen
+
+/** Grad → Web Mercator (EPSG:3857), das Bezugssystem des Dienstes. */
+function webMercator(lat, lon) {
+  const R = 20037508.342789244;
+  return {
+    x: (lon * R) / 180,
+    y: (Math.log(Math.tan(((90 + lat) * Math.PI) / 360)) / (Math.PI / 180)) * (R / 180),
+  };
+}
+
+/** Zeilen aus der Excel-Tabelle des Dienstes. Spalten werden über Muster
+    gesucht, nicht über die genaue Beschriftung – die kann sich ändern. */
+function gbvZeilenAusTabelle(tabelle, r) {
+  const kreisFlaeche = Math.PI * r * r;
+  const feld = (zeile, muster) => {
+    const treffer = Object.keys(zeile).find((k) => muster.test(k));
+    return treffer ? zeile[treffer] : undefined;
+  };
+  const summe = new Map();
+  let erfasst = 0;
+  for (const zeile of tabelle) {
+    const name = String(feld(zeile, /klassen/i) || '').trim();
+    const qm = Math.max(0, Number(feld(zeile, /qm|m²|fl(ä|ae)che/i)) || 0);
+    if (!name || !qm) continue;
+    erfasst += qm;
+    const vorhanden = summe.get(name) || { name, art: clcArtAusName(name), flaeche: 0 };
+    vorhanden.flaeche += qm;
+    summe.set(name, vorhanden);
+  }
+  if (!summe.size) throw new Error('Die Antwort des Dienstes enthielt keine Flächen.');
+  const zeilen = [...summe.values()]
+    .map((z) => ({ name: z.name, art: z.art, prozent: Math.round((z.flaeche / kreisFlaeche) * 1000) / 10 }))
+    .filter((z) => z.prozent > 0)
+    .sort((a, b) => b.prozent - a.prozent);
+  const abdeckung = Math.round((erfasst / kreisFlaeche) * 1000) / 10;
+  if (abdeckung < 99) zeilen.push({ ...CLC_UNBEKANNT, prozent: Math.round((100 - abdeckung) * 10) / 10 });
+  return { zeilen, flaechen: zeilen.length, abdeckung };
+}
+
+/** Landbedeckung über den amtlichen Rechendienst des GeoBox-Viewers. */
+async function gbvLandbedeckung(lat, lon, radiusM, melde = () => {}) {
+  const r = Math.max(100, Math.round(radiusM || BIO_UMKREIS_VORGABE));
+  const punkt = webMercator(lat, lon);
+  const standort = {
+    geometryType: 'esriGeometryPoint',
+    spatialReference: { wkid: 102100, latestWkid: 3857 },
+    fields: [{ name: 'OBJECTID', type: 'esriFieldTypeOID', alias: 'OBJECTID' }],
+    features: [{ geometry: { x: punkt.x, y: punkt.y, spatialReference: { wkid: 102100, latestWkid: 3857 } }, attributes: { OBJECTID: 1 } }],
+  };
+  const hole = async (url, opt = {}) => {
+    const res = await fetch(url, opt);
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    return res;
+  };
+  melde('Amtliche Auswertung beim GeoBox-Dienst anfordern …');
+  const auftrag = await (await hole(`${GBV_GP}/submitJob`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ f: 'json', Standort: JSON.stringify(standort), Radius: JSON.stringify({ distance: r, units: 'esriMeters' }) }),
+  })).json();
+  if (auftrag.error || !auftrag.jobId) throw new Error(`Dienst lehnt die Anfrage ab (${(auftrag.error || {}).message || 'ohne Angabe'}).`);
+  /* Warten, bis gerechnet ist. Bewusst mit Obergrenze: hängt der Dienst,
+     soll die Rückfall-Ebene greifen statt endlos zu drehen. */
+  const bis = Date.now() + GBV_WARTE_MS;
+  let stand = auftrag;
+  while (['esriJobSubmitted', 'esriJobExecuting', 'esriJobWaiting'].includes(stand.jobStatus)) {
+    if (Date.now() > bis) throw new Error('Der Rechendienst hat nicht rechtzeitig geantwortet.');
+    await new Promise((fertig) => setTimeout(fertig, GBV_TAKT_MS));
+    melde(`Amtliche Auswertung läuft … (${Math.round((GBV_WARTE_MS - (bis - Date.now())) / 1000)} s)`);
+    stand = await (await hole(`${GBV_GP}/jobs/${encodeURIComponent(auftrag.jobId)}?f=json`)).json();
+  }
+  if (stand.jobStatus !== 'esriJobSucceeded') {
+    const grund = (stand.messages || []).filter((m) => m.type === 'esriJobMessageTypeError').map((m) => m.description).join(' ');
+    throw new Error(`Der Rechendienst meldet einen Fehler${grund ? `: ${grund}` : ''}.`);
+  }
+  melde('Auswertung fertig – Tabelle laden …');
+  const ergebnis = await (await hole(`${GBV_GP}/jobs/${encodeURIComponent(auftrag.jobId)}/results/Imker_xls?f=json`)).json();
+  const dateiUrl = ((ergebnis || {}).value || {}).url;
+  if (!dateiUrl) throw new Error('Der Dienst nennt keine Ergebnisdatei.');
+  const puffer = await (await hole(dateiUrl)).arrayBuffer();
+  const XLSX = await Xlsx.lib();
+  const heft = XLSX.read(new Uint8Array(puffer), { type: 'array' });
+  const blatt = heft.Sheets[heft.SheetNames[0]];
+  if (!blatt) throw new Error('Die Ergebnisdatei hat kein Tabellenblatt.');
+  const erg = gbvZeilenAusTabelle(XLSX.utils.sheet_to_json(blatt, { defval: '' }), r);
+  melde(`Fertig: ${erg.zeilen.length} amtliche Klassen, Abdeckung ${U.fmtNum(erg.abdeckung, 1)} %.`);
+  return erg;
+}
+
+/* Quellen in der Reihenfolge, in der sie versucht werden. Julians Wunsch:
+   „eine Rückfall-Ebene wäre nicht schlecht, falls die Seite mal offline geht".
+   Erst der Dienst, den die Kontrollstelle kennt; fällt der aus, die
+   bundesweite BKG-Fläche; erst wenn beides amtliche schweigt, OpenStreetMap. */
+const LB_QUELLEN = [
+  { key: 'gbv', label: 'GeoBox-Viewer (amtlich, feine Klassen)', amtlich: true, kurz: GBV_QUELLE_KURZ, fn: (...a) => gbvLandbedeckung(...a) },
+  { key: 'bkg', label: 'BKG CORINE 5 ha (amtlich, Rückfall)', amtlich: true, kurz: CLC_QUELLE_KURZ, fn: (...a) => clcLandbedeckung(...a) },
+  { key: 'osm', label: 'OpenStreetMap (letzter Rückfall)', amtlich: false, kurz: 'OpenStreetMap / Overpass', fn: (...a) => osmLandbedeckung(...a) },
+];
+
+/** Probiert die Quellen der Reihe nach. `nur` begrenzt auf eine Quelle.
+    Gibt zusätzlich zurück, welche Quelle geantwortet hat und was zuvor
+    schiefging – das gehört in die Unterlagen, nicht in eine Logdatei. */
+async function landbedeckungErmitteln(lat, lon, radiusM, melde = () => {}, nur = null) {
+  const kette = nur ? LB_QUELLEN.filter((q) => q.key === nur) : LB_QUELLEN;
+  const gescheitert = [];
+  for (const quelle of kette) {
+    try {
+      const erg = await quelle.fn(lat, lon, radiusM, melde);
+      if (!erg || !erg.zeilen || !erg.zeilen.length) throw new Error('keine Flächen zurückgegeben');
+      return { ...erg, quelle, gescheitert };
+    } catch (e) {
+      const grund = (e && e.message) || 'unbekannter Fehler';
+      gescheitert.push(`${quelle.label}: ${grund}`);
+      const naechste = kette[kette.indexOf(quelle) + 1];
+      melde(naechste ? `${quelle.label} nicht verfügbar (${grund}) – weiter mit ${naechste.label} …` : `${quelle.label} nicht verfügbar (${grund}).`);
+    }
+  }
+  throw new Error(`Keine Quelle war erreichbar. ${gescheitert.join(' · ')}`);
 }
 
 Views.bio = {
@@ -6522,7 +6725,7 @@ Views.bio = {
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('hive')}<h2>Landbedeckung der Standorte</h2>
         </div>
-      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landbedeckung selbst, auf Knopfdruck aus der <b>amtlichen Quelle</b> (CORINE Land Cover des Bundesamtes für Kartographie und Geodäsie, lückenlos) oder schnell aus OpenStreetMap. Von Hand eintragen geht weiter. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
+      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landbedeckung selbst, über denselben <b>amtlichen Dienst wie der GeoBox-Viewer Bienen</b>, mit zwei automatischen Rückfall-Ebenen, wenn der einmal offline ist. Von Hand eintragen geht weiter. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
       ${staende.length ? `<div class="rows">${staende.map((st) => {
         const anteile = bioAnteile(st);
         const su = bioSummen(anteile);
@@ -6558,21 +6761,21 @@ Views.bio = {
           <div class="field"><label>Umkreis (Meter)</label><input class="inp" id="bio-umkreis" inputmode="numeric" value="${b.umkreisM || BIO_UMKREIS_VORGABE}">
             <div class="chip-row mt8">${BIO_UMKREIS_WAHL.map((w) => `<button type="button" class="chip" data-umkreis="${w}">${U.fmtNum(w / 1000, 1)} km</button>`).join('')}</div></div>
           <div class="field"><label>Stand der Erhebung</label><input class="inp" type="date" id="bio-datum" value="${b.erhebung || U.todayIso()}"></div>
-          <div class="field"><label>Quelle der Zahlen</label><input class="inp" id="bio-quelle" value="${U.esc(b.quelle || 'GeoBox-Viewer (geobox-i.de/GBV-RLP-Bienen)')}"></div>
+          <div class="field"><label>Quelle der Zahlen</label><input class="inp" id="bio-quelle" value="${U.esc(b.quelle || GBV_QUELLE_KURZ)}"></div>
         </div>
         <div class="card mb12" style="box-shadow:none;border:1px solid var(--line)">
           <div class="small muted mb8" style="font-weight:600">Automatisch berechnen</div>
           <input class="inp mb8" id="bio-adresse" placeholder="Adresse oder Ort des Standes" value="${U.esc(b.adresse || stand.name || '')}">
           <div class="flex-wrap" style="gap:6px;align-items:center">
             <button type="button" class="btn btn-primary btn-sm" id="bio-amtlich">${icon('doc')} Amtlich berechnen</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="bio-osm">${icon('search')} Schnell (OpenStreetMap)</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="bio-osm">${icon('search')} OpenStreetMap</button>
             ${stand.lat && stand.lng ? `<button type="button" class="btn btn-ghost btn-sm" id="bio-koord">${icon('pin')} Amtlich, Koordinaten des Standes</button>` : ''}
           </div>
-          <div class="small muted mt8" id="bio-status">Adresse eintippen und eine Quelle wählen – die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis selbst aus.</div>
-          <div class="hint mt8"><b>Amtlich</b> ist die Zahl für die Kontrollstelle: CORINE Land Cover 5 ha des Bundesamtes für Kartographie und Geodäsie, offen lizenziert (dl-de/by-2-0). Sie deckt den Umkreis <b>lückenlos</b> ab – im Test 100,0 %. Datenstand 2018, kleinste erfasste Fläche 5 ha (Hecken und kleine Wiesen gehen in der Nachbarklasse auf), nur Deutschland. Die Abfrage lädt rund 1 MB und braucht etwa eine halbe Minute.<br>
-            <b>Schnell</b> ist OpenStreetMap: feiner und aktueller, aber keine amtliche Quelle und je Gegend unterschiedlich vollständig – der nicht erfasste Rest wird eigens ausgewiesen.</div>
+          <div class="small muted mt8" id="bio-status">Adresse eintippen und „Amtlich berechnen" drücken – die App holt die Koordinaten und die amtliche Landbedeckung im Umkreis selbst.</div>
+          <div class="hint mt8"><b>Amtlich</b> rechnet über den Dienst, der auch hinter dem <b>GeoBox-Viewer Bienen</b> steckt: dieselbe Auswertung, die deine Kontrollstelle kennt, mit feiner Aufschlüsselung (Laub-, Nadel-, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen …), in wenigen Sekunden. Prozente rechnet die App aus den mitgelieferten Quadratmetern – auf 0,1 % statt auf ganze Prozent gerundet.<br>
+            <b>Rückfall, automatisch:</b> ist der Dienst offline, nimmt die App CORINE Land Cover 5 ha des Bundesamtes für Kartographie und Geodäsie (bundesweit, lückenlos, Stand 2018, kleinste Fläche 5 ha, ~1 MB und ~30 s). Erst wenn auch das schweigt, OpenStreetMap – feiner und aktueller, aber nicht amtlich und lückenhaft; der nicht erfasste Rest wird dann eigens ausgewiesen. Welche Quelle geantwortet hat, steht danach im Feld „Quelle der Zahlen" und damit auch in den Unterlagen.</div>
           <div class="flex-wrap mt8">${GEOBOX_LINKS.map((l) => `<a class="btn btn-ghost btn-sm" href="${l.url}" target="_blank" rel="noopener">${icon('share')} ${U.esc(l.label)}</a>`).join('')}</div>
-          <div class="hint mt8">Zum Nachsehen im Kartenbild. Das GeoBox-Portal war beim Prüfen nicht erreichbar („Portal nicht erreichbar") – für die Zahlen oben braucht es das nicht.</div>
+          <div class="hint mt8">Zum Nachsehen im Kartenbild – für die Zahlen oben brauchst du es nicht.</div>
         </div>
         <div class="small muted mb8" style="font-weight:600">Anteile in Prozent</div>
         <div id="bio-zeilen"></div>
@@ -6629,21 +6832,14 @@ Views.bio = {
         if (viaKoordinaten) koord = { lat: stand.lat, lon: stand.lng, name: `Koordinaten ${U.fmtNum(stand.lat, 4)} / ${U.fmtNum(stand.lng, 4)}` };
         else { melde('Adresse suchen …'); koord = await osmAdresseSuchen($('#bio-adresse', m.el).value); }
         melde(`Gefunden: ${koord.name} – Flächen abfragen …`);
-        if (art === 'amtlich') {
-          const erg = await clcLandbedeckung(koord.lat, koord.lon, radius, melde);
-          zeilen = erg.zeilen;
-          zeichneZeilen(); rechne();
-          $('#bio-quelle', m.el).value = `${CLC_QUELLE_KURZ}, ${km} km Umkreis, automatisch berechnet`;
-          melde(`Fertig: ${erg.flaechen} amtliche Flächen, Abdeckung ${U.fmtNum(erg.abdeckung, 1)} % des Kreises.`
-            + (erg.abgeschnitten ? ` Achtung: die Obergrenze von ${CLC_MAX} Flächen ist erreicht – bei so großem Umkreis können Zahlen fehlen.` : '')
-            + ` Ort: ${koord.name}`);
-        } else {
-          const erg = await osmLandbedeckung(koord.lat, koord.lon, radius, melde);
-          zeilen = erg.zeilen;
-          zeichneZeilen(); rechne();
-          $('#bio-quelle', m.el).value = `OpenStreetMap / Overpass, automatisch berechnet (${km} km)`;
-          melde(`Fertig: ${erg.flaechen} Flächen, ${erg.punkte} Rasterpunkte im Abstand von ${erg.schritt} m. Ort: ${koord.name}`);
-        }
+        const erg = await landbedeckungErmitteln(koord.lat, koord.lon, radius, melde, art === 'osm' ? 'osm' : null);
+        zeilen = erg.zeilen;
+        zeichneZeilen(); rechne();
+        $('#bio-quelle', m.el).value = `${erg.quelle.kurz}, ${km} km Umkreis, automatisch berechnet`;
+        melde(`Fertig über ${erg.quelle.label}: ${erg.zeilen.length} Zeilen, Abdeckung ${U.fmtNum(erg.abdeckung, 1)} % des Kreises.`
+          + (erg.abgeschnitten ? ` Achtung: die Obergrenze von ${CLC_MAX} Flächen ist erreicht – bei so großem Umkreis können Zahlen fehlen.` : '')
+          + (erg.gescheitert && erg.gescheitert.length ? ` Zuvor nicht erreichbar: ${erg.gescheitert.join(' · ')}.` : '')
+          + ` Ort: ${koord.name}`);
         $('#bio-datum', m.el).value = U.todayIso();
       } catch (e) {
         melde('Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
@@ -12186,7 +12382,9 @@ Object.assign(window, {
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, GEBINDE_PRESETS, gebindeLabel,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
-  CLC_KARTE, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX, clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
+  CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
+  clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
+  GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,
