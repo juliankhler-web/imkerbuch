@@ -936,8 +936,12 @@ const CHANGELOG = [
     'Dazu ein Tortendiagramm und drei Kacheln: Tracht/Vegetation, Bebauung/Verkehr/Industrie und Sonstiges. Die Summe wird geprüft und meldet sich, wenn sie nicht 100 % ergibt.',
     'Der Umkreis ist frei einstellbar mit Schnellwahl 1,5 / 3 / 3,5 / 5 km – vorbelegt sind 3,5 km, weil Kontrollstellen das häufig verlangen.',
     'Verschmutzungsquellen im Umkreis (Autobahn, Industrie, Deponie, Müllverbrennung, Klärwerk, Flughafen, konventionelle Sonderkultur) lassen sich anhaken, dazu ein Feld für Abstände und Anmerkungen.',
-    'Vier weitere Bereiche im Reiter Bio: <b>3 Hygiene</b> (Hygieneplan und die durchgeführten Reinigungen als Einzelnachweise), <b>4 Abnehmer &amp; Lieferanten</b> (mit Öko-Kontrollnummer des Partners und Ablauf des Zertifikats), <b>5 Zertifikate und Begleitpapiere</b> (Art, Aussteller, Nummer, gültig bis und wo das Original liegt) und <b>6 Förderverfahren</b> (Programm, Stelle, Aktenzeichen, Stand, Frist, Betrag).',
+    'Vier weitere Bereiche im Reiter Bio: <b>Hygiene</b> (Hygieneplan und die durchgeführten Reinigungen als Einzelnachweise), <b>Abnehmer &amp; Lieferanten</b> (mit Öko-Kontrollnummer des Partners und Ablauf des Zertifikats), <b>Zertifikate und Begleitpapiere</b> (Art, Aussteller, Nummer, gültig bis und wo das Original liegt) und <b>Förderverfahren</b> (Programm, Stelle, Aktenzeichen, Stand, Frist, Betrag).',
     'Läuft ein Zertifikat ab oder rückt eine Frist näher, steht das als farbige Marke direkt am Eintrag – rot, wenn das Datum vorbei ist.',
+    'Ist ein Server überlastet, probiert die App die nächsten – bei OpenStreetMap kommt das vor. Die Abfrage holt nur die Flächenarten, die auch gebraucht werden; das macht sie um ein Vielfaches schneller.',
+    'Neu: die Landbedeckung lässt sich <b>automatisch berechnen</b>. Du tippst die Adresse des Standes ein, die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis aus OpenStreetMap aus – der GeoBox-Viewer deckt nur Rheinland-Pfalz ab und hilft außerhalb nicht. Steht beim Stand eine Koordinate, geht es auch direkt darüber.',
+    'Damit nichts geschönt wird: der Teil, für den OpenStreetMap keine Angabe hat, erscheint als eigene Zeile „Nicht in OpenStreetMap erfasst". OpenStreetMap ist keine amtliche Quelle – verlangt die Kontrollstelle eine amtliche Zahl, bleibt der Weg über das Geoportal, und alle Zeilen sind überschreibbar.',
+    'Die Umstellung auf Bio lässt sich jetzt direkt im Reiter Bio schalten – zusammen mit Kontrollstelle und Verband. Gespeichert wird weiterhin in den Imkereidaten, du musst also nicht mehr in die Einstellungen wechseln.',
     'Neue PDF „Unterlagen zur Öko-Kontrolle": Betriebsbeschreibung, je Standort die Flächentabelle samt Summen, Verschmutzungsquellen und Anmerkungen – und die vier Listen als Tabellen.',
   ] },
   { version: '1.25', datum: '2026-08-01', punkte: [
@@ -5917,6 +5921,212 @@ function bioFristStatus(datum) {
   return tage <= BIO_FRIST_WARN_TAGE ? 'bald' : null;
 }
 
+/* ---------------------------------------------------------------------
+   Landbedeckung automatisch: Adresse → Koordinaten → Anteile aus OpenStreetMap
+
+   Der GeoBox-Viewer deckt nur Rheinland-Pfalz ab. Wer woanders imkert, bekommt
+   dort nichts. Deshalb dieser Weg: Adresse eintippen, den Rest macht die App.
+
+   1. Adresse → Koordinaten über Nominatim (OpenStreetMap-Suche, ohne Schlüssel).
+   2. Flächen im Umkreis über die Overpass-API (landuse, natural, leisure …).
+   3. Anteile über ein Punktraster im Kreis: für jeden Rasterpunkt wird geschaut,
+      in welcher Fläche er liegt. Das vermeidet Doppelzählung bei überlappenden
+      Flächen und liefert ehrlich einen Rest „nicht in OpenStreetMap erfasst".
+      Bei Überlappung gewinnt die kleinere Fläche – die ist die genauere Aussage.
+
+   Grenzen, die auch in der Oberfläche stehen: OpenStreetMap ist keine amtliche
+   Quelle und je Gegend unterschiedlich vollständig. Für die Kontrolle kann eine
+   amtliche Zahl verlangt werden; die Zeilen bleiben deshalb überschreibbar.
+   --------------------------------------------------------------------- */
+const OSM_NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+/* Mehrere Overpass-Server: die öffentlichen sind oft überlastet und antworten
+   dann mit 504. Nacheinander durchprobieren ist der Unterschied zwischen
+   „geht nicht" und „dauert einen Moment". */
+const OSM_OVERPASS_SERVER = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
+const OSM_RASTER_ZIEL = 2600;          // angestrebte Rasterpunkte im Kreis
+
+/* OSM-Schlüssel → unsere Kategorie. Reihenfolge der Prüfung: erst der genauere
+   Schlüssel. Was hier nicht steht, zählt als „nicht erfasst". */
+const OSM_KARTE = [
+  ['landuse', 'farmland', 'Acker', 'tracht'],
+  ['landuse', 'meadow', 'Grünland / Wiese', 'tracht'],
+  ['landuse', 'grass', 'Grünland / Wiese', 'tracht'],
+  ['landuse', 'pasture', 'Grünland / Wiese', 'tracht'],
+  ['natural', 'grassland', 'Grünland / Wiese', 'tracht'],
+  ['landuse', 'orchard', 'Dauerkulturen (Obst, Wein)', 'tracht'],
+  ['landuse', 'vineyard', 'Dauerkulturen (Obst, Wein)', 'tracht'],
+  ['landuse', 'plant_nursery', 'Dauerkulturen (Obst, Wein)', 'tracht'],
+  ['landuse', 'forest', 'Wald', 'tracht'],
+  ['natural', 'wood', 'Wald', 'tracht'],
+  ['natural', 'scrub', 'Sonstige Vegetation', 'tracht'],
+  ['natural', 'heath', 'Sonstige Vegetation', 'tracht'],
+  ['natural', 'wetland', 'Sonstige Vegetation', 'tracht'],
+  ['landuse', 'allotments', 'Sonstige Vegetation', 'tracht'],
+  ['landuse', 'village_green', 'Sonstige Vegetation', 'tracht'],
+  ['leisure', 'park', 'Sonstige Vegetation', 'tracht'],
+  ['leisure', 'garden', 'Sonstige Vegetation', 'tracht'],
+  ['landuse', 'residential', 'Siedlung / Bebauung', 'bebaut'],
+  ['landuse', 'farmyard', 'Siedlung / Bebauung', 'bebaut'],
+  ['landuse', 'construction', 'Siedlung / Bebauung', 'bebaut'],
+  ['landuse', 'garages', 'Siedlung / Bebauung', 'bebaut'],
+  ['landuse', 'cemetery', 'Siedlung / Bebauung', 'bebaut'],
+  ['landuse', 'industrial', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'commercial', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'retail', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'quarry', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'landfill', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'military', 'Industrie / Gewerbe', 'bebaut'],
+  ['landuse', 'railway', 'Verkehrsflächen', 'bebaut'],
+  ['aeroway', '*', 'Verkehrsflächen', 'bebaut'],
+  ['landuse', 'basin', 'Gewässer', 'sonstiges'],
+  ['landuse', 'reservoir', 'Gewässer', 'sonstiges'],
+  ['natural', 'water', 'Gewässer', 'sonstiges'],
+];
+const OSM_UNBEKANNT = { name: 'Nicht in OpenStreetMap erfasst', art: 'sonstiges' };
+
+/** Adresse oder Ort → {lat, lon, name}. Wirft, wenn nichts gefunden wird. */
+async function osmAdresseSuchen(text) {
+  const q = String(text || '').trim();
+  if (!q) throw new Error('Bitte eine Adresse oder einen Ort eingeben.');
+  const url = `${OSM_NOMINATIM}?format=json&limit=1&addressdetails=0&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`Adresssuche nicht erreichbar (Status ${res.status})`);
+  const treffer = await res.json();
+  if (!treffer.length) throw new Error('Keine Adresse gefunden – versuche es mit Ort und Straße.');
+  return { lat: +treffer[0].lat, lon: +treffer[0].lon, name: treffer[0].display_name };
+}
+
+/** Kategorie einer OSM-Fläche oder null, wenn sie uns nicht interessiert. */
+function osmKategorie(tags) {
+  if (!tags) return null;
+  for (const [k, v, name, art] of OSM_KARTE) {
+    if (tags[k] && (v === '*' || tags[k] === v)) return { name, art };
+  }
+  return null;
+}
+/** Fläche eines Rings in Quadratmeter (Kugel örtlich flach gerechnet). */
+function osmRingFlaeche(ring, lat0) {
+  const mx = 111320 * Math.cos((lat0 * Math.PI) / 180), my = 110540;
+  let a = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    a += (ring[i].lon * mx) * (ring[j].lat * my) - (ring[j].lon * mx) * (ring[i].lat * my);
+  }
+  return Math.abs(a / 2);
+}
+/** Liegt der Punkt im Ring? Strahlenverfahren. */
+function osmImRing(lat, lon, ring) {
+  let drin = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const yi = ring[i].lat, xi = ring[i].lon, yj = ring[j].lat, xj = ring[j].lon;
+    if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) drin = !drin;
+  }
+  return drin;
+}
+
+/** Rechnet die Landbedeckung im Umkreis. Gibt Zeilen wie im Formular zurück. */
+async function osmLandbedeckung(lat, lon, radiusM, melde = () => {}) {
+  const r = Math.max(100, Math.round(radiusM || BIO_UMKREIS_VORGABE));
+  melde('Flächen bei OpenStreetMap abfragen …');
+  /* Nur die Werte holen, die wir auch abbilden – die Abfrage wird dadurch um ein
+     Vielfaches schneller als ein pauschales landuse=*. Sie wird direkt aus
+     OSM_KARTE gebaut, damit Zuordnung und Abfrage nicht auseinanderlaufen. */
+  const nachSchluessel = new Map();
+  for (const [k, v] of OSM_KARTE) {
+    if (!nachSchluessel.has(k)) nachSchluessel.set(k, new Set());
+    nachSchluessel.get(k).add(v);
+  }
+  const teile = [...nachSchluessel.entries()].map(([k, set]) => {
+    const werte = [...set];
+    return werte.includes('*')
+      ? `nwr(around:${r},${lat},${lon})["${k}"];`
+      : `nwr(around:${r},${lat},${lon})["${k}"~"^(${werte.join('|')})$"];`;
+  });
+  const abfrage = `[out:json][timeout:60];(${teile.join('')});out geom;`;
+  let daten = null, letzterFehler = null;
+  for (let versuch = 0; versuch < OSM_OVERPASS_SERVER.length * 2 && !daten; versuch++) {
+    const server = OSM_OVERPASS_SERVER[versuch % OSM_OVERPASS_SERVER.length];
+    const runde = Math.floor(versuch / OSM_OVERPASS_SERVER.length) + 1;
+    melde(`Flächen abfragen … (Server ${(versuch % OSM_OVERPASS_SERVER.length) + 1} von ${OSM_OVERPASS_SERVER.length}${runde > 1 ? `, ${runde}. Versuch` : ''})`);
+    const abbruch = new AbortController();
+    const uhr = setTimeout(() => abbruch.abort(), 60000);
+    try {
+      const res = await fetch(server, {
+        method: 'POST', signal: abbruch.signal,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + encodeURIComponent(abfrage),
+      });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      const j = await res.json();
+      if (!Array.isArray(j.elements)) throw new Error('unerwartete Antwort');
+      daten = j;
+    } catch (e) {
+      letzterFehler = e && e.name === 'AbortError' ? 'Zeitüberschreitung' : (e.message || 'Fehler');
+    } finally { clearTimeout(uhr); }
+  }
+  if (!daten) throw new Error(`Flächendaten nicht erreichbar (${letzterFehler}). Die OpenStreetMap-Server sind zeitweise überlastet – in ein paar Minuten nochmal versuchen.`);
+  const flaechen = osmFlaechenAusElementen(daten.elements || [], lat);
+  melde(`${flaechen.length} Flächen gefunden – Anteile bestimmen …`);
+  return osmAnteileAusFlaechen(flaechen, lat, lon, r);
+}
+
+/** Ringe aus Overpass-Elementen: Wege direkt, Relationen über ihre Mitglieder. */
+function osmFlaechenAusElementen(elemente, lat) {
+  const flaechen = [];
+  for (const el of elemente) {
+    const kat = osmKategorie(el.tags);
+    if (!kat) continue;
+    const ringe = el.geometry ? [el.geometry]
+      : (el.members || []).filter((mm) => mm.geometry && mm.role !== 'inner').map((mm) => mm.geometry);
+    for (const ring of ringe) {
+      if (!ring || ring.length < 4) continue;
+      let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+      for (const pt of ring) {
+        if (pt.lat < minLat) minLat = pt.lat; if (pt.lat > maxLat) maxLat = pt.lat;
+        if (pt.lon < minLon) minLon = pt.lon; if (pt.lon > maxLon) maxLon = pt.lon;
+      }
+      flaechen.push({ kat, ring, minLat, maxLat, minLon, maxLon, groesse: osmRingFlaeche(ring, lat) });
+    }
+  }
+  // kleinere Flächen zuerst: bei Überlappung gewinnt die genauere Aussage
+  flaechen.sort((a, b) => a.groesse - b.groesse);
+  return flaechen;
+}
+
+/** Reine Rechnung: Rasterpunkte im Kreis den Flächen zuordnen. Ohne Netz, damit
+    sie prüfbar ist. Erwartet die vorbereiteten Flächen aus osmLandbedeckung. */
+function osmAnteileAusFlaechen(flaechen, lat, lon, r) {
+  const mLat = 110540, mLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  const schritt = Math.max(20, Math.round(r * Math.sqrt(Math.PI / OSM_RASTER_ZIEL)));
+  const zaehler = new Map();
+  let punkte = 0, offen = 0;
+  for (let dy = -r; dy <= r; dy += schritt) {
+    for (let dx = -r; dx <= r; dx += schritt) {
+      if (dx * dx + dy * dy > r * r) continue;                 // nur im Kreis
+      punkte++;
+      const pLat = lat + dy / mLat, pLon = lon + dx / mLon;
+      let treffer = null;
+      for (const f of flaechen) {
+        if (pLat < f.minLat || pLat > f.maxLat || pLon < f.minLon || pLon > f.maxLon) continue;
+        if (osmImRing(pLat, pLon, f.ring)) { treffer = f.kat; break; }
+      }
+      if (treffer) zaehler.set(treffer.name, (zaehler.get(treffer.name) || 0) + 1);
+      else offen++;
+    }
+  }
+  if (!punkte) throw new Error('Umkreis zu klein für eine Auswertung.');
+  const artVon = (name) => (OSM_KARTE.find((k) => k[2] === name) || [, , , 'tracht'])[3];
+  const zeilen = [...zaehler.entries()]
+    .map(([name, n]) => ({ name, prozent: Math.round((n / punkte) * 1000) / 10, art: artVon(name) }))
+    .filter((z) => z.prozent > 0)
+    .sort((a, b) => b.prozent - a.prozent);
+  if (offen > 0) zeilen.push({ ...OSM_UNBEKANNT, prozent: Math.round((offen / punkte) * 1000) / 10 });
+  return { zeilen, punkte, flaechen: flaechen.length, schritt };
+}
+
 Views.bio = {
   title: 'Bio',
   async render(main) {
@@ -5925,9 +6135,9 @@ Views.bio = {
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.bioUnterlagen()">${icon('doc')} Unterlagen (PDF)</button></span>`)
       + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar', main).appendChild(UI.tabs([
-      { id: 'betrieb', label: '1 Betriebsbeschreibung' }, { id: 'standorte', label: '2 Standorte' },
-      { id: 'hygiene', label: '3 Hygiene' }, { id: 'partner', label: '4 Abnehmer & Lieferanten' },
-      { id: 'zertifikat', label: '5 Zertifikate' }, { id: 'foerderung', label: '6 Förderverfahren' },
+      { id: 'betrieb', label: 'Betriebsbeschreibung' }, { id: 'standorte', label: 'Standorte' },
+      { id: 'hygiene', label: 'Hygiene' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
+      { id: 'zertifikat', label: 'Zertifikate' }, { id: 'foerderung', label: 'Förderverfahren' },
     ], tab, (t) => { Views.bio._tab = t; renderRoute(); }));
     const box = $('#tab-content', main);
     if (tab === 'standorte') await Views.bio.tabStandorte(box);
@@ -6007,12 +6217,37 @@ Views.bio = {
         <span class="badge ${gefuellt === BIO_ABSCHNITTE.length ? 'b-ok' : 'b-warn'}">${gefuellt} von ${BIO_ABSCHNITTE.length} Abschnitten</span>
         <button class="btn btn-primary btn-sm no-print" id="edit-bb">${icon('pencil')} Bearbeiten</button></div>
       <p class="small muted mb12">Die Betriebsbeschreibung legt fest, wie du imkerst – sie ist Grundlage jeder Öko-Kontrolle. Was genau verlangt wird, gibt deine Kontrollstelle vor${imk.bioKontrollstelle ? ` (${U.esc(imk.bioKontrollstelle)})` : ''}.</p>
-      ${imk.bio !== 'ja' ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">Unter Einstellungen → Imkereidaten ist „Bio-Imkerei" auf Nein gesetzt. Für Etiketten und PDF-Angaben stelle das dort um.</span></div>` : ''}
+      <div class="flex-wrap mb12" style="gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--card2)">
+        <span style="font-weight:600">Bio-Imkerei</span>
+        <select class="inp" id="bio-an" style="width:auto;min-width:110px">
+          <option value="ja" ${imk.bio === 'ja' ? 'selected' : ''}>Ja</option>
+          <option value="nein" ${imk.bio !== 'ja' ? 'selected' : ''}>Nein</option></select>
+        <span class="small muted" style="flex:1 1 160px;min-width:0">${imk.bio === 'ja' ? U.esc(bioZertText(imk)) || 'Kontrollstelle noch nicht gewählt' : 'Etiketten und PDF führen keine Öko-Angaben.'}</span>
+        <button class="btn btn-ghost btn-sm no-print" id="bio-daten">${icon('pencil')} Kontrollstelle & Verband</button>
+      </div>
       <div class="rows">${BIO_ABSCHNITTE.map((a) => `<div class="row" style="align-items:flex-start">
         <span class="r-ic">${icon((bb[a.key] || '').trim() ? 'check' : 'info')}</span>
         <span class="r-main"><span class="r-title">${U.esc(a.label)}</span>
         <span class="r-sub" style="white-space:normal">${(bb[a.key] || '').trim() ? U.esc(bb[a.key]) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
     </div>`;
+    /* Die Bio-Umstellung soll dort greifbar sein, wo man sie braucht – nicht nur
+       unter Einstellungen. Geschrieben wird in dieselben Imkereidaten. */
+    $('#bio-an', box).onchange = async (e) => {
+      await S.set('imkerei', Object.assign({}, S.get('imkerei'), { bio: e.target.value }));
+      UI.toast(e.target.value === 'ja' ? 'Als Bio-Imkerei geführt' : 'Öko-Angaben ausgeschaltet');
+      renderRoute();
+    };
+    $('#bio-daten', box).onclick = () => UI.formModal({
+      title: 'Bio-Angaben', wide: true,
+      fields: [
+        { key: 'bio', label: 'Bio-Imkerei?', type: 'select', required: true, default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
+        { key: 'bioKontrollstelle', label: 'Öko-Kontrollstelle', type: 'suggest', options: KONTROLLSTELLEN, placeholder: 'DE-ÖKO-… auswählen oder eintippen', hint: 'Erscheint als DE-ÖKO-Code auf dem Bio-Etikett.', showIf: (f) => f.bio === 'ja' },
+        { key: 'bioVerbandJN', label: 'Verbandszugehörigkeit?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein – nur EU-Bio' }, { v: 'ja', l: 'Ja' }], showIf: (f) => f.bio === 'ja' },
+        { key: 'bioVerband', label: 'Verband / Verbände', type: 'multicheck', options: BIO_VERBAENDE.map((v) => ({ v, l: v })), showIf: (f) => f.bio === 'ja' && f.bioVerbandJN === 'ja' },
+      ],
+      values: imk,
+      async onSave(v) { await S.set('imkerei', Object.assign({}, S.get('imkerei'), v)); UI.toast('Bio-Angaben gespeichert'); renderRoute(); },
+    });
     $('#edit-bb', box).onclick = () => UI.formModal({
       title: 'Betriebsbeschreibung', wide: true,
       fields: BIO_ABSCHNITTE.map((a) => ({ key: a.key, label: a.label, type: 'textarea', hint: a.hint })),
@@ -6065,8 +6300,17 @@ Views.bio = {
           <div class="field"><label>Stand der Erhebung</label><input class="inp" type="date" id="bio-datum" value="${b.erhebung || U.todayIso()}"></div>
           <div class="field"><label>Quelle der Zahlen</label><input class="inp" id="bio-quelle" value="${U.esc(b.quelle || 'GeoBox-Viewer (geobox-i.de/GBV-RLP-Bienen)')}"></div>
         </div>
-        <div class="flex-wrap mb8"><a class="btn btn-ghost btn-sm" href="${GEOBOX_URL}" target="_blank" rel="noopener">${icon('share')} GeoBox-Viewer öffnen</a>
-          <span class="small muted">Punkt auf den Stand setzen, Umkreis einstellen, rechnen lassen – Prozente dann hier eintragen.</span></div>
+        <div class="card mb12" style="box-shadow:none;border:1px solid var(--line)">
+          <div class="small muted mb8" style="font-weight:600">Automatisch berechnen</div>
+          <div class="flex-wrap" style="gap:6px;align-items:center">
+            <input class="inp" id="bio-adresse" style="flex:1 1 200px;min-width:0" placeholder="Adresse oder Ort des Standes" value="${U.esc(b.adresse || stand.name || '')}">
+            <button type="button" class="btn btn-primary btn-sm" id="bio-rechnen">${icon('search')} Suchen &amp; berechnen</button>
+            ${stand.lat && stand.lng ? `<button type="button" class="btn btn-ghost btn-sm" id="bio-koord">${icon('pin')} Koordinaten des Standes</button>` : ''}
+          </div>
+          <div class="small muted mt8" id="bio-status">Adresse eintippen – die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis aus OpenStreetMap.</div>
+          <div class="hint mt8">OpenStreetMap ist keine amtliche Quelle und je Gegend unterschiedlich vollständig; der nicht erfasste Rest wird eigens ausgewiesen. Verlangt deine Kontrollstelle eine amtliche Zahl, nimm den GeoBox-Viewer (nur Rheinland-Pfalz) oder das Geoportal deines Landes – die Zeilen unten kannst du jederzeit überschreiben.</div>
+          <div class="flex-wrap mt8"><a class="btn btn-ghost btn-sm" href="${GEOBOX_URL}" target="_blank" rel="noopener">${icon('share')} GeoBox-Viewer öffnen</a></div>
+        </div>
         <div class="small muted mb8" style="font-weight:600">Anteile in Prozent</div>
         <div id="bio-zeilen"></div>
         <div class="flex-wrap mb12"><button type="button" class="btn btn-ghost btn-sm" id="bio-plus">${icon('plus')} Zeile</button>
@@ -6108,6 +6352,32 @@ Views.bio = {
     quellenBox.innerHTML = BIO_QUELLEN.map((q) => `<label class="check-line"><input type="checkbox" data-quelle="${U.esc(q)}" ${quellen.includes(q) ? 'checked' : ''}> <span>${U.esc(q)}</span></label>`).join('');
     quellenBox.addEventListener('change', () => { quellen = $$('input:checked', quellenBox).map((i) => i.dataset.quelle); });
     $$('[data-umkreis]', m.el).forEach((c) => c.onclick = () => { $('#bio-umkreis', m.el).value = c.dataset.umkreis; });
+    /* Automatische Berechnung: Adresse → Koordinaten → Anteile. Die gefundenen
+       Zeilen ersetzen die Tabelle; Quelle und Datum werden mitgeschrieben. */
+    let koord = (b.lat && b.lon) ? { lat: b.lat, lon: b.lon, name: b.adresse } : null;
+    const status = $('#bio-status', m.el);
+    const melde = (t) => { status.innerHTML = U.esc(t); };
+    const rechnen = async (viaKoordinaten) => {
+      const knopf = $('#bio-rechnen', m.el);
+      knopf.disabled = true;
+      try {
+        const radius = Math.max(100, Math.round(U.parseNum($('#bio-umkreis', m.el).value) || BIO_UMKREIS_VORGABE));
+        if (viaKoordinaten) koord = { lat: stand.lat, lon: stand.lng, name: `Koordinaten ${U.fmtNum(stand.lat, 4)} / ${U.fmtNum(stand.lng, 4)}` };
+        else { melde('Adresse suchen …'); koord = await osmAdresseSuchen($('#bio-adresse', m.el).value); }
+        melde(`Gefunden: ${koord.name} – Flächen abfragen …`);
+        const erg = await osmLandbedeckung(koord.lat, koord.lon, radius, melde);
+        zeilen = erg.zeilen;
+        zeichneZeilen(); rechne();
+        $('#bio-quelle', m.el).value = `OpenStreetMap / Overpass, automatisch berechnet (${U.fmtNum(radius / 1000, 1)} km)`;
+        $('#bio-datum', m.el).value = U.todayIso();
+        melde(`Fertig: ${erg.flaechen} Flächen, ${erg.punkte} Rasterpunkte im Abstand von ${erg.schritt} m. Quelle: ${koord.name}`);
+      } catch (e) {
+        melde('Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
+      } finally { knopf.disabled = false; }
+    };
+    $('#bio-rechnen', m.el).onclick = () => rechnen(false);
+    const kbtn = $('#bio-koord', m.el);
+    if (kbtn) kbtn.onclick = () => rechnen(true);
     $('#bio-plus', m.el).onclick = () => { zeilen.push({ name: '', prozent: 0, art: 'tracht' }); zeichneZeilen(); };
     zeichneZeilen(); rechne();
     $('[data-zu]', m.el).onclick = () => m.close();
@@ -6117,6 +6387,9 @@ Views.bio = {
         erhebung: $('#bio-datum', m.el).value || null,
         quelle: $('#bio-quelle', m.el).value.trim(),
         anteile: zeilen.filter((z) => (z.name || '').trim()).map((z) => ({ name: z.name.trim(), prozent: z.prozent, art: z.art })),
+        adresse: $('#bio-adresse', m.el).value.trim(),
+        lat: koord ? koord.lat : (b.lat || null),
+        lon: koord ? koord.lon : (b.lon || null),
         quellen,
         notiz: $('#bio-notiz', m.el).value.trim(),
       };
@@ -11225,6 +11498,8 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, BIO_BEREICHE, bioFristStatus,
+  osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
+  osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,
   selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,

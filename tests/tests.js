@@ -1924,13 +1924,65 @@ test('Fütterung ohne Rechner: Liter-Feld ist auch dort', async (w) => {
   } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
 
+/* ---------- Landbedeckung automatisch (ohne Netz geprüft) ---------- */
+test('osmKategorie: bildet OSM-Schlüssel auf unsere Kategorien ab', (w) => {
+  assertEq(w.osmKategorie({ landuse: 'farmland' }).name, 'Acker', 'Acker');
+  assertEq(w.osmKategorie({ landuse: 'farmland' }).art, 'tracht', 'Acker ist Tracht');
+  assertEq(w.osmKategorie({ natural: 'wood' }).name, 'Wald', 'Wald über natural');
+  assertEq(w.osmKategorie({ landuse: 'industrial' }).art, 'bebaut', 'Industrie ist bebaut');
+  assertEq(w.osmKategorie({ landuse: 'residential' }).art, 'bebaut', 'Siedlung ist bebaut');
+  assertEq(w.osmKategorie({ natural: 'water' }).art, 'sonstiges', 'Wasser ist sonstiges');
+  assertEq(w.osmKategorie({ aeroway: 'runway' }).name, 'Verkehrsflächen', 'Landebahn über Platzhalter');
+  assertEq(w.osmKategorie({ landuse: 'brownfield' }), null, 'nicht abgebildete Werte fallen durch');
+  assertEq(w.osmKategorie(null), null, 'ohne Schlüssel nichts');
+});
+test('osmImRing / osmRingFlaeche: Punkt im Viereck und Flächengröße', (w) => {
+  // Viereck von 0,001° Breite ≈ 111 m und 0,001° Länge ≈ 71 m bei 50° Nord
+  const ring = [{ lat: 50, lon: 10 }, { lat: 50.001, lon: 10 }, { lat: 50.001, lon: 10.001 }, { lat: 50, lon: 10.001 }, { lat: 50, lon: 10 }];
+  assertEq(w.osmImRing(50.0005, 10.0005, ring), true, 'Mitte liegt drin');
+  assertEq(w.osmImRing(50.002, 10.0005, ring), false, 'darüber liegt draußen');
+  assertEq(w.osmImRing(50.0005, 10.002, ring), false, 'daneben liegt draußen');
+  const flaeche = w.osmRingFlaeche(ring, 50);
+  nah(flaeche, 110.54 * 71.5, 400, `Fläche unplausibel: ${Math.round(flaeche)} m²`);
+});
+test('osmAnteileAusFlaechen: Anteile, „nicht erfasst" und kleinere Fläche gewinnt', (w) => {
+  const lat = 50, lon = 10, r = 1000;
+  const mLat = 110540, mLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  // Rechteck über die östliche Kreishälfte: Wald
+  const kasten = (dxVon, dxBis, dyVon, dyBis) => {
+    const pt = (dx, dy) => ({ lat: lat + dy / mLat, lon: lon + dx / mLon });
+    return [pt(dxVon, dyVon), pt(dxBis, dyVon), pt(dxBis, dyBis), pt(dxVon, dyBis), pt(dxVon, dyVon)];
+  };
+  const mach = (kat, ring) => {
+    let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+    for (const p of ring) { minLat = Math.min(minLat, p.lat); maxLat = Math.max(maxLat, p.lat); minLon = Math.min(minLon, p.lon); maxLon = Math.max(maxLon, p.lon); }
+    return { kat, ring, minLat, maxLat, minLon, maxLon, groesse: w.osmRingFlaeche(ring, lat) };
+  };
+  const wald = mach({ name: 'Wald', art: 'tracht' }, kasten(0, 1000, -1000, 1000));
+  const industrie = mach({ name: 'Industrie / Gewerbe', art: 'bebaut' }, kasten(100, 300, -200, 200));
+  // absichtlich in der Reihenfolge groß-zuerst übergeben: die Funktion sortiert selbst
+  const erg = w.osmAnteileAusFlaechen([wald, industrie].sort((a, b) => a.groesse - b.groesse), lat, lon, r);
+  const map = new Map(erg.zeilen.map((z) => [z.name, z.prozent]));
+  assert(erg.punkte > 1000, `zu wenige Rasterpunkte: ${erg.punkte}`);
+  // östliche Hälfte = 50 %, davon geht die Industriefläche ab
+  nah(map.get('Wald') + map.get('Industrie / Gewerbe'), 50, 2, `östliche Hälfte nicht 50 %: ${JSON.stringify([...map])}`);
+  // 200 m × 400 m von π·1000² m² sind 2,5 % – die kleinere Fläche muss sich also durchsetzen
+  nah(map.get('Industrie / Gewerbe'), (200 * 400) / (Math.PI * r * r) * 100, 1,
+    `Industriefläche stimmt nicht (kleinere muss gewinnen): ${map.get('Industrie / Gewerbe')}`);
+  // westliche Hälfte ist unbekannt und muss ausgewiesen werden
+  nah(map.get('Nicht in OpenStreetMap erfasst'), 50, 2, 'nicht erfasster Rest fehlt');
+  const su = w.bioSummen(erg.zeilen);
+  nah(su.gesamt, 100, 0.5, 'Summe ergibt 100 %');
+});
+
 /* ---------- Bio / Öko-Kontrolle ---------- */
 test('Bio: sechs Bereiche im Reiter', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.bio.render(host);
     const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
-    assertEq(reiter, ['1 Betriebsbeschreibung', '2 Standorte', '3 Hygiene', '4 Abnehmer & Lieferanten', '5 Zertifikate', '6 Förderverfahren'], 'alle sechs Bereiche');
+    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Abnehmer & Lieferanten', 'Zertifikate', 'Förderverfahren'], 'alle sechs Bereiche, ohne Nummern');
+    assert(!reiter.some((t) => /^\d/.test(t)), 'keine Ziffern vor den Namen');
     assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
   } finally { host.remove(); w.Views.bio._tab = 'betrieb'; }
 });
@@ -1947,6 +1999,23 @@ test('Bio: Betriebsbeschreibung zählt die ausgefüllten Abschnitte', async (w) 
     assert(/2 von 12 Abschnitten/.test(host.textContent), 'zwei gezählt');
     assert(/eigener Wachskreislauf/.test(host.textContent), 'Text erscheint');
   } finally { host.remove(); await w.S.set('bioBetrieb', vorher); }
+});
+test('Bio: Umstellung direkt im Reiter schaltbar', async (w) => {
+  const vorher = w.S.get('imkerei');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.S.set('imkerei', { ...vorher, bio: 'nein' });
+    await w.Views.bio.tabBetrieb(host);
+    const sel = host.querySelector('#bio-an');
+    assert(sel, 'Schalter im Reiter vorhanden');
+    assertEq(sel.value, 'nein', 'Ausgangslage');
+    assert(host.querySelector('#bio-daten'), 'Knopf für Kontrollstelle und Verband');
+    assert(!/Einstellungen → Imkereidaten/.test(host.textContent), 'kein Verweis auf den Umweg mehr');
+    // umschalten muss in den Imkereidaten landen
+    sel.value = 'ja'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    assertEq(w.S.get('imkerei').bio, 'ja', 'in den Imkereidaten gespeichert');
+  } finally { host.remove(); await w.S.set('imkerei', vorher); }
 });
 test('bioSummen: Anteile nach Art getrennt', (w) => {
   const a = [
