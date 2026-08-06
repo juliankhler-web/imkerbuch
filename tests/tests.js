@@ -3866,3 +3866,212 @@ test('umweiseln: löst die neue Königin aus einem anderen Volk', async (w) => {
   assertEq((await w.DB.get('voelker', vAlt.id)).koeniginId, null, 'altes Volk hat die Königin verloren');
   assertEq((await w.DB.get('voelker', vNeu.id)).koeniginId, q.id, 'Ziel-Volk hat sie erhalten');
 });
+
+/* =====================================================================
+   Amtliche Landbedeckung (CLC5 des BKG)
+   Alles reine Rechnung ohne Netz: die Verschneidung mit dem Kreis ist der
+   Kern, an dem die Zahlen für die Öko-Kontrolle hängen.
+   ===================================================================== */
+test('CLC: Kreis-Vieleck ist konvex, gleichmäßig und flächentreu genug', (w) => {
+  const r = 1000;
+  const k = w.clcKreis(r);
+  assertEq(k.length, 96, '96 Ecken');
+  for (const p of k) nah(Math.hypot(p.x, p.y), r, 0.001, 'jede Ecke liegt auf dem Kreis');
+  // Fläche eines regelmäßigen n-Ecks: ½·n·r²·sin(2π/n)
+  const soll = 0.5 * 96 * r * r * Math.sin((2 * Math.PI) / 96);
+  nah(w.clcRingFlaeche(k), soll, 1, 'Vieleckfläche stimmt');
+  assert(w.clcRingFlaeche(k) / (Math.PI * r * r) > 0.999, 'weniger als 0,1 % unter der Kreisfläche');
+});
+
+test('CLC: Ringfläche und Kappen rechnen in Quadratmetern richtig', (w) => {
+  const quadrat = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }];
+  assertEq(w.clcRingFlaeche(quadrat), 5000, '100 × 50 m = 5000 m²');
+  // gegen den Uhrzeigersinn gedreht: Betrag bleibt gleich
+  assertEq(w.clcRingFlaeche([...quadrat].reverse()), 5000, 'Umlaufrichtung ändert die Fläche nicht');
+  const r = 1000, kreis = w.clcKreis(r);
+  const gross = [{ x: -5000, y: -5000 }, { x: 5000, y: -5000 }, { x: 5000, y: 5000 }, { x: -5000, y: 5000 }];
+  nah(w.clcRingFlaeche(w.clcKappen(gross, kreis)), w.clcRingFlaeche(kreis), 1, 'alles übersteht → ganzer Kreis');
+  const klein = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }, { x: 10, y: 20 }];
+  assertEq(w.clcRingFlaeche(w.clcKappen(klein, kreis)), 100, 'ganz innen → unverändert');
+  const weg = [{ x: 5000, y: 5000 }, { x: 5100, y: 5000 }, { x: 5100, y: 5100 }, { x: 5000, y: 5100 }];
+  assertEq(w.clcKappen(weg, kreis).length, 0, 'ganz außen → nichts übrig');
+});
+
+/* Baukasten für die folgenden Tests: Kästen in Metern um den Mittelpunkt. */
+function clcKasten(lat, lon, x0, x1, y0, y1) {
+  const mLat = 110540, mLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  const pt = (dx, dy) => [lon + dx / mLon, lat + dy / mLat];
+  return [pt(x0, y0), pt(x1, y0), pt(x1, y1), pt(x0, y1), pt(x0, y0)];
+}
+function clcFeature(code, ringe) {
+  return { type: 'Feature', properties: { clc18: code }, geometry: { type: 'Polygon', coordinates: ringe } };
+}
+
+test('CLC: eine Fläche über den ganzen Kreis ergibt 100 % Abdeckung', (w) => {
+  const lat = 50, lon = 10, r = 1000;
+  const erg = w.clcAnteileAusFeatures([clcFeature('311', [clcKasten(lat, lon, -1200, 1200, -1200, 1200)])], lat, lon, r);
+  assertEq(erg.zeilen.length, 1, 'genau eine Zeile');
+  assertEq(erg.zeilen[0].name, 'Wald', '311 ist Wald');
+  assertEq(erg.zeilen[0].art, 'tracht', 'Wald ist Tracht');
+  nah(erg.zeilen[0].prozent, 100, 0.2, 'Wald füllt den Kreis');
+  nah(erg.abdeckung, 100, 0.2, 'Abdeckung 100 % – das ist der Unterschied zu OpenStreetMap');
+  assert(!erg.zeilen.some((z) => z.name === 'Nicht im amtlichen Datensatz'), 'keine Lückenzeile');
+});
+
+test('CLC: Hälften, kleine Fläche und Löcher stimmen flächengenau', (w) => {
+  const lat = 50, lon = 10, r = 1000;
+  const halb = w.clcAnteileAusFeatures([
+    clcFeature('211', [clcKasten(lat, lon, -1200, 0, -1200, 1200)]),
+    clcFeature('312', [clcKasten(lat, lon, 0, 1200, -1200, 1200)]),
+  ], lat, lon, r);
+  const m1 = new Map(halb.zeilen.map((z) => [z.name, z.prozent]));
+  nah(m1.get('Acker'), 50, 0.2, 'westliche Hälfte = Acker');
+  nah(m1.get('Wald'), 50, 0.2, 'östliche Hälfte = Wald');
+  nah(halb.abdeckung, 100, 0.2, 'zusammen lückenlos');
+
+  // 200 m × 400 m innerhalb des Kreises: exakt nachrechenbar
+  const klein = w.clcAnteileAusFeatures([
+    clcFeature('311', [clcKasten(lat, lon, -1200, 1200, -1200, 1200)]),
+    clcFeature('121', [clcKasten(lat, lon, 100, 300, -200, 200)]),
+  ], lat, lon, r);
+  const m2 = new Map(klein.zeilen.map((z) => [z.name, z.prozent]));
+  nah(m2.get('Industrie / Gewerbe'), (200 * 400) / (Math.PI * r * r) * 100, 0.05, 'kleine Industriefläche exakt');
+
+  // Loch im Wald: die Fläche muss fehlen und als Lücke auftauchen
+  const mitLoch = w.clcAnteileAusFeatures([
+    clcFeature('311', [clcKasten(lat, lon, -1200, 1200, -1200, 1200), clcKasten(lat, lon, -100, 100, -100, 100)]),
+  ], lat, lon, r);
+  const lochProzent = (200 * 200) / (Math.PI * r * r) * 100;
+  nah(mitLoch.zeilen.find((z) => z.name === 'Wald').prozent, 100 - lochProzent, 0.3, 'Loch geht vom Wald ab');
+  const luecke = mitLoch.zeilen.find((z) => z.name === 'Nicht im amtlichen Datensatz');
+  assert(luecke, 'das Loch wird als Lücke ausgewiesen, nicht verschluckt');
+  nah(luecke.prozent, lochProzent, 0.3, 'Lücke so groß wie das Loch');
+});
+
+test('CLC: fehlende Flächen werden als Lücke ausgewiesen, unbekannte Schlüssel getrennt', (w) => {
+  const lat = 50, lon = 10, r = 1000;
+  const halb = w.clcAnteileAusFeatures([clcFeature('231', [clcKasten(lat, lon, 0, 1200, -1200, 1200)])], lat, lon, r);
+  nah(halb.abdeckung, 50, 0.3, 'nur die halbe Fläche geliefert');
+  nah(halb.zeilen.find((z) => z.name === 'Nicht im amtlichen Datensatz').prozent, 50, 0.3, 'Rest offen ausgewiesen');
+
+  const fremd = w.clcAnteileAusFeatures([clcFeature('999', [clcKasten(lat, lon, -1200, 1200, -1200, 1200)])], lat, lon, r);
+  assertEq(fremd.zeilen[0].name, 'Sonstige amtliche Fläche', 'unbekannter Schlüssel ist keine Lücke');
+  nah(fremd.abdeckung, 100, 0.2, 'die Fläche zählt trotzdem als abgedeckt');
+});
+
+test('CLC: MultiPolygon wird vollständig gerechnet', (w) => {
+  const lat = 50, lon = 10, r = 1000;
+  const f = {
+    type: 'Feature', properties: { clc18: '512' },
+    geometry: { type: 'MultiPolygon', coordinates: [
+      [clcKasten(lat, lon, -300, -100, -100, 100)],
+      [clcKasten(lat, lon, 100, 300, -100, 100)],
+    ] },
+  };
+  const erg = w.clcAnteileAusFeatures([f], lat, lon, r);
+  assertEq(erg.zeilen[0].name, 'Gewässer', '512 ist Gewässer');
+  nah(erg.zeilen[0].prozent, 2 * (200 * 200) / (Math.PI * r * r) * 100, 0.05, 'beide Teile gezählt');
+});
+
+test('CLC: Zuordnung amtlicher Schlüssel ist gültig und passt zu den Bio-Summen', (w) => {
+  const arten = new Set(['tracht', 'bebaut', 'sonstiges']);
+  for (const [code, [name, art]] of w.CLC_KARTE) {
+    assert(/^\d{3}$/.test(code), `Schlüssel dreistellig: ${code}`);
+    assert(name && name.length > 2, `Name gesetzt bei ${code}`);
+    assert(arten.has(art), `Art gültig bei ${code}: ${art}`);
+  }
+  assertEq(w.CLC_KARTE.get('311')[0], 'Wald', '311 Laubwald → Wald');
+  assertEq(w.CLC_KARTE.get('211')[0], 'Acker', '211 Ackerland → Acker');
+  assertEq(w.CLC_KARTE.get('231')[0], 'Grünland / Wiese', '231 Wiesen und Weiden → Grünland');
+  assertEq(w.CLC_KARTE.get('121')[1], 'bebaut', '121 Industrie zählt als bebaut');
+  assertEq(w.CLC_KARTE.get('112')[1], 'bebaut', '112 Siedlung zählt als bebaut');
+  assertEq(w.CLC_KARTE.get('512')[1], 'sonstiges', 'Wasserflächen sind weder Tracht noch bebaut');
+  // die Namen müssen dieselben sein wie bei OpenStreetMap, sonst sind die Quellen nicht vergleichbar
+  const osmNamen = new Set(w.OSM_KARTE ? w.OSM_KARTE.map((k) => k[2]) : []);
+  for (const n of ['Acker', 'Grünland / Wiese', 'Wald', 'Siedlung / Bebauung', 'Industrie / Gewerbe', 'Verkehrsflächen', 'Gewässer']) {
+    assert([...w.CLC_KARTE.values()].some(([nn]) => nn === n), `Zeile „${n}" gibt es auch amtlich`);
+    if (osmNamen.size) assert(osmNamen.has(n), `Zeile „${n}" heißt bei OpenStreetMap gleich`);
+  }
+  // Summen: die drei Arten müssen zusammen den Kreis füllen
+  const lat = 50, lon = 10, r = 1000;
+  const erg = w.clcAnteileAusFeatures([
+    clcFeature('311', [clcKasten(lat, lon, -1200, 0, -1200, 1200)]),
+    clcFeature('121', [clcKasten(lat, lon, 0, 1200, 0, 1200)]),
+    clcFeature('512', [clcKasten(lat, lon, 0, 1200, -1200, 0)]),
+  ], lat, lon, r);
+  const su = w.bioSummen(erg.zeilen);
+  nah(su.gesamt, 100, 0.3, 'Summe der Anteile ist 100 %');
+  nah(su.tracht, 50, 0.3, 'Wald-Hälfte ist Tracht');
+  nah(su.bebaut, 25, 0.3, 'Industrie-Viertel ist bebaut');
+  nah(su.sonstiges, 25, 0.3, 'Gewässer-Viertel ist sonstiges');
+});
+
+test('CLC: Dienst-Angaben zeigen auf die amtliche Quelle', (w) => {
+  assert(w.CLC_WFS.startsWith('https://sgx.geodatenzentrum.de/'), 'Dienst des BKG');
+  assert(/clc5/i.test(w.CLC_WFS), 'CLC5-Datensatz');
+  assert(/BKG/.test(w.CLC_QUELLE_KURZ) && /dl-de/.test(w.CLC_QUELLE_KURZ), 'Quellenangabe nennt BKG und Lizenz');
+  assert(w.CLC_MAX >= 1000, 'Obergrenze der Abfrage großzügig');
+});
+
+/* =====================================================================
+   Gläser, Deckel und Etiketten beim Abfüllen
+   ===================================================================== */
+test('Abfüllen: Gebinde-Vorschlag findet die richtige Größe', (w) => {
+  const posten = [
+    { id: 'a', bezeichnung: 'Gläser 500 g Rundglas', einheit: 'Stück', stueckzahl: 300 },
+    { id: 'b', bezeichnung: 'Deckel TO82 für 500 g', einheit: 'Stück', stueckzahl: 400 },
+    { id: 'c', bezeichnung: 'Gläser 250 g', einheit: 'Stück', stueckzahl: 200 },
+    { id: 'd', bezeichnung: 'Hobbock 20 kg', einheit: 'Stück', stueckzahl: 12 },
+    { id: 'e', bezeichnung: 'Gläser 1 kg', einheit: 'Stück', stueckzahl: 50 },
+  ];
+  assertEq(w.glasVorschlag(posten, 500), 'a', 'bei 500 g gewinnt das Glas, nicht der Deckel');
+  assertEq(w.glasVorschlag(posten, 250), 'c', '250 g gefunden');
+  assertEq(w.glasVorschlag(posten, 20000), 'd', '20 kg als Hobbock erkannt');
+  assertEq(w.glasVorschlag(posten, 1000), 'e', '1 kg erkannt');
+  assertEq(w.glasVorschlag(posten, 125), '', 'ohne Treffer bleibt es leer – nichts wird geraten');
+  assertEq(w.glasVorschlag([{ id: 'x', bezeichnung: 'Gläser 250 g' }], 50), '',
+    '„250 g" darf nicht als 50 g durchgehen');
+  assertEq(w.glasVorschlag([{ id: 'y', bezeichnung: 'Gläser 1000 g' }], 1000), 'y', '1000 g zählt auch als 1 kg');
+  assertEq(w.glasVorschlag([], 500), '', 'ohne Bestand kein Vorschlag');
+  assertEq(w.zubehoerVorschlag(posten, /deckel/i), 'b', 'Deckel über den Namen gefunden');
+  assertEq(w.zubehoerVorschlag(posten, /etikett/i), '', 'kein Etikett angelegt → leer');
+  for (const g of w.GEBINDE_PRESETS) assert(w.gebindeLabel(g).length > 1, `Beschriftung für ${g} g`);
+});
+
+test('Abfüllen: mehrere Abzüge auf dieselbe Position addieren sich', async (w) => {
+  const glas = await w.DB.put('inventar', { bezeichnung: 'Gläser 500 g Test', typ: 'verbrauch', kategorie: 'Gläser', einheit: 'Stück', stueckzahl: 300 });
+  const deckel = await w.DB.put('inventar', { bezeichnung: 'Deckel Test', typ: 'verbrauch', kategorie: 'Gläser', einheit: 'Stück', stueckzahl: 100 });
+  // 120 Gläser 500 g und 60 aus einer zweiten Größe, die auf dieselbe Position zeigt
+  const b1 = await w.verbrauchAbziehen(glas.id, 120, { pruefen: false });
+  const b2 = await w.verbrauchAbziehen(glas.id, 60, { pruefen: false });
+  assertEq(b1.nachher, 180, 'nach dem ersten Abzug 180');
+  assertEq(b2.vorher, 180, 'der zweite Abzug rechnet mit dem neuen Bestand');
+  assertEq(b2.nachher, 120, 'zusammen 180 abgezogen');
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 120, 'Bestand steht im Lager');
+  // Deckel: 180 Stück, aber nur 100 da → auf 0 und die fehlende Menge melden
+  const b3 = await w.verbrauchAbziehen(deckel.id, 180, { pruefen: false });
+  assertEq(b3.nachher, 0, 'Bestand läuft nicht ins Minus');
+  assertEq(b3.gefehlt, 80, '80 Deckel fehlten – das muss gemeldet werden');
+  assertEq(w.verbrauchEinheit(b3.pos), 'Stück', 'Einheit bleibt Stück');
+});
+
+test('Abfüllen: Vorschlag nimmt keine leergelaufene Position, wenn eine mit Bestand da ist', (w) => {
+  // derselbe Artikel zweimal angelegt – alte Packung leer, neue voll
+  const posten = [
+    { id: 'leer', bezeichnung: 'Deckel TO82 alt', einheit: 'Stück', stueckzahl: 0 },
+    { id: 'voll', bezeichnung: 'Deckel TO82 neu', einheit: 'Stück', stueckzahl: 500 },
+  ];
+  assertEq(w.zubehoerVorschlag(posten, /deckel/i), 'voll', 'die Position mit Bestand gewinnt');
+  assertEq(w.zubehoerVorschlag([posten[0]], /deckel/i), 'leer', 'gibt es nur die leere, wird sie genommen');
+  const glaeser = [
+    { id: 'g-leer', bezeichnung: 'Gläser 500 g', einheit: 'Stück', stueckzahl: 0 },
+    { id: 'g-voll', bezeichnung: 'Gläser 500 g Nachschub', einheit: 'Stück', stueckzahl: 240 },
+  ];
+  assertEq(w.glasVorschlag(glaeser, 500), 'g-voll', 'auch bei Gläsern zählt der Bestand');
+  // der Name schlägt den Bestand: ein Deckel mit Bestand darf kein Glas ersetzen
+  const gemischt = [
+    { id: 'deckel', bezeichnung: 'Deckel für 500 g', einheit: 'Stück', stueckzahl: 900 },
+    { id: 'glas', bezeichnung: 'Gläser 500 g', einheit: 'Stück', stueckzahl: 0 },
+  ];
+  assertEq(w.glasVorschlag(gemischt, 500), 'glas', 'Gebinde-Name wiegt schwerer als Bestand');
+});

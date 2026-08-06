@@ -927,8 +927,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.28';
+const APP_VERSION = '1.29';
 const CHANGELOG = [
+  { version: '1.29', datum: '2026-08-06', punkte: [
+    'Neu bei Bio → Standorte: <b>amtliche Landbedeckung auf Knopfdruck</b>. Die App holt CORINE Land Cover 5 ha vom Bundesamt für Kartographie und Geodäsie (offen lizenziert, dl-de/by-2-0) und rechnet die Anteile im Umkreis selbst aus – <b>lückenlos</b>, im Test 100,0 % des Kreises statt „ein Viertel nicht erfasst" wie bei OpenStreetMap.',
+    'Beide Quellen bleiben wählbar: „Amtlich berechnen" ist die Zahl für die Kontrollstelle, „Schnell (OpenStreetMap)" ist feiner und aktueller, aber lückenhaft. Die Quelle wird mitgeschrieben und steht in den Bio-Unterlagen.',
+    'Gerechnet wird nicht abgetastet, sondern jede amtliche Fläche exakt mit dem Kreis verschnitten. Gegen ein unabhängiges Punktraster geprüft: Abweichung höchstens 0,5 Prozentpunkte.',
+    'Grenzen stehen offen dabei: Datenstand 2018, kleinste erfasste Fläche 5 ha, nur Deutschland – und die Abfrage lädt rund 1 MB und braucht etwa eine halbe Minute.',
+    'Neu beim <b>Abfüllen</b>: Gläser, Deckel und Etiketten gehen vom Verbrauchsmaterial ab. Je Gebindegröße eine eigene Auswahl (mit Vorschlag aus dem Namen), Deckel und Etiketten über alle Größen zusammen. Vorher siehst du zeilenweise, was abgeht und was übrig bleibt.',
+  ] },
   { version: '1.28', datum: '2026-08-06', punkte: [
     'Neu: <b>Abgang / Verkauf</b> bei Inventar und Verbrauchsmaterial. Damit buchst du Bestand raus – verkauft, selbst verbraucht, kaputt, verschenkt oder als Korrektur. Vorher siehst du, was der Bestand danach ist.',
     'Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht (Kategorie „Materialverkauf") – mit Käufer und Belegnummer im Text. Damit fehlt der Erlös am Jahresende nicht.',
@@ -6196,6 +6203,190 @@ function osmAnteileAusFlaechen(flaechen, lat, lon, r) {
   return { zeilen, punkte, flaechen: flaechen.length, schritt };
 }
 
+/* ---------------------------------------------------------------------
+   Amtliche Landbedeckung: CORINE Land Cover 5 ha (CLC5) des BKG
+
+   OpenStreetMap ist fein, aber lückenhaft – am Teststandort blieb rund ein
+   Viertel der Fläche „nicht erfasst". Für eine Öko-Kontrolle ist das unschön.
+   Das Bundesamt für Kartographie und Geodäsie gibt CLC5 offen heraus
+   (Datenlizenz Deutschland – Namensnennung 2.0) und deckt die Fläche
+   lückenlos ab: am Testkreis 100,0 % Abdeckung, kein Rest.
+
+   Statt den Kreis abzutasten verschneiden wir jedes amtliche Polygon exakt mit
+   ihm. Das ist genauer und schneller; gegen ein unabhängig gerechnetes
+   Punktraster geprüft stimmten beide Wege auf 0,5 Prozentpunkte überein.
+
+   Grenzen, die man kennen muss: Datenstand 2018, kleinste erfasste Fläche 5 ha
+   (Hecken und kleine Wiesen gehen in der Nachbarklasse auf), nur Deutschland.
+   Eine Abfrage zieht knapp 1 MB und braucht am Server rund eine halbe Minute –
+   deshalb ein eigener Knopf und nicht die Vorbelegung.
+   --------------------------------------------------------------------- */
+const CLC_WFS = 'https://sgx.geodatenzentrum.de/wfs_clc5_2018';
+const CLC_TYPENAME = 'clc5_2018:clc5';
+const CLC_MAX = 4000;                  // Obergrenze der Abfrage
+const CLC_KREIS_ECKEN = 96;            // Vieleck, an dem gekappt wird
+const CLC_QUELLE_KURZ = 'CORINE Land Cover 5 ha 2018 (BKG, dl-de/by-2-0)';
+
+/* Amtlicher Klassenschlüssel (clc18) → unsere Zeile. Die Namen sind absichtlich
+   dieselben wie in BIO_KLASSEN, damit amtlich und OpenStreetMap vergleichbar
+   bleiben. Was hier fehlt, wird eigens ausgewiesen statt still verschluckt. */
+const CLC_KARTE = new Map([
+  ['111', ['Siedlung / Bebauung', 'bebaut']], ['112', ['Siedlung / Bebauung', 'bebaut']],
+  ['121', ['Industrie / Gewerbe', 'bebaut']],
+  ['122', ['Verkehrsflächen', 'bebaut']], ['123', ['Verkehrsflächen', 'bebaut']], ['124', ['Verkehrsflächen', 'bebaut']],
+  ['131', ['Abbau, Deponie, Baustelle', 'bebaut']], ['132', ['Abbau, Deponie, Baustelle', 'bebaut']],
+  ['133', ['Abbau, Deponie, Baustelle', 'bebaut']],
+  ['141', ['Sonstige Vegetation', 'tracht']], ['142', ['Sonstige Vegetation', 'tracht']],
+  ['211', ['Acker', 'tracht']], ['212', ['Acker', 'tracht']], ['213', ['Acker', 'tracht']],
+  ['221', ['Dauerkulturen (Obst, Wein)', 'tracht']], ['222', ['Dauerkulturen (Obst, Wein)', 'tracht']],
+  ['223', ['Dauerkulturen (Obst, Wein)', 'tracht']],
+  ['231', ['Grünland / Wiese', 'tracht']],
+  ['241', ['Acker', 'tracht']], ['242', ['Acker', 'tracht']],
+  ['243', ['Landwirtschaft mit Naturflächen', 'tracht']], ['244', ['Landwirtschaft mit Naturflächen', 'tracht']],
+  ['311', ['Wald', 'tracht']], ['312', ['Wald', 'tracht']], ['313', ['Wald', 'tracht']],
+  ['321', ['Sonstige Vegetation', 'tracht']], ['322', ['Sonstige Vegetation', 'tracht']],
+  ['323', ['Sonstige Vegetation', 'tracht']], ['324', ['Sonstige Vegetation', 'tracht']],
+  ['331', ['Offene Flächen', 'sonstiges']], ['332', ['Offene Flächen', 'sonstiges']],
+  ['333', ['Offene Flächen', 'sonstiges']], ['334', ['Offene Flächen', 'sonstiges']],
+  ['335', ['Offene Flächen', 'sonstiges']],
+  ['411', ['Sonstige Vegetation', 'tracht']], ['412', ['Sonstige Vegetation', 'tracht']],
+  ['421', ['Sonstige Vegetation', 'tracht']], ['422', ['Sonstige Vegetation', 'tracht']],
+  ['423', ['Offene Flächen', 'sonstiges']],
+  ['511', ['Gewässer', 'sonstiges']], ['512', ['Gewässer', 'sonstiges']],
+  ['521', ['Gewässer', 'sonstiges']], ['522', ['Gewässer', 'sonstiges']], ['523', ['Gewässer', 'sonstiges']],
+]);
+const CLC_UNBEKANNT = { name: 'Nicht im amtlichen Datensatz', art: 'sonstiges' };
+
+/** Kreis als konvexes Vieleck in Metern – konvex, weil nur daran gekappt
+    werden darf. */
+function clcKreis(r, ecken = CLC_KREIS_ECKEN) {
+  const p = [];
+  for (let i = 0; i < ecken; i++) {
+    const w = (2 * Math.PI * i) / ecken;
+    p.push({ x: r * Math.cos(w), y: r * Math.sin(w) });
+  }
+  return p;
+}
+
+/** Polygon am konvexen Vieleck kappen (Sutherland-Hodgman), Punkte in Metern. */
+function clcKappen(punkte, kreis) {
+  let aus = punkte;
+  for (let k = 0; k < kreis.length && aus.length; k++) {
+    const a = kreis[k], b = kreis[(k + 1) % kreis.length];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const seite = (q) => dx * (q.y - a.y) - dy * (q.x - a.x);   // >= 0 heißt innen
+    const neu = [];
+    for (let i = 0; i < aus.length; i++) {
+      const p1 = aus[i], p2 = aus[(i + 1) % aus.length];
+      const s1 = seite(p1), s2 = seite(p2);
+      if (s1 >= 0) neu.push(p1);
+      if ((s1 >= 0) !== (s2 >= 0)) {
+        const nenner = dx * (p2.y - p1.y) - dy * (p2.x - p1.x);
+        if (nenner) {
+          const t = -s1 / nenner;
+          neu.push({ x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t });
+        }
+      }
+    }
+    aus = neu;
+  }
+  return aus;
+}
+
+/** Fläche eines geschlossenen Rings in m² (Gauß'sche Trapezformel). */
+function clcRingFlaeche(p) {
+  let f = 0;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) f += p[j].x * p[i].y - p[i].x * p[j].y;
+  return Math.abs(f / 2);
+}
+
+/** Reine Rechnung: amtliche Polygone mit dem Kreis verschneiden und die
+    Anteile bilden. Ohne Netz, damit sie prüfbar ist. */
+function clcAnteileAusFeatures(features, lat, lon, r) {
+  const mLat = 110540, mLon = 111320 * Math.cos((lat * Math.PI) / 180);
+  const kreis = clcKreis(r), r2 = r * r;
+  /* Fläche eines Rings innerhalb des Kreises. Drei Wege, vom billigsten zum
+     teuersten: klar daneben → 0, ganz drin → direkt rechnen, sonst kappen. */
+  const anteilRing = (koord) => {
+    const p = new Array(koord.length);
+    let maxD2 = 0, minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (let i = 0; i < koord.length; i++) {
+      const x = (koord[i][0] - lon) * mLon, y = (koord[i][1] - lat) * mLat;
+      p[i] = { x, y };
+      const d2 = x * x + y * y;
+      if (d2 > maxD2) maxD2 = d2;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (minX > r || maxX < -r || minY > r || maxY < -r) return 0;
+    if (maxD2 <= r2) return clcRingFlaeche(p);
+    const gekappt = clcKappen(p, kreis);
+    return gekappt.length > 2 ? clcRingFlaeche(gekappt) : 0;
+  };
+  const summe = new Map();
+  let erfasst = 0;
+  for (const f of features) {
+    const g = f && f.geometry;
+    if (!g || !g.coordinates) continue;
+    const teile = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
+    let a = 0;
+    for (const poly of teile) {
+      if (!poly || !poly.length) continue;
+      a += anteilRing(poly[0]);
+      for (let h = 1; h < poly.length; h++) a -= anteilRing(poly[h]);   // Löcher abziehen
+    }
+    if (!(a > 0)) continue;
+    erfasst += a;
+    /* Unbekannter Schlüssel ist etwas anderes als eine Lücke im Datensatz –
+       beides darf nicht in derselben Zeile landen. */
+    const [name, art] = CLC_KARTE.get(String((f.properties || {}).clc18 || '')) || ['Sonstige amtliche Fläche', 'sonstiges'];
+    const eintrag = summe.get(name) || { name, art, flaeche: 0 };
+    eintrag.flaeche += a;
+    summe.set(name, eintrag);
+  }
+  const kreisFlaeche = Math.PI * r2;
+  const zeilen = [...summe.values()]
+    .map((z) => ({ name: z.name, art: z.art, prozent: Math.round((z.flaeche / kreisFlaeche) * 1000) / 10 }))
+    .filter((z) => z.prozent > 0)
+    .sort((a, b) => b.prozent - a.prozent);
+  const abdeckung = Math.round((erfasst / kreisFlaeche) * 1000) / 10;
+  if (abdeckung < 99) zeilen.push({ ...CLC_UNBEKANNT, prozent: Math.round((100 - abdeckung) * 10) / 10 });
+  return { zeilen, flaechen: features.length, abdeckung };
+}
+
+/** Amtliche Landbedeckung im Umkreis. Gibt Zeilen wie im Formular zurück. */
+async function clcLandbedeckung(lat, lon, radiusM, melde = () => {}) {
+  const r = Math.max(100, Math.round(radiusM || BIO_UMKREIS_VORGABE));
+  const dLat = r / 110540, dLon = r / (111320 * Math.cos((lat * Math.PI) / 180));
+  const rahmen = [lat - dLat, lon - dLon, lat + dLat, lon + dLon].map((n) => n.toFixed(6)).join(',');
+  const url = `${CLC_WFS}?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=${encodeURIComponent(CLC_TYPENAME)}`
+    + `&SRSNAME=urn:ogc:def:crs:EPSG::4326&PROPERTYNAME=clc18,geom&COUNT=${CLC_MAX}`
+    + `&OUTPUTFORMAT=application/json&BBOX=${rahmen},urn:ogc:def:crs:EPSG::4326`;
+  melde('Amtliche Flächen beim BKG abfragen – das dauert rund eine halbe Minute …');
+  const abbruch = new AbortController();
+  const uhr = setTimeout(() => abbruch.abort(), 180000);
+  let daten;
+  try {
+    const res = await fetch(url, { signal: abbruch.signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Status ${res.status}`);
+    daten = await res.json();
+  } catch (e) {
+    throw new Error(e && e.name === 'AbortError'
+      ? 'Der amtliche Dienst hat nicht rechtzeitig geantwortet – später nochmal oder „Schnell (OpenStreetMap)" nehmen.'
+      : `Amtlicher Dienst nicht erreichbar (${e.message || 'Fehler'}).`);
+  } finally { clearTimeout(uhr); }
+  const features = (daten && daten.features) || [];
+  if (!features.length) {
+    throw new Error('Hier liefert der amtliche Datensatz keine Flächen – CLC5 deckt nur Deutschland ab. Für Standorte im Ausland „Schnell (OpenStreetMap)" nehmen.');
+  }
+  melde(`${features.length} amtliche Flächen geladen – Anteile im Umkreis rechnen …`);
+  const erg = clcAnteileAusFeatures(features, lat, lon, r);
+  erg.abgeschnitten = features.length >= CLC_MAX;
+  return erg;
+}
+
 Views.bio = {
   title: 'Bio',
   async render(main) {
@@ -6331,7 +6522,7 @@ Views.bio = {
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('hive')}<h2>Landbedeckung der Standorte</h2>
         </div>
-      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landnutzung selbst. Von Hand eintragen geht weiter, ebenso über den GeoBox-Viewer, der aber oft nicht erreichbar ist. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
+      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landbedeckung selbst, auf Knopfdruck aus der <b>amtlichen Quelle</b> (CORINE Land Cover des Bundesamtes für Kartographie und Geodäsie, lückenlos) oder schnell aus OpenStreetMap. Von Hand eintragen geht weiter. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
       ${staende.length ? `<div class="rows">${staende.map((st) => {
         const anteile = bioAnteile(st);
         const su = bioSummen(anteile);
@@ -6371,15 +6562,17 @@ Views.bio = {
         </div>
         <div class="card mb12" style="box-shadow:none;border:1px solid var(--line)">
           <div class="small muted mb8" style="font-weight:600">Automatisch berechnen</div>
+          <input class="inp mb8" id="bio-adresse" placeholder="Adresse oder Ort des Standes" value="${U.esc(b.adresse || stand.name || '')}">
           <div class="flex-wrap" style="gap:6px;align-items:center">
-            <input class="inp" id="bio-adresse" style="flex:1 1 200px;min-width:0" placeholder="Adresse oder Ort des Standes" value="${U.esc(b.adresse || stand.name || '')}">
-            <button type="button" class="btn btn-primary btn-sm" id="bio-rechnen">${icon('search')} Suchen &amp; berechnen</button>
-            ${stand.lat && stand.lng ? `<button type="button" class="btn btn-ghost btn-sm" id="bio-koord">${icon('pin')} Koordinaten des Standes</button>` : ''}
+            <button type="button" class="btn btn-primary btn-sm" id="bio-amtlich">${icon('doc')} Amtlich berechnen</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="bio-osm">${icon('search')} Schnell (OpenStreetMap)</button>
+            ${stand.lat && stand.lng ? `<button type="button" class="btn btn-ghost btn-sm" id="bio-koord">${icon('pin')} Amtlich, Koordinaten des Standes</button>` : ''}
           </div>
-          <div class="small muted mt8" id="bio-status">Adresse eintippen – die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis aus OpenStreetMap.</div>
-          <div class="hint mt8">OpenStreetMap ist keine amtliche Quelle und je Gegend unterschiedlich vollständig; der nicht erfasste Rest wird eigens ausgewiesen. Verlangt deine Kontrollstelle eine amtliche Zahl, nimm den GeoBox-Viewer (nur Rheinland-Pfalz) oder das Geoportal deines Landes – die Zeilen unten kannst du jederzeit überschreiben.</div>
+          <div class="small muted mt8" id="bio-status">Adresse eintippen und eine Quelle wählen – die App holt die Koordinaten und rechnet die Flächenanteile im Umkreis selbst aus.</div>
+          <div class="hint mt8"><b>Amtlich</b> ist die Zahl für die Kontrollstelle: CORINE Land Cover 5 ha des Bundesamtes für Kartographie und Geodäsie, offen lizenziert (dl-de/by-2-0). Sie deckt den Umkreis <b>lückenlos</b> ab – im Test 100,0 %. Datenstand 2018, kleinste erfasste Fläche 5 ha (Hecken und kleine Wiesen gehen in der Nachbarklasse auf), nur Deutschland. Die Abfrage lädt rund 1 MB und braucht etwa eine halbe Minute.<br>
+            <b>Schnell</b> ist OpenStreetMap: feiner und aktueller, aber keine amtliche Quelle und je Gegend unterschiedlich vollständig – der nicht erfasste Rest wird eigens ausgewiesen.</div>
           <div class="flex-wrap mt8">${GEOBOX_LINKS.map((l) => `<a class="btn btn-ghost btn-sm" href="${l.url}" target="_blank" rel="noopener">${icon('share')} ${U.esc(l.label)}</a>`).join('')}</div>
-          <div class="hint mt8">Das GeoBox-Portal ist oft nicht erreichbar – beide Adressen meldeten beim Prüfen „Portal nicht erreichbar". Die Berechnung oben braucht es nicht.</div>
+          <div class="hint mt8">Zum Nachsehen im Kartenbild. Das GeoBox-Portal war beim Prüfen nicht erreichbar („Portal nicht erreichbar") – für die Zahlen oben braucht es das nicht.</div>
         </div>
         <div class="small muted mb8" style="font-weight:600">Anteile in Prozent</div>
         <div id="bio-zeilen"></div>
@@ -6409,7 +6602,7 @@ Views.bio = {
       const su = bioSummen(zeilen);
       const abw = Math.abs(su.gesamt - 100);
       $('#bio-summe', m.el).innerHTML = `Summe: <b class="${abw > 1 ? 'zahl-warn' : ''}">${U.fmtNum(su.gesamt, 1)} %</b>`
-        + (su.gesamt > 0 && abw > 1 ? ` – der Viewer liefert 100 %; bitte prüfen.` : '');
+        + (su.gesamt > 0 && abw > 1 ? ` – eine vollständige Erhebung ergibt 100 %; bitte prüfen.` : '');
       $('#bio-auswertung', m.el).innerHTML = su.gesamt > 0 ? `
         <div class="stat-grid mb12">
           <div class="stat"><div class="s-label">Tracht / Vegetation</div><div class="s-value">${U.fmtNum(su.tracht, 1)} %</div></div>
@@ -6427,27 +6620,39 @@ Views.bio = {
     let koord = (b.lat && b.lon) ? { lat: b.lat, lon: b.lon, name: b.adresse } : null;
     const status = $('#bio-status', m.el);
     const melde = (t) => { status.innerHTML = U.esc(t); };
-    const rechnen = async (viaKoordinaten) => {
-      const knopf = $('#bio-rechnen', m.el);
-      knopf.disabled = true;
+    const rechnen = async (art, viaKoordinaten) => {
+      const knoepfe = $$('#bio-amtlich, #bio-osm, #bio-koord', m.el);
+      knoepfe.forEach((k) => { k.disabled = true; });
       try {
         const radius = Math.max(100, Math.round(U.parseNum($('#bio-umkreis', m.el).value) || BIO_UMKREIS_VORGABE));
+        const km = U.fmtNum(radius / 1000, 1);
         if (viaKoordinaten) koord = { lat: stand.lat, lon: stand.lng, name: `Koordinaten ${U.fmtNum(stand.lat, 4)} / ${U.fmtNum(stand.lng, 4)}` };
         else { melde('Adresse suchen …'); koord = await osmAdresseSuchen($('#bio-adresse', m.el).value); }
         melde(`Gefunden: ${koord.name} – Flächen abfragen …`);
-        const erg = await osmLandbedeckung(koord.lat, koord.lon, radius, melde);
-        zeilen = erg.zeilen;
-        zeichneZeilen(); rechne();
-        $('#bio-quelle', m.el).value = `OpenStreetMap / Overpass, automatisch berechnet (${U.fmtNum(radius / 1000, 1)} km)`;
+        if (art === 'amtlich') {
+          const erg = await clcLandbedeckung(koord.lat, koord.lon, radius, melde);
+          zeilen = erg.zeilen;
+          zeichneZeilen(); rechne();
+          $('#bio-quelle', m.el).value = `${CLC_QUELLE_KURZ}, ${km} km Umkreis, automatisch berechnet`;
+          melde(`Fertig: ${erg.flaechen} amtliche Flächen, Abdeckung ${U.fmtNum(erg.abdeckung, 1)} % des Kreises.`
+            + (erg.abgeschnitten ? ` Achtung: die Obergrenze von ${CLC_MAX} Flächen ist erreicht – bei so großem Umkreis können Zahlen fehlen.` : '')
+            + ` Ort: ${koord.name}`);
+        } else {
+          const erg = await osmLandbedeckung(koord.lat, koord.lon, radius, melde);
+          zeilen = erg.zeilen;
+          zeichneZeilen(); rechne();
+          $('#bio-quelle', m.el).value = `OpenStreetMap / Overpass, automatisch berechnet (${km} km)`;
+          melde(`Fertig: ${erg.flaechen} Flächen, ${erg.punkte} Rasterpunkte im Abstand von ${erg.schritt} m. Ort: ${koord.name}`);
+        }
         $('#bio-datum', m.el).value = U.todayIso();
-        melde(`Fertig: ${erg.flaechen} Flächen, ${erg.punkte} Rasterpunkte im Abstand von ${erg.schritt} m. Quelle: ${koord.name}`);
       } catch (e) {
         melde('Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
-      } finally { knopf.disabled = false; }
+      } finally { knoepfe.forEach((k) => { k.disabled = false; }); }
     };
-    $('#bio-rechnen', m.el).onclick = () => rechnen(false);
+    $('#bio-amtlich', m.el).onclick = () => rechnen('amtlich', false);
+    $('#bio-osm', m.el).onclick = () => rechnen('osm', false);
     const kbtn = $('#bio-koord', m.el);
-    if (kbtn) kbtn.onclick = () => rechnen(true);
+    if (kbtn) kbtn.onclick = () => rechnen('amtlich', true);
     $('#bio-plus', m.el).onclick = () => { zeilen.push({ name: '', prozent: 0, art: 'tracht' }); zeichneZeilen(); };
     zeichneZeilen(); rechne();
     $('[data-zu]', m.el).onclick = () => m.close();
@@ -6875,7 +7080,32 @@ Views.honig = {
     const frei = chargen.filter((c) => chargeRestKg(c, abfAlle) > 0.0001);
     if (!frei.length) return UI.toast('Keine Charge mit freier Restmenge. Lege zuerst eine Charge an (Tab „Chargen“).', 'err');
     const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl' }));
-    UI.formModal({
+    /* Gläser, Deckel und Etiketten liegen als Verbrauchsmaterial mit der Einheit
+       „Stück" im Lager. Je Gebindegröße eine eigene Auswahl – sie erscheint erst,
+       wenn dort auch eine Anzahl steht, sonst wäre das Formular eine Wand. Deckel
+       und Etiketten gehen über alle Größen zusammen, weil dieselbe Sorte meist
+       für mehrere Glasgrößen gilt. */
+    const stueck = await verbrauchsPosten(['Stück']);
+    const stueckOpt = () => stueck.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 0)} ${verbrauchEinheit(i)}` }));
+    const anzahlGesamt = (f) => GEBINDE_PRESETS.reduce((sum, g) => sum + Math.max(0, Math.round(Number(f['g_' + g]) || 0)), 0)
+      + Math.max(0, Math.round(Number(f.eigenesN) || 0));
+    const abzugFelder = !stueck.length ? [] : [
+      { key: '_abzugKopf', type: 'static', showIf: (f) => anzahlGesamt(f) > 0,
+        html: '<h3 class="mt8 mb4">Vom Verbrauchsmaterial abziehen</h3><div class="hint mb8">Je Größe vorgeschlagen, sobald dort eine Anzahl steht. Leer heißt: Bestand bleibt unverändert.</div>' },
+      ...GEBINDE_PRESETS.map((g) => ({ key: 'gl_' + g, label: `Gebinde für ${gebindeLabel(g)}`, type: 'select',
+        options: stueckOpt(), default: glasVorschlag(stueck, g),
+        showIf: (f) => Math.round(Number(f['g_' + g]) || 0) > 0 })),
+      { key: 'gl_eigen', label: 'Gebinde für das eigene Gebinde', type: 'select', options: stueckOpt(),
+        showIf: (f) => Math.round(Number(f.eigenesN) || 0) > 0 },
+      { key: 'gl_deckel', label: 'Deckel (alle Größen zusammen)', type: 'select', options: stueckOpt(),
+        default: zubehoerVorschlag(stueck, /deckel|twist|to\s*82|schraubverschluss|verschluss/i),
+        showIf: (f) => anzahlGesamt(f) > 0 },
+      { key: 'gl_etikett', label: 'Etiketten (alle Größen zusammen)', type: 'select', options: stueckOpt(),
+        default: zubehoerVorschlag(stueck, /etikett|label|banderole|gew(ä|ae)hrstreifen|siegel/i),
+        showIf: (f) => anzahlGesamt(f) > 0 },
+      { key: '_abzugInfo', type: 'static', html: '<div class="hint" data-glas-info></div>' },
+    ];
+    const m = UI.formModal({
       title: 'Abfüllen', wide: true,
       fields: [
         { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', required: true, default: vorChargeId, options: frei.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` })) },
@@ -6884,12 +7114,13 @@ Views.honig = {
         ...gebindeFelder,
         { key: 'eigenesG', label: 'Eigenes Gebinde – Größe (g)', type: 'number', placeholder: 'z. B. 30' },
         { key: 'eigenesN', label: 'Eigenes Gebinde – Anzahl', type: 'number' },
+        ...abzugFelder,
       ],
       values: {},
       async onSave(v) {
         const posten = [];
-        for (const g of GEBINDE_PRESETS) { const n = Math.round(v['g_' + g] || 0); if (n > 0) posten.push({ gebindeG: g, anzahl: n }); }
-        if (v.eigenesG > 0 && Math.round(v.eigenesN || 0) > 0) posten.push({ gebindeG: Math.round(v.eigenesG), anzahl: Math.round(v.eigenesN) });
+        for (const g of GEBINDE_PRESETS) { const n = Math.round(v['g_' + g] || 0); if (n > 0) posten.push({ gebindeG: g, anzahl: n, feld: 'gl_' + g }); }
+        if (v.eigenesG > 0 && Math.round(v.eigenesN || 0) > 0) posten.push({ gebindeG: Math.round(v.eigenesG), anzahl: Math.round(v.eigenesN), feld: 'gl_eigen' });
         if (!posten.length) throw new Error('Bitte bei mindestens einem Gebinde eine Anzahl eintragen.');
         const charge = await DB.get('chargen', v.chargeId);
         const rest = chargeRestKg(charge, await DB.getAll('abfuellungen'));
@@ -6897,9 +7128,25 @@ Views.honig = {
         if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Los ${charge.losnummer} frei.`);
         let glaeser = 0;
         for (const p of posten) { await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }); glaeser += p.anzahl; }
-        UI.toast(`${glaeser} Gebinde abgefüllt${posten.length > 1 ? ` (${posten.length} Größen)` : ''}`); renderRoute();
+        UI.toast(`${glaeser} Gebinde abgefüllt${posten.length > 1 ? ` (${posten.length} Größen)` : ''}`);
+        /* Erst die Gebinde je Größe, dann Deckel und Etiketten über die
+           Gesamtzahl. Nacheinander, damit zwei Größen aus derselben Position
+           sich auch wirklich addieren. Der Prüflauf kommt einmal am Ende. */
+        const abzuege = [...posten.map((pp) => [v[pp.feld], pp.anzahl]), [v.gl_deckel, glaeser], [v.gl_etikett, glaeser]];
+        const meldungen = [];
+        let knapp = false;
+        for (const [id, menge] of abzuege) {
+          const buchung = await verbrauchAbziehen(id, menge, { pruefen: false });
+          if (!buchung) continue;
+          if (buchung.gefehlt > 0) knapp = true;
+          meldungen.push(`${buchung.pos.bezeichnung}: −${U.fmtNum(buchung.abgezogen, 0)} ${buchung.einheit}, Rest ${U.fmtNum(buchung.nachher, 0)}`
+            + (buchung.gefehlt > 0 ? ` (${U.fmtNum(buchung.gefehlt, 0)} fehlten)` : ''));
+        }
+        if (meldungen.length) { UI.toast(meldungen.join(' · '), knapp ? 'err' : undefined); await pruefeMhd(); }
+        renderRoute();
       },
     });
+    if (stueck.length) verdrahteGlasAbzug(m, stueck);
   },
   /** Einzelne Abfüllung korrigieren oder löschen (freigegebene kg fließen automatisch zurück). */
   async abfuellEditForm(a) {
@@ -6912,6 +7159,7 @@ Views.honig = {
         { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true },
         { key: 'bestand', label: 'Davon noch im Bestand', type: 'number', required: true, hint: 'Wird durch Verkäufe automatisch gemindert.' },
         { key: 'datum', label: 'Abfülldatum', type: 'date', required: true },
+        { key: '_hinweis', type: 'static', html: '<div class="hint">Der Glas- und Deckelbestand im Verbrauchsmaterial wird hier <b>nicht</b> nachgerechnet – sonst würde beim Korrigieren doppelt gebucht. Weicht die Anzahl stark ab, korrigiere den Bestand unter „Verbrauchsmaterial".</div>' },
       ],
       values: a,
       async onSave(v) {
@@ -8803,7 +9051,7 @@ async function verbrauchsPosten(einheiten) {
 /** Zieht eine Menge ab. Reicht der Bestand nicht, wird auf 0 gesetzt und die
     fehlende Menge zurückgemeldet – verbraucht ist verbraucht, aber man soll es
     erfahren. */
-async function verbrauchAbziehen(inventarId, menge) {
+async function verbrauchAbziehen(inventarId, menge, { pruefen = true } = {}) {
   const m = Math.max(0, Number(menge) || 0);
   if (!inventarId || m <= 0) return null;
   const pos = await DB.get('inventar', inventarId);
@@ -8812,7 +9060,9 @@ async function verbrauchAbziehen(inventarId, menge) {
   const nachher = Math.max(0, vorher - m);
   pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
   await DB.put('inventar', pos);
-  pruefeMhd();
+  /* Beim Abfüllen fallen mehrere Abzüge hintereinander an – dann lohnt ein
+     Prüflauf am Ende statt bei jedem einzelnen. */
+  if (pruefen) pruefeMhd();
   return { pos, vorher, nachher: pos.stueckzahl, abgezogen: m, gefehlt: Math.max(0, Math.round((m - vorher) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
 }
 
@@ -8841,6 +9091,81 @@ function verdrahteVerbrauch(m, posten, mengeFn) {
       + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '');
   };
   sel.addEventListener('change', zeige);
+  m.el.addEventListener('input', zeige);
+  m.el.addEventListener('change', zeige);
+  zeige();
+  return m;
+}
+
+/* Wörter, die ein Gebinde erkennbar machen. Nur für den Vorschlag – die
+   Auswahl bleibt frei umstellbar. */
+const GEBINDE_WOERTER = /glas|gläser|glaeser|eimer|hobbock|becher|dose|gebinde|tube|flasche/i;
+
+/* Der beste Treffer unter mehreren: erst der Name, der nach Gebinde klingt,
+   dann der, in dem überhaupt noch etwas liegt. Eine leergelaufene Position
+   vorzuschlagen wäre der häufigste Fehlgriff – gerade wenn dieselbe Sorte
+   zweimal angelegt ist (alte Charge leer, neue voll). */
+function besterPosten(kandidaten, wortMuster) {
+  let beste = null, bestesGewicht = -1;
+  for (const i of kandidaten) {
+    const gewicht = (wortMuster && wortMuster.test(String(i.bezeichnung || '')) ? 2 : 0)
+      + (verbrauchBestand(i) > 0 ? 1 : 0);
+    if (gewicht > bestesGewicht) { bestesGewicht = gewicht; beste = i; }
+  }
+  return beste ? beste.id : '';
+}
+
+/** Passende Gebinde-Position im Verbrauchsmaterial erraten: der Name muss die
+    Größe enthalten. Trifft mehreres, gewinnt der Name, der nach Gebinde klingt. */
+function glasVorschlag(posten, gebindeG) {
+  const g = Math.round(Number(gebindeG) || 0);
+  if (!g || !Array.isArray(posten)) return '';
+  const teile = [`${g}\\s*(?:g|gr|gramm)\\b`];
+  if (g >= 1000) teile.unshift(`${String(g / 1000).replace('.', '[.,]')}\\s*(?:kg|kilo\\w*)\\b`);
+  const re = new RegExp(`(?:^|[^0-9])(?:${teile.join('|')})`, 'i');
+  return besterPosten(posten.filter((i) => re.test(String(i.bezeichnung || ''))), GEBINDE_WOERTER);
+}
+
+/** Beste Position, deren Name auf das Muster passt (Deckel, Etiketten …). */
+function zubehoerVorschlag(posten, muster) {
+  return besterPosten((Array.isArray(posten) ? posten : []).filter((i) => muster.test(String(i.bezeichnung || ''))), null);
+}
+
+/** Live-Übersicht beim Abfüllen: was geht wovon ab, was bleibt übrig. Zieht
+    mehrere Abzüge auf dieselbe Position zusammen – so wie später gebucht wird. */
+function verdrahteGlasAbzug(m, posten) {
+  const info = $('[data-glas-info]', m.el);
+  if (!info) return m;
+  const zahl = (key) => Math.max(0, Math.round(U.parseNum((($(`#f-${key}`, m.el) || {}).value) || '') || 0));
+  const wahl = (key) => posten.find((i) => i.id === ((($(`#f-${key}`, m.el) || {}).value) || ''));
+  const zeige = () => {
+    const geplant = [];
+    let gesamt = 0;
+    for (const g of GEBINDE_PRESETS) {
+      const n = zahl('g_' + g);
+      gesamt += n;
+      if (n > 0) geplant.push([wahl('gl_' + g), n, gebindeLabel(g)]);
+    }
+    const eigen = zahl('eigenesN');
+    gesamt += eigen;
+    if (eigen > 0) geplant.push([wahl('gl_eigen'), eigen, 'eigenes Gebinde']);
+    if (gesamt > 0) {
+      geplant.push([wahl('gl_deckel'), gesamt, 'Deckel']);
+      geplant.push([wahl('gl_etikett'), gesamt, 'Etiketten']);
+    }
+    const schon = new Map();
+    const zeilen = [];
+    for (const [pos, n, was] of geplant) {
+      if (!pos) continue;
+      const e = verbrauchEinheit(pos);
+      const vorher = Math.max(0, verbrauchBestand(pos) - (schon.get(pos.id) || 0));
+      schon.set(pos.id, (schon.get(pos.id) || 0) + n);
+      zeilen.push(`${U.esc(pos.bezeichnung)} <span class="muted">(${U.esc(was)})</span>: <b>−${U.fmtNum(n, 0)} ${e}</b> → Rest <b>${U.fmtNum(Math.max(0, vorher - n), 0)} ${e}</b>`
+        + (n > vorher ? ` <span class="zahl-warn">– ${U.fmtNum(n - vorher, 0)} ${e} fehlen</span>` : ''));
+    }
+    info.innerHTML = zeilen.length ? zeilen.join('<br>')
+      : (gesamt > 0 ? 'Kein Abzug gewählt – der Bestand bleibt unverändert.' : '');
+  };
   m.el.addEventListener('input', zeige);
   m.el.addEventListener('change', zeige);
   zeige();
@@ -11858,8 +12183,10 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
+  glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, GEBINDE_PRESETS, gebindeLabel,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
+  CLC_KARTE, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX, clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,
