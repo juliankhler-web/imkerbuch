@@ -927,8 +927,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.30';
+const APP_VERSION = '1.31';
 const CHANGELOG = [
+  { version: '1.31', datum: '2026-08-06', punkte: [
+    'Verbrauchsmaterial hat jetzt ein Feld <b>Gebindegröße</b>. Damit sagst du beim Anlegen, für welche Größe eine Position gilt („500 g", „1 kg", eigene Größen wie „30 g" gehen auch) – vorher hat die App das aus dem Namen geraten. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.',
+    'Beim Abfüllen steht jetzt <b>oben, was im Lager liegt</b> – jede Position mit Bestand, leere rot. Vorher sah man den Bestand erst, wenn man eine Auswahlliste aufklappte.',
+    'Ist noch <b>gar kein</b> Verbrauchsmaterial mit der Einheit „Stück" angelegt, verschwand der ganze Abschnitt lautlos. Jetzt erklärt er sich und hat einen Knopf <b>„Gläser jetzt anlegen"</b> – die neue Position erscheint sofort in den Auswahllisten, ohne das Abfüllen abzubrechen.',
+    'Reicht der Bestand nicht, steht das vor dem Speichern da: „… fehlen, der Bestand geht auf 0". Ins Minus läuft nichts, und die Fehlmenge wird nach dem Buchen noch einmal gemeldet.',
+  ] },
   { version: '1.30', datum: '2026-08-06', punkte: [
     'Bio → Standorte rechnet jetzt über <b>denselben amtlichen Dienst wie der GeoBox-Viewer Bienen</b> – die Auswertung, die deine Kontrollstelle kennt. Feine Aufschlüsselung statt Sammelbegriffen: Laubwälder, Nadelwälder, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen, Wiesen und Weiden … Dauer: wenige Sekunden.',
     'Die Prozente rechnet die App aus den mitgelieferten Quadratmetern selbst – auf <b>0,1 %</b> genau. Der Viewer selbst rundet auf ganze Prozent (Summe 99 %).',
@@ -7282,22 +7288,24 @@ Views.honig = {
        und Etiketten gehen über alle Größen zusammen, weil dieselbe Sorte meist
        für mehrere Glasgrößen gilt. */
     const stueck = await verbrauchsPosten(['Stück']);
-    const stueckOpt = () => stueck.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 0)} ${verbrauchEinheit(i)}` }));
+    const stueckOpt = () => stueck.map((i) => ({ v: i.id, l: glasOptionText(i) }));
     const anzahlGesamt = (f) => GEBINDE_PRESETS.reduce((sum, g) => sum + Math.max(0, Math.round(Number(f['g_' + g]) || 0)), 0)
       + Math.max(0, Math.round(Number(f.eigenesN) || 0));
-    const abzugFelder = !stueck.length ? [] : [
+    /* Der Abschnitt erscheint immer, sobald irgendwo eine Anzahl steht – auch
+       wenn das Lager leer ist. Vorher verschwand er lautlos, und man konnte
+       nicht einmal sehen, dass es die Funktion gibt (Julians Frage). */
+    const abzugFelder = [
       { key: '_abzugKopf', type: 'static', showIf: (f) => anzahlGesamt(f) > 0,
-        html: '<h3 class="mt8 mb4">Vom Verbrauchsmaterial abziehen</h3><div class="hint mb8">Je Größe vorgeschlagen, sobald dort eine Anzahl steht. Leer heißt: Bestand bleibt unverändert.</div>' },
+        html: '<h3 class="mt8 mb4">Vom Verbrauchsmaterial abziehen</h3>'
+          + '<div class="hint mb8" data-glas-bestand></div>'
+          + '<div class="hint mb8">Je Gebindegröße wird die passende Position vorgeschlagen – dafür sorgt das Feld „Gebindegröße" am Verbrauchsmaterial. Leer heißt: Bestand bleibt unverändert. Reicht der Bestand nicht, geht er auf 0 und die fehlende Menge wird gemeldet – ins Minus läuft nichts.</div>' },
       ...GEBINDE_PRESETS.map((g) => ({ key: 'gl_' + g, label: `Gebinde für ${gebindeLabel(g)}`, type: 'select',
-        options: stueckOpt(), default: glasVorschlag(stueck, g),
-        showIf: (f) => Math.round(Number(f['g_' + g]) || 0) > 0 })),
+        options: stueckOpt(), showIf: (f) => Math.round(Number(f['g_' + g]) || 0) > 0 })),
       { key: 'gl_eigen', label: 'Gebinde für das eigene Gebinde', type: 'select', options: stueckOpt(),
         showIf: (f) => Math.round(Number(f.eigenesN) || 0) > 0 },
       { key: 'gl_deckel', label: 'Deckel (alle Größen zusammen)', type: 'select', options: stueckOpt(),
-        default: zubehoerVorschlag(stueck, /deckel|twist|to\s*82|schraubverschluss|verschluss/i),
         showIf: (f) => anzahlGesamt(f) > 0 },
       { key: 'gl_etikett', label: 'Etiketten (alle Größen zusammen)', type: 'select', options: stueckOpt(),
-        default: zubehoerVorschlag(stueck, /etikett|label|banderole|gew(ä|ae)hrstreifen|siegel/i),
         showIf: (f) => anzahlGesamt(f) > 0 },
       { key: '_abzugInfo', type: 'static', html: '<div class="hint" data-glas-info></div>' },
     ];
@@ -7342,7 +7350,7 @@ Views.honig = {
         renderRoute();
       },
     });
-    if (stueck.length) verdrahteGlasAbzug(m, stueck);
+    verdrahteGlasAbzug(m, stueck);
   },
   /** Einzelne Abfüllung korrigieren oder löschen (freigegebene kg fließen automatisch zurück). */
   async abfuellEditForm(a) {
@@ -7988,7 +7996,8 @@ async function renderInventarBereich(main, cfg) {
     const menge = i.preis ? `${stk} ${einheit} × ${U.fmtEur(i.preis)}` : `${stk} ${einheit}`;
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
-    const teile = [i.kategorie, menge, zuord, i.notiz].filter(Boolean);
+    const groesse = gebindeGrammAus(i.gebindeG);
+    const teile = [i.kategorie, groesse ? `für ${gebindeLabel(groesse)}` : null, menge, zuord, i.notiz].filter(Boolean);
     return `<button class="row${badge ? ' hat-hinweis' : ''}" data-edit="${i.id}">
       <span class="r-ic">${icon(cfg.ic)}</span>
       <span class="r-main">
@@ -8065,6 +8074,14 @@ async function renderInventarBereich(main, cfg) {
       { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
       { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN,
         hint: 'Richtet sich nach der Bezeichnung: Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Überschreibbar. Nur bei „Stück" wird auf ganze Zahlen gerundet.' },
+      /* Gebindegröße als eigenes Feld statt aus dem Namen geraten (Julian:
+         „wenn ich glas bei verbrauchsmaterial anlege kann ich auch nicht die
+         gebinde größe auswählen"). Damit trifft der Abzug beim Abfüllen sicher,
+         unabhängig davon, wie die Position heißt. */
+      { key: 'gebindeG', label: 'Gebindegröße (optional)', type: 'suggest',
+        default: i && i.gebindeG ? gebindeLabel(gebindeGrammAus(i.gebindeG)) : '',
+        options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
+        hint: 'Nur für Gläser und Eimer: für welche Größe die Position gilt. Damit zieht die App beim Abfüllen automatisch die richtigen Gläser ab. Eigene Größen wie „30 g" gehen auch. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.' },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date',
         hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
@@ -8079,6 +8096,7 @@ async function renderInventarBereich(main, cfg) {
       // nur Stückgut wird gerundet – kg, Liter, ml dürfen Kommastellen haben
       v.einheit = (v.einheit || 'Stück').trim() || 'Stück';
       v.stueckzahl = v.einheit === 'Stück' ? Math.round(v.stueckzahl || 1) : Math.max(0, Number(v.stueckzahl) || 0);
+      v.gebindeG = gebindeGrammAus(v.gebindeG);      // „500 g" / „0,5 kg" → Gramm
       await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
     },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
@@ -9293,9 +9311,29 @@ function verdrahteVerbrauch(m, posten, mengeFn) {
   return m;
 }
 
-/* Wörter, die ein Gebinde erkennbar machen. Nur für den Vorschlag – die
-   Auswahl bleibt frei umstellbar. */
+/* Wörter, die ein Gebinde erkennbar machen, und die des Zubehörs. Nur für den
+   Vorschlag – die Auswahl bleibt frei umstellbar. Deckel und Etiketten werden
+   beim Glas-Vorschlag ausdrücklich ausgeschlossen: „Deckel für 500 g" enthält
+   die Größe, ist aber kein Glas. */
 const GEBINDE_WOERTER = /glas|gläser|glaeser|eimer|hobbock|becher|dose|gebinde|tube|flasche/i;
+const DECKEL_WOERTER = /deckel|twist|to\s*82|schraubverschluss|verschluss/i;
+const ETIKETT_WOERTER = /etikett|label|banderole|gew(ä|ae)hrstreifen|siegel/i;
+const ZUBEHOER_WOERTER = new RegExp(`${DECKEL_WOERTER.source}|${ETIKETT_WOERTER.source}`, 'i');
+
+/** Gebindegröße aus einer Eingabe in Gramm. Versteht „500 g", „0,5 kg",
+    „1kg", „500" und leere Eingaben. Gibt 0 zurück, wenn nichts erkennbar ist –
+    dann hat die Position eben keine Gebindegröße, das ist erlaubt. */
+function gebindeGrammAus(eingabe) {
+  if (typeof eingabe === 'number') return Math.max(0, Math.round(eingabe));
+  const text = String(eingabe || '').trim();
+  if (!text) return 0;
+  const treffer = text.match(/([0-9]+(?:[.,][0-9]+)?)\s*(kg|kilo\w*|g|gr|gramm)?/i);
+  if (!treffer) return 0;
+  const zahl = U.parseNum(treffer[1]);
+  if (!(zahl > 0)) return 0;
+  const einheit = (treffer[2] || '').toLowerCase();
+  return Math.round(/^k/.test(einheit) ? zahl * 1000 : zahl);
+}
 
 /* Der beste Treffer unter mehreren: erst der Name, der nach Gebinde klingt,
    dann der, in dem überhaupt noch etwas liegt. Eine leergelaufene Position
@@ -9311,15 +9349,62 @@ function besterPosten(kandidaten, wortMuster) {
   return beste ? beste.id : '';
 }
 
-/** Passende Gebinde-Position im Verbrauchsmaterial erraten: der Name muss die
-    Größe enthalten. Trifft mehreres, gewinnt der Name, der nach Gebinde klingt. */
+/** Passende Gebinde-Position im Verbrauchsmaterial finden.
+
+    Erste Wahl ist das Feld „Gebindegröße" an der Position – eine gesetzte Größe
+    ist eine Angabe, keine Vermutung. Nur wo sie fehlt (ältere Einträge), wird
+    aus dem Namen gelesen. Deckel und Etiketten scheiden hier immer aus, auch
+    wenn ihr Name die Größe nennt. */
 function glasVorschlag(posten, gebindeG) {
   const g = Math.round(Number(gebindeG) || 0);
   if (!g || !Array.isArray(posten)) return '';
+  const gebinde = posten.filter((i) => !ZUBEHOER_WOERTER.test(String(i.bezeichnung || '')));
+  const gesetzt = gebinde.filter((i) => gebindeGrammAus(i.gebindeG) === g);
+  if (gesetzt.length) return besterPosten(gesetzt, GEBINDE_WOERTER);
   const teile = [`${g}\\s*(?:g|gr|gramm)\\b`];
   if (g >= 1000) teile.unshift(`${String(g / 1000).replace('.', '[.,]')}\\s*(?:kg|kilo\\w*)\\b`);
   const re = new RegExp(`(?:^|[^0-9])(?:${teile.join('|')})`, 'i');
-  return besterPosten(posten.filter((i) => re.test(String(i.bezeichnung || ''))), GEBINDE_WOERTER);
+  const ohneGroesse = gebinde.filter((i) => !gebindeGrammAus(i.gebindeG));
+  return besterPosten(ohneGroesse.filter((i) => re.test(String(i.bezeichnung || ''))), GEBINDE_WOERTER);
+}
+
+/** Beschriftung einer Position in den Auswahllisten: Name, Gebindegröße wenn
+    gesetzt, und der Bestand – damit man ihn sieht, ohne erst zu buchen. */
+function glasOptionText(i) {
+  const g = gebindeGrammAus(i.gebindeG);
+  return `${i.bezeichnung}${g ? ` · ${gebindeLabel(g)}` : ''} · Bestand ${U.fmtNum(verbrauchBestand(i), 0)} ${verbrauchEinheit(i)}`;
+}
+
+/** Kurzweg aus dem Abfüllen heraus: Gläser, Deckel oder Etiketten anlegen,
+    ohne das Formular zu verlassen. `fertig` bekommt die neue Position. */
+function glasPostenAnlegen(gebindeG, fertig) {
+  UI.formModal({
+    title: 'Gläser, Deckel oder Etiketten anlegen',
+    fields: [
+      { key: 'bezeichnung', label: 'Bezeichnung', required: true, placeholder: 'z. B. Gläser 500 g Rundglas' },
+      { key: 'kategorie', label: 'Kategorie', type: 'select', required: true, default: 'Gläser/Deckel',
+        options: ['Gläser/Deckel', 'Etiketten'].map((k) => ({ v: k, l: k })) },
+      { key: 'gebindeG', label: 'Gebindegröße', type: 'suggest', default: gebindeG ? gebindeLabel(gebindeG) : '',
+        options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
+        hint: 'Wofür die Position gilt. Damit zieht die App beim Abfüllen automatisch das Richtige ab. Bei Deckeln und Etiketten, die für mehrere Größen passen, leer lassen.' },
+      { key: 'stueckzahl', label: 'Bestand (Stück)', type: 'number', required: true, default: 0,
+        hint: 'Was heute im Lager liegt. 0 ist in Ordnung – dann wird beim Abfüllen die fehlende Menge gemeldet.' },
+      { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
+    ],
+    values: {},
+    async onSave(v) {
+      const name = (v.bezeichnung || '').trim();
+      if (!name) throw new Error('Bitte eine Bezeichnung eingeben.');
+      const rec = await DB.put('inventar', {
+        typ: 'verbrauch', bezeichnung: name, kategorie: v.kategorie || 'Gläser/Deckel', einheit: 'Stück',
+        stueckzahl: Math.max(0, Math.round(Number(v.stueckzahl) || 0)),
+        gebindeG: gebindeGrammAus(v.gebindeG),
+        mindestbestand: Math.max(0, Math.round(Number(v.mindestbestand) || 0)),
+      });
+      UI.toast(`„${rec.bezeichnung}" angelegt`);
+      fertig(rec);
+    },
+  });
 }
 
 /** Beste Position, deren Name auf das Muster passt (Deckel, Etiketten …). */
@@ -9327,20 +9412,85 @@ function zubehoerVorschlag(posten, muster) {
   return besterPosten((Array.isArray(posten) ? posten : []).filter((i) => muster.test(String(i.bezeichnung || ''))), null);
 }
 
-/** Live-Übersicht beim Abfüllen: was geht wovon ab, was bleibt übrig. Zieht
-    mehrere Abzüge auf dieselbe Position zusammen – so wie später gebucht wird. */
+/** Alle Auswahlfelder des Abzugs – eine Stelle, damit Aufbau, Nachziehen und
+    Buchen nicht auseinanderlaufen. */
+function glasFeldKeys() {
+  return [...GEBINDE_PRESETS.map((g) => `gl_${g}`), 'gl_eigen', 'gl_deckel', 'gl_etikett'];
+}
+
+/** Live-Übersicht beim Abfüllen: was liegt im Lager, was geht wovon ab, was
+    bleibt übrig. Zieht mehrere Abzüge auf dieselbe Position zusammen – so wie
+    später gebucht wird. `posten` wird mitgeführt: legt man mittendrin eine
+    Position an, wachsen die Auswahllisten mit, ohne das Formular zu verlassen. */
 function verdrahteGlasAbzug(m, posten) {
   const info = $('[data-glas-info]', m.el);
-  if (!info) return m;
+  const lager = $('[data-glas-bestand]', m.el);
+  if (!info && !lager) return m;
   const zahl = (key) => Math.max(0, Math.round(U.parseNum((($(`#f-${key}`, m.el) || {}).value) || '') || 0));
   const wahl = (key) => posten.find((i) => i.id === ((($(`#f-${key}`, m.el) || {}).value) || ''));
+
+  const optionenNachziehen = () => {
+    for (const key of glasFeldKeys()) {
+      const sel = $(`#f-${key}`, m.el);
+      if (!sel) continue;
+      const vorher = sel.value;
+      sel.innerHTML = '<option value="">–</option>'
+        + posten.map((i) => `<option value="${U.esc(i.id)}">${U.esc(glasOptionText(i))}</option>`).join('');
+      sel.value = vorher;
+    }
+  };
+  /* Vorschläge nur in leere Felder schreiben – eine eigene Wahl wird nie
+     überschrieben. */
+  const vorschlaegeSetzen = () => {
+    for (const g of GEBINDE_PRESETS) {
+      const sel = $(`#f-gl_${g}`, m.el);
+      if (sel && !sel.value) sel.value = glasVorschlag(posten, g);
+    }
+    const eigen = $('#f-gl_eigen', m.el);
+    if (eigen && !eigen.value) eigen.value = glasVorschlag(posten, gebindeGrammAus(zahl('eigenesG')));
+    const deckel = $('#f-gl_deckel', m.el);
+    if (deckel && !deckel.value) deckel.value = zubehoerVorschlag(posten, DECKEL_WOERTER);
+    const etikett = $('#f-gl_etikett', m.el);
+    if (etikett && !etikett.value) etikett.value = zubehoerVorschlag(posten, ETIKETT_WOERTER);
+  };
+
+  const zeigeLager = () => {
+    if (!lager) return;
+    const knopfHtml = `<button type="button" class="btn btn-xs btn-ghost" data-glas-neu style="margin-top:6px">${icon('plus')} ${posten.length ? 'Weitere Position anlegen' : 'Gläser jetzt anlegen'}</button>`;
+    if (!posten.length) {
+      lager.innerHTML = 'Im Lager ist noch <b>kein Verbrauchsmaterial mit der Einheit „Stück"</b> angelegt – deshalb kann die App nichts abziehen. '
+        + 'Leg Gläser, Deckel oder Etiketten an, dann erscheint hier je Größe eine Auswahl.<br>' + knopfHtml;
+    } else {
+      lager.innerHTML = 'Im Lager: '
+        + posten.map((i) => {
+          const g = gebindeGrammAus(i.gebindeG);
+          const bestand = verbrauchBestand(i);
+          return `${U.esc(i.bezeichnung)}${g ? ` <span class="muted">(${gebindeLabel(g)})</span>` : ''} `
+            + `<b${bestand > 0 ? '' : ' class="zahl-warn"'}>${U.fmtNum(bestand, 0)}</b>`;
+        }).join(' · ')
+        + '<br>' + knopfHtml;
+    }
+    const knopf = $('[data-glas-neu]', lager);
+    if (knopf) {
+      knopf.onclick = () => {
+        const offen = GEBINDE_PRESETS.find((g) => zahl(`g_${g}`) > 0) || 0;
+        glasPostenAnlegen(offen, (neu) => {
+          posten.push(neu);
+          posten.sort((a, b) => String(a.bezeichnung || '').toLowerCase().localeCompare(String(b.bezeichnung || '').toLowerCase()));
+          optionenNachziehen(); vorschlaegeSetzen(); zeigeLager(); zeige();
+        });
+      };
+    }
+  };
+
   const zeige = () => {
+    if (!info) return;
     const geplant = [];
     let gesamt = 0;
     for (const g of GEBINDE_PRESETS) {
-      const n = zahl('g_' + g);
+      const n = zahl(`g_${g}`);
       gesamt += n;
-      if (n > 0) geplant.push([wahl('gl_' + g), n, gebindeLabel(g)]);
+      if (n > 0) geplant.push([wahl(`gl_${g}`), n, gebindeLabel(g)]);
     }
     const eigen = zahl('eigenesN');
     gesamt += eigen;
@@ -9351,19 +9501,23 @@ function verdrahteGlasAbzug(m, posten) {
     }
     const schon = new Map();
     const zeilen = [];
+    let ohneWahl = 0;
     for (const [pos, n, was] of geplant) {
-      if (!pos) continue;
+      if (!pos) { ohneWahl++; continue; }
       const e = verbrauchEinheit(pos);
       const vorher = Math.max(0, verbrauchBestand(pos) - (schon.get(pos.id) || 0));
       schon.set(pos.id, (schon.get(pos.id) || 0) + n);
       zeilen.push(`${U.esc(pos.bezeichnung)} <span class="muted">(${U.esc(was)})</span>: <b>−${U.fmtNum(n, 0)} ${e}</b> → Rest <b>${U.fmtNum(Math.max(0, vorher - n), 0)} ${e}</b>`
-        + (n > vorher ? ` <span class="zahl-warn">– ${U.fmtNum(n - vorher, 0)} ${e} fehlen</span>` : ''));
+        + (n > vorher ? ` <span class="zahl-warn">– ${U.fmtNum(n - vorher, 0)} ${e} fehlen, der Bestand geht auf 0</span>` : ''));
     }
     info.innerHTML = zeilen.length ? zeilen.join('<br>')
-      : (gesamt > 0 ? 'Kein Abzug gewählt – der Bestand bleibt unverändert.' : '');
+      : (gesamt > 0 ? `Kein Abzug gewählt${ohneWahl ? '' : ''} – der Bestand bleibt unverändert.` : '');
   };
+
+  vorschlaegeSetzen();
   m.el.addEventListener('input', zeige);
-  m.el.addEventListener('change', zeige);
+  m.el.addEventListener('change', () => { zeige(); vorschlaegeSetzen(); });
+  zeigeLager();
   zeige();
   return m;
 }
@@ -12379,7 +12533,8 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
-  glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, GEBINDE_PRESETS, gebindeLabel,
+  glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
+  GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,

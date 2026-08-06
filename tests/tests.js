@@ -4180,3 +4180,54 @@ test('GeoBox: Quellenkette hat die richtige Reihenfolge und meldet ihre Quelle',
     w.LB_QUELLEN.forEach((q, i) => { q.fn = echt[i]; });
   }
 });
+
+test('Gebindegröße: Eingaben werden zu Gramm', (w) => {
+  assertEq(w.gebindeGrammAus('500 g'), 500, '500 g');
+  assertEq(w.gebindeGrammAus('500g'), 500, 'ohne Leerzeichen');
+  assertEq(w.gebindeGrammAus('500'), 500, 'nur die Zahl gilt als Gramm');
+  assertEq(w.gebindeGrammAus('1 kg'), 1000, '1 kg');
+  assertEq(w.gebindeGrammAus('0,5 kg'), 500, 'deutsches Komma');
+  assertEq(w.gebindeGrammAus('2,5 kg'), 2500, '2,5 kg');
+  assertEq(w.gebindeGrammAus('20 kg'), 20000, 'Hobbock');
+  assertEq(w.gebindeGrammAus('30 Gramm'), 30, 'ausgeschrieben');
+  assertEq(w.gebindeGrammAus(500), 500, 'Zahl direkt');
+  assertEq(w.gebindeGrammAus(''), 0, 'leer ist erlaubt');
+  assertEq(w.gebindeGrammAus(null), 0, 'nichts ist erlaubt');
+  assertEq(w.gebindeGrammAus('ohne Größe'), 0, 'kein Zahlwert → keine Größe');
+  // Rückweg: die Beschriftung muss wieder dasselbe ergeben
+  for (const g of w.GEBINDE_PRESETS) assertEq(w.gebindeGrammAus(w.gebindeLabel(g)), g, `hin und zurück bei ${g} g`);
+});
+
+test('Abfüllen: das Feld Gebindegröße schlägt den Namen, Zubehör wird ausgeschlossen', (w) => {
+  // gesetzte Größe gewinnt, auch wenn der Name eine andere Zahl nennt
+  const posten = [
+    { id: 'falschName', bezeichnung: 'Gläser Sorte B', gebindeG: 500, einheit: 'Stück', stueckzahl: 100 },
+    { id: 'nurName', bezeichnung: 'Gläser 500 g', einheit: 'Stück', stueckzahl: 100 },
+  ];
+  assertEq(w.glasVorschlag(posten, 500), 'falschName', 'gesetzte Gebindegröße hat Vorrang vor dem Namen');
+  assertEq(w.glasVorschlag([posten[1]], 500), 'nurName', 'ohne gesetzte Größe zählt weiter der Name');
+  // Größe im Namen darf nicht ziehen, wenn eine ANDERE Größe gesetzt ist
+  assertEq(w.glasVorschlag([{ id: 'x', bezeichnung: 'Gläser 500 g', gebindeG: 250, einheit: 'Stück', stueckzahl: 9 }], 500), '',
+    'gesetzte 250 g schließt die 500-g-Auswahl aus – keine falsche Vermutung');
+  // Deckel und Etiketten sind keine Gläser, auch mit passender Größe
+  const zubehoer = [
+    { id: 'deckel', bezeichnung: 'Deckel für 500 g', gebindeG: 500, einheit: 'Stück', stueckzahl: 900 },
+    { id: 'etikett', bezeichnung: 'Etiketten 500 g', gebindeG: 500, einheit: 'Stück', stueckzahl: 900 },
+  ];
+  assertEq(w.glasVorschlag(zubehoer, 500), '', 'kein Glas vorhanden → kein Vorschlag statt Deckel');
+  assertEq(w.glasVorschlag([...zubehoer, { id: 'glas', bezeichnung: 'Rundglas', gebindeG: 500, einheit: 'Stück', stueckzahl: 0 }], 500),
+    'glas', 'das Glas gewinnt, auch mit Bestand 0');
+  assertEq(w.zubehoerVorschlag(zubehoer, w.DECKEL_WOERTER), 'deckel', 'Deckel über das Muster');
+  assertEq(w.zubehoerVorschlag(zubehoer, w.ETIKETT_WOERTER), 'etikett', 'Etiketten über das Muster');
+  // Beschriftung zeigt Größe UND Bestand – darum ging es Julian
+  const text = w.glasOptionText({ bezeichnung: 'Gläser Sorte B', gebindeG: 500, einheit: 'Stück', stueckzahl: 240 });
+  assert(/Gläser Sorte B/.test(text) && /500 g/.test(text) && /240/.test(text), `Größe und Bestand stehen drin: ${text}`);
+  assert(!/undefined|NaN/.test(text), 'keine technischen Reste in der Beschriftung');
+  const ohne = w.glasOptionText({ bezeichnung: 'Deckel TO82', einheit: 'Stück', stueckzahl: 400 });
+  assert(!/·\s*·/.test(ohne) && /400/.test(ohne), `ohne Größe sauber: ${ohne}`);
+  // alle Auswahlfelder sind bekannt
+  const keys = w.glasFeldKeys();
+  assert(keys.includes('gl_500') && keys.includes('gl_deckel') && keys.includes('gl_etikett') && keys.includes('gl_eigen'),
+    'Feldliste vollständig');
+  assertEq(keys.length, w.GEBINDE_PRESETS.length + 3, 'je Größe ein Feld plus eigenes, Deckel, Etiketten');
+});

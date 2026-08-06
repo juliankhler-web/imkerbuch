@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.30 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 278/278 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.31 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 280/280 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-06 (v1.31)**: **Gebindegröße als eigenes Feld + Bestand sichtbar beim Abfüllen** (Julian: „wie kann ich bei gläser abfüllung sehen was ich im bestand habe oder wie er abzieht wenn ich im bestand nichts habe" · „weil wenn ich glas bei verbrauchsmaterial anlege kann ich auch nicht die gebinde größe auswählen").
+  **Zwei echte Lücken behoben:** (1) Ohne Verbrauchsmaterial der Einheit „Stück" verschwand der Abzugs-Abschnitt **lautlos** – man konnte nicht sehen, dass es die Funktion gibt. Jetzt erscheint er immer, erklärt sich und hat den Knopf „Gläser jetzt anlegen" (`glasPostenAnlegen`, verschachteltes Formular wie `listenwertNeuShortcut`): die neue Position landet sofort in allen Auswahllisten (`optionenNachziehen` + `vorschlaegeSetzen`), das Abfüllen bleibt offen und die eingetippten Anzahlen stehen weiter. (2) Die Glasgröße wurde **aus dem Namen geraten** – jetzt gibt es das Feld **`gebindeG`** im Verbrauchsmaterial (`suggest` mit den Gebinde-Beschriftungen, `gebindeGrammAus` versteht „500 g", „0,5 kg", „1kg", „500", „30 Gramm"). Gesetzte Größe hat Vorrang, der Namensweg bleibt nur für alte Einträge. Größe steht in der Auswahl (`glasOptionText`) und in der Inventarzeile.
+  **Deckel und Etiketten scheiden beim Glas-Vorschlag aus** (`ZUBEHOER_WOERTER`) – „Deckel für 500 g" nennt die Größe, ist aber kein Glas; lieber kein Vorschlag als ein falscher.
+  **Bestand sichtbar ohne Aufklappen**: Zeile „Im Lager: … 60 · Deckel TO82 400" über den Auswahlfeldern, leere Positionen rot. Reicht der Bestand nicht, steht es vor dem Speichern da („20 Stück fehlen, der Bestand geht auf 0"). Im Formular live geprüft: leeres Lager → Hinweis + Anlegen → Position sofort vorgeschlagen, die 80 blieben stehen. 280/280 grün. SW → v141.
 
 - **2026-08-06 (v1.30)**: **GeoBox-Viewer als erste Quelle + Rückfallkette** (Julian: „geobox-i kannst du das mit einfügen?" · „die aufschlüsselung ist da besser als bei dem amtlichen · obstbäume nadelbäume etc" · „eine rückfall ebene wäre nicht schlecht falls die seite mal offline geht").
   ⚠️ **Eigener Fehler korrigiert**: Die Meldung „Portal nicht erreichbar" bei geobox-i.de ist eine **Vorlage im Quelltext** (`document.write` im injizierten Portal-Check) und **kein Zustand** – mein früheres `grep` auf den HTML-Text war ein Fehlschluss, und der Hinweis „Portal war beim Prüfen nicht erreichbar" stand deshalb zu Unrecht in der App. Der Check prüft `https://geoservice.rlp.de/portal/sharing/rest`; das Portal läuft (ArcGIS Enterprise 2025.1).
