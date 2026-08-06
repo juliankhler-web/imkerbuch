@@ -99,3 +99,10 @@ Nach größeren Umbauten einmal am echten Gerät durchgehen:
 ## Bekannte Test-Lücken (bewusst)
 - UI-Klickpfade (Modals, Formulare) sind nicht automatisiert – abgedeckt durch die manuelle Checkliste; die Fachlogik dahinter ist über die Unit-/Integrationstests abgesichert.
 - PDF-/Excel-Inhalte werden nicht byteweise geprüft (nur fehlerfreie Erzeugung, manuell gesichtet).
+
+## ⚠️ Gotcha beim Prüfen im Browser
+
+Die App hält eine `beforeunload`-Abfrage („Sicherung senden?"), sobald ein Formular berührt wurde
+(`FormGuard.dirty`). **Danach schlägt ein Wechsel auf `tests/test.html` fehl** – die Adresse ändert
+sich nicht, und man liest weiter die alte Seite aus. Vor dem Wechsel `FormGuard.dirty = false` setzen
+(oder `window.onbeforeunload = null`), dann `location.href` setzen. Zweimal reingelaufen.

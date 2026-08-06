@@ -927,8 +927,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.31';
+const APP_VERSION = '1.32';
 const CHANGELOG = [
+  { version: '1.32', datum: '2026-08-06', punkte: [
+    'Bio → Standorte rechnet jetzt um die <b>Koordinaten des Bienenstands</b> – die sind da, wo keine Adresse ist. Sie stehen oben im Formular, aus dem Stand übernommen, und lassen sich überschreiben.',
+    'Neu daneben: <b>„Aktuellen Standort übernehmen"</b> – am Stand selbst der kürzeste Weg zu genauen Koordinaten.',
+    'Die Adresse ist nur noch der Umweg: „Adresse suchen" füllt die Koordinatenfelder, damit du siehst, wo die App gelandet ist, bevor gerechnet wird. Sind keine Koordinaten da, sucht „Amtlich berechnen" die Adresse selbst.',
+    'Hat der Stand noch keine Koordinaten, bekommt er sie beim Speichern mit – dann stimmen auch Wetter und Kartenlink. Vorhandene Koordinaten werden nicht angetastet.',
+  ] },
   { version: '1.31', datum: '2026-08-06', punkte: [
     'Verbrauchsmaterial hat jetzt ein Feld <b>Gebindegröße</b>. Damit sagst du beim Anlegen, für welche Größe eine Position gilt („500 g", „1 kg", eigene Größen wie „30 g" gehen auch) – vorher hat die App das aus dem Namen geraten. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.',
     'Beim Abfüllen steht jetzt <b>oben, was im Lager liegt</b> – jede Position mit Bestand, leere rot. Vorher sah man den Bestand erst, wenn man eine Auswahlliste aufklappte.',
@@ -6731,7 +6737,7 @@ Views.bio = {
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('hive')}<h2>Landbedeckung der Standorte</h2>
         </div>
-      <p class="small muted mb12">Öffne einen Stand und lass die Anteile <b>aus der Adresse berechnen</b> – die App holt Koordinaten und Landbedeckung selbst, über denselben <b>amtlichen Dienst wie der GeoBox-Viewer Bienen</b>, mit zwei automatischen Rückfall-Ebenen, wenn der einmal offline ist. Von Hand eintragen geht weiter. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
+      <p class="small muted mb12">Öffne einen Stand und lass die Anteile berechnen – gerechnet wird um die <b>Koordinaten des Standes</b> (eine Adresse hat ein Stand auf der Wiese oft nicht; fehlen die Koordinaten, holst du sie dort per Knopf vom Handy). Die Zahlen kommen über denselben <b>amtlichen Dienst wie der GeoBox-Viewer Bienen</b>, mit zwei automatischen Rückfall-Ebenen. Von Hand eintragen geht weiter. Welchen Umkreis die Kontrollstelle sehen will, gibt sie vor (vorbelegt ${U.fmtNum(BIO_UMKREIS_VORGABE / 1000, 1)} km).</p>
       ${staende.length ? `<div class="rows">${staende.map((st) => {
         const anteile = bioAnteile(st);
         const su = bioSummen(anteile);
@@ -6742,6 +6748,7 @@ Views.bio = {
           <span class="r-main"><span class="r-title">${U.esc(st.name)} <span class="badge b-muted">${zahl} ${zahl === 1 ? 'Volk' : 'Völker'}</span></span>
           <span class="r-sub">${anteile.length
             ? `Umkreis ${U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1)} km · Tracht ${U.fmtNum(su.tracht, 1)} % · bebaut ${U.fmtNum(su.bebaut, 1)} %${b.erhebung ? ` · erhoben ${U.fmtDate(b.erhebung)}` : ''}`
+            : !(st.lat && st.lng) ? 'noch keine Landbedeckung – und der Stand hat keine Koordinaten (im Stand per Knopf vom Handy holen)'
             : 'noch keine Landbedeckung erfasst'}</span></span>
           <span class="r-side">${anteile.length ? `<b>${U.fmtNum(su.bebaut, 1)} %</b><br><span class="small muted">bebaut</span>` : ''}</span>${icon('chevR', 'chev')}</button>`;
       }).join('')}</div>`
@@ -6771,13 +6778,26 @@ Views.bio = {
         </div>
         <div class="card mb12" style="box-shadow:none;border:1px solid var(--line)">
           <div class="small muted mb8" style="font-weight:600">Automatisch berechnen</div>
-          <input class="inp mb8" id="bio-adresse" placeholder="Adresse oder Ort des Standes" value="${U.esc(b.adresse || stand.name || '')}">
+          <div class="grid2">
+            <div class="field"><label>Breitengrad</label><input class="inp" id="bio-lat" inputmode="decimal" placeholder="z. B. 50,32830" value="${b.lat || stand.lat ? U.esc(String(b.lat || stand.lat).replace('.', ',')) : ''}"></div>
+            <div class="field"><label>Längengrad</label><input class="inp" id="bio-lon" inputmode="decimal" placeholder="z. B. 7,22160" value="${b.lon || stand.lng ? U.esc(String(b.lon || stand.lng).replace('.', ',')) : ''}"></div>
+          </div>
+          <div class="flex-wrap mb8" style="gap:6px;align-items:center">
+            <button type="button" class="btn btn-ghost btn-sm" id="bio-geo">${icon('pin')} Aktuellen Standort übernehmen</button>
+            <span class="small muted" id="bio-geo-status"></span>
+          </div>
+          <div class="flex-wrap mb8" style="gap:6px;align-items:center">
+            <input class="inp" id="bio-adresse" style="flex:1 1 180px;min-width:0" placeholder="oder Adresse / Ort suchen" value="${U.esc(b.adresse || '')}">
+            <button type="button" class="btn btn-ghost btn-sm" id="bio-suchen">${icon('search')} Adresse suchen</button>
+          </div>
           <div class="flex-wrap" style="gap:6px;align-items:center">
             <button type="button" class="btn btn-primary btn-sm" id="bio-amtlich">${icon('doc')} Amtlich berechnen</button>
             <button type="button" class="btn btn-ghost btn-sm" id="bio-osm">${icon('search')} OpenStreetMap</button>
-            ${stand.lat && stand.lng ? `<button type="button" class="btn btn-ghost btn-sm" id="bio-koord">${icon('pin')} Amtlich, Koordinaten des Standes</button>` : ''}
           </div>
-          <div class="small muted mt8" id="bio-status">Adresse eintippen und „Amtlich berechnen" drücken – die App holt die Koordinaten und die amtliche Landbedeckung im Umkreis selbst.</div>
+          <div class="small muted mt8" id="bio-status">${stand.lat && stand.lng
+            ? `Koordinaten vom Bienenstand „${U.esc(stand.name)}" übernommen – „Amtlich berechnen" drücken.`
+            : 'Der Stand hat noch keine Koordinaten. Nimm sie vor Ort per Knopf vom Handy, tippe sie ein oder such über eine Adresse – beim Speichern werden sie dem Stand mitgegeben.'}</div>
+          <div class="hint mt8">Gerechnet wird um die <b>Koordinaten</b>, nicht um die Adresse – bei einem Stand auf der Wiese gibt es oft keine. Sie kommen aus dem Bienenstand und lassen sich hier überschreiben; die Adresssuche füllt nur die Felder, damit du das Ergebnis vorher siehst.</div>
           <div class="hint mt8"><b>Amtlich</b> rechnet über den Dienst, der auch hinter dem <b>GeoBox-Viewer Bienen</b> steckt: dieselbe Auswertung, die deine Kontrollstelle kennt, mit feiner Aufschlüsselung (Laub-, Nadel-, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen …), in wenigen Sekunden. Prozente rechnet die App aus den mitgelieferten Quadratmetern – auf 0,1 % statt auf ganze Prozent gerundet.<br>
             <b>Rückfall, automatisch:</b> ist der Dienst offline, nimmt die App CORINE Land Cover 5 ha des Bundesamtes für Kartographie und Geodäsie (bundesweit, lückenlos, Stand 2018, kleinste Fläche 5 ha, ~1 MB und ~30 s). Erst wenn auch das schweigt, OpenStreetMap – feiner und aktueller, aber nicht amtlich und lückenhaft; der nicht erfasste Rest wird dann eigens ausgewiesen. Welche Quelle geantwortet hat, steht danach im Feld „Quelle der Zahlen" und damit auch in den Unterlagen.</div>
           <div class="flex-wrap mt8">${GEOBOX_LINKS.map((l) => `<a class="btn btn-ghost btn-sm" href="${l.url}" target="_blank" rel="noopener">${icon('share')} ${U.esc(l.label)}</a>`).join('')}</div>
@@ -6829,15 +6849,52 @@ Views.bio = {
     let koord = (b.lat && b.lon) ? { lat: b.lat, lon: b.lon, name: b.adresse } : null;
     const status = $('#bio-status', m.el);
     const melde = (t) => { status.innerHTML = U.esc(t); };
-    const rechnen = async (art, viaKoordinaten) => {
-      const knoepfe = $$('#bio-amtlich, #bio-osm, #bio-koord', m.el);
+    /* Position aus den Koordinatenfeldern. Sie sind die Wahrheit: ein Stand auf
+       der Wiese hat keine Adresse, aber immer eine Lage. */
+    const koordinatenAusFeldern = () => {
+      const lat = U.parseNum($('#bio-lat', m.el).value);
+      const lon = U.parseNum($('#bio-lon', m.el).value);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || (!lat && !lon)) return null;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) throw new Error('Die Koordinaten liegen außerhalb des möglichen Bereichs – Breitengrad bis 90, Längengrad bis 180.');
+      return { lat, lon, name: `Koordinaten ${U.fmtNum(lat, 5)} / ${U.fmtNum(lon, 5)}` };
+    };
+    const koordinatenSetzen = (lat, lon) => {
+      $('#bio-lat', m.el).value = String(lat.toFixed(5)).replace('.', ',');
+      $('#bio-lon', m.el).value = String(lon.toFixed(5)).replace('.', ',');
+    };
+    /* Adresssuche füllt nur die Felder – gerechnet wird erst auf Knopfdruck.
+       So sieht man vorher, wo die App gelandet ist. */
+    const adresseSuchen = async () => {
+      const knopf = $('#bio-suchen', m.el);
+      knopf.disabled = true;
+      try {
+        melde('Adresse suchen …');
+        const treffer = await osmAdresseSuchen($('#bio-adresse', m.el).value);
+        koordinatenSetzen(treffer.lat, treffer.lon);
+        koord = treffer;
+        melde(`Gefunden: ${treffer.name}. Koordinaten übernommen – jetzt „Amtlich berechnen" drücken.`);
+      } catch (e) {
+        melde('Adresssuche fehlgeschlagen: ' + (e.message || 'unbekannter Fehler'));
+      } finally { knopf.disabled = false; }
+    };
+    const rechnen = async (art) => {
+      const knoepfe = $$('#bio-amtlich, #bio-osm, #bio-suchen, #bio-geo', m.el);
       knoepfe.forEach((k) => { k.disabled = true; });
       try {
         const radius = Math.max(100, Math.round(U.parseNum($('#bio-umkreis', m.el).value) || BIO_UMKREIS_VORGABE));
         const km = U.fmtNum(radius / 1000, 1);
-        if (viaKoordinaten) koord = { lat: stand.lat, lon: stand.lng, name: `Koordinaten ${U.fmtNum(stand.lat, 4)} / ${U.fmtNum(stand.lng, 4)}` };
-        else { melde('Adresse suchen …'); koord = await osmAdresseSuchen($('#bio-adresse', m.el).value); }
-        melde(`Gefunden: ${koord.name} – Flächen abfragen …`);
+        const ausFeldern = koordinatenAusFeldern();
+        if (ausFeldern) koord = ausFeldern;
+        else {
+          /* Keine Koordinaten da: dann muss die Adresse aushelfen – und das
+             Ergebnis wandert in die Felder, damit es nachprüfbar bleibt. */
+          const text = ($('#bio-adresse', m.el).value || '').trim();
+          if (!text) throw new Error('Trage Koordinaten ein (Knopf „Aktuellen Standort übernehmen") oder eine Adresse zum Suchen.');
+          melde('Keine Koordinaten eingetragen – Adresse suchen …');
+          koord = await osmAdresseSuchen(text);
+          koordinatenSetzen(koord.lat, koord.lon);
+        }
+        melde(`Position: ${koord.name} – Flächen abfragen …`);
         const erg = await landbedeckungErmitteln(koord.lat, koord.lon, radius, melde, art === 'osm' ? 'osm' : null);
         zeilen = erg.zeilen;
         zeichneZeilen(); rechne();
@@ -6851,28 +6908,55 @@ Views.bio = {
         melde('Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
       } finally { knoepfe.forEach((k) => { k.disabled = false; }); }
     };
-    $('#bio-amtlich', m.el).onclick = () => rechnen('amtlich', false);
-    $('#bio-osm', m.el).onclick = () => rechnen('osm', false);
-    const kbtn = $('#bio-koord', m.el);
-    if (kbtn) kbtn.onclick = () => rechnen('amtlich', true);
+    $('#bio-amtlich', m.el).onclick = () => rechnen('amtlich');
+    $('#bio-osm', m.el).onclick = () => rechnen('osm');
+    $('#bio-suchen', m.el).onclick = () => adresseSuchen();
+    /* Standort vom Gerät – der übliche Fall am Stand selbst. */
+    $('#bio-geo', m.el).onclick = () => {
+      const gstatus = $('#bio-geo-status', m.el);
+      if (!navigator.geolocation) { gstatus.textContent = 'Das Gerät gibt keinen Standort her.'; return; }
+      gstatus.textContent = 'Ermittle Position …';
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          koordinatenSetzen(pos.coords.latitude, pos.coords.longitude);
+          koord = null;                       // wird beim Rechnen aus den Feldern gelesen
+          gstatus.textContent = 'Standort übernommen ✓';
+          melde('Koordinaten vom Gerät übernommen – „Amtlich berechnen" drücken.');
+        },
+        (err) => { gstatus.textContent = 'Fehlgeschlagen: ' + err.message; },
+        { enableHighAccuracy: true, timeout: 12000 }
+      );
+    };
     $('#bio-plus', m.el).onclick = () => { zeilen.push({ name: '', prozent: 0, art: 'tracht' }); zeichneZeilen(); };
     zeichneZeilen(); rechne();
     $('[data-zu]', m.el).onclick = () => m.close();
     $('[data-speichern]', m.el).onclick = async () => {
+      let position = null;
+      try { position = koordinatenAusFeldern(); } catch (e) { return UI.toast(e.message, 'err'); }
+      if (!position && koord) position = koord;
       stand.bio = {
         umkreisM: Math.max(0, Math.round(U.parseNum($('#bio-umkreis', m.el).value) || BIO_UMKREIS_VORGABE)),
         erhebung: $('#bio-datum', m.el).value || null,
         quelle: $('#bio-quelle', m.el).value.trim(),
         anteile: zeilen.filter((z) => (z.name || '').trim()).map((z) => ({ name: z.name.trim(), prozent: z.prozent, art: z.art })),
         adresse: $('#bio-adresse', m.el).value.trim(),
-        lat: koord ? koord.lat : (b.lat || null),
-        lon: koord ? koord.lon : (b.lon || null),
+        lat: position ? position.lat : (b.lat || null),
+        lon: position ? position.lon : (b.lon || null),
         quellen,
         notiz: $('#bio-notiz', m.el).value.trim(),
       };
+      /* Hat der Stand selbst noch keine Lage, bekommt er sie hier mit – dann
+         stimmen auch Wetter und Kartenlink. Vorhandene Koordinaten des Standes
+         werden NICHT überschrieben: die gehören ins Stand-Formular. */
+      let uebernommen = false;
+      if (position && !(stand.lat && stand.lng)) {
+        stand.lat = position.lat;
+        stand.lng = position.lon;
+        uebernommen = true;
+      }
       await DB.put('staende', stand);
       m.close(true);
-      UI.toast('Landbedeckung gespeichert');
+      UI.toast('Landbedeckung gespeichert' + (uebernommen ? ' · Koordinaten auch beim Stand hinterlegt' : ''));
       renderRoute();
     };
   },

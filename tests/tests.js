@@ -4231,3 +4231,37 @@ test('Abfüllen: das Feld Gebindegröße schlägt den Namen, Zubehör wird ausge
     'Feldliste vollständig');
   assertEq(keys.length, w.GEBINDE_PRESETS.length + 3, 'je Größe ein Feld plus eigenes, Deckel, Etiketten');
 });
+
+test('Bio-Standort: Koordinaten sind der erste Weg, Adresse nur der Umweg', async (w) => {
+  const stand = await w.DB.put('staende', { name: 'Koord-Test Wiese', lat: 50.3283, lng: 7.2216, notizen: '' });
+  await w.Views.bio.standortForm(stand);
+  await new Promise((f) => setTimeout(f, 250));
+  const feld = (id) => w.document.querySelector('#' + id);
+  try {
+    assert(feld('bio-lat') && feld('bio-lon'), 'Koordinatenfelder sind da');
+    assertEq(feld('bio-lat').value, '50,3283', 'Breitengrad aus dem Stand übernommen');
+    assertEq(feld('bio-lon').value, '7,2216', 'Längengrad aus dem Stand übernommen');
+    assertEq(feld('bio-adresse').value, '', 'das Adressfeld bleibt leer – kein Standname als Pseudo-Adresse');
+    assert(feld('bio-geo'), 'Knopf für den Gerätestandort ist da');
+    assert(feld('bio-suchen'), 'Adresssuche ist da, aber nur als Umweg');
+    assert(!w.document.querySelector('#bio-koord'), 'der alte Extra-Knopf ist weg');
+    assert(/Koordinaten vom Bienenstand/.test(feld('bio-status').innerText), 'der Status sagt, woher die Lage kommt');
+  } finally {
+    const zu = w.document.querySelector('[data-zu]');
+    if (zu) zu.click();
+  }
+});
+
+test('Bio-Standort: ohne Koordinaten am Stand wird darauf hingewiesen', async (w) => {
+  const stand = await w.DB.put('staende', { name: 'Koord-Test leer', lat: null, lng: null, notizen: '' });
+  await w.Views.bio.standortForm(stand);
+  await new Promise((f) => setTimeout(f, 250));
+  try {
+    assertEq(w.document.querySelector('#bio-lat').value, '', 'Feld leer, nicht 0 oder null');
+    assertEq(w.document.querySelector('#bio-lon').value, '', 'Feld leer');
+    assert(/keine Koordinaten/i.test(w.document.querySelector('#bio-status').innerText), 'Hinweis statt stiller Leere');
+  } finally {
+    const zu = w.document.querySelector('[data-zu]');
+    if (zu) zu.click();
+  }
+});
