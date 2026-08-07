@@ -215,6 +215,15 @@ html[data-theme="dark"] .card{box-shadow:var(--shadow)}
    nicht auf wenige Pixel gestaucht wird und über die Buttons läuft. Passt er samt Actions
    nicht in eine Zeile, wandert der Actions-Block dank flex-wrap automatisch in die nächste. */
 .page-head .ph-text{flex:1 1 auto;min-width:min(100%,14rem)}
+/* Begrüßung und Tagesbiene teilen sich EINE Zeile – auch auf dem Handy, wo der
+   Widgets-Knopf darunter umbricht. Darum ein eigener Behälter: sonst rutscht
+   das Bild neben den Knopf statt neben den Text. */
+.page-head .ph-haupt{display:flex;align-items:center;gap:14px;flex:1 1 auto;min-width:min(100%,14rem)}
+.page-head .ph-haupt .ph-text{min-width:0;flex:0 1 auto}
+.tages-biene{width:96px;height:96px;flex:0 0 auto;object-fit:contain;margin-right:auto;
+  filter:drop-shadow(0 2px 5px rgba(0,0,0,.14));user-select:none;-webkit-user-drag:none}
+@media(max-width:700px){.tages-biene{width:78px;height:78px}}
+@media print{.tages-biene{display:none}}
 /* KEIN flex-shrink:0 hier: der Block muss schmaler werden dürfen, sonst greift der
    flex-wrap darin nie und die Knöpfe stehen rechts außerhalb des Bildes (das war der
    Fehler bei Königinnen und Verbrauchsmaterial). Damit die Knöpfe beim Schrumpfen
@@ -934,8 +943,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.34';
+const APP_VERSION = '1.35';
 const CHANGELOG = [
+  { version: '1.35', datum: '2026-08-07', punkte: [
+    'Neu im Dashboard: die <b>Tagesbiene</b> neben der Begrüßung – für jede Stunde ein eigenes Bild, von „Mitternacht" bis „Schlafenszeit". Bleibt die App offen, wechselt es beim Stundenwechsel von selbst.',
+    'Der Widgets-Knopf hat sein Symbol verloren und das Bienen-Emoji ist aus dem Titel raus – die echte Biene daneben genügt.',
+    'Verbrauchsmaterial kennt jetzt <b>zwei Einheiten</b> – die, in der du zählst, und die, in der verbraucht wird. Beispiel Zucker: Bestand <b>7 Sack</b>, Inhalt je Sack <b>25 kg</b>, Preis je Sack <b>41 €</b> → die App rechnet <b>175 kg im Lager</b> und <b>1,64 € je kg</b>.',
+    'Genauso bei Gläsern: 2 Karton × 30 Gläser = 60 Gläser, und aus dem Kartonpreis wird der Preis je Glas. Alles rechnet auf das einzelne Produkt herunter.',
+    'Abgezogen wird immer in der <b>inneren</b> Einheit: Fütterung nimmt Kilo, Abfüllen nimmt Gläser. Nach 30 kg Fütterung stehen 145 kg da – angezeigt als „5,8 Sack × 25 kg".',
+    'Kaufst du nicht in Packungen, lässt du die zweite Zeile leer – dann ist es wie vorher.',
+  ] },
   { version: '1.34', datum: '2026-08-06', punkte: [
     'Verbrauchsmaterial neu geordnet – <b>in der Reihenfolge, in der man einkauft</b>. Man kauft Säcke, nicht Kilos: unter dem Bestand stehen jetzt „Packungen" und „Inhalt je Packung" und rechnen ihn aus. 2 × 25 kg ergibt 50 kg.',
     '<b>Zahl und Einheit stehen nebeneinander</b>, nicht mehr untereinander – ebenso Packungen/Inhalt, Packungspreis/Stückpreis, Mindestbestand/Zugang und die Zuordnungen.',
@@ -2276,7 +2293,52 @@ const Splash = {
 
 /* Wiederkehrende UI-Bausteine */
 const emptyState = (ic, text, btnHtml = '') => `<div class="empty">${icon(ic)}<div class="e-text">${text}</div>${btnHtml}</div>`;
-const pageHead = (title, sub, actions = '') => `<div class="page-head"><div class="ph-text"><h1>${U.esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${actions ? `<div class="ph-actions no-print">${actions}</div>` : ''}</div>`;
+const pageHead = (title, sub, actions = '', neben = '') => `<div class="page-head"><div class="ph-haupt"><div class="ph-text"><h1>${U.esc(title)}</h1>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${neben}</div>${actions ? `<div class="ph-actions no-print">${actions}</div>` : ''}</div>`;
+
+/* ---------------------------------------------------------------------
+   Tagesbiene: für jede Stunde ein eigenes Bild
+
+   24 freigestellte Bilder in assets/bienen/. Sie liegen als einzelne Dateien
+   (nicht im HTML), damit die App klein bleibt; der Service-Worker legt sie beim
+   ersten Anzeigen in den Cache, danach sind sie offline da.
+
+   Die Namen sind die des Bildersatzes – sie erscheinen als Tooltip und für
+   Screenreader, damit auch ohne Bild klar ist, was da steht.
+   --------------------------------------------------------------------- */
+const TAGESBIENEN = [
+  'Mitternacht', 'Nacht', 'Tiefschlaf', 'Ruhige Nacht', 'Vor dem Morgen', 'Morgendämmerung',
+  'Sonnenaufgang', 'Guten Morgen', 'Startklar', 'Fokus', 'Produktiv', 'Auf Kurs',
+  'Mittagspause', 'Energie tanken', 'Weiter geht’s', 'Konzentration', 'Fast geschafft', 'Feierabend nah',
+  'Sonnenuntergang', 'Entspannen', 'Zeit für mich', 'Abendroutine', 'Gute Nacht', 'Schlafenszeit',
+];
+/** Stunde → Bild und Beschreibung. Verträgt auch krumme Eingaben. */
+function tagesbiene(stunde = new Date().getHours()) {
+  const h = ((Math.floor(Number(stunde)) % 24) + 24) % 24;
+  return { stunde: h, name: TAGESBIENEN[h], datei: `assets/bienen/biene-${String(h).padStart(2, '0')}.webp`,
+    text: `${String(h).padStart(2, '0')}:00 ${TAGESBIENEN[h]}` };
+}
+/** Bild-Element für den Seitenkopf. */
+function tagesbieneHtml(stunde) {
+  const b = tagesbiene(stunde);
+  return `<img class="tages-biene" src="${b.datei}" width="96" height="96" decoding="async"
+    alt="Biene: ${U.esc(b.text)}" title="${U.esc(b.text)}" data-tagesbiene="${b.stunde}">`;
+}
+/** Wechselt das Bild, wenn eine neue Stunde beginnt und die App offen bleibt.
+    Tut nichts, wenn gerade keine Biene sichtbar ist – der Prüfer läuft für die
+    ganze Laufzeit und darf darum nichts kosten. */
+function tagesbieneAktualisieren() {
+  const b = tagesbiene();
+  /* ALLE Bienen im Dokument, nicht nur die erste: beim Seitenwechsel liegen
+     kurzzeitig zwei Ansichten im DOM, und dann hätte die falsche das Bild
+     bekommen. Dieselbe Falle wie bei den Ansichts-Selektoren. */
+  for (const img of $$('.tages-biene')) {
+    if (Number(img.dataset.tagesbiene) === b.stunde) continue;
+    img.dataset.tagesbiene = b.stunde;
+    img.src = b.datei;
+    img.alt = `Biene: ${b.text}`;
+    img.title = b.text;
+  }
+}
 
 /** „Neu"-Buttons (Kopfzeile #add + leerer Zustand #add2) mit derselben Aktion verdrahten */
 function bindAdd(fn, root = document) { for (const id of ['#add', '#add2']) { const b = $(id, root); if (b) b.onclick = fn; } }
@@ -2759,8 +2821,11 @@ Views.dashboard = {
       try { const b = await dashBlock(id); if (b) blocks.push(b); }
       catch (e) { console.error('Widget', id, e); }
     }
-    main.innerHTML = pageHead(`${gruss}${vorname ? ', ' + vorname : ''}! 🐝`, new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-      `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">${icon('gear')} Widgets</button>`) +
+    /* Das Bienen-Emoji im Titel entfällt – daneben steht jetzt die echte
+       Tagesbiene, zwei Bienen wären eine zu viel. */
+    main.innerHTML = pageHead(`${gruss}${vorname ? ', ' + vorname : ''}!`, new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+      /* Ohne Symbol: das Zahnrad wirkte neben der Tagesbiene wie eine zweite Sonne. */
+      `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">Widgets</button>`, tagesbieneHtml()) +
       `<div class="grid2">${blocks.map((b) => `<div class="dash-klick" data-ziel="${b.ziel || ''}" role="link">${b.html}</div>`).join('')}</div>`;
     $('#dash-cfg').onclick = Views.dashboard.configure;
     // Kachel-Klick führt in den passenden Bereich – Buttons/Links in der Kachel behalten Vorrang
@@ -8097,7 +8162,9 @@ async function renderInventarBereich(main, cfg) {
     // nur die Summe. Das hält die Wertspalte schmal, damit vom Untertitel etwas
     // übrig bleibt statt nach zwei Wörtern abgeschnitten zu werden.
     const einheit = verbrauchEinheit(i);
-    const menge = i.preis ? `${stk} ${einheit} × ${U.fmtEur(i.preis)}` : `${stk} ${einheit}`;
+    const menge = inPackungen(i)
+      ? `${packungText(i)}${i.preis ? ` × ${U.fmtEur(i.preis)}` : ''}`
+      : (i.preis ? `${stk} ${einheit} × ${U.fmtEur(i.preis)}` : `${stk} ${einheit}`);
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const groesse = gebindeGrammAus(i.gebindeG);
@@ -8179,11 +8246,15 @@ async function renderInventarBereich(main, cfg) {
          weiss ja garnicht wie viel ich habe wenn ich es vorher nicht berechne").
          Man kauft Säcke, nicht Kilos: darum stehen Packungen direkt unter dem
          Bestand und rechnen ihn aus. Zahl und Einheit nebeneinander. */
-      { key: '_bestandKopf', type: 'static', html: '<h3 class="mt8 mb4">Bestand und Preis</h3>' },
-      { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true, halb: true },
-      { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN, halb: true },
-      { key: 'packAnzahl', label: 'Packungen', type: 'number', placeholder: 'z. B. 2', halb: true },
-      { key: 'packMenge', label: 'Inhalt je Packung', type: 'number', placeholder: 'z. B. 25', halb: true },
+      { key: '_bestandKopf', type: 'static', html: '<h3 class="mt8 mb4">Bestand und Preis</h3>'
+        + '<div class="hint mb8">Von oben nach unten so, wie du einkaufst: 7 Sack · je Sack 25 kg · 41 € je Sack – den Kilopreis rechnet die App. Kaufst du nicht in Packungen, lass die zweite Zeile leer.</div>' },
+      { key: '_bestand', label: 'Bestand', type: 'number', default: i ? bestandInPackungen(i) : 1, required: true, halb: true },
+      { key: 'packEinheit', label: 'Einheit', type: 'suggest', halb: true, keepOrder: true,
+        default: i ? (inPackungen(i) ? i.packEinheit : verbrauchEinheit(i)) : 'Stück', options: BESTAND_EINHEITEN },
+      { key: 'inhaltMenge', label: 'Inhalt je Packung', type: 'number', placeholder: 'z. B. 25', halb: true,
+        default: i && inPackungen(i) ? i.inhaltMenge : '' },
+      { key: 'einheit', label: 'Einheit des Inhalts', type: 'suggest', halb: true, keepOrder: true,
+        default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN },
       { key: 'packPreis', label: 'Preis je Packung (€)', type: 'number', placeholder: 'z. B. 41', halb: true },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number', halb: true },
       { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>' },
@@ -8208,18 +8279,30 @@ async function renderInventarBereich(main, cfg) {
     ],
     values: i || {},
     async onSave(v) {
+      /* Aus den zwei Ebenen wird EIN gespeicherter Bestand: die innere Menge.
+         An ihr hängen alle Abzüge (Fütterung in kg, Abfüllen in Stück) – eine
+         Zahl in „Sack" wäre dort nicht verrechenbar. */
+      const aussen = (v.packEinheit || 'Stück').trim() || 'Stück';
+      const innen = (v.einheit || '').trim() || aussen;
+      const inhalt = Math.max(0, Number(v.inhaltMenge) || 0);
+      const gezaehlt = Math.max(0, Number(v._bestand) || 0);
+      const mitPackung = inhalt > 0 && aussen !== innen;
+      v.einheit = mitPackung ? innen : aussen;
+      v.packEinheit = mitPackung ? aussen : '';
+      v.inhaltMenge = mitPackung ? inhalt : 0;
+      const gesamt = mitPackung ? gezaehlt * inhalt : gezaehlt;
       // nur Stückgut wird gerundet – kg, Liter, ml dürfen Kommastellen haben
-      v.einheit = (v.einheit || 'Stück').trim() || 'Stück';
-      v.stueckzahl = v.einheit === 'Stück' ? Math.round(v.stueckzahl || 1) : Math.max(0, Number(v.stueckzahl) || 0);
+      v.stueckzahl = v.einheit === 'Stück' ? Math.round(gesamt) : Math.round(gesamt * 1000) / 1000;
+      delete v._bestand;
       v.gebindeG = gebindeGrammAus(v.gebindeG);      // „500 g" / „0,5 kg" → Gramm
       if (!v._hatMhd) v.ablauf = null;               // Häkchen weg heißt: kein MHD, auch kein altes
       delete v._hatMhd;                              // Hilfsfeld nicht mitspeichern
       /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
          und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
          Formularfeld geglaubt, das könnte veraltet sein. */
-      /* Preis je Einheit neu rechnen, den Bestand aber NICHT: der ist durch
-         Verbrauch längst kleiner als „Packungen × Inhalt". */
-      const jeEinheit = preisJeEinheit(v.packMenge, v.packPreis);
+      /* Preis herunterrechnen auf das einzelne Produkt: 41 € je Sack ÷ 25 kg =
+         1,64 € je kg. Ohne Packung bleibt der eingetragene Preis stehen. */
+      const jeEinheit = mitPackung ? preisJeEinheit(inhalt, v.packPreis) : null;
       if (jeEinheit !== null) v.preis = jeEinheit;
       await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
     },
@@ -9239,7 +9322,38 @@ Views.rechner = {
 
    Was gebucht wurde, steht im Datensatz (verbrauchId/verbrauchMenge), damit
    nachvollziehbar bleibt, woher der Abzug kam. */
-const VERBRAUCH_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g', 'Packung', 'Sack'];
+/* ZWEI Ebenen, weil man in Säcken kauft und in Kilo verbraucht (Julian: „inhalt
+   je pack – was denn, kg oder Äpfel?"). Oben die Einheit, in der der Bestand
+   gezählt wird (Sack, Karton …), darunter der Inhalt in der Einheit, die
+   wirklich verbraucht wird (kg, L, Stück). Gespeichert wird immer die INNERE
+   Menge – daran hängen alle Abzüge bei Fütterung, Behandlung und Abfüllen. */
+const VERBRAUCH_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g'];
+const BESTAND_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g', 'Sack', 'Karton', 'Kanister', 'Eimer', 'Hobbock', 'Flasche', 'Packung', 'Beutel', 'Kiste', 'Palette'];
+
+/** Wird die Position in Packungen gezählt? Nur dann, wenn ein Inhalt je Packung
+    steht UND die äußere Einheit eine andere ist als die innere. */
+function inPackungen(pos) {
+  if (!pos) return false;
+  const inhalt = Number(pos.inhaltMenge) || 0;
+  const aussen = String(pos.packEinheit || '').trim();
+  const innen = String(pos.einheit || '').trim();
+  return inhalt > 0 && !!aussen && !!innen && aussen !== innen;
+}
+
+/** Bestand in der äußeren Einheit: 175 kg bei 25 kg je Sack = 7 Sack.
+    Ohne Packung ist es einfach der Bestand selbst. */
+function bestandInPackungen(pos) {
+  const gesamt = verbrauchBestand(pos);
+  if (!inPackungen(pos)) return gesamt;
+  return Math.round((gesamt / (Number(pos.inhaltMenge) || 1)) * 100) / 100;
+}
+
+/** Kurzfassung „7 Sack × 25 kg = 175 kg" – für Listen und Auswahllisten. */
+function packungText(pos) {
+  if (!inPackungen(pos)) return '';
+  const e = verbrauchEinheit(pos);
+  return `${U.fmtNum(bestandInPackungen(pos), 2)} ${pos.packEinheit} × ${U.fmtNum(pos.inhaltMenge, 2)} ${e} = ${U.fmtNum(verbrauchBestand(pos), 2)} ${e}`;
+}
 
 /* Welche Einheit passt zu einer Position? Mittelwände und Wachs wiegt man,
    Sirup füllt man in Litern, Säure dosiert man in Millilitern, Gläser zählt man.
@@ -9256,8 +9370,8 @@ const EINHEIT_VORSCHLAEGE = [
     reichen – dann bleibt ein von Hand eingetragener Preis unangetastet.
     Gerundet auf Zehntel-Cent: bei 1,64 € je kg wäre der Cent zu grob, sobald
     man daraus Selbstkosten je Glas rechnet. */
-function preisJeEinheit(packMenge, packPreis) {
-  const menge = Math.max(0, Number(packMenge) || 0);
+function preisJeEinheit(inhaltJePackung, packPreis) {
+  const menge = Math.max(0, Number(inhaltJePackung) || 0);
   const preis = Math.max(0, Number(packPreis) || 0);
   if (!(menge > 0) || !(preis > 0)) return null;
   return Math.round((preis / menge) * 10000) / 10000;
@@ -9277,75 +9391,79 @@ function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim(
 /** Im Inventar-Formular: die Einheit folgt der Bezeichnung (nur bei neuen
     Positionen), und die Beschriftung des Bestandsfeldes nennt die Einheit. */
 function verdrahteEinheit(m, istNeu) {
-  const bez = $('#f-bezeichnung', m.el), einheit = $('#f-einheit', m.el), stk = $('#f-stueckzahl', m.el);
-  if (!einheit) return m;
-  const preis = $('#f-preis', m.el), packAnzahl = $('#f-packAnzahl', m.el);
-  const packMenge = $('#f-packMenge', m.el), packPreis = $('#f-packPreis', m.el);
+  const bez = $('#f-bezeichnung', m.el);
+  const bestand = $('#f-_bestand', m.el), packEinheit = $('#f-packEinheit', m.el);
+  const inhalt = $('#f-inhaltMenge', m.el), einheit = $('#f-einheit', m.el);
+  const packPreis = $('#f-packPreis', m.el), preis = $('#f-preis', m.el);
   const packInfo = $('[data-pack-info]', m.el);
+  if (!packEinheit || !einheit) return m;
   let vonHand = false;
-  einheit.addEventListener('input', () => { vonHand = true; beschrifte(); });
-  einheit.addEventListener('change', () => { vonHand = true; beschrifte(); });
   const setzeLabel = (feld, text) => {
     const lab = feld && feld.closest('.field') && $('label', feld.closest('.field'));
     if (lab) lab.textContent = text;
   };
+  const wert = (feld) => U.parseNum(feld ? feld.value : '') || 0;
+  const aussen = () => (packEinheit.value || 'Stück').trim() || 'Stück';
+  const innen = () => (einheit.value || '').trim() || aussen();
+  const mitPackung = () => wert(inhalt) > 0 && aussen() !== innen();
+  /** Beschriftungen sagen die Einheit, um die es geht – „Inhalt je Sack",
+      „Preis je Sack", „Preis je kg". */
   function beschrifte() {
-    const e = (einheit.value || 'Stück').trim() || 'Stück';
-    setzeLabel(stk, e === 'Stück' ? 'Stückzahl / Bestand' : `Bestand (${e})`);
-    if (stk) stk.step = e === 'Stück' ? '1' : 'any';
-    setzeLabel(preis, `Preis je ${e} (€)`);
-    setzeLabel(packMenge, `Inhalt je Packung (${e})`);
-    zeigeRechnung();
+    const a = aussen(), b = innen();
+    setzeLabel(bestand, `Bestand (${a})`);
+    if (bestand) bestand.step = a === 'Stück' ? '1' : 'any';
+    /* Ohne Packung wäre „Inhalt je kg" Unsinn – dann bleibt es neutral, bis eine
+       äußere Einheit gewählt ist, die sich von der inneren unterscheidet. */
+    const packName = a === b ? 'Packung' : a;
+    setzeLabel(inhalt, `Inhalt je ${packName}`);
+    setzeLabel(packPreis, `Preis je ${packName} (€)`);
+    setzeLabel(preis, `Preis je ${mitPackung() ? b : a} (€)`);
+    rechne();
   }
-  /* Eigene Eingaben sind unantastbar: wer Bestand oder Preis selbst tippt,
-     bekommt sie nicht von der Packungsrechnung überschrieben. Beim Bearbeiten
-     einer vorhandenen Position gilt das von Anfang an – dort ist der Bestand
-     durch Verbrauch längst kleiner als „Packungen × Inhalt". */
-  let bestandVonHand = !istNeu;
+  for (const feld of [packEinheit, einheit]) {
+    feld.addEventListener('input', () => { vonHand = true; beschrifte(); });
+    feld.addEventListener('change', () => { vonHand = true; beschrifte(); });
+  }
+  /* Ein selbst getippter Stückpreis bleibt stehen; beim Bearbeiten gilt das von
+     Anfang an. */
   let preisVonHand = false;
-  if (stk) stk.addEventListener('input', () => { bestandVonHand = true; zeigeRechnung(); });
-  if (preis) preis.addEventListener('input', () => { preisVonHand = true; zeigeRechnung(); });
-  for (const feld of [packAnzahl, packMenge, packPreis]) {
+  if (preis) preis.addEventListener('input', () => { preisVonHand = true; rechne(); });
+  for (const feld of [bestand, inhalt, packPreis]) {
     if (!feld) continue;
-    feld.addEventListener('input', () => zeigeRechnung({ schreiben: true }));
-    feld.addEventListener('change', () => zeigeRechnung({ schreiben: true }));
+    feld.addEventListener('input', () => rechne({ schreiben: true }));
+    feld.addEventListener('change', () => rechne({ schreiben: true }));
   }
-  /** Rechnet Packungen in Bestand und Packungspreis in Preis je Einheit um.
-      `schreiben` nur bei echter Eingabe – beim Öffnen darf nichts überschrieben
-      werden. */
-  function zeigeRechnung({ schreiben = false } = {}) {
+  /** Rechnet die zwei Ebenen zusammen: Bestand × Inhalt = Gesamtmenge,
+      Packungspreis ÷ Inhalt = Preis je Einheit, beides × = Warenwert. */
+  function rechne({ schreiben = false } = {}) {
     if (!packInfo) return;
-    const e = (einheit.value || 'Stück').trim() || 'Stück';
-    const anzahl = U.parseNum(packAnzahl ? packAnzahl.value : '') || 0;
-    const inhalt = U.parseNum(packMenge ? packMenge.value : '') || 0;
-    const proPackung = U.parseNum(packPreis ? packPreis.value : '') || 0;
+    const a = aussen(), b = innen();
+    const anzahl = wert(bestand), jePack = wert(inhalt), proPack = wert(packPreis);
     const teile = [];
-    if (anzahl > 0 && inhalt > 0) {
-      const bestand = Math.round(anzahl * inhalt * 1000) / 1000;
-      if (schreiben && stk && !bestandVonHand) stk.value = String(e === 'Stück' ? Math.round(bestand) : bestand).replace('.', ',');
-      /* Beim Bearbeiten ist der Bestand durch Verbrauch kleiner als der Einkauf –
-         dann beides nennen statt eine Zahl zu zeigen, die im Feld nicht steht. */
-      const jetzt = U.parseNum(stk ? stk.value : '') || 0;
-      teile.push(bestandVonHand && jetzt !== bestand
-        ? `Einkauf: ${U.fmtNum(anzahl, 0)} × ${U.fmtNum(inhalt, 2)} ${U.esc(e)} = ${U.fmtNum(bestand, 2)} ${U.esc(e)} · <b>im Bestand jetzt ${U.fmtNum(jetzt, 2)} ${U.esc(e)}</b>`
-        : `${U.fmtNum(anzahl, 0)} × ${U.fmtNum(inhalt, 2)} ${U.esc(e)} = <b>${U.fmtNum(bestand, 2)} ${U.esc(e)}</b> Bestand`);
+    if (mitPackung()) {
+      const gesamt = Math.round(anzahl * jePack * 1000) / 1000;
+      teile.push(`${U.fmtNum(anzahl, 2)} ${U.esc(a)} × ${U.fmtNum(jePack, 2)} ${U.esc(b)} = <b>${U.fmtNum(gesamt, 2)} ${U.esc(b)}</b> im Lager`);
+      const jeEinheit = preisJeEinheit(jePack, proPack);
+      if (jeEinheit !== null) {
+        if (schreiben && preis && !preisVonHand) preis.value = String(jeEinheit).replace('.', ',');
+        teile.push(`${U.fmtEur(proPack)} je ${U.esc(a)} = <b>${U.fmtEur(jeEinheit)} je ${U.esc(b)}</b>`);
+      }
+      const stueckpreis = U.parseNum(preis ? preis.value : '') || 0;
+      if (gesamt > 0 && stueckpreis > 0) teile.push(`Warenwert <b>${U.fmtEur(gesamt * stueckpreis)}</b>`);
+      teile.push(`<span class="muted">Verbraucht wird in ${U.esc(b)} – Fütterung, Behandlung und Abfüllen ziehen davon ab.</span>`);
+    } else {
+      const stueckpreis = U.parseNum(preis ? preis.value : '') || 0;
+      if (anzahl > 0 && stueckpreis > 0) teile.push(`${U.fmtNum(anzahl, 2)} ${U.esc(a)} × ${U.fmtEur(stueckpreis)} = Warenwert <b>${U.fmtEur(anzahl * stueckpreis)}</b>`);
+      teile.push('<span class="muted">Kaufst du in Packungen – 7 Sack zu je 25 kg –, trage das in der Zeile „Inhalt je …" ein und setze die Einheit oben auf Sack. Dann rechnet die App Gesamtmenge und Kilopreis.</span>');
     }
-    const jeEinheit = preisJeEinheit(inhalt, proPackung);
-    if (jeEinheit !== null) {
-      if (schreiben && preis && !preisVonHand) preis.value = String(jeEinheit).replace('.', ',');
-      teile.push(`${U.fmtEur(proPackung)} je Packung = <b>${U.fmtEur(jeEinheit)} je ${U.esc(e)}</b>`
-        + (preisVonHand ? ' <span class="muted">– dein eigener Preis bleibt stehen</span>' : ''));
-    }
-    const bestandJetzt = U.parseNum(stk ? stk.value : '') || 0;
-    const preisJetzt = U.parseNum(preis ? preis.value : '') || 0;
-    if (bestandJetzt > 0 && preisJetzt > 0) teile.push(`Warenwert <b>${U.fmtEur(bestandJetzt * preisJetzt)}</b>`);
-    packInfo.innerHTML = teile.length ? teile.join('<br>')
-      : 'Trage ein, wie viele Packungen du gekauft hast und was eine enthält – die App rechnet Bestand und Preis je Einheit aus. Beispiel: 2 Packungen × 25 kg zu 41 € = 50 kg zu 1,64 € je kg.';
+    packInfo.innerHTML = teile.join('<br>');
   }
   if (bez && istNeu) {
     bez.addEventListener('input', () => {
       if (vonHand) return;                       // eigene Wahl nicht überschreiben
-      einheit.value = einheitVorschlag(bez.value);
+      const vorschlag = einheitVorschlag(bez.value);
+      einheit.value = vorschlag;
+      if (!mitPackung()) packEinheit.value = vorschlag;   // ohne Packung sind beide gleich
       beschrifte();
     });
   }
@@ -12704,6 +12822,7 @@ async function boot() {
   Splash.weg(); // App ist gezeichnet – Startbildschirm ausblenden
   Backup.updateBanners();
   zeigeUpdateFenster();
+  setInterval(tagesbieneAktualisieren, 60000);   // Stundenwechsel bei offener App
   window.appReady = true; // Signal für die Testseite
 }
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
@@ -12712,6 +12831,7 @@ Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
+  TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
@@ -12727,7 +12847,8 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
-  preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN,
+  preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
+  inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,

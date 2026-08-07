@@ -2173,12 +2173,12 @@ test('Verbrauchsmaterial: Zugang statt Kaufdatum, Ablaufdatum optional', async (
     const bez = m.querySelector('#f-bezeichnung');
     bez.value = 'Mittelwände Zander'; bez.dispatchEvent(new w.Event('input', { bubbles: true }));
     assertEq(m.querySelector('#f-einheit').value, 'kg', 'Mittelwände in kg');
-    assert(/kg/.test(label('#f-stueckzahl')), `Bestandsfeld nennt die Einheit: ${label('#f-stueckzahl')}`);
+    assert(/kg/.test(label('#f-_bestand')), `Bestandsfeld nennt die Einheit: ${label('#f-_bestand')}`);
     assert(/je kg/.test(label('#f-preis')), `Preisfeld nennt die Einheit: ${label('#f-preis')}`);
-    assert(/\(kg\)/.test(label('#f-packMenge')), `Packungsfeld nennt die Einheit: ${label('#f-packMenge')}`);
+    assertEq(label('#f-inhaltMenge'), 'Inhalt je Packung', 'ohne Packung bleibt die Beschriftung neutral – „Inhalt je kg" wäre Unsinn');
     // Kilopreis live: 25 kg für 41 € → 1,64 € je kg im Preisfeld
     const setz = (id, wert) => { const e = m.querySelector(id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
-    setz('#f-packMenge', '25'); setz('#f-packPreis', '41');
+    setz('#f-packEinheit', 'Sack'); setz('#f-inhaltMenge', '25'); setz('#f-packPreis', '41');
     await new Promise((r) => setTimeout(r, 120));
     assertEq(m.querySelector('#f-preis').value, '1,64', 'Kilopreis steht im Preisfeld');
     assert(/1,64/.test(m.querySelector('[data-pack-info]').textContent), 'und wird nachvollziehbar erklärt');
@@ -4354,35 +4354,35 @@ test('Verbrauchsmaterial: Reihenfolge und Packungsrechnung im Formular', async (
     // Reihenfolge: Bestand vor der Packungsrechnung, Preis direkt daneben
     const felder = [...m.querySelectorAll('[data-field]')].map((e) => e.dataset.field);
     const pos = (k) => felder.indexOf(k);
-    assert(pos('stueckzahl') < pos('packAnzahl'), 'der Bestand steht über der Packungsrechnung');
-    assert(pos('packAnzahl') < pos('preis'), 'die Packungen stehen vor dem Stückpreis');
-    assert(pos('einheit') === pos('stueckzahl') + 1, 'die Einheit folgt direkt auf den Bestand');
+    assert(pos('_bestand') < pos('inhaltMenge'), 'der Bestand steht über der Packungsrechnung');
+    assert(pos('inhaltMenge') < pos('preis'), 'die Packung steht vor dem Stückpreis');
+    assert(pos('packEinheit') === pos('_bestand') + 1, 'die Einheit folgt direkt auf den Bestand');
+    assert(pos('einheit') === pos('inhaltMenge') + 1, 'die Einheit des Inhalts folgt auf den Inhalt');
     assert(pos('_packInfo') > pos('preis'), 'die Rechnung steht unter den Feldern');
     // nebeneinander: gleiche Höhe, halbe Breite
-    for (const [a, b] of [['stueckzahl', 'einheit'], ['packAnzahl', 'packMenge'], ['packPreis', 'preis'], ['mindestbestand', 'anschaffung']]) {
+    for (const [a, b] of [['_bestand', 'packEinheit'], ['inhaltMenge', 'einheit'], ['packPreis', 'preis'], ['mindestbestand', 'anschaffung']]) {
       const ra = m.querySelector(`[data-field="${a}"]`).getBoundingClientRect();
       const rb = m.querySelector(`[data-field="${b}"]`).getBoundingClientRect();
       assert(Math.abs(ra.top - rb.top) < 2, `„${a}" und „${b}" stehen nebeneinander (${Math.round(ra.top)} / ${Math.round(rb.top)})`);
       assert(rb.left > ra.left, `„${b}" liegt rechts von „${a}"`);
     }
     const voll = m.querySelector('[data-field="bezeichnung"]').getBoundingClientRect().width;
-    const halb = m.querySelector('[data-field="stueckzahl"]').getBoundingClientRect().width;
+    const halb = m.querySelector('[data-field="_bestand"]').getBoundingClientRect().width;
     assert(halb < voll * 0.6, `halbe Felder sind schmaler: ${Math.round(halb)} von ${Math.round(voll)}`);
     // Packungsrechnung füllt Bestand und Preis
     const setz = (id, wert) => { const e = m.querySelector(id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
     setz('#f-bezeichnung', 'Zucker Test-Sack');
     await new Promise((r) => setTimeout(r, 80));
-    setz('#f-packAnzahl', '2'); setz('#f-packMenge', '25'); setz('#f-packPreis', '41');
-    await new Promise((r) => setTimeout(r, 120));
-    assertEq(m.querySelector('#f-stueckzahl').value, '50', '2 × 25 kg ergeben 50 kg Bestand');
-    assertEq(m.querySelector('#f-preis').value, '1,64', 'und 1,64 € je kg');
+    setz('#f-_bestand', '7'); setz('#f-packEinheit', 'Sack'); setz('#f-inhaltMenge', '25'); setz('#f-einheit', 'kg'); setz('#f-packPreis', '41');
+    await new Promise((r) => setTimeout(r, 150));
+    assertEq(m.querySelector('#f-preis').value, '1,64', '41 € je Sack ÷ 25 kg = 1,64 € je kg');
     const info = m.querySelector('[data-pack-info]').textContent;
-    assert(/50/.test(info) && /1,64/.test(info) && /82,00/.test(info), `Rechnung erklärt sich: ${info}`);
-    // eigener Bestand gewinnt
-    setz('#f-stueckzahl', '30');
-    setz('#f-packAnzahl', '3');
+    assert(/7 Sack/.test(info) && /175/.test(info) && /1,64/.test(info) && /287,00/.test(info), `Rechnung erklärt sich: ${info}`);
+    assert(/Verbraucht wird in kg/.test(info), 'und sagt, in welcher Einheit abgezogen wird');
+    // eigener Stückpreis gewinnt gegen die Rechnung
+    setz('#f-preis', '1,90'); setz('#f-packPreis', '44');
     await new Promise((r) => setTimeout(r, 120));
-    assertEq(m.querySelector('#f-stueckzahl').value, '30', 'ein selbst getippter Bestand wird nicht überschrieben');
+    assertEq(m.querySelector('#f-preis').value, '1,90', 'ein selbst getippter Preis wird nicht überschrieben');
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
@@ -4391,7 +4391,7 @@ test('Verbrauchsmaterial: Bearbeiten setzt den verbrauchten Bestand nicht zurüc
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   // 2 Säcke à 25 kg gekauft, 38 kg verfüttert → 12 kg übrig
   const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Rest-Test', kategorie: 'Futter',
-    einheit: 'kg', stueckzahl: 50, preis: 1.64, packAnzahl: 2, packMenge: 25, packPreis: 41 });
+    einheit: 'kg', stueckzahl: 50, preis: 1.64, packEinheit: 'Sack', inhaltMenge: 25, packPreis: 41 });
   await w.verbrauchAbziehen(pos.id, 38, { pruefen: false });
   assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 12, 'in der Datenbank stehen 12 kg');
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
@@ -4402,14 +4402,111 @@ test('Verbrauchsmaterial: Bearbeiten setzt den verbrauchten Bestand nicht zurüc
     knopf.click();
     await new Promise((r) => setTimeout(r, 250));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
-    assertEq(m.querySelector('#f-stueckzahl').value, '12', 'das Formular zeigt 12 kg, nicht den Einkauf von 50');
+    // 12 kg bei 25 kg je Sack = 0,48 Sack – gezählt wird in Säcken
+    assertEq(m.querySelector('#f-_bestand').value, '0,48', 'das Formular zeigt 0,48 Sack (= 12 kg), nicht den Einkauf');
+    assertEq(m.querySelector('#f-packEinheit').value, 'Sack', 'äußere Einheit steht wieder da');
+    assertEq(m.querySelector('#f-einheit').value, 'kg', 'innere Einheit auch');
     const info = m.querySelector('[data-pack-info]').textContent;
-    assert(/Einkauf/.test(info) && /12/.test(info), `Einkauf und aktueller Bestand werden beide genannt: ${info}`);
+    assert(/12/.test(info) && /kg/.test(info), `der echte Bestand wird genannt: ${info}`);
     // am Packungspreis drehen darf den Bestand nicht anfassen
     const pp = m.querySelector('#f-packPreis'); pp.value = '44'; pp.dispatchEvent(new w.Event('input', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 120));
-    assertEq(m.querySelector('#f-stueckzahl').value, '12', 'Bestand bleibt bei 12');
+    assertEq(m.querySelector('#f-_bestand').value, '0,48', 'Bestand unangetastet');
     assertEq(m.querySelector('#f-preis').value, '1,76', 'der neue Sackpreis ergibt 1,76 € je kg');
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Zwei Einheiten: Bestand in Säcken, Verbrauch in Kilo', async (w) => {
+  // Julians Zucker: 7 Sack à 25 kg für 41 € je Sack
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Zwei-Ebenen', kategorie: 'Futter',
+    stueckzahl: 175, einheit: 'kg', packEinheit: 'Sack', inhaltMenge: 25, packPreis: 41, preis: 1.64 });
+  assert(w.inPackungen(pos), 'die Position wird in Packungen gezählt');
+  assertEq(w.bestandInPackungen(pos), 7, '175 kg sind 7 Sack');
+  assertEq(w.verbrauchEinheit(pos), 'kg', 'verbraucht wird in kg – daran hängen die Abzüge');
+  assertEq(w.verbrauchBestand(pos), 175, 'gespeichert ist die innere Menge');
+  assertEq(w.packungText(pos), '7 Sack × 25 kg = 175 kg', 'Kurzfassung für Listen');
+  // Fütterung zieht KILO ab, nicht Säcke
+  const b = await w.verbrauchAbziehen(pos.id, 30, { pruefen: false });
+  assertEq(b.nachher, 145, '30 kg abgezogen');
+  const nach = await w.DB.get('inventar', pos.id);
+  assertEq(w.bestandInPackungen(nach), 5.8, '145 kg sind 5,8 Sack');
+  assertEq(w.packungText(nach), '5,8 Sack × 25 kg = 145 kg', 'und wird auch so angezeigt');
+  // Warenwert über den inneren Preis: 145 × 1,64 = 237,80 €
+  assertEq(Math.round(w.verbrauchBestand(nach) * nach.preis * 100) / 100, 237.8, 'Warenwert stimmt');
+
+  // Gläser in Kartons: 2 × 30 = 60 Stück, Kartonpreis 12 € → 0,40 € je Glas
+  const glas = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser Karton-Test', kategorie: 'Gläser/Deckel',
+    stueckzahl: 60, einheit: 'Stück', packEinheit: 'Karton', inhaltMenge: 30, packPreis: 12, preis: w.preisJeEinheit(30, 12) });
+  assertEq(glas.preis, 0.4, '12 € je Karton ÷ 30 Gläser = 0,40 € je Glas');
+  assertEq(w.bestandInPackungen(glas), 2, '60 Gläser sind 2 Karton');
+  assertEq(w.packungText(glas), '2 Karton × 30 Stück = 60 Stück', 'Kurzfassung bei Stückgut');
+  // Abfüllen zieht Gläser ab
+  const b2 = await w.verbrauchAbziehen(glas.id, 40, { pruefen: false });
+  assertEq(b2.nachher, 20, '40 Gläser abgezogen');
+
+  // ohne Packung bleibt alles wie vorher
+  const einfach = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Ameisensäure ohne Packung', kategorie: 'Behandlungsmittel',
+    stueckzahl: 1000, einheit: 'ml' });
+  assertEq(w.inPackungen(einfach), false, 'keine Packung erkannt');
+  assertEq(w.bestandInPackungen(einfach), 1000, 'Bestand bleibt der Bestand');
+  assertEq(w.packungText(einfach), '', 'kein Packungstext');
+  // gleiche Einheit außen und innen zählt NICHT als Packung
+  assertEq(w.inPackungen({ stueckzahl: 5, einheit: 'kg', packEinheit: 'kg', inhaltMenge: 1 }), false,
+    'kg in kg ist keine Packung – sonst käme Unsinn wie „5 kg × 1 kg" heraus');
+  assert(w.BESTAND_EINHEITEN.includes('Sack') && w.BESTAND_EINHEITEN.includes('Karton'), 'Sack und Karton stehen zur Auswahl');
+  assert(!w.VERBRAUCH_EINHEITEN.includes('Sack'), 'die innere Einheit kennt keinen Sack – dort gehören Grundeinheiten hin');
+});
+
+test('Tagesbiene: für jede Stunde ein Bild, das auch wirklich da ist', async (w) => {
+  assertEq(w.TAGESBIENEN.length, 24, '24 Stunden, 24 Namen');
+  for (const n of w.TAGESBIENEN) assert(n && n.length > 2, `Name gesetzt: ${n}`);
+  assertEq(new Set(w.TAGESBIENEN).size, 24, 'kein Name doppelt');
+  // Zuordnung und Randfälle
+  assertEq(w.tagesbiene(0).datei, 'assets/bienen/biene-00.webp', 'Mitternacht');
+  assertEq(w.tagesbiene(0).name, 'Mitternacht', 'Name zur Stunde');
+  assertEq(w.tagesbiene(7).text, '07:00 Guten Morgen', 'Beschriftung mit führender Null');
+  assertEq(w.tagesbiene(23).datei, 'assets/bienen/biene-23.webp', 'letzte Stunde');
+  assertEq(w.tagesbiene(24).stunde, 0, '24 Uhr ist Mitternacht');
+  assertEq(w.tagesbiene(25).stunde, 1, 'darüber wird umgebrochen');
+  assertEq(w.tagesbiene(-1).stunde, 23, 'negative Stunde bricht nach hinten um');
+  assertEq(w.tagesbiene(12.7).stunde, 12, 'krumme Zahl wird abgeschnitten');
+  // Alle 24 Dateien müssen erreichbar sein – sonst bleibt der Kopf leer
+  const fehlend = [];
+  for (let h = 0; h < 24; h++) {
+    const res = await w.fetch(w.tagesbiene(h).datei, { method: 'GET' });
+    if (!res.ok) fehlend.push(w.tagesbiene(h).datei);
+  }
+  assertEq(fehlend.length, 0, `alle Bilddateien vorhanden, fehlen: ${fehlend.join(', ')}`);
+  // Bild-Element trägt Datei, Beschreibung und Tooltip
+  const html = w.tagesbieneHtml(12);
+  assert(/biene-12\.webp/.test(html), 'richtige Datei im Element');
+  assert(/title="12:00 Mittagspause"/.test(html), 'Tooltip mit Uhrzeit und Name');
+  assert(/alt="Biene: 12:00 Mittagspause"/.test(html), 'Beschreibung für Screenreader');
+  assert(/data-tagesbiene="12"/.test(html), 'Stunde am Element vermerkt – daran erkennt der Wechsel sich');
+});
+
+test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nicht', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.dashboard.render(host);
+    const img = host.querySelector('.tages-biene');
+    assert(img, 'die Biene steht im Dashboard-Kopf');
+    const jetzt = w.tagesbiene().stunde;
+    assertEq(Number(img.dataset.tagesbiene), jetzt, 'zeigt die aktuelle Stunde');
+    // Kopf-Aufbau: Biene neben dem Text, Widgets-Knopf im eigenen Bereich
+    assert(img.closest('.ph-haupt'), 'die Biene sitzt im Textbereich, nicht bei den Knöpfen');
+    const knopf = host.querySelector('#dash-cfg');
+    assert(knopf, 'der Widgets-Knopf ist da');
+    assert(!knopf.closest('.ph-haupt'), 'der Knopf bleibt außerhalb – so kommt die Biene ihm nicht in den Weg');
+    assertEq(knopf.innerText.trim(), 'Widgets', 'ohne Symbol');
+    assert(!host.querySelector('.ph-text h1').innerText.includes('🐝'), 'kein Bienen-Emoji mehr im Titel – die echte Biene steht daneben');
+    // Stundenwechsel vortäuschen: der Prüfer muss das Bild tauschen
+    img.dataset.tagesbiene = String((jetzt + 5) % 24);
+    const vorher = img.getAttribute('src');
+    img.src = w.tagesbiene((jetzt + 5) % 24).datei;
+    w.tagesbieneAktualisieren();
+    assertEq(Number(img.dataset.tagesbiene), jetzt, 'nach dem Wechsel steht wieder die richtige Stunde');
+    assert(img.getAttribute('src').includes(String(jetzt).padStart(2, '0')), `Bild getauscht: ${img.getAttribute('src')}`);
+  } finally { host.remove(); }
 });
