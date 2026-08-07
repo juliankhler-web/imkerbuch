@@ -4666,3 +4666,88 @@ test('Neuer Kunde direkt im Abgangs-Formular', async (w) => {
     w.FormGuard.dirty = false;
   }
 });
+
+test('Einkauf: Material-Kategorie wird zur richtigen Kassenbuch-Kategorie', (w) => {
+  assertEq(w.kasseKategorieFuer('Futter'), 'Futter', 'Zucker und Sirup');
+  assertEq(w.kasseKategorieFuer('Behandlungsmittel'), 'Behandlungsmittel', 'Säuren');
+  assertEq(w.kasseKategorieFuer('Gläser/Deckel'), 'Gläser/Etiketten', 'Gläser');
+  assertEq(w.kasseKategorieFuer('Eimer/Hobbock'), 'Gläser/Etiketten', 'Eimer zählen zum Gebinde');
+  assertEq(w.kasseKategorieFuer('Etiketten'), 'Gläser/Etiketten', 'Etiketten');
+  assertEq(w.kasseKategorieFuer('Mittelwände'), 'Material/Geräte', 'Mittelwände');
+  assertEq(w.kasseKategorieFuer('Beute'), 'Beuten/Rähmchen', 'Beuten');
+  assertEq(w.kasseKategorieFuer('Gerät'), 'Material/Geräte', 'Geräte');
+  // Unbekanntes landet in Material/Geräte, NIE in „Sonstige Ausgabe" – das verschleiert Kosten
+  assertEq(w.kasseKategorieFuer('Etwas Neues'), 'Material/Geräte', 'unbekannte Kategorie');
+  assertEq(w.kasseKategorieFuer(''), 'Material/Geräte', 'ohne Kategorie');
+  assertEq(w.kasseKategorieFuer(null), 'Material/Geräte', 'ohne Angabe');
+  // jede Zielkategorie muss es im Kassenbuch wirklich geben, sonst fällt sie aus der Auswertung
+  for (const ziel of new Set([...w.MATERIAL_ZU_KASSE.values(), 'Material/Geräte'])) {
+    assert(w.KASSEN_KATEGORIEN.ausgabe.includes(ziel), `„${ziel}" steht im Kassenbuch zur Auswahl`);
+  }
+  assert(w.KASSEN_KATEGORIEN.einnahme.includes('Materialverkauf'), 'Materialverkauf ist eine Einnahme-Kategorie');
+  assert(w.KASSEN_KATEGORIEN.ausgabe.includes('Pfandrückgabe'), 'Pfandrückgabe ist eine Ausgabe-Kategorie');
+});
+
+test('Einkauf: nur ein Einkauf kostet Geld', (w) => {
+  assertEq(w.zugangKosten({ art: 'Einkauf', menge: 25, preis: 1.64 }), 41, '25 kg × 1,64 € = 41 €');
+  assertEq(w.zugangKosten({ art: 'Eigenproduktion', menge: 5, preis: 9 }), 0, 'eigenes Wachs kostet nichts');
+  assertEq(w.zugangKosten({ art: 'Geschenk', menge: 5, preis: 9 }), 0, 'geschenkt kostet nichts');
+  assertEq(w.zugangKosten({ art: 'Korrektur', menge: 5, preis: 9 }), 0, 'eine Bestandskorrektur ist kein Kauf');
+  assertEq(w.zugangKosten({ art: 'Einkauf', menge: 25 }), 0, 'ohne Preis kein Betrag');
+  assertEq(w.zugangKosten(null), 0, 'verträgt nichts');
+  assert(w.ZUGANG_ARTEN.includes('Einkauf') && w.ZUGANG_ARTEN.includes('Korrektur'), 'Arten vorhanden');
+});
+
+test('Einkauf: Zugang zurücknehmen setzt Bestand und Kassenbuch zurück', async (w) => {
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Zugang-Test', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 100, preis: 1.6 });
+  const b = await w.verbrauchZugang(pos.id, 50, { pruefen: false });
+  assertEq(b.nachher, 150, '50 kg dazu');
+  const kb = await w.DB.put('kassenbuch', { datum: '2026-08-07', typ: 'ausgabe', kategorie: 'Futter',
+    betrag: 82, steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Einkauf Zucker Zugang-Test: 50,00 kg' });
+  const zug = await w.DB.put('materialzugaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch',
+    kategorie: 'Futter', einheit: 'kg', datum: '2026-08-07', menge: 50, art: 'Einkauf', preis: 1.64,
+    bestandVorher: b.vorher, bestandNachher: b.nachher, kassenbuchId: kb.id });
+  assertEq(w.zugangKosten(zug), 82, 'Kosten 50 × 1,64 = 82 €');
+  await w.zugangZurueckbuchen(zug);
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 100, 'Bestand wieder 100 kg');
+  assertEq(await w.DB.get('kassenbuch', kb.id), undefined, 'die Ausgabe ist weg');
+  // Altdatensatz ohne gemerkte Nummer: Buchung wird über Datum, Betrag und Text gefunden
+  const b2 = await w.verbrauchZugang(pos.id, 10, { pruefen: false });
+  const kbAlt = await w.DB.put('kassenbuch', { datum: '2026-08-05', typ: 'ausgabe', kategorie: 'Futter',
+    betrag: 16, steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Einkauf Zucker Zugang-Test: 10,00 kg' });
+  await w.zugangZurueckbuchen({ inventarId: pos.id, bezeichnung: 'Zucker Zugang-Test', datum: '2026-08-05',
+    menge: 10, art: 'Einkauf', preis: 1.6, bestandVorher: b2.vorher, bestandNachher: b2.nachher });
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 100, 'Bestand wieder 100');
+  assertEq(await w.DB.get('kassenbuch', kbAlt.id), undefined, 'auch ohne Nummer entfernt');
+  // Speicher läuft in Sicherung und Papierkorb mit
+  assert(w.DB.STORES.includes('materialzugaenge') && w.DB.DATA_STORES.includes('materialzugaenge'), 'eigener Speicher, gesichert');
+  assertEq(w.STORE_LABELS.materialzugaenge, 'Materialzugang', 'lesbarer Name im Papierkorb');
+  assert(w.DB.VER >= 10, `DB-Version mindestens 10: ${w.DB.VER}`);
+});
+
+test('Formulare: Ein- und Ausblenden versteht Zahlen mit Komma', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
+    const haken = m.querySelector('#f-_hatPfand');
+    haken.checked = true; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    /* 0,50 € Pfand: die Regel lautet `Number(f.pfand) > 0`. Vor der Korrektur kam
+       der Rohtext „0,50" an, Number() lieferte NaN – und das Startdatum
+       verschwand, obwohl ein Pfand eingetragen war. */
+    const pf = m.querySelector('#f-pfand');
+    pf.value = '0,50'; pf.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(sichtbar('pfandSeit'), 'bei 0,50 € Pfand bleibt „Pfand erhoben seit" sichtbar');
+    pf.value = '0'; pf.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(sichtbar('pfandSeit'), 'am Häkchen hängt die Sichtbarkeit, nicht am Betrag');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});

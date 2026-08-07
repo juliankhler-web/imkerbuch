@@ -947,8 +947,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.39';
+const APP_VERSION = '1.40';
 const CHANGELOG = [
+  { version: '1.40', datum: '2026-08-07', punkte: [
+    'Neu: <b>Zugang / Einkauf</b> beim Verbrauchsmaterial und Inventar – das Gegenstück zum Abgang. Der Bestand steigt, und ein <b>Einkauf wird als Ausgabe im Kassenbuch gebucht</b>, in der passenden Kategorie (Futter, Gläser/Etiketten, Beuten/Rähmchen …). Vorher fehlte das ausgegebene Geld im Kassenbuch.',
+    'Damit ist auch das <b>Nachkaufen</b> gelöst: Menge und neuer Preis eintragen – die App bucht, erhöht den Bestand und übernimmt den neuen Preis für den Lagerwert.',
+    'Beim <b>Anlegen</b> einer neuen Position fragt die App, ob der Einkauf gleich mitgebucht werden soll (Häkchen, vorbelegt).',
+    'Nicht jeder Zugang kostet Geld: <b>Eigenproduktion, Geschenk und Korrektur</b> erhöhen nur den Bestand und werden nicht gebucht.',
+    'Zugänge lassen sich wie Abgänge <b>ändern und zurücknehmen</b> – Bestand und Kassenbuch gehen mit.',
+    'Behoben: In Formularen wurden Zahlen mit <b>Komma</b> („0,50") bei Ein-/Ausblende-Regeln nicht erkannt. Dadurch verschwand zum Beispiel „Pfand erhoben seit", sobald ein Pfand mit Komma eingetragen war.',
+  ] },
   { version: '1.39', datum: '2026-08-07', punkte: [
     'Abgänge lassen sich jetzt <b>ändern und zurücknehmen</b> – Zeile in der Liste antippen. Gibt ein Kunde die Ware zurück, kommt die Menge wieder auf den Bestand und die Einnahme wird aus dem Kassenbuch genommen. Vorher war ein Abgang für immer gebucht.',
     'Zurückgelegt wird genau die Menge, die damals wirklich abgezogen wurde – reichte der Bestand nicht, war es weniger als gebucht.',
@@ -1538,8 +1546,8 @@ const ZUCHT_KALENDER = [
 ];
 
 const KASSEN_KATEGORIEN = {
-  einnahme: ['Honigverkauf', 'Völker-/Ablegerverkauf', 'Wachs/Sonstige Produkte', 'Förderung/Zuschuss', 'Sonstige Einnahme'],
-  ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Versicherung/Beiträge', 'Allgemeine Geschäftskosten', 'Sonstige Ausgabe'],
+  einnahme: ['Honigverkauf', 'Völker-/Ablegerverkauf', 'Wachs/Sonstige Produkte', 'Materialverkauf', 'Förderung/Zuschuss', 'Sonstige Einnahme'],
+  ausgabe: ['Futter', 'Behandlungsmittel', 'Gläser/Etiketten', 'Material/Geräte', 'Beuten/Rähmchen', 'Fahrtkosten', 'Pfandrückgabe', 'Versicherung/Beiträge', 'Allgemeine Geschäftskosten', 'Sonstige Ausgabe'],
 };
 // Inventar = langlebige Gebrauchsgüter; Verbrauchsmaterial = Verbrauchsgüter (Mittel, Futter, Gläser …)
 const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
@@ -1645,8 +1653,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 9, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge · v9: +pfandbewegungen
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialabgaenge', 'pfandbewegungen', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 10, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge · v9: +pfandbewegungen · v10: +materialzugaenge
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialzugaenge', 'materialabgaenge', 'pfandbewegungen', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -1922,7 +1930,16 @@ const UI = {
     };
     const updateShowIf = () => {
       for (const f of fields) if (f.showIf) {
-        const cur = {}; for (const g of fields) { const el = $(`#${fid(g.key)}`, form); if (el) cur[g.key] = g.type === 'check' ? el.checked : el.value; }
+        /* Zahlenfelder kommen als DEUTSCHER Text an („0,50"). Roh weitergegeben
+           liefert Number() dafür NaN, und jede Bedingung wie `Number(f.pfand) > 0`
+           wäre falsch – das Feld „Pfand erhoben seit" verschwand dadurch, sobald
+           ein Pfand mit Komma eingetragen war. Darum hier schon umrechnen. */
+        const cur = {};
+        for (const g of fields) {
+          const el = $(`#${fid(g.key)}`, form);
+          if (!el) continue;
+          cur[g.key] = g.type === 'check' ? el.checked : (g.type === 'number' ? U.parseNum(el.value) : el.value);
+        }
         $(`[data-field="${f.key}"]`, form).classList.toggle('hidden', !f.showIf(cur));
       }
     };
@@ -8219,6 +8236,7 @@ async function renderInventarBereich(main, cfg) {
   /* Abgänge dieses Bereichs – gefiltert wie die Liste, damit die Jahreswahl oben
      auch für die Abgänge gilt. */
   const abgaengeAlle = U.sortBy((await DB.getAll('materialabgaenge')).filter((a) => a.typ === cfg.typ), (a) => a.datum, true);
+  const zugaengeAlle = U.sortBy((await DB.getAll('materialzugaenge')).filter((z) => z.typ === cfg.typ), (z) => z.datum, true);
   const abgaenge = abgaengeAlle.filter((a) => !jahr || jahr === '__ohne' || (a.datum || '').startsWith(jahr));
   const abgangJahr = jahr && jahr !== '__ohne' ? jahr : U.todayIso().slice(0, 4);
   const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
@@ -8264,6 +8282,7 @@ async function renderInventarBereich(main, cfg) {
     `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
       <button class="btn btn-ghost btn-sm" id="abgang-pdf">${icon('doc')} Abgänge ${abgangJahr} (PDF)</button>
       <button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button>
+      <button class="btn btn-primary" id="zugang">${icon('plus')} Zugang / Einkauf</button>
       <button class="btn btn-primary" id="abgang">${icon('euro')} Abgang / Verkauf</button></span>`) +
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
@@ -8289,6 +8308,37 @@ async function renderInventarBereich(main, cfg) {
           ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${list.map(zeile).join('')}</div>`
           : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc(view._suche)}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
         : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position</button>`)) + `</div>`;
+  /* Zugänge: was gekauft wurde und was es gekostet hat. Steht über den
+     Abgängen, weil zuerst gekauft und dann verbraucht wird. */
+  const zugaenge = zugaengeAlle.filter((z) => !jahr || jahr === '__ohne' || (z.datum || '').startsWith(jahr));
+  const kostenJahr = U.sum(zugaenge, zugangKosten);
+  main.insertAdjacentHTML('beforeend', `<div class="card mt16">
+    <div class="card-title">${icon('plus')}<h2>Zugänge und Einkäufe${jahr && jahr !== '__ohne' ? ` ${jahr}` : ''}</h2>
+      ${kostenJahr > 0 ? `<span class="badge b-warn">Kosten ${U.fmtEur(kostenJahr)}</span>` : ''}
+      <button class="btn btn-primary btn-sm no-print" id="zugang2">${icon('plus')} Zugang buchen</button></div>
+    <p class="small muted mb12">Gekauft, selbst hergestellt oder geschenkt bekommen. Ein <b>Einkauf</b> wird als Ausgabe im Kassenbuch gebucht – in der passenden Kategorie, damit die Jahresauswertung stimmt. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen.</p>
+    ${zugaenge.length ? `<div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>Datum</th><th>Position</th><th>Art</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Kosten</th><th>Lieferant / Beleg</th></tr></thead>
+      <tbody>${zugaenge.map((z) => `<tr data-zugang="${z.id}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
+        <td>${U.fmtDate(z.datum)}</td><td>${U.esc(z.bezeichnung || '')}</td>
+        <td>${U.esc(z.art || '')}</td>
+        <td class="num">+${U.fmtNum(z.menge, 2)} ${U.esc(z.einheit || '')}</td>
+        <td class="num">${z.preis ? U.fmtEur(z.preis) : '–'}</td>
+        <td class="num">${zugangKosten(z) ? `<b>${U.fmtEur(zugangKosten(z))}</b>` : '–'}</td>
+        <td>${U.esc([(kontakte.get(z.kontaktId) || {}).name || '', z.belegNr].filter(Boolean).join(' · '))}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe</td><td></td><td></td><td class="num"></td><td class="num"></td><td class="num">${U.fmtEur(kostenJahr)}</td><td></td></tr>
+      </tbody></table></div>`
+    : '<div class="empty small">Noch kein Zugang gebucht. Beim Nachkaufen hier buchen – dann stimmt auch das Kassenbuch.</div>'}
+  </div>`);
+  const zugangOeffnen = () => materialZugangForm(cfg);
+  for (const id of ['#zugang', '#zugang2']) { const b = $(id, main); if (b) b.onclick = zugangOeffnen; }
+  main.addEventListener('click', (e) => {
+    const zeile = e.target.closest('[data-zugang]');
+    if (!zeile) return;
+    const z = zugaengeAlle.find((x) => x.id === zeile.dataset.zugang);
+    if (z) materialZugangForm(cfg, z.inventarId, z);
+  });
+
   /* Abgänge sichtbar machen – sonst merkt niemand, dass es sie gibt. */
   const erloesJahr = U.sum(abgaenge, abgangErloes);
   main.insertAdjacentHTML('beforeend', `<div class="card mt16">
@@ -8422,6 +8472,12 @@ async function renderInventarBereich(main, cfg) {
       /* Zeile hier beenden: sonst rutscht „Mindestbestand" neben das Pfandfeld,
          sobald das Startdatum ausgeblendet ist. */
       { key: '_trennPfand', type: 'static', html: '' },
+      /* Beim ersten Anlegen gleich den Einkauf buchen – sonst fehlt das
+         ausgegebene Geld im Kassenbuch, und genau das war die Lücke. */
+      { key: '_einkaufBuchen', label: 'Einkauf gleich ins Kassenbuch buchen', type: 'check', default: true,
+        showIf: (f) => !i && (Number(f._bestand) || 0) > 0 && (Number(f.packPreis) || Number(f.preis) || 0) > 0,
+        hint: 'Bucht den Warenwert als Ausgabe in der passenden Kategorie. Später nachgekauft? Dann „Zugang / Einkauf" nehmen.' },
+      { key: '_trennEinkauf', type: 'static', html: '' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', halb: true, hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date', halb: true,
         hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
@@ -8464,7 +8520,30 @@ async function renderInventarBereich(main, cfg) {
          1,64 € je kg. Ohne Packung bleibt der eingetragene Preis stehen. */
       const jeEinheit = mitPackung ? preisJeEinheit(inhalt, v.packPreis) : null;
       if (jeEinheit !== null) v.preis = jeEinheit;
-      await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
+      const einkaufBuchen = !i && !!v._einkaufBuchen;
+      delete v._einkaufBuchen;
+      const gespeichert = await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ }));
+      /* Der Bestand steht schon im Datensatz – der Zugang darf ihn also NICHT
+         noch einmal erhöhen. Deshalb vorher/nachher von Hand setzen. */
+      const kosten = Math.round((verbrauchBestand(gespeichert) * (Number(gespeichert.preis) || 0)) * 100) / 100;
+      if (einkaufBuchen && kosten > 0) {
+        const zug = await DB.put('materialzugaenge', {
+          inventarId: gespeichert.id, bezeichnung: gespeichert.bezeichnung, typ: cfg.typ,
+          kategorie: gespeichert.kategorie || '', einheit: verbrauchEinheit(gespeichert),
+          datum: gespeichert.anschaffung || U.todayIso(), menge: verbrauchBestand(gespeichert),
+          art: 'Einkauf', preis: Number(gespeichert.preis) || 0, kontaktId: null, belegNr: '',
+          bestandVorher: 0, bestandNachher: verbrauchBestand(gespeichert),
+          notiz: 'Beim Anlegen der Position gebucht', kassenbuchId: null,
+        });
+        const kb = await DB.put('kassenbuch', { datum: zug.datum, typ: 'ausgabe',
+          kategorie: kasseKategorieFuer(zug.kategorie), betrag: kosten, steuersatz: 0,
+          kontaktId: null, rechnungId: null,
+          beschreibung: `Einkauf ${zug.bezeichnung}: ${U.fmtNum(zug.menge, 2)} ${zug.einheit}` });
+        zug.kassenbuchId = kb.id;
+        await DB.put('materialzugaenge', zug);
+        UI.toast(`Gespeichert · ${U.fmtEur(kosten)} als Ausgabe „${kasseKategorieFuer(zug.kategorie)}" gebucht`);
+      } else UI.toast('Gespeichert');
+      pruefeMhd(); renderRoute();
     },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
   }), !i);
@@ -9651,6 +9730,176 @@ function abgangErloes(a) {
   return Math.round((Math.max(0, Number(a.menge) || 0) * Math.max(0, Number(a.preis) || 0)) * 100) / 100;
 }
 
+/* ---------------------------------------------------------------------
+   Zugang / Einkauf: das Gegenstück zum Abgang
+
+   Julians Frage „wird alles auch ins kassenbuch übertragen?" hatte eine
+   unbequeme Antwort: Einnahmen ja, der EINKAUF aber nicht. Der Preis stand an
+   der Position, das ausgegebene Geld fehlte im Kassenbuch – und fürs Nachkaufen
+   gab es überhaupt keinen Weg außer die Bestandszahl im Formular hochzusetzen.
+
+   Jetzt: Position, Menge, Preis, Lieferant → Bestand steigt, und bei der Art
+   „Einkauf" wird eine AUSGABE im Kassenbuch gebucht. Die Kategorie kommt aus der
+   Material-Kategorie (Futter → Futter, Gläser → Gläser/Etiketten …), damit die
+   Jahresauswertung stimmt und nicht alles unter „Sonstiges" landet.
+
+   Nicht jeder Zugang ist ein Einkauf: eigenes Wachs, ein Geschenk oder eine
+   Bestandskorrektur kosten nichts und werden deshalb auch nicht gebucht.
+   --------------------------------------------------------------------- */
+const ZUGANG_ARTEN = ['Einkauf', 'Eigenproduktion', 'Geschenk', 'Korrektur'];
+
+/* Material-Kategorie → Kassenbuch-Ausgabekategorie. Was hier fehlt, landet in
+   „Material/Geräte" – nie in „Sonstige Ausgabe", das verschleiert die Kosten. */
+const MATERIAL_ZU_KASSE = new Map([
+  ['Futter', 'Futter'],
+  ['Behandlungsmittel', 'Behandlungsmittel'],
+  ['Gläser/Deckel', 'Gläser/Etiketten'],
+  ['Eimer/Hobbock', 'Gläser/Etiketten'],
+  ['Etiketten', 'Gläser/Etiketten'],
+  ['Mittelwände', 'Material/Geräte'],
+  ['Beute', 'Beuten/Rähmchen'],
+  ['Zarge', 'Beuten/Rähmchen'],
+  ['Rähmchen', 'Beuten/Rähmchen'],
+  ['Gerät', 'Material/Geräte'],
+  ['Schleuderraum', 'Material/Geräte'],
+  ['Fahrzeug/Anhänger', 'Material/Geräte'],
+]);
+function kasseKategorieFuer(materialKategorie) {
+  return MATERIAL_ZU_KASSE.get(String(materialKategorie || '').trim()) || 'Material/Geräte';
+}
+
+/** Kosten eines Zugangs – nur ein Einkauf kostet Geld. */
+function zugangKosten(rec) {
+  if (!rec || rec.art !== 'Einkauf') return 0;
+  return Math.round((Math.max(0, Number(rec.menge) || 0) * Math.max(0, Number(rec.preis) || 0)) * 100) / 100;
+}
+
+/** Nimmt einen gebuchten Zugang zurück – für Bearbeiten und Löschen. Abgezogen
+    wird genau das, was damals draufgekommen ist. */
+async function zugangZurueckbuchen(rec) {
+  if (!rec) return;
+  const drauf = Math.max(0, (Number(rec.bestandNachher) || 0) - (Number(rec.bestandVorher) || 0));
+  if (drauf > 0) await verbrauchAbziehen(rec.inventarId, drauf, { pruefen: false });
+  const kosten = zugangKosten(rec);
+  if (rec.kassenbuchId) {
+    try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
+  } else if (kosten > 0) {
+    const treffer = (await DB.getAll('kassenbuch')).find((k) => k.typ === 'ausgabe' && k.datum === rec.datum
+      && Math.abs((Number(k.betrag) || 0) - kosten) < 0.005
+      && String(k.beschreibung || '').includes(String(rec.bezeichnung || '')));
+    if (treffer) await DB.softDel('kassenbuch', treffer.id);
+  }
+}
+
+/** Bucht einen Zugang: Bestand hoch, bei „Einkauf" zusätzlich eine Ausgabe im
+    Kassenbuch. Mit `rec` wird ein vorhandener Zugang bearbeitet. */
+async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
+  const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
+  if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
+  const lieferanten = (await DB.getAll('kontakte')).filter((k) => k.typ === 'lieferant' || k.typ === 'kunde');
+  const m = UI.formModal({
+    title: rec ? 'Zugang bearbeiten' : 'Zugang / Einkauf buchen', wide: true,
+    fields: [
+      { key: '_zuHinweis', type: 'static', showIf: () => !!rec,
+        html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder.</div>' : '' },
+      { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
+        options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+      { key: 'art', label: 'Art des Zugangs', type: 'select', required: true, default: 'Einkauf', halb: true,
+        options: ZUGANG_ARTEN.map((a) => ({ v: a, l: a })) },
+      { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
+      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', halb: true, showIf: (f) => f.art === 'Einkauf' },
+      { key: 'kontaktId', label: 'Von wem gekauft?', type: 'select', showIf: (f) => f.art === 'Einkauf',
+        options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: (f) => f.art === 'Einkauf', placeholder: 'z. B. RE-2026-118' },
+      { key: 'preisUebernehmen', label: 'Preis der Position auf diesen Einkauf setzen', type: 'check', default: true,
+        showIf: (f) => f.art === 'Einkauf' && Number(f.preis) > 0,
+        hint: 'Damit rechnet der Lagerwert künftig mit dem neuen Preis.' },
+      { key: '_zuInfo', type: 'static', html: '<div class="hint" data-zugang-info></div>' },
+      { key: 'notiz', label: 'Notiz', type: 'textarea' },
+    ],
+    values: rec || { art: 'Einkauf' },
+    async onSave(v) {
+      const pos = posten.find((i) => i.id === v.inventarId);
+      if (!pos) throw new Error('Bitte eine Position wählen.');
+      const menge = Math.max(0, Number(v.menge) || 0);
+      if (menge <= 0) throw new Error('Bitte eine Menge größer als null eintragen.');
+      if (rec) await zugangZurueckbuchen(rec);
+      const buchung = await verbrauchZugang(pos.id, menge, { pruefen: false });
+      const gespeichert = await DB.put('materialzugaenge', Object.assign(rec || {}, {
+        inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, kategorie: pos.kategorie || '',
+        einheit: verbrauchEinheit(pos), datum: v.datum, menge, art: v.art,
+        preis: v.art === 'Einkauf' ? Math.max(0, Number(v.preis) || 0) : 0,
+        kontaktId: v.art === 'Einkauf' ? (v.kontaktId || null) : null,
+        belegNr: v.art === 'Einkauf' ? (v.belegNr || '').trim() : '',
+        bestandVorher: buchung ? buchung.vorher : verbrauchBestand(pos),
+        bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
+        notiz: (v.notiz || '').trim(), kassenbuchId: null,
+      }));
+      const kosten = zugangKosten(gespeichert);
+      if (kosten > 0) {
+        const wer = (lieferanten.find((k) => k.id === gespeichert.kontaktId) || {}).name || '';
+        const kb = await DB.put('kassenbuch', { datum: gespeichert.datum, typ: 'ausgabe',
+          kategorie: kasseKategorieFuer(gespeichert.kategorie), betrag: kosten, steuersatz: 0,
+          kontaktId: gespeichert.kontaktId || null, rechnungId: null,
+          beschreibung: `Einkauf ${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}`
+            + `${wer ? ` bei ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` });
+        gespeichert.kassenbuchId = kb.id;
+        await DB.put('materialzugaenge', gespeichert);
+      }
+      /* Neuer Einkaufspreis wird der Preis der Position – sonst rechnet der
+         Lagerwert weiter mit einem Preis von vorletztem Jahr.
+
+         ⚠️ Dafür die Position FRISCH lesen: `pos` stammt aus der Liste, die beim
+         Öffnen des Formulars geladen wurde, und kennt den eben gebuchten Zugang
+         nicht. Das alte Objekt zurückzuschreiben hat die neue Menge gelöscht
+         (im Test: Bestand blieb bei 225 statt 250). */
+      if (v.art === 'Einkauf' && v.preisUebernehmen && Number(v.preis) > 0) {
+        const frisch = await DB.get('inventar', pos.id);
+        if (frisch) {
+          frisch.preis = Math.round(Number(v.preis) * 10000) / 10000;
+          await DB.put('inventar', frisch);
+        }
+      }
+      UI.toast(`${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: +${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
+        + ` · Bestand ${U.fmtNum(gespeichert.bestandNachher, 2)}`
+        + (kosten > 0 ? ` · ${U.fmtEur(kosten)} als Ausgabe gebucht` : ''));
+      await pruefeMhd();
+      renderRoute();
+    },
+    onDelete: rec ? async () => {
+      if (!(await UI.confirm({ title: 'Zugang löschen?',
+        text: `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" gehen wieder vom Bestand ab`
+          + (zugangKosten(rec) > 0 ? `, und die Ausgabe von ${U.fmtEur(zugangKosten(rec))} wird aus dem Kassenbuch genommen` : '')
+          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Löschen', danger: true }))) return false;
+      await zugangZurueckbuchen(rec);
+      await DB.softDel('materialzugaenge', rec.id);
+      UI.toast('Zugang zurückgenommen – Bestand und Kassenbuch angepasst');
+      await pruefeMhd();
+      renderRoute();
+      return true;
+    } : null,
+  });
+  verdrahteKontaktNeu(m, 'kontaktId', lieferanten, { typ: 'lieferant', label: 'Neuen Lieferanten anlegen' });
+  const info = $('[data-zugang-info]', m.el);
+  const zeige = () => {
+    const pos = posten.find((i) => i.id === (($('#f-inventarId', m.el) || {}).value));
+    if (!pos || !info) return;
+    const menge = Math.max(0, U.parseNum(($('#f-menge', m.el) || {}).value) || 0);
+    const preis = Math.max(0, U.parseNum(($('#f-preis', m.el) || {}).value) || 0);
+    const art = ($('#f-art', m.el) || {}).value;
+    const e = verbrauchEinheit(pos), bestand = verbrauchBestand(pos);
+    const kosten = art === 'Einkauf' ? Math.round(menge * preis * 100) / 100 : 0;
+    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${e}</b> → nach dem Zugang <b>${U.fmtNum(bestand + menge, 2)} ${e}</b>`
+      + (kosten > 0 ? `<br>Kosten <b>${U.fmtEur(kosten)}</b> werden als Ausgabe „${U.esc(kasseKategorieFuer(pos.kategorie))}" ins Kassenbuch gebucht` : '')
+      + (art !== 'Einkauf' ? '<br><span class="muted">Kein Einkauf – es wird nichts im Kassenbuch gebucht.</span>' : '');
+  };
+  m.el.addEventListener('input', zeige);
+  m.el.addEventListener('change', zeige);
+  zeige();
+  return m;
+}
+
 /** Nimmt einen gebuchten Abgang zurück – für Bearbeiten und Löschen.
 
     Es wird genau die Menge zurückgelegt, die damals wirklich abgezogen wurde
@@ -10190,7 +10439,7 @@ async function verbrauchBuchen(v, menge) {
   return buchung;
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -13200,6 +13449,8 @@ Object.assign(window, {
   preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,
+  ZUGANG_ARTEN, MATERIAL_ZU_KASSE, kasseKategorieFuer, zugangKosten, zugangZurueckbuchen, materialZugangForm,
+  KASSEN_KATEGORIEN,
   inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,

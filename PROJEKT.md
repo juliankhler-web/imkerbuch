@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-07 · **v1.39 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 295/295 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-07 · **v1.40 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 299/299 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,15 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.40)**: **Zugang / Einkauf – das ausgegebene Geld landet endlich im Kassenbuch** (Julian: „wird alles auch ins kassenbuch übertragen?"). Die ehrliche Antwort war nein: Einnahmen ja, der **Einkauf** nicht – der Preis stand an der Position, die Ausgabe fehlte, und fürs **Nachkaufen** gab es überhaupt keinen Weg außer die Bestandszahl hochzusetzen.
+  Neuer Speicher **`materialzugaenge` (DB.VER 10)**, `materialZugangForm` als Spiegelbild von `materialAbgangForm` (bearbeiten, löschen, Kontakt-Kurzweg für Lieferanten), `ZUGANG_ARTEN` = Einkauf/Eigenproduktion/Geschenk/Korrektur – **nur „Einkauf" bucht Geld**. `zugangKosten`, `zugangZurueckbuchen` (spiegelbildlich zu `abgangZurueckbuchen`, inklusive Suche der Buchung bei Altdatensätzen).
+  **`MATERIAL_ZU_KASSE` + `kasseKategorieFuer`**: Material-Kategorie → Kassenbuch-Ausgabekategorie (Futter → Futter, Gläser/Deckel und Eimer → Gläser/Etiketten, Beute/Zarge/Rähmchen → Beuten/Rähmchen …). Unbekanntes fällt auf **Material/Geräte**, nie auf „Sonstige Ausgabe" – das würde die Kosten verschleiern. `KASSEN_KATEGORIEN` um `Materialverkauf` (Einnahme) und `Pfandrückgabe` (Ausgabe) ergänzt, damit die schon gebuchten Kategorien auch auswählbar sind. Ein Test prüft, dass **jede** Zielkategorie im Kassenbuch existiert.
+  Beim **Anlegen** einer Position fragt ein Häkchen, ob der Einkauf mitgebucht wird; der Zugang wird dann mit `bestandVorher: 0` erzeugt, damit der schon eingetragene Bestand **nicht doppelt** erhöht wird.
+  ⚠️ **Zwei echte Fehler im Praxisdurchlauf gefunden:**
+  (1) **Stale-Write**: der neue Einkaufspreis wurde auf dem `pos`-Objekt aus der beim Öffnen geladenen Liste gesetzt und zurückgeschrieben – das **überschrieb die gerade gebuchte Menge** (Bestand blieb 225 statt 250). Fix: Position vor dem Preis-Update **frisch aus der DB lesen**. `verbrauchAbziehen`/`verbrauchZugang` machen das schon richtig. **Merke: nie ein Objekt zurückschreiben, das vor einer anderen Buchung geladen wurde.**
+  (2) **`showIf` bekam rohe Texte**: bei Zahlenfeldern kam „0,50" an, `Number()` daraus ist `NaN`. Jede Regel wie `Number(f.pfand) > 0` war damit falsch – **„Pfand erhoben seit" verschwand, sobald ein Pfand mit Komma eingetragen war** (der Normalfall!). Fix zentral in `updateShowIf`: Zahlenfelder werden mit `U.parseNum` umgerechnet, bevor die Regel sie sieht. Test mit 0,50 € deckt es ab.
+  **Live durchgespielt**: 7 Sack à 41 € → 175 kg, Ausgabe 287 € unter „Futter"; Nachkauf 25 kg zu 1,80 € → 250 kg, Ausgabe 45 €, Preis übernommen; zurückgenommen → Bestand und Buchung weg; Endkontrolle: jede Buchung hat ihren Zugang, keine Waise. SW → v152.
 
 - **2026-08-07 (v1.39)**: **Abgänge bearbeiten und zurücknehmen + Kunde direkt anlegen** (Julian: „wenn ich abgänge anlege dann kann ich sie im nachhinein nicht wieder rausnehmen, wenn zb der kunde den kauf zurückgegeben hat … und bei Verkauf an wen muss ich gleich auch einen neuen kunden anlegen können").
   `materialAbgangForm(cfg, vorPositionId, rec)` bearbeitet jetzt auch: beim Speichern wird die **alte Buchung zuerst zurückgenommen und dann neu gebucht** (`abgangZurueckbuchen`) – kein Differenzrechnen, stimmt auch bei Wechsel von Position oder Menge. `onDelete` nimmt Bestand und Kassenbuch zurück. Abgangszeilen sind anklickbar (`data-abgang`).
