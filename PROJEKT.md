@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.39 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 295/295 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-07 · **v1.39 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 295/295 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
