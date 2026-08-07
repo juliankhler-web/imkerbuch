@@ -8294,7 +8294,7 @@ async function renderInventarBereich(main, cfg) {
     `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
       <button class="btn btn-ghost btn-sm" id="abgang-pdf">${icon('doc')} Abgänge ${abgangJahr} (PDF)</button>
       <button class="btn btn-primary" id="add">${icon('plus')} Neue Position</button>
-      <button class="btn btn-primary" id="zugang">${icon('plus')} Zugang / Einkauf</button>
+      <button class="btn btn-primary" id="zugang">${icon('plus')} Nachkauf / Zugang</button>
       <button class="btn btn-primary" id="abgang">${icon('euro')} Abgang / Verkauf</button></span>`) +
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
@@ -8327,8 +8327,8 @@ async function renderInventarBereich(main, cfg) {
   main.insertAdjacentHTML('beforeend', `<div class="card mt16">
     <div class="card-title">${icon('plus')}<h2>Zugänge und Einkäufe${jahr && jahr !== '__ohne' ? ` ${jahr}` : ''}</h2>
       ${kostenJahr > 0 ? `<span class="badge b-warn">Kosten ${U.fmtEur(kostenJahr)}</span>` : ''}
-      <button class="btn btn-primary btn-sm no-print" id="zugang2">${icon('plus')} Zugang buchen</button></div>
-    <p class="small muted mb12">Gekauft, selbst hergestellt oder geschenkt bekommen. Ein <b>Einkauf</b> wird als Ausgabe im Kassenbuch gebucht – in der passenden Kategorie, damit die Jahresauswertung stimmt. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen.</p>
+      <button class="btn btn-primary btn-sm no-print" id="zugang2">${icon('plus')} Nachkauf buchen</button></div>
+    <p class="small muted mb12">Für alles, was zu einer <b>vorhandenen</b> Position dazukommt – vor allem der <b>Nachkauf</b>. Beim ersten Mal brauchst du das nicht: dort bucht „Neue Position" den Einkauf gleich mit. Ein Einkauf wird als Ausgabe im Kassenbuch gebucht, in der passenden Kategorie; selbst hergestellt, geschenkt oder eine Korrektur kostet nichts und wird nicht gebucht. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen.</p>
     ${zugaenge.length ? `<div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Datum</th><th>Position</th><th>Art</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Kosten</th><th>Lieferant / Beleg</th></tr></thead>
       <tbody>${zugaenge.map((z) => `<tr data-zugang="${z.id}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
@@ -8340,7 +8340,7 @@ async function renderInventarBereich(main, cfg) {
         <td>${U.esc([(kontakte.get(z.kontaktId) || {}).name || '', z.belegNr].filter(Boolean).join(' · '))}</td></tr>`).join('')}
         <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe</td><td></td><td></td><td class="num"></td><td class="num"></td><td class="num">${U.fmtEur(kostenJahr)}</td><td></td></tr>
       </tbody></table></div>`
-    : '<div class="empty small">Noch kein Zugang gebucht. Beim Nachkaufen hier buchen – dann stimmt auch das Kassenbuch.</div>'}
+    : '<div class="empty small">Noch kein Nachkauf gebucht. Kaufst du etwas nach, hier buchen – dann stimmen Bestand und Kassenbuch von selbst.</div>'}
   </div>`);
   const zugangOeffnen = () => materialZugangForm(cfg);
   for (const id of ['#zugang', '#zugang2']) { const b = $(id, main); if (b) b.onclick = zugangOeffnen; }
@@ -8493,10 +8493,12 @@ async function renderInventarBereich(main, cfg) {
         html: '<h3 class="mt8 mb4">Einkauf</h3>' },
       { key: '_einkaufBuchen', label: 'Als Einkauf ins Kassenbuch buchen', type: 'check', default: true,
         showIf: (f) => !i && (Number(f._bestand) || 0) > 0,
-        hint: 'Bucht den Warenwert als Ausgabe in der passenden Kategorie – Zucker unter „Futter", Gläser unter „Gläser/Etiketten".' },
-      { key: 'einkaufDatum', label: 'Kaufdatum', type: 'date', halb: true, default: U.todayIso(),
-        showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
-      { key: 'einkaufBeleg', label: 'Rechnung / Beleg', halb: true, placeholder: 'z. B. RE-2026-118',
+        hint: 'Bucht den Warenwert als Ausgabe in der passenden Kategorie – Zucker unter „Futter", Gläser unter „Gläser/Etiketten". Als Datum gilt „Zugang / Kaufdatum" weiter unten.' },
+      /* KEIN eigenes Kaufdatum: das Feld „Zugang" weiter unten IST das Kaufdatum –
+         zwei Datumsfelder für denselben Tag waren doppelt.
+         Und: bedingte Felder nehmen die ganze Breite. Halbe Felder, die sich
+         ein- und ausblenden, verschieben die Zeilen darunter. */
+      { key: 'einkaufBeleg', label: 'Rechnung / Beleg', placeholder: 'z. B. RE-2026-118',
         showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
       { key: 'einkaufLieferant', label: 'Bei wem gekauft?', type: 'select',
         options: lieferantenListe.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })),
@@ -8504,9 +8506,9 @@ async function renderInventarBereich(main, cfg) {
       { key: '_einkaufInfo', type: 'static', html: '<div class="hint" data-einkauf-info></div>',
         showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
       { key: '_trennEinkauf', type: 'static', html: '' },
+      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang / Kaufdatum' : 'Anschaffungsdatum', type: 'date', halb: true,
+        hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam – und das Datum der Kassenbuch-Buchung. Leer = heute.' : '' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', halb: true, hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
-      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date', halb: true,
-        hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
       /* Erst die Frage, dann das Feld: Gläser, Deckel und Eimer haben kein MHD,
          und ein leeres Datumsfeld sieht trotzdem nach Pflicht aus. */
       { key: '_hatMhd', label: 'Hat ein Mindesthaltbarkeitsdatum', type: 'check', default: !!(i && i.ablauf),
@@ -8547,8 +8549,8 @@ async function renderInventarBereich(main, cfg) {
       const jeEinheit = mitPackung ? preisJeEinheit(inhalt, v.packPreis) : null;
       if (jeEinheit !== null) v.preis = jeEinheit;
       const einkaufBuchen = !i && !!v._einkaufBuchen;
-      const einkauf = { datum: v.einkaufDatum || v.anschaffung || U.todayIso(), beleg: (v.einkaufBeleg || '').trim(), lieferant: v.einkaufLieferant || null };
-      for (const k of ['_einkaufBuchen', 'einkaufDatum', 'einkaufBeleg', 'einkaufLieferant']) delete v[k];
+      const einkauf = { datum: v.anschaffung || U.todayIso(), beleg: (v.einkaufBeleg || '').trim(), lieferant: v.einkaufLieferant || null };
+      for (const k of ['_einkaufBuchen', 'einkaufBeleg', 'einkaufLieferant']) delete v[k];
       const gespeichert = await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ }));
       /* Der Bestand steht schon im Datensatz – der Zugang darf ihn also NICHT
          noch einmal erhöhen. Deshalb vorher/nachher von Hand setzen. */
@@ -9892,7 +9894,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
      ausgenommen – sonst würde er doppelt zählen. */
   const bekannteZugaenge = (await DB.getAll('materialzugaenge')).filter((z) => !rec || z.id !== rec.id);
   const m = UI.formModal({
-    title: rec ? 'Zugang bearbeiten' : 'Zugang / Einkauf buchen', wide: true,
+    title: rec ? 'Zugang bearbeiten' : 'Nachkauf / Zugang buchen', wide: true,
     fields: [
       { key: '_zuHinweis', type: 'static', showIf: () => !!rec,
         html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder.</div>' : '' },
