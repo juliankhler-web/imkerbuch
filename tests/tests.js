@@ -2129,13 +2129,35 @@ test('Verbrauchsmaterial: Zugang statt Kaufdatum, Ablaufdatum optional', async (
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const label = (id) => { const e = m.querySelector(id); const l = e && e.closest('.field') && e.closest('.field').querySelector('label'); return l ? l.textContent.trim() : ''; };
     assertEq(label('#f-anschaffung'), 'Zugang', 'heißt jetzt Zugang');
-    assert(/optional/i.test(label('#f-ablauf')), `Ablaufdatum als optional gekennzeichnet: ${label('#f-ablauf')}`);
-    assertEq(m.querySelector('#f-ablauf').required, false, 'und ist nicht verpflichtend');
+    /* Seit v1.33 fragt die App erst, OB es ein MHD gibt – das Datumsfeld
+       erscheint danach. Ein leeres Datumsfeld sah nach Pflicht aus. */
+    const haken = m.querySelector('#f-_hatMhd');
+    assert(haken, 'die Frage nach dem MHD ist da');
+    assertEq(haken.checked, false, 'bei einer neuen Position erst mal kein MHD');
+    assert(m.querySelector('[data-field="ablauf"]').classList.contains('hidden'), 'Datumsfeld bleibt zunächst verborgen');
+    assertEq(m.querySelector('#f-ablauf').required, false, 'und ist nie verpflichtend');
+    haken.checked = true; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(!m.querySelector('[data-field="ablauf"]').classList.contains('hidden'), 'nach dem Haken erscheint das Datumsfeld');
+    haken.checked = false; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(m.querySelector('[data-field="ablauf"]').classList.contains('hidden'), 'Haken weg → Feld wieder verborgen');
+    // Pfeil am Vorschlagsfeld: war unsichtbar, weil input.inp die Regel überschrieb
+    const stil = w.getComputedStyle(m.querySelector('#f-einheit'));
+    assert(stil.backgroundImage && stil.backgroundImage !== 'none', 'das Vorschlagsfeld zeigt den Aufklapp-Pfeil');
     // Einheit folgt der Bezeichnung
     const bez = m.querySelector('#f-bezeichnung');
     bez.value = 'Mittelwände Zander'; bez.dispatchEvent(new w.Event('input', { bubbles: true }));
     assertEq(m.querySelector('#f-einheit').value, 'kg', 'Mittelwände in kg');
     assert(/kg/.test(label('#f-stueckzahl')), `Bestandsfeld nennt die Einheit: ${label('#f-stueckzahl')}`);
+    assert(/je kg/.test(label('#f-preis')), `Preisfeld nennt die Einheit: ${label('#f-preis')}`);
+    assert(/\(kg\)/.test(label('#f-packMenge')), `Packungsfeld nennt die Einheit: ${label('#f-packMenge')}`);
+    // Kilopreis live: 25 kg für 41 € → 1,64 € je kg im Preisfeld
+    const setz = (id, wert) => { const e = m.querySelector(id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz('#f-packMenge', '25'); setz('#f-packPreis', '41');
+    await new Promise((r) => setTimeout(r, 120));
+    assertEq(m.querySelector('#f-preis').value, '1,64', 'Kilopreis steht im Preisfeld');
+    assert(/1,64/.test(m.querySelector('[data-pack-info]').textContent), 'und wird nachvollziehbar erklärt');
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
