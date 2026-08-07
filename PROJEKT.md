@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.37 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 293/293 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.38 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 293/293 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.38)**: **Tagesbienen fertig ausgearbeitet** (Julian: „ändere alles so das es perfekt ist"). Die hell gezeichneten Kantenlinien der Vorlage sind gedämpft; Schneide-Skript liegt jetzt im Projekt: [tools/bienen-schneiden.py](tools/bienen-schneiden.py).
+  ⚠️ **Zwei Merkmale sind zusammen nötig – einzeln richtet jedes Schaden an (beides ausprobiert und zurückgenommen):**
+  · nur **Helligkeit** → traf die **Flügel**, die legitim hell sind;
+  · nur **Dicke** → fraß die **Sonnenstrahlen** weg und knabberte die Kanten des gelben Körpers an (6 538 Pixel gedämpft, sichtbar kaputt).
+  Erst **dünn (≤ 2 px) UND grau (Sättigung < 0,13)** trifft nur die Kantenlinien: 53 Pixel über alle 24 Bilder.
+  **Nicht geändert, weil kein Fehler**: der Laptop ist hellgrau, seine geglättete Kante ist auf fast schwarzem Grund zwangsläufig heller als der Hintergrund. Das wegzurechnen würde den Laptop selbst abdunkeln. In Anzeigegröße (96 px) nicht sichtbar – alle 24 auf hellem UND dunklem Grund in echter Größe geprüft. SW → v150, damit die Geräte die neuen Bilddateien holen (die Namen bleiben gleich).
 
 - **2026-08-07 (v1.37)**: **Pfand hinter ein Häkchen** (Julian: „pfand einen haken setzen sonst nicht anzeigen, die seite kleinhalten sonst ist es so überladen" · „wie beim mhd"): `_hatPfand` als `check` (vorbelegt aus einem vorhandenen Pfand), `pfand` + `pfandSeit` per `showIf`; Häkchen weg → `pfand = 0`, `pfandSeit = null`. Ohne Haken 19 statt 21 sichtbare Felder, Paare bleiben dank `_trennPfand` stabil.
   ⚠️ **Bienen-Freistellung dritter Anlauf** (Julian: „im dunkelmodus zwischen biene und laptop und bei der brille, schau es dir richtig an"). Zwei echte Fehler, beide bestätigt und behoben:
