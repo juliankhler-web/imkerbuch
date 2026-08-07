@@ -379,6 +379,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
    KOMPONENTEN: Formulare, Modal, Sheet, Toast, Banner, Galerie, Diverses
    ===================================================================== */
 .field{margin-bottom:14px}
+/* Formular als Zweispalten-Raster: normale Felder nehmen beide Spalten, mit
+   `halb` markierte nur eine – zwei aufeinanderfolgende landen so nebeneinander.
+   Zahl und Einheit gehören zusammen, das darf nicht untereinander stehen. Auch
+   auf dem Handy nebeneinander: „50" und „kg" brauchen wenig Platz. */
+form.form-raster{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+form.form-raster>*{grid-column:span 2;min-width:0}
+form.form-raster>.field.halb{grid-column:span 1}
 .field label{display:block;font-size:13px;font-weight:680;margin-bottom:5px}
 .field label .req{color:var(--danger)}
 .field .hint{font-size:12px;color:var(--muted);margin-top:4px}
@@ -927,8 +934,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.33';
+const APP_VERSION = '1.34';
 const CHANGELOG = [
+  { version: '1.34', datum: '2026-08-06', punkte: [
+    'Verbrauchsmaterial neu geordnet – <b>in der Reihenfolge, in der man einkauft</b>. Man kauft Säcke, nicht Kilos: unter dem Bestand stehen jetzt „Packungen" und „Inhalt je Packung" und rechnen ihn aus. 2 × 25 kg ergibt 50 kg.',
+    '<b>Zahl und Einheit stehen nebeneinander</b>, nicht mehr untereinander – ebenso Packungen/Inhalt, Packungspreis/Stückpreis, Mindestbestand/Zugang und die Zuordnungen.',
+    'Darunter steht die Rechnung im Klartext: „2 × 25 kg = 50 kg Bestand · 41,00 € je Packung = 1,64 € je kg · Warenwert 82,00 €".',
+    'Beim <b>Bearbeiten</b> wird der Bestand nie überschrieben – nach Verbrauch stehen dort 12 kg, und die Zeile sagt „Einkauf 50 kg · im Bestand jetzt 12 kg". Wer Bestand oder Preis selbst eintippt, behält seine Zahl.',
+  ] },
   { version: '1.33', datum: '2026-08-06', punkte: [
     'Neu beim Verbrauchsmaterial: <b>Kilopreis ausrechnen lassen</b>. Trage ein, was eine Packung enthält und was sie kostet – 25 kg für 41 € –, und die App setzt den Preis je kg (1,64 €). Gilt für jede Einheit, auch Kanister Sirup oder Karton Gläser. Packungsangaben bleiben gespeichert, damit du sie später ändern kannst.',
     'Die Beschriftungen folgen jetzt der Einheit: „Preis je kg", „Bestand (kg)", „Eine Packung enthält (kg)" – statt überall „Stück".',
@@ -1803,11 +1816,11 @@ const UI = {
       } else {
         inner = `<input class="inp" id="${fid(f.key)}" type="${f.type === 'date' ? 'date' : 'text'}" placeholder="${U.esc(f.placeholder || '')}" value="${U.esc(v)}">`;
       }
-      return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${inner}${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
+      return `<div class="field${f.halb ? ' halb' : ''}" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${inner}${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
     };
     const m = UI.modal({
       title, wide, guardDirty: true,
-      body: `<form novalidate>${fields.map(renderField).join('')}</form>`,
+      body: `<form novalidate class="form-raster">${fields.map(renderField).join('')}</form>`,
       footer: `${onDelete ? `<button class="btn btn-danger no-flex" data-del>${icon('trash')}</button>` : ''}<button class="btn btn-ghost" data-cancel>Abbrechen</button><button class="btn btn-primary" data-save>${U.esc(saveText)}</button>`,
     });
     const form = $('form', m.el);
@@ -8162,26 +8175,26 @@ async function renderInventarBereich(main, cfg) {
       { key: 'kategorie', label: 'Kategorie', type: 'suggest', placeholder: 'auswählen oder eigene Kategorie eintippen',
         options: [...new Set([...cfg.kategorien, ...alle.map((i) => i.kategorie).filter(Boolean)])],
         hint: 'Du kannst auch eine eigene Kategorie eintippen – sie steht dir danach zur Auswahl.' },
-      { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true },
-      { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN,
-        hint: 'Richtet sich nach der Bezeichnung: Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Überschreibbar. Nur bei „Stück" wird auf ganze Zahlen gerundet.' },
-      /* Gebindegröße als eigenes Feld statt aus dem Namen geraten (Julian:
-         „wenn ich glas bei verbrauchsmaterial anlege kann ich auch nicht die
-         gebinde größe auswählen"). Damit trifft der Abzug beim Abfüllen sicher,
-         unabhängig davon, wie die Position heißt. */
+      /* Bestand und Preis in der Reihenfolge, in der man einkauft (Julian: „ich
+         weiss ja garnicht wie viel ich habe wenn ich es vorher nicht berechne").
+         Man kauft Säcke, nicht Kilos: darum stehen Packungen direkt unter dem
+         Bestand und rechnen ihn aus. Zahl und Einheit nebeneinander. */
+      { key: '_bestandKopf', type: 'static', html: '<h3 class="mt8 mb4">Bestand und Preis</h3>' },
+      { key: 'stueckzahl', label: 'Stückzahl / Bestand', type: 'number', default: 1, required: true, halb: true },
+      { key: 'einheit', label: 'Einheit', type: 'suggest', default: i ? verbrauchEinheit(i) : 'Stück', options: VERBRAUCH_EINHEITEN, halb: true },
+      { key: 'packAnzahl', label: 'Packungen', type: 'number', placeholder: 'z. B. 2', halb: true },
+      { key: 'packMenge', label: 'Inhalt je Packung', type: 'number', placeholder: 'z. B. 25', halb: true },
+      { key: 'packPreis', label: 'Preis je Packung (€)', type: 'number', placeholder: 'z. B. 41', halb: true },
+      { key: 'preis', label: 'Preis je Stück (€)', type: 'number', halb: true },
+      { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>' },
+      /* Gebindegröße gehört zum Bestand, nicht zum Preis – sie sagt, wofür die
+         Position beim Abfüllen zählt. */
       { key: 'gebindeG', label: 'Gebindegröße (optional)', type: 'suggest',
         default: i && i.gebindeG ? gebindeLabel(gebindeGrammAus(i.gebindeG)) : '',
         options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
         hint: 'Nur für Gläser und Eimer: für welche Größe die Position gilt. Damit zieht die App beim Abfüllen automatisch die richtigen Gläser ab. Eigene Größen wie „30 g" gehen auch. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.' },
-      { key: 'preis', label: 'Preis je Stück (€)', type: 'number',
-        hint: 'Wird aus den beiden Feldern darunter ausgerechnet, wenn du sie füllst.' },
-      /* Julian kauft Zucker in 25-kg-Säcken zu ~41 €: die App soll den Kilopreis
-         rechnen, nicht er. Gilt für jede Einheit – Kanister Sirup, Flasche Säure,
-         Karton Gläser. */
-      { key: 'packMenge', label: 'Eine Packung enthält', type: 'number', placeholder: 'z. B. 25' },
-      { key: 'packPreis', label: 'Preis je Packung (€)', type: 'number', placeholder: 'z. B. 41' },
-      { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>' },
-      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date',
+      { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', halb: true, hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
+      { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date', halb: true,
         hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
       /* Erst die Frage, dann das Feld: Gläser, Deckel und Eimer haben kein MHD,
          und ein leeres Datumsfeld sieht trotzdem nach Pflicht aus. */
@@ -8189,9 +8202,8 @@ async function renderInventarBereich(main, cfg) {
         hint: 'Nur bei Material mit Haltbarkeit – Varroa-Mittel, Säuren, Futter. Gläser, Deckel und Eimer brauchen keins.' },
       { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', showIf: (f) => !!f._hatMhd,
         hint: 'Die App erinnert dich, bevor es abläuft.' },
-      { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
-      { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
-      { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
+      { key: 'standId', label: 'Zuordnung Stand', type: 'select', halb: true, options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
+      { key: 'volkId', label: 'Zuordnung Volk', type: 'select', halb: true, options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
     ],
     values: i || {},
@@ -8205,6 +8217,8 @@ async function renderInventarBereich(main, cfg) {
       /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
          und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
          Formularfeld geglaubt, das könnte veraltet sein. */
+      /* Preis je Einheit neu rechnen, den Bestand aber NICHT: der ist durch
+         Verbrauch längst kleiner als „Packungen × Inhalt". */
       const jeEinheit = preisJeEinheit(v.packMenge, v.packPreis);
       if (jeEinheit !== null) v.preis = jeEinheit;
       await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
@@ -9265,7 +9279,8 @@ function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim(
 function verdrahteEinheit(m, istNeu) {
   const bez = $('#f-bezeichnung', m.el), einheit = $('#f-einheit', m.el), stk = $('#f-stueckzahl', m.el);
   if (!einheit) return m;
-  const preis = $('#f-preis', m.el), packMenge = $('#f-packMenge', m.el), packPreis = $('#f-packPreis', m.el);
+  const preis = $('#f-preis', m.el), packAnzahl = $('#f-packAnzahl', m.el);
+  const packMenge = $('#f-packMenge', m.el), packPreis = $('#f-packPreis', m.el);
   const packInfo = $('[data-pack-info]', m.el);
   let vonHand = false;
   einheit.addEventListener('input', () => { vonHand = true; beschrifte(); });
@@ -9279,33 +9294,53 @@ function verdrahteEinheit(m, istNeu) {
     setzeLabel(stk, e === 'Stück' ? 'Stückzahl / Bestand' : `Bestand (${e})`);
     if (stk) stk.step = e === 'Stück' ? '1' : 'any';
     setzeLabel(preis, `Preis je ${e} (€)`);
-    setzeLabel(packMenge, `Eine Packung enthält (${e})`);
-    rechnePreis();
+    setzeLabel(packMenge, `Inhalt je Packung (${e})`);
+    zeigeRechnung();
   }
-  /* Kilopreis live: Menge und Preis der Packung → Preis je Einheit. Das Ergebnis
-     landet im Preisfeld, aber nur solange es aus der Rechnung kommt – tippt man
-     dort selbst, gewinnt die eigene Zahl. */
+  /* Eigene Eingaben sind unantastbar: wer Bestand oder Preis selbst tippt,
+     bekommt sie nicht von der Packungsrechnung überschrieben. Beim Bearbeiten
+     einer vorhandenen Position gilt das von Anfang an – dort ist der Bestand
+     durch Verbrauch längst kleiner als „Packungen × Inhalt". */
+  let bestandVonHand = !istNeu;
   let preisVonHand = false;
-  if (preis) preis.addEventListener('input', () => { preisVonHand = true; if (packInfo) rechnePreis(); });
-  function rechnePreis() {
+  if (stk) stk.addEventListener('input', () => { bestandVonHand = true; zeigeRechnung(); });
+  if (preis) preis.addEventListener('input', () => { preisVonHand = true; zeigeRechnung(); });
+  for (const feld of [packAnzahl, packMenge, packPreis]) {
+    if (!feld) continue;
+    feld.addEventListener('input', () => zeigeRechnung({ schreiben: true }));
+    feld.addEventListener('change', () => zeigeRechnung({ schreiben: true }));
+  }
+  /** Rechnet Packungen in Bestand und Packungspreis in Preis je Einheit um.
+      `schreiben` nur bei echter Eingabe – beim Öffnen darf nichts überschrieben
+      werden. */
+  function zeigeRechnung({ schreiben = false } = {}) {
     if (!packInfo) return;
     const e = (einheit.value || 'Stück').trim() || 'Stück';
-    const menge = U.parseNum(packMenge ? packMenge.value : '');
-    const proPackung = U.parseNum(packPreis ? packPreis.value : '');
-    const jeEinheit = preisJeEinheit(menge, proPackung);
-    if (jeEinheit === null) {
-      packInfo.innerHTML = 'Trage Packungsgröße und Packungspreis ein, dann rechnet die App den Preis je Einheit aus – z. B. 25 kg für 41 € = 1,64 € je kg.';
-      return;
+    const anzahl = U.parseNum(packAnzahl ? packAnzahl.value : '') || 0;
+    const inhalt = U.parseNum(packMenge ? packMenge.value : '') || 0;
+    const proPackung = U.parseNum(packPreis ? packPreis.value : '') || 0;
+    const teile = [];
+    if (anzahl > 0 && inhalt > 0) {
+      const bestand = Math.round(anzahl * inhalt * 1000) / 1000;
+      if (schreiben && stk && !bestandVonHand) stk.value = String(e === 'Stück' ? Math.round(bestand) : bestand).replace('.', ',');
+      /* Beim Bearbeiten ist der Bestand durch Verbrauch kleiner als der Einkauf –
+         dann beides nennen statt eine Zahl zu zeigen, die im Feld nicht steht. */
+      const jetzt = U.parseNum(stk ? stk.value : '') || 0;
+      teile.push(bestandVonHand && jetzt !== bestand
+        ? `Einkauf: ${U.fmtNum(anzahl, 0)} × ${U.fmtNum(inhalt, 2)} ${U.esc(e)} = ${U.fmtNum(bestand, 2)} ${U.esc(e)} · <b>im Bestand jetzt ${U.fmtNum(jetzt, 2)} ${U.esc(e)}</b>`
+        : `${U.fmtNum(anzahl, 0)} × ${U.fmtNum(inhalt, 2)} ${U.esc(e)} = <b>${U.fmtNum(bestand, 2)} ${U.esc(e)}</b> Bestand`);
     }
-    if (preis && !preisVonHand) preis.value = String(jeEinheit).replace('.', ',');
-    packInfo.innerHTML = `${U.fmtNum(menge, 2)} ${U.esc(e)} für ${U.fmtEur(proPackung)} = <b>${U.fmtEur(jeEinheit)} je ${U.esc(e)}</b>`
-      + (preisVonHand ? ' <span class="muted">– dein eigener Preis oben bleibt stehen</span>' : '')
-      + `<br><span class="muted">Beim Speichern zählt diese Rechnung.</span>`;
-  }
-  for (const feld of [packMenge, packPreis]) {
-    if (!feld) continue;
-    feld.addEventListener('input', rechnePreis);
-    feld.addEventListener('change', rechnePreis);
+    const jeEinheit = preisJeEinheit(inhalt, proPackung);
+    if (jeEinheit !== null) {
+      if (schreiben && preis && !preisVonHand) preis.value = String(jeEinheit).replace('.', ',');
+      teile.push(`${U.fmtEur(proPackung)} je Packung = <b>${U.fmtEur(jeEinheit)} je ${U.esc(e)}</b>`
+        + (preisVonHand ? ' <span class="muted">– dein eigener Preis bleibt stehen</span>' : ''));
+    }
+    const bestandJetzt = U.parseNum(stk ? stk.value : '') || 0;
+    const preisJetzt = U.parseNum(preis ? preis.value : '') || 0;
+    if (bestandJetzt > 0 && preisJetzt > 0) teile.push(`Warenwert <b>${U.fmtEur(bestandJetzt * preisJetzt)}</b>`);
+    packInfo.innerHTML = teile.length ? teile.join('<br>')
+      : 'Trage ein, wie viele Packungen du gekauft hast und was eine enthält – die App rechnet Bestand und Preis je Einheit aus. Beispiel: 2 Packungen × 25 kg zu 41 € = 50 kg zu 1,64 € je kg.';
   }
   if (bez && istNeu) {
     bez.addEventListener('input', () => {
@@ -12644,7 +12679,11 @@ async function boot() {
     const hatteController = !!navigator.serviceWorker.controller; // beim allerersten Install false → kein Reload
     let swReload = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (swReload || !hatteController) return;
+      /* Im Testbetrieb NICHT neu laden: der Sprung würde die laufende Testsuite
+         mitten im Durchlauf zurücksetzen – Startbildschirm wieder da, Ansichten
+         halb gezeichnet. Genau daran scheiterten zwei Tests immer beim ersten
+         Lauf nach einer neuen Cache-Version, und nie beim zweiten. */
+      if (swReload || !hatteController || TEST_MODE) return;
       swReload = true;
       // Startbildschirm zeigen, damit das Neuladen nicht wie ein Aussetzer wirkt –
       // und merken, dass er nach dem Neuladen „Neue Version“ statt „wird geladen“ sagt.

@@ -106,3 +106,18 @@ Die App hält eine `beforeunload`-Abfrage („Sicherung senden?"), sobald ein Fo
 (`FormGuard.dirty`). **Danach schlägt ein Wechsel auf `tests/test.html` fehl** – die Adresse ändert
 sich nicht, und man liest weiter die alte Seite aus. Vor dem Wechsel `FormGuard.dirty = false` setzen
 (oder `window.onbeforeunload = null`), dann `location.href` setzen. Zweimal reingelaufen.
+
+## ⚠️ Wackelnde Tests: der erste Lauf nach einer neuen SW-Cache-Version
+
+Bis v1.34 fielen „Startbildschirm im Testbetrieb entfernt" und „View-Listener leaken nicht"
+**immer beim ersten Lauf nach einer neuen `CACHE`-Version** um – und beim zweiten Lauf nie.
+Ursache war kein Testfehler: der `controllerchange`-Handler der App zeigt den Startbildschirm und
+ruft `location.reload()`, sobald ein neuer Service Worker übernimmt – mitten im Durchlauf.
+Behoben durch `TEST_MODE`-Ausnahme im Handler. **Merksatz: fällt ein Test nur beim ersten Lauf nach
+einem Versionssprung um, ist der Service Worker der Verdächtige, nicht der Test.**
+Feste `setTimeout`-Pausen in Tests durch Warten auf Zustände ersetzen (`warteAuf`).
+
+**Zweite Falle derselben Familie:** in Tests nie auf eine DOM-*Struktur* warten, die mehrere Ansichten
+teilen – `<button class="row" data-id="…">` gibt es in Trachten **und** Zucht. Auf einen **Text** warten,
+den nur die Zielansicht hat (ihren Kopftext), und bei Fenstern immer das oberste nehmen
+(`[...querySelectorAll('.modal')].pop()`), nie das erste.

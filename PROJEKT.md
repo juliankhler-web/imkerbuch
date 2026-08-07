@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.33 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 284/284 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.34 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 286/286 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-06 (v1.34)**: **Verbrauchsmaterial in Einkaufs-Reihenfolge, zwei Felder nebeneinander** (Julian: „die reihenfolge ist irgendwie verwirrend … stückzahl gleich am anfang, ich weiss ja garnicht wie viel ich habe wenn ich es vorher nicht berechne" · „wäre besser wenn Stückzahl bestand und daneben die einheit ist, nicht untereinander" · „schau wie es am logischen ist").
+  **Layout**: `UI.formModal` kann jetzt zwei Felder in eine Zeile setzen – `halb: true` am Feld, `form.form-raster` als Zweispalten-Raster (normale Felder `span 2`, halbe `span 1`; **auch auf dem Handy nebeneinander**, „50" und „kg" brauchen wenig Platz). Paare: Bestand/Einheit · Packungen/Inhalt · Packungspreis/Stückpreis · Mindestbestand/Zugang · Stand/Volk.
+  **Reihenfolge nach dem Einkauf**: Bezeichnung → Kategorie → *Bestand und Preis* (Bestand+Einheit, darunter Packungen+Inhalt+Packungspreis, die den Bestand und den Preis je Einheit **ausrechnen**) → Gebindegröße → Mindestbestand/Zugang → MHD-Frage → Zuordnungen → Notiz. Live-Zeile: „2 × 25 kg = 50 kg Bestand · 41,00 € je Packung = 1,64 € je kg · Warenwert 82,00 €".
+  ⚠️ **Wichtigster Fall, live geprüft**: beim **Bearbeiten** wird der Bestand NIE überschrieben (`bestandVonHand = !istNeu`) – nach 38 kg Verbrauch stehen 12 kg im Feld, und die Zeile sagt „Einkauf: 2 × 25 kg = 50 kg · im Bestand jetzt 12 kg". Auch `onSave` rechnet nur den Preis neu, nicht den Bestand. Sonst wäre jeder Verbrauch beim Öffnen des Formulars gelöscht.
+  ⚠️ **Flackernde Tests endgültig erklärt und behoben**: „Startbildschirm im Testbetrieb entfernt" und „View-Listener leaken nicht" fielen **immer beim ersten Lauf nach einer neuen SW-Cache-Version** um, beim zweiten nie. Ursache: der `controllerchange`-Handler zeigt den Startbildschirm und ruft `location.reload()` – **mitten in der laufenden Suite**. Fix: im `TEST_MODE` kein Selbst-Neuladen. Zusätzlich warten die beiden Tests jetzt auf Zustände statt auf feste 450 ms (`warteAuf`).
+  ⚠️ **Zweite Ursache im Leak-Test, dieselbe Familie**: die Wartebedingung war `main .row[data-id]` – aber **Trachten und Zucht rendern identische Zeilen** (`<button class="row" data-id="…">`). Die Bedingung war also schon von der noch sichtbaren Trachten-Liste erfüllt, der Klick landete im Tracht-Formular. Jetzt wird auf den **Kopftext der Zielansicht** gewartet („Zuchtserien mit automatischem Kalender") und das **oberste** Fenster ausgewertet (`[...querySelectorAll('.modal')].pop()`). **Merksatz: auf einen Text warten, den nur die Zielansicht hat – nie auf eine Struktur, die mehrere Ansichten teilen.** Gegenprobe: erster Lauf nach dem Cache-Sprung auf v146 = 286/286 grün (vorher fiel genau dieser Lauf immer um). SW → v146.
 
 - **2026-08-06 (v1.33)**: **Vier Sachen aus Julians Praxis-Durchgang am Verbrauchsmaterial.**
   (1) **Kilopreis-Rechner** („ich kaufe zb 25 kg säcke die kosten mir ca 41euro … wäre gut wenn es die app machen würde direkt"): Felder `packMenge` + `packPreis`, Kern `preisJeEinheit` (auf Zehntel-Cent gerundet – bei 1,64 €/kg wäre der Cent zu grob, sobald daraus Selbstkosten je Glas werden). Live-Zeile „25 kg für 41,00 € = 1,64 € je kg"; das Ergebnis landet im Preisfeld, aber ein **selbst getippter Preis gewinnt** (`preisVonHand`). Beim Speichern wird neu gerechnet, nicht dem Feld geglaubt. Packungsangaben bleiben gespeichert. Am echten Formular geprüft: 50 kg Lagerwert = 82 € = zwei Säcke.

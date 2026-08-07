@@ -413,8 +413,12 @@ test('Startbildschirm: kommt beim Update zurück und meldet die neue Version', a
     el.remove();
   } finally { w.Splash.vorlage = alteVorlage; w.Splash.el = altesEl; w.Splash.erledigt = altErledigt; }
 });
-test('Startbildschirm: im Testbetrieb sofort entfernt', (w) => {
+test('Startbildschirm: im Testbetrieb sofort entfernt', async (w) => {
   assert(w.TEST_MODE, 'Testseite läuft mit ?testdb');
+  /* Kein sofortiges Urteil: lädt gerade ein neuer Service Worker die App neu,
+     ist der Startbildschirm kurz wieder da. Bis zu 3 s zugestehen. */
+  const bis = Date.now() + 3000;
+  while (w.document.getElementById('splash') && Date.now() < bis) await new Promise((r) => setTimeout(r, 50));
   assertEq(w.document.getElementById('splash'), null, 'Splash.init() räumt ihn im Testbetrieb weg');
 });
 
@@ -425,15 +429,35 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
   // #main pro Render durch einen listenerfreien Klon ersetzen.
   await w.DB.put('trachten', { bezeichnung: 'Leak-Tracht', pflanze: '', von: '', bis: '', region: '', standIds: [] });
   await w.DB.put('zuchtserien', { name: 'Leak-Serie', startdatum: '2026-07-01', anzahl: 5, termine: w.zuchtTermine('2026-07-01'), notiz: '' });
-  const warte = () => new Promise((r) => setTimeout(r, 450));
-  w.location.hash = '#/trachten'; await warte();
-  w.location.hash = '#/zucht'; await warte();
-  w.document.querySelector('.row[data-id]').click(); await warte();
-  const m = w.document.querySelector('.modal');
+  /* Auf Zustände warten statt auf Millisekunden: feste Pausen scheitern auf
+     langsamen Rechnern und verdecken echte Fehler als „mal so, mal so". */
+  const warteAuf = async (pruef, was, ms = 4000) => {
+    const bis = Date.now() + ms;
+    while (Date.now() < bis) {
+      if (pruef()) return true;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    throw new Error(`Zeitüberschreitung beim Warten auf: ${was}`);
+  };
+  /* Auf den Kopftext der Zielansicht warten, nicht auf `.row[data-id]`: DIESE
+     Zeilen sehen in Trachten und Zucht gleich aus. Wer nur auf eine Zeile
+     wartet, klickt womöglich noch in die alte Liste – dann öffnet sich das
+     Tracht-Formular und der Test schlägt scheinbar zufällig fehl. */
+  const kopf = (text) => () => { const el = w.document.querySelector('main'); return !!el && el.innerText.includes(text); };
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());   // saubere Ausgangslage
+  w.location.hash = '#/trachten';
+  await warteAuf(kopf('Trachtquellen verwalten'), 'Trachten-Ansicht');
+  w.location.hash = '#/zucht';
+  await warteAuf(() => kopf('Zuchtserien mit automatischem Kalender')() && w.document.querySelector('main .row[data-id]'), 'Zucht-Liste mit Einträgen');
+  w.document.querySelector('main .row[data-id]').click();
+  await warteAuf(() => w.document.querySelector('.modal'), 'geöffnetes Fenster');
+  const m = [...w.document.querySelectorAll('.modal')].pop();   // das oberste, nicht ein Überbleibsel
   assert(m, 'Modal geöffnet');
   assert(m.innerText.includes('Umlarven'), 'Zucht-Detail geöffnet – nicht das Formular einer fremden View');
-  m.querySelector('[data-close]').click(); await warte();
-  w.location.hash = '#/dashboard'; await warte();
+  m.querySelector('[data-close]').click();
+  await warteAuf(() => !w.document.querySelector('.modal'), 'geschlossenes Fenster');
+  w.location.hash = '#/dashboard';
+  await warteAuf(() => !/Umlarven/.test(w.document.querySelector('main').innerText), 'Dashboard');
 });
 
 /* ---------- Belegstellen: Verwaltung + Zucht-Verknüpfung ---------- */
@@ -4317,4 +4341,75 @@ test('Verbrauchsmaterial: Eimer als Kategorie, MHD nur auf Wunsch', async (w) =>
   await w.pruefeMhd();
   const aufgaben = (await w.DB.getAll('aufgaben')).filter((a) => a.refId === ohne.id);
   assertEq(aufgaben.length, 0, 'ohne Datum keine Erinnerung');
+});
+
+test('Verbrauchsmaterial: Reihenfolge und Packungsrechnung im Formular', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    // Reihenfolge: Bestand vor der Packungsrechnung, Preis direkt daneben
+    const felder = [...m.querySelectorAll('[data-field]')].map((e) => e.dataset.field);
+    const pos = (k) => felder.indexOf(k);
+    assert(pos('stueckzahl') < pos('packAnzahl'), 'der Bestand steht über der Packungsrechnung');
+    assert(pos('packAnzahl') < pos('preis'), 'die Packungen stehen vor dem Stückpreis');
+    assert(pos('einheit') === pos('stueckzahl') + 1, 'die Einheit folgt direkt auf den Bestand');
+    assert(pos('_packInfo') > pos('preis'), 'die Rechnung steht unter den Feldern');
+    // nebeneinander: gleiche Höhe, halbe Breite
+    for (const [a, b] of [['stueckzahl', 'einheit'], ['packAnzahl', 'packMenge'], ['packPreis', 'preis'], ['mindestbestand', 'anschaffung']]) {
+      const ra = m.querySelector(`[data-field="${a}"]`).getBoundingClientRect();
+      const rb = m.querySelector(`[data-field="${b}"]`).getBoundingClientRect();
+      assert(Math.abs(ra.top - rb.top) < 2, `„${a}" und „${b}" stehen nebeneinander (${Math.round(ra.top)} / ${Math.round(rb.top)})`);
+      assert(rb.left > ra.left, `„${b}" liegt rechts von „${a}"`);
+    }
+    const voll = m.querySelector('[data-field="bezeichnung"]').getBoundingClientRect().width;
+    const halb = m.querySelector('[data-field="stueckzahl"]').getBoundingClientRect().width;
+    assert(halb < voll * 0.6, `halbe Felder sind schmaler: ${Math.round(halb)} von ${Math.round(voll)}`);
+    // Packungsrechnung füllt Bestand und Preis
+    const setz = (id, wert) => { const e = m.querySelector(id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+    setz('#f-bezeichnung', 'Zucker Test-Sack');
+    await new Promise((r) => setTimeout(r, 80));
+    setz('#f-packAnzahl', '2'); setz('#f-packMenge', '25'); setz('#f-packPreis', '41');
+    await new Promise((r) => setTimeout(r, 120));
+    assertEq(m.querySelector('#f-stueckzahl').value, '50', '2 × 25 kg ergeben 50 kg Bestand');
+    assertEq(m.querySelector('#f-preis').value, '1,64', 'und 1,64 € je kg');
+    const info = m.querySelector('[data-pack-info]').textContent;
+    assert(/50/.test(info) && /1,64/.test(info) && /82,00/.test(info), `Rechnung erklärt sich: ${info}`);
+    // eigener Bestand gewinnt
+    setz('#f-stueckzahl', '30');
+    setz('#f-packAnzahl', '3');
+    await new Promise((r) => setTimeout(r, 120));
+    assertEq(m.querySelector('#f-stueckzahl').value, '30', 'ein selbst getippter Bestand wird nicht überschrieben');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Verbrauchsmaterial: Bearbeiten setzt den verbrauchten Bestand nicht zurück', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  // 2 Säcke à 25 kg gekauft, 38 kg verfüttert → 12 kg übrig
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Rest-Test', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 50, preis: 1.64, packAnzahl: 2, packMenge: 25, packPreis: 41 });
+  await w.verbrauchAbziehen(pos.id, 38, { pruefen: false });
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 12, 'in der Datenbank stehen 12 kg');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    const knopf = host.querySelector(`[data-edit="${pos.id}"]`);
+    assert(knopf, 'die Position steht in der Liste');
+    knopf.click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assertEq(m.querySelector('#f-stueckzahl').value, '12', 'das Formular zeigt 12 kg, nicht den Einkauf von 50');
+    const info = m.querySelector('[data-pack-info]').textContent;
+    assert(/Einkauf/.test(info) && /12/.test(info), `Einkauf und aktueller Bestand werden beide genannt: ${info}`);
+    // am Packungspreis drehen darf den Bestand nicht anfassen
+    const pp = m.querySelector('#f-packPreis'); pp.value = '44'; pp.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assertEq(m.querySelector('#f-stueckzahl').value, '12', 'Bestand bleibt bei 12');
+    assertEq(m.querySelector('#f-preis').value, '1,76', 'der neue Sackpreis ergibt 1,76 € je kg');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
