@@ -4510,3 +4510,68 @@ test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nich
     assert(img.getAttribute('src').includes(String(jetzt).padStart(2, '0')), `Bild getauscht: ${img.getAttribute('src')}`);
   } finally { host.remove(); }
 });
+
+/* =====================================================================
+   Pfand: Mehrweg-Gebinde im Umlauf (deckt beide Welten ab)
+   ===================================================================== */
+test('Pfand: ohne Pfandfeld bleibt alles unsichtbar', (w) => {
+  const einweg = [{ id: 'a', bezeichnung: 'Gläser Einweg', pfand: 0 }, { id: 'b', bezeichnung: 'Deckel' }];
+  assertEq(w.pfandPositionen(einweg).length, 0, 'keine Pfand-Position → keine Anzeige, kein Schalter nötig');
+  assertEq(w.pfandPositionen([...einweg, { id: 'c', bezeichnung: 'Pfandglas', pfand: 0.5 }]).length, 1, 'eine mit Pfand wird erkannt');
+  assertEq(w.pfandPositionen(null).length, 0, 'verträgt auch nichts');
+  assertEq(w.PFAND_KATEGORIE, 'Pfandrückgabe', 'eigene Kassenbuch-Kategorie für die Erstattung');
+});
+
+test('Pfand: Umlauf zählt nur ab dem Startdatum', (w) => {
+  const pos = { id: 'p1', bezeichnung: 'Pfandglas 333 g', gebindeG: 333, pfand: 0.5, pfandSeit: '2026-07-01' };
+  const abf = [
+    { gebindeG: 333, datum: '2026-06-20', anzahl: 50, bestand: 20 },   // 30 verkauft – VOR dem Pfand
+    { gebindeG: 333, datum: '2026-07-10', anzahl: 100, bestand: 60 },  // 40 verkauft – zählt
+    { gebindeG: 500, datum: '2026-07-11', anzahl: 80, bestand: 10 },   // andere Größe – zählt nicht
+  ];
+  const u = w.pfandUmlauf(pos, abf, []);
+  assertEq(u.verkauft, 40, 'nur Abfüllungen ab dem Startdatum');
+  assertEq(u.draussen, 40, 'noch nichts zurück');
+  assertEq(u.offen, 20, '40 × 0,50 € = 20 € Pfandschuld');
+  assertEq(u.seit, '2026-07-01', 'das Startdatum wird mitgegeben, damit es angezeigt werden kann');
+  // ohne Startdatum zählt alles – das war der Fehler, den der Praxistest zeigte (190 statt 40)
+  assertEq(w.pfandUmlauf({ ...pos, pfandSeit: '' }, abf, []).verkauft, 70, 'ohne Startdatum zählen auch alte Verkäufe');
+  // Rücknahmen abziehen
+  const bew = [{ inventarId: 'p1', anzahl: 25 }, { inventarId: 'anders', anzahl: 99 }];
+  const u2 = w.pfandUmlauf(pos, abf, bew);
+  assertEq(u2.zurueck, 25, 'nur Rücknahmen dieser Position');
+  assertEq(u2.draussen, 15, '40 verkauft − 25 zurück');
+  assertEq(u2.offen, 7.5, '15 × 0,50 €');
+  // mehr zurück als raus: nicht ins Minus
+  assertEq(w.pfandUmlauf(pos, abf, [{ inventarId: 'p1', anzahl: 999 }]).draussen, 0, 'draußen wird nie negativ');
+  // ohne Gebindegröße kann nichts zugeordnet werden – und das wird gesagt
+  const ohne = w.pfandUmlauf({ id: 'p2', pfand: 0.5 }, abf, []);
+  assertEq(ohne.verkauft, 0, 'ohne Gebindegröße keine Zuordnung');
+  assertEq(ohne.ohneGroesse, true, 'und die App weist darauf hin');
+});
+
+test('Pfand: Rücknahme hebt den Bestand und bucht eine Ausgabe ohne Umsatzsteuer', async (w) => {
+  const glas = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Pfandglas Rücknahme-Test', kategorie: 'Gläser/Deckel',
+    einheit: 'Stück', stueckzahl: 100, gebindeG: 250, pfand: 0.5, pfandSeit: '2026-01-01' });
+  // Zugang: Gegenstück zum Abzug
+  const z = await w.verbrauchZugang(glas.id, 25, { pruefen: false });
+  assertEq(z.vorher, 100, 'vorher 100');
+  assertEq(z.nachher, 125, 'nachher 125 – der Bestand steigt wieder');
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 125, 'steht auch im Lager');
+  assertEq(await w.verbrauchZugang(glas.id, 0), null, 'null Stück ändert nichts');
+  assertEq(await w.verbrauchZugang('gibtsnicht', 5), null, 'unbekannte Position ändert nichts');
+  // Kassenbuch: Erstattung ist eine AUSGABE, steuerfrei
+  const vorher = (await w.DB.getAll('kassenbuch')).length;
+  await w.DB.put('kassenbuch', { datum: '2026-08-07', typ: 'ausgabe', kategorie: w.PFAND_KATEGORIE, betrag: 12.5,
+    steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Pfand erstattet: 25 × Pfandglas Rücknahme-Test' });
+  const kb = (await w.DB.getAll('kassenbuch')).filter((k) => k.kategorie === w.PFAND_KATEGORIE);
+  assert(kb.length >= 1, 'Buchung ist da');
+  assertEq(kb[kb.length - 1].typ, 'ausgabe', 'Pfand zurückzahlen ist eine Ausgabe, kein Minus-Erlös');
+  assertEq(kb[kb.length - 1].steuersatz, 0, 'ohne Umsatzsteuer – Pfand ist ein durchlaufender Posten');
+  assertEq((await w.DB.getAll('kassenbuch')).length, vorher + 1, 'genau eine Buchung');
+  // der Speicher läuft in Sicherung und Papierkorb mit
+  assert(w.DB.STORES.includes('pfandbewegungen'), 'eigener Speicher angelegt');
+  assert(w.DB.DATA_STORES.includes('pfandbewegungen'), 'und in der Sicherung dabei');
+  assertEq(w.STORE_LABELS.pfandbewegungen, 'Pfand-Rücknahme', 'mit lesbarem Namen im Papierkorb');
+  assert(w.DB.VER >= 9, `DB-Version mindestens 9: ${w.DB.VER}`);
+});

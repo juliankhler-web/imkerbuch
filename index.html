@@ -395,6 +395,10 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 form.form-raster{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
 form.form-raster>*{grid-column:span 2;min-width:0}
 form.form-raster>.field.halb{grid-column:span 1}
+/* Zeilenumbruch im Raster: ein Feld mit Schlüssel `_trenn…` beendet die Zeile,
+   damit ein optionales halbes Feld die Paare darunter nicht verschiebt, wenn es
+   ausgeblendet ist. */
+form.form-raster>.field[data-field^="_trenn"]{margin:0;height:0;overflow:hidden}
 .field label{display:block;font-size:13px;font-weight:680;margin-bottom:5px}
 .field label .req{color:var(--danger)}
 .field .hint{font-size:12px;color:var(--muted);margin-top:4px}
@@ -943,8 +947,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.35';
+const APP_VERSION = '1.36';
 const CHANGELOG = [
+  { version: '1.36', datum: '2026-08-07', punkte: [
+    'Neu: <b>Pfand für Mehrweg-Gebinde</b> – für alle, die Gläser oder Eimer zurücknehmen. Trag am Gebinde „Pfand je Gebinde" ein, dann zeigt die App unter Verbrauchsmaterial <b>wie viele beim Kunden sind</b> und <b>wieviel Pfand offen ist</b>.',
+    '<b>Rücknahme buchen</b>: Anzahl und von wem – der Bestand steigt wieder, und das Pfand wird als Ausgabe im Kassenbuch gebucht, ohne Umsatzsteuer. Denn Pfand ist eine Schuld, kein Erlös.',
+    'Beim Anlegen einer Rechnungsposition wird das Pfand aus dem Gebinde <b>vorgeschlagen</b> – man muss es nicht zweimal wissen.',
+    'Wer <b>kein</b> Pfand nimmt, sieht davon nichts: das Pfandfeld leer lassen genügt, es gibt keinen Schalter zu suchen.',
+    'Die Tagesbienen sind neu freigestellt – im <b>Dunkelmodus</b> schimmerte vorher ein heller Rand durch.',
+  ] },
   { version: '1.35', datum: '2026-08-07', punkte: [
     'Neu im Dashboard: die <b>Tagesbiene</b> neben der Begrüßung – für jede Stunde ein eigenes Bild, von „Mitternacht" bis „Schlafenszeit". Bleibt die App offen, wechselt es beim Stundenwechsel von selbst.',
     'Der Widgets-Knopf hat sein Symbol verloren und das Bienen-Emoji ist aus dem Titel raus – die echte Biene daneben genügt.',
@@ -1621,8 +1632,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 8, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialabgaenge', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 9, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge · v9: +pfandbewegungen
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialabgaenge', 'pfandbewegungen', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -8058,9 +8069,17 @@ Views.rechnung = {
     };
     $('#pdf').onclick = () => Pdf.rechnung(r.id);
   },
-  posForm(r, abf, chargenM) {
+  async posForm(r, abf, chargenM) {
     const verf = (abf || []).filter((a) => a.bestand > 0);
-    UI.formModal({
+    /* Das Pfand steht schon am Gebinde im Verbrauchsmaterial – hier soll man es
+       nicht zweimal wissen müssen. Zuordnung über die Gebindegröße, dieselbe
+       Verbindung wie beim Glas-Abzug beim Abfüllen. */
+    const pfandJeGroesse = new Map();
+    for (const i of pfandPositionen((await DB.getAll('inventar')).filter((x) => x.typ === 'verbrauch'))) {
+      const g = gebindeGrammAus(i.gebindeG);
+      if (g && !pfandJeGroesse.has(g)) pfandJeGroesse.set(g, Number(i.pfand) || 0);
+    }
+    const m = UI.formModal({
       title: 'Position hinzufügen',
       fields: [
         { key: 'quelle', label: 'Art der Position', type: 'select', required: true, default: 'charge', options: [{ v: 'charge', l: 'Honig aus Bestand (Abfüllung)' }, { v: 'frei', l: 'Freie Position' }] },
@@ -8086,6 +8105,22 @@ Views.rechnung = {
         await DB.put('rechnungen', r); renderRoute();
       },
     });
+    /* Wird eine Abfüllung gewählt, springt das Pfand der passenden Glassorte ins
+       Feld – aber nur, solange dort nichts Eigenes steht. */
+    const abfFeld = $('#f-abfuellungId', m.el), pfandFeld = $('#f-pfand', m.el);
+    if (abfFeld && pfandFeld && pfandJeGroesse.size) {
+      let eigen = false;
+      pfandFeld.addEventListener('input', () => { eigen = true; });
+      const setzen = () => {
+        if (eigen) return;
+        const a = verf.find((x) => x.id === abfFeld.value);
+        const p = a ? pfandJeGroesse.get(gebindeGrammAus(a.gebindeG)) : undefined;
+        pfandFeld.value = p ? String(p).replace('.', ',') : '';
+      };
+      abfFeld.addEventListener('change', setzen);
+      setzen();
+    }
+    return m;
   },
   async festschreiben(r, abf) {
     if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
@@ -8229,6 +8264,44 @@ async function renderInventarBereich(main, cfg) {
       </tbody></table></div>`
     : '<div class="empty small">Noch kein Abgang gebucht.</div>'}
   </div>`);
+  /* Pfand-Umlauf – erscheint nur, wenn überhaupt ein Gebinde Pfand hat. Wer
+     kein Pfand nimmt, sieht hier nichts und muss auch nichts abschalten. */
+  const pfandPosten = pfandPositionen(alle);
+  if (pfandPosten.length) {
+    const abfAlle = await DB.getAll('abfuellungen');
+    const bewegungen = U.sortBy(await DB.getAll('pfandbewegungen'), (b) => b.datum, true);
+    const umlauf = pfandPosten.map((i) => ({ pos: i, u: pfandUmlauf(i, abfAlle, bewegungen) }));
+    const offenGesamt = U.sum(umlauf, (r) => r.u.offen);
+    const letzte = bewegungen.filter((b) => b.typ === cfg.typ).slice(0, 8);
+    main.insertAdjacentHTML('beforeend', `<div class="card mt16">
+      <div class="card-title">${icon('euro')}<h2>Pfand im Umlauf</h2>
+        ${offenGesamt > 0 ? `<span class="badge b-warn">${U.fmtEur(offenGesamt)} offen</span>` : ''}
+        <button class="btn btn-primary btn-sm no-print" id="pfand-zurueck">${icon('restore')} Rücknahme buchen</button></div>
+      <p class="small muted mb12">Mehrweg-Gebinde, die bei Kunden sind: verkauft minus zurückgebracht. Das Pfand ist eine Schuld, kein Erlös – eine Rücknahme bucht es als Ausgabe ins Kassenbuch, ohne Umsatzsteuer.</p>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>Gebinde</th><th class="num">Pfand</th><th class="num">Verkauft</th><th class="num">Zurück</th><th class="num">Beim Kunden</th><th class="num">Pfand offen</th></tr></thead>
+        <tbody>${umlauf.map(({ pos, u }) => `<tr>
+          <td><b>${U.esc(pos.bezeichnung)}</b>${u.seit ? `<br><span class="small muted">Pfand seit ${U.fmtDate(u.seit)}</span>` : ''}${u.ohneGroesse ? '<br><span class="small zahl-warn">ohne Gebindegröße – verkaufte Menge nicht zuordenbar</span>' : ''}</td>
+          <td class="num">${U.fmtEur(u.pfand)}</td>
+          <td class="num">${U.fmtNum(u.verkauft, 0)}</td>
+          <td class="num">${U.fmtNum(u.zurueck, 0)}</td>
+          <td class="num"><b>${U.fmtNum(u.draussen, 0)}</b></td>
+          <td class="num">${u.offen > 0 ? `<b>${U.fmtEur(u.offen)}</b>` : '–'}</td></tr>`).join('')}
+          <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe</td><td class="num"></td>
+            <td class="num">${U.fmtNum(U.sum(umlauf, (r) => r.u.verkauft), 0)}</td>
+            <td class="num">${U.fmtNum(U.sum(umlauf, (r) => r.u.zurueck), 0)}</td>
+            <td class="num">${U.fmtNum(U.sum(umlauf, (r) => r.u.draussen), 0)}</td>
+            <td class="num">${U.fmtEur(offenGesamt)}</td></tr>
+        </tbody></table></div>
+      ${letzte.length ? `<div class="small muted mt12 mb4" style="font-weight:600">Letzte Rücknahmen</div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Gebinde</th><th class="num">Anzahl</th><th class="num">Erstattet</th><th>Von wem</th></tr></thead>
+        <tbody>${letzte.map((b) => `<tr><td>${U.fmtDate(b.datum)}</td><td>${U.esc(b.bezeichnung || '')}</td>
+          <td class="num">${U.fmtNum(b.anzahl, 0)}</td><td class="num">${U.fmtEur(b.betrag || 0)}</td>
+          <td>${U.esc(b.wer || (kontakte.get(b.kontaktId) || {}).name || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    </div>`);
+    const pz = $('#pfand-zurueck', main);
+    if (pz) pz.onclick = () => pfandRuecknahmeForm(cfg);
+  }
   const abgangOeffnen = () => materialAbgangForm(cfg);
   const ab1 = $('#abgang', main); if (ab1) ab1.onclick = abgangOeffnen;
   const ab2 = $('#abgang2', main); if (ab2) ab2.onclick = abgangOeffnen;
@@ -8264,6 +8337,14 @@ async function renderInventarBereich(main, cfg) {
         default: i && i.gebindeG ? gebindeLabel(gebindeGrammAus(i.gebindeG)) : '',
         options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
         hint: 'Nur für Gläser und Eimer: für welche Größe die Position gilt. Damit zieht die App beim Abfüllen automatisch die richtigen Gläser ab. Eigene Größen wie „30 g" gehen auch. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.' },
+      { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', halb: true,
+        hint: 'Nur bei Mehrweg – wenn Kunden das Gebinde zurückbringen und du das Pfand erstattest. Dann zeigt die App, wie viele draußen sind, und du kannst Rücknahmen buchen. Leer lassen heißt Einweg; dann erscheint nichts weiter dazu.' },
+      { key: 'pfandSeit', label: 'Pfand erhoben seit', type: 'date', halb: true, showIf: (f) => Number(f.pfand) > 0,
+        default: i && i.pfandSeit ? i.pfandSeit : U.todayIso(),
+        hint: 'Ab diesem Tag zählt die App Abfüllungen als Pfandware. Ohne Datum würde jedes je verkaufte Glas mitgezählt – auch das aus der Zeit ohne Pfand.' },
+      /* Zeile hier beenden: sonst rutscht „Mindestbestand" neben das Pfandfeld,
+         sobald das Startdatum ausgeblendet ist. */
+      { key: '_trennPfand', type: 'static', html: '' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', halb: true, hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date', halb: true,
         hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
@@ -9588,6 +9669,140 @@ async function verbrauchAbziehen(inventarId, menge, { pruefen = true } = {}) {
   return { pos, vorher, nachher: pos.stueckzahl, abgezogen: m, gefehlt: Math.max(0, Math.round((m - vorher) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
 }
 
+/** Legt eine Menge auf den Bestand zurück – für Pfand-Rücknahmen. Gegenstück
+    zu verbrauchAbziehen; rundet nach derselben Regel (nur Stück ganzzahlig). */
+async function verbrauchZugang(inventarId, menge, { pruefen = true } = {}) {
+  const m = Math.max(0, Number(menge) || 0);
+  if (!inventarId || m <= 0) return null;
+  const pos = await DB.get('inventar', inventarId);
+  if (!pos) return null;
+  const vorher = verbrauchBestand(pos);
+  const nachher = vorher + m;
+  pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
+  await DB.put('inventar', pos);
+  if (pruefen) pruefeMhd();
+  return { pos, vorher, nachher: pos.stueckzahl, zugang: m, einheit: verbrauchEinheit(pos) };
+}
+
+/* ---------------------------------------------------------------------
+   Pfand: Mehrweg-Gebinde im Umlauf
+
+   Zwei Welten müssen laufen (Julians Vorgabe: „leute die pfand nehmen und
+   welche die kein pfand nehmen"). Der Schalter ist das Pfandfeld selbst: steht
+   dort nichts, ist die Position Einweg und die ganze Pfand-Anzeige bleibt
+   unsichtbar. Kein Schalter in den Einstellungen, den man erst finden muss.
+
+   Wie ein Pfandglas läuft: gekauft → Bestand · abgefüllt → Bestand runter,
+   Glas ist gefüllt im Lager · Honig verkauft → Glas ist beim Kunden · leer
+   zurück → Bestand hoch, Pfand erstattet.
+
+   Draußen sind also die verkauften minus die zurückgebrachten. Die verkauften
+   stehen in den Abfüllungen (anzahl − bestand), verbunden über die
+   Gebindegröße – dasselbe Feld, an dem auch der Abzug beim Abfüllen hängt.
+
+   Das Pfand ist KEIN Erlös, sondern eine Schuld: es wird erstattet. Darum
+   bucht die Rücknahme eine AUSGABE ohne Umsatzsteuer, und die Rechnung weist
+   Pfand ohnehin getrennt und steuerfrei aus.
+   --------------------------------------------------------------------- */
+const PFAND_KATEGORIE = 'Pfandrückgabe';
+
+/** Positionen mit Pfand – nur sie machen Umlauf und Rücknahme sichtbar. */
+function pfandPositionen(alle) {
+  return (alle || []).filter((i) => Number(i.pfand) > 0);
+}
+
+/** Umlauf einer Pfand-Position: verkauft, zurück, draußen, offene Pfandsumme.
+    Reine Rechnung ohne Netz und Datenbank, damit sie prüfbar bleibt. */
+function pfandUmlauf(pos, abfuellungen, bewegungen) {
+  const groesse = gebindeGrammAus(pos && pos.gebindeG);
+  const pfand = Math.max(0, Number(pos && pos.pfand) || 0);
+  const seit = (pos && pos.pfandSeit) || '';
+  /* Ohne Gebindegröße lässt sich nicht sagen, welche Abfüllungen dazugehören –
+     dann zählen nur die Rücknahmen, und wir sagen es offen.
+
+     Und: nur Abfüllungen ab dem Tag, seit dem Pfand erhoben wird. Sonst zählt
+     die App jedes Glas mit, das je verkauft wurde – bei einer Umstellung mitten
+     im Jahr käme eine Phantomzahl heraus (beim Prüfen: 190 statt 40). */
+  const passend = groesse
+    ? (abfuellungen || []).filter((a) => gebindeGrammAus(a.gebindeG) === groesse && (!seit || String(a.datum || '') >= seit))
+    : [];
+  const verkauft = U.sum(passend, (a) => Math.max(0, (Number(a.anzahl) || 0) - (Number(a.bestand) || 0)));
+  const zurueck = U.sum((bewegungen || []).filter((b) => b.inventarId === (pos || {}).id), (b) => Math.max(0, Number(b.anzahl) || 0));
+  const draussen = Math.max(0, verkauft - zurueck);
+  return { groesse, pfand, seit, verkauft, zurueck, draussen, offen: Math.round(draussen * pfand * 100) / 100, ohneGroesse: !groesse };
+}
+
+/** Rücknahme buchen: Bestand hoch, Pfand als Ausgabe ins Kassenbuch, Vorgang
+    bleibt als eigener Datensatz nachvollziehbar. */
+async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
+  const posten = pfandPositionen((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ));
+  if (!posten.length) {
+    return UI.toast('Noch keine Position mit Pfand. Trage bei einem Gebinde „Pfand je Gebinde" ein, dann geht die Rücknahme.', 'err');
+  }
+  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
+  const abfuellungen = await DB.getAll('abfuellungen');
+  const bewegungen = await DB.getAll('pfandbewegungen');
+  const m = UI.formModal({
+    title: 'Pfand-Rücknahme buchen', wide: true,
+    fields: [
+      { key: 'inventarId', label: 'Welches Gebinde kommt zurück?', type: 'select', required: true, default: vorPositionId,
+        options: posten.map((i) => {
+          const u = pfandUmlauf(i, abfuellungen, bewegungen);
+          return { v: i.id, l: `${i.bezeichnung} · ${U.fmtEur(u.pfand)} Pfand · ${U.fmtNum(u.draussen, 0)} draußen` };
+        }) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'anzahl', label: 'Anzahl zurück', type: 'number', required: true, halb: true },
+      { key: 'kontaktId', label: 'Von wem?', type: 'select', halb: true, options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: 'wer', label: 'oder Name frei eintragen', placeholder: 'z. B. Stammkunde Meier' },
+      { key: '_pfandInfo', type: 'static', html: '<div class="hint" data-pfand-info></div>' },
+      { key: 'notiz', label: 'Notiz', type: 'textarea' },
+    ],
+    values: {},
+    async onSave(v) {
+      const pos = posten.find((i) => i.id === v.inventarId);
+      if (!pos) throw new Error('Bitte ein Gebinde wählen.');
+      const anzahl = Math.max(0, Math.round(Number(v.anzahl) || 0));
+      if (anzahl <= 0) throw new Error('Bitte eine Anzahl größer als null eintragen.');
+      const pfand = Math.max(0, Number(pos.pfand) || 0);
+      const betrag = Math.round(anzahl * pfand * 100) / 100;
+      const buchung = await verbrauchZugang(pos.id, anzahl, { pruefen: false });
+      const wer = (v.wer || '').trim() || (kunden.find((k) => k.id === v.kontaktId) || {}).name || '';
+      const rec = await DB.put('pfandbewegungen', {
+        inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, datum: v.datum,
+        anzahl, pfand, betrag, kontaktId: v.kontaktId || null, wer, notiz: (v.notiz || '').trim(),
+        bestandVorher: buchung ? buchung.vorher : verbrauchBestand(pos),
+        bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
+      });
+      if (betrag > 0) {
+        await DB.put('kassenbuch', { datum: rec.datum, typ: 'ausgabe', kategorie: PFAND_KATEGORIE, betrag, steuersatz: 0,
+          kontaktId: rec.kontaktId || null, rechnungId: null,
+          beschreibung: `Pfand erstattet: ${anzahl} × ${pos.bezeichnung}${wer ? ` an ${wer}` : ''}` });
+      }
+      UI.toast(`${anzahl} zurückgenommen · Bestand ${U.fmtNum(rec.bestandNachher, 0)}`
+        + (betrag > 0 ? ` · ${U.fmtEur(betrag)} Pfand erstattet` : ''));
+      await pruefeMhd();
+      renderRoute();
+    },
+  });
+  // Live: was das für Bestand und Pfand bedeutet
+  const info = $('[data-pfand-info]', m.el);
+  const zeige = () => {
+    const pos = posten.find((i) => i.id === (($('#f-inventarId', m.el) || {}).value));
+    if (!pos || !info) return;
+    const anzahl = Math.max(0, Math.round(U.parseNum(($('#f-anzahl', m.el) || {}).value) || 0));
+    const u = pfandUmlauf(pos, abfuellungen, bewegungen);
+    const bestand = verbrauchBestand(pos);
+    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 0)}</b> → nach der Rücknahme <b>${U.fmtNum(bestand + anzahl, 0)}</b>`
+      + (anzahl > 0 ? ` · Pfand <b>${U.fmtEur(anzahl * u.pfand)}</b> wird als Ausgabe gebucht` : '')
+      + `<br>Beim Kunden: ${U.fmtNum(u.draussen, 0)} Gebinde${anzahl > u.draussen && u.draussen > 0 ? ` <span class="zahl-warn">– du nimmst mehr zurück als draußen sind</span>` : ''}`
+      + (u.ohneGroesse ? ' <span class="muted">(ohne Gebindegröße kann die App nicht sehen, wie viele verkauft wurden – trage sie an der Position ein)</span>' : '');
+  };
+  m.el.addEventListener('input', zeige);
+  m.el.addEventListener('change', zeige);
+  zeige();
+  return m;
+}
+
 /** Feld-Bausteine für ein Formular: Auswahl der Position und Live-Hinweis. */
 function verbrauchFelder(posten, { label = 'Vom Verbrauchsmaterial abziehen', hint = '' } = {}) {
   return [
@@ -9840,7 +10055,7 @@ async function verbrauchBuchen(v, menge) {
   return buchung;
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialabgaenge: 'Materialabgang', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -12848,6 +13063,7 @@ Object.assign(window, {
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
   preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
+  verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
