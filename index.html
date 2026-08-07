@@ -947,8 +947,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.38';
+const APP_VERSION = '1.39';
 const CHANGELOG = [
+  { version: '1.39', datum: '2026-08-07', punkte: [
+    'Abgänge lassen sich jetzt <b>ändern und zurücknehmen</b> – Zeile in der Liste antippen. Gibt ein Kunde die Ware zurück, kommt die Menge wieder auf den Bestand und die Einnahme wird aus dem Kassenbuch genommen. Vorher war ein Abgang für immer gebucht.',
+    'Zurückgelegt wird genau die Menge, die damals wirklich abgezogen wurde – reichte der Bestand nicht, war es weniger als gebucht.',
+    'Beim <b>Verkauf an wen</b> kannst du jetzt direkt einen <b>neuen Kunden anlegen</b>, ohne den Vorgang abzubrechen. Der neue Kunde ist sofort ausgewählt. Genauso bei der Pfand-Rücknahme.',
+    'Auch eine <b>Pfand-Rücknahme</b> lässt sich zurücknehmen, falls sie falsch gebucht war.',
+  ] },
   { version: '1.38', datum: '2026-08-07', punkte: [
     'Die Tagesbienen sind fertig ausgearbeitet: hell gezeichnete Kantenlinien, die im Dunkelmodus als Haare aufblitzten, sind gedämpft – Sonnenstrahlen, Flügel, Tasse und Kissen bleiben unangetastet. Auf hellem und dunklem Grund geprüft, alle 24.',
   ] },
@@ -5252,6 +5258,38 @@ async function kontaktForm(c, { typ, onSaved } = {}) {
   });
 }
 
+/** Hängt unter ein Kontakt-Auswahlfeld einen Knopf „Neuer Kunde". Der neue
+    Kontakt steht sofort in der Liste und ist ausgewählt – ohne das Formular zu
+    verlassen und ohne den Vorgang abzubrechen. Muster wie
+    listenwertNeuShortcut, nur für Kontakte. */
+function verdrahteKontaktNeu(m, feldKey, liste, { typ = 'kunde', label = 'Neuer Kunde' } = {}) {
+  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  const sel = $(`#f-${feldKey}`, m.el);
+  if (!wrap || !sel) return m;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-ghost btn-sm no-print';
+  btn.style.marginTop = '6px';
+  btn.innerHTML = `${icon('plus')} ${label}`;
+  wrap.insertBefore(btn, $('.err', wrap));
+  btn.onclick = () => kontaktForm(null, {
+    typ,
+    async onSaved(neu) {
+      liste.push(neu);
+      if (![...sel.options].some((o) => o.value === neu.id)) {
+        const opt = document.createElement('option');
+        opt.value = neu.id;
+        opt.textContent = `${neu.name} (${neu.typ})`;
+        sel.appendChild(opt);
+      }
+      sel.value = neu.id;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      UI.toast(`„${neu.name}" angelegt und ausgewählt`);
+    },
+  });
+  return m;
+}
+
 function verdrahteVolkAuswahl(m, alleVoelker) {
   const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el), volkSel = $('#f-volkId', m.el);
   if (!standSel || !funkSel || !volkSel) return;
@@ -8257,10 +8295,10 @@ async function renderInventarBereich(main, cfg) {
     <div class="card-title">${icon('euro')}<h2>Abgänge und Verkäufe${jahr && jahr !== '__ohne' ? ` ${jahr}` : ''}</h2>
       ${erloesJahr > 0 ? `<span class="badge b-ok">Erlös ${U.fmtEur(erloesJahr)}</span>` : ''}
       <button class="btn btn-primary btn-sm no-print" id="abgang2">${icon('plus')} Abgang buchen</button></div>
-    <p class="small muted mb12">Verkauft, selbst verbraucht, kaputt oder verschenkt – hier bleibt jeder Abgang mit Datum und Menge nachvollziehbar. Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht.</p>
+    <p class="small muted mb12">Verkauft, selbst verbraucht, kaputt oder verschenkt – hier bleibt jeder Abgang mit Datum und Menge nachvollziehbar. Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen – etwa wenn ein Kunde die Ware zurückgibt; Bestand und Kassenbuch gehen dann mit.</p>
     ${abgaenge.length ? `<div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Datum</th><th>Position</th><th>Grund</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Erlös</th><th>Käufer / Beleg</th></tr></thead>
-      <tbody>${abgaenge.map((a) => `<tr>
+      <tbody>${abgaenge.map((a) => `<tr data-abgang="${a.id}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
         <td>${U.fmtDate(a.datum)}</td><td>${U.esc(a.bezeichnung || '')}</td>
         <td>${U.esc(a.art || '')}</td>
         <td class="num">${U.fmtNum(a.menge, 2)} ${U.esc(a.einheit || '')}</td>
@@ -8302,13 +8340,42 @@ async function renderInventarBereich(main, cfg) {
         </tbody></table></div>
       ${letzte.length ? `<div class="small muted mt12 mb4" style="font-weight:600">Letzte Rücknahmen</div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Gebinde</th><th class="num">Anzahl</th><th class="num">Erstattet</th><th>Von wem</th></tr></thead>
-        <tbody>${letzte.map((b) => `<tr><td>${U.fmtDate(b.datum)}</td><td>${U.esc(b.bezeichnung || '')}</td>
+        <tbody>${letzte.map((b) => `<tr data-pfandweg="${b.id}" style="cursor:pointer" title="Zum Zurücknehmen antippen"><td>${U.fmtDate(b.datum)}</td><td>${U.esc(b.bezeichnung || '')}</td>
           <td class="num">${U.fmtNum(b.anzahl, 0)}</td><td class="num">${U.fmtEur(b.betrag || 0)}</td>
-          <td>${U.esc(b.wer || (kontakte.get(b.kontaktId) || {}).name || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+          <td>${U.esc(b.wer || (kontakte.get(b.kontaktId) || {}).name || '')}</td></tr>`).join('')}</tbody></table></div>
+        <p class="small muted mt8">Falsch gebucht? Zeile antippen – die Gläser gehen wieder vom Bestand ab und das Pfand zurück ins Kassenbuch.</p>` : ''}
     </div>`);
     const pz = $('#pfand-zurueck', main);
     if (pz) pz.onclick = () => pfandRuecknahmeForm(cfg);
+    /* Eine Rücknahme wieder herausnehmen: Bestand runter, Erstattung aus dem
+       Kassenbuch. Ohne das bliebe eine Fehlbuchung für immer stehen. */
+    main.addEventListener('click', async (e) => {
+      const zeile = e.target.closest('[data-pfandweg]');
+      if (!zeile) return;
+      const b = bewegungen.find((x) => x.id === zeile.dataset.pfandweg);
+      if (!b) return;
+      if (!(await UI.confirm({ title: 'Rücknahme zurücknehmen?',
+        text: `${U.fmtNum(b.anzahl, 0)} × „${b.bezeichnung}" gehen wieder vom Bestand ab`
+          + (b.betrag > 0 ? `, und die Erstattung von ${U.fmtEur(b.betrag)} wird aus dem Kassenbuch genommen` : '')
+          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Zurücknehmen', danger: true }))) return;
+      await verbrauchAbziehen(b.inventarId, b.anzahl, { pruefen: false });
+      if (b.kassenbuchId) { try { await DB.softDel('kassenbuch', b.kassenbuchId); } catch (err) { console.warn(err); } }
+      else if (b.betrag > 0) {
+        const treffer = (await DB.getAll('kassenbuch')).find((k) => k.kategorie === PFAND_KATEGORIE
+          && k.datum === b.datum && Math.abs((Number(k.betrag) || 0) - (Number(b.betrag) || 0)) < 0.005);
+        if (treffer) await DB.softDel('kassenbuch', treffer.id);
+      }
+      await DB.softDel('pfandbewegungen', b.id);
+      UI.toast('Rücknahme zurückgenommen');
+      renderRoute();
+    });
   }
+  main.addEventListener('click', (e) => {
+    const zeile = e.target.closest('[data-abgang]');
+    if (!zeile) return;
+    const a = abgaengeAlle.find((x) => x.id === zeile.dataset.abgang);
+    if (a) materialAbgangForm(cfg, a.inventarId, a);
+  });
   const abgangOeffnen = () => materialAbgangForm(cfg);
   const ab1 = $('#abgang', main); if (ab1) ab1.onclick = abgangOeffnen;
   const ab2 = $('#abgang2', main); if (ab2) ab2.onclick = abgangOeffnen;
@@ -9584,14 +9651,42 @@ function abgangErloes(a) {
   return Math.round((Math.max(0, Number(a.menge) || 0) * Math.max(0, Number(a.preis) || 0)) * 100) / 100;
 }
 
-/** Formular für einen Abgang. cfg.typ begrenzt die Auswahl auf einen Bereich. */
-async function materialAbgangForm(cfg, vorPositionId = '') {
+/** Nimmt einen gebuchten Abgang zurück – für Bearbeiten und Löschen.
+
+    Es wird genau die Menge zurückgelegt, die damals wirklich abgezogen wurde
+    (`bestandVorher − bestandNachher`), nicht die gebuchte Menge: reichte der
+    Bestand damals nicht, wurde weniger abgezogen als gebucht.
+
+    Eine dazu gebuchte Kassenbuch-Einnahme wandert in den Papierkorb. Bei
+    Datensätzen aus der Zeit vor `kassenbuchId` wird sie über Datum, Betrag und
+    Bezeichnung gesucht – lieber gefunden als stehengelassen. */
+async function abgangZurueckbuchen(rec) {
+  if (!rec) return;
+  const zurueck = Math.max(0, (Number(rec.bestandVorher) || 0) - (Number(rec.bestandNachher) || 0));
+  if (zurueck > 0) await verbrauchZugang(rec.inventarId, zurueck, { pruefen: false });
+  const erloes = abgangErloes(rec);
+  if (rec.kassenbuchId) {
+    try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
+  } else if (erloes > 0) {
+    const treffer = (await DB.getAll('kassenbuch')).find((k) => k.kategorie === 'Materialverkauf'
+      && k.datum === rec.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005
+      && String(k.beschreibung || '').startsWith(String(rec.bezeichnung || '')));
+    if (treffer) await DB.softDel('kassenbuch', treffer.id);
+  }
+}
+
+/** Formular für einen Abgang. cfg.typ begrenzt die Auswahl auf einen Bereich.
+    Mit `rec` wird ein vorhandener Abgang bearbeitet: die alte Buchung wird beim
+    Speichern zuerst zurückgenommen, dann neu gebucht. */
+async function materialAbgangForm(cfg, vorPositionId = '', rec = null) {
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
   const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
   const m = UI.formModal({
-    title: 'Abgang / Verkauf buchen', wide: true,
+    title: rec ? 'Abgang bearbeiten' : 'Abgang / Verkauf buchen', wide: true,
     fields: [
+      { key: '_bearbHinweis', type: 'static', showIf: () => !!rec,
+        html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder. Kam die Ware zurück, kannst du den Abgang unten auch löschen.</div>' : '' },
       { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
         options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
@@ -9605,14 +9700,18 @@ async function materialAbgangForm(cfg, vorPositionId = '') {
       { key: '_abgangInfo', type: 'static', html: '<div class="hint" data-abgang-info></div>' },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
     ],
-    values: { art: 'Verkauf' },
+    values: rec || { art: 'Verkauf' },
     async onSave(v) {
       const pos = posten.find((i) => i.id === v.inventarId);
       if (!pos) throw new Error('Bitte eine Position wählen.');
       const menge = Math.max(0, Number(v.menge) || 0);
       if (menge <= 0) throw new Error('Bitte eine Menge größer als null eintragen.');
+      /* Beim Bearbeiten erst die alte Buchung zurücknehmen, dann neu buchen –
+         so muss keine Differenz gerechnet werden und der Bestand stimmt auch,
+         wenn Position oder Menge gewechselt haben. */
+      if (rec) await abgangZurueckbuchen(rec);
       const buchung = await verbrauchAbziehen(pos.id, menge);
-      const rec = await DB.put('materialabgaenge', {
+      const gespeichert = await DB.put('materialabgaenge', Object.assign(rec || {}, {
         inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, einheit: verbrauchEinheit(pos),
         datum: v.datum, menge, art: v.art, preis: v.art === 'Verkauf' ? (Number(v.preis) || 0) : 0,
         kontaktId: v.art === 'Verkauf' ? (v.kontaktId || null) : null,
@@ -9621,20 +9720,41 @@ async function materialAbgangForm(cfg, vorPositionId = '') {
         bestandVorher: buchung ? buchung.vorher : verbrauchBestand(pos),
         bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
         notiz: (v.notiz || '').trim(),
-      });
-      const erloes = abgangErloes(rec);
+        kassenbuchId: null,
+      }));
+      const erloes = abgangErloes(gespeichert);
       if (erloes > 0) {
-        const wer = rec.kaeufer || (kunden.find((k) => k.id === rec.kontaktId) || {}).name || '';
-        await DB.put('kassenbuch', { datum: rec.datum, typ: 'einnahme', kategorie: 'Materialverkauf', betrag: erloes, steuersatz: 0,
-          kontaktId: rec.kontaktId || null, rechnungId: null,
-          beschreibung: `${rec.bezeichnung}: ${U.fmtNum(rec.menge, 2)} ${rec.einheit}${wer ? ` an ${wer}` : ''}${rec.belegNr ? ` (${rec.belegNr})` : ''}` });
+        const wer = gespeichert.kaeufer || (kunden.find((k) => k.id === gespeichert.kontaktId) || {}).name || '';
+        /* Die Nummer der Buchung merken: nur so lässt sie sich beim Bearbeiten
+           oder Löschen wieder sicher entfernen. */
+        const kb = await DB.put('kassenbuch', { datum: gespeichert.datum, typ: 'einnahme', kategorie: 'Materialverkauf', betrag: erloes, steuersatz: 0,
+          kontaktId: gespeichert.kontaktId || null, rechnungId: null,
+          beschreibung: `${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}${wer ? ` an ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` });
+        gespeichert.kassenbuchId = kb.id;
+        await DB.put('materialabgaenge', gespeichert);
       }
-      UI.toast(`${rec.art} gebucht: ${U.fmtNum(rec.menge, 2)} ${rec.einheit} ${rec.bezeichnung}`
+      UI.toast(`${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
         + (erloes > 0 ? ` · ${U.fmtEur(erloes)} im Kassenbuch` : '')
-        + (buchung && buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${rec.einheit} fehlten im Bestand` : ''));
+        + (buchung && buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${gespeichert.einheit} fehlten im Bestand` : ''));
+      await pruefeMhd();
       renderRoute();
     },
+    /* Kunde hat zurückgegeben: Abgang löschen, Bestand und Kassenbuch gehen
+       automatisch mit. */
+    onDelete: rec ? async () => {
+      if (!(await UI.confirm({ title: 'Abgang löschen?',
+        text: `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" kommen wieder auf den Bestand`
+          + (abgangErloes(rec) > 0 ? `, und die Einnahme von ${U.fmtEur(abgangErloes(rec))} wird aus dem Kassenbuch genommen` : '')
+          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Löschen', danger: true }))) return false;
+      await abgangZurueckbuchen(rec);
+      await DB.softDel('materialabgaenge', rec.id);
+      UI.toast('Abgang zurückgenommen – Bestand und Kassenbuch angepasst');
+      await pruefeMhd();
+      renderRoute();
+      return true;
+    } : null,
   });
+  verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
   // Live-Hinweis: Bestand nachher und Erlös
   const info = $('[data-abgang-info]', m.el);
   const zeige = () => {
@@ -9786,9 +9906,11 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
         bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
       });
       if (betrag > 0) {
-        await DB.put('kassenbuch', { datum: rec.datum, typ: 'ausgabe', kategorie: PFAND_KATEGORIE, betrag, steuersatz: 0,
+        const kb = await DB.put('kassenbuch', { datum: rec.datum, typ: 'ausgabe', kategorie: PFAND_KATEGORIE, betrag, steuersatz: 0,
           kontaktId: rec.kontaktId || null, rechnungId: null,
           beschreibung: `Pfand erstattet: ${anzahl} × ${pos.bezeichnung}${wer ? ` an ${wer}` : ''}` });
+        rec.kassenbuchId = kb.id;     // damit die Buchung später wieder auffindbar ist
+        await DB.put('pfandbewegungen', rec);
       }
       UI.toast(`${anzahl} zurückgenommen · Bestand ${U.fmtNum(rec.bestandNachher, 0)}`
         + (betrag > 0 ? ` · ${U.fmtEur(betrag)} Pfand erstattet` : ''));
@@ -9796,6 +9918,7 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
       renderRoute();
     },
   });
+  verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
   // Live: was das für Bestand und Pfand bedeutet
   const info = $('[data-pfand-info]', m.el);
   const zeige = () => {
@@ -13076,6 +13199,7 @@ Object.assign(window, {
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
   preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
+  abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,
   inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,

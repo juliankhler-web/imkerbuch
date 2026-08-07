@@ -4604,3 +4604,65 @@ test('Pfand: steckt hinter einem Häkchen – wie beim MHD', async (w) => {
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
+
+test('Abgang zurücknehmen: Bestand und Kassenbuch gehen mit', async (w) => {
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Mittelwände Rücknahme-Test', kategorie: 'Mittelwände',
+    einheit: 'kg', stueckzahl: 25, preis: 15 });
+  // 6 kg verkauft à 15 € → Bestand 19, Einnahme 90 €
+  const buchung = await w.verbrauchAbziehen(pos.id, 6, { pruefen: false });
+  const kb = await w.DB.put('kassenbuch', { datum: '2026-08-07', typ: 'einnahme', kategorie: 'Materialverkauf',
+    betrag: 90, steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Mittelwände Rücknahme-Test: 6,00 kg' });
+  const abg = await w.DB.put('materialabgaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch',
+    einheit: 'kg', datum: '2026-08-07', menge: 6, art: 'Verkauf', preis: 15,
+    bestandVorher: buchung.vorher, bestandNachher: buchung.nachher, kassenbuchId: kb.id });
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 19, 'nach dem Verkauf 19 kg');
+  assertEq(w.abgangErloes(abg), 90, 'Erlös 6 × 15 €');
+  // Kunde gibt zurück
+  await w.abgangZurueckbuchen(abg);
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 25, 'Bestand wieder 25 kg');
+  assertEq(await w.DB.get('kassenbuch', kb.id), undefined, 'die Einnahme ist aus dem Kassenbuch weg');
+  assert((await w.DB.getAll('papierkorb')).some((t) => t.store === 'kassenbuch' && t.daten.id === kb.id),
+    'sie liegt im Papierkorb, ist also nicht verloren');
+
+  // Der wichtige Sonderfall: der Bestand reichte damals NICHT
+  const knapp = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Knapp-Test', kategorie: 'Mittelwände', einheit: 'kg', stueckzahl: 2 });
+  const b2 = await w.verbrauchAbziehen(knapp.id, 10, { pruefen: false });
+  assertEq(b2.nachher, 0, 'auf 0 gelaufen');
+  assertEq(b2.gefehlt, 8, '8 kg fehlten');
+  const abg2 = await w.DB.put('materialabgaenge', { inventarId: knapp.id, bezeichnung: knapp.bezeichnung, typ: 'verbrauch',
+    einheit: 'kg', datum: '2026-08-07', menge: 10, art: 'Eigenverbrauch', preis: 0,
+    bestandVorher: b2.vorher, bestandNachher: b2.nachher });
+  await w.abgangZurueckbuchen(abg2);
+  assertEq((await w.DB.get('inventar', knapp.id)).stueckzahl, 2,
+    'zurück kommen die tatsächlich abgezogenen 2 kg – nicht die gebuchten 10, sonst entstünde Bestand aus nichts');
+
+  // Ohne gemerkte Buchungsnummer (Altdatensatz) wird die Buchung gefunden
+  const alt = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Altfall-Test', kategorie: 'Mittelwände', einheit: 'kg', stueckzahl: 10 });
+  const b3 = await w.verbrauchAbziehen(alt.id, 2, { pruefen: false });
+  const kbAlt = await w.DB.put('kassenbuch', { datum: '2026-08-06', typ: 'einnahme', kategorie: 'Materialverkauf',
+    betrag: 20, steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Altfall-Test: 2,00 kg an Meier' });
+  await w.abgangZurueckbuchen({ inventarId: alt.id, bezeichnung: 'Altfall-Test', datum: '2026-08-06', menge: 2,
+    art: 'Verkauf', preis: 10, bestandVorher: b3.vorher, bestandNachher: b3.nachher });
+  assertEq((await w.DB.get('inventar', alt.id)).stueckzahl, 10, 'Bestand zurück');
+  assertEq(await w.DB.get('kassenbuch', kbAlt.id), undefined, 'auch ohne gemerkte Nummer wird die Buchung entfernt');
+});
+
+test('Neuer Kunde direkt im Abgangs-Formular', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Kunde-Kurzweg-Test', kategorie: 'Mittelwände', einheit: 'kg', stueckzahl: 5 });
+  const cfg = { typ: 'verbrauch', titel: 'Verbrauchsmaterial' };
+  const m = await w.materialAbgangForm(cfg);
+  await new Promise((r) => setTimeout(r, 200));
+  try {
+    const wrap = m.el.querySelector('[data-field="kontaktId"]');
+    assert(wrap, 'das Kontaktfeld ist da');
+    const knopf = wrap.querySelector('button');
+    assert(knopf, 'und darunter der Knopf zum Anlegen');
+    assert(/Kunden anlegen/i.test(knopf.innerText), `Beschriftung sagt, was passiert: ${knopf.innerText}`);
+    assertEq(knopf.type, 'button', 'kein Absenden-Knopf – sonst würde er das Formular abschicken');
+  } finally {
+    m.close && m.close(true);
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});

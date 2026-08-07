@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.38 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 293/293 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.39 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 295/295 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.39)**: **Abgänge bearbeiten und zurücknehmen + Kunde direkt anlegen** (Julian: „wenn ich abgänge anlege dann kann ich sie im nachhinein nicht wieder rausnehmen, wenn zb der kunde den kauf zurückgegeben hat … und bei Verkauf an wen muss ich gleich auch einen neuen kunden anlegen können").
+  `materialAbgangForm(cfg, vorPositionId, rec)` bearbeitet jetzt auch: beim Speichern wird die **alte Buchung zuerst zurückgenommen und dann neu gebucht** (`abgangZurueckbuchen`) – kein Differenzrechnen, stimmt auch bei Wechsel von Position oder Menge. `onDelete` nimmt Bestand und Kassenbuch zurück. Abgangszeilen sind anklickbar (`data-abgang`).
+  ⚠️ **Feinheit, die zählt**: zurückgelegt wird `bestandVorher − bestandNachher`, **nicht** `menge` – reichte der Bestand damals nicht, wurde weniger abgezogen als gebucht, und `menge` zurückzugeben würde Bestand aus nichts erzeugen. Test deckt genau diesen Fall ab (2 kg da, 10 gebucht → 2 zurück).
+  Neu wird `kassenbuchId` am Abgang gespeichert, damit die Buchung wieder auffindbar ist; für **Altdatensätze** ohne diese Nummer gibt es eine Suche über Datum + Betrag + Bezeichnung. Dasselbe für Pfand-Rücknahmen, die sich nun ebenfalls zurücknehmen lassen.
+  **`verdrahteKontaktNeu(m, feldKey, liste, {typ, label})`** – wiederverwendbarer Kurzweg „Neuen Kunden anlegen" unter einem Kontakt-Auswahlfeld (Muster wie `listenwertNeuShortcut`, nutzt `kontaktForm`s `onSaved`, damit **kein `renderRoute`** das offene Formular wegräumt). Eingesetzt im Abgangs- und im Pfand-Rücknahme-Formular.
+  **Live durchgespielt**: 6 kg à 15 € → Bestand 25→19, Buchung 90 €; Menge auf 4 geändert → Bestand 21, genau **eine** Buchung über 60 €; gelöscht → Bestand 25, keine Buchung, beides im Papierkorb. Kunde mitten im Abgang angelegt: Formular blieb offen, Menge blieb stehen, neuer Kunde sofort ausgewählt. SW → v151.
 
 - **2026-08-07 (v1.38)**: **Tagesbienen fertig ausgearbeitet** (Julian: „ändere alles so das es perfekt ist"). Die hell gezeichneten Kantenlinien der Vorlage sind gedämpft; Schneide-Skript liegt jetzt im Projekt: [tools/bienen-schneiden.py](tools/bienen-schneiden.py).
   ⚠️ **Zwei Merkmale sind zusammen nötig – einzeln richtet jedes Schaden an (beides ausprobiert und zurückgenommen):**
