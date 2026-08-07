@@ -394,7 +394,7 @@ input.inp:focus,select.inp:focus,textarea.inp:focus{border-color:var(--honey);bo
 select.inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="%23999" stroke-width="2" stroke-linecap="round"/></svg>');background-repeat:no-repeat;background-position:right 13px center;padding-right:36px}
 /* Eigenes „Auswählen-oder-Eintippen“-Dropdown (ersetzt <datalist>, das auf iOS/Android unzuverlässig ist) */
 .combo{position:relative}
-.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="%23999" stroke-width="2" stroke-linecap="round"/></svg>');background-repeat:no-repeat;background-position:right 13px center;padding-right:36px}
+input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="%23999" stroke-width="2" stroke-linecap="round"/></svg>');background-repeat:no-repeat;background-position:right 13px center;padding-right:36px}
 .combo-list{margin-top:6px;border:1.5px solid var(--line2);border-radius:var(--r-sm);background:var(--card);max-height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .combo-opt{padding:12px 13px;cursor:pointer;font-size:14.5px;border-bottom:1px solid var(--line)}
 .combo-opt:last-child{border-bottom:0}
@@ -927,8 +927,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.32';
+const APP_VERSION = '1.33';
 const CHANGELOG = [
+  { version: '1.33', datum: '2026-08-06', punkte: [
+    'Neu beim Verbrauchsmaterial: <b>Kilopreis ausrechnen lassen</b>. Trage ein, was eine Packung enthält und was sie kostet – 25 kg für 41 € –, und die App setzt den Preis je kg (1,64 €). Gilt für jede Einheit, auch Kanister Sirup oder Karton Gläser. Packungsangaben bleiben gespeichert, damit du sie später ändern kannst.',
+    'Die Beschriftungen folgen jetzt der Einheit: „Preis je kg", „Bestand (kg)", „Eine Packung enthält (kg)" – statt überall „Stück".',
+    'Neue Kategorie <b>Eimer/Hobbock</b> – die fehlte.',
+    'Das <b>Mindesthaltbarkeitsdatum</b> ist jetzt eine Frage: erst „Hat ein MHD" anhaken, dann erscheint das Datumsfeld. Gläser, Deckel und Eimer haben keins und fragen auch nicht mehr danach.',
+    'Behoben: den <b>Vorschlagsfeldern fehlte der Pfeil</b> zum Aufklappen (Einheit, Kategorie, Bezeichnung …) – man konnte nicht erkennen, dass es dort etwas zur Auswahl gibt. Ursache war eine überschriebene Stilregel.',
+  ] },
   { version: '1.32', datum: '2026-08-06', punkte: [
     'Bio → Standorte rechnet jetzt um die <b>Koordinaten des Bienenstands</b> – die sind da, wo keine Adresse ist. Sie stehen oben im Formular, aus dem Stand übernommen, und lassen sich überschreiben.',
     'Neu daneben: <b>„Aktuellen Standort übernehmen"</b> – am Stand selbst der kürzeste Weg zu genauen Koordinaten.',
@@ -1482,8 +1489,8 @@ const KASSEN_KATEGORIEN = {
 };
 // Inventar = langlebige Gebrauchsgüter; Verbrauchsmaterial = Verbrauchsgüter (Mittel, Futter, Gläser …)
 const INVENTAR_KATEGORIEN = ['Beute', 'Zarge', 'Rähmchen', 'Gerät', 'Schleuderraum', 'Fahrzeug/Anhänger', 'Sonstiges'];
-const MATERIAL_KATEGORIEN = ['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände', 'Sonstiges'];
-const VERBRAUCH_KATEGORIEN = new Set(['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Etiketten', 'Mittelwände']);
+const MATERIAL_KATEGORIEN = ['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Eimer/Hobbock', 'Etiketten', 'Mittelwände', 'Sonstiges'];
+const VERBRAUCH_KATEGORIEN = new Set(['Behandlungsmittel', 'Futter', 'Gläser/Deckel', 'Eimer/Hobbock', 'Etiketten', 'Mittelwände']);
 // Amtliche deutsche Öko-Kontrollstellen (BLE-Liste, Code + Name) – als Auswahl, frei ergänzbar
 const KONTROLLSTELLEN = [
   'DE-ÖKO-001 – Kiwa BCS Öko-Garantie GmbH', 'DE-ÖKO-003 – Lacon GmbH', 'DE-ÖKO-005 – Ecocert Deutschland GmbH',
@@ -8166,10 +8173,22 @@ async function renderInventarBereich(main, cfg) {
         default: i && i.gebindeG ? gebindeLabel(gebindeGrammAus(i.gebindeG)) : '',
         options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
         hint: 'Nur für Gläser und Eimer: für welche Größe die Position gilt. Damit zieht die App beim Abfüllen automatisch die richtigen Gläser ab. Eigene Größen wie „30 g" gehen auch. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.' },
-      { key: 'preis', label: 'Preis je Stück (€)', type: 'number' },
+      { key: 'preis', label: 'Preis je Stück (€)', type: 'number',
+        hint: 'Wird aus den beiden Feldern darunter ausgerechnet, wenn du sie füllst.' },
+      /* Julian kauft Zucker in 25-kg-Säcken zu ~41 €: die App soll den Kilopreis
+         rechnen, nicht er. Gilt für jede Einheit – Kanister Sirup, Flasche Säure,
+         Karton Gläser. */
+      { key: 'packMenge', label: 'Eine Packung enthält', type: 'number', placeholder: 'z. B. 25' },
+      { key: 'packPreis', label: 'Preis je Packung (€)', type: 'number', placeholder: 'z. B. 41' },
+      { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date',
         hint: cfg.typ === 'verbrauch' ? 'Wann die Position in den Bestand kam. Optional.' : '' },
-      { key: 'ablauf', label: 'Ablaufdatum / MHD (optional)', type: 'date', hint: 'Nur bei Material mit Haltbarkeit – etwa Varroa-Mittel oder Futter. Leer lassen ist in Ordnung; ohne Datum erinnert die App auch nicht.' },
+      /* Erst die Frage, dann das Feld: Gläser, Deckel und Eimer haben kein MHD,
+         und ein leeres Datumsfeld sieht trotzdem nach Pflicht aus. */
+      { key: '_hatMhd', label: 'Hat ein Mindesthaltbarkeitsdatum', type: 'check', default: !!(i && i.ablauf),
+        hint: 'Nur bei Material mit Haltbarkeit – Varroa-Mittel, Säuren, Futter. Gläser, Deckel und Eimer brauchen keins.' },
+      { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', showIf: (f) => !!f._hatMhd,
+        hint: 'Die App erinnert dich, bevor es abläuft.' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
       { key: 'standId', label: 'Zuordnung Stand', type: 'select', options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
       { key: 'volkId', label: 'Zuordnung Volk', type: 'select', options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
@@ -8181,6 +8200,13 @@ async function renderInventarBereich(main, cfg) {
       v.einheit = (v.einheit || 'Stück').trim() || 'Stück';
       v.stueckzahl = v.einheit === 'Stück' ? Math.round(v.stueckzahl || 1) : Math.max(0, Number(v.stueckzahl) || 0);
       v.gebindeG = gebindeGrammAus(v.gebindeG);      // „500 g" / „0,5 kg" → Gramm
+      if (!v._hatMhd) v.ablauf = null;               // Häkchen weg heißt: kein MHD, auch kein altes
+      delete v._hatMhd;                              // Hilfsfeld nicht mitspeichern
+      /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
+         und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
+         Formularfeld geglaubt, das könnte veraltet sein. */
+      const jeEinheit = preisJeEinheit(v.packMenge, v.packPreis);
+      if (jeEinheit !== null) v.preis = jeEinheit;
       await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ })); pruefeMhd(); UI.toast('Gespeichert'); renderRoute();
     },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
@@ -9209,8 +9235,20 @@ const EINHEIT_VORSCHLAEGE = [
   [/zucker|futterteig|teig|fondant/i, 'kg'],
   [/sirup|invert|futtersaft/i, 'L'],
   [/säure|saeure|oxal|ameisen|milchsäure|thymol/i, 'ml'],
-  [/glas|gläser|deckel|eimer|kiste|etikett|rähmchen|raehmchen|draht/i, 'Stück'],
+  [/glas|gläser|deckel|eimer|hobbock|kanister|kiste|etikett|rähmchen|raehmchen|draht/i, 'Stück'],
 ];
+/** Preis je Einheit aus Packungsgröße und Packungspreis.
+    25 kg für 41 € → 1,64 € je kg. Gibt null zurück, wenn die Angaben nicht
+    reichen – dann bleibt ein von Hand eingetragener Preis unangetastet.
+    Gerundet auf Zehntel-Cent: bei 1,64 € je kg wäre der Cent zu grob, sobald
+    man daraus Selbstkosten je Glas rechnet. */
+function preisJeEinheit(packMenge, packPreis) {
+  const menge = Math.max(0, Number(packMenge) || 0);
+  const preis = Math.max(0, Number(packPreis) || 0);
+  if (!(menge > 0) || !(preis > 0)) return null;
+  return Math.round((preis / menge) * 10000) / 10000;
+}
+
 function einheitVorschlag(text) {
   const t = String(text || '');
   for (const [re, einheit] of EINHEIT_VORSCHLAEGE) if (re.test(t)) return einheit;
@@ -9227,14 +9265,47 @@ function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim(
 function verdrahteEinheit(m, istNeu) {
   const bez = $('#f-bezeichnung', m.el), einheit = $('#f-einheit', m.el), stk = $('#f-stueckzahl', m.el);
   if (!einheit) return m;
+  const preis = $('#f-preis', m.el), packMenge = $('#f-packMenge', m.el), packPreis = $('#f-packPreis', m.el);
+  const packInfo = $('[data-pack-info]', m.el);
   let vonHand = false;
   einheit.addEventListener('input', () => { vonHand = true; beschrifte(); });
   einheit.addEventListener('change', () => { vonHand = true; beschrifte(); });
+  const setzeLabel = (feld, text) => {
+    const lab = feld && feld.closest('.field') && $('label', feld.closest('.field'));
+    if (lab) lab.textContent = text;
+  };
   function beschrifte() {
     const e = (einheit.value || 'Stück').trim() || 'Stück';
-    const lab = stk && stk.closest('.field') && $('label', stk.closest('.field'));
-    if (lab) lab.textContent = e === 'Stück' ? 'Stückzahl / Bestand' : `Bestand (${e})`;
+    setzeLabel(stk, e === 'Stück' ? 'Stückzahl / Bestand' : `Bestand (${e})`);
     if (stk) stk.step = e === 'Stück' ? '1' : 'any';
+    setzeLabel(preis, `Preis je ${e} (€)`);
+    setzeLabel(packMenge, `Eine Packung enthält (${e})`);
+    rechnePreis();
+  }
+  /* Kilopreis live: Menge und Preis der Packung → Preis je Einheit. Das Ergebnis
+     landet im Preisfeld, aber nur solange es aus der Rechnung kommt – tippt man
+     dort selbst, gewinnt die eigene Zahl. */
+  let preisVonHand = false;
+  if (preis) preis.addEventListener('input', () => { preisVonHand = true; if (packInfo) rechnePreis(); });
+  function rechnePreis() {
+    if (!packInfo) return;
+    const e = (einheit.value || 'Stück').trim() || 'Stück';
+    const menge = U.parseNum(packMenge ? packMenge.value : '');
+    const proPackung = U.parseNum(packPreis ? packPreis.value : '');
+    const jeEinheit = preisJeEinheit(menge, proPackung);
+    if (jeEinheit === null) {
+      packInfo.innerHTML = 'Trage Packungsgröße und Packungspreis ein, dann rechnet die App den Preis je Einheit aus – z. B. 25 kg für 41 € = 1,64 € je kg.';
+      return;
+    }
+    if (preis && !preisVonHand) preis.value = String(jeEinheit).replace('.', ',');
+    packInfo.innerHTML = `${U.fmtNum(menge, 2)} ${U.esc(e)} für ${U.fmtEur(proPackung)} = <b>${U.fmtEur(jeEinheit)} je ${U.esc(e)}</b>`
+      + (preisVonHand ? ' <span class="muted">– dein eigener Preis oben bleibt stehen</span>' : '')
+      + `<br><span class="muted">Beim Speichern zählt diese Rechnung.</span>`;
+  }
+  for (const feld of [packMenge, packPreis]) {
+    if (!feld) continue;
+    feld.addEventListener('input', rechnePreis);
+    feld.addEventListener('change', rechnePreis);
   }
   if (bez && istNeu) {
     bez.addEventListener('input', () => {
@@ -9467,7 +9538,7 @@ function glasPostenAnlegen(gebindeG, fertig) {
     fields: [
       { key: 'bezeichnung', label: 'Bezeichnung', required: true, placeholder: 'z. B. Gläser 500 g Rundglas' },
       { key: 'kategorie', label: 'Kategorie', type: 'select', required: true, default: 'Gläser/Deckel',
-        options: ['Gläser/Deckel', 'Etiketten'].map((k) => ({ v: k, l: k })) },
+        options: ['Gläser/Deckel', 'Eimer/Hobbock', 'Etiketten'].map((k) => ({ v: k, l: k })) },
       { key: 'gebindeG', label: 'Gebindegröße', type: 'suggest', default: gebindeG ? gebindeLabel(gebindeG) : '',
         options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
         hint: 'Wofür die Position gilt. Damit zieht die App beim Abfüllen automatisch das Richtige ab. Bei Deckeln und Etiketten, die für mehrere Größen passen, leer lassen.' },
@@ -12617,6 +12688,7 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
+  preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,

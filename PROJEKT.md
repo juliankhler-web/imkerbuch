@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.32 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 280/280 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.33 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 280/280 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-06 (v1.33)**: **Vier Sachen aus Julians Praxis-Durchgang am Verbrauchsmaterial.**
+  (1) **Kilopreis-Rechner** („ich kaufe zb 25 kg säcke die kosten mir ca 41euro … wäre gut wenn es die app machen würde direkt"): Felder `packMenge` + `packPreis`, Kern `preisJeEinheit` (auf Zehntel-Cent gerundet – bei 1,64 €/kg wäre der Cent zu grob, sobald daraus Selbstkosten je Glas werden). Live-Zeile „25 kg für 41,00 € = 1,64 € je kg"; das Ergebnis landet im Preisfeld, aber ein **selbst getippter Preis gewinnt** (`preisVonHand`). Beim Speichern wird neu gerechnet, nicht dem Feld geglaubt. Packungsangaben bleiben gespeichert. Am echten Formular geprüft: 50 kg Lagerwert = 82 € = zwei Säcke.
+  (2) **Beschriftungen folgen der Einheit** (`verdrahteEinheit` erweitert): „Preis je kg", „Bestand (kg)", „Eine Packung enthält (kg)" statt überall „Stück".
+  (3) **Kategorie „Eimer/Hobbock"** ergänzt (fehlte in `MATERIAL_KATEGORIEN`/`VERBRAUCH_KATEGORIEN`), `EINHEIT_VORSCHLAEGE` um Hobbock/Kanister erweitert.
+  (4) **MHD als Frage** statt Dauer-Datumsfeld: Häkchen `_hatMhd` (vorbelegt aus einem vorhandenen `ablauf`), Datumsfeld per `showIf`; Häkchen weg → `ablauf = null`, Hilfsfeld wird nicht gespeichert.
+  ⚠️ **CSS-Vorrang-Falle gefunden**: den `suggest`-Feldern fehlte der Aufklapp-Pfeil, weil `.combo-inp` (Spezifität 0,1,0) gegen `input.inp` (0,1,1) verlor – dessen `background:`-Kurzschreibweise löschte das `background-image`. Fix: Selektor auf `input.combo-inp`. Bei echten `<select>` fiel es nie auf, weil `select.inp` dieselbe Spezifität hat. **Merke: `background` als Kurzform in einer spezifischeren Regel killt jedes vorher gesetzte `background-image`.** SW → v143.
 
 - **2026-08-06 (v1.32)**: **Landbedeckung rechnet um die Koordinaten des Standes** (Julian: „du musst für die bienenstände die koordinaten nehmen die eingepflegt sind beim bienenstand weil ja oft es keine adresse gibt" · „jetzt muss ich bei landabdeckung eine adresse eingeben und kann nicht die koordinaten nehmen die ich hinterlegt habe"). Vorher war die Adresse das Hauptfeld (vorbelegt mit dem Standnamen!) und die Koordinaten nur ein Nebenknopf, der überhaupt nur erschien, wenn der Stand schon welche hatte. Jetzt: **Breiten-/Längengrad oben im Formular**, vorbelegt aus `stand.lat/lng` (bzw. `stand.bio.lat/lon`), frei überschreibbar; `koordinatenAusFeldern` prüft den Wertebereich; Knopf **„Aktuellen Standort übernehmen"** (`navigator.geolocation`, wie im Stand-Formular). Die Adresssuche füllt nur die Felder (`adresseSuchen`), damit man den Treffer vor dem Rechnen sieht; fehlen Koordinaten ganz, sucht „Amtlich berechnen" die Adresse selbst und schreibt sie in die Felder. Beim Speichern bekommt ein Stand **ohne** eigene Koordinaten sie mit (`stand.lat/lng`, Meldung im Toast) – vorhandene werden nie überschrieben, die gehören ins Stand-Formular. Live geprüft: Stand mit Koordinaten → 5 s, 15 Klassen, Summe 100 %, ohne jede Adresse; Stand ohne Koordinaten → Hinweis, Eingabe, Speichern → `lat/lng` am Stand gesetzt. SW → v142.
 

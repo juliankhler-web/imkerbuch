@@ -4265,3 +4265,34 @@ test('Bio-Standort: ohne Koordinaten am Stand wird darauf hingewiesen', async (w
     if (zu) zu.click();
   }
 });
+
+test('preisJeEinheit: Kilopreis aus Packungsgröße und Packungspreis', (w) => {
+  // Julians Fall: 25-kg-Sack Zucker für 41 €
+  assertEq(w.preisJeEinheit(25, 41), 1.64, '25 kg für 41 € = 1,64 € je kg');
+  assertEq(w.preisJeEinheit(25, 41) * 50, 82, '50 kg im Lager sind 82 € – zwei Säcke');
+  assertEq(w.preisJeEinheit(10, 25.9), 2.59, '10-L-Kanister Sirup für 25,90 €');
+  assertEq(w.preisJeEinheit(1000, 12.5), 0.0125, '1000 ml Säure für 12,50 € – Zehntel-Cent bleiben erhalten');
+  assertEq(w.preisJeEinheit(12, 5.4), 0.45, 'Karton mit 12 Gläsern');
+  // unvollständige oder unsinnige Angaben ändern nichts
+  assertEq(w.preisJeEinheit(0, 41), null, 'ohne Menge kein Preis');
+  assertEq(w.preisJeEinheit(25, 0), null, 'ohne Preis kein Preis');
+  assertEq(w.preisJeEinheit(null, null), null, 'nichts eingetragen');
+  assertEq(w.preisJeEinheit(-5, 41), null, 'negative Menge zählt nicht');
+  assertEq(w.preisJeEinheit('25', '41'), 1.64, 'Text aus einem Formularfeld geht auch');
+});
+
+test('Verbrauchsmaterial: Eimer als Kategorie, MHD nur auf Wunsch', async (w) => {
+  assert(w.MATERIAL_KATEGORIEN.includes('Eimer/Hobbock'), 'Eimer/Hobbock steht zur Auswahl');
+  assert(w.VERBRAUCH_KATEGORIEN.has('Eimer/Hobbock'), 'und zählt als Verbrauchsmaterial');
+  // die Einheit muss sich aus der Bezeichnung ergeben
+  assertEq(w.einheitVorschlag('Eimer 20 kg'), 'Stück', 'Eimer werden in Stück gezählt');
+  assertEq(w.einheitVorschlag('Hobbock'), 'Stück', 'Hobbock auch');
+  assertEq(w.einheitVorschlag('Bio-Zucker'), 'kg', 'Zucker in kg');
+  assertEq(w.einheitVorschlag('Futtersirup Kanister'), 'L', 'Sirup in Litern');
+  assertEq(w.einheitVorschlag('Ameisensäure 60 %'), 'ml', 'Säure in ml');
+  // eine Position ohne Ablaufdatum darf keine MHD-Erinnerung auslösen
+  const ohne = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser ohne MHD', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 100, ablauf: null });
+  await w.pruefeMhd();
+  const aufgaben = (await w.DB.getAll('aufgaben')).filter((a) => a.refId === ohne.id);
+  assertEq(aufgaben.length, 0, 'ohne Datum keine Erinnerung');
+});
