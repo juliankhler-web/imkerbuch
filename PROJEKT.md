@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-07 · **v1.41 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 302/302 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-07 · **v1.42 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 306/306 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,16 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.42)**: **Verschmelzung – „Neue Position" verschwindet, es gibt nur noch „Zugang / Einkauf"** (Julian: „würde es nicht sinnvoll sein wenn wir neue position mit zugang einkauf verschmeltzen das wir nur noch Zugang / einkauf haben neue position weg aber alle funktionen von neue position ersetzen mit Zugang / einkauf").
+  Zwei Knöpfe für **einen** Vorgang waren die eigentliche Ursache der letzten drei Runden Nachbesserung. Jetzt fragt `materialZugangForm` oben **„Was kommt ins Lager?"** – erster Eintrag der Auswahl ist **„+ Neue Position anlegen"** (`inventarId === '__neu'`, `keepOrder: true`, damit der Eintrag oben bleibt). Zwei Zustände, gesteuert über zwei Funktionen `neu(f)` / `kauf(f)`, damit keine Bedingung zweimal im Code steht:
+  · **neu** → der ganze Steckbrief klappt auf (Bezeichnung, Kategorie, Packungs-Rechner, Gebindegröße, Pfand-Häkchen, MHD-Häkchen, Mindestbestand, Stand/Volk, Notiz). `menge` ist **verborgen**: Menge und Preis liefert der Packungs-Rechner (7 Sack × 25 kg → 175 kg, 41 € → 1,64 €/kg).
+  · **vorhanden** → kurzes Formular: Art, Datum, Menge, Preis, Lieferant, Beleg.
+  **Nicht nur kürzer, sondern einfacher**: die Einkaufs-Buchung lebt an **einer** Stelle statt an zwei (der Einkaufs-Block ist aus dem Positions-Formular verschwunden), und eine neue Position bekommt ihren Bestand über **`verbrauchZugang`** wie jeder Nachkauf – der Datensatz sagt ehrlich „vorher 0, nachher 100" statt `stueckzahl` still zu setzen. Damit stimmt der Lagerwert (`lagerBewertung`) vom ersten Tag an, weil es einen echten Einkauf gibt.
+  **Sonderfall Menge 0**: dann wird nur der Steckbrief angelegt, ohne Zugang und ohne Kassenbuch – eine Buchung über null wäre keine. Ersetzt den früheren Gedanken eines eigenen „Position ohne Einkauf"-Knopfs.
+  Das **Positions-Formular** ist jetzt reines **Bearbeiten** (Titel fest „Position bearbeiten", erreichbar über die Zeile in der Liste); `anschaffung` heißt dort „Im Bestand seit" und steuert nur noch den Jahr-Filter. Nebenbei erledigt: das **doppelte Datum** (`einkaufDatum` neben `anschaffung`) ist weg.
+  ⚠️ **Beschriftung folgt der Einheit über Formulargrenzen**: `verdrahteEinheit` gibt seine `beschrifte()` jetzt als `m.einheitLabels` nach außen. Wählt man eine vorhandene Position, schreibt das Zugangsformular deren Einheit in die **verborgenen** Einheitenfelder und lässt neu beschriften – nur so heißt es „Preis je **kg**" statt „Preis je Stück". Ohne Wahl steht dort neutral „Preis je Einheit", statt eine Einheit zu raten.
+  Tests: fünf Tests, die auf `#add` klickten, zeigen jetzt auf die richtige Stelle (Anlegen → Zugangsformular, Raster/Pfand/Komma → Bearbeiten-Formular), plus fünf neue: Anlegen+Einkauf in einem Formular (Position, Zugang 0→100, Kassenbuch 160 €), kurzer Weg beim Nachkauf, Menge 0, erster Tag ohne jede Position, und „Bearbeiten bucht keinen Einkauf". **306/306 grün.** SW → v154.
 
 - **2026-08-07 (v1.41)**: **Lagerwert aus den echten Einkaufspreisen + ein Schritt statt zwei** (Julian: „was ist wenn ich zwischendrin zb neuen zucker kaufe und er nicht gleich kostet, wie wird das gelöst?" · „kann ich nicht einfach bei neue position alles eingeben, dann unten ein haken … so muss ich jetzt immer 2 schritte machen").
   **`lagerBewertung(pos, zugaenge)`** – reine Funktion: verbraucht wird das Älteste zuerst, im Lager liegen also die **jüngsten** Einkäufe. Der heutige Bestand wird von den neuesten Einkäufen nach hinten aufgefüllt und deren Preise mit ihrer Menge gemittelt. 175 kg à 1,64 € + 25 kg à 1,80 € = **332 €, Ø 1,66 €/kg** – mit dem bisherigen „letzter Preis für alles" wären es 360 € gewesen. Nicht durch Einkäufe belegter Altbestand wird weiter mit `pos.preis` bewertet, damit alte Positionen unverändert rechnen. Weil sie **jedes Mal aus den Datensätzen rechnet**, stimmt sie nach Ändern/Löschen eines Einkaufs von selbst wieder. Eingesetzt in Liste, Summen und Inventar-PDF; die Zeile zeigt „Ø" nur bei gemischten Preisen.

@@ -129,3 +129,22 @@ alle folgenden halben Felder eine Spalte weiter – für Nutzer sieht das „ver
 **bedingte Felder immer über die volle Breite**, und hinter einen optionalen halben Block einen Trenner
 setzen (`{ key: '_trenn…', type: 'static', html: '' }`).
 Pixelvergleiche in Layout-Tests immer mit `nah(..., 2, ...)` – Unterpixel-Unterschiede sind kein Sprung.
+
+## ⚠️ Ein Formular mit zwei Zuständen: Tests am richtigen Ort
+
+Seit v1.42 gibt es „Neue Position" nicht mehr als eigenen Knopf – angelegt wird im Zugangs-Formular
+(`materialZugangForm`, Auswahl oben `inventarId === '__neu'`). Fünf Tests klickten vorher auf `#add`;
+der Knopf existiert nur noch in anderen Ansichten (Aufgaben). Wer einen Test schreibt, muss deshalb
+wissen, welches der beiden Formulare er meint:
+
+- **Anlegen** (Einheiten folgen der Bezeichnung, Packungs-Rechner, MHD-/Pfand-Häkchen im Anlege-Weg)
+  → `#zugang` klicken, dann `#f-inventarId` auf `'__neu'` setzen und ein `change`-Ereignis auslösen.
+- **Bearbeiten** (Raster/Paare, Pfand-Häkchen an einer bestehenden Position, Komma-Erkennung)
+  → Zeile in der Liste anklicken: `host.querySelector('[data-edit="<id>"]').click()`.
+  Vorher **die Filter der Ansicht zurücksetzen** (`Views.material._jahr = ''`, `_art`, `_suche`),
+  sonst ist die eben angelegte Zeile weggefiltert und `querySelector` liefert `null`.
+
+Zwei Erwartungen, die dabei gern falsch geraten werden:
+- Ein Pflichtfeld-Label heißt `"Datum *"`, nicht `"Datum"` (der Stern steht im `<label>`).
+- `U.fmtNum(x, 2)` schneidet Nullen ab: 100 wird `"100"`, nicht `"100,00"`. Nur `U.fmtEur` zeigt immer
+  zwei Stellen.

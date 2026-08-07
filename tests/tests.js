@@ -2143,16 +2143,27 @@ test('Abgangs-PDF: Jahresübersicht mit Summe und Gründen', async (w) => {
     assert(/Grund/.test(kopf), `letzte Tabelle ist die Auswertung nach Grund: ${kopf.slice(0, 160)}`);
   } finally { w.Pdf.noDownloadForTest = false; await w.DB.del('materialabgaenge', a1.id); await w.DB.del('materialabgaenge', a2.id); }
 });
-test('Verbrauchsmaterial: Zugang statt Kaufdatum, Ablaufdatum optional', async (w) => {
+test('Neue Position: ein Datum, MHD optional, Einheiten und Kilopreis', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
+    /* Seit v1.42 gibt es „Neue Position" nicht mehr als eigenen Knopf: der
+       Steckbrief klappt im Zugangs-Formular auf, sobald oben „Neue Position
+       anlegen" gewählt ist. Geprüft wird dasselbe wie vorher. */
     await w.Views.material.render(host);
-    host.querySelector('#add').click();
-    await new Promise((r) => setTimeout(r, 250));
+    assertEq(host.querySelector('#add'), null, 'den Knopf „Neue Position" gibt es nicht mehr');
+    host.querySelector('#zugang').click();
+    await new Promise((r) => setTimeout(r, 300));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const wahl = m.querySelector('#f-inventarId');
+    assert([...wahl.options].some((o) => o.value === '__neu'), 'die Auswahl bietet „Neue Position anlegen"');
+    assertEq([...wahl.options].findIndex((o) => o.value === '__neu'), 1, 'und zwar gleich hinter „bitte wählen"');
+    wahl.value = '__neu'; wahl.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
     const label = (id) => { const e = m.querySelector(id); const l = e && e.closest('.field') && e.closest('.field').querySelector('label'); return l ? l.textContent.trim() : ''; };
-    assertEq(label('#f-anschaffung'), 'Zugang', 'heißt jetzt Zugang');
+    assertEq(label('#f-datum').replace(' *', ''), 'Datum', 'ein einziges Datum – Kaufdatum und Zugang sind dasselbe');
+    assert(m.querySelector('[data-field="menge"]').classList.contains('hidden'),
+      'die Menge kommt aus dem Packungs-Rechner, nicht zusätzlich aus einem eigenen Feld');
     /* Seit v1.33 fragt die App erst, OB es ein MHD gibt – das Datumsfeld
        erscheint danach. Ein leeres Datumsfeld sah nach Pflicht aus. */
     const haken = m.querySelector('#f-_hatMhd');
@@ -4346,9 +4357,14 @@ test('Verbrauchsmaterial: Eimer als Kategorie, MHD nur auf Wunsch', async (w) =>
 test('Verbrauchsmaterial: Reihenfolge und Packungsrechnung im Formular', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  /* Seit v1.42 wird das Positions-Formular nur noch zum BEARBEITEN geöffnet –
+     über die Zeile in der Liste. Sein Raster ist unverändert, also wird es hier
+     auch weiter geprüft. Filter zurücksetzen, damit die Zeile sicher da ist. */
+  const rast = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'AAA Raster-Test', kategorie: 'Futter', einheit: 'Stück', stueckzahl: 1 });
+  w.Views.material._jahr = ''; w.Views.material._art = ''; w.Views.material._suche = '';
   try {
     await w.Views.material.render(host);
-    host.querySelector('#add').click();
+    host.querySelector(`[data-edit="${rast.id}"]`).click();
     await new Promise((r) => setTimeout(r, 250));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     // Reihenfolge: Bestand vor der Packungsrechnung, Preis direkt daneben
@@ -4360,7 +4376,7 @@ test('Verbrauchsmaterial: Reihenfolge und Packungsrechnung im Formular', async (
     assert(pos('einheit') === pos('inhaltMenge') + 1, 'die Einheit des Inhalts folgt auf den Inhalt');
     assert(pos('_packInfo') > pos('preis'), 'die Rechnung steht unter den Feldern');
     // nebeneinander: gleiche Höhe, halbe Breite
-    for (const [a, b] of [['_bestand', 'packEinheit'], ['inhaltMenge', 'einheit'], ['packPreis', 'preis'], ['mindestbestand', 'anschaffung']]) {
+    for (const [a, b] of [['_bestand', 'packEinheit'], ['inhaltMenge', 'einheit'], ['packPreis', 'preis'], ['anschaffung', 'mindestbestand']]) {
       const ra = m.querySelector(`[data-field="${a}"]`).getBoundingClientRect();
       const rb = m.querySelector(`[data-field="${b}"]`).getBoundingClientRect();
       assert(Math.abs(ra.top - rb.top) < 2, `„${a}" und „${b}" stehen nebeneinander (${Math.round(ra.top)} / ${Math.round(rb.top)})`);
@@ -4579,15 +4595,17 @@ test('Pfand: Rücknahme hebt den Bestand und bucht eine Ausgabe ohne Umsatzsteue
 test('Pfand: steckt hinter einem Häkchen – wie beim MHD', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const pfp = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'AAA Pfand-Haken-Test', kategorie: 'Gläser', einheit: 'Stück', stueckzahl: 3 });
+  w.Views.material._jahr = ''; w.Views.material._art = ''; w.Views.material._suche = '';
   try {
     await w.Views.material.render(host);
-    host.querySelector('#add').click();
+    host.querySelector(`[data-edit="${pfp.id}"]`).click();
     await new Promise((r) => setTimeout(r, 250));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
     const haken = m.querySelector('#f-_hatPfand');
     assert(haken, 'die Frage „Mehrweg mit Pfand" ist da');
-    assertEq(haken.checked, false, 'bei einer neuen Position erst mal kein Pfand');
+    assertEq(haken.checked, false, 'ohne hinterlegtes Pfand kein Haken');
     assert(!sichtbar('pfand'), 'Pfandbetrag bleibt verborgen – das Formular bleibt kurz');
     assert(!sichtbar('pfandSeit'), 'das Startdatum auch');
     haken.checked = true; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
@@ -4729,9 +4747,11 @@ test('Einkauf: Zugang zurücknehmen setzt Bestand und Kassenbuch zurück', async
 test('Formulare: Ein- und Ausblenden versteht Zahlen mit Komma', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const kmp = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'AAA Komma-Test', kategorie: 'Gläser', einheit: 'Stück', stueckzahl: 2 });
+  w.Views.material._jahr = ''; w.Views.material._art = ''; w.Views.material._suche = '';
   try {
     await w.Views.material.render(host);
-    host.querySelector('#add').click();
+    host.querySelector(`[data-edit="${kmp.id}"]`).click();
     await new Promise((r) => setTimeout(r, 250));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
@@ -4792,39 +4812,58 @@ test('Lagerwert: verschiedene Einkaufspreise werden gemischt, nicht überschrieb
   assertEq(fremd.wert, 332, 'unverändert – fremde Position und Geschenk bleiben außen vor');
 });
 
-test('Ein Schritt: Position anlegen bucht den Einkauf gleich mit', async (w) => {
+test('Verschmolzen: neue Position und Einkauf in einem Formular', async (w) => {
+  /* Julians Wunsch: „neue position weg, alle funktionen von neue position
+     ersetzen mit Zugang / einkauf". Hier wird der ganze Weg durchgespielt:
+     Position anlegen, Packungen rechnen, Bestand buchen, Kassenbuch – aus EINEM
+     Formular, mit EINEM Speichern. */
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.material.render(host);
-    host.querySelector('#add').click();
-    await new Promise((r) => setTimeout(r, 250));
+    host.querySelector('#zugang').click();
+    await new Promise((r) => setTimeout(r, 300));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
     const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
-    setz('bezeichnung', 'Zucker Einschritt-Test');
-    await new Promise((r) => setTimeout(r, 100));
+    assert(!sichtbar('bezeichnung'), 'ohne Wahl bleibt das Formular kurz');
+    /* Solange keine Position gewählt ist, ist die Einheit unbekannt – dann darf
+       dort nicht „Preis je Stück" geraten stehen. */
+    assertEq(m.querySelector('[data-field="preis"] label').textContent, 'Preis je Einheit (€)',
+      'neutrale Preis-Beschriftung, solange nichts gewählt ist');
+    setz('inventarId', '__neu');
+    await new Promise((r) => setTimeout(r, 150));
+    // Alles, was „Neue Position" konnte, ist da
+    for (const k of ['bezeichnung', 'kategorie', '_bestand', 'packEinheit', 'inhaltMenge', 'einheit', 'gebindeG', '_hatPfand', '_hatMhd', 'mindestbestand', 'standId', 'volkId', 'notiz']) {
+      assert(sichtbar(k), `Feld „${k}" ist im Anlege-Weg vorhanden`);
+    }
+    setz('bezeichnung', 'Zucker Verschmelz-Test');
+    await new Promise((r) => setTimeout(r, 120));
     setz('kategorie', 'Futter');
     setz('_bestand', '4'); setz('packEinheit', 'Sack'); setz('inhaltMenge', '25'); setz('einheit', 'kg'); setz('packPreis', '40');
     await new Promise((r) => setTimeout(r, 200));
-    // Das Häkchen und die aufklappenden Felder – EIN Formular, kein zweiter Schritt
-    assert(sichtbar('_einkaufBuchen'), 'das Häkchen „Als Einkauf ins Kassenbuch buchen" ist da');
-    assertEq(m.querySelector('#f-_einkaufBuchen').checked, true, 'vorbelegt, weil ein Einkauf der Normalfall ist');
-    assert(sichtbar('einkaufDatum') && sichtbar('einkaufBeleg') && sichtbar('einkaufLieferant'),
-      'Kaufdatum, Beleg und Lieferant klappen mit auf');
-    assert(/40,00|Futter/.test(m.querySelector('[data-einkauf-info]').textContent), 'die Zeile sagt vorher, was gebucht wird');
-    setz('einkaufBeleg', 'RE-TEST-1'); setz('einkaufDatum', '2026-08-04');
+    assertEq(m.querySelector('#f-preis').value, '1,6', 'der Rechner setzt den Kilopreis');
+    assert(/= 100 kg/.test(m.querySelector('[data-pack-info]').textContent),
+      `4 Sack × 25 kg = 100 kg wird gezeigt: ${m.querySelector('[data-pack-info]').textContent}`);
+    assert(/Futter/.test(m.querySelector('[data-zugang-info]').textContent), 'und vorher gesagt, was ins Kassenbuch geht');
+    setz('belegNr', 'RE-VERSCHMELZ-1'); setz('datum', '2026-08-04');
     m.querySelector('[data-save]').click();
-    await new Promise((r) => setTimeout(r, 700));
-    const pos = (await w.DB.getAll('inventar')).find((x) => x.bezeichnung === 'Zucker Einschritt-Test');
-    assert(pos, 'Position gespeichert');
+    await new Promise((r) => setTimeout(r, 800));
+    const pos = (await w.DB.getAll('inventar')).find((x) => x.bezeichnung === 'Zucker Verschmelz-Test');
+    assert(pos, 'die Position wurde angelegt');
     assertEq(pos.stueckzahl, 100, '4 Sack × 25 kg = 100 kg');
     assertEq(pos.preis, 1.6, '40 € je Sack ÷ 25 kg = 1,60 € je kg');
+    assertEq(pos.packEinheit, 'Sack', 'die Packungsangabe bleibt erhalten');
+    assertEq(pos.inhaltMenge, 25, 'inklusive Inhalt je Sack');
+    assertEq(pos.kategorie, 'Futter', 'Kategorie übernommen');
+    assertEq(pos.anschaffung, '2026-08-04', 'das Zugangsdatum ist auch das Datum der Position');
     const zug = (await w.DB.getAll('materialzugaenge')).filter((z) => z.inventarId === pos.id);
     assertEq(zug.length, 1, 'genau ein Zugang – nicht doppelt');
     assertEq(zug[0].bestandVorher, 0, 'vorher 0');
     assertEq(zug[0].bestandNachher, 100, 'nachher 100 – der Bestand wurde nicht zweimal erhöht');
-    assertEq(zug[0].belegNr, 'RE-TEST-1', 'Beleg übernommen');
+    assertEq(zug[0].menge, 100, 'gebucht wurde die innere Menge in kg');
+    assertEq(zug[0].preis, 1.6, 'mit dem Kilopreis');
+    assertEq(zug[0].belegNr, 'RE-VERSCHMELZ-1', 'Beleg übernommen');
     assertEq(zug[0].datum, '2026-08-04', 'Kaufdatum übernommen');
     const kb = (await w.DB.getAll('kassenbuch')).filter((k) => k.id === zug[0].kassenbuchId);
     assertEq(kb.length, 1, 'die Buchung ist verknüpft');
@@ -4832,13 +4871,119 @@ test('Ein Schritt: Position anlegen bucht den Einkauf gleich mit', async (w) => 
     assertEq(kb[0].kategorie, 'Futter', 'in der Kategorie Futter');
     assertEq(kb[0].betrag, 160, '100 kg × 1,60 € = 160 €');
     assertEq(kb[0].datum, '2026-08-04', 'am Kaufdatum, nicht heute');
+    // Der Lagerwert stimmt vom ersten Tag an, weil es einen echten Einkauf gibt
+    assertEq(w.lagerBewertung(pos, zug).wert, 160, 'Lagerwert 160 € aus dem echten Einkauf');
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Verschmolzen: vorhandene Position bleibt der kurze Weg', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Nachkauf-Test', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 175, preis: 1.64 });
+  await w.DB.put('materialzugaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch',
+    kategorie: 'Futter', einheit: 'kg', datum: '2026-03-01', menge: 175, art: 'Einkauf', preis: 1.64,
+    bestandVorher: 0, bestandNachher: 175 });
+  const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' }, pos.id);
+  await new Promise((r) => setTimeout(r, 300));
+  try {
+    const sichtbar = (k) => { const e = m.el.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
+    const setz = (id, wert) => { const e = m.el.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    assertEq(m.el.querySelector('#f-inventarId').value, pos.id, 'die Position ist vorgewählt');
+    assert(sichtbar('menge'), 'die Menge wird gefragt');
+    for (const k of ['bezeichnung', 'kategorie', '_bestand', 'gebindeG', '_hatPfand', '_hatMhd', 'mindestbestand']) {
+      assert(!sichtbar(k), `Steckbrief-Feld „${k}" bleibt verborgen – es ist ja schon bekannt`);
+    }
+    // Die Preiszeile nennt die Einheit der Position, nicht „Stück"
+    const label = (id) => { const e = m.el.querySelector(id); const l = e && e.closest('.field') && e.closest('.field').querySelector('label'); return l ? l.textContent.trim() : ''; };
+    assert(/je kg/.test(label('#f-preis')), `Preis je kg, nicht je Stück: ${label('#f-preis')}`);
+    setz('menge', '25'); setz('preis', '1,80'); setz('datum', '2026-08-05');
+    await new Promise((r) => setTimeout(r, 150));
+    const info = m.el.querySelector('[data-zugang-info]').textContent;
+    assert(/nach dem Zugang 200 kg/.test(info), `Bestand danach 200 kg: ${info}`);
+    assert(/332,00/.test(info), `Lagerwert 332 € statt 360 €: ${info}`);
+    m.el.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 700));
+    const frisch = await w.DB.get('inventar', pos.id);
+    assertEq(frisch.stueckzahl, 200, '175 + 25 = 200 kg');
+    assertEq(frisch.preis, 1.8, 'der neue Preis ist übernommen');
+    const zug = (await w.DB.getAll('materialzugaenge')).filter((z) => z.inventarId === pos.id);
+    assertEq(zug.length, 2, 'ein zweiter Zugang, die Position ist nicht doppelt angelegt');
+    assertEq((await w.DB.getAll('inventar')).filter((x) => x.bezeichnung === 'Zucker Nachkauf-Test').length, 1,
+      'genau eine Position mit diesem Namen');
+  } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Verschmolzen: Position ohne Menge wird nur angelegt', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial', kategorien: ['Futter'] });
+  await new Promise((r) => setTimeout(r, 300));
+  try {
+    const setz = (id, wert) => { const e = m.el.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('inventarId', '__neu');
+    await new Promise((r) => setTimeout(r, 150));
+    setz('bezeichnung', 'Vorrat-Platzhalter-Test');
+    setz('_bestand', '0');
+    await new Promise((r) => setTimeout(r, 150));
+    assert(/nur angelegt/.test(m.el.querySelector('[data-zugang-info]').textContent), 'die App sagt vorher, dass nur angelegt wird');
+    m.el.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 700));
+    const pos = (await w.DB.getAll('inventar')).find((x) => x.bezeichnung === 'Vorrat-Platzhalter-Test');
+    assert(pos, 'die Position ist da');
+    assertEq(w.verbrauchBestand(pos), 0, 'mit Bestand 0');
+    assertEq((await w.DB.getAll('materialzugaenge')).filter((z) => z.inventarId === pos.id).length, 0,
+      'und ohne Zugangs-Buchung – eine Buchung über null wäre keine');
+    assertEq((await w.DB.getAll('kassenbuch')).filter((k) => /Vorrat-Platzhalter-Test/.test(k.beschreibung || '')).length, 0,
+      'im Kassenbuch steht nichts');
+  } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Verschmolzen: ohne jede Position steht das Anlegen sofort offen', async (w) => {
+  /* Der Fall des ersten Tages: es gibt noch nichts. Früher meldete das
+     Zugangs-Formular „Noch keine Position – lege sie zuerst an" und ging wieder
+     zu; jetzt ist es der Weg zum Anlegen. */
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const m = await w.materialZugangForm({ typ: 'gibtesnicht', titel: 'Leertest', kategorien: ['Futter'] });
+  await new Promise((r) => setTimeout(r, 250));
+  try {
+    assert(m && m.el, 'das Formular öffnet sich überhaupt');
+    assertEq(m.el.querySelector('#f-inventarId').value, '__neu', '„Neue Position anlegen" ist vorgewählt');
+    assert(!m.el.querySelector('[data-field="bezeichnung"]').classList.contains('hidden'),
+      'der Steckbrief steht sofort offen – kein Umweg über einen zweiten Knopf');
+  } finally { m && m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Position bearbeiten: nur Stammdaten, kein Einkauf mehr', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'AAA Bearbeiten-Test', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 10, preis: 2 });
+  w.Views.material._jahr = ''; w.Views.material._art = ''; w.Views.material._suche = '';
+  try {
+    await w.Views.material.render(host);
+    const zeile = host.querySelector(`[data-edit="${pos.id}"]`);
+    assert(zeile, 'die Position steht als Zeile in der Liste');
+    zeile.click();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assertEq(m.querySelector('.modal-head h2').textContent, 'Position bearbeiten', 'die Zeile öffnet das Bearbeiten');
+    for (const k of ['_einkaufBuchen', 'einkaufBeleg', 'einkaufLieferant', 'einkaufDatum']) {
+      assertEq(m.querySelector(`[data-field="${k}"]`), null, `„${k}" ist aus dem Positions-Formular verschwunden`);
+    }
+    assert(m.querySelector('[data-field="bezeichnung"]'), 'die Stammdaten sind weiter änderbar');
+    const vorher = (await w.DB.getAll('materialzugaenge')).length;
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 600));
+    assertEq((await w.DB.getAll('materialzugaenge')).length, vorher, 'Speichern bucht keinen Einkauf');
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 10, 'und lässt den Bestand, wie er war');
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
 
 test('Zugang: Art steht oben, bedingte Felder nehmen die ganze Breite', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
-  await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Breiten-Test', kategorie: 'Futter', einheit: 'kg', stueckzahl: 5 });
-  const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' });
+  const bt = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Breiten-Test', kategorie: 'Futter', einheit: 'kg', stueckzahl: 5 });
+  /* Mit vorgewählter Position: ohne Wahl wäre die Menge verborgen – hier geht es
+     um die Breiten, nicht um den Anlege-Weg. */
+  const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' }, bt.id);
   await new Promise((r) => setTimeout(r, 250));
   try {
     const felder = [...m.el.querySelectorAll('[data-field]')].map((e) => e.dataset.field);
