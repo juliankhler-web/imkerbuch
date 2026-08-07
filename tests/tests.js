@@ -4575,3 +4575,32 @@ test('Pfand: Rücknahme hebt den Bestand und bucht eine Ausgabe ohne Umsatzsteue
   assertEq(w.STORE_LABELS.pfandbewegungen, 'Pfand-Rücknahme', 'mit lesbarem Namen im Papierkorb');
   assert(w.DB.VER >= 9, `DB-Version mindestens 9: ${w.DB.VER}`);
 });
+
+test('Pfand: steckt hinter einem Häkchen – wie beim MHD', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
+    const haken = m.querySelector('#f-_hatPfand');
+    assert(haken, 'die Frage „Mehrweg mit Pfand" ist da');
+    assertEq(haken.checked, false, 'bei einer neuen Position erst mal kein Pfand');
+    assert(!sichtbar('pfand'), 'Pfandbetrag bleibt verborgen – das Formular bleibt kurz');
+    assert(!sichtbar('pfandSeit'), 'das Startdatum auch');
+    haken.checked = true; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(sichtbar('pfand') && sichtbar('pfandSeit'), 'nach dem Haken erscheinen beide Felder');
+    // die Paare darunter dürfen nicht verrutschen (Trenner)
+    const oben = (k) => Math.round(m.querySelector(`[data-field="${k}"]`).getBoundingClientRect().top);
+    assertEq(oben('pfand'), oben('pfandSeit'), 'Pfand und Startdatum stehen nebeneinander');
+    assertEq(oben('mindestbestand'), oben('anschaffung'), 'Mindestbestand und Zugang bleiben ein Paar');
+    haken.checked = false; haken.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    assert(!sichtbar('pfand'), 'Haken weg → Felder wieder verborgen');
+    assertEq(oben('mindestbestand'), oben('anschaffung'), 'und die Paare bleiben trotzdem stabil');
+    m.remove(); w.FormGuard.dirty = false;
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});

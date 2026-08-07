@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-06 · **v1.36 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 292/292 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-06 · **v1.37 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 293/293 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.37)**: **Pfand hinter ein Häkchen** (Julian: „pfand einen haken setzen sonst nicht anzeigen, die seite kleinhalten sonst ist es so überladen" · „wie beim mhd"): `_hatPfand` als `check` (vorbelegt aus einem vorhandenen Pfand), `pfand` + `pfandSeit` per `showIf`; Häkchen weg → `pfand = 0`, `pfandSeit = null`. Ohne Haken 19 statt 21 sichtbare Felder, Paare bleiben dank `_trennPfand` stabil.
+  ⚠️ **Bienen-Freistellung dritter Anlauf** (Julian: „im dunkelmodus zwischen biene und laptop und bei der brille, schau es dir richtig an"). Zwei echte Fehler, beide bestätigt und behoben:
+  (1) **Eingeschlossene Hintergrundflächen** blieben stehen – die Flutfüllung startete nur am Bildrand und erreichte den Spalt zwischen Biene und Laptop sowie die Innenflächen der Brillengläser nie. Fix: **jedes** Pixel in Blattfarbe (`abst ≤ 16`) ist Saatpunkt, egal wo. Messung 09:00: 100 → **0** deckende Cremepixel.
+  (2) **Grauer Konturensaum**: ein Mischpixel aus Creme und Motiv hat großen Abstand zur Blattfarbe, wurde also als Motiv durchgelassen und behielt die aufgehellte Mischfarbe – auf dunklem Grund ein heller Saum (deutlich an den Fühlern). Fix: für jedes Randpixel die echte Motivfarbe **F** aus dem Nachbarn 2–3 px weiter innen holen und `p = a·F + (1−a)·BG` nach `a` lösen (per Kanal, wo `|F−BG| > 25`, sonst über den Abstand). **Zwei Ringe**, weil die Kantenglättung des Blattes 2 px breit ist.
+  **Nicht behoben, weil kein Fehler**: der Laptop hat im Original eine **hell gezeichnete Kantenlinie** (3D-Stil) – auf Creme unsichtbar, auf dunkel ein Haar breit sichtbar. Am Original nachgesehen und Julian gezeigt; Abdunkeln wäre ein Eingriff in die Zeichnung, deshalb nur angeboten. SW → v149.
 
 - **2026-08-07 (v1.36)**: **Pfand für Mehrweg-Gebinde** (Julian: „ich möchte alles abdecken – leute die pfand nehmen und welche die kein pfand nehmen"). **Der Schalter ist das Pfandfeld selbst**: steht dort nichts, ist die Position Einweg und der ganze Pfand-Abschnitt bleibt unsichtbar – kein Schalter in den Einstellungen, den man erst finden muss.
   Neuer Speicher **`pfandbewegungen` (DB.VER 9)** – bewusst NICHT in `materialabgaenge`, damit die geprüfte Abgangs-Auswertung unangetastet bleibt (eine Rücknahme ist ein Zugang). `verbrauchZugang` als Gegenstück zu `verbrauchAbziehen`. `pfandPositionen` / `pfandUmlauf` (netzfrei prüfbar) / `pfandRuecknahmeForm`.

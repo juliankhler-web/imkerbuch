@@ -947,8 +947,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.36';
+const APP_VERSION = '1.37';
 const CHANGELOG = [
+  { version: '1.37', datum: '2026-08-07', punkte: [
+    'Das Pfand steckt jetzt hinter einem Häkchen <b>„Mehrweg mit Pfand"</b> – wie beim Mindesthaltbarkeitsdatum. Ohne Haken bleibt das Formular kurz, denn die meisten Gebinde sind Einweg.',
+    'Die Tagesbienen sind noch einmal freigestellt: zwischen Biene und Laptop und in den Brillengläsern blieben eingeschlossene Reste des hellen Hintergrunds stehen, die im Dunkelmodus durchschimmerten. Auch die Konturen sind jetzt sauber gerechnet statt hart abgeschnitten.',
+  ] },
   { version: '1.36', datum: '2026-08-07', punkte: [
     'Neu: <b>Pfand für Mehrweg-Gebinde</b> – für alle, die Gläser oder Eimer zurücknehmen. Trag am Gebinde „Pfand je Gebinde" ein, dann zeigt die App unter Verbrauchsmaterial <b>wie viele beim Kunden sind</b> und <b>wieviel Pfand offen ist</b>.',
     '<b>Rücknahme buchen</b>: Anzahl und von wem – der Bestand steigt wieder, und das Pfand wird als Ausgabe im Kassenbuch gebucht, ohne Umsatzsteuer. Denn Pfand ist eine Schuld, kein Erlös.',
@@ -8337,9 +8341,12 @@ async function renderInventarBereich(main, cfg) {
         default: i && i.gebindeG ? gebindeLabel(gebindeGrammAus(i.gebindeG)) : '',
         options: GEBINDE_PRESETS.map((g) => gebindeLabel(g)),
         hint: 'Nur für Gläser und Eimer: für welche Größe die Position gilt. Damit zieht die App beim Abfüllen automatisch die richtigen Gläser ab. Eigene Größen wie „30 g" gehen auch. Deckel und Etiketten, die für mehrere Größen passen, lässt du leer.' },
-      { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', halb: true,
-        hint: 'Nur bei Mehrweg – wenn Kunden das Gebinde zurückbringen und du das Pfand erstattest. Dann zeigt die App, wie viele draußen sind, und du kannst Rücknahmen buchen. Leer lassen heißt Einweg; dann erscheint nichts weiter dazu.' },
-      { key: 'pfandSeit', label: 'Pfand erhoben seit', type: 'date', halb: true, showIf: (f) => Number(f.pfand) > 0,
+      /* Erst die Frage, dann die Felder – wie beim MHD. Ohne Häkchen bleibt das
+         Formular kurz; die meisten Gebinde sind Einweg. */
+      { key: '_hatPfand', label: 'Mehrweg mit Pfand', type: 'check', default: !!(i && Number(i.pfand) > 0),
+        hint: 'Nur ankreuzen, wenn Kunden das Gebinde zurückbringen und du das Pfand erstattest. Dann zeigt die App, wie viele draußen sind, und du kannst Rücknahmen buchen.' },
+      { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', halb: true, showIf: (f) => !!f._hatPfand },
+      { key: 'pfandSeit', label: 'Pfand erhoben seit', type: 'date', halb: true, showIf: (f) => !!f._hatPfand,
         default: i && i.pfandSeit ? i.pfandSeit : U.todayIso(),
         hint: 'Ab diesem Tag zählt die App Abfüllungen als Pfandware. Ohne Datum würde jedes je verkaufte Glas mitgezählt – auch das aus der Zeit ohne Pfand.' },
       /* Zeile hier beenden: sonst rutscht „Mindestbestand" neben das Pfandfeld,
@@ -8378,6 +8385,8 @@ async function renderInventarBereich(main, cfg) {
       v.gebindeG = gebindeGrammAus(v.gebindeG);      // „500 g" / „0,5 kg" → Gramm
       if (!v._hatMhd) v.ablauf = null;               // Häkchen weg heißt: kein MHD, auch kein altes
       delete v._hatMhd;                              // Hilfsfeld nicht mitspeichern
+      if (!v._hatPfand) { v.pfand = 0; v.pfandSeit = null; }   // kein Mehrweg → auch kein altes Pfand
+      delete v._hatPfand;
       /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
          und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
          Formularfeld geglaubt, das könnte veraltet sein. */
