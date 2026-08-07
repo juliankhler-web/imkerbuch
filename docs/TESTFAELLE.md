@@ -121,3 +121,11 @@ Feste `setTimeout`-Pausen in Tests durch Warten auf Zustände ersetzen (`warteAu
 teilen – `<button class="row" data-id="…">` gibt es in Trachten **und** Zucht. Auf einen **Text** warten,
 den nur die Zielansicht hat (ihren Kopftext), und bei Fenstern immer das oberste nehmen
 (`[...querySelectorAll('.modal')].pop()`), nie das erste.
+
+## ⚠️ Formular-Raster: bedingte Felder nie halb
+
+`halb: true` + `showIf` ist eine Falle: ein ausgeblendetes Feld belegt **keine** Rasterzelle, also rutschen
+alle folgenden halben Felder eine Spalte weiter – für Nutzer sieht das „verrutscht" aus. Regel:
+**bedingte Felder immer über die volle Breite**, und hinter einen optionalen halben Block einen Trenner
+setzen (`{ key: '_trenn…', type: 'static', html: '' }`).
+Pixelvergleiche in Layout-Tests immer mit `nah(..., 2, ...)` – Unterpixel-Unterschiede sind kein Sprung.

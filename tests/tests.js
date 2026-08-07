@@ -4751,3 +4751,112 @@ test('Formulare: Ein- und Ausblenden versteht Zahlen mit Komma', async (w) => {
     m.remove(); w.FormGuard.dirty = false;
   } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
+
+test('Lagerwert: verschiedene Einkaufspreise werden gemischt, nicht überschrieben', (w) => {
+  const pos = { id: 'p1', stueckzahl: 200, einheit: 'kg', preis: 1.8 };   // preis = letzter Einkauf
+  const zug = [
+    { inventarId: 'p1', art: 'Einkauf', datum: '2026-07-01', menge: 175, preis: 1.64 },
+    { inventarId: 'p1', art: 'Einkauf', datum: '2026-08-05', menge: 25, preis: 1.8 },
+  ];
+  const bw = w.lagerBewertung(pos, zug);
+  // Julians Fall: bezahlt wurden 287 + 45 = 332 €. Mit nur dem letzten Preis wären es 360 € gewesen.
+  assertEq(bw.wert, 332, '175 × 1,64 € + 25 × 1,80 € = 332 €');
+  assertEq(bw.schnitt, 1.66, 'Durchschnitt 1,66 € je kg');
+  assertEq(bw.einkaeufe, 2, 'aus zwei Einkäufen zusammengesetzt');
+  assertEq(bw.rest, 0, 'nichts Unbelegtes übrig');
+  assertEq(bw.gemischt, true, 'gemischte Preise – die Liste zeigt dann „Ø"');
+  assert(bw.wert < 200 * pos.preis, `weniger als mit dem letzten Preis (${200 * pos.preis} €) – genau der Fehler, der behoben wurde`);
+
+  // Verbrauch: das Älteste geht zuerst, im Lager bleiben die jüngsten Einkäufe
+  const nachFuetterung = w.lagerBewertung({ ...pos, stueckzahl: 170 }, zug);
+  assertEq(nachFuetterung.wert, 282.8, '25 × 1,80 € + 145 × 1,64 € = 282,80 €');
+  assertEq(w.lagerBewertung({ ...pos, stueckzahl: 25 }, zug).wert, 45, 'bleiben 25 kg, ist es der junge Einkauf zu 1,80 €');
+  assertEq(w.lagerBewertung({ ...pos, stueckzahl: 0 }, zug).wert, 0, 'leeres Lager ist nichts wert');
+
+  // Mehr Bestand als durch Einkäufe belegt: der Rest zählt mit dem hinterlegten Preis
+  const teils = w.lagerBewertung({ ...pos, stueckzahl: 250 }, zug);
+  assertEq(teils.gedeckt, 200, '200 kg sind durch Einkäufe belegt');
+  assertEq(teils.rest, 50, '50 kg Altbestand ohne Einkaufsbeleg');
+  assertEq(teils.wert, 422, '332 € + 50 × 1,80 € = 422 €');
+
+  // Ohne Zugangsdatensätze bleibt es wie vorher: Menge × hinterlegter Preis
+  const ohne = w.lagerBewertung({ id: 'p2', stueckzahl: 10, preis: 2.5 }, zug);
+  assertEq(ohne.wert, 25, 'Altposition: 10 × 2,50 €');
+  assertEq(ohne.einkaeufe, 0, 'kein Einkauf zugeordnet');
+  assertEq(ohne.gemischt, false, 'nichts gemischt, also kein „Ø" in der Liste');
+
+  // Fremde Positionen und Nicht-Einkäufe zählen nicht mit
+  const fremd = w.lagerBewertung(pos, [...zug,
+    { inventarId: 'anders', art: 'Einkauf', datum: '2026-08-06', menge: 999, preis: 9 },
+    { inventarId: 'p1', art: 'Geschenk', datum: '2026-08-06', menge: 999, preis: 9 }]);
+  assertEq(fremd.wert, 332, 'unverändert – fremde Position und Geschenk bleiben außen vor');
+});
+
+test('Ein Schritt: Position anlegen bucht den Einkauf gleich mit', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.material.render(host);
+    host.querySelector('#add').click();
+    await new Promise((r) => setTimeout(r, 250));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
+    const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('bezeichnung', 'Zucker Einschritt-Test');
+    await new Promise((r) => setTimeout(r, 100));
+    setz('kategorie', 'Futter');
+    setz('_bestand', '4'); setz('packEinheit', 'Sack'); setz('inhaltMenge', '25'); setz('einheit', 'kg'); setz('packPreis', '40');
+    await new Promise((r) => setTimeout(r, 200));
+    // Das Häkchen und die aufklappenden Felder – EIN Formular, kein zweiter Schritt
+    assert(sichtbar('_einkaufBuchen'), 'das Häkchen „Als Einkauf ins Kassenbuch buchen" ist da');
+    assertEq(m.querySelector('#f-_einkaufBuchen').checked, true, 'vorbelegt, weil ein Einkauf der Normalfall ist');
+    assert(sichtbar('einkaufDatum') && sichtbar('einkaufBeleg') && sichtbar('einkaufLieferant'),
+      'Kaufdatum, Beleg und Lieferant klappen mit auf');
+    assert(/40,00|Futter/.test(m.querySelector('[data-einkauf-info]').textContent), 'die Zeile sagt vorher, was gebucht wird');
+    setz('einkaufBeleg', 'RE-TEST-1'); setz('einkaufDatum', '2026-08-04');
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 700));
+    const pos = (await w.DB.getAll('inventar')).find((x) => x.bezeichnung === 'Zucker Einschritt-Test');
+    assert(pos, 'Position gespeichert');
+    assertEq(pos.stueckzahl, 100, '4 Sack × 25 kg = 100 kg');
+    assertEq(pos.preis, 1.6, '40 € je Sack ÷ 25 kg = 1,60 € je kg');
+    const zug = (await w.DB.getAll('materialzugaenge')).filter((z) => z.inventarId === pos.id);
+    assertEq(zug.length, 1, 'genau ein Zugang – nicht doppelt');
+    assertEq(zug[0].bestandVorher, 0, 'vorher 0');
+    assertEq(zug[0].bestandNachher, 100, 'nachher 100 – der Bestand wurde nicht zweimal erhöht');
+    assertEq(zug[0].belegNr, 'RE-TEST-1', 'Beleg übernommen');
+    assertEq(zug[0].datum, '2026-08-04', 'Kaufdatum übernommen');
+    const kb = (await w.DB.getAll('kassenbuch')).filter((k) => k.id === zug[0].kassenbuchId);
+    assertEq(kb.length, 1, 'die Buchung ist verknüpft');
+    assertEq(kb[0].typ, 'ausgabe', 'Einkauf ist eine Ausgabe');
+    assertEq(kb[0].kategorie, 'Futter', 'in der Kategorie Futter');
+    assertEq(kb[0].betrag, 160, '100 kg × 1,60 € = 160 €');
+    assertEq(kb[0].datum, '2026-08-04', 'am Kaufdatum, nicht heute');
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
+test('Zugang: Art steht oben, bedingte Felder nehmen die ganze Breite', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Breiten-Test', kategorie: 'Futter', einheit: 'kg', stueckzahl: 5 });
+  const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' });
+  await new Promise((r) => setTimeout(r, 250));
+  try {
+    const felder = [...m.el.querySelectorAll('[data-field]')].map((e) => e.dataset.field);
+    const pos = (k) => felder.indexOf(k);
+    assert(pos('art') < pos('datum'), 'die Art steht vor dem Datum');
+    assert(pos('art') < pos('menge'), 'und vor der Menge');
+    const kasten = (k) => m.el.querySelector(`[data-field="${k}"]`).getBoundingClientRect();
+    assert(!m.el.querySelector('[data-field="art"]').classList.contains('halb'), 'die Art nimmt die ganze Breite');
+    assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'Datum und Menge bilden das Paar');
+    // Wechsel auf eine Art ohne Preis darf nichts verschieben
+    const obenVorher = Math.round(kasten('datum').top);
+    const sel = m.el.querySelector('#f-art');
+    sel.value = 'Eigenproduktion'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    assert(m.el.querySelector('[data-field="preis"]').classList.contains('hidden'), 'ohne Einkauf kein Preisfeld');
+    /* Toleranz von 2 px: ein Unterpixel-Unterschied ist kein Sprung – geprüft
+       wird, dass die Zeile nicht umbricht, nicht dass sie auf das Pixel liegt. */
+    nah(Math.round(kasten('datum').top), obenVorher, 2, 'Datum und Menge bleiben, wo sie waren');
+    assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'und bleiben ein Paar');
+  } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});

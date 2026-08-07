@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-07 · **v1.40 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 299/299 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-07 · **v1.41 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 302/302 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-07 (v1.41)**: **Lagerwert aus den echten Einkaufspreisen + ein Schritt statt zwei** (Julian: „was ist wenn ich zwischendrin zb neuen zucker kaufe und er nicht gleich kostet, wie wird das gelöst?" · „kann ich nicht einfach bei neue position alles eingeben, dann unten ein haken … so muss ich jetzt immer 2 schritte machen").
+  **`lagerBewertung(pos, zugaenge)`** – reine Funktion: verbraucht wird das Älteste zuerst, im Lager liegen also die **jüngsten** Einkäufe. Der heutige Bestand wird von den neuesten Einkäufen nach hinten aufgefüllt und deren Preise mit ihrer Menge gemittelt. 175 kg à 1,64 € + 25 kg à 1,80 € = **332 €, Ø 1,66 €/kg** – mit dem bisherigen „letzter Preis für alles" wären es 360 € gewesen. Nicht durch Einkäufe belegter Altbestand wird weiter mit `pos.preis` bewertet, damit alte Positionen unverändert rechnen. Weil sie **jedes Mal aus den Datensätzen rechnet**, stimmt sie nach Ändern/Löschen eines Einkaufs von selbst wieder. Eingesetzt in Liste, Summen und Inventar-PDF; die Zeile zeigt „Ø" nur bei gemischten Preisen.
+  **Ein Formular statt zwei**: mein erster Entwurf (Kurzweg „Neue Position anlegen" **im** Zugangsformular) war noch zweistufig und wurde verworfen, bevor er Julian erreichte. Jetzt trägt man im Positions-Formular alles ein, unten steht **„Als Einkauf ins Kassenbuch buchen"** (vorbelegt), und darunter klappen **Kaufdatum, Beleg und Lieferant** auf (`einkaufDatum`/`einkaufBeleg`/`einkaufLieferant`, plus Kontakt-Kurzweg). Eine Live-Zeile nennt vorher Betrag und Zielkategorie. „Zugang / Einkauf" bleibt für **Nachkäufe**.
+  ⚠️ **„Verrutschtes" Feld erklärt**: „Art des Zugangs" saß als halbes Feld neben dem Datum – blendete sich je nach Art das Preisfeld aus, verschoben sich die Paare darunter. Jetzt steht die Art **oben über die ganze Breite** (sie entscheidet über den Rest) und **alle bedingten Felder sind volle Breite**. Regel bestätigt: *bedingte Felder nie halb*. Test prüft, dass beim Wechsel auf „Eigenproduktion" nichts umbricht (mit 2-px-Toleranz – Unterpixel sind kein Sprung).
+  SW → v153.
 
 - **2026-08-07 (v1.40)**: **Zugang / Einkauf – das ausgegebene Geld landet endlich im Kassenbuch** (Julian: „wird alles auch ins kassenbuch übertragen?"). Die ehrliche Antwort war nein: Einnahmen ja, der **Einkauf** nicht – der Preis stand an der Position, die Ausgabe fehlte, und fürs **Nachkaufen** gab es überhaupt keinen Weg außer die Bestandszahl hochzusetzen.
   Neuer Speicher **`materialzugaenge` (DB.VER 10)**, `materialZugangForm` als Spiegelbild von `materialAbgangForm` (bearbeiten, löschen, Kontakt-Kurzweg für Lieferanten), `ZUGANG_ARTEN` = Einkauf/Eigenproduktion/Geschenk/Korrektur – **nur „Einkauf" bucht Geld**. `zugangKosten`, `zugangZurueckbuchen` (spiegelbildlich zu `abgangZurueckbuchen`, inklusive Suche der Buchung bei Altdatensätzen).

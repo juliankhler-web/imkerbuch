@@ -947,8 +947,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.40';
+const APP_VERSION = '1.41';
 const CHANGELOG = [
+  { version: '1.41', datum: '2026-08-07', punkte: [
+    'Der <b>Lagerwert rechnet jetzt mit den echten Einkaufspreisen</b>. Kaufst du zwischendrin teurer nach, bleibt der alte Bestand zu seinem alten Preis bewertet: 175 kg zu 1,64 € plus 25 kg zu 1,80 € sind <b>332 €</b> – nicht 360 €, wie es mit einem einzigen Preis herauskäme. In der Liste steht dann „Ø 1,66 €".',
+    'Verbraucht wird immer das Älteste zuerst, im Lager liegen also die jüngsten Einkäufe – so rechnet die App auch.',
+    '<b>Ein Schritt statt zwei</b>: Beim Anlegen einer Position steht unten „Als Einkauf ins Kassenbuch buchen" – und darunter klappen Kaufdatum, Beleg und Lieferant auf. Kein zweites Formular mehr. „Zugang / Einkauf" ist für spätere Nachkäufe.',
+    'Im Zugangs-Formular steht die <b>Art des Zugangs</b> jetzt oben über die ganze Breite, statt neben dem Datum eingeklemmt – dort sah es verrutscht aus, sobald sich Felder ein- und ausblendeten.',
+  ] },
   { version: '1.40', datum: '2026-08-07', punkte: [
     'Neu: <b>Zugang / Einkauf</b> beim Verbrauchsmaterial und Inventar – das Gegenstück zum Abgang. Der Bestand steigt, und ein <b>Einkauf wird als Ausgabe im Kassenbuch gebucht</b>, in der passenden Kategorie (Futter, Gläser/Etiketten, Beuten/Rähmchen …). Vorher fehlte das ausgegebene Geld im Kassenbuch.',
     'Damit ist auch das <b>Nachkaufen</b> gelöst: Menge und neuer Preis eintragen – die App bucht, erhöht den Bestand und übernimmt den neuen Preis für den Lagerwert.',
@@ -8239,7 +8245,9 @@ async function renderInventarBereich(main, cfg) {
   const zugaengeAlle = U.sortBy((await DB.getAll('materialzugaenge')).filter((z) => z.typ === cfg.typ), (z) => z.datum, true);
   const abgaenge = abgaengeAlle.filter((a) => !jahr || jahr === '__ohne' || (a.datum || '').startsWith(jahr));
   const abgangJahr = jahr && jahr !== '__ohne' ? jahr : U.todayIso().slice(0, 4);
-  const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
+  /* Wert aus den echten Einkäufen, nicht aus dem letzten Preis. */
+  const bewertung = (i) => lagerBewertung(i, zugaengeAlle);
+  const wertVon = (i) => bewertung(i).wert;
   const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
   const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
     .map(([k, items]) => ({ k, n: items.length, stueck: U.sum(items, (i) => i.stueckzahl || 1), wert: U.sum(items, wertVon) }))
@@ -8260,9 +8268,13 @@ async function renderInventarBereich(main, cfg) {
     // nur die Summe. Das hält die Wertspalte schmal, damit vom Untertitel etwas
     // übrig bleibt statt nach zwei Wörtern abgeschnitten zu werden.
     const einheit = verbrauchEinheit(i);
+    /* Wurde zu verschiedenen Preisen gekauft, steht hier der Durchschnitt mit
+       einem „Ø" davor – sonst sähe es aus, als hätte alles gleich gekostet. */
+    const bw = bewertung(i);
+    const preisText = bw.gemischt ? `Ø ${U.fmtEur(bw.schnitt)}` : (i.preis ? U.fmtEur(i.preis) : '');
     const menge = inPackungen(i)
-      ? `${packungText(i)}${i.preis ? ` × ${U.fmtEur(i.preis)}` : ''}`
-      : (i.preis ? `${stk} ${einheit} × ${U.fmtEur(i.preis)}` : `${stk} ${einheit}`);
+      ? `${packungText(i)}${preisText ? ` × ${preisText}` : ''}`
+      : (preisText ? `${stk} ${einheit} × ${preisText}` : `${stk} ${einheit}`);
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const groesse = gebindeGrammAus(i.gebindeG);
@@ -8431,6 +8443,7 @@ async function renderInventarBereich(main, cfg) {
   const ab2 = $('#abgang2', main); if (ab2) ab2.onclick = abgangOeffnen;
   const abPdf = $('#abgang-pdf', main); if (abPdf) abPdf.onclick = () => Pdf.materialAbgaenge(abgangJahr, cfg.typ, cfg.titel);
   const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
+  const lieferantenListe = (await DB.getAll('kontakte')).filter((k) => k.typ === 'lieferant' || k.typ === 'kunde');
   const form = async (i) => verdrahteEinheit(UI.formModal({
     title: i ? 'Position bearbeiten' : `Neue Position · ${cfg.titel}`,
     fields: [
@@ -8472,11 +8485,24 @@ async function renderInventarBereich(main, cfg) {
       /* Zeile hier beenden: sonst rutscht „Mindestbestand" neben das Pfandfeld,
          sobald das Startdatum ausgeblendet ist. */
       { key: '_trennPfand', type: 'static', html: '' },
-      /* Beim ersten Anlegen gleich den Einkauf buchen – sonst fehlt das
-         ausgegebene Geld im Kassenbuch, und genau das war die Lücke. */
-      { key: '_einkaufBuchen', label: 'Einkauf gleich ins Kassenbuch buchen', type: 'check', default: true,
-        showIf: (f) => !i && (Number(f._bestand) || 0) > 0 && (Number(f.packPreis) || Number(f.preis) || 0) > 0,
-        hint: 'Bucht den Warenwert als Ausgabe in der passenden Kategorie. Später nachgekauft? Dann „Zugang / Einkauf" nehmen.' },
+      /* EIN Schritt: hier alles eintragen, Häkchen setzen, fertig. Das Häkchen
+         klappt Datum, Lieferant und Beleg auf und bucht beim Speichern die
+         Ausgabe – ohne dass man danach noch ein zweites Formular öffnen muss.
+         Für spätere Nachkäufe gibt es „Zugang / Einkauf". */
+      { key: '_einkaufKopf', type: 'static', showIf: (f) => !i && (Number(f._bestand) || 0) > 0,
+        html: '<h3 class="mt8 mb4">Einkauf</h3>' },
+      { key: '_einkaufBuchen', label: 'Als Einkauf ins Kassenbuch buchen', type: 'check', default: true,
+        showIf: (f) => !i && (Number(f._bestand) || 0) > 0,
+        hint: 'Bucht den Warenwert als Ausgabe in der passenden Kategorie – Zucker unter „Futter", Gläser unter „Gläser/Etiketten".' },
+      { key: 'einkaufDatum', label: 'Kaufdatum', type: 'date', halb: true, default: U.todayIso(),
+        showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
+      { key: 'einkaufBeleg', label: 'Rechnung / Beleg', halb: true, placeholder: 'z. B. RE-2026-118',
+        showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
+      { key: 'einkaufLieferant', label: 'Bei wem gekauft?', type: 'select',
+        options: lieferantenListe.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })),
+        showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
+      { key: '_einkaufInfo', type: 'static', html: '<div class="hint" data-einkauf-info></div>',
+        showIf: (f) => !i && !!f._einkaufBuchen && (Number(f._bestand) || 0) > 0 },
       { key: '_trennEinkauf', type: 'static', html: '' },
       { key: 'mindestbestand', label: 'Mindestbestand', type: 'number', halb: true, hint: 'Optional: Erinnerung, wenn der Bestand darunter fällt.' },
       { key: 'anschaffung', label: cfg.typ === 'verbrauch' ? 'Zugang' : 'Anschaffungsdatum', type: 'date', halb: true,
@@ -8521,32 +8547,38 @@ async function renderInventarBereich(main, cfg) {
       const jeEinheit = mitPackung ? preisJeEinheit(inhalt, v.packPreis) : null;
       if (jeEinheit !== null) v.preis = jeEinheit;
       const einkaufBuchen = !i && !!v._einkaufBuchen;
-      delete v._einkaufBuchen;
+      const einkauf = { datum: v.einkaufDatum || v.anschaffung || U.todayIso(), beleg: (v.einkaufBeleg || '').trim(), lieferant: v.einkaufLieferant || null };
+      for (const k of ['_einkaufBuchen', 'einkaufDatum', 'einkaufBeleg', 'einkaufLieferant']) delete v[k];
       const gespeichert = await DB.put('inventar', Object.assign(i || { typ: cfg.typ }, v, { typ: cfg.typ }));
       /* Der Bestand steht schon im Datensatz – der Zugang darf ihn also NICHT
          noch einmal erhöhen. Deshalb vorher/nachher von Hand setzen. */
       const kosten = Math.round((verbrauchBestand(gespeichert) * (Number(gespeichert.preis) || 0)) * 100) / 100;
       if (einkaufBuchen && kosten > 0) {
+        const wer = (lieferantenListe.find((k) => k.id === einkauf.lieferant) || {}).name || '';
         const zug = await DB.put('materialzugaenge', {
           inventarId: gespeichert.id, bezeichnung: gespeichert.bezeichnung, typ: cfg.typ,
           kategorie: gespeichert.kategorie || '', einheit: verbrauchEinheit(gespeichert),
-          datum: gespeichert.anschaffung || U.todayIso(), menge: verbrauchBestand(gespeichert),
-          art: 'Einkauf', preis: Number(gespeichert.preis) || 0, kontaktId: null, belegNr: '',
+          datum: einkauf.datum, menge: verbrauchBestand(gespeichert),
+          art: 'Einkauf', preis: Number(gespeichert.preis) || 0,
+          kontaktId: einkauf.lieferant, belegNr: einkauf.beleg,
           bestandVorher: 0, bestandNachher: verbrauchBestand(gespeichert),
           notiz: 'Beim Anlegen der Position gebucht', kassenbuchId: null,
         });
         const kb = await DB.put('kassenbuch', { datum: zug.datum, typ: 'ausgabe',
           kategorie: kasseKategorieFuer(zug.kategorie), betrag: kosten, steuersatz: 0,
-          kontaktId: null, rechnungId: null,
-          beschreibung: `Einkauf ${zug.bezeichnung}: ${U.fmtNum(zug.menge, 2)} ${zug.einheit}` });
+          kontaktId: einkauf.lieferant, rechnungId: null,
+          beschreibung: `Einkauf ${zug.bezeichnung}: ${U.fmtNum(zug.menge, 2)} ${zug.einheit}`
+            + `${wer ? ` bei ${wer}` : ''}${zug.belegNr ? ` (${zug.belegNr})` : ''}` });
         zug.kassenbuchId = kb.id;
         await DB.put('materialzugaenge', zug);
         UI.toast(`Gespeichert · ${U.fmtEur(kosten)} als Ausgabe „${kasseKategorieFuer(zug.kategorie)}" gebucht`);
+      } else if (einkaufBuchen) {
+        UI.toast('Gespeichert – ohne Preis konnte kein Einkauf gebucht werden.', 'err');
       } else UI.toast('Gespeichert');
       pruefeMhd(); renderRoute();
     },
     onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
-  }), !i);
+  }), !i, lieferantenListe);
   bindAdd(() => form(null), main);
   main.addEventListener('click', (e) => {
     const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
@@ -9629,12 +9661,14 @@ function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim(
 
 /** Im Inventar-Formular: die Einheit folgt der Bezeichnung (nur bei neuen
     Positionen), und die Beschriftung des Bestandsfeldes nennt die Einheit. */
-function verdrahteEinheit(m, istNeu) {
+function verdrahteEinheit(m, istNeu, lieferanten) {
   const bez = $('#f-bezeichnung', m.el);
   const bestand = $('#f-_bestand', m.el), packEinheit = $('#f-packEinheit', m.el);
   const inhalt = $('#f-inhaltMenge', m.el), einheit = $('#f-einheit', m.el);
   const packPreis = $('#f-packPreis', m.el), preis = $('#f-preis', m.el);
   const packInfo = $('[data-pack-info]', m.el);
+  const einkaufInfo = $('[data-einkauf-info]', m.el);
+  const kategorie = $('#f-kategorie', m.el);
   if (!packEinheit || !einheit) return m;
   let vonHand = false;
   const setzeLabel = (feld, text) => {
@@ -9696,6 +9730,17 @@ function verdrahteEinheit(m, istNeu) {
       teile.push('<span class="muted">Kaufst du in Packungen – 7 Sack zu je 25 kg –, trage das in der Zeile „Inhalt je …" ein und setze die Einheit oben auf Sack. Dann rechnet die App Gesamtmenge und Kilopreis.</span>');
     }
     packInfo.innerHTML = teile.join('<br>');
+    /* Was beim Speichern im Kassenbuch landet – vorher sichtbar, nicht erst
+       hinterher als Meldung. */
+    if (einkaufInfo) {
+      const gesamtMenge = anzahl * (mitPackung() ? jePack : 1);
+      const stueckpreis = U.parseNum(preis ? preis.value : '') || 0;
+      const summe = Math.round(gesamtMenge * stueckpreis * 100) / 100;
+      const kat = kasseKategorieFuer(kategorie ? kategorie.value : '');
+      einkaufInfo.innerHTML = summe > 0
+        ? `Es werden <b>${U.fmtEur(summe)}</b> als Ausgabe „${U.esc(kat)}" ins Kassenbuch gebucht.`
+        : 'Sobald ein Preis eingetragen ist, steht hier, was gebucht wird.';
+    }
   }
   if (bez && istNeu) {
     bez.addEventListener('input', () => {
@@ -9707,6 +9752,10 @@ function verdrahteEinheit(m, istNeu) {
     });
   }
   beschrifte();
+  /* Lieferant fehlt noch? Direkt hier anlegen, ohne den Vorgang zu verlassen. */
+  if ($('[data-field="einkaufLieferant"]', m.el)) {
+    verdrahteKontaktNeu(m, 'einkaufLieferant', lieferanten || [], { typ: 'lieferant', label: 'Neuen Lieferanten anlegen' });
+  }
   return m;
 }
 
@@ -9768,6 +9817,48 @@ function kasseKategorieFuer(materialKategorie) {
   return MATERIAL_ZU_KASSE.get(String(materialKategorie || '').trim()) || 'Material/Geräte';
 }
 
+/** Was das Lager wirklich wert ist – aus den tatsächlichen Einkäufen.
+
+    Der Fall (Julians Frage): 175 kg zu 1,64 € gekauft, später 25 kg zu 1,80 €.
+    Mit einem einzigen Preis je Position wären die 200 kg plötzlich 360 € wert,
+    bezahlt hat er aber 287 + 45 = 332 €. Der letzte Preis überschätzt (oder
+    unterschätzt) den Bestand also systematisch.
+
+    Gerechnet wird deshalb so: verbraucht wird immer das Älteste zuerst, im Lager
+    liegen also die JÜNGSTEN Einkäufe. Wir füllen den heutigen Bestand von den
+    neuesten Einkäufen nach hinten auf und mitteln deren Preise mit ihrer Menge.
+    Aus 25 × 1,80 € + 175 × 1,64 € werden so 332 € und ein Schnitt von 1,66 €/kg.
+
+    Bleibt Bestand übrig, den kein gebuchter Einkauf deckt – ältere Positionen
+    ohne Zugangsdatensätze –, wird er mit dem hinterlegten Preis bewertet. Damit
+    bleibt die Rechnung für Altbestände genau wie vorher.
+
+    Reine Funktion ohne Datenbank: sie lässt sich prüfen, und weil sie jedes Mal
+    aus den Datensätzen rechnet, stimmt sie auch nach dem Ändern oder Löschen
+    eines Einkaufs von selbst wieder. */
+function lagerBewertung(pos, zugaenge) {
+  const menge = verbrauchBestand(pos);
+  const letzterPreis = Math.max(0, Number(pos && pos.preis) || 0);
+  const kaeufe = U.sortBy(
+    (zugaenge || []).filter((z) => z.inventarId === (pos || {}).id && z.art === 'Einkauf'
+      && (Number(z.menge) || 0) > 0 && (Number(z.preis) || 0) > 0),
+    (z) => z.datum || '');
+  let offen = menge, kosten = 0, gedeckt = 0, anzahl = 0;
+  for (let i = kaeufe.length - 1; i >= 0 && offen > 0.0000001; i--) {
+    const nimm = Math.min(offen, Number(kaeufe[i].menge) || 0);
+    kosten += nimm * (Number(kaeufe[i].preis) || 0);
+    offen -= nimm; gedeckt += nimm; anzahl++;
+  }
+  const rest = Math.max(0, Math.round(offen * 1000) / 1000);
+  kosten += rest * letzterPreis;                       // nicht belegter Altbestand
+  return {
+    menge, wert: Math.round(kosten * 100) / 100,
+    schnitt: menge > 0 ? Math.round((kosten / menge) * 10000) / 10000 : letzterPreis,
+    einkaeufe: anzahl, gedeckt: Math.round(gedeckt * 1000) / 1000, rest, letzterPreis,
+    gemischt: anzahl > 1 && kaeufe.slice(-anzahl).some((z) => Math.abs((Number(z.preis) || 0) - letzterPreis) > 0.0001),
+  };
+}
+
 /** Kosten eines Zugangs – nur ein Einkauf kostet Geld. */
 function zugangKosten(rec) {
   if (!rec || rec.art !== 'Einkauf') return 0;
@@ -9797,6 +9888,9 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
   const lieferanten = (await DB.getAll('kontakte')).filter((k) => k.typ === 'lieferant' || k.typ === 'kunde');
+  /* Für den Live-Lagerwert: alle bisherigen Einkäufe, den gerade bearbeiteten
+     ausgenommen – sonst würde er doppelt zählen. */
+  const bekannteZugaenge = (await DB.getAll('materialzugaenge')).filter((z) => !rec || z.id !== rec.id);
   const m = UI.formModal({
     title: rec ? 'Zugang bearbeiten' : 'Zugang / Einkauf buchen', wide: true,
     fields: [
@@ -9804,17 +9898,24 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder.</div>' : '' },
       { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
         options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
+      /* Die Art steht oben und über die volle Breite: sie entscheidet, was
+         darunter erscheint, und war neben dem Datum eingeklemmt kaum als die
+         wichtigste Wahl zu erkennen. */
+      { key: 'art', label: 'Art des Zugangs', type: 'select', required: true, default: 'Einkauf',
+        options: ZUGANG_ARTEN.map((a) => ({ v: a, l: a })),
+        hint: 'Nur „Einkauf" kostet Geld und wird im Kassenbuch gebucht.' },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-      { key: 'art', label: 'Art des Zugangs', type: 'select', required: true, default: 'Einkauf', halb: true,
-        options: ZUGANG_ARTEN.map((a) => ({ v: a, l: a })) },
       { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
-      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', halb: true, showIf: (f) => f.art === 'Einkauf' },
+      /* Ab hier alles über die volle Breite: ein ausgeblendetes halbes Feld
+         verschiebt die Paare darunter – genau das sah verrutscht aus. */
+      { key: '_trennZugang', type: 'static', html: '' },
+      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', showIf: (f) => f.art === 'Einkauf' },
       { key: 'kontaktId', label: 'Von wem gekauft?', type: 'select', showIf: (f) => f.art === 'Einkauf',
         options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
       { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: (f) => f.art === 'Einkauf', placeholder: 'z. B. RE-2026-118' },
-      { key: 'preisUebernehmen', label: 'Preis der Position auf diesen Einkauf setzen', type: 'check', default: true,
+      { key: 'preisUebernehmen', label: 'Diesen Preis als aktuellen Preis der Position merken', type: 'check', default: true,
         showIf: (f) => f.art === 'Einkauf' && Number(f.preis) > 0,
-        hint: 'Damit rechnet der Lagerwert künftig mit dem neuen Preis.' },
+        hint: 'Nur als Richtwert für die nächste Planung. Der Lagerwert rechnet ohnehin mit den echten Einkaufspreisen: älterer Bestand bleibt zu seinem alten Preis bewertet, neuer zu diesem.' },
       { key: '_zuInfo', type: 'static', html: '<div class="hint" data-zugang-info></div>' },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
     ],
@@ -9861,9 +9962,11 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
           await DB.put('inventar', frisch);
         }
       }
+      const bwNeu = lagerBewertung(await DB.get('inventar', pos.id), await DB.getAll('materialzugaenge'));
       UI.toast(`${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: +${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
         + ` · Bestand ${U.fmtNum(gespeichert.bestandNachher, 2)}`
-        + (kosten > 0 ? ` · ${U.fmtEur(kosten)} als Ausgabe gebucht` : ''));
+        + (kosten > 0 ? ` · ${U.fmtEur(kosten)} als Ausgabe gebucht` : '')
+        + (bwNeu.gemischt ? ` · Lagerwert ${U.fmtEur(bwNeu.wert)} (Ø ${U.fmtEur(bwNeu.schnitt)})` : ''));
       await pruefeMhd();
       renderRoute();
     },
@@ -9890,9 +9993,19 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     const art = ($('#f-art', m.el) || {}).value;
     const e = verbrauchEinheit(pos), bestand = verbrauchBestand(pos);
     const kosten = art === 'Einkauf' ? Math.round(menge * preis * 100) / 100 : 0;
-    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${e}</b> → nach dem Zugang <b>${U.fmtNum(bestand + menge, 2)} ${e}</b>`
+    /* Was der Bestand nach diesem Einkauf wert ist – mit dem alten Bestand
+       gemischt, damit man sieht, dass ein neuer Preis nicht rückwirkend gilt. */
+    const bwAlt = lagerBewertung(pos, bekannteZugaenge);
+    const neuMenge = bestand + menge;
+    const neuWert = Math.round((bwAlt.wert + (art === 'Einkauf' ? menge * preis : 0)) * 100) / 100;
+    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${e}</b> → nach dem Zugang <b>${U.fmtNum(neuMenge, 2)} ${e}</b>`
       + (kosten > 0 ? `<br>Kosten <b>${U.fmtEur(kosten)}</b> werden als Ausgabe „${U.esc(kasseKategorieFuer(pos.kategorie))}" ins Kassenbuch gebucht` : '')
-      + (art !== 'Einkauf' ? '<br><span class="muted">Kein Einkauf – es wird nichts im Kassenbuch gebucht.</span>' : '');
+      + (art !== 'Einkauf' ? '<br><span class="muted">Kein Einkauf – es wird nichts im Kassenbuch gebucht.</span>' : '')
+      + (neuMenge > 0 && neuWert > 0
+        ? `<br>Lagerwert danach <b>${U.fmtEur(neuWert)}</b> · Durchschnitt <b>${U.fmtEur(neuWert / neuMenge)} je ${U.esc(e)}</b>`
+          + (art === 'Einkauf' && preis > 0 && bwAlt.menge > 0 && Math.abs(preis - bwAlt.schnitt) > 0.0001
+            ? ` <span class="muted">– der alte Bestand behält seinen Preis von ${U.fmtEur(bwAlt.schnitt)}</span>` : '')
+        : '');
   };
   m.el.addEventListener('input', zeige);
   m.el.addEventListener('change', zeige);
@@ -11710,7 +11823,8 @@ const Pdf = {
       if (typ) alle = alle.filter((i) => inventarTyp(i) === typ);
       const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
       const list = alle.filter(passt);
-      const wertVon = (i) => (i.preis || 0) * (i.stueckzahl || 1);
+      const zugaengeAlle = await DB.getAll('materialzugaenge');
+      const wertVon = (i) => lagerBewertung(i, zugaengeAlle).wert;
       const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
       const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + art : ''].filter(Boolean).join(' · ');
       const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · ${stueck} Stück · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
@@ -13449,7 +13563,7 @@ Object.assign(window, {
   preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,
-  ZUGANG_ARTEN, MATERIAL_ZU_KASSE, kasseKategorieFuer, zugangKosten, zugangZurueckbuchen, materialZugangForm,
+  ZUGANG_ARTEN, MATERIAL_ZU_KASSE, kasseKategorieFuer, zugangKosten, zugangZurueckbuchen, materialZugangForm, lagerBewertung,
   KASSEN_KATEGORIEN,
   inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
