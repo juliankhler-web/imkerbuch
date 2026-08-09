@@ -2518,6 +2518,71 @@ test('Charge: ohne Ernte und ohne Lagermenge geht nicht', async (w) => {
     assert(w.document.querySelector('.modal-back'), 'das Formular bleibt offen');
   } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
+test('Charge aus Lagerbestand: Sorte und Laborwert sind eintragbar', async (w) => {
+  /* Julian: „Ich trage eine Charge aus dem Lagerbestand vergangener Jahre nach.
+     Es ist hier nicht möglich die Honigsorte / Labor einzutragen." Ohne Ernte
+     gibt es keine Quelle für die Sorte – sie muss an der Charge selbst stehen. */
+  const nurLager = { id: 'cL', losnummer: '2024-09', ernteIds: [], lagerKg: 18, mengeKg: 18,
+    sorte: 'Waldhonig', wassergehalt: 16.4, laborDatum: '2026-08-01' };
+  const ernten = new Map();
+  assertEq(w.chargeSorten(nurLager, ernten).join(', '), 'Waldhonig', 'die Sorte kommt von der Charge');
+  assertEq(w.chargeWassergehalt(nurLager, ernten), 16.4, 'der Laborwert auch');
+  assertEq(w.honigName(nurLager, ernten), 'Waldhonig', 'und landet als Name auf dem Etikett');
+
+  // ohne Sorte bleibt es wie bisher beim Etikett-Text bzw. „Honig"
+  const ohne = { id: 'c0', losnummer: '2024-10', ernteIds: [], lagerKg: 5, mengeKg: 5 };
+  assertEq(w.chargeSorten(ohne, ernten).length, 0, 'keine Sorte, keine Erfindung');
+  assertEq(w.honigName(ohne, ernten), 'Honig', 'Rückfall auf „Honig"');
+  assertEq(w.honigName({ ...ohne, etikettNotiz: 'Sommertracht' }, ernten), 'Sommertracht',
+    'Etikett-Bezeichnung geht vor „Honig"');
+});
+
+test('Charge mit Ernten: eigene Sorte gewinnt, Ernte-Sorten kommen dazu', async (w) => {
+  const ernten = new Map([
+    ['e1', { id: 'e1', sorte: 'Raps', wassergehalt: 17.0 }],
+    ['e2', { id: 'e2', sorte: 'Linde', wassergehalt: 18.0 }],
+    ['e3', { id: 'e3', sorte: 'Raps', wassergehalt: null }],
+  ]);
+  const ausErnten = { id: 'c1', ernteIds: ['e1', 'e2', 'e3'], lagerKg: 0 };
+  assertEq(w.chargeSorten(ausErnten, ernten).join(', '), 'Raps, Linde',
+    'Sorten der Ernten, Doppelte zusammengefasst');
+  assertEq(w.chargeWassergehalt(ausErnten, ernten), 17.5, 'Mittel aus 17,0 und 18,0 – leere zählen nicht');
+
+  // eigene Angabe steht vorn und überschreibt den Laborwert
+  const mitEigen = { ...ausErnten, sorte: 'Sommerblüte', wassergehalt: 16.2 };
+  assertEq(w.chargeSorten(mitEigen, ernten)[0], 'Sommerblüte', 'die eigene Sorte steht vorn');
+  assertEq(w.chargeWassergehalt(mitEigen, ernten), 16.2, 'der eigene Laborwert gewinnt');
+  assertEq(w.honigName(mitEigen, ernten), 'Sommerblüte', 'und bestimmt den Namen');
+});
+
+test('Charge-Formular: Sorte und Wassergehalt sind da und werden gespeichert', async (w) => {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  try {
+    await w.Views.honig.chargeForm(null);
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert;
+      e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    assert(m.querySelector('#f-sorte'), 'das Feld Honigsorte ist da');
+    assert(m.querySelector('#f-wassergehalt'), 'das Feld Wassergehalt ist da');
+    setz('losnummer', 'TEST-LAGER-1');
+    setz('quelle', 'lager');
+    await new Promise((r) => setTimeout(r, 150));
+    setz('lagerKg', '12');
+    setz('lagerHerkunft', 'Restbestand 2024');
+    setz('sorte', 'Waldhonig');
+    setz('wassergehalt', '16,4');
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 600));
+    const c = (await w.DB.getAll('chargen')).find((x) => x.losnummer === 'TEST-LAGER-1');
+    assert(c, 'Charge gespeichert');
+    assertEq(c.sorte, 'Waldhonig', 'Sorte gespeichert');
+    assertEq(c.wassergehalt, 16.4, 'Wassergehalt mit Komma korrekt gespeichert');
+    assertEq(c.lagerKg, 12, 'Lagermenge steht');
+    assertEq(w.honigName(c, new Map()), 'Waldhonig', 'das Etikett kennt die Sorte jetzt');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+});
+
 test('Charge-Liste und Rückverfolgung nennen den Lagerbestand', async (w) => {
   const c = await w.DB.put('chargen', { losnummer: 'RV-TEST', ernteIds: [], lagerKg: 12, lagerHerkunft: 'Eimer aus 2025', mengeKg: 12, mhd: null, etikettNotiz: '' });
   const box = w.document.createElement('div'); w.document.body.appendChild(box);

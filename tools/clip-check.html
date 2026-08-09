@@ -1,0 +1,52 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Clip-Prüfung</title>
+<!-- Prüft Higgsfield-Clips: Auflösung, Länge, Bewegung, Standfestigkeit der Glasplatte.
+     Aufruf: /tools/clip-check.html?v=01-hero.mp4,neu.mp4   (Dateien in website-video/clips/) -->
+<style>body{margin:0;background:#111;color:#eee;font:12px -apple-system,sans-serif}
+h3{margin:8px 10px 2px;font-size:13px}.g{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;padding:3px}
+canvas{width:100%;height:auto;display:block;background:#000}
+.l{position:relative}.l span{position:absolute;left:3px;top:3px;background:#000a;padding:1px 4px;font-size:10px}
+pre{margin:6px 10px;font:11px ui-monospace;color:#9f9;white-space:pre-wrap}</style>
+</head><body><div id="root"></div>
+<script>
+const DATEIEN=(new URLSearchParams(location.search).get('v')||'neu.mp4').split(',');
+const N=5; window.mess=[];
+const lauf=async(datei)=>{
+ const v=document.createElement('video');
+ v.src='/website-video/clips/'+datei; v.muted=true; v.playsInline=true; v.preload='auto';
+ await new Promise(r=>v.addEventListener('loadedmetadata',r,{once:true}));
+ const root=document.getElementById('root');
+ const h=document.createElement('h3'); h.textContent=datei+' · '+v.videoWidth+'×'+v.videoHeight+' · '+v.duration.toFixed(2)+' s'; root.appendChild(h);
+ const g=document.createElement('div'); g.className='g'; root.appendChild(g);
+ const ziele=Array.from({length:N},(_,i)=>(v.duration-0.10)*i/(N-1));
+ const cs=[]; let k=0;
+ const nimm=()=>{const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;
+   c.getContext('2d').drawImage(v,0,0);cs.push(c);
+   const w=document.createElement('div');w.className='l';w.appendChild(c);
+   const s=document.createElement('span');s.textContent=v.currentTime.toFixed(2)+'s';w.appendChild(s);g.appendChild(w);k++;};
+ await new Promise(async(fertig)=>{const tick=()=>{if(k<N&&v.currentTime>=ziele[k])nimm();
+   if(k<N)v.requestVideoFrameCallback(tick);else{v.pause();fertig();}};
+   v.requestVideoFrameCallback(tick); await v.play();
+   setTimeout(()=>{while(k<N)nimm();v.pause();fertig();},(v.duration+3)*1000);});
+ const dat=cs.map(c=>c.getContext('2d').getImageData(0,0,c.width,c.height).data);
+ const diff=(a,b)=>{let s=0,n=0;for(let p=0;p<a.length;p+=4*97){s+=Math.abs(a[p]-b[p]);n++;}return s/n;};
+ // Glasplatte: je Zeile längster Lauf heller, sehr farbarmer Pixel
+ const platte=(c)=>{const w=c.width,h=c.height,d=c.getContext('2d').getImageData(0,0,w,h).data;
+   let x0=1e9,x1=-1,y0=1e9,y1=-1,treffer=0;
+   for(let y=0;y<h;y+=3){let bl=0,ba=-1,akt=-1;
+     for(let x=0;x<w;x+=2){const p=(y*w+x)*4,r=d[p],g2=d[p+1],b=d[p+2];
+       const hoch=Math.max(r,g2,b),tief=Math.min(r,g2,b);
+       if(hoch>190&&(hoch-tief)/hoch<0.085){if(akt<0)akt=x;}else{if(akt>=0&&x-akt>bl){bl=x-akt;ba=akt;}akt=-1;}}
+     if(bl>110){treffer++;if(ba<x0)x0=ba;if(ba+bl>x1)x1=ba+bl;if(y<y0)y0=y;if(y>y1)y1=y;}}
+   return treffer>8?[x0,y0,x1,y1]:null;};
+ const p0=platte(cs[0]), pE=platte(cs[cs.length-1]);
+ const z=[datei+'   '+v.videoWidth+'x'+v.videoHeight+'   '+v.duration.toFixed(2)+'s',
+  '  Bewegung Frame→Frame: '+dat.slice(1).map((d,i)=>diff(d,dat[i]).toFixed(1)).join(', '),
+  '  erstes ↔ letztes:     '+diff(dat[0],dat[dat.length-1]).toFixed(1)+'   (unter 10 = schleifenfähig)',
+  p0&&pE ? '  Platte erstes:  x '+p0[0]+'-'+p0[2]+'  y '+p0[1]+'-'+p0[3]
+           +'\n  Platte letztes: x '+pE[0]+'-'+pE[2]+'  y '+pE[1]+'-'+pE[3]
+           +'\n  VERSCHIEBUNG:   dx '+(pE[0]-p0[0])+' / '+(pE[2]-p0[2])+'   dy '+(pE[1]-p0[1])+' / '+(pE[3]-p0[3])
+         : '  keine Glasplatte erkannt'].join('\n');
+ const pre=document.createElement('pre');pre.textContent=z;root.appendChild(pre);window.mess.push(z);
+};
+(async()=>{for(const d of DATEIEN)await lauf(d);document.title='FERTIG';})();
+</script></body></html>

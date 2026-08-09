@@ -947,8 +947,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.42';
+const APP_VERSION = '1.43';
 const CHANGELOG = [
+  { version: '1.43', datum: '2026-08-09', punkte: [
+    'Eine Charge kann jetzt <b>selbst eine Honigsorte und einen Laborwert</b> tragen. Das brauchst du für Honig aus dem <b>Lagerbestand vergangener Jahre</b>: dort gibt es keine Ernte, aus der die App die Sorte ableiten könnte – bisher stand auf dem Etikett nur „Honig".',
+    'Im Charge-Formular findest du dafür unter der Menge den Abschnitt <b>„Sorte und Labor"</b> mit Honigsorte, Wassergehalt und Datum des Laborbefunds.',
+    'Sind Ernten verknüpft, bleibt alles wie bisher: die Sorte kommt von dort. Trägst du an der Charge trotzdem etwas ein, gewinnt deine Angabe – praktisch, wenn mehrere Ernten zu einem Verschnitt werden.',
+    'Sorte und Wassergehalt stehen jetzt in der <b>Chargen-Übersicht</b>, im <b>Detailfenster</b>, im <b>QR-Code</b>, auf dem <b>Etikett</b>, im Marktverkauf, im Chargen-PDF und im Excel-Export.',
+    'Fehlt bei einer Charge ohne Ernte die Sorte, sagt die App es beim Speichern und zeigt im Detailfenster einen Hinweis – blockiert aber nicht, weil das Laborergebnis oft später kommt.',
+  ] },
   { version: '1.42', datum: '2026-08-07', punkte: [
     '<b>Ein Formular statt zwei.</b> „Neue Position" ist als eigener Knopf verschwunden – es gibt nur noch <b>Zugang / Einkauf</b>. Oben steht die Frage „Was kommt ins Lager?", und der erste Eintrag der Auswahl ist <b>„+ Neue Position anlegen"</b>. Dann klappt der ganze Steckbrief auf: Bezeichnung, Kategorie, Packungs-Rechner, Gebindegröße, Pfand, MHD, Mindestbestand, Zuordnung.',
     'Eine <b>vorhandene</b> Position gewählt? Dann bleibt das Formular kurz: Datum, Menge, Preis, Lieferant, Beleg. Alles andere ist ja bekannt.',
@@ -5889,7 +5896,7 @@ Views.wanderungen = {
 /** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF (je Abfüllung/Gebinde) */
 async function honigEtikettForm(a, c) {
   const ernten = await idMap('ernten');
-  const sorte = c ? (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0] || '' : '';
+  const sorte = chargeSorten(c, ernten)[0] || '';
   const imk = S.get('imkerei');
   if (!imk.name || !imk.ort) UI.toast('Tipp: Imkerei-Name & Anschrift in den Einstellungen ausfüllen – sie gehören aufs Etikett', 'err');
   UI.formModal({
@@ -5927,11 +5934,40 @@ function ernteBelegung(chargen, exceptId) {
   for (const ch of chargen || []) { if (exceptId && ch.id === exceptId) continue; for (const id of (ch.ernteIds || [])) m.set(id, ch.losnummer); }
   return m;
 }
-/** Anzeigename des Honigs einer Charge (Sorte aus Ernte, sonst Etikett-Bezeichnung, sonst „Honig“). */
+/** Welche Sorten stecken in dieser Charge?
+
+    Zwei Quellen, in dieser Reihenfolge: die an der Charge selbst eingetragene
+    Sorte (nötig für Honig aus dem LAGERBESTAND – dort gibt es keine Ernte, aus
+    der man sie ableiten könnte) und die Sorten der verknüpften Ernten.
+    Doppelte werden zusammengefasst, damit „Raps, Raps" nicht auf dem Etikett
+    landet. */
+function chargeSorten(charge, erntenMap) {
+  if (!charge) return [];
+  const aus = [];
+  const eigen = (charge.sorte || '').trim();
+  if (eigen) aus.push(eigen);
+  for (const id of (charge.ernteIds || [])) {
+    const s = erntenMap && erntenMap.get(id) && (erntenMap.get(id).sorte || '').trim();
+    if (s) aus.push(s);
+  }
+  return [...new Set(aus)];
+}
+
+/** Wassergehalt der Charge: eigener Laborwert vor dem Mittel der Ernten. */
+function chargeWassergehalt(charge, erntenMap) {
+  if (!charge) return null;
+  if (charge.wassergehalt != null && charge.wassergehalt !== '') return Number(charge.wassergehalt);
+  const werte = (charge.ernteIds || [])
+    .map((id) => erntenMap && erntenMap.get(id) && erntenMap.get(id).wassergehalt)
+    .filter((w) => w != null);
+  if (!werte.length) return null;
+  return Math.round((werte.reduce((a, b) => a + Number(b), 0) / werte.length) * 10) / 10;
+}
+
+/** Anzeigename des Honigs einer Charge (Sorte, sonst Etikett-Bezeichnung, sonst „Honig“). */
 function honigName(charge, erntenMap) {
   if (!charge) return 'Honig';
-  const sorte = (charge.ernteIds || []).map((id) => erntenMap && erntenMap.get(id)?.sorte).filter(Boolean)[0];
-  return sorte || charge.etikettNotiz || 'Honig';
+  return chargeSorten(charge, erntenMap)[0] || charge.etikettNotiz || 'Honig';
 }
 
 /** Verkauf erfassen: prüft Bestand der Abfüllung, mindert die Gläser, bucht die Einnahme */
@@ -7330,7 +7366,7 @@ Views.honig = {
           <span class="r-ic">${icon('qr')}</span>
           <span class="r-main"><span class="r-title">Los ${U.esc(c.losnummer)}</span>
           <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(() => {
-            const sorten = (c.ernteIds || []).map((id) => U.esc(ernten.get(id)?.sorte || '')).filter(Boolean).join(', ');
+            const sorten = chargeSorten(c, ernten).map((x) => U.esc(x)).join(', ');
             const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
             return [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
           })()}</span></span>
@@ -7344,6 +7380,7 @@ Views.honig = {
   },
   async chargeForm(c) {
     const ernten = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
+    const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
     const jahr = U.todayIso().slice(0, 4);
     const bestehende = await DB.getAll('chargen');
     /* Wer die App mitten in der Saison anfängt, hat Honig im Lager, dem keine
@@ -7368,6 +7405,21 @@ Views.honig = {
         { key: 'lagerHerkunft', label: 'Woher stammt dieser Lagerbestand?', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
           placeholder: 'z. B. Restbestand Frühtracht 2025, eigene Völker', hint: 'Für die Rückverfolgbarkeit: ohne erfasste Ernte ist diese Angabe der einzige Herkunftsnachweis.' },
         { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', hint: 'Wird automatisch aus Ernten und Lagerbestand summiert – bei Bedarf überschreibbar (z. B. Verluste beim Schleudern).' },
+        /* Sorte und Laborwert gehören auch an die Charge selbst. Bei Honig aus dem
+           LAGERBESTAND gibt es keine Ernte, aus der sie stammen könnten – ohne
+           diese Felder stünde auf dem Etikett nur „Honig". Sind Ernten verknüpft
+           und das Feld bleibt leer, gilt weiter deren Sorte. */
+        { key: '_laborKopf', type: 'static',
+          html: '<h3 class="mt8 mb4">Sorte und Labor</h3>' },
+        { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts,
+          placeholder: 'auswählen oder eintippen',
+          hint: 'Pflicht für Honig aus dem Lagerbestand – dort gibt es keine Ernte, aus der die Sorte kommen könnte. Bei Chargen aus Ernten nur nötig, wenn du deren Sorte überschreiben willst.' },
+        { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', halb: true,
+          placeholder: 'z. B. 17,2',
+          hint: 'Laborergebnis. Ohne Angabe gilt der Durchschnitt der verknüpften Ernten.' },
+        { key: 'laborDatum', label: 'Laborbefund vom', type: 'date', halb: true,
+          hint: 'Optional, für die eigenen Unterlagen.' },
+        { key: '_trennLabor', type: 'static', html: '' },
         { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date', hint: `Die App erinnert automatisch ${MHD_WARN_TAGE} Tage vor Ablauf.` },
         { key: 'etikettNotiz', label: 'Etikettendaten / Bezeichnung', type: 'textarea', placeholder: 'z. B. Rapshonig, cremig gerührt' },
       ],
@@ -7381,8 +7433,19 @@ Views.honig = {
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
         const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
         const rec = Object.assign(c || {}, { losnummer: v.losnummer, ernteIds, lagerKg,
-          lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg, mhd: v.mhd, etikettNotiz: v.etikettNotiz });
-        await DB.put('chargen', rec); UI.toast('Charge gespeichert'); renderRoute();
+          lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg, mhd: v.mhd,
+          sorte: (v.sorte || '').trim(),
+          wassergehalt: (v.wassergehalt === '' || v.wassergehalt == null) ? null : v.wassergehalt,
+          laborDatum: v.laborDatum || null,
+          etikettNotiz: v.etikettNotiz });
+        await DB.put('chargen', rec);
+        /* Ohne Ernte ist die Sorte an der Charge die einzige Angabe – fehlt sie,
+           steht später „Honig" auf dem Etikett. Das melden, aber nicht blockieren:
+           manchmal kommt das Laborergebnis erst später. */
+        UI.toast(!ernteIds.length && !rec.sorte
+          ? 'Charge gespeichert – Honigsorte fehlt noch (fürs Etikett nachtragen)'
+          : 'Charge gespeichert', !ernteIds.length && !rec.sorte ? 'err' : 'ok');
+        renderRoute();
       },
       onDelete: c ? async () => {
         const abf = (await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id);
@@ -7444,6 +7507,16 @@ Views.honig = {
           <div class="stat"><div class="s-label">Nicht abgefüllt</div><div class="s-value">${U.fmtNum(rest, 1)}</div><div class="s-sub">kg frei</div></div>
           <div class="stat"><div class="s-label">MHD</div><div class="s-value" style="font-size:16px">${U.fmtDate(c.mhd) || '–'}</div></div>
         </div>
+        ${(() => {
+          /* Sorte und Laborwert gehören sichtbar in die Detailansicht – bei
+             Lagerbestand sind sie die einzige Beschreibung des Honigs. */
+          const so = chargeSorten(c, ernten), wg = chargeWassergehalt(c, ernten);
+          const teile = [];
+          if (so.length) teile.push(`<b>Sorte:</b> ${U.esc(so.join(', '))}`);
+          if (wg != null) teile.push(`<b>Wassergehalt:</b> ${U.fmtNum(wg, 1)} %`
+            + (c.laborDatum ? ` <span class="muted">(Labor ${U.fmtDate(c.laborDatum)})</span>` : ''));
+          return teile.length ? `<p class="small mb12">${teile.join(' · ')}</p>` : '';
+        })()}
         ${c.etikettNotiz ? `<p class="small mb12"><b>Etikett:</b> ${U.esc(c.etikettNotiz)}</p>` : ''}
         <h3 class="mb8">Abfüllungen dieser Charge</h3>
         <div class="rows mb12">${abf.length ? abf.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px">
@@ -7463,6 +7536,7 @@ Views.honig = {
             <span class="r-sub">${c.lagerHerkunft ? U.esc(c.lagerHerkunft) : 'ohne Herkunftsangabe – bitte in der Charge ergänzen'}</span></span></div>` : '')
           || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
         ${c.lagerKg > 0 && !c.lagerHerkunft ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für den Lagerbestand fehlt die Herkunftsangabe. Ohne erfasste Ernte ist sie der einzige Nachweis, woher der Honig stammt.</span></div>` : ''}
+        ${!(c.ernteIds || []).length && !(c.sorte || '').trim() ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für diese Charge fehlt die <b>Honigsorte</b>. Ohne Ernte gibt es keine andere Quelle dafür – auf dem Etikett stünde sonst nur „Honig". Charge bearbeiten und nachtragen.</span></div>` : ''}
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
         ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}
@@ -7486,7 +7560,7 @@ Views.honig = {
   /** QR-Inhalt: kompakte Chargeninfo für das Etikett */
   async qrDataUrl(c, erntenMap) {
     const imk = S.get('imkerei');
-    const sorten = (c.ernteIds || []).map((id) => erntenMap.get(id)?.sorte).filter(Boolean).join(', ');
+    const sorten = chargeSorten(c, erntenMap).join(', ');
     const text = [`Los: ${c.losnummer}`, c.mhd ? `MHD: ${U.fmtDate(c.mhd)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
     return makeQr(text);
   },
@@ -7702,7 +7776,7 @@ Views.markt = {
       ${pageHead('Marktverkauf', 'Gebinde antippen legt es in den Warenkorb. „Kassieren“ bucht Bestand + Kassenbuch.')}
       ${abf.length ? `<div class="markt-grid mb16">${abf.map((a) => {
         const c = chargen.get(a.chargeId);
-        const name = (c && (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean)[0]) || (c && c.etikettNotiz) || 'Honig';
+        const name = honigName(c, ernten);
         const imKorb = korb[a.id] || 0;
         return `<button class="markt-tile" data-tile="${a.id}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
@@ -11726,7 +11800,7 @@ const Xlsx = {
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
-      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), MHD: d(c.mhd), Ernten: (c.ernteIds || []).map((id) => ernten.get(id)?.sorte).filter(Boolean).join(', '), Etikett: c.etikettNotiz })); } },
+      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), MHD: d(c.mhd), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
       abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Los: chargenM.get(a.chargeId)?.losnummer || '', Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), 'Anzahl abgefüllt': a.anzahl, Bestand: a.bestand })) },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: (a && chargenM.get(a.chargeId)?.losnummer) || '', Gebinde: a ? gebindeLabel(a.gebindeG) : '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
@@ -11927,7 +12001,9 @@ const Pdf = {
       const body = [];
       const kopf = { fontStyle: 'bold', fillColor: [245, 236, 218] };
       for (const c of chargen) {
-        const sorten = (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean).join(', ');
+        const ausErnten = (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean);
+        const eigen = (c.sorte || '').trim();
+        const sorten = [...(eigen ? [c.lagerKg > 0 && !(c.ernteIds || []).length ? `${eigen} (Lagerbestand)` : eigen] : []), ...ausErnten].join(', ');
         const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
         body.push([
           { content: `Los ${c.losnummer}`, styles: kopf },

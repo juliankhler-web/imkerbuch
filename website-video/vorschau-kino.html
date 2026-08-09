@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ImkerBuch – Scroll-Vorschau (Kino)</title>
+<style>
+  /* Die vier Kniffe, die solche Seiten teuer aussehen lassen:
+     1. Der Abschnitt KLEBT (sticky), während man weiterscrollt – das Video bleibt
+        stehen, Text und App kommen herein, dann löst sich der Abschnitt.
+     2. Text erscheint GESTAFFELT, Zeile für Zeile von unten.
+     3. Das Video liegt RANDLOS über den ganzen Bildschirm (object-fit: cover).
+        Dadurch wird es beschnitten – deshalb rechnet JavaScript unten aus, wo die
+        Glasplatte nach dem Beschneiden wirklich liegt. Nur so sitzt der Screenshot.
+     4. Punkte am Rand zeigen, wo man ist. */
+  :root { --gold:#E8B54A; --creme:#F8F3E9; --dunkel:#0E0C0A; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html { scroll-behavior:smooth; }
+  body { background:var(--dunkel); color:var(--creme);
+         font:400 16px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif; }
+
+  /* Jede Szene ist doppelt so hoch wie der Bildschirm – die obere Hälfte klebt */
+  .szene { position:relative; height:220vh; }
+  .buehne { position:sticky; top:0; height:100vh; overflow:hidden; }
+  .buehne video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  /* Verlauf für die Lesbarkeit */
+  .buehne::after { content:""; position:absolute; inset:0; z-index:2; pointer-events:none;
+    background:linear-gradient(to top, rgba(8,6,4,.80) 0%, rgba(8,6,4,.40) 26%, rgba(8,6,4,0) 55%); }
+
+  /* App auf der Glasplatte – Position setzt JavaScript */
+  .platte { position:absolute; z-index:3; overflow:hidden; border-radius:14px;
+            opacity:0; transform:translateY(26px) scale(.985);
+            transition:opacity .9s ease, transform 1.1s cubic-bezier(.16,1,.3,1); }
+  .sicht .platte { opacity:1; transform:none; }
+  .platte img { width:100%; display:block; }
+  .platte::after { content:""; position:absolute; inset:0;
+    background:linear-gradient(118deg, rgba(255,255,255,.40) 0%, rgba(255,255,255,.08) 24%,
+              rgba(255,255,255,0) 48%, rgba(255,255,255,.05) 78%, rgba(255,255,255,.18) 100%); }
+
+  /* Text, gestaffelt */
+  .text { position:absolute; z-index:4; left:6vw; bottom:12vh; max-width:34ch; }
+  .text.rechts { left:auto; right:6vw; text-align:right; }
+  .text.mitte { left:50%; transform:translateX(-50%); text-align:center; bottom:14vh; max-width:26ch; }
+  .z { display:block; overflow:hidden; }
+  .z > * { display:block; transform:translateY(115%); transition:transform 1s cubic-bezier(.16,1,.3,1); }
+  .sicht .z > * { transform:none; }
+  .sicht .z:nth-child(2) > * { transition-delay:.10s }
+  .sicht .z:nth-child(3) > * { transition-delay:.20s }
+  .sicht .z:nth-child(4) > * { transition-delay:.32s }
+  .kicker { font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--gold); }
+  h1 { font-size:clamp(34px,5.4vw,74px); line-height:1.02; font-weight:600; letter-spacing:-.02em; }
+  h1 em { font-style:normal; color:var(--gold); }
+  h2 { font-size:clamp(26px,3.6vw,50px); line-height:1.08; font-weight:600; letter-spacing:-.015em; }
+  .text p { font-size:clamp(15px,1.25vw,19px); color:#fff; opacity:.9; margin-top:.7em; }
+
+  /* Punkte am Rand */
+  .punkte { position:fixed; right:22px; top:50%; transform:translateY(-50%); z-index:20;
+            display:grid; gap:11px; }
+  .punkte b { width:7px; height:7px; border-radius:50%; background:#fff3; transition:.35s; }
+  .punkte b.an { background:var(--gold); transform:scale(1.5); }
+
+  /* Abschluss */
+  .ende { position:relative; min-height:100vh; display:grid; place-items:center; text-align:center;
+          padding:12vh 6vw; background:linear-gradient(to bottom,#2A1C08 0%,#0E0C0A 55%); }
+  .ende h2 { max-width:24ch; margin-bottom:.5em }
+  .ende p { color:#c9c0ae; max-width:52ch }
+  .fehlt { margin-top:3em; display:grid; gap:8px; font-size:13.5px; color:#b3a892; text-align:left }
+  .fehlt div { padding:10px 14px; background:#191410; border-radius:10px }
+</style>
+</head>
+<body>
+
+<div class="punkte" id="punkte"></div>
+
+<!-- 1 · Hero -->
+<section class="szene" data-titel="Start">
+  <div class="buehne">
+    <video src="clips/01-hero.mp4" muted playsinline preload="auto" data-einmal></video>
+    <div class="text mitte">
+      <span class="z"><span class="kicker">Kein Abo · keine Cloud · 100 % lokal</span></span>
+      <span class="z"><h1>Das ganze Imkerjahr</h1></span>
+      <span class="z"><h1><em>auf deinem Gerät.</em></h1></span>
+      <span class="z"><p>Von der ersten Durchsicht bis zur Rechnung. Auch ohne Netz am Stand.</p></span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · Übersicht -->
+<section class="szene" data-titel="Übersicht">
+  <div class="buehne">
+    <video src="clips/02-platte-links.mp4" muted playsinline loop preload="auto"></video>
+    <div class="platte" data-rect="8.75,5.93,30.73,88"><img src="../website-assets/screenshots/light-01-dashboard.png" alt=""></div>
+    <div class="text rechts">
+      <span class="z"><span class="kicker">Übersicht</span></span>
+      <span class="z"><h2>Alles auf einen Blick</h2></span>
+      <span class="z"><p>Völker, offene Aufgaben, Fahrten zum Stand — und der Hinweis, was diese Woche dran ist.</p></span>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · Stockkarte -->
+<section class="szene" data-titel="Stockkarte">
+  <div class="buehne">
+    <video src="clips/03-platte-rechts.mp4" muted playsinline loop preload="auto"></video>
+    <div class="platte" data-rect="64.58,6.85,23.02,86"><img src="../website-assets/screenshots/light-03-stockkarte.png" alt=""></div>
+    <div class="text">
+      <span class="z"><span class="kicker">Stockkarte</span></span>
+      <span class="z"><h2>Jedes Volk dokumentiert</h2></span>
+      <span class="z"><p>Durchsichten, Stärke, Futter, Varroa — mit eigenen Feldern und lückenloser Historie.</p></span>
+    </div>
+  </div>
+</section>
+
+<!-- 4 · Honig und Geld -->
+<section class="szene" data-titel="Honig und Geld">
+  <div class="buehne">
+    <video src="clips/04-allee.mp4" muted playsinline loop preload="auto"></video>
+    <div class="platte" data-rect="14.69,15.83,16.56,45"><img src="../website-assets/screenshots/light-06-honig.png" alt=""></div>
+    <div class="platte" data-rect="69.27,20.19,15.31,31"><img src="../website-assets/screenshots/light-07-kassenbuch.png" alt=""></div>
+    <div class="text">
+      <span class="z"><span class="kicker">Honig und Geld</span></span>
+      <span class="z"><h2>Von der Ernte bis zur Rechnung</h2></span>
+      <span class="z"><p>Chargen, Losnummern, Abfüllung, Bestand — und die Einnahme steht ohne Zutun im Kassenbuch.</p></span>
+    </div>
+  </div>
+</section>
+
+<section class="ende">
+  <div>
+    <h2>Hier käme der Infoteil</h2>
+    <p>Nach dem letzten Clip — die Biene fliegt in den Stock, es wird dunkel — blendet dieser
+      Teil aus der Dunkelheit auf und zeigt alle Bereiche einzeln mit eigenem Bild.</p>
+    <div class="fehlt">
+      <div>5 · Aufstieg über die Landschaft · 4 s</div>
+      <div>6 · Anflug auf den Bienenstock · 5 s</div>
+      <div>7 · Dunkelheit im Stock · 3 s</div>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ---------- 1) Glasplatten richtig platzieren ----------
+   Das Video liegt randlos (object-fit: cover) und wird deshalb beschnitten.
+   Die gemessenen Prozentwerte gelten aber fürs UNBESCHNITTENE Videobild.
+   Also rechnen wir aus, wo das Videobild nach dem Beschneiden liegt. */
+const punkte = document.getElementById('punkte');
+[...document.querySelectorAll('.szene')].forEach((s) => {
+  const b = document.createElement('b'); b.title = s.dataset.titel; punkte.appendChild(b);
+});
+const bs = [...punkte.children];
+
+const AR = 1920 / 1080;
+function platzieren() {
+  for (const b of document.querySelectorAll('.buehne')) {
+    const W = b.clientWidth, H = b.clientHeight;
+    const s = Math.max(W / 1920, H / 1080);      // cover
+    const vw = 1920 * s, vh = 1080 * s;
+    const ox = (W - vw) / 2, oy = (H - vh) / 2;
+    for (const p of b.querySelectorAll('.platte')) {
+      const [l, t, w, h] = p.dataset.rect.split(',').map(Number);
+      p.style.left   = (ox + vw * l / 100) + 'px';
+      p.style.top    = (oy + vh * t / 100) + 'px';
+      p.style.width  = (vw * w / 100) + 'px';
+      p.style.height = (vh * h / 100) + 'px';
+    }
+  }
+}
+addEventListener('resize', platzieren);
+platzieren();
+
+/* ---------- 2) Sichtbarkeit: aus der Scroll-Position bestimmt ----------
+   Bei sticky-Bühnen ist der IntersectionObserver unzuverlässig (das Element
+   bleibt stehen, während der Abschnitt weiterläuft). Darum rechnen wir selbst:
+   welche Szene liegt gerade in der Bildschirmmitte? */
+const szenen = [...document.querySelectorAll('.szene')];
+const buehnen = szenen.map((s) => s.querySelector('.buehne'));
+let aktivZuletzt = -1;
+function aktualisieren() {
+  const mitte = scrollY + innerHeight / 2;
+  let aktiv = -1;
+  szenen.forEach((s, i) => { if (mitte >= s.offsetTop && mitte < s.offsetTop + s.offsetHeight) aktiv = i; });
+  if (aktiv === aktivZuletzt) return;
+  aktivZuletzt = aktiv;
+  buehnen.forEach((b, i) => {
+    const v = b.querySelector('video');
+    if (i === aktiv) { b.classList.add('sicht'); v.play().catch(() => { try { v.currentTime = 0.1; } catch (e) {} }); }
+    else if (!v.hasAttribute('data-einmal')) v.pause();
+  });
+  bs.forEach((b, i) => b.classList.toggle('an', i === aktiv));
+}
+
+/* ---------- 3) Punkte am Rand ---------- */
+addEventListener('scroll', aktualisieren, { passive: true });
+addEventListener('resize', () => { platzieren(); aktivZuletzt = -1; aktualisieren(); });
+aktualisieren();
+</script>
+</body>
+</html>

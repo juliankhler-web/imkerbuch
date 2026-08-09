@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-07 · **v1.42 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 306/306 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-08-09 · **v1.43 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 309/309 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-08-09 (v1.43)**: **Sorte und Laborwert an der Charge** (Julian: „Ich trage eine Charge aus dem Lagerbestand vergangener Jahre nach. Es ist hier nicht möglich die Honigsorte / Labor einzutragen. Das muß aber so möglich sein wie bei der normalen Ernte.").
+  Die Sorte kam bisher **ausschließlich** aus den verknüpften Ernten. Eine Charge aus reinem **Lagerbestand** hat keine – also gab es keinen Weg, ihre Sorte zu nennen, und auf dem Etikett stand „Honig". Jetzt trägt die Charge `sorte`, `wassergehalt` und `laborDatum` selbst; im Formular unter der Menge der Abschnitt **„Sorte und Labor"**.
+  **Eine Wahrheit für alle Anzeigen**: `chargeSorten(charge, erntenMap)` (eigene Sorte zuerst, dann die der Ernten, Doppelte zusammengefasst) und `chargeWassergehalt` (eigener Laborwert vor dem **Mittel** der Ernten). `honigName` baut darauf auf. Umgestellt: Chargenliste, Detailfenster, QR-Inhalt, Etikett-Dialog, Marktverkauf, Chargen-PDF (Lagerbestand-Sorte wird als solche gekennzeichnet), Excel-Export (neue Spalten Sorte/Wassergehalt statt „Ernten").
+  Fehlt bei einer Charge **ohne Ernte** die Sorte, meldet es der Speichern-Toast und ein Hinweisbanner im Detailfenster — **nicht blockierend**, weil das Laborergebnis oft später kommt (gleiche Logik wie beim fehlenden `lagerHerkunft`).
+  3 neue Tests (Lagerbestand-Charge, Mischung eigene/Ernte-Sorte inkl. Mittelwert, Formular speichert Komma-Zahl). **309/309 grün.** SW → v155.
 
 - **2026-08-07 (v1.42)**: **Verschmelzung – „Neue Position" verschwindet, es gibt nur noch „Zugang / Einkauf"** (Julian: „würde es nicht sinnvoll sein wenn wir neue position mit zugang einkauf verschmeltzen das wir nur noch Zugang / einkauf haben neue position weg aber alle funktionen von neue position ersetzen mit Zugang / einkauf").
   Zwei Knöpfe für **einen** Vorgang waren die eigentliche Ursache der letzten drei Runden Nachbesserung. Jetzt fragt `materialZugangForm` oben **„Was kommt ins Lager?"** – erster Eintrag der Auswahl ist **„+ Neue Position anlegen"** (`inventarId === '__neu'`, `keepOrder: true`, damit der Eintrag oben bleibt). Zwei Zustände, gesteuert über zwei Funktionen `neu(f)` / `kauf(f)`, damit keine Bedingung zweimal im Code steht:
