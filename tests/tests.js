@@ -2047,6 +2047,56 @@ test('Fütterung: Auswahl im Formular zieht beim Speichern ab', async (w) => {
 });
 
 /* ---------- Materialabgang: verkaufen, verbrauchen, verlieren ---------- */
+test('Abfüllung löschen gibt Gläser, Deckel und Etiketten zurück', async (w) => {
+  const glas = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Glas 500 g Abf-Test', kategorie: 'Gläser',
+    einheit: 'Stück', stueckzahl: 200, gebindeG: 500, anschaffung: '2026-01-01' });
+  const deckel = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Deckel Abf-Test', kategorie: 'Deckel',
+    einheit: 'Stück', stueckzahl: 300, anschaffung: '2026-01-01' });
+  const b1 = await w.verbrauchAbziehenKette(glas.id, 40, { pruefen: false });
+  const b2 = await w.verbrauchAbziehenKette(deckel.id, 40, { pruefen: false });
+  const a = await w.DB.put('abfuellungen', { chargeId: 'x', datum: '2026-08-01', gebindeG: 500, anzahl: 40, bestand: 40,
+    verbrauchAbzug: [...b1.abzug, ...b2.abzug] });
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 160, 'nach dem Abfüllen 160 Gläser');
+
+  const echt = w.UI.confirm; w.UI.confirm = () => Promise.resolve(true);
+  try {
+    await w.Views.honig.abfuellEditForm(a);
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    m.querySelector('[data-del]').click();
+    await new Promise((r) => setTimeout(r, 600));
+  } finally { w.UI.confirm = echt; w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 200, 'Gläser wieder da');
+  assertEq((await w.DB.get('inventar', deckel.id)).stueckzahl, 300, 'Deckel wieder da');
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'die Abfüllung ist weg');
+});
+
+test('Abfüllung korrigieren: weniger Gläser kommen zurück', async (w) => {
+  const glas = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Glas Korrektur-Test', kategorie: 'GlasKorr',
+    einheit: 'Stück', stueckzahl: 100, gebindeG: 500, anschaffung: '2026-01-01' });
+  const b = await w.verbrauchAbziehenKette(glas.id, 50, { pruefen: false });
+  const a = await w.DB.put('abfuellungen', { chargeId: 'x', datum: '2026-08-01', gebindeG: 500, anzahl: 50, bestand: 50,
+    verbrauchAbzug: b.abzug });
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 50, 'erst 50 übrig');
+
+  try {
+    await w.Views.honig.abfuellEditForm(a);
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert;
+      e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('anzahl', '30'); setz('bestand', '30');
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 600));
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+
+  assertEq((await w.DB.get('inventar', glas.id)).stueckzahl, 70, '20 Gläser sind zurückgekommen');
+  const frisch = await w.DB.get('abfuellungen', a.id);
+  assertEq(frisch.anzahl, 30, 'die Abfüllung steht auf 30');
+  assertEq(frisch.verbrauchAbzug[0].menge, 30, 'der gemerkte Abzug wurde mitgerechnet');
+});
+
 test('Abzug greift auf die nächste Position derselben Art über', async (w) => {
   /* Julian: „habe ich Zucker von 2025 und 2026 und mit einer Fütterung 25 kg
      von 2025 und 25 kg von 2026, greift er nicht automatisch auf den nächsten

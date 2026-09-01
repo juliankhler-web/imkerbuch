@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-01 · **v1.44 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 315/315 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-01 · **v1.45 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 317/317 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-01 (v1.45)**: **Rückgabe- und Ketten-Logik auf das Abfüllen übertragen** (Julian: „kannst du die logiken auch noch für andere bereiche übernehmen?").
+  Durchgesehen wurden alle Stellen, die Bestand abziehen. Offen war genau **eine**: das **Abfüllen** zog Gläser, Deckel und Etiketten ab, hielt aber nichts fest — Löschen gab nichts zurück, und im Bearbeiten-Formular stand sogar der Hinweis, man müsse den Bestand von Hand nachziehen.
+  Jetzt: Abzug über **`verbrauchAbziehenKette`** (zweiter Karton derselben Glasgröße springt ein), Ergebnis als **`verbrauchAbzug`** an der Abfüllung — Gläser je Größe an ihrer eigenen Abfüllung, Deckel und Etiketten **anteilig** nach Stückzahl. Löschen gibt alles zurück; **Anzahl ändern** rechnet den gemerkten Abzug proportional um und bucht die Differenz (50 → 30 heißt 20 Gläser zurück).
+  **Bewusst nicht geändert**: der **Materialabgang** zieht weiter aus genau der gewählten Position ab. Dort ist die Position Teil des Belegs („5 kg von *dieser* Position verkauft") und `bestandVorher/nachher` hängen daran — eine Kette würde den Nachweis verfälschen. Pfand-Rücknahme und Zugang haben ihre Rückgabe schon länger.
+  2 neue Tests. **317/317 grün.** SW → v157.
 
 - **2026-09-01 (v1.44)**: **Vier gemeldete Fehler** aus dem echten Betrieb.
   **1. Gelöschte Fütterung gab den Zucker nicht zurück** („bleibt Zucker verbraucht und erhöht sich nicht wieder entsprechend"). Ursache: der Abzug wurde nirgends festgehalten. Jetzt merkt sich jeder Datensatz in **`verbrauchAbzug`**, was wo abgezogen wurde; `verbrauchZurueckbuchen` gibt es beim Löschen frei. Gilt auch für **Behandlungen**. Und das **Bearbeiten** nimmt erst zurück, dann bucht es neu — vorher zog jedes Speichern erneut ab (stiller Folgefehler, den niemand gemeldet hatte).

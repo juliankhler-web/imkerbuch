@@ -947,8 +947,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.44';
+const APP_VERSION = '1.45';
 const CHANGELOG = [
+  { version: '1.45', datum: '2026-09-01', punkte: [
+    'Dieselbe Logik jetzt auch beim <b>Abfüllen</b>: Löschst du eine Abfüllung, kommen <b>Gläser, Deckel und Etiketten zurück in den Bestand</b>. Vorher blieben sie verbraucht.',
+    'Korrigierst du die <b>Anzahl</b> einer Abfüllung, rechnet die App mit: von 50 auf 30 gestellt heißt 20 Gläser zurück im Lager. Bisher stand dort der Hinweis, dass du das von Hand nachziehen musst.',
+    'Auch beim Abfüllen greift der Abzug jetzt auf die <b>nächste Position derselben Art</b> über – zwei Kartons derselben Glasgröße werden nacheinander leer statt „Bestand reicht nicht" zu melden.',
+  ] },
   { version: '1.44', datum: '2026-09-01', punkte: [
     'Behoben: <b>Löschst du eine Fütterung, kommt der Zucker zurück in den Bestand.</b> Bisher blieb er für immer „verbraucht". Dasselbe gilt jetzt für Behandlungen und für das <b>Bearbeiten</b> – vorher zog jedes Speichern ein weiteres Mal ab.',
     'Behoben: Der Abzug <b>geht automatisch auf die nächste Position derselben Art über</b>. Hast du Zucker von 2025 und von 2026 und fütterst 50 kg, nimmt die App 25 kg aus dem einen und 25 kg aus dem anderen – vorher meldete sie „25 kg fehlten", obwohl in Summe genug da war. Abgebaut wird das Älteste zuerst; gewechselt wird nur innerhalb derselben Kategorie und Einheit.',
@@ -7712,21 +7717,42 @@ Views.honig = {
         const brauchtKg = posten.reduce((s, p) => s + p.anzahl * p.gebindeG / 1000, 0);
         if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Los ${charge.losnummer} frei.`);
         let glaeser = 0;
-        for (const p of posten) { await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }); glaeser += p.anzahl; }
+        const angelegt = [];
+        for (const p of posten) {
+          angelegt.push({ p, rec: await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }) });
+          glaeser += p.anzahl;
+        }
         UI.toast(`${glaeser} Gebinde abgefüllt${posten.length > 1 ? ` (${posten.length} Größen)` : ''}`);
         /* Erst die Gebinde je Größe, dann Deckel und Etiketten über die
-           Gesamtzahl. Nacheinander, damit zwei Größen aus derselben Position
-           sich auch wirklich addieren. Der Prüflauf kommt einmal am Ende. */
-        const abzuege = [...posten.map((pp) => [v[pp.feld], pp.anzahl]), [v.gl_deckel, glaeser], [v.gl_etikett, glaeser]];
+           Gesamtzahl. Über die KETTE, damit ein zweiter Karton derselben Größe
+           einspringt, wenn der erste leer wird. Der Prüflauf kommt am Ende.
+
+           Was abgezogen wurde, wird an der Abfüllung festgehalten: die Gläser
+           je Größe an ihrer eigenen Abfüllung, Deckel und Etiketten anteilig –
+           sonst könnte das Löschen sie nicht zurückgeben. */
         const meldungen = [];
         let knapp = false;
-        for (const [id, menge] of abzuege) {
-          const buchung = await verbrauchAbziehen(id, menge, { pruefen: false });
-          if (!buchung) continue;
-          if (buchung.gefehlt > 0) knapp = true;
-          meldungen.push(`${buchung.pos.bezeichnung}: −${U.fmtNum(buchung.abgezogen, 0)} ${buchung.einheit}, Rest ${U.fmtNum(buchung.nachher, 0)}`
-            + (buchung.gefehlt > 0 ? ` (${U.fmtNum(buchung.gefehlt, 0)} fehlten)` : ''));
+        const merke = (rec, liste) => { rec.verbrauchAbzug = [...(rec.verbrauchAbzug || []), ...liste]; };
+        const buche = async (id, menge) => {
+          const b = await verbrauchAbziehenKette(id, menge, { pruefen: false });
+          if (!b || !b.abzug.length) return null;
+          if (b.gefehlt > 0) knapp = true;
+          meldungen.push(b.abzug.map((a) => `${a.bezeichnung}: −${U.fmtNum(a.menge, 0)} ${a.einheit}`).join(' · ')
+            + (b.gefehlt > 0 ? ` (${U.fmtNum(b.gefehlt, 0)} fehlten)` : ''));
+          return b;
+        };
+        for (const { p, rec } of angelegt) {
+          const b = await buche(v[p.feld], p.anzahl);
+          if (b) merke(rec, b.abzug);
         }
+        for (const id of [v.gl_deckel, v.gl_etikett]) {
+          const b = await buche(id, glaeser);
+          if (!b || glaeser <= 0) continue;
+          for (const { p, rec } of angelegt) {
+            merke(rec, b.abzug.map((a) => ({ ...a, menge: Math.round((a.menge * p.anzahl / glaeser) * 1000) / 1000 })));
+          }
+        }
+        for (const { rec } of angelegt) if (rec.verbrauchAbzug && rec.verbrauchAbzug.length) await DB.put('abfuellungen', rec);
         if (meldungen.length) { UI.toast(meldungen.join(' · '), knapp ? 'err' : undefined); await pruefeMhd(); }
         renderRoute();
       },
@@ -7744,14 +7770,44 @@ Views.honig = {
         { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true },
         { key: 'bestand', label: 'Davon noch im Bestand', type: 'number', required: true, hint: 'Wird durch Verkäufe automatisch gemindert.' },
         { key: 'datum', label: 'Abfülldatum', type: 'date', required: true },
-        { key: '_hinweis', type: 'static', html: '<div class="hint">Der Glas- und Deckelbestand im Verbrauchsmaterial wird hier <b>nicht</b> nachgerechnet – sonst würde beim Korrigieren doppelt gebucht. Weicht die Anzahl stark ab, korrigiere den Bestand unter „Verbrauchsmaterial".</div>' },
+        { key: '_hinweis', type: 'static', html: '<div class="hint">Änderst du die <b>Anzahl abgefüllt</b>, rechnet die App Gläser, Deckel und Etiketten mit: weniger Gläser kommen zurück in den Bestand, mehr werden abgezogen.</div>' },
       ],
       values: a,
       async onSave(v) {
-        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: Math.round(v.anzahl), bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum }));
+        /* Ändert sich die Anzahl, wandert der Verbrauch mit: der gespeicherte
+           Abzug wird auf die neue Anzahl umgerechnet und die Differenz gebucht.
+           Vorher blieb der Glasbestand bei einer Korrektur einfach falsch. */
+        const alteAnzahl = Math.max(0, Number(a.anzahl) || 0);
+        const neueAnzahl = Math.max(0, Math.round(v.anzahl));
+        const alt = a.verbrauchAbzug || [];
+        if (alt.length && alteAnzahl > 0 && neueAnzahl !== alteAnzahl) {
+          const f = neueAnzahl / alteAnzahl;
+          const neu = alt.map((x) => ({ ...x, menge: Math.round(x.menge * f * 1000) / 1000 }));
+          for (let i = 0; i < alt.length; i++) {
+            const diff = Math.round((alt[i].menge - neu[i].menge) * 1000) / 1000;
+            if (diff > 0) await verbrauchZugang(alt[i].inventarId, diff, { pruefen: false });
+            else if (diff < 0) await verbrauchAbziehen(alt[i].inventarId, -diff, { pruefen: false });
+          }
+          a.verbrauchAbzug = neu;
+        }
+        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum }));
+        await pruefeMhd();
         UI.toast('Abfüllung gespeichert'); renderRoute();
       },
-      onDelete: papierkorbDelete('abfuellungen', a, 'Abfüllung löschen?', 'Wandert in den Papierkorb; die Menge zählt wieder als frei in der Charge.'),
+      /* Löschen gibt Gläser, Deckel und Etiketten zurück – wie bei Fütterung
+         und Behandlung. */
+      onDelete: async () => {
+        const zurueck = (a.verbrauchAbzug || []).map((x) => `${U.fmtNum(x.menge, 0)} ${x.bezeichnung}`).join(', ');
+        if (!(await UI.confirm({ title: 'Abfüllung löschen?',
+          text: 'Wandert in den Papierkorb; die Menge zählt wieder als frei in der Charge.'
+            + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
+          confirmText: 'Löschen', danger: true }))) return false;
+        await verbrauchZurueckbuchen(a.verbrauchAbzug);
+        await DB.softDel('abfuellungen', a.id);
+        UI.toast('Abfüllung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
+        renderRoute();
+        return true;
+      },
     });
   },
 
