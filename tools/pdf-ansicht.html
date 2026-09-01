@@ -1,0 +1,24 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PDF-Ansicht</title>
+<!-- Zeigt ein erzeugtes PDF als Bild – nutzt die mitgelieferte pdf.js.
+     Aufruf: /tools/pdf-ansicht.html?f=rechnung.pdf  (Dateien in tools/pdf-vorschau/) -->
+<style>body{margin:0;background:#222;font:12px -apple-system,sans-serif;color:#eee}
+canvas{display:block;margin:8px auto;background:#fff;box-shadow:0 2px 20px #0008;max-width:100%}
+#info{padding:6px 10px}</style></head><body>
+<div id="info">lädt …</div><div id="raus"></div>
+<script src="/libs/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/libs/pdf.worker.min.js';
+const datei = new URLSearchParams(location.search).get('f') || 'rechnung.pdf';
+(async () => {
+  const doc = await pdfjsLib.getDocument('/tools/pdf-vorschau/' + datei).promise;
+  document.getElementById('info').textContent = datei + ' · ' + doc.numPages + ' Seite(n)';
+  for (let n = 1; n <= Math.min(doc.numPages, 3); n++) {
+    const seite = await doc.getPage(n);
+    const vp = seite.getViewport({ scale: 1.6 });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    await seite.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    document.getElementById('raus').appendChild(c);
+  }
+  document.title = 'FERTIG';
+})().catch((e) => { document.getElementById('info').textContent = 'FEHLER: ' + e.message; document.title = 'FEHLER'; });
+</script></body></html>
