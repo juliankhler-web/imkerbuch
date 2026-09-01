@@ -947,8 +947,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.45';
+const APP_VERSION = '1.46';
 const CHANGELOG = [
+  { version: '1.46', datum: '2026-09-01', punkte: [
+    'Behoben: Auf dem <b>Honig-Etikett</b> lagen die Bio-Logos über der Anschrift und dem Öko-Code. Sie stehen jetzt <b>oben rechts</b> neben dem Namen der Imkerei – dort, wo man sie erwartet, und dort ist Platz.',
+  ] },
   { version: '1.45', datum: '2026-09-01', punkte: [
     'Dieselbe Logik jetzt auch beim <b>Abfüllen</b>: Löschst du eine Abfüllung, kommen <b>Gläser, Deckel und Etiketten zurück in den Bestand</b>. Vorher blieben sie verbraucht.',
     'Korrigierst du die <b>Anzahl</b> einer Abfüllung, rechnet die App mit: von 50 auf 30 gestellt heißt 20 Gläser zurück im Lager. Bisher stand dort der Hinweis, dass du das von Hand nachziehen musst.',
@@ -12305,9 +12308,27 @@ const Pdf = {
         const x = mx + col * (LW + gapx), yy = my + row * (LH + gapy);
         doc.setDrawColor(210, 195, 160).setLineWidth(0.3).roundedRect(x, yy, LW, LH, 3, 3);
         // Logo-Ecke
-        try { doc.addImage(await this.logoDataUrl(), 'PNG', x + 4, yy + 4, 9, 9); } catch (e) {}
+        try { const lg = await this.logoDataUrl(); if (lg) doc.addImage(lg, /^data:image\/png/.test(lg) ? 'PNG' : 'JPEG', x + 4, yy + 4, 9, 9); } catch (e) {}
+        /* Bio-Logos gehören nach OBEN RECHTS, nicht nach unten.
+
+           Vorher standen sie auf fester Höhe (12 mm über der Unterkante),
+           während die Textzeilen darunter weiterliefen – mit Bio kommt die
+           Öko-Zeile dazu, und Logos und Anschrift lagen übereinander. Oben
+           rechts ist Platz, dort erwartet man die Zeichen auch. Der Name der
+           Imkerei bekommt entsprechend weniger Breite. */
+        let bioBreite = 0;
+        if (imk.bio === 'ja') {
+          const logos = (imk.bioLogos || []).slice(0, 3);
+          let bx = x + LW - 5;
+          for (const lg of logos) {
+            const bild = await this.bildFuerPdf(lg, 256);
+            if (!bild) continue;
+            bx -= 8;
+            try { doc.addImage(bild, 'JPEG', bx, yy + 4, 8, 8); bioBreite += 9; bx -= 1; } catch (e) { bx += 8; }
+          }
+        }
         doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(120, 80, 0);
-        doc.text(imk.name || 'Imkerei', x + 16, yy + 10, { maxWidth: LW - 20 });
+        doc.text(imk.name || 'Imkerei', x + 16, yy + 10, { maxWidth: Math.max(24, LW - 20 - bioBreite) });
         doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(38, 38, 43);
         doc.text(opts.bezeichnung, x + 6, yy + 22, { maxWidth: LW - 12 });
         doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(40);
@@ -12325,15 +12346,6 @@ const Pdf = {
           doc.setFont('helvetica', 'bold').setTextColor(60, 110, 40);
           zeile(`Öko: ${[bioCode, bioVerb].filter(Boolean).join(' · ')}`);
           doc.setFont('helvetica', 'normal').setTextColor(90);
-          // hochgeladene Bio-Logos klein unten links (nur Rastergrafiken)
-          let lx = x + 6; const lyImg = yy + LH - 12, grenze = qr ? (x + LW - 20) : (x + LW - 7);
-          for (const lg of (imk.bioLogos || []).slice(0, 3)) {
-            if (lx + 10 > grenze) break;
-            // über die Zeichenfläche: klappt auch mit SVG und mit Transparenz
-            const bild = await this.bildFuerPdf(lg, 256);
-            if (!bild) continue;
-            try { doc.addImage(bild, 'JPEG', lx, lyImg, 9, 9); lx += 11; } catch (e) {}
-          }
         }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
