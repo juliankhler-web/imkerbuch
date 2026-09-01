@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-08-09 · **v1.43 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 309/309 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-01 · **v1.44 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 315/315 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,14 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-01 (v1.44)**: **Vier gemeldete Fehler** aus dem echten Betrieb.
+  **1. Gelöschte Fütterung gab den Zucker nicht zurück** („bleibt Zucker verbraucht und erhöht sich nicht wieder entsprechend"). Ursache: der Abzug wurde nirgends festgehalten. Jetzt merkt sich jeder Datensatz in **`verbrauchAbzug`**, was wo abgezogen wurde; `verbrauchZurueckbuchen` gibt es beim Löschen frei. Gilt auch für **Behandlungen**. Und das **Bearbeiten** nimmt erst zurück, dann bucht es neu — vorher zog jedes Speichern erneut ab (stiller Folgefehler, den niemand gemeldet hatte).
+  **2. Der Abzug sprang nicht auf die nächste Position** („Zucker von 2025 und 2026 … greift er nicht automatisch auf den nächsten Zuckereingang"). Neu: **`verbrauchAbziehenKette`** baut über mehrere Positionen ab — **ältestes zuerst**, und nur innerhalb **derselben Kategorie und Einheit** (Zucker wandert auf Zucker, nie auf Ameisensäure). Bei Sammel-Fütterungen verteilt `abzugAnteil` den Abzug anteilig auf die Datensätze, damit das Löschen einer einzelnen Fütterung genau ihren Anteil zurückgibt.
+  **3. Eigenes Logo war auf der Rechnung ein schwarzes Feld.** Ursache: Alphakanal — jsPDF füllt Transparenz je nach Quelle schwarz, und `addImage` bekam fest `'PNG'`. Neu: **`Pdf.bildFuerPdf`** legt jedes Bild über die Zeichenfläche auf **Weiß** und liefert JPEG (mit Cache).
+  **4. Bio-Logos fehlten auf der Rechnung ganz** — sie wurden nur aufs Etikett gezeichnet. Jetzt unten links auf der Rechnung, dazu der **Code der Öko-Kontrollstelle** (Pflichtangabe). Nebenbei: das Etikett übersprang **SVG**-Logos stillschweigend; über die Zeichenfläche klappen sie jetzt.
+  ⚠️ **Datumsabhängiger Test gefunden**: „Kalender: erledigt grün …" prüfte `heute − 4` im Kalendergitter — an den ersten Tagen eines Monats liegt der Tag im Vormonat und fehlt im Gitter. Der Test stellt den Kalender jetzt selbst auf den Monat des Prüftags. Fiel nur auf, weil heute der 1. ist.
+  6 neue Tests. **315/315 grün.** SW → v156.
 
 - **2026-08-09 (v1.43)**: **Sorte und Laborwert an der Charge** (Julian: „Ich trage eine Charge aus dem Lagerbestand vergangener Jahre nach. Es ist hier nicht möglich die Honigsorte / Labor einzutragen. Das muß aber so möglich sein wie bei der normalen Ernte.").
   Die Sorte kam bisher **ausschließlich** aus den verknüpften Ernten. Eine Charge aus reinem **Lagerbestand** hat keine – also gab es keinen Weg, ihre Sorte zu nennen, und auf dem Etikett stand „Honig". Jetzt trägt die Charge `sorte`, `wassergehalt` und `laborDatum` selbst; im Formular unter der Menge der Abschnitt **„Sorte und Labor"**.

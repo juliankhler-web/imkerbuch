@@ -947,8 +947,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.43';
+const APP_VERSION = '1.44';
 const CHANGELOG = [
+  { version: '1.44', datum: '2026-09-01', punkte: [
+    'Behoben: <b>Löschst du eine Fütterung, kommt der Zucker zurück in den Bestand.</b> Bisher blieb er für immer „verbraucht". Dasselbe gilt jetzt für Behandlungen und für das <b>Bearbeiten</b> – vorher zog jedes Speichern ein weiteres Mal ab.',
+    'Behoben: Der Abzug <b>geht automatisch auf die nächste Position derselben Art über</b>. Hast du Zucker von 2025 und von 2026 und fütterst 50 kg, nimmt die App 25 kg aus dem einen und 25 kg aus dem anderen – vorher meldete sie „25 kg fehlten", obwohl in Summe genug da war. Abgebaut wird das Älteste zuerst; gewechselt wird nur innerhalb derselben Kategorie und Einheit.',
+    'Behoben: Ein <b>eigenes Logo</b> mit durchsichtigem Hintergrund erschien auf der Rechnung als schwarzes Feld. Bilder werden jetzt vor dem Einbetten auf Weiß gelegt.',
+    'Behoben: Die hinterlegten <b>Bio-Logos</b> (Bioland, EU-Bio …) standen auf der Rechnung gar nicht. Sie erscheinen jetzt unten links, zusammen mit dem <b>Code der Öko-Kontrollstelle</b> – eine Pflichtangabe bei Bio-Ware. Auch SVG-Logos funktionieren jetzt, vorher wurden sie stillschweigend übersprungen.',
+  ] },
   { version: '1.43', datum: '2026-08-09', punkte: [
     'Eine Charge kann jetzt <b>selbst eine Honigsorte und einen Laborwert</b> tragen. Das brauchst du für Honig aus dem <b>Lagerbestand vergangener Jahre</b>: dort gibt es keine Ernte, aus der die App die Sorte ableiten könnte – bisher stand auf dem Etikett nur „Honig".',
     'Im Charge-Formular findest du dafür unter der Menge den Abschnitt <b>„Sorte und Labor"</b> mit Honigsorte, Wassergehalt und Datum des Laborbefunds.',
@@ -5077,10 +5083,24 @@ Views.behandlungen = {
           const ende = U.addDays(saved.datum, saved.wartezeitTage);
           await DB.put('aufgaben', { titel: `Wartezeit endet: ${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, volkId: saved.zielTyp === 'volk' ? saved.zielId : null, notiz: '' });
         }
-        await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0));
+        await verbrauchZurueckbuchen((b || {}).verbrauchAbzug, { pruefen: false });
+        const buchung = await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0));
+        saved.verbrauchAbzug = buchung ? buchung.abzug : [];
+        await DB.put('behandlungen', saved);
         UI.toast('Behandlung gespeichert'); renderRoute();
       },
-      onDelete: papierkorbDelete('behandlungen', b, 'Behandlung löschen?', 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).'),
+      /* Wie bei der Fütterung: Löschen gibt das Mittel zurück in den Bestand. */
+      onDelete: b ? async () => {
+        const zurueck = (b.verbrauchAbzug || []).map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+        if (!(await UI.confirm({ title: 'Behandlung löschen?',
+          text: 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
+          confirmText: 'Löschen', danger: true }))) return false;
+        await verbrauchZurueckbuchen(b.verbrauchAbzug);
+        await DB.softDel('behandlungen', b.id);
+        UI.toast('Behandlung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
+        renderRoute();
+        return true;
+      } : null,
     });
     verdrahteVerbrauch(m, mittelPosten, () => { const el = $('#f-menge', m.el); return el ? U.parseNum(el.value) : 0; });
   },
@@ -5127,8 +5147,13 @@ Views.behandlungen = {
       ],
       values: {},
       async onSave(v) {
-        const n = await behandlungFuerVoelker(v.volkIds, v);
-        await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0) * Math.max(1, n));
+        const angelegt = [];
+        const n = await behandlungFuerVoelker(v.volkIds, v, angelegt);
+        const buchung = await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0) * Math.max(1, n));
+        for (const rec of angelegt) {
+          rec.verbrauchAbzug = abzugAnteil(buchung, n);
+          await DB.put('behandlungen', rec);
+        }
         if (v.wartezeitTage > 0) {
           const ende = U.addDays(v.datum, Math.round(v.wartezeitTage));
           await DB.put('aufgaben', { titel: `Wartezeit endet: ${v.mittel} (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
@@ -5245,10 +5270,11 @@ function fuetterungVerbrauchAusFormular(m, posten, anzahlVoelker) {
 }
 
 /** Legt dieselbe Fütterung für mehrere Völker an. Gibt die Anzahl zurück. */
-async function fuetterungFuerVoelker(volkIds, daten) {
+async function fuetterungFuerVoelker(volkIds, daten, sammle = null) {
   let n = 0;
   for (const id of volkIds || []) {
-    await DB.put('fuetterungen', { volkId: id, datum: daten.datum, futterart: daten.futterart, mengeKg: daten.mengeKg, zuckerKg: daten.zuckerKg || null, winterfutter: !!daten.winterfutter });
+    const rec = await DB.put('fuetterungen', { volkId: id, datum: daten.datum, futterart: daten.futterart, mengeKg: daten.mengeKg, zuckerKg: daten.zuckerKg || null, winterfutter: !!daten.winterfutter });
+    if (sammle) sammle.push(rec);
     n++;
   }
   return n;
@@ -5256,10 +5282,11 @@ async function fuetterungFuerVoelker(volkIds, daten) {
 
 /** Legt dieselbe Behandlung als eigenen Bestandsbuch-Eintrag für mehrere Völker an
     (TAMG: je Volk ein Eintrag). Gibt die Anzahl zurück. */
-async function behandlungFuerVoelker(volkIds, daten) {
+async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
   let n = 0;
   for (const id of volkIds || []) {
-    await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: daten.wartezeitTage || 0, notiz: daten.notiz || '' });
+    const rec = await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: daten.wartezeitTage || 0, notiz: daten.notiz || '' });
+    if (sammle) sammle.push(rec);
     n++;
   }
   return n;
@@ -5538,11 +5565,28 @@ Views.fuetterung = {
       ],
       values: f,
       async onSave(v) {
-        await DB.put('fuetterungen', Object.assign(f, { datum: v.datum, futterart: v.futterart, mengeKg: v.mengeKg, zuckerKg: v.zuckerKg, winterfutter: v.winterfutter }));
-        await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, 1));
+        /* Erst zurückgeben, was diese Fütterung bisher abgezogen hat, dann neu
+           buchen. Sonst zöge jedes Bearbeiten ein zweites Mal ab. */
+        await verbrauchZurueckbuchen(f.verbrauchAbzug, { pruefen: false });
+        const buchung = await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, 1));
+        await DB.put('fuetterungen', Object.assign(f, { datum: v.datum, futterart: v.futterart, mengeKg: v.mengeKg, zuckerKg: v.zuckerKg, winterfutter: v.winterfutter,
+          verbrauchAbzug: buchung ? buchung.abzug : [] }));
         UI.toast('Fütterung gespeichert'); renderRoute();
       },
-      onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
+      /* Löschen gibt den Zucker wieder frei – vorher blieb er für immer
+         „verbraucht" (Julian: „bleibt Zucker verbraucht und erhöht sich nicht
+         wieder entsprechend"). */
+      onDelete: async () => {
+        const zurueck = (f.verbrauchAbzug || []).map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+        if (!(await UI.confirm({ title: 'Fütterung löschen?',
+          text: 'Wandert in den Papierkorb.' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
+          confirmText: 'Löschen', danger: true }))) return false;
+        const menge = await verbrauchZurueckbuchen(f.verbrauchAbzug);
+        await DB.softDel('fuetterungen', f.id);
+        UI.toast('Fütterung gelöscht' + (menge > 0 ? ` · ${zurueck} zurück im Bestand` : ''));
+        renderRoute();
+        return true;
+      },
     }));
     verdrahteVerbrauch(m, zuckerPosten, () => fuetterungVerbrauchAusFormular(m, zuckerPosten, 1));
   },
@@ -5580,8 +5624,16 @@ Views.fuetterung = {
            Formular – dick (3:2) gilt als Winterfutter, dünn (1:1) als Reizfutter,
            und die Folgetermine übernimmt „Speichern + in Aufgaben". */
         if (plan) v.winterfutter = plan.verh === '3:2';
-        const n = await fuetterungFuerVoelker(v.volkIds, v);
-        await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, n));
+        const angelegt = [];
+        const n = await fuetterungFuerVoelker(v.volkIds, v, angelegt);
+        const buchung = await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, n));
+        /* Der Abzug gilt für alle Völker zusammen – jeder Datensatz merkt sich
+           seinen Anteil, damit das Löschen einer einzelnen Fütterung genau
+           diesen Anteil zurückgibt. */
+        for (const rec of angelegt) {
+          rec.verbrauchAbzug = abzugAnteil(buchung, n);
+          await DB.put('fuetterungen', rec);
+        }
         let aufgaben = 0;
         if (auchAufgaben && plan) {
           aufgaben = await fuetterungsPlanAufgaben(plan, v.volkIds, alleVoelker);
@@ -10387,6 +10439,62 @@ async function verbrauchAbziehen(inventarId, menge, { pruefen = true } = {}) {
   return { pos, vorher, nachher: pos.stueckzahl, abgezogen: m, gefehlt: Math.max(0, Math.round((m - vorher) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
 }
 
+/** Zieht eine Menge ab und geht dabei nötigenfalls auf die NÄCHSTE Position
+    derselben Art über.
+
+    Julians Fall: Zucker aus 2025 und aus 2026 stehen als zwei Positionen im
+    Lager. Eine Fütterung über 50 kg fand vorher nur die eine gewählte Position,
+    meldete „25 kg fehlten" und ließ die zweite unangetastet – obwohl in Summe
+    genug da war.
+
+    Als „dieselbe Art" gilt: gleicher Bereich (Verbrauch/Inventar), gleiche
+    Einheit und gleiche Kategorie. Damit wandert der Abzug von „Zucker 2025" auf
+    „Zucker 2026", aber nie von Zucker auf Ameisensäure. Abgebaut wird das
+    ÄLTESTE zuerst, wie es sich für ein Lager gehört.
+
+    Zurück kommt die Liste, was wo abgezogen wurde – die speichert der Aufrufer
+    am Datensatz, damit er es beim Löschen oder Ändern zurückgeben kann. */
+async function verbrauchAbziehenKette(inventarId, menge, { pruefen = true } = {}) {
+  const m = Math.max(0, Number(menge) || 0);
+  if (!inventarId || m <= 0) return null;
+  const start = await DB.get('inventar', inventarId);
+  if (!start) return null;
+  const einheit = verbrauchEinheit(start);
+  const weitere = U.sortBy(
+    (await DB.getAll('inventar')).filter((i) => i.id !== start.id
+      && inventarTyp(i) === inventarTyp(start)
+      && verbrauchEinheit(i) === einheit
+      && (i.kategorie || '') === (start.kategorie || '')
+      && verbrauchBestand(i) > 0),
+    (i) => i.anschaffung || i.createdAt || '');
+  const abzug = [];
+  let offen = m;
+  for (const pos of [start, ...weitere]) {
+    if (offen <= 0.0000001) break;
+    const nimm = Math.min(offen, Math.max(0, verbrauchBestand(pos)));
+    if (nimm <= 0) continue;
+    const b = await verbrauchAbziehen(pos.id, nimm, { pruefen: false });
+    if (!b) continue;
+    abzug.push({ inventarId: pos.id, bezeichnung: pos.bezeichnung, menge: b.abgezogen, einheit: b.einheit });
+    offen = Math.round((offen - b.abgezogen) * 1000) / 1000;
+  }
+  if (pruefen) pruefeMhd();
+  return { abzug, abgezogen: Math.round((m - offen) * 1000) / 1000, gefehlt: Math.max(0, offen), einheit };
+}
+
+/** Gibt zurück, was eine Buchung abgezogen hat. Gegenstück zu
+    verbrauchAbziehenKette – nötig, damit eine gelöschte oder geänderte
+    Fütterung ihren Zucker wieder freigibt. */
+async function verbrauchZurueckbuchen(abzug, { pruefen = true } = {}) {
+  let summe = 0;
+  for (const a of (abzug || [])) {
+    const b = await verbrauchZugang(a.inventarId, a.menge, { pruefen: false });
+    if (b) summe += a.menge;
+  }
+  if (pruefen && summe > 0) pruefeMhd();
+  return Math.round(summe * 1000) / 1000;
+}
+
 /** Legt eine Menge auf den Bestand zurück – für Pfand-Rücknahmen. Gegenstück
     zu verbrauchAbziehen; rundet nach derselben Regel (nur Stück ganzzahlig). */
 async function verbrauchZugang(inventarId, menge, { pruefen = true } = {}) {
@@ -10768,12 +10876,26 @@ function verdrahteGlasAbzug(m, posten) {
 
 /** Bucht den Abzug beim Speichern und meldet es. Gibt die Buchung zurück. */
 async function verbrauchBuchen(v, menge) {
-  const buchung = await verbrauchAbziehen(v && v._verbrauchId, menge);
-  if (buchung) {
-    UI.toast(`${buchung.pos.bezeichnung}: ${U.fmtNum(buchung.abgezogen, 2)} ${buchung.einheit} abgezogen, Rest ${U.fmtNum(buchung.nachher, 2)} ${buchung.einheit}`
-      + (buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten im Bestand` : ''), buchung.gefehlt > 0 ? 'err' : undefined);
+  const buchung = await verbrauchAbziehenKette(v && v._verbrauchId, menge);
+  if (buchung && buchung.abzug.length) {
+    /* Wurden mehrere Positionen angefasst, sagt die Meldung welche – sonst
+       wundert man sich, warum bei „Zucker 2025" plötzlich weniger fehlt. */
+    const teile = buchung.abzug.map((a) => `${a.bezeichnung}: −${U.fmtNum(a.menge, 2)} ${a.einheit}`);
+    UI.toast(teile.join(' · ')
+      + (buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten im Bestand` : ''),
+      buchung.gefehlt > 0 ? 'err' : undefined);
+  } else if (buchung) {
+    UI.toast(`Kein Bestand vorhanden – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten`, 'err');
   }
   return buchung;
+}
+
+/** Anteil eines Sammel-Abzugs für EINEN Datensatz. Bei einer Fütterung für
+    zwölf Völker trägt jeder Datensatz ein Zwölftel – dann gibt das Löschen
+    einer einzelnen Fütterung auch nur deren Anteil zurück. */
+function abzugAnteil(buchung, n) {
+  if (!buchung || !buchung.abzug.length || n < 1) return [];
+  return buchung.abzug.map((a) => ({ ...a, menge: Math.round((a.menge / n) * 1000) / 1000 }));
 }
 
 const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
@@ -11859,9 +11981,51 @@ const Pdf = {
   },
   _logoCache: null,
   /** eigenes Logo (Einstellungen) oder ImkerBuch-Waben-Logo als PNG-DataURL */
+  /** Macht aus einem beliebigen Bild ein PDF-taugliches: auf WEISS gelegt und
+      als JPEG ohne Transparenz.
+
+      Zwei Gründe, beide von Julian gemeldet:
+      · Ein eigenes Logo mit durchsichtigem Hintergrund erschien im PDF als
+        SCHWARZES FELD – jsPDF füllt den Alphakanal je nach Quelle mit Schwarz.
+      · SVG kann jsPDF überhaupt nicht einbetten; die Bio-Logos der Verbände
+        sind aber fast immer SVG. Über die Zeichenfläche wird jedes Format zu
+        Pixeln, auch SVG.
+
+      Gibt null zurück, wenn das Bild nicht geladen werden kann – der Aufrufer
+      lässt die Stelle dann einfach frei. */
+  async bildFuerPdf(quelle, maxPx = 512) {
+    if (!quelle || typeof quelle !== 'string') return null;
+    this._bildCache = this._bildCache || new Map();
+    const schluessel = quelle.length + '|' + quelle.slice(0, 64) + '|' + maxPx;
+    if (this._bildCache.has(schluessel)) return this._bildCache.get(schluessel);
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = () => rej(new Error('Bild nicht lesbar'));
+        img.src = quelle;
+      });
+      // SVG ohne feste Größe meldet 0 – dann auf die Zielgröße zeichnen
+      const bw = img.naturalWidth || maxPx, bh = img.naturalHeight || maxPx;
+      const f = Math.min(1, maxPx / Math.max(bw, bh));
+      const w = Math.max(1, Math.round(bw * f)), h = Math.max(1, Math.round(bh * f));
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, w, h);   // gegen das schwarze Feld
+      ctx.drawImage(img, 0, 0, w, h);
+      const raus = c.toDataURL('image/jpeg', 0.92);
+      this._bildCache.set(schluessel, raus);
+      return raus;
+    } catch (e) {
+      console.warn('Bild fürs PDF nicht verwendbar', e);
+      this._bildCache.set(schluessel, null);
+      return null;
+    }
+  },
   async logoDataUrl() {
     const eigenes = S.get('logo');
-    if (eigenes) return eigenes;
+    if (eigenes) return (await this.bildFuerPdf(eigenes, 512)) || eigenes;
     if (this._logoCache) return this._logoCache;
     const svg = logoSvg(128).replace('currentColor', '#26262B').replace('currentColor', '#26262B');
     const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
@@ -12108,9 +12272,11 @@ const Pdf = {
           // hochgeladene Bio-Logos klein unten links (nur Rastergrafiken)
           let lx = x + 6; const lyImg = yy + LH - 12, grenze = qr ? (x + LW - 20) : (x + LW - 7);
           for (const lg of (imk.bioLogos || []).slice(0, 3)) {
-            if (typeof lg !== 'string' || lg.startsWith('data:image/svg')) continue;
             if (lx + 10 > grenze) break;
-            try { doc.addImage(lg, lg.includes('image/jpeg') ? 'JPEG' : 'PNG', lx, lyImg, 9, 9); lx += 11; } catch (e) {}
+            // über die Zeichenfläche: klappt auch mit SVG und mit Transparenz
+            const bild = await this.bildFuerPdf(lg, 256);
+            if (!bild) continue;
+            try { doc.addImage(bild, 'JPEG', lx, lyImg, 9, 9); lx += 11; } catch (e) {}
           }
         }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
@@ -12130,8 +12296,9 @@ const Pdf = {
       // Falz- und Lochmarken (DIN 676) fürs Fensterkuvert – Falten bei 105/210 mm, Lochung bei 148,5 mm
       doc.setDrawColor(180).setLineWidth(0.2);
       doc.line(2, 105, 6, 105); doc.line(2, 210, 6, 210); doc.line(2, 148.5, 7, 148.5);
-      // Logo oben rechts, größer – KEIN Absendertext am oberen Rand
-      try { doc.addImage(await this.logoDataUrl(), 'PNG', 156, 12, 34, 34); } catch (e) {}
+      // Logo oben rechts, größer – KEIN Absendertext am oberen Rand.
+      // logoDataUrl liefert ein weiß hinterlegtes JPEG, deshalb hier 'JPEG'.
+      try { const lg = await this.logoDataUrl(); if (lg) doc.addImage(lg, /^data:image\/png/.test(lg) ? 'PNG' : 'JPEG', 156, 12, 34, 34); } catch (e) {}
       // Anschriftfeld DIN 5008 (Form B): kleine Rücksendeangabe, darunter der Empfänger – sichtbar im Umschlagfenster
       doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(120);
       const absender = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
@@ -12202,6 +12369,24 @@ const Pdf = {
           const fmt = eigenes && /image\/jpe?g/.test(eigenes) ? 'JPEG' : 'PNG';
           doc.addImage(qr, fmt, 170, y - 4, 24, 24);
         } catch (e) {}
+      }
+      /* Öko-Angaben: Der Code der Kontrollstelle ist bei Bio-Ware eine
+         Pflichtangabe, und die Verbandslogos (Bioland, EU-Bio …) gehören
+         sichtbar dazu. Beides fehlte auf der Rechnung bisher ganz – hinterlegt
+         waren sie in den Einstellungen längst. */
+      if (imk.bio === 'ja') {
+        let lx = 25;
+        const ly = 268;
+        for (const roh of (imk.bioLogos || []).slice(0, 4)) {
+          const bild = await this.bildFuerPdf(roh, 256);
+          if (!bild) continue;
+          try { doc.addImage(bild, 'JPEG', lx, ly, 13, 13); lx += 15; } catch (e) {}
+        }
+        const oeko = bioZertText(imk);
+        if (oeko) {
+          doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(90);
+          doc.text(doc.splitTextToSize(oeko, 196 - lx - 2), lx + 1, ly + 5);
+        }
       }
       // Fußzeile mit Absenderangaben (da oben kein Absendertext steht)
       const foot = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email].filter(Boolean).join('   ·   ');
@@ -13786,6 +13971,7 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
+  verbrauchAbziehenKette, verbrauchZurueckbuchen, abzugAnteil,
   preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,

@@ -2047,6 +2047,114 @@ test('Fütterung: Auswahl im Formular zieht beim Speichern ab', async (w) => {
 });
 
 /* ---------- Materialabgang: verkaufen, verbrauchen, verlieren ---------- */
+test('Abzug greift auf die nächste Position derselben Art über', async (w) => {
+  /* Julian: „habe ich Zucker von 2025 und 2026 und mit einer Fütterung 25 kg
+     von 2025 und 25 kg von 2026, greift er nicht automatisch auf den nächsten
+     Zuckereingang, obwohl Gesamtsumme Zucker vorhanden." */
+  const alt = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker 2025', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 25, anschaffung: '2025-08-01' });
+  const neu = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker 2026', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 25, anschaffung: '2026-08-01' });
+  const fremd = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Ameisensäure Kette-Test', kategorie: 'Behandlungsmittel',
+    einheit: 'kg', stueckzahl: 99, anschaffung: '2025-01-01' });
+
+  const b = await w.verbrauchAbziehenKette(alt.id, 50, { pruefen: false });
+  assertEq(b.abgezogen, 50, '50 kg wurden wirklich abgezogen');
+  assertEq(b.gefehlt, 0, 'nichts fehlt – in Summe war genug da');
+  assertEq(b.abzug.length, 2, 'zwei Positionen angefasst');
+  assertEq((await w.DB.get('inventar', alt.id)).stueckzahl, 0, '2025 ist leer');
+  assertEq((await w.DB.get('inventar', neu.id)).stueckzahl, 0, '2026 auch');
+  assertEq((await w.DB.get('inventar', fremd.id)).stueckzahl, 99, 'die andere Kategorie bleibt unberührt');
+});
+
+test('Abzug-Kette: ältestes zuerst, Rest wird ehrlich gemeldet', async (w) => {
+  const a = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Reihenfolge alt', kategorie: 'KetteTest',
+    einheit: 'kg', stueckzahl: 10, anschaffung: '2024-01-01' });
+  const b = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Reihenfolge neu', kategorie: 'KetteTest',
+    einheit: 'kg', stueckzahl: 10, anschaffung: '2026-01-01' });
+  // Start ist die NEUE Position – die weiteren werden trotzdem nach Alter abgebaut
+  const erg = await w.verbrauchAbziehenKette(b.id, 15, { pruefen: false });
+  assertEq(erg.abzug[0].inventarId, b.id, 'die gewählte Position kommt zuerst dran');
+  assertEq(erg.abzug[1].inventarId, a.id, 'dann die ältere');
+  assertEq((await w.DB.get('inventar', b.id)).stueckzahl, 0, 'gewählte leer');
+  assertEq((await w.DB.get('inventar', a.id)).stueckzahl, 5, 'aus der älteren 5 kg genommen');
+
+  const zuviel = await w.verbrauchAbziehenKette(a.id, 99, { pruefen: false });
+  assertEq(zuviel.abgezogen, 5, 'mehr als da war geht nicht');
+  assertEq(zuviel.gefehlt, 94, 'der Rest wird als fehlend gemeldet');
+});
+
+test('verbrauchZurueckbuchen: gibt genau das Abgezogene wieder frei', async (w) => {
+  const p1 = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Rückgabe A', kategorie: 'RueckTest', einheit: 'kg', stueckzahl: 30, anschaffung: '2025-01-01' });
+  const p2 = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Rückgabe B', kategorie: 'RueckTest', einheit: 'kg', stueckzahl: 30, anschaffung: '2026-01-01' });
+  const b = await w.verbrauchAbziehenKette(p1.id, 45, { pruefen: false });
+  assertEq((await w.DB.get('inventar', p1.id)).stueckzahl, 0, 'A leer');
+  assertEq((await w.DB.get('inventar', p2.id)).stueckzahl, 15, 'B angebrochen');
+  const zurueck = await w.verbrauchZurueckbuchen(b.abzug, { pruefen: false });
+  assertEq(zurueck, 45, '45 kg zurückgegeben');
+  assertEq((await w.DB.get('inventar', p1.id)).stueckzahl, 30, 'A wieder voll');
+  assertEq((await w.DB.get('inventar', p2.id)).stueckzahl, 30, 'B wieder voll');
+});
+
+test('Fütterung löschen gibt den Zucker zurück', async (w) => {
+  /* Der gemeldete Fehler: „wird Fütterung gelöscht, bleibt Zucker verbraucht
+     und erhöht sich nicht wieder entsprechend." */
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
+  const volk = await w.DB.put('voelker', { name: 'Löschtest-Volk', status: 'aktiv' });
+  const zucker = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Löschtest', kategorie: 'Futter',
+    einheit: 'kg', stueckzahl: 40, anschaffung: '2026-01-01' });
+  const b = await w.verbrauchAbziehenKette(zucker.id, 15, { pruefen: false });
+  const f = await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2026-08-01', futterart: 'Zuckerwasser 3:2',
+    mengeKg: 15, winterfutter: true, verbrauchAbzug: b.abzug });
+  assertEq((await w.DB.get('inventar', zucker.id)).stueckzahl, 25, 'nach der Fütterung 25 kg');
+
+  const echt = w.UI.confirm; w.UI.confirm = () => Promise.resolve(true);
+  try {
+    await w.Views.fuetterung.einzelForm(f, 'Löschtest-Volk');
+    await new Promise((r) => setTimeout(r, 300));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    m.querySelector('[data-del]').click();
+    await new Promise((r) => setTimeout(r, 600));
+  } finally { w.UI.confirm = echt; w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+
+  assertEq((await w.DB.get('inventar', zucker.id)).stueckzahl, 40, 'nach dem Löschen wieder 40 kg');
+  assertEq(await w.DB.get('fuetterungen', f.id), undefined, 'die Fütterung ist weg');
+  assert((await w.DB.getAll('papierkorb')).some((t) => t.store === 'fuetterungen' && t.daten.id === f.id),
+    'und liegt im Papierkorb');
+});
+
+test('abzugAnteil: Sammel-Abzug wird auf die Datensätze verteilt', (w) => {
+  const buchung = { abzug: [{ inventarId: 'i1', bezeichnung: 'Zucker', menge: 60, einheit: 'kg' }] };
+  const anteil = w.abzugAnteil(buchung, 12);
+  assertEq(anteil[0].menge, 5, '60 kg auf 12 Völker = 5 kg je Datensatz');
+  assertEq(w.abzugAnteil(buchung, 0).length, 0, 'ohne Völker kein Anteil');
+  assertEq(w.abzugAnteil(null, 5).length, 0, 'ohne Buchung kein Anteil');
+});
+
+test('Pdf.bildFuerPdf: Transparenz wird weiß, nicht schwarz', async (w) => {
+  /* Julian: „Eigenes Logo hinterlegt, erscheint als schwarzes Feld." Ursache
+     war der Alphakanal – jsPDF macht daraus Schwarz. */
+  const c = w.document.createElement('canvas'); c.width = 8; c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 8, 8);                       // vollständig durchsichtig
+  ctx.fillStyle = '#E8A013'; ctx.fillRect(0, 0, 4, 8);   // linke Hälfte gefüllt
+  const durchsichtig = c.toDataURL('image/png');
+
+  const raus = await w.Pdf.bildFuerPdf(durchsichtig, 64);
+  assert(raus && raus.startsWith('data:image/jpeg'), 'kommt als JPEG ohne Alphakanal zurück');
+
+  // nachsehen, welche Farbe die vorher durchsichtige Hälfte jetzt hat
+  const img = new w.Image();
+  await new Promise((res) => { img.onload = res; img.src = raus; });
+  const p = w.document.createElement('canvas'); p.width = img.width; p.height = img.height;
+  p.getContext('2d').drawImage(img, 0, 0);
+  const d = p.getContext('2d').getImageData(img.width - 2, 2, 1, 1).data;
+  assert(d[0] > 235 && d[1] > 235 && d[2] > 235, `durchsichtige Fläche ist weiß, nicht schwarz (${d[0]},${d[1]},${d[2]})`);
+
+  assertEq(await w.Pdf.bildFuerPdf('', 64), null, 'ohne Bild kommt null zurück');
+  assertEq(await w.Pdf.bildFuerPdf('kaputt', 64), null, 'unlesbares Bild ergibt null statt Absturz');
+});
+
 test('abgangErloes: nur ein Verkauf bringt Erlös', (w) => {
   assertEq(w.abgangErloes({ art: 'Verkauf', menge: 6, preis: 15 }), 90, '6 × 15 €');
   assertEq(w.abgangErloes({ art: 'Verlust / Bruch', menge: 6, preis: 15 }), 0, 'Verlust bringt nichts');
@@ -2932,6 +3040,11 @@ test('Neue Aufgabe: gewähltes Volk zieht den Stand-Filter mit', async (w) => {
 test('Kalender: erledigt grün und ausgegraut, überfällig rot', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
   const tag = w.U.addDays(w.U.todayIso(), -4);
+  /* Der Kalender zeigt den laufenden Monat. Liegt „heute − 4" im Vormonat – also
+     immer an den ersten Tagen eines Monats –, steckt der Tag nicht im Gitter und
+     der Test scheiterte am Datum statt an der Sache. Deshalb den Kalender
+     ausdrücklich auf den Monat des Prüftags stellen. */
+  w.Views.aufgaben._cal = { y: +tag.slice(0, 4), m: +tag.slice(5, 7) - 1 };
   const offen = await w.DB.put('aufgaben', { titel: 'Noch offen', faellig: tag, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
   const fertig = await w.DB.put('aufgaben', { titel: 'Schon fertig', faellig: tag, erledigt: true, quelle: 'manuell', refId: null, notiz: '' });
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
