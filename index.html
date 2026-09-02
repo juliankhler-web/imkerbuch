@@ -947,8 +947,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.46';
+const APP_VERSION = '1.47';
 const CHANGELOG = [
+  { version: '1.47', datum: '2026-09-02', punkte: [
+    'Behoben: Nach einer Sicherung stand in den Einstellungen und im Dashboard weiter der <b>alte Stand</b> („noch nie“ oder das alte Datum). Beide Anzeigen ziehen jetzt sofort nach.',
+    'Der <b>Erinnerungs-Hinweis</b> oben lässt sich mit dem ✕ <b>dauerhaft ausblenden</b> – auch der rote. Zurückholen kannst du ihn in den Einstellungen unter „Sicherung“.',
+    'Neu: <b>Ernteprognose</b> im Rechner und als Dashboard-Feld. Sie schätzt aus deinen eigenen Vorjahren, wie viel Honig dieses Jahr zusammenkommt und was er einbringt – mit Spanne, mit dem Erlös je kg aus deinen echten Verkäufen und, wenn du die Selbstkosten ausgefüllt hast, mit dem, was am Ende übrig bleibt.',
+  ] },
   { version: '1.46', datum: '2026-09-01', punkte: [
     'Behoben: Auf dem <b>Honig-Etikett</b> lagen die Bio-Logos über der Anschrift und dem Öko-Code. Sie stehen jetzt <b>oben rechts</b> neben dem Namen der Imkerei – dort, wo man sie erwartet, und dort ist Platz.',
   ] },
@@ -1777,12 +1782,12 @@ const S = {
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
-    dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'wetter'],
+    dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'prognose', 'wetter'],
     /* Schnellzugriff (untere Leiste): erste Position bleibt „Start“ (dashboard, nicht entfernbar), danach frei; „Mehr“ hängt die App selbst an. */
     bottomNav: ['dashboard', 'voelker', 'aufgaben', 'honig'],
     rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
     imkerschule: { level: 'anfaenger', done: {}, onboarded: false },
-    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
+    darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
@@ -2765,6 +2770,20 @@ const DASH_WIDGETS = {
     return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Statistiken</a></div>
       ${years.length ? UI.chart({ type: 'bars', labels: years, series: [{ name: 'kg', values: years.map((y) => U.sum(byYear.get(y), (e) => e.mengeKg)) }], height: 160, unit: 'kg' }) : '<div class="muted small">Noch keine Ernten erfasst.</div>'}</div>`;
   }},
+  prognose: { label: 'Ernteprognose', ic: 'rechner', ziel: 'rechner', async html() {
+    const ep = await ernteprognoseBasis();
+    const kg = ep.voelker * ep.jeVolk;
+    if (!ep.voelker) return `<div class="card" style="margin:0"><div class="card-title">${icon('rechner')}<h2>Ernteprognose</h2></div><div class="muted small">Noch keine aktiven Wirtschaftsvölker erfasst.</div></div>`;
+    const rest = Math.max(0, kg - ep.geerntet);
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('rechner')}<h2>Ernteprognose ${ep.jahr}</h2><a href="#/rechner" class="small">Rechner</a></div>
+      <div class="stat-grid">
+        <div class="stat"><div class="s-label">Erwartete Ernte</div><div class="s-value">${U.fmtNum(kg, 0)} kg</div>
+          <div class="s-sub">${U.fmtNum(ep.voelker * ep.jeVolkMin, 0)}–${U.fmtNum(ep.voelker * ep.jeVolkMax, 0)} kg · noch ${U.fmtNum(rest, 0)} kg offen</div></div>
+        <div class="stat"><div class="s-label">Erwartete Einnahme</div><div class="s-value">${ep.erloesJeKg > 0 ? `${U.fmtNum(Math.round(kg * ep.erloesJeKg), 0)} €` : '–'}</div>
+          <div class="s-sub">${ep.erloesJeKg > 0 ? `${U.fmtEur(ep.erloesJeKg)} je kg (eigene Verkäufe)` : 'noch kein Verkauf erfasst'}</div></div>
+      </div>
+      <div class="hint mt8">${U.esc(ep.quelle)} · Richtwert, kein Versprechen.</div></div>`;
+  }},
   wetter: { label: 'Wetter am Stand', ic: 'wetter', ziel: 'staende', async html() {
     if (!S.get('features').wetter) return '';
     const stand = (await DB.getAll('staende')).find((s) => s.lat && s.lng);
@@ -2792,11 +2811,9 @@ const DASH_WIDGETS = {
   }},
   sicherung: { label: 'Letzte Sicherung', ic: 'share', ziel: 'einstellungen', async html() {
     const info = Backup.reminderInfo();
-    const badge = info.tage === null ? '<span class="badge b-danger">noch nie</span>'
-      : `<span class="badge ${info.stufe === 'rot' ? 'b-danger' : info.stufe === 'gelb' ? 'b-warn' : 'b-ok'}">vor ${info.tage} ${info.tage === 1 ? 'Tag' : 'Tagen'}</span>`;
     return `<div class="card" style="margin:0"><div class="card-title">${icon('share')}<h2>Letzte externe Sicherung</h2></div>
-      <div class="flex-wrap">${badge}<span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Sicherung senden</button></div>
-      ${info.stufe !== 'ok' ? `<div class="hint mt8">Bitte regelmäßig sichern – die Daten liegen nur auf diesem Gerät.</div>` : ''}</div>`;
+      <div class="flex-wrap"><span data-backup-badge>${backupBadgeHtml()}</span><span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Sicherung senden</button></div>
+      <span data-backup-hinweis>${info.stufe !== 'ok' ? `<div class="hint mt8">Bitte regelmäßig sichern – die Daten liegen nur auf diesem Gerät.</div>` : ''}</span></div>`;
   }},
   koeniginnen: { label: 'Königinnen', ic: 'crown', ziel: 'koeniginnen', async html() {
     const aktiv = (await DB.getAll('koeniginnen')).filter((k) => k.status === 'aktiv');
@@ -9400,6 +9417,84 @@ const SELBSTKOSTEN_VORGABE = {
   investVolk: 725, nutzungsdauer: 15, zins: 3, flaecheM2: 17, raumPreis: 4.61,
   gemeinVolk: 49, vertriebKg: 2, wagnis: 10,
 };
+/* Faustzahl, solange keine eigene Historie da ist: Mittel der DEBIMO-Erhebung
+   2010–2024 (38,4 kg je Volk und Jahr). Spanne dazu aus schwachen und guten Jahren. */
+const ERTRAG_FAUSTZAHL = 38.4;
+
+/** Grundlage für die Ernteprognose – ausschließlich aus eigenen Daten.
+    kg je Volk: Mittel der letzten drei abgeschlossenen Jahre; die Spanne ist das
+    schwächste und das beste dieser Jahre. Gezählt werden nur Völker, von denen in
+    dem Jahr auch geerntet wurde – Ernten, die auf einen ganzen Stand gebucht sind,
+    zählen zwar in die Menge, liefern aber keine Völkerzahl.
+    Erlös je kg: aus erfassten Verkäufen und aus Rechnungspositionen, die an einer
+    Abfüllung hängen (nur dort ist das Gewicht bekannt), Vorrang für die letzten 24 Monate. */
+async function ernteprognoseBasis() {
+  const heute = U.todayIso(), jahr = +heute.slice(0, 4);
+  const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
+  const ernten = (await DB.getAll('ernten')).filter(istHonig);
+  const alleVoelker = (await DB.getAll('voelker')).filter((v) => (v.funktion || 'Wirtschaftsvolk') === 'Wirtschaftsvolk');
+  const voelker = alleVoelker.filter((v) => v.status === 'aktiv').length;
+  /* Wie viele Wirtschaftsvölker standen mitten in der Saison eines Jahres da?
+     Ein Volk ohne Ernte gehört in den Schnitt – sonst schönt die Prognose sich selbst.
+     Anfang und Ende wie in der Völkerentwicklung: erste bzw. letzte Zeile der Historie. */
+  const beginn = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || heute;
+  const schluss = (v) => (v.status === 'aktiv' ? null : (v.historie && v.historie.length ? v.historie[v.historie.length - 1].datum : null));
+  const voelkerIm = (j) => { const tag = `${j}-06-30`; return alleVoelker.filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag)).length; };
+
+  const proJahr = new Map();
+  for (const e of ernten) {
+    const j = +(e.datum || '').slice(0, 4); if (!j) continue;
+    if (!proJahr.has(j)) proJahr.set(j, { kg: 0, ids: new Set() });
+    const z = proJahr.get(j);
+    z.kg += Number(e.mengeKg) || 0;
+    if (e.zielTyp !== 'stand' && e.zielId) z.ids.add(e.zielId);
+  }
+  const historie = [...proJahr.entries()].filter(([j, z]) => j < jahr && z.kg > 0)
+    .map(([j, z]) => { const n = Math.max(voelkerIm(j), z.ids.size); return { jahr: j, kg: z.kg, voelker: n, jeVolk: n ? z.kg / n : 0 }; })
+    .sort((a, b) => a.jahr - b.jahr);
+  const basis = historie.filter((h) => h.jeVolk > 0).slice(-3);
+
+  let jeVolk, jeVolkMin, jeVolkMax, quelle;
+  if (basis.length) {
+    jeVolk = U.sum(basis, (h) => h.jeVolk) / basis.length;
+    jeVolkMin = Math.min(...basis.map((h) => h.jeVolk));
+    jeVolkMax = Math.max(...basis.map((h) => h.jeVolk));
+    quelle = `Mittel aus ${basis.map((h) => h.jahr).join(', ')}`;
+  } else {
+    jeVolk = ERTRAG_FAUSTZAHL; jeVolkMin = 25; jeVolkMax = 50;
+    quelle = 'Faustzahl (DEBIMO Ø 38,4 kg) – noch keine eigene Ernte im Vorjahr';
+  }
+  // Ein einzelnes Vorjahr hat keine Spanne – dann eine vorsichtige ±25 % annehmen.
+  if (jeVolkMax - jeVolkMin < 0.01) { jeVolkMin = jeVolk * 0.75; jeVolkMax = jeVolk * 1.25; }
+
+  const geerntet = U.sum(ernten.filter((e) => (e.datum || '').startsWith(String(jahr))), (e) => Number(e.mengeKg) || 0);
+
+  /* Erlös je kg aus tatsächlichen Verkäufen. Verkäufe und festgeschriebene
+     Rechnungen überschneiden sich nicht: eine Rechnung legt keinen Verkauf an. */
+  const abf = await idMap('abfuellungen');
+  const posten = [];
+  for (const v of await DB.getAll('verkaeufe')) {
+    const a = abf.get(v.abfuellungId); if (!a || !a.gebindeG) continue;
+    posten.push({ datum: v.datum || '', kg: (v.anzahl || 0) * a.gebindeG / 1000, euro: Number(v.betrag) || 0 });
+  }
+  for (const r of await DB.getAll('rechnungen')) {
+    if (r.status !== 'festgeschrieben') continue;
+    for (const pos of (r.positionen || [])) {
+      const a = pos.abfuellungId ? abf.get(pos.abfuellungId) : null; if (!a || !a.gebindeG) continue;
+      posten.push({ datum: r.datum || '', kg: (pos.menge || 0) * a.gebindeG / 1000, euro: (pos.menge || 0) * (pos.einzelpreis || 0) });
+    }
+  }
+  const grenze = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+  const jung = posten.filter((x) => x.datum >= grenze);
+  const genutzt = U.sum(jung, (x) => x.kg) > 0 ? jung : posten;
+  const kgVerkauft = U.sum(genutzt, (x) => x.kg), euroVerkauft = U.sum(genutzt, (x) => x.euro);
+  const erloesJeKg = kgVerkauft > 0 ? euroVerkauft / kgVerkauft : 0;
+  const erloesJahr = U.sum(posten.filter((x) => x.datum.startsWith(String(jahr))), (x) => x.euro);
+
+  return { jahr, voelker, jeVolk, jeVolkMin, jeVolkMax, quelle, historie, geerntet,
+    erloesJeKg, kgVerkauft, preisQuelle: kgVerkauft > 0 ? `${U.fmtNum(kgVerkauft, 0)} kg verkauft${genutzt === jung ? ' (24 Monate)' : ''}` : '', erloesJahr };
+}
+
 function selbstkostenGlas(e) {
   const z = (v, min = 0) => Math.max(min, Number(v) || 0);
   const kgJeGlas = Math.max(0.001, z(e.gebindeG, 1) / 1000);
@@ -9439,6 +9534,7 @@ Views.rechner = {
   title: 'Rechner',
   async render(main) {
     const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    const ep = await ernteprognoseBasis();
     const grp = (l) => `<div class="rk-grp">${l}</div>`;
     const skGrp = (l) => `<div class="small muted mt16 mb8" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">${l}</div>`;
     const rk = (ic, label, desc, body) => `<div class="rk-section"><button class="rk-head" type="button"><span class="rk-ic">${icon(ic)}</span><span class="rk-info"><span class="rk-label">${label}</span><span class="rk-desc">${desc}</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">${body}</div></div>`;
@@ -9501,6 +9597,24 @@ Views.rechner = {
           <div class="field"><label>Unternehmenswagnis (%)</label><input class="inp rk" data-sk="wagnis" inputmode="decimal" value="10"></div>
         </div>
         <div id="sk-out" class="mt12"></div>`) +
+
+      rk('honig', 'Ernteprognose: was bringt das Jahr?', 'Erwartete Menge und Einnahme aus den eigenen Zahlen',
+        `<div class="small muted mb12">Vorbelegt aus deinen Ernten und Verkäufen. Jede Zahl ist überschreibbar – eine Prognose bleibt eine Schätzung.</div>
+        <div class="grid2">
+          <div class="field"><label>Wirtschaftsvölker</label><input class="inp rk" data-ep="voelker" inputmode="numeric" value="${ep.voelker || 1}">
+            <span class="small muted">aktive Wirtschaftsvölker</span></div>
+          <div class="field"><label>Ertrag je Volk (kg)</label><input class="inp rk" data-ep="jeVolk" inputmode="decimal" value="${U.fmtNum(ep.jeVolk, 1)}">
+            <span class="small muted">${U.esc(ep.quelle)}</span></div>
+          <div class="field"><label>Erlös je kg (€)</label><input class="inp rk" data-ep="preis" inputmode="decimal" value="${U.fmtNum(ep.erloesJeKg, 2)}">
+            <span class="small muted">${ep.preisQuelle ? 'aus ' + U.esc(ep.preisQuelle) : 'noch kein Verkauf erfasst – bitte selbst eintragen'}</span></div>
+          <div class="field"><label>Dieses Jahr schon geerntet (kg)</label><input class="inp rk" data-ep="geerntet" inputmode="decimal" value="${U.fmtNum(ep.geerntet, 1)}"></div>
+        </div>
+        <div id="ep-out" class="mt12"></div>
+        ${ep.historie.length ? `<div class="small muted mt12 mb8" style="font-weight:600">Deine Jahre</div>
+          <div class="rows">${ep.historie.slice(-5).reverse().map((h) => `<div class="row" style="min-height:36px;padding:6px 4px">
+            <div class="r-main"><div class="r-title" style="font-weight:400">${h.jahr}</div></div>
+            <div class="r-side"><b>${U.fmtNum(h.kg, 1)} kg</b>${h.voelker ? `<span class="small muted"> · ${h.voelker} ${h.voelker === 1 ? 'Volk' : 'Völker'} · ${U.fmtNum(h.jeVolk, 1)} kg/Volk</span>` : `<span class="small muted"> · auf den Stand gebucht</span>`}</div></div>`).join('')}</div>` : ''}
+        <div class="small muted mt12">Die Spanne kommt aus dem schwächsten und dem besten der herangezogenen Jahre. Wetter und Tracht entscheiden mehr als jede Rechnung – nimm die Zahl als Richtwert für Gläserbestellung und Planung, nicht als Zusage.</div>`) +
 
       rk('honig', 'Wassergehalt bewerten', 'Refraktometer-Wert prüfen',
         `<div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
@@ -9626,10 +9740,38 @@ Views.rechner = {
         <div class="stat"><div class="s-label">Erlös je Volk</div><div class="s-value">${U.fmtEur(wiErloes)}</div><div class="s-sub">${U.fmtNum(wiE)} kg × ${U.fmtEur(wiP)}/kg</div></div>
         <div class="stat"><div class="s-label">Gewinn je Volk</div><div class="s-value">${U.fmtEur(wiGewinn)}</div><div class="s-sub">abzgl. ${U.fmtEur(wiK)} Kosten</div></div>
         <div class="stat"><div class="s-label">Gesamt (${wiV} Völker)</div><div class="s-value">${U.fmtEur(wiGesamt)}</div></div>`;
+      const sk = {};
+      $$('[data-sk]', main).forEach((el) => { sk[el.dataset.sk] = el.tagName === 'SELECT' ? el.value : U.parseNum(el.value); });
+      const skJeKg = $$('[data-sk]', main).length ? selbstkostenGlas(sk).jeKg : 0;
+
+      const epOut = $('#ep-out', main);
+      if (epOut) {
+        const epV = Math.max(0, Math.round(num('[data-ep="voelker"]') || 0));
+        const epJ = Math.max(0, num('[data-ep="jeVolk"]') || 0);
+        const epP = Math.max(0, num('[data-ep="preis"]') || 0);
+        const epG = Math.max(0, num('[data-ep="geerntet"]') || 0);
+        // Wird der Ertrag je Volk von Hand geändert, wandert die Spanne mit.
+        const faktor = ep.jeVolk > 0 ? epJ / ep.jeVolk : 1;
+        const kg = epV * epJ, kgMin = epV * ep.jeVolkMin * faktor, kgMax = epV * ep.jeVolkMax * faktor;
+        const rest = Math.max(0, kg - epG);
+        const glaeser500 = kg / 0.5;
+        const eur0 = (n) => `${U.fmtNum(Math.round(n), 0)} €`; // Schätzung: keine Cent-Genauigkeit vortäuschen
+        epOut.innerHTML = `
+          <div class="stat-grid">
+            <div class="stat"><div class="s-label">Erwartete Ernte ${ep.jahr}</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(kg, 0)} kg</div>
+              <div class="s-sub">Spanne ${U.fmtNum(kgMin, 0)}–${U.fmtNum(kgMax, 0)} kg · ${epV} ${epV === 1 ? 'Volk' : 'Völker'}</div></div>
+            <div class="stat"><div class="s-label">Noch zu erwarten</div><div class="s-value">${U.fmtNum(rest, 0)} kg</div>
+              <div class="s-sub">${U.fmtNum(epG, 0)} kg sind schon geerntet</div></div>
+            <div class="stat"><div class="s-label">Erwartete Einnahme</div><div class="s-value">${epP > 0 ? eur0(kg * epP) : '–'}</div>
+              <div class="s-sub">${epP > 0 ? `Spanne ${eur0(kgMin * epP)}–${eur0(kgMax * epP)}` : 'Erlös je kg eintragen'}</div></div>
+            ${epP > 0 && skJeKg > 0 ? `<div class="stat"><div class="s-label">Davon bleibt</div><div class="s-value" style="color:${epP > skJeKg ? 'var(--ok)' : 'var(--danger)'}">${eur0(kg * (epP - skJeKg))}</div>
+              <div class="s-sub">nach Selbstkosten ${U.fmtEur(skJeKg)}/kg</div></div>` : ''}
+          </div>
+          <div class="small muted mt8">Entspricht rund <b>${U.fmtNum(glaeser500, 0)} Gläsern à 500 g</b>${ep.erloesJahr > 0 ? ` · ${U.fmtEur(ep.erloesJahr)} sind ${ep.jahr} bereits erlöst` : ''}.</div>`;
+      }
+
       const skOut = $('#sk-out', main);
       if (skOut) {
-        const sk = {};
-        $$('[data-sk]', main).forEach((el) => { sk[el.dataset.sk] = el.tagName === 'SELECT' ? el.value : U.parseNum(el.value); });
         const r = selbstkostenGlas(sk);
         const max = Math.max(...r.posten.map((x) => x.euro), 0.0001);
         const zeilen = U.sortBy(r.posten, (x) => -x.euro).concat(r.wagnis > 0 ? [{ name: `Unternehmenswagnis (${U.fmtNum(sk.wagnis || 0, 0)} %)`, euro: r.wagnis }] : []);
@@ -11559,7 +11701,26 @@ const Backup = {
     await S.set('letzteExterneSicherung', U.nowIso());
     window._changedSinceBackup = false;
     this.updateBanners();
+    this.updateStand();
   },
+  /* Der Sicherungs-Stand steht auf mehreren Seiten (Einstellungen, Dashboard).
+     Ohne das hier bliebe dort nach dem Sichern weiter „noch nie“ stehen, bis
+     man die Seite wechselt – der häufigste Grund für „der Hinweis geht nicht weg“. */
+  updateStand() {
+    const t = S.get('letzteExterneSicherung');
+    const hinweis = this.reminderInfo().stufe !== 'ok'
+      ? '<div class="hint mt8">Bitte regelmäßig sichern – die Daten liegen nur auf diesem Gerät.</div>' : '';
+    for (const el of $$('[data-backup-stand]')) el.innerHTML = t ? U.fmtDateTime(t) : '<span class="badge b-danger">noch nie</span>';
+    for (const el of $$('[data-backup-badge]')) el.innerHTML = backupBadgeHtml();
+    for (const el of $$('[data-backup-hinweis]')) el.innerHTML = hinweis;
+  },
+  /** Erinnerungs-Banner dauerhaft abschalten – zurück über die Einstellungen. */
+  async erinnerungAus() {
+    await S.set('backupErinnerung', false);
+    this.updateBanners();
+    UI.toast('Erinnerung ausgeblendet – in den Einstellungen wieder einschaltbar');
+  },
+  async persistHinweisAus() { await S.set('persistHintDismissed', true); this.updateBanners(); },
 
   /* ---------- Reminder ---------- */
   reminderInfo() {
@@ -11568,26 +11729,30 @@ const Backup = {
     const tage = U.daysBetween(t, U.nowIso());
     return { tage, stufe: tage >= 14 ? 'rot' : tage >= 7 ? 'gelb' : 'ok' };
   },
-  _dismissed: { persist: false, gelb: false },
   _persistDenied: false,
   updateBanners() {
     const box = $('#banners'); if (!box) return;
     const info = this.reminderInfo();
     let html = '';
-    if (info.stufe === 'rot') {
-      html += `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>Backup dringend nötig:</b> letzte externe Sicherung ${info.tage === null ? 'noch nie' : `vor ${info.tage} Tagen`}. Deine Daten liegen nur auf diesem Gerät!</span>
-        <span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Jetzt sichern</button></div>`;
-    } else if (info.stufe === 'gelb' && !this._dismissed.gelb) {
-      html += `<div class="banner warn">${icon('info')} <span class="b-msg">Letzte externe Sicherung: ${info.tage === null ? 'noch nie' : `vor ${info.tage} Tagen`}. Zeit für ein Backup.</span>
-        <span class="spacer"></span><button class="btn btn-ghost btn-sm" onclick="Backup.share()">Sichern</button>
-        <button class="icon-btn" onclick="Backup._dismissed.gelb=true;Backup.updateBanners()">${icon('x')}</button></div>`;
+    // Das ✕ blendet die Erinnerung dauerhaft aus (Einstellungen holen sie zurück).
+    // Der Stand steht weiterhin in den Einstellungen und im Dashboard-Feld.
+    const weg = `<button class="icon-btn" title="Erinnerung dauerhaft ausblenden" onclick="Backup.erinnerungAus()">${icon('x')}</button>`;
+    const wann = info.tage === null ? 'noch nie' : info.tage === 0 ? 'heute' : `vor ${info.tage} ${info.tage === 1 ? 'Tag' : 'Tagen'}`;
+    if (S.get('backupErinnerung') === false) {
+      // stumm geschaltet – kein Banner
+    } else if (info.stufe === 'rot') {
+      html += `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>Backup dringend nötig:</b> letzte externe Sicherung ${wann}. Deine Daten liegen nur auf diesem Gerät!</span>
+        <span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Jetzt sichern</button>${weg}</div>`;
+    } else if (info.stufe === 'gelb') {
+      html += `<div class="banner warn">${icon('info')} <span class="b-msg">Letzte externe Sicherung: ${wann}. Zeit für ein Backup.</span>
+        <span class="spacer"></span><button class="btn btn-ghost btn-sm" onclick="Backup.share()">Sichern</button>${weg}</div>`;
     }
     // Als installierte App (Home-Bildschirm) ist der Speicher ohnehin geschützt –
     // WebKit lehnt persist() dort trotzdem oft still ab, der Hinweis wäre nur Lärm.
     const installiert = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || IST_NATIVE_APP;
-    if (this._persistDenied && !this._dismissed.persist && !installiert) {
+    if (this._persistDenied && !S.get('persistHintDismissed') && !installiert) {
       html += `<div class="banner info">${icon('info')} <span class="b-msg">Der Browser hat <b>dauerhaften Speicher abgelehnt</b>. Bei Speicherplatzmangel könnte er die App-Daten löschen – bitte regelmäßig extern sichern (und die App ggf. als PWA installieren, das erhöht die Chance auf dauerhaften Speicher).</span>
-        <span class="spacer"></span><button class="icon-btn" onclick="Backup._dismissed.persist=true;Backup.updateBanners()">${icon('x')}</button></div>`;
+        <span class="spacer"></span><button class="icon-btn" onclick="Backup.persistHinweisAus()">${icon('x')}</button></div>`;
     }
     box.innerHTML = html;
   },
@@ -11757,7 +11922,7 @@ const Backup = {
       const f = S.get('features');
       if (f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
         this.snapshotInternal('auto'); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
-        this.writeToDir().then((ok) => { if (ok) S.set('letzteExterneSicherung', U.nowIso()); });
+        this.writeToDir().then((ok) => { if (ok) this.markExternal(); });
         S.set('letzteAutoSicherung', U.nowIso());
       }
     });
@@ -11766,6 +11931,14 @@ const Backup = {
     });
   },
 };
+
+/** Badge zum Stand der letzten externen Sicherung – eine Quelle für Dashboard und Einstellungen. */
+function backupBadgeHtml() {
+  const info = Backup.reminderInfo();
+  if (info.tage === null) return '<span class="badge b-danger">noch nie</span>';
+  const farbe = info.stufe === 'rot' ? 'b-danger' : info.stufe === 'gelb' ? 'b-warn' : 'b-ok';
+  return `<span class="badge ${farbe}">${info.tage === 0 ? 'heute' : `vor ${info.tage} ${info.tage === 1 ? 'Tag' : 'Tagen'}`}</span>`;
+}
 
 /** Restzeit lesbar: kurz fürs Ringinnere, lang für den Fließtext. */
 function backupRestText(ms) {
@@ -13445,7 +13618,7 @@ Views.einstellungen = {
           <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept=".json,application/json" class="hidden" id="imp-file"></label>
         </div>
         <div class="detail-kv mb12">
-          <dt>Letzte externe Sicherung</dt><dd>${S.get('letzteExterneSicherung') ? U.fmtDateTime(S.get('letzteExterneSicherung')) : '<span class="badge b-danger">noch nie</span>'}</dd>
+          <dt>Letzte externe Sicherung</dt><dd data-backup-stand>${S.get('letzteExterneSicherung') ? U.fmtDateTime(S.get('letzteExterneSicherung')) : '<span class="badge b-danger">noch nie</span>'}</dd>
         </div>
         <h3 class="mb8 mt16">Automatische Sicherung</h3>
         <label class="check-line"><input type="checkbox" id="ab-aktiv" ${f.autoBackup.aktiv ? 'checked' : ''}> <span>Automatische Sicherung aktivieren</span></label>
@@ -13461,6 +13634,7 @@ Views.einstellungen = {
         ${backupRingHtml()}
         <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich werden intern die letzten 10 Snapshots behalten.</div>
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
+        <label class="check-line mt8"><input type="checkbox" id="ab-erinnerung" ${S.get('backupErinnerung') === false ? '' : 'checked'}> <span>Oben an eine fällige Sicherung erinnern</span></label>
         <h3 class="mb8 mt16">Interne Snapshots (${snaps.length}/10)</h3>
         <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
           <span class="r-main"><span class="r-title">${U.fmtDateTime(s.datum)}</span>
@@ -13647,6 +13821,7 @@ Views.einstellungen = {
     $('#ab-intervall').onchange = async (e) => { f.autoBackup.intervall = e.target.value; await saveFeatures(); renderRoute(); };
     $('#ab-dir').onclick = async () => { if (await Backup.chooseDir()) renderRoute(); };
     $('#ab-frage').onchange = async (e) => { f.backupBeimSchliessen = e.target.checked; await saveFeatures(); };
+    $('#ab-erinnerung').onchange = async (e) => { await S.set('backupErinnerung', e.target.checked); Backup.updateBanners(); };
     backupRingStart(); // Countdown-Ring live halten
 
     /* Profil / Imkerei */

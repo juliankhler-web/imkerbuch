@@ -175,6 +175,109 @@ test('Backup.reminderInfo: Stufen ok/gelb/rot', async (w) => {
   await w.S.set('letzteExterneSicherung', null);
 });
 
+test('Backup: Banner verschwindet nach dem Sichern, Stand zieht mit', async (w) => {
+  const d = w.document;
+  await w.S.set('backupErinnerung', true);
+  await w.S.set('letzteExterneSicherung', new Date(Date.now() - 20 * 86400000).toISOString());
+  // Anzeigefelder wie auf der Seite nachbauen
+  const host = d.createElement('div');
+  host.innerHTML = '<dd data-backup-stand>alt</dd><span data-backup-badge></span><span data-backup-hinweis></span>';
+  d.body.appendChild(host);
+  try {
+    w.Backup.updateBanners();
+    assert(d.getElementById('banners').innerText.includes('Backup dringend nötig'), 'nach 20 Tagen kommt der rote Hinweis');
+    await w.Backup.markExternal();
+    assert(!d.getElementById('banners').innerText.includes('Backup'), 'nach dem Sichern ist er weg');
+    assert(host.querySelector('[data-backup-stand]').innerText !== 'alt', 'der Stand in den Einstellungen zieht mit');
+    assert(host.querySelector('[data-backup-badge]').innerText.includes('heute'), 'das Dashboard-Feld sagt „heute“');
+    assertEq(host.querySelector('[data-backup-hinweis]').innerHTML, '', 'der Hinweis darunter fällt weg');
+  } finally { host.remove(); await w.S.set('letzteExterneSicherung', null); }
+});
+test('Backup: ✕ blendet die Erinnerung dauerhaft aus, Einstellung holt sie zurück', async (w) => {
+  const d = w.document;
+  await w.S.set('backupErinnerung', true);
+  await w.S.set('letzteExterneSicherung', new Date(Date.now() - 20 * 86400000).toISOString());
+  try {
+    w.Backup.updateBanners();
+    assert(d.getElementById('banners').innerText.includes('Backup dringend nötig'), 'erst sichtbar');
+    await w.Backup.erinnerungAus();
+    assertEq(w.S.get('backupErinnerung'), false, 'die Entscheidung wird gespeichert');
+    assert(!d.getElementById('banners').innerText.includes('Backup dringend'), 'auch der rote Hinweis lässt sich wegdrücken');
+    await w.S.load(); // überlebt einen Neustart
+    w.Backup.updateBanners();
+    assert(!d.getElementById('banners').innerText.includes('Backup dringend'), 'und bleibt weg');
+    await w.S.set('backupErinnerung', true);
+    w.Backup.updateBanners();
+    assert(d.getElementById('banners').innerText.includes('Backup dringend'), 'über die Einstellungen kommt er zurück');
+  } finally { await w.S.set('backupErinnerung', true); await w.S.set('letzteExterneSicherung', null); w.Backup.updateBanners(); }
+});
+
+/* ---------- Ernteprognose ---------- */
+test('ernteprognoseBasis: kg je Volk aus den Vorjahren, Spanne aus schwach und stark', async (w) => {
+  const J = +w.U.todayIso().slice(0, 4);
+  const alt = { ernten: await w.DB.getAll('ernten'), voelker: await w.DB.getAll('voelker') };
+  await w.DB.clear('ernten'); await w.DB.clear('voelker');
+  try {
+    const v1 = await w.DB.put('voelker', { name: 'P1', status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 3}-04-01`, text: 'angelegt' }] });
+    const v2 = await w.DB.put('voelker', { name: 'P2', status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 3}-04-01`, text: 'angelegt' }] });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J - 2}-06-10`, produktart: 'Honig', mengeKg: 20 });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v2.id, datum: `${J - 2}-06-10`, produktart: 'Honig', mengeKg: 20 });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J - 1}-06-10`, produktart: 'Honig', mengeKg: 30 });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v2.id, datum: `${J - 1}-06-10`, produktart: 'Honig', mengeKg: 30 });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J}-06-10`, produktart: 'Honig', mengeKg: 5 });
+    const ep = await w.ernteprognoseBasis();
+    assertEq(ep.voelker, 2, 'zwei aktive Wirtschaftsvölker');
+    nah(ep.jeVolk, 25, 0.01, 'Mittel aus 20 und 30 kg je Volk');
+    nah(ep.jeVolkMin, 20, 0.01, 'schwaches Jahr');
+    nah(ep.jeVolkMax, 30, 0.01, 'gutes Jahr');
+    nah(ep.geerntet, 5, 0.01, 'das laufende Jahr zählt nicht in die Basis, aber als schon geerntet');
+    assertEq(ep.historie.length, 2, 'nur abgeschlossene Jahre');
+  } finally {
+    await w.DB.clear('ernten'); await w.DB.clear('voelker');
+    for (const e of alt.ernten) await w.DB.put('ernten', e, true);
+    for (const v of alt.voelker) await w.DB.put('voelker', v, true);
+  }
+});
+test('ernteprognoseBasis: Völker ohne Ernte drücken den Schnitt', async (w) => {
+  const J = +w.U.todayIso().slice(0, 4);
+  const alt = { ernten: await w.DB.getAll('ernten'), voelker: await w.DB.getAll('voelker') };
+  await w.DB.clear('ernten'); await w.DB.clear('voelker');
+  try {
+    const v1 = await w.DB.put('voelker', { name: 'Q1', status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+    await w.DB.put('voelker', { name: 'Q2', status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J - 1}-06-10`, produktart: 'Honig', mengeKg: 40 });
+    const ep = await w.ernteprognoseBasis();
+    nah(ep.jeVolk, 20, 0.01, '40 kg auf zwei Völker – auch das ohne Ernte zählt');
+  } finally {
+    await w.DB.clear('ernten'); await w.DB.clear('voelker');
+    for (const e of alt.ernten) await w.DB.put('ernten', e, true);
+    for (const v of alt.voelker) await w.DB.put('voelker', v, true);
+  }
+});
+test('ernteprognoseBasis: Erlös je kg aus echten Verkäufen', async (w) => {
+  const alt = { v: await w.DB.getAll('verkaeufe'), a: await w.DB.getAll('abfuellungen'), r: await w.DB.getAll('rechnungen') };
+  await w.DB.clear('verkaeufe'); await w.DB.clear('abfuellungen'); await w.DB.clear('rechnungen');
+  try {
+    const abf = await w.DB.put('abfuellungen', { chargeId: null, datum: w.U.todayIso(), gebindeG: 500, anzahl: 100, bestand: 100 });
+    // 10 Gläser à 500 g = 5 kg für 60 € → 12 €/kg
+    await w.DB.put('verkaeufe', { datum: w.U.todayIso(), abfuellungId: abf.id, anzahl: 10, preisJeGlas: 6, betrag: 60 });
+    let ep = await w.ernteprognoseBasis();
+    nah(ep.erloesJeKg, 12, 0.001, '60 € auf 5 kg');
+    // festgeschriebene Rechnung zählt mit, Entwurf nicht
+    await w.DB.put('rechnungen', { nummer: 'RE-9', datum: w.U.todayIso(), status: 'entwurf', positionen: [{ text: 'x', abfuellungId: abf.id, menge: 10, einzelpreis: 100 }] });
+    ep = await w.ernteprognoseBasis();
+    nah(ep.erloesJeKg, 12, 0.001, 'ein Entwurf ist noch kein Erlös');
+    await w.DB.put('rechnungen', { nummer: 'RE-10', datum: w.U.todayIso(), status: 'festgeschrieben', positionen: [{ text: 'x', abfuellungId: abf.id, menge: 10, einzelpreis: 8 }] });
+    ep = await w.ernteprognoseBasis();
+    nah(ep.erloesJeKg, 14, 0.001, '60 € + 80 € auf 10 kg');
+  } finally {
+    await w.DB.clear('verkaeufe'); await w.DB.clear('abfuellungen'); await w.DB.clear('rechnungen');
+    for (const x of alt.v) await w.DB.put('verkaeufe', x, true);
+    for (const x of alt.a) await w.DB.put('abfuellungen', x, true);
+    for (const x of alt.r) await w.DB.put('rechnungen', x, true);
+  }
+});
+
 /* ---------- Automatische Sicherung: Termin, Countdown, Ring ---------- */
 async function autoBackupAn(w, intervall, letzte) {
   const f = w.S.get('features');

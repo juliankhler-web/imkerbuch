@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-01 · **v1.45 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 317/317 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-02 · **v1.47 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 322/322 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-02 (v1.47)**: **Sicherungs-Hinweis und Ernteprognose** (Julian: „wenn ich ein backup mache verschwindet der hinweis nicht … dann wäre eine prognose der ernte wie viel geld man damit einnimmt").
+  Der Erinnerungs-Banner verschwand zwar, aber der **Stand daneben blieb stehen**: `markExternal` schrieb nur die Einstellung und zeichnete den Banner neu — die Karte in den Einstellungen und das Dashboard-Feld zeigten weiter „noch nie" bzw. das alte Datum, bis man die Seite wechselte. Jetzt zieht **`Backup.updateStand()`** beide über die Marker `data-backup-stand` / `data-backup-badge` / `data-backup-hinweis` sofort nach; die Badge kommt aus einer gemeinsamen Funktion und sagt am selben Tag „heute" statt „vor 0 Tagen".
+  Das **✕ blendet die Erinnerung dauerhaft aus** — auch den roten Banner, der vorher gar keins hatte. Gespeichert in `backupErinnerung`, zurückzuholen über die Einstellungen („Oben an eine fällige Sicherung erinnern"). Der Hinweis auf abgelehnten Dauerspeicher merkt sich sein ✕ jetzt ebenfalls (`persistHintDismissed` war seit jeher deklariert, aber nie gelesen).
+  **Neu: Ernteprognose** — `ernteprognoseBasis()` rechnet ausschließlich mit eigenen Daten: kg je Volk als Mittel der letzten drei abgeschlossenen Jahre, Spanne aus dem schwächsten und besten davon, Völkerzahl je Jahr zum **30.06.** aus der Völker-Historie (ein Volk **ohne** Ernte zählt mit — sonst schönt der Schnitt sich selbst). Erlös je kg aus echten Verkäufen und aus **festgeschriebenen** Rechnungspositionen mit Abfüllung (nur dort ist das Gewicht bekannt; Verkäufe und Rechnungen überschneiden sich nicht). Ohne Historie greift die DEBIMO-Faustzahl 38,4 kg. Als Karte im Rechner (alle Werte überschreibbar, verrechnet die Selbstkosten derselben Seite zu „davon bleibt") und als Dashboard-Feld.
+  5 neue Tests. **322/322 grün.** SW → v159.
 
 - **2026-09-01 (v1.45)**: **Rückgabe- und Ketten-Logik auf das Abfüllen übertragen** (Julian: „kannst du die logiken auch noch für andere bereiche übernehmen?").
   Durchgesehen wurden alle Stellen, die Bestand abziehen. Offen war genau **eine**: das **Abfüllen** zog Gläser, Deckel und Etiketten ab, hielt aber nichts fest — Löschen gab nichts zurück, und im Bearbeiten-Formular stand sogar der Hinweis, man müsse den Bestand von Hand nachziehen.
