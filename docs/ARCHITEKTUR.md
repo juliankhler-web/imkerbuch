@@ -89,6 +89,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | `settings` | key/value: profil, imkerei, logo, logoImHeader, steuer, rechnungskreis, features (inkl. `benachrichtigungen`), dokumentTypen, dashboardWidgets, darkMode, wizardDone, letzteExterneSicherung, letzteAutoSicherung, letzteNotif, backupDirHandle/-Name |
 
 ### Wichtige Invarianten
+
 - **`renderRoute` ersetzt `#main` bei jedem Render durch einen listenerfreien Klon.** Views dürfen deshalb Klick-Listener direkt an `main` hängen; ohne diesen Tausch feuern Handler alter Views weiter (Bug vom 2026-07-03: Trachten-Formular öffnete sich in der Zucht-Ansicht – Regressionstest #22).
 - **Löschungen** laufen über `DB.softDel` (Papierkorb, 30 Tage) – nie direkt `DB.del` für Nutzdaten.
 - **Königinnen-Zuordnung**: `voelker.koeniginId` ist führend; `koeniginnen.historie` wird bei jedem Wechsel gepflegt (`openVolkForm`, `endQueenAssignment`).
@@ -112,12 +113,14 @@ Diagramme: **eigener SVG-Chart-Helfer** (`UI.chart`, Linie/Balken) – keine Bib
 **CDN-Robustheit:** Alle Bibliotheks-URLs liegen zentral in der Konstante `CDN` mit je 2–3 Ausweichquellen (jsdelivr/unpkg/cdnjs); `U.loadScript(...urls)` probiert sie der Reihe nach und liefert die funktionierende URL zurück (pdf.js bezieht seinen Worker vom Gewinner-CDN). Grund: cdnjs führt jsPDF 2.5.2 NICHT (404 → PDF-Fehler am iPhone am 2026-07-03). `warmupBibliotheken()` lädt jsPDF/SheetJS/QR nach dem Start im Hintergrund vor → nach der ersten Online-Sitzung dauerhaft offline verfügbar.
 
 ## Konventionen
+
 - Deutsch für Fachbegriffe (Stores, Felder, UI), Englisch für Technik (`renderRoute`, `boot`).
 - Anzeige `TT.MM.JJJJ` + Dezimalkomma (`U.fmtDate`/`U.fmtNum`/`U.parseNum`); intern ISO-Datum + Number.
 - Jede Funktion mit kurzem Zweck-Kommentar; Modul-Banner trennen Abschnitte.
 - DRY: wiederkehrende Muster liegen als Helfer vor (`bindAdd`, `zielIdAus`, `zielFormValues`, `papierkorbDelete`, `zielFelder`, `UI.formModal`, `Xlsx.defs` als einzige Spalten-Quelle). Bei neuen Modulen zuerst diese Helfer nutzen statt kopieren.
 
 ## Design-Entscheidungen
+
 - **Single-File bleibt** (Anforderung „eine index.html“): Modularität über Namespaces, Banner-Abschnitte und expliziten window-Export statt ES-Module/Dateisplit. Tests greifen über das iframe-`window` auf die Namespaces zu.
 - **CDN lazy**: App-Start lädt keine Bibliothek; erst Funktionsnutzung (Excel/PDF/OCR/QR/Whisper) lädt einmalig, der SW cached danach für offline. Konsequenz: Spezialfunktionen brauchen bei ihrer allerersten Nutzung Internet.
 - **Snapshots ohne Blobs**, externe JSON-Backups mit allem (Base64) – Kompromiss aus Speicher und „keine Daten verlieren“.

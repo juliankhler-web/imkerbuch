@@ -1,5 +1,14 @@
 # ImkerBuch – Testfälle & Testsetup (Docs as Code)
 
+## Ausführen
+
+```bash
+npm test              # kopflos in Chrome, Exit-Code 1 bei Rot (das macht auch die CI)
+npm run test:coverage # zusätzlich die Abdeckung nach tools/coverage/report.json
+```
+
+Von Hand weiterhin: `tests/test.html` im Browser öffnen.
+
 > Stand: 2026-07-07 · Automatisiert: **54 Testfälle, alle grün**
 
 ## Testsetup
@@ -10,6 +19,7 @@
 2. `http://localhost:8931/tests/test.html` öffnen → Tests starten automatisch („Tests ausführen“ wiederholt).
 
 Funktionsweise:
+
 - Die Testseite lädt die App in einem unsichtbaren iframe mit `../index.html?testdb=1`.
 - Der Parameter `testdb` schaltet die App auf die **eigene IndexedDB `imkerbuch-test`** (echte Daten bleiben unberührt) und überspringt den Einrichtungsassistenten.
 - Vor jedem Lauf wird `imkerbuch-test` gelöscht → deterministischer Startzustand.
@@ -97,6 +107,7 @@ Nach größeren Umbauten einmal am echten Gerät durchgehen:
 - [ ] **Erinnerungen** (als installierte Home-Screen-App): Schalter aktivieren → iOS fragt Berechtigung; Probe-Benachrichtigung erscheint; Badge-Zähler am Icon bei fälliger Aufgabe; .ics-Export in Apple Kalender importieren → Alarm 08:00 am Fälligkeitstag
 
 ## Bekannte Test-Lücken (bewusst)
+
 - UI-Klickpfade (Modals, Formulare) sind nicht automatisiert – abgedeckt durch die manuelle Checkliste; die Fachlogik dahinter ist über die Unit-/Integrationstests abgesichert.
 - PDF-/Excel-Inhalte werden nicht byteweise geprüft (nur fehlerfreie Erzeugung, manuell gesichtet).
 
@@ -145,6 +156,7 @@ wissen, welches der beiden Formulare er meint:
   sonst ist die eben angelegte Zeile weggefiltert und `querySelector` liefert `null`.
 
 Zwei Erwartungen, die dabei gern falsch geraten werden:
+
 - Ein Pflichtfeld-Label heißt `"Datum *"`, nicht `"Datum"` (der Stern steht im `<label>`).
 - `U.fmtNum(x, 2)` schneidet Nullen ab: 100 wird `"100"`, nicht `"100,00"`. Nur `U.fmtEur` zeigt immer
   zwei Stellen.

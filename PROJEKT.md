@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 323/323 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 336/336 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -14,6 +14,7 @@
 | [docs/TESTFAELLE.md](docs/TESTFAELLE.md) | Testsetup (tests/test.html gegen `?testdb`-Instanz), 20 automatisierte Testfälle, manuelle Smoke-Checkliste |
 
 **Regeln für die Pflege:**
+
 - **Bei JEDEM Update: `APP_VERSION` in index.html hochzählen (0.31 → 0.32 → …) und oben in `CHANGELOG` einen nutzerverständlichen Eintrag ergänzen** – die App zeigt daraus nach dem Update einmalig das „Was ist neu?“-Fenster (Julian-Wunsch 2026-07-04).
 - Neues Feature ⇒ Eintrag/Status in FEATURES.md, bei Architekturänderung ARCHITEKTUR.md nachziehen.
 - Neue Fachlogik ⇒ Testfall in `tests/tests.js` im selben Schritt; Suite vor jedem „fertig“ laufen lassen.
@@ -21,10 +22,11 @@
 
 ## Schnellstart
 
-```
+```text
 python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 # Tests: http://localhost:8931/tests/test.html
 ```
+
 ⚠️ Service Worker cached die App: nach Code-Änderungen zweimal neu laden.
 
 ## Deployment (LIVE)
@@ -73,6 +75,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-03**: **Werkzeuge und Doku** (kein App-Code geändert, Version bleibt 1.48).
+  Neu: [docs/API.md](docs/API.md) — die interne Schnittstelle vollständig beschrieben (Namensräume, Datenmodell aller 31 Speicher, Formular-Verträge, Sicherung, PDF/Excel, Prognose, externe Dienste, Service Worker).
+  Neu: **kopfloser Testläufer** `tools/test-run.mjs` (eigener Dateiserver + Chrome über das DevTools-Protokoll, kein Puppeteer) mit `--coverage`. Erste Messung: **64,7 %** der benannten Funktionen wurden je aufgerufen.
+  Daraufhin **13 neue Tests**: ein Smoke-Test, der **jede der 28 Seiten** rendert (der größte weiße Fleck), gezielte Tests für nie benutzte Logik (`abfLabel`, `koeniginKurz`, `zielName`, `koeniginOptions`, `fahrtVorlageBuchen`, `osmFlaechenAusElementen`, `zielFelder`, `makeQr` …), **5 Extremwert-Tests** (leer, 0, negativ, gelöschte Position, Rechnung ohne Positionen, Prognose ohne jede Ernte) und ein **Integrationstest** über die ganze Kette Ernte → Charge → Abfüllung → Verkauf → Kassenbuch → Auswertung inklusive Stornierung. **336/336 grün.**
+  Dabei zwei Verträge schriftlich festgehalten, die vorher nur im Kopf standen: `verbrauchAbziehenKette` gibt bei „nichts zu tun" **null** zurück (keine Schein-Buchung), und `futterAusZucker` liefert ein Objekt, keine Zahl.
+  Neu: **Markdown-Linter** (`markdownlint-cli2`, `npm run lint:md`) — 100 Formatfehler gefunden, 88 automatisch behoben, Rest von Hand; **Architecture Decision Records** unter [docs/adr/](docs/adr/) mit Vorlage und den ersten drei Entscheidungen (lokal statt Cloud, eine Datei statt Bundler, gemerkte Abzugsbuchung); **CI** unter `.github/workflows/ci.yml` (Tests + Markdown + Gleichlauf von Version, Changelog und Cache-Name).
 
 - **2026-09-02 (v1.48)**: **Ernteprognose ins Kassenbuch verschoben** (Julian: „bei rechner findet man es nicht").
   Sie steht jetzt im Reiter **Auswertung**, über dem Jahresverlauf — dort sucht man Geldzahlen. Der Rechner behält die Selbstkosten je Glas; weil die dort auf derselben Seite lagen, hat die Karte im Kassenbuch ein **eigenes Feld „Selbstkosten je kg"** bekommen.

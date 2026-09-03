@@ -5361,3 +5361,312 @@ test('Zugang: Art steht oben, bedingte Felder nehmen die ganze Breite', async (w
     assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'und bleiben ein Paar');
   } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
+
+/* =====================================================================
+   ABDECKUNG: Bereiche, die die Suite bisher nie angefasst hat
+   Ermittelt mit `node tools/test-run.mjs --coverage` (tools/coverage/report.json).
+   ===================================================================== */
+
+test('Smoke: jede Seite der App rendert ohne Fehler', async (w) => {
+  /* Der größte weiße Fleck der Abdeckung waren die render()-Funktionen der Views.
+     Dieser Test ruft jede einzeln auf – er ersetzt keine Fachprüfung, fängt aber
+     genau das ab, was den Nutzer am härtesten trifft: eine Seite, die nicht lädt. */
+  const routen = Object.keys(w.Views);
+  const ersteId = async (store) => ((await w.DB.getAll(store))[0] || {}).id || null;
+  const param = {
+    volk: await ersteId('voelker'),
+    stand: await ersteId('staende'),
+    rechnung: await ersteId('rechnungen'),
+    serie: await ersteId('zuchtserien'),
+  };
+  const kaputt = [];
+  for (const route of routen) {
+    const host = w.document.createElement('div');
+    w.document.body.appendChild(host);
+    try { await w.Views[route].render(host, param[route] || null); }
+    catch (e) { kaputt.push(`${route}: ${e.message}`); }
+    finally { host.remove(); }
+  }
+  assertEq(kaputt, [], 'alle Seiten rendern');
+  assert(routen.length >= 28, `${routen.length} Seiten geprüft`);
+});
+
+test('abfLabel / koeniginKurz / dashIstLink: kurze Beschriftungen', (w) => {
+  assertEq(w.abfLabel({ gebindeG: 500 }, { losnummer: '2026-01' }), 'Los 2026-01 · 500 g');
+  assertEq(w.abfLabel({ gebindeG: 500 }, null), 'Los ? · 500 g', 'ohne Charge bleibt das Fragezeichen');
+  assertEq(w.koeniginKurz({ kennung: 'DE-1234', jahrgang: 2025 }), 'DE-1234', 'Kennung schlägt den Jahrgang');
+  assertEq(w.koeniginKurz({ jahrgang: 2025 }), 'Jg. 2025');
+  assertEq(w.koeniginKurz(null), '–');
+  assert(w.dashIstLink('link:voelker'), 'Verknüpfungen erkennt er');
+  assert(!w.dashIstLink('voelker'), 'echte Kacheln nicht');
+  assert(!w.dashIstLink(null), 'und null wirft nicht');
+});
+
+test('zielName: Volk, Stand, gelöscht und leer', async (w) => {
+  const stand = await w.DB.put('staende', { name: 'Zielname-Stand', lat: null, lng: null, notizen: '' });
+  const volk = await w.DB.put('voelker', { name: 'Zielname-Volk', standId: stand.id, status: 'aktiv', historie: [] });
+  try {
+    assertEq(await w.zielName('volk', volk.id), 'Zielname-Volk');
+    assertEq(await w.zielName('stand', stand.id), 'Zielname-Stand');
+    assertEq(await w.zielName('volk', 'gibt-es-nicht'), 'gelöscht', 'fehlender Datensatz wird benannt');
+    assertEq(await w.zielName('volk', null), '–', 'ohne Ziel ein Strich');
+  } finally { await w.DB.del('voelker', volk.id); await w.DB.del('staende', stand.id); }
+});
+
+test('koeniginOptions: nur aktive Königinnen, Kennung zuerst', async (w) => {
+  const a = await w.DB.put('koeniginnen', { kennung: 'AA-1', jahrgang: 2026, linie: 'Testlinie', status: 'aktiv', historie: [] });
+  const b = await w.DB.put('koeniginnen', { kennung: 'BB-2', jahrgang: 2024, linie: 'Alt', status: 'umgeweiselt', historie: [] });
+  try {
+    const opts = await w.koeniginOptions();
+    const ids = opts.map((o) => o.v);
+    assert(ids.includes(a.id), 'aktive ist dabei');
+    assert(!ids.includes(b.id), 'umgeweiselte nicht');
+    const label = opts.find((o) => o.v === a.id).l;
+    assert(label.startsWith('AA-1'), 'Kennung steht vorn: ' + label);
+    assert(/Testlinie/.test(label), 'Linie steht dabei');
+  } finally { await w.DB.del('koeniginnen', a.id); await w.DB.del('koeniginnen', b.id); }
+});
+
+test('fahrtVorlageBuchen: bucht mit Kilometern, fragt ohne', async (w) => {
+  const alt = w.S.get('fahrtvorlagen');
+  const vorher = (await w.DB.getAll('fahrten')).length;
+  try {
+    await w.S.set('fahrtvorlagen', [
+      { id: 'v-mit', name: 'Heimstand', km: 12, zweck: 'Durchsicht', standId: null, freiZiel: 'Heimstand' },
+      { id: 'v-ohne', name: 'Ohne km', km: 0, zweck: 'Durchsicht', standId: null, freiZiel: 'Unbekannt' },
+    ]);
+    await w.fahrtVorlageBuchen('v-mit');
+    const fahrten = await w.DB.getAll('fahrten');
+    assertEq(fahrten.length, vorher + 1, 'eine Fahrt mehr');
+    const neu = fahrten.find((f) => f.km === 12 && f.freiZiel === 'Heimstand');
+    assert(neu, 'die Vorlage steht in der Buchung');
+    assertEq(neu.datum, w.U.todayIso(), 'auf heute gebucht');
+    await w.fahrtVorlageBuchen('v-ohne');
+    assertEq((await w.DB.getAll('fahrten')).length, vorher + 1, 'ohne Kilometer wird nichts gebucht, sondern gefragt');
+  } finally {
+    await w.S.set('fahrtvorlagen', alt);
+    w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    w.FormGuard.dirty = false;
+  }
+});
+
+test('osmFlaechenAusElementen: kleinste Fläche zuerst, Löcher fliegen raus', (w) => {
+  const ring = (d) => [{ lat: 50, lon: 8 }, { lat: 50 + d, lon: 8 }, { lat: 50 + d, lon: 8 + d }, { lat: 50, lon: 8 + d }, { lat: 50, lon: 8 }];
+  const elemente = [
+    { tags: { landuse: 'forest' }, geometry: ring(0.02) },
+    { tags: { landuse: 'meadow' }, geometry: ring(0.005) },
+    { tags: { building: 'yes' }, geometry: ring(0.01) },          // ohne Kategorie
+    { tags: { landuse: 'forest' }, geometry: [{ lat: 50, lon: 8 }] }, // zu kurz
+  ];
+  const f = w.osmFlaechenAusElementen(elemente, 50);
+  assertEq(f.length, 2, 'nur die beiden brauchbaren Flächen');
+  assert(f[0].groesse < f[1].groesse, 'die kleinere steht vorn – bei Überlappung gewinnt die genauere Aussage');
+  assertEq(f[0].kat, w.osmKategorie({ landuse: 'meadow' }), 'Kategorie bleibt erhalten');
+});
+
+/* =====================================================================
+   EXTREMWERTE: leere Eingaben, Null, Unsinn, Fehlerzustände
+   Alle diese Fälle können im Alltag entstehen – ein leeres Feld, eine
+   gelöschte Position, ein Import mit Lücken. Nichts davon darf werfen.
+   ===================================================================== */
+
+test('Extremwerte: Formatierer und Parser halten Leeres und Unsinn aus', (w) => {
+  assertEq(w.U.fmtEur(null), '–');
+  assertEq(w.U.fmtEur(undefined), '–');
+  assertEq(w.U.fmtEur(NaN), '–');
+  assertEq(w.U.fmtNum(0), '0', 'die Null bleibt eine Null und wird kein Strich');
+  assert(isNaN(w.U.parseNum('')), 'leerer String ist keine Zahl');
+  assert(isNaN(w.U.parseNum('abc')), 'Buchstaben sind keine Zahl');
+  assertEq(w.U.parseNum('1.234,50'), 1234.5, 'deutsches Format');
+  assertEq(w.U.parseNum('-0,5'), -0.5, 'negative Kommazahl');
+  assertEq(w.U.esc(''), '', 'leerer String bleibt leer');
+  assertEq(w.U.esc('<script>x</script>'), '&lt;script&gt;x&lt;/script&gt;', 'HTML wird entschärft');
+  assertEq(w.U.fmtDate(''), '', 'leeres Datum gibt nichts aus');
+  assertEq(w.U.sum([], (x) => x), 0, 'Summe der leeren Liste ist 0');
+  assertEq(w.U.sortBy([], (x) => x), [], 'leere Liste bleibt leer');
+  assertEq(w.U.sum([{ n: 1 }, { n: undefined }, { n: null }], (x) => x.n), 1, 'Lücken zählen als 0');
+});
+
+test('Extremwerte: Fachrechnungen bei 0, negativ und ohne Werte', (w) => {
+  // Selbstkosten ohne Ertrag: darf nicht durch 0 teilen
+  const leer = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, ertragKg: 0 });
+  assert(isFinite(leer.summe), 'ohne Ertrag bleibt die Summe eine Zahl: ' + leer.summe);
+  const negativ = w.selbstkostenGlas({ ...w.SELBSTKOSTEN_VORGABE, glas: -5, voelker: 0, nutzungsdauer: 0 });
+  assert(isFinite(negativ.summe) && negativ.summe >= 0, 'negative Eingaben ergeben keinen negativen Preis');
+  // Zuckerrechnung
+  assertEq(w.futterAusZucker(0), { theoretisch: 0, tatsaechlich: 0 }, 'kein Zucker, kein Futter');
+  assertEq(w.futterAusZucker(-5).tatsaechlich, 0, 'negativer Zucker ergibt kein Futter');
+  assertEq(w.zuckerFuerFutter(0), 0, 'und umgekehrt genauso');
+  assertEq(w.zuckerAnteilAusFutterart('Wundermittel XY'), null, 'unbekannte Futterart bleibt unbekannt');
+  assertEq(w.zuckerAnteilAusFutterart(''), null, 'leere Futterart auch');
+  assertEq(w.zuckerAnteilAusFutterart(null), null, 'und null erst recht');
+  // Varroa
+  assertEq(w.varroaAmpelBefall(0).stufe ? typeof w.varroaAmpelBefall(0).stufe : 'x', 'string', 'auch 0 Milben ergeben eine Bewertung');
+  // Prozentrechnung auf leerer Grundlage
+  assertEq(w.bioAnteile(null), [], 'ein Stand ohne Bio-Angaben liefert eine leere Liste');
+  assertEq(w.bioAnteile({}), [], 'ein Stand ohne Anteile ebenfalls');
+  assertEq(w.bioSummen([]).gesamt, 0, 'leere Bio-Anteile ergeben 0');
+  assertEq(w.bioSummen(null).gesamt, 0, 'und null wirft nicht');
+});
+
+test('Extremwerte: Rechnung ohne Positionen, mit 0 € und mit Rabatt über 100 %', (w) => {
+  const leer = w.rechnungSummen({ positionen: [], steuerart: 'klein' });
+  assertEq(leer.brutto, 0, 'leere Rechnung: 0 €');
+  const null0 = w.rechnungSummen({ positionen: [{ text: 'Probe', menge: 0, einzelpreis: 0, steuersatz: 0 }], steuerart: 'klein' });
+  assertEq(null0.brutto, 0, 'Nullposition bleibt 0 €');
+  const zuViel = w.rechnungSummen({
+    positionen: [{ text: 'Honig', menge: 2, einzelpreis: 10, steuersatz: 0, pfand: 1 }],
+    steuerart: 'klein', rabattArt: 'prozent', rabattWert: 500,
+  });
+  assert(zuViel.brutto >= 0, 'ein absurder Rabatt macht die Rechnung nicht negativ: ' + zuViel.brutto);
+  assert(zuViel.brutto >= zuViel.pfand - 0.001, 'der Pfand bleibt vom Rabatt unberührt');
+});
+
+test('Extremwerte: Bestandsabzug bei 0, leerem Lager und gelöschter Position', async (w) => {
+  /* Das Lager wird geleert: die Kette greift sonst auf andere Futter-Positionen
+     der Beispieldaten über – genau das ist ihre Aufgabe, hier aber nicht der Fall,
+     der geprüft werden soll. */
+  const alt = await w.DB.getAll('inventar');
+  await w.DB.clear('inventar');
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Extremzucker', kategorie: 'Futter', einheit: 'kg', stueckzahl: 0 });
+  try {
+    /* Vertrag der Kette: bei nichts zu tun gibt sie null zurück, statt eine
+       Buchung mit 0 vorzugaukeln. Wer das Ergebnis auswertet, muss darauf gefasst sein. */
+    assertEq(await w.verbrauchAbziehenKette(pos.id, 0, { pruefen: true }), null, 'null abziehen bucht nichts');
+    assertEq(await w.verbrauchAbziehenKette(pos.id, -5, { pruefen: true }), null, 'eine negative Menge auch nicht');
+    assertEq(await w.verbrauchAbziehenKette('gibt-es-nicht', 5, { pruefen: true }), null, 'gelöschte Position wirft nicht');
+    assertEq(await w.verbrauchAbziehenKette('', 5, { pruefen: true }), null, 'leere Kennung ebenfalls nicht');
+    const leer = await w.verbrauchAbziehenKette(pos.id, 10, { pruefen: true });
+    assertEq(leer.abgezogen, 0, 'leeres Lager gibt nichts her');
+    assertEq(leer.gefehlt, 10, 'meldet aber ehrlich, was fehlt');
+    await w.verbrauchZurueckbuchen([], { pruefen: true }); // leere Rückgabe darf nicht werfen
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 0, 'der Bestand bleibt bei 0');
+  } finally {
+    await w.DB.clear('inventar');
+    for (const x of alt) await w.DB.put('inventar', x, true);
+  }
+});
+
+test('Extremwerte: Ernteprognose ohne jede Ernte und ohne Völker', async (w) => {
+  const alt = { e: await w.DB.getAll('ernten'), v: await w.DB.getAll('voelker'), vk: await w.DB.getAll('verkaeufe') };
+  await w.DB.clear('ernten'); await w.DB.clear('voelker'); await w.DB.clear('verkaeufe');
+  try {
+    const ep = await w.ernteprognoseBasis();
+    assertEq(ep.voelker, 0, 'keine Völker');
+    assertEq(ep.geerntet, 0, 'nichts geerntet');
+    assertEq(ep.erloesJeKg, 0, 'kein Erlös bekannt');
+    assertEq(ep.historie, [], 'keine Historie');
+    assert(ep.jeVolk > 0 && isFinite(ep.jeVolk), 'trotzdem eine brauchbare Faustzahl: ' + ep.jeVolk);
+    assert(ep.jeVolkMin < ep.jeVolk && ep.jeVolkMax > ep.jeVolk, 'mit Spanne drumherum');
+    assert(/Faustzahl/.test(ep.quelle), 'und der Hinweis, woher sie kommt');
+  } finally {
+    await w.DB.clear('ernten'); await w.DB.clear('voelker'); await w.DB.clear('verkaeufe');
+    for (const x of alt.e) await w.DB.put('ernten', x, true);
+    for (const x of alt.v) await w.DB.put('voelker', x, true);
+    for (const x of alt.vk) await w.DB.put('verkaeufe', x, true);
+  }
+});
+
+/* =====================================================================
+   INTEGRATION: die Kette vom Volk bis zur Auswertung
+   ===================================================================== */
+
+test('Integration: Ernte → Charge → Abfüllung → Verkauf → Kassenbuch → Prognose', async (w) => {
+  const sicher = {};
+  for (const s of ['ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'kassenbuch', 'voelker', 'staende', 'inventar', 'rechnungen']) {
+    sicher[s] = await w.DB.getAll(s);
+    await w.DB.clear(s);
+  }
+  const J = +w.U.todayIso().slice(0, 4);
+  try {
+    // 1) Grundlage: ein Stand, zwei Völker, Gläser im Lager
+    const stand = await w.DB.put('staende', { name: 'Integrationsstand', lat: null, lng: null, notizen: '' });
+    const v1 = await w.DB.put('voelker', { name: 'I-1', standId: stand.id, status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+    const v2 = await w.DB.put('voelker', { name: 'I-2', standId: stand.id, status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+    const glaeser = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser 500 g', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 100, gebindeG: 500 });
+
+    // 2) Vorjahr für die Prognose + Ernte dieses Jahres
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J - 1}-06-15`, produktart: 'Honig', sorte: 'Frühtracht', mengeKg: 30 });
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v2.id, datum: `${J - 1}-06-15`, produktart: 'Honig', sorte: 'Frühtracht', mengeKg: 30 });
+    const ernte = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: `${J}-06-20`, produktart: 'Honig', sorte: 'Linde', mengeKg: 20, wassergehalt: 17.2 });
+
+    // 3) Charge aus der Ernte – Sorte und Wassergehalt kommen von dort
+    const charge = await w.DB.put('chargen', { losnummer: `L-${J}-01`, ernteIds: [ernte.id], mengeKg: 20, mhd: `${J + 2}-06-20`, etikettNotiz: '' });
+    const ernteMap = await w.idMap('ernten');
+    assertEq(w.chargeSorten(charge, ernteMap), ['Linde'], 'die Sorte kommt aus der Ernte');
+    assertEq(w.chargeWassergehalt(charge, ernteMap), 17.2, 'der Laborwert ebenfalls');
+    assertEq(w.chargeRestKg(charge, []), 20, 'noch nichts abgefüllt');
+
+    // 4) Abfüllung: 20 kg → 40 Gläser à 500 g, Gläser gehen aus dem Lager
+    const abzug = await w.verbrauchAbziehenKette(glaeser.id, 40, { pruefen: false });
+    const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: `${J}-06-25`, gebindeG: 500, anzahl: 40, bestand: 40, verbrauchAbzug: abzug.abzug });
+    assertEq((await w.DB.get('inventar', glaeser.id)).stueckzahl, 60, '40 Gläser sind aus dem Lager');
+    assertEq(w.chargeRestKg(charge, await w.DB.getAll('abfuellungen')), 0, 'die Charge ist voll abgefüllt');
+    assertEq(w.abfLabel(abf, charge), `Los L-${J}-01 · 500 g`, 'die Beschriftung stimmt');
+
+    // 5) Verkauf: mindert den Bestand UND bucht die Einnahme
+    await w.verkaufErfassen({ abfuellungId: abf.id, anzahl: 10, preisJeGlas: 7, datum: `${J}-07-01`, notiz: 'Integrationstest' });
+    assertEq((await w.DB.get('abfuellungen', abf.id)).bestand, 30, 'zehn Gläser weniger im Bestand');
+    const kasse = await w.DB.getAll('kassenbuch');
+    assertEq(kasse.length, 1, 'genau eine Buchung');
+    assertEq(kasse[0].typ, 'einnahme');
+    assertEq(kasse[0].kategorie, 'Honigverkauf');
+    nah(kasse[0].betrag, 70, 0.001, '10 × 7 €');
+
+    // 6) Überverkauf wird abgelehnt – und ändert nichts
+    let gemeckert = false;
+    try { await w.verkaufErfassen({ abfuellungId: abf.id, anzahl: 999, preisJeGlas: 7 }); }
+    catch (e) { gemeckert = true; }
+    assert(gemeckert, 'mehr verkaufen als da ist, geht nicht');
+    assertEq((await w.DB.get('abfuellungen', abf.id)).bestand, 30, 'der Bestand blieb unberührt');
+    assertEq((await w.DB.getAll('kassenbuch')).length, 1, 'und es wurde nichts gebucht');
+
+    // 7) Auswertung sieht dieselbe Wahrheit
+    const ertragJahr = await w.Reporting.ertrag('jahr');
+    nah(ertragJahr.find((r) => r.k === String(J)).kg, 20, 0.001, 'Reporting kennt die Ernte des Jahres');
+    const ep = await w.ernteprognoseBasis();
+    assertEq(ep.voelker, 2, 'zwei Wirtschaftsvölker');
+    nah(ep.jeVolk, 30, 0.001, '60 kg im Vorjahr auf zwei Völker');
+    nah(ep.geerntet, 20, 0.001, 'dieses Jahr sind 20 kg drin');
+    nah(ep.erloesJeKg, 14, 0.001, '70 € auf 5 kg verkauften Honig');
+    nah(ep.voelker * ep.jeVolk, 60, 0.001, 'die Prognose für dieses Jahr');
+
+    // 8) Stornierung dreht alle drei Schritte zurück
+    const verkauf = (await w.DB.getAll('verkaeufe'))[0];
+    await w.verkaufStornieren(verkauf.id);
+    assertEq((await w.DB.get('abfuellungen', abf.id)).bestand, 40, 'die Gläser sind zurück');
+    assertEq((await w.DB.getAll('verkaeufe')).length, 0, 'der Verkauf ist weg');
+    assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'die Einnahme auch');
+
+    // 9) Rückgabe der Gläser ins Lager
+    await w.verbrauchZurueckbuchen(abzug.abzug, { pruefen: false });
+    assertEq((await w.DB.get('inventar', glaeser.id)).stueckzahl, 100, 'das Lager ist wieder voll');
+  } finally {
+    for (const s of Object.keys(sicher)) {
+      await w.DB.clear(s);
+      for (const x of sicher[s]) await w.DB.put(s, x, true);
+    }
+  }
+});
+
+test('Formularbausteine und QR: zielFelder, standFormFields, makeQr, navTo', async (w) => {
+  const felder = await w.zielFelder({}, 'Behandelt wurde');
+  assertEq(felder.map((f) => f.key), ['zielTyp', 'zielVolk', 'zielStand'], 'drei Felder in fester Reihenfolge');
+  assertEq(felder[0].label, 'Behandelt wurde', 'die Beschriftung ist durchgereicht');
+  assert(felder[1].showIf({ zielTyp: 'volk' }), 'das Volk-Feld erscheint bei „Einzelnes Volk“');
+  assert(!felder[1].showIf({ zielTyp: 'stand' }), 'und verschwindet beim Stand');
+  assert(felder[2].showIf({ zielTyp: 'stand' }), 'umgekehrt genauso');
+  assertEq((await w.zielFelder({ zielTyp: 'stand' })).find((f) => f.key === 'zielTyp').default, 'stand', 'Vorbelegung wird übernommen');
+
+  const sf = w.standFormFields();
+  assert(sf.find((f) => f.key === 'name').required, 'der Name eines Stands ist Pflicht');
+  assert(sf.some((f) => f.key === 'lat') && sf.some((f) => f.key === 'lng'), 'Koordinaten sind vorgesehen');
+
+  const qr = await w.makeQr('https://example.org/ImkerBuch');
+  assert(/^data:image\/(png|gif)/.test(qr), 'QR kommt als Bilddatei zurück: ' + qr.slice(0, 24));
+  assert(qr.length > 500, 'und ist nicht leer');
+
+  const vorher = w.location.hash;
+  try { w.navTo('honig'); assertEq(w.location.hash, '#/honig', 'navTo setzt die Route'); }
+  finally { w.location.hash = vorher; }
+});

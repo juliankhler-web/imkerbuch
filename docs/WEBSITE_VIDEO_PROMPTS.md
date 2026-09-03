@@ -22,7 +22,7 @@ Handys tauchen auf. Fotorealistisch, Hochglanz.
 
 ## Stil- und Vermeiden-Baustein (steckt unten schon in jedem Prompt)
 
-```
+```text
 STYLE: Photorealistic macro nature photography, shot on a full-frame camera with a
 100mm macro lens at f/2.8. Golden-hour sunlight from the upper left, warm honey-amber
 tones, soft haze, gentle lens bloom. Extremely shallow depth of field: the bee is
@@ -34,7 +34,7 @@ COLOR PALETTE: honey amber, warm gold, deep forest green, soft cream, near-black
 
 ## VERMEIDEN — in jedes Bild anhängen
 
-```
+```text
 AVOID: cartoon, illustration, 3D render look, plastic surfaces, cute anthropomorphic
 bee, bee with a face or human eyes, oversized fuzzy bumblebee, wrong insect anatomy
 (bees have 6 legs and 4 wings), extra limbs, visible user interface or icons on the
@@ -46,7 +46,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## SCHRITT 0 — Steckbrief der Biene (Referenzbild)
 
-```
+```text
 A character reference sheet of ONE single honeybee (Apis mellifera), photorealistic
 macro photography. Three views of the same bee side by side on a plain soft cream
 background: rear three-quarter view, direct view from behind, side view.
@@ -77,7 +77,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 1 — Start: Abflug über dem Blumenfeld (Hero)
 
-```
+```text
 Rear three-quarter view of a single honeybee in flight, seen from BEHIND and slightly
 above, as if the camera is flying right behind her. She fills the lower third of the
 frame, flying away from the camera into the scene. Her wings are caught in soft motion
@@ -110,7 +110,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 2 — Erstes Handy links
 
-```
+```text
 Same honeybee, same lighting and lens as the reference image. Rear three-quarter view
 from behind, the bee continues her flight from the lower left towards the upper right,
 now in the centre-right of the frame.
@@ -143,7 +143,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 3 — Zweites Handy rechts, tiefer über den Blüten
 
-```
+```text
 Same honeybee, same lighting and lens as the reference image. Rear view from behind,
 now lower — she skims just above the flower heads, close enough that the blossoms bend
 in her downwash. Camera low, almost at flower height, looking along her flight path.
@@ -172,7 +172,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 4 — Weite Aufnahme: mehrere Handys wie eine Allee
 
-```
+```text
 Same honeybee, same lighting and lens as the reference image. Wider shot, camera further
 back and higher. The bee is small but still sharp, seen from behind in the lower centre,
 flying away from us down a shallow corridor.
@@ -203,7 +203,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 5 — Aufstieg: die Landschaft im Umkreis
 
-```
+```text
 Same honeybee, same lighting and lens as the reference image. The camera has risen with
 her: we look from behind and above as she climbs, the meadow now far below. Beneath her
 a patchwork landscape opens up — flowering fields, hedgerows, a small orchard, a strip
@@ -233,7 +233,7 @@ composition, harsh midday light, cold blue tones, HDR over-processing.
 
 ## BILD 6 — Finale: Rückflug zum Stand im Abendlicht
 
-```
+```text
 Same honeybee, same lighting and lens as the reference image, but now in late evening
 light: deep amber sun very low, long warm shadows, sky graduating from gold to soft
 rose. Rear view from behind as she flies home, wings blurred, pollen baskets still full.

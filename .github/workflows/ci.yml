@@ -1,0 +1,80 @@
+name: CI
+
+# Bei jedem Push und jedem Pull Request: Dokumentation prüfen und die
+# vollständige Testsuite im echten Browser laufen lassen.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dokumentation:
+    name: Markdown prüfen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:md
+
+  tests:
+    name: Testsuite (Chrome, kopflos)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Der Läufer startet selbst einen Dateiserver und steuert Chrome über das
+      # DevTools-Protokoll – kein Puppeteer, kein Selenium.
+      - name: Chrome bereitstellen
+        uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: Tests ausführen
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: npm run test:coverage
+
+      - name: Abdeckungsbericht sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: tools/coverage/report.json
+          if-no-files-found: warn
+
+  version:
+    name: Version, Changelog und Cache im Gleichschritt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Ein häufiger Fehler beim Veröffentlichen: die Version wird erhöht, der
+      # Cache-Name im Service Worker aber nicht – dann behalten die Geräte
+      # die alten Nebendateien.
+      - name: Prüfen
+        run: |
+          VERSION=$(grep -o "const APP_VERSION = '[^']*'" index.html | head -1 | cut -d"'" -f2)
+          CACHE=$(grep -o "const CACHE = '[^']*'" service-worker.js | cut -d"'" -f2)
+          PKG=$(node -p "require('./package.json').version")
+          echo "APP_VERSION=$VERSION  ServiceWorker=$CACHE  package.json=$PKG"
+          if ! grep -q "version: '$VERSION'" index.html; then
+            echo "::error::Zu APP_VERSION $VERSION fehlt der CHANGELOG-Eintrag in index.html"
+            exit 1
+          fi
+          if [ "${PKG%.*}" != "$VERSION" ]; then
+            echo "::error::package.json ($PKG) und APP_VERSION ($VERSION) laufen auseinander"
+            exit 1
+          fi
+          echo "In Ordnung."

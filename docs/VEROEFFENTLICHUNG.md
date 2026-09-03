@@ -4,6 +4,7 @@
 > §24-Landwirt-plus-Gewerbe-Mix einmal von einem Steuerberater bestätigen lassen.
 
 ## 1. Gewerbe / Kleingewerbe
+
 - Apps gegen Geld verkaufen = **gewerbliche Tätigkeit** → **Gewerbeanmeldung** beim
   örtlichen Gewerbeamt nötig (ca. 20–65 €). Das ist **getrennt** von der Imkerei
   (die läuft als Landwirtschaft/§24 – Software ist kein landwirtschaftlicher Betrieb).
@@ -14,6 +15,7 @@
 - **Gewerbesteuer:** erst ab **24.500 € Gewinn/Jahr** relevant (Freibetrag Einzelunternehmer).
 
 ## 2. Steuer (mit Steuerberater klären!)
+
 - **Kleinunternehmerregelung (§19 UStG):** möglich, wenn Umsatz im Vorjahr ≤ **25.000 €**
   und im laufenden Jahr ≤ **100.000 €** (Grenzen seit 2025). Dann **keine USt** auf den
   App-Rechnungen, keine USt-Voranmeldung. Für den Start meist sinnvoll.
@@ -23,6 +25,7 @@
 - App-Einnahmen kommen in die Steuererklärung als **gewerbliche Einkünfte** (Anlage G / EÜR).
 
 ## 3. Pflicht-Rechtstexte (erledigt als Vorlage ✅)
+
 - **Impressum** (§5 DDG) → `impressum.html` ✅ – Platzhalter ausfüllen.
 - **Datenschutzerklärung** (DSGVO + Google-Play-Pflicht) → `datenschutz.html` ✅ – Platzhalter ausfüllen.
 - **Ladungsfähige Anschrift Pflicht:** Impressum braucht eine echte Adresse (kein Postfach).
@@ -33,10 +36,12 @@
   **Widerrufsbelehrung + einfache AGB** sind trotzdem empfehlenswert.
 
 ## 4. Name / Marke
+
 - **„ImkerBuch"** vor Release im **DPMA-Register** (register.dpma.de) prüfen, ob geschützt
   → Kollision vermeiden. Eigene Markenanmeldung ist optional (nicht Pflicht, ~290 €).
 
 ## 5. Google Play Console
+
 - **Entwicklerkonto:** einmalig **25 $**. Identitätsprüfung (Ausweis/Adresse) nötig.
 - **⚠️ 12-Tester-Regel:** Neue **persönliche** Konten müssen die App zuerst **≥ 14 Tage
   mit mind. 12 Testern** im geschlossenen Test laufen lassen, bevor Produktion möglich ist.
@@ -51,6 +56,7 @@
 - Store-Grafiken (Icon/Feature/Screenshots) ✅ liegen unter `Fotos Playstore/Play Store Upload/`.
 
 ## 6. Programme / Technik (App-Paket bauen)
+
 - **Empfohlen: PWABuilder** (pwabuilder.com, kostenlos, Cloud) → PWA-URL eingeben →
   erzeugt ein **Android-App-Bundle (.aab)** als Trusted Web Activity (TWA). Kein lokales
   Android-Studio nötig.
@@ -63,12 +69,14 @@
 - Voraussetzung ist erfüllt: gehostete PWA (GitHub Pages) + `manifest.json` + Service Worker ✅.
 
 ## 7. Empfehlung: „100 % lokal"-Versprechen absichern
+
 - Aktuell lädt die App Bibliotheken von **fremden CDNs** (jsdelivr, cdnjs, unpkg, sheetjs) –
   dabei geht die **IP der Nutzer** an diese Dienste (DSGVO-Thema, „Google-Fonts"-Urteile).
 - Für ein sauberes Privacy-Versprechen die Libs **selbst hosten** (ins Repo legen statt CDN).
   Bonus: bessere Offline-Zuverlässigkeit. → als eigenes To-do eingeplant.
 
 ## Reihenfolge (Vorschlag)
+
 1. Platzhalter in `impressum.html` + `datenschutz.html` ausfüllen → hochladen.
 2. Gewerbe anmelden + Steuerberater-Termin (§19/§24-Frage).
 3. Play-Entwicklerkonto (25 $) + 12-Tester-Test starten (läuft 14 Tage nebenher).
