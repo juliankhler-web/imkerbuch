@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 336/336 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 356/356 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -81,6 +81,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
   Neu: **kopfloser Testläufer** `tools/test-run.mjs` (eigener Dateiserver + Chrome über das DevTools-Protokoll, kein Puppeteer) mit `--coverage`. Erste Messung: **64,7 %** der benannten Funktionen wurden je aufgerufen.
   Daraufhin **13 neue Tests**: ein Smoke-Test, der **jede der 28 Seiten** rendert (der größte weiße Fleck), gezielte Tests für nie benutzte Logik (`abfLabel`, `koeniginKurz`, `zielName`, `koeniginOptions`, `fahrtVorlageBuchen`, `osmFlaechenAusElementen`, `zielFelder`, `makeQr` …), **5 Extremwert-Tests** (leer, 0, negativ, gelöschte Position, Rechnung ohne Positionen, Prognose ohne jede Ernte) und ein **Integrationstest** über die ganze Kette Ernte → Charge → Abfüllung → Verkauf → Kassenbuch → Auswertung inklusive Stornierung. **336/336 grün.**
   Dabei zwei Verträge schriftlich festgehalten, die vorher nur im Kopf standen: `verbrauchAbziehenKette` gibt bei „nichts zu tun" **null** zurück (keine Schein-Buchung), und `futterAusZucker` liefert ein Objekt, keine Zahl.
+  Danach die verbliebenen Lücken geschlossen (Julian: „und was ist mit den 25 offenen?"): **20 weitere Tests**. Netzabrufe sind prüfbar, wenn man `fetch` austauscht — die **Rückfallkette der Landbedeckung** (GeoBox → BKG → OSM) ist jetzt abgesichert, samt Overpass-Abfrage, Nominatim-Adresssuche, Update-Prüfung und dem mehrstufigen GeoBox-Rechenauftrag mit seinen drei Abbruchgründen. Dazu die Dialoge, die Daten schreiben: Stand anlegen und bearbeiten, Volk mit Königinnen-Zuordnung, Gläser-Position, Pfand-Rücknahme (Bestand + Kassenbuch ohne USt), Zeiterfassung, Sammel-Erfassung, Glas-Abzug beim Abfüllen, Etikett-Dialog, QR-Druckbogen. **Von den offenen Top-Level-Funktionen sind jetzt null übrig**; Abdeckung 64,7 % → **68,4 %**. Was bleibt, sind innere Funktionen von Ansichten, die der Seiten-Smoke-Test bereits durchläuft.
   Neu: **Markdown-Linter** (`markdownlint-cli2`, `npm run lint:md`) — 100 Formatfehler gefunden, 88 automatisch behoben, Rest von Hand; **Architecture Decision Records** unter [docs/adr/](docs/adr/) mit Vorlage und den ersten drei Entscheidungen (lokal statt Cloud, eine Datei statt Bundler, gemerkte Abzugsbuchung); **CI** unter `.github/workflows/ci.yml` (Tests + Markdown + Gleichlauf von Version, Changelog und Cache-Name).
 
 - **2026-09-02 (v1.48)**: **Ernteprognose ins Kassenbuch verschoben** (Julian: „bei rechner findet man es nicht").

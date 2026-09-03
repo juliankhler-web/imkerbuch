@@ -5670,3 +5670,657 @@ test('Formularbausteine und QR: zielFelder, standFormFields, makeQr, navTo', asy
   try { w.navTo('honig'); assertEq(w.location.hash, '#/honig', 'navTo setzt die Route'); }
   finally { w.location.hash = vorher; }
 });
+
+/* =====================================================================
+   NETZ: die Abrufe sind prüfbar, wenn man fetch austauscht
+   Damit fällt der letzte große Vorwand weg, die Rückfallkette der
+   Landbedeckung ungetestet zu lassen – gerade sie entscheidet, welche
+   Zahlen in den Öko-Unterlagen landen.
+   ===================================================================== */
+
+/** Tauscht window.fetch der App gegen eine Antwortliste und gibt es danach zurück. */
+async function mitFetch(w, antwort, fn) {
+  const echt = w.fetch;
+  const rufe = [];
+  w.fetch = async (url, opt) => { rufe.push({ url: String(url), opt }); return antwort(String(url), opt, rufe.length); };
+  try { return await fn(rufe); } finally { w.fetch = echt; }
+}
+
+test('landbedeckungErmitteln: nimmt die erste Quelle, die antwortet', async (w) => {
+  const echt = w.LB_QUELLEN.map((q) => q.fn);
+  const meldungen = [];
+  try {
+    // amtliche Quelle antwortet → BKG und OSM werden gar nicht erst gefragt
+    let gefragt = [];
+    w.LB_QUELLEN[0].fn = async () => { gefragt.push('gbv'); return { zeilen: [{ name: 'Wald', anteil: 100 }] }; };
+    w.LB_QUELLEN[1].fn = async () => { gefragt.push('bkg'); return { zeilen: [{ name: 'BKG', anteil: 100 }] }; };
+    w.LB_QUELLEN[2].fn = async () => { gefragt.push('osm'); return { zeilen: [{ name: 'OSM', anteil: 100 }] }; };
+    let erg = await w.landbedeckungErmitteln(50, 8, 3500, (t) => meldungen.push(t));
+    assertEq(gefragt, ['gbv'], 'nur die erste Quelle wurde gefragt');
+    assertEq(erg.quelle.key, 'gbv', 'und sie steht als Quelle in der Antwort');
+    assertEq(erg.gescheitert, [], 'nichts ist schiefgegangen');
+  } finally { w.LB_QUELLEN.forEach((q, i) => { q.fn = echt[i]; }); }
+});
+
+test('landbedeckungErmitteln: fällt weiter, wenn eine Quelle streikt', async (w) => {
+  const echt = w.LB_QUELLEN.map((q) => q.fn);
+  const meldungen = [];
+  try {
+    const gefragt = [];
+    w.LB_QUELLEN[0].fn = async () => { gefragt.push('gbv'); throw new Error('Zeitüberschreitung'); };
+    w.LB_QUELLEN[1].fn = async () => { gefragt.push('bkg'); return { zeilen: [] }; };   // leer zählt als Fehlschlag
+    w.LB_QUELLEN[2].fn = async () => { gefragt.push('osm'); return { zeilen: [{ name: 'Wiese', anteil: 42 }] }; };
+    const erg = await w.landbedeckungErmitteln(50, 8, 3500, (t) => meldungen.push(t));
+    assertEq(gefragt, ['gbv', 'bkg', 'osm'], 'alle drei der Reihe nach');
+    assertEq(erg.quelle.key, 'osm', 'geantwortet hat die letzte');
+    assertEq(erg.gescheitert.length, 2, 'die beiden Fehlschläge stehen in der Antwort');
+    assert(/Zeitüberschreitung/.test(erg.gescheitert[0]), 'mit dem Grund: ' + erg.gescheitert[0]);
+    assert(/keine Flächen/.test(erg.gescheitert[1]), 'eine leere Antwort ist auch ein Fehlschlag');
+    assert(meldungen.some((m) => /weiter mit/.test(m)), 'der Nutzer erfährt, dass weitergesucht wird');
+
+    // „nur“ begrenzt auf eine Quelle – und meldet ehrlich, wenn die nicht kann
+    let geflogen = false;
+    try { await w.landbedeckungErmitteln(50, 8, 3500, () => {}, 'gbv'); } catch (e) { geflogen = /Keine Quelle/.test(e.message); }
+    assert(geflogen, 'mit nur=gbv gibt es keinen stillen Rückfall');
+  } finally { w.LB_QUELLEN.forEach((q, i) => { q.fn = echt[i]; }); }
+});
+
+test('osmLandbedeckung: baut die Abfrage und rechnet die Antwort in Anteile um', async (w) => {
+  const ring = (d) => [{ lat: 50, lon: 8 }, { lat: 50 + d, lon: 8 }, { lat: 50 + d, lon: 8 + d }, { lat: 50, lon: 8 + d }, { lat: 50, lon: 8 }];
+  const antwort = { elements: [
+    { type: 'way', tags: { landuse: 'forest' }, geometry: ring(0.03) },
+    { type: 'way', tags: { landuse: 'meadow' }, geometry: ring(0.02) },
+  ] };
+  await mitFetch(w, async () => new Response(JSON.stringify(antwort), { status: 200, headers: { 'Content-Type': 'application/json' } }), async (rufe) => {
+    const erg = await w.osmLandbedeckung(50, 8, 1500, () => {});
+    assertEq(rufe.length, 1, 'ein Server reicht, wenn er antwortet');
+    assert(/overpass/.test(rufe[0].url), 'gefragt wird Overpass: ' + rufe[0].url);
+    const body = decodeURIComponent(String(rufe[0].opt.body));
+    assert(/around:1500,50,8/.test(body), 'Umkreis und Koordinaten stehen in der Abfrage');
+    assert(/out geom/.test(body), 'die Geometrie wird mit angefordert');
+    assert(erg.zeilen.length > 0, 'es kommen Zeilen zurück');
+    const summe = erg.zeilen.reduce((a, z) => a + (z.prozent || 0), 0);
+    nah(summe, 100, 1.5, 'die Anteile ergeben zusammen 100 %: ' + summe);
+    assert(erg.zeilen.some((z) => /nicht in openstreetmap erfasst/i.test(z.name)), 'was OSM nicht kennt, wird als Lücke ausgewiesen statt verteilt');
+    assert(erg.punkte > 100, 'das Raster hat genug Punkte: ' + erg.punkte);
+  });
+});
+
+test('osmLandbedeckung: probiert den nächsten Server und gibt am Ende auf', async (w) => {
+  await mitFetch(w, async () => { throw new Error('Netz weg'); }, async (rufe) => {
+    let fehler = null;
+    try { await w.osmLandbedeckung(50, 8, 1500, () => {}); } catch (e) { fehler = e; }
+    assert(fehler, 'ohne Netz wirft die Funktion – nur so greift die Rückfallkette');
+    assert(rufe.length >= w.OSM_OVERPASS_SERVER.length, `alle ${w.OSM_OVERPASS_SERVER.length} Server wurden probiert (${rufe.length} Versuche)`);
+  });
+});
+
+test('osmAdresseSuchen: Treffer, kein Treffer, Serverfehler, leere Eingabe', async (w) => {
+  await mitFetch(w, async () => new Response(JSON.stringify([{ lat: '49.5', lon: '8.4', display_name: 'Musterweg 1, Musterstadt' }]), { status: 200 }), async (rufe) => {
+    const t = await w.osmAdresseSuchen('Musterweg 1');
+    assertEq(t.lat, 49.5, 'Breitengrad als Zahl, nicht als Text');
+    assertEq(t.lon, 8.4);
+    assertEq(t.name, 'Musterweg 1, Musterstadt');
+    assert(/nominatim/.test(rufe[0].url), 'gefragt wird Nominatim');
+    assert(!/[<>]/.test(rufe[0].url), 'die Suche ist kodiert');
+  });
+  await mitFetch(w, async () => new Response('[]', { status: 200 }), async () => {
+    let m = ''; try { await w.osmAdresseSuchen('Gibt es nicht'); } catch (e) { m = e.message; }
+    assert(/Keine Adresse gefunden/.test(m), 'kein Treffer wird verständlich gemeldet: ' + m);
+  });
+  await mitFetch(w, async () => new Response('', { status: 503 }), async () => {
+    let m = ''; try { await w.osmAdresseSuchen('Musterweg 1'); } catch (e) { m = e.message; }
+    assert(/503/.test(m), 'der Status steht in der Meldung: ' + m);
+  });
+  let m = ''; try { await w.osmAdresseSuchen('   '); } catch (e) { m = e.message; }
+  assert(/Bitte eine Adresse/.test(m), 'leere Eingabe fragt nach, ohne das Netz zu behelligen');
+});
+
+test('pruefeAufUpdate: gleiche Version, neue Version, Server weg', async (w) => {
+  const knopf = w.document.createElement('button');
+  knopf.innerHTML = 'Nach Updates suchen';
+  w.document.body.appendChild(knopf);
+  const toasts = [];
+  const echtToast = w.UI.toast;
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); };
+  const echtConfirm = w.UI.confirm;
+  let gefragt = null;
+  w.UI.confirm = async (o) => { gefragt = o; return false; };   // niemals wirklich neu laden
+  try {
+    // 1) Server hat dieselbe Version
+    await mitFetch(w, async () => new Response(`const APP_VERSION = '${w.APP_VERSION}';`, { status: 200 }), async (rufe) => {
+      await w.pruefeAufUpdate(knopf);
+      assert(/\?update=/.test(rufe[0].url), 'die Prüfung umgeht den Service Worker: ' + rufe[0].url);
+      assert(/bereits die neueste/.test(toasts.at(-1).msg), 'sagt „schon aktuell": ' + toasts.at(-1).msg);
+      assertEq(knopf.disabled, false, 'der Knopf ist wieder bedienbar');
+      assertEq(knopf.innerHTML, 'Nach Updates suchen', 'und trägt wieder seine Beschriftung');
+    });
+    // 2) Server hat eine neuere Version → Rückfrage, die wir verneinen
+    await mitFetch(w, async () => new Response(`const APP_VERSION = '99.9';`, { status: 200 }), async () => {
+      await w.pruefeAufUpdate(knopf);
+      assert(gefragt && /99\.9/.test(gefragt.title), 'die neue Version steht in der Rückfrage: ' + (gefragt && gefragt.title));
+    });
+    // 3) Server nicht erreichbar
+    await mitFetch(w, async () => new Response('', { status: 404 }), async () => {
+      await w.pruefeAufUpdate(knopf);
+      assert(/fehlgeschlagen/.test(toasts.at(-1).msg), 'Fehler wird gemeldet statt verschluckt');
+      assertEq(toasts.at(-1).typ, 'err');
+      assertEq(knopf.disabled, false, 'auch im Fehlerfall bleibt der Knopf bedienbar');
+    });
+  } finally { w.UI.toast = echtToast; w.UI.confirm = echtConfirm; knopf.remove(); }
+});
+
+/* =====================================================================
+   DIALOGE, DIE DATEN SCHREIBEN
+   Reine Anzeige-Dialoge lassen wir bewusst offen. Geprüft wird, wo ein
+   Klick etwas in der Datenbank verändert – dort tut ein Fehler weh.
+   ===================================================================== */
+
+/** Alle offenen Dialoge schließen, damit ein Test nicht den nächsten stört. */
+function dialogeSchliessen(w) {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+  w.FormGuard.dirty = false;
+}
+
+test('openStandForm: legt einen Stand an und bearbeitet ihn', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = (await w.DB.getAll('staende')).length;
+  let fertig = 0;
+  w.openStandForm(null, () => { fertig++; });
+  await new Promise((r) => setTimeout(r, 250));
+  let neuerStand = null;
+  try {
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('name', 'Dialog-Teststand');
+    setz('lat', '49,4'); setz('lng', '8,7'); setz('kmEntfernung', '12');
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const alle = await w.DB.getAll('staende');
+    assertEq(alle.length, vorher + 1, 'ein Stand mehr');
+    neuerStand = alle.find((s) => s.name === 'Dialog-Teststand');
+    assert(neuerStand, 'unter dem eingegebenen Namen');
+    assertEq(neuerStand.lat, 49.4, 'Komma-Zahlen kommen als Zahl an');
+    assertEq(neuerStand.kmEntfernung, 12);
+    assertEq(fertig, 1, 'die Rückmeldung kam genau einmal');
+
+    // Bearbeiten schreibt in denselben Datensatz, statt einen zweiten anzulegen
+    dialogeSchliessen(w);
+    w.openStandForm(neuerStand, () => {});
+    await new Promise((r) => setTimeout(r, 250));
+    const m2 = w.document.querySelector('.modal-back');
+    assertEq(m2.querySelector('#f-name').value, 'Dialog-Teststand', 'die Werte stehen im Formular');
+    const feld = m2.querySelector('#f-name'); feld.value = 'Dialog-Teststand (neu)';
+    feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    m2.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const danach = await w.DB.getAll('staende');
+    assertEq(danach.length, vorher + 1, 'kein zweiter Datensatz');
+    assertEq((await w.DB.get('staende', neuerStand.id)).name, 'Dialog-Teststand (neu)', 'derselbe Datensatz wurde geändert');
+  } finally {
+    dialogeSchliessen(w);
+    if (neuerStand) await w.DB.del('staende', neuerStand.id);
+  }
+});
+
+test('glasPostenAnlegen: legt die Position an und gibt sie zurück', async (w) => {
+  dialogeSchliessen(w);
+  let zurueck = null;
+  w.glasPostenAnlegen(500, (rec) => { zurueck = rec; });
+  await new Promise((r) => setTimeout(r, 250));
+  try {
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    assertEq(modal.querySelector('#f-gebindeG').value, '500 g', 'die Gebindegröße ist vorbelegt');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('bezeichnung', 'Testgläser 500 g'); setz('stueckzahl', '120'); setz('mindestbestand', '24');
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    assert(zurueck, 'die neue Position wird zurückgereicht');
+    assertEq(zurueck.bezeichnung, 'Testgläser 500 g');
+    assertEq(zurueck.typ, 'verbrauch', 'Gläser sind Verbrauchsmaterial');
+    assertEq(zurueck.einheit, 'Stück');
+    assertEq(zurueck.gebindeG, 500, 'aus „500 g" werden 500 Gramm');
+    assertEq(zurueck.stueckzahl, 120);
+    assertEq(zurueck.mindestbestand, 24);
+    // und sie ist wirklich in der Datenbank, nicht nur im Rückruf
+    assert(await w.DB.get('inventar', zurueck.id), 'die Position steht im Lager');
+  } finally {
+    dialogeSchliessen(w);
+    if (zurueck) await w.DB.del('inventar', zurueck.id);
+  }
+});
+
+test('pfandRuecknahmeForm: bucht die Rücknahme, ohne Pfand-Position meldet sie sich', async (w) => {
+  dialogeSchliessen(w);
+  const toasts = [];
+  const echtToast = w.UI.toast;
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); };
+  const altInventar = await w.DB.getAll('inventar');
+  const altBewegungen = new Set((await w.DB.getAll('pfandbewegungen')).map((x) => x.id));
+  const altKasse = new Set((await w.DB.getAll('kassenbuch')).map((x) => x.id));
+  await w.DB.clear('inventar');
+  try {
+    // 1) ohne Pfand-Position: klare Ansage statt leerem Dialog
+    await w.pfandRuecknahmeForm({ typ: 'verbrauch' });
+    await new Promise((r) => setTimeout(r, 150));
+    assert(/Pfand/.test(toasts.at(-1).msg), 'der Hinweis nennt den Grund: ' + toasts.at(-1).msg);
+    assertEq(toasts.at(-1).typ, 'err');
+    assert(!w.document.querySelector('.modal-back'), 'und es öffnet sich kein Dialog');
+
+    // 2) mit Pfand-Position
+    const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Pfandglas 500 g', kategorie: 'Gläser/Deckel',
+      einheit: 'Stück', stueckzahl: 40, gebindeG: 500, pfand: 0.25, pfandSeit: '2026-01-01' });
+    await w.pfandRuecknahmeForm({ typ: 'verbrauch' }, pos.id);
+    await new Promise((r) => setTimeout(r, 300));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'jetzt öffnet sich der Dialog');
+    assertEq(modal.querySelector('#f-inventarId').value, pos.id, 'die Position ist vorgewählt');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('anzahl', '10'); setz('wer', 'Stammkunde Meier');
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 350));
+    const neueBew = (await w.DB.getAll('pfandbewegungen')).filter((b) => !altBewegungen.has(b.id));
+    assertEq(neueBew.length, 1, 'genau eine Bewegung gebucht');
+    assertEq(neueBew[0].inventarId, pos.id);
+    assertEq(neueBew[0].anzahl, 10);
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 50, 'zehn Gläser sind zurück im Bestand');
+    const neueKasse = (await w.DB.getAll('kassenbuch')).filter((k) => !altKasse.has(k.id));
+    assertEq(neueKasse.length, 1, 'die Pfandrückzahlung steht als eine Ausgabe im Kassenbuch');
+    assertEq(neueKasse[0].typ, 'ausgabe');
+    assertEq(neueKasse[0].steuersatz, 0, 'Pfand ist kein Erlös – ohne Umsatzsteuer');
+    nah(neueKasse[0].betrag, 2.5, 0.001, '10 × 0,25 €');
+    assert(/Stammkunde Meier/.test(neueKasse[0].beschreibung), 'der freie Name steht im Beleg');
+    assertEq(neueBew[0].kassenbuchId, neueKasse[0].id, 'Bewegung und Buchung kennen sich');
+  } finally {
+    w.UI.toast = echtToast;
+    dialogeSchliessen(w);
+    for (const b of await w.DB.getAll('pfandbewegungen')) if (!altBewegungen.has(b.id)) await w.DB.del('pfandbewegungen', b.id);
+    for (const k of await w.DB.getAll('kassenbuch')) if (!altKasse.has(k.id)) await w.DB.del('kassenbuch', k.id);
+    await w.DB.clear('inventar');
+    for (const x of altInventar) await w.DB.put('inventar', x, true);
+  }
+});
+
+test('zeitDialog: Minuten landen an der Aufgabe, „Ohne Zeit" schreibt nichts', async (w) => {
+  dialogeSchliessen(w);
+  const a = await w.DB.put('aufgaben', { titel: 'Zeit-Testaufgabe', faellig: w.U.todayIso(), erledigt: false, quelle: 'fuetterung', notiz: '' });
+  try {
+    w.zeitDialog(a);
+    await new Promise((r) => setTimeout(r, 200));
+    let modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    assertEq(modal.querySelector('#zt-kat').value, 'Fütterung', 'die Tätigkeit ist aus der Quelle vorgeschlagen');
+    modal.querySelector('[data-min="45"]').click();          // Schnellwahl
+    await new Promise((r) => setTimeout(r, 300));
+    let gespeichert = await w.DB.get('aufgaben', a.id);
+    assertEq(gespeichert.zeitMinuten, 45, 'die Schnellwahl schreibt die Minuten');
+    assertEq(gespeichert.kategorie, 'Fütterung', 'samt Tätigkeit');
+
+    // freie Eingabe
+    dialogeSchliessen(w);
+    w.zeitDialog(gespeichert);
+    await new Promise((r) => setTimeout(r, 200));
+    modal = w.document.querySelector('.modal-back');
+    const feld = modal.querySelector('#zt-min'); feld.value = '25';
+    feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    modal.querySelector('[data-ok]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    assertEq((await w.DB.get('aufgaben', a.id)).zeitMinuten, 25, 'die freie Eingabe überschreibt');
+
+    // „Ohne Zeit" lässt den Wert stehen und schreibt nichts Neues
+    dialogeSchliessen(w);
+    w.zeitDialog(await w.DB.get('aufgaben', a.id));
+    await new Promise((r) => setTimeout(r, 200));
+    w.document.querySelector('.modal-back [data-skip]').click();
+    await new Promise((r) => setTimeout(r, 250));
+    assertEq((await w.DB.get('aufgaben', a.id)).zeitMinuten, 25, 'ohne Zeit bleibt alles, wie es war');
+  } finally { dialogeSchliessen(w); await w.DB.del('aufgaben', a.id); }
+});
+
+test('endQueenAssignment: schließt die Zuordnung, statt sie zu löschen', async (w) => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'ENDE-1', jahrgang: 2026, status: 'aktiv', historie: [] });
+  const v = await w.DB.put('voelker', { name: 'Ende-Volk', status: 'aktiv', koeniginId: q.id, historie: [] });
+  q.historie = [{ volkId: v.id, von: '2026-04-01', bis: null }];
+  await w.DB.put('koeniginnen', q);
+  try {
+    await w.endQueenAssignment(v);
+    const nachher = await w.DB.get('koeniginnen', q.id);
+    assertEq(nachher.historie.length, 1, 'die Zeile bleibt stehen – Historie wird nicht gelöscht');
+    assertEq(nachher.historie[0].bis, w.U.todayIso(), 'sie bekommt ein Ende-Datum');
+    assertEq(v.koeniginId, null, 'das Volk hat keine Königin mehr');
+    // ohne Königin passiert nichts, und es wirft auch nicht
+    const ohne = { id: 'x', koeniginId: null };
+    await w.endQueenAssignment(ohne);
+    assertEq(ohne.koeniginId, null);
+  } finally { await w.DB.del('voelker', v.id); await w.DB.del('koeniginnen', q.id); }
+});
+
+test('sammelErfassung: Auswahl der Völker führt ins Sammelformular', async (w) => {
+  dialogeSchliessen(w);
+  const voelker = (await w.DB.getAll('voelker')).filter((v) => v.status === 'aktiv').slice(0, 3);
+  assert(voelker.length >= 2, 'die Beispieldaten haben genug Völker');
+  try {
+    w.sammelErfassung(voelker);
+    await new Promise((r) => setTimeout(r, 200));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'die Auswahl steht offen');
+    assert(/von \d+ ausgewählt/.test(modal.querySelector('#se-count').textContent), 'der Zähler steht da');
+    modal.querySelector('#se-none').click();
+    assert(/^0 von/.test(modal.querySelector('#se-count').textContent), '„Keine" wählt alles ab');
+    modal.querySelector('#se-all').click();
+    assert(new RegExp('^' + voelker.length + ' von').test(modal.querySelector('#se-count').textContent), '„Alle" wählt alles an');
+    modal.querySelector('#se-art').value = 'varroa';
+    modal.querySelector('[data-next]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    const zweiter = w.document.querySelector('.modal-back');
+    assert(zweiter, 'das Sammelformular folgt');
+    assert(/\d+ Völker|Varroa/i.test(zweiter.textContent), 'und es geht um die gewählte Art');
+  } finally { dialogeSchliessen(w); }
+});
+
+test('openVolkForm: legt ein Volk an, hängt die Königin dran, löst sie beim Wechsel', async (w) => {
+  dialogeSchliessen(w);
+  const stand = await w.DB.put('staende', { name: 'Volkform-Stand', lat: null, lng: null, notizen: '' });
+  const q = await w.DB.put('koeniginnen', { kennung: 'VF-1', jahrgang: 2026, status: 'aktiv', historie: [] });
+  let volk = null;
+  try {
+    w.openVolkForm(null, { standId: stand.id }, () => {});
+    await new Promise((r) => setTimeout(r, 300));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    assertEq(modal.querySelector('#f-standId').value, stand.id, 'der vorgegebene Stand ist gesetzt');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('name', 'Volkform-Volk');
+    setz('koeniginId', q.id);
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    volk = (await w.DB.getAll('voelker')).find((v) => v.name === 'Volkform-Volk');
+    assert(volk, 'das Volk ist angelegt');
+    assertEq(volk.koeniginId, q.id, 'mit der gewählten Königin');
+    assertEq(volk.status, 'aktiv', 'und ist aktiv');
+    assert((volk.historie || []).length >= 1, 'die Historie beginnt mit einem Eintrag');
+    const qn = await w.DB.get('koeniginnen', q.id);
+    const offen = (qn.historie || []).filter((h) => h.volkId === volk.id && !h.bis);
+    assertEq(offen.length, 1, 'die Königin führt eine offene Zuordnung auf dieses Volk');
+  } finally {
+    dialogeSchliessen(w);
+    if (volk) await w.DB.del('voelker', volk.id);
+    await w.DB.del('koeniginnen', q.id);
+    await w.DB.del('staende', stand.id);
+  }
+});
+
+test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
+  dialogeSchliessen(w);
+  const altInventar = await w.DB.getAll('inventar');
+  const altChargen = await w.DB.getAll('chargen');
+  const altAbf = await w.DB.getAll('abfuellungen');
+  await w.DB.clear('inventar'); await w.DB.clear('abfuellungen');
+  try {
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser 500 g', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 30, gebindeG: 500 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser 250 g', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 100, gebindeG: 250 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Deckel TO82 gold', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 40 });
+    const charge = await w.DB.put('chargen', { losnummer: 'GLAS-1', ernteIds: [], mengeKg: 50, mhd: '2028-01-01', etikettNotiz: '' });
+
+    const m = await w.Views.honig.abfuellForm(charge.id);
+    await new Promise((r) => setTimeout(r, 400));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Abfüllformular steht offen');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+
+    // 20 Gläser à 500 g: die passende Position wird von selbst vorgeschlagen
+    setz('g_500', '20');
+    await new Promise((r) => setTimeout(r, 200));
+    const gewaehlt = modal.querySelector('#f-gl_500');
+    assert(gewaehlt && gewaehlt.value, 'für 500 g wird eine Position vorgeschlagen');
+    const pos500 = await w.DB.get('inventar', gewaehlt.value);
+    assertEq(pos500.gebindeG, 500, 'und zwar die mit der passenden Gebindegröße');
+    const info = modal.querySelector('[data-glas-info]').textContent;
+    assert(/20/.test(info), 'die Übersicht nennt die Menge: ' + info);
+
+    // mehr Gläser als da sind → Warnung, aber kein Absturz
+    setz('g_500', '90');
+    await new Promise((r) => setTimeout(r, 200));
+    const warnung = modal.querySelector('[data-glas-info]').textContent;
+    assert(/reicht nicht|fehlen|fehlt/i.test(warnung), 'zu wenig Bestand wird gemeldet: ' + warnung);
+
+    // Deckel gelten über alle Größen: zwei Gebindegrößen ziehen von derselben Position ab
+    setz('g_500', '10'); setz('g_250', '10');
+    await new Promise((r) => setTimeout(r, 200));
+    const deckel = modal.querySelector('#f-gl_deckel');
+    if (deckel && deckel.value) {
+      const text = modal.querySelector('[data-glas-info]').textContent;
+      assert(/Deckel/i.test(text), 'die Deckel stehen in der Übersicht: ' + text);
+    }
+  } finally {
+    dialogeSchliessen(w);
+    await w.DB.clear('inventar'); await w.DB.clear('abfuellungen'); await w.DB.clear('chargen');
+    for (const x of altInventar) await w.DB.put('inventar', x, true);
+    for (const x of altChargen) await w.DB.put('chargen', x, true);
+    for (const x of altAbf) await w.DB.put('abfuellungen', x, true);
+  }
+});
+
+test('honigEtikettForm: Pflichtangaben vorbelegt, PDF wird mit den Werten gebaut', async (w) => {
+  dialogeSchliessen(w);
+  const charge = await w.DB.put('chargen', { losnummer: 'ET-1', ernteIds: [], mengeKg: 10, sorte: 'Lindenhonig', mhd: '2028-06-01', etikettNotiz: '' });
+  const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: w.U.todayIso(), gebindeG: 500, anzahl: 12, bestand: 12 });
+  const echt = w.Pdf.honigEtikett;
+  let uebergeben = null;
+  w.Pdf.honigEtikett = async (a, c, opts) => { uebergeben = { a, c, opts }; };
+  try {
+    await w.honigEtikettForm(abf, charge);
+    await new Promise((r) => setTimeout(r, 300));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    assertEq(modal.querySelector('#f-bezeichnung').value, 'Lindenhonig', 'die Sorte der Charge ist vorbelegt');
+    assertEq(modal.querySelector('#f-ursprung').value, 'Deutschland', 'Ursprungsland vorbelegt – Pflichtangabe');
+    assertEq(modal.querySelector('#f-anzahl').value, '12', 'so viele Etiketten wie Gläser im Bestand');
+    assert(/01\.06\.2028/.test(modal.textContent), 'das MHD der Charge steht im Hinweis');
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    assert(uebergeben, 'das PDF wird gebaut');
+    assertEq(uebergeben.c.losnummer, 'ET-1', 'mit der richtigen Charge');
+    assertEq(uebergeben.opts.bezeichnung, 'Lindenhonig');
+    assertEq(uebergeben.opts.ursprung, 'Deutschland');
+    assertEq(uebergeben.opts.anzahl, 12);
+  } finally {
+    w.Pdf.honigEtikett = echt;
+    dialogeSchliessen(w);
+    await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
+  }
+});
+
+test('clcLandbedeckung: liest die amtlichen Flächen und meldet einen leeren Kreis', async (w) => {
+  // Ein Vieleck, das den ganzen Kreis abdeckt → 100 % Wald
+  const gross = [[[7.9, 49.9], [8.1, 49.9], [8.1, 50.1], [7.9, 50.1], [7.9, 49.9]]];
+  const antwort = { type: 'FeatureCollection', features: [
+    { properties: { clc18: '311', name: 'Laubwald' }, geometry: { type: 'Polygon', coordinates: gross } },
+  ] };
+  await mitFetch(w, async () => new Response(JSON.stringify(antwort), { status: 200 }), async (rufe) => {
+    const erg = await w.clcLandbedeckung(50, 8, 1000, () => {});
+    assert(/sgx\.geodatenzentrum|wfs/i.test(rufe[0].url), 'gefragt wird der WFS des BKG: ' + rufe[0].url.slice(0, 60));
+    assert(erg.zeilen.length > 0, 'es kommen Zeilen zurück');
+    const summe = erg.zeilen.reduce((a, z) => a + (z.prozent || 0), 0);
+    nah(summe, 100, 1, 'die amtliche Quelle deckt den Kreis lückenlos ab: ' + summe);
+  });
+  // Keine Fläche → Fehler, damit die Rückfallkette weitergeht
+  await mitFetch(w, async () => new Response(JSON.stringify({ type: 'FeatureCollection', features: [] }), { status: 200 }), async () => {
+    let m = '';
+    try { const e = await w.clcLandbedeckung(50, 8, 1000, () => {}); if (!e || !e.zeilen.length) m = 'leer'; } catch (e) { m = e.message; }
+    assert(m, 'ein leeres Ergebnis wird nicht als Erfolg ausgegeben');
+  });
+});
+
+test('gbvLandbedeckung: Auftrag, Warten, Ergebnis – und die drei Abbruchgründe', async (w) => {
+  // Eine echte kleine Tabelle bauen, wie sie der Dienst liefert
+  const XLSX = await w.Xlsx.lib();
+  const heft = XLSX.utils.book_new();
+  const r = 1000, kreis = Math.PI * r * r;
+  const blatt = XLSX.utils.json_to_sheet([
+    { Klassenname: 'Laubwald', qm: Math.round(kreis * 0.6) },
+    { Klassenname: 'Grünland', qm: Math.round(kreis * 0.3) },
+    { Klassenname: 'Siedlung', qm: Math.round(kreis * 0.1) },
+  ]);
+  XLSX.utils.book_append_sheet(heft, blatt, 'Imker');
+  const datei = XLSX.write(heft, { type: 'array', bookType: 'xlsx' });
+
+  const antworten = (stufen) => async (url) => {
+    if (/submitJob/.test(url)) return new Response(JSON.stringify(stufen.auftrag), { status: 200 });
+    if (/results/.test(url)) return new Response(JSON.stringify(stufen.ergebnis), { status: 200 });
+    if (/jobs\//.test(url)) return new Response(JSON.stringify(stufen.stand), { status: 200 });
+    return new Response(datei, { status: 200 });        // die Ergebnisdatei
+  };
+
+  // 1) Glücklicher Fall
+  await mitFetch(w, antworten({
+    auftrag: { jobId: 'j1', jobStatus: 'esriJobSucceeded' },
+    ergebnis: { value: { url: 'https://geoservice.rlp.de/ergebnis.xlsx' } },
+  }), async (rufe) => {
+    const meldungen = [];
+    const erg = await w.gbvLandbedeckung(50, 8, r, (t) => meldungen.push(t));
+    assert(/submitJob/.test(rufe[0].url), 'zuerst wird der Auftrag abgeschickt');
+    const body = String(rufe[0].opt.body);
+    assert(/Radius/.test(body) && /1000/.test(body), 'Radius steht im Auftrag');
+    assert(/102100|3857/.test(body), 'die Koordinaten sind nach Web Mercator umgerechnet');
+    assertEq(erg.zeilen.length, 3, 'drei amtliche Klassen');
+    assertEq(erg.zeilen[0].name, 'Laubwald', 'die größte Klasse steht vorn');
+    nah(erg.zeilen[0].prozent, 60, 0.2, 'und ihr Anteil stimmt');
+    nah(erg.abdeckung, 100, 0.5, 'die Abdeckung wird mitgeliefert');
+    assert(meldungen.some((m) => /amtlich/i.test(m)), 'der Nutzer sieht, was gerade passiert');
+  });
+
+  // 2) Dienst lehnt ab
+  await mitFetch(w, antworten({ auftrag: { error: { message: 'zu viele Anfragen' } }, ergebnis: {} }), async () => {
+    let m = ''; try { await w.gbvLandbedeckung(50, 8, r, () => {}); } catch (e) { m = e.message; }
+    assert(/lehnt die Anfrage ab/.test(m) && /zu viele Anfragen/.test(m), 'der Grund wird durchgereicht: ' + m);
+  });
+
+  // 3) Rechenauftrag scheitert
+  await mitFetch(w, antworten({
+    auftrag: { jobId: 'j2', jobStatus: 'esriJobFailed', messages: [{ type: 'esriJobMessageTypeError', description: 'Standort außerhalb' }] },
+    ergebnis: {},
+  }), async () => {
+    let m = ''; try { await w.gbvLandbedeckung(50, 8, r, () => {}); } catch (e) { m = e.message; }
+    assert(/Fehler/.test(m) && /außerhalb/.test(m), 'die Fehlermeldung des Dienstes steht drin: ' + m);
+  });
+
+  // 4) Kein Ergebnis genannt → Rückfallkette muss greifen können
+  await mitFetch(w, antworten({ auftrag: { jobId: 'j3', jobStatus: 'esriJobSucceeded' }, ergebnis: { value: {} } }), async () => {
+    let m = ''; try { await w.gbvLandbedeckung(50, 8, r, () => {}); } catch (e) { m = e.message; }
+    assert(/keine Ergebnisdatei/.test(m), 'auch das wirft, statt leer zurückzukommen: ' + m);
+  });
+});
+
+test('Anzeige-Dialoge öffnen und schließen, ohne etwas zu verändern', async (w) => {
+  dialogeSchliessen(w);
+  const zaehle = async () => (await w.DB.getAll('fahrten')).length + (await w.DB.getAll('voelker')).length;
+  const vorher = await zaehle();
+  try {
+    // Changelog
+    w.changelogModal(w.CHANGELOG.slice(0, 2));
+    await new Promise((r) => setTimeout(r, 150));
+    let modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Changelog-Fenster steht offen');
+    assert(new RegExp(w.CHANGELOG[0].version.replace('.', '\\.')).test(modal.textContent), 'die neueste Version steht drin');
+    dialogeSchliessen(w);
+
+    // „Mehr“-Blatt der unteren Leiste
+    w.openMoreSheet();
+    await new Promise((r) => setTimeout(r, 150));
+    modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Mehr-Blatt öffnet');
+    assert(modal.querySelectorAll('[data-route]').length > 3, 'und listet weitere Bereiche');
+    dialogeSchliessen(w);
+
+    // Fahrten-Kachel aufklappen: nur Anzeige, keine Buchung
+    const host = w.document.createElement('div');
+    host.innerHTML = '<div class="card"><button id="ft"></button><div class="fahrt-row" data-mehr></div></div>';
+    w.document.body.appendChild(host);
+    try { w.fahrtWidgetToggle(host.querySelector('#ft')); } finally { host.remove(); }
+
+    assertEq(await zaehle(), vorher, 'kein Anzeige-Dialog hat Daten verändert');
+  } finally { dialogeSchliessen(w); }
+});
+
+test('fahrtWidgetKonfig: speichert die Auswahl, ohne Stände meldet sie sich', async (w) => {
+  dialogeSchliessen(w);
+  const altAuswahl = w.S.get('fahrtWidgetAuswahl');
+  const altStaende = await w.DB.getAll('staende');
+  const altVorlagen = w.S.get('fahrtvorlagen');
+  const toasts = [];
+  const echtToast = w.UI.toast;
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); };
+  try {
+    // ohne Stand und ohne Vorlage: Hinweis statt leerem Dialog
+    await w.DB.clear('staende');
+    await w.S.set('fahrtvorlagen', []);
+    await w.fahrtWidgetKonfig();
+    await new Promise((r) => setTimeout(r, 150));
+    assert(/Bienenstand/.test(toasts.at(-1).msg), 'der Hinweis sagt, was fehlt: ' + toasts.at(-1).msg);
+    assert(!w.document.querySelector('.modal-back'), 'und es öffnet sich kein leerer Dialog');
+
+    // mit Stand: Auswahl wird gespeichert
+    const stand = await w.DB.put('staende', { name: 'Kachel-Stand', lat: null, lng: null, notizen: '' });
+    await w.fahrtWidgetKonfig();
+    await new Promise((r) => setTimeout(r, 250));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'jetzt öffnet der Dialog');
+    const box = modal.querySelector(`input[value="stand:${stand.id}"]`);
+    assert(box, 'der Stand steht zur Auswahl');
+    box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    assertEq(w.S.get('fahrtWidgetAuswahl'), ['stand:' + stand.id], 'die Auswahl ist gespeichert');
+  } finally {
+    w.UI.toast = echtToast;
+    dialogeSchliessen(w);
+    await w.S.set('fahrtWidgetAuswahl', altAuswahl);
+    await w.S.set('fahrtvorlagen', altVorlagen);
+    await w.DB.clear('staende');
+    for (const x of altStaende) await w.DB.put('staende', x, true);
+  }
+});
+
+test('QR am Volk: Code wird erzeugt, der Druckbogen trägt sechs Etiketten', async (w) => {
+  dialogeSchliessen(w);
+  const echtPrint = w.print;
+  let gedruckt = 0;
+  w.print = () => { gedruckt++; };          // kein echter Druckdialog im Test
+  const volk = await w.DB.put('voelker', { name: 'QR-Volk', beutenkennung: 'A7', status: 'aktiv', historie: [] });
+  try {
+    await w.volkQrAnzeigen(volk);
+    await new Promise((r) => setTimeout(r, 400));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das QR-Fenster steht offen');
+    const bild = modal.querySelector('#vqr-zone img');
+    assert(bild && /^data:image\//.test(bild.src), 'der QR-Code ist erzeugt');
+    assert(/QR-Volk/.test(modal.textContent) && /A7/.test(modal.textContent), 'Volk und Beutenkennung stehen darunter');
+    const knopf = modal.querySelector('#vqr-print');
+    assertEq(knopf.disabled, false, 'erst wenn der Code da ist, ist Drucken möglich');
+
+    knopf.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const bogen = w.document.querySelector('.qr-print');
+    assert(bogen, 'der Druckbogen ist im Dokument');
+    assertEq(bogen.querySelectorAll('img').length, 6, 'sechs Etiketten je Bogen');
+    assert(/QR-Volk · A7/.test(bogen.textContent), 'jedes Etikett ist beschriftet');
+    assert(w.document.body.classList.contains('qr-printing'), 'die App wird für den Druck ausgeblendet');
+    assert(w.document.getElementById('qr-print-style'), 'die Druckregeln stehen im Dokument');
+    assertEq(gedruckt, 1, 'der Druck wurde genau einmal angestoßen');
+
+    // Nach dem Drucken räumt die Funktion selbst auf
+    w.dispatchEvent(new w.Event('afterprint'));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(!w.document.querySelector('.qr-print'), 'der Bogen ist wieder weg');
+    assert(!w.document.body.classList.contains('qr-printing'), 'und die App wieder sichtbar');
+  } finally {
+    w.print = echtPrint;
+    dialogeSchliessen(w);
+    w.document.querySelectorAll('.qr-print').forEach((x) => x.remove());
+    w.document.body.classList.remove('qr-printing');
+    await w.DB.del('voelker', volk.id);
+  }
+});
