@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-02 · **v1.47 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 322/322 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 323/323 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -73,6 +73,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-02 (v1.48)**: **Ernteprognose ins Kassenbuch verschoben** (Julian: „bei rechner findet man es nicht").
+  Sie steht jetzt im Reiter **Auswertung**, über dem Jahresverlauf — dort sucht man Geldzahlen. Der Rechner behält die Selbstkosten je Glas; weil die dort auf derselben Seite lagen, hat die Karte im Kassenbuch ein **eigenes Feld „Selbstkosten je kg"** bekommen.
+  **Vorbelegt mit dem LWG-Modellwert bei 35 kg je Volk, bewusst NICHT mit dem eigenen Ertrag**: die Fixkosten des Modells hängen an diesen 35 kg — auf ein schwaches Jahr gerechnet kämen 49 €/kg heraus und die Prognose zeigte einen Verlust, den es nicht gibt. Wer es genau will, nimmt den Rechner.
+  1 neuer Test (Karte im Kassenbuch, nicht mehr im Rechner). **323/323 grün.** SW → v160.
 
 - **2026-09-02 (v1.47)**: **Sicherungs-Hinweis und Ernteprognose** (Julian: „wenn ich ein backup mache verschwindet der hinweis nicht … dann wäre eine prognose der ernte wie viel geld man damit einnimmt").
   Der Erinnerungs-Banner verschwand zwar, aber der **Stand daneben blieb stehen**: `markExternal` schrieb nur die Einstellung und zeichnete den Banner neu — die Karte in den Einstellungen und das Dashboard-Feld zeigten weiter „noch nie" bzw. das alte Datum, bis man die Seite wechselte. Jetzt zieht **`Backup.updateStand()`** beide über die Marker `data-backup-stand` / `data-backup-badge` / `data-backup-hinweis` sofort nach; die Badge kommt aus einer gemeinsamen Funktion und sagt am selben Tag „heute" statt „vor 0 Tagen".

@@ -254,6 +254,31 @@ test('ernteprognoseBasis: Völker ohne Ernte drücken den Schnitt', async (w) =>
     for (const v of alt.voelker) await w.DB.put('voelker', v, true);
   }
 });
+test('Ernteprognose steht im Kassenbuch, nicht mehr im Rechner', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    w.Views.kassenbuch._tab = 'auswertung';
+    await w.Views.kassenbuch.render(host);
+    await new Promise((r) => setTimeout(r, 300));
+    assert(host.querySelector('[data-ep="voelker"]'), 'Völker-Eingabe im Kassenbuch');
+    assert(host.querySelector('[data-ep="kosten"]'), 'eigenes Feld für die Selbstkosten je kg');
+    const out = host.querySelector('#ep-out');
+    assert(out && /Erwartete Ernte/.test(out.textContent), 'die Kacheln sind gerechnet');
+    // Änderung an einem Feld rechnet sofort neu
+    const feld = host.querySelector('[data-ep="voelker"]');
+    const vorher = out.textContent;
+    feld.value = String((w.U.parseNum(feld.value) || 1) + 5);
+    feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(out.textContent !== vorher, 'mehr Völker ändern das Ergebnis');
+    const rechner = w.document.createElement('div'); w.document.body.appendChild(rechner);
+    try {
+      await w.Views.rechner.render(rechner);
+      assert(!rechner.querySelector('[data-ep="voelker"]'), 'im Rechner steht sie nicht mehr');
+      assert(rechner.querySelector('#sk-out'), 'die Selbstkosten bleiben aber dort');
+    } finally { rechner.remove(); }
+  } finally { host.remove(); w.Views.kassenbuch._tab = 'buchungen'; }
+});
 test('ernteprognoseBasis: Erlös je kg aus echten Verkäufen', async (w) => {
   const alt = { v: await w.DB.getAll('verkaeufe'), a: await w.DB.getAll('abfuellungen'), r: await w.DB.getAll('rechnungen') };
   await w.DB.clear('verkaeufe'); await w.DB.clear('abfuellungen'); await w.DB.clear('rechnungen');

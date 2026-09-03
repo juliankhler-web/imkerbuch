@@ -947,8 +947,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.47';
+const APP_VERSION = '1.48';
 const CHANGELOG = [
+  { version: '1.48', datum: '2026-09-02', punkte: [
+    'Die <b>Ernteprognose</b> steht jetzt im <b>Kassenbuch unter „Auswertung"</b> statt im Rechner – dort sucht man sie, wenn es ums Geld geht. Sie bringt ein eigenes Feld für die Selbstkosten je kg mit, vorbelegt mit deiner Völkerzahl und deinem Ertrag.',
+  ] },
   { version: '1.47', datum: '2026-09-02', punkte: [
     'Behoben: Nach einer Sicherung stand in den Einstellungen und im Dashboard weiter der <b>alte Stand</b> („noch nie“ oder das alte Datum). Beide Anzeigen ziehen jetzt sofort nach.',
     'Der <b>Erinnerungs-Hinweis</b> oben lässt sich mit dem ✕ <b>dauerhaft ausblenden</b> – auch der rote. Zurückholen kannst du ihn in den Einstellungen unter „Sicherung“.',
@@ -8117,6 +8120,12 @@ Views.kassenbuch = {
 
   async tabAuswertung(box) {
     const all = await DB.getAll('kassenbuch');
+    const ep = await ernteprognoseBasis();
+    /* Selbstkosten je kg als Vorbelegung: Modellwerte der LWG mit der eigenen
+       Völkerzahl. Der eigene Ertrag geht bewusst NICHT ein: die Fixkosten des
+       Modells hängen an 35 kg je Volk – mit einem schwachen Jahr gerechnet
+       ergäben sie absurde 50 €/kg. Wer es genau will, nimmt den Rechner. */
+    const skStart = selbstkostenGlas({ ...SELBSTKOSTEN_VORGABE, voelker: ep.voelker || SELBSTKOSTEN_VORGABE.voelker }).jeKg;
     const jahre = [...new Set(all.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
     const jahr = Views.kassenbuch._ajahr || jahre[0] || U.todayIso().slice(0, 4);
     const list = all.filter((k) => (k.datum || '').startsWith(jahr));
@@ -8125,6 +8134,27 @@ Views.kassenbuch = {
     const ausM = monate.map((_, i) => U.sum(list.filter((k) => k.typ === 'ausgabe' && +k.datum.slice(5, 7) === i + 1), (k) => k.betrag));
     const byKat = U.groupBy(list, (k) => `${k.typ}|${k.kategorie}`);
     box.innerHTML = `
+      <div class="card"><div class="card-title">${icon('rechner')}<h2>Ernteprognose ${ep.jahr}</h2>
+        <a href="#/rechner" class="small no-print">Selbstkosten rechnen</a></div>
+        <p class="small muted mb12">Was das Jahr voraussichtlich bringt – geschätzt aus deinen eigenen Ernten und Verkäufen. Jede Zahl ist überschreibbar.</p>
+        <div class="grid2">
+          <div class="field"><label>Wirtschaftsvölker</label><input class="inp ep" data-ep="voelker" inputmode="numeric" value="${ep.voelker || 1}">
+            <span class="small muted">aktive Wirtschaftsvölker</span></div>
+          <div class="field"><label>Ertrag je Volk (kg)</label><input class="inp ep" data-ep="jeVolk" inputmode="decimal" value="${U.fmtNum(ep.jeVolk, 1)}">
+            <span class="small muted">${U.esc(ep.quelle)}</span></div>
+          <div class="field"><label>Erlös je kg (€)</label><input class="inp ep" data-ep="preis" inputmode="decimal" value="${U.fmtNum(ep.erloesJeKg, 2)}">
+            <span class="small muted">${ep.preisQuelle ? 'aus ' + U.esc(ep.preisQuelle) : 'noch kein Verkauf erfasst – bitte selbst eintragen'}</span></div>
+          <div class="field"><label>Dieses Jahr schon geerntet (kg)</label><input class="inp ep" data-ep="geerntet" inputmode="decimal" value="${U.fmtNum(ep.geerntet, 1)}"></div>
+          <div class="field"><label>Selbstkosten je kg (€)</label><input class="inp ep" data-ep="kosten" inputmode="decimal" value="${U.fmtNum(skStart, 2)}">
+            <span class="small muted">Modellwert LWG bei 35 kg je Volk – im Rechner mit deinen Zahlen</span></div>
+        </div>
+        <div id="ep-out" class="mt12"></div>
+        ${ep.historie.length ? `<div class="small muted mt12 mb8" style="font-weight:600">Deine Jahre</div>
+          <div class="rows">${ep.historie.slice(-5).reverse().map((h) => `<div class="row" style="min-height:36px;padding:6px 4px">
+            <div class="r-main"><div class="r-title" style="font-weight:400">${h.jahr}</div></div>
+            <div class="r-side"><b>${U.fmtNum(h.kg, 1)} kg</b>${h.voelker ? `<span class="small muted"> · ${h.voelker} ${h.voelker === 1 ? 'Volk' : 'Völker'} · ${U.fmtNum(h.jeVolk, 1)} kg/Volk</span>` : `<span class="small muted"> · auf den Stand gebucht</span>`}</div></div>`).join('')}</div>` : ''}
+        <div class="hint mt12">Die Spanne kommt aus dem schwächsten und dem besten der herangezogenen Jahre. Wetter und Tracht entscheiden mehr als jede Rechnung – nimm die Zahl als Richtwert für Gläserbestellung und Planung, nicht als Zusage.</div>
+      </div>
       ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : ''}
       <div class="card"><div class="card-title">${icon('chart')}<h2>Jahresverlauf ${jahr}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.kassenbuchJahr('${jahr}')">${icon('doc')} Jahresbericht (PDF)</button></div>
@@ -8138,8 +8168,35 @@ Views.kassenbuch = {
         }).join('')}</tbody></table></div>` : emptyState('chart', `Keine Buchungen in ${jahr}.`)}
       </div>`;
     box.addEventListener('click', (e) => { const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._ajahr = c.dataset.jahr; renderRoute(); } });
+    ernteprognoseRechnen(box, ep);
+    box.addEventListener('input', (e) => { if (e.target.closest('[data-ep]')) ernteprognoseRechnen(box, ep); });
   },
 };
+
+/** Zeichnet die Ergebnis-Kacheln der Ernteprognose aus den Feldern der Karte. */
+function ernteprognoseRechnen(box, ep) {
+  const out = $('#ep-out', box); if (!out) return;
+  const num = (k) => Math.max(0, U.parseNum($(`[data-ep="${k}"]`, box)?.value) || 0);
+  const voelker = Math.round(num('voelker')), jeVolk = num('jeVolk'), preis = num('preis'),
+    geerntet = num('geerntet'), kosten = num('kosten');
+  // Wird der Ertrag je Volk von Hand geändert, wandert die Spanne mit.
+  const faktor = ep.jeVolk > 0 ? jeVolk / ep.jeVolk : 1;
+  const kg = voelker * jeVolk, kgMin = voelker * ep.jeVolkMin * faktor, kgMax = voelker * ep.jeVolkMax * faktor;
+  const rest = Math.max(0, kg - geerntet);
+  const eur0 = (n) => `${U.fmtNum(Math.round(n), 0)} €`; // Schätzung: keine Cent-Genauigkeit vortäuschen
+  out.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat"><div class="s-label">Erwartete Ernte ${ep.jahr}</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(kg, 0)} kg</div>
+        <div class="s-sub">Spanne ${U.fmtNum(kgMin, 0)}–${U.fmtNum(kgMax, 0)} kg · ${voelker} ${voelker === 1 ? 'Volk' : 'Völker'}</div></div>
+      <div class="stat"><div class="s-label">Noch zu erwarten</div><div class="s-value">${U.fmtNum(rest, 0)} kg</div>
+        <div class="s-sub">${U.fmtNum(geerntet, 0)} kg sind schon geerntet</div></div>
+      <div class="stat"><div class="s-label">Erwartete Einnahme</div><div class="s-value">${preis > 0 ? eur0(kg * preis) : '–'}</div>
+        <div class="s-sub">${preis > 0 ? `Spanne ${eur0(kgMin * preis)}–${eur0(kgMax * preis)}` : 'Erlös je kg eintragen'}</div></div>
+      ${preis > 0 && kosten > 0 ? `<div class="stat"><div class="s-label">Davon bleibt</div><div class="s-value" style="color:${preis > kosten ? 'var(--ok)' : 'var(--danger)'}">${eur0(kg * (preis - kosten))}</div>
+        <div class="s-sub">nach Selbstkosten ${U.fmtEur(kosten)}/kg</div></div>` : ''}
+    </div>
+    <div class="small muted mt8">Entspricht rund <b>${U.fmtNum(kg / 0.5, 0)} Gläsern à 500 g</b>${ep.erloesJahr > 0 ? ` · ${U.fmtEur(ep.erloesJahr)} sind ${ep.jahr} bereits erlöst` : ''}.</div>`;
+}
 
 /* =====================================================================
    MODUL: RECHNUNGEN (Positionen aus Honigbestand, §19/USt, PDF,
@@ -9534,7 +9591,6 @@ Views.rechner = {
   title: 'Rechner',
   async render(main) {
     const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
-    const ep = await ernteprognoseBasis();
     const grp = (l) => `<div class="rk-grp">${l}</div>`;
     const skGrp = (l) => `<div class="small muted mt16 mb8" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">${l}</div>`;
     const rk = (ic, label, desc, body) => `<div class="rk-section"><button class="rk-head" type="button"><span class="rk-ic">${icon(ic)}</span><span class="rk-info"><span class="rk-label">${label}</span><span class="rk-desc">${desc}</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">${body}</div></div>`;
@@ -9597,24 +9653,6 @@ Views.rechner = {
           <div class="field"><label>Unternehmenswagnis (%)</label><input class="inp rk" data-sk="wagnis" inputmode="decimal" value="10"></div>
         </div>
         <div id="sk-out" class="mt12"></div>`) +
-
-      rk('honig', 'Ernteprognose: was bringt das Jahr?', 'Erwartete Menge und Einnahme aus den eigenen Zahlen',
-        `<div class="small muted mb12">Vorbelegt aus deinen Ernten und Verkäufen. Jede Zahl ist überschreibbar – eine Prognose bleibt eine Schätzung.</div>
-        <div class="grid2">
-          <div class="field"><label>Wirtschaftsvölker</label><input class="inp rk" data-ep="voelker" inputmode="numeric" value="${ep.voelker || 1}">
-            <span class="small muted">aktive Wirtschaftsvölker</span></div>
-          <div class="field"><label>Ertrag je Volk (kg)</label><input class="inp rk" data-ep="jeVolk" inputmode="decimal" value="${U.fmtNum(ep.jeVolk, 1)}">
-            <span class="small muted">${U.esc(ep.quelle)}</span></div>
-          <div class="field"><label>Erlös je kg (€)</label><input class="inp rk" data-ep="preis" inputmode="decimal" value="${U.fmtNum(ep.erloesJeKg, 2)}">
-            <span class="small muted">${ep.preisQuelle ? 'aus ' + U.esc(ep.preisQuelle) : 'noch kein Verkauf erfasst – bitte selbst eintragen'}</span></div>
-          <div class="field"><label>Dieses Jahr schon geerntet (kg)</label><input class="inp rk" data-ep="geerntet" inputmode="decimal" value="${U.fmtNum(ep.geerntet, 1)}"></div>
-        </div>
-        <div id="ep-out" class="mt12"></div>
-        ${ep.historie.length ? `<div class="small muted mt12 mb8" style="font-weight:600">Deine Jahre</div>
-          <div class="rows">${ep.historie.slice(-5).reverse().map((h) => `<div class="row" style="min-height:36px;padding:6px 4px">
-            <div class="r-main"><div class="r-title" style="font-weight:400">${h.jahr}</div></div>
-            <div class="r-side"><b>${U.fmtNum(h.kg, 1)} kg</b>${h.voelker ? `<span class="small muted"> · ${h.voelker} ${h.voelker === 1 ? 'Volk' : 'Völker'} · ${U.fmtNum(h.jeVolk, 1)} kg/Volk</span>` : `<span class="small muted"> · auf den Stand gebucht</span>`}</div></div>`).join('')}</div>` : ''}
-        <div class="small muted mt12">Die Spanne kommt aus dem schwächsten und dem besten der herangezogenen Jahre. Wetter und Tracht entscheiden mehr als jede Rechnung – nimm die Zahl als Richtwert für Gläserbestellung und Planung, nicht als Zusage.</div>`) +
 
       rk('honig', 'Wassergehalt bewerten', 'Refraktometer-Wert prüfen',
         `<div class="field" style="max-width:220px"><label>Wassergehalt (%)</label><input class="inp rk" data-wg="wert" inputmode="decimal" value="18,0"></div>
@@ -9740,38 +9778,10 @@ Views.rechner = {
         <div class="stat"><div class="s-label">Erlös je Volk</div><div class="s-value">${U.fmtEur(wiErloes)}</div><div class="s-sub">${U.fmtNum(wiE)} kg × ${U.fmtEur(wiP)}/kg</div></div>
         <div class="stat"><div class="s-label">Gewinn je Volk</div><div class="s-value">${U.fmtEur(wiGewinn)}</div><div class="s-sub">abzgl. ${U.fmtEur(wiK)} Kosten</div></div>
         <div class="stat"><div class="s-label">Gesamt (${wiV} Völker)</div><div class="s-value">${U.fmtEur(wiGesamt)}</div></div>`;
-      const sk = {};
-      $$('[data-sk]', main).forEach((el) => { sk[el.dataset.sk] = el.tagName === 'SELECT' ? el.value : U.parseNum(el.value); });
-      const skJeKg = $$('[data-sk]', main).length ? selbstkostenGlas(sk).jeKg : 0;
-
-      const epOut = $('#ep-out', main);
-      if (epOut) {
-        const epV = Math.max(0, Math.round(num('[data-ep="voelker"]') || 0));
-        const epJ = Math.max(0, num('[data-ep="jeVolk"]') || 0);
-        const epP = Math.max(0, num('[data-ep="preis"]') || 0);
-        const epG = Math.max(0, num('[data-ep="geerntet"]') || 0);
-        // Wird der Ertrag je Volk von Hand geändert, wandert die Spanne mit.
-        const faktor = ep.jeVolk > 0 ? epJ / ep.jeVolk : 1;
-        const kg = epV * epJ, kgMin = epV * ep.jeVolkMin * faktor, kgMax = epV * ep.jeVolkMax * faktor;
-        const rest = Math.max(0, kg - epG);
-        const glaeser500 = kg / 0.5;
-        const eur0 = (n) => `${U.fmtNum(Math.round(n), 0)} €`; // Schätzung: keine Cent-Genauigkeit vortäuschen
-        epOut.innerHTML = `
-          <div class="stat-grid">
-            <div class="stat"><div class="s-label">Erwartete Ernte ${ep.jahr}</div><div class="s-value" style="color:var(--honey-deep)">${U.fmtNum(kg, 0)} kg</div>
-              <div class="s-sub">Spanne ${U.fmtNum(kgMin, 0)}–${U.fmtNum(kgMax, 0)} kg · ${epV} ${epV === 1 ? 'Volk' : 'Völker'}</div></div>
-            <div class="stat"><div class="s-label">Noch zu erwarten</div><div class="s-value">${U.fmtNum(rest, 0)} kg</div>
-              <div class="s-sub">${U.fmtNum(epG, 0)} kg sind schon geerntet</div></div>
-            <div class="stat"><div class="s-label">Erwartete Einnahme</div><div class="s-value">${epP > 0 ? eur0(kg * epP) : '–'}</div>
-              <div class="s-sub">${epP > 0 ? `Spanne ${eur0(kgMin * epP)}–${eur0(kgMax * epP)}` : 'Erlös je kg eintragen'}</div></div>
-            ${epP > 0 && skJeKg > 0 ? `<div class="stat"><div class="s-label">Davon bleibt</div><div class="s-value" style="color:${epP > skJeKg ? 'var(--ok)' : 'var(--danger)'}">${eur0(kg * (epP - skJeKg))}</div>
-              <div class="s-sub">nach Selbstkosten ${U.fmtEur(skJeKg)}/kg</div></div>` : ''}
-          </div>
-          <div class="small muted mt8">Entspricht rund <b>${U.fmtNum(glaeser500, 0)} Gläsern à 500 g</b>${ep.erloesJahr > 0 ? ` · ${U.fmtEur(ep.erloesJahr)} sind ${ep.jahr} bereits erlöst` : ''}.</div>`;
-      }
-
       const skOut = $('#sk-out', main);
       if (skOut) {
+        const sk = {};
+        $$('[data-sk]', main).forEach((el) => { sk[el.dataset.sk] = el.tagName === 'SELECT' ? el.value : U.parseNum(el.value); });
         const r = selbstkostenGlas(sk);
         const max = Math.max(...r.posten.map((x) => x.euro), 0.0001);
         const zeilen = U.sortBy(r.posten, (x) => -x.euro).concat(r.wagnis > 0 ? [{ name: `Unternehmenswagnis (${U.fmtNum(sk.wagnis || 0, 0)} %)`, euro: r.wagnis }] : []);
