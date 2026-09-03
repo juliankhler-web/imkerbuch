@@ -2,7 +2,7 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v160';
+const CACHE = 'imkerbuch-v161';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/xlsx.full.min.js'];
@@ -51,17 +51,27 @@ self.addEventListener('fetch', (e) => {
   if (url.pathname.endsWith('service-worker.js')) return;
 
   if (url.origin === location.origin) {
-    const istSeite = e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('/index.html');
+    /* Ist das die App selbst? Nur dann darf die Antwort als './index.html' in den
+       Cache. Vorher galt JEDE Navigation als „Seite" – ein Aufruf von
+       landing.html oder impressum.html hat die App im Cache überschrieben, und
+       offline erschien statt des Imkerbuchs die Landingpage. */
+    const istApp = url.pathname === '/' || url.pathname.endsWith('/index.html')
+      || (e.request.mode === 'navigate' && /\/$/.test(url.pathname));
+    const istSeite = istApp || e.request.mode === 'navigate';
     if (istSeite) {
       // HTML: NETWORK-FIRST – online immer die neueste Version, offline aus dem Cache.
       // Löst „ich lade hoch, aber die App zeigt weiter das Alte“.
       e.respondWith(
         fetch(e.request)
           .then((res) => {
-            if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('./index.html', copy)); }
+            if (res && res.ok) {
+              const copy = res.clone();
+              // die App unter ihrem festen Schlüssel, jede andere Seite unter ihrer eigenen Adresse
+              caches.open(CACHE).then((c) => c.put(istApp ? './index.html' : e.request, copy));
+            }
             return res;
           })
-          .catch(() => caches.match(e.request).then((c) => c || caches.match('./index.html') || caches.match('./')))
+          .catch(() => caches.match(e.request).then((c) => c || (istApp ? caches.match('./index.html') : null) || caches.match('./')))
       );
     } else {
       // übrige App-Dateien (Icons, Manifest, Rechtsseiten): stale-while-revalidate

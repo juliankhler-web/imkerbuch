@@ -116,7 +116,7 @@ test('Backup.applyMerge: neuer gewinnt, keine Duplikate', async (w) => {
   const vorher = (await w.DB.getAll('kontakte')).length;
   const neuer = { ...a, name: 'Neu', lastModified: new Date(Date.now() + 60000).toISOString() };
   const fremd = { id: w.U.uuid(), typ: 'kunde', name: 'Fremd', createdAt: w.U.nowIso(), lastModified: w.U.nowIso() };
-  const n = await w.Backup.applyMerge({ stores: { kontakte: [neuer, fremd] } });
+  const n = (await w.Backup.applyMerge({ stores: { kontakte: [neuer, fremd] } })).gesamt;
   assertEq(n, 2, 'beide übernommen');
   assertEq((await w.DB.get('kontakte', a.id)).name, 'Neu', 'neuerer Stand gewinnt');
   assertEq((await w.DB.getAll('kontakte')).length, vorher + 1, 'kein Duplikat für gleiche UUID');
@@ -124,13 +124,13 @@ test('Backup.applyMerge: neuer gewinnt, keine Duplikate', async (w) => {
 test('Backup.applyMerge: älterer Import verliert', async (w) => {
   const a = await w.DB.put('kontakte', { typ: 'kunde', name: 'Aktuell' });
   const uralt = { ...a, name: 'Uralt', lastModified: '2000-01-01T00:00:00.000Z' };
-  const n = await w.Backup.applyMerge({ stores: { kontakte: [uralt] } });
+  const n = (await w.Backup.applyMerge({ stores: { kontakte: [uralt] } })).gesamt;
   assertEq(n, 0, 'nichts übernommen');
   assertEq((await w.DB.get('kontakte', a.id)).name, 'Aktuell', 'aktueller Stand bleibt');
 });
 test('Backup.applyMerge: Anhang ohne Datei wird übersprungen', async (w) => {
   const kaputt = { id: w.U.uuid(), parentTyp: 'volk', parentId: 'v', art: 'foto', name: 'x.jpg', lastModified: w.U.nowIso() }; // ohne blob
-  const n = await w.Backup.applyMerge({ stores: { anhaenge: [kaputt] } });
+  const n = (await w.Backup.applyMerge({ stores: { anhaenge: [kaputt] } })).gesamt;
   assertEq(n, 0, 'Metadaten ohne Datei nutzen nichts');
 });
 
@@ -6323,4 +6323,171 @@ test('QR am Volk: Code wird erzeugt, der Druckbogen trägt sechs Etiketten', asy
     w.document.body.classList.remove('qr-printing');
     await w.DB.del('voelker', volk.id);
   }
+});
+
+/* =====================================================================
+   AUDIT-FUNDE aus der Komplettprüfung – behoben in v1.49
+   ===================================================================== */
+
+test('Rechnungsnummer: nie doppelt, auch wenn der Zähler zurückfällt', (w) => {
+  const kreis = { prefix: 'RE-', next: 1 };
+  assertEq(w.naechsteRechnungsnummer(kreis, []).nummer, 'RE-0001', 'ohne Bestand beginnt es bei 1');
+  assertEq(w.naechsteRechnungsnummer(kreis, []).next, 2, 'und der Zähler geht weiter');
+
+  const bestand = [{ nummer: 'RE-0001' }, { nummer: 'RE-0002' }, { nummer: null }];
+  // Zähler steht auf 1, obwohl 1 und 2 vergeben sind – das ist der Fall nach
+  // einem zurückgespielten Backup
+  const nr = w.naechsteRechnungsnummer({ prefix: 'RE-', next: 1 }, bestand);
+  assertEq(nr.nummer, 'RE-0003', 'die Vergabe zieht den Bestand heran');
+  assertEq(nr.next, 4);
+
+  // Zähler steht höher als der Bestand – dann gilt der Zähler
+  assertEq(w.naechsteRechnungsnummer({ prefix: 'RE-', next: 50 }, bestand).nummer, 'RE-0050', 'ein bewusst gesetzter Zähler wird respektiert');
+
+  // Lücken werden nicht gefüllt, aber belegte Nummern übersprungen
+  const lueckig = [{ nummer: 'RE-0001' }, { nummer: 'RE-0005' }];
+  assertEq(w.naechsteRechnungsnummer({ prefix: 'RE-', next: 5 }, lueckig).nummer, 'RE-0006', 'eine belegte Nummer wird übersprungen');
+
+  // Fremdes Präfix und Unsinn stören nicht
+  const gemischt = [{ nummer: 'ALT-0009' }, { nummer: 'RE-abc' }, { nummer: 'RE-0002' }];
+  assertEq(w.naechsteRechnungsnummer({ prefix: 'RE-', next: 1 }, gemischt).nummer, 'RE-0003', 'nur eigene Nummern zählen');
+  assertEq(w.naechsteRechnungsnummer({ prefix: '', next: 1 }, []).nummer, '0001', 'auch ohne Präfix');
+});
+
+test('Rechnung festschreiben: fortlaufend und nur einmal', async (w) => {
+  const alt = { r: await w.DB.getAll('rechnungen'), k: await w.DB.getAll('kassenbuch'), kreis: w.S.get('rechnungskreis') };
+  await w.DB.clear('rechnungen');
+  const echtConfirm = w.UI.confirm;
+  const echtToast = w.UI.toast;
+  const toasts = [];
+  w.UI.confirm = async () => true;
+  w.UI.toast = (msg, typ) => toasts.push({ msg, typ });
+  try {
+    await w.S.set('rechnungskreis', { prefix: 'TEST-', next: 1 });
+    const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'Nummern-Kunde' });
+    const bau = () => w.DB.put('rechnungen', { nummer: null, datum: w.U.todayIso(), kundeId: kunde.id,
+      steuerart: 'klein', status: 'entwurf', qrAufDruck: false,
+      positionen: [{ text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 7, steuersatz: 0 }] });
+
+    const r1 = await bau();
+    await w.Views.rechnung.festschreiben(r1, []);
+    assertEq((await w.DB.get('rechnungen', r1.id)).nummer, 'TEST-0001', 'die erste Rechnung bekommt die 1');
+
+    // Zähler von Hand zurückdrehen (wie nach einem alten Backup)
+    await w.S.set('rechnungskreis', { prefix: 'TEST-', next: 1 });
+    const r2 = await bau();
+    await w.Views.rechnung.festschreiben(r2, []);
+    assertEq((await w.DB.get('rechnungen', r2.id)).nummer, 'TEST-0002', 'trotzdem keine doppelte Nummer');
+
+    // Zweimal festschreiben ist nicht möglich
+    const vorher = (await w.DB.getAll('kassenbuch')).length;
+    await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r2.id), []);
+    assert(/bereits festgeschrieben/.test(toasts.at(-1).msg), 'die zweite Festschreibung wird abgelehnt: ' + toasts.at(-1).msg);
+    assertEq((await w.DB.getAll('kassenbuch')).length, vorher, 'und bucht nichts ein zweites Mal');
+    assertEq((await w.DB.get('rechnungen', r2.id)).nummer, 'TEST-0002', 'die Nummer bleibt, wie sie war');
+    await w.DB.del('kontakte', kunde.id);
+  } finally {
+    w.UI.confirm = echtConfirm; w.UI.toast = echtToast;
+    await w.S.set('rechnungskreis', alt.kreis);
+    await w.DB.clear('rechnungen'); for (const x of alt.r) await w.DB.put('rechnungen', x, true);
+    await w.DB.clear('kassenbuch'); for (const x of alt.k) await w.DB.put('kassenbuch', x, true);
+  }
+});
+
+test('voelkerAmStichtag: Bestand an einem Tag statt Bestand von heute', (w) => {
+  const v = (name, von, bis, status) => ({ id: name, name, status: status || (bis ? 'aufgeloest' : 'aktiv'),
+    historie: [{ datum: von, text: 'angelegt' }].concat(bis ? [{ datum: bis, text: 'aufgelöst' }] : []) });
+  const liste = [
+    v('alt', '2024-04-01', '2025-08-15'),     // war 2025 zum Stichtag noch da, 2026 nicht mehr
+    v('dauer', '2023-05-01', null),
+    v('neu', '2026-05-20', null),             // erst nach dem 01.01.2026 dazugekommen
+  ];
+  assertEq(voelkerNamen(w, liste, '2025-01-01'), ['alt', 'dauer'], 'am 01.01.2025 zwei Völker');
+  assertEq(voelkerNamen(w, liste, '2026-01-01'), ['dauer'], 'am 01.01.2026 nur noch eins – das neue kam später');
+  assertEq(voelkerNamen(w, liste, '2026-06-30'), ['dauer', 'neu'], 'zur Saison 2026 wieder zwei');
+  assertEq(voelkerNamen(w, liste, '2022-01-01'), [], 'davor gab es keins');
+  assertEq(w.voelkerAmStichtag(null, '2026-01-01'), [], 'ohne Liste wirft es nicht');
+  // Ein Volk ohne Historie zählt ab seinem Anlegedatum
+  assertEq(w.voelkerAmStichtag([{ id: 'x', status: 'aktiv', createdAt: '2025-03-01T10:00:00.000Z' }], '2025-01-01').length, 0, 'vor dem Anlegen nicht');
+  assertEq(w.voelkerAmStichtag([{ id: 'x', status: 'aktiv', createdAt: '2025-03-01T10:00:00.000Z' }], '2025-06-01').length, 1, 'danach schon');
+});
+function voelkerNamen(w, liste, tag) { return w.voelkerAmStichtag(liste, tag).map((v) => v.name).sort(); }
+
+test('Amtliche Meldungen: Tabelle und gemeldete Zahl stimmen überein', async (w) => {
+  const alt = { v: await w.DB.getAll('voelker'), s: await w.DB.getAll('staende') };
+  await w.DB.clear('voelker'); await w.DB.clear('staende');
+  const echt = w.Pdf.finish;
+  let gebaut = null;
+  // Statt das PDF zu speichern, den fertigen Text einsammeln
+  w.Pdf.finish = (doc, name) => { gebaut = { name, text: doc.internal.pages.flat().filter(Boolean).join(' ') }; };
+  try {
+    const J = +w.U.todayIso().slice(0, 4);
+    const s1 = await w.DB.put('staende', { name: 'Belegter Stand', lat: 50, lng: 8, notizen: '' });
+    await w.DB.put('staende', { name: 'Leerer Stand', lat: null, lng: null, notizen: '' });
+    await w.DB.put('voelker', { name: 'M1', standId: s1.id, status: 'aktiv', historie: [{ datum: `${J - 1}-04-01`, text: 'angelegt' }] });
+    await w.DB.put('voelker', { name: 'M2', standId: s1.id, status: 'aktiv', historie: [{ datum: `${J - 1}-04-01`, text: 'angelegt' }] });
+    // ein Volk ohne Standort – genau der Fall, der bisher unter den Tisch fiel
+    await w.DB.put('voelker', { name: 'M3', standId: null, status: 'aktiv', historie: [{ datum: `${J - 1}-04-01`, text: 'angelegt' }] });
+
+    await w.Pdf.bestandsmeldung();
+    assert(gebaut, 'die Bestandsmeldung wurde gebaut');
+    assert(/bestandsmeldung/.test(gebaut.name), 'unter dem richtigen Dateinamen');
+    const t = gebaut.text;
+    assert(/ohne Standort/.test(t), 'das Volk ohne Standort steht in der Tabelle');
+    assert(/Summe/.test(t), 'die Tabelle hat eine Summenzeile');
+    assert(!/Leerer Stand/.test(t), 'ein Standort ohne Völker wird nicht als Bienenstandort gemeldet');
+    assert(/keine Völker/.test(t), 'aber er wird als Hinweis erwähnt, damit nichts verschwiegen wirkt');
+
+    gebaut = null;
+    await w.Pdf.tierseuchenkasse();
+    assert(gebaut && /tierseuchenkasse/.test(gebaut.name), 'die TSK-Meldung wurde gebaut');
+    assert(/Stichtag/.test(gebaut.text), 'der Stichtag steht im Kopf');
+    assert(/heute/.test(gebaut.text), 'und die heutige Zahl zum Vergleich daneben');
+    assert(/Ländersache|abweichend/.test(gebaut.text), 'der Hinweis auf abweichende Stichtage fehlt nicht');
+  } finally {
+    w.Pdf.finish = echt;
+    await w.DB.clear('voelker'); await w.DB.clear('staende');
+    for (const x of alt.v) await w.DB.put('voelker', x, true);
+    for (const x of alt.s) await w.DB.put('staende', x, true);
+  }
+});
+
+test('Marktpreise überleben das Neuladen', async (w) => {
+  const alt = w.S.get('marktpreise');
+  try {
+    const charge = await w.DB.put('chargen', { losnummer: 'MK-1', ernteIds: [], mengeKg: 5, mhd: '2028-01-01', etikettNotiz: '' });
+    const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: w.U.todayIso(), gebindeG: 500, anzahl: 10, bestand: 10 });
+    dialogeSchliessen(w);
+    w.Views.markt.preisSetzen(abf, charge);
+    await new Promise((r) => setTimeout(r, 250));
+    const modal = w.document.querySelector('.modal-back');
+    const feld = modal.querySelector('#f-preis');
+    feld.value = '7,50'; feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 300));
+    assertEq(w.S.get('marktpreise')[abf.id], 7.5, 'der Preis steht in den Einstellungen');
+    await w.S.load();      // so, als hätte man die App neu geladen
+    assertEq(w.S.get('marktpreise')[abf.id], 7.5, 'und ist nach dem Neuladen noch da');
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      await w.Views.markt.render(host);
+      assert(/7,50/.test(host.textContent), 'die Kachel zeigt den gespeicherten Preis');
+    } finally { host.remove(); }
+    await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
+  } finally { dialogeSchliessen(w); await w.S.set('marktpreise', alt || {}); }
+});
+
+test('Zusammenführen: der Bericht sagt, was wohin gegangen ist', async (w) => {
+  const kontakt = { id: 'merge-bericht-1', typ: 'kunde', name: 'Bericht-Kunde', lastModified: w.U.nowIso() };
+  const stand = { id: 'merge-bericht-2', name: 'Bericht-Stand', lastModified: w.U.nowIso() };
+  try {
+    const erg = await w.Backup.applyMerge({ stores: { kontakte: [kontakt], staende: [stand] } });
+    assertEq(erg.gesamt, 2, 'zwei Einträge übernommen');
+    assertEq(erg.jeStore.kontakte, 1, 'einer davon ein Kontakt');
+    assertEq(erg.jeStore.staende, 1, 'einer ein Stand');
+    assert(!('voelker' in erg.jeStore), 'unberührte Bereiche tauchen nicht auf');
+    // Die Namen im Bericht sind die aus der Oberfläche, nicht die Speichernamen
+    assertEq(w.STORE_LABELS.kontakte, 'Kontakt');
+    assertEq(w.STORE_LABELS.staende, 'Bienenstand');
+  } finally { await w.DB.del('kontakte', kontakt.id); await w.DB.del('staende', stand.id); }
 });

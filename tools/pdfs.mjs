@@ -101,6 +101,7 @@ async function main() {
     ['kassenbuch-jahr', `await Pdf.kassenbuchJahr('${jahr}');`],
     ['bio-unterlagen', 'await Pdf.bioUnterlagen();'],
     ['bestandsmeldung', 'await Pdf.bestandsmeldung();'],
+    ['tierseuchenkasse', 'await Pdf.tierseuchenkasse();'],
     ['fuetterungsliste', `await Pdf.fuetterungsliste('${jahr}');`],
   ];
   for (const [name, code] of jobs) {

@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-02 · **v1.48 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 356/356 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.49 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 362/362 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,14 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-03 (v1.49)**: **Die offenen Funde der Komplettprüfung abgearbeitet** – lauter Fehler, die gemeldet, aber nie beauftragt waren.
+  **Service Worker vergiftete den App-Speicher:** `istSeite` galt für *jede* Navigation, und die Antwort landete immer unter dem Schlüssel `./index.html`. Wer landing.html oder impressum.html aufrief, überschrieb damit die App im Cache — offline erschien dann die Landingpage statt des Imkerbuchs. Jetzt entscheidet `istApp`, was unter den festen Schlüssel darf; jede andere Seite liegt unter ihrer eigenen Adresse. SW → v161.
+  **Doppelte Rechnungsnummer war möglich:** Die Nummer kam blind aus dem Zähler in den Einstellungen. Ein zurückgespieltes Backup, ein zweites Gerät oder eine Änderung von Hand warfen ihn hinter den Bestand zurück — dieselbe Nummer zweimal ist ein Buchführungsfehler (§ 14 UStG). Neu: `naechsteRechnungsnummer(kreis, rechnungen)` nimmt die höhere aus Zähler und höchster vergebener Nummer und überspringt Belegtes; das Einstellungsfeld warnt, wenn die Eingabe schon vergeben ist; eine festgeschriebene Rechnung lässt sich nicht ein zweites Mal festschreiben.
+  **Amtliche Meldungen widersprachen sich selbst:** In Bestandsmeldung und Tierseuchenkasse stand oben die Zahl *aller* aktiven Völker, in der Tabelle nur die einem Stand zugeordneten. Ein Volk ohne Standort fehlte unten, ein leerer Standort zählte oben mit. Beide Papiere haben jetzt eine **Summenzeile**, führen „ohne Standort erfasst" als eigene Zeile und erwähnen leere Standorte im Hinweis.
+  **Der Stichtag stimmte nicht:** Die TSK-Meldung nannte „Stichtag 01.01.", zählte aber den heutigen Bestand — wer im Juli meldet, hätte eine falsche Zahl eingetragen (im Beispieldatensatz 13 statt 11). Neu: `voelkerAmStichtag(voelker, tag)` rechnet aus der Völker-Historie; die heutige Zahl steht zum Vergleich daneben, dazu der Hinweis, dass der Stichtag Ländersache ist. Dieselbe Funktion ersetzt zwei bisher getrennte Kopien derselben Rechnung in der Völkerentwicklung und der Ernteprognose.
+  **Marktpreise waren nach dem Neuladen weg** (`Views.markt._preise` lag nur im Arbeitsspeicher) — sie liegen jetzt unter `marktpreise` in den Einstellungen. **Zusammenführen** meldet nicht mehr nur eine Zahl, sondern schlüsselt nach Bereichen auf, mit den Namen aus der Oberfläche.
+  6 neue Tests. **362/362 grün.**
 
 - **2026-09-03**: **Werkzeuge und Doku** (kein App-Code geändert, Version bleibt 1.48).
   Neu: [docs/API.md](docs/API.md) — die interne Schnittstelle vollständig beschrieben (Namensräume, Datenmodell aller 31 Speicher, Formular-Verträge, Sicherung, PDF/Excel, Prognose, externe Dienste, Service Worker).

@@ -947,8 +947,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.48';
+const APP_VERSION = '1.49';
 const CHANGELOG = [
+  { version: '1.49', datum: '2026-09-03', punkte: [
+    'Behoben: Der <b>Offline-Speicher</b> konnte die App mit einer anderen Seite überschreiben. Wer die Landingpage oder das Impressum aufrief, bekam ohne Netz genau diese Seite statt des Imkerbuchs zu sehen. Jede Seite liegt jetzt unter ihrer eigenen Adresse im Speicher.',
+    'Behoben: Eine <b>Rechnungsnummer</b> konnte doppelt vergeben werden – etwa nach einem zurückgespielten Backup oder wenn der Zähler von Hand zurückgesetzt wurde. Die Nummer wird jetzt aus dem tatsächlichen Bestand abgeleitet, und eine bereits festgeschriebene Rechnung lässt sich nicht ein zweites Mal festschreiben. Eine doppelte Nummer wäre ein Buchführungsfehler (§ 14 UStG).',
+    'Behoben: <b>Bestandsmeldung</b> und <b>Tierseuchenkasse</b> widersprachen sich selbst. Oben stand die Zahl aller Völker, in der Tabelle nur die einem Stand zugeordneten – ein Volk ohne Standort fehlte, ein leerer Standort zählte mit. Beide Papiere haben jetzt eine Summenzeile, führen Völker ohne Standort eigens auf und erwähnen leere Standorte im Hinweis.',
+    'Behoben: Die <b>Tierseuchenkasse</b> nannte den Stichtag 1. Januar, zählte aber die Völker von heute. Jetzt wird der Bestand zum Stichtag aus der Völker-Historie gerechnet, die heutige Zahl steht zum Vergleich daneben – mit dem Hinweis, dass der Stichtag je nach Bundesland abweicht.',
+    'Behoben: Die <b>Preise beim Marktverkauf</b> waren nach einem Neuladen weg. Sie werden jetzt gespeichert.',
+    'Beim <b>Zusammenführen einer Sicherung</b> steht jetzt, was genau übernommen wurde – aufgeschlüsselt nach Bereichen statt nur einer Gesamtzahl.',
+  ] },
   { version: '1.48', datum: '2026-09-02', punkte: [
     'Die <b>Ernteprognose</b> steht jetzt im <b>Kassenbuch unter „Auswertung"</b> statt im Rechner – dort sucht man sie, wenn es ums Geld geht. Sie bringt ein eigenes Feld für die Selbstkosten je kg mit, vorbelegt mit deiner Völkerzahl und deinem Ertrag.',
   ] },
@@ -1783,6 +1791,10 @@ const S = {
     /* Betriebsbeschreibung für die Öko-Kontrolle: freie Texte je Abschnitt. */
     bioBetrieb: {},
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
+    /* Verkaufspreise je Abfüllung für den Marktverkauf. Gehören gespeichert:
+       auf dem Markt schließt man die App zwischendurch, und die Preise mitten
+       im Verkauf noch einmal eintippen zu müssen, ist genau das, was nervt. */
+    marktpreise: {},
     stockkartenFelder: [], // eigene Durchsicht-Zusatzfelder: [{ name, typ: 'text'|'zahl'|'check'|'rating' }]
     stockkartenVorlagen: [], // Durchsicht-Vorlagen: [{ name, werte:{...} }]
     dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'prognose', 'wetter'],
@@ -6002,6 +6014,16 @@ const GEBINDE_PRESETS = [20000, 10000, 1000, 500, 250, 125, 50]; // Gramm; 20 kg
 /** Gebindegröße lesbar: „500 g“, „20 kg“. */
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
+/** Welche Völker gab es an einem bestimmten Tag? Anfang und Ende stehen in der
+    Völker-Historie; ein Volk ohne Historie zählt ab seinem Anlegedatum.
+    Eine Quelle für Völkerentwicklung, Ernteprognose und die amtlichen Meldungen –
+    vorher lag dieselbe Rechnung dreimal im Code. */
+function voelkerAmStichtag(voelker, tag) {
+  const beginn = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || tag;
+  const schluss = (v) => (v.status === 'aktiv' ? null : (v.historie && v.historie.length ? v.historie[v.historie.length - 1].datum : null));
+  return (voelker || []).filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag));
+}
+
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
 /** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
 function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle)) * 1000) / 1000; }
@@ -7899,7 +7921,8 @@ Views.markt = {
     const korb = Views.markt._korb;
     // Positionen ohne Bestand/Abfüllung aus dem Korb entfernen
     for (const id of Object.keys(korb)) { const a = abf.find((x) => x.id === id); if (!a || korb[id] > a.bestand) delete korb[id]; }
-    const preis = (a) => Views.markt._preise?.[a.id] ?? 0;
+    const preise = S.get('marktpreise') || {};
+    const preis = (a) => preise[a.id] ?? 0;
     const summe = Object.entries(korb).reduce((s, [id, n]) => { const a = abf.find((x) => x.id === id); return s + (a ? n * preis(a) : 0); }, 0);
     const anzahlKorb = Object.values(korb).reduce((a, b) => a + b, 0);
     main.innerHTML = `
@@ -7936,11 +7959,12 @@ Views.markt = {
   preisSetzen(a, c) {
     UI.formModal({
       title: 'Verkaufspreis je Gebinde',
-      fields: [{ key: 'preis', label: `Preis für Los ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: Views.markt._preise?.[a.id] || '' }],
+      fields: [{ key: 'preis', label: `Preis für Los ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: (S.get('marktpreise') || {})[a.id] || '' }],
       saveText: 'Übernehmen',
       async onSave(v) {
-        Views.markt._preise = Views.markt._preise || {};
-        Views.markt._preise[a.id] = v.preis;
+        const preise = S.get('marktpreise') || {};
+        preise[a.id] = v.preis;
+        await S.set('marktpreise', preise);
         renderRoute();
       },
     });
@@ -8203,6 +8227,25 @@ function ernteprognoseRechnen(box, ep) {
    Festschreiben = fortlaufende Nummer + Bestand runter + Kassenbuch)
    ===================================================================== */
 const STEUERARTEN = { regel: 'Regelbesteuerung', klein: 'Kleinunternehmer (§ 19 UStG)', pauschal24: 'Pauschalierung Land-/Forstwirtschaft (§ 24 UStG)' };
+/** Nächste freie Rechnungsnummer. Sie ist die höhere aus zwei Quellen: dem
+    Zähler in den Einstellungen und der höchsten schon vergebenen Nummer + 1.
+    Ist die so bestimmte Nummer wider Erwarten belegt, wird weitergezählt.
+    Gibt Nummer und den neuen Zählerstand zurück. */
+function naechsteRechnungsnummer(kreis, rechnungen) {
+  const prefix = kreis.prefix || '';
+  const belegt = new Set((rechnungen || []).map((r) => r.nummer).filter(Boolean));
+  const ausNummer = (nummer) => {
+    if (!nummer || !String(nummer).startsWith(prefix)) return 0;
+    const rest = String(nummer).slice(prefix.length);
+    return /^\d+$/.test(rest) ? parseInt(rest, 10) : 0;
+  };
+  const hoechste = Math.max(0, ...(rechnungen || []).map((r) => ausNummer(r.nummer)));
+  let n = Math.max(1, Math.round(Number(kreis.next) || 1), hoechste + 1);
+  const bilde = (x) => `${prefix}${String(x).padStart(4, '0')}`;
+  while (belegt.has(bilde(n))) n++;
+  return { nummer: bilde(n), next: n + 1 };
+}
+
 /** Steuerart einer Rechnung, mit Rückwärtskompatibilität zum alten booleschen kleinunternehmer-Feld. */
 function rechnungSteuerart(r) { return r.steuerart || (r.kleinunternehmer ? 'klein' : 'regel'); }
 /** Pflicht-/Rechtshinweis unter dem Rechnungsbetrag (null = Regelbesteuerung, dort nur die USt-Zeilen). */
@@ -8457,6 +8500,7 @@ Views.rechnung = {
     return m;
   },
   async festschreiben(r, abf) {
+    if (r.status === 'festgeschrieben' || r.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben', 'err');
     if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
     if (!r.positionen.length) return UI.toast('Die Rechnung hat keine Positionen', 'err');
     for (const p of r.positionen) if (p.abfuellungId) {
@@ -8465,8 +8509,14 @@ Views.rechnung = {
     }
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
     const kreis = S.get('rechnungskreis');
-    r.nummer = `${kreis.prefix}${String(kreis.next).padStart(4, '0')}`;
-    kreis.next += 1; await S.set('rechnungskreis', kreis);
+    /* Die Nummer wird nicht blind aus dem Zähler genommen. Ein zurückgespieltes
+       Backup, ein zweites Gerät oder eine von Hand geänderte Einstellung können
+       den Zähler hinter den Bestand zurückwerfen – dann gäbe es dieselbe Nummer
+       zweimal, und eine doppelte Rechnungsnummer ist ein Buchführungsfehler
+       (§ 14 UStG verlangt eine einmalig vergebene, fortlaufende Nummer). */
+    const nr = naechsteRechnungsnummer(kreis, await DB.getAll('rechnungen'));
+    r.nummer = nr.nummer;
+    kreis.next = nr.next; await S.set('rechnungskreis', kreis);
     for (const p of r.positionen) if (p.abfuellungId) { const a = await DB.get('abfuellungen', p.abfuellungId); if (a) { a.bestand -= p.menge; await DB.put('abfuellungen', a); } }
     const { brutto } = rechnungSummen(r);
     await DB.put('kassenbuch', { datum: r.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Rechnung ${r.nummer}`, rechnungId: r.id });
@@ -9492,11 +9542,8 @@ async function ernteprognoseBasis() {
   const alleVoelker = (await DB.getAll('voelker')).filter((v) => (v.funktion || 'Wirtschaftsvolk') === 'Wirtschaftsvolk');
   const voelker = alleVoelker.filter((v) => v.status === 'aktiv').length;
   /* Wie viele Wirtschaftsvölker standen mitten in der Saison eines Jahres da?
-     Ein Volk ohne Ernte gehört in den Schnitt – sonst schönt die Prognose sich selbst.
-     Anfang und Ende wie in der Völkerentwicklung: erste bzw. letzte Zeile der Historie. */
-  const beginn = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || heute;
-  const schluss = (v) => (v.status === 'aktiv' ? null : (v.historie && v.historie.length ? v.historie[v.historie.length - 1].datum : null));
-  const voelkerIm = (j) => { const tag = `${j}-06-30`; return alleVoelker.filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag)).length; };
+     Ein Volk ohne Ernte gehört in den Schnitt – sonst schönt die Prognose sich selbst. */
+  const voelkerIm = (j) => voelkerAmStichtag(alleVoelker, `${j}-06-30`).length;
 
   const proJahr = new Map();
   for (const e of ernten) {
@@ -11383,14 +11430,12 @@ const Reporting = {
     const voelker = await DB.getAll('voelker');
     if (!voelker.length) return { labels: [], values: [] };
     const start = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || U.todayIso();
-    const ende = (v) => (v.status === 'aktiv' ? null : (v.historie && v.historie.length ? v.historie[v.historie.length - 1].datum : null));
     const years = [...new Set(voelker.map((v) => +start(v).slice(0, 4)))];
     const y0 = Math.min(...years), y1 = +U.todayIso().slice(0, 4);
     const labels = [], values = [];
     for (let y = y0; y <= y1; y++) {
-      const stichtag = `${y}-12-31`;
       labels.push(String(y));
-      values.push(voelker.filter((v) => start(v) <= stichtag && (!ende(v) || ende(v) > stichtag)).length);
+      values.push(voelkerAmStichtag(voelker, `${y}-12-31`).length);
     }
     return { labels, values };
   },
@@ -11803,7 +11848,9 @@ const Backup = {
     let data;
     try { data = JSON.parse(await file.text()); } catch (e) { return UI.toast('Datei ist kein gültiges JSON', 'err'); }
     if (data.app !== 'ImkerBuch' || !data.stores) return UI.toast('Das ist keine ImkerBuch-Sicherung', 'err');
-    const counts = Object.entries(data.stores).map(([s, rows]) => rows.length ? `${rows.length} × ${STORE_LABELS[s] || s}` : null).filter(Boolean).slice(0, 8).join(', ');
+    const alleTeile = Object.entries(data.stores).map(([s, rows]) => (rows.length ? { label: STORE_LABELS[s] || s, n: rows.length } : null)).filter(Boolean);
+    const counts = alleTeile.slice(0, 8).map((t) => `${t.n} × ${t.label}`).join(', ')
+      + (alleTeile.length > 8 ? ` und ${alleTeile.length - 8} weitere Bereiche` : '');
     const m = UI.modal({
       title: 'Sicherung importieren',
       body: `<p class="small">Sicherung vom <b>${U.fmtDateTime(data.exportiert)}</b></p><p class="small muted mt8">${counts || 'leer'}</p>
@@ -11818,8 +11865,19 @@ const Backup = {
     $('[data-cancel]', m.el).onclick = () => m.close();
     $('[data-merge]', m.el).onclick = async () => {
       m.close(true);
-      const n = await this.applyMerge(data);
-      UI.toast(`Zusammengeführt: ${n} Einträge übernommen`);
+      const erg = await this.applyMerge(data);
+      const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
+      UI.modal({
+        title: 'Zusammenführen abgeschlossen',
+        body: erg.gesamt
+          ? `<p class="small">Aus der Sicherung wurden <b>${erg.gesamt}</b> ${erg.gesamt === 1 ? 'Eintrag' : 'Einträge'} übernommen – neuere Stände haben gewonnen.</p>
+             <div class="rows mt12">${teile.map(([store, n]) => `<div class="row" style="min-height:34px;padding:5px 4px">
+               <span class="r-main"><span class="r-title" style="font-weight:400">${U.esc(STORE_LABELS[store] || store)}</span></span>
+               <span class="r-side"><b>${n}</b></span></div>`).join('')}</div>`
+          : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Stände, die du schon hast (oder ältere).</p>',
+        footer: '<button class="btn btn-primary" data-fertig>Fertig</button>',
+      });
+      $$('[data-fertig]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
       await S.load(); applyTheme(); renderRoute(); this.updateBanners();
     };
     $('[data-replace]', m.el).onclick = async () => {
@@ -11853,6 +11911,7 @@ const Backup = {
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
   async applyMerge(data) {
     let uebernommen = 0;
+    const jeStore = {};
     for (const store of DB.DATA_STORES) {
       const importRows = this._rowsAusImport(store, data.stores[store] || []);
       if (!importRows.length) continue;
@@ -11866,8 +11925,9 @@ const Backup = {
       }
       await DB.bulkPut(store, zuSchreiben, true);
       uebernommen += zuSchreiben.length;
+      if (zuSchreiben.length) jeStore[store] = zuSchreiben.length;
     }
-    return uebernommen;
+    return { gesamt: uebernommen, jeStore };
   },
 
   /* ---------- Automatische Sicherung ---------- */
@@ -12664,15 +12724,28 @@ const Pdf = {
       zeile('Anschrift:', [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '));
       zeile('Telefon / E-Mail:', [imk.telefon, imk.email].filter(Boolean).join(' / '));
       zeile('Landw. Betriebsnummer:', imk.registriernummer);
+      /* Gemeldet wird, was auch in der Tabelle steht. Vorher zählte die Kopfzeile
+         alle aktiven Völker, die Tabelle aber nur die einem Stand zugeordneten –
+         ein Volk ohne Standort fehlte unten und ein leerer Stand zählte oben mit.
+         Ein amtliches Papier darf sich nicht selbst widersprechen. */
+      const jeStand = staende.map((st) => ({ st, n: voelker.filter((v) => v.standId === st.id).length }));
+      const belegte = jeStand.filter((z) => z.n > 0);
+      const ohneStand = voelker.filter((v) => !v.standId || !staende.some((st) => st.id === v.standId)).length;
       zeile('Anzahl Bienenvölker:', voelker.length);
-      zeile('Anzahl Standorte:', staende.length);
+      zeile('Anzahl Standorte:', belegte.length + (ohneStand > 0 ? 1 : 0));
       zeile('Datum der Meldung:', U.fmtDate(U.todayIso()));
       yy += 3;
-      const body = staende.map((s) => [s.name, s.lat ? `${U.fmtNum(s.lat, 5)}, ${U.fmtNum(s.lng, 5)}` : '–', String(voelker.filter((v) => v.standId === s.id).length)]);
+      const body = belegte.map(({ st, n }) => [st.name, st.lat ? `${U.fmtNum(st.lat, 5)}, ${U.fmtNum(st.lng, 5)}` : '–', String(n)]);
+      if (ohneStand > 0) body.push(['ohne Standort erfasst', '–', String(ohneStand)]);
+      body.push([{ content: 'Summe', styles: { fontStyle: 'bold' } }, '', { content: String(voelker.length), styles: { fontStyle: 'bold' } }]);
+      const leere = jeStand.length - belegte.length;
       const yEnd = this.table(doc, { head: ['Standort', 'Koordinaten', 'Völker'], body, startY: yy });
       doc.setFontSize(9).setTextColor(90);
-      doc.text('Ort, Datum: ____________________________', 14, yEnd + 20);
-      doc.text('Unterschrift: ____________________________', 110, yEnd + 20);
+      let yHin = yEnd + 8;
+      if (ohneStand > 0) { doc.text(`Hinweis: ${ohneStand} ${ohneStand === 1 ? 'Volk ist' : 'Völker sind'} keinem Standort zugeordnet.`, 14, yHin); yHin += 5; }
+      if (leere > 0) { doc.text(`${leere} angelegte${leere === 1 ? 'r Standort führt' : ' Standorte führen'} derzeit keine Völker und ${leere === 1 ? 'ist' : 'sind'} hier nicht aufgeführt.`, 14, yHin); yHin += 5; }
+      doc.text('Ort, Datum: ____________________________', 14, yHin + 12);
+      doc.text('Unterschrift: ____________________________', 110, yHin + 12);
       this.finish(doc, `bestandsmeldung-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -12683,15 +12756,31 @@ const Pdf = {
       const imk = S.get('imkerei');
       const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
       const staende = await DB.getAll('staende');
-      const { doc, y } = await this.newDoc('Meldedaten Tierseuchenkasse', `Stichtag: 01.01.${U.todayIso().slice(0, 4)} · Zusammenstellung zur Übertragung in das Meldeportal`);
+      /* Gemeldet wird der Stichtag, nicht der heutige Tag. Bisher stand
+         „Stichtag 01.01." im Kopf, gezählt wurde aber der Bestand von heute –
+         wer im Juli meldet, hätte eine falsche Zahl eingetragen. Die Zahl kommt
+         jetzt aus der Völker-Historie. Der Stichtag selbst ist je nach Land
+         verschieden, deshalb steht die heutige Zahl zum Vergleich daneben. */
+      const alleVoelker = await DB.getAll('voelker');
+      const stichtag = `${U.todayIso().slice(0, 4)}-01-01`;
+      const amStichtag = voelkerAmStichtag(alleVoelker, stichtag);
+      const { doc, y } = await this.newDoc('Meldedaten Tierseuchenkasse', `Stichtag: ${U.fmtDate(stichtag)} · Zusammenstellung zur Übertragung in das Meldeportal`);
       let yy = y + 4;
       const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); doc.text(String(wert || '–'), 75, yy); yy += 7; };
       zeile('Tierhalter:', imk.name);
       zeile('Landw. Betriebsnummer:', imk.registriernummer);
       if (imk.tskPflicht === 'ja' && imk.tskNummer) zeile('TSK-/Melde-Nummer:', imk.tskNummer);
-      zeile('Zu meldende Völkerzahl:', voelker.length);
-      const body = staende.map((s) => [s.name, String(voelker.filter((v) => v.standId === s.id).length)]);
-      this.table(doc, { head: ['Standort', 'Völker'], body, startY: yy + 2 });
+      zeile(`Völker am ${U.fmtDate(stichtag)}:`, amStichtag.length);
+      zeile('Völker heute:', voelker.length);
+      const jeStand = staende.map((st) => ({ st, n: amStichtag.filter((v) => v.standId === st.id).length })).filter((z) => z.n > 0);
+      const ohneStand = amStichtag.filter((v) => !v.standId || !staende.some((st) => st.id === v.standId)).length;
+      const body = jeStand.map(({ st, n }) => [st.name, String(n)]);
+      if (ohneStand > 0) body.push(['ohne Standort erfasst', String(ohneStand)]);
+      body.push([{ content: 'Summe', styles: { fontStyle: 'bold' } }, { content: String(amStichtag.length), styles: { fontStyle: 'bold' } }]);
+      const yEnd = this.table(doc, { head: ['Standort (Stand am ' + U.fmtDate(stichtag) + ')', 'Völker'], body, startY: yy + 2 });
+      doc.setFontSize(9).setTextColor(90);
+      doc.text('Der Meldestichtag ist Ländersache (meist 01.01., in einigen Ländern abweichend) – bitte mit dem Bescheid der', 14, yEnd + 8);
+      doc.text('Tierseuchenkasse abgleichen. Die Zahl am Stichtag stammt aus der Völker-Historie dieser App.', 14, yEnd + 13);
       this.finish(doc, `tierseuchenkasse-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -13616,6 +13705,7 @@ Views.einstellungen = {
     const steuerArt = steuer.art || (steuer.kleinunternehmer ? 'klein' : 'regel');
     const logo = S.get('logo');
     const snaps = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
+    const rechnungenAlle = await DB.getAll('rechnungen');   // für die Vorschau der nächsten Rechnungsnummer
     const belegstellen = U.sortBy(await DB.getAll('belegstellen'), (b) => b.name.toLowerCase());
     const typen = S.get('dokumentTypen');
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
@@ -13710,7 +13800,7 @@ Views.einstellungen = {
           <div class="field"><label>Rechnungsnummern-Präfix</label><input class="inp" id="rk-prefix" value="${U.esc(kreis.prefix)}"></div>
           <div class="field"><label>Nächste Nummer</label><input class="inp" id="rk-next" inputmode="numeric" value="${kreis.next}"></div>
         </div>
-        <div class="hint">Nächste Rechnung erhält: <b>${U.esc(kreis.prefix)}${String(kreis.next).padStart(4, '0')}</b></div>
+        <div class="hint" id="rk-hinweis">Die nächste Rechnung bekommt <b>${U.esc(naechsteRechnungsnummer(kreis, rechnungenAlle).nummer)}</b>.</div>
         <div class="mt12" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
           <div style="width:74px;height:74px;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden">
             ${S.get('rechnungQr') ? `<img src="${S.get('rechnungQr')}" style="max-width:100%;max-height:100%">` : `<span class="muted" style="font-size:11px;text-align:center">kein<br>QR</span>`}
@@ -13917,6 +14007,17 @@ Views.einstellungen = {
       const n = parseInt($('#rk-next').value, 10);
       if (!isNaN(n) && n > 0) kreis.next = n;
       await S.set('rechnungskreis', kreis);
+      /* Warnen, wenn der Zähler hinter den Bestand zurückfällt. Die Vergabe
+         korrigiert das zwar von selbst, aber der Nutzer soll wissen, dass seine
+         Eingabe nicht das tut, was er erwartet. */
+      const naechste = naechsteRechnungsnummer(kreis, await DB.getAll('rechnungen'));
+      const hinweis = $('#rk-hinweis');
+      if (hinweis) {
+        hinweis.textContent = naechste.next - 1 !== kreis.next
+          ? `Achtung: ${kreis.prefix}${String(kreis.next).padStart(4, '0')} ist bereits vergeben. Die nächste Rechnung bekommt ${naechste.nummer}.`
+          : `Die nächste Rechnung bekommt ${naechste.nummer}.`;
+        hinweis.className = naechste.next - 1 !== kreis.next ? 'hint mt8 zahl-warn' : 'hint mt8';
+      }
     }, 500);
     $('#rk-prefix').oninput = saveKreis; $('#rk-next').oninput = saveKreis;
 
