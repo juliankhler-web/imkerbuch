@@ -947,8 +947,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.49';
+const APP_VERSION = '1.50';
 const CHANGELOG = [
+  { version: '1.50', datum: '2026-09-03', punkte: [
+    'Behoben: Beim <b>Eintragen einer Behandlung</b> stand unter „Mittel vom Verbrauchsmaterial abziehen" nur der Zucker zur Auswahl. Positionen aus älteren Fassungen und aus Importen hatten intern kein Typ-Kennzeichen und waren dadurch unsichtbar – sie standen in der Liste, aber nicht in der Auswahl. Jetzt greift dieselbe Einteilung wie in der Liste, und ein Behandlungsmittel ist immer wählbar, egal in welcher Einheit es geführt wird.',
+    'Die <b>Einheiten</b> stimmen: Es gibt jetzt <b>Streifen, Beutel, Tafel und Packung</b> als Verbrauchseinheit. ApiLife Var, Thymovar und Bayvarol werden beim Anlegen von selbst als „Streifen" vorgeschlagen, Apiguard als „Beutel", Futterteig als „kg". Positionen ohne Einheit bekommen sie automatisch nachgetragen – vorher behauptete die Liste bei allem „Stück".',
+    'In der Liste steht jetzt eindeutig, was gemeint ist: <b>„6 Packung × 2 Streifen = 12 Streifen"</b> statt „12 Stück".',
+    'Die <b>Öko-Partner</b> sind keine zweite Liste mehr. „Abnehmer und Lieferanten" arbeitet direkt mit deinen Kontakten – derselbe Lieferant, den du im Wareneingang auswählst, trägt jetzt die Öko-Kontrollnummer und die Gültigkeit seines Zertifikats. Du trägst ihn nur noch einmal ein. Vorhandene Einträge werden automatisch zusammengeführt.',
+    'Der Reiter <b>Zertifikate</b> ist weggefallen. Die Zertifikate der Lieferanten hängen jetzt <b>beim jeweiligen Partner</b> – mit Kontrollnummer, Gültigkeitsdatum, Link zur Bescheinigung und der Möglichkeit, das PDF direkt anzuhängen. Ein Knopf führt in die EU-Datenbank der Öko-Bescheinigungen. Das <b>eigene</b> Zertifikat hat jetzt seinen Platz in der Betriebsbeschreibung.',
+  ] },
   { version: '1.49', datum: '2026-09-03', punkte: [
     'Behoben: Der <b>Offline-Speicher</b> konnte die App mit einer anderen Seite überschreiben. Wer die Landingpage oder das Impressum aufrief, bekam ohne Netz genau diese Seite statt des Imkerbuchs zu sehen. Jede Seite liegt jetzt unter ihrer eigenen Adresse im Speicher.',
     'Behoben: Eine <b>Rechnungsnummer</b> konnte doppelt vergeben werden – etwa nach einem zurückgespielten Backup oder wenn der Zähler von Hand zurückgesetzt wurde. Die Nummer wird jetzt aus dem tatsächlichen Bestand abgeleitet, und eine bereits festgeschriebene Rechnung lässt sich nicht ein zweites Mal festschreiben. Eine doppelte Nummer wäre ein Buchführungsfehler (§ 14 UStG).',
@@ -1771,7 +1778,8 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [] },
+    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
+      oekoZertNummer: '', oekoZertGueltigBis: '', oekoZertAblage: '' },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
@@ -5097,7 +5105,7 @@ Views.behandlungen = {
     const ziel = await zielFelder(b || {});
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
-    const mittelPosten = await verbrauchsPosten(['ml', 'g', 'L', 'kg', 'Packung', 'Stück']);
+    const mittelPosten = await verbrauchsPosten(VERBRAUCH_EINHEITEN, { kategorien: ['Behandlungsmittel'] });
     const m = UI.formModal({
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true,
       fields: [
@@ -5169,7 +5177,7 @@ Views.behandlungen = {
     const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...alleVoelker.map((v) => v.funktion).filter(Boolean)])];
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
-    const mittelPosten = await verbrauchsPosten(['ml', 'g', 'L', 'kg', 'Packung', 'Stück']);
+    const mittelPosten = await verbrauchsPosten(VERBRAUCH_EINHEITEN, { kategorien: ['Behandlungsmittel'] });
     const m = UI.formModal({
       title: 'Behandlung erfassen', wide: true,
       fields: [
@@ -5342,15 +5350,39 @@ async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
     Kassenbuch, in der Rechnung und beim Verkauf – überall soll man einen Kunden
     anlegen können, ohne den Vorgang zu verlassen. onSaved bekommt den
     gespeicherten Kontakt; ohne onSaved wird nur neu gezeichnet. */
-async function kontaktForm(c, { typ, onSaved } = {}) {
-  return UI.formModal({
-    title: c ? 'Kontakt bearbeiten' : (typ === 'kunde' ? 'Neuer Kunde' : 'Neuer Kontakt'),
+/* Kontakte sind Kunden UND Lieferanten – und bei einer Öko-Imkerei sind es
+   dieselben Firmen, die im Verzeichnis „Abnehmer und Lieferanten" stehen.
+   Deshalb liegen die Öko-Angaben direkt am Kontakt und nicht in einer zweiten
+   Liste: Julian sollte einen Lieferanten nicht zweimal eintragen müssen. */
+const KONTAKT_ARTEN = [{ v: 'kunde', l: 'Kunde / Abnehmer' }, { v: 'lieferant', l: 'Lieferant' }, { v: 'beides', l: 'beides' }];
+const kontaktIstKunde = (c) => c && (c.typ === 'kunde' || c.typ === 'beides');
+const kontaktIstLieferant = (c) => c && (c.typ === 'lieferant' || c.typ === 'beides');
+/** Suche in der EU-Datenbank der Öko-Bescheinigungen (TRACES NT). Es gibt keinen
+    offenen Direktdownload – deshalb führt der Knopf zur Suche, und die gefundene
+    Bescheinigung legt man als Anhang am Kontakt ab. */
+const OEKO_SUCHE_URL = 'https://webgate.ec.europa.eu/tracesnt/directory/publication/organic-operator/index';
+
+async function kontaktForm(c, { typ, onSaved, oeko = false } = {}) {
+  const bioBetrieb = (S.get('imkerei') || {}).bio === 'ja';
+  const zeigeOeko = oeko || bioBetrieb || !!(c && (c.oekoNummer || c.oekoGueltigBis || c.oekoWas || c.oekoUrl));
+  const m = UI.formModal({
+    title: c ? `Kontakt bearbeiten · ${c.name}` : (typ === 'kunde' ? 'Neuer Kunde' : typ === 'lieferant' ? 'Neuer Lieferant' : 'Neuer Kontakt'),
+    wide: zeigeOeko,
     fields: [
-      { key: 'typ', label: 'Art', type: 'select', required: true, default: typ || 'kunde', options: [{ v: 'kunde', l: 'Kunde' }, { v: 'lieferant', l: 'Lieferant' }] },
+      { key: 'typ', label: 'Art', type: 'select', required: true, default: typ || 'kunde', options: KONTAKT_ARTEN, keepOrder: true },
       { key: 'name', label: 'Name / Firma', required: true },
       { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort', type: 'suggest', options: await gelernteWerte([], 'kontakte', 'ort') },
       { key: 'email', label: 'E-Mail' }, { key: 'telefon', label: 'Telefon' },
+      ...(zeigeOeko ? [
+        { key: '_oekoKopf', type: 'static', html: '<div class="small muted mt8 mb4" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Öko-Kontrolle</div>' },
+        { key: 'oekoWas', label: 'Was wird bezogen bzw. geliefert?', placeholder: 'z. B. Öko-Zucker, Mittelwände, Honig' },
+        { key: 'oekoNummer', label: 'Öko-Kontrollnummer', placeholder: 'z. B. DE-ÖKO-006', halb: true },
+        { key: 'oekoGueltigBis', label: 'Zertifikat gültig bis', type: 'date', halb: true, hint: 'Die App warnt, wenn das Datum näher rückt oder vorbei ist.' },
+        { key: 'oekoUrl', label: 'Link zum Zertifikat', placeholder: 'https://…', hint: 'Viele Kontrollstellen stellen die Bescheinigung online bereit. Den Link hier ablegen – und das PDF unten anhängen.' },
+        { key: '_oekoSuche', type: 'static', html: `<div class="flex-wrap mb4"><button type="button" class="btn btn-ghost btn-sm" data-oeko-open>${icon('doc')} Zertifikat öffnen</button><button type="button" class="btn btn-ghost btn-sm" data-oeko-suche>${icon('search')} In der EU-Datenbank suchen</button></div>` },
+      ] : []),
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
+      ...(c ? [{ key: '_anhaenge', type: 'static', html: '<div data-kontakt-anhang></div>' }] : []),
     ],
     values: c || (typ ? { typ } : {}),
     async onSave(v) {
@@ -5360,6 +5392,19 @@ async function kontaktForm(c, { typ, onSaved } = {}) {
     },
     onDelete: papierkorbDelete('kontakte', c, 'Kontakt löschen?', 'Wandert in den Papierkorb.'),
   });
+  // Zertifikat öffnen / in der EU-Datenbank suchen
+  const auf = $('[data-oeko-open]', m.el);
+  if (auf) auf.onclick = () => {
+    const url = ($('#f-oekoUrl', m.el) || {}).value || '';
+    if (!/^https?:\/\//.test(url)) return UI.toast('Kein Link hinterlegt – trage die Adresse der Bescheinigung ein.', 'err');
+    window.open(url, '_blank', 'noopener');
+  };
+  const suche = $('[data-oeko-suche]', m.el);
+  if (suche) suche.onclick = () => window.open(OEKO_SUCHE_URL, '_blank', 'noopener');
+  // Zertifikat als Datei am Kontakt ablegen
+  const anhangZone = $('[data-kontakt-anhang]', m.el);
+  if (anhangZone && c) anhangZone.appendChild(Anhang.section({ parentTyp: 'kontakt', parentId: c.id, arten: ['dokument', 'foto'], titel: 'Zertifikate und Begleitpapiere' }));
+  return m;
 }
 
 /** Hängt unter ein Kontakt-Auswahlfeld einen Knopf „Neuer Kunde". Der neue
@@ -5591,7 +5636,7 @@ Views.fuetterung = {
 
   /** Einzelne Fütterung nachträglich bearbeiten oder löschen */
   async einzelForm(f, volkName) {
-    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung']);
+    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung'], { kategorien: ['Futter'] });
     const m = verdrahteSirupLiter(UI.formModal({
       title: `Fütterung bearbeiten · ${volkName}`,
       fields: [
@@ -5637,7 +5682,7 @@ Views.fuetterung = {
       zweiten Knopf, der die weiteren Fütterungen gleich als Aufgaben anlegt. */
   async sammelForm(vorbelegung = {}, plan = null) {
     const staende = await DB.getAll('staende');
-    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung']);
+    const zuckerPosten = await verbrauchsPosten(['kg', 'L', 'Sack', 'Packung'], { kategorien: ['Futter'] });
     const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann fütterst du sie hier gesammelt.', 'err');
     // Funktions-Filter: Standardliste + alles, was in den Völkern tatsächlich steht
@@ -6215,6 +6260,10 @@ const BIO_ABSCHNITTE = [
   { key: 'reinigung', label: 'Reinigung und Desinfektion', hint: 'Welche Mittel und Verfahren, wie oft, wie dokumentiert.' },
   { key: 'kennzeichnung', label: 'Kennzeichnung und Vermarktung', hint: 'Etiketten, Öko-Kontrollstellen-Code, Verbandszeichen, Wege der Vermarktung.' },
   { key: 'doku', label: 'Aufzeichnungen', hint: 'Womit und wie lange dokumentiert wird – diese App, Papier, Rechnungen, Belege.' },
+  /* Hier landet, was früher im eigenen Reiter „Zertifikate" stand: das eigene
+     Öko-Zertifikat und Papiere ohne Partner-Bezug. Die Zertifikate der
+     Lieferanten hängen dagegen am jeweiligen Partner – dort sucht man sie. */
+  { key: 'zertifikate', label: 'Eigenes Zertifikat und Begleitpapiere', hint: 'Nummer und Gültigkeit der eigenen Bescheinigung, wo das Original liegt, welche Begleitpapiere geführt werden. Zertifikate von Lieferanten gehören zum jeweiligen Partner unter „Abnehmer & Lieferanten".' },
 ];
 
 /** Anteile eines Standes normalisiert lesen. */
@@ -6266,36 +6315,6 @@ const BIO_BEREICHE = {
       { key: 'notiz', label: 'Bemerkung', type: 'textarea' },
     ],
     zeile: (e) => ({ titel: e.bereichName || 'Reinigung', sub: [U.fmtDate(e.datum), e.mittel, e.verantwortlich].filter(Boolean).join(' · '), seite: '' }),
-  },
-  partner: {
-    titel: 'Abnehmer und Lieferanten', icon: 'meldung',
-    hinweis: 'Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst. Bei Öko-Ware gehört die Kontrollnummer des Partners dazu.',
-    sort: (e) => (e.name || '').toLowerCase(), rueckwaerts: false,
-    felder: [
-      { key: 'name', label: 'Name / Firma', required: true },
-      { key: 'rolle', label: 'Rolle', type: 'select', required: true, default: 'Lieferant', options: BIO_ROLLEN.map((r) => ({ v: r, l: r })) },
-      { key: 'was', label: 'Was wird bezogen bzw. geliefert?', placeholder: 'z. B. Öko-Zucker, Mittelwände' },
-      { key: 'kontrollnummer', label: 'Öko-Kontrollnummer des Partners', placeholder: 'z. B. DE-ÖKO-006' },
-      { key: 'gueltigBis', label: 'Zertifikat gültig bis', type: 'date', hint: 'Die App warnt, wenn das Datum näher rückt oder vorbei ist.' },
-      { key: 'notiz', label: 'Notiz', type: 'textarea' },
-    ],
-    zeile: (e) => ({ titel: e.name || 'Partner', sub: [e.rolle, e.was, e.kontrollnummer].filter(Boolean).join(' · '), seite: '' }),
-  },
-  zertifikat: {
-    titel: 'Zertifikate und Begleitpapiere', icon: 'doc',
-    hinweis: 'Eigenes Öko-Zertifikat, Zertifikate der Lieferanten, Lieferscheine und Begleitpapiere. Halte fest, wo das Original liegt – die App ersetzt die Papiere nicht.',
-    sort: (e) => e.datum || '', rueckwaerts: true,
-    felder: [
-      { key: 'art', label: 'Art', type: 'suggest', required: true, options: BIO_ZERT_ARTEN },
-      { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Bescheinigung 2026' },
-      { key: 'aussteller', label: 'Aussteller', placeholder: 'z. B. Kontrollstelle, Lieferant' },
-      { key: 'nummer', label: 'Nummer / Aktenzeichen' },
-      { key: 'datum', label: 'Datum', type: 'date' },
-      { key: 'gueltigBis', label: 'Gültig bis', type: 'date', hint: 'Die App warnt, wenn das Datum näher rückt oder vorbei ist.' },
-      { key: 'ablage', label: 'Wo liegt das Original?', placeholder: 'z. B. Ordner „Bio", Fach 2' },
-      { key: 'notiz', label: 'Notiz', type: 'textarea' },
-    ],
-    zeile: (e) => ({ titel: e.name || 'Papier', sub: [e.art, e.aussteller, e.nummer, e.ablage].filter(Boolean).join(' · '), seite: '' }),
   },
   foerderung: {
     titel: 'Förderverfahren', icon: 'euro',
@@ -6921,13 +6940,12 @@ Views.bio = {
     $('#tabbar', main).appendChild(UI.tabs([
       { id: 'betrieb', label: 'Betriebsbeschreibung' }, { id: 'standorte', label: 'Standorte' },
       { id: 'hygiene', label: 'Hygiene' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
-      { id: 'zertifikat', label: 'Zertifikate' }, { id: 'foerderung', label: 'Förderverfahren' },
+      { id: 'foerderung', label: 'Förderverfahren' },
     ], tab, (t) => { Views.bio._tab = t; renderRoute(); }));
     const box = $('#tab-content', main);
     if (tab === 'standorte') await Views.bio.tabStandorte(box);
     else if (tab === 'hygiene') await Views.bio.tabHygiene(box);
-    else if (tab === 'partner') await Views.bio.tabListe(box, 'partner');
-    else if (tab === 'zertifikat') await Views.bio.tabListe(box, 'zertifikat');
+    else if (tab === 'partner') await Views.bio.tabPartner(box);
     else if (tab === 'foerderung') await Views.bio.tabListe(box, 'foerderung');
     else await Views.bio.tabBetrieb(box);
   },
@@ -6940,6 +6958,58 @@ Views.bio = {
   },
 
   /** Ein Reiter für alle Listen-Bereiche – die Felder kommen aus BIO_BEREICHE. */
+  /* Abnehmer und Lieferanten sind dieselben Kontakte wie im Kassenbuch – nur mit
+     Öko-Brille. Das Verzeichnis war früher eine zweite Liste (bioeintraege),
+     dadurch musste jeder Lieferant doppelt eingetragen werden und der Wareneingang
+     kannte die Bio-Partner nicht. Jetzt eine Liste, eine Wahrheit. */
+  async tabPartner(box) {
+    const alle = await DB.getAll('kontakte');
+    const anhaenge = await DB.getAll('anhaenge');
+    const filter = Views.bio._pfilter || '';
+    const passt = (c) => filter === 'lieferant' ? kontaktIstLieferant(c) : filter === 'kunde' ? kontaktIstKunde(c) : true;
+    const list = U.sortBy(alle.filter(passt), (c) => (c.name || '').toLowerCase());
+    const zertZahl = (c) => anhaenge.filter((a) => a.parentTyp === 'kontakt' && a.parentId === c.id).length;
+    const rolle = (c) => (KONTAKT_ARTEN.find((k) => k.v === c.typ) || KONTAKT_ARTEN[0]).l;
+    const marke = (c) => {
+      const st = bioFristStatus(c.oekoGueltigBis);
+      if (!st) return '';
+      return ` <span class="badge ${st === 'vorbei' ? 'b-danger' : 'b-warn'}">Zertifikat gültig bis ${U.fmtDate(c.oekoGueltigBis)}${st === 'vorbei' ? ' – vorbei' : ''}</span>`;
+    };
+    const chip = (v, l) => `<button class="chip ${filter === v ? 'active' : ''}" data-pfilter="${v}">${l}</button>`;
+    const ohneNummer = list.filter((c) => kontaktIstLieferant(c) && !c.oekoNummer).length;
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('meldung')}<h2>Abnehmer und Lieferanten</h2>
+        <button class="btn btn-primary btn-sm no-print" data-neu>${icon('plus')} Partner</button></div>
+      <p class="small muted mb12">Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst.
+        Bei Öko-Ware gehört die Kontrollnummer des Partners dazu, dazu das Zertifikat als Datei – tippe einen Partner an.
+        Dieselbe Liste erscheint im Wareneingang und im Kassenbuch, du trägst also nichts zweimal ein.</p>
+      <div class="chip-row mb12 no-print">${chip('', 'Alle')}${chip('lieferant', 'Lieferanten')}${chip('kunde', 'Abnehmer')}</div>
+      ${ohneNummer ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">${ohneNummer} ${ohneNummer === 1 ? 'Lieferant hat' : 'Lieferanten haben'} noch keine Öko-Kontrollnummer. Bei Öko-Ware verlangt die Kontrolle sie.</span></div>` : ''}
+      ${list.length ? `<div class="rows">${list.map((c) => {
+        const n = zertZahl(c);
+        const sub = [rolle(c), c.oekoWas, c.oekoNummer, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+        return `<button class="row" data-kontakt="${c.id}">
+          <span class="r-ic">${icon('meldung')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(c.name)}${marke(c)}</span>
+            ${sub ? `<span class="r-sub">${U.esc(sub)}</span>` : ''}
+            <span class="r-sub">${n ? `${n} ${n === 1 ? 'Zertifikat/Papier' : 'Zertifikate/Papiere'} hinterlegt` : '<span class="muted">noch kein Zertifikat hinterlegt</span>'}${c.oekoUrl ? ' · Link vorhanden' : ''}</span></span>
+          <span class="r-side"></span>${icon('chevR', 'chev')}</button>`;
+      }).join('')}</div>`
+      : emptyState('meldung', filter ? 'Kein Partner in dieser Rolle.' : 'Noch kein Partner erfasst.',
+        `<button class="btn btn-primary" data-neu>${icon('plus')} Ersten Partner anlegen</button>`)}
+      <div class="hint mt12">Die Bescheinigungen der Kontrollstellen liegen meist online. Im Partner-Fenster führt ein Knopf
+        zur <b>EU-Datenbank der Öko-Bescheinigungen</b>; das gefundene PDF hängst du dort direkt an. Einen automatischen
+        Abruf gibt es nicht – es existiert kein offenes Verzeichnis, das die Papiere zum Download herausgibt.</div>
+    </div>`;
+    $$('[data-neu]', box).forEach((b) => b.onclick = () => kontaktForm(null, { typ: 'lieferant', oeko: true, onSaved: () => renderRoute() }));
+    box.addEventListener('click', async (ev) => {
+      const f = ev.target.closest('[data-pfilter]');
+      if (f) { Views.bio._pfilter = f.dataset.pfilter; return renderRoute(); }
+      const r = ev.target.closest('[data-kontakt]');
+      if (r) kontaktForm(await DB.get('kontakte', r.dataset.kontakt), { oeko: true, onSaved: () => renderRoute() });
+    });
+  },
+
   async tabListe(box, bereich) {
     const def = BIO_BEREICHE[bereich];
     const alle = (await DB.getAll('bioeintraege')).filter((e) => e.bereich === bereich);
@@ -7013,7 +7083,30 @@ Views.bio = {
         <span class="r-ic">${icon((bb[a.key] || '').trim() ? 'check' : 'info')}</span>
         <span class="r-main"><span class="r-title">${U.esc(a.label)}</span>
         <span class="r-sub" style="white-space:normal">${(bb[a.key] || '').trim() ? U.esc(bb[a.key]) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
+    </div>
+    <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
+      <button class="btn btn-ghost btn-sm no-print" id="zert-edit">${icon('pencil')} Bearbeiten</button></div>
+      <p class="small muted mb12">Die eigene Bescheinigung der Kontrollstelle. Die Zertifikate deiner Lieferanten gehören nicht hierher,
+        sondern zum jeweiligen Partner unter „Abnehmer &amp; Lieferanten“.</p>
+      <div class="detail-kv">
+        <dt>Kontrollstelle</dt><dd>${U.esc(imk.bioKontrollstelle) || '–'}</dd>
+        <dt>Bescheinigungs-Nr.</dt><dd>${U.esc(imk.oekoZertNummer) || '–'}</dd>
+        <dt>Gültig bis</dt><dd>${imk.oekoZertGueltigBis ? `${U.fmtDate(imk.oekoZertGueltigBis)}${bioFristStatus(imk.oekoZertGueltigBis) ? ` <span class="badge ${bioFristStatus(imk.oekoZertGueltigBis) === 'vorbei' ? 'b-danger' : 'b-warn'}">${bioFristStatus(imk.oekoZertGueltigBis) === 'vorbei' ? 'abgelaufen' : 'läuft bald ab'}</span>` : ''}` : '–'}</dd>
+        <dt>Original liegt</dt><dd>${U.esc(imk.oekoZertAblage) || '–'}</dd>
+      </div>
+      <div id="zert-anhang" class="mt12"></div>
     </div>`;
+    $('#zert-anhang', box).appendChild(Anhang.section({ parentTyp: 'imkerei', parentId: 'eigen', arten: ['dokument', 'foto'], titel: 'Bescheinigung als Datei' }));
+    $('#zert-edit', box).onclick = () => UI.formModal({
+      title: 'Eigenes Öko-Zertifikat',
+      fields: [
+        { key: 'oekoZertNummer', label: 'Bescheinigungs-Nummer' },
+        { key: 'oekoZertGueltigBis', label: 'Gültig bis', type: 'date', hint: 'Die App warnt, wenn das Datum näher rückt.' },
+        { key: 'oekoZertAblage', label: 'Wo liegt das Original?', placeholder: 'z. B. Ordner „Bio", Fach 2' },
+      ],
+      values: imk,
+      async onSave(v) { await S.set('imkerei', Object.assign({}, S.get('imkerei'), v)); UI.toast('Gespeichert'); renderRoute(); },
+    });
     /* Die Bio-Umstellung soll dort greifbar sein, wo man sie braucht – nicht nur
        unter Einstellungen. Geschrieben wird in dieselben Imkereidaten. */
     $('#bio-an', box).onchange = async (e) => {
@@ -9949,7 +10042,10 @@ Views.rechner = {
    gezählt wird (Sack, Karton …), darunter der Inhalt in der Einheit, die
    wirklich verbraucht wird (kg, L, Stück). Gespeichert wird immer die INNERE
    Menge – daran hängen alle Abzüge bei Fütterung, Behandlung und Abfüllen. */
-const VERBRAUCH_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g'];
+/* Einheiten, in denen abgezogen wird. „Streifen", „Beutel" und „Tafel" gehören
+   dazu: ein Behandlungsmittel wird je Volk in Streifen dosiert, nicht in Stück.
+   Die Verpackung selbst (Packung, Karton, Sack …) steht in BESTAND_EINHEITEN. */
+const VERBRAUCH_EINHEITEN = ['Stück', 'kg', 'g', 'L', 'ml', 'Streifen', 'Beutel', 'Tafel', 'Packung'];
 const BESTAND_EINHEITEN = ['Stück', 'kg', 'L', 'ml', 'g', 'Sack', 'Karton', 'Kanister', 'Eimer', 'Hobbock', 'Flasche', 'Packung', 'Beutel', 'Kiste', 'Palette'];
 
 /** Wird die Position in Packungen gezählt? Nur dann, wenn ein Inhalt je Packung
@@ -9981,8 +10077,16 @@ function packungText(pos) {
    Sirup füllt man in Litern, Säure dosiert man in Millilitern, Gläser zählt man.
    Nur ein Vorschlag – überschreibbar. */
 const EINHEIT_VORSCHLAEGE = [
+  /* Behandlungsmittel zuerst: sie sind der Grund, warum „Stück" als Vorgabe
+     nicht reicht. ApiLife Var kommt als Plättchen/Streifen, Thymovar und
+     Bayvarol als Streifen, Apiguard als Schale – dosiert wird je Volk in genau
+     diesen Stücken, nicht in Packungen. Die Muster stehen VOR der Säure-Zeile,
+     weil „Thymovar" sonst als Thymol in ml gerechnet würde. */
+  [/apilife|api life|thymovar|bayvarol|apistan|apitraz|streifen|pl(ä|ae)ttchen/i, 'Streifen'],
+  [/apiguard|schale|gel-?dose/i, 'Beutel'],
+  [/futterteig|teig|fondant|apifonda|apiinvert teig/i, 'kg'],
   [/mittelwand|mittelwände|wachs|waben/i, 'kg'],
-  [/zucker|futterteig|teig|fondant/i, 'kg'],
+  [/zucker/i, 'kg'],
   [/sirup|invert|futtersaft/i, 'L'],
   [/säure|saeure|oxal|ameisen|milchsäure|thymol/i, 'ml'],
   [/glas|gläser|deckel|eimer|hobbock|kanister|kiste|etikett|rähmchen|raehmchen|draht/i, 'Stück'],
@@ -10672,11 +10776,20 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null) {
 }
 
 /** Verbrauchsmaterial mit passender Einheit, alphabetisch. */
-async function verbrauchsPosten(einheiten) {
+async function verbrauchsPosten(einheiten, { kategorien = [] } = {}) {
   const erlaubt = (Array.isArray(einheiten) ? einheiten : [einheiten]).filter(Boolean);
-  const alle = (await DB.getAll('inventar')).filter((i) => i.typ === 'verbrauch');
-  const passend = erlaubt.length ? alle.filter((i) => erlaubt.includes(verbrauchEinheit(i))) : alle;
-  return U.sortBy(passend, (i) => (i.bezeichnung || '').toLowerCase());
+  const kats = (Array.isArray(kategorien) ? kategorien : [kategorien]).filter(Boolean);
+  /* WICHTIG: dieselbe Klassifizierung wie die Liste (inventarTyp), nicht das rohe
+     Feld i.typ. Positionen aus älteren Fassungen und aus Importen haben kein
+     typ-Feld – sie standen unter Verbrauchsmaterial, waren hier aber unsichtbar.
+     Genau daran lag es, dass in der Behandlung nur der Zucker zur Auswahl stand. */
+  const alle = (await DB.getAll('inventar')).filter((i) => inventarTyp(i) === 'verbrauch');
+  /* Eine Position ist wählbar, wenn ihre Einheit passt ODER sie zur gefragten
+     Kategorie gehört. Sonst fiele ein Behandlungsmittel in „Streifen" heraus,
+     nur weil die Einheit nicht in der Liste steht. */
+  const passt = (i) => (!erlaubt.length || erlaubt.includes(verbrauchEinheit(i)))
+    || (kats.length && kats.includes(i.kategorie));
+  return U.sortBy(alle.filter(passt), (i) => (i.bezeichnung || '').toLowerCase());
 }
 
 /** Zieht eine Menge ab. Reicht der Bestand nicht, wird auf 0 gesetzt und die
@@ -12828,7 +12941,8 @@ const Pdf = {
       const { doc, y } = await this.newDoc('Unterlagen zur Öko-Kontrolle',
         `${BIO_ABSCHNITTE.filter((a) => (bb[a.key] || '').trim()).length} von ${BIO_ABSCHNITTE.length} Abschnitten der Betriebsbeschreibung · `
         + `${mitDaten.length} von ${staende.length} Standorten mit Landbedeckung · `
-        + `${(await DB.getAll('bioeintraege')).length} weitere Einträge (Hygiene, Partner, Zertifikate, Förderung)`);
+        + `${(await DB.getAll('bioeintraege')).length} Einträge (Hygiene, Förderung) · `
+        + `${(await DB.getAll('kontakte')).filter((c) => c.oekoNummer || c.oekoWas).length} Öko-Partner`);
       let yy = y;
       const H = doc.internal.pageSize.getHeight();
       const platz = (n) => { if (yy + n > H - 20) { doc.addPage(); yy = 20; } };
@@ -12878,7 +12992,27 @@ const Pdf = {
         }
         yy += 2;
       }
-      // die vier Listen-Bereiche
+      /* Abnehmer und Lieferanten kommen aus den Kontakten – sie liegen nicht mehr
+         als zweite Liste in bioeintraege. Zertifikat-Dateien hängen am Partner;
+         das PDF nennt, dass und wie viele es gibt, nicht die Dateien selbst. */
+      const kontakteAlle = await DB.getAll('kontakte');
+      const anhaengeAlle = await DB.getAll('anhaenge');
+      const partner = U.sortBy(kontakteAlle.filter((c) => c.oekoNummer || c.oekoWas || c.oekoGueltigBis), (c) => (c.name || '').toLowerCase());
+      if (partner.length) {
+        platz(16);
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text('Abnehmer und Lieferanten', 14, yy); yy += 5;
+        const body = partner.map((c) => [
+          c.name || '',
+          (KONTAKT_ARTEN.find((k) => k.v === c.typ) || KONTAKT_ARTEN[0]).l,
+          c.oekoWas || '',
+          c.oekoNummer || '',
+          c.oekoGueltigBis ? U.fmtDate(c.oekoGueltigBis) : '',
+          String(anhaengeAlle.filter((a) => a.parentTyp === 'kontakt' && a.parentId === c.id).length || ''),
+        ]);
+        yy = this.table(doc, { head: ['Name / Firma', 'Rolle', 'Ware', 'Öko-Kontrollnummer', 'gültig bis', 'Papiere'], body, startY: yy }) + 5;
+      }
+      // die Listen-Bereiche (Hygiene, Förderung)
       const bioAlle = await DB.getAll('bioeintraege');
       for (const [bereich, def] of Object.entries(BIO_BEREICHE)) {
         const list = U.sortBy(bioAlle.filter((x) => x.bereich === bereich), def.sort, !!def.rueckwaerts);
@@ -14214,14 +14348,92 @@ async function migriereChargenAbfuellung() {
 
 /** Einmalige Migration: Inventar-Datensätze bekommen ein `typ` (inventar | verbrauch),
     abgeleitet aus der Kategorie, damit die Trennung Inventar/Verbrauchsmaterial stabil ist. */
+/* Zieht Typ und Einheit an Positionen nach, denen sie fehlen.
+   Bewusst OHNE Erledigt-Flag: Positionen ohne diese Felder entstehen nicht nur
+   aus alten Fassungen, sondern auch bei jedem Import einer älteren Sicherung.
+   Ein einmaliges Flag hätte die dann für immer stehen gelassen – und eine
+   Position ohne Einheit behauptet in der Liste „Stück", was falsch ist. */
 async function migriereInventarTyp() {
-  if (S.get('inventarTypMigriert')) return;
+  let geaendert = 0;
   for (const i of await DB.getAll('inventar')) {
-    if (i.typ) continue;
-    i.typ = VERBRAUCH_KATEGORIEN.has(i.kategorie) ? 'verbrauch' : 'inventar';
-    await DB.put('inventar', i);
+    let neu = false;
+    if (!i.typ) { i.typ = VERBRAUCH_KATEGORIEN.has(i.kategorie) ? 'verbrauch' : 'inventar'; neu = true; }
+    if (!i.einheit && inventarTyp(i) === 'verbrauch') { i.einheit = einheitVorschlag(i.bezeichnung); neu = true; }
+    if (neu) { await DB.put('inventar', i, true); geaendert++; }
   }
+  if (geaendert) console.info(`Inventar: ${geaendert} Position(en) um Typ/Einheit ergänzt`);
   await S.set('inventarTypMigriert', true);
+}
+
+/* Das Öko-Verzeichnis „Abnehmer und Lieferanten" lag früher als eigene Liste in
+   bioeintraege. Dadurch musste jeder Lieferant zweimal eingetragen werden – einmal
+   dort, einmal als Kontakt für den Wareneingang. Diese Migration führt beide
+   zusammen: bestehende Partner werden zu Kontakten (nach Namen abgeglichen, damit
+   keine Dubletten entstehen), Zertifikate wandern an den passenden Partner und das
+   eigene Öko-Zertifikat in die Imkerei-Angaben. Nichts geht verloren. */
+async function migriereBioPartner() {
+  if (S.get('bioPartnerMigriert')) return;
+  const eintraege = await DB.getAll('bioeintraege');
+  const partner = eintraege.filter((e) => e.bereich === 'partner');
+  const zerts = eintraege.filter((e) => e.bereich === 'zertifikat');
+  if (!partner.length && !zerts.length) { await S.set('bioPartnerMigriert', true); return; }
+
+  const kontakte = await DB.getAll('kontakte');
+  const schluessel = (x) => String(x || '').trim().toLowerCase();
+  const finde = (name) => kontakte.find((k) => schluessel(k.name) === schluessel(name));
+  const artAus = (rolle) => (rolle === 'Abnehmer' ? 'kunde' : rolle === 'beides' ? 'beides' : 'lieferant');
+
+  for (const e of partner) {
+    if (!e.name) continue;
+    const vorhanden = finde(e.name);
+    const daten = {
+      oekoWas: e.was || '', oekoNummer: e.kontrollnummer || '', oekoGueltigBis: e.gueltigBis || '',
+      notiz: [vorhanden && vorhanden.notiz, e.notiz].filter(Boolean).join('\n'),
+    };
+    if (vorhanden) {
+      // Rolle aufwerten: wer Kunde war und jetzt auch Lieferant ist, wird „beides"
+      const neueArt = artAus(e.rolle);
+      if (vorhanden.typ && vorhanden.typ !== neueArt) daten.typ = 'beides';
+      await DB.put('kontakte', Object.assign(vorhanden, daten));
+    } else {
+      const neu = await DB.put('kontakte', Object.assign({ typ: artAus(e.rolle), name: e.name, strasse: '', plz: '', ort: '', email: '', telefon: '' }, daten));
+      kontakte.push(neu);
+    }
+    await DB.del('bioeintraege', e.id);
+  }
+
+  /* Zertifikate: was einem Partner zuzuordnen ist, wandert dorthin. Das eigene
+     Zertifikat kommt zur Imkerei. Alles andere bleibt als Notiz am Betrieb – die
+     Papiere selbst liegen ohnehin im Ordner, die App hat sie nie gespeichert. */
+  const imk = S.get('imkerei');
+  const uebrig = [];
+  for (const z of zerts) {
+    const eigen = /eigener betrieb/i.test(z.art || '');
+    const ziel = !eigen && (finde(z.aussteller) || finde(z.name));
+    if (eigen) {
+      imk.oekoZertNummer = imk.oekoZertNummer || z.nummer || '';
+      imk.oekoZertGueltigBis = imk.oekoZertGueltigBis || z.gueltigBis || '';
+      imk.oekoZertAblage = imk.oekoZertAblage || z.ablage || '';
+    } else if (ziel) {
+      const notiz = [ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`].filter(Boolean).join('\n');
+      await DB.put('kontakte', Object.assign(ziel, {
+        notiz,
+        oekoGueltigBis: ziel.oekoGueltigBis || z.gueltigBis || '',
+        oekoNummer: ziel.oekoNummer || z.nummer || '',
+      }));
+    } else {
+      uebrig.push(`${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.datum ? ` vom ${U.fmtDate(z.datum)}` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`);
+    }
+    await DB.del('bioeintraege', z.id);
+  }
+  if (uebrig.length) {
+    const bb = S.get('bioBetrieb') || {};
+    bb.zertifikate = [bb.zertifikate, 'Aus dem früheren Reiter „Zertifikate" übernommen:', ...uebrig].filter(Boolean).join('\n');
+    await S.set('bioBetrieb', bb);
+  }
+  await S.set('imkerei', imk);
+  await S.set('bioPartnerMigriert', true);
+  console.info(`Bio: ${partner.length} Partner und ${zerts.length} Zertifikat-Einträge zusammengeführt`);
 }
 
 /** Einmalige Migration: alte Freitext-Belegstellen (nur Name als String auf Königin/Zuchtserie)
@@ -14257,6 +14469,7 @@ async function boot() {
   await migriereRaehmchenmass();
   await migriereChargenAbfuellung();
   await migriereInventarTyp();
+  await migriereBioPartner();
   await migriereBelegstellen();
   applyTheme();
   renderChrome();

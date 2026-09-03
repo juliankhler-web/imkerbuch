@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.49 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 362/362 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.50 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 368/368 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-03 (v1.50)**: **Vier Meldungen aus dem echten Betrieb** (Julian: „Ich habe ein Behandlungsmittel ApiLife Var angelegt … es kommt nur der Zucker als Auswahlmöglichkeit").
+  **Behandlungsmittel waren in der Auswahl unsichtbar.** `verbrauchsPosten` filterte auf das rohe Feld `i.typ === 'verbrauch'`, die Liste dagegen über `inventarTyp(i)`. Positionen aus älteren Fassungen und aus Importen haben kein `typ`-Feld — sie standen im Verbrauchsmaterial, waren beim Abziehen aber nicht wählbar. Der Zucker war neu angelegt und hatte das Feld, die Behandlungsmittel nicht. Jetzt gilt überall dieselbe Einteilung, und `verbrauchsPosten(einheiten, { kategorien })` lässt eine Kategorie unabhängig von der Einheit durch — ein Mittel in „Streifen" fällt nicht mehr heraus.
+  **Einheiten:** `VERBRAUCH_EINHEITEN` kennt jetzt **Streifen, Beutel, Tafel, Packung**. `EINHEIT_VORSCHLAEGE` erkennt ApiLife Var / Thymovar / Bayvarol → Streifen, Apiguard → Beutel, Futterteig → kg; die Behandlungsmittel-Muster stehen **vor** der Säure-Zeile, sonst würde „Thymovar" als Thymol in ml gerechnet. `migriereInventarTyp()` läuft jetzt **ohne Erledigt-Flag** und trägt fehlende Einheiten nach — mit Flag wären Positionen aus jedem künftigen Import für immer auf „Stück" stehen geblieben.
+  **Doppelte Lieferantenpflege beendet.** „Abnehmer und Lieferanten" lag als eigene Liste in `bioeintraege`, der Wareneingang arbeitete mit `kontakte` — jeder Lieferant musste zweimal eingetragen werden. Der neue Reiter `tabPartner` arbeitet direkt auf den Kontakten; die Öko-Angaben (`oekoWas`, `oekoNummer`, `oekoGueltigBis`, `oekoUrl`) hängen am Kontakt. `migriereBioPartner()` führt Vorhandenes nach Namen zusammen (Kunde + Lieferant → „beides"), ohne Dubletten und ohne Datenverlust.
+  **Reiter „Zertifikate" entfällt.** Die Zertifikate der Lieferanten hängen jetzt am Partner: Kontrollnummer, Gültigkeit mit Frist-Marke, Link zur Bescheinigung, Knopf in die EU-Datenbank (TRACES NT) und das PDF als **Anhang** am Kontakt. Das **eigene** Zertifikat sitzt in der Betriebsbeschreibung (13. Abschnitt + eigene Karte mit Nummer, Gültigkeit, Ablage und Datei). Papiere ohne Partner-Bezug wandern in diesen Abschnitt. **Bewusst kein automatischer Download**: es gibt kein offenes Verzeichnis, das Öko-Bescheinigungen zum Abruf herausgibt — die App verlinkt und speichert, sie erfindet nichts.
+  6 neue Tests. **368/368 grün.** SW → v162.
 
 - **2026-09-03 (v1.49)**: **Die offenen Funde der Komplettprüfung abgearbeitet** – lauter Fehler, die gemeldet, aber nie beauftragt waren.
   **Service Worker vergiftete den App-Speicher:** `istSeite` galt für *jede* Navigation, und die Antwort landete immer unter dem Schlüssel `./index.html`. Wer landing.html oder impressum.html aufrief, überschrieb damit die App im Cache — offline erschien dann die Landingpage statt des Imkerbuchs. Jetzt entscheidet `istApp`, was unter den festen Schlüssel darf; jede andere Seite liegt unter ihrer eigenen Adresse. SW → v161.

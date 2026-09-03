@@ -2535,12 +2535,13 @@ test('osmAnteileAusFlaechen: Anteile, „nicht erfasst" und kleinere Fläche gew
 });
 
 /* ---------- Bio / Öko-Kontrolle ---------- */
-test('Bio: sechs Bereiche im Reiter', async (w) => {
+test('Bio: fünf Bereiche im Reiter – Zertifikate hängen am Partner', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.bio.render(host);
     const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
-    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Abnehmer & Lieferanten', 'Zertifikate', 'Förderverfahren'], 'alle sechs Bereiche, ohne Nummern');
+    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Abnehmer & Lieferanten', 'Förderverfahren'],
+      'kein eigener Zertifikate-Reiter mehr – Zertifikate gehören zum jeweiligen Partner');
     assert(!reiter.some((t) => /^\d/.test(t)), 'keine Ziffern vor den Namen');
     assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
   } finally { host.remove(); w.Views.bio._tab = 'betrieb'; }
@@ -2549,13 +2550,13 @@ test('Bio: Betriebsbeschreibung zählt die ausgefüllten Abschnitte', async (w) 
   const vorher = w.S.get('bioBetrieb');
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
-    assertEq(w.BIO_ABSCHNITTE.length, 12, 'zwölf Abschnitte');
+    assertEq(w.BIO_ABSCHNITTE.length, 13, 'dreizehn Abschnitte – der letzte nimmt das eigene Zertifikat auf');
     await w.S.set('bioBetrieb', {});
     await w.Views.bio.tabBetrieb(host);
-    assert(/0 von 12 Abschnitten/.test(host.textContent), 'leer gezählt');
+    assert(/0 von 13 Abschnitten/.test(host.textContent), 'leer gezählt');
     await w.S.set('bioBetrieb', { betrieb: 'Julian Köhler, seit 2023 ökologisch', wachs: 'eigener Wachskreislauf' });
     await w.Views.bio.tabBetrieb(host);
-    assert(/2 von 12 Abschnitten/.test(host.textContent), 'zwei gezählt');
+    assert(/2 von 13 Abschnitten/.test(host.textContent), 'zwei gezählt');
     assert(/eigener Wachskreislauf/.test(host.textContent), 'Text erscheint');
   } finally { host.remove(); await w.S.set('bioBetrieb', vorher); }
 });
@@ -2639,18 +2640,9 @@ test('bioFristStatus: rot wenn vorbei, gelb wenn bald', (w) => {
   assertEq(w.bioFristStatus(w.U.addDays(w.U.todayIso(), 200)), null, 'weit weg = keine Marke');
 });
 test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
-  const abgelaufen = await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Öko-Zertifikat eigener Betrieb', name: 'Altes Zertifikat', gueltigBis: w.U.addDays(w.U.todayIso(), -3) });
-  const bald = await w.DB.put('bioeintraege', { bereich: 'partner', name: 'Zucker Meier', rolle: 'Lieferant', kontrollnummer: 'DE-ÖKO-006', gueltigBis: w.U.addDays(w.U.todayIso(), 14) });
   const frist = await w.DB.put('bioeintraege', { bereich: 'foerderung', name: 'Öko-Förderung', status: 'beantragt', frist: w.U.addDays(w.U.todayIso(), 20), betrag: 1200 });
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
-    await w.Views.bio.tabListe(host, 'zertifikat');
-    assert(/Altes Zertifikat/.test(host.textContent), 'Zertifikat gelistet');
-    assert(/vorbei/.test(host.textContent), 'abgelaufenes Datum ist als vorbei markiert');
-    assert(host.querySelector('.badge.b-danger'), 'rote Marke');
-    await w.Views.bio.tabListe(host, 'partner');
-    assert(/Zucker Meier/.test(host.textContent) && /DE-ÖKO-006/.test(host.textContent), 'Partner mit Kontrollnummer');
-    assert(host.querySelector('.badge.b-warn'), 'gelbe Marke für „bald"');
     await w.Views.bio.tabListe(host, 'foerderung');
     assert(/Öko-Förderung/.test(host.textContent) && /Frist/.test(host.textContent), 'Förderverfahren mit Frist');
     assert(/1.200,00/.test(host.textContent) || /1200/.test(host.textContent), 'Betrag steht rechts');
@@ -2662,7 +2654,7 @@ test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
     h.remove();
   } finally {
     host.remove();
-    for (const e of [abgelaufen, bald, frist]) await w.DB.del('bioeintraege', e.id);
+    await w.DB.del('bioeintraege', frist.id);
   }
 });
 test('Bio-Eintrag: Bereich bleibt beim Speichern erhalten', async (w) => {
@@ -5733,9 +5725,9 @@ test('osmLandbedeckung: baut die Abfrage und rechnet die Antwort in Anteile um',
   ] };
   await mitFetch(w, async () => new Response(JSON.stringify(antwort), { status: 200, headers: { 'Content-Type': 'application/json' } }), async (rufe) => {
     const erg = await w.osmLandbedeckung(50, 8, 1500, () => {});
-    assertEq(rufe.length, 1, 'ein Server reicht, wenn er antwortet');
-    assert(/overpass/.test(rufe[0].url), 'gefragt wird Overpass: ' + rufe[0].url);
-    const body = decodeURIComponent(String(rufe[0].opt.body));
+    const op = rufe.filter((r) => /overpass/.test(r.url));
+    assertEq(op.length, 1, 'ein Server reicht, wenn er antwortet');
+    const body = decodeURIComponent(String(op[0].opt.body));
     assert(/around:1500,50,8/.test(body), 'Umkreis und Koordinaten stehen in der Abfrage');
     assert(/out geom/.test(body), 'die Geometrie wird mit angefordert');
     assert(erg.zeilen.length > 0, 'es kommen Zeilen zurück');
@@ -5751,7 +5743,8 @@ test('osmLandbedeckung: probiert den nächsten Server und gibt am Ende auf', asy
     let fehler = null;
     try { await w.osmLandbedeckung(50, 8, 1500, () => {}); } catch (e) { fehler = e; }
     assert(fehler, 'ohne Netz wirft die Funktion – nur so greift die Rückfallkette');
-    assert(rufe.length >= w.OSM_OVERPASS_SERVER.length, `alle ${w.OSM_OVERPASS_SERVER.length} Server wurden probiert (${rufe.length} Versuche)`);
+    const op = rufe.filter((r) => /overpass/.test(r.url));
+    assert(op.length >= w.OSM_OVERPASS_SERVER.length, `alle ${w.OSM_OVERPASS_SERVER.length} Server wurden probiert (${op.length} Versuche)`);
   });
 });
 
@@ -6490,4 +6483,197 @@ test('Zusammenführen: der Bericht sagt, was wohin gegangen ist', async (w) => {
     assertEq(w.STORE_LABELS.kontakte, 'Kontakt');
     assertEq(w.STORE_LABELS.staende, 'Bienenstand');
   } finally { await w.DB.del('kontakte', kontakt.id); await w.DB.del('staende', stand.id); }
+});
+
+/* =====================================================================
+   VERBRAUCHSMATERIAL: Einheiten und Auswahl (aus dem Betrieb gemeldet)
+   ===================================================================== */
+
+test('Behandlung: Behandlungsmittel stehen zur Auswahl, auch ohne typ-Feld', async (w) => {
+  const alt = await w.DB.getAll('inventar');
+  await w.DB.clear('inventar');
+  try {
+    // genau der gemeldete Fall: Zucker erschien, das Behandlungsmittel nicht
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker', kategorie: 'Futter', einheit: 'kg', stueckzahl: 50 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'ApiLife Var', kategorie: 'Behandlungsmittel', einheit: 'Streifen', stueckzahl: 12 });
+    // Altdatensatz ohne typ und ohne einheit – so kommen Positionen aus alten Sicherungen
+    await w.DB.put('inventar', { bezeichnung: 'Ameisensäure 60 %', kategorie: 'Behandlungsmittel', stueckzahl: 3 }, true);
+
+    const mittel = await w.verbrauchsPosten(w.VERBRAUCH_EINHEITEN, { kategorien: ['Behandlungsmittel'] });
+    const namen = mittel.map((p) => p.bezeichnung);
+    assert(namen.includes('ApiLife Var'), 'das Behandlungsmittel ist wählbar');
+    assert(namen.includes('Ameisensäure 60 %'), 'auch der Altdatensatz ohne typ-Feld – daran lag der Fehler');
+    assert(namen.includes('Zucker'), 'der Zucker bleibt selbstverständlich dabei');
+
+    // Die Fütterung nimmt umgekehrt das Futter mit, auch mit ungewöhnlicher Einheit
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Futterteig', kategorie: 'Futter', einheit: 'Tafel', stueckzahl: 20 });
+    const futter = await w.verbrauchsPosten(['kg', 'L', 'Sack', 'Packung'], { kategorien: ['Futter'] });
+    assert(futter.map((p) => p.bezeichnung).includes('Futterteig'), 'Futterteig in Tafeln ist wählbar');
+
+    // Ohne Kategorie-Ausnahme greift weiter der Einheiten-Filter
+    const nurKg = await w.verbrauchsPosten(['kg']);
+    assertEq(nurKg.map((p) => p.bezeichnung), ['Zucker'], 'der reine Einheiten-Filter bleibt scharf');
+  } finally {
+    await w.DB.clear('inventar');
+    for (const x of alt) await w.DB.put('inventar', x, true);
+  }
+});
+
+test('Einheiten: Vorschlag je Mittel, Packung × Inhalt in der Liste', async (w) => {
+  assertEq(w.einheitVorschlag('ApiLife Var'), 'Streifen', 'Plättchen werden in Streifen dosiert');
+  assertEq(w.einheitVorschlag('Thymovar'), 'Streifen');
+  assertEq(w.einheitVorschlag('Bayvarol Streifen'), 'Streifen');
+  assertEq(w.einheitVorschlag('Apiguard'), 'Beutel');
+  assertEq(w.einheitVorschlag('Ameisensäure 60 %'), 'ml', 'Säure bleibt in Millilitern');
+  assertEq(w.einheitVorschlag('Apifonda Futterteig'), 'kg', 'Teig wird gewogen');
+  assertEq(w.einheitVorschlag('Zucker 25 kg'), 'kg');
+  assertEq(w.einheitVorschlag('Gläser 500 g'), 'Stück');
+  assert(w.VERBRAUCH_EINHEITEN.includes('Streifen'), 'Streifen ist eine erlaubte Verbrauchseinheit');
+
+  // Anzeige: sie muss sagen, ob Packungen oder Streifen gemeint sind
+  const pos = { typ: 'verbrauch', bezeichnung: 'ApiLife Var', kategorie: 'Behandlungsmittel',
+    einheit: 'Streifen', packEinheit: 'Packung', inhaltMenge: 2, stueckzahl: 12 };
+  assert(w.inPackungen(pos), 'die Position ist in Packungen geführt');
+  assertEq(w.bestandInPackungen(pos), 6, '12 Streifen sind 6 Packungen à 2');
+  assertEq(w.packungText(pos), '6 Packung × 2 Streifen = 12 Streifen', 'und genau das steht in der Liste');
+});
+
+test('Altdaten: fehlende Einheit wird nachgezogen statt „Stück" zu behaupten', async (w) => {
+  const alt = await w.DB.getAll('inventar');
+  const flag = w.S.get('inventarTypMigriert');
+  await w.DB.clear('inventar');
+  try {
+    await w.DB.put('inventar', { bezeichnung: 'Oxalsäure Dihydrat', kategorie: 'Behandlungsmittel', stueckzahl: 1 }, true);
+    await w.DB.put('inventar', { bezeichnung: 'Zucker aus altem Backup', kategorie: 'Futter', stueckzahl: 25 }, true);
+    await w.DB.put('inventar', { bezeichnung: 'Zanderbeute', kategorie: 'Beute', stueckzahl: 4 }, true);
+    // Die Migration läuft absichtlich ohne Erledigt-Flag: Importe bringen immer neue Altfälle
+    await w.S.set('inventarTypMigriert', true);
+    await w.migriereInventarTyp();
+    const nach = await w.DB.getAll('inventar');
+    const finde = (n) => nach.find((i) => i.bezeichnung === n);
+    assertEq(finde('Oxalsäure Dihydrat').einheit, 'ml', 'Säure bekommt ml, nicht Stück');
+    assertEq(finde('Oxalsäure Dihydrat').typ, 'verbrauch', 'und wird als Verbrauchsmaterial geführt');
+    assertEq(finde('Zucker aus altem Backup').einheit, 'kg');
+    assertEq(finde('Zanderbeute').typ, 'inventar', 'eine Beute bleibt Inventar');
+    assert(!finde('Zanderbeute').einheit, 'und braucht keine Verbrauchseinheit');
+  } finally {
+    await w.DB.clear('inventar');
+    for (const x of alt) await w.DB.put('inventar', x, true);
+    await w.S.set('inventarTypMigriert', flag);
+  }
+});
+
+/* =====================================================================
+   BIO: Partner sind Kontakte, Zertifikate hängen am Partner
+   ===================================================================== */
+
+test('Bio-Partner: eine Liste für Kassenbuch, Wareneingang und Öko-Kontrolle', async (w) => {
+  const alt = await w.DB.getAll('kontakte');
+  await w.DB.clear('kontakte');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const lief = await w.DB.put('kontakte', { typ: 'lieferant', name: 'Öko-Zucker Meier', oekoWas: 'Öko-Zucker',
+      oekoNummer: 'DE-ÖKO-006', oekoGueltigBis: w.U.addDays(w.U.todayIso(), 14), oekoUrl: 'https://example.org/zert.pdf' });
+    await w.DB.put('kontakte', { typ: 'lieferant', name: 'Wachs ohne Nummer' });
+    await w.DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Schmidt' });
+
+    w.Views.bio._pfilter = '';
+    await w.Views.bio.tabPartner(host);
+    assert(/Öko-Zucker Meier/.test(host.textContent), 'der Lieferant steht in der Liste');
+    assert(/DE-ÖKO-006/.test(host.textContent), 'mit seiner Kontrollnummer');
+    assert(host.querySelector('.badge.b-warn'), 'ablaufendes Zertifikat wird gelb markiert');
+    assert(/Hofladen Schmidt/.test(host.textContent), 'Abnehmer stehen in derselben Liste');
+    assert(/noch keine Öko-Kontrollnummer/.test(host.textContent), 'fehlende Nummern werden angemahnt');
+    assert(/Link vorhanden/.test(host.textContent), 'ein hinterlegter Zertifikat-Link wird angezeigt');
+
+    // Rollen-Filter
+    w.Views.bio._pfilter = 'kunde';
+    await w.Views.bio.tabPartner(host);
+    assert(/Hofladen Schmidt/.test(host.textContent) && !/Öko-Zucker Meier/.test(host.textContent), 'der Filter greift');
+
+    // Derselbe Kontakt steht im Wareneingang zur Auswahl – kein doppeltes Eintragen
+    dialogeSchliessen(w);
+    const m = await w.materialZugangForm({ typ: 'verbrauch', titel: 'Verbrauchsmaterial' });
+    await new Promise((r) => setTimeout(r, 300));
+    const opts = [...m.el.querySelectorAll('#f-kontaktId option')].map((o) => o.textContent);
+    assert(opts.some((o) => /Öko-Zucker Meier/.test(o)), 'der Bio-Lieferant erscheint im Wareneingang: ' + opts.join(', '));
+  } finally {
+    dialogeSchliessen(w); host.remove(); w.Views.bio._pfilter = '';
+    await w.DB.clear('kontakte');
+    for (const x of alt) await w.DB.put('kontakte', x, true);
+  }
+});
+
+test('Bio-Migration: alte Partner- und Zertifikat-Einträge wandern um', async (w) => {
+  const altK = await w.DB.getAll('kontakte');
+  const altB = await w.DB.getAll('bioeintraege');
+  const altImk = w.S.get('imkerei');
+  const altFlag = w.S.get('bioPartnerMigriert');
+  const altBB = w.S.get('bioBetrieb');
+  await w.DB.clear('kontakte'); await w.DB.clear('bioeintraege');
+  try {
+    // Ausgangslage wie in einer gewachsenen Datenbank
+    const schonKontakt = await w.DB.put('kontakte', { typ: 'kunde', name: 'Zucker Meier', notiz: 'zahlt bar' });
+    await w.DB.put('bioeintraege', { bereich: 'partner', name: 'Zucker Meier', rolle: 'Lieferant', was: 'Öko-Zucker', kontrollnummer: 'DE-ÖKO-006', gueltigBis: '2027-03-31' });
+    await w.DB.put('bioeintraege', { bereich: 'partner', name: 'Mittelwände Wagner', rolle: 'Lieferant', was: 'Mittelwände', kontrollnummer: 'DE-ÖKO-013' });
+    await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Öko-Zertifikat eigener Betrieb', name: 'Bescheinigung 2026', nummer: 'ABC-123', gueltigBis: '2027-01-31', ablage: 'Ordner Bio' });
+    await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Begleitpapier / Lieferschein', name: 'Lieferschein 4711', aussteller: 'Mittelwände Wagner', ablage: 'Ordner Bio' });
+    await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Analysenbericht', name: 'Wachsanalyse', ablage: 'Ordner Labor' });
+    await w.S.set('bioPartnerMigriert', false);
+    await w.S.set('bioBetrieb', {});
+
+    await w.migriereBioPartner();
+
+    const kontakte = await w.DB.getAll('kontakte');
+    const meier = kontakte.find((c) => c.name === 'Zucker Meier');
+    assertEq(kontakte.length, 2, 'zwei Partner – der vorhandene Kontakt wurde nicht verdoppelt');
+    assertEq(meier.id, schonKontakt.id, 'es ist derselbe Datensatz');
+    assertEq(meier.typ, 'beides', 'aus Kunde + Lieferant wird „beides"');
+    assertEq(meier.oekoNummer, 'DE-ÖKO-006', 'die Kontrollnummer ist übernommen');
+    assertEq(meier.oekoGueltigBis, '2027-03-31');
+    assert(/zahlt bar/.test(meier.notiz), 'die alte Notiz bleibt erhalten');
+
+    const wagner = kontakte.find((c) => c.name === 'Mittelwände Wagner');
+    assertEq(wagner.typ, 'lieferant', 'neu angelegter Partner mit seiner Rolle');
+    assert(/Lieferschein 4711/.test(wagner.notiz || ''), 'sein Begleitpapier steht bei ihm');
+
+    const imk = w.S.get('imkerei');
+    assertEq(imk.oekoZertNummer, 'ABC-123', 'das eigene Zertifikat liegt bei der Imkerei');
+    assertEq(imk.oekoZertGueltigBis, '2027-01-31');
+    assertEq(imk.oekoZertAblage, 'Ordner Bio');
+
+    const bb = w.S.get('bioBetrieb');
+    assert(/Wachsanalyse/.test(bb.zertifikate || ''), 'ein Papier ohne Partner-Bezug geht in die Betriebsbeschreibung');
+
+    assertEq((await w.DB.getAll('bioeintraege')).length, 0, 'die alten Einträge sind aufgelöst');
+    assertEq(w.S.get('bioPartnerMigriert'), true, 'und die Migration läuft nicht zweimal');
+  } finally {
+    await w.DB.clear('kontakte'); await w.DB.clear('bioeintraege');
+    for (const x of altK) await w.DB.put('kontakte', x, true);
+    for (const x of altB) await w.DB.put('bioeintraege', x, true);
+    await w.S.set('imkerei', altImk); await w.S.set('bioBetrieb', altBB);
+    await w.S.set('bioPartnerMigriert', altFlag);
+  }
+});
+
+test('Bio-Unterlagen (PDF): Partner-Tabelle kommt aus den Kontakten', async (w) => {
+  const altK = await w.DB.getAll('kontakte');
+  await w.DB.clear('kontakte');
+  const echt = w.Pdf.finish;
+  let gebaut = null;
+  w.Pdf.finish = (doc, name) => { gebaut = { name, text: doc.internal.pages.flat().filter(Boolean).join(' ') }; };
+  try {
+    await w.DB.put('kontakte', { typ: 'lieferant', name: 'PDF-Lieferant', oekoWas: 'Öko-Zucker', oekoNummer: 'DE-ÖKO-006', oekoGueltigBis: '2027-03-31' });
+    await w.DB.put('kontakte', { typ: 'kunde', name: 'Kunde ohne Öko' });
+    await w.Pdf.bioUnterlagen();
+    assert(gebaut, 'das PDF wurde gebaut');
+    assert(/Abnehmer und Lieferanten/.test(gebaut.text), 'die Partner-Tabelle ist drin');
+    assert(/PDF-Lieferant/.test(gebaut.text), 'mit dem Öko-Partner');
+    assert(!/Kunde ohne/.test(gebaut.text), 'ein Kontakt ohne Öko-Angaben gehört nicht in die Öko-Unterlagen');
+    assert(/Eigenes|Zertifikat/.test(gebaut.text), 'das eigene Zertifikat hat weiter seinen Platz');
+  } finally {
+    w.Pdf.finish = echt;
+    await w.DB.clear('kontakte');
+    for (const x of altK) await w.DB.put('kontakte', x, true);
+  }
 });
