@@ -6677,3 +6677,114 @@ test('Bio-Unterlagen (PDF): Partner-Tabelle kommt aus den Kontakten', async (w) 
     for (const x of altK) await w.DB.put('kontakte', x, true);
   }
 });
+
+/* =====================================================================
+   ÜBERHOLTE RENDERLÄUFE
+   Ein View darf beim Zeichnen warten. Wechselt der Nutzer in dieser Zeit
+   den Bereich, ist der erste Lauf überholt – und darf die neue Seite
+   nicht mehr anfassen.
+
+   Die Route wird hier direkt gesetzt statt über location.hash: ein
+   Hash-Wechsel löst über den hashchange-Listener einen EIGENEN Renderlauf
+   aus, der die Zählung verfälschen würde. Genau diese Doppelung war
+   seinerzeit der Fehler im Prüfwerkzeug, nicht in der App.
+   ===================================================================== */
+
+/** Route vortäuschen, ohne den Hash anzufassen. Gibt eine Funktion zum
+    Umschalten und eine zum Aufräumen zurück. */
+function routeStellen(w, start) {
+  const echt = w.currentRoute;
+  let aktuell = start;
+  w.currentRoute = () => ({ route: aktuell, param: null });
+  return { auf: (r) => { aktuell = r; }, zurueck: () => { w.currentRoute = echt; } };
+}
+
+test('Überholter Renderlauf reißt die neue Seite nicht nach oben', async (w) => {
+  const echtScroll = w.scrollTo;
+  const spruenge = [];
+  w.scrollTo = (...a) => { spruenge.push(a); };
+  w.Views.__langsam = { title: 'Langsam', async render(main) {
+    await new Promise((r) => setTimeout(r, 400));
+    main.innerHTML = '<div id="langsam-fertig">fertig</div>';
+  } };
+  const route = routeStellen(w, '__langsam');
+  try {
+    const langsam = w.renderRoute();          // Lauf 1 wartet noch
+    await new Promise((r) => setTimeout(r, 60));
+    route.auf('aufgaben');
+    await w.renderRoute();                    // Lauf 2 überholt ihn und ist fertig
+    assertEq(spruenge.length, 1, 'der fertige Lauf scrollt nach oben');
+    await langsam;                            // der überholte läuft aus
+    await new Promise((r) => setTimeout(r, 200));
+    assertEq(spruenge.length, 1, 'der überholte Lauf scrollt NICHT noch einmal');
+    assert(!w.document.querySelector('#langsam-fertig'), 'und schreibt nichts in die sichtbare Seite');
+    assert(/Aufgaben/i.test(w.document.getElementById('tb-title').textContent), 'sichtbar ist die zuletzt gewählte Seite');
+  } finally {
+    w.scrollTo = echtScroll;
+    delete w.Views.__langsam;
+    route.zurueck();
+    await w.renderRoute();
+  }
+});
+
+test('Fehler eines überholten Renderlaufs landet nicht auf der neuen Seite', async (w) => {
+  w.Views.__kaputt = { title: 'Kaputt', async render() {
+    await new Promise((r) => setTimeout(r, 300));
+    throw new Error('Absichtlicher Testfehler');
+  } };
+  const route = routeStellen(w, '__kaputt');
+  try {
+    const kaputt = w.renderRoute();
+    await new Promise((r) => setTimeout(r, 60));
+    route.auf('aufgaben');
+    await w.renderRoute();                    // überholt den kaputten Lauf
+    await kaputt;
+    await new Promise((r) => setTimeout(r, 200));
+    const text = w.document.getElementById('main').textContent;
+    assert(!/schiefgelaufen/.test(text), 'keine Fehlerkarte auf der neuen Seite');
+    assert(!/Absichtlicher Testfehler/.test(text), 'und auch nicht die Fehlermeldung');
+    assert(/Aufgaben/i.test(w.document.getElementById('tb-title').textContent), 'die gewählte Seite steht');
+  } finally {
+    delete w.Views.__kaputt;
+    route.zurueck();
+    await w.renderRoute();
+  }
+});
+
+test('Ein Fehler auf der AKTUELLEN Seite wird weiterhin angezeigt', async (w) => {
+  /* Gegenprobe zum Test darüber: der Schutz darf echte Fehler nicht verschlucken. */
+  w.Views.__kaputt2 = { title: 'Kaputt2', async render() { throw new Error('Sichtbarer Testfehler'); } };
+  const route = routeStellen(w, '__kaputt2');
+  try {
+    await w.renderRoute();
+    const text = w.document.getElementById('main').textContent;
+    assert(/schiefgelaufen/.test(text), 'die Fehlerkarte steht da');
+    assert(/Sichtbarer Testfehler/.test(text), 'mit der Meldung: ' + text.slice(0, 80));
+  } finally {
+    delete w.Views.__kaputt2;
+    route.zurueck();
+    await w.renderRoute();
+  }
+});
+
+test('Der letzte Renderlauf gewinnt – auch wenn ein früherer länger braucht', async (w) => {
+  w.Views.__langsam2 = { title: 'Langsam2', async render(main) {
+    await new Promise((r) => setTimeout(r, 350));
+    main.innerHTML = '<div>langsam-inhalt</div>';
+  } };
+  const route = routeStellen(w, '__langsam2');
+  try {
+    const langsam = w.renderRoute();
+    route.auf('voelker');
+    await w.renderRoute();
+    const titelNachher = w.document.getElementById('tb-title').textContent;
+    await langsam;
+    await new Promise((r) => setTimeout(r, 200));
+    assertEq(w.document.getElementById('tb-title').textContent, titelNachher, 'der Titel bleibt beim zuletzt gewählten Bereich');
+    assert(!/langsam-inhalt/.test(w.document.getElementById('main').textContent), 'und der Inhalt auch');
+  } finally {
+    delete w.Views.__langsam2;
+    route.zurueck();
+    await w.renderRoute();
+  }
+});

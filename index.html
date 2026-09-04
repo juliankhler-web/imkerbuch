@@ -947,8 +947,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.50';
+const APP_VERSION = '1.51';
 const CHANGELOG = [
+  { version: '1.51', datum: '2026-09-03', punkte: [
+    'Stabilität: Wechselst du den Bereich, während eine Seite noch lädt, <b>steigt der alte Aufbau jetzt still aus</b>. Vorher konnte er die schon geöffnete Seite nach oben reißen oder eine Fehlermeldung zeigen, die zu einer längst verlassenen Seite gehörte.',
+  ] },
   { version: '1.50', datum: '2026-09-03', punkte: [
     'Behoben: Beim <b>Eintragen einer Behandlung</b> stand unter „Mittel vom Verbrauchsmaterial abziehen" nur der Zucker zur Auswahl. Positionen aus älteren Fassungen und aus Importen hatten intern kein Typ-Kennzeichen und waren dadurch unsichtbar – sie standen in der Liste, aber nicht in der Auswahl. Jetzt greift dieselbe Einteilung wie in der Liste, und ein Behandlungsmittel ist immer wählbar, egal in welcher Einheit es geführt wird.',
     'Die <b>Einheiten</b> stimmen: Es gibt jetzt <b>Streifen, Beutel, Tafel und Packung</b> als Verbrauchseinheit. ApiLife Var, Thymovar und Bayvarol werden beim Anlegen von selbst als „Streifen" vorgeschlagen, Apiguard als „Beutel", Futterteig als „kg". Positionen ohne Einheit bekommen sie automatisch nachgetragen – vorher behauptete die Liste bei allem „Stück".',
@@ -2261,7 +2264,18 @@ function nachRenderBeobachten() {
   }).observe(document.body, { childList: true, subtree: true });
 }
 
+/* Laufende Nummer des Rendervorgangs. Ein View darf beim Zeichnen warten
+   (Datenbank, Bilder, Netz). Wechselt der Nutzer in dieser Zeit den Bereich,
+   startet ein zweiter Lauf – der erste ist damit überholt. Sein Ergebnis
+   schreibt zwar ins Leere (jeder Lauf bekommt sein eigenes #main), aber alles,
+   was er DANACH am gemeinsamen Fenster tut, träfe die neue Seite: der Sprung
+   nach oben und eine Fehlerkarte, die zu einer längst verlassenen Seite gehört.
+   Deshalb steigt ein überholter Lauf still aus. */
+let renderLauf = 0;
+
 async function renderRoute() {
+  const lauf = ++renderLauf;
+  const ueberholt = () => lauf !== renderLauf;
   const { route, param } = currentRoute();
   const view = Views[route] || Views.dashboard;
   // #main bei jedem Render frisch ersetzen: Views hängen Listener direkt an main –
@@ -2279,9 +2293,11 @@ async function renderRoute() {
     document.title = (title ? title + ' – ' : '') + 'ImkerBuch';
     await view.render(main, param);
   } catch (e) {
+    if (ueberholt()) return;   // Fehler einer verlassenen Seite gehört nicht auf die neue
     console.error('Render-Fehler', route, e);
     main.innerHTML = `<div class="card"><div class="card-title">${icon('warn')}<h2>Da ist etwas schiefgelaufen</h2></div><p class="muted small">${U.esc(e.message)}</p><button class="btn btn-ghost mt12" onclick="renderRoute()">Neu laden</button></div>`;
   }
+  if (ueberholt()) return;     // nicht die inzwischen geöffnete Seite nach oben reißen
   window.scrollTo({ top: 0 });
 }
 

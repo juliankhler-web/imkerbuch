@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.50 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 368/368 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 372/372 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-03 (v1.51)**: **Überholte Renderläufe steigen aus** (Julian: „mach es dennoch, wir wollen das System so stabil wie möglich machen").
+  Der letzte offene Fund der Komplettprüfung. Ein View darf beim Zeichnen warten; wechselt der Nutzer in dieser Zeit den Bereich, läuft der erste Vorgang weiter. Sein Inhalt landete zwar im Leeren — jeder Lauf bekommt sein eigenes `#main` —, aber alles **danach** traf das gemeinsame Fenster: der `window.scrollTo({top:0})` riss die inzwischen geöffnete Seite nach oben, und eine Fehlerkarte einer längst verlassenen Seite erschien auf der neuen.
+  `renderRoute` zählt jetzt seine Läufe (`renderLauf`); wer überholt wurde, steigt vor Fehlerkarte und Scroll still aus. Geprüft an vier Fällen, darunter die **Gegenprobe**, dass ein Fehler auf der aktuellen Seite weiterhin angezeigt wird — ein Schutz, der echte Fehler verschluckt, wäre schlimmer als das Problem.
+  Zum Nachschlagen: Die Tests setzen die Route direkt statt über `location.hash`, weil ein Hash-Wechsel über den `hashchange`-Listener einen **eigenen** Renderlauf auslöst. Genau diese Doppelung war seinerzeit der Fehler im Prüfwerkzeug — nicht in der App.
+  4 neue Tests. **372/372 grün.** SW → v163.
 
 - **2026-09-03 (v1.50)**: **Vier Meldungen aus dem echten Betrieb** (Julian: „Ich habe ein Behandlungsmittel ApiLife Var angelegt … es kommt nur der Zucker als Auswahlmöglichkeit").
   **Behandlungsmittel waren in der Auswahl unsichtbar.** `verbrauchsPosten` filterte auf das rohe Feld `i.typ === 'verbrauch'`, die Liste dagegen über `inventarTyp(i)`. Positionen aus älteren Fassungen und aus Importen haben kein `typ`-Feld — sie standen im Verbrauchsmaterial, waren beim Abziehen aber nicht wählbar. Der Zucker war neu angelegt und hatte das Feld, die Behandlungsmittel nicht. Jetzt gilt überall dieselbe Einteilung, und `verbrauchsPosten(einheiten, { kategorien })` lässt eine Kategorie unabhängig von der Einheit durch — ein Mittel in „Streifen" fällt nicht mehr heraus.
