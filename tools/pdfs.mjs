@@ -10,6 +10,8 @@ import { spawn } from 'node:child_process';
 
 const ZIEL = process.argv[2];
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Wegwerf-Profil neben den Werkzeugen, per Punkt vor dem Namen aus Git heraus
+const PROFIL = new URL('.chromeprofil-pdf', import.meta.url).pathname;
 const PORT = 9334;
 const BASIS = 'http://localhost:8931/index.html?testdb=1';
 const schlaf = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,7 +73,7 @@ const VORBEREITEN = `
 async function main() {
   mkdirSync(ZIEL, { recursive: true });
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`,
-    `--user-data-dir=${ZIEL}/../chromeprofil-pdf`, '--no-first-run', '--no-default-browser-check',
+    `--user-data-dir=${PROFIL}`, '--no-first-run', '--no-default-browser-check',
     '--disable-gpu', '--hide-scrollbars'], { stdio: 'ignore' });
   process.on('exit', () => chrome.kill());
 

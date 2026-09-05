@@ -55,6 +55,32 @@ jobs:
           path: tools/coverage/report.json
           if-no-files-found: warn
 
+  hygiene:
+    name: Nichts Ueberfluessiges im Repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Am 03.09.2026 ist ein komplettes Chrome-Profil aus tools/ mitcommittet
+      # worden – 222 Dateien, 19 MB. Der Jekyll-Bau von GitHub Pages ist daran
+      # gescheitert, und die Seite blieb drei Versionen lang stehen, ohne dass
+      # jemand etwas gemerkt hat. Das darf nicht zweimal passieren.
+      - name: Keine Wegwerf-Daten eingecheckt
+        run: |
+          TREFFER=$(git ls-files | grep -iE '(^|/)(chromeprofil|node_modules|\.DS_Store|coverage/)' || true)
+          if [ -n "$TREFFER" ]; then
+            echo "::error::Wegwerf-Daten sind eingecheckt:"
+            echo "$TREFFER" | head -20
+            exit 1
+          fi
+          echo "Sauber."
+      - name: GitHub Pages baut ohne Jekyll
+        run: |
+          test -f .nojekyll || {
+            echo "::error::.nojekyll fehlt – GitHub Pages baut die Seite dann mit Jekyll und kann daran scheitern"
+            exit 1
+          }
+          echo "In Ordnung."
+
   version:
     name: Version, Changelog und Cache im Gleichschritt
     runs-on: ubuntu-latest
