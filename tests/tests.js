@@ -6788,3 +6788,32 @@ test('Der letzte Renderlauf gewinnt – auch wenn ein früherer länger braucht'
     await w.renderRoute();
   }
 });
+
+test('„Was ist neu?" zeigt Fettschrift statt roher Tags', async (w) => {
+  dialogeSchliessen(w);
+  try {
+    // Der Helfer selbst: fett ja, alles andere entschärft
+    assertEq(w.nurFett('ganz <b>wichtig</b>'), 'ganz <b>wichtig</b>', 'b bleibt b');
+    assertEq(w.nurFett('5 < 7 und 9 > 3'), '5 &lt; 7 und 9 &gt; 3', 'echte Zeichen bleiben Zeichen');
+    assertEq(w.nurFett('<script>böse()</script>'), '&lt;script&gt;böse()&lt;/script&gt;', 'anderes Markup wird entschärft');
+    assertEq(w.nurFett('<i>schräg</i>'), '&lt;i&gt;schräg&lt;/i&gt;', 'auch kursiv nicht – nur fett ist erlaubt');
+
+    // Und im Fenster selbst
+    w.changelogModal([{ version: '9.9', datum: '2026-01-01', punkte: ['Ein <b>fetter</b> Hinweis', 'Ein <script>x</script> Versuch'] }]);
+    await new Promise((r) => setTimeout(r, 200));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Fenster steht offen');
+    assertEq(modal.querySelectorAll('b').length, 1, 'genau eine Fettstelle wurde gezeichnet');
+    assertEq(modal.querySelector('b').textContent, 'fetter');
+    assert(!/&lt;b&gt;|<b>/.test(modal.textContent), 'im sichtbaren Text steht kein Tag mehr: ' + modal.textContent.slice(0, 60));
+    assert(!modal.querySelector('script'), 'ein Skript wird nicht ausgeführt');
+    assert(/script/.test(modal.textContent), 'sondern als Text angezeigt');
+
+    // Die echten Einträge der App: kein Tag darf durchrutschen
+    dialogeSchliessen(w);
+    w.changelogModal(w.CHANGELOG.slice(0, 6));
+    await new Promise((r) => setTimeout(r, 200));
+    const echt = w.document.querySelector('.modal-back').textContent;
+    assert(!/<\/?b>|&lt;/.test(echt), 'in den echten Neuigkeiten steht kein rohes Tag');
+  } finally { dialogeSchliessen(w); }
+});

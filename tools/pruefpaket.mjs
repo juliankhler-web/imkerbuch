@@ -1,0 +1,175 @@
+/* Schnürt ein Paket zum Gegenlesen durch eine andere KI oder einen Menschen.
+
+   Enthalten ist der vollständige Quelltext, die Doku, die Testsuite und ein
+   Datensatz zum Ausprobieren. Der Datensatz sind BEISPIELDATEN aus der
+   Test-Datenbank – niemals die echten Daten. Wer eine Imkerei-Sicherung
+   weitergibt, gibt Kundennamen, Anschriften und Rechnungen mit heraus; das
+   sind personenbezogene Daten Dritter und gehören nicht in eine fremde Cloud.
+
+   Aufruf: node tools/pruefpaket.mjs [zielordner]
+*/
+import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { join, dirname, extname } from 'node:path';
+
+const WURZEL = new URL('..', import.meta.url).pathname;
+const ZIEL = process.argv[2] || join(WURZEL, 'pruefpaket');
+const PROFIL = new URL('.chromeprofil-paket', import.meta.url).pathname;
+const CHROME = process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const PORT = 8952, CDP = 9352;
+const schlaf = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Was ins Paket gehört. Alles andere (native Hüllen, Bilder, Videos,
+   node_modules) bläht nur auf und trägt zum Prüfen nichts bei. */
+const DATEIEN = [
+  'index.html', 'service-worker.js', 'manifest.json',
+  'tests/tests.js', 'tests/test.html',
+  'PROJEKT.md', 'docs/API.md', 'docs/ARCHITEKTUR.md', 'docs/FEATURES.md', 'docs/TESTFAELLE.md',
+  'docs/adr/README.md', 'docs/adr/0000-vorlage.md',
+  'docs/adr/0001-alles-bleibt-auf-dem-geraet.md',
+  'docs/adr/0002-eine-einzige-index-html.md',
+  'docs/adr/0003-abzug-mit-gemerkter-buchung.md',
+  'package.json', '.github/workflows/ci.yml',
+];
+
+class Cdp {
+  constructor(ws) { this.ws = ws; this.id = 0; this.warten = new Map(); this.session = null;
+    ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); const w = this.warten.get(m.id);
+      if (w) { this.warten.delete(m.id); m.error ? w.rej(new Error(m.error.message)) : w.res(m.result); } }); }
+  send(method, params = {}, session = this.session) {
+    const id = ++this.id;
+    return new Promise((res, rej) => { this.warten.set(id, { res, rej });
+      this.ws.send(JSON.stringify({ id, method, params, ...(session ? { sessionId: session } : {}) }));
+      setTimeout(() => { if (this.warten.delete(id)) rej(new Error('CDP-Zeitüberschreitung: ' + method)); }, 120000); });
+  }
+  async js(code) {
+    const r = await this.send('Runtime.evaluate', { expression: `(async()=>{${code}})()`, awaitPromise: true, returnByValue: true });
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
+    return r.result.value;
+  }
+}
+
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.webp': 'image/webp', '.png': 'image/png' };
+function server() {
+  const srv = createServer(async (req, res) => {
+    try {
+      const datei = join(WURZEL, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+      const inhalt = await readFile(datei);
+      res.writeHead(200, { 'Content-Type': MIME[extname(datei)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+      res.end(inhalt);
+    } catch (e) { res.writeHead(404).end(); }
+  });
+  return new Promise((r) => srv.listen(PORT, '127.0.0.1', () => r(srv)));
+}
+
+/** Beispieldaten in der Test-Datenbank erzeugen und als Sicherung ausgeben. */
+async function beispieldaten() {
+  const srv = await server();
+  const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${PROFIL}`,
+    '--no-first-run', '--no-default-browser-check', '--disable-gpu'], { stdio: 'ignore' });
+  try {
+    let cdp = null;
+    for (let i = 0; i < 60 && !cdp; i++) {
+      try {
+        const v = await fetch(`http://127.0.0.1:${CDP}/json/version`).then((r) => r.json());
+        const ws = new WebSocket(v.webSocketDebuggerUrl);
+        await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', rej); });
+        cdp = new Cdp(ws);
+      } catch (e) { await schlaf(300); }
+    }
+    if (!cdp) throw new Error('Chrome antwortet nicht');
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    cdp.session = sessionId;
+    await cdp.send('Page.enable'); await cdp.send('Runtime.enable');
+    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/index.html?testdb=1` });
+    for (let i = 0; i < 200; i++) { try { if (await cdp.js('return !!window.appReady')) break; } catch (e) {} await schlaf(150); }
+    await cdp.js('await Demo.reset(); return true;');
+    // ohne Anhänge: Fotos und Tonaufnahmen blähen die Datei auf und bringen nichts
+    return await cdp.js('return JSON.stringify(await Backup.buildData(false), null, 1);');
+  } finally { try { chrome.kill(); } catch (e) {} srv.close(); rmSync(PROFIL, { recursive: true, force: true }); }
+}
+
+const BRIEFING = `# ImkerBuch – Paket zum Gegenlesen
+
+Erzeugt am ${new Date().toISOString().slice(0, 10)}.
+
+## Was das hier ist
+
+Eine Verwaltung für Imkereien: eine offline-fähige Web-App, die **vollständig
+auf dem Gerät läuft**. Kein Server, kein Konto, keine Cloud. Alle Daten liegen
+in IndexedDB im Browser; ausgetauscht wird über eine Sicherungsdatei.
+
+## Was drin ist
+
+| Datei | Inhalt |
+| --- | --- |
+| \`index.html\` | die vollständige Anwendung (~14 500 Zeilen, ohne Bauschritt) |
+| \`service-worker.js\` | Offline-Betrieb und Zwischenspeicher |
+| \`tests/tests.js\` | die Testsuite (373 Fälle) |
+| \`tests/test.html\` | Testseite, die die App in einem Rahmen lädt |
+| \`beispieldaten.json\` | ein vollständiger Datensatz zum Ausprobieren |
+| \`docs/API.md\` | die interne Schnittstelle, Datenmodell aller Speicher |
+| \`docs/adr/\` | warum zentrale Entscheidungen so gefallen sind |
+| \`PROJEKT.md\` | Verlauf und Stand |
+
+**Die Beispieldaten sind erfunden.** Echte Betriebsdaten enthalten Kundennamen,
+Anschriften und Rechnungen – die gehören nicht in eine fremde Umgebung.
+
+## Ausprobieren
+
+\`\`\`bash
+python3 -m http.server 8000      # im Paketordner
+# dann http://localhost:8000/index.html aufrufen
+# Einstellungen → Sicherung → „Backup importieren" → beispieldaten.json
+# Tests: http://localhost:8000/tests/test.html
+\`\`\`
+
+## Worauf ich einen Blick hätte
+
+1. **Datenverlust** – kann eine Eingabe, ein Abbruch oder ein Import Daten
+   still verlieren oder verdoppeln?
+2. **Rechnen** – Bestände, Umsatzsteuer (§ 19 / § 24), Selbstkosten, Pfand.
+3. **Rechtliches** – Bestandsbuch (Tierarzneimittelgesetz), Rechnungsangaben
+   (§ 14 UStG), Honigverordnung auf dem Etikett, Öko-Kontrollunterlagen.
+4. **Der Offline-Betrieb** – Service Worker, Zwischenspeicher, Update-Weg.
+5. **Stolperfallen im Alltag** – Handschuhe, Sonne, kein Netz am Stand.
+
+## Was Absicht ist und kein Fehler
+
+- **Eine einzige \`index.html\` ohne Bauschritt.** Bewusst so; die Begründung
+  steht in \`docs/adr/0002\`.
+- **Kein Server, keine Cloud, kein Konto.** \`docs/adr/0001\`.
+- **Globale Funktionen statt Module.** Folge der Ein-Datei-Entscheidung;
+  Namensräume und Abschnittsbanner sorgen für Ordnung.
+- **Deutsche Bezeichner im Code.** Die Fachsprache der Imkerei ist deutsch,
+  eine Übersetzung würde beim Lesen mehr kosten als bringen.
+- **Bestandsabzug merkt sich seine Buchung** statt sie zurückzurechnen –
+  \`docs/adr/0003\`.
+`;
+
+async function main() {
+  rmSync(ZIEL, { recursive: true, force: true });
+  mkdirSync(ZIEL, { recursive: true });
+  for (const d of DATEIEN) {
+    if (!existsSync(join(WURZEL, d))) { console.log('  fehlt (übersprungen):', d); continue; }
+    mkdirSync(join(ZIEL, dirname(d)), { recursive: true });
+    copyFileSync(join(WURZEL, d), join(ZIEL, d));
+  }
+  console.log(`${DATEIEN.length} Dateien kopiert.`);
+  console.log('Beispieldaten werden erzeugt …');
+  writeFileSync(join(ZIEL, 'beispieldaten.json'), await beispieldaten());
+  writeFileSync(join(ZIEL, 'LIESMICH.md'), BRIEFING);
+
+  const zip = join(dirname(ZIEL), 'imkerbuch-pruefpaket.zip');
+  rmSync(zip, { force: true });
+  spawnSync('zip', ['-rq', zip, '.'], { cwd: ZIEL });
+  console.log(`\nFertig: ${ZIEL}`);
+  if (existsSync(zip)) {
+    const mb = (spawnSync('du', ['-k', zip]).stdout.toString().split('\t')[0] / 1024).toFixed(1);
+    console.log(`Zum Verschicken: ${zip} (${mb} MB)`);
+  }
+}
+main().catch((e) => { console.error(e); process.exit(1); });
