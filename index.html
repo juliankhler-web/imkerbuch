@@ -952,8 +952,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.58';
+const APP_VERSION = '1.59';
 const CHANGELOG = [
+  { version: '1.59', datum: '2026-09-20', punkte: [
+    'Neu in den Statistiken: <b>Futter je Volk</b>. Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht – 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg. Mit Diagramm, Winterfutter-Anteil und der Abweichung jedes Volks vom Durchschnitt.',
+    'Die <b>Völkerentwicklung</b> zeigt jetzt den Verlauf <b>innerhalb eines Jahres</b> – Stand an jedem Monatsende statt nur ein Punkt je Jahr. Über die Jahres-Knöpfe wechselst du das Jahr; „Alle Jahre" zeigt weiterhin die große Linie.',
+    'Neu: der <b>Jahresbericht als PDF</b> – Kennzahlen, Ernte je Monat als Diagramm, Völkerverlauf, Ernte je Sorte, alle Chargen mit Abfüllungen und Beständen, Verkauf je Gebinde und Futter je Volk. Der Knopf steht oben in den Statistiken.',
+  ] },
   { version: '1.58', datum: '2026-09-20', punkte: [
     'Neu: <b>Chargen von Hand anordnen.</b> Im Reiter Charge auf <b>Anordnen</b> tippen, die Zeilen am Griff ⠿ an die gewünschte Stelle ziehen, <b>Fertig</b> – das war es. Die Reihenfolge wird sofort gespeichert, überlebt das Neuladen und steht danach als Sortierung <b>Eigene</b> zur Wahl.',
     'Der <b>QR-Code einer Charge</b> entsteht am Ende eines langen Fensters. Die Ansicht springt jetzt dorthin, sobald er fertig ist – vorher sah es aus, als würde keiner erzeugt.',
@@ -11830,6 +11835,27 @@ const Reporting = {
     }
     return { labels, values };
   },
+  /* Verlauf INNERHALB eines Jahres: Stand am Ende jedes Monats. Die
+     Jahresansicht zeigt bei einer jungen Imkerei nur einen einzigen Punkt –
+     erst der Monatsverlauf macht sichtbar, wann Ableger dazukamen und wann
+     Völker eingegangen sind. Das laufende Jahr endet beim heutigen Monat;
+     Punkte für die Zukunft wären gelogen. */
+  async voelkerVerlauf(jahr) {
+    const voelker = await DB.getAll('voelker');
+    const monate = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+    const heute = U.todayIso();
+    const bisMonat = String(jahr) === heute.slice(0, 4) ? +heute.slice(5, 7) : 12;
+    const labels = [], values = [];
+    for (let m = 1; m <= bisMonat; m++) {
+      // letzter Tag des Monats: der 0. des Folgemonats
+      const letzter = new Date(Date.UTC(+jahr, m, 0)).toISOString().slice(0, 10);
+      const tag = letzter > heute ? heute : letzter;
+      labels.push(monate[m - 1]);
+      values.push(voelkerAmStichtag(voelker, tag).length);
+    }
+    return { labels, values };
+  },
+
   /** Honigertrag gruppiert nach volk|stand|tracht|jahr */
   async ertrag(gruppe) {
     const ernten = await DB.getAll('ernten');
@@ -11863,6 +11889,30 @@ const Reporting = {
       .map(([label, items]) => ({ label, wert: Math.round((U.sum(items, (a) => a.zeitMinuten) / 60) * 10) / 10 }))
       .sort((a, b) => b.wert - a.wert);
   },
+  /* Futter je Volk und Jahr. Gerechnet wird in ZUCKER, nicht in Gebinde-
+     Kilogramm: 10 kg Sirup 3:2 sind etwa 7,5 kg Zucker, 10 kg Futterteig
+     sind 10 kg. Nur so lassen sich verschiedene Futterarten vergleichen.
+     Wo die Zuckermenge geschätzt werden musste (aus dem Produktgewicht),
+     wird das mitgezählt und in der Ansicht kenntlich gemacht. */
+  async futterJeVolk(jahr) {
+    const voelker = await idMap('voelker');
+    const alle = await DB.getAll('fuetterungen');
+    const list = jahr ? alle.filter((f) => (f.datum || '').startsWith(String(jahr))) : alle;
+    const je = new Map();
+    for (const f of list) {
+      const id = f.volkId || '__ohne';
+      if (!je.has(id)) je.set(id, { id, name: voelker.get(id)?.name || 'gelöschtes Volk', n: 0, zucker: 0, winter: 0, liter: 0, geschaetzt: 0, menge: 0 });
+      const z = je.get(id);
+      const zu = zuckerAusFuetterung(f);
+      const liter = sirupLiterAusFuetterung(f);
+      z.n += 1;
+      z.menge += Number(f.mengeKg) || 0;
+      if (zu) { z.zucker += zu.kg; if (zu.geschaetzt) z.geschaetzt += 1; if (f.winterfutter) z.winter += zu.kg; }
+      if (liter != null) z.liter += liter;
+    }
+    return [...je.values()].sort((a, b) => b.zucker - a.zucker);
+  },
+
   async finanzen() {
     const list = await DB.getAll('kassenbuch');
     const years = [...new Set(list.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort();
@@ -11878,16 +11928,33 @@ Views.reporting = {
   async render(main) {
     const typ = Views.reporting._typ || 'voelker';
     const gruppe = Views.reporting._gruppe || 'volk';
-    main.innerHTML = pageHead('Statistiken', 'Auswertungen über alle Bereiche – jede Statistik als PDF exportierbar') + `
+    const jahrJetzt = U.todayIso().slice(0, 4);
+    main.innerHTML = pageHead('Statistiken', 'Auswertungen über alle Bereiche – jede Statistik als PDF exportierbar',
+      `<button class="btn btn-primary btn-sm no-print" onclick="Pdf.jahresbericht('${jahrJetzt}')">${icon('doc')} Jahresbericht ${jahrJetzt} (PDF)</button>`) + `
       <div class="chip-row mb16 no-print">
-        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
+        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['futter', 'Futter je Volk'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
       </div><div id="rep"></div>`;
     const box = $('#rep');
     if (typ === 'voelker') {
-      const { labels, values } = await Reporting.voelkerEntwicklung();
-      box.innerHTML = `<div class="card"><div class="card-title">${icon('volk')}<h2>Völkerentwicklung (aktive Völker zum Jahresende)</h2>
+      const jahresSicht = await Reporting.voelkerEntwicklung();
+      const jahre = jahresSicht.labels.slice().reverse();
+      const jahr = Views.reporting._volkJahr !== undefined ? Views.reporting._volkJahr : (jahre[0] || '');
+      const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-vjahr="${U.esc(val)}">${U.esc(label)}</button>`;
+      const daten = jahr ? await Reporting.voelkerVerlauf(jahr) : jahresSicht;
+      const titel = jahr ? `Völkerentwicklung ${jahr} (Stand am Monatsende)` : 'Völkerentwicklung (aktive Völker zum Jahresende)';
+      const hoch = daten.values.length ? Math.max(...daten.values) : 0;
+      const tief = daten.values.length ? Math.min(...daten.values) : 0;
+      box.innerHTML = `
+        ${jahre.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Zeitraum:</span>${jahre.map((j) => chip(j, j)).join('')}${chip('Alle Jahre', '')}</div>` : ''}
+        <div class="card"><div class="card-title">${icon('volk')}<h2>${U.esc(titel)}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('voelker')">${icon('doc')} PDF</button></div>
-        ${labels.length ? UI.chart({ type: 'line', labels, series: [{ name: 'Völker', values }], height: 220 }) : emptyState('volk', 'Noch keine Völker erfasst.')}</div>`;
+        ${daten.labels.length ? UI.chart({ type: 'line', labels: daten.labels, series: [{ name: 'Völker', values: daten.values }], height: 220 })
+          + `<div class="stat-grid mt12">
+              <div class="stat"><div class="s-label">Stand heute</div><div class="s-value">${daten.values.at(-1)}</div></div>
+              <div class="stat"><div class="s-label">Höchststand</div><div class="s-value">${hoch}</div></div>
+              <div class="stat"><div class="s-label">Veränderung</div><div class="s-value">${daten.values.at(-1) - daten.values[0] >= 0 ? '+' : ''}${daten.values.at(-1) - daten.values[0]}</div><div class="s-sub">von ${daten.values[0]} auf ${daten.values.at(-1)}${tief !== hoch ? ` · Tief ${tief}` : ''}</div></div>
+            </div>`
+          : emptyState('volk', 'Noch keine Völker erfasst.')}</div>`;
     } else if (typ === 'ertrag') {
       const rows = await Reporting.ertrag(gruppe);
       box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</h2>
@@ -11896,6 +11963,40 @@ Views.reporting = {
         ${rows.length ? UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.k), series: [{ name: 'kg', values: rows.slice(0, 12).map((r) => r.kg) }], height: 210, unit: 'kg' }) +
         `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</th><th class="num">Ernten</th><th class="num">Menge (kg)</th></tr></thead>
         <tbody>${rows.map((r) => `<tr><td>${U.esc(r.k)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('honig', 'Noch keine Ernten erfasst.')}</div>`;
+    } else if (typ === 'futter') {
+      const alleF = await DB.getAll('fuetterungen');
+      const jahre = [...new Set(alleF.map((f) => (f.datum || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+      const jahr = Views.reporting._futterJahr !== undefined ? Views.reporting._futterJahr : (jahre[0] || '');
+      const rows = await Reporting.futterJeVolk(jahr);
+      const gesamt = U.sum(rows, (r) => r.zucker);
+      const schnitt = rows.length ? gesamt / rows.length : 0;
+      const winter = U.sum(rows, (r) => r.winter);
+      const geschaetzt = U.sum(rows, (r) => r.geschaetzt);
+      const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-fjahr="${U.esc(val)}">${U.esc(label)}</button>`;
+      box.innerHTML = `
+        <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}</div>
+        <div class="card"><div class="card-title">${icon('futter')}<h2>Futter je Volk${jahr ? ' ' + jahr : ''}</h2>
+          <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.fuetterungsliste('${jahr || U.todayIso().slice(0, 4)}')">${icon('doc')} Fütterungsliste (PDF)</button></div>
+        <p class="small muted mb12">Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht: 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg. Nur so sind verschiedene Futterarten vergleichbar.</p>
+        ${rows.length ? `<div class="stat-grid mb16">
+            <div class="stat"><div class="s-label">${icon('flask')} Zucker gesamt</div><div class="s-value">${U.fmtNum(gesamt, 1)} kg</div><div class="s-sub">${rows.length} ${rows.length === 1 ? 'Volk' : 'Völker'} gefüttert</div></div>
+            <div class="stat"><div class="s-label">Ø je Volk</div><div class="s-value">${U.fmtNum(schnitt, 1)} kg</div><div class="s-sub">${geschaetzt ? `${geschaetzt} Gaben geschätzt` : 'alle Mengen erfasst'}</div></div>
+            <div class="stat"><div class="s-label">${icon('wetter')} davon Winterfutter</div><div class="s-value">${U.fmtNum(winter, 1)} kg</div><div class="s-sub">${gesamt > 0 ? U.fmtNum(winter / gesamt * 100, 0) + ' % der Menge' : ''}</div></div>
+          </div>
+          ${UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.name), series: [{ name: 'kg Zucker', values: rows.slice(0, 12).map((r) => Math.round(r.zucker * 10) / 10) }], height: 210, unit: 'kg' })}
+          <div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Volk</th><th class="num">Gaben</th><th class="num">Zucker</th><th class="num">davon Winter</th><th class="num">Sirup</th><th class="num">Abweichung Ø</th></tr></thead>
+          <tbody>${rows.map((r) => {
+            const ab = schnitt > 0 ? (r.zucker - schnitt) / schnitt * 100 : 0;
+            const farbe = Math.abs(ab) < 15 ? 'muted' : (ab > 0 ? 'zahl-warn' : 'zahl-warn');
+            return `<tr><td>${U.esc(r.name)}</td><td class="num">${r.n}</td>
+              <td class="num"><b>${U.fmtNum(r.zucker, 1)} kg</b>${r.geschaetzt ? ' <span class="muted small">≈</span>' : ''}</td>
+              <td class="num">${U.fmtNum(r.winter, 1)} kg</td>
+              <td class="num">${r.liter > 0 ? U.fmtNum(r.liter, 1) + ' L' : '–'}</td>
+              <td class="num ${farbe}">${schnitt > 0 ? (ab >= 0 ? '+' : '') + U.fmtNum(ab, 0) + ' %' : '–'}</td></tr>`;
+          }).join('')}
+          <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${U.sum(rows, (r) => r.n)}</td><td class="num">${U.fmtNum(gesamt, 1)} kg</td><td class="num">${U.fmtNum(winter, 1)} kg</td><td class="num">${U.fmtNum(U.sum(rows, (r) => r.liter), 1)} L</td><td class="num"></td></tr></tbody></table></div>
+          ${geschaetzt ? `<p class="small muted mt8">Ein <b>≈</b> heißt: Für diese Gaben stand keine Zuckermenge im Eintrag, die App hat sie aus Futterart und Gewicht gerechnet.</p>` : ''}`
+        : emptyState('futter', jahr ? `Keine Fütterung in ${jahr} erfasst.` : 'Noch keine Fütterung erfasst.')}</div>`;
     } else if (typ === 'behandlungen') {
       const rows = await Reporting.behandlungsUebersicht();
       box.innerHTML = `<div class="card"><div class="card-title">${icon('flask')}<h2>Behandlungsübersicht</h2>
@@ -11945,6 +12046,8 @@ Views.reporting = {
     }
     main.addEventListener('click', (e) => {
       const t = e.target.closest('[data-typ]'); if (t) { Views.reporting._typ = t.dataset.typ; return renderRoute(); }
+      const fj = e.target.closest('[data-fjahr]'); if (fj) { Views.reporting._futterJahr = fj.dataset.fjahr; return renderRoute(); }
+      const vj = e.target.closest('[data-vjahr]'); if (vj) { Views.reporting._volkJahr = vj.dataset.vjahr; return renderRoute(); }
       const g = e.target.closest('[data-grp]'); if (g) { Views.reporting._gruppe = g.dataset.grp; renderRoute(); }
     });
   },
@@ -12934,6 +13037,178 @@ const Pdf = {
       const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
       this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Bestand', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 22, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
       this.finish(doc, `${(titel || 'inventar').toLowerCase()}-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Zeichenhilfen für den Jahresbericht ----------
+     jsPDF kann keine Diagramme. Es kann aber Rechtecke, Linien und Text –
+     und mehr braucht ein Balkendiagramm nicht. Bewusst schlicht gehalten:
+     kein Raster, keine Schatten, nur Balken mit Beschriftung. */
+  kachel(doc, x, y, w, h, label, wert, sub = '') {
+    doc.setFillColor(250, 246, 239).setDrawColor(236, 228, 212).setLineWidth(0.2);
+    doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130);
+    doc.text(String(label).toUpperCase(), x + 4, y + 6, { maxWidth: w - 8 });
+    doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(38, 38, 43);
+    doc.text(String(wert), x + 4, y + 15, { maxWidth: w - 8 });
+    if (sub) {
+      doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(130);
+      doc.text(String(sub), x + 4, y + 20.5, { maxWidth: w - 8 });
+    }
+  },
+
+  balken(doc, { x, y, w, h, labels, values, einheit = '', nachkomma = 0 }) {
+    const max = Math.max(1, ...values.map((v) => Number(v) || 0));
+    const n = Math.max(1, labels.length);
+    const lueckeUnten = 7;                      // Platz für die Beschriftung
+    const boden = y + h - lueckeUnten;
+    const breite = w / n;
+    const balkenBreite = Math.min(14, breite * 0.62);
+    doc.setDrawColor(236, 228, 212).setLineWidth(0.2);
+    doc.line(x, boden, x + w, boden);
+    for (let i = 0; i < n; i++) {
+      const v = Number(values[i]) || 0;
+      const bh = Math.max(0.6, (v / max) * (h - lueckeUnten - 6));
+      const bx = x + i * breite + (breite - balkenBreite) / 2;
+      doc.setFillColor(232, 160, 19);
+      doc.roundedRect(bx, boden - bh, balkenBreite, bh, 0.8, 0.8, 'F');
+      doc.setFont('helvetica', 'normal').setFontSize(6.5).setTextColor(130);
+      doc.text(String(labels[i]), bx + balkenBreite / 2, boden + 4, { align: 'center' });
+      if (v > 0) {
+        doc.setFontSize(6.5).setTextColor(90);
+        doc.text(U.fmtNum(v, nachkomma) + (einheit ? ' ' + einheit : ''), bx + balkenBreite / 2, boden - bh - 1.5, { align: 'center' });
+      }
+    }
+  },
+
+  /* ---------- Jahresbericht: das Jahr auf wenigen Seiten ---------- */
+  async jahresbericht(jahr) {
+    try {
+      UI.toast('Jahresbericht wird erstellt …');
+      const J = String(jahr || U.todayIso().slice(0, 4));
+      const imJahr = (d) => String(d || '').startsWith(J);
+      const [ernten, chargen, abf, verkaeufe, kasse, voelker, fuetterungen, rechnungen] = await Promise.all(
+        ['ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'kassenbuch', 'voelker', 'fuetterungen', 'rechnungen'].map((st) => DB.getAll(st)));
+      const erntenMap = new Map(ernten.map((e) => [e.id, e]));
+      const chargenMap = new Map(chargen.map((c) => [c.id, c]));
+      const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
+      const ernteJ = ernten.filter((e) => istHonig(e) && imJahr(e.datum));
+      const abfJ = abf.filter((a) => imJahr(a.datum));
+      const vkJ = verkaeufe.filter((v) => imJahr(v.datum));
+      const chargenJ = chargen.filter((c) => imJahr(c.datum) || abfJ.some((a) => a.chargeId === c.id) || (c.ernteIds || []).some((id) => ernteJ.some((e) => e.id === id)));
+
+      const kgErnte = U.sum(ernteJ, (e) => Number(e.mengeKg) || 0);
+      const kgAbgefuellt = U.sum(abfJ, (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000);
+      const kgVerkauft = U.sum(vkJ, (v) => { const a = abf.find((x) => x.id === v.abfuellungId); return a ? (v.anzahl || 0) * (a.gebindeG || 0) / 1000 : 0; });
+      const umsatzHonig = U.sum(vkJ, (v) => Number(v.betrag) || 0)
+        + U.sum(rechnungen.filter((r) => r.status === 'festgeschrieben' && imJahr(r.datum)), (r) => U.sum((r.positionen || []).filter((p) => p.abfuellungId), (p) => (p.menge || 0) * (p.einzelpreis || 0)));
+      const ein = U.sum(kasse.filter((k) => k.typ === 'einnahme' && imJahr(k.datum)), (k) => k.betrag);
+      const aus = U.sum(kasse.filter((k) => k.typ === 'ausgabe' && imJahr(k.datum)), (k) => k.betrag);
+      const voelkerEnde = voelkerAmStichtag(voelker, `${J}-12-31` > U.todayIso() ? U.todayIso() : `${J}-12-31`).length;
+      const zucker = U.sum(fuetterungen.filter((f) => imJahr(f.datum)), (f) => (zuckerAusFuetterung(f) || { kg: 0 }).kg);
+
+      const { doc, y } = await this.newDoc(`Jahresbericht ${J}`, 'Ernte, Abfüllung, Verkauf und Bestand auf einen Blick');
+      const W = doc.internal.pageSize.getWidth();
+      const rand = 14, breite = W - 2 * rand;
+      let yy = y + 2;
+
+      // Kennzahlen
+      const kw = (breite - 3 * 4) / 4;
+      const kachelReihe = (werte) => {
+        werte.forEach((k, i) => this.kachel(doc, rand + i * (kw + 4), yy, kw, 24, k[0], k[1], k[2] || ''));
+        yy += 28;
+      };
+      kachelReihe([
+        ['Völker', String(voelkerEnde), J === U.todayIso().slice(0, 4) ? 'Stand heute' : 'zum Jahresende'],
+        ['Ernte', `${U.fmtNum(kgErnte, 1)} kg`, `${ernteJ.length} ${ernteJ.length === 1 ? 'Ernte' : 'Ernten'}`],
+        ['Abgefüllt', `${U.fmtNum(kgAbgefuellt, 1)} kg`, `${U.sum(abfJ, (a) => a.anzahl || 0)} Gebinde`],
+        ['Verkauft', `${U.fmtNum(kgVerkauft, 1)} kg`, `${U.sum(vkJ, (v) => v.anzahl || 0)} Gebinde`],
+      ]);
+      kachelReihe([
+        ['Erlös Honig', U.fmtEur(umsatzHonig), 'Verkäufe und Rechnungen'],
+        ['Einnahmen', U.fmtEur(ein), 'laut Kassenbuch'],
+        ['Ausgaben', U.fmtEur(aus), 'laut Kassenbuch'],
+        ['Saldo', U.fmtEur(ein - aus), ein - aus >= 0 ? 'Überschuss' : 'Fehlbetrag'],
+      ]);
+
+      // Ernte je Monat
+      const monate = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+      const ernteMonat = monate.map((_, i) => U.sum(ernteJ.filter((e) => +String(e.datum).slice(5, 7) === i + 1), (e) => e.mengeKg || 0));
+      yy += 2;
+      doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+      doc.text('Ernte je Monat', rand, yy); yy += 4;
+      this.balken(doc, { x: rand, y: yy, w: breite, h: 40, labels: monate, values: ernteMonat, einheit: 'kg', nachkomma: 0 });
+      yy += 46;
+
+      // Völkerentwicklung im Jahr
+      const verlauf = await Reporting.voelkerVerlauf(J);
+      doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+      doc.text('Völker im Jahresverlauf', rand, yy); yy += 4;
+      this.balken(doc, { x: rand, y: yy, w: breite, h: 38, labels: verlauf.labels, values: verlauf.values });
+      yy += 44;
+
+      // Ernte je Sorte
+      const sorten = [...U.groupBy(ernteJ, (e) => e.sorte || 'ohne Sorte').entries()]
+        .map(([k, items]) => [k, `${U.fmtNum(U.sum(items, (e) => e.mengeKg || 0), 1)} kg`, String(items.length)])
+        .sort((a, b) => U.parseNum(b[1]) - U.parseNum(a[1]));
+      if (sorten.length) {
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text('Ernte je Sorte', rand, yy); yy += 2;
+        yy = this.table(doc, { head: ['Sorte', 'Menge', 'Ernten'], body: sorten, startY: yy + 2,
+          widths: { 1: { halign: 'right', cellWidth: 30 }, 2: { halign: 'right', cellWidth: 24 } } }) + 8;
+      }
+
+      // Chargen mit Abfüllung und Bestand
+      doc.addPage();
+      let y2 = await this.header(doc, `Chargen ${J}`, `${chargenJ.length} ${chargenJ.length === 1 ? 'Charge' : 'Chargen'} im Berichtsjahr`);
+      const cBody = [];
+      for (const c of U.sortBy(chargenJ, (c) => c.losnummer)) {
+        const eigene = abf.filter((a) => a.chargeId === c.id);
+        cBody.push([
+          `Charge ${c.losnummer}`,
+          U.fmtDate(c.datum) || '–',
+          chargeSorten(c, erntenMap).join(', ') || '–',
+          `${U.fmtNum(c.mengeKg || 0, 1)} kg`,
+          `${U.fmtNum(chargeRestKg(c, abf), 1)} kg`,
+          `${U.sum(eigene, (a) => a.bestand || 0)}`,
+        ]);
+        for (const a of U.sortBy(eigene, (a) => a.gebindeG, true)) {
+          cBody.push([`   ${gebindeLabel(a.gebindeG)}`, U.fmtDate(a.datum), abfMhd(a, c) ? `MHD ${U.fmtDate(abfMhd(a, c))}` : '', `${a.anzahl} abgefüllt`, '', `${a.bestand}`]);
+        }
+      }
+      if (cBody.length) {
+        y2 = this.table(doc, { head: ['Charge / Gebinde', 'Datum', 'Sorte / MHD', 'Menge', 'nicht abgefüllt', 'zum Verkauf'], body: cBody, startY: y2,
+          widths: { 3: { halign: 'right', cellWidth: 22 }, 4: { halign: 'right', cellWidth: 26 }, 5: { halign: 'right', cellWidth: 24 } } }) + 8;
+      } else { doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(120); doc.text('Keine Chargen im Berichtsjahr.', rand, y2); y2 += 8; }
+
+      // Verkauf je Gebinde
+      const jeGebinde = [...U.groupBy(vkJ, (v) => { const a = abf.find((x) => x.id === v.abfuellungId); return a ? gebindeLabel(a.gebindeG) : 'ohne Gebinde'; }).entries()]
+        .map(([k, items]) => [k, String(U.sum(items, (v) => v.anzahl || 0)), U.fmtEur(U.sum(items, (v) => v.betrag || 0))])
+        .sort((a, b) => U.parseNum(b[2]) - U.parseNum(a[2]));
+      if (jeGebinde.length) {
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text('Verkauf je Gebinde', rand, y2); y2 += 2;
+        jeGebinde.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } },
+          { content: String(U.sum(vkJ, (v) => v.anzahl || 0)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: U.fmtEur(U.sum(vkJ, (v) => v.betrag || 0)), styles: { fontStyle: 'bold', halign: 'right' } }]);
+        y2 = this.table(doc, { head: ['Gebinde', 'Anzahl', 'Erlös'], body: jeGebinde, startY: y2 + 2,
+          widths: { 1: { halign: 'right', cellWidth: 26 }, 2: { halign: 'right', cellWidth: 30 } } }) + 8;
+      }
+
+      // Futter je Volk – nur die Spitzenreiter, sonst sprengt es die Seite
+      const futter = await Reporting.futterJeVolk(J);
+      if (futter.length) {
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text('Futter je Volk (Zucker)', rand, y2); y2 += 2;
+        const fBody = futter.slice(0, 15).map((r) => [r.name, String(r.n), `${U.fmtNum(r.zucker, 1)} kg`, `${U.fmtNum(r.winter, 1)} kg`]);
+        if (futter.length > 15) fBody.push([`… und ${futter.length - 15} weitere Völker`, '', `${U.fmtNum(U.sum(futter.slice(15), (r) => r.zucker), 1)} kg`, '']);
+        fBody.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, '',
+          { content: `${U.fmtNum(zucker, 1)} kg`, styles: { fontStyle: 'bold', halign: 'right' } }, '']);
+        this.table(doc, { head: ['Volk', 'Gaben', 'Zucker', 'davon Winter'], body: fBody, startY: y2 + 2,
+          widths: { 1: { halign: 'right', cellWidth: 20 }, 2: { halign: 'right', cellWidth: 26 }, 3: { halign: 'right', cellWidth: 28 } } });
+      }
+
+      this.finish(doc, `jahresbericht-${J}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 

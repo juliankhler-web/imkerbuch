@@ -102,6 +102,7 @@ async function main() {
     ['chargenuebersicht', 'await Pdf.chargenuebersicht();'],
     ['kassenbuch-jahr', `await Pdf.kassenbuchJahr('${jahr}');`],
     ['bio-unterlagen', 'await Pdf.bioUnterlagen();'],
+    ['jahresbericht', `await Pdf.jahresbericht('${new Date().getFullYear()}');`],
     ['bestandsmeldung', 'await Pdf.bestandsmeldung();'],
     ['tierseuchenkasse', 'await Pdf.tierseuchenkasse();'],
     ['fuetterungsliste', `await Pdf.fuetterungsliste('${jahr}');`],

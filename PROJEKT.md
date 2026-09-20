@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 384/384 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 385/385 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.59)**: **Futter je Volk, Völkerverlauf im Jahr, Jahresbericht als PDF** (Julian: „futter je volk … einen verlauf … eine gesamt pdf schön grafisch aufgearbeitet").
+  **Futter je Volk** (`Reporting.futterJeVolk(jahr)`): gerechnet wird in **Zucker**, nicht in Gebindegewicht – 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg; anders sind die Futterarten nicht vergleichbar. Geschätzte Mengen (aus Produktgewicht abgeleitet) werden mitgezählt und mit „≈" gekennzeichnet. Dazu Winterfutter-Anteil und die Abweichung jedes Volks vom Schnitt.
+  **Völkerentwicklung**: Die Jahresansicht zeigte bei jungen Imkereien nur einen Punkt. Neu `Reporting.voelkerVerlauf(jahr)` – Stand am Ende jedes Monats über `voelkerAmStichtag`, das laufende Jahr endet beim heutigen Monat (Punkte für die Zukunft wären gelogen). Jahres-Knöpfe plus „Alle Jahre".
+  **Jahresbericht als PDF** (`Pdf.jahresbericht(jahr)`): acht Kennzahl-Kacheln, Ernte je Monat und Völkerverlauf als **selbst gezeichnete Balkendiagramme** (jsPDF kann keine Diagramme, aber Rechtecke – neue Helfer `Pdf.kachel()` und `Pdf.balken()`), Ernte je Sorte, alle Chargen mit ihren Abfüllungen samt MHD und Bestand, Verkauf je Gebinde, Futter je Volk. Am echten PDF durchgesehen.
+  2 neue Tests (Jahresbericht mit Daten und für ein leeres Jahr). **385/385 grün.** SW → v171.
 
 - **2026-09-20 (v1.58)**: **Chargen von Hand anordnen** (Julian: „kannst du es nicht so machen das man die kachel einfach mit der hand verschieben kann").
   Knopf **Anordnen** im Chargen-Reiter: Zeilen bekommen einen Griff, werden mit Finger oder Maus gezogen, **Fertig** beendet den Modus. Neuer allgemeiner Helfer `zeilenSortieren(listEl, onFertig)` neben dem vorhandenen `dashCfgDrag` – Pointer-Events, also dieselbe Bedienung am Handy wie am Rechner.

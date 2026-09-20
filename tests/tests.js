@@ -7228,3 +7228,53 @@ test('Chargen von Hand anordnen: Reihenfolge wird gespeichert', async (w) => {
     for (const x of alt.a) await w.DB.put('abfuellungen', x, true);
   }
 });
+
+test('Jahresbericht-PDF: Kennzahlen, Diagramme und Tabellen', async (w) => {
+  const J = w.U.todayIso().slice(0, 4);
+  const sicher = {};
+  for (const st of ['ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'kassenbuch', 'voelker', 'fuetterungen', 'rechnungen']) {
+    sicher[st] = await w.DB.getAll(st); await w.DB.clear(st);
+  }
+  const echt = w.Pdf.finish;
+  let gebaut = null;
+  w.Pdf.finish = (doc, name) => { gebaut = { name, seiten: doc.getNumberOfPages(), text: doc.internal.pages.flat().filter(Boolean).join(' ') }; };
+  try {
+    const volk = await w.DB.put('voelker', { name: 'JB-Volk', status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: `${J}-03-01`, text: 'angelegt' }] });
+    const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: volk.id, datum: `${J}-06-15`, produktart: 'Honig', sorte: 'Rapshonig', mengeKg: 24 });
+    const c = await w.DB.put('chargen', { losnummer: 'JB-1', datum: `${J}-06-20`, ernteIds: [e.id], mengeKg: 24 });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: `${J}-06-25`, mhd: `${+J + 2}-06-25`, gebindeG: 500, anzahl: 40, bestand: 30 });
+    await w.DB.put('verkaeufe', { datum: `${J}-07-01`, abfuellungId: a.id, anzahl: 10, preisJeGlas: 7, betrag: 70 });
+    await w.DB.put('kassenbuch', { datum: `${J}-07-01`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 70, steuersatz: 0 });
+    await w.DB.put('kassenbuch', { datum: `${J}-03-10`, typ: 'ausgabe', kategorie: 'Futter', betrag: 40, steuersatz: 0 });
+    await w.DB.put('fuetterungen', { volkId: volk.id, datum: `${J}-08-20`, futterart: 'Zuckerwasser 3:2 dick', mengeKg: 15, winterfutter: true, zuckerKg: 12 });
+
+    await w.Pdf.jahresbericht(J);
+    assert(gebaut, 'der Bericht wurde gebaut');
+    assertEq(gebaut.name, `jahresbericht-${J}.pdf`, 'Dateiname mit Jahr');
+    assert(gebaut.seiten >= 2, 'mindestens zwei Seiten: ' + gebaut.seiten);
+    const t = gebaut.text;
+    // Kennzahlen
+    assert(/Jahresbericht/.test(t), 'Titel steht drauf');
+    assert(/24 kg|24,0 kg/.test(t), 'die Erntemenge steht in den Kennzahlen');
+    assert(/20 kg|20,0 kg/.test(t), 'die abgefüllte Menge (40 × 500 g)');
+    assert(/Erl/.test(t) && /70/.test(t), 'der Erlös taucht auf');
+    // Abschnitte
+    assert(/Ernte je Monat/.test(t), 'Diagramm Ernte je Monat');
+    assert(/lker im Jahresverlauf/.test(t), 'Diagramm Völkerentwicklung');
+    assert(/Ernte je Sorte/.test(t) && /Rapshonig/.test(t), 'Tabelle Ernte je Sorte');
+    assert(/Chargen/.test(t) && /JB-1/.test(t), 'Chargen-Seite mit der Charge');
+    assert(/Verkauf je Gebinde/.test(t), 'Verkaufstabelle');
+    assert(/Futter je Volk/.test(t) && /JB-Volk/.test(t), 'Futtertabelle');
+    // Das Diagramm zeichnet Balken – ohne Daten gäbe es keine
+    assert(/Jun/.test(t), 'die Monatsbeschriftung ist da');
+
+    // Ein Jahr ohne Daten darf nicht krachen
+    gebaut = null;
+    await w.Pdf.jahresbericht('1999');
+    assert(gebaut, 'auch ein leeres Jahr ergibt ein PDF');
+    assert(/Keine Chargen/.test(gebaut.text), 'und sagt, dass nichts da ist');
+  } finally {
+    w.Pdf.finish = echt;
+    for (const st of Object.keys(sicher)) { await w.DB.clear(st); for (const x of sicher[st]) await w.DB.put(st, x, true); }
+  }
+});
