@@ -7278,3 +7278,60 @@ test('Jahresbericht-PDF: Kennzahlen, Diagramme und Tabellen', async (w) => {
     for (const st of Object.keys(sicher)) { await w.DB.clear(st); for (const x of sicher[st]) await w.DB.put(st, x, true); }
   }
 });
+
+test('Bio: Standort-Zahlen in die Betriebsbeschreibung übernehmen', async (w) => {
+  const alt = { s: await w.DB.getAll('staende'), v: await w.DB.getAll('voelker'), bb: w.S.get('bioBetrieb') };
+  await w.DB.clear('staende'); await w.DB.clear('voelker');
+  dialogeSchliessen(w);
+  try {
+    // ohne erfasste Landbedeckung gibt es nichts zu übernehmen
+    assertEq(w.bioStandorteText([]), '', 'ohne Stände kein Text');
+    assertEq(w.bioStandorteText([{ name: 'Leer', bio: {} }]), '', 'ohne erfasste Anteile auch nicht');
+
+    const st = await w.DB.put('staende', { name: 'Heimstand', lat: 50, lng: 8, notizen: '',
+      bio: { umkreisM: 3500, erhebung: '2026-05-04', quelle: 'GeoBox-Viewer',
+        anteile: [
+          { name: 'Grünland', art: 'tracht', prozent: 42.5 },
+          { name: 'Laubwald', art: 'tracht', prozent: 30 },
+          { name: 'Siedlung', art: 'bebaut', prozent: 20 },
+          { name: 'Gewässer', art: 'sonstiges', prozent: 7.5 },
+        ] } });
+    await w.DB.put('voelker', { name: 'V1', standId: st.id, status: 'aktiv', historie: [] });
+    await w.DB.put('voelker', { name: 'V2', standId: st.id, status: 'aktiv', historie: [] });
+
+    const jeStand = new Map([[st.id, 2]]);
+    const text = w.bioStandorteText([st], jeStand);
+    assert(/3,5 km/.test(text), 'der Umkreis steht drin: ' + text.slice(0, 80));
+    assert(/Heimstand \(2 Völker\)/.test(text), 'Name und Völkerzahl');
+    assert(/Trachtflächen 72,5 %/.test(text), 'die Trachtsumme ist gerechnet (42,5 + 30)');
+    // U.fmtNum schneidet nachlaufende Nullen ab: „20 %", nicht „20,0 %"
+    assert(/bebaut 20 %/.test(text), 'und der bebaute Anteil');
+    assert(/Grünland 42,5 %/.test(text), 'die größten Flächen einzeln');
+    assert(/04\.05\.2026/.test(text) && /GeoBox/.test(text), 'Erhebungsdatum und Quelle');
+
+    // Der Knopf im Formular hängt den Text an, ohne Vorhandenes zu löschen
+    await w.S.set('bioBetrieb', { standorte: 'Eigener Text.' });
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      w.Views.bio._tab = 'betrieb';
+      await w.Views.bio.render(host);
+      await new Promise((r) => setTimeout(r, 300));
+      host.querySelector('#edit-bb').click();
+      await new Promise((r) => setTimeout(r, 400));
+      const modal = w.document.querySelector('.modal-back');
+      const knopf = modal.querySelector('[data-uebernehmen]');
+      assert(knopf, 'der Übernehmen-Knopf ist da');
+      knopf.click();
+      await new Promise((r) => setTimeout(r, 200));
+      const feld = modal.querySelector('#f-standorte');
+      assert(/^Eigener Text\./.test(feld.value), 'der eigene Text bleibt vorn stehen');
+      assert(/Trachtflächen 72,5 %/.test(feld.value), 'die Zahlen hängen dahinter');
+    } finally { host.remove(); w.Views.bio._tab = 'betrieb'; }
+  } finally {
+    dialogeSchliessen(w);
+    await w.S.set('bioBetrieb', alt.bb || {});
+    await w.DB.clear('staende'); await w.DB.clear('voelker');
+    for (const x of alt.s) await w.DB.put('staende', x, true);
+    for (const x of alt.v) await w.DB.put('voelker', x, true);
+  }
+});

@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 385/385 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 386/386 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.60)**: **Standort-Zahlen in die Betriebsbeschreibung** (Julian: „kannst du da nicht gleich die werte aus standorte nehmen wenn eine landbedeckung erfasst ist").
+  Neuer Helfer `bioStandorteText(staende, voelkerJeStand)`: baut aus den erfassten Landbedeckungen einen Absatz – Umkreis, Trachtanteil, bebauter und sonstiger Anteil, die drei größten Flächen, Erhebungsdatum und Quelle je Standort. Im Bearbeiten-Dialog hängt ein Knopf unter dem Feld „Standortwahl und Umfeld".
+  **Angehängt, nicht ersetzt:** Der eigene Text bleibt stehen und der Baustein kommt dahinter – die eigene Beschreibung ist für die Kontrollstelle mehr wert als die Zahlen. Ohne erfasste Landbedeckung erscheint der Knopf gar nicht.
+  1 neuer Test. **386/386 grün.** SW → v172.
 
 - **2026-09-20 (v1.59)**: **Futter je Volk, Völkerverlauf im Jahr, Jahresbericht als PDF** (Julian: „futter je volk … einen verlauf … eine gesamt pdf schön grafisch aufgearbeitet").
   **Futter je Volk** (`Reporting.futterJeVolk(jahr)`): gerechnet wird in **Zucker**, nicht in Gebindegewicht – 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg; anders sind die Futterarten nicht vergleichbar. Geschätzte Mengen (aus Produktgewicht abgeleitet) werden mitgezählt und mit „≈" gekennzeichnet. Dazu Winterfutter-Anteil und die Abweichung jedes Volks vom Schnitt.

@@ -952,8 +952,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.59';
+const APP_VERSION = '1.60';
 const CHANGELOG = [
+  { version: '1.60', datum: '2026-09-20', punkte: [
+    'In der <b>Betriebsbeschreibung</b> gibt es beim Abschnitt „Standortwahl und Umfeld" jetzt den Knopf <b>Zahlen aus den Standorten übernehmen</b>. Er schreibt Umkreis, Trachtanteil, bebauten Anteil und die größten Flächen je Standort als Text hinein – erhoben im Reiter „Standorte", samt Datum und Quelle. Dein eigener Text bleibt dabei stehen, die Zahlen hängen sich an.',
+  ] },
   { version: '1.59', datum: '2026-09-20', punkte: [
     'Neu in den Statistiken: <b>Futter je Volk</b>. Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht – 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg. Mit Diagramm, Winterfutter-Anteil und der Abweichung jedes Volks vom Durchschnitt.',
     'Die <b>Völkerentwicklung</b> zeigt jetzt den Verlauf <b>innerhalb eines Jahres</b> – Stand an jedem Monatsende statt nur ein Punkt je Jahr. Über die Jahres-Knöpfe wechselst du das Jahr; „Alle Jahre" zeigt weiterhin die große Linie.',
@@ -6404,6 +6407,32 @@ function bioAnteile(stand) {
   const b = (stand && stand.bio) || {};
   return Array.isArray(b.anteile) ? b.anteile.filter((a) => a && a.name) : [];
 }
+/* Aus den erfassten Landbedeckungen einen Absatz für die Betriebsbeschreibung
+   bauen. Die Kontrollstelle will im Abschnitt „Standortwahl und Umfeld" Prosa
+   sehen, die Zahlen liegen aber schon im Reiter „Standorte" – sie dort noch
+   einmal abzutippen ist Arbeit, bei der sich Fehler einschleichen. */
+function bioStandorteText(staende, voelkerJeStand = null) {
+  const mit = (staende || []).filter((st) => bioAnteile(st).length);
+  if (!mit.length) return '';
+  const zeilen = mit.map((st) => {
+    const b = st.bio || {};
+    const su = bioSummen(bioAnteile(st));
+    const umkreis = U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1);
+    const oben = U.sortBy(bioAnteile(st), (a) => -(Number(a.prozent) || 0)).slice(0, 3)
+      .map((a) => `${a.name} ${U.fmtNum(a.prozent, 1)} %`).join(', ');
+    const zahl = voelkerJeStand ? (voelkerJeStand.get(st.id) || 0) : null;
+    return `- ${st.name}${zahl != null ? ` (${zahl} ${zahl === 1 ? 'Volk' : 'Völker'})` : ''}: Umkreis ${umkreis} km, `
+      + `Trachtflächen ${U.fmtNum(su.tracht, 1)} %, bebaut ${U.fmtNum(su.bebaut, 1)} %, sonstige ${U.fmtNum(su.sonstiges, 1)} %.`
+      + (oben ? ` Größte Anteile: ${oben}.` : '')
+      + (b.erhebung ? ` Erhoben am ${U.fmtDate(b.erhebung)}${b.quelle ? ` (${b.quelle})` : ''}.` : '');
+  });
+  const umkreise = [...new Set(mit.map((st) => (st.bio || {}).umkreisM || BIO_UMKREIS_VORGABE))];
+  const kopf = `Die Standorte werden nach dem Trachtangebot im Umkreis von `
+    + `${umkreise.map((m) => U.fmtNum(m / 1000, 1)).join(' bzw. ')} km ausgewählt. `
+    + `Die Landbedeckung wurde für ${mit.length} ${mit.length === 1 ? 'Standort' : 'Standorte'} erhoben:`;
+  return [kopf, ...zeilen].join('\n');
+}
+
 /** Summen je Art plus Gesamtsumme – die Grundlage für die Bewertung. */
 function bioSummen(anteile) {
   const s = { tracht: 0, bebaut: 0, sonstiges: 0, gesamt: 0 };
@@ -7258,12 +7287,37 @@ Views.bio = {
       values: imk,
       async onSave(v) { await S.set('imkerei', Object.assign({}, S.get('imkerei'), v)); UI.toast('Bio-Angaben gespeichert'); renderRoute(); },
     });
-    $('#edit-bb', box).onclick = () => UI.formModal({
-      title: 'Betriebsbeschreibung', wide: true,
-      fields: BIO_ABSCHNITTE.map((a) => ({ key: a.key, label: a.label, type: 'textarea', hint: a.hint })),
-      values: bb,
-      async onSave(v) { await S.set('bioBetrieb', v); UI.toast('Betriebsbeschreibung gespeichert'); renderRoute(); },
-    });
+    $('#edit-bb', box).onclick = async () => {
+      const staende = U.sortBy(await DB.getAll('staende'), (x) => x.name.toLowerCase());
+      const voelkerAktiv = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
+      const jeStand = new Map();
+      for (const v of voelkerAktiv) jeStand.set(v.standId, (jeStand.get(v.standId) || 0) + 1);
+      const vorschlag = bioStandorteText(staende, jeStand);
+      const m = UI.formModal({
+        title: 'Betriebsbeschreibung', wide: true,
+        fields: BIO_ABSCHNITTE.flatMap((a) => {
+          const feld = { key: a.key, label: a.label, type: 'textarea', hint: a.hint };
+          // Der Knopf steht als eigenes Feld direkt unter dem Textfeld
+          return a.key === 'standorte' && vorschlag
+            ? [feld, { key: '_uebernehmen', type: 'static',
+                html: `<button type="button" class="btn btn-ghost btn-sm" data-uebernehmen>${icon('download')} Zahlen aus den Standorten übernehmen</button>
+                  <div class="hint mt6">Fügt Umkreis, Trachtanteil und die größten Flächen je Standort als Text ein – erhoben im Reiter „Standorte". Vorhandener Text bleibt stehen.</div>` }]
+            : [feld];
+        }),
+        values: bb,
+        async onSave(v) { await S.set('bioBetrieb', v); UI.toast('Betriebsbeschreibung gespeichert'); renderRoute(); },
+      });
+      const knopf = $('[data-uebernehmen]', m.el);
+      if (knopf) knopf.onclick = () => {
+        const feld = $('#f-standorte', m.el);
+        const alt = (feld.value || '').trim();
+        /* Vorhandenen Text NICHT wegwerfen – die eigene Beschreibung ist mehr
+           wert als die Zahlen. Der Baustein hängt sich hinten an. */
+        feld.value = alt ? `${alt}\n\n${vorschlag}` : vorschlag;
+        feld.dispatchEvent(new Event('input', { bubbles: true }));
+        UI.toast(`Zahlen aus ${staende.filter((st) => bioAnteile(st).length).length} Standorten übernommen`);
+      };
+    };
   },
 
   async tabStandorte(box) {
