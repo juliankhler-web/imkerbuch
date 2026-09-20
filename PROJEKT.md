@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 383/383 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 384/384 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.58)**: **Chargen von Hand anordnen** (Julian: „kannst du es nicht so machen das man die kachel einfach mit der hand verschieben kann").
+  Knopf **Anordnen** im Chargen-Reiter: Zeilen bekommen einen Griff, werden mit Finger oder Maus gezogen, **Fertig** beendet den Modus. Neuer allgemeiner Helfer `zeilenSortieren(listEl, onFertig)` neben dem vorhandenen `dashCfgDrag` – Pointer-Events, also dieselbe Bedienung am Handy wie am Rechner.
+  Die Reihenfolge steht als **`sortIndex` an der Charge**, nicht in einer Liste im Arbeitsspeicher: Sie überlebt Neuladen, Gerätewechsel und Sicherung. Sobald einmal geschoben wurde, ist „Eigene" die Vorgabe der Sortierung; Nummer, Datum und Menge bleiben wählbar. Laufende Chargen und Archiv werden getrennt sortiert, eine ausverkaufte rutscht also nie zwischen die aktiven.
+  Nebenbei: Der **QR-Code einer Charge** entsteht ganz unten im Detailfenster – die Ansicht springt jetzt dorthin. Julian hatte ihn schlicht nicht gefunden und hielt ihn für kaputt.
+  1 neuer Test. **384/384 grün.** SW → v170.
 
 - **2026-09-20 (v1.57)**: **Chargen-Filter sichtbar, Sortierung wählbar** (Julian: „das mit dem filter finde ich nicht … man muss es selber ordnen können").
   Die Filterleiste war an `jahre.length > 1` geknüpft – bei einer Imkerei mit Chargen aus nur einem Jahr also unsichtbar, und genau dann sucht man sie. Jetzt ist sie immer da, mit **„Alle" vorn und als Vorgabe**, wie bei Inventar und Fütterung.

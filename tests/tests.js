@@ -7173,3 +7173,58 @@ test('Chargen: ausverkaufte wandern ins Archiv, Jahresfilter und „Alle“', as
     for (const x of alt.a) await w.DB.put('abfuellungen', x, true);
   }
 });
+
+test('Chargen von Hand anordnen: Reihenfolge wird gespeichert', async (w) => {
+  const alt = { c: await w.DB.getAll('chargen'), a: await w.DB.getAll('abfuellungen') };
+  await w.DB.clear('chargen'); await w.DB.clear('abfuellungen');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const a = await w.DB.put('chargen', { losnummer: 'H-A', datum: '2026-06-01', ernteIds: [], mengeKg: 10 });
+    const b = await w.DB.put('chargen', { losnummer: 'H-B', datum: '2026-06-02', ernteIds: [], mengeKg: 10 });
+    const c = await w.DB.put('chargen', { losnummer: 'H-C', datum: '2026-06-03', ernteIds: [], mengeKg: 10 });
+    const zeige = async () => { w.Views.honig._tab = 'chargen'; await w.Views.honig.render(host); await new Promise((r) => setTimeout(r, 300)); };
+    const nummern = () => [...host.querySelectorAll('#chargen-offen .row[data-id]')].map((r) => r.textContent.match(/Charge (H-[A-Z])/)[1]);
+
+    w.Views.honig._chargenJahr = ''; w.Views.honig._chargenSort = undefined; w.Views.honig._chargenOrdnen = false;
+    await zeige();
+    assertEq(nummern(), ['H-C', 'H-B', 'H-A'], 'ohne eigene Reihenfolge zählt die Nummer');
+    assert(host.querySelector('#ordnen'), 'der Knopf „Anordnen“ ist da');
+    assert(!host.querySelector('[data-grip]'), 'ohne Anordnen-Modus gibt es keine Griffe');
+
+    // Anordnen einschalten
+    w.Views.honig._chargenOrdnen = true;
+    await zeige();
+    assertEq(host.querySelectorAll('[data-grip]').length, 3, 'jede Zeile bekommt einen Griff');
+    assert(host.querySelectorAll('.row[data-nooepnen]').length === 3, 'im Anordnen-Modus öffnet ein Tipp keine Charge');
+    assert(/ziehen/.test(host.textContent), 'und es steht dabei, wie es geht');
+
+    // Reihenfolge speichern, wie es das Ziehen tut
+    await w.Views.honig.chargenReihenfolge([a.id, c.id, b.id]);
+    assertEq((await w.DB.get('chargen', a.id)).sortIndex, 0, 'die Position steht an der Charge');
+    assertEq((await w.DB.get('chargen', c.id)).sortIndex, 1);
+    assertEq((await w.DB.get('chargen', b.id)).sortIndex, 2);
+    assertEq(w.Views.honig._chargenSort, 'hand', 'die Ansicht folgt jetzt der eigenen Reihenfolge');
+
+    w.Views.honig._chargenOrdnen = false;
+    await zeige();
+    assertEq(nummern(), ['H-A', 'H-C', 'H-B'], 'die geschobene Reihenfolge steht');
+    assert(host.querySelector('[data-csort="hand"]'), 'und ist als „Eigene“ wählbar');
+
+    // Nach einem Neuladen ohne gemerkte Einstellung gilt sie weiter
+    w.Views.honig._chargenSort = undefined;
+    await zeige();
+    assertEq(nummern(), ['H-A', 'H-C', 'H-B'], 'sie überlebt das Neuladen');
+
+    // Umschalten auf Nummer bleibt möglich
+    w.Views.honig._chargenSort = 'nummer';
+    await zeige();
+    assertEq(nummern(), ['H-C', 'H-B', 'H-A'], 'die anderen Sortierungen gehen weiterhin');
+  } finally {
+    host.remove();
+    w.Views.honig._tab = 'ernten'; w.Views.honig._chargenSort = undefined;
+    w.Views.honig._chargenJahr = undefined; w.Views.honig._chargenOrdnen = false;
+    await w.DB.clear('chargen'); await w.DB.clear('abfuellungen');
+    for (const x of alt.c) await w.DB.put('chargen', x, true);
+    for (const x of alt.a) await w.DB.put('abfuellungen', x, true);
+  }
+});

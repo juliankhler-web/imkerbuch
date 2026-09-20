@@ -303,6 +303,11 @@ html[data-theme="dark"] .stat{box-shadow:var(--shadow)}
 .cfg-row{display:flex;align-items:center;gap:11px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 11px}
 .cfg-row.drag{opacity:.55;border-style:dashed}
 .cfg-row.ueber{border-color:var(--honey);box-shadow:0 0 0 2px var(--honey-soft)}
+/* Zeilen, die man mit dem Finger umsortiert */
+.row.drag{opacity:.6;border:1px dashed var(--honey)}
+.row-grip{cursor:grab;touch-action:none;color:var(--muted);font-size:20px;line-height:1;padding:0 6px;user-select:none}
+.row-grip:active{cursor:grabbing;color:var(--honey-deep)}
+.ordnen .row{cursor:grab}
 .cfg-ic{width:34px;height:34px;border-radius:10px;background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .cfg-ic svg{width:18px;height:18px}
 .cfg-name{flex:1;font-size:14.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -947,8 +952,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.57';
+const APP_VERSION = '1.58';
 const CHANGELOG = [
+  { version: '1.58', datum: '2026-09-20', punkte: [
+    'Neu: <b>Chargen von Hand anordnen.</b> Im Reiter Charge auf <b>Anordnen</b> tippen, die Zeilen am Griff ⠿ an die gewünschte Stelle ziehen, <b>Fertig</b> – das war es. Die Reihenfolge wird sofort gespeichert, überlebt das Neuladen und steht danach als Sortierung <b>Eigene</b> zur Wahl.',
+    'Der <b>QR-Code einer Charge</b> entsteht am Ende eines langen Fensters. Die Ansicht springt jetzt dorthin, sobald er fertig ist – vorher sah es aus, als würde keiner erzeugt.',
+  ] },
   { version: '1.57', datum: '2026-09-20', punkte: [
     'Der <b>Jahresfilter bei den Chargen</b> steht jetzt immer über der Liste – genau wie bei Inventar und Fütterung, mit „Alle" vorn und als Vorgabe. Vorher blieb er verborgen, solange es nur ein Jahr gab.',
     'Neu: Die <b>Sortierung ist wählbar</b> – nach <b>Nummer</b>, <b>Datum</b> oder <b>Menge</b>. Jede Imkerei nummeriert anders; eine feste Reihenfolge passt deshalb nie allen. Sortiert wird innerhalb der laufenden Chargen und innerhalb des Archivs.',
@@ -3099,6 +3108,37 @@ function dashCfgDrag(listEl, st, opts, zeichnen) {
     st.aktiv = neu; zeichnen();
   };
   listEl.addEventListener('pointermove', move);
+  listEl.addEventListener('pointerup', ende);
+  listEl.addEventListener('pointercancel', ende);
+}
+
+/** Zeilen einer Liste mit dem Finger umsortieren. Gezogen wird am Griff
+    ([data-grip]); beim Loslassen kommt die neue Reihenfolge der data-id-Werte.
+    Bewusst mit Pointer-Events: dieselbe Bedienung mit Maus und am Handy. */
+function zeilenSortieren(listEl, onFertig) {
+  let row = null;
+  const zeilen = () => [...listEl.querySelectorAll('[data-id]')];
+  listEl.addEventListener('pointerdown', (e) => {
+    const g = e.target.closest('[data-grip]');
+    if (!g || !listEl.contains(g)) return;
+    e.preventDefault();
+    row = g.closest('[data-id]');
+    if (!row) return;
+    row.classList.add('drag');
+    try { g.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  listEl.addEventListener('pointermove', (e) => {
+    if (!row) return;
+    const andere = zeilen().filter((r) => r !== row);
+    const ziel = andere.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
+    if (ziel) listEl.insertBefore(row, ziel); else listEl.appendChild(row);
+  });
+  const ende = () => {
+    if (!row) return;
+    row.classList.remove('drag');
+    row = null;
+    onFertig(zeilen().map((r) => r.dataset.id));
+  };
   listEl.addEventListener('pointerup', ende);
   listEl.addEventListener('pointercancel', ende);
 }
@@ -7687,13 +7727,18 @@ Views.honig = {
     const jahr = Views.honig._chargenJahr || '';
     /* Sortierung ist Geschmackssache: Die einen nummerieren 2026-01, die
        anderen schreiben „Raps Juni". Deshalb wählbar statt vorgeschrieben. */
-    const sort = Views.honig._chargenSort || 'nummer';
+    /* „hand" ist die selbst geschobene Reihenfolge. Sobald einmal geschoben
+       wurde, ist sie die Vorgabe – sonst wäre die Arbeit beim nächsten Öffnen weg. */
+    const hatHand = roh.some((c) => c.sortIndex != null);
+    const sort = Views.honig._chargenSort || (hatHand ? 'hand' : 'nummer');
+    const ordnen = !!Views.honig._chargenOrdnen;
     const passt = (c) => !jahr ? true : (jahr === '__ohne' ? !jahrVon(c) : jahrVon(c) === jahr);
     const nachNummer = (a, b) => String(b.losnummer || '').localeCompare(String(a.losnummer || ''), 'de', { numeric: true });
     const sortierer = {
       nummer: nachNummer,
       datum: (a, b) => String(b.datum || '').localeCompare(String(a.datum || '')) || nachNummer(a, b),
       menge: (a, b) => (Number(b.mengeKg) || 0) - (Number(a.mengeKg) || 0) || nachNummer(a, b),
+      hand: (a, b) => (a.sortIndex ?? 1e9) - (b.sortIndex ?? 1e9) || nachNummer(a, b),
     }[sort] || nachNummer;
     const alle = [...roh].sort(sortierer);
     const list = alle.filter(passt);
@@ -7707,8 +7752,8 @@ Views.honig = {
       const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
       const herkunft = [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
       const erledigt = Views.honig.chargeErledigt(c, abfAlle);
-      return `<button class="row" data-id="${c.id}">
-        <span class="r-ic">${icon('qr')}</span>
+      return `<button class="row" data-id="${c.id}"${ordnen ? ' data-nooepnen' : ''}>
+        ${ordnen ? '<span class="row-grip" data-grip title="verschieben" aria-label="verschieben">⠿</span>' : `<span class="r-ic">${icon('qr')}</span>`}
         <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}${c.datum ? ` <span class="muted small">· ${U.fmtDate(c.datum)}</span>` : ''}</span>
         <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}</span></span>
         <span class="r-side">${erledigt
@@ -7720,28 +7765,55 @@ Views.honig = {
 
     box.innerHTML = `
       <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}</div>
-      <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sChip('Nummer', 'nummer')}${sChip('Datum', 'datum')}${sChip('Menge', 'menge')}</div>
+      ${ordnen ? '' : `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sChip('Nummer', 'nummer')}${sChip('Datum', 'datum')}${sChip('Menge', 'menge')}${hatHand || sort === 'hand' ? sChip('Eigene', 'hand') : ''}</div>`}
       <div class="card">
-      <div class="card-title">${icon('qr')}<h2>Chargen</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
-      ${offen.length ? `<div class="rows">${offen.map(zeile).join('')}</div>`
+      <div class="card-title">${icon('qr')}<h2>Chargen</h2>
+        <button class="btn btn-ghost btn-sm no-print" id="ordnen">${icon(ordnen ? 'check' : 'pencil')} ${ordnen ? 'Fertig' : 'Anordnen'}</button>
+        <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
+      ${ordnen ? `<div class="hint mb12">Zeile am Griff <b>⠿</b> anfassen und an die gewünschte Stelle ziehen. Die Reihenfolge wird sofort gespeichert; laufende Chargen und Archiv bleiben getrennt.</div>` : ''}
+      ${offen.length ? `<div class="rows${ordnen ? ' ordnen' : ''}" id="chargen-offen">${offen.map(zeile).join('')}</div>`
         : (alle.length ? `<p class="small muted">Keine laufende Charge in dieser Auswahl.</p>`
           : emptyState('qr', 'Noch keine Charge. Eine Charge macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`))}
       ${archiv.length ? `
         <div class="mt16" style="border-top:2px solid var(--line);padding-top:12px">
           <div class="flex-wrap mb8"><b>Archiv</b><span class="small muted">${archiv.length} ${archiv.length === 1 ? 'Charge ist' : 'Chargen sind'} vollständig abgefüllt und verkauft</span></div>
-          <div class="rows">${archiv.map(zeile).join('')}</div>
+          <div class="rows${ordnen ? ' ordnen' : ''}" id="chargen-archiv">${archiv.map(zeile).join('')}</div>
         </div>` : ''}
     </div>`;
     const add = () => Views.honig.chargeForm(null);
     bindAdd(add, box);
+    const ordnenBtn = $('#ordnen', box);
+    if (ordnenBtn) ordnenBtn.onclick = () => { Views.honig._chargenOrdnen = !ordnen; renderRoute(); };
+    if (ordnen) {
+      for (const id of ['chargen-offen', 'chargen-archiv']) {
+        const el = $('#' + id, box);
+        if (el) zeilenSortieren(el, (ids) => Views.honig.chargenReihenfolge(ids));
+      }
+    }
     box.addEventListener('click', (ev) => {
       const j = ev.target.closest('[data-cjahr]');
       if (j) { Views.honig._chargenJahr = j.dataset.cjahr; renderRoute(); return; }
       const so = ev.target.closest('[data-csort]');
       if (so) { Views.honig._chargenSort = so.dataset.csort; renderRoute(); return; }
       const r = ev.target.closest('.row[data-id]');
-      if (r) Views.honig.chargeDetail(alle.find((x) => x.id === r.dataset.id));
+      if (r && !r.hasAttribute('data-nooepnen')) Views.honig.chargeDetail(alle.find((x) => x.id === r.dataset.id));
     });
+  },
+
+  /* Selbst geschobene Reihenfolge festhalten. Sie steht als `sortIndex` an der
+     Charge und überlebt damit Neuladen, Gerätewechsel und Sicherung – anders
+     als eine Liste im Arbeitsspeicher. Geschrieben werden nur die Zeilen, die
+     gerade sichtbar sind; alle anderen behalten ihren Platz. Stimmen zwei
+     Werte überein (etwa nach einem Jahreswechsel im Filter), entscheidet die
+     Chargennummer – die Liste springt also nie wild herum. */
+  async chargenReihenfolge(ids) {
+    for (let i = 0; i < ids.length; i++) {
+      const c = await DB.get('chargen', ids[i]);
+      if (!c || c.sortIndex === i) continue;
+      c.sortIndex = i;
+      await DB.put('chargen', c);
+    }
+    Views.honig._chargenSort = 'hand';
   },
 
   async chargeForm(c) {
@@ -7926,6 +7998,9 @@ Views.honig = {
           <div class="mt8"><button class="btn btn-ghost btn-sm" id="qr-print">${icon('print')} Etiketten-QR drucken</button></div>`;
         $('#qr-print', zone).onclick = () => Views.honig.qrPrint(c, dataUrl);
       } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
+      /* Der Code erscheint am Ende eines langen Fensters – ohne das hier
+         scrollt niemand hin und hält ihn für „nicht erzeugt". */
+      try { zone.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
     };
   },
   /** QR-Inhalt: kompakte Chargeninfo für das Etikett */
