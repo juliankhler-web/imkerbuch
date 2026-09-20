@@ -7102,3 +7102,54 @@ test('Verbrauchsmaterial-Übersicht zeigt die Einheiten, nicht „Stück“ für
     await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);
   }
 });
+
+test('Chargen: ausverkaufte wandern ins Archiv, Jahresfilter und „Alle“', async (w) => {
+  const alt = { c: await w.DB.getAll('chargen'), a: await w.DB.getAll('abfuellungen') };
+  await w.DB.clear('chargen'); await w.DB.clear('abfuellungen');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    // laufend: noch Honig im Eimer
+    const offen1 = await w.DB.put('chargen', { losnummer: 'A-2026', datum: '2026-06-01', ernteIds: [], mengeKg: 20 });
+    // laufend: alles abgefüllt, aber Gläser stehen noch zum Verkauf
+    const offen2 = await w.DB.put('chargen', { losnummer: 'B-2026', datum: '2026-06-02', ernteIds: [], mengeKg: 5 });
+    await w.DB.put('abfuellungen', { chargeId: offen2.id, datum: '2026-06-03', gebindeG: 500, anzahl: 10, bestand: 3 });
+    // erledigt: abgefüllt und ausverkauft
+    const fertig = await w.DB.put('chargen', { losnummer: 'C-2026', datum: '2026-06-04', ernteIds: [], mengeKg: 5 });
+    await w.DB.put('abfuellungen', { chargeId: fertig.id, datum: '2026-06-05', gebindeG: 500, anzahl: 10, bestand: 0 });
+    // Vorjahr, ebenfalls erledigt
+    const altJahr = await w.DB.put('chargen', { losnummer: 'D-2025', datum: '2025-07-01', ernteIds: [], mengeKg: 5 });
+    await w.DB.put('abfuellungen', { chargeId: altJahr.id, datum: '2025-07-02', gebindeG: 500, anzahl: 10, bestand: 0 });
+
+    const abfAlle = await w.DB.getAll('abfuellungen');
+    assert(!w.Views.honig.chargeErledigt(offen1, abfAlle), 'nicht abgefüllt = laufend');
+    assert(!w.Views.honig.chargeErledigt(offen2, abfAlle), 'Gläser im Regal = laufend');
+    assert(w.Views.honig.chargeErledigt(fertig, abfAlle), 'abgefüllt und ausverkauft = erledigt');
+
+    const zeige = async () => { w.Views.honig._tab = 'chargen'; await w.Views.honig.render(host); await new Promise((r) => setTimeout(r, 300)); return host; };
+    w.Views.honig._chargenJahr = undefined;
+    await zeige();
+    assert(/Archiv/.test(host.textContent), 'es gibt einen Archiv-Abschnitt');
+    const reihenfolge = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
+    assertEq(reihenfolge.indexOf('C-2026') > reihenfolge.indexOf('A-2026'), true, 'die ausverkaufte steht unter den laufenden');
+    assert(/ausverkauft/.test(host.textContent), 'und ist als ausverkauft gekennzeichnet');
+    assert(!reihenfolge.includes('D-2025'), 'das Vorjahr ist standardmäßig ausgeblendet');
+
+    // Jahresfilter
+    w.Views.honig._chargenJahr = '2025';
+    await zeige();
+    const nur2025 = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
+    assertEq(nur2025, ['D-2025'], 'mit Filter 2025 nur die Charge von 2025');
+
+    // Alle
+    w.Views.honig._chargenJahr = '__alle';
+    await zeige();
+    const alleNr = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
+    assertEq(alleNr.length, 4, '„Alle“ zeigt jede Charge');
+    assert(alleNr.includes('D-2025') && alleNr.includes('A-2026'), 'über beide Jahre hinweg');
+  } finally {
+    host.remove(); w.Views.honig._tab = 'ernten'; w.Views.honig._chargenJahr = undefined;
+    await w.DB.clear('chargen'); await w.DB.clear('abfuellungen');
+    for (const x of alt.c) await w.DB.put('chargen', x, true);
+    for (const x of alt.a) await w.DB.put('abfuellungen', x, true);
+  }
+});

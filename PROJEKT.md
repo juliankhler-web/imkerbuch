@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 382/382 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 383/383 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.55)**: **Chargen-Archiv und Jahresfilter** (Julian: „wenn eine charge komplett abgefüllt und verkauft ist soll sie … unter einer neuen liste … Archiv").
+  `Views.honig.chargeErledigt(c, abfAlle)` entscheidet: vollständig abgefüllt **und** kein Glas mehr im Regal. Solche Chargen stehen unter einem Trennstrich im Abschnitt **Archiv** – gelöscht wird nichts, die Rückverfolgbarkeit endet nicht mit dem letzten Glas. Eine nie abgefüllte Charge gilt nie als erledigt, auch wenn rechnerisch 0 kg übrig wären.
+  Dazu ein **Jahresfilter** (`_chargenJahr`, vorbelegt mit dem jüngsten Jahr mit Chargen) plus „ohne Datum" und **Alle**. Jede Zeile nennt Anlegedatum und Stand: „nicht abgefüllt", „12 zum Verkauf" oder „ausverkauft".
+  1 neuer Test über alle vier Fälle. **383/383 grün.** SW → v167.
 
 - **2026-09-20 (v1.54)**: **Sorte an der Charge, echte Einheiten in der Übersicht** (Julian: „wenn ich … den labor bericht und die sorte eintrage taucht sie nicht bei sorte auf" / „nur stück ist irgendwie schlecht").
   **Der Reiter „Sorte" las ausschließlich den Speicher `ernten`.** Eine Charge, die ihre Sorte selbst trägt – bei Honig aus dem Lagerbestand die einzige Quelle, und genau der Fall beim nachgetragenen Laborbefund –, tauchte dort nie auf. Jetzt fließen beide Quellen zusammen, **ohne doppelt zu zählen**: von einer Charge zählt nur `lagerKg`, also die Menge, die nicht schon über eine Ernte erfasst ist; ohne verknüpfte Ernten die ganze Charge. Eine Spalte nennt die Quelle, und Lager-Chargen ohne Sorte werden eigens gemeldet.

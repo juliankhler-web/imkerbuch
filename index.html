@@ -947,8 +947,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.54';
+const APP_VERSION = '1.55';
 const CHANGELOG = [
+  { version: '1.55', datum: '2026-09-20', punkte: [
+    'Die <b>Chargenübersicht</b> trennt jetzt zwischen laufend und erledigt: Eine Charge, die <b>vollständig abgefüllt und ausverkauft</b> ist, rutscht unter einen Trennstrich in den Bereich <b>Archiv</b>. Gelöscht wird nichts – die Rückverfolgbarkeit endet nicht mit dem letzten Glas.',
+    'Neu: ein <b>Jahresfilter</b> über der Liste (2026, 2025 …) samt <b>Alle</b>. Vorbelegt ist das jüngste Jahr, in dem es Chargen gibt.',
+    'Jede Zeile nennt jetzt das <b>Anlegedatum</b> und sagt, woran man ist: „nicht abgefüllt", „12 zum Verkauf" oder „ausverkauft".',
+  ] },
   { version: '1.54', datum: '2026-09-20', punkte: [
     'Behoben: Trägst du <b>Sorte und Laborwert nachträglich an einer Charge</b> ein, tauchten sie im Reiter „Sorte" nicht auf – die Tabelle las ausschließlich die Ernten. Jetzt stehen Chargen mit eigener Sorte dort mit drin, und zwar ohne doppelt zu zählen: von einer Charge zählt nur die Menge, die nicht schon aus einer Ernte stammt. Chargen aus Lagerbestand ohne Sorte werden eigens gemeldet – ohne sie stünde auf dem Etikett nur „Honig".',
     'Die <b>Gesamtübersicht beim Verbrauchsmaterial</b> zeigt jetzt die echten Einheiten: „50 kg · 12 Streifen · 200 Stück" statt einer Gesamtzahl „Stück", die Zucker und Streifen in einen Topf warf. Gilt ebenso für Behandlungsmittel und Futter, für die Liste, die PDF-Übersicht und die Excel-Mappe.',
@@ -7651,30 +7656,74 @@ Views.honig = {
   },
 
   /* ---------- Chargen (Losnummern, QR, Rückverfolgung) ---------- */
+  /* Eine Charge ist erledigt, wenn nichts mehr im Eimer und nichts mehr im
+     Regal steht: vollständig abgefüllt UND alle Gläser verkauft. Sie bleibt
+     erhalten – die Rückverfolgbarkeit endet nicht mit dem letzten Glas –,
+     rutscht aber unter einen Trenner, damit die laufende Saison oben steht. */
+  chargeErledigt(c, abfAlle) {
+    const eigene = (abfAlle || []).filter((a) => a.chargeId === c.id);
+    if (!eigene.length) return false;                       // nie abgefüllt = offen
+    if (chargeRestKg(c, abfAlle) > 0.0001) return false;    // noch Honig im Eimer
+    return U.sum(eigene, (a) => a.bestand || 0) <= 0;       // noch Gläser da?
+  },
+
   async tabChargen(box) {
-    const list = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
+    const alle = U.sortBy(await DB.getAll('chargen'), (c) => `${c.datum || ''}·${c.losnummer}`, true);
     const ernten = await idMap('ernten');
     const abfAlle = await DB.getAll('abfuellungen');
-    box.innerHTML = `<div class="card">
+    const jahrVon = (c) => (c.datum || '').slice(0, 4);
+    const jahre = [...new Set(alle.map(jahrVon).filter(Boolean))].sort().reverse();
+    const ohneJahr = alle.some((c) => !jahrVon(c));
+    /* Vorbelegung: das jüngste Jahr, in dem es Chargen gibt. Wer alles sehen
+       will, tippt auf „Alle" – die Wahl bleibt beim Reiterwechsel erhalten. */
+    let jahr = Views.honig._chargenJahr;
+    if (jahr === undefined) jahr = jahre[0] || '';
+    if (jahr && jahr !== '__alle' && jahr !== '__ohne' && !jahre.includes(jahr)) jahr = jahre[0] || '__alle';
+    const passt = (c) => jahr === '__alle' || !jahr ? true : (jahr === '__ohne' ? !jahrVon(c) : jahrVon(c) === jahr);
+    const list = alle.filter(passt);
+    const offen = list.filter((c) => !Views.honig.chargeErledigt(c, abfAlle));
+    const archiv = list.filter((c) => Views.honig.chargeErledigt(c, abfAlle));
+
+    const zeile = (c) => {
+      const rest = chargeRestKg(c, abfAlle);
+      const glaeser = U.sum(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.bestand || 0);
+      const sorten = chargeSorten(c, ernten).map((x) => U.esc(x)).join(', ');
+      const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
+      const herkunft = [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
+      const erledigt = Views.honig.chargeErledigt(c, abfAlle);
+      return `<button class="row" data-id="${c.id}">
+        <span class="r-ic">${icon('qr')}</span>
+        <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}${c.datum ? ` <span class="muted small">· ${U.fmtDate(c.datum)}</span>` : ''}</span>
+        <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}</span></span>
+        <span class="r-side">${erledigt
+          ? '<b class="muted">ausverkauft</b>'
+          : `<b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;
+    };
+    const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-cjahr="${U.esc(val)}">${U.esc(label)}</button>`;
+
+    box.innerHTML = `
+      ${jahre.length > 1 || ohneJahr ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}${chip('Alle', '__alle')}</div>` : ''}
+      <div class="card">
       <div class="card-title">${icon('qr')}<h2>Chargen</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
-      ${list.length ? `<div class="rows">` + list.map((c) => {
-        const rest = chargeRestKg(c, abfAlle);
-        return `<button class="row" data-id="${c.id}">
-          <span class="r-ic">${icon('qr')}</span>
-          <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}</span>
-          <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(() => {
-            const sorten = chargeSorten(c, ernten).map((x) => U.esc(x)).join(', ');
-            const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
-            return [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
-          })()}</span></span>
-          <span class="r-side"><b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">nicht abgefüllt</span></span>${icon('chevR', 'chev')}</button>`;
-      }).join('') + `</div>`
-      : emptyState('qr', 'Noch keine Charge. Eine Charge (Losnummer) macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`)}
+      ${offen.length ? `<div class="rows">${offen.map(zeile).join('')}</div>`
+        : (alle.length ? `<p class="small muted">Keine laufende Charge in dieser Auswahl.</p>`
+          : emptyState('qr', 'Noch keine Charge. Eine Charge macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`))}
+      ${archiv.length ? `
+        <div class="mt16" style="border-top:2px solid var(--line);padding-top:12px">
+          <div class="flex-wrap mb8"><b>Archiv</b><span class="small muted">${archiv.length} ${archiv.length === 1 ? 'Charge ist' : 'Chargen sind'} vollständig abgefüllt und verkauft</span></div>
+          <div class="rows">${archiv.map(zeile).join('')}</div>
+        </div>` : ''}
     </div>`;
     const add = () => Views.honig.chargeForm(null);
     bindAdd(add, box);
-    box.addEventListener('click', (ev) => { const r = ev.target.closest('.row[data-id]'); if (r) Views.honig.chargeDetail(list.find((x) => x.id === r.dataset.id)); });
+    box.addEventListener('click', (ev) => {
+      const j = ev.target.closest('[data-cjahr]');
+      if (j) { Views.honig._chargenJahr = j.dataset.cjahr; renderRoute(); return; }
+      const r = ev.target.closest('.row[data-id]');
+      if (r) Views.honig.chargeDetail(alle.find((x) => x.id === r.dataset.id));
+    });
   },
+
   async chargeForm(c) {
     const ernten = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
     const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
