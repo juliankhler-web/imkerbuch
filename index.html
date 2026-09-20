@@ -947,8 +947,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.55';
+const APP_VERSION = '1.56';
 const CHANGELOG = [
+  { version: '1.56', datum: '2026-09-20', punkte: [
+    'Bei <b>Inventar und Verbrauchsmaterial</b> sind die drei Kacheln über der Tabelle weggefallen – sie wiederholten nur, was direkt darunter steht. Die Zeile <b>Gesamt</b> zählt nicht mehr jede Einheit einzeln auf; bei vielen Positionen wurde daraus eine Textwand. Sie nennt jetzt Anzahl und Wert, die Einheiten stehen je Art in ihrer Zeile.',
+  ] },
   { version: '1.55', datum: '2026-09-20', punkte: [
     'Die <b>Chargenübersicht</b> trennt jetzt zwischen laufend und erledigt: Eine Charge, die <b>vollständig abgefüllt und ausverkauft</b> ist, rutscht unter einen Trennstrich in den Bereich <b>Archiv</b>. Gelöscht wird nichts – die Rückverfolgbarkeit endet nicht mit dem letzten Glas.',
     'Neu: ein <b>Jahresfilter</b> über der Liste (2026, 2025 …) samt <b>Alle</b>. Vorbelegt ist das jüngste Jahr, in dem es Chargen gibt.',
@@ -8874,16 +8877,10 @@ async function renderInventarBereich(main, cfg) {
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
     <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}</div>
-    <div class="stat-grid mb16">
-      <div class="stat"><div class="s-label">${icon(cfg.ic)} Positionen</div><div class="s-value">${list.length}</div></div>
-      <div class="stat"><div class="s-label">Bestand</div><div class="s-value" style="font-size:17px;line-height:1.3">${U.esc(bestandText(list, 2))}</div>
-        ${bestandNachEinheit(list).length > 2 ? `<div class="s-sub">${U.esc(bestandText(list))}</div>` : ''}</div>
-      <div class="stat"><div class="s-label">${icon('euro')} Wert${jahr || art || suchtext ? ' (Auswahl)' : ''}</div><div class="s-value">${U.fmtEur(wert)}</div></div>
-    </div>
     <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
       ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Bestand</th><th class="num">Wert</th></tr></thead>
         <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
-        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${U.esc(bestandText(list))}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
+        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt${jahr || art || suchtext ? ' (Auswahl)' : ''}</td><td class="num">${list.length}</td><td class="num"></td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
     </div>` : '') +
     `<div class="card">`
       /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
@@ -12834,12 +12831,12 @@ const Pdf = {
       const wertVon = (i) => lagerBewertung(i, zugaengeAlle).wert;
       const wert = U.sum(list, wertVon);
       const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + art : ''].filter(Boolean).join(' · ');
-      const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · ${bestandText(list, 3)} · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
+      const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
       // Übersicht nach Art – Bestand je Einheit, eine Gesamtzahl darüber wäre sinnlos
       const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
         .map(([k, items]) => [k, String(items.length), bestandText(items), U.fmtEur(U.sum(items, wertVon))])
         .sort((a, b) => a[0].localeCompare(b[0], 'de'));
-      proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, { content: bestandText(list), styles: { fontStyle: 'bold' } }, { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
+      proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, '', { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
       let yy = this.table(doc, { head: ['Art', 'Positionen', 'Bestand', 'Wert'], body: proArt, startY: y, widths: { 1: { halign: 'right' }, 2: { halign: 'right', cellWidth: 40 }, 3: { halign: 'right' } } });
       // Detailliste
       const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);

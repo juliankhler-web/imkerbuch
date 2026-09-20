@@ -7097,6 +7097,13 @@ test('Verbrauchsmaterial-Übersicht zeigt die Einheiten, nicht „Stück“ für
     assert(/50 kg/.test(text), 'Futter steht in Kilogramm da');
     assert(/12 Streifen/.test(text), 'das Behandlungsmittel in Streifen');
     assert(!/62/.test(text), 'und nirgends eine sinnlose Gesamtzahl über alle Einheiten');
+    // Die Gesamtzeile zählt NICHT alle Einheiten noch einmal auf – bei 100
+    // Positionen würde daraus eine Textwand.
+    const gesamt = [...host.querySelectorAll('tbody tr')].find((r) => /^Gesamt/.test(r.cells[0].textContent));
+    assert(gesamt, 'es gibt eine Gesamtzeile');
+    assertEq(gesamt.cells[2].textContent.trim(), '', 'ihre Bestandsspalte bleibt leer');
+    assert(/€/.test(gesamt.cells[3].textContent), 'der Gesamtwert steht aber da');
+    assert(!host.querySelector('.stat-grid'), 'die Kacheln über der Tabelle sind weg');
   } finally {
     host.remove();
     await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);

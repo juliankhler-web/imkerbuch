@@ -76,6 +76,9 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-20 (v1.56)**: **Materialübersicht entschlackt** (Julian: „wenn ich irgendwann 100 positionen habe sprengt es den rahmen").
+  Die drei Kacheln (Positionen · Bestand · Wert) über der Tabelle sind weg – sie wiederholten, was eine Zeile tiefer ohnehin steht. Die **Gesamtzeile** zählt die Einheiten nicht mehr auf; bei vielen Positionen stünde dort „4 ml · 1 L · 572 kg · 245 Stück · …". Sie nennt Anzahl und Wert, die Einheiten stehen je Art. Ebenso im Inventar-PDF.
+
 - **2026-09-20 (v1.55)**: **Chargen-Archiv und Jahresfilter** (Julian: „wenn eine charge komplett abgefüllt und verkauft ist soll sie … unter einer neuen liste … Archiv").
   `Views.honig.chargeErledigt(c, abfAlle)` entscheidet: vollständig abgefüllt **und** kein Glas mehr im Regal. Solche Chargen stehen unter einem Trennstrich im Abschnitt **Archiv** – gelöscht wird nichts, die Rückverfolgbarkeit endet nicht mit dem letzten Glas. Eine nie abgefüllte Charge gilt nie als erledigt, auch wenn rechnerisch 0 kg übrig wären.
   Dazu ein **Jahresfilter** (`_chargenJahr`, vorbelegt mit dem jüngsten Jahr mit Chargen) plus „ohne Datum" und **Alle**. Jede Zeile nennt Anlegedatum und Stand: „nicht abgefüllt", „12 zum Verkauf" oder „ausverkauft".
