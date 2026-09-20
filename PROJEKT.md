@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 380/380 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 382/382 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,13 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.54)**: **Sorte an der Charge, echte Einheiten in der Übersicht** (Julian: „wenn ich … den labor bericht und die sorte eintrage taucht sie nicht bei sorte auf" / „nur stück ist irgendwie schlecht").
+  **Der Reiter „Sorte" las ausschließlich den Speicher `ernten`.** Eine Charge, die ihre Sorte selbst trägt – bei Honig aus dem Lagerbestand die einzige Quelle, und genau der Fall beim nachgetragenen Laborbefund –, tauchte dort nie auf. Jetzt fließen beide Quellen zusammen, **ohne doppelt zu zählen**: von einer Charge zählt nur `lagerKg`, also die Menge, die nicht schon über eine Ernte erfasst ist; ohne verknüpfte Ernten die ganze Charge. Eine Spalte nennt die Quelle, und Lager-Chargen ohne Sorte werden eigens gemeldet.
+  **„Stück gesamt" war eine Zahl ohne Bedeutung** – 50 kg Zucker plus 12 Streifen ergaben „62 Stück". Neue Helfer `bestandNachEinheit()` und `bestandText()` fassen je Einheit zusammen: „200 Stück · 75 kg · 12 Streifen". Umgestellt sind die Kachel, die Tabelle „Gesamtübersicht nach Art", das Inventar-PDF (auch die Detailliste) und die Excel-Mappe (Bestand + Einheit als zwei Spalten).
+  **Chargennummer und Losnummer nebeneinander:** Führt eine Abfüllung ein eigenes Los, zeigen Listen und Etikett beides – rechtlich zählt das Los, für die Rückverfolgung die Charge (`chargeUndLos`, `eigenesLos`). Stimmen sie überein, steht die Nummer nur einmal da.
+  Der Reiter heißt schlicht **Chargen**; „(Lose)" und der Erklärabsatz sind weg.
+  3 neue Tests. **382/382 grün.** SW → v166.
 
 - **2026-09-20 (v1.53)**: **Charge, Losnummer und MHD gerade gezogen** (Julian: „aktuell heisst es los 2026-06 … das mhd wird erst bei der abfüllung eingetragen").
   **Rechtschreibung nachgeschlagen:** Es heißt **Chargennummer** – ein Wort, mit Fugen-n, im Duden geführt (Char|gen|num|mer). „Charge-Nummer" wäre falsch. Das Feld heißt jetzt so; im Lebensmittelrecht ist dieselbe Angabe das **Los**, deshalb steht sie auf dem Etikett weiter mit vorangestelltem **L** (Los-Kennzeichnungsverordnung: „L", sobald sich die Nummer nicht deutlich abhebt).

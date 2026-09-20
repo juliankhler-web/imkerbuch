@@ -6987,7 +6987,12 @@ test('Losnummer je Abfüllung: eigene Nummer schlägt die der Charge', async (w)
   assertEq(w.abfLos({ gebindeG: 500, losnummer: '' }, c), '2026-06', 'ein leeres Feld zählt als „nicht gesetzt“');
   assertEq(w.abfLos({ gebindeG: 500, losnummer: 'L240610' }, c), 'L240610', 'eine eigene Nummer gewinnt');
   assertEq(w.abfLos(null, null), '?', 'ohne alles bleibt das Fragezeichen');
-  assertEq(w.abfLabel({ gebindeG: 500, losnummer: 'L240610' }, c), 'Charge L240610 · 500 g', 'die Liste zeigt die gültige Nummer');
+  // Beides nebeneinander: rechtlich zählt das Los, für die Rückverfolgung die Charge
+  assertEq(w.abfLabel({ gebindeG: 500, losnummer: 'L240610' }, c), 'Charge 2026-06 · Los L240610 · 500 g', 'die Liste zeigt Charge UND Los');
+  assertEq(w.abfLabel({ gebindeG: 500 }, c), 'Charge 2026-06 · 500 g', 'ohne eigenes Los bleibt es bei der Chargennummer');
+  assertEq(w.abfLabel({ gebindeG: 500, losnummer: '2026-06' }, c), 'Charge 2026-06 · 500 g', 'ein Los gleich der Charge wird nicht doppelt genannt');
+  assertEq(w.eigenesLos({ losnummer: 'L240610' }, c), 'L240610', 'ein abweichendes Los wird erkannt');
+  assertEq(w.eigenesLos({ losnummer: '2026-06' }, c), '', 'ein gleichlautendes nicht');
 
   // Formular: Feld ist da und landet am Datensatz
   dialogeSchliessen(w);
@@ -7015,12 +7020,85 @@ test('Losnummer je Abfüllung: eigene Nummer schlägt die der Charge', async (w)
     try {
       await w.Pdf.honigEtikett(abf[0], charge, { bezeichnung: 'Honig', ursprung: 'Deutschland', anzahl: 1, mitQr: false });
       assert(/L L-2026-0610/.test(gebaut), 'das Etikett zeigt die eigene Losnummer');
-      assert(!/L LOS-CH/.test(gebaut), 'und nicht die der Charge');
+      assert(/Charge LOS-CH/.test(gebaut), 'und daneben die Chargennummer');
     } finally { w.Pdf.finish = echt; }
     for (const a of abf) await w.DB.del('abfuellungen', a.id);
   } finally {
     dialogeSchliessen(w);
     await w.DB.del('chargen', charge.id);
+    await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);
+  }
+});
+
+test('Sorten-Tab: Charge mit eigener Sorte taucht auf, ohne doppelt zu zählen', async (w) => {
+  const alt = { e: await w.DB.getAll('ernten'), c: await w.DB.getAll('chargen') };
+  await w.DB.clear('ernten'); await w.DB.clear('chargen');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    // 1) Charge aus reinem Lagerbestand – Sorte erst später eingetragen
+    await w.DB.put('chargen', { losnummer: 'S-LAGER', datum: '2026-05-01', ernteIds: [], mengeKg: 25, sorte: 'Waldhonig', wassergehalt: 16.4 });
+    // 2) Charge aus einer Ernte plus zugekauftem Lagerbestand
+    const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'v', datum: '2026-06-01', produktart: 'Honig', sorte: 'Rapshonig', mengeKg: 30, wassergehalt: 17 });
+    await w.DB.put('chargen', { losnummer: 'S-MIX', datum: '2026-06-05', ernteIds: [e.id], lagerKg: 10, mengeKg: 40, sorte: 'Sommertracht' });
+    // 3) Charge aus Lagerbestand ganz ohne Sorte
+    await w.DB.put('chargen', { losnummer: 'S-OFFEN', datum: '2026-06-06', ernteIds: [], mengeKg: 5 });
+
+    w.Views.honig._tab = 'sorten';
+    await w.Views.honig.render(host);
+    await new Promise((r) => setTimeout(r, 400));
+    const text = host.textContent;
+
+    assert(/Waldhonig/.test(text), 'die nachgetragene Sorte der Lager-Charge steht in der Tabelle');
+    assert(/16,4/.test(text), 'samt ihrem Laborwert');
+    assert(/Rapshonig/.test(text), 'die Sorte aus der Ernte ebenfalls');
+    assert(/Sommertracht/.test(text), 'und die eigene Sorte der gemischten Charge');
+    assert(/S-OFFEN/.test(text), 'die Charge ohne Sorte wird als offen gemeldet');
+
+    // Mengen aus der Tabelle lesen, nicht aus dem Fließtext raten
+    const menge = (name) => {
+      const tr = [...host.querySelectorAll('tbody tr')].find((r) => r.cells[0] && r.cells[0].textContent.trim() === name);
+      return tr ? tr.cells[2].textContent.trim() : null;
+    };
+    assertEq(menge('Waldhonig'), '25 kg', 'die ganze Lager-Charge zählt');
+    assertEq(menge('Rapshonig'), '30 kg', 'die Ernte zählt einmal');
+    assertEq(menge('Sommertracht'), '10 kg', 'von der gemischten Charge nur der Lageranteil – die Ernte steckt schon in Rapshonig');
+  } finally {
+    host.remove(); w.Views.honig._tab = 'ernten';
+    await w.DB.clear('ernten'); await w.DB.clear('chargen');
+    for (const x of alt.e) await w.DB.put('ernten', x, true);
+    for (const x of alt.c) await w.DB.put('chargen', x, true);
+  }
+});
+
+test('Verbrauchsmaterial-Übersicht zeigt die Einheiten, nicht „Stück“ für alles', async (w) => {
+  assertEq(w.bestandText([]), '–', 'ohne Positionen ein Strich');
+  const pos = [
+    { kategorie: 'Futter', einheit: 'kg', stueckzahl: 50 },
+    { kategorie: 'Behandlungsmittel', einheit: 'Streifen', stueckzahl: 12 },
+    { kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 200 },
+    { kategorie: 'Futter', einheit: 'kg', stueckzahl: 25 },
+  ];
+  assertEq(w.bestandNachEinheit(pos).map(([e, n]) => `${e}:${n}`), ['Stück:200', 'kg:75', 'Streifen:12'], 'je Einheit summiert, größte zuerst');
+  assertEq(w.bestandText(pos), '200 Stück · 75 kg · 12 Streifen', 'lesbar zusammengefasst');
+  assertEq(w.bestandText(pos, 2), '200 Stück · 75 kg · +1 weitere', 'gekürzt mit Hinweis auf den Rest');
+  assertEq(w.bestandText([{ einheit: 'Streifen', stueckzahl: 0 }]), '–', 'ein leerer Bestand taucht nicht auf');
+  assertEq(w.bestandText([{ stueckzahl: 4 }]), '4 Stück', 'ohne Einheit gilt Stück');
+
+  // in der echten Ansicht
+  const altInv = await w.DB.getAll('inventar');
+  await w.DB.clear('inventar');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker', kategorie: 'Futter', einheit: 'kg', stueckzahl: 50 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'ApiLife Var', kategorie: 'Behandlungsmittel', einheit: 'Streifen', stueckzahl: 12 });
+    await w.Views.material.render(host);
+    await new Promise((r) => setTimeout(r, 300));
+    const text = host.textContent;
+    assert(/50 kg/.test(text), 'Futter steht in Kilogramm da');
+    assert(/12 Streifen/.test(text), 'das Behandlungsmittel in Streifen');
+    assert(!/62/.test(text), 'und nirgends eine sinnlose Gesamtzahl über alle Einheiten');
+  } finally {
+    host.remove();
     await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);
   }
 });

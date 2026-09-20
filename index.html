@@ -947,8 +947,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.53';
+const APP_VERSION = '1.54';
 const CHANGELOG = [
+  { version: '1.54', datum: '2026-09-20', punkte: [
+    'Behoben: Trägst du <b>Sorte und Laborwert nachträglich an einer Charge</b> ein, tauchten sie im Reiter „Sorte" nicht auf – die Tabelle las ausschließlich die Ernten. Jetzt stehen Chargen mit eigener Sorte dort mit drin, und zwar ohne doppelt zu zählen: von einer Charge zählt nur die Menge, die nicht schon aus einer Ernte stammt. Chargen aus Lagerbestand ohne Sorte werden eigens gemeldet – ohne sie stünde auf dem Etikett nur „Honig".',
+    'Die <b>Gesamtübersicht beim Verbrauchsmaterial</b> zeigt jetzt die echten Einheiten: „50 kg · 12 Streifen · 200 Stück" statt einer Gesamtzahl „Stück", die Zucker und Streifen in einen Topf warf. Gilt ebenso für Behandlungsmittel und Futter, für die Liste, die PDF-Übersicht und die Excel-Mappe.',
+    'Bei der <b>Abfüllung stehen Chargennummer und Losnummer nebeneinander</b>, wenn du ein eigenes Los führst – rechtlich zählt das Los, für deine Rückverfolgung die Charge. Auf dem Etikett steht die Chargennummer dann neben dem L.',
+    'Der Reiter heißt schlicht <b>Chargen</b>; der erklärende Absatz darunter ist weg.',
+  ] },
   { version: '1.53', datum: '2026-09-20', punkte: [
     'Das Feld heißt jetzt <b>Chargennummer</b> – so schreibt es der Duden, in einem Wort. Im Lebensmittelrecht heißt dieselbe Angabe „Los"; auf dem Etikett steht sie deshalb weiterhin mit vorangestelltem <b>L</b>.',
     'Die <b>Chargennummer steht jetzt in einer eigenen, fetten Zeile</b> auf dem Etikett. Vorher hing sie hinten an der MHD-Zeile und ging dort unter. Im <b>QR-Code</b> steht sie nun an erster Stelle, zusammen mit Bezeichnung, MHD und Füllmenge.',
@@ -6072,7 +6078,7 @@ async function honigEtikettForm(a, c) {
   const imk = S.get('imkerei');
   if (!imk.name || !imk.ort) UI.toast('Tipp: Imkerei-Name & Anschrift in den Einstellungen ausfüllen – sie gehören aufs Etikett', 'err');
   UI.formModal({
-    title: `Honig-Etikett · L ${abfLos(a, c)} · ${gebindeLabel(a.gebindeG)}`, wide: true,
+    title: `Honig-Etikett · Charge ${chargeUndLos(a, c)} · ${gebindeLabel(a.gebindeG)}`, wide: true,
     fields: [
       { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
@@ -6113,8 +6119,22 @@ function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0
    eigenes Los führt, trägt es hier ein; sonst gilt die Chargennummer. */
 function abfLos(a, charge) { return (a && a.losnummer) || (charge && charge.losnummer) || '?'; }
 
+/** Hat die Abfüllung eine eigene Losnummer, die von der Charge abweicht? */
+function eigenesLos(a, charge) {
+  const los = (a && a.losnummer || '').trim();
+  return los && los !== ((charge && charge.losnummer) || '') ? los : '';
+}
+
+/** Charge und Los nebeneinander: „2026-06 · Los L-240610“ – die Chargennummer
+    bleibt sichtbar, denn über sie hängt der Honig an Ernte und Laborbefund. */
+function chargeUndLos(a, charge) {
+  const nr = (charge && charge.losnummer) || '?';
+  const los = eigenesLos(a, charge);
+  return los ? `${nr} · Los ${los}` : nr;
+}
+
 /** Abfüllungs-Kurzlabel: „Charge 25-01 · 500 g“. */
-function abfLabel(a, charge) { return `Charge ${abfLos(a, charge)} · ${gebindeLabel(a.gebindeG)}`; }
+function abfLabel(a, charge) { return `Charge ${chargeUndLos(a, charge)} · ${gebindeLabel(a.gebindeG)}`; }
 
 /* Das Mindesthaltbarkeitsdatum entsteht beim ABFÜLLEN, nicht beim Anlegen der
    Charge: Honig im Eimer ist praktisch unbegrenzt haltbar, die Frist läuft ab
@@ -7528,18 +7548,45 @@ Views.honig = {
     const list = await DB.getAll('ernten');
     const honig = list.filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig');
     const offen = honig.filter((e) => !e.sorte);
-    const g = U.groupBy(honig.filter((e) => e.sorte), (e) => e.sorte);
-    const sortenRows = [...g.entries()].map(([sorte, items]) => {
-      const mitW = items.filter((e) => e.wassergehalt != null);
-      return { sorte, kg: U.sum(items, (e) => e.mengeKg), n: items.length, avgW: mitW.length ? U.sum(mitW, (e) => e.wassergehalt) / mitW.length : null };
-    }).sort((a, b) => b.kg - a.kg);
+    /* Auch CHARGEN können eine eigene Sorte und einen eigenen Laborwert tragen –
+       bei Honig aus dem Lagerbestand ist das sogar die einzige Quelle, und wer
+       den Laborbericht später an der Charge nachträgt, will ihn hier sehen.
+       Gezählt wird davon nur die Menge, die NICHT aus Ernten stammt: sonst
+       stünde derselbe Honig zweimal in der Tabelle. */
+    const chargen = await DB.getAll('chargen');
+    const je = new Map();   // Sorte → { kg, n, wasser[] }
+    const dazu = (sorte, kg, wasser, quelle) => {
+      const k = String(sorte).trim(); if (!k) return;
+      if (!je.has(k)) je.set(k, { sorte: k, kg: 0, n: 0, wasser: [], quellen: new Set() });
+      const z = je.get(k);
+      z.kg += Math.max(0, Number(kg) || 0);
+      z.n += 1;
+      if (wasser != null && wasser !== '') z.wasser.push(Number(wasser));
+      z.quellen.add(quelle);
+    };
+    for (const e of honig.filter((e) => e.sorte)) dazu(e.sorte, e.mengeKg, e.wassergehalt, 'Ernte');
+    const ohneSorte = [];
+    for (const c of chargen) {
+      const ausErnten = (c.ernteIds || []).length;
+      const eigenKg = ausErnten
+        ? Math.max(0, Number(c.lagerKg) || 0)         // nur der zugekaufte/eingelagerte Anteil
+        : Math.max(0, Number(c.mengeKg) || 0);        // ohne Ernten die ganze Charge
+      if ((c.sorte || '').trim()) { if (eigenKg > 0) dazu(c.sorte, eigenKg, c.wassergehalt, 'Charge'); }
+      else if (!ausErnten && eigenKg > 0) ohneSorte.push(c);
+    }
+    const sortenRows = [...je.values()].map((z) => ({
+      sorte: z.sorte, kg: z.kg, n: z.n,
+      avgW: z.wasser.length ? z.wasser.reduce((a, b) => a + b, 0) / z.wasser.length : null,
+      quelle: [...z.quellen].join(' + '),
+    })).sort((a, b) => b.kg - a.kg);
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('honig')}<h2>Sorten & Laborergebnisse</h2>
         <button class="btn btn-primary btn-sm no-print" id="lab">${icon('plus')} Laborergebnis eintragen</button></div>
-      <p class="small muted mb12">Nach der Schleuderung schickst du eine Probe ins Labor. Kommt das Ergebnis zurück, trägst du hier <b>Sorte</b> und <b>Wassergehalt</b> ein – die App überträgt beides auf alle Ernten der gewählten Schleuderung. Die Sorten selbst pflegst du unter Einstellungen → „Honigsorten“.</p>
+      <p class="small muted mb12">Nach der Schleuderung schickst du eine Probe ins Labor. Kommt das Ergebnis zurück, trägst du hier <b>Sorte</b> und <b>Wassergehalt</b> ein – die App überträgt beides auf alle Ernten der gewählten Schleuderung. Honig <b>aus dem Lagerbestand</b> hat keine Ernte: dort tragen Sorte und Laborwert direkt an der Charge, und diese Tabelle zeigt sie mit. Die Sortenliste selbst pflegst du unter Einstellungen → „Honigsorten“.</p>
       ${offen.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${offen.length} ${offen.length === 1 ? 'Ernte wartet' : 'Ernten warten'}</b> noch auf ein Laborergebnis (${U.fmtNum(U.sum(offen, (e) => e.mengeKg))} kg ohne Sorte).</span></div>` : ''}
-      ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Ernten</th><th class="num">Menge</th><th class="num">Ø Wasser</th></tr></thead>
-        <tbody>${sortenRows.map((r) => `<tr><td>${U.esc(r.sorte)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td></tr>`).join('')}</tbody></table></div>`
+      ${ohneSorte.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${ohneSorte.length} ${ohneSorte.length === 1 ? 'Charge aus Lagerbestand hat' : 'Chargen aus Lagerbestand haben'}</b> noch keine Sorte (${ohneSorte.map((c) => c.losnummer).join(', ')}). Ohne sie steht auf dem Etikett nur „Honig“ – die Sorte trägst du im Tab <b>Charge</b> ein.</span></div>` : ''}
+      ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Einträge</th><th class="num">Menge</th><th class="num">Ø Wasser</th><th>Quelle</th></tr></thead>
+        <tbody>${sortenRows.map((r) => `<tr><td>${U.esc(r.sorte)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td><td class="small muted">${U.esc(r.quelle)}</td></tr>`).join('')}</tbody></table></div>`
         : (offen.length ? '' : emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.'))}
     </div>`;
     $('#lab', box).onclick = () => Views.honig.laborForm();
@@ -7609,8 +7656,7 @@ Views.honig = {
     const ernten = await idMap('ernten');
     const abfAlle = await DB.getAll('abfuellungen');
     box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('qr')}<h2>Chargen (Lose)</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
-      <p class="small muted mb12">Eine Charge ist ein Los Honig mit Losnummer und Gesamtmenge. Abgefüllt wird separat im Tab <b>Abfüllung</b> – von dort wird die Menge automatisch abgezogen.</p>
+      <div class="card-title">${icon('qr')}<h2>Chargen</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
       ${list.length ? `<div class="rows">` + list.map((c) => {
         const rest = chargeRestKg(c, abfAlle);
         return `<button class="row" data-id="${c.id}">
@@ -7851,7 +7897,7 @@ Views.honig = {
         const c = chargen.get(a.chargeId);
         return `<button class="row" data-id="${a.id}">
           <span class="r-ic">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(c ? c.losnummer : '?')}</span>
+          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))}</span>
           <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${a.anzahl} abgefüllt · noch ${a.bestand} zum Verkauf</span></span>
           <span class="r-side"><b>${a.bestand}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>`
@@ -8099,7 +8145,7 @@ Views.markt = {
         const imKorb = korb[a.id] || 0;
         return `<button class="markt-tile" data-tile="${a.id}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
-          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(c ? c.losnummer : '?')} · ${a.bestand - imKorb} übrig</span>
+          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))} · ${a.bestand - imKorb} übrig</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
         </button>`;
       }).join('')}</div>`
@@ -8729,9 +8775,9 @@ async function renderInventarBereich(main, cfg) {
   /* Wert aus den echten Einkäufen, nicht aus dem letzten Preis. */
   const bewertung = (i) => lagerBewertung(i, zugaengeAlle);
   const wertVon = (i) => bewertung(i).wert;
-  const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
+  const wert = U.sum(list, wertVon);
   const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
-    .map(([k, items]) => ({ k, n: items.length, stueck: U.sum(items, (i) => i.stueckzahl || 1), wert: U.sum(items, wertVon) }))
+    .map(([k, items]) => ({ k, n: items.length, bestand: bestandText(items), wert: U.sum(items, wertVon) }))
     .sort((a, b) => b.wert - a.wert);
   /* Eine Position = eine Zeile, wie in den Völker- und Königinnen-Listen.
      Die ganze Zeile trägt data-edit und öffnet damit das Bearbeiten-Fenster –
@@ -8781,13 +8827,14 @@ async function renderInventarBereich(main, cfg) {
     <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}</div>
     <div class="stat-grid mb16">
       <div class="stat"><div class="s-label">${icon(cfg.ic)} Positionen</div><div class="s-value">${list.length}</div></div>
-      <div class="stat"><div class="s-label">Stück gesamt</div><div class="s-value">${stueck}</div></div>
+      <div class="stat"><div class="s-label">Bestand</div><div class="s-value" style="font-size:17px;line-height:1.3">${U.esc(bestandText(list, 2))}</div>
+        ${bestandNachEinheit(list).length > 2 ? `<div class="s-sub">${U.esc(bestandText(list))}</div>` : ''}</div>
       <div class="stat"><div class="s-label">${icon('euro')} Wert${jahr || art || suchtext ? ' (Auswahl)' : ''}</div><div class="s-value">${U.fmtEur(wert)}</div></div>
     </div>
     <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
-      ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Stück</th><th class="num">Wert</th></tr></thead>
-        <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${r.stueck}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
-        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${stueck}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
+      ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Bestand</th><th class="num">Wert</th></tr></thead>
+        <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt</td><td class="num">${list.length}</td><td class="num">${U.esc(bestandText(list))}</td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
     </div>` : '') +
     `<div class="card">`
       /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
@@ -10185,6 +10232,27 @@ function einheitVorschlag(text) {
 function verbrauchBestand(pos) { return Math.max(0, Number(pos && pos.stueckzahl) || 0); }
 /** Einheit einer Position, mit „Stück" als Vorgabe für alte Einträge. */
 function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim() || 'Stück'; }
+
+/* Bestände je EINHEIT summieren. Eine Gesamtzahl über Kilogramm, Streifen und
+   Stück hinweg wäre eine Zahl ohne Bedeutung – „62 Stück" sagt nichts, wenn
+   darin 50 kg Zucker und 12 Streifen Ameisensäure stecken. */
+function bestandNachEinheit(positionen) {
+  const je = new Map();
+  for (const i of positionen || []) {
+    const e = verbrauchEinheit(i);
+    je.set(e, (je.get(e) || 0) + verbrauchBestand(i));
+  }
+  return [...je.entries()].filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+}
+
+/** Bestände lesbar: „50 kg · 12 Streifen · 8 Stück“. `max` kürzt die Liste ab. */
+function bestandText(positionen, max = 0) {
+  const liste = bestandNachEinheit(positionen);
+  if (!liste.length) return '–';
+  const zeigen = max > 0 ? liste.slice(0, max) : liste;
+  return zeigen.map(([e, n]) => `${U.fmtNum(n, 2)} ${e}`).join(' · ')
+    + (max > 0 && liste.length > max ? ` · +${liste.length - max} weitere` : '');
+}
 
 /** Im Inventar-Formular: die Einheit folgt der Bezeichnung (nur bei neuen
     Positionen), und die Beschriftung des Bestandsfeldes nennt die Einheit. */
@@ -12428,7 +12496,7 @@ const Xlsx = {
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
-      inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Stückzahl: i.stueckzahl, 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
+      inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
@@ -12715,18 +12783,18 @@ const Pdf = {
       const list = alle.filter(passt);
       const zugaengeAlle = await DB.getAll('materialzugaenge');
       const wertVon = (i) => lagerBewertung(i, zugaengeAlle).wert;
-      const wert = U.sum(list, wertVon), stueck = U.sum(list, (i) => i.stueckzahl || 1);
+      const wert = U.sum(list, wertVon);
       const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + art : ''].filter(Boolean).join(' · ');
-      const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · ${stueck} Stück · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
-      // Übersicht nach Art
+      const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · ${bestandText(list, 3)} · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
+      // Übersicht nach Art – Bestand je Einheit, eine Gesamtzahl darüber wäre sinnlos
       const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
-        .map(([k, items]) => [k, String(items.length), String(U.sum(items, (i) => i.stueckzahl || 1)), U.fmtEur(U.sum(items, wertVon))])
+        .map(([k, items]) => [k, String(items.length), bestandText(items), U.fmtEur(U.sum(items, wertVon))])
         .sort((a, b) => a[0].localeCompare(b[0], 'de'));
-      proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, { content: String(stueck), styles: { fontStyle: 'bold' } }, { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
-      let yy = this.table(doc, { head: ['Art', 'Positionen', 'Stück', 'Wert'], body: proArt, startY: y, widths: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } } });
+      proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, { content: bestandText(list), styles: { fontStyle: 'bold' } }, { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
+      let yy = this.table(doc, { head: ['Art', 'Positionen', 'Bestand', 'Wert'], body: proArt, startY: y, widths: { 1: { halign: 'right' }, 2: { halign: 'right', cellWidth: 40 }, 3: { halign: 'right' } } });
       // Detailliste
-      const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', String(i.stueckzahl || 1), U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
-      this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Stück', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 14, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
+      const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
+      this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Bestand', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 22, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
       this.finish(doc, `${(titel || 'inventar').toLowerCase()}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -12744,7 +12812,8 @@ const Pdf = {
       /* Im QR steht, was zur Rückverfolgung nötig ist – die Chargennummer
          zuerst, denn danach wird gesucht, wenn etwas zu klären ist. */
       const qr = opts.mitQr ? await makeQr([
-        `Charge: ${los}`,
+        `Los: ${los}`,
+        eigenesLos(a, c) && c ? `Charge: ${c.losnummer}` : '',
         opts.bezeichnung,
         mhd ? `Mindestens haltbar bis: ${U.fmtDate(mhd)}` : '',
         `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`,
@@ -12792,7 +12861,9 @@ const Pdf = {
            Nummer nicht deutlich von den übrigen Angaben abhebt. */
         doc.setFont('helvetica', 'bold').setTextColor(60);
         zeile(`Mindestens haltbar bis: ${U.fmtDate(mhd) || '__________'}`);
-        zeile(`L ${los}`);
+        // Weicht das Los der Abfüllung ab, steht die Chargennummer daneben:
+        // rechtlich zählt das Los, für die eigene Rückverfolgung die Charge.
+        zeile(`L ${los}${eigenesLos(a, c) && c ? `   ·   Charge ${c.losnummer}` : ''}`);
         doc.setFont('helvetica', 'normal').setTextColor(90);
         zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
         // Bio-Zertifizierung: Kontrollstellen-Code (Pflichtangabe) + EU-Bio/Verband
