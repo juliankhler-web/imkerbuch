@@ -947,8 +947,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.56';
+const APP_VERSION = '1.57';
 const CHANGELOG = [
+  { version: '1.57', datum: '2026-09-20', punkte: [
+    'Der <b>Jahresfilter bei den Chargen</b> steht jetzt immer über der Liste – genau wie bei Inventar und Fütterung, mit „Alle" vorn und als Vorgabe. Vorher blieb er verborgen, solange es nur ein Jahr gab.',
+    'Neu: Die <b>Sortierung ist wählbar</b> – nach <b>Nummer</b>, <b>Datum</b> oder <b>Menge</b>. Jede Imkerei nummeriert anders; eine feste Reihenfolge passt deshalb nie allen. Sortiert wird innerhalb der laufenden Chargen und innerhalb des Archivs.',
+  ] },
   { version: '1.56', datum: '2026-09-20', punkte: [
     'Bei <b>Inventar und Verbrauchsmaterial</b> sind die drei Kacheln über der Tabelle weggefallen – sie wiederholten nur, was direkt darunter steht. Die Zeile <b>Gesamt</b> zählt nicht mehr jede Einheit einzeln auf; bei vielen Positionen wurde daraus eine Textwand. Sie nennt jetzt Anzahl und Wert, die Einheiten stehen je Art in ihrer Zeile.',
   ] },
@@ -7671,18 +7675,27 @@ Views.honig = {
   },
 
   async tabChargen(box) {
-    const alle = U.sortBy(await DB.getAll('chargen'), (c) => `${c.datum || ''}·${c.losnummer}`, true);
+    const roh = await DB.getAll('chargen');
     const ernten = await idMap('ernten');
     const abfAlle = await DB.getAll('abfuellungen');
     const jahrVon = (c) => (c.datum || '').slice(0, 4);
-    const jahre = [...new Set(alle.map(jahrVon).filter(Boolean))].sort().reverse();
-    const ohneJahr = alle.some((c) => !jahrVon(c));
-    /* Vorbelegung: das jüngste Jahr, in dem es Chargen gibt. Wer alles sehen
-       will, tippt auf „Alle" – die Wahl bleibt beim Reiterwechsel erhalten. */
-    let jahr = Views.honig._chargenJahr;
-    if (jahr === undefined) jahr = jahre[0] || '';
-    if (jahr && jahr !== '__alle' && jahr !== '__ohne' && !jahre.includes(jahr)) jahr = jahre[0] || '__alle';
-    const passt = (c) => jahr === '__alle' || !jahr ? true : (jahr === '__ohne' ? !jahrVon(c) : jahrVon(c) === jahr);
+    const jahre = [...new Set(roh.map(jahrVon).filter(Boolean))].sort().reverse();
+    const ohneJahr = roh.some((c) => !jahrVon(c));
+    /* Filter wie bei Inventar und Fütterung: „Alle" steht vorn und ist die
+       Vorgabe. Die Leiste ist IMMER da – bei nur einem Jahr sonst unsichtbar,
+       und genau dann sucht man sie. */
+    const jahr = Views.honig._chargenJahr || '';
+    /* Sortierung ist Geschmackssache: Die einen nummerieren 2026-01, die
+       anderen schreiben „Raps Juni". Deshalb wählbar statt vorgeschrieben. */
+    const sort = Views.honig._chargenSort || 'nummer';
+    const passt = (c) => !jahr ? true : (jahr === '__ohne' ? !jahrVon(c) : jahrVon(c) === jahr);
+    const nachNummer = (a, b) => String(b.losnummer || '').localeCompare(String(a.losnummer || ''), 'de', { numeric: true });
+    const sortierer = {
+      nummer: nachNummer,
+      datum: (a, b) => String(b.datum || '').localeCompare(String(a.datum || '')) || nachNummer(a, b),
+      menge: (a, b) => (Number(b.mengeKg) || 0) - (Number(a.mengeKg) || 0) || nachNummer(a, b),
+    }[sort] || nachNummer;
+    const alle = [...roh].sort(sortierer);
     const list = alle.filter(passt);
     const offen = list.filter((c) => !Views.honig.chargeErledigt(c, abfAlle));
     const archiv = list.filter((c) => Views.honig.chargeErledigt(c, abfAlle));
@@ -7703,9 +7716,11 @@ Views.honig = {
           : `<b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;
     };
     const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-cjahr="${U.esc(val)}">${U.esc(label)}</button>`;
+    const sChip = (label, val) => `<button class="chip ${sort === val ? 'active' : ''}" data-csort="${val}">${label}</button>`;
 
     box.innerHTML = `
-      ${jahre.length > 1 || ohneJahr ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}${chip('Alle', '__alle')}</div>` : ''}
+      <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}</div>
+      <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sChip('Nummer', 'nummer')}${sChip('Datum', 'datum')}${sChip('Menge', 'menge')}</div>
       <div class="card">
       <div class="card-title">${icon('qr')}<h2>Chargen</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
       ${offen.length ? `<div class="rows">${offen.map(zeile).join('')}</div>`
@@ -7722,6 +7737,8 @@ Views.honig = {
     box.addEventListener('click', (ev) => {
       const j = ev.target.closest('[data-cjahr]');
       if (j) { Views.honig._chargenJahr = j.dataset.cjahr; renderRoute(); return; }
+      const so = ev.target.closest('[data-csort]');
+      if (so) { Views.honig._chargenSort = so.dataset.csort; renderRoute(); return; }
       const r = ev.target.closest('.row[data-id]');
       if (r) Views.honig.chargeDetail(alle.find((x) => x.id === r.dataset.id));
     });

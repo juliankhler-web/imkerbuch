@@ -76,6 +76,10 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-20 (v1.57)**: **Chargen-Filter sichtbar, Sortierung wählbar** (Julian: „das mit dem filter finde ich nicht … man muss es selber ordnen können").
+  Die Filterleiste war an `jahre.length > 1` geknüpft – bei einer Imkerei mit Chargen aus nur einem Jahr also unsichtbar, und genau dann sucht man sie. Jetzt ist sie immer da, mit **„Alle" vorn und als Vorgabe**, wie bei Inventar und Fütterung.
+  Dazu eine **wählbare Sortierung**: Nummer (natürlich, `localeCompare` mit `numeric`), Datum oder Menge. Begründung im Code: Die einen nummerieren „2026-01", die anderen schreiben „Raps Juni" – eine feste Reihenfolge passt nie allen. Sortiert wird innerhalb der laufenden Liste und innerhalb des Archivs, die Trennung bleibt.
+
 - **2026-09-20 (v1.56)**: **Materialübersicht entschlackt** (Julian: „wenn ich irgendwann 100 positionen habe sprengt es den rahmen").
   Die drei Kacheln (Positionen · Bestand · Wert) über der Tabelle sind weg – sie wiederholten, was eine Zeile tiefer ohnehin steht. Die **Gesamtzeile** zählt die Einheiten nicht mehr auf; bei vielen Positionen stünde dort „4 ml · 1 L · 572 kg · 245 Stück · …". Sie nennt Anzahl und Wert, die Einheiten stehen je Art. Ebenso im Inventar-PDF.
 

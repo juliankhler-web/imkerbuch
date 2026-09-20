@@ -7133,26 +7133,39 @@ test('Chargen: ausverkaufte wandern ins Archiv, Jahresfilter und „Alle“', as
     assert(w.Views.honig.chargeErledigt(fertig, abfAlle), 'abgefüllt und ausverkauft = erledigt');
 
     const zeige = async () => { w.Views.honig._tab = 'chargen'; await w.Views.honig.render(host); await new Promise((r) => setTimeout(r, 300)); return host; };
-    w.Views.honig._chargenJahr = undefined;
+    const nummern = () => [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
+    w.Views.honig._chargenJahr = undefined; w.Views.honig._chargenSort = undefined;
     await zeige();
     assert(/Archiv/.test(host.textContent), 'es gibt einen Archiv-Abschnitt');
-    const reihenfolge = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
-    assertEq(reihenfolge.indexOf('C-2026') > reihenfolge.indexOf('A-2026'), true, 'die ausverkaufte steht unter den laufenden');
+    assertEq(nummern().indexOf('C-2026') > nummern().indexOf('A-2026'), true, 'die ausverkaufte steht unter den laufenden');
     assert(/ausverkauft/.test(host.textContent), 'und ist als ausverkauft gekennzeichnet');
-    assert(!reihenfolge.includes('D-2025'), 'das Vorjahr ist standardmäßig ausgeblendet');
+    assertEq(nummern().length, 4, 'ohne Filter stehen alle Jahre da – wie bei Inventar');
+    // Die Filterleiste ist immer da, auch bei nur einem Jahr
+    assert(host.querySelector('[data-cjahr=""]'), 'der Knopf „Alle“ ist da');
+    assert(host.querySelector('[data-cjahr="2025"]') && host.querySelector('[data-cjahr="2026"]'), 'beide Jahre stehen zur Wahl');
+    assert(host.querySelector('[data-csort="nummer"]') && host.querySelector('[data-csort="datum"]'), 'die Sortierung ist wählbar');
 
     // Jahresfilter
     w.Views.honig._chargenJahr = '2025';
     await zeige();
-    const nur2025 = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
-    assertEq(nur2025, ['D-2025'], 'mit Filter 2025 nur die Charge von 2025');
+    assertEq(nummern(), ['D-2025'], 'mit Filter 2025 nur die Charge von 2025');
 
     // Alle
-    w.Views.honig._chargenJahr = '__alle';
+    w.Views.honig._chargenJahr = '';
     await zeige();
-    const alleNr = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent.match(/Charge ([A-Z]-\d+)/)[1]);
-    assertEq(alleNr.length, 4, '„Alle“ zeigt jede Charge');
-    assert(alleNr.includes('D-2025') && alleNr.includes('A-2026'), 'über beide Jahre hinweg');
+    assertEq(nummern().length, 4, '„Alle“ zeigt jede Charge');
+    assert(nummern().includes('D-2025') && nummern().includes('A-2026'), 'über beide Jahre hinweg');
+
+    // Sortierung: nach Nummer absteigend, nach Menge die größte zuerst
+    w.Views.honig._chargenSort = 'nummer';
+    await zeige();
+    // Sortiert wird innerhalb der Gruppen: C-2026 ist ausverkauft und steht im Archiv
+    assertEq(nummern()[0], 'B-2026', 'nach Nummer steht die höchste LAUFENDE oben');
+    const n = nummern();
+    assert(n.indexOf('D-2025') < n.indexOf('C-2026'), 'im Archiv sortiert es genauso weiter (D vor C)');
+    w.Views.honig._chargenSort = 'menge';
+    await zeige();
+    assertEq(nummern()[0], 'A-2026', 'nach Menge die größte Charge (20 kg)');
   } finally {
     host.remove(); w.Views.honig._tab = 'ernten'; w.Views.honig._chargenJahr = undefined;
     await w.DB.clear('chargen'); await w.DB.clear('abfuellungen');
