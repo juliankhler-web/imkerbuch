@@ -721,14 +721,48 @@ test('chargeRestKg / gebindeLabel: kg-Abzug beim Abfüllen', (w) => {
   // 20×500g = 10 kg, 40×250g = 10 kg → 20 kg abgefüllt, 10 kg frei
   assertEq(w.chargeRestKg(c, abf), 10, '30 kg − 20 kg = 10 kg frei');
 });
-test('MHD-Wächter (pruefeMhd): jetzt über Abfüllungs-Bestand', async (w) => {
+test('MHD-Wächter: warnt je Abfüllung, nicht je Charge', async (w) => {
+  /* Das MHD hängt am Glas: zwei Abfüllungen derselben Charge können
+     verschieden lange haltbar sein und müssen getrennt gemeldet werden. */
   const inTagen = (n) => w.U.addDays(w.U.todayIso(), n);
-  const c = await w.DB.put('chargen', { losnummer: 'MHD-abf', ernteIds: [], mengeKg: 5, mhd: inTagen(20) });
-  await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 4 });
-  await w.pruefeMhd();
-  const auf = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && a.refId === c.id);
-  assertEq(auf.length, 1, 'eine MHD-Erinnerung für die Charge mit Rest-Gläsern');
-  assert(/4 Gläser/.test(auf[0].titel), 'zeigt die Gläser-Anzahl');
+  const c = await w.DB.put('chargen', { losnummer: 'MHD-abf', datum: w.U.todayIso(), ernteIds: [], mengeKg: 0 });
+  const bald = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(20), gebindeG: 500, anzahl: 10, bestand: 4 });
+  const spaeter = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(400), gebindeG: 250, anzahl: 10, bestand: 4 });
+  const leer = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(5), gebindeG: 125, anzahl: 10, bestand: 0 });
+  try {
+    await w.pruefeMhd();
+    const auf = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd');
+    const fuer = (id) => auf.filter((a) => a.refId === id);
+    assertEq(fuer(bald.id).length, 1, 'die bald ablaufende Abfüllung wird gemeldet');
+    assert(/4 × 500 g/.test(fuer(bald.id)[0].titel), 'mit Anzahl und Gebinde: ' + fuer(bald.id)[0].titel);
+    assert(/MHD-abf/.test(fuer(bald.id)[0].titel), 'und mit der Chargennummer');
+    assertEq(fuer(spaeter.id).length, 0, 'die lange haltbare nicht');
+    assertEq(fuer(leer.id).length, 0, 'und eine ohne Bestand auch nicht');
+    await w.pruefeMhd();
+    assertEq(fuer(bald.id).length, 1, 'kein Duplikat beim zweiten Lauf');
+  } finally {
+    for (const x of [bald, spaeter, leer]) await w.DB.del('abfuellungen', x.id);
+    for (const a of (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd')) await w.DB.del('aufgaben', a.id);
+    await w.DB.del('chargen', c.id);
+  }
+});
+test('MHD-Wächter: Altdaten mit MHD an der Charge greifen weiter', async (w) => {
+  const inTagen = (n) => w.U.addDays(w.U.todayIso(), n);
+  // Charge mit MHD und nicht abgefülltem Rest – so sah es bis v1.52 aus
+  const c = await w.DB.put('chargen', { losnummer: 'MHD-alt', ernteIds: [], mengeKg: 10, mhd: inTagen(15) });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', gebindeG: 500, anzahl: 4, bestand: 3 });
+  try {
+    assertEq(w.abfMhd(a, c), inTagen(15), 'ohne eigenes MHD gilt das der Charge');
+    assertEq(w.abfMhd({ mhd: inTagen(3) }, c), inTagen(3), 'ein eigenes schlägt das der Charge');
+    await w.pruefeMhd();
+    const auf = (await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd');
+    assert(auf.some((x) => x.refId === a.id), 'die Abfüllung erbt das MHD und wird gemeldet');
+    assert(auf.some((x) => x.refId === c.id && /nicht abgefüllt/.test(x.titel)), 'der Rest im Eimer wird eigens gemeldet');
+  } finally {
+    await w.DB.del('abfuellungen', a.id);
+    for (const x of (await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd')) await w.DB.del('aufgaben', x.id);
+    await w.DB.del('chargen', c.id);
+  }
 });
 test('migriereChargenAbfuellung: alte Charge → Charge(kg) + Abfüllung, Verkauf umgehängt', async (w) => {
   await w.S.set('abfuellungMigriert', false);
@@ -1138,17 +1172,15 @@ test('Importer: Durchsicht ohne existierendes Volk wird übersprungen', async (w
 test('pruefeMhd: warnt bei nahem/überschrittenem MHD, nicht bei fernem, keine Duplikate', async (w) => {
   const heute = new Date(w.U.todayIso() + 'T12:00:00');
   const inTagen = (n) => { const d = new Date(heute); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  const nah = await w.DB.put('chargen', { losnummer: 'MHD-nah', ernteIds: [], mengeKg: 5, mhd: inTagen(30) });
-  await w.DB.put('abfuellungen', { chargeId: nah.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 5 });
-  const fern = await w.DB.put('chargen', { losnummer: 'MHD-fern', ernteIds: [], mengeKg: 5, mhd: inTagen(400) });
-  await w.DB.put('abfuellungen', { chargeId: fern.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 5 });
-  const leer = await w.DB.put('chargen', { losnummer: 'MHD-leer', ernteIds: [], mengeKg: 5, mhd: inTagen(10) });
-  await w.DB.put('abfuellungen', { chargeId: leer.id, datum: '2026-01-01', gebindeG: 500, anzahl: 10, bestand: 0 });
+  const c = await w.DB.put('chargen', { losnummer: 'MHD-misch', datum: w.U.todayIso(), ernteIds: [], mengeKg: 0 });
+  const nah = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(30), gebindeG: 500, anzahl: 10, bestand: 5 });
+  const fern = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(400), gebindeG: 500, anzahl: 10, bestand: 5 });
+  const leer = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-01-01', mhd: inTagen(10), gebindeG: 500, anzahl: 10, bestand: 0 });
   await w.pruefeMhd();
   const tasks1 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd');
   assert(tasks1.some((a) => a.refId === nah.id), 'nahes MHD → Aufgabe');
   assert(!tasks1.some((a) => a.refId === fern.id), 'fernes MHD → keine Aufgabe');
-  assert(!tasks1.some((a) => a.refId === leer.id), 'Charge ohne Bestand → keine Aufgabe');
+  assert(!tasks1.some((a) => a.refId === leer.id), 'ohne Bestand → keine Aufgabe');
   await w.pruefeMhd(); // erneut
   const tasks2 = (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && a.refId === nah.id);
   assertEq(tasks2.length, 1, 'kein Duplikat bei erneutem Lauf');
@@ -5384,8 +5416,8 @@ test('Smoke: jede Seite der App rendert ohne Fehler', async (w) => {
 });
 
 test('abfLabel / koeniginKurz / dashIstLink: kurze Beschriftungen', (w) => {
-  assertEq(w.abfLabel({ gebindeG: 500 }, { losnummer: '2026-01' }), 'Los 2026-01 · 500 g');
-  assertEq(w.abfLabel({ gebindeG: 500 }, null), 'Los ? · 500 g', 'ohne Charge bleibt das Fragezeichen');
+  assertEq(w.abfLabel({ gebindeG: 500 }, { losnummer: '2026-01' }), 'Charge 2026-01 · 500 g');
+  assertEq(w.abfLabel({ gebindeG: 500 }, null), 'Charge ? · 500 g', 'ohne Charge bleibt das Fragezeichen');
   assertEq(w.koeniginKurz({ kennung: 'DE-1234', jahrgang: 2025 }), 'DE-1234', 'Kennung schlägt den Jahrgang');
   assertEq(w.koeniginKurz({ jahrgang: 2025 }), 'Jg. 2025');
   assertEq(w.koeniginKurz(null), '–');
@@ -5594,7 +5626,7 @@ test('Integration: Ernte → Charge → Abfüllung → Verkauf → Kassenbuch �
     const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: `${J}-06-25`, gebindeG: 500, anzahl: 40, bestand: 40, verbrauchAbzug: abzug.abzug });
     assertEq((await w.DB.get('inventar', glaeser.id)).stueckzahl, 60, '40 Gläser sind aus dem Lager');
     assertEq(w.chargeRestKg(charge, await w.DB.getAll('abfuellungen')), 0, 'die Charge ist voll abgefüllt');
-    assertEq(w.abfLabel(abf, charge), `Los L-${J}-01 · 500 g`, 'die Beschriftung stimmt');
+    assertEq(w.abfLabel(abf, charge), `Charge L-${J}-01 · 500 g`, 'die Beschriftung stimmt');
 
     // 5) Verkauf: mindert den Bestand UND bucht die Einnahme
     await w.verkaufErfassen({ abfuellungId: abf.id, anzahl: 10, preisJeGlas: 7, datum: `${J}-07-01`, notiz: 'Integrationstest' });
@@ -6816,4 +6848,179 @@ test('„Was ist neu?" zeigt Fettschrift statt roher Tags', async (w) => {
     const echt = w.document.querySelector('.modal-back').textContent;
     assert(!/<\/?b>|&lt;/.test(echt), 'in den echten Neuigkeiten steht kein rohes Tag');
   } finally { dialogeSchliessen(w); }
+});
+
+/* =====================================================================
+   CHARGE: Nummer, Anlegedatum, MHD am Glas
+   ===================================================================== */
+
+test('Chargen-Formular: Chargennummer und Anlegedatum, kein MHD mehr', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = (await w.DB.getAll('chargen')).length;
+  let neu = null;
+  try {
+    await w.Views.honig.chargeForm();
+    await new Promise((r) => setTimeout(r, 400));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Formular steht offen');
+    const label = (id) => { const e = modal.querySelector('#f-' + id); const l = e && e.closest('.field') && e.closest('.field').querySelector('label'); return l ? l.textContent.trim() : ''; };
+    assert(/^Chargennummer/.test(label('losnummer')), 'das Feld heißt Chargennummer: ' + label('losnummer'));
+    assert(modal.querySelector('#f-datum'), 'das Anlegedatum wird gefragt');
+    assertEq(modal.querySelector('#f-datum').value, w.U.todayIso(), 'vorbelegt mit heute');
+    assert(!modal.querySelector('#f-mhd'), 'das MHD steht hier nicht mehr');
+    assert(/Abfüllen eingetragen/.test(modal.textContent), 'stattdessen erklärt ein Hinweis, wo es hingehört');
+
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('losnummer', 'TEST-77'); setz('quelle', 'lager'); setz('lagerKg', '10'); setz('sorte', 'Lindenhonig');
+    setz('datum', '2026-07-04');
+    await new Promise((r) => setTimeout(r, 150));
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    neu = (await w.DB.getAll('chargen')).find((c) => c.losnummer === 'TEST-77');
+    assert(neu, 'die Charge ist angelegt');
+    assertEq(neu.datum, '2026-07-04', 'mit dem eingetragenen Anlegedatum');
+    assert(!neu.mhd, 'und ohne MHD');
+  } finally { dialogeSchliessen(w); if (neu) await w.DB.del('chargen', neu.id); }
+});
+
+test('Abfüllen fragt das MHD und schlägt zwei Jahre vor', async (w) => {
+  assertEq(w.mhdVorschlag('2026-07-04'), '2028-07-04', 'zwei Jahre ab Abfülldatum');
+  assertEq(w.mhdVorschlag('2026-02-29'), '2028-02-29', 'auch über ein Schaltjahr hinweg');
+  dialogeSchliessen(w);
+  const charge = await w.DB.put('chargen', { losnummer: 'ABF-MHD', datum: w.U.todayIso(), ernteIds: [], mengeKg: 20 });
+  const altInv = await w.DB.getAll('inventar');
+  try {
+    await w.Views.honig.abfuellForm(charge.id);
+    await new Promise((r) => setTimeout(r, 400));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Abfüllformular steht offen');
+    const mhdFeld = modal.querySelector('#f-mhd');
+    assert(mhdFeld, 'das MHD wird beim Abfüllen gefragt');
+    assertEq(mhdFeld.value, w.mhdVorschlag(w.U.todayIso()), 'vorbelegt mit zwei Jahren');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('g_500', '10'); setz('mhd', '2029-01-31');
+    await new Promise((r) => setTimeout(r, 200));
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const abf = (await w.DB.getAll('abfuellungen')).filter((a) => a.chargeId === charge.id);
+    assertEq(abf.length, 1, 'eine Abfüllung angelegt');
+    assertEq(abf[0].mhd, '2029-01-31', 'das MHD hängt an der Abfüllung');
+    for (const a of abf) await w.DB.del('abfuellungen', a.id);
+  } finally {
+    dialogeSchliessen(w);
+    await w.DB.del('chargen', charge.id);
+    await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);
+  }
+});
+
+test('Etikett: Chargennummer steht als eigene Zeile mit L, MHD kommt von der Abfüllung', async (w) => {
+  const charge = await w.DB.put('chargen', { losnummer: '2026-06', datum: '2026-06-01', ernteIds: [], mengeKg: 10, sorte: 'Lindenhonig' });
+  const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: '2026-06-10', mhd: '2028-06-10', gebindeG: 500, anzahl: 12, bestand: 12 });
+  const echt = w.Pdf.finish;
+  let gebaut = null;
+  w.Pdf.finish = (doc, name) => { gebaut = { name, text: doc.internal.pages.flat().filter(Boolean).join(' ') }; };
+  try {
+    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 2, mitQr: false });
+    assert(gebaut, 'das Etikett wurde gebaut');
+    assert(/L 2026-06/.test(gebaut.text), 'die Chargennummer steht mit L auf dem Etikett');
+    assert(/Mindestens haltbar bis/.test(gebaut.text), 'und das MHD im Klartext');
+    assert(/10\.06\.2028/.test(gebaut.text), 'mit dem Datum der Abfüllung, nicht der Charge');
+    assert(/charge-2026-06/.test(gebaut.name), 'auch der Dateiname nennt die Charge: ' + gebaut.name);
+
+    // Ohne MHD an der Abfüllung: Linie zum Eintragen, nicht leer
+    const ohne = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: '2026-06-10', gebindeG: 250, anzahl: 5, bestand: 5 });
+    gebaut = null;
+    await w.Pdf.honigEtikett(ohne, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 1, mitQr: false });
+    assert(/_____/.test(gebaut.text), 'ohne MHD bleibt eine Linie zum Eintragen');
+    assert(/L 2026-06/.test(gebaut.text), 'die Chargennummer steht trotzdem da');
+    await w.DB.del('abfuellungen', ohne.id);
+  } finally {
+    w.Pdf.finish = echt;
+    await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
+  }
+});
+
+test('Migration: MHD wandert von der Charge an die Abfüllung, Anlegedatum wird nachgetragen', async (w) => {
+  await w.S.set('chargeDatumMigriert', false);
+  const ernte = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: '2026-06-15', produktart: 'Honig', sorte: 'Raps', mengeKg: 12 });
+  const alt = await w.DB.put('chargen', { losnummer: 'MIGR-1', ernteIds: [ernte.id], mengeKg: 12, mhd: '2028-05-05' });
+  const abfAlt = await w.DB.put('abfuellungen', { chargeId: alt.id, datum: '2026-06-20', gebindeG: 500, anzahl: 10, bestand: 10 });
+  const abfEigen = await w.DB.put('abfuellungen', { chargeId: alt.id, datum: '2026-06-21', mhd: '2029-01-01', gebindeG: 250, anzahl: 4, bestand: 4 });
+  try {
+    await w.migriereChargeDatumUndMhd();
+    assertEq((await w.DB.get('abfuellungen', abfAlt.id)).mhd, '2028-05-05', 'die Abfüllung ohne MHD erbt das der Charge');
+    assertEq((await w.DB.get('abfuellungen', abfEigen.id)).mhd, '2029-01-01', 'ein eigenes MHD bleibt unangetastet');
+    assertEq((await w.DB.get('chargen', alt.id)).datum, '2026-06-15', 'das Anlegedatum kommt aus der jüngsten Ernte');
+    assertEq((await w.DB.get('chargen', alt.id)).mhd, '2028-05-05', 'das alte Feld bleibt als Rückfall stehen');
+    assertEq(w.S.get('chargeDatumMigriert'), true, 'die Umstellung merkt sich, dass sie gelaufen ist');
+    // zweiter Lauf ändert nichts
+    const c2 = await w.DB.put('chargen', { losnummer: 'MIGR-2', ernteIds: [], mengeKg: 5 });
+    await w.migriereChargeDatumUndMhd();
+    assert(!(await w.DB.get('chargen', c2.id)).datum, 'sie läuft nur einmal');
+    await w.DB.del('chargen', c2.id);
+  } finally {
+    await w.DB.del('abfuellungen', abfAlt.id); await w.DB.del('abfuellungen', abfEigen.id);
+    await w.DB.del('chargen', alt.id); await w.DB.del('ernten', ernte.id);
+  }
+});
+
+test('Abgefüllte Gebinde warten sichtbar auf den Verkauf', async (w) => {
+  const charge = await w.DB.put('chargen', { losnummer: 'VERK-1', datum: w.U.todayIso(), ernteIds: [], mengeKg: 5 });
+  const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: w.U.todayIso(), mhd: '2028-01-01', gebindeG: 500, anzahl: 1, bestand: 1 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    w.Views.honig._tab = 'abfuellung';
+    await w.Views.honig.render(host);
+    await new Promise((r) => setTimeout(r, 400));
+    const text = host.textContent;
+    assert(/1 zum Verkauf/.test(text), '„zum Verkauf" statt „im Bestand": ' + (text.match(/.{0,40}zum Verkauf/) || [''])[0]);
+    assert(/haltbar bis 01\.01\.2028/.test(text), 'das MHD steht an der Abfüllung');
+  } finally {
+    host.remove(); w.Views.honig._tab = 'ernten';
+    await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
+  }
+});
+
+test('Losnummer je Abfüllung: eigene Nummer schlägt die der Charge', async (w) => {
+  const c = { losnummer: '2026-06' };
+  assertEq(w.abfLos({ gebindeG: 500 }, c), '2026-06', 'ohne eigene Nummer gilt die Charge');
+  assertEq(w.abfLos({ gebindeG: 500, losnummer: '' }, c), '2026-06', 'ein leeres Feld zählt als „nicht gesetzt“');
+  assertEq(w.abfLos({ gebindeG: 500, losnummer: 'L240610' }, c), 'L240610', 'eine eigene Nummer gewinnt');
+  assertEq(w.abfLos(null, null), '?', 'ohne alles bleibt das Fragezeichen');
+  assertEq(w.abfLabel({ gebindeG: 500, losnummer: 'L240610' }, c), 'Charge L240610 · 500 g', 'die Liste zeigt die gültige Nummer');
+
+  // Formular: Feld ist da und landet am Datensatz
+  dialogeSchliessen(w);
+  const charge = await w.DB.put('chargen', { losnummer: 'LOS-CH', datum: w.U.todayIso(), ernteIds: [], mengeKg: 20 });
+  const altInv = await w.DB.getAll('inventar');
+  try {
+    await w.Views.honig.abfuellForm(charge.id);
+    await new Promise((r) => setTimeout(r, 400));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal.querySelector('#f-losnummer'), 'beim Abfüllen ist das Losnummer-Feld da');
+    assertEq(modal.querySelector('#f-losnummer').value, '', 'leer vorbelegt – die Charge gilt dann');
+    const setz = (id, wert) => { const e = modal.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    setz('g_500', '6'); setz('losnummer', 'L-2026-0610');
+    await new Promise((r) => setTimeout(r, 200));
+    modal.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const abf = (await w.DB.getAll('abfuellungen')).filter((a) => a.chargeId === charge.id);
+    assertEq(abf.length, 1, 'eine Abfüllung angelegt');
+    assertEq(abf[0].losnummer, 'L-2026-0610', 'die eigene Losnummer steht am Datensatz');
+
+    // und sie steht auf dem Etikett
+    const echt = w.Pdf.finish;
+    let gebaut = null;
+    w.Pdf.finish = (doc) => { gebaut = doc.internal.pages.flat().filter(Boolean).join(' '); };
+    try {
+      await w.Pdf.honigEtikett(abf[0], charge, { bezeichnung: 'Honig', ursprung: 'Deutschland', anzahl: 1, mitQr: false });
+      assert(/L L-2026-0610/.test(gebaut), 'das Etikett zeigt die eigene Losnummer');
+      assert(!/L LOS-CH/.test(gebaut), 'und nicht die der Charge');
+    } finally { w.Pdf.finish = echt; }
+    for (const a of abf) await w.DB.del('abfuellungen', a.id);
+  } finally {
+    dialogeSchliessen(w);
+    await w.DB.del('chargen', charge.id);
+    await w.DB.clear('inventar'); for (const x of altInv) await w.DB.put('inventar', x, true);
+  }
 });

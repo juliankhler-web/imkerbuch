@@ -947,8 +947,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.52';
+const APP_VERSION = '1.53';
 const CHANGELOG = [
+  { version: '1.53', datum: '2026-09-20', punkte: [
+    'Das Feld heißt jetzt <b>Chargennummer</b> – so schreibt es der Duden, in einem Wort. Im Lebensmittelrecht heißt dieselbe Angabe „Los"; auf dem Etikett steht sie deshalb weiterhin mit vorangestelltem <b>L</b>.',
+    'Die <b>Chargennummer steht jetzt in einer eigenen, fetten Zeile</b> auf dem Etikett. Vorher hing sie hinten an der MHD-Zeile und ging dort unter. Im <b>QR-Code</b> steht sie nun an erster Stelle, zusammen mit Bezeichnung, MHD und Füllmenge.',
+    'Das <b>Mindesthaltbarkeitsdatum wird beim Abfüllen eingetragen</b>, nicht mehr beim Anlegen der Charge: Im Eimer ist Honig praktisch unbegrenzt haltbar, die Frist läuft ab dem Glas. Zwei Abfüllungen derselben Charge dürfen dadurch verschiedene Daten tragen. Vorgeschlagen werden zwei Jahre ab Abfülldatum.',
+    'Neu: Beim Abfüllen kannst du eine <b>eigene Losnummer</b> eintragen – für alle, die je Abfülltag ein Los führen. Leer gelassen gilt weiter die Chargennummer.',
+    'Neu: Das <b>Anlegedatum einer Charge</b> ist eintragbar. Bei vorhandenen Chargen trägt die App es aus der jüngsten enthaltenen Ernte nach.',
+    'Abgefüllte Gläser stehen jetzt als <b>„zum Verkauf"</b> statt „im Bestand" – man sieht der Zahl an, dass die Ware abgefüllt ist und auf Kundschaft wartet.',
+  ] },
   { version: '1.52', datum: '2026-09-05', punkte: [
     'Behoben: In „Was ist neu?" standen die Auszeichnungen als roher Text mitten im Satz (<b> und </b>). Hervorhebungen werden jetzt <b>fett dargestellt</b>, wie es gemeint war.',
   ] },
@@ -1823,6 +1831,7 @@ const S = {
     bottomNav: ['dashboard', 'voelker', 'aufgaben', 'honig'],
     rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
     imkerschule: { level: 'anfaenger', done: {}, onboarded: false },
+    chargeDatumMigriert: false,
     darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
@@ -3267,13 +3276,13 @@ const Demo = {
       if (so === 'Frühtracht') eFrueh = e;
     }
     // Chargen = Lose (Gesamtmenge kg); Abfüllung erfolgt separat je Gebinde
-    const chRaps = await DB.put('chargen', { losnummer: `${Y}-01`, ernteIds: eRaps ? [eRaps.id] : [], mengeKg: 62, mhd: ymd(Y + 2, 6, 20), etikettNotiz: 'Rapshonig, cremig gerührt' });
-    await DB.put('abfuellungen', { chargeId: chRaps.id, datum: ymd(Y, 6, 20), gebindeG: 500, anzahl: 120, bestand: 104 });
-    const chLinde = await DB.put('chargen', { losnummer: `${Y}-02`, ernteIds: eLinde ? [eLinde.id] : [], mengeKg: 60, mhd: ymd(Y + 2, 7, 18), etikettNotiz: 'Lindenblütenhonig' });
-    const aLinde500 = await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 18), gebindeG: 500, anzahl: 80, bestand: 63 });
-    await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 25), gebindeG: 250, anzahl: 60, bestand: 52 });
-    const chFrueh = await DB.put('chargen', { losnummer: `${Y - 1}-01`, ernteIds: eFrueh ? [eFrueh.id] : [], mengeKg: 50, mhd: ymd(Y + 1, 6, 20), etikettNotiz: 'Frühtrachthonig (ausverkauft)' });
-    await DB.put('abfuellungen', { chargeId: chFrueh.id, datum: ymd(Y - 1, 6, 20), gebindeG: 500, anzahl: 100, bestand: 0 });
+    const chRaps = await DB.put('chargen', { losnummer: `${Y}-01`, datum: ymd(Y, 6, 18), ernteIds: eRaps ? [eRaps.id] : [], mengeKg: 62, etikettNotiz: 'Rapshonig, cremig gerührt' });
+    await DB.put('abfuellungen', { chargeId: chRaps.id, datum: ymd(Y, 6, 20), mhd: ymd(Y + 2, 6, 20), gebindeG: 500, anzahl: 120, bestand: 104 });
+    const chLinde = await DB.put('chargen', { losnummer: `${Y}-02`, datum: ymd(Y, 7, 16), ernteIds: eLinde ? [eLinde.id] : [], mengeKg: 60, etikettNotiz: 'Lindenblütenhonig' });
+    const aLinde500 = await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 18), mhd: ymd(Y + 2, 7, 18), gebindeG: 500, anzahl: 80, bestand: 63 });
+    await DB.put('abfuellungen', { chargeId: chLinde.id, datum: ymd(Y, 7, 25), mhd: ymd(Y + 2, 7, 25), gebindeG: 250, anzahl: 60, bestand: 52 });
+    const chFrueh = await DB.put('chargen', { losnummer: `${Y - 1}-01`, datum: ymd(Y - 1, 6, 18), ernteIds: eFrueh ? [eFrueh.id] : [], mengeKg: 50, etikettNotiz: 'Frühtrachthonig (ausverkauft)' });
+    await DB.put('abfuellungen', { chargeId: chFrueh.id, datum: ymd(Y - 1, 6, 20), mhd: ymd(Y + 1, 6, 20), gebindeG: 500, anzahl: 100, bestand: 0 });
 
     const k1 = await DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Müller', strasse: 'Dorfstraße 12', plz: '34123', ort: 'Kassel', email: 'info@hofladen-mueller.de', telefon: '0561 123456', notiz: 'Nimmt monatlich 12 Gläser.' });
     const k2 = await DB.put('kontakte', { typ: 'kunde', name: 'Café Sonnenschein', strasse: 'Marktplatz 3', plz: '34117', ort: 'Kassel', email: '', telefon: '0561 998877', notiz: '' });
@@ -6063,13 +6072,13 @@ async function honigEtikettForm(a, c) {
   const imk = S.get('imkerei');
   if (!imk.name || !imk.ort) UI.toast('Tipp: Imkerei-Name & Anschrift in den Einstellungen ausfüllen – sie gehören aufs Etikett', 'err');
   UI.formModal({
-    title: `Honig-Etikett · Los ${c ? c.losnummer : '?'} · ${gebindeLabel(a.gebindeG)}`, wide: true,
+    title: `Honig-Etikett · L ${abfLos(a, c)} · ${gebindeLabel(a.gebindeG)}`, wide: true,
     fields: [
       { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
       { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
       { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
-      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), MHD${c && c.mhd ? ' (' + U.fmtDate(c.mhd) + ')' : ' – bitte an der Charge hinterlegen'}, Losnummer und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
+      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${abfLos(a, c)}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
     ],
     saveText: 'Etiketten-PDF erzeugen',
     async onSave(v) { await Pdf.honigEtikett(a, c, v); },
@@ -6098,8 +6107,29 @@ function voelkerAmStichtag(voelker, tag) {
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
 /** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
 function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle)) * 1000) / 1000; }
-/** Abfüllungs-Kurzlabel: „Los 25-01 · 500 g“. */
-function abfLabel(a, charge) { return `Los ${charge ? charge.losnummer : '?'} · ${gebindeLabel(a.gebindeG)}`; }
+/* Die Losnummer darf an der Abfüllung abweichen. Im Lebensmittelrecht ist ein
+   Los die Menge, die unter praktisch gleichen Bedingungen ABGEPACKT wurde –
+   das ist die Abfüllung, nicht zwingend die Charge. Wer je Abfülltag ein
+   eigenes Los führt, trägt es hier ein; sonst gilt die Chargennummer. */
+function abfLos(a, charge) { return (a && a.losnummer) || (charge && charge.losnummer) || '?'; }
+
+/** Abfüllungs-Kurzlabel: „Charge 25-01 · 500 g“. */
+function abfLabel(a, charge) { return `Charge ${abfLos(a, charge)} · ${gebindeLabel(a.gebindeG)}`; }
+
+/* Das Mindesthaltbarkeitsdatum entsteht beim ABFÜLLEN, nicht beim Anlegen der
+   Charge: Honig im Eimer ist praktisch unbegrenzt haltbar, die Frist läuft ab
+   dem Glas. Zwei Abfüllungen derselben Charge können deshalb verschiedene
+   Daten tragen. Chargen aus der Zeit davor haben ihr MHD noch an der Charge –
+   das bleibt als Rückfall erhalten. */
+function abfMhd(a, charge) { return (a && a.mhd) || (charge && charge.mhd) || null; }
+
+/** Vorschlag fürs MHD einer Abfüllung: zwei Jahre ab Abfülldatum. Der in der
+    Imkerei übliche Wert; überschreibbar, weil die Honigverordnung keine Frist
+    vorgibt – der Imker verantwortet sie selbst. */
+function mhdVorschlag(abfuelldatum) {
+  const d = abfuelldatum || U.todayIso();
+  return `${+d.slice(0, 4) + 2}${d.slice(4)}`;
+}
 /** Welche Ernte ist bereits welcher Charge zugeordnet? → Map(ernteId → Losnummer).
     exceptId schließt die gerade bearbeitete Charge aus (deren Ernten bleiben wählbar). */
 function ernteBelegung(chargen, exceptId) {
@@ -6149,13 +6179,13 @@ async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = 
   if (!a) throw new Error('Bitte eine Abfüllung auswählen.');
   anzahl = Math.round(anzahl);
   if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
-  if (anzahl > a.bestand) throw new Error(`Nur ${a.bestand} Gebinde im Bestand dieser Abfüllung.`);
+  if (anzahl > a.bestand) throw new Error(`Nur ${a.bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`);
   const c = await DB.get('chargen', a.chargeId);
   const los = c ? c.losnummer : '?';
   const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
   a.bestand -= anzahl;
   await DB.put('abfuellungen', a);
-  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Los ${los})`, rechnungId: null });
+  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Charge ${los})`, rechnungId: null });
   return DB.put('verkaeufe', { datum, abfuellungId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id });
 }
 /** Verkauf stornieren: Bestand zurückbuchen, Kassenbuch-Buchung + Verkauf in den Papierkorb */
@@ -7585,7 +7615,7 @@ Views.honig = {
         const rest = chargeRestKg(c, abfAlle);
         return `<button class="row" data-id="${c.id}">
           <span class="r-ic">${icon('qr')}</span>
-          <span class="r-main"><span class="r-title">Los ${U.esc(c.losnummer)}</span>
+          <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}</span>
           <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${(() => {
             const sorten = chargeSorten(c, ernten).map((x) => U.esc(x)).join(', ');
             const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
@@ -7615,7 +7645,11 @@ Views.honig = {
     const m = UI.formModal({
       title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
-        { key: 'losnummer', label: 'Losnummer', required: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`, hint: 'Erscheint auf dem Etikett und im QR-Code.' },
+        { key: 'losnummer', label: 'Chargennummer', required: true, halb: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`,
+          hint: 'Steht auf dem Etikett und im QR-Code. Im Lebensmittelrecht heißt sie „Los" und wird dort mit einem vorangestellten L gedruckt.' },
+        { key: 'datum', label: 'Charge angelegt am', type: 'date', required: true, halb: true, default: U.todayIso(),
+          hint: 'Der Tag, an dem du den Honig zu dieser Charge zusammengefasst hast.' },
+        { key: '_trennKopf', type: 'static', html: '' },
         { key: 'quelle', label: 'Woher kommt der Honig?', type: 'select', required: true, default: quelleVorgabe,
           options: [{ v: 'ernte', l: 'Aus Ernten in dieser App' }, { v: 'lager', l: 'Aus vorhandenem Lagerbestand' }, { v: 'beides', l: 'Beides zusammen' }],
           hint: 'Lagerbestand ist Honig, der schon vor der App-Nutzung im Eimer stand – ohne erfasste Ernte.' },
@@ -7641,8 +7675,9 @@ Views.honig = {
         { key: 'laborDatum', label: 'Laborbefund vom', type: 'date', halb: true,
           hint: 'Optional, für die eigenen Unterlagen.' },
         { key: '_trennLabor', type: 'static', html: '' },
-        { key: 'mhd', label: 'Mindesthaltbarkeitsdatum', type: 'date', hint: `Die App erinnert automatisch ${MHD_WARN_TAGE} Tage vor Ablauf.` },
         { key: 'etikettNotiz', label: 'Etikettendaten / Bezeichnung', type: 'textarea', placeholder: 'z. B. Rapshonig, cremig gerührt' },
+        { key: '_mhdHinweis', type: 'static',
+          html: `<div class="hint">Das <b>Mindesthaltbarkeitsdatum</b> wird beim Abfüllen eingetragen, nicht hier: Im Eimer ist Honig praktisch unbegrenzt haltbar, die Frist läuft ab dem Glas. Die App schlägt dort zwei Jahre ab Abfülldatum vor und erinnert ${MHD_WARN_TAGE} Tage vor Ablauf.</div>` },
       ],
       values: c || {},
       async onSave(v) {
@@ -7653,8 +7688,8 @@ Views.honig = {
         if (!ernteIds.length && lagerKg <= 0) throw new Error('Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
         const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
-        const rec = Object.assign(c || {}, { losnummer: v.losnummer, ernteIds, lagerKg,
-          lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg, mhd: v.mhd,
+        const rec = Object.assign(c || {}, { losnummer: v.losnummer, datum: v.datum, ernteIds, lagerKg,
+          lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg,
           sorte: (v.sorte || '').trim(),
           wassergehalt: (v.wassergehalt === '' || v.wassergehalt == null) ? null : v.wassergehalt,
           laborDatum: v.laborDatum || null,
@@ -7685,7 +7720,7 @@ Views.honig = {
           inp.disabled = true; inp.checked = false;
           lab.style.opacity = '0.5';
           const span = $('span', lab);
-          if (span) span.innerHTML += ` <span class="badge b-muted">schon in Los ${U.esc(belegt.get(inp.value))}</span>`;
+          if (span) span.innerHTML += ` <span class="badge b-muted">schon in Charge ${U.esc(belegt.get(inp.value))}</span>`;
         }
       });
     }
@@ -7724,9 +7759,9 @@ Views.honig = {
       title: `Charge ${c.losnummer}`, wide: true,
       body: `
         <div class="stat-grid mb12">
-          <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)}</div><div class="s-sub">kg im Los</div></div>
+          <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)}</div><div class="s-sub">kg in der Charge</div></div>
           <div class="stat"><div class="s-label">Nicht abgefüllt</div><div class="s-value">${U.fmtNum(rest, 1)}</div><div class="s-sub">kg frei</div></div>
-          <div class="stat"><div class="s-label">MHD</div><div class="s-value" style="font-size:16px">${U.fmtDate(c.mhd) || '–'}</div></div>
+          <div class="stat"><div class="s-label">Angelegt</div><div class="s-value" style="font-size:16px">${U.fmtDate(c.datum) || '–'}</div></div>
         </div>
         ${(() => {
           /* Sorte und Laborwert gehören sichtbar in die Detailansicht – bei
@@ -7743,9 +7778,9 @@ Views.honig = {
         <div class="rows mb12">${abf.length ? abf.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${a.anzahl} Gebinde</span>
-          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)} · noch ${a.bestand} im Bestand</span></span>
+          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${a.bestand} zum Verkauf</span></span>
           <button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${a.id}">${icon('doc')} Etikett</button></div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
-        ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gebinden im Bestand.</p>` : ''}
+        ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gebinden stehen noch zum Verkauf.</p>` : ''}
         <h3 class="mb8">Rückverfolgung: Charge → Ernte → Volk</h3>
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
@@ -7782,7 +7817,7 @@ Views.honig = {
   async qrDataUrl(c, erntenMap) {
     const imk = S.get('imkerei');
     const sorten = chargeSorten(c, erntenMap).join(', ');
-    const text = [`Los: ${c.losnummer}`, c.mhd ? `MHD: ${U.fmtDate(c.mhd)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
+    const text = [`Charge: ${c.losnummer}`, c.datum ? `Angelegt: ${U.fmtDate(c.datum)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
     return makeQr(text);
   },
   /** Druckansicht: Bogen mit QR-Codes fürs Etikett */
@@ -7791,7 +7826,7 @@ Views.honig = {
     div.className = 'qr-print print-only';
     div.innerHTML = `<h2 style="margin-bottom:8px">Charge ${U.esc(c.losnummer)} – QR-Etiketten</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10mm;margin-top:8mm">
-        ${Array.from({ length: 12 }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:30mm;height:30mm"><div style="font-size:8pt">Los ${U.esc(c.losnummer)} · MHD ${U.fmtDate(c.mhd) || '–'}</div></div>`).join('')}
+        ${Array.from({ length: 12 }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:30mm;height:30mm"><div style="font-size:8pt">Charge ${U.esc(c.losnummer)}</div></div>`).join('')}
       </div>`;
     document.body.appendChild(div);
     document.body.classList.add('qr-printing');
@@ -7816,8 +7851,8 @@ Views.honig = {
         const c = chargen.get(a.chargeId);
         return `<button class="row" data-id="${a.id}">
           <span class="r-ic">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Los ${U.esc(c ? c.losnummer : '?')}</span>
-          <span class="r-sub">${U.fmtDate(a.datum)} · ${a.anzahl} abgefüllt · noch ${a.bestand} im Bestand</span></span>
+          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(c ? c.losnummer : '?')}</span>
+          <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${a.anzahl} abgefüllt · noch ${a.bestand} zum Verkauf</span></span>
           <span class="r-side"><b>${a.bestand}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>`
       : emptyState('honig', 'Noch nichts abgefüllt. Lege zuerst eine Charge an, dann füllst du sie hier in Gebinde ab.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Abfüllung</button>`)}
@@ -7862,8 +7897,13 @@ Views.honig = {
     const m = UI.formModal({
       title: 'Abfüllen', wide: true,
       fields: [
-        { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', required: true, default: vorChargeId, options: frei.map((c) => ({ v: c.id, l: `Los ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` })) },
-        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', required: true, default: vorChargeId, options: frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` })) },
+        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true, default: U.todayIso() },
+        { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', required: true, halb: true, default: mhdVorschlag(U.todayIso()),
+          hint: 'Vorschlag: zwei Jahre ab Abfülldatum. Steht so auf dem Etikett.' },
+        { key: '_trennDatum', type: 'static', html: '' },
+        { key: 'losnummer', label: 'Losnummer für diese Abfüllung', placeholder: 'leer = Chargennummer',
+          hint: 'Nur ausfüllen, wenn du je Abfülltag ein eigenes Los führst. Leer gelassen erbt die Abfüllung die Nummer der Charge – so steht sie auch auf dem Etikett.' },
         { key: '_g', type: 'static', html: '<h3 class="mt8 mb4">Gebinde</h3><div class="hint mb8">Trage bei den passenden Größen die Anzahl ein – auch mehrere Größen auf einmal (z. B. 500 g = Glas, 20 kg = Eimer).</div>' },
         ...gebindeFelder,
         { key: 'eigenesG', label: 'Eigenes Gebinde – Größe (g)', type: 'number', placeholder: 'z. B. 30' },
@@ -7879,11 +7919,12 @@ Views.honig = {
         const charge = await DB.get('chargen', v.chargeId);
         const rest = chargeRestKg(charge, await DB.getAll('abfuellungen'));
         const brauchtKg = posten.reduce((s, p) => s + p.anzahl * p.gebindeG / 1000, 0);
-        if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Los ${charge.losnummer} frei.`);
+        if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Charge ${charge.losnummer} frei.`);
         let glaeser = 0;
         const angelegt = [];
         for (const p of posten) {
-          angelegt.push({ p, rec: await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }) });
+          angelegt.push({ p, rec: await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, mhd: v.mhd || null,
+            losnummer: (v.losnummer || '').trim(), gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }) });
           glaeser += p.anzahl;
         }
         UI.toast(`${glaeser} Gebinde abgefüllt${posten.length > 1 ? ` (${posten.length} Größen)` : ''}`);
@@ -7928,12 +7969,17 @@ Views.honig = {
     if (!a) return;
     const c = await DB.get('chargen', a.chargeId);
     UI.formModal({
-      title: `Abfüllung bearbeiten · Los ${c ? c.losnummer : '?'}`, wide: true,
+      title: `Abfüllung bearbeiten · Charge ${c ? c.losnummer : '?'}`, wide: true,
       fields: [
         { key: 'gebindeG', label: 'Gebindegröße (g)', type: 'number', required: true },
         { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true },
-        { key: 'bestand', label: 'Davon noch im Bestand', type: 'number', required: true, hint: 'Wird durch Verkäufe automatisch gemindert.' },
-        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true },
+        { key: 'bestand', label: 'Davon noch zum Verkauf', type: 'number', required: true, hint: 'Abgefüllt, aber noch nicht verkauft. Wird durch Verkäufe automatisch gemindert.' },
+        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true },
+        { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', halb: true, default: abfMhd(a, c) || mhdVorschlag(a.datum),
+          hint: 'Steht auf dem Etikett dieser Abfüllung.' },
+        { key: '_trennAbfDatum', type: 'static', html: '' },
+        { key: 'losnummer', label: 'Losnummer für diese Abfüllung', placeholder: `leer = Chargennummer ${c ? c.losnummer : ''}`,
+          hint: 'Leer gelassen gilt die Nummer der Charge.' },
         { key: '_hinweis', type: 'static', html: '<div class="hint">Änderst du die <b>Anzahl abgefüllt</b>, rechnet die App Gläser, Deckel und Etiketten mit: weniger Gläser kommen zurück in den Bestand, mehr werden abgezogen.</div>' },
       ],
       values: a,
@@ -7954,7 +8000,7 @@ Views.honig = {
           }
           a.verbrauchAbzug = neu;
         }
-        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum }));
+        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() }));
         await pruefeMhd();
         UI.toast('Abfüllung gespeichert'); renderRoute();
       },
@@ -7998,7 +8044,7 @@ Views.honig = {
         <td class="num">${a.anzahl - a.bestand}</td>
         <td class="no-print">${a.bestand > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${a.id}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('');
       return `<div class="card">
-        <div class="card-title">${icon('qr')}<h2>Los ${U.esc(c.losnummer)} · ${U.esc(honigName(c, ernten))}</h2>${c.mhd ? `<span class="badge b-honey">MHD ${U.fmtDate(c.mhd)}</span>` : ''}</div>
+        <div class="card-title">${icon('qr')}<h2>Charge ${U.esc(c.losnummer)} · ${U.esc(honigName(c, ernten))}</h2>${c.datum ? `<span class="badge b-honey">angelegt ${U.fmtDate(c.datum)}</span>` : ''}</div>
         <div class="stat-grid mb12">
           <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)} kg</div></div>
           <div class="stat"><div class="s-label">Abgefüllt</div><div class="s-value">${kgFmt(gAbgefuellt)} kg</div><div class="s-sub">${U.sum(abf, (a) => a.anzahl)} Gebinde gesamt</div></div>
@@ -8006,14 +8052,14 @@ Views.honig = {
         </div>
         ${abf.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th class="num">Verkauft</th><th class="no-print"></th></tr></thead>
           <tbody>${zeilen}
-          <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe im Bestand</td><td class="num">${glaeserBestand}</td><td class="num">${kgFmt(gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
+          <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe zum Verkauf</td><td class="num">${glaeserBestand}</td><td class="num">${kgFmt(gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
           </tbody></table></div>`
         : `<p class="small muted">Noch nichts abgefüllt. ${freiKg > 0 ? `<button class="btn btn-xs btn-ghost no-print" data-abf="${c.id}">${icon('plus')} Jetzt abfüllen</button>` : ''}</p>`}
       </div>`;
     }).join('');
     box.innerHTML = `
       <div class="stat-grid mb16">
-        <div class="stat"><div class="s-label">${icon('honig')} Gebinde im Bestand</div><div class="s-value">${totalGlaeser}</div><div class="s-sub">${U.fmtNum(totalKgGlaeser, 1)} kg im Lager</div></div>
+        <div class="stat"><div class="s-label">${icon('honig')} Gebinde zum Verkauf</div><div class="s-value">${totalGlaeser}</div><div class="s-sub">${U.fmtNum(totalKgGlaeser, 1)} kg abgefüllt</div></div>
         <div class="stat"><div class="s-label">${icon('gewicht')} Noch nicht abgefüllt</div><div class="s-value">${U.fmtNum(totalFreiKg, 1)} kg</div></div>
         <div class="stat"><div class="s-label">${icon('qr')} Chargen</div><div class="s-value">${chargen.length}</div></div>
       </div>
@@ -8053,7 +8099,7 @@ Views.markt = {
         const imKorb = korb[a.id] || 0;
         return `<button class="markt-tile" data-tile="${a.id}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
-          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Los ${U.esc(c ? c.losnummer : '?')} · ${a.bestand - imKorb} übrig</span>
+          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(c ? c.losnummer : '?')} · ${a.bestand - imKorb} übrig</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
         </button>`;
       }).join('')}</div>`
@@ -8078,7 +8124,7 @@ Views.markt = {
   preisSetzen(a, c) {
     UI.formModal({
       title: 'Verkaufspreis je Gebinde',
-      fields: [{ key: 'preis', label: `Preis für Los ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: (S.get('marktpreise') || {})[a.id] || '' }],
+      fields: [{ key: 'preis', label: `Preis für Charge ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: (S.get('marktpreise') || {})[a.id] || '' }],
       saveText: 'Übernehmen',
       async onSave(v) {
         const preise = S.get('marktpreise') || {};
@@ -8591,9 +8637,9 @@ Views.rechnung = {
         if (v.quelle === 'charge') {
           const a = verf.find((x) => x.id === v.abfuellungId);
           if (!a) throw new Error('Bitte eine Abfüllung wählen.');
-          if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser im Bestand.`);
+          if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser stehen noch zum Verkauf.`);
           const c = chargenM.get(a.chargeId);
-          text = `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Los ${c ? c.losnummer : '?'})`;
+          text = `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
           abfuellungId = a.id;
         }
         if (!text) throw new Error('Bitte eine Bezeichnung angeben.');
@@ -12208,16 +12254,28 @@ async function pruefeMhd() {
   const heute = U.todayIso();
   const schonErinnert = (refId) => offeneMhdAufgaben.some((a) => a.refId === refId);
   // Honig-Chargen mit Restbestand (Gläser im Bestand ODER noch nicht abgefüllte Menge)
+  /* Gewarnt wird je ABFÜLLUNG, nicht je Charge: das MHD hängt am Glas, und
+     zwei Abfüllungen derselben Charge können verschieden lange haltbar sein.
+     Altdaten mit MHD an der Charge fängt abfMhd ab. */
   const abfAlle = await DB.getAll('abfuellungen');
+  const chargenM = await idMap('chargen');
+  for (const a of abfAlle) {
+    const c = chargenM.get(a.chargeId);
+    const mhd = abfMhd(a, c);
+    if (!mhd || (a.bestand || 0) <= 0 || schonErinnert(a.id)) continue;
+    if (U.daysBetween(heute, mhd) > MHD_WARN_TAGE) continue;
+    const was = `${a.bestand} × ${gebindeLabel(a.gebindeG)} aus Charge ${c ? c.losnummer : '?'}`;
+    const titel = mhd < heute ? `MHD überschritten: ${was}` : `MHD läuft ab: ${was} am ${U.fmtDate(mhd)}`;
+    await DB.put('aufgaben', { titel, faellig: mhd, erledigt: false, quelle: 'mhd', refId: a.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
+  }
+  // Noch nicht abgefüllter Rest einer Altcharge, die ihr MHD selbst trägt
   for (const c of (await DB.getAll('chargen')).filter((c) => c.mhd)) {
-    const glaeser = U.sum(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.bestand);
     const restKg = chargeRestKg(c, abfAlle);
-    if ((glaeser <= 0 && restKg <= 0.0001) || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
-    const menge = glaeser > 0 ? `${glaeser} Gläser` : `${U.fmtNum(restKg, 1)} kg`;
+    if (restKg <= 0.0001 || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
     const titel = c.mhd < heute
-      ? `MHD überschritten: Los ${c.losnummer} (${menge})`
-      : `MHD läuft ab: Los ${c.losnummer} am ${U.fmtDate(c.mhd)} (${menge})`;
-    await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
+      ? `MHD überschritten: Charge ${c.losnummer} (${U.fmtNum(restKg, 1)} kg nicht abgefüllt)`
+      : `MHD läuft ab: Charge ${c.losnummer} am ${U.fmtDate(c.mhd)} (${U.fmtNum(restKg, 1)} kg nicht abgefüllt)`;
+    await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abfüllen oder verwerten.' });
   }
   // Betriebsmittel/Inventar: Ablaufdatum (MHD) und Mindestbestand
   for (const it of await DB.getAll('inventar')) {
@@ -12363,9 +12421,9 @@ const Xlsx = {
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
-      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Losnummer: c.losnummer, 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), MHD: d(c.mhd), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
-      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Los: chargenM.get(a.chargeId)?.losnummer || '', Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), 'Anzahl abgefüllt': a.anzahl, Bestand: a.bestand })) },
-      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: (a && chargenM.get(a.chargeId)?.losnummer) || '', Gebinde: a ? gebindeLabel(a.gebindeG) : '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
+      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
+      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand })) },
+      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: a ? gebindeLabel(a.gebindeG) : '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
@@ -12611,15 +12669,16 @@ const Pdf = {
         const sorten = [...(eigen ? [c.lagerKg > 0 && !(c.ernteIds || []).length ? `${eigen} (Lagerbestand)` : eigen] : []), ...ausErnten].join(', ');
         const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
         body.push([
-          { content: `Los ${c.losnummer}`, styles: kopf },
+          { content: `Charge ${c.losnummer}`, styles: kopf },
           { content: `${U.fmtNum(c.mengeKg || 0, 1)} kg`, styles: kopf },
           { content: `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei`, styles: kopf },
-          { content: U.fmtDate(c.mhd) || '–', styles: kopf },
+          { content: U.fmtDate(c.datum) || '–', styles: kopf },
           { content: sorten, styles: kopf },
         ]);
-        for (const a of abf) body.push([`↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} im Bestand`, U.fmtDate(a.datum), '']);
+        for (const a of abf) body.push([`↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} zum Verkauf`,
+          `${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · MHD ${U.fmtDate(abfMhd(a, c))}` : ''}`, '']);
       }
-      this.table(doc, { head: ['Los / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'MHD / Datum', 'Ernten'], body, startY: y, widths: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 } } });
+      this.table(doc, { head: ['Charge / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'Angelegt / Abgefüllt', 'Ernten'], body, startY: y, widths: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 } } });
       this.finish(doc, `chargen-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -12679,10 +12738,18 @@ const Pdf = {
       const imk = S.get('imkerei');
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
-      const los = c ? c.losnummer : '?', mhd = c ? c.mhd : null;
+      const los = abfLos(a, c), mhd = abfMhd(a, c);
       // Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite
       const LW = 90, LH = 54, cols = 2, rows = 5, mx = 12, my = 14, gapx = 6, gapy = 3.6;
-      const qr = opts.mitQr ? await makeQr(`Los: ${los}\n${opts.bezeichnung}\n${imk.name || ''}`).catch(() => null) : null;
+      /* Im QR steht, was zur Rückverfolgung nötig ist – die Chargennummer
+         zuerst, denn danach wird gesucht, wenn etwas zu klären ist. */
+      const qr = opts.mitQr ? await makeQr([
+        `Charge: ${los}`,
+        opts.bezeichnung,
+        mhd ? `Mindestens haltbar bis: ${U.fmtDate(mhd)}` : '',
+        `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`,
+        imk.name ? `${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : '',
+      ].filter(Boolean).join('\n')).catch(() => null) : null;
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);
         if (i > 0 && posOnPage === 0) doc.addPage();
@@ -12719,7 +12786,14 @@ const Pdf = {
         let ly = yy + 37;
         const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += 3.8; };
         zeile(`Ursprungsland: ${opts.ursprung}`);
-        zeile(`mind. haltbar bis: ${U.fmtDate(mhd) || '__________'}   Los: ${los}`);
+        /* Chargennummer als EIGENE Zeile, fett und mit vorangestelltem „L".
+           Vorher hing sie hinten an der MHD-Zeile in 8,5 pt und ging dort unter.
+           Das L verlangt die Los-Kennzeichnungsverordnung, sobald sich die
+           Nummer nicht deutlich von den übrigen Angaben abhebt. */
+        doc.setFont('helvetica', 'bold').setTextColor(60);
+        zeile(`Mindestens haltbar bis: ${U.fmtDate(mhd) || '__________'}`);
+        zeile(`L ${los}`);
+        doc.setFont('helvetica', 'normal').setTextColor(90);
         zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
         // Bio-Zertifizierung: Kontrollstellen-Code (Pflichtangabe) + EU-Bio/Verband
         if (imk.bio === 'ja') {
@@ -12731,7 +12805,7 @@ const Pdf = {
         }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
-      this.finish(doc, `etiketten-los-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`);
+      this.finish(doc, `etiketten-charge-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -14464,6 +14538,37 @@ async function migriereBioPartner() {
 
 /** Einmalige Migration: alte Freitext-Belegstellen (nur Name als String auf Königin/Zuchtserie)
     werden zu echten Belegstellen-Datensätzen und per belegstelleId verknüpft. */
+/* Bis v1.52 hing das Mindesthaltbarkeitsdatum an der CHARGE. Es gehört ans
+   Glas: Honig im Eimer ist praktisch unbegrenzt haltbar, die Frist läuft ab
+   dem Abfüllen. Bestehende Abfüllungen erben das Datum ihrer Charge, damit
+   Etiketten und Erinnerungen weiterlaufen; das Feld an der Charge bleibt als
+   Rückfall für noch nicht abgefüllte Reste stehen.
+   Zugleich bekommen Chargen ohne Anlegedatum eines – aus der jüngsten
+   enthaltenen Ernte, sonst aus dem Anlegezeitpunkt des Datensatzes. */
+async function migriereChargeDatumUndMhd() {
+  if (S.get('chargeDatumMigriert')) return;
+  const chargen = await DB.getAll('chargen');
+  const ernten = await idMap('ernten');
+  let abfGesetzt = 0, datumGesetzt = 0;
+  for (const a of await DB.getAll('abfuellungen')) {
+    if (a.mhd) continue;
+    const c = chargen.find((x) => x.id === a.chargeId);
+    if (!c || !c.mhd) continue;
+    a.mhd = c.mhd;
+    await DB.put('abfuellungen', a, true);
+    abfGesetzt++;
+  }
+  for (const c of chargen) {
+    if (c.datum) continue;
+    const daten = (c.ernteIds || []).map((id) => (ernten.get(id) || {}).datum).filter(Boolean).sort();
+    c.datum = daten.length ? daten[daten.length - 1] : (c.createdAt || '').slice(0, 10) || U.todayIso();
+    await DB.put('chargen', c, true);
+    datumGesetzt++;
+  }
+  await S.set('chargeDatumMigriert', true);
+  if (abfGesetzt || datumGesetzt) console.info(`Chargen umgestellt: ${datumGesetzt} Anlegedaten, ${abfGesetzt} MHD an Abfüllungen`);
+}
+
 async function migriereBelegstellen() {
   if (S.get('belegstellenMigriert')) return;
   const nachName = new Map(); // name (klein, getrimmt) -> id
@@ -14497,6 +14602,7 @@ async function boot() {
   await migriereInventarTyp();
   await migriereBioPartner();
   await migriereBelegstellen();
+  await migriereChargeDatumUndMhd();
   applyTheme();
   renderChrome();
   applyHeaderLogo();

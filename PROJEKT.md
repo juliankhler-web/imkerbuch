@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 372/372 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 380/380 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,14 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-20 (v1.53)**: **Charge, Losnummer und MHD gerade gezogen** (Julian: „aktuell heisst es los 2026-06 … das mhd wird erst bei der abfüllung eingetragen").
+  **Rechtschreibung nachgeschlagen:** Es heißt **Chargennummer** – ein Wort, mit Fugen-n, im Duden geführt (Char|gen|num|mer). „Charge-Nummer" wäre falsch. Das Feld heißt jetzt so; im Lebensmittelrecht ist dieselbe Angabe das **Los**, deshalb steht sie auf dem Etikett weiter mit vorangestelltem **L** (Los-Kennzeichnungsverordnung: „L", sobald sich die Nummer nicht deutlich abhebt).
+  **Die Nummer war auf dem Etikett vorhanden, aber unsichtbar:** Sie hing als `Los: 2026-02` hinten an der MHD-Zeile in 8,5 pt. Jetzt eigene, fette Zeile `L 2026-02`. Im **QR-Code** steht sie an erster Stelle, dazu Bezeichnung, MHD und Füllmenge statt nur Name und Bezeichnung.
+  **MHD ans Glas:** Neues Feld an der Abfüllung (Vorschlag: zwei Jahre ab Abfülldatum), an der Charge entfällt es. Grund steht im Formular: Im Eimer ist Honig praktisch unbegrenzt haltbar. `abfMhd(a, c)` liest mit Rückfall auf die Charge, `migriereChargeDatumUndMhd()` vererbt bestehende Daten an die Abfüllungen. Der **MHD-Wächter** warnt jetzt je Abfüllung („4 × 500 g aus Charge …") statt je Charge, plus eine eigene Meldung für nicht abgefüllte Reste.
+  **Eigene Losnummer je Abfüllung** (`abfLos`) für alle, die je Abfülltag ein Los führen – leer gelassen gilt die Chargennummer. **Anlegedatum der Charge** eintragbar, bei Altdaten aus der jüngsten enthaltenen Ernte nachgetragen.
+  Abgefüllte Gläser heißen in der Oberfläche jetzt **„zum Verkauf"** statt „im Bestand" – man sieht der Zahl an, dass die Ware fertig ist und wartet.
+  8 neue Tests. **380/380 grün.** SW → v165.
 
 - **2026-09-03 (v1.51)**: **Überholte Renderläufe steigen aus** (Julian: „mach es dennoch, wir wollen das System so stabil wie möglich machen").
   Der letzte offene Fund der Komplettprüfung. Ein View darf beim Zeichnen warten; wechselt der Nutzer in dieser Zeit den Bereich, läuft der erste Vorgang weiter. Sein Inhalt landete zwar im Leeren — jeder Lauf bekommt sein eigenes `#main` —, aber alles **danach** traf das gemeinsame Fenster: der `window.scrollTo({top:0})` riss die inzwischen geöffnete Seite nach oben, und eine Fehlerkarte einer längst verlassenen Seite erschien auf der neuen.

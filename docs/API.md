@@ -130,8 +130,8 @@ trägt zusätzlich `id`, `createdAt`, `lastModified`.
 | `trachten` | `bezeichnung`, `pflanze`, `von`, `bis`, `region`, `standIds[]` |
 | `wanderungen` | `vonStandId`, `nachStandId`, `volkIds[]`, `datum`, `grund`, `trachtId`, `notiz` (Altdaten: `vonOrt`/`nachOrt`) |
 | `ernten` | `zielTyp`, `zielId`, `datum`, `produktart`, `sorte`, `mengeKg`, `wassergehalt`, `schleuderung`, `trachtId`, `notiz` |
-| `chargen` | `losnummer`, `ernteIds[]`, `mengeKg` (Lagerbestand ohne Ernte), `sorte`, `wassergehalt`, `mhd`, `etikettNotiz` |
-| `abfuellungen` | `chargeId`, `datum`, `gebindeG`, `anzahl`, `bestand`, `verbrauchAbzug[]` |
+| `chargen` | `losnummer` (die Chargennummer), `datum` (angelegt am), `ernteIds[]`, `mengeKg` (Lagerbestand ohne Ernte), `sorte`, `wassergehalt`, `mhd` (nur Altdaten, siehe unten), `etikettNotiz` |
+| `abfuellungen` | `chargeId`, `datum`, `mhd`, `losnummer` (optional, sonst die der Charge), `gebindeG`, `anzahl`, `bestand` (= noch zum Verkauf), `verbrauchAbzug[]` |
 | `verkaeufe` | `datum`, `abfuellungId`, `anzahl`, `preisJeGlas`, `betrag`, `kontaktId`, `notiz`, `kassenbuchId` |
 | `fahrten` | `datum`, `standId`, `freiZiel`, `zweck`, `km`, `notiz` |
 | `kontakte` | `typ` (`kunde`/`lieferant`), `name`, `strasse`, `plz`, `ort`, `email`, `telefon`, `notiz` |
@@ -423,6 +423,18 @@ Weiter: `materialZugangForm(cfg, vorPositionId, rec)` (ein Formular für „Neue
 ## 12. Honig: Ernte, Charge, Abfüllung, Verkauf
 
 Kette: **Ernte → Charge (Los) → Abfüllung (Gebinde) → Verkauf/Rechnung**.
+
+**MHD und Losnummer hängen an der Abfüllung, nicht an der Charge.** Im Eimer ist
+Honig praktisch unbegrenzt haltbar – die Frist läuft ab dem Glas, und zwei
+Abfüllungen derselben Charge dürfen verschiedene Daten tragen. Ein Los ist im
+Lebensmittelrecht die Menge, die unter gleichen Bedingungen **abgepackt** wurde.
+Beides wird über Helfer gelesen, die auf die Charge zurückfallen (Altdaten):
+
+```js
+abfMhd(a, charge)                  // MHD der Abfüllung, sonst das der Charge
+abfLos(a, charge)                  // Losnummer der Abfüllung, sonst die der Charge
+mhdVorschlag(abfuelldatum)         // zwei Jahre ab Abfüllen
+```
 
 ```js
 chargeRestKg(charge, abfAlle)      // noch nicht abgefüllte kg
