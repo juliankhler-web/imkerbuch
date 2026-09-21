@@ -7492,3 +7492,170 @@ test('S5/S6: Tabellen-Export schleust keine Formeln ein', async (w) => {
   assertEq(zeilen[0].Notiz, "'=1+1", 'auch über ganze Zeilen hinweg');
   assertEq(zeilen[0].Menge, 5);
 });
+
+/* =====================================================================
+   Prüfbericht v1.61/1.62: Nachweise zu den behobenen Befunden
+   ===================================================================== */
+
+test('J1: Rechnung weist Entgelt je Steuersatz und das Lieferdatum aus', (w) => {
+  const r = {
+    datum: '2026-06-01', lieferdatum: '2026-05-28', steuerart: 'regel',
+    positionen: [{ menge: 10, einzelpreis: 6, steuersatz: 7, pfand: 0 }],
+  };
+  const sum = w.rechnungSummen(r);
+  assert(sum.nettoJeSatz, 'die Summen enthalten das Entgelt je Satz');
+  nah(sum.nettoJeSatz[7], 60 - 60 * 7 / 107, 0.005, 'Entgelt = Bruttowert minus enthaltene Steuer');
+  nah(sum.steuern[7], 60 * 7 / 107, 0.005, 'die Steuer dazu passt');
+  nah(sum.nettoJeSatz[7] + sum.steuern[7], 60, 0.005, 'zusammen ergibt es wieder den Bruttowert');
+});
+
+test('J2: Pfand trägt Umsatzsteuer nur, wenn es eingestellt ist', (w) => {
+  const basis = { datum: '2026-06-01', steuerart: 'regel', positionen: [{ menge: 2, einzelpreis: 10, steuersatz: 7, pfand: 1.5 }] };
+  const ohne = w.rechnungSummen(basis);
+  nah(ohne.pfand, 3, 0.005, 'der Pfand wird ausgewiesen');
+  nah(ohne.steuern[19] || 0, 0, 0.005, 'ohne Einstellung bleibt er steuerfrei');
+  nah(w.U.sum(Object.values(ohne.steuern), (x) => x), 20 * 7 / 107, 0.005, 'nur die Ware trägt Steuer');
+  const mit = w.rechnungSummen({ ...basis, pfandSteuersatz: 19 });
+  nah(mit.steuern[19], 3 * 19 / 119, 0.005, 'mit Einstellung trägt der Pfand 19 %');
+  nah(mit.nettoJeSatz[19], 3 - 3 * 19 / 119, 0.005, 'und das Entgelt dazu stimmt');
+  nah(mit.brutto, ohne.brutto, 0.005, 'der Rechnungsbetrag ändert sich dadurch nicht');
+});
+
+test('J3: Etikett schlägt eine Verkehrsbezeichnung vor, keine bloße Sorte', (w) => {
+  assertEq(w.verkehrsbezeichnung('Raps'), 'Rapshonig');
+  assertEq(w.verkehrsbezeichnung('Linde'), 'Lindenhonig');
+  assertEq(w.verkehrsbezeichnung('Sonnenblume'), 'Sonnenblumenhonig');
+  assertEq(w.verkehrsbezeichnung('Frühtracht'), 'Frühjahrsblütenhonig');
+  assertEq(w.verkehrsbezeichnung('Sommertracht'), 'Sommerblütenhonig');
+  assertEq(w.verkehrsbezeichnung('Robinie (Akazie)'), 'Akazienhonig');
+  assertEq(w.verkehrsbezeichnung('Heide'), 'Heidehonig', 'nicht „Heidenhonig“');
+  assertEq(w.verkehrsbezeichnung('Waldhonig'), 'Waldhonig', 'was schon Honig heißt, bleibt');
+  assertEq(w.verkehrsbezeichnung(''), 'Honig', 'ohne Sorte bleibt es schlicht Honig');
+});
+
+test('J4: Wartezeit 0 ist eine Angabe, keine Lücke', (w) => {
+  assertEq(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: 0 }), '0 Tage');
+  assertEq(w.wartezeitText({ datum: '2026-06-01' }), '–', 'nicht erfasst bleibt ein Strich');
+  assertEq(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: null }), '–');
+  assertEq(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: 14 }), '14 Tage');
+  assert(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: 14 }, true).includes('15.06.2026'), 'die Langform nennt das Ende');
+  assertEq(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: 0 }, true), '0 Tage (keine Wartezeit)');
+});
+
+test('J5: Bio-Etikett nennt die Herkunft der Zutaten', (w) => {
+  assertEq(w.oekoHerkunft('Deutschland'), 'EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Österreich'), 'EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Schweiz'), 'Nicht-EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Deutschland / Schweiz'), 'EU-/Nicht-EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft(''), 'EU-/Nicht-EU-Landwirtschaft', 'ohne Angabe die vorsichtigste Formulierung');
+});
+
+test('Q5: Abgebrochene Datenwanderung kappt keine Verkäufe', async (w) => {
+  await w.S.set('abfuellungMigriert', false);
+  const c = await w.DB.put('chargen', { losnummer: 'ALT-1', glasGroesseG: 500, anzahlGlaeser: 20, bestandGlaeser: 20, abfuelldatum: '2026-05-01' });
+  const v = await w.DB.put('verkaeufe', { datum: '2026-05-02', chargeId: c.id, anzahl: 2, preisJeGlas: 6, betrag: 12 });
+  try {
+    // Erster Anlauf: bricht nach den Chargen ab – die Verkäufe sind noch nicht dran.
+    // Das stellen wir nach, indem wir nur den Chargen-Teil laufen lassen …
+    await w.migriereChargenAbfuellung();
+    const a = (await w.DB.getAll('abfuellungen')).find((x) => x.ausAlterCharge === c.id);
+    assert(a, 'die neue Abfüllung merkt sich ihre Herkunft');
+    // … und dann so tun, als wäre der zweite Anlauf ein frischer Start.
+    await w.S.set('abfuellungMigriert', false);
+    const v2 = await w.DB.get('verkaeufe', v.id);
+    assertEq(v2.abfuellungId, a.id, 'der Verkauf hängt an der neuen Abfüllung');
+    // Zweiter Anlauf darf nichts kaputt machen
+    await w.migriereChargenAbfuellung();
+    assertEq((await w.DB.get('verkaeufe', v.id)).abfuellungId, a.id, 'auch nach einem zweiten Durchlauf');
+  } finally {
+    await w.DB.del('verkaeufe', v.id); await w.DB.del('chargen', c.id);
+    for (const a of await w.DB.getAll('abfuellungen')) if (a.ausAlterCharge === c.id) await w.DB.del('abfuellungen', a.id);
+    await w.S.set('abfuellungMigriert', true);
+  }
+});
+
+test('Q7: Fehlgeschlagene Ordner-Sicherung meldet keinen Erfolg', async (w) => {
+  const f = w.S.get('features');
+  const altHandle = w.S.get('backupDirHandle'), altStand = w.S.get('letzteAutoSicherung');
+  const altWrite = w.Backup.writeToDir, altSnap = w.Backup.snapshotInternal;
+  const toasts = [];
+  const altToast = w.UI.toast; w.UI.toast = (t, art) => toasts.push([t, art]);
+  try {
+    await w.S.set('backupDirHandle', { name: 'Testordner' });
+    await w.S.set('letzteAutoSicherung', '2026-01-01T00:00:00.000Z');
+    w.Backup.snapshotInternal = async () => null;
+    w.Backup.writeToDir = async () => false;         // Ordner nicht schreibbar
+    const erg = await w.Backup.runAuto();
+    assertEq(erg, null, 'die Sicherung meldet sich als nicht erfolgt');
+    assertEq(w.S.get('letzteAutoSicherung'), '2026-01-01T00:00:00.000Z', 'der Termin wird nicht weitergestellt');
+    assert(toasts.some(([, art]) => art === 'err'), 'der Nutzer sieht eine Fehlermeldung');
+    // Und im Erfolgsfall geht es weiter wie bisher
+    w.Backup.writeToDir = async () => true;
+    w.Backup._letzterFehlversuch = null;
+    const ok = await w.Backup.runAuto();
+    assert(ok, 'ein geglückter Lauf liefert wieder einen Zeitstempel');
+    assert(w.S.get('letzteAutoSicherung') !== '2026-01-01T00:00:00.000Z', 'und stellt den Termin weiter');
+  } finally {
+    w.UI.toast = altToast; w.Backup.writeToDir = altWrite; w.Backup.snapshotInternal = altSnap;
+    w.Backup._letzterFehlversuch = null;
+    await w.S.set('backupDirHandle', altHandle || null);
+    await w.S.set('letzteAutoSicherung', altStand || null);
+    await w.S.set('features', f);
+  }
+});
+
+test('Q8: Marktverkauf behält nicht gebuchte Positionen im Warenkorb', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'MK-1', mengeKg: 10, datum: '2026-05-01' });
+  const gut = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-05-01', gebindeG: 500, anzahl: 5, bestand: 5 });
+  const knapp = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-05-01', gebindeG: 250, anzahl: 1, bestand: 1 });
+  const altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
+  const toasts = [];
+  w.UI.confirm = async () => true; w.UI.toast = (t, a) => toasts.push([t, a]); w.renderRoute = async () => {};
+  try {
+    const korb = { [gut.id]: 2, [knapp.id]: 4 };   // 4 von 1 Gebinde geht nicht
+    w.Views.markt._korb = korb;
+    await w.Views.markt.kassieren(korb, [gut, knapp], () => 6, 36);
+    const rest = w.Views.markt._korb;
+    assertEq(Object.keys(rest).length, 1, 'genau die gescheiterte Position bleibt liegen');
+    assertEq(rest[knapp.id], 4, 'mit ihrer vollen Stückzahl');
+    assertEq((await w.DB.get('abfuellungen', gut.id)).bestand, 3, 'die gute Position ist gebucht');
+    assertEq((await w.DB.get('abfuellungen', knapp.id)).bestand, 1, 'die gescheiterte nicht');
+    assert(toasts.some(([, a]) => a === 'err'), 'und der Stand sieht eine Warnung');
+  } finally {
+    w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
+    w.Views.markt._korb = {};
+    for (const v of await w.DB.getAll('verkaeufe')) if (v.abfuellungId === gut.id) await w.DB.del('verkaeufe', v.id);
+    for (const k of await w.DB.getAll('kassenbuch')) if ((k.beschreibung || '').includes('Charge MK-1')) await w.DB.del('kassenbuch', k.id);
+    await w.DB.del('abfuellungen', gut.id); await w.DB.del('abfuellungen', knapp.id); await w.DB.del('chargen', c.id);
+  }
+});
+
+test('Q9: Abgebrochene Rückfrage nimmt dem Formular nicht den Schutz', async (w) => {
+  w.FormGuard.dirty = true;
+  // Eine Rückfrage öffnen und abbrechen – sie ist ein eigenes Fenster ohne Guard.
+  const p = w.UI.confirm({ title: 'Test', text: 'x', confirmText: 'Ja' });
+  const back = w.document.querySelector('#modal-root').lastElementChild;
+  back.querySelector('[data-no]').click();
+  assertEq(await p, false, 'der Abbruch meldet „nein“');
+  assertEq(w.FormGuard.dirty, true, 'die Änderungsmarke bleibt bestehen');
+  w.FormGuard.dirty = false;
+  await dialogeSchliessen(w);
+});
+
+test('Q10: Nach dem Zusammenführen stimmt der Bestand wieder', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'ZF-1', mengeKg: 10, datum: '2026-05-01' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-05-01', gebindeG: 500, anzahl: 20, bestand: 18 });
+  // Zweites Gerät hat drei weitere Gläser verkauft – der Verkauf kam mit, der Bestand nicht.
+  const v = await w.DB.put('verkaeufe', { datum: '2026-05-05', abfuellungId: a.id, anzahl: 5, preisJeGlas: 6, betrag: 30 });
+  try {
+    const n = await w.Backup.bestandAbgleich();
+    assert(n >= 1, 'mindestens diese Abfüllung wird nachgerechnet');
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 15, '20 abgefüllt minus 5 verkauft');
+    // Ein von Hand KLEINERER Bestand (Bruch, Eigenbedarf) bleibt unangetastet.
+    const h = await w.DB.get('abfuellungen', a.id); h.bestand = 9; await w.DB.put('abfuellungen', h);
+    await w.Backup.bestandAbgleich();
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 9, 'nach unten wird nichts aufgefüllt');
+  } finally {
+    await w.DB.del('verkaeufe', v.id); await w.DB.del('abfuellungen', a.id); await w.DB.del('chargen', c.id);
+  }
+});

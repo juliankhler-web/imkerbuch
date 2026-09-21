@@ -963,8 +963,19 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.62';
+const APP_VERSION = '1.63';
 const CHANGELOG = [
+  { version: '1.63', datum: '2026-09-21', punkte: [
+    'Rechnungen erfüllen jetzt die <b>Pflichtangaben nach § 14 UStG</b>: Es gibt ein eigenes Feld für das <b>Liefer-/Leistungsdatum</b>, <b>Steuernummer bzw. USt-IdNr.</b> stehen im Kopf, und bei Regelbesteuerung wird das <b>Entgelt je Steuersatz</b> ausgewiesen – nicht mehr nur die enthaltene Steuer. Die beiden Steuernummern trägst du unter Einstellungen → Imkereidaten ein.',
+    'Neu einstellbar: <b>Umsatzsteuer auf Pfand</b> (Einstellungen → Steuer &amp; Rechnungen). Voreingestellt bleibt es wie bisher ohne Steuer. Welche Behandlung für deinen Betrieb richtig ist, klärt der Steuerberater – die App entscheidet das nicht mehr stillschweigend für dich.',
+    'Das <b>Honig-Etikett</b> schlägt jetzt eine echte Verkehrsbezeichnung vor („Rapshonig" statt „Raps") und nennt bei Bio die vorgeschriebene <b>Herkunft der Zutaten</b> („EU-Landwirtschaft"). Hochgeladene Bio-Logos werden nicht mehr ins Quadrat gestaucht, sondern in ihrem echten Seitenverhältnis gedruckt.',
+    'Im <b>Bestandsbuch</b> ist eine erfasste Wartezeit von <b>0 Tagen</b> jetzt als „0 Tage" zu lesen. Vorher sah sie aus wie eine fehlende Angabe – bei einer Kontrolle ein Unterschied.',
+    'Am <b>Marktstand</b> bleiben Positionen, die sich nicht buchen ließen, im Warenkorb stehen, statt mit ihm gelöscht zu werden. Du siehst sofort, was noch offen ist.',
+    'Eine <b>fehlgeschlagene Sicherung in den Ordner</b> meldet sich als Fehler, statt Erfolg zu melden – und der nächste Versuch kommt bald, nicht erst ein ganzes Intervall später.',
+    'Der <b>Änderungsschutz</b> greift wieder zuverlässig: Wer die Rückfrage „Änderungen verwerfen?" einmal abbricht, wird beim nächsten Schließen erneut gefragt.',
+    'Kleinigkeit am Rechnungs-PDF: Absenderzeile, Bio-Logos und die Fußzeile lagen unten übereinander – jetzt steht jedes für sich.',
+    'Beim <b>Zusammenführen</b> zweier Sicherungen werden die Bestände der Abfüllungen nachgerechnet, damit Verkäufe von zwei Geräten nicht doppelt im Regal stehen. Eine <b>abgebrochene Datenwanderung</b> kann Verkäufen außerdem nicht mehr die Zuordnung nehmen.',
+  ] },
   { version: '1.62', datum: '2026-09-21', punkte: [
     'Sicherheit: Eine <b>importierte Sicherung</b> wird jetzt geprüft, bevor etwas daraus verwendet wird. Eine präparierte Datei konnte bisher Code in der App ausführen – teils schon beim bloßen <b>Auswählen der Datei</b>, bevor man „Zusammenführen" überhaupt bestätigt hatte. Betroffen waren erfundene Bereichsnamen, Kennungen, Zahlenfelder und eingeschleuste Bildadressen (Logo, Zahlungs-QR, Bio-Logos).',
     'Zusätzlich hält jetzt auch die Anzeige selbst dagegen: alle 115 Stellen, an denen eine Kennung in ein HTML-Attribut geht, sind entschärft; Zahlenfelder werden als Zahl behandelt; Bildadressen müssen ein echtes Bild oder https sein.',
@@ -979,7 +990,7 @@ const CHANGELOG = [
     'In der <b>Betriebsbeschreibung</b> gibt es beim Abschnitt „Standortwahl und Umfeld" jetzt den Knopf <b>Zahlen aus den Standorten übernehmen</b>. Er schreibt Umkreis, Trachtanteil, bebauten Anteil und die größten Flächen je Standort als Text hinein – erhoben im Reiter „Standorte", samt Datum und Quelle. Dein eigener Text bleibt dabei stehen, die Zahlen hängen sich an.',
   ] },
   { version: '1.59', datum: '2026-09-20', punkte: [
-    'Neu in den Statistiken: <b>Futter je Volk</b>. Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht – 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg. Mit Diagramm, Winterfutter-Anteil und der Abweichung jedes Volks vom Durchschnitt.',
+    'Neu in den Statistiken: <b>Futter je Volk</b>. Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht – bei Sirup mit Mischverhältnis ist die eingetragene Menge schon der Zucker, Futterteig zählt zu 92 %, Fertigsirup zu 73 %. Mit Diagramm, Winterfutter-Anteil und der Abweichung jedes Volks vom Durchschnitt.',
     'Die <b>Völkerentwicklung</b> zeigt jetzt den Verlauf <b>innerhalb eines Jahres</b> – Stand an jedem Monatsende statt nur ein Punkt je Jahr. Über die Jahres-Knöpfe wechselst du das Jahr; „Alle Jahre" zeigt weiterhin die große Linie.',
     'Neu: der <b>Jahresbericht als PDF</b> – Kennzahlen, Ernte je Monat als Diagramm, Völkerverlauf, Ernte je Sorte, alle Chargen mit Abfüllungen und Beständen, Verkauf je Gebinde und Futter je Volk. Der Knopf steht oben in den Statistiken.',
   ] },
@@ -1836,6 +1847,11 @@ const DB = {
     t.daten.lastModified = U.nowIso(); // beim Merge gewinnt der wiederhergestellte Stand
     await this.put(t.store, t.daten, true);
     await this.del('papierkorb', trashId);
+    /* Beim Löschen ging der gemerkte Materialabzug zurück ins Lager. Kommt der
+       Datensatz wieder, muss er auch wieder abgehen – sonst hebt jedes
+       Löschen-und-Wiederherstellen den Vorrat um die gebuchte Menge an. */
+    const abzug = (t.daten && t.daten.verbrauchAbzug) || [];
+    for (const a of abzug) await verbrauchAbziehen(a.inventarId, a.menge, { pruefen: false });
     return t;
   },
   /** Papierkorb-Einträge älter als 30 Tage endgültig entfernen */
@@ -1855,10 +1871,10 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
+    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', steuernummer: '', ustIdNr: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
       oekoZertNummer: '', oekoZertGueltigBis: '', oekoZertAblage: '' },
     logo: null, logoImHeader: false,
-    steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19] }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
+    steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
     rechnungskreis: { prefix: 'RE-', next: 1 },
     features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
@@ -1941,7 +1957,11 @@ const UI = {
         if (!force && guardDirty && FormGuard.dirty) {
           if (!(await UI.confirm({ title: 'Änderungen verwerfen?', text: 'Das Formular enthält ungespeicherte Eingaben.', confirmText: 'Verwerfen', danger: true }))) return false;
         }
-        FormGuard.dirty = false;
+        /* Die Marke gehört dem Formular, nicht jedem Fenster. Vorher löschte
+           JEDES schließende Modal sie – auch die Rückfrage „Änderungen
+           verwerfen?" selbst. Wer dort abbrach, stand danach ohne Schutz da:
+           der nächste Klick auf ✕ warf die Eingaben kommentarlos weg. */
+        if (guardDirty) FormGuard.dirty = false;
         back.remove(); document.removeEventListener('keydown', esc);
         if (onClose) onClose();
         return true;
@@ -2545,10 +2565,22 @@ function zielIdAus(v) { const id = v.zielTyp === 'volk' ? v.zielVolk : v.zielSta
 /** Formular-Vorbelegung für Datensätze mit zielTyp/zielId */
 const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zielId : '', zielStand: r.zielTyp === 'stand' ? r.zielId : '' } : {});
 /** Standard-Löschaktion für onDelete: Bestätigung → Papierkorb → neu rendern */
+/* Löschen über den Papierkorb – der gemeinsame Weg für fast alle Formulare.
+
+   Trägt der Datensatz einen gemerkten Materialabzug (Fütterung, Behandlung,
+   Abfüllung), wird er hier zurückgegeben. Vorher tat das nur der jeweils
+   „große" Dialog: Wer eine Fütterung über das VOLK löschte, verlor den Zucker
+   für immer – dieselbe Fütterung über den Fütterungs-Reiter gelöscht gab ihn
+   zurück. Ein Weg, ein Ergebnis. */
 const papierkorbDelete = (store, rec, titel, text = 'Wandert in den Papierkorb (30 Tage wiederherstellbar).') =>
   rec ? async () => {
-    if (!(await UI.confirm({ title: titel, text }))) return false;
-    await DB.softDel(store, rec.id); UI.toast('In den Papierkorb verschoben'); renderRoute(); return true;
+    const abzug = rec.verbrauchAbzug || [];
+    const zurueck = abzug.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+    if (!(await UI.confirm({ title: titel, text: text + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') }))) return false;
+    if (abzug.length) await verbrauchZurueckbuchen(abzug);
+    await DB.softDel(store, rec.id);
+    UI.toast('In den Papierkorb verschoben' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
+    renderRoute(); return true;
   } : null;
 
 /* =====================================================================
@@ -5288,7 +5320,7 @@ Views.behandlungen = {
           <dt>Behandelt</dt><dd>${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(ziel)}“</dd>
           <dt>Menge</dt><dd>${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}</dd>
           <dt>Anwendungsart</dt><dd>${U.esc(b.anwendungsart) || '–'}</dd>
-          <dt>Wartezeit</dt><dd>${b.wartezeitTage ? b.wartezeitTage + ' Tage (bis ' + U.fmtDate(U.addDays(b.datum, b.wartezeitTage)) + ')' : 'keine'}</dd>
+          <dt>Wartezeit</dt><dd>${U.esc(wartezeitText(b, true))}</dd>
           <dt>Bemerkung</dt><dd>${U.esc(b.notiz) || '–'}</dd>
         </div><div data-anhang></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
@@ -6159,6 +6191,51 @@ Views.wanderungen = {
   },
 };
 
+/** EU-Länder, für die die Öko-Herkunftsangabe „EU-Landwirtschaft" gilt. */
+const EU_LAENDER = ['Deutschland', 'Österreich', 'Belgien', 'Bulgarien', 'Dänemark', 'Estland', 'Finnland', 'Frankreich', 'Griechenland', 'Irland', 'Italien', 'Kroatien', 'Lettland', 'Litauen', 'Luxemburg', 'Malta', 'Niederlande', 'Polen', 'Portugal', 'Rumänien', 'Schweden', 'Slowakei', 'Slowenien', 'Spanien', 'Tschechien', 'Ungarn', 'Zypern'];
+
+/** Pflicht-Herkunftsangabe fürs Bio-Etikett, abgeleitet aus dem Ursprungsland. */
+function oekoHerkunft(ursprung) {
+  const t = String(ursprung || '').trim();
+  if (!t) return 'EU-/Nicht-EU-Landwirtschaft';
+  const teile = t.split(/\s*[,/·]\s*|\s+und\s+/).map((x) => x.trim()).filter(Boolean);
+  const inEu = teile.some((x) => EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
+  const ausserEu = teile.some((x) => !EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
+  if (inEu && ausserEu) return 'EU-/Nicht-EU-Landwirtschaft';
+  return inEu ? 'EU-Landwirtschaft' : 'Nicht-EU-Landwirtschaft';
+}
+
+/**
+ * Macht aus einer Honigsorte („Raps“, „Frühtracht“) eine Verkehrsbezeichnung nach
+ * Honigverordnung („Rapshonig“, „Frühjahrsblütenhonig“). Nur ein Vorschlag – der
+ * Nutzer kann im Etikett-Dialog jederzeit etwas anderes eintragen.
+ */
+function verkehrsbezeichnung(sorte) {
+  const t = String(sorte || '').trim();
+  if (!t) return 'Honig';
+  if (/honig$/i.test(t)) return t;
+  const fest = {
+    'Frühtracht': 'Frühjahrsblütenhonig', 'Sommertracht': 'Sommerblütenhonig',
+    'Robinie (Akazie)': 'Akazienhonig', 'Robinie': 'Akazienhonig', 'Akazie': 'Akazienhonig',
+    'Heide': 'Heidehonig', 'Wald': 'Waldhonig', 'Blüte': 'Blütenhonig', 'Honigtau': 'Honigtauhonig',
+  };
+  if (fest[t]) return fest[t];
+  return /e$/.test(t) ? t + 'nhonig' : t + 'honig';
+}
+
+/**
+ * Wartezeit einer Behandlung als Text. Wichtig fürs Bestandsbuch: eine erfasste
+ * Wartezeit von 0 Tagen ist eine Angabe („0 Tage“) und darf nicht wie eine
+ * fehlende Angabe („–“) aussehen.
+ */
+function wartezeitText(b, langform) {
+  const t = b.wartezeitTage;
+  if (t == null || t === '') return langform ? 'nicht erfasst' : '–';
+  const n = U.zahl(t);
+  if (n <= 0) return langform ? '0 Tage (keine Wartezeit)' : '0 Tage';
+  return langform ? `${U.fmtNum(n, 0)} Tage (bis ${U.fmtDate(U.addDays(b.datum, n))})` : `${U.fmtNum(n, 0)} Tage`;
+}
+
 /** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF (je Abfüllung/Gebinde) */
 async function honigEtikettForm(a, c) {
   const ernten = await idMap('ernten');
@@ -6168,7 +6245,7 @@ async function honigEtikettForm(a, c) {
   UI.formModal({
     title: `Honig-Etikett · Charge ${chargeUndLos(a, c)} · ${gebindeLabel(a.gebindeG)}`, wide: true,
     fields: [
-      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || sorte || 'Honig', options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
+      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || verkehrsbezeichnung(sorte), options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
       { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
       { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
@@ -8247,23 +8324,52 @@ Views.honig = {
       ],
       values: a,
       async onSave(v) {
-        /* Ändert sich die Anzahl, wandert der Verbrauch mit: der gespeicherte
-           Abzug wird auf die neue Anzahl umgerechnet und die Differenz gebucht.
-           Vorher blieb der Glasbestand bei einer Korrektur einfach falsch. */
         const alteAnzahl = Math.max(0, Number(a.anzahl) || 0);
         const neueAnzahl = Math.max(0, Math.round(v.anzahl));
+        const gebindeG = Math.round(v.gebindeG);
+
+        /* R3: Auch beim Bearbeiten darf nicht mehr abgefüllt werden, als die
+           Charge hergibt. Der Anlegeweg prüfte das, der Korrekturweg nicht –
+           so ließen sich aus 10 kg Charge 20 kg Gläser machen. */
+        if (c) {
+          const andere = (await DB.getAll('abfuellungen')).filter((x) => x.chargeId === c.id && x.id !== a.id);
+          const belegt = U.sum(andere, (x) => (x.anzahl || 0) * (x.gebindeG || 0) / 1000);
+          const neuKg = neueAnzahl * gebindeG / 1000;
+          const gesamt = Math.max(0, Number(c.mengeKg) || 0);
+          if (neuKg + belegt > gesamt + 0.0001) {
+            throw new Error(`Das wären ${U.fmtNum(neuKg + belegt, 2)} kg abgefüllt, die Charge hat aber nur ${U.fmtNum(gesamt, 2)} kg.`
+              + ' Erhöhe zuerst die Gesamtmenge der Charge.');
+          }
+        }
+
+        /* Ändert sich die Anzahl, wandert der Verbrauch mit: der gespeicherte
+           Abzug wird auf die neue Anzahl umgerechnet und die Differenz gebucht.
+
+           R2: Gemerkt wird nur, was WIRKLICH gebucht wurde. Reichte der Bestand
+           für die Erhöhung nicht, wurde vorher trotzdem die volle neue Menge
+           vermerkt – beim späteren Löschen entstanden Gläser aus dem Nichts. */
         const alt = a.verbrauchAbzug || [];
         if (alt.length && alteAnzahl > 0 && neueAnzahl !== alteAnzahl) {
           const f = neueAnzahl / alteAnzahl;
-          const neu = alt.map((x) => ({ ...x, menge: Math.round(x.menge * f * 1000) / 1000 }));
-          for (let i = 0; i < alt.length; i++) {
-            const diff = Math.round((alt[i].menge - neu[i].menge) * 1000) / 1000;
-            if (diff > 0) await verbrauchZugang(alt[i].inventarId, diff, { pruefen: false });
-            else if (diff < 0) await verbrauchAbziehen(alt[i].inventarId, -diff, { pruefen: false });
+          const neu = [];
+          let knapp = 0;
+          for (const x of alt) {
+            const ziel = Math.round(x.menge * f * 1000) / 1000;
+            const diff = Math.round((x.menge - ziel) * 1000) / 1000;
+            if (diff > 0) {
+              await verbrauchZugang(x.inventarId, diff, { pruefen: false });
+              neu.push({ ...x, menge: ziel });
+            } else if (diff < 0) {
+              const b = await verbrauchAbziehen(x.inventarId, -diff, { pruefen: false });
+              const wirklich = b ? b.abgezogen : 0;
+              if (b && b.gefehlt > 0) knapp += b.gefehlt;
+              neu.push({ ...x, menge: Math.round((x.menge + wirklich) * 1000) / 1000 });
+            } else neu.push({ ...x });
           }
           a.verbrauchAbzug = neu;
+          if (knapp > 0) UI.toast(`${U.fmtNum(knapp, 0)} Stück fehlten im Lager – nur der vorhandene Bestand wurde abgezogen`, 'err');
         }
-        await DB.put('abfuellungen', Object.assign(a, { gebindeG: Math.round(v.gebindeG), anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() }));
+        await DB.put('abfuellungen', Object.assign(a, { gebindeG, anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() }));
         await pruefeMhd();
         UI.toast('Abfüllung gespeichert'); renderRoute();
       },
@@ -8415,14 +8521,23 @@ Views.markt = {
     const posten = Object.entries(korb);
     if (!posten.length) return;
     if (!(await UI.confirm({ title: 'Verkauf kassieren?', text: `${posten.reduce((a, [, n]) => a + n, 0)} Gebinde für ${U.fmtEur(summe)} – Bestand wird gemindert und im Kassenbuch gebucht.`, confirmText: 'Kassieren', danger: false }))) return;
-    let fehler = 0;
+    /* Gescheiterte Positionen bleiben IM KORB. Vorher wurde der Korb immer
+       geleert – am Marktstand hieß das: „3 übersprungen", und niemand wusste
+       mehr, welche drei Gläser noch zu kassieren sind. Was gebucht ist, fliegt
+       raus; der Rest steht weiter da und kann erneut kassiert werden. */
+    const rest = {};
+    let fehler = 0, kassiert = 0;
     for (const [id, n] of posten) {
       const a = abf.find((x) => x.id === id);
-      try { await verkaufErfassen({ abfuellungId: id, anzahl: n, preisJeGlas: preis(a), notiz: 'Marktverkauf' }); }
-      catch (e) { fehler++; console.error(e); }
+      try {
+        await verkaufErfassen({ abfuellungId: id, anzahl: n, preisJeGlas: preis(a), notiz: 'Marktverkauf' });
+        kassiert += n * (preis(a) || 0);
+      } catch (e) { fehler++; rest[id] = n; console.error(e); }
     }
-    Views.markt._korb = {};
-    UI.toast(fehler ? `Gebucht – ${fehler} Position(en) übersprungen (Bestand?)` : `Kassiert: ${U.fmtEur(summe)}`, fehler ? 'err' : 'ok');
+    Views.markt._korb = rest;
+    UI.toast(fehler
+      ? `${U.fmtEur(kassiert)} gebucht – ${fehler} Position(en) bleiben im Warenkorb (Bestand prüfen)`
+      : `Kassiert: ${U.fmtEur(summe)}`, fehler ? 'err' : 'ok');
     renderRoute();
   },
 };
@@ -8701,9 +8816,12 @@ function rechnungRabatt(r, waren) {
      abgezogen, sondern als Angebot ausgewiesen („bei Zahlung bis … 2 %").
      Wirksam wird er erst, wenn der Kunde früh zahlt – dann ist die Minderung
      beim Zahlungseingang zu buchen.
-   Der Pfand wird getrennt ausgewiesen und bleibt außerhalb von Rabatt, Skonto
-   und Umsatzsteuer – wie ein Pfand steuerlich zu behandeln ist, entscheidet der
-   Betrieb mit seinem Steuerberater; die App weist ihn deshalb nur aus. */
+   Der Pfand bleibt außerhalb von Rabatt und Skonto. Ob er UMSATZSTEUER trägt,
+   ist Sache des Betriebs und seines Steuerberaters: die Finanzverwaltung sieht
+   Pfandgeld beim Verkauf überwiegend als Teil des Entgelts (dann zum Satz der
+   Hauptleistung), es gibt aber auch die Behandlung als durchlaufender Posten.
+   Die App entscheidet das nicht, sondern lässt es einstellen –
+   `pfandSteuersatz` 0 heißt steuerfrei ausweisen (bisheriges Verhalten). */
 function rechnungSummen(r) {
   const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
   const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
@@ -8712,12 +8830,26 @@ function rechnungSummen(r) {
   const brutto = nachRabatt + pfand;
   const steuern = {};
   const art = rechnungSteuerart(r);
+  const nettoJeSatz = {};
+  const pfandSatz = Math.max(0, U.zahl(r.pfandSteuersatz, 0));
   if (art === 'regel') {
     const faktor = waren > 0 ? nachRabatt / waren : 1;   // Rabatt anteilig auf alle Sätze
     for (const p of r.positionen) {
       const satz = p.steuersatz || 0;
       const wert = p.menge * p.einzelpreis * faktor;
-      if (satz > 0 && wert > 0) steuern[satz] = (steuern[satz] || 0) + wert * (satz / (100 + satz));
+      if (satz > 0 && wert > 0) {
+        const ust = wert * (satz / (100 + satz));
+        steuern[satz] = (steuern[satz] || 0) + ust;
+        /* § 14 Abs. 4 Nr. 8 UStG verlangt das ENTGELT je Steuersatz, nicht nur
+           die enthaltene Steuer. Die Preise sind brutto erfasst, also Netto =
+           Bruttowert − Steuer. */
+        nettoJeSatz[satz] = (nettoJeSatz[satz] || 0) + (wert - ust);
+      }
+    }
+    if (pfandSatz > 0 && pfand > 0) {
+      const ust = pfand * (pfandSatz / (100 + pfandSatz));
+      steuern[pfandSatz] = (steuern[pfandSatz] || 0) + ust;
+      nettoJeSatz[pfandSatz] = (nettoJeSatz[pfandSatz] || 0) + (pfand - ust);
     }
   } else if (art === 'pauschal24') {
     const satz = r.pauschalsatz != null ? r.pauschalsatz : 7.8; // Pauschal-USt auf den Warenwert
@@ -8731,7 +8863,7 @@ function rechnungSummen(r) {
     const betrag = nachRabatt * skontoProzent / 100;      // Pfand bleibt skontofrei
     skonto = { prozent: skontoProzent, tage, basis: nachRabatt, betrag, zahlbetrag: brutto - betrag, faellig: U.addDays(r.datum, tage) };
   }
-  return { waren, pfand, rabatt, nachRabatt, brutto, steuern, skonto,
+  return { waren, pfand, rabatt, nachRabatt, brutto, steuern, nettoJeSatz, skonto,
     zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
 }
 Views.rechnungen = {
@@ -8753,7 +8885,7 @@ Views.rechnungen = {
     const add = async () => {
       const stg = S.get('steuer');
       const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
-      const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, status: 'entwurf', qrAufDruck: false });
+      const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, pfandSteuersatz: U.zahl(stg.pfandSteuersatz, 0), status: 'entwurf', qrAufDruck: false });
       navTo('rechnung/' + r.id);
     };
     bindAdd(add);
@@ -8790,7 +8922,11 @@ Views.rechnung = {
               <button class="btn btn-ghost btn-sm no-print" id="r-kunde-neu" style="flex:0 0 auto">${icon('plus')} Neuer Kunde</button></div>
             <div class="hint">Neuen Kunden gleich hier anlegen – er wird sofort für diese Rechnung übernommen.</div>`
             : `<div class="kpill">${U.esc(kunden.find((k) => k.id === r.kundeId)?.name || '–')}</div>`}</div>
-          <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${r.datum}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
+          <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${U.esc(r.datum)}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
+          <div class="field"><label>Liefer-/Leistungsdatum</label>${entwurf
+            ? `<input class="inp" type="date" id="r-lieferdatum" value="${U.esc(r.lieferdatum || '')}">
+               <div class="hint">Pflichtangabe nach § 14 Abs. 4 Nr. 6 UStG. Leer gelassen gilt das Rechnungsdatum.</div>`
+            : `<div class="kpill">${U.fmtDate(r.lieferdatum || r.datum)}</div>`}</div>
         </div>
         ${entwurf ? `<div class="field"><label>Besteuerung</label>
           <select class="inp" id="r-steuerart">
@@ -8843,6 +8979,7 @@ Views.rechnung = {
         onSaved: async (k) => { r.kundeId = k.id; await DB.put('rechnungen', r); renderRoute(); },
       });
       $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
+      const lf = $('#r-lieferdatum'); if (lf) lf.onchange = (e) => saveField(() => { r.lieferdatum = e.target.value; });
       $('#r-steuerart').onchange = (e) => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); DB.put('rechnungen', r).then(renderRoute); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
       const neuZeichnen = async (fn) => { fn(); await DB.put('rechnungen', r); renderRoute(); };
@@ -8928,12 +9065,31 @@ Views.rechnung = {
     return m;
   },
   async festschreiben(r, abf) {
-    if (r.status === 'festgeschrieben' || r.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben', 'err');
+    /* Q4: Gegen den DATENBANKSTAND prüfen, nicht gegen das übergebene Objekt.
+       Ein zweites Fenster hält eine alte Kopie in der Hand – dort stand noch
+       „Entwurf", während die Rechnung längst festgeschrieben war. Ergebnis:
+       zweite Kassenbuchung, zweiter Bestandsabzug, überschriebene Nummer. */
+    const aktuell = await DB.get('rechnungen', r.id);
+    if (!aktuell) return UI.toast('Diese Rechnung gibt es nicht mehr', 'err');
+    if (aktuell.status === 'festgeschrieben' || aktuell.nummer) {
+      return UI.toast(`Diese Rechnung ist bereits festgeschrieben${aktuell.nummer ? ` (${aktuell.nummer})` : ''}`, 'err');
+    }
     if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
     if (!r.positionen.length) return UI.toast('Die Rechnung hat keine Positionen', 'err');
+    /* Q3: Der Bestand wird je ABFÜLLUNG summiert geprüft, nicht je Zeile.
+       Zwei Positionen à 6 Gläser aus einem Bestand von 10 kamen vorher beide
+       einzeln durch – abgezogen wurden am Ende trotzdem 12. */
+    const abfAktuell = await DB.getAll('abfuellungen');
+    const gebraucht = new Map();
     for (const p of r.positionen) if (p.abfuellungId) {
-      const a = abf.find((x) => x.id === p.abfuellungId);
-      if (a && p.menge > a.bestand) return UI.toast(`Bestand dieser Abfüllung reicht nicht (${a.bestand} verfügbar)`, 'err');
+      gebraucht.set(p.abfuellungId, (gebraucht.get(p.abfuellungId) || 0) + (Number(p.menge) || 0));
+    }
+    for (const [id, menge] of gebraucht) {
+      const a = abfAktuell.find((x) => x.id === id) || abf.find((x) => x.id === id);
+      if (!a) return UI.toast('Eine Position verweist auf eine gelöschte Abfüllung', 'err');
+      if (menge > a.bestand) {
+        return UI.toast(`Bestand reicht nicht: ${abfLabel(a, null)} – ${U.fmtNum(menge, 0)} verlangt, ${a.bestand} verfügbar`, 'err');
+      }
     }
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
     const kreis = S.get('rechnungskreis');
@@ -10006,9 +10162,14 @@ async function ernteprognoseBasis() {
   }
   for (const r of await DB.getAll('rechnungen')) {
     if (r.status !== 'festgeschrieben') continue;
+    /* Ein Rabatt mindert den Erlös. Vorher zählte der Preis VOR Rabatt – eine
+       Rechnung mit 50 % Rabatt hob den Schnitt auf das Doppelte. Gerechnet wird
+       derselbe Faktor wie in rechnungSummen: anteilig auf alle Positionen. */
+    const warenwert = U.sum(r.positionen || [], (p) => (p.menge || 0) * (p.einzelpreis || 0));
+    const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
     for (const pos of (r.positionen || [])) {
       const a = pos.abfuellungId ? abf.get(pos.abfuellungId) : null; if (!a || !a.gebindeG) continue;
-      posten.push({ datum: r.datum || '', kg: (pos.menge || 0) * a.gebindeG / 1000, euro: (pos.menge || 0) * (pos.einzelpreis || 0) });
+      posten.push({ datum: r.datum || '', kg: (pos.menge || 0) * a.gebindeG / 1000, euro: (pos.menge || 0) * (pos.einzelpreis || 0) * faktor });
     }
   }
   const grenze = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
@@ -11187,6 +11348,11 @@ async function verbrauchAbziehenKette(inventarId, menge, { pruefen = true } = {}
       && inventarTyp(i) === inventarTyp(start)
       && verbrauchEinheit(i) === einheit
       && (i.kategorie || '') === (start.kategorie || '')
+      /* Auch die GEBINDEGRÖSSE muss stimmen. Ohne diese Zeile sprang der Abzug
+         von 500-g-Gläsern auf 250-g-Gläser über: gleiche Kategorie, gleiche
+         Einheit „Stück" – und trotzdem das falsche Glas. Deckel und Etiketten
+         tragen keine Größe; sie bleiben untereinander austauschbar. */
+      && (Number(i.gebindeG) || 0) === (Number(start.gebindeG) || 0)
       && verbrauchBestand(i) > 0),
     (i) => i.anschaffung || i.createdAt || '');
   const abzug = [];
@@ -11958,8 +12124,12 @@ const Reporting = {
       .sort((a, b) => b.wert - a.wert);
   },
   /* Futter je Volk und Jahr. Gerechnet wird in ZUCKER, nicht in Gebinde-
-     Kilogramm: 10 kg Sirup 3:2 sind etwa 7,5 kg Zucker, 10 kg Futterteig
-     sind 10 kg. Nur so lassen sich verschiedene Futterarten vergleichen.
+     Kilogramm – nur so sind verschiedene Futterarten vergleichbar.
+
+     Maßstab je Futterart (ZUCKER_ANTEIL): Bei Zuckerwasser und -sirup mit
+     Mischverhältnis („3:2") ist die eingetragene Menge BEREITS die
+     Zuckermenge – so fragt das Fütterungsformular danach. Futterteig zählt
+     zu 92 %, Fertigsirup zu 73 %, Honig gar nicht.
      Wo die Zuckermenge geschätzt werden musste (aus dem Produktgewicht),
      wird das mitgezählt und in der Ansicht kenntlich gemacht. */
   async futterJeVolk(jahr) {
@@ -12045,7 +12215,7 @@ Views.reporting = {
         <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}</div>
         <div class="card"><div class="card-title">${icon('futter')}<h2>Futter je Volk${jahr ? ' ' + jahr : ''}</h2>
           <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.fuetterungsliste('${jahr || U.todayIso().slice(0, 4)}')">${icon('doc')} Fütterungsliste (PDF)</button></div>
-        <p class="small muted mb12">Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht: 10 kg Sirup 3:2 sind rund 7,5 kg Zucker, 10 kg Futterteig sind 10 kg. Nur so sind verschiedene Futterarten vergleichbar.</p>
+        <p class="small muted mb12">Verglichen wird der <b>Zucker</b>, nicht das Gebindegewicht – anders sind die Futterarten nicht vergleichbar. Bei <b>Zuckerwasser und -sirup mit Mischverhältnis</b> (z. B. „3:2") ist die eingetragene Menge schon die Zuckermenge; <b>Futterteig</b> zählt zu 92 %, <b>Fertigsirup</b> zu 73 %, <b>Honig</b> gar nicht.</p>
         ${rows.length ? `<div class="stat-grid mb16">
             <div class="stat"><div class="s-label">${icon('flask')} Zucker gesamt</div><div class="s-value">${U.fmtNum(gesamt, 1)} kg</div><div class="s-sub">${rows.length} ${rows.length === 1 ? 'Volk' : 'Völker'} gefüttert</div></div>
             <div class="stat"><div class="s-label">Ø je Volk</div><div class="s-value">${U.fmtNum(schnitt, 1)} kg</div><div class="s-sub">${geschaetzt ? `${geschaetzt} Gaben geschätzt` : 'alle Mengen erfasst'}</div></div>
@@ -12437,12 +12607,13 @@ const Backup = {
       const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
-        body: erg.gesamt
+        body: (erg.gesamt
           ? `<p class="small">Aus der Sicherung wurden <b>${erg.gesamt}</b> ${erg.gesamt === 1 ? 'Eintrag' : 'Einträge'} übernommen – neuere Stände haben gewonnen.</p>
              <div class="rows mt12">${teile.map(([store, n]) => `<div class="row" style="min-height:34px;padding:5px 4px">
                <span class="r-main"><span class="r-title" style="font-weight:400">${U.esc(STORE_LABELS[store] || store)}</span></span>
                <span class="r-side"><b>${n}</b></span></div>`).join('')}</div>`
-          : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Stände, die du schon hast (oder ältere).</p>',
+          : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Stände, die du schon hast (oder ältere).</p>')
+          + (erg.bestandKorrigiert ? `<p class="small mt12">Bei <b>${erg.bestandKorrigiert}</b> ${erg.bestandKorrigiert === 1 ? 'Abfüllung wurde der Bestand' : 'Abfüllungen wurden die Bestände'} nachgerechnet: Verkäufe aus beiden Geräten sind jetzt abgezogen.</p>` : ''),
         footer: '<button class="btn btn-primary" data-fertig>Fertig</button>',
       });
       $$('[data-fertig]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
@@ -12450,12 +12621,22 @@ const Backup = {
     };
     $('[data-replace]', m.el).onclick = async () => {
       m.close(true);
-      const ok1 = await UI.confirm({ title: 'Alle Daten ersetzen?', text: 'Der komplette aktuelle Datenbestand wird durch die Sicherung ersetzt.', confirmText: 'Weiter' });
+      /* Ehrlich benennen, was der Snapshot NICHT retten kann: Er enthält keine
+         Foto- und Tondateien. Wer das vorher weiß, sichert zuerst extern. */
+      const verlust = await this.anhaengeVerlust(data);
+      const ok1 = await UI.confirm({ title: 'Alle Daten ersetzen?',
+        text: 'Der komplette aktuelle Datenbestand wird durch die Sicherung ersetzt.'
+          + (verlust ? ` Achtung: ${verlust} ${verlust === 1 ? 'Foto bzw. Dokument ist' : 'Fotos bzw. Dokumente sind'} nur hier gespeichert und in der Sicherung nicht enthalten. Diese Dateien gehen endgültig verloren – der interne Snapshot enthält keine Dateianhänge.` : ''),
+        confirmText: 'Weiter' });
       if (!ok1) return;
       const ok2 = await UI.confirm({ title: 'Letzte Bestätigung', text: 'Zum Schutz vor Versehen bitte bestätigen.', confirmText: 'Endgültig ersetzen', requirePhrase: 'ERSETZEN' });
       if (!ok2) return;
       await this.snapshotInternal('vor-import');
-      await this.applyReplace(data, { blobsBehalten: false });
+      try {
+        await this.applyReplace(data, { blobsBehalten: false });
+      } catch (e) {
+        return UI.toast(e.message, 'err');                // Bestand ist unangetastet
+      }
       UI.toast('Sicherung wiederhergestellt');
       await S.load(); applyTheme(); renderRoute(); this.updateBanners();
     };
@@ -12504,13 +12685,44 @@ const Backup = {
       return sauber;
     }).filter(Boolean);
   },
+  /* Prüft die ganze Datei, BEVOR ein einziger Speicher geleert wird.
+
+     Vorher lief Leeren und Schreiben je Speicher abwechselnd: Ein Fehler im
+     fünften Bereich traf auf vier bereits gelöschte. Besonders schwer wog das
+     bei den Anhängen – der interne Snapshot enthält keine Foto- und
+     Tondateien (er wäre sonst riesig), gelöschte Dateien waren also endgültig
+     weg. Jetzt wird erst alles aufbereitet; scheitert dabei etwas, ist der
+     Bestand unangetastet. */
+  _vorbereiten(data) {
+    const vorbereitet = new Map();
+    for (const store of DB.DATA_STORES) {
+      const roh = data.stores[store];
+      if (roh !== undefined && !Array.isArray(roh)) {
+        throw new Error(`Der Bereich „${STORE_LABELS[store] || store}" in der Datei ist beschädigt – es wurde nichts geändert.`);
+      }
+      vorbereitet.set(store, this._rowsAusImport(store, roh || []));
+    }
+    return vorbereitet;
+  },
+
+  /** Wie viele Anhänge mit echter Datei würde ein Ersetzen verlieren? */
+  async anhaengeVerlust(data) {
+    const lokal = await DB.getAll('anhaenge');
+    const mitDatei = lokal.filter((a) => a.blob);
+    if (!mitDatei.length) return 0;
+    const inDatei = new Set((Array.isArray(data.stores.anhaenge) ? data.stores.anhaenge : [])
+      .filter((r) => r && r.datenUrl).map((r) => r.id));
+    return mitDatei.filter((a) => !inDatei.has(a.id)).length;
+  },
+
   async applyReplace(data, { blobsBehalten }) {
+    const vorbereitet = this._vorbereiten(data);          // wirft, bevor etwas gelöscht wird
     const alteBlobs = new Map();
     if (blobsBehalten) for (const a of await DB.getAll('anhaenge')) alteBlobs.set(a.id, a.blob);
     for (const store of DB.DATA_STORES) {
-      await DB.clear(store);
-      let rows = this._rowsAusImport(store, data.stores[store] || []);
+      let rows = vorbereitet.get(store);
       if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => (r.blob ? r : { ...r, blob: alteBlobs.get(r.id) })).filter((r) => r.blob);
+      await DB.clear(store);
       await DB.bulkPut(store, rows, true);
     }
   },
@@ -12533,7 +12745,36 @@ const Backup = {
       uebernommen += zuSchreiben.length;
       if (zuSchreiben.length) jeStore[store] = zuSchreiben.length;
     }
-    return { gesamt: uebernommen, jeStore };
+    const korrigiert = await this.bestandAbgleich();
+    return { gesamt: uebernommen, jeStore, bestandKorrigiert: korrigiert };
+  },
+
+  /* Beim Zusammenführen entscheidet je Datensatz der jüngere Stand. Bei
+     Verkäufen ist das richtig – sie sind Ereignisse und werden beide behalten.
+     Der Bestand einer Abfüllung ist aber ein ZUSTAND: von zwei Geräten gewinnt
+     einer, und die Verkäufe des anderen sind zwar da, aber nicht abgezogen.
+     Der Bestand steht dann zu HOCH.
+
+     Wir rechnen ihn deshalb nach: Abgefüllt minus alle Verkäufe minus alle
+     Positionen festgeschriebener Rechnungen. Korrigiert wird ausdrücklich nur
+     nach UNTEN – ein von Hand niedriger gesetzter Bestand (Bruch, Eigenbedarf,
+     Verschenktes) bleibt stehen. */
+  async bestandAbgleich() {
+    const [abf, verkaeufe, rechnungen] = await Promise.all(
+      ['abfuellungen', 'verkaeufe', 'rechnungen'].map((st) => DB.getAll(st)));
+    const verkauft = new Map();
+    const zaehle = (id, n) => { if (id) verkauft.set(id, (verkauft.get(id) || 0) + (U.zahl(n, 0) || 0)); };
+    for (const v of verkaeufe) zaehle(v.abfuellungId, v.anzahl);
+    for (const r of rechnungen) {
+      if (r.status !== 'festgeschrieben') continue;
+      for (const p of (r.positionen || [])) zaehle(p.abfuellungId, p.menge);
+    }
+    let korrigiert = 0;
+    for (const a of abf) {
+      const soll = Math.max(0, U.zahl(a.anzahl, 0) - (verkauft.get(a.id) || 0));
+      if (U.zahl(a.bestand, 0) > soll) { a.bestand = soll; await DB.put('abfuellungen', a); korrigiert++; }
+    }
+    return korrigiert;
   },
 
   /* ---------- Automatische Sicherung ---------- */
@@ -12574,12 +12815,27 @@ const Backup = {
     if (S.get('backupDirHandle')) extern = await this.writeToDir();
     else { U.download(await this.buildBlob(), this.dateiname()); extern = true; }
     const jetzt = U.nowIso();
+    /* Scheitert das Schreiben in den Ordner (Recht entzogen, Ordner gelöscht,
+       Platte voll), darf das NICHT als Erfolg durchgehen: sonst meldet die App
+       „gesichert", und weil `letzteAutoSicherung` weitergestellt würde, käme
+       der nächste Versuch erst ein volles Intervall später. Der interne
+       Snapshot ist da, die Datei aber nicht – das sagen wir deutlich, und der
+       Zeitstempel bleibt stehen, damit der nächste Durchlauf es erneut
+       versucht. */
+    if (!extern) {
+      this._letzterFehlversuch = jetzt;
+      UI.toast('Sicherung in den Ordner fehlgeschlagen – nur die interne Kopie wurde angelegt', 'err');
+      Notif.zeigen('🐝 Sicherung fehlgeschlagen',
+        'Die Datei konnte nicht in den Backup-Ordner geschrieben werden. Bitte den Ordner in den Einstellungen neu wählen.',
+        'imkerbuch-backup', '/einstellungen');
+      return null;
+    }
     await S.set('letzteAutoSicherung', jetzt);
-    if (extern) await this.markExternal();
+    await this.markExternal();
     UI.toast(quelle === 'aktivierung' ? 'Erste Sicherung erstellt' : 'Automatische Sicherung erstellt');
     const naechste = this.naechsteSicherung();
     Notif.zeigen('🐝 Sicherung erstellt',
-      `${U.fmtDateTime(jetzt)}${extern ? ' · als Datei gesichert' : ''}${naechste ? `\nNächste: ${U.fmtDateTime(naechste)}` : ''}`,
+      `${U.fmtDateTime(jetzt)} · als Datei gesichert${naechste ? `\nNächste: ${U.fmtDateTime(naechste)}` : ''}`,
       'imkerbuch-backup', '/einstellungen');
     return jetzt;
   },
@@ -12589,7 +12845,11 @@ const Backup = {
       if (!f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return;
       const last = S.get('letzteAutoSicherung');
       const tage = f.autoBackup.intervall === 'taeglich' ? 1 : 7;
-      if (!last || U.daysBetween(last, U.nowIso()) >= tage) await this.runAuto();
+      if (!(!last || U.daysBetween(last, U.nowIso()) >= tage)) return;
+      // Nach einem Fehlversuch nicht im Halbstundentakt nerven – frühestens nach einer Stunde erneut.
+      const fehl = this._letzterFehlversuch;
+      if (fehl && (Date.now() - new Date(fehl).getTime()) < 3600000) return;
+      await this.runAuto();
     };
     setTimeout(tick, 4000);
     setInterval(tick, 30 * 60 * 1000);
@@ -12598,8 +12858,8 @@ const Backup = {
       const f = S.get('features');
       if (f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
         this.snapshotInternal('auto'); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
-        this.writeToDir().then((ok) => { if (ok) this.markExternal(); });
-        S.set('letzteAutoSicherung', U.nowIso());
+        // Nur ein tatsächlich geschriebenes Ordner-Backup stellt den Termin weiter.
+        this.writeToDir().then((ok) => { if (ok) { this.markExternal(); S.set('letzteAutoSicherung', U.nowIso()); } });
       }
     });
     window.addEventListener('beforeunload', (e) => {
@@ -12853,7 +13113,7 @@ const Xlsx = {
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
-      varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, 'Milben/Tag': x.tageZaehl > 0 ? Math.round((x.milben / x.tageZaehl) * 10) / 10 : x.milben, Notiz: x.notiz })) },
+      varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
       wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
     };
   },
@@ -12941,7 +13201,10 @@ const Pdf = {
   async bildFuerPdf(quelle, maxPx = 512) {
     if (!quelle || typeof quelle !== 'string') return null;
     this._bildCache = this._bildCache || new Map();
-    const schluessel = quelle.length + '|' + quelle.slice(0, 64) + '|' + maxPx;
+    /* Der Schlüssel muss den GANZEN Bildinhalt abbilden. Vorher waren es nur
+       Länge und die ersten 64 Zeichen – bei zwei gleich langen SVG-Logos ist
+       der Anfang identisch, und das PDF bekam das alte Bild. */
+    const schluessel = maxPx + '|' + quelle;
     if (this._bildCache.has(schluessel)) return this._bildCache.get(schluessel);
     try {
       const img = new Image();
@@ -13064,7 +13327,7 @@ const Pdf = {
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
       const { doc, y } = await this.newDoc('Bestandsbuch – Anwendung von Arzneimitteln', `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
-      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? 'Volk ' + (voelker.get(b.zielId)?.name || '?') : 'Stand ' + (staende.get(b.zielId)?.name || '?')), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', b.wartezeitTage ? `${b.wartezeitTage} Tage` : '–', b.notiz || '']);
+      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? 'Volk ' + (voelker.get(b.zielId)?.name || '?') : 'Stand ' + (staende.get(b.zielId)?.name || '?')), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -13388,11 +13651,18 @@ const Pdf = {
         if (imk.bio === 'ja') {
           const logos = (imk.bioLogos || []).slice(0, 3);
           let bx = x + LW - 5;
+          /* Logos NICHT ins Quadrat pressen: das EU-Bio-Blatt ist 1 : 1,5 und
+             wäre auf 8 × 8 mm gestaucht – das ist nicht zulässig. Wir halten
+             deshalb die Höhe fest (9 mm Mindesthöhe des EU-Logos) und
+             berechnen die Breite aus dem echten Seitenverhältnis. */
+          const LOGO_H = 9;
           for (const lg of logos) {
             const bild = await this.bildFuerPdf(lg, 256);
             if (!bild) continue;
-            bx -= 8;
-            try { doc.addImage(bild, 'JPEG', bx, yy + 4, 8, 8); bioBreite += 9; bx -= 1; } catch (e) { bx += 8; }
+            let bw = LOGO_H;
+            try { const pr = doc.getImageProperties(bild); if (pr && pr.width && pr.height) bw = Math.min(20, Math.max(4, LOGO_H * (pr.width / pr.height))); } catch (e) {}
+            bx -= bw;
+            try { doc.addImage(bild, 'JPEG', bx, yy + 3.5, bw, LOGO_H); bioBreite += bw + 1; bx -= 1; } catch (e) { bx += bw; }
           }
         }
         doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(120, 80, 0);
@@ -13402,8 +13672,13 @@ const Pdf = {
         doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(40);
         doc.text(`Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`, x + 6, yy + 30);
         doc.setFontSize(8.5).setTextColor(90);
-        let ly = yy + 37;
-        const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += 3.8; };
+        /* Mit Bio kommen zwei Zeilen dazu (Kontrollstelle + Herkunft). Der Block
+           rückt dann etwas höher und enger zusammen, sonst rutscht die letzte
+           Zeile unter den Rahmen. */
+        const bioEtikett = imk.bio === 'ja';
+        let ly = yy + (bioEtikett ? 34 : 37);
+        const zh = bioEtikett ? 3.6 : 3.8;
+        const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += zh; };
         zeile(`Ursprungsland: ${opts.ursprung}`);
         /* Chargennummer als EIGENE Zeile, fett und mit vorangestelltem „L".
            Vorher hing sie hinten an der MHD-Zeile in 8,5 pt und ging dort unter.
@@ -13417,12 +13692,17 @@ const Pdf = {
         doc.setFont('helvetica', 'normal').setTextColor(90);
         zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
         // Bio-Zertifizierung: Kontrollstellen-Code (Pflichtangabe) + EU-Bio/Verband
-        if (imk.bio === 'ja') {
+        if (bioEtikett) {
           const bioCode = (imk.bioKontrollstelle || '').split('–')[0].trim();
           const bioVerb = (imk.bioVerbandJN === 'ja' && (imk.bioVerband || []).length) ? imk.bioVerband.join('/') : 'EU-Bio';
           doc.setFont('helvetica', 'bold').setTextColor(60, 110, 40);
           zeile(`Öko: ${[bioCode, bioVerb].filter(Boolean).join(' · ')}`);
-          doc.setFont('helvetica', 'normal').setTextColor(90);
+          /* Direkt unter dem Kontrollstellen-Code steht die Herkunft der
+             Zutaten – Pflichtangabe nach Art. 32 der EU-Öko-Verordnung,
+             wenn das EU-Bio-Logo verwendet wird. */
+          doc.setFont('helvetica', 'normal').setTextColor(60, 110, 40);
+          zeile(oekoHerkunft(opts.ursprung));
+          doc.setTextColor(90);
         }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
@@ -13456,7 +13736,10 @@ const Pdf = {
       doc.setFontSize(9.5);
       let iy = 53;
       const infoRows = [['Rechnungsnr.', r.nummer || '(Entwurf)'], ['Datum', U.fmtDate(r.datum)]];
+      infoRows.push(['Lieferdatum', U.fmtDate(r.lieferdatum || r.datum)]);
       if (imk.registriernummer) infoRows.push(['Betriebs-Nr.', imk.registriernummer]);
+      if (imk.ustIdNr) infoRows.push(['USt-IdNr.', imk.ustIdNr]);
+      else if (imk.steuernummer) infoRows.push(['Steuernummer', imk.steuernummer]);
       for (const [label, val] of infoRows) { doc.setTextColor(120).text(label, 140, iy); doc.setTextColor(30).text(String(val), 190, iy, { align: 'right' }); iy += 5; }
       // Betreff (unter dem Anschriftfeld)
       doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(38, 38, 43);
@@ -13497,7 +13780,20 @@ const Pdf = {
       doc.text(`Gesamtbetrag: ${U.fmtEur(brutto)}`, 196, y, { align: 'right' });
       y += 6;
       doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(110);
-      for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${U.fmtNum(+satz, 1)} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
+      /* Bei Regelbesteuerung verlangt § 14 Abs. 4 Nr. 8 UStG das Entgelt
+         aufgeschlüsselt nach Steuersätzen samt darauf entfallendem Betrag.
+         „Im Gesamtbetrag enthaltene USt" allein genügt dort nicht; bei § 19
+         (keine Steuer) und § 24 (pauschaliert) bleibt es bei der alten Zeile. */
+      if (rechnungSteuerart(r) === 'regel') {
+        for (const [satz, val] of Object.entries(steuern)) {
+          doc.text(`Entgelt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur((sum.nettoJeSatz || {})[satz] || 0)}    darauf USt: ${U.fmtEur(val)}`, 196, y, { align: 'right' });
+          y += 4.5;
+        }
+        const nettoSumme = Object.values(sum.nettoJeSatz || {}).reduce((a, b) => a + b, 0);
+        if (nettoSumme > 0) { doc.text(`Nettoentgelt gesamt: ${U.fmtEur(nettoSumme)}`, 196, y, { align: 'right' }); y += 4.5; }
+      } else {
+        for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${U.fmtNum(+satz, 1)} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
+      }
       const zahlung = `Zahlbar ohne Abzug bis ${U.fmtDate(sum.zahlungsziel.faellig)}.`
         + (sum.skonto ? ` Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)} gewähren wir ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto (${U.fmtEur(sum.skonto.betrag)}), Zahlbetrag dann ${U.fmtEur(sum.skonto.zahlbetrag)}.` : '');
       const zLines = doc.splitTextToSize(zahlung, 150);
@@ -13521,11 +13817,14 @@ const Pdf = {
          waren sie in den Einstellungen längst. */
       if (imk.bio === 'ja') {
         let lx = 25;
-        const ly = 268;
+        const ly = 262;          // über der Absenderzeile (278) bleiben
         for (const roh of (imk.bioLogos || []).slice(0, 4)) {
           const bild = await this.bildFuerPdf(roh, 256);
           if (!bild) continue;
-          try { doc.addImage(bild, 'JPEG', lx, ly, 13, 13); lx += 15; } catch (e) {}
+          // Auch hier gilt: Logos behalten ihr Seitenverhältnis, das EU-Blatt ist nicht quadratisch.
+          let bw = 13;
+          try { const pr = doc.getImageProperties(bild); if (pr && pr.width && pr.height) bw = Math.min(28, Math.max(6, 13 * (pr.width / pr.height))); } catch (e) {}
+          try { doc.addImage(bild, 'JPEG', lx, ly, bw, 13); lx += bw + 2; } catch (e) {}
         }
         const oeko = bioZertText(imk);
         if (oeko) {
@@ -13536,9 +13835,12 @@ const Pdf = {
       // Fußzeile mit Absenderangaben (da oben kein Absendertext steht)
       const foot = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email].filter(Boolean).join('   ·   ');
       if (foot) {
-        doc.setDrawColor(210).setLineWidth(0.2); doc.line(25, 285, 196, 285);
+        /* Die Absenderzeile muss ÜBER der allgemeinen Fußzeile bleiben
+           („Erstellt mit ImkerBuch" / „Seite 1 von 1" stehen bei 290 mm) –
+           vorher lagen beide übereinander und waren kaum zu lesen. */
+        doc.setDrawColor(210).setLineWidth(0.2); doc.line(25, 278, 196, 278);
         doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(140);
-        doc.text(doc.splitTextToSize(foot, 171), 110.5, 289, { align: 'center' });
+        doc.text(doc.splitTextToSize(foot, 171), 110.5, 282, { align: 'center' });
       }
       this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -14605,6 +14907,8 @@ Views.einstellungen = {
           <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
           <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
           <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
+          <dt>Steuernummer</dt><dd>${U.esc(imk.steuernummer) || '–'}</dd>
+          <dt>USt-IdNr.</dt><dd>${U.esc(imk.ustIdNr) || '–'}</dd>
           <dt>Berufsgenossenschaft</dt><dd>${U.esc(imk.bgNummer) || '–'}</dd>
           <dt>Meldepflicht TSK</dt><dd>${imk.tskPflicht === 'ja' ? `Ja${imk.tskNummer ? ' · Nr. ' + U.esc(imk.tskNummer) : ''}` : 'Nein'}</dd>
           <dt>Bio-Imkerei</dt><dd>${imk.bio === 'ja' ? `<span class="badge b-ok">Ja</span> ${U.esc(bioZertText(imk))}` : 'Nein'}</dd>
@@ -14646,6 +14950,13 @@ Views.einstellungen = {
         <div class="field" id="st-pausch-wrap" style="${steuerArt === 'pauschal24' ? '' : 'display:none'}"><label>Durchschnittssatz § 24 (%)</label>
           <input class="inp" id="st-pausch" inputmode="decimal" value="${U.fmtNum(steuer.pauschalsatz != null ? steuer.pauschalsatz : 7.8, 1)}">
           <div class="hint">Aktueller pauschaler Durchschnittssatz für land- und forstwirtschaftliche Betriebe (2025/2026: 7,8 %). Erscheint als „enthaltene pauschalierende Umsatzsteuer“ auf der Rechnung.</div>
+        </div>
+        <div class="field mt12" id="st-pfand-wrap" style="${steuerArt === 'regel' ? '' : 'display:none'}"><label>Umsatzsteuer auf Pfand</label>
+          <select class="inp" id="st-pfand">
+            <option value="0" ${!U.zahl(steuer.pfandSteuersatz, 0) ? 'selected' : ''}>ohne Umsatzsteuer ausweisen</option>
+            ${(steuer.saetze || [7, 19]).map((sz) => `<option value="${U.esc(sz)}" ${U.zahl(steuer.pfandSteuersatz, 0) === U.zahl(sz, 0) ? 'selected' : ''}>mit ${U.fmtNum(sz, 0)} % Umsatzsteuer</option>`).join('')}
+          </select>
+          <div class="hint">Gilt für neue Rechnungen. Die Finanzverwaltung sieht Pfandgeld beim Verkauf überwiegend als Teil des Entgelts – die App legt das aber nicht fest. <b>Bitte mit dem Steuerberater klären.</b></div>
         </div>
         <div class="field mt12"><label>Kilometerpauschale fürs Fahrtenbuch (€/km)</label>
           <input class="inp" id="st-km" inputmode="decimal" style="max-width:200px" value="${U.fmtNum(S.get('kmPauschale'), 2)}">
@@ -14791,6 +15102,9 @@ Views.einstellungen = {
         { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
         { key: 'telefon', label: 'Telefon' }, { key: 'email', label: 'E-Mail' },
         { key: 'registriernummer', label: 'Landwirtschaftliche Betriebsnummer' },
+        { key: 'steuernummer', label: 'Steuernummer', halb: true, hint: 'Erscheint auf der Rechnung – Pflicht nach § 14 UStG, wenn keine USt-IdNr. vorliegt.' },
+        { key: 'ustIdNr', label: 'Umsatzsteuer-Identnummer', halb: true, hint: 'Falls vorhanden; sie hat auf der Rechnung Vorrang vor der Steuernummer.' },
+        { key: '_trennSteuer', type: 'static', html: '' },
         { key: 'bgNummer', label: 'Berufsgenossenschaft: Mitgliedsnummer', hint: 'Für Imkereien die SVLFG (Sozialversicherung für Landwirtschaft, Forsten und Gartenbau).' },
         { key: 'tskPflicht', label: 'Meldepflicht Tierseuchenkasse (TSK)?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
         { key: 'tskNummer', label: 'TSK-/Melde-Nummer', showIf: (f) => f.tskPflicht === 'ja', hint: 'Erscheint auf der Tierseuchenkassen-Meldung.' },
@@ -14851,10 +15165,13 @@ Views.einstellungen = {
     $('#st-art').onchange = async (e) => {
       steuer.art = e.target.value; steuer.kleinunternehmer = (e.target.value === 'klein');
       const pw = $('#st-pausch-wrap'); if (pw) pw.style.display = e.target.value === 'pauschal24' ? '' : 'none';
+      const fw = $('#st-pfand-wrap'); if (fw) fw.style.display = e.target.value === 'regel' ? '' : 'none';
       await S.set('steuer', steuer);
     };
     const stP = $('#st-pausch');
     if (stP) stP.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { steuer.pauschalsatz = v; await S.set('steuer', steuer); } };
+    const stPf = $('#st-pfand');
+    if (stPf) stPf.onchange = async (e) => { steuer.pfandSteuersatz = U.zahl(e.target.value, 0); await S.set('steuer', steuer); UI.toast('Gespeichert'); };
     const stKm = $('#st-km');
     if (stKm) stKm.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { await S.set('kmPauschale', v); UI.toast('Kilometerpauschale gespeichert'); } else { e.target.value = U.fmtNum(S.get('kmPauschale'), 2); UI.toast('Bitte einen gültigen Betrag eingeben', 'err'); } };
     const saveKreis = U.debounce(async () => {
@@ -15040,14 +15357,20 @@ async function migriereRaehmchenmass() {
     Rechnungs-Positionen wandern von chargeId auf abfuellungId. Keine Daten gehen verloren. */
 async function migriereChargenAbfuellung() {
   if (S.get('abfuellungMigriert')) return;
+  /* Die Zuordnung alte Charge → neue Abfüllung muss einen Abbruch überleben
+     (Tab geschlossen, Akku leer). Vorher stand sie nur im Arbeitsspeicher: Beim
+     zweiten Anlauf waren die Chargen schon umgestellt, die Tabelle aber leer –
+     und die Verkäufe verloren ihre Zuordnung. Deshalb merkt sich jede neue
+     Abfüllung ihre Herkunft, und die Tabelle wird daraus wieder aufgebaut. */
   const map = {}; // alte chargeId -> neue abfuellungId
+  for (const a of await DB.getAll('abfuellungen')) if (a.ausAlterCharge) map[a.ausAlterCharge] = a.id;
   for (const c of await DB.getAll('chargen')) {
     if (!('glasGroesseG' in c) && !('anzahlGlaeser' in c) && !('bestandGlaeser' in c)) continue; // bereits neu
     const gebindeG = c.glasGroesseG || 500;
     const anzahl = Math.round(c.anzahlGlaeser || 0);
     const bestand = (c.bestandGlaeser != null) ? c.bestandGlaeser : anzahl;
     if (anzahl > 0) {
-      const a = await DB.put('abfuellungen', { chargeId: c.id, datum: c.abfuelldatum || U.todayIso(), gebindeG, anzahl, bestand });
+      const a = await DB.put('abfuellungen', { chargeId: c.id, ausAlterCharge: c.id, datum: c.abfuelldatum || U.todayIso(), gebindeG, anzahl, bestand });
       map[c.id] = a.id;
     }
     c.mengeKg = Math.round(anzahl * gebindeG / 1000 * 1000) / 1000;
@@ -15056,12 +15379,14 @@ async function migriereChargenAbfuellung() {
   }
   for (const v of await DB.getAll('verkaeufe')) {
     if (v.abfuellungId || !v.chargeId) continue;
-    v.abfuellungId = map[v.chargeId] || null; delete v.chargeId;
+    // Ohne Treffer bleibt chargeId stehen – lieber ein Altfeld als eine gekappte Zuordnung.
+    if (!map[v.chargeId]) continue;
+    v.abfuellungId = map[v.chargeId]; delete v.chargeId;
     await DB.put('verkaeufe', v);
   }
   for (const r of await DB.getAll('rechnungen')) {
     let changed = false;
-    for (const p of (r.positionen || [])) if (p.chargeId && !p.abfuellungId) { p.abfuellungId = map[p.chargeId] || null; delete p.chargeId; changed = true; }
+    for (const p of (r.positionen || [])) if (p.chargeId && !p.abfuellungId && map[p.chargeId]) { p.abfuellungId = map[p.chargeId]; delete p.chargeId; changed = true; }
     if (changed) await DB.put('rechnungen', r);
   }
   await S.set('abfuellungMigriert', true);

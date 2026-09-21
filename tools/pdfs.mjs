@@ -50,7 +50,7 @@ async function verbinde() {
 const VORBEREITEN = `
   const imk = S.get('imkerei');
   Object.assign(imk, { name: 'Imkerei Sonnenwiese', strasse: 'Am Lindenweg 12', plz: '34266', ort: 'Frielendorf',
-    telefon: '05684 123456', email: 'post@imkerei-sonnenwiese.de', registriernummer: '06 634 000 1234',
+    telefon: '05684 123456', email: 'post@imkerei-sonnenwiese.de', registriernummer: '06 634 000 1234', steuernummer: '025 123 45678', ustIdNr: '',
     bio: 'ja', bioKontrollstelle: 'DE-ÖKO-006 – ABCERT AG', bioVerbandJN: 'ja', bioVerband: ['Bioland'] });
   // eigenes Logo: runde Wabe auf DURCHSICHTIGEM Grund
   const c = document.createElement('canvas'); c.width = 256; c.height = 256;

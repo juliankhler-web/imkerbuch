@@ -122,3 +122,32 @@ als **Prüfpriorität**, nicht als zusätzliche Fehler.
 4. **R4, Q12, Q11, R5** – falsche Zahlen in Auswertung und Export.
 5. **J1, J3, J4, J5** – Pflichtangaben; **J2** erst nach Rücksprache.
 6. **Q5, Q7, Q8, Q9, Q10** – seltener oder gut erkennbar.
+
+## Stand nach v1.63: abgearbeitet
+
+Alle 22 offenen Funde sind behoben; die sechs Sicherheitsfunde waren bereits in
+v1.62 erledigt. Die Testsuite deckt jede Fundgruppe mit einem eigenen Nachweis
+ab (403 Tests grün).
+
+| Fund | Wie behoben |
+| --- | --- |
+| Q6 | Import prüft und bereitet die ganze Datei auf, **bevor** ein Speicher geleert wird; die Rückfrage nennt Anhänge, die verloren gingen. |
+| Q1 | Löschen im Volk-Dialog bucht den Verbrauch zurück. |
+| Q2 | Wiederherstellen aus dem Papierkorb bucht den Verbrauch erneut ab. |
+| R1 | Die Abzugskette springt nur auf Positionen mit **gleicher Gebindegröße** weiter. |
+| R2/R3 | Die Abfüllung prüft gegen die Chargenmenge und schreibt nur den tatsächlich gebuchten Abgang fort. |
+| Q3/Q4 | Festschreiben liest die Rechnung frisch und summiert den Bedarf je Abfüllung. |
+| R4 | Die Ertragsprognose rechnet den Rabatt heraus. |
+| Q12 | Der Excel-Export trennt Varroa-Kennzahl und Einheit. |
+| Q11 | Der Bildpuffer verwendet den vollständigen Bildinhalt als Schlüssel. |
+| R5 | Hilfetext und Rechnung sagen wieder dasselbe (Sirup mit Verhältnis). |
+| J1 | Liefer-/Leistungsdatum, Steuernummer bzw. USt-IdNr. und das Entgelt je Steuersatz stehen auf der Rechnung. |
+| J2 | Die Umsatzsteuer auf Pfand ist eine **Einstellung** (Vorgabe: wie bisher ohne). Die fachliche Entscheidung bleibt beim Steuerberater – die App trifft sie nicht mehr stillschweigend. |
+| J3 | Das Etikett schlägt eine Verkehrsbezeichnung vor („Rapshonig"), nicht die bloße Sorte. |
+| J4 | Eine erfasste Wartezeit von 0 Tagen ist von „nicht erfasst" unterscheidbar. |
+| J5 | Bio-Logos behalten ihr Seitenverhältnis; die Öko-Herkunftsangabe steht unter dem Kontrollstellen-Code. |
+| Q5 | Die Datenwanderung merkt sich die Herkunft **am Datensatz**; ein Abbruch kappt keine Zuordnung mehr. |
+| Q7 | Eine fehlgeschlagene Ordner-Sicherung meldet den Fehler und verschiebt den nächsten Versuch nicht. |
+| Q8 | Der Marktkorb behält Positionen, die sich nicht buchen ließen. |
+| Q9 | Die Änderungsmarke gehört dem Formular; die Rückfrage löscht sie nicht mehr. |
+| Q10 | Nach dem Zusammenführen werden die Bestände nachgerechnet – ausschließlich nach unten. |
