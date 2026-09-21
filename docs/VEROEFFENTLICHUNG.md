@@ -75,6 +75,32 @@
 - Für ein sauberes Privacy-Versprechen die Libs **selbst hosten** (ins Repo legen statt CDN).
   Bonus: bessere Offline-Zuverlässigkeit. → als eigenes To-do eingeplant.
 
+## 8. Android: was VOR der ersten Installation geschehen muss
+
+Geprüft am 21.09.2026 an `native/android`. Android kennt Apples 7-Tage-Ablauf
+nicht – eine selbst gebaute App läuft unbegrenzt. Diese vier Punkte stehen aber
+offen und gehören erledigt, **bevor** die erste APK auf ein echtes Gerät kommt:
+
+1. **Release-Keystore anlegen und sichern.** Es gibt noch keinen; ein Build wäre
+   Debug-signiert. Android installiert ein Update nur bei **gleichem Schlüssel** –
+   ein späterer Wechsel (z. B. beim Gang in den Play Store) erzwingt Deinstallieren,
+   und dabei **löscht Android die IndexedDB**. Bei einer App, die das Bestandsbuch
+   hält, ist das Datenverlust. Der Schlüssel muss aufbewahrt werden: ohne ihn gibt
+   es nie wieder ein Update für dieselbe App-ID (`de.imkerbuch.app`).
+2. **`versionCode` an `APP_VERSION` koppeln.** Steht auf `1` und wird von
+   `sync-app.sh` nicht angefasst. Android lehnt eine APK mit gleicher oder
+   kleinerer Nummer ab, Play verlangt bei jedem Upload eine höhere.
+3. **`allowBackup="true"` entscheiden** (Capacitor-Vorgabe in `AndroidManifest.xml`).
+   Android darf die App-Daten damit zu Google sichern – das widerspricht dem
+   Versprechen „100 % lokal" und muss entweder abgeschaltet oder in den
+   Datenschutzangaben offengelegt werden.
+4. **Keine automatischen Updates ohne Store.** Capacitor bündelt die Web-Dateien
+   in der APK; jede neue Version heißt neue APK. Über Play kämen Updates
+   automatisch, als TWA (App zeigt die Live-Seite) sofort.
+
+Unkritisch: `targetSdk 36` ist aktuell, `minSdk 24` deckt praktisch alle Geräte,
+einzige Berechtigung ist INTERNET.
+
 ## Reihenfolge (Vorschlag)
 
 1. Platzhalter in `impressum.html` + `datenschutz.html` ausfüllen → hochladen.
