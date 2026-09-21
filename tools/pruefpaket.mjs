@@ -8,7 +8,7 @@
 
    Aufruf: node tools/pruefpaket.mjs [zielordner]
 */
-import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -92,7 +92,13 @@ async function beispieldaten() {
   } finally { try { chrome.kill(); } catch (e) {} srv.close(); rmSync(PROFIL, { recursive: true, force: true }); }
 }
 
-const BRIEFING = `# ImkerBuch – Paket zum Gegenlesen
+/* Kennzahlen aus den Dateien lesen statt im Text zu pflegen – von Hand
+   gepflegte Zahlen stimmen nach der zweiten Änderung nicht mehr. */
+const zeilen = (datei) => readFileSync(join(WURZEL, datei), 'utf8').split('\n').length.toLocaleString('de-DE');
+const testfaelle = () => (readFileSync(join(WURZEL, 'tests/tests.js'), 'utf8').match(/^test\(/gm) || []).length;
+const version = () => (readFileSync(join(WURZEL, 'index.html'), 'utf8').match(/const APP_VERSION = '([^']+)'/) || [, '?'])[1];
+
+const BRIEFING = () => `# ImkerBuch – Paket zum Gegenlesen (v${version()})
 
 Erzeugt am ${new Date().toISOString().slice(0, 10)}.
 
@@ -106,9 +112,9 @@ in IndexedDB im Browser; ausgetauscht wird über eine Sicherungsdatei.
 
 | Datei | Inhalt |
 | --- | --- |
-| \`index.html\` | die vollständige Anwendung (~14 500 Zeilen, ohne Bauschritt) |
+| \`index.html\` | die vollständige Anwendung (${zeilen('index.html')} Zeilen, ohne Bauschritt) |
 | \`service-worker.js\` | Offline-Betrieb und Zwischenspeicher |
-| \`tests/tests.js\` | die Testsuite (373 Fälle) |
+| \`tests/tests.js\` | die Testsuite (${testfaelle()} Fälle, alle grün) |
 | \`tests/test.html\` | Testseite, die die App in einem Rahmen lädt |
 | \`beispieldaten.json\` | ein vollständiger Datensatz zum Ausprobieren |
 | \`docs/API.md\` | die interne Schnittstelle, Datenmodell aller Speicher |
@@ -161,7 +167,7 @@ async function main() {
   console.log(`${DATEIEN.length} Dateien kopiert.`);
   console.log('Beispieldaten werden erzeugt …');
   writeFileSync(join(ZIEL, 'beispieldaten.json'), await beispieldaten());
-  writeFileSync(join(ZIEL, 'LIESMICH.md'), BRIEFING);
+  writeFileSync(join(ZIEL, 'LIESMICH.md'), BRIEFING());
 
   const zip = join(dirname(ZIEL), 'imkerbuch-pruefpaket.zip');
   rmSync(zip, { force: true });
