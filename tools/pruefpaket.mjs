@@ -8,7 +8,7 @@
 
    Aufruf: node tools/pruefpaket.mjs [zielordner]
 */
-import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readFileSync, cpSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readFileSync, cpSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -23,16 +23,30 @@ const schlaf = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* Was ins Paket gehört. Alles andere (native Hüllen, Bilder, Videos,
    node_modules) bläht nur auf und trägt zum Prüfen nichts bei. */
+/** Alle Markdown-Dokumente aus docs/ (auch Unterordner wie adr/). */
+function docsDateien() {
+  const raus = [];
+  const gehe = (rel) => {
+    for (const e of readdirSync(new URL('../' + rel, import.meta.url), { withFileTypes: true })) {
+      if (e.isDirectory()) gehe(`${rel}/${e.name}`);
+      else if (e.name.endsWith('.md')) raus.push(`${rel}/${e.name}`);
+    }
+  };
+  gehe('docs');
+  return raus.sort();
+}
+
 const DATEIEN = [
   'index.html', 'service-worker.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'icon-180.png',
   'impressum.html', 'datenschutz.html', 'agb.html',
   'tests/tests.js', 'tests/test.html',
-  'PROJEKT.md', 'docs/API.md', 'docs/ARCHITEKTUR.md', 'docs/FEATURES.md', 'docs/TESTFAELLE.md',
-  'docs/adr/README.md', 'docs/adr/0000-vorlage.md',
-  'docs/adr/0001-alles-bleibt-auf-dem-geraet.md',
-  'docs/adr/0002-eine-einzige-index-html.md',
-  'docs/adr/0003-abzug-mit-gemerkter-buchung.md',
+  'PROJEKT.md',
+  /* Die Dokumente werden AUFGEZÄHLT, nicht einzeln aufgelistet. Die feste
+     Liste hat beim letzten Mal `docs/PRUEFUNG-2026-09.md` verschluckt – genau
+     die Datei, auf die der Prüfauftrag verwies. Was in docs/ liegt, gehört ins
+     Paket. */
+  ...docsDateien(),
   'package.json', 'package-lock.json', '.markdownlint-cli2.jsonc', '.github/workflows/ci.yml',
   'tools/test-run.mjs', 'tools/pruefpaket.mjs', 'tools/pdfs.mjs', 'tools/pdf-ansicht.html',
 ];

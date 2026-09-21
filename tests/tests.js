@@ -7659,3 +7659,172 @@ test('Q10: Nach dem Zusammenführen stimmt der Bestand wieder', async (w) => {
     await w.DB.del('verkaeufe', v.id); await w.DB.del('abfuellungen', a.id); await w.DB.del('chargen', c.id);
   }
 });
+
+/* =====================================================================
+   Prüfbericht v1.63: Nachweise zu den behobenen Befunden
+   ===================================================================== */
+
+test('S63-1: Bildadresse wird vollständig geprüft, nicht nur der Anfang', (w) => {
+  const echt = 'data:image/png;base64,iVBORw0KGgo=';
+  assertEq(w.U.bildQuelle(echt), echt, 'ein echtes eingebettetes Bild bleibt');
+  assertEq(w.U.bildQuelle('https://example.org/logo.png'), 'https://example.org/logo.png', 'https bleibt');
+  // Der Ausbruch fängt mit einem gültigen Präfix an – genau das war die Lücke.
+  assertEq(w.U.bildQuelle('data:image/png;base64,AA==" onerror=alert(1) x="'), '', 'Ausbruch aus dem Attribut wird verworfen');
+  assertEq(w.U.bildQuelle('https://example.org/a.png" onerror=alert(1) x="'), '', 'auch bei https');
+  assertEq(w.U.bildQuelle('data:image/svg+xml;base64,PHN2Zz4='), 'data:image/svg+xml;base64,PHN2Zz4=', 'SVG als Base64 ist in Ordnung');
+  assertEq(w.U.bildQuelle('data:image/svg+xml;charset=utf-8,%3Csvg%3E'), 'data:image/svg+xml;charset=utf-8,%3Csvg%3E', 'prozentkodiertes SVG ebenfalls');
+  assertEq(w.U.bildQuelle('data:image/svg+xml,<svg onload="alert(1)">'), '', 'rohes SVG mit Anführungszeichen nicht');
+  assertEq(w.U.bildQuelle('javascript:alert(1)'), '', 'javascript: weiterhin nicht');
+  // und in der Anzeige entsteht daraus kein Element
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    delete w.__boese;
+    host.innerHTML = `<img src="${w.U.bildQuelle('data:image/png;base64,AA==" onerror=window.__boese=1 x="')}">`;
+    assertEq(host.querySelectorAll('img').length, 1, 'genau ein Bild, kein zweites Attribut');
+    assertEq(host.querySelector('img').getAttribute('onerror'), null, 'und kein Ereignis-Attribut');
+  } finally { host.remove(); delete w.__boese; }
+});
+
+test('S63-2/S63-3: Feldtyp und Zuchtzahlen kommen nicht als HTML durch', (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    delete w.__boese;
+    const typ = '<img src=x onerror=window.__boese=1>';
+    const label = ({ text: 'Text', zahl: 'Zahl' })[typ] || w.U.esc(String(typ || 'Text'));
+    host.innerHTML = `<span>${label}</span><span>${w.U.zahl('<img src=x onerror=window.__boese=1>')}</span>`;
+    assert(!host.querySelector('img'), 'kein Bild entsteht');
+    assertEq(w.__boese, undefined, 'und nichts wird ausgeführt');
+    assertEq(w.U.zahl(42), 42, 'echte Zahlen bleiben Zahlen');
+  } finally { host.remove(); delete w.__boese; }
+});
+
+test('S63-4: Kartenlink entsteht nur aus echten Koordinaten', (w) => {
+  const l = w.U.mapsLinks(50.9, 9.3);
+  assert(l && l.google.includes('50.9,9.3'), 'echte Koordinaten ergeben einen Link');
+  assertEq(w.U.mapsLinks('50.9" onclick="alert(1)', 9.3), null, 'ein Ausbruchsversuch ergibt keinen Link');
+  assertEq(w.U.mapsLinks(999, 9.3), null, 'unmögliche Breite ebenfalls nicht');
+  assertEq(w.U.mapsLinks(null, null), null, 'und ohne Angabe gar nichts');
+});
+
+test('S63-5: Unbekannter Speichername im Papierkorb wird nicht ausgegeben', (w) => {
+  const boese = '<img src=x onerror=window.__boese=1>';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    delete w.__boese;
+    host.innerHTML = `<span>${w.STORE_LABELS[boese] || 'Unbekannter Bereich'}</span>`;
+    assertEq(host.textContent, 'Unbekannter Bereich', 'statt des erfundenen Namens steht ein fester Text');
+    assert(!host.querySelector('img'), 'kein Bild entsteht');
+    assertEq(w.STORE_LABELS.voelker, 'Volk', 'bekannte Bereiche heißen weiter richtig');
+  } finally { host.remove(); delete w.__boese; }
+});
+
+test('B63-6: Mehrere Speicher werden gemeinsam geschrieben – oder gar nicht', async (w) => {
+  const s1 = await w.DB.put('staende', { name: 'TX-Stand' });
+  const k1 = await w.DB.put('kontakte', { typ: 'kunde', name: 'TX-Kunde' });
+  try {
+    // Erfolgsfall: beide Änderungen kommen an
+    await w.DB.schreibeAlles([
+      { op: 'put', store: 'staende', obj: { ...s1, name: 'TX-Stand neu' } },
+      { op: 'put', store: 'kontakte', obj: { ...k1, name: 'TX-Kunde neu' } },
+    ]);
+    assertEq((await w.DB.get('staende', s1.id)).name, 'TX-Stand neu');
+    assertEq((await w.DB.get('kontakte', k1.id)).name, 'TX-Kunde neu');
+    // Fehlerfall: ein unbekannter Speicher lässt die GANZE Transaktion scheitern
+    let gefangen = false;
+    try {
+      await w.DB.schreibeAlles([
+        { op: 'put', store: 'staende', obj: { ...s1, name: 'darf nicht bleiben' } },
+        { op: 'put', store: 'gibtesnicht', obj: { id: 'x' } },
+      ]);
+    } catch (e) { gefangen = true; }
+    assert(gefangen, 'der Fehler wird gemeldet');
+    assertEq((await w.DB.get('staende', s1.id)).name, 'TX-Stand neu', 'und nichts davon ist geschrieben worden');
+  } finally { await w.DB.del('staende', s1.id); await w.DB.del('kontakte', k1.id); }
+});
+
+test('B63-7: Abgebrochene Chargenmigration legt keine zweite Abfüllung an', async (w) => {
+  const c = await w.DB.put('chargen', { losnummer: 'DUP-1', glasGroesseG: 500, anzahlGlaeser: 12, bestandGlaeser: 12, abfuelldatum: '2026-05-01' });
+  const merk = w.S.get('abfuellungMigriert');
+  try {
+    await w.S.set('abfuellungMigriert', false);
+    await w.migriereChargenAbfuellung();
+    // Zweiter Anlauf, als wäre der erste abgebrochen: die Charge ist schon umgestellt.
+    await w.S.set('abfuellungMigriert', false);
+    await w.migriereChargenAbfuellung();
+    // Und ein dritter Anlauf mit künstlich zurückgesetzter Charge
+    const c2 = await w.DB.get('chargen', c.id);
+    c2.glasGroesseG = 500; c2.anzahlGlaeser = 12; c2.bestandGlaeser = 12;
+    await w.DB.put('chargen', c2);
+    await w.S.set('abfuellungMigriert', false);
+    await w.migriereChargenAbfuellung();
+    const abf = (await w.DB.getAll('abfuellungen')).filter((a) => a.ausAlterCharge === c.id);
+    assertEq(abf.length, 1, 'es bleibt bei genau einer Abfüllung');
+  } finally {
+    for (const a of (await w.DB.getAll('abfuellungen')).filter((x) => x.ausAlterCharge === c.id)) await w.DB.del('abfuellungen', a.id);
+    await w.DB.del('chargen', c.id);
+    await w.S.set('abfuellungMigriert', merk);
+  }
+});
+
+test('B63-8: Bio-Migration sichert das Zertifikat, bevor die Quelle fällt', async (w) => {
+  const merk = w.S.get('bioPartnerMigriert');
+  const imkAlt = JSON.parse(JSON.stringify(w.S.get('imkerei')));
+  const z = await w.DB.put('bioeintraege', { bereich: 'zertifikat', art: 'Eigener Betrieb', name: 'Öko-Zertifikat', nummer: 'Z-4711', gueltigBis: '2027-12-31', ablage: 'Ordner 3' });
+  try {
+    const imk = w.S.get('imkerei');
+    delete imk.oekoZertNummer; delete imk.oekoZertGueltigBis; await w.S.set('imkerei', imk);
+    await w.S.set('bioPartnerMigriert', false);
+    await w.migriereBioPartner();
+    assertEq(w.S.get('imkerei').oekoZertNummer, 'Z-4711', 'die Nummer ist in den Imkereidaten angekommen');
+    assertEq(await w.DB.get('bioeintraege', z.id), undefined, 'und der Alteintrag ist weg');
+  } finally {
+    await w.DB.del('bioeintraege', z.id);
+    await w.S.set('imkerei', imkAlt);
+    await w.S.set('bioPartnerMigriert', merk);
+  }
+});
+
+test('B63-10: Wiederherstellen bucht Datensatz und Material gemeinsam', async (w) => {
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', kategorie: 'Futter', bezeichnung: 'TX-Zucker', einheit: 'kg', stueckzahl: 50 });
+  const f = await w.DB.put('fuetterungen', { zielTyp: 'volk', zielId: 'x', datum: '2026-05-01', futterart: 'Zucker', menge: 10, einheit: 'kg',
+    verbrauchAbzug: [{ inventarId: pos.id, menge: 10 }] });
+  try {
+    await w.DB.softDel('fuetterungen', f.id);
+    const t = (await w.DB.getAll('papierkorb')).find((x) => x.daten && x.daten.id === f.id);
+    assert(t, 'der Eintrag liegt im Papierkorb');
+    // Wiederherstellen zieht den gemerkten Abzug erneut ab
+    await w.DB.trashRestore(t.id);
+    assert(await w.DB.get('fuetterungen', f.id), 'der Datensatz ist zurück');
+    assertEq(await w.DB.get('papierkorb', t.id), undefined, 'der Papierkorb-Eintrag ist weg');
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 40, 'und das Material ist wieder abgezogen');
+  } finally {
+    await w.DB.del('fuetterungen', f.id); await w.DB.del('inventar', pos.id);
+    for (const t of await w.DB.getAll('papierkorb')) if (t.daten && t.daten.id === f.id) await w.DB.del('papierkorb', t.id);
+  }
+});
+
+test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
+  const k = await w.DB.put('kontakte', { typ: 'kunde', name: 'TX-Rechnungskunde' });
+  const c = await w.DB.put('chargen', { losnummer: 'RB-1', mengeKg: 10, datum: '2026-05-01' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-05-01', gebindeG: 500, anzahl: 10, bestand: 10 });
+  const r = await w.DB.put('rechnungen', { nummer: null, datum: '2026-06-01', kundeId: k.id, status: 'entwurf', steuerart: 'klein',
+    positionen: [{ text: 'Rapshonig 500 g', menge: 3, einzelpreis: 6, steuersatz: 0, pfand: 0, abfuellungId: a.id }] });
+  const kasseVorher = (await w.DB.getAll('kassenbuch')).length;
+  const altSchreib = w.DB.schreibeAlles, altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
+  const toasts = [];
+  w.UI.confirm = async () => true; w.UI.toast = (t, art) => toasts.push([t, art]); w.renderRoute = async () => {};
+  try {
+    w.DB.schreibeAlles = async () => { throw new Error('Platte voll'); };
+    await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), [a]);
+    const rNach = await w.DB.get('rechnungen', r.id);
+    assertEq(rNach.status, 'entwurf', 'die Rechnung bleibt Entwurf');
+    assertEq(rNach.nummer, null, 'und bekommt keine Nummer');
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 10, 'der Bestand ist unangetastet');
+    assertEq((await w.DB.getAll('kassenbuch')).length, kasseVorher, 'und es wurde nichts ins Kassenbuch gebucht');
+    assert(toasts.some(([, art]) => art === 'err'), 'der Fehler wird gemeldet');
+  } finally {
+    w.DB.schreibeAlles = altSchreib; w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
+    await w.DB.del('rechnungen', r.id); await w.DB.del('abfuellungen', a.id);
+    await w.DB.del('chargen', c.id); await w.DB.del('kontakte', k.id);
+  }
+});

@@ -2,7 +2,7 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    CDN-Bibliotheken cache-first (versionierte URLs), APIs network-only. */
-const CACHE = 'imkerbuch-v175';
+const CACHE = 'imkerbuch-v176';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/xlsx.full.min.js'];
@@ -66,8 +66,24 @@ self.addEventListener('fetch', (e) => {
           .then((res) => {
             if (res && res.ok) {
               const copy = res.clone();
-              // die App unter ihrem festen Schlüssel, jede andere Seite unter ihrer eigenen Adresse
-              caches.open(CACHE).then((c) => c.put(istApp ? './index.html' : e.request, copy));
+              if (istApp) {
+                /* Nur eine ECHTE App-Hülle darf den Offline-Stand ersetzen.
+                   Vorher galt jede 200-Antwort als App: Eine Wartungs- oder
+                   Anmeldeseite des Servers hätte das Imkerbuch im Cache
+                   überschrieben – und offline erschiene dauerhaft sie statt
+                   der App. Zwei Merkmale müssen stimmen, sonst bleibt der
+                   bisherige Stand liegen. */
+                copy.text().then((t) => {
+                  if (/const APP_VERSION\s*=/.test(t) && /<title>\s*ImkerBuch/i.test(t)) {
+                    caches.open(CACHE).then((c) => c.put('./index.html',
+                      new Response(t, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+                  } else {
+                    console.warn('[SW] Antwort sieht nicht nach der App aus – Offline-Stand bleibt erhalten');
+                  }
+                }).catch(() => {});
+              } else {
+                caches.open(CACHE).then((c) => c.put(e.request, copy));
+              }
             }
             return res;
           })

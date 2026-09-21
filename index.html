@@ -864,13 +864,37 @@ const U = {
      kann dort aber alles stehen. */
   bildQuelle(v) {
     const t = String(v == null ? '' : v).trim();
-    return /^(data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);|https:\/\/)/i.test(t) ? t : '';
+    /* Der Anfang allein genügt NICHT. `data:image/png;base64,AA==" onerror=…`
+       fängt richtig an und bricht trotzdem aus dem src="…" aus. Deshalb wird
+       die GANZE Adresse geprüft: kein Anführungszeichen, keine spitze Klammer,
+       kein Leerraum, kein Backslash – nichts davon kommt in einer echten
+       Bildadresse vor. */
+    if (!t || /["'<>`\\\s]/.test(t)) return '';
+    if (/^https:\/\//i.test(t)) {
+      try { return new URL(t).protocol === 'https:' ? t : ''; } catch (e) { return ''; }
+    }
+    // Eingebettet: entweder Base64 oder prozentkodiert (SVG aus einem Upload).
+    if (/^data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/]+={0,2}$/i.test(t)) return t;
+    if (/^data:image\/svg\+xml(;charset=[\w-]+)?,[A-Za-z0-9\-._~!$&()*+,;=:@/?%]+$/i.test(t)) return t;
+    return '';
   },
   sortBy: (arr, fn, desc = false) => [...arr].sort((a, b) => { const x = fn(a), y = fn(b); return (x < y ? -1 : x > y ? 1 : 0) * (desc ? -1 : 1); }),
   groupBy(arr, fn) { const m = new Map(); for (const x of arr) { const k = fn(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; },
   sum: (arr, fn) => arr.reduce((s, x) => s + (Number(fn ? fn(x) : x) || 0), 0),
   debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; },
-  mapsLinks(lat, lng) { return { google: `https://www.google.com/maps?q=${lat},${lng}`, osm: `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}` }; },
+  /* Koordinaten gehen in ein href. Sie kommen aus einem Zahlenfeld – aber
+     ebenso aus einer fremden Sicherung, und dort kann Text stehen. Deshalb
+     hier hart zu Zahlen machen: Was keine Koordinate ist, ergibt keinen Link. */
+  mapsLinks(lat, lng) {
+    const z = (v, max) => {
+      if (v === null || v === undefined || String(v).trim() === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) && Math.abs(n) <= max ? String(n) : null;
+    };
+    const la = z(lat, 90), ln = z(lng, 180);
+    if (la === null || ln === null) return null;
+    return { google: `https://www.google.com/maps?q=${la},${ln}`, osm: `https://www.openstreetmap.org/?mlat=${la}&mlon=${ln}#map=16/${la}/${ln}` };
+  },
   _scripts: {},
   /** CDN-Skript einmalig laden; weitere URLs dienen als Ausweich-CDNs
       (iOS/Inhaltsblocker blockieren manchmal einzelne Hosts).
@@ -963,8 +987,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.63';
+const APP_VERSION = '1.64';
 const CHANGELOG = [
+  { version: '1.64', datum: '2026-09-21', punkte: [
+    'Sicherheit: Fünf weitere Wege geschlossen, auf denen eine <b>präparierte fremde Sicherung</b> Code in die App bringen konnte – über eine Bildadresse, die nur vorne richtig aussah, über einen erfundenen Feldtyp bei den eigenen Stockkarten-Feldern, über Zuchtzahlen, über Standort-Koordinaten im Kartenlink und über einen erfundenen Speichernamen im Papierkorb. Gefunden hat das eine externe Nachprüfung.',
+    'Wichtige Vorgänge sind jetzt <b>unteilbar</b>: Beim <b>Festschreiben einer Rechnung</b> gehen Bestand, Kassenbuch-Buchung und Rechnung gemeinsam in die Datenbank – bricht etwas ab, wird nichts gebucht (vorher konnten Gläser fehlen, ohne dass es eine Rechnung dazu gab). Dasselbe gilt für <b>Import und Zusammenführen</b> einer Sicherung sowie für das <b>Wiederherstellen aus dem Papierkorb</b>.',
+    'Die einmaligen <b>Datenwanderungen</b> überstehen einen Abbruch: Eine alte Charge bekommt auch nach mehreren Anläufen nur EINE Abfüllung, und bei der Bio-Zusammenführung wird das eigene Öko-Zertifikat gesichert, bevor der alte Eintrag gelöscht wird.',
+    'Der <b>Offline-Speicher</b> übernimmt nur noch eine echte App-Seite. Eine Wartungs- oder Anmeldeseite des Servers konnte die App im Cache überschreiben – offline erschien dann dauerhaft sie statt des Imkerbuchs.',
+  ] },
   { version: '1.63', datum: '2026-09-21', punkte: [
     'Rechnungen erfüllen jetzt die <b>Pflichtangaben nach § 14 UStG</b>: Es gibt ein eigenes Feld für das <b>Liefer-/Leistungsdatum</b>, <b>Steuernummer bzw. USt-IdNr.</b> stehen im Kopf, und bei Regelbesteuerung wird das <b>Entgelt je Steuersatz</b> ausgewiesen – nicht mehr nur die enthaltene Steuer. Die beiden Steuernummern trägst du unter Einstellungen → Imkereidaten ein.',
     'Neu einstellbar: <b>Umsatzsteuer auf Pfand</b> (Einstellungen → Steuer &amp; Rechnungen). Voreingestellt bleibt es wie bisher ohne Steuer. Welche Behandlung für deinen Betrieb richtig ist, klärt der Steuerberater – die App entscheidet das nicht mehr stillschweigend für dich.',
@@ -1834,6 +1864,45 @@ const DB = {
   },
   async del(store, id) { await this._req((await this._store(store, 'readwrite')).delete(id)); },
   async clear(store) { await this._req((await this._store(store, 'readwrite')).clear()); },
+  /* Mehrere Speicher in EINER Transaktion: entweder alles oder nichts.
+
+     Nötig überall dort, wo ein halb ausgeführter Vorgang Schaden anrichtet –
+     ein Import, der vier Bereiche geleert hat und beim fünften scheitert; eine
+     Rechnung, deren Bestand schon abgezogen, deren Nummer aber nie vergeben
+     wurde. IndexedDB kann das von Haus aus, es wurde nur nie genutzt: Bricht
+     ein Schreibvorgang ab, macht der Browser die ganze Transaktion rückgängig.
+
+     `ops` ist eine Liste von { op: 'put' | 'del' | 'clear', store, obj, id,
+     keepStamp }. Alle Aufträge werden nacheinander in dieselbe Transaktion
+     gestellt – dazwischen darf nichts awaited werden, sonst schließt der
+     Browser sie vorzeitig. */
+  async schreibeAlles(ops) {
+    const liste = (ops || []).filter(Boolean);
+    if (!liste.length) return true;
+    const stores = [...new Set(liste.map((o) => o.store))];
+    const db = await this.open();
+    const tx = db.transaction(stores, 'readwrite');
+    const fertig = new Promise((res, rej) => {
+      tx.oncomplete = () => res(true);
+      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
+      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
+    });
+    try {
+      for (const o of liste) {
+        const st = tx.objectStore(o.store);
+        if (o.op === 'clear') { st.clear(); continue; }
+        if (o.op === 'del') { st.delete(o.id); continue; }
+        const obj = o.obj;
+        if (o.store !== 'settings' && !obj.id) obj.id = U.uuid();
+        if (!o.keepStamp) {
+          obj.lastModified = U.nowIso();
+          if (o.store !== 'settings' && !obj.createdAt) obj.createdAt = obj.lastModified;
+        }
+        st.put(obj);
+      }
+    } catch (e) { try { tx.abort(); } catch (e2) {} throw e; }
+    return fertig;
+  },
   /** Soft-Delete: Datensatz wandert für 30 Tage in den Papierkorb */
   async softDel(store, id) {
     const rec = await this.get(store, id);
@@ -1845,13 +1914,22 @@ const DB = {
     const t = await this.get('papierkorb', trashId);
     if (!t) return null;
     t.daten.lastModified = U.nowIso(); // beim Merge gewinnt der wiederhergestellte Stand
-    await this.put(t.store, t.daten, true);
-    await this.del('papierkorb', trashId);
-    /* Beim Löschen ging der gemerkte Materialabzug zurück ins Lager. Kommt der
-       Datensatz wieder, muss er auch wieder abgehen – sonst hebt jedes
-       Löschen-und-Wiederherstellen den Vorrat um die gebuchte Menge an. */
+    /* Wiederherstellen ist EIN Vorgang: Datensatz zurück, Papierkorb-Eintrag
+       weg, und der beim Löschen zurückgebuchte Materialabzug wieder abgezogen.
+       Vorher liefen die drei Teile getrennt – ein Fehler beim letzten ließ
+       Datensatz und Lagerbestand auseinanderlaufen. */
     const abzug = (t.daten && t.daten.verbrauchAbzug) || [];
-    for (const a of abzug) await verbrauchAbziehen(a.inventarId, a.menge, { pruefen: false });
+    const ops = [{ op: 'put', store: t.store, obj: t.daten, keepStamp: true },
+      { op: 'del', store: 'papierkorb', id: trashId }];
+    for (const a of abzug) {
+      const pos = await this.get('inventar', a.inventarId);
+      if (!pos) continue;
+      // Gerechnet wird wie in verbrauchAbziehen – Stück ganzzahlig, alles andere auf Gramm/Milliliter genau.
+      const nachher = Math.max(0, verbrauchBestand(pos) - Math.max(0, U.zahl(a.menge)));
+      pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
+      ops.push({ op: 'put', store: 'inventar', obj: pos });
+    }
+    await this.schreibeAlles(ops);
     return t;
   },
   /** Papierkorb-Einträge älter als 30 Tage endgültig entfernen */
@@ -3724,8 +3802,8 @@ async function openBelegstelleForm(bs, onDone) {
   const box = $('[data-beleg-map]', m.el);
   const refreshKarte = () => {
     const la = U.parseNum($('#f-lat', m.el).value), ln = U.parseNum($('#f-lng', m.el).value);
-    if ($('#f-lat', m.el).value && $('#f-lng', m.el).value && !isNaN(la) && !isNaN(ln)) {
-      const l = U.mapsLinks(la, ln);
+    const l = U.mapsLinks(la, ln);
+    if (l) {
       box.innerHTML = `In Karte öffnen: <a href="${l.google}" target="_blank" rel="noopener">Google Maps</a> · <a href="${l.osm}" target="_blank" rel="noopener">OpenStreetMap</a>`;
     } else { box.innerHTML = '<span class="muted">Koordinaten eingeben oder Standort übernehmen – dann erscheinen hier Kartenlinks.</span>'; }
   };
@@ -5048,7 +5126,7 @@ Views.zucht = {
         return `<button class="row" data-id="${U.esc(s.id)}">
           <span class="r-ic">${icon('egg')}</span>
           <span class="r-main"><span class="r-title">${U.esc(s.name)}</span>
-          <span class="r-sub">Umlarven ${U.fmtDate(s.startdatum)} · ${s.anzahl} Zellen${next ? ` · nächster Schritt: ${U.esc(next.titel)} am ${U.fmtDate(next.datum)}` : ' · abgeschlossen'}</span></span>
+          <span class="r-sub">Umlarven ${U.fmtDate(s.startdatum)} · ${U.zahl(s.anzahl)} Zellen${next ? ` · nächster Schritt: ${U.esc(next.titel)} am ${U.fmtDate(next.datum)}` : ' · abgeschlossen'}</span></span>
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('egg', 'Noch keine Zuchtserie. Beim Anlegen werden alle Termine (Käfigen, Schlupf, Begattung, Kontrolle) automatisch berechnet und als Aufgaben eingetragen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Serie anlegen</button>`)) + `</div>`;
     const add = () => Views.zucht.form(null);
@@ -5123,9 +5201,9 @@ Views.zucht = {
     const funnel = [['umgelarvt', s.anzahl], ['angenommen', s.angenommen], ['geschlüpft', s.geschluepft], ['begattet', s.begattet]].filter(([, n]) => n != null && n !== '');
     const m = UI.modal({
       title: s.name, wide: true,
-      body: `<div class="flex-wrap mb12"><span class="kpill">Umlarven: ${U.fmtDate(s.startdatum)}</span><span class="kpill">${s.anzahl} Zellen</span>${s.linie ? `<span class="kpill">${U.esc(s.linie)}</span>` : ''}</div>
+      body: `<div class="flex-wrap mb12"><span class="kpill">Umlarven: ${U.fmtDate(s.startdatum)}</span><span class="kpill">${U.zahl(s.anzahl)} Zellen</span>${s.linie ? `<span class="kpill">${U.esc(s.linie)}</span>` : ''}</div>
         ${(zm || anpaarungText) ? `<div class="detail-kv mb12">${zm ? `<dt>Zuchtmutter (2a)</dt><dd>${koeniginLabel(zm)}</dd>` : ''}${anpaarungText ? `<dt>Anpaarung (4a)</dt><dd>${vv ? koeniginLabel(vv) + ' · ' : ''}${anpaarungText}</dd>` : ''}</div>` : ''}
-        ${funnel.length > 1 ? `<div class="stat-grid mb12">${funnel.map(([l, n]) => `<div class="stat"><div class="s-label">${l}</div><div class="s-value">${n}</div></div>`).join('')}</div>` : ''}
+        ${funnel.length > 1 ? `<div class="stat-grid mb12">${funnel.map(([l, n]) => `<div class="stat"><div class="s-label">${l}</div><div class="s-value">${U.zahl(n)}</div></div>`).join('')}</div>` : ''}
         ${s.notiz ? `<p class="small muted mb12">${U.esc(s.notiz)}</p>` : ''}
         ${bereitsErzeugt ? `<div class="banner info mb12">${icon('info')} <span class="b-msg">Aus dieser Serie wurden bereits <b>${bereitsErzeugt} Töchter</b> als Königinnen angelegt.</span></div>` : ''}
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tag</th><th>Schritt</th><th>Datum</th><th></th></tr></thead>
@@ -9100,11 +9178,30 @@ Views.rechnung = {
        (§ 14 UStG verlangt eine einmalig vergebene, fortlaufende Nummer). */
     const nr = naechsteRechnungsnummer(kreis, await DB.getAll('rechnungen'));
     r.nummer = nr.nummer;
-    kreis.next = nr.next; await S.set('rechnungskreis', kreis);
-    for (const p of r.positionen) if (p.abfuellungId) { const a = await DB.get('abfuellungen', p.abfuellungId); if (a) { a.bestand -= p.menge; await DB.put('abfuellungen', a); } }
+    /* Bestand, Kassenbuch und Rechnung gehen GEMEINSAM in die Datenbank.
+       Vorher waren es drei einzelne Schreibvorgänge: Scheiterte einer nach dem
+       Bestandsabzug, fehlten Gläser im Regal, ohne dass es eine Rechnung dazu
+       gab. Der Nummernkreis wird erst danach weitergestellt – lieber eine
+       Nummer doppelt vergeben können (das fängt `naechsteRechnungsnummer` ab)
+       als eine Lücke in einer fortlaufenden Nummer. */
+    const ops = [];
+    const bestandNeu = new Map();
+    for (const p of r.positionen) if (p.abfuellungId) {
+      const a = bestandNeu.get(p.abfuellungId) || await DB.get('abfuellungen', p.abfuellungId);
+      if (a) { a.bestand -= p.menge; bestandNeu.set(p.abfuellungId, a); }
+    }
+    for (const a of bestandNeu.values()) ops.push({ op: 'put', store: 'abfuellungen', obj: a });
     const { brutto } = rechnungSummen(r);
-    await DB.put('kassenbuch', { datum: r.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Rechnung ${r.nummer}`, rechnungId: r.id });
-    r.status = 'festgeschrieben'; await DB.put('rechnungen', r);
+    ops.push({ op: 'put', store: 'kassenbuch', obj: { datum: r.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Rechnung ${r.nummer}`, rechnungId: r.id } });
+    r.status = 'festgeschrieben';
+    ops.push({ op: 'put', store: 'rechnungen', obj: r });
+    try {
+      await DB.schreibeAlles(ops);
+    } catch (e) {
+      r.status = 'entwurf'; r.nummer = null;
+      return UI.toast('Festschreiben fehlgeschlagen – es wurde nichts gebucht: ' + e.message, 'err');
+    }
+    kreis.next = nr.next; await S.set('rechnungskreis', kreis);
     UI.toast(`Rechnung ${r.nummer} festgeschrieben`); renderRoute();
   },
 };
@@ -11798,7 +11895,7 @@ Views.papierkorb = {
         <div class="row">
           <span class="r-ic" style="background:var(--danger-bg);color:var(--danger)">${icon('trash')}</span>
           <span class="r-main"><span class="r-title">${U.esc(String(name(t)).slice(0, 60))}</span>
-          <span class="r-sub">${STORE_LABELS[t.store] || t.store} · gelöscht ${U.fmtDateTime(t.geloeschtAm)} · verfällt in ${Math.max(0, 30 - U.daysBetween(t.geloeschtAm, U.nowIso()))} Tagen</span></span>
+          <span class="r-sub">${STORE_LABELS[t.store] || 'Unbekannter Bereich'} · gelöscht ${U.fmtDateTime(t.geloeschtAm)} · verfällt in ${Math.max(0, 30 - U.daysBetween(t.geloeschtAm, U.nowIso()))} Tagen</span></span>
           <button class="btn btn-sm btn-ghost no-print" data-restore="${U.esc(t.id)}">${icon('restore')} Wiederherstellen</button>
           <button class="btn btn-xs btn-danger no-print" data-kill="${U.esc(t.id)}">${icon('x')}</button>
         </div>`).join('') + `</div>` : emptyState('trash', 'Der Papierkorb ist leer.')) + `</div>`;
@@ -12719,17 +12816,25 @@ const Backup = {
     const vorbereitet = this._vorbereiten(data);          // wirft, bevor etwas gelöscht wird
     const alteBlobs = new Map();
     if (blobsBehalten) for (const a of await DB.getAll('anhaenge')) alteBlobs.set(a.id, a.blob);
+    /* Leeren und Neuschreiben laufen in EINER Transaktion über alle Bereiche.
+       Vorher war jeder Bereich für sich: Ein Fehler im fünften ließ vier
+       geleerte und einen unveränderten Bestand zurück – ein Zwischenzustand,
+       den es fachlich gar nicht gibt. Jetzt macht der Browser im Fehlerfall
+       alles rückgängig. */
+    const ops = [];
     for (const store of DB.DATA_STORES) {
       let rows = vorbereitet.get(store);
       if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => (r.blob ? r : { ...r, blob: alteBlobs.get(r.id) })).filter((r) => r.blob);
-      await DB.clear(store);
-      await DB.bulkPut(store, rows, true);
+      ops.push({ op: 'clear', store });
+      for (const r of rows) ops.push({ op: 'put', store, obj: r, keepStamp: true });
     }
+    await DB.schreibeAlles(ops);
   },
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
   async applyMerge(data) {
     let uebernommen = 0;
     const jeStore = {};
+    const ops = [];                        // erst sammeln, dann in einer Transaktion schreiben
     for (const store of DB.DATA_STORES) {
       const importRows = this._rowsAusImport(store, data.stores[store] || []);
       if (!importRows.length) continue;
@@ -12741,10 +12846,11 @@ const Backup = {
         const alt = vorhanden.get(keyOf(r));
         if (!alt || (r.lastModified || '') > (alt.lastModified || '')) zuSchreiben.push(r);
       }
-      await DB.bulkPut(store, zuSchreiben, true);
+      for (const r of zuSchreiben) ops.push({ op: 'put', store, obj: r, keepStamp: true });
       uebernommen += zuSchreiben.length;
       if (zuSchreiben.length) jeStore[store] = zuSchreiben.length;
     }
+    await DB.schreibeAlles(ops);          // alles oder nichts
     const korrigiert = await this.bestandAbgleich();
     return { gesamt: uebernommen, jeStore, bestandKorrigiert: korrigiert };
   },
@@ -15036,7 +15142,7 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('buch')}<h2>Eigene Stockkarten-Felder</h2></div>
         <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
-        <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${U.esc(i)}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
+        <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || U.esc(String(f.typ || 'Text'))}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${U.esc(i)}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
         <div class="flex-wrap no-print"><input class="inp" id="skf-name" placeholder="Feldname …" style="max-width:200px"><select class="inp" id="skf-typ" style="width:auto"><option value="check">Ja/Nein</option><option value="text">Text</option><option value="zahl">Zahl</option><option value="rating">Bewertung 1–5</option></select><button class="btn btn-ghost btn-sm" id="skf-add">${icon('plus')} Hinzufügen</button></div>
         <h3 class="mt16 mb8">Durchsicht-Vorlagen</h3>
         <p class="small muted mb12">Vorlagen entstehen beim Speichern einer Durchsicht (Feld „als Vorlage speichern“). Als Schnell-Button im Stockkarte-Tab verfügbar.</p>
@@ -15369,13 +15475,21 @@ async function migriereChargenAbfuellung() {
     const gebindeG = c.glasGroesseG || 500;
     const anzahl = Math.round(c.anzahlGlaeser || 0);
     const bestand = (c.bestandGlaeser != null) ? c.bestandGlaeser : anzahl;
-    if (anzahl > 0) {
-      const a = await DB.put('abfuellungen', { chargeId: c.id, ausAlterCharge: c.id, datum: c.abfuelldatum || U.todayIso(), gebindeG, anzahl, bestand });
-      map[c.id] = a.id;
+    /* Gibt es zu dieser Charge schon eine Abfüllung aus einem früheren,
+       abgebrochenen Anlauf, wird sie WIEDERVERWENDET – sonst entstünde bei
+       jedem Neustart eine weitere Abfüllung mit demselben Honig. Charge und
+       Abfüllung gehen zusammen in die Datenbank, damit beide Seiten immer
+       zueinander passen. */
+    const ops = [];
+    if (anzahl > 0 && !map[c.id]) {
+      const neu = { id: U.uuid(), chargeId: c.id, ausAlterCharge: c.id, datum: c.abfuelldatum || U.todayIso(), gebindeG, anzahl, bestand };
+      ops.push({ op: 'put', store: 'abfuellungen', obj: neu });
+      map[c.id] = neu.id;
     }
     c.mengeKg = Math.round(anzahl * gebindeG / 1000 * 1000) / 1000;
     delete c.glasGroesseG; delete c.anzahlGlaeser; delete c.bestandGlaeser; delete c.abfuelldatum; delete c.verkaufspreis;
-    await DB.put('chargen', c);
+    ops.push({ op: 'put', store: 'chargen', obj: c });
+    await DB.schreibeAlles(ops);
   }
   for (const v of await DB.getAll('verkaeufe')) {
     if (v.abfuellungId || !v.chargeId) continue;
@@ -15451,6 +15565,10 @@ async function migriereBioPartner() {
   /* Zertifikate: was einem Partner zuzuordnen ist, wandert dorthin. Das eigene
      Zertifikat kommt zur Imkerei. Alles andere bleibt als Notiz am Betrieb – die
      Papiere selbst liegen ohnehin im Ordner, die App hat sie nie gespeichert. */
+  /* WICHTIG: Erst das Ziel schreiben, dann die Quelle löschen. Vorher wurde
+     jeder Eintrag sofort gelöscht, die Imkerei-Angaben aber erst ganz am Ende
+     gespeichert – ein Abbruch dazwischen hätte das eigene Öko-Zertifikat
+     ersatzlos verschwinden lassen. */
   const imk = S.get('imkerei');
   const uebrig = [];
   for (const z of zerts) {
@@ -15460,6 +15578,7 @@ async function migriereBioPartner() {
       imk.oekoZertNummer = imk.oekoZertNummer || z.nummer || '';
       imk.oekoZertGueltigBis = imk.oekoZertGueltigBis || z.gueltigBis || '';
       imk.oekoZertAblage = imk.oekoZertAblage || z.ablage || '';
+      await S.set('imkerei', imk);           // gesichert, bevor die Quelle fällt
     } else if (ziel) {
       const notiz = [ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`].filter(Boolean).join('\n');
       await DB.put('kontakte', Object.assign(ziel, {
@@ -15469,15 +15588,14 @@ async function migriereBioPartner() {
       }));
     } else {
       uebrig.push(`${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.datum ? ` vom ${U.fmtDate(z.datum)}` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`);
+      const bb = S.get('bioBetrieb') || {};
+      const kopf = 'Aus dem früheren Reiter „Zertifikate" übernommen:';
+      const hatKopf = String(bb.zertifikate || '').includes(kopf);
+      bb.zertifikate = [bb.zertifikate, hatKopf ? '' : kopf, uebrig[uebrig.length - 1]].filter(Boolean).join('\n');
+      await S.set('bioBetrieb', bb);          // ebenfalls zuerst sichern
     }
     await DB.del('bioeintraege', z.id);
   }
-  if (uebrig.length) {
-    const bb = S.get('bioBetrieb') || {};
-    bb.zertifikate = [bb.zertifikate, 'Aus dem früheren Reiter „Zertifikate" übernommen:', ...uebrig].filter(Boolean).join('\n');
-    await S.set('bioBetrieb', bb);
-  }
-  await S.set('imkerei', imk);
   await S.set('bioPartnerMigriert', true);
   console.info(`Bio: ${partner.length} Partner und ${zerts.length} Zertifikat-Einträge zusammengeführt`);
 }

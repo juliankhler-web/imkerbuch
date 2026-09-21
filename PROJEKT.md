@@ -76,6 +76,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-21 (v1.64)**: **Dritte externe Prüfung (v1.63) abgearbeitet** – elf Funde, alle am Code bestätigt, kein Fehlalarm. Einzelheiten in [docs/PRUEFUNG-2026-09-v163.md](docs/PRUEFUNG-2026-09-v163.md). 412 Tests grün.
+  **Sicherheit:** Fünf weitere Wege aus einer präparierten fremden Sicherung geschlossen – Bildadresse (Präfixprüfung reichte nicht: `data:image/png;base64,AA==" onerror=…` kam durch), unbekannter Stockkarten-Feldtyp, Zuchtzahlen, Koordinaten im Kartenlink, Speichername im Papierkorb.
+  **Neu `DB.schreibeAlles(ops)`** – eine IndexedDB-Transaktion über mehrere Speicher. Damit sind Import/Merge, Rechnung festschreiben und Papierkorb-Wiederherstellen **unteilbar**; die Chargen-Migration legt nach einem Abbruch keine zweite Abfüllung mehr an, und die Bio-Migration schreibt das Ziel, bevor sie die Quelle löscht.
+  **Service Worker** cached nur noch eine erkennbare App-Hülle (`const APP_VERSION =` + Titel) – eine Wartungsseite kann den Offline-Stand nicht mehr ersetzen.
+  Eigener Formfehler: `tools/pruefpaket.mjs` hatte eine feste Dateiliste und hat `docs/PRUEFUNG-2026-09.md` verschluckt. Der Packer zählt docs/ jetzt auf.
+
 - **2026-09-21 (v1.63)**: **Alle 22 offenen Funde des zweiten Prüfberichts behoben** – die Liste in [docs/PRUEFUNG-2026-09.md](docs/PRUEFUNG-2026-09.md) ist damit abgearbeitet. 403 Tests grün (10 neue Nachweise, je einer pro Fundgruppe).
   **Bestände (Q1/Q2/R1/R2/R3):** Löschen im Volk-Dialog bucht zurück, der Papierkorb bucht bei Wiederherstellung erneut ab, die Abzugskette achtet auf die Gebindegröße, die Abfüllung prüft die Chargenmenge und bucht nur, was wirklich abging.
   **Rechnung (Q3/Q4/R4/J1/J2):** Festschreiben liest frisch und summiert je Abfüllung; Rabatt geht in die Ertragsprognose ein; neu sind **Liefer-/Leistungsdatum**, **Steuernummer/USt-IdNr.** und das **Entgelt je Steuersatz**; die **Umsatzsteuer auf Pfand** ist jetzt eine Einstellung (Vorgabe wie bisher steuerfrei) statt einer stillen Annahme der App – die fachliche Entscheidung bleibt beim Steuerberater.
