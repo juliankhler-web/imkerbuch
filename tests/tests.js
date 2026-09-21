@@ -7391,3 +7391,104 @@ test('QR-Druckbogen: eine Funktion für Volk und Charge', async (w) => {
     w.document.body.classList.remove('qr-printing');
   }
 });
+
+/* =====================================================================
+   SICHERHEIT: eine präparierte fremde Sicherung
+   Die App führt Backups zusammen. Jeder dieser Fälle stammt aus der
+   Nachprüfung von Codex zu v1.61 und ist dort belegt worden.
+   ===================================================================== */
+
+const BOESE = '<img src=x onerror="window.__boese=(window.__boese||0)+1">';
+
+test('S1: Unbekannter Bereich in der Sicherung landet nicht im Vorschau-Dialog', async (w) => {
+  dialogeSchliessen(w);
+  delete w.__boese;
+  const datei = new w.File([JSON.stringify({
+    app: 'ImkerBuch', formatVersion: 1, exportiert: w.U.nowIso(),
+    stores: { [BOESE]: [{}], kontakte: [] },
+  })], 'boese.json', { type: 'application/json' });
+  try {
+    await w.Backup.importFile(datei);
+    await new Promise((r) => setTimeout(r, 300));
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Vorschau-Dialog steht offen');
+    assert(!modal.querySelector('img'), 'kein Bild wurde erzeugt');
+    assertEq(w.__boese, undefined, 'nichts wurde ausgeführt');
+    assert(/unbekannte/.test(modal.textContent), 'der fremde Bereich wird als Zahl gemeldet: ' + modal.textContent.slice(0, 120));
+    assert(!/img src/.test(modal.textContent), 'und nicht mit seinem Namen');
+  } finally { dialogeSchliessen(w); delete w.__boese; }
+});
+
+test('S2: Importierte ID kann nicht aus einem Attribut ausbrechen', async (w) => {
+  delete w.__boese;
+  const boeseId = 'x"><img src=x onerror="window.__boese=1">';
+  const rows = w.Backup._rowsAusImport('staende', [{ id: boeseId, name: 'Prüfstand', lastModified: w.U.nowIso() }]);
+  assertEq(rows.length, 1, 'der Datensatz geht nicht verloren');
+  assert(rows[0].id !== boeseId, 'aber er bekommt eine neue Kennung');
+  assert(/^[A-Za-z0-9_-]+$/.test(rows[0].id), 'und die ist unverdächtig: ' + rows[0].id);
+  assertEq(rows[0].name, 'Prüfstand', 'der Name bleibt unangetastet');
+  // Harmlose Kennungen bleiben, sonst zerrisse jeder Import die Verknüpfungen
+  const heil = w.U.uuid();
+  assertEq(w.Backup._rowsAusImport('staende', [{ id: heil, name: 'Heil' }])[0].id, heil, 'gültige IDs bleiben erhalten');
+
+  // und die Anzeige selbst hält jetzt auch dagegen
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    host.innerHTML = `<button class="row" data-id="${w.U.esc(boeseId)}">x</button>`;
+    assert(!host.querySelector('img'), 'auch direkt eingesetzt entsteht kein Bild');
+    assertEq(host.querySelector('.row').dataset.id, boeseId, 'die Kennung bleibt lesbar');
+  } finally { host.remove(); delete w.__boese; }
+});
+
+test('S3: Text in einem Zahlenfeld wird als Zahl behandelt', async (w) => {
+  assertEq(w.U.zahl(BOESE), 0, 'HTML in einem Zahlenfeld wird zu 0');
+  assertEq(w.U.zahl('2026'), 2026, 'eine Zahl als Text bleibt die Zahl');
+  assertEq(w.U.zahl(undefined, 7), 7, 'ohne Wert gilt der Ersatz');
+  assertEq(w.U.fmtBytes(BOESE), '0 B', 'auch die Größenangabe eines Anhangs');
+  assertEq(w.U.fmtBytes(2048), '2 KB', 'echte Größen stimmen weiter');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    delete w.__boese;
+    host.innerHTML = `<span>${w.U.zahl(BOESE)}</span><span>${w.U.fmtBytes(BOESE)}</span>`;
+    assert(!host.querySelector('img'), 'in der Anzeige entsteht kein Bild');
+    assertEq(w.__boese, undefined, 'und nichts wird ausgeführt');
+  } finally { host.remove(); delete w.__boese; }
+});
+
+test('S4: Eingeschleustes Logo wird verworfen, echtes bleibt', async (w) => {
+  const echtesBild = 'data:image/png;base64,iVBORw0KGgo=';
+  assertEq(w.U.bildQuelle(echtesBild), echtesBild, 'ein eingebettetes Bild ist in Ordnung');
+  assertEq(w.U.bildQuelle('https://example.org/logo.png'), 'https://example.org/logo.png', 'https ebenfalls');
+  assertEq(w.U.bildQuelle('x" onerror=alert(1) x="'), '', 'ein Ausbruch aus dem Attribut wird verworfen');
+  assertEq(w.U.bildQuelle('javascript:alert(1)'), '', 'javascript: wird verworfen');
+  assertEq(w.U.bildQuelle('data:text/html,<script>x</script>'), '', 'eine eingebettete Seite ebenfalls');
+  assertEq(w.U.bildQuelle(null), '', 'und nichts bleibt nichts');
+
+  // im Import
+  const raus = w.Backup._rowsAusImport('settings', [
+    { key: 'logo', value: 'x" onerror=alert(1) x="', lastModified: '2099-01-01T00:00:00.000Z' },
+    { key: 'logo', value: echtesBild, lastModified: '2099-01-01T00:00:00.000Z' },
+    { key: 'imkerei', value: { name: 'X', bioLogos: ['javascript:alert(1)', echtesBild] } },
+    { key: 'wizardDone', value: true },
+  ]);
+  assertEq(raus.length, 3, 'der gefälschte Logo-Eintrag fällt weg');
+  assertEq(raus[0].value, echtesBild, 'das echte Logo bleibt');
+  assertEq(raus[1].value.bioLogos, [echtesBild], 'von den Bio-Logos bleibt nur das gültige');
+  assertEq(raus[2].value, true, 'andere Einstellungen bleiben unangetastet');
+});
+
+test('S5/S6: Tabellen-Export schleust keine Formeln ein', async (w) => {
+  assertEq(w.Xlsx.zelleSicher('=1+1'), "'=1+1", 'ein führendes Gleichheitszeichen wird zu Text');
+  assertEq(w.Xlsx.zelleSicher('+49 170'), "'+49 170", 'auch Plus');
+  assertEq(w.Xlsx.zelleSicher('-5'), "'-5", 'und Minus');
+  assertEq(w.Xlsx.zelleSicher('@meier'), "'@meier", 'und das Klammeraffen-Zeichen');
+  assertEq(w.Xlsx.zelleSicher('Rapshonig'), 'Rapshonig', 'normaler Text bleibt, wie er ist');
+  assertEq(w.Xlsx.zelleSicher(42), 42, 'Zahlen bleiben Zahlen');
+  const d = new Date('2026-06-01T00:00:00Z');
+  assertEq(w.Xlsx.zelleSicher(d), d, 'Datumswerte bleiben Datumswerte');
+  // Das Zellobjekt aus einer präparierten Sicherung wird zu Text
+  assertEq(w.Xlsx.zelleSicher({ t: 'n', f: '1+1', v: 2 }), '{"t":"n","f":"1+1","v":2}', 'ein Formel-Zellobjekt wird entschärft');
+  const zeilen = w.Xlsx.zeilenSicher([{ Notiz: '=1+1', Menge: 5 }]);
+  assertEq(zeilen[0].Notiz, "'=1+1", 'auch über ganze Zeilen hinweg');
+  assertEq(zeilen[0].Menge, 5);
+});

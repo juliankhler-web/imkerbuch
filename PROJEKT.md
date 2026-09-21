@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 388/388 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 393/393 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,17 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-21 (v1.62)**: **Sechs Funde einer externen Nachprüfung behoben** (Codex las v1.61 statisch gegen das vollständige Prüfpaket).
+  Alle sechs am Code **nachgeprüft und bestätigt** – keiner war ein Fehlalarm. Gemeinsame Wurzel: Die App glaubte einer **importierten Sicherung**. Sie hat keinen Server, Daten wandern als Datei zwischen Geräten – und die kann ebenso gut von jemand anderem kommen.
+  **S1 (kritisch):** Ein erfundener Speichername landete ungeprüft im Vorschau-Dialog – es genügte, die Datei **auszuwählen**, „Zusammenführen" musste nicht bestätigt werden. Jetzt werden nur bekannte Speicher namentlich genannt, fremde gezählt und übersprungen.
+  **S2 (kritisch):** Eine ID wie `x"><img …>` brach aus `data-id="…"` aus, sobald man die Liste öffnete. Jetzt zwei Ebenen: Beim Import muss eine ID `^[A-Za-z0-9_-]{1,64}$` erfüllen (sonst neue ID, der Datensatz bleibt), und **alle 115** `data-*`-Einsetzungen sind entschärft.
+  **S3 (kritisch):** Zahlenfelder (`jahrgang`, `bestand`, `groesse`) wurden ungeprüft angezeigt. Neu `U.zahl()`, `U.fmtBytes()` gehärtet.
+  **S4 (kritisch):** `logo`, `rechnungQr` und `bioLogos` landeten direkt in `src` – mit `logoImHeader` bei jedem Start. Neu `U.bildQuelle()`: nur `data:image/…` und `https`.
+  **S5/S6 (wichtig):** CSV- und XLSX-Export übernahmen Formeln bzw. ganze Zellobjekte. Neu `Xlsx.zelleSicher()`.
+  Begründung als [ADR-0004](docs/adr/0004-eine-fremde-sicherung-ist-nicht-vertrauenswuerdig.md), inklusive der bewusst **nicht** getroffenen Entscheidung (keine vollständige Schemaprüfung).
+  Beim Nachziehen selbst gefunden: Das Diagramm maskierte seine Messpunkte doppelt, seit die `data-*`-Entschärfung pauschal lief – `JSON.parse` scheiterte, die Finger-Anzeige blieb leer. Und `zelleSicher` prüfte Datumswerte über `instanceof`, was fensterübergreifend nicht trägt; jetzt über den Typ-Namen.
+  5 neue Tests, die genau diese Angriffe nachstellen und zugleich prüfen, dass rechtmäßige Daten unverändert durchkommen. **393/393 grün.** SW → v174.
 
 - **2026-09-21 (v1.61)**: **Sicherheits- und Hygienedurchlauf** (Julian: „wichtig ist für mich sicherheit und das der code aufgeräumt ist").
   Systematisch gemessen statt geraten: alle HTML-erzeugenden Stellen gegen die Liste der **frei eintippbaren Felder** geprüft (Name, Bezeichnung, Notiz, Losnummer, Sorte …).

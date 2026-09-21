@@ -854,7 +854,18 @@ const U = {
   },
   addDays(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
   daysBetween(a, b) { return Math.round((new Date(b.slice(0, 10)) - new Date(a.slice(0, 10))) / 86400000); },
-  fmtBytes(n) { if (n > 1048576) return U.fmtNum(n / 1048576, 1) + ' MB'; if (n > 1024) return Math.round(n / 1024) + ' KB'; return n + ' B'; },
+  /* Zahl erzwingen. Werte aus einer importierten Sicherung sind nicht
+     zwingend Zahlen – stand dort HTML, landete es ungeprüft in der Anzeige. */
+  zahl(v, ersatz = 0) { const n = Number(v); return Number.isFinite(n) ? n : ersatz; },
+  fmtBytes(n) { const z = U.zahl(n); if (z > 1048576) return U.fmtNum(z / 1048576, 1) + ' MB'; if (z > 1024) return Math.round(z / 1024) + ' KB'; return z + ' B'; },
+  /* Bildadresse für ein src-Attribut. Erlaubt sind nur eingebettete Bilder und
+     https – alles andere (javascript:, data:text/html …) wird verworfen. Ein
+     Logo kommt normalerweise aus dem Bild-Upload; über eine fremde Sicherung
+     kann dort aber alles stehen. */
+  bildQuelle(v) {
+    const t = String(v == null ? '' : v).trim();
+    return /^(data:image\/(png|jpeg|jpg|gif|webp|svg\+xml);|https:\/\/)/i.test(t) ? t : '';
+  },
   sortBy: (arr, fn, desc = false) => [...arr].sort((a, b) => { const x = fn(a), y = fn(b); return (x < y ? -1 : x > y ? 1 : 0) * (desc ? -1 : 1); }),
   groupBy(arr, fn) { const m = new Map(); for (const x of arr) { const k = fn(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; },
   sum: (arr, fn) => arr.reduce((s, x) => s + (Number(fn ? fn(x) : x) || 0), 0),
@@ -952,8 +963,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.61';
+const APP_VERSION = '1.62';
 const CHANGELOG = [
+  { version: '1.62', datum: '2026-09-21', punkte: [
+    'Sicherheit: Eine <b>importierte Sicherung</b> wird jetzt geprüft, bevor etwas daraus verwendet wird. Eine präparierte Datei konnte bisher Code in der App ausführen – teils schon beim bloßen <b>Auswählen der Datei</b>, bevor man „Zusammenführen" überhaupt bestätigt hatte. Betroffen waren erfundene Bereichsnamen, Kennungen, Zahlenfelder und eingeschleuste Bildadressen (Logo, Zahlungs-QR, Bio-Logos).',
+    'Zusätzlich hält jetzt auch die Anzeige selbst dagegen: alle 115 Stellen, an denen eine Kennung in ein HTML-Attribut geht, sind entschärft; Zahlenfelder werden als Zahl behandelt; Bildadressen müssen ein echtes Bild oder https sein.',
+    'Der <b>Tabellen-Export</b> schleust keine Formeln mehr ein: Ein Text, der mit = + - @ beginnt, bleibt in Excel und LibreOffice Text statt zur Formel zu werden.',
+    'Gefunden hat das eine externe Nachprüfung des Quelltextes. Rechtmäßige Daten bleiben unverändert – gültige Kennungen, echte Logos und normaler Text laufen durch wie bisher.',
+  ] },
   { version: '1.61', datum: '2026-09-21', punkte: [
     'Sicherheit: <b>Bestätigungsfenster</b> („Wirklich löschen?") zeigten Namen bisher ungeprüft an. Ein Name aus einer <b>importierten fremden Sicherung</b> konnte darüber Code im Browser ausführen. Solche Texte werden jetzt als Text angezeigt, nicht als Anweisung.',
     'Aufgeräumt: Der <b>QR-Druckbogen</b> war zweimal im Code – einmal fürs Volk, einmal für die Charge. Jetzt gibt es eine Funktion für beides; Größe und Spalten sind Einstellungen.',
@@ -1969,15 +1986,15 @@ const UI = {
       } else if (f.type === 'textarea') {
         inner = `<textarea class="inp" id="${fid(f.key)}" placeholder="${U.esc(f.placeholder || '')}">${U.esc(v)}</textarea>`;
       } else if (f.type === 'check') {
-        return `<label class="check-line" data-field="${f.key}"><input type="checkbox" id="${fid(f.key)}" ${v ? 'checked' : ''}> <span>${U.esc(f.label)}</span></label>`;
+        return `<label class="check-line" data-field="${U.esc(f.key)}"><input type="checkbox" id="${fid(f.key)}" ${v ? 'checked' : ''}> <span>${U.esc(f.label)}</span></label>`;
       } else if (f.type === 'rating') {
-        return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}</label><div class="rating" id="${fid(f.key)}" data-val="${v || 0}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" class="${v >= n ? 'active' : ''}">${n}</button>`).join('')}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}</div>`;
+        return `<div class="field" data-field="${U.esc(f.key)}"><label>${U.esc(f.label)}</label><div class="rating" id="${fid(f.key)}" data-val="${U.esc(v || 0)}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${U.esc(n)}" class="${v >= n ? 'active' : ''}">${n}</button>`).join('')}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}</div>`;
       } else if (f.type === 'multicheck') {
         const opts = optionenSortiert((typeof f.options === 'function' ? f.options() : f.options) || [], false, f.keepOrder);
         const sel = Array.isArray(v) ? v : [];
-        return `<div class="field" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
+        return `<div class="field" data-field="${U.esc(f.key)}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label><div id="${fid(f.key)}">${opts.map((o) => `<label class="check-line"><input type="checkbox" value="${U.esc(o.v)}" ${sel.includes(o.v) ? 'checked' : ''}> <span>${U.esc(o.l)}</span></label>`).join('') || '<div class="hint">Keine Einträge vorhanden.</div>'}</div>${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
       } else if (f.type === 'static') {
-        return `<div class="field" data-field="${f.key}">${f.html}</div>`;
+        return `<div class="field" data-field="${U.esc(f.key)}">${f.html}</div>`;
       } else if (f.type === 'suggest') {
         // Eigenes Auswahl-Dropdown (kein <datalist> – das zeigt auf iOS/Android oft keine Optionen):
         // Eingabefeld + auf-/zuklappbare Optionsliste. Freies Eintippen bleibt möglich.
@@ -1991,7 +2008,7 @@ const UI = {
       } else {
         inner = `<input class="inp" id="${fid(f.key)}" type="${f.type === 'date' ? 'date' : 'text'}" placeholder="${U.esc(f.placeholder || '')}" value="${U.esc(v)}">`;
       }
-      return `<div class="field${f.halb ? ' halb' : ''}" data-field="${f.key}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${inner}${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
+      return `<div class="field${f.halb ? ' halb' : ''}" data-field="${U.esc(f.key)}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${inner}${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
     };
     const m = UI.modal({
       title, wide, guardDirty: true,
@@ -2032,7 +2049,7 @@ const UI = {
     const collect = () => {
       const out = {}; let ok = true;
       for (const f of fields) {
-        const wrap = $(`[data-field="${f.key}"]`, form);
+        const wrap = $(`[data-field="${U.esc(f.key)}"]`, form);
         if (f.type === 'static') continue;
         if (wrap.classList.contains('hidden')) { out[f.key] = values[f.key]; continue; }
         let v;
@@ -2066,7 +2083,7 @@ const UI = {
           if (!el) continue;
           cur[g.key] = g.type === 'check' ? el.checked : (g.type === 'number' ? U.parseNum(el.value) : el.value);
         }
-        $(`[data-field="${f.key}"]`, form).classList.toggle('hidden', !f.showIf(cur));
+        $(`[data-field="${U.esc(f.key)}"]`, form).classList.toggle('hidden', !f.showIf(cur));
       }
     };
     updateShowIf();
@@ -2087,7 +2104,7 @@ const UI = {
   tabs(tabs, activeId, onChange) {
     const el = document.createElement('div');
     el.className = 'tabs no-print';
-    el.innerHTML = tabs.map((t) => `<button data-id="${t.id}" class="${t.id === activeId ? 'active' : ''}">${U.esc(t.label)}</button>`).join('');
+    el.innerHTML = tabs.map((t) => `<button data-id="${U.esc(t.id)}" class="${t.id === activeId ? 'active' : ''}">${U.esc(t.label)}</button>`).join('');
     el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) onChange(b.dataset.id); });
     return el;
   },
@@ -2143,8 +2160,9 @@ const UI = {
         };
       }).filter(Boolean),
     })).filter((p) => p.w.length);
-    const daten = U.esc(JSON.stringify({ t: +padT.toFixed(1), b: +(padT + ih).toFixed(1), p: punkte }));
-    return `<div class="chart-box" data-chart="${daten}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}`
+    // Entschärft wird erst beim Einsetzen ins Attribut – sonst steht doppelt Maskiertes drin und JSON.parse scheitert.
+    const daten = JSON.stringify({ t: +padT.toFixed(1), b: +(padT + ih).toFixed(1), p: punkte });
+    return `<div class="chart-box" data-chart="${U.esc(daten)}"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${g}`
       + `<line class="ch-fuehrung" x1="0" y1="${padT}" x2="0" y2="${padT + ih}"/><g class="ch-marken"></g></svg>`
       + `<div class="ch-wert"></div>${legend}</div>`;
   },
@@ -2367,7 +2385,7 @@ function renderChrome() {
   const side = $('#sidebar');
   side.innerHTML = `<div class="brand">${brandLogoSvg(30)} ImkerBuch</div>` + NAV.map((n) =>
     n.sec ? `<div class="nav-sec">${n.sec}</div>`
-      : `<button class="nav-item" data-route="${n.route}">${iconBunt(n.ic)}<span>${n.label}</span></button>`
+      : `<button class="nav-item" data-route="${U.esc(n.route)}">${iconBunt(n.ic)}<span>${n.label}</span></button>`
   ).join('') + `<div class="side-foot">ImkerBuch v${APP_VERSION} · lokal & offline<br>Deine Daten bleiben auf dem Gerät.</div>`;
   side.addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) navTo(b.dataset.route); });
   const bn = $('#bottomnav');
@@ -2394,7 +2412,7 @@ function renderBottomNav() {
   if (routes[0] !== 'dashboard') routes = ['dashboard', ...routes.filter((r) => r !== 'dashboard')];
   routes = routes.slice(0, 4);
   const bnLabel = (r) => (r === 'dashboard' ? 'Start' : bereichKurz(r));
-  bn.innerHTML = routes.map((r) => `<button data-route="${r}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span>${U.esc(bnLabel(r))}</button>`).join('') +
+  bn.innerHTML = routes.map((r) => `<button data-route="${U.esc(r)}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span>${U.esc(bnLabel(r))}</button>`).join('') +
     `<button data-more><span class="bn-pill">${iconBunt('mehr')}</span>Mehr</button>`;
   const { route } = currentRoute();
   const navRoute = ROUTE_PARENT[route] || route;
@@ -2405,7 +2423,7 @@ function openMoreSheet() {
   const items = NAV.filter((n) => n.route);
   const m = UI.modal({
     title: 'Alle Bereiche',
-    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${n.route}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>`,
+    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${U.esc(n.route)}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>`,
   });
   $('.sheet-grid', m.el).addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -2501,7 +2519,7 @@ function tagesbiene(stunde = new Date().getHours()) {
 function tagesbieneHtml(stunde) {
   const b = tagesbiene(stunde);
   return `<img class="tages-biene" src="${b.datei}" width="96" height="96" decoding="async"
-    alt="Biene: ${U.esc(b.text)}" title="${U.esc(b.text)}" data-tagesbiene="${b.stunde}">`;
+    alt="Biene: ${U.esc(b.text)}" title="${U.esc(b.text)}" data-tagesbiene="${U.esc(b.stunde)}">`;
 }
 /** Wechselt das Bild, wenn eine neue Stunde beginnt und die App offen bleibt.
     Tut nichts, wenn gerade keine Biene sichtbar ist – der Prüfer läuft für die
@@ -2556,8 +2574,8 @@ const Anhang = {
             <option value="">Alle Typen</option>${typen.map((t) => `<option ${filter === t ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select>` : ''}
         </div>
         <div class="gallery mb8" data-gal>
-          ${items.map((a) => `<button class="g-item" data-id="${a.id}" title="${U.esc(a.name)}">
-            ${a.art === 'foto' ? `<img alt="" data-thumb="${a.id}">` : `${icon('doc')}<span class="g-name">${U.esc(a.name)}</span>`}
+          ${items.map((a) => `<button class="g-item" data-id="${U.esc(a.id)}" title="${U.esc(a.name)}">
+            ${a.art === 'foto' ? `<img alt="" data-thumb="${U.esc(a.id)}">` : `${icon('doc')}<span class="g-name">${U.esc(a.name)}</span>`}
             ${a.dokumentTyp ? `<span class="g-badge">${U.esc(a.dokumentTyp)}</span>` : ''}
           </button>`).join('')}
           <label class="g-item" style="border-style:dashed" title="Foto aufnehmen">${icon('camera')}<span class="g-name">Foto</span>
@@ -2567,7 +2585,7 @@ const Anhang = {
         </div>
         <div class="hint small muted">Anhänge werden lokal gespeichert. Fotos werden automatisch verkleinert; Dokumente möglichst unter 5 MB halten, sonst werden Backups groß.</div>`;
       // Thumbnails über Blob-URLs; nach dem Laden freigeben, sonst leckt jeder Re-Render Speicher
-      for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${a.id}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
+      for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${U.esc(a.id)}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
       const ff = $('[data-filter]', el); if (ff) ff.onchange = () => { filter = ff.value; render(); };
       $('[data-add-foto]', el).onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;
@@ -2730,15 +2748,15 @@ const Sprachnotiz = {
         ${recorder ? `<div class="banner info" data-live>${icon('mic')} <span>Aufnahme läuft … ${Voice.webSpeechAvailable() ? 'Live-Diktat aktiv.' : ''}</span></div>` : ''}
         ${!Voice.webSpeechAvailable() && !whisperOn ? `<div class="hint small muted mb8">Live-Diktat (Web Speech) funktioniert nur in Chrome/Edge mit Internet. Alternativ in den Einstellungen die Offline-Transkription (Whisper) aktivieren.</div>` : ''}
         <div class="rows" data-list>
-          ${items.map((a) => `<div class="audio-row" data-id="${a.id}">
+          ${items.map((a) => `<div class="audio-row" data-id="${U.esc(a.id)}">
             <audio controls preload="metadata"></audio>
             ${whisperOn ? `<button class="icon-btn" data-trans title="Transkribieren (Whisper offline)">${icon('doc')}</button>` : ''}
             <button class="icon-btn" data-del title="Löschen">${icon('trash')}</button>
           </div>
-          ${a.transkript ? `<div class="small muted" style="padding:0 4px 10px">„${U.esc(a.transkript)}“ ${onText ? `<button class="btn btn-xs btn-ghost" data-take="${a.id}">In Notiz übernehmen</button>` : ''}</div>` : ''}`).join('') || '<div class="hint small muted">Noch keine Sprachnotizen.</div>'}
+          ${a.transkript ? `<div class="small muted" style="padding:0 4px 10px">„${U.esc(a.transkript)}“ ${onText ? `<button class="btn btn-xs btn-ghost" data-take="${U.esc(a.id)}">In Notiz übernehmen</button>` : ''}</div>` : ''}`).join('') || '<div class="hint small muted">Noch keine Sprachnotizen.</div>'}
         </div>
         <div data-progress></div>`;
-      for (const a of items) { const row = $(`[data-id="${a.id}"] audio`, el); if (row) { const u = URL.createObjectURL(a.blob); blobUrls.push(u); row.src = u; } }
+      for (const a of items) { const row = $(`[data-id="${U.esc(a.id)}"] audio`, el); if (row) { const u = URL.createObjectURL(a.blob); blobUrls.push(u); row.src = u; } }
       $('[data-rec]', el).onclick = () => (recorder ? stopRec() : startRec());
       $('[data-list]', el).addEventListener('click', async (e) => {
         const take = e.target.closest('[data-take]');
@@ -2840,7 +2858,7 @@ const DASH_WIDGETS = {
       const TOP = 5, offen = DASH_WIDGETS.fahrt._alle;
       rows = staende.map((s, i) => standZeile(s, { mehr: i >= TOP, versteckt: i >= TOP && !offen })).join('');
       if (staende.length > TOP) {
-        mehr = `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${staende.length}" onclick="fahrtWidgetToggle(this)">
+        mehr = `<button class="btn btn-ghost btn-sm no-print fahrt-toggle" style="width:100%;margin-top:6px" data-n="${U.esc(staende.length)}" onclick="fahrtWidgetToggle(this)">
            <span class="fw-txt">${offen ? 'Weniger' : `Alle ${staende.length} Stände`}</span> <span class="fw-chev">${offen ? '▲' : '▼'}</span></button>`;
       }
     }
@@ -3018,7 +3036,7 @@ Views.dashboard = {
     main.innerHTML = pageHead(`${gruss}${vorname ? ', ' + vorname : ''}!`, new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
       /* Ohne Symbol: das Zahnrad wirkte neben der Tagesbiene wie eine zweite Sonne. */
       `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">Widgets</button>`, tagesbieneHtml()) +
-      `<div class="grid2">${blocks.map((b) => `<div class="dash-klick" data-ziel="${b.ziel || ''}" role="link">${b.html}</div>`).join('')}</div>`;
+      `<div class="grid2">${blocks.map((b) => `<div class="dash-klick" data-ziel="${U.esc(b.ziel || '')}" role="link">${b.html}</div>`).join('')}</div>`;
     $('#dash-cfg').onclick = Views.dashboard.configure;
     // Kachel-Klick führt in den passenden Bereich – Buttons/Links in der Kachel behalten Vorrang
     main.addEventListener('click', (e) => {
@@ -3734,7 +3752,7 @@ Views.staende = {
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neuer Stand</button>`) +
       `<div class="card">` + (staende.length ? `<div class="rows">` + staende.map((s) => {
         const n = voelker.filter((v) => v.standId === s.id).length;
-        return `<button class="row" data-id="${s.id}">
+        return `<button class="row" data-id="${U.esc(s.id)}">
           <span class="r-ic">${icon('hive')}</span>
           <span class="r-main"><span class="r-title">${U.esc(s.name)}</span>
           <span class="r-sub">${n} ${n === 1 ? 'Volk' : 'Völker'}${s.lat ? ' · 📍 ' + U.fmtNum(s.lat, 4) + ', ' + U.fmtNum(s.lng, 4) : ''}</span></span>
@@ -3778,7 +3796,7 @@ Views.stand = {
       </div>
       <div class="card">
         <div class="card-title">${icon('volk')}<h2>Völker an diesem Stand</h2><button class="btn btn-ghost btn-sm no-print" id="addVolk">${icon('plus')} Volk</button></div>
-        ${voelker.length ? `<div class="rows">${voelker.map((v) => `<button class="row" data-volk="${v.id}"><span class="r-ic">${icon('volk')}</span><span class="r-main"><span class="r-title">${U.esc(v.name)}</span><span class="r-sub">${U.esc(v.funktion || '')} ${v.beutenkennung ? (v.funktion ? '· ' : '') + U.esc(v.beutenkennung) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : '<div class="muted small">Keine aktiven Völker an diesem Stand.</div>'}
+        ${voelker.length ? `<div class="rows">${voelker.map((v) => `<button class="row" data-volk="${U.esc(v.id)}"><span class="r-ic">${icon('volk')}</span><span class="r-main"><span class="r-title">${U.esc(v.name)}</span><span class="r-sub">${U.esc(v.funktion || '')} ${v.beutenkennung ? (v.funktion ? '· ' : '') + U.esc(v.beutenkennung) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : '<div class="muted small">Keine aktiven Völker an diesem Stand.</div>'}
       </div>
       <div class="card">
         <div class="card-title">${icon('wetter')}<h2>Wetter</h2>
@@ -3789,7 +3807,7 @@ Views.stand = {
         <div id="wetter-chart">${wetterAll.length > 1 ? UI.chart({ type: 'line', labels: [...wetterAll].reverse().map((w) => U.fmtDate(w.datum).slice(0, 6)), series: [{ name: '°C', values: [...wetterAll].reverse().map((w) => w.tempC) }], height: 160, unit: '°C' }) : ''}</div>
         ${wetterAll.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th class="num">Temp.</th><th class="num">Wind</th><th class="num">Regen</th><th>Bemerkung</th><th></th></tr></thead>
           <tbody>${wetterAll.slice(0, 30).map((w) => `<tr><td>${U.fmtDate(w.datum)}</td><td class="num">${U.fmtNum(w.tempC, 1)} °C</td><td class="num">${U.fmtNum(w.windKmh, 0)} km/h</td><td class="num">${U.fmtNum(w.niederschlagMm, 1)} mm</td><td>${U.esc(w.bemerkung || '')}${w.quelle === 'open-meteo' ? ' <span class="badge b-blue">auto</span>' : ''}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-wdel="${w.id}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="muted small">Noch keine Wetterdaten erfasst.</div>'}
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-wdel="${U.esc(w.id)}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="muted small">Noch keine Wetterdaten erfasst.</div>'}
       </div>
       <div class="card" id="anhang-card"></div>`;
     $('#anhang-card').appendChild(Anhang.section({ parentTyp: 'stand', parentId: id, onNotiz: async (t) => { s.notizen = (s.notizen ? s.notizen + '\n' : '') + t; await DB.put('staende', s); renderRoute(); } }));
@@ -3949,13 +3967,13 @@ Views.voelker = {
       `<span class="flex-wrap no-print">${aktive.length ? `<button class="btn btn-ghost btn-sm" id="sammel">${icon('check2')} Sammel-Erfassung</button>` : ''}<button class="btn btn-primary" id="add">${icon('plus')} Neues Volk</button></span>`) +
       `<div class="chip-row mb16 no-print">
         <button class="chip ${!filterStand && !showAlte ? 'active' : ''}" data-f="">Alle aktiven</button>
-        ${[...staende.values()].map((s) => `<button class="chip ${filterStand === s.id ? 'active' : ''}" data-f="${s.id}">${U.esc(s.name)}</button>`).join('')}
+        ${[...staende.values()].map((s) => `<button class="chip ${filterStand === s.id ? 'active' : ''}" data-f="${U.esc(s.id)}">${U.esc(s.name)}</button>`).join('')}
         <button class="chip ${showAlte ? 'active' : ''}" data-alte>Archiv</button>
       </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((v) => {
         const q = queens.get(v.koeniginId);
         const qc = q ? queenColor(q.jahrgang) : null;
-        return `<button class="row" data-id="${v.id}">
+        return `<button class="row" data-id="${U.esc(v.id)}">
           <span class="r-ic">${icon('volk')}</span>
           <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
           <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
@@ -4128,9 +4146,9 @@ Views.volk = {
     const vorlagen = S.get('stockkartenVorlagen') || [];
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('buch')}<h2>Durchsichten</h2><button class="btn btn-primary btn-sm no-print" id="skAdd">${icon('plus')} Durchsicht</button></div>
-      ${vorlagen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center">Schnell:</span>${vorlagen.map((vl, i) => `<button class="chip" data-vorlage="${i}">${icon('plus')} ${U.esc(vl.name)}</button>`).join('')}</div>` : ''}
+      ${vorlagen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center">Schnell:</span>${vorlagen.map((vl, i) => `<button class="chip" data-vorlage="${U.esc(i)}">${icon('plus')} ${U.esc(vl.name)}</button>`).join('')}</div>` : ''}
       ${eintraege.length ? `<div class="rows">${eintraege.map((s) => `
-        <button class="row" data-sk="${s.id}">
+        <button class="row" data-sk="${U.esc(s.id)}">
           <span class="r-main"><span class="r-title">${U.fmtDate(s.datum)} ${s.weiselzellen ? '<span class="badge b-warn">Weiselzellen</span>' : ''}</span>
           <span class="r-sub">Stärke ${rate(s.volksstaerke)} · Brut ${rate(s.brutbild)} · Sanftmut ${rate(s.sanftmut)}${s.futter ? ' · Futter: ' + U.esc(s.futter) : ''}${s.notiz ? ' · ' + U.esc(s.notiz) : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('')}</div>` : emptyState('buch', 'Noch keine Durchsicht erfasst. Die Stockkarte ist das Gedächtnis des Volks.')}
@@ -4228,7 +4246,7 @@ Views.volk = {
           ${zeigtZucker ? `<td class="num">${zucker[i] ? (zucker[i].geschaetzt ? '≈ ' : '') + U.fmtNum(zucker[i].kg, 1) : '–'}</td>` : ''}
           ${zeigtLiter ? `<td class="num stark">${liter[i] != null ? U.fmtNum(liter[i], 1) : '–'}</td>` : ''}
           <td>${f.winterfutter ? '<span class="badge b-blue">Winterfutter</span>' : '–'}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-fe="${f.id}">${icon('pencil')}</button></td></tr>`).join('')}</tbody></table></div>
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-fe="${U.esc(f.id)}">${icon('pencil')}</button></td></tr>`).join('')}</tbody></table></div>
         <div class="small muted mt8">Gesamt: <b>${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg</b>${zeigtZucker ? ` · davon Zucker: ${U.fmtNum(zSumme, 1)} kg` : ' Zucker'}${zeigtLiter ? ` · angesetzt: <b>${U.fmtNum(lSumme, 1)} L</b> Sirup` : ''}${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''}</div>`;
       })()
       : emptyState('honig', 'Noch keine Fütterung erfasst.')}
@@ -4273,7 +4291,7 @@ Views.volk = {
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Milben</th><th class="num">Kennzahl</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
         <tbody>${[...list].reverse().map((x) => { const m = varroaMetrik(x);
           return `<tr><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${x.id}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${U.esc(x.id)}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
         <div class="hint mt8">Zwei Kennzahlen je nach Methode: <b>Milben/Tag</b> (Bodenschieber/Gemüll, saisonale Schwelle) und <b>Milben je 100 Bienen</b> (Auswaschen/Puderzucker, Richtwert ~3 %). Ohne Gewähr. Behandlung dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
       : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (Bodenschieber, Auswaschen oder Puderzucker) zeigt früh, wann behandelt werden muss.')}
     </div>`;
@@ -4313,7 +4331,7 @@ Views.volk = {
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th class="num">Gewicht (kg)</th><th class="num">Δ</th><th></th></tr></thead>
         <tbody>${[...list].reverse().map((g, i, arr) => { const prev = arr[i + 1]; const d = prev ? g.gewichtKg - prev.gewichtKg : null;
           return `<tr><td>${U.fmtDate(g.datum)}</td><td class="num">${U.fmtNum(g.gewichtKg)}</td><td class="num" style="color:${d > 0 ? 'var(--ok)' : d < 0 ? 'var(--danger)' : 'inherit'}">${d === null ? '–' : (d > 0 ? '+' : '') + U.fmtNum(d)}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-gd="${g.id}">${icon('trash')}</button></td></tr>`; }).join('')}</tbody></table></div>`
+          <td class="no-print"><button class="btn btn-xs btn-ghost" data-gd="${U.esc(g.id)}">${icon('trash')}</button></td></tr>`; }).join('')}</tbody></table></div>`
       : emptyState('gewicht', 'Noch keine Wiegung. Regelmäßiges Wiegen zeigt Tracht und Futtervorrat.')}
     </div>`;
     $('#gAdd', box).onclick = () => UI.formModal({
@@ -4369,9 +4387,9 @@ Views.koeniginnen = {
         const aktuelleZuordnung = (q.historie || []).find((h) => !h.bis);
         const volk = aktuelleZuordnung ? voelker.get(aktuelleZuordnung.volkId) : null;
         const note = zuchtNote(q.bewertung);
-        return `<button class="row" data-id="${q.id}">
+        return `<button class="row" data-id="${U.esc(q.id)}">
           <span class="r-ic" style="background:${hex}22"><span class="dot" style="background:${hex};width:16px;height:16px"></span></span>
-          <span class="r-main"><span class="r-title">${q.kennung ? U.esc(q.kennung) : `Jahrgang ${q.jahrgang}`} <span class="small muted">(${farbe})</span> <span class="badge ${statusBadge[q.status] || 'b-muted'}">${U.esc(q.status)}</span></span>
+          <span class="r-main"><span class="r-title">${q.kennung ? U.esc(q.kennung) : `Jahrgang ${U.zahl(q.jahrgang)}`} <span class="small muted">(${farbe})</span> <span class="badge ${statusBadge[q.status] || 'b-muted'}">${U.esc(q.status)}</span></span>
           <span class="r-sub">${U.esc(q.linie || '')}${q.linie && q.herkunft ? ' · ' : ''}${U.esc(q.herkunft || '')}${volk ? ` · in „${U.esc(volk.name)}“` : ' · nicht zugeordnet'}</span></span>
           ${note ? `<span class="r-side"><b>⌀ ${U.fmtNum(note, 1)}</b><br><span class="muted small">Zuchtnote</span></span>` : ''}${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('crown', 'Noch keine Königinnen erfasst. Der Jahrgang bestimmt automatisch die Zeichenfarbe.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Königin</button>`)) + `</div>`;
@@ -4480,7 +4498,7 @@ Views.koeniginnen = {
       title: q.kennung ? `Königin ${U.esc(q.kennung)}` : `Königin ${q.jahrgang} (${farbe})`, wide: true,
       body: `<div class="detail-kv mb12">
           ${q.kennung ? `<dt>Kennung</dt><dd><b>${U.esc(q.kennung)}</b></dd>` : ''}
-          <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${q.jahrgang} (${farbe})</dd>
+          <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${U.zahl(q.jahrgang)} (${U.esc(farbe)})</dd>
           <dt>Herkunft / Linie</dt><dd>${U.esc(q.linie) || '–'}</dd><dt>Anpaarung</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
           <dt>Mutter (2a)</dt><dd>${q.mutterId && qm.get(q.mutterId) ? koeniginLabel(qm.get(q.mutterId)) : '<span class="muted">–</span>'}</dd>
           <dt>Drohnenlinie</dt><dd>${anpaarungMethode}</dd>
@@ -4498,7 +4516,7 @@ Views.koeniginnen = {
         </div>
         <div class="mb12" id="sb-box">${stammbaum}</div>
         <h3 class="mb8">Zuordnungshistorie</h3>
-        <div class="rows mb8">${hist.map((h) => `<button class="row" style="min-height:42px;padding:8px 4px" data-hist="${(q.historie || []).indexOf(h)}">
+        <div class="rows mb8">${hist.map((h) => `<button class="row" style="min-height:42px;padding:8px 4px" data-hist="${U.esc((q.historie || []).indexOf(h))}">
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(h.volkId)?.name || 'gelöschtes Volk')}${!h.bis ? ' <span class="badge b-ok">aktuell</span>' : ''}</span>
           <span class="r-sub">${U.fmtDate(h.von)} – ${h.bis ? U.fmtDate(h.bis) : 'heute'}</span></span>${icon('pencil', 'chev')}</button>`).join('') || '<span class="muted small">Noch nie einem Volk zugeordnet.</span>'}</div>
         <button class="btn btn-ghost btn-sm mb12 no-print" data-hist-add>${icon('plus')} Zuordnung hinzufügen</button>
@@ -4674,7 +4692,7 @@ function koeniginKurz(k) { return k ? (k.kennung || ('Jg. ' + k.jahrgang)) : '�
     `felder` = alle Select-Keys, denen die neue Königin ebenfalls angeboten wird;
     ausgewählt wird sie nur im angeklickten Feld. */
 function koeniginNeuShortcut(m, feldKey, label, felder) {
-  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  const wrap = $(`[data-field="${U.esc(feldKey)}"]`, m.el);
   if (!wrap) return;
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -4699,7 +4717,7 @@ function koeniginNeuShortcut(m, feldKey, label, felder) {
 /** Shortcut im Zucht-Formular: direkt beim „Belegstelle“-Feld eine neue anlegen,
     ohne das Formular zu verlassen – wird sofort ausgewählt. */
 function belegstelleNeuShortcut(m, feldKey = 'belegstelleId') {
-  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  const wrap = $(`[data-field="${U.esc(feldKey)}"]`, m.el);
   if (!wrap) return;
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -4719,7 +4737,7 @@ function belegstelleNeuShortcut(m, feldKey = 'belegstelleId') {
     Liste übernommen (auch für künftige Formulare) und sofort ausgewählt. Funktioniert
     für select und für das eigene „suggest“-Dropdown (combo). */
 function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalter }) {
-  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  const wrap = $(`[data-field="${U.esc(feldKey)}"]`, m.el);
   if (!wrap) return;
   const btn = document.createElement('button');
   btn.type = 'button';
@@ -4751,7 +4769,7 @@ function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalt
   });
 }
 /** Kurzlabel einer Königin (Kennung falls vorhanden, sonst Jahrgang+Farbe) */
-function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${k.jahrgang} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
+function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${U.zahl(k.jahrgang)} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
 /** Durchschnittliche Zuchtnote aus den vier 1–4-Merkmalen (nur bewertete zählen). */
 function zuchtNote(b) {
   if (!b) return 0;
@@ -4863,7 +4881,7 @@ function koeniginStammbaumHtml(q, qm, tiefe = 5, offen = new Set()) {
         const key = 'v' + vater.id + '-' + g;
         const auf = offen.has(key);
         rows.push(zeile(g, 'Drohnenvolk', koeniginLabel(vater),
-          `<button type="button" class="sb-tog" data-sbz="${key}" title="${auf ? 'Zweig zuklappen' : 'Abstammung des Drohnenvolks zeigen'}">${auf ? '−' : '+'}</button>`));
+          `<button type="button" class="sb-tog" data-sbz="${U.esc(key)}" title="${auf ? 'Zweig zuklappen' : 'Abstammung des Drohnenvolks zeigen'}">${auf ? '−' : '+'}</button>`));
         if (auf) rows.push(zweigHtml(vater, g + 1));
       } else if (beleg) {
         rows.push(zeile(g, 'Belegstelle', U.esc(beleg)));
@@ -4995,7 +5013,7 @@ Views.zucht = {
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Serie</button>`) +
       `<div class="card">` + (serien.length ? `<div class="rows">` + serien.map((s) => {
         const next = s.termine.find((t) => t.datum >= U.todayIso());
-        return `<button class="row" data-id="${s.id}">
+        return `<button class="row" data-id="${U.esc(s.id)}">
           <span class="r-ic">${icon('egg')}</span>
           <span class="r-main"><span class="r-title">${U.esc(s.name)}</span>
           <span class="r-sub">Umlarven ${U.fmtDate(s.startdatum)} · ${s.anzahl} Zellen${next ? ` · nächster Schritt: ${U.esc(next.titel)} am ${U.fmtDate(next.datum)}` : ' · abgeschlossen'}</span></span>
@@ -5166,7 +5184,7 @@ Views.behandlungen = {
         <div id="eb-out" class="mt8"></div>
       </div></div>` +
       `<div class="card">` + (list.length ? `<div class="rows">` + list.map((b) => `
-        <button class="row" data-id="${b.id}">
+        <button class="row" data-id="${U.esc(b.id)}">
           <span class="r-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span>
           <span class="r-main"><span class="r-title">${U.esc(b.mittel)}</span>
           <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${b.wartezeitTage} Tage` : ''}</span></span>
@@ -5523,7 +5541,7 @@ async function kontaktForm(c, { typ, onSaved, oeko = false } = {}) {
     verlassen und ohne den Vorgang abzubrechen. Muster wie
     listenwertNeuShortcut, nur für Kontakte. */
 function verdrahteKontaktNeu(m, feldKey, liste, { typ = 'kunde', label = 'Neuer Kunde' } = {}) {
-  const wrap = $(`[data-field="${feldKey}"]`, m.el);
+  const wrap = $(`[data-field="${U.esc(feldKey)}"]`, m.el);
   const sel = $(`#f-${feldKey}`, m.el);
   if (!wrap || !sel) return m;
   const btn = document.createElement('button');
@@ -5676,14 +5694,14 @@ Views.fuetterung = {
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fuetterungsliste('${jahr}')">${icon('doc')} Liste ${jahr} (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Fütterung</button>
        <button class="btn btn-primary" id="frech">${icon('plus')} Fütterung mit Futter-Rechner</button></span>`) +
-      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
+      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('flask')} Zucker ${jahr}</div><div class="s-value">${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fütterung' : 'Fütterungen'}${mengeAbweichend ? ` · aus ${U.fmtNum(kg)} kg erfasster Menge` : ''}${zOffen ? ` · ${zOffen} ohne Angabe` : ''}</div></div>
         <div class="stat"><div class="s-label">${icon('futter')} Sirup angesetzt</div><div class="s-value">${U.fmtNum(lSumme, 1)} L</div><div class="s-sub">${lAnzahl === list.length ? 'alle Einträge' : `bei ${lAnzahl} von ${list.length} Einträgen`} mit Mischverhältnis</div></div>
         <div class="stat"><div class="s-label">${icon('wetter')} davon Winterfutter</div><div class="s-value">${U.fmtNum(wZucker, 1)} kg</div><div class="s-sub">Zucker in den Winterfutter-Gaben</div></div>
       </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
-        <button class="row" data-id="${f.id}">
+        <button class="row" data-id="${U.esc(f.id)}">
           <span class="r-ic">${icon('futter')}</span>
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(f.volkId)?.name || 'gelöschtes Volk')}${f.winterfutter ? ' <span class="badge b-blue">Winterfutter</span>' : ''}</span>
           <span class="r-sub">${U.fmtDate(f.datum)} · ${U.esc(f.futterart || '')}</span></span>
@@ -5711,7 +5729,7 @@ Views.fuetterung = {
     });
     // zurück aus dem Formular („Rechner anpassen“): vorherige Eingaben wieder setzen
     if (vorgabe) {
-      const setz = (k, v) => { const el = $(`[data-fr="${k}"]`, m.el); if (el && v != null && v !== '') el.value = v; };
+      const setz = (k, v) => { const el = $(`[data-fr="${U.esc(k)}"]`, m.el); if (el && v != null && v !== '') el.value = v; };
       setz('jeVolk', vorgabe.jeVolk != null ? U.fmtNum(vorgabe.jeVolk, 2) : null);
       setz('verh', vorgabe.verh);
       setz('voelker', vorgabe.voelker != null ? String(vorgabe.voelker) : null);
@@ -5901,7 +5919,7 @@ Views.trachten = {
         // Ertrag je Tracht stammt aus Alt-Ernten mit Tracht-Verknüpfung; neue Ernten werden
         // nach Sorte ausgewertet (Honig → Sorten / Statistiken) – daher nur zeigen, wenn vorhanden.
         const kg = U.sum(ernten.filter((e) => e.trachtId === t.id), (e) => e.mengeKg);
-        return `<button class="row" data-id="${t.id}">
+        return `<button class="row" data-id="${U.esc(t.id)}">
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('flower')}</span>
           <span class="r-main"><span class="r-title">${U.esc(t.bezeichnung)}</span>
           <span class="r-sub">${U.esc(t.pflanze || '')}${t.von ? ` · ${U.fmtDate(t.von)} – ${U.fmtDate(t.bis)}` : ''}${t.region ? ' · ' + U.esc(t.region) : ''}${(t.standIds || []).length ? ' · ' + t.standIds.map((s) => U.esc(staende.get(s)?.name || '')).filter(Boolean).join(', ') : ''}</span></span>
@@ -6014,7 +6032,7 @@ Views.wanderungen = {
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.wanderbuch()">${icon('doc')} Wanderbuch (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Wanderung</button></span>`) +
       `<div class="card">` + (list.length ? `<div class="rows">` + list.map((w) => `
-        <button class="row" data-id="${w.id}">
+        <button class="row" data-id="${U.esc(w.id)}">
           <span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
           <span class="r-main"><span class="r-title">${U.esc(ortVon(w))} → ${U.esc(ortNach(w))}</span>
           <span class="r-sub">${sub(w)}</span></span>
@@ -7147,7 +7165,7 @@ Views.bio = {
       if (!st) return '';
       return ` <span class="badge ${st === 'vorbei' ? 'b-danger' : 'b-warn'}">Zertifikat gültig bis ${U.fmtDate(c.oekoGueltigBis)}${st === 'vorbei' ? ' – vorbei' : ''}</span>`;
     };
-    const chip = (v, l) => `<button class="chip ${filter === v ? 'active' : ''}" data-pfilter="${v}">${l}</button>`;
+    const chip = (v, l) => `<button class="chip ${filter === v ? 'active' : ''}" data-pfilter="${U.esc(v)}">${l}</button>`;
     const ohneNummer = list.filter((c) => kontaktIstLieferant(c) && !c.oekoNummer).length;
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('meldung')}<h2>Abnehmer und Lieferanten</h2>
@@ -7160,7 +7178,7 @@ Views.bio = {
       ${list.length ? `<div class="rows">${list.map((c) => {
         const n = zertZahl(c);
         const sub = [rolle(c), c.oekoWas, c.oekoNummer, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
-        return `<button class="row" data-kontakt="${c.id}">
+        return `<button class="row" data-kontakt="${U.esc(c.id)}">
           <span class="r-ic">${icon('meldung')}</span>
           <span class="r-main"><span class="r-title">${U.esc(c.name)}${marke(c)}</span>
             ${sub ? `<span class="r-sub">${U.esc(sub)}</span>` : ''}
@@ -7194,18 +7212,18 @@ Views.bio = {
     };
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon(def.icon)}<h2>${U.esc(def.titel)}</h2>
-        <button class="btn btn-primary btn-sm no-print" data-add="${bereich}">${icon('plus')} Eintrag</button></div>
+        <button class="btn btn-primary btn-sm no-print" data-add="${U.esc(bereich)}">${icon('plus')} Eintrag</button></div>
       <p class="small muted mb12">${U.esc(def.hinweis)}</p>
       ${list.length ? `<div class="rows">${list.map((e) => {
         const z = def.zeile(e);
-        return `<button class="row" data-eintrag="${e.id}">
+        return `<button class="row" data-eintrag="${U.esc(e.id)}">
           <span class="r-ic">${icon(def.icon)}</span>
           <span class="r-main"><span class="r-title">${U.esc(z.titel)}${marke(e)}</span>
           ${z.sub ? `<span class="r-sub">${U.esc(z.sub)}</span>` : ''}
           ${e.notiz ? `<span class="r-sub">${U.esc(e.notiz)}</span>` : ''}</span>
           <span class="r-side">${z.seite ? `<b>${z.seite}</b>` : ''}</span>${icon('chevR', 'chev')}</button>`;
       }).join('')}</div>`
-      : emptyState(def.icon, 'Noch kein Eintrag.', `<button class="btn btn-primary" data-add="${bereich}">${icon('plus')} Ersten Eintrag anlegen</button>`)}
+      : emptyState(def.icon, 'Noch kein Eintrag.', `<button class="btn btn-primary" data-add="${U.esc(bereich)}">${icon('plus')} Ersten Eintrag anlegen</button>`)}
     </div>`;
     $$('[data-add]', box).forEach((b) => b.onclick = () => Views.bio.eintragForm(bereich, null));
     box.addEventListener('click', (ev) => {
@@ -7342,7 +7360,7 @@ Views.bio = {
         const su = bioSummen(anteile);
         const b = st.bio || {};
         const zahl = voelker.filter((v) => v.standId === st.id).length;
-        return `<button class="row" data-stand="${st.id}">
+        return `<button class="row" data-stand="${U.esc(st.id)}">
           <span class="r-ic">${icon('hive')}</span>
           <span class="r-main"><span class="r-title">${U.esc(st.name)} <span class="badge b-muted">${zahl} ${zahl === 1 ? 'Volk' : 'Völker'}</span></span>
           <span class="r-sub">${anteile.length
@@ -7371,7 +7389,7 @@ Views.bio = {
       title: `Landbedeckung · ${stand.name}`, wide: true,
       body: `<div class="grid2">
           <div class="field"><label>Umkreis (Meter)</label><input class="inp" id="bio-umkreis" inputmode="numeric" value="${b.umkreisM || BIO_UMKREIS_VORGABE}">
-            <div class="chip-row mt8">${BIO_UMKREIS_WAHL.map((w) => `<button type="button" class="chip" data-umkreis="${w}">${U.fmtNum(w / 1000, 1)} km</button>`).join('')}</div></div>
+            <div class="chip-row mt8">${BIO_UMKREIS_WAHL.map((w) => `<button type="button" class="chip" data-umkreis="${U.esc(w)}">${U.fmtNum(w / 1000, 1)} km</button>`).join('')}</div></div>
           <div class="field"><label>Stand der Erhebung</label><input class="inp" type="date" id="bio-datum" value="${b.erhebung || U.todayIso()}"></div>
           <div class="field"><label>Quelle der Zahlen</label><input class="inp" id="bio-quelle" value="${U.esc(b.quelle || GBV_QUELLE_KURZ)}"></div>
         </div>
@@ -7416,10 +7434,10 @@ Views.bio = {
     const zeilenBox = $('#bio-zeilen', m.el);
     const zeichneZeilen = () => {
       zeilenBox.innerHTML = zeilen.map((z, i) => `<div class="flex-wrap mb8" style="gap:6px;align-items:center">
-        <input class="inp" data-z-name="${i}" value="${U.esc(z.name)}" style="flex:1 1 150px;min-width:0" placeholder="Bezeichnung">
-        <input class="inp" data-z-proz="${i}" inputmode="decimal" value="${z.prozent ? U.fmtNum(z.prozent, 1) : ''}" style="flex:0 0 84px" placeholder="%">
-        <select class="inp" data-z-art="${i}" style="flex:0 0 190px">${BIO_ARTEN.map((a) => `<option value="${a.v}" ${z.art === a.v ? 'selected' : ''}>${a.l}</option>`).join('')}</select>
-        <button type="button" class="btn btn-xs btn-ghost" data-z-weg="${i}" title="Zeile entfernen">${icon('trash')}</button>
+        <input class="inp" data-z-name="${U.esc(i)}" value="${U.esc(z.name)}" style="flex:1 1 150px;min-width:0" placeholder="Bezeichnung">
+        <input class="inp" data-z-proz="${U.esc(i)}" inputmode="decimal" value="${z.prozent ? U.fmtNum(z.prozent, 1) : ''}" style="flex:0 0 84px" placeholder="%">
+        <select class="inp" data-z-art="${U.esc(i)}" style="flex:0 0 190px">${BIO_ARTEN.map((a) => `<option value="${a.v}" ${z.art === a.v ? 'selected' : ''}>${a.l}</option>`).join('')}</select>
+        <button type="button" class="btn btn-xs btn-ghost" data-z-weg="${U.esc(i)}" title="Zeile entfernen">${icon('trash')}</button>
       </div>`).join('');
       $$('[data-z-name]', zeilenBox).forEach((el) => el.oninput = () => { zeilen[+el.dataset.zName].name = el.value; });
       $$('[data-z-proz]', zeilenBox).forEach((el) => el.oninput = () => { zeilen[+el.dataset.zProz].prozent = Math.max(0, U.parseNum(el.value) || 0); rechne(); });
@@ -7594,7 +7612,7 @@ Views.honig = {
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
           <span class="r-main"><span class="r-title">${v.anzahl} × ${a ? U.esc(gebindeLabel(a.gebindeG)) + ' · ' + U.esc(honigName(c, ernten)) : 'Gebinde'} · ${U.fmtEur(v.betrag)}</span>
           <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
-          <button class="btn btn-xs btn-danger no-print" data-storno="${v.id}">Stornieren</button>
+          <button class="btn btn-xs btn-danger no-print" data-storno="${U.esc(v.id)}">Stornieren</button>
         </div>`;
       }).join('') + `</div>`
       : emptyState('euro', 'Noch kein Verkauf erfasst. Beim Buchen wird der Bestand automatisch gemindert und die Einnahme im Kassenbuch angelegt.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Verkauf</button>`)}
@@ -7624,7 +7642,7 @@ Views.honig = {
         if (e.schleuderung) sub.push(`${e.schleuderung}. Schleuderung`);
         if (e.wassergehalt != null) sub.push(`${U.fmtNum(e.wassergehalt, 1)} % Wasser`);
         return `
-        <button class="row" data-id="${e.id}">
+        <button class="row" data-id="${U.esc(e.id)}">
           <span class="r-ic">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${e.sorte ? U.esc(e.sorte) : '<span class="muted">Sorte offen</span>'}${e.produktart && e.produktart !== 'Honig' ? ` <span class="badge b-violet">${U.esc(e.produktart)}</span>` : ''}</span>
           <span class="r-sub">${sub.join(' · ')}</span></span>
@@ -7821,7 +7839,7 @@ Views.honig = {
       const lager = c.lagerKg > 0 ? `${U.fmtNum(c.lagerKg, 1)} kg aus Lagerbestand` : '';
       const herkunft = [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
       const erledigt = Views.honig.chargeErledigt(c, abfAlle);
-      return `<button class="row" data-id="${c.id}"${ordnen ? ' data-nooepnen' : ''}>
+      return `<button class="row" data-id="${U.esc(c.id)}"${ordnen ? ' data-nooepnen' : ''}>
         ${ordnen ? '<span class="row-grip" data-grip title="verschieben" aria-label="verschieben">⠿</span>' : `<span class="r-ic">${icon('qr')}</span>`}
         <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}${c.datum ? ` <span class="muted small">· ${U.fmtDate(c.datum)}</span>` : ''}</span>
         <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}</span></span>
@@ -7830,7 +7848,7 @@ Views.honig = {
           : `<b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;
     };
     const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-cjahr="${U.esc(val)}">${U.esc(label)}</button>`;
-    const sChip = (label, val) => `<button class="chip ${sort === val ? 'active' : ''}" data-csort="${val}">${label}</button>`;
+    const sChip = (label, val) => `<button class="chip ${sort === val ? 'active' : ''}" data-csort="${U.esc(val)}">${label}</button>`;
 
     box.innerHTML = `
       <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}</div>
@@ -8035,7 +8053,7 @@ Views.honig = {
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${a.anzahl} Gebinde</span>
           <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${a.bestand} zum Verkauf</span></span>
-          <button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${a.id}">${icon('doc')} Etikett</button></div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
+          <button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${U.esc(a.id)}">${icon('doc')} Etikett</button></div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
         ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gebinden stehen noch zum Verkauf.</p>` : ''}
         <h3 class="mb8">Rückverfolgung: Charge → Ernte → Volk</h3>
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
@@ -8094,7 +8112,7 @@ Views.honig = {
       <p class="small muted mb12">Wähle eine Charge und fülle sie in Gebinde ab (z. B. 500 g, 250 g). Die abgefüllte Menge wird automatisch von der Charge abgezogen – mehrere Gebinde auf einmal möglich.</p>
       ${abf.length ? `<div class="rows">` + abf.map((a) => {
         const c = chargen.get(a.chargeId);
-        return `<button class="row" data-id="${a.id}">
+        return `<button class="row" data-id="${U.esc(a.id)}">
           <span class="r-ic">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))}</span>
           <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${a.anzahl} abgefüllt · noch ${a.bestand} zum Verkauf</span></span>
@@ -8284,10 +8302,10 @@ Views.honig = {
       const freiKg = chargeRestKg(c, abfAlle);
       const zeilen = abf.map((a) => `<tr>
         <td><b>${gebindeLabel(a.gebindeG)}</b></td>
-        <td class="num">${a.bestand}</td>
+        <td class="num">${U.zahl(a.bestand)}</td>
         <td class="num">${U.fmtNum(a.bestand * a.gebindeG / 1000, 1)} kg</td>
         <td class="num">${a.anzahl - a.bestand}</td>
-        <td class="no-print">${a.bestand > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${a.id}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('');
+        <td class="no-print">${a.bestand > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${U.esc(a.id)}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('');
       return `<div class="card">
         <div class="card-title">${icon('qr')}<h2>Charge ${U.esc(c.losnummer)} · ${U.esc(honigName(c, ernten))}</h2>${c.datum ? `<span class="badge b-honey">angelegt ${U.fmtDate(c.datum)}</span>` : ''}</div>
         <div class="stat-grid mb12">
@@ -8299,7 +8317,7 @@ Views.honig = {
           <tbody>${zeilen}
           <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe zum Verkauf</td><td class="num">${glaeserBestand}</td><td class="num">${kgFmt(gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
           </tbody></table></div>`
-        : `<p class="small muted">Noch nichts abgefüllt. ${freiKg > 0 ? `<button class="btn btn-xs btn-ghost no-print" data-abf="${c.id}">${icon('plus')} Jetzt abfüllen</button>` : ''}</p>`}
+        : `<p class="small muted">Noch nichts abgefüllt. ${freiKg > 0 ? `<button class="btn btn-xs btn-ghost no-print" data-abf="${U.esc(c.id)}">${icon('plus')} Jetzt abfüllen</button>` : ''}</p>`}
       </div>`;
     }).join('');
     box.innerHTML = `
@@ -8342,7 +8360,7 @@ Views.markt = {
         const c = chargen.get(a.chargeId);
         const name = honigName(c, ernten);
         const imKorb = korb[a.id] || 0;
-        return `<button class="markt-tile" data-tile="${a.id}" ${imKorb >= a.bestand ? 'disabled' : ''}>
+        return `<button class="markt-tile" data-tile="${U.esc(a.id)}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
           <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))} · ${a.bestand - imKorb} übrig</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
@@ -8437,7 +8455,7 @@ Views.kassenbuch = {
     const ein = U.sum(list.filter((k) => k.typ === 'einnahme'), (k) => k.betrag);
     const aus = U.sum(list.filter((k) => k.typ === 'ausgabe'), (k) => k.betrag);
     box.innerHTML = `
-      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : ''}
+      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : ''}
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">Einnahmen ${jahr}</div><div class="s-value" style="color:var(--ok)">${U.fmtEur(ein)}</div></div>
         <div class="stat"><div class="s-label">Ausgaben ${jahr}</div><div class="s-value" style="color:var(--danger)">${U.fmtEur(aus)}</div></div>
@@ -8445,7 +8463,7 @@ Views.kassenbuch = {
       </div>
       <div class="card"><div class="card-title">${icon('kasse')}<h2>Buchungen ${jahr}</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Buchung</button></div>
       ${list.length ? `<div class="rows">` + list.map((k) => `
-        <button class="row" data-id="${k.id}">
+        <button class="row" data-id="${U.esc(k.id)}">
           <span class="r-ic" style="background:${k.typ === 'einnahme' ? 'var(--ok-bg)' : 'var(--danger-bg)'};color:${k.typ === 'einnahme' ? 'var(--ok)' : 'var(--danger)'}">${icon('euro')}</span>
           <span class="r-main"><span class="r-title">${U.esc(k.beschreibung || k.kategorie)}</span>
           <span class="r-sub">${U.fmtDate(k.datum)} · ${U.esc(k.kategorie)}${k.kontaktId ? ' · ' + U.esc(kontakte.get(k.kontaktId)?.name || '') : ''}${k.steuersatz ? ` · ${k.steuersatz} % USt` : ''}</span></span>
@@ -8470,7 +8488,7 @@ Views.kassenbuch = {
     const list = all.filter((k) => (k.datum || '').startsWith(jahr));
     const summe = U.sum(list, (k) => k.betrag);
     box.innerHTML = `
-      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr-gk="${j}">${j}</button>`).join('')}</div>` : ''}
+      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr-gk="${U.esc(j)}">${j}</button>`).join('')}</div>` : ''}
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('euro')} Geschäftskosten ${jahr}</div><div class="s-value" style="color:var(--danger)">${U.fmtEur(summe)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Buchung' : 'Buchungen'}</div></div>
         <div class="stat"><div class="s-label">Gesamt (alle Jahre)</div><div class="s-value">${U.fmtEur(U.sum(all, (k) => k.betrag))}</div></div>
@@ -8478,7 +8496,7 @@ Views.kassenbuch = {
       <div class="card"><div class="card-title">${icon('kasse')}<h2>Allgemeine Geschäftskosten ${jahr}</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Buchung</button></div>
         <p class="small muted mb12">Laufende Betriebskosten ohne eigene Kategorie – z. B. Porto, Büromaterial, Kontoführung, Software, Beiträge. Die Buchungen stehen auch im Reiter „Buchungen“.</p>
       ${list.length ? `<div class="rows">` + list.map((k) => `
-        <button class="row" data-id="${k.id}">
+        <button class="row" data-id="${U.esc(k.id)}">
           <span class="r-ic" style="background:var(--danger-bg);color:var(--danger)">${icon('euro')}</span>
           <span class="r-main"><span class="r-title">${U.esc(k.beschreibung || KAT)}</span>
           <span class="r-sub">${U.fmtDate(k.datum)}${k.kontaktId ? ' · ' + U.esc(kontakte.get(k.kontaktId)?.name || '') : ''}${k.steuersatz ? ` · ${k.steuersatz} % USt` : ''}</span></span>
@@ -8539,7 +8557,7 @@ Views.kassenbuch = {
     const list = U.sortBy(await DB.getAll('kontakte'), (c) => c.name.toLowerCase());
     box.innerHTML = `<div class="card"><div class="card-title">${icon('meldung')}<h2>Kunden & Lieferanten</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Kontakt</button></div>
       ${list.length ? `<div class="rows">` + list.map((c) => `
-        <button class="row" data-id="${c.id}">
+        <button class="row" data-id="${U.esc(c.id)}">
           <span class="r-ic">${icon('meldung')}</span>
           <span class="r-main"><span class="r-title">${U.esc(c.name)} <span class="badge ${c.typ === 'kunde' ? 'b-honey' : 'b-blue'}">${c.typ}</span></span>
           <span class="r-sub">${U.esc([c.strasse, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}${c.telefon ? ' · ' + U.esc(c.telefon) : ''}${c.email ? ' · ' + U.esc(c.email) : ''}</span></span>
@@ -8589,7 +8607,7 @@ Views.kassenbuch = {
             <div class="r-side"><b>${U.fmtNum(h.kg, 1)} kg</b>${h.voelker ? `<span class="small muted"> · ${h.voelker} ${h.voelker === 1 ? 'Volk' : 'Völker'} · ${U.fmtNum(h.jeVolk, 1)} kg/Volk</span>` : `<span class="small muted"> · auf den Stand gebucht</span>`}</div></div>`).join('')}</div>` : ''}
         <div class="hint mt12">Die Spanne kommt aus dem schwächsten und dem besten der herangezogenen Jahre. Wetter und Tracht entscheiden mehr als jede Rechnung – nimm die Zahl als Richtwert für Gläserbestellung und Planung, nicht als Zusage.</div>
       </div>
-      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : ''}
+      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : ''}
       <div class="card"><div class="card-title">${icon('chart')}<h2>Jahresverlauf ${jahr}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.kassenbuchJahr('${jahr}')">${icon('doc')} Jahresbericht (PDF)</button></div>
         ${UI.chart({ type: 'bars', labels: monate, series: [{ name: 'Einnahmen', values: einM, color: '#4C8A2E' }, { name: 'Ausgaben', values: ausM, color: '#B3362B' }], height: 200, unit: '€' })}
@@ -8610,7 +8628,7 @@ Views.kassenbuch = {
 /** Zeichnet die Ergebnis-Kacheln der Ernteprognose aus den Feldern der Karte. */
 function ernteprognoseRechnen(box, ep) {
   const out = $('#ep-out', box); if (!out) return;
-  const num = (k) => Math.max(0, U.parseNum($(`[data-ep="${k}"]`, box)?.value) || 0);
+  const num = (k) => Math.max(0, U.parseNum($(`[data-ep="${U.esc(k)}"]`, box)?.value) || 0);
   const voelker = Math.round(num('voelker')), jeVolk = num('jeVolk'), preis = num('preis'),
     geerntet = num('geerntet'), kosten = num('kosten');
   // Wird der Ertrag je Volk von Hand geändert, wandert die Spanne mit.
@@ -8726,7 +8744,7 @@ Views.rechnungen = {
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Rechnung</button>`) +
       `<div class="card">` + (list.length ? `<div class="rows">` + list.map((r) => {
         const { brutto } = rechnungSummen(r);
-        return `<button class="row" data-id="${r.id}">
+        return `<button class="row" data-id="${U.esc(r.id)}">
           <span class="r-ic">${icon('rechnung')}</span>
           <span class="r-main"><span class="r-title">${r.nummer ? U.esc(r.nummer) : 'Entwurf'} <span class="badge ${statusBadge[r.status]}">${r.status}</span></span>
           <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(kontakte.get(r.kundeId)?.name || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
@@ -8803,7 +8821,7 @@ Views.rechnung = {
         <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${entwurf ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
         ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
           <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${p.steuersatz || 0} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
-            ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${i}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
+            ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${U.esc(i)}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
             ${sum.rabatt > 0 || sum.pfand > 0 ? `<div class="small muted">Warenwert: ${U.fmtEur(sum.waren)}</div>` : ''}
             ${sum.rabatt > 0 ? `<div class="small muted">Rabatt${r.rabattGrund ? ` (${U.esc(r.rabattGrund)})` : ''}${(r.rabattTyp || 'prozent') === 'prozent' ? ` ${U.fmtNum(r.rabattWert, 1)} %` : ''}: −${U.fmtEur(sum.rabatt)}</div>` : ''}
@@ -9005,7 +9023,7 @@ async function renderInventarBereich(main, cfg) {
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const groesse = gebindeGrammAus(i.gebindeG);
     const teile = [i.kategorie, groesse ? `für ${gebindeLabel(groesse)}` : null, menge, zuord, i.notiz].filter(Boolean);
-    return `<button class="row${badge ? ' hat-hinweis' : ''}" data-edit="${i.id}">
+    return `<button class="row${badge ? ' hat-hinweis' : ''}" data-edit="${U.esc(i.id)}">
       <span class="r-ic">${icon(cfg.ic)}</span>
       <span class="r-main">
         <span class="r-title">${U.esc(i.bezeichnung)}</span>
@@ -9051,7 +9069,7 @@ async function renderInventarBereich(main, cfg) {
     <p class="small muted mb12">Der einzige Weg, auf dem etwas ins Lager kommt – <b>auch beim ersten Mal</b>: im Formular wählst du oben „Neue Position anlegen" und trägst den Steckbrief gleich mit ein. Ein <b>Einkauf</b> wird als Ausgabe im Kassenbuch gebucht, in der passenden Kategorie; selbst hergestellt, geschenkt oder eine Korrektur kostet nichts und wird nicht gebucht. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen. Die Stammdaten einer Position änderst du über ihre Zeile in der Liste oben.</p>
     ${zugaenge.length ? `<div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Datum</th><th>Position</th><th>Art</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Kosten</th><th>Lieferant / Beleg</th></tr></thead>
-      <tbody>${zugaenge.map((z) => `<tr data-zugang="${z.id}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
+      <tbody>${zugaenge.map((z) => `<tr data-zugang="${U.esc(z.id)}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
         <td>${U.fmtDate(z.datum)}</td><td>${U.esc(z.bezeichnung || '')}</td>
         <td>${U.esc(z.art || '')}</td>
         <td class="num">+${U.fmtNum(z.menge, 2)} ${U.esc(z.einheit || '')}</td>
@@ -9080,7 +9098,7 @@ async function renderInventarBereich(main, cfg) {
     <p class="small muted mb12">Verkauft, selbst verbraucht, kaputt oder verschenkt – hier bleibt jeder Abgang mit Datum und Menge nachvollziehbar. Ein Verkauf wird zusätzlich als Einnahme im Kassenbuch gebucht. <b>Zeile antippen</b>, um sie zu ändern oder zurückzunehmen – etwa wenn ein Kunde die Ware zurückgibt; Bestand und Kassenbuch gehen dann mit.</p>
     ${abgaenge.length ? `<div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>Datum</th><th>Position</th><th>Grund</th><th class="num">Menge</th><th class="num">Preis</th><th class="num">Erlös</th><th>Käufer / Beleg</th></tr></thead>
-      <tbody>${abgaenge.map((a) => `<tr data-abgang="${a.id}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
+      <tbody>${abgaenge.map((a) => `<tr data-abgang="${U.esc(a.id)}" style="cursor:pointer" title="Zum Bearbeiten oder Zurücknehmen antippen">
         <td>${U.fmtDate(a.datum)}</td><td>${U.esc(a.bezeichnung || '')}</td>
         <td>${U.esc(a.art || '')}</td>
         <td class="num">${U.fmtNum(a.menge, 2)} ${U.esc(a.einheit || '')}</td>
@@ -9122,7 +9140,7 @@ async function renderInventarBereich(main, cfg) {
         </tbody></table></div>
       ${letzte.length ? `<div class="small muted mt12 mb4" style="font-weight:600">Letzte Rücknahmen</div>
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Gebinde</th><th class="num">Anzahl</th><th class="num">Erstattet</th><th>Von wem</th></tr></thead>
-        <tbody>${letzte.map((b) => `<tr data-pfandweg="${b.id}" style="cursor:pointer" title="Zum Zurücknehmen antippen"><td>${U.fmtDate(b.datum)}</td><td>${U.esc(b.bezeichnung || '')}</td>
+        <tbody>${letzte.map((b) => `<tr data-pfandweg="${U.esc(b.id)}" style="cursor:pointer" title="Zum Zurücknehmen antippen"><td>${U.fmtDate(b.datum)}</td><td>${U.esc(b.bezeichnung || '')}</td>
           <td class="num">${U.fmtNum(b.anzahl, 0)}</td><td class="num">${U.fmtEur(b.betrag || 0)}</td>
           <td>${U.esc(b.wer || (kontakte.get(b.kontaktId) || {}).name || '')}</td></tr>`).join('')}</tbody></table></div>
         <p class="small muted mt8">Falsch gebucht? Zeile antippen – die Gläser gehen wieder vom Bestand ab und das Pfand zurück ins Kassenbuch.</p>` : ''}
@@ -9434,8 +9452,8 @@ Views.aufgaben = {
     };
     const rows = (items, cls) => items.map((a) => `
       <div class="row" style="min-height:50px">
-        <label class="check-line no-print" style="padding:0"><input type="checkbox" data-check="${a.id}" ${a.erledigt ? 'checked' : ''}></label>
-        <button class="r-main" data-open="${a.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
+        <label class="check-line no-print" style="padding:0"><input type="checkbox" data-check="${U.esc(a.id)}" ${a.erledigt ? 'checked' : ''}></label>
+        <button class="r-main" data-open="${U.esc(a.id)}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
           <span class="r-title" style="${a.erledigt ? 'opacity:.55' : ''}">${U.esc(a.titel)} ${quelleBadge(a)}</span>
           ${bezugZeile(a)}
           ${a.notiz ? `<span class="r-sub">${U.esc(a.notiz)}</span>` : ''}</button>
@@ -9446,7 +9464,7 @@ Views.aufgaben = {
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Notif.icsExport()" title="Offene Aufgaben in den Kalender übernehmen – erinnert auch bei geschlossener App">${icon('kalender')} Kalender (.ics)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Neue Aufgabe</button></span>`) +
       hinweise.map((h) => `<div class="banner warn no-print">${icon('info')} <span class="b-msg">${U.esc(h.text)}</span>
-        <button class="btn btn-ghost btn-sm" data-hoeffnen="${h.aufgabeId}" data-hkey="${U.esc(h.key)}">${icon('pencil')} Aufgabe öffnen</button>
+        <button class="btn btn-ghost btn-sm" data-hoeffnen="${U.esc(h.aufgabeId)}" data-hkey="${U.esc(h.key)}">${icon('pencil')} Aufgabe öffnen</button>
         <button class="icon-btn" data-hinweis="${U.esc(h.key)}" title="Hinweis ausblenden" aria-label="Hinweis ausblenden">${icon('x')}</button></div>`).join('') +
       `<div class="grid2" style="grid-template-columns:1fr;max-width:none">
         <div class="card" id="cal-card"><div class="card-title">${icon('kalender')}<h2 id="cal-title"></h2>
@@ -9484,7 +9502,7 @@ Views.aufgaben = {
           ? `${tasks.length} ${tasks.length === 1 ? 'Aufgabe' : 'Aufgaben'}${offeneT.length < tasks.length ? ` (${tasks.length - offeneT.length} erledigt)` : ''} – antippen`
           : 'Neue Aufgabe an diesem Tag';
         // jeder Tag ist antippbar: leerer Tag legt direkt an, belegter zeigt erst die Liste
-        cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${iso}" title="${titel}">
+        cells.push(`<div class="c-day clickable ${d.getMonth() !== calState.m ? 'other' : ''} ${iso === heute ? 'today' : ''}" data-day="${U.esc(iso)}" title="${titel}">
           ${d.getDate()}${tasks.length ? `<span class="c-dots">${tasks.slice(0, 3).map((t) => `<i class="${t.erledigt ? 'fertig' : (t.faellig < heute ? 'overdue' : '')}"></i>`).join('')}</span>` : ''}</div>`);
       }
       $('#cal', main).innerHTML = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((d) => `<div class="c-head">${d}</div>`).join('') + cells.join('');
@@ -9566,11 +9584,11 @@ Views.aufgaben = {
         const dm = UI.modal({
           title: `Aufgaben am ${U.fmtDate(iso)}`,
           body: `<div class="rows">${tasks.map((t) => `<div class="row">
-            <button class="r-main" data-open="${t.id}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
+            <button class="r-main" data-open="${U.esc(t.id)}" style="text-align:left;background:none;border:none;cursor:pointer;min-width:0">
               <span class="r-title" style="${t.erledigt ? 'opacity:.55' : ''}">${U.esc(t.titel)}</span>${bezugZeile(t)}${t.notiz ? `<span class="r-sub">${U.esc(t.notiz)}</span>` : ''}</button>
             <span class="r-side">${t.erledigt ? '<span class="badge b-ok">erledigt</span> '
               : (t.faellig && t.faellig < heute ? '<span class="badge b-danger">überfällig</span> ' : '')}${quelleBadge(t)}</span>
-            <button class="btn btn-xs btn-ghost" data-tdel="${t.id}" title="Aufgabe löschen" aria-label="Aufgabe löschen">${icon('trash')}</button>
+            <button class="btn btn-xs btn-ghost" data-tdel="${U.esc(t.id)}" title="Aufgabe löschen" aria-label="Aufgabe löschen">${icon('trash')}</button>
           </div>`).join('')}</div>`,
           footer: `<button class="btn btn-ghost" data-zu>Schließen</button><button class="btn btn-primary" data-neu>${icon('plus')} Neue Aufgabe</button>`,
         });
@@ -9602,7 +9620,7 @@ function zeitDialog(a) {
   const m = UI.modal({
     title: 'Wie lange hat es gedauert?',
     body: `<p class="small muted mb12">„${U.esc(a.titel)}“ – landet in deiner <a href="#/zeiten">Zeiterfassung</a>.</p>
-      <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${n}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
+      <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${U.esc(n)}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
       <div class="field"><label>Oder Minuten eingeben</label><input class="inp" id="zt-min" inputmode="numeric" placeholder="z. B. 25"></div>
       <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${optionenSortiert(taetigkeiten, true).map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>`,
     footer: `<button class="btn btn-ghost" data-skip>Ohne Zeit</button><button class="btn btn-primary" data-ok>Speichern</button>`,
@@ -9631,7 +9649,7 @@ Views.zeiten = {
     const gesamtMin = U.sum(list, (a) => a.zeitMinuten);
     main.innerHTML = pageHead('Zeiterfassung', 'Wie viel Zeit steckt in welcher Tätigkeit? Zeiten entstehen beim Abhaken von Aufgaben.',
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Zeit nachtragen</button>`) +
-      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
+      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('uhr')} Stunden ${jahr}</div><div class="s-value">${U.fmtNum(gesamtMin / 60, 1)}</div></div>
         <div class="stat"><div class="s-label">${icon('task')} Einträge</div><div class="s-value">${list.length}</div></div>
@@ -9641,7 +9659,7 @@ Views.zeiten = {
         ${UI.pie({ posten: stunden, einheit: 'h' })}
       </div>
       <div class="card"><div class="card-title">${icon('buch')}<h2>Letzte Einträge</h2></div>
-        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 60).map((a) => `<button class="row" data-id="${a.id}" style="min-height:46px">
+        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 60).map((a) => `<button class="row" data-id="${U.esc(a.id)}" style="min-height:46px">
           <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}${a.quelle && a.quelle !== 'manuell' ? ' · aus Aufgabe' : ''}</span></span>
           <span class="badge b-honey">${a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min'}</span>${icon('chevR', 'chev')}</button>`).join('')}</div>
           <p class="hint mt8">Tippe einen Eintrag an, um Dauer, Tätigkeit oder Datum zu ändern.</p>`
@@ -11615,8 +11633,8 @@ Views.papierkorb = {
           <span class="r-ic" style="background:var(--danger-bg);color:var(--danger)">${icon('trash')}</span>
           <span class="r-main"><span class="r-title">${U.esc(String(name(t)).slice(0, 60))}</span>
           <span class="r-sub">${STORE_LABELS[t.store] || t.store} · gelöscht ${U.fmtDateTime(t.geloeschtAm)} · verfällt in ${Math.max(0, 30 - U.daysBetween(t.geloeschtAm, U.nowIso()))} Tagen</span></span>
-          <button class="btn btn-sm btn-ghost no-print" data-restore="${t.id}">${icon('restore')} Wiederherstellen</button>
-          <button class="btn btn-xs btn-danger no-print" data-kill="${t.id}">${icon('x')}</button>
+          <button class="btn btn-sm btn-ghost no-print" data-restore="${U.esc(t.id)}">${icon('restore')} Wiederherstellen</button>
+          <button class="btn btn-xs btn-danger no-print" data-kill="${U.esc(t.id)}">${icon('x')}</button>
         </div>`).join('') + `</div>` : emptyState('trash', 'Der Papierkorb ist leer.')) + `</div>`;
     main.addEventListener('click', async (e) => {
       const rs = e.target.closest('[data-restore]');
@@ -11792,7 +11810,7 @@ const Importer = {
       <div class="banner info mb12">${icon('info')} <span class="b-msg"><b>${rows.length}</b> Zeilen in „${U.esc(file.name)}“ gefunden. Ordne die Spalten den Feldern zu (Vorschläge sind schon gesetzt):</span></div>
       <div class="rows mb12">${ent.felder.map((f) => `<div class="row" style="min-height:46px">
         <span class="r-main" style="flex:1"><span class="r-title">${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</span></span>
-        <select class="inp" data-map="${f.key}" style="width:auto;min-width:150px;max-width:60%">
+        <select class="inp" data-map="${U.esc(f.key)}" style="width:auto;min-width:150px;max-width:60%">
           <option value="">– nicht übernehmen –</option>
           ${spalten.map((sp) => `<option value="${U.esc(sp)}" ${guess[f.key] === sp ? 'selected' : ''}>${U.esc(sp)}</option>`).join('')}
         </select></div>`).join('')}</div>
@@ -11982,7 +12000,7 @@ Views.reporting = {
     main.innerHTML = pageHead('Statistiken', 'Auswertungen über alle Bereiche – jede Statistik als PDF exportierbar',
       `<button class="btn btn-primary btn-sm no-print" onclick="Pdf.jahresbericht('${jahrJetzt}')">${icon('doc')} Jahresbericht ${jahrJetzt} (PDF)</button>`) + `
       <div class="chip-row mb16 no-print">
-        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['futter', 'Futter je Volk'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${id}">${l}</button>`).join('')}
+        ${[['voelker', 'Völkerentwicklung'], ['ertrag', 'Honigertrag'], ['futter', 'Futter je Volk'], ['behandlungen', 'Behandlungen'], ['finanzen', 'Einnahmen/Ausgaben']].map(([id, l]) => `<button class="chip ${typ === id ? 'active' : ''}" data-typ="${U.esc(id)}">${l}</button>`).join('')}
       </div><div id="rep"></div>`;
     const box = $('#rep');
     if (typ === 'voelker') {
@@ -12009,7 +12027,7 @@ Views.reporting = {
       const rows = await Reporting.ertrag(gruppe);
       box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('ertrag')">${icon('doc')} PDF</button></div>
-        <div class="seg mb12 no-print">${[['volk', 'Volk'], ['stand', 'Stand'], ['sorte', 'Sorte'], ['jahr', 'Jahr']].map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${id}">${l}</button>`).join('')}</div>
+        <div class="seg mb12 no-print">${[['volk', 'Volk'], ['stand', 'Stand'], ['sorte', 'Sorte'], ['jahr', 'Jahr']].map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${U.esc(id)}">${l}</button>`).join('')}</div>
         ${rows.length ? UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.k), series: [{ name: 'kg', values: rows.slice(0, 12).map((r) => r.kg) }], height: 210, unit: 'kg' }) +
         `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</th><th class="num">Ernten</th><th class="num">Menge (kg)</th></tr></thead>
         <tbody>${rows.map((r) => `<tr><td>${U.esc(r.k)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('honig', 'Noch keine Ernten erfasst.')}</div>`;
@@ -12079,7 +12097,7 @@ Views.reporting = {
           <span class="r-main"><span class="r-title">${U.esc(staende.get(f.standId)?.name || '–')} · ${U.esc(f.zweck || 'Fahrt')}</span>
           <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
           <span class="badge b-blue">${U.fmtNum(f.km)} km</span>
-          <button class="btn btn-xs btn-ghost no-print" data-fdel="${f.id}">${icon('trash')}</button></div>`).join('')}</div>`
+          <button class="btn btn-xs btn-ghost no-print" data-fdel="${U.esc(f.id)}">${icon('trash')}</button></div>`).join('')}</div>`
         : emptyState('truck', 'Noch keine Fahrten erfasst.')}
       </div>`;
       box.addEventListener('click', async (e) => {
@@ -12125,17 +12143,17 @@ Views.fahrten = {
     main.innerHTML = pageHead('Fahrtenbuch', 'Alle Fahrten – zu den Ständen und sonstige (Einkauf, Schulung, Besorgung). Als Nachweis fürs Finanzamt.',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahr}')">${icon('doc')} Fahrtenbuch ${jahr} (PDF)</button>
        <button class="btn btn-primary" id="add">${icon('plus')} Fahrt</button></span>`) +
-      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${j}">${j}</button>`).join('')}</div>` : '') + `
+      (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('truck')} Kilometer ${jahr}</div><div class="s-value">${U.fmtNum(kmJahr)}</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fahrt' : 'Fahrten'}</div></div>
         <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahr}</div><div class="s-value">${U.fmtEur(kmJahr * kmSatz)}</div><div class="s-sub">bei ${kmSatz.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
       </div>
       <div class="card mb16"><div class="card-title">${icon('truck')}<h2>Häufige Fahrten</h2><button class="btn btn-ghost btn-sm no-print" id="vorlagen-verwalten">${icon('pencil')} Verwalten</button></div>
         <p class="small muted mb8">Tippe eine Vorlage an, um die Fahrt schnell zu buchen – z. B. zwischen zwei Ständen oder eine oft gefahrene Strecke.</p>
-        <div class="chip-row">${vorlagen.length ? vorlagen.map((vl) => `<button class="chip" data-vorlage="${vl.id}">${icon('truck')} ${U.esc(vl.name)} · ${U.fmtNum(vl.km)} km</button>`).join('') : '<span class="muted small">Noch keine Vorlagen. Lege welche über „Verwalten" an – oder hake beim Erfassen „Als häufige Fahrt merken" an.</span>'}</div>
+        <div class="chip-row">${vorlagen.length ? vorlagen.map((vl) => `<button class="chip" data-vorlage="${U.esc(vl.id)}">${icon('truck')} ${U.esc(vl.name)} · ${U.fmtNum(vl.km)} km</button>`).join('') : '<span class="muted small">Noch keine Vorlagen. Lege welche über „Verwalten" an – oder hake beim Erfassen „Als häufige Fahrt merken" an.</span>'}</div>
       </div>
       <div class="card">` + (list.length ? `<div class="rows">` + list.map((f) => `
-        <button class="row" data-id="${f.id}">
+        <button class="row" data-id="${U.esc(f.id)}">
           <span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
           <span class="r-main"><span class="r-title">${U.esc(fahrtZielName(f, staende))}${f.zweck ? ` · ${U.esc(f.zweck)}` : ''}</span>
           <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
@@ -12159,8 +12177,8 @@ Views.fahrten = {
       body: `<p class="small muted mb12">Vorlagen für wiederkehrende Fahrten – zwischen zwei Ständen oder freie Strecken. Im Fahrtenbuch tippst du sie dann nur noch an.</p>
         <div class="rows" id="vl-list">${vorlagen.length ? vorlagen.map((vl) => `<div class="row"><span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
           <span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">${U.fmtNum(vl.km)} km${vl.zweck ? ' · ' + U.esc(vl.zweck) : ''}</span></span>
-          <button class="btn btn-xs btn-ghost no-print" data-vl-edit="${vl.id}">${icon('pencil')}</button>
-          <button class="btn btn-xs btn-danger no-print" data-vl-del="${vl.id}">${icon('trash')}</button></div>`).join('') : '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
+          <button class="btn btn-xs btn-ghost no-print" data-vl-edit="${U.esc(vl.id)}">${icon('pencil')}</button>
+          <button class="btn btn-xs btn-danger no-print" data-vl-del="${U.esc(vl.id)}">${icon('trash')}</button></div>`).join('') : '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
         <button class="btn btn-primary mt12" id="vl-add">${icon('plus')} Neue Vorlage</button>`,
       footer: `<button class="btn btn-ghost" data-close2>Schließen</button>`,
     });
@@ -12392,9 +12410,15 @@ const Backup = {
     let data;
     try { data = JSON.parse(await file.text()); } catch (e) { return UI.toast('Datei ist kein gültiges JSON', 'err'); }
     if (data.app !== 'ImkerBuch' || !data.stores) return UI.toast('Das ist keine ImkerBuch-Sicherung', 'err');
-    const alleTeile = Object.entries(data.stores).map(([s, rows]) => (rows.length ? { label: STORE_LABELS[s] || s, n: rows.length } : null)).filter(Boolean);
-    const counts = alleTeile.slice(0, 8).map((t) => `${t.n} × ${t.label}`).join(', ')
-      + (alleTeile.length > 8 ? ` und ${alleTeile.length - 8} weitere Bereiche` : '');
+    /* Nur BEKANNTE Speicher werden namentlich genannt. Ein fremder Schlüssel
+       aus der Datei hat in der Anzeige nichts verloren – er landete sonst
+       ungeprüft im Dialog, noch bevor man „Zusammenführen" gewählt hat. */
+    const bekannt = Object.entries(data.stores).filter(([st, rows]) => DB.DATA_STORES.includes(st) && Array.isArray(rows) && rows.length);
+    const fremd = Object.keys(data.stores).filter((st) => !DB.DATA_STORES.includes(st)).length;
+    const alleTeile = bekannt.map(([st, rows]) => ({ label: STORE_LABELS[st] || st, n: rows.length }));
+    const counts = alleTeile.slice(0, 8).map((t) => `${t.n} × ${U.esc(t.label)}`).join(', ')
+      + (alleTeile.length > 8 ? ` und ${alleTeile.length - 8} weitere Bereiche` : '')
+      + (fremd ? ` · ${fremd} unbekannte${fremd === 1 ? 'r Bereich wird' : ' Bereiche werden'} übersprungen` : '');
     const m = UI.modal({
       title: 'Sicherung importieren',
       body: `<p class="small">Sicherung vom <b>${U.fmtDateTime(data.exportiert)}</b></p><p class="small muted mt8">${counts || 'leer'}</p>
@@ -12436,11 +12460,49 @@ const Backup = {
       await S.load(); applyTheme(); renderRoute(); this.updateBanners();
     };
   },
-  _rowsAusImport(store, rows) {
-    return rows.map((r) => {
-      if (store === 'anhaenge' && r.datenUrl) { const { datenUrl, ...rest } = r; rest.blob = U.dataURLToBlob(datenUrl); return rest; }
+  /* Eine Sicherung kommt von außen. Sie kann von einem zweiten Gerät stammen –
+     oder von jemandem, der sie präpariert hat. Deshalb wird hier geprüft, statt
+     der Datei zu glauben. Das ist die Wurzel: Jede Anzeige stromabwärts
+     verlässt sich darauf, dass eine ID eine ID und eine Zahl eine Zahl ist.
+
+     Einstellungen sind der heikelste Teil: `logo`, `rechnungQr` und die
+     Bio-Logos landen in Bildadressen, und `logoImHeader` sorgt dafür, dass das
+     bei jedem Start gezeichnet wird. */
+  ID_MUSTER: /^[A-Za-z0-9_-]{1,64}$/,
+  BILD_SCHLUESSEL: ['logo', 'rechnungQr'],
+
+  _saeubereZeile(store, r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    if (store === 'settings') {
+      /* Unbekannte Schlüssel bleiben erhalten: Es gibt legitime, die nicht in
+         den Vorgaben stehen (Merkflaggen der Datenwanderungen, der gewählte
+         Backup-Ordner). Sie werden nur von Code gelesen, der ihren Namen kennt –
+         ein erfundener Schlüssel wird also nie angefasst. Gefährlich sind
+         allein die Werte, die als Bildadresse enden. */
+      if (typeof r.key !== 'string') return null;
+      if (this.BILD_SCHLUESSEL.includes(r.key)) {
+        const quelle = U.bildQuelle(r.value);
+        if (!quelle) return null;                                             // kein gültiges Bild: weg
+        return { ...r, value: quelle };
+      }
+      if (r.key === 'imkerei' && r.value && Array.isArray(r.value.bioLogos)) {
+        return { ...r, value: { ...r.value, bioLogos: r.value.bioLogos.map((l) => U.bildQuelle(l)).filter(Boolean) } };
+      }
       return r;
-    });
+    }
+    /* Eine ID, die aus HTML ausbrechen könnte, wird ersetzt statt übernommen.
+       Der Datensatz geht dabei nicht verloren – er kommt nur als neuer an. */
+    if (typeof r.id !== 'string' || !this.ID_MUSTER.test(r.id)) return { ...r, id: U.uuid() };
+    return r;
+  },
+
+  _rowsAusImport(store, rows) {
+    return (Array.isArray(rows) ? rows : []).map((r) => {
+      const sauber = this._saeubereZeile(store, r);
+      if (!sauber) return null;
+      if (store === 'anhaenge' && sauber.datenUrl) { const { datenUrl, ...rest } = sauber; rest.blob = U.dataURLToBlob(datenUrl); return rest; }
+      return sauber;
+    }).filter(Boolean);
   },
   async applyReplace(data, { blobsBehalten }) {
     const alteBlobs = new Map();
@@ -12795,13 +12857,38 @@ const Xlsx = {
       wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
     };
   },
+  /* Zellen härten, bevor sie in die Tabelle gehen. Zwei verschiedene Wege:
+
+     1. Ein Text, der mit = + - @ beginnt, wird von Tabellenkalkulationen als
+        FORMEL gelesen („=1+1" wird zu 2). Ein führendes Hochkomma macht daraus
+        wieder Text. Das ist die übliche Absicherung gegen Formel-Einschleusung.
+     2. Ein Objekt aus einer importierten Sicherung würde von der Bibliothek
+        ungeprüft als Zellobjekt übernommen – samt Formelfeld. Objekte werden
+        deshalb zu Text. Echte Datumswerte bleiben, die braucht die Tabelle. */
+  zelleSicher(v) {
+    /* Datumsprüfung über den Typ-Namen statt über instanceof: Ein Datum aus
+       einem anderen Fenster (Testrahmen, eingebettete Seite) ist nicht dieselbe
+       Klasse und würde sonst fälschlich zu Text. */
+    if (v == null || Object.prototype.toString.call(v) === '[object Date]') return v;
+    if (typeof v === 'object') return JSON.stringify(v);
+    if (typeof v !== 'string') return v;
+    return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+  },
+  zeilenSicher(rows) {
+    return (rows || []).map((r) => {
+      const aus = {};
+      for (const [k, v] of Object.entries(r)) aus[String(k)] = this.zelleSicher(v);
+      return aus;
+    });
+  },
+
   async exportAll() {
     try {
       const XLSX = await this.lib();
       const defs = await this.defs();
       const wb = XLSX.utils.book_new();
       for (const key of Object.keys(defs)) {
-        const rows = await defs[key].rows();
+        const rows = this.zeilenSicher(await defs[key].rows());
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{}]), defs[key].blatt.slice(0, 31));
       }
       XLSX.writeFile(wb, `imkerbuch-export-${U.todayIso()}.xlsx`, { cellDates: true });
@@ -12813,7 +12900,7 @@ const Xlsx = {
       const XLSX = await this.lib();
       const defs = await this.defs();
       const def = defs[store]; if (!def) return UI.toast('Modul nicht exportierbar', 'err');
-      const rows = await def.rows();
+      const rows = this.zeilenSicher(await def.rows());
       const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
       if (fmt === 'csv') {
         U.download(new Blob(['﻿' + XLSX.utils.sheet_to_csv(ws, { FS: ';' })], { type: 'text/csv;charset=utf-8' }), `imkerbuch-${store}-${U.todayIso()}.csv`);
@@ -13863,7 +13950,7 @@ const PdfImport = {
           <div class="rows">${vorschlaege.map((v, i) => `<div class="row"><span class="r-ic" style="width:34px;height:34px">${icon(v.typ === 'behandlung' ? 'flask' : 'honig')}</span>
             <span class="r-main"><span class="r-title">${v.typ === 'behandlung' ? 'Behandlung' : 'Ernte'}: ${U.esc(v.stichwort)}</span>
             <span class="r-sub">${U.fmtDate(v.datum)} · „${U.esc(v.kontext.slice(0, 90))}…“</span></span>
-            <button class="btn btn-sm btn-ghost" data-take="${i}">Übernehmen</button></div>`).join('')}</div>`
+            <button class="btn btn-sm btn-ghost" data-take="${U.esc(i)}">Übernehmen</button></div>`).join('')}</div>`
         : `<div class="hint">Keine Behandlungs- oder Ernteeinträge automatisch erkannt.</div>`}`;
       outEl.querySelectorAll('[data-take]').forEach((b) => b.onclick = () => {
         const v = vorschlaege[+b.dataset.take];
@@ -14287,7 +14374,7 @@ Views.imkerschule = {
     const jitHtml = tips.length ? tips.map((t) => `<div style="background:${t.danger ? 'rgba(179,54,43,.08)' : 'rgba(233,162,28,.08)'};border:1px solid ${t.danger ? 'rgba(179,54,43,.25)' : 'rgba(233,162,28,.25)'};border-radius:10px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;margin-bottom:8px">
       <span style="font-size:20px;color:${t.danger ? '#B3362B' : '#E9A21C'};flex-shrink:0">${icon(t.icon)}</span>
       <div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;margin-bottom:2px">${U.esc(t.titel)}</div><div class="small muted">${U.esc(t.text)}</div>
-      <div class="jit-open small" data-kid="${t.kapitelId}" style="color:${t.danger ? '#B3362B' : '#E9A21C'};cursor:pointer;margin-top:4px;font-weight:500">Lektion öffnen ›</div></div></div>`).join('') : '';
+      <div class="jit-open small" data-kid="${U.esc(t.kapitelId)}" style="color:${t.danger ? '#B3362B' : '#E9A21C'};cursor:pointer;margin-top:4px;font-weight:500">Lektion öffnen ›</div></div></div>`).join('') : '';
     main.innerHTML = pageHead('Imkerschule', 'Schritt für Schritt in die Imkerei – im eigenen Tempo',
       `<button class="btn btn-ghost btn-sm no-print" id="is-level-btn">${icon('user')} ${U.esc(ISchule.levelLabel())}</button>`) + `
       <div style="display:flex;gap:6px;margin-bottom:14px">
@@ -14307,7 +14394,7 @@ Views.imkerschule = {
           const glyph = d ? '✓' : (skip ? '⏭' : (k.comingSoon ? '⏳' : (cur ? '▶' : '○')));
           const gcol = d ? 'var(--ok)' : (cur ? '#E9A21C' : 'var(--muted)');
           const last = i === LERN_KAPITEL.length - 1;
-          return `<div class="ischule-row" data-k="${k.id}" style="display:flex;align-items:center;gap:12px;padding:14px 15px;${last ? '' : 'border-bottom:1px solid var(--line);'}cursor:pointer;${cur ? 'background:rgba(233,162,28,.08);' : ''}${skip ? 'opacity:.6;' : ''}">
+          return `<div class="ischule-row" data-k="${U.esc(k.id)}" style="display:flex;align-items:center;gap:12px;padding:14px 15px;${last ? '' : 'border-bottom:1px solid var(--line);'}cursor:pointer;${cur ? 'background:rgba(233,162,28,.08);' : ''}${skip ? 'opacity:.6;' : ''}">
             <span style="font-size:16px;width:20px;text-align:center;color:${gcol}">${glyph}</span>
             <span class="r-main"><span class="r-title" style="${cur ? 'color:#E9A21C' : (k.comingSoon ? 'color:var(--muted)' : '')}">${k.id} · ${U.esc(k.titel)}</span>${skip ? '<span class="r-sub">übersprungen (Level)</span>' : (k.comingSoon ? '<span class="r-sub">Bald verfügbar</span>' : (d ? '<span class="r-sub">abgeschlossen</span>' : ''))}</span>
             ${k.comingSoon ? '' : `<span class="small" style="color:#E9A21C">${d ? 'Nochmal' : (skip ? 'Trotzdem' : 'Öffnen')} ›</span>`}
@@ -14326,7 +14413,7 @@ Views.imkerschule = {
     const results = V._faqQuery ? faqSuche(V._faqQuery) : [];
     const faqAccHtml = (fragen, themaLabel) => fragen.map((fq, i) => `<div class="faq-acc" style="border-bottom:${i < fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
       <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(fq.f)}</span>${themaLabel ? `<span class="small muted" style="flex-shrink:0">${U.esc(themaLabel)}</span>` : ''}<span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
-      <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${fq.link ? `<div class="faq-rlink" data-route="${fq.link}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
+      <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${fq.link ? `<div class="faq-rlink" data-route="${U.esc(fq.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
     </div>`).join('');
     main.innerHTML = pageHead('Imkerschule · Frag ein Thema', `${FAQ_THEMEN.reduce((s, t) => s + t.fragen.length, 0)} Antworten auf häufige Imker-Fragen`) + `
       <div style="display:flex;gap:6px;margin-bottom:14px">
@@ -14338,10 +14425,10 @@ Views.imkerschule = {
       </div>
       ${V._faqQuery && results.length ? `<div class="small muted" style="margin-bottom:6px">${results.length} Treffer</div><div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
         <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(r.f)}</span><span class="small muted" style="flex-shrink:0">${U.esc(r.thema.label)}</span><span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
-        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${r.link ? `<div class="faq-rlink" data-route="${r.link}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
+        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${r.link ? `<div class="faq-rlink" data-route="${U.esc(r.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
       </div>`).join('')}</div>` : ''}
       ${V._faqQuery && !results.length ? '<div class="hint">Keine Treffer – versuch einen anderen Begriff.</div>' : ''}
-      ${!V._faqQuery ? FAQ_THEMEN.map((t) => `<div class="faq-topic" data-tid="${t.id}" style="margin-bottom:8px">
+      ${!V._faqQuery ? FAQ_THEMEN.map((t) => `<div class="faq-topic" data-tid="${U.esc(t.id)}" style="margin-bottom:8px">
         <div class="faq-tile-head" style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--line);border-radius:10px;cursor:pointer;user-select:none">
           <span style="width:24px;height:24px;color:#E9A21C;flex-shrink:0">${icon(t.icon)}</span>
           <span style="flex:1;font-size:14px;font-weight:600">${U.esc(t.label)}</span>
@@ -14383,7 +14470,7 @@ Views.imkerschule = {
     ];
     const m = UI.modal({
       title: 'Erfahrungslevel ändern',
-      body: `<div class="rows" id="lvl-pick">${opts.map((o) => `<div class="row" data-lv="${o.key}" style="cursor:pointer;padding:12px 8px;${st.level === o.key ? 'background:rgba(233,162,28,.1);' : ''}">
+      body: `<div class="rows" id="lvl-pick">${opts.map((o) => `<div class="row" data-lv="${U.esc(o.key)}" style="cursor:pointer;padding:12px 8px;${st.level === o.key ? 'background:rgba(233,162,28,.1);' : ''}">
         <span class="r-main"><span class="r-title" style="font-weight:500">${o.label}</span><span class="r-sub">${o.sub}</span></span>
         ${st.level === o.key ? '<span style="color:#E9A21C;font-size:16px">✓</span>' : ''}
       </div>`).join('')}</div>`,
@@ -14507,7 +14594,7 @@ Views.einstellungen = {
         <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
           <span class="r-main"><span class="r-title">${U.fmtDateTime(s.datum)}</span>
           <span class="r-sub">${U.esc(s.grund)} · ${U.fmtBytes(s.groesse)} (ohne Foto-/Audiodateien)</span></span>
-          <button class="btn btn-sm btn-ghost no-print" data-snap="${s.id}">${icon('restore')} Wiederherstellen</button></div>`).join('') || '<span class="muted small">Noch keine Snapshots – sie entstehen automatisch bei Auto-Sicherung und vor jedem Import.</span>'}</div>
+          <button class="btn btn-sm btn-ghost no-print" data-snap="${U.esc(s.id)}">${icon('restore')} Wiederherstellen</button></div>`).join('') || '<span class="muted small">Noch keine Snapshots – sie entstehen automatisch bei Auto-Sicherung und vor jedem Import.</span>'}</div>
         <button class="btn btn-ghost btn-sm mt12" id="snap-now">${icon('plus')} Snapshot jetzt anlegen</button>
       </div>
 
@@ -14530,14 +14617,14 @@ Views.einstellungen = {
         ${imk.bio === 'ja' ? `<div class="mt12" style="border-top:1px solid var(--line);padding-top:12px">
           <div class="flex-wrap" style="justify-content:space-between"><b>Bio-Logos</b><label class="btn btn-ghost btn-sm no-print" style="cursor:pointer">${icon('camera')} Logo hinzufügen<input type="file" id="biologo-file" accept="image/*" hidden></label></div>
           <div class="hint mb8">Lade die offiziellen Logo-Dateien deiner Kontrollstelle / deines Verbands hoch (bekommst du als zertifiziertes Mitglied). Sie erscheinen dann auf dem Honig-Etikett.</div>
-          <div class="flex-wrap" id="biologo-list">${(imk.bioLogos || []).map((l, idx) => `<div style="position:relative;width:64px;height:64px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${l}" style="max-width:100%;max-height:100%"><button class="icon-btn no-print" data-biologo-del="${idx}" style="position:absolute;top:-8px;right:-8px;background:var(--danger);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px">✕</button></div>`).join('') || '<span class="muted small">Noch keine Bio-Logos hochgeladen.</span>'}</div>
+          <div class="flex-wrap" id="biologo-list">${(imk.bioLogos || []).map((l, idx) => `<div style="position:relative;width:64px;height:64px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden"><img src="${U.bildQuelle(l)}" style="max-width:100%;max-height:100%"><button class="icon-btn no-print" data-biologo-del="${U.esc(idx)}" style="position:absolute;top:-8px;right:-8px;background:var(--danger);color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px">✕</button></div>`).join('') || '<span class="muted small">Noch keine Bio-Logos hochgeladen.</span>'}</div>
         </div>` : ''}
       </div>
 
       <div class="card"><div class="card-title">${icon('camera')}<h2>Eigenes Logo</h2></div>
         <div class="flex-wrap mb12">
           <div style="width:74px;height:74px;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden">
-            ${logo ? `<img src="${logo}" style="max-width:100%;max-height:100%">` : logoSvg(46)}
+            ${logo ? `<img src="${U.bildQuelle(logo)}" style="max-width:100%;max-height:100%">` : logoSvg(46)}
           </div>
           <div class="flex-wrap no-print">
             <label class="btn btn-ghost btn-sm">${icon('upload')} Logo hochladen<input type="file" accept="image/png,image/jpeg,image/svg+xml" class="hidden" id="logo-file"></label>
@@ -14571,7 +14658,7 @@ Views.einstellungen = {
         <div class="hint" id="rk-hinweis">Die nächste Rechnung bekommt <b>${U.esc(naechsteRechnungsnummer(kreis, rechnungenAlle).nummer)}</b>.</div>
         <div class="mt12" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
           <div style="width:74px;height:74px;border:1px solid var(--line);border-radius:14px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden">
-            ${S.get('rechnungQr') ? `<img src="${S.get('rechnungQr')}" style="max-width:100%;max-height:100%">` : `<span class="muted" style="font-size:11px;text-align:center">kein<br>QR</span>`}
+            ${S.get('rechnungQr') ? `<img src="${U.bildQuelle(S.get('rechnungQr'))}" style="max-width:100%;max-height:100%">` : `<span class="muted" style="font-size:11px;text-align:center">kein<br>QR</span>`}
           </div>
           <div style="flex:1;min-width:180px">
             <div class="flex-wrap no-print">
@@ -14614,35 +14701,35 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('doc')}<h2>Dokumententypen</h2></div>
         <p class="small muted mb12">Eigene Typen für Anhänge (z. B. „Kaufbeleg“, „Gesundheitszeugnis“) – zuweisbar und filterbar an jedem Dokument.</p>
-        <div class="chip-row mb12" id="typ-list">${typen.map((t, i) => `<span class="chip">${U.esc(t)} <button data-tdel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
+        <div class="chip-row mb12" id="typ-list">${typen.map((t, i) => `<span class="chip">${U.esc(t)} <button data-tdel="${U.esc(i)}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
         <div class="flex no-print"><input class="inp" id="typ-neu" placeholder="Neuer Typ …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="typ-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
       <div class="card"><div class="card-title">${icon('uhr')}<h2>Tätigkeiten (Zeiterfassung)</h2></div>
         <p class="small muted mb12">Kategorien für die Zeiterfassung beim Abhaken von Aufgaben – frei anpassbar.</p>
-        <div class="chip-row mb12" id="taet-list">${S.get('taetigkeiten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-taetdel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
+        <div class="chip-row mb12" id="taet-list">${S.get('taetigkeiten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-taetdel="${U.esc(i)}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
         <div class="flex no-print"><input class="inp" id="taet-neu" placeholder="Neue Tätigkeit …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="taet-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
       <div class="card"><div class="card-title">${icon('honig')}<h2>Honigsorten</h2></div>
         <p class="small muted mb12">Auswahl für das Sorten-Feld bei Ernten und Laborergebnissen – frei anpassbar. Eigene Eingaben im Ernte-Formular bleiben trotzdem jederzeit möglich.</p>
-        <div class="chip-row mb12" id="sorte-list">${S.get('honigsorten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-sortedel="${i}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
+        <div class="chip-row mb12" id="sorte-list">${S.get('honigsorten').map((t, i) => `<span class="chip">${U.esc(t)} <button data-sortedel="${U.esc(i)}" style="margin-left:4px;color:var(--danger)">✕</button></span>`).join('')}</div>
         <div class="flex no-print"><input class="inp" id="sorte-neu" placeholder="Neue Honigsorte …" style="max-width:240px"><button class="btn btn-ghost btn-sm" id="sorte-add">${icon('plus')} Hinzufügen</button></div>
       </div>
 
       <div class="card"><div class="card-title">${icon('crown')}<h2>Belegstellen</h2></div>
         <p class="small muted mb12">Bienenbelegstellen zur kontrollierten Anpaarung. Einmal angelegt, kannst du sie in der Zucht (bei Königin und Zuchtserie unter „Belegstelle“) direkt auswählen – dort auch neu anlegen.</p>
-        <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${b.id}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.drohnenlinie || b.rasse, b.ort, b.leiterName ? 'Leiter: ' + b.leiterName : b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
+        <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${U.esc(b.id)}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.drohnenlinie || b.rasse, b.ort, b.leiterName ? 'Leiter: ' + b.leiterName : b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
         <button class="btn btn-ghost btn-sm no-print" id="beleg-add">${icon('plus')} Belegstelle hinzufügen</button>
       </div>
 
       <div class="card"><div class="card-title">${icon('buch')}<h2>Eigene Stockkarten-Felder</h2></div>
         <p class="small muted mb12">Zusätzliche Felder für jede Durchsicht (z. B. „Baurahmen“, „Drohnenbrut“, „Milbenfall geschätzt“) – erscheinen dann automatisch im Durchsicht-Formular.</p>
-        <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
+        <div class="rows mb12" id="skf-list">${(S.get('stockkartenFelder') || []).map((f, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(f.name)}</span><span class="r-sub">${({ text: 'Text', zahl: 'Zahl', check: 'Ja/Nein', rating: 'Bewertung 1–5' })[f.typ] || f.typ}</span></span><button class="btn btn-xs btn-ghost no-print" data-skfdel="${U.esc(i)}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine eigenen Felder.</span>'}</div>
         <div class="flex-wrap no-print"><input class="inp" id="skf-name" placeholder="Feldname …" style="max-width:200px"><select class="inp" id="skf-typ" style="width:auto"><option value="check">Ja/Nein</option><option value="text">Text</option><option value="zahl">Zahl</option><option value="rating">Bewertung 1–5</option></select><button class="btn btn-ghost btn-sm" id="skf-add">${icon('plus')} Hinzufügen</button></div>
         <h3 class="mt16 mb8">Durchsicht-Vorlagen</h3>
         <p class="small muted mb12">Vorlagen entstehen beim Speichern einer Durchsicht (Feld „als Vorlage speichern“). Als Schnell-Button im Stockkarte-Tab verfügbar.</p>
-        <div class="rows" id="skv-list">${(S.get('stockkartenVorlagen') || []).map((vl, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">Stärke ${vl.werte.volksstaerke || '–'} · Brut ${vl.werte.brutbild || '–'}${vl.werte.futter ? ' · ' + U.esc(vl.werte.futter) : ''}</span></span><button class="btn btn-xs btn-ghost no-print" data-skvdel="${i}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
+        <div class="rows" id="skv-list">${(S.get('stockkartenVorlagen') || []).map((vl, i) => `<div class="row" style="min-height:44px;padding:8px 4px"><span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">Stärke ${U.esc(vl.werte.volksstaerke || '–')} · Brut ${U.esc(vl.werte.brutbild || '–')}${vl.werte.futter ? ' · ' + U.esc(vl.werte.futter) : ''}</span></span><button class="btn btn-xs btn-ghost no-print" data-skvdel="${U.esc(i)}">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
       </div>
 
       <div class="card"><div class="card-title">${icon('trash')}<h2>Papierkorb</h2></div>
@@ -14914,10 +15001,10 @@ function applyHeaderLogo() {
   const logo = S.get('logo');
   const custom = logo && S.get('logoImHeader');
   const brandHtml = custom
-    ? `<img src="${logo}" style="width:28px;height:28px;object-fit:contain;border-radius:7px"> ImkerBuch`
+    ? `<img src="${U.bildQuelle(logo)}" style="width:28px;height:28px;object-fit:contain;border-radius:7px"> ImkerBuch`
     : `${brandLogoSvg(26)} ImkerBuch`;
   $('#tb-brand').innerHTML = brandHtml;
-  const sb = $('#sidebar .brand'); if (sb) sb.innerHTML = custom ? `<img src="${logo}" style="width:30px;height:30px;object-fit:contain;border-radius:8px"> ImkerBuch` : `${brandLogoSvg(30)} ImkerBuch`;
+  const sb = $('#sidebar .brand'); if (sb) sb.innerHTML = custom ? `<img src="${U.bildQuelle(logo)}" style="width:30px;height:30px;object-fit:contain;border-radius:8px"> ImkerBuch` : `${brandLogoSvg(30)} ImkerBuch`;
 }
 
 /* =====================================================================

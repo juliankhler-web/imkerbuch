@@ -32,3 +32,4 @@ Für alles andere reicht ein Kommentar im Code oder ein Eintrag im CHANGELOG.
 | [0001](0001-alles-bleibt-auf-dem-geraet.md) | Alle Daten bleiben auf dem Gerät | Angenommen |
 | [0002](0002-eine-einzige-index-html.md) | Die App ist eine einzige Datei | Angenommen |
 | [0003](0003-abzug-mit-gemerkter-buchung.md) | Bestandsabzug merkt sich, was er genommen hat | Angenommen |
+| [0004](0004-eine-fremde-sicherung-ist-nicht-vertrauenswuerdig.md) | Eine importierte Sicherung ist nicht vertrauenswürdig | Angenommen |

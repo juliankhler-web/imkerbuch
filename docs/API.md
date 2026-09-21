@@ -189,6 +189,8 @@ U.fmtDate(iso)  U.fmtDateTime(iso)  U.fmtNum(n, dec)  U.fmtEur(n)  U.fmtBytes(n)
 U.parseNum(s)                    // versteht deutsches Format: "1.234,50" → 1234.5
 U.addDays(iso, n)  U.daysBetween(a, b)
 U.sortBy(arr, fn, desc)  U.groupBy(arr, fn)  U.sum(arr, fn)  U.debounce(fn, ms)
+U.zahl(v, ersatz=0)              // erzwingt eine Zahl – Importwerte sind keine
+U.bildQuelle(v)                  // nur data:image/… und https, sonst ''
 U.download(blob, name)  U.blobToDataURL(blob)  U.dataURLToBlob(durl)
 U.resizeImage(file, maxPx=1600, quality=0.8)
 U.loadScript(...urls)            // erste erreichbare Quelle gewinnt (lokal vor CDN)
@@ -282,6 +284,8 @@ await Backup.share()                        // Web Share API, sonst Download + m
 await Backup.importFile(file)               // fragt Ersetzen oder Zusammenführen
 await Backup.applyReplace(data, { blobsBehalten })
 await Backup.applyMerge(data)               // jüngeres lastModified gewinnt, keine Dubletten
+Backup._saeubereZeile(store, r)             // prüft jede Zeile aus der Datei (siehe adr/0004)
+Xlsx.zelleSicher(v) / Xlsx.zeilenSicher(rows)  // keine Formeln, keine Zellobjekte aus Fremddaten
 await Backup.snapshotInternal(grund)        // rollierend 10, ohne Anhang-Blobs
 await Backup.restoreSnapshot(id)
 ```
