@@ -952,8 +952,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.60';
+const APP_VERSION = '1.61';
 const CHANGELOG = [
+  { version: '1.61', datum: '2026-09-21', punkte: [
+    'Sicherheit: <b>Bestätigungsfenster</b> („Wirklich löschen?") zeigten Namen bisher ungeprüft an. Ein Name aus einer <b>importierten fremden Sicherung</b> konnte darüber Code im Browser ausführen. Solche Texte werden jetzt als Text angezeigt, nicht als Anweisung.',
+    'Aufgeräumt: Der <b>QR-Druckbogen</b> war zweimal im Code – einmal fürs Volk, einmal für die Charge. Jetzt gibt es eine Funktion für beides; Größe und Spalten sind Einstellungen.',
+  ] },
   { version: '1.60', datum: '2026-09-20', punkte: [
     'In der <b>Betriebsbeschreibung</b> gibt es beim Abschnitt „Standortwahl und Umfeld" jetzt den Knopf <b>Zahlen aus den Standorten übernehmen</b>. Er schreibt Umkreis, Trachtanteil, bebauten Anteil und die größten Flächen je Standort als Text hinein – erhoben im Reiter „Standorte", samt Datum und Quelle. Dein eigener Text bleibt dabei stehen, die Zahlen hängen sich an.',
   ] },
@@ -1939,7 +1943,10 @@ const UI = {
     return new Promise((res) => {
       const m = UI.modal({
         title, onClose: () => res(false),
-        body: `<p>${text}</p>${requirePhrase ? `<div class="field mt12"><label>Zur Bestätigung <b>${U.esc(requirePhrase)}</b> eintippen:</label><input class="inp" id="cf-phrase" autocomplete="off"></div>` : ''}`,
+        /* Der Text wird ENTSCHÄRFT. Er enthält regelmäßig Namen, die der
+           Nutzer eingetippt hat – oder die aus einer importierten fremden
+           Sicherung stammen. Kein Aufrufer braucht hier Auszeichnung. */
+        body: `<p>${U.esc(text)}</p>${requirePhrase ? `<div class="field mt12"><label>Zur Bestätigung <b>${U.esc(requirePhrase)}</b> eintippen:</label><input class="inp" id="cf-phrase" autocomplete="off"></div>` : ''}`,
         footer: `<button class="btn btn-ghost" data-no>Abbrechen</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-yes ${requirePhrase ? 'disabled' : ''}>${U.esc(confirmText)}</button>`,
       });
       if (requirePhrase) $('#cf-phrase', m.el).oninput = (e) => { $('[data-yes]', m.el).disabled = e.target.value.trim() !== requirePhrase; };
@@ -3789,7 +3796,7 @@ Views.stand = {
     $('#edit').onclick = () => openStandForm(s, renderRoute);
     $('#del').onclick = async () => {
       const nv = voelker.length;
-      if (!(await UI.confirm({ title: 'Stand löschen?', text: `„${U.esc(s.name)}" wandert in den Papierkorb.${nv ? ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.` : ''}` }))) return;
+      if (!(await UI.confirm({ title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${nv ? ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.` : ''}` }))) return;
       for (const v of voelker) { v.standId = null; await DB.put('voelker', v); }
       await DB.softDel('staende', id); UI.toast('Stand in den Papierkorb verschoben'); navTo('staende');
     };
@@ -3905,13 +3912,16 @@ async function volkQrAnzeigen(v) {
     $('#vqr-print', m.el).onclick = () => qrEtikettDruck(`${v.name}${v.beutenkennung ? ' · ' + v.beutenkennung : ''}`, dataUrl);
   } catch (e) { $('#vqr-zone', m.el).innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
 }
-/** Druckbogen mit mehreren gleichen QR-Etiketten (generisch für Volk/Charge) */
-function qrEtikettDruck(titel, dataUrl, anzahl = 6) {
+/** Druckbogen mit mehreren gleichen QR-Etiketten (generisch für Volk und Charge).
+    `spalten` und `mm` steuern, wie groß und wie dicht die Codes auf dem Bogen
+    stehen – ein Volk-Etikett fürs Beutendach darf größer sein als ein
+    Chargen-Aufkleber fürs Glas. */
+function qrEtikettDruck(titel, dataUrl, anzahl = 6, { spalten = 3, mm = 40, schrift = 9 } = {}) {
   const div = document.createElement('div');
   div.className = 'qr-print print-only';
   div.innerHTML = `<h2 style="margin-bottom:8px">${U.esc(titel)} – QR-Etiketten</h2>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12mm;margin-top:8mm">
-      ${Array.from({ length: anzahl }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:40mm;height:40mm"><div style="font-size:9pt;margin-top:2mm">${U.esc(titel)}</div></div>`).join('')}
+    <div style="display:grid;grid-template-columns:repeat(${spalten},1fr);gap:${Math.max(6, 14 - spalten)}mm;margin-top:8mm">
+      ${Array.from({ length: anzahl }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:${mm}mm;height:${mm}mm"><div style="font-size:${schrift}pt;margin-top:2mm">${U.esc(titel)}</div></div>`).join('')}
     </div>`;
   document.body.appendChild(div);
   document.body.classList.add('qr-printing');
@@ -7695,7 +7705,7 @@ Views.honig = {
         <button class="btn btn-primary btn-sm no-print" id="lab">${icon('plus')} Laborergebnis eintragen</button></div>
       <p class="small muted mb12">Nach der Schleuderung schickst du eine Probe ins Labor. Kommt das Ergebnis zurück, trägst du hier <b>Sorte</b> und <b>Wassergehalt</b> ein – die App überträgt beides auf alle Ernten der gewählten Schleuderung. Honig <b>aus dem Lagerbestand</b> hat keine Ernte: dort tragen Sorte und Laborwert direkt an der Charge, und diese Tabelle zeigt sie mit. Die Sortenliste selbst pflegst du unter Einstellungen → „Honigsorten“.</p>
       ${offen.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${offen.length} ${offen.length === 1 ? 'Ernte wartet' : 'Ernten warten'}</b> noch auf ein Laborergebnis (${U.fmtNum(U.sum(offen, (e) => e.mengeKg))} kg ohne Sorte).</span></div>` : ''}
-      ${ohneSorte.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${ohneSorte.length} ${ohneSorte.length === 1 ? 'Charge aus Lagerbestand hat' : 'Chargen aus Lagerbestand haben'}</b> noch keine Sorte (${ohneSorte.map((c) => c.losnummer).join(', ')}). Ohne sie steht auf dem Etikett nur „Honig“ – die Sorte trägst du im Tab <b>Charge</b> ein.</span></div>` : ''}
+      ${ohneSorte.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${ohneSorte.length} ${ohneSorte.length === 1 ? 'Charge aus Lagerbestand hat' : 'Chargen aus Lagerbestand haben'}</b> noch keine Sorte (${ohneSorte.map((c) => U.esc(c.losnummer)).join(', ')}). Ohne sie steht auf dem Etikett nur „Honig“ – die Sorte trägst du im Tab <b>Charge</b> ein.</span></div>` : ''}
       ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Einträge</th><th class="num">Menge</th><th class="num">Ø Wasser</th><th>Quelle</th></tr></thead>
         <tbody>${sortenRows.map((r) => `<tr><td>${U.esc(r.sorte)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td><td class="small muted">${U.esc(r.quelle)}</td></tr>`).join('')}</tbody></table></div>`
         : (offen.length ? '' : emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.'))}
@@ -8069,24 +8079,10 @@ Views.honig = {
     const text = [`Charge: ${c.losnummer}`, c.datum ? `Angelegt: ${U.fmtDate(c.datum)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
     return makeQr(text);
   },
-  /** Druckansicht: Bogen mit QR-Codes fürs Etikett */
+  /** Druckansicht: Bogen mit QR-Codes fürs Glas – dieselbe Mechanik wie beim
+      Volk, nur kleiner und dichter. Die Kopie dieser Funktion ist entfallen. */
   qrPrint(c, dataUrl) {
-    const div = document.createElement('div');
-    div.className = 'qr-print print-only';
-    div.innerHTML = `<h2 style="margin-bottom:8px">Charge ${U.esc(c.losnummer)} – QR-Etiketten</h2>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10mm;margin-top:8mm">
-        ${Array.from({ length: 12 }).map(() => `<div style="text-align:center"><img src="${dataUrl}" style="width:30mm;height:30mm"><div style="font-size:8pt">Charge ${U.esc(c.losnummer)}</div></div>`).join('')}
-      </div>`;
-    document.body.appendChild(div);
-    document.body.classList.add('qr-printing');
-    if (!$('#qr-print-style')) {
-      const st = document.createElement('style'); st.id = 'qr-print-style';
-      st.textContent = `@media print{ body.qr-printing .app, body.qr-printing #modal-root, body.qr-printing #banners, body.qr-printing .bottomnav {display:none!important} }`;
-      document.head.appendChild(st);
-    }
-    const cleanup = () => { div.remove(); document.body.classList.remove('qr-printing'); window.removeEventListener('afterprint', cleanup); };
-    window.addEventListener('afterprint', cleanup);
-    window.print();
+    qrEtikettDruck(`Charge ${c.losnummer}`, dataUrl, 12, { spalten: 4, mm: 30, schrift: 8 });
   },
 
   /* ---------- Abfüllung (Charge → Gebinde/Gläser, zieht kg von der Charge ab) ---------- */

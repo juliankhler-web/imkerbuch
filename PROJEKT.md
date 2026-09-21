@@ -3,7 +3,7 @@
 > **Diese Datei ist die einzige Wahrheitsquelle über den Projektstand.**
 > Zu Beginn jeder Sitzung und nach jeder Kontext-Kompaktierung zuerst vollständig lesen
 > (inkl. der verlinkten Docs, wenn am jeweiligen Thema gearbeitet wird).
-> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 386/386 Tests grün, LIVE auf GitHub Pages**
+> Stand: 2026-09-03 · **v1.51 · alle Module + Bio-Reiter mit amtlicher Landbedeckung (GeoBox-Dienst + 2 Rückfall-Ebenen) + Verbrauchsmaterial/Materialabgang + Futter-Rechner + Imkerschule + Landing Page + Store-Assets, 388/388 Tests grün, LIVE auf GitHub Pages**
 
 ## Dokumentation (Docs as Code)
 
@@ -75,6 +75,14 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 - **Single-File-Modularität**: Auf ES-Module/Dateisplit wurde bewusst verzichtet (Prompt fordert eine index.html). Modularität über Namespaces + Banner-Abschnitte + expliziten window-Export, s. [ARCHITEKTUR.md](docs/ARCHITEKTUR.md#modul-aufbau-in-indexhtml).
 
 ## Historie
+
+- **2026-09-21 (v1.61)**: **Sicherheits- und Hygienedurchlauf** (Julian: „wichtig ist für mich sicherheit und das der code aufgeräumt ist").
+  Systematisch gemessen statt geraten: alle HTML-erzeugenden Stellen gegen die Liste der **frei eintippbaren Felder** geprüft (Name, Bezeichnung, Notiz, Losnummer, Sorte …).
+  **Ein echter Fund:** `UI.confirm` setzte seinen `text` ungeprüft ins Fenster. Betroffen waren „Feld entfernen?" und „Vorlage löschen?" mit selbst vergebenen Namen. Gefährlich wird das nicht durch den eigenen Nutzer, sondern durch eine **importierte fremde Sicherung** – die App führt Backups zusammen. Entschärft wird jetzt an der Quelle (`U.esc(text)`); kein Aufrufer brauchte dort Auszeichnung, die einzige Stelle mit eigenem `U.esc` wurde entdoppelt. Dazu eine Einsetzung in der Sorten-Warnung (Chargennummern) aus v1.54.
+  **Sauber:** keine `innerHTML`-Zuweisung mit unentschärftem Freitext, kein `console.log` im Auslieferungscode, kein TODO/FIXME, keine nie aufgerufene Top-Level-Funktion.
+  **Entdoppelt:** Der QR-Druckbogen lag zweimal im Code (Volk und Charge, 20 Zeilen fast identisch). `qrEtikettDruck` nimmt jetzt Spalten, Größe und Schriftgrad als Optionen; `qrPrint` ist ein Einzeiler darauf.
+  Stehen gelassen: zwei Funktionen über 150 Zeilen (`renderInventarBereich`, `materialZugangForm`) – beides Formularbauer, deren Aufteilung nur Sprungmarken erzeugen würde.
+  2 neue Tests. **388/388 grün.** SW → v173.
 
 - **2026-09-20 (v1.60)**: **Standort-Zahlen in die Betriebsbeschreibung** (Julian: „kannst du da nicht gleich die werte aus standorte nehmen wenn eine landbedeckung erfasst ist").
   Neuer Helfer `bioStandorteText(staende, voelkerJeStand)`: baut aus den erfassten Landbedeckungen einen Absatz – Umkreis, Trachtanteil, bebauter und sonstiger Anteil, die drei größten Flächen, Erhebungsdatum und Quelle je Standort. Im Bearbeiten-Dialog hängt ein Knopf unter dem Feld „Standortwahl und Umfeld".

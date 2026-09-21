@@ -7335,3 +7335,59 @@ test('Bio: Standort-Zahlen in die Betriebsbeschreibung übernehmen', async (w) =
     for (const x of alt.v) await w.DB.put('voelker', x, true);
   }
 });
+
+test('Sicherheit: Bestätigungsfenster zeigt Eingaben als Text, nicht als HTML', async (w) => {
+  dialogeSchliessen(w);
+  /* Ein Name kann aus einem importierten fremden Backup stammen. Landet er
+     ungeprüft im Fenster, führt der Browser aus, was darin steht. */
+  const p = w.UI.confirm({ title: 'Test', text: '<img src=x onerror="window.__boese=1"> „Volk <b>A</b>"' });
+  await new Promise((r) => setTimeout(r, 200));
+  try {
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'das Fenster steht offen');
+    assert(!modal.querySelector('img'), 'kein Bild wurde erzeugt');
+    assert(!modal.querySelector('b'), 'auch keine Auszeichnung');
+    assert(/<img src=x/.test(modal.textContent), 'der Text steht sichtbar da: ' + modal.textContent.slice(0, 60));
+    assertEq(w.__boese, undefined, 'und nichts wurde ausgeführt');
+  } finally {
+    const nein = w.document.querySelector('.modal-back [data-no]');
+    if (nein) nein.click();
+    await p.catch(() => {});
+    dialogeSchliessen(w);
+    delete w.__boese;
+  }
+});
+
+test('QR-Druckbogen: eine Funktion für Volk und Charge', async (w) => {
+  const echtPrint = w.print;
+  let gedruckt = 0;
+  w.print = () => { gedruckt++; };
+  try {
+    // Charge: 12 kleine Codes in vier Spalten
+    w.Views.honig.qrPrint({ losnummer: '2026-06' }, 'data:image/png;base64,AA');
+    let bogen = w.document.querySelector('.qr-print');
+    assert(bogen, 'der Bogen ist da');
+    assertEq(bogen.querySelectorAll('img').length, 12, 'zwölf Codes fürs Glas');
+    assert(/Charge 2026-06/.test(bogen.textContent), 'mit der Chargennummer');
+    assert(/repeat\(4,/.test(bogen.innerHTML), 'in vier Spalten');
+    bogen.remove(); w.document.body.classList.remove('qr-printing');
+
+    // Volk: sechs große Codes in drei Spalten
+    w.qrEtikettDruck('Volk A', 'data:image/png;base64,AA');
+    bogen = w.document.querySelector('.qr-print');
+    assertEq(bogen.querySelectorAll('img').length, 6, 'sechs Codes fürs Beutendach');
+    assert(/repeat\(3,/.test(bogen.innerHTML), 'in drei Spalten');
+    assert(/40mm/.test(bogen.innerHTML), 'und größer');
+    assertEq(gedruckt, 2, 'beide Male wurde gedruckt');
+
+    // Auch hier: Eingaben bleiben Text
+    bogen.remove();
+    w.qrEtikettDruck('<b>X</b>', 'data:image/png;base64,AA');
+    bogen = w.document.querySelector('.qr-print');
+    assert(!bogen.querySelector('b'), 'ein Titel mit Auszeichnung wird entschärft');
+  } finally {
+    w.print = echtPrint;
+    w.document.querySelectorAll('.qr-print').forEach((x) => x.remove());
+    w.document.body.classList.remove('qr-printing');
+  }
+});
