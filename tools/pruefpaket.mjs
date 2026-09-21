@@ -8,7 +8,7 @@
 
    Aufruf: node tools/pruefpaket.mjs [zielordner]
 */
-import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, rmSync, existsSync, readFileSync, cpSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -25,14 +25,20 @@ const schlaf = (ms) => new Promise((r) => setTimeout(r, ms));
    node_modules) bläht nur auf und trägt zum Prüfen nichts bei. */
 const DATEIEN = [
   'index.html', 'service-worker.js', 'manifest.json',
+  'icon-192.png', 'icon-512.png', 'icon-180.png',
+  'impressum.html', 'datenschutz.html', 'agb.html',
   'tests/tests.js', 'tests/test.html',
   'PROJEKT.md', 'docs/API.md', 'docs/ARCHITEKTUR.md', 'docs/FEATURES.md', 'docs/TESTFAELLE.md',
   'docs/adr/README.md', 'docs/adr/0000-vorlage.md',
   'docs/adr/0001-alles-bleibt-auf-dem-geraet.md',
   'docs/adr/0002-eine-einzige-index-html.md',
   'docs/adr/0003-abzug-mit-gemerkter-buchung.md',
-  'package.json', '.github/workflows/ci.yml',
+  'package.json', 'package-lock.json', '.markdownlint-cli2.jsonc', '.github/workflows/ci.yml',
+  'tools/test-run.mjs', 'tools/pruefpaket.mjs', 'tools/pdfs.mjs', 'tools/pdf-ansicht.html',
 ];
+/* Ganze Ordner: die selbst gehosteten Bibliotheken (ohne sie läuft PDF, Excel
+   und QR nur über CDN) und die Bilder, auf die die App im Betrieb zugreift. */
+const ORDNER = ['libs', 'assets'];
 
 class Cdp {
   constructor(ws) { this.ws = ws; this.id = 0; this.warten = new Map(); this.session = null;
@@ -120,6 +126,12 @@ in IndexedDB im Browser; ausgetauscht wird über eine Sicherungsdatei.
 | \`docs/API.md\` | die interne Schnittstelle, Datenmodell aller Speicher |
 | \`docs/adr/\` | warum zentrale Entscheidungen so gefallen sind |
 | \`PROJEKT.md\` | Verlauf und Stand |
+| \`libs/\` | die selbst gehosteten Bibliotheken (PDF, Excel, QR) |
+| \`assets/\` | Bilder, die die App im Betrieb lädt |
+| \`impressum.html\` u. a. | die Rechtsseiten |
+| \`tools/test-run.mjs\` | Testläufer, kopflos über das DevTools-Protokoll |
+| \`TESTPROTOKOLL.md\` | Lauf vom Zeitpunkt des Packens, mit Browser und Version |
+| \`coverage-report.json\` | jede nie aufgerufene Funktion mit Zeilennummer |
 
 **Die Beispieldaten sind erfunden.** Echte Betriebsdaten enthalten Kundennamen,
 Anschriften und Rechnungen – die gehören nicht in eine fremde Umgebung.
@@ -164,7 +176,58 @@ async function main() {
     mkdirSync(join(ZIEL, dirname(d)), { recursive: true });
     copyFileSync(join(WURZEL, d), join(ZIEL, d));
   }
-  console.log(`${DATEIEN.length} Dateien kopiert.`);
+  for (const o of ORDNER) {
+    if (!existsSync(join(WURZEL, o))) continue;
+    cpSync(join(WURZEL, o), join(ZIEL, o), { recursive: true });
+  }
+  console.log(`${DATEIEN.length} Dateien + ${ORDNER.length} Ordner kopiert.`);
+
+  /* Frisches Testprotokoll: nicht behaupten, dass alles grün ist, sondern es
+     im Moment des Packens messen – mit Browser- und Versionsangabe. */
+  console.log('Testsuite läuft …');
+  const lauf = spawnSync('node', [join(WURZEL, 'tools', 'test-run.mjs'), '--coverage'], { encoding: 'utf8' });
+  const ausgabe = (lauf.stdout || '') + (lauf.stderr || '');
+  const zeile = (muster) => (ausgabe.match(muster) || [, '–'])[1];
+  writeFileSync(join(ZIEL, 'TESTPROTOKOLL.md'), `# Testprotokoll
+
+Erzeugt beim Packen dieses Pakets – nicht abgeschrieben, sondern gemessen.
+
+| | |
+| --- | --- |
+| App-Version | ${zeile(/App-Version: (.+)/)} |
+| Browser | ${zeile(/Browser: (.+)/)} |
+| Gelaufen | ${zeile(/Gelaufen: (.+)/)} |
+| Ergebnis | ${zeile(/(\d+ von \d+ Tests grün.*)/)} |
+| Abdeckung | ${zeile(/Abdeckung: (.+)/)} |
+| Exit-Code | ${lauf.status} |
+
+Die Abdeckung zählt **Funktionen**, nicht Zeilen, und ist ein Wegweiser, kein
+Ziel: Dialoge, die auf eine Nutzereingabe warten, und Netzabrufe bleiben
+bewusst teilweise offen. Die vollständige Liste der nie aufgerufenen Funktionen
+steht in \`coverage-report.json\` (Name, Zeilennummer, Größe).
+
+## Selbst nachstellen
+
+\`\`\`bash
+npm ci                      # einmalig, für den Markdown-Linter
+node tools/test-run.mjs --coverage
+\`\`\`
+
+Der Läufer startet einen eigenen Dateiserver und steuert Chrome über das
+DevTools-Protokoll (kein Puppeteer, kein Selenium). Er braucht ein installiertes
+Chrome; ein anderer Pfad lässt sich über die Umgebungsvariable \`CHROME_BIN\`
+angeben. Ohne Chrome geht es auch von Hand: einen beliebigen Dateiserver im
+Paketordner starten und \`tests/test.html\` im Browser öffnen.
+
+## Rohausgabe des Laufs
+
+\`\`\`text
+${ausgabe.split('\n').filter((z) => !/^\s{2,}\d+\s/.test(z)).join('\n').trim()}
+\`\`\`
+`);
+  const bericht = join(WURZEL, 'tools', 'coverage', 'report.json');
+  if (existsSync(bericht)) copyFileSync(bericht, join(ZIEL, 'coverage-report.json'));
+  console.log(`Testprotokoll geschrieben: ${zeile(/(\d+ von \d+ Tests grün.*)/)}`);
   console.log('Beispieldaten werden erzeugt …');
   writeFileSync(join(ZIEL, 'beispieldaten.json'), await beispieldaten());
   writeFileSync(join(ZIEL, 'LIESMICH.md'), BRIEFING());

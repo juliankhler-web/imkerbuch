@@ -70,10 +70,13 @@ class Cdp {
   }
 }
 
+export let browserKennung = 'unbekannt';
+
 async function verbinde() {
   for (let i = 0; i < 80; i++) {
     try {
       const v = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`).then((r) => r.json());
+      browserKennung = v.Browser || 'unbekannt';
       const ws = new WebSocket(v.webSocketDebuggerUrl);
       await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', rej); });
       return new Cdp(ws);
@@ -160,6 +163,10 @@ async function main() {
 
   const fehler = await cdp.js(`return [...document.querySelectorAll('.t.fail')].map(e => e.textContent)`);
   for (const f of fehler) console.log(f);
+  const version = (await readFile(join(WURZEL, 'index.html'), 'utf8')).match(/const APP_VERSION = '([^']+)'/);
+  console.log(`\nApp-Version: ${version ? version[1] : '?'}`);
+  console.log(`Browser: ${browserKennung}`);
+  console.log(`Gelaufen: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`);
   console.log(`\n${erg.pass} von ${erg.gesamt} Tests grün${erg.fail ? ` – ${erg.fail} FEHLGESCHLAGEN` : ' ✓'}`);
 
   if (COVERAGE) {
