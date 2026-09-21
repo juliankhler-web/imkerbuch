@@ -76,6 +76,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-21**: **Zweiter externer Prüfbericht nachgeprüft** – 28 Funde, davon 6 bereits in v1.62 behoben (S1–S6), **22 offen**. Jeden einzeln am Code bestätigt, **kein Fehlalarm**. Zusammengefasst mit Nachprüfung, aktuellen Zeilennummern und vorgeschlagener Reihenfolge in [docs/PRUEFUNG-2026-09.md](docs/PRUEFUNG-2026-09.md).
+  Dringlichste Funde: **Q6** (ersetzender Import löscht Anhänge, bevor die Datei geprüft ist – der interne Snapshot enthält keine Anhang-Dateien, also endgültiger Verlust), **Q1/Q2/R1/R2/R3** (Bestände laufen still falsch: Fütterung löschen im Volk-Dialog gibt nichts zurück, Papierkorb bucht nicht gegen, die Abzugskette ignoriert die Gebindegröße), **Q3/Q4** (Rechnung prüft den Bestand je Position statt summiert; ein zweites Fenster kann denselben Entwurf erneut festschreiben).
+  Bei den Rechtsfunden ist die **Codestelle** bestätigt, die rechtliche Folgerung gehört vor jeder Änderung geprüft – bei **J2** (Pfand und Umsatzsteuer) ausdrücklich zum Steuerberater.
+  Selbst dazugelernt: **R5** ist mein eigener Hilfetext aus v1.59, der der Rechnung widerspricht – nicht die Rechnung.
+
 - **2026-09-21 (v1.62)**: **Sechs Funde einer externen Nachprüfung behoben** (Codex las v1.61 statisch gegen das vollständige Prüfpaket).
   Alle sechs am Code **nachgeprüft und bestätigt** – keiner war ein Fehlalarm. Gemeinsame Wurzel: Die App glaubte einer **importierten Sicherung**. Sie hat keinen Server, Daten wandern als Datei zwischen Geräten – und die kann ebenso gut von jemand anderem kommen.
   **S1 (kritisch):** Ein erfundener Speichername landete ungeprüft im Vorschau-Dialog – es genügte, die Datei **auszuwählen**, „Zusammenführen" musste nicht bestätigt werden. Jetzt werden nur bekannte Speicher namentlich genannt, fremde gezählt und übersprungen.
