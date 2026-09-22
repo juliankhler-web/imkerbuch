@@ -987,8 +987,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.64';
+const APP_VERSION = '1.65';
 const CHANGELOG = [
+  { version: '1.65', datum: '2026-09-22', punkte: [
+    'Der Abschnitt <b>Standortwahl und Umfeld</b> in der Betriebsbeschreibung ist jetzt <b>gegliedert statt ein Fließtext</b>: ein Block je Stand, jede Angabe auf einer eigenen Zeile – Umkreis, Trachtanteil, Bebauung, Sonstiges, die größten Flächen und das Erhebungsdatum. Neu dabei: die <b>Verschmutzungsquellen im Umkreis</b> (danach fragt die Kontrolle), eine Mittelwert-Zeile über alle erhobenen Stände und der Hinweis, welche Stände noch offen sind.',
+    'Außerdem bleiben <b>Zeilenumbrüche in allen Abschnitten</b> der Betriebsbeschreibung jetzt erhalten. Bisher wurde alles, was du dort eingetippt hast, in der Übersicht zu einem einzigen Absatz zusammengezogen.',
+  ] },
   { version: '1.64', datum: '2026-09-21', punkte: [
     'Sicherheit: Fünf weitere Wege geschlossen, auf denen eine <b>präparierte fremde Sicherung</b> Code in die App bringen konnte – über eine Bildadresse, die nur vorne richtig aussah, über einen erfundenen Feldtyp bei den eigenen Stockkarten-Feldern, über Zuchtzahlen, über Standort-Koordinaten im Kartenlink und über einen erfundenen Speichernamen im Papierkorb. Gefunden hat das eine externe Nachprüfung.',
     'Wichtige Vorgänge sind jetzt <b>unteilbar</b>: Beim <b>Festschreiben einer Rechnung</b> gehen Bestand, Kassenbuch-Buchung und Rechnung gemeinsam in die Datenbank – bricht etwas ab, wird nichts gebucht (vorher konnten Gläser fehlen, ohne dass es eine Rechnung dazu gab). Dasselbe gilt für <b>Import und Zusammenführen</b> einer Sicherung sowie für das <b>Wiederherstellen aus dem Papierkorb</b>.',
@@ -6595,25 +6599,54 @@ function bioAnteile(stand) {
    sehen, die Zahlen liegen aber schon im Reiter „Standorte" – sie dort noch
    einmal abzutippen ist Arbeit, bei der sich Fehler einschleichen. */
 function bioStandorteText(staende, voelkerJeStand = null) {
-  const mit = (staende || []).filter((st) => bioAnteile(st).length);
+  const alle = staende || [];
+  const mit = alle.filter((st) => bioAnteile(st).length);
   if (!mit.length) return '';
-  const zeilen = mit.map((st) => {
+
+  /* Gegliedert statt als Fließtext: ein Block je Stand, eine Angabe je Zeile.
+     Vorher stand alles in einem einzigen Absatz hintereinander – fachlich
+     vollständig, aber weder am Bildschirm noch auf dem Ausdruck zu lesen.
+     Bei der Kontrolle wird genau hier nachgeschlagen. */
+  const bloecke = mit.map((st) => {
     const b = st.bio || {};
     const su = bioSummen(bioAnteile(st));
-    const umkreis = U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1);
+    const zahl = voelkerJeStand ? (voelkerJeStand.get(st.id) || 0) : null;
     const oben = U.sortBy(bioAnteile(st), (a) => -(Number(a.prozent) || 0)).slice(0, 3)
       .map((a) => `${a.name} ${U.fmtNum(a.prozent, 1)} %`).join(', ');
-    const zahl = voelkerJeStand ? (voelkerJeStand.get(st.id) || 0) : null;
-    return `- ${st.name}${zahl != null ? ` (${zahl} ${zahl === 1 ? 'Volk' : 'Völker'})` : ''}: Umkreis ${umkreis} km, `
-      + `Trachtflächen ${U.fmtNum(su.tracht, 1)} %, bebaut ${U.fmtNum(su.bebaut, 1)} %, sonstige ${U.fmtNum(su.sonstiges, 1)} %.`
-      + (oben ? ` Größte Anteile: ${oben}.` : '')
-      + (b.erhebung ? ` Erhoben am ${U.fmtDate(b.erhebung)}${b.quelle ? ` (${b.quelle})` : ''}.` : '');
+    const quellen = Array.isArray(b.quellen) ? b.quellen.filter(Boolean) : [];
+    const zeilen = [
+      `Stand „${st.name}“${zahl != null ? ` (${zahl} ${zahl === 1 ? 'Volk' : 'Völker'})` : ''}`,
+      `· Umkreis: ${U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1)} km`,
+      `· Tracht und Vegetation: ${U.fmtNum(su.tracht, 1)} %`,
+      `· Bebauung, Verkehr, Industrie: ${U.fmtNum(su.bebaut, 1)} %`,
+      `· Sonstiges: ${U.fmtNum(su.sonstiges, 1)} %`,
+    ];
+    if (oben) zeilen.push(`· Größte Anteile: ${oben}`);
+    zeilen.push(`· Verschmutzungsquellen im Umkreis: ${quellen.length ? quellen.join(', ') : 'keine erfasst'}`);
+    if (b.erhebung) zeilen.push(`· Erhoben am ${U.fmtDate(b.erhebung)}${b.quelle ? ` (${b.quelle})` : ''}`);
+    return zeilen.join('\n');
   });
-  const umkreise = [...new Set(mit.map((st) => (st.bio || {}).umkreisM || BIO_UMKREIS_VORGABE))];
-  const kopf = `Die Standorte werden nach dem Trachtangebot im Umkreis von `
-    + `${umkreise.map((m) => U.fmtNum(m / 1000, 1)).join(' bzw. ')} km ausgewählt. `
-    + `Die Landbedeckung wurde für ${mit.length} ${mit.length === 1 ? 'Standort' : 'Standorte'} erhoben:`;
-  return [kopf, ...zeilen].join('\n');
+
+  const umkreise = [...new Set(mit.map((st) => (st.bio || {}).umkreisM || BIO_UMKREIS_VORGABE))]
+    .map((m) => U.fmtNum(m / 1000, 1));
+  const kopf = `Die Stände werden nach dem Trachtangebot ausgewählt. Betrachtet wird ein Umkreis von `
+    + `${umkreise.join(' bzw. ')} km. `
+    + `Die Landbedeckung ist für ${mit.length} von ${alle.length} ${alle.length === 1 ? 'Stand' : 'Ständen'} erhoben.`;
+
+  const fuss = [];
+  if (mit.length > 1) {
+    const mittel = (feld) => U.fmtNum(U.sum(mit, (st) => bioSummen(bioAnteile(st))[feld]) / mit.length, 1);
+    fuss.push(`Über alle erhobenen Stände: Tracht im Mittel ${mittel('tracht')} %, bebaut ${mittel('bebaut')} %.`);
+  }
+  // Die Liste der offenen Stände soll ein Hinweis bleiben, keine zweite Seite.
+  const ohne = alle.filter((st) => !bioAnteile(st).length).map((st) => st.name);
+  if (ohne.length) {
+    const zeigen = ohne.slice(0, 8);
+    const rest = ohne.length - zeigen.length;
+    fuss.push(`Noch ohne Erhebung: ${zeigen.join(', ')}${rest > 0 ? ` und ${rest} weitere` : ''}.`);
+  }
+
+  return [kopf, ...bloecke, ...fuss].join('\n\n');
 }
 
 /** Summen je Art plus Gesamtsumme – die Grundlage für die Bewertung. */
@@ -7427,7 +7460,7 @@ Views.bio = {
       <div class="rows">${BIO_ABSCHNITTE.map((a) => `<div class="row" style="align-items:flex-start">
         <span class="r-ic">${icon((bb[a.key] || '').trim() ? 'check' : 'info')}</span>
         <span class="r-main"><span class="r-title">${U.esc(a.label)}</span>
-        <span class="r-sub" style="white-space:normal">${(bb[a.key] || '').trim() ? U.esc(bb[a.key]) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
+        <span class="r-sub" style="white-space:pre-wrap">${(bb[a.key] || '').trim() ? U.esc(bb[a.key].trim()) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
     </div>
     <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
       <button class="btn btn-ghost btn-sm no-print" id="zert-edit">${icon('pencil')} Bearbeiten</button></div>

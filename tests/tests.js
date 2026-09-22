@@ -7302,12 +7302,18 @@ test('Bio: Standort-Zahlen in die Betriebsbeschreibung übernehmen', async (w) =
     const jeStand = new Map([[st.id, 2]]);
     const text = w.bioStandorteText([st], jeStand);
     assert(/3,5 km/.test(text), 'der Umkreis steht drin: ' + text.slice(0, 80));
-    assert(/Heimstand \(2 Völker\)/.test(text), 'Name und Völkerzahl');
-    assert(/Trachtflächen 72,5 %/.test(text), 'die Trachtsumme ist gerechnet (42,5 + 30)');
+    assert(/Stand „Heimstand“ \(2 Völker\)/.test(text), 'Name und Völkerzahl');
+    assert(/Tracht und Vegetation: 72,5 %/.test(text), 'die Trachtsumme ist gerechnet (42,5 + 30)');
     // U.fmtNum schneidet nachlaufende Nullen ab: „20 %", nicht „20,0 %"
-    assert(/bebaut 20 %/.test(text), 'und der bebaute Anteil');
+    assert(/Bebauung, Verkehr, Industrie: 20 %/.test(text), 'und der bebaute Anteil');
     assert(/Grünland 42,5 %/.test(text), 'die größten Flächen einzeln');
     assert(/04\.05\.2026/.test(text) && /GeoBox/.test(text), 'Erhebungsdatum und Quelle');
+    // Gegliedert: jede Angabe auf einer eigenen Zeile, ein Block je Stand
+    const zeilen = text.split('\n');
+    assert(zeilen.length >= 8, `der Text ist gegliedert, nicht ein Absatz (${zeilen.length} Zeilen)`);
+    assert(zeilen.filter((z) => z.startsWith('· ')).length >= 6, 'die Angaben stehen als Aufzählung');
+    assert(!/keine erfasst|Autobahn/.test(text) === false, 'die Verschmutzungsquellen werden genannt');
+    assert(zeilen.every((z) => z.length <= 160), 'keine Zeile wird zur Textwand');
 
     // Der Knopf im Formular hängt den Text an, ohne Vorhandenes zu löschen
     await w.S.set('bioBetrieb', { standorte: 'Eigener Text.' });
@@ -7325,7 +7331,7 @@ test('Bio: Standort-Zahlen in die Betriebsbeschreibung übernehmen', async (w) =
       await new Promise((r) => setTimeout(r, 200));
       const feld = modal.querySelector('#f-standorte');
       assert(/^Eigener Text\./.test(feld.value), 'der eigene Text bleibt vorn stehen');
-      assert(/Trachtflächen 72,5 %/.test(feld.value), 'die Zahlen hängen dahinter');
+      assert(/Tracht und Vegetation: 72,5 %/.test(feld.value), 'die Zahlen hängen dahinter');
     } finally { host.remove(); w.Views.bio._tab = 'betrieb'; }
   } finally {
     dialogeSchliessen(w);
