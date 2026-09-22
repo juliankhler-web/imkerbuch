@@ -7834,3 +7834,130 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
     await w.DB.del('chargen', c.id); await w.DB.del('kontakte', k.id);
   }
 });
+
+/* =====================================================================
+   Hygieneplan aus einem Foto: der Erkenner
+   ===================================================================== */
+
+test('Hygieneplan-Foto: Tabelle mit Kopfzeile wird spaltenrichtig gelesen', (w) => {
+  // So liest Tesseract eine gedruckte Tabelle: Spalten durch mehrere Leerzeichen getrennt.
+  const text = [
+    'Hygieneplan',
+    'Bereich          Womit                       Wie oft                  Wer',
+    'Schleuderraum    heißes Wasser, Soda         nach jeder Schleuderung  J. Köhler',
+    'Schleuder        klares Wasser               nach jedem Einsatz       J. Köhler',
+    'Abfülleimer      Spülmittel, heiß nachspülen vor jedem Abfüllen       J. Köhler',
+    'Seite 1',
+  ].join('\n');
+  const z = w.hygieneplanParsen(text);
+  assertEq(z.length, 3, 'Überschrift und Seitenzahl fallen weg');
+  assertEq(z[0].bereichName, 'Schleuderraum');
+  assertEq(z[0].mittel, 'heißes Wasser, Soda');
+  assertEq(z[0].haeufigkeit, 'nach jeder Schleuderung');
+  assertEq(z[0].verantwortlich, 'J. Köhler');
+  assert(z.every((x) => x.sicher), 'alle drei Zeilen gelten als sicher');
+});
+
+test('Hygieneplan-Foto: Spalten in anderer Reihenfolge folgen der Kopfzeile', (w) => {
+  const text = [
+    'Was | Wie oft | Womit',
+    'Lagerraum | monatlich | feucht wischen',
+    'Abfüllhahn | nach jedem Abfüllen | heißes Wasser',
+  ].join('\n');
+  const z = w.hygieneplanParsen(text);
+  assertEq(z.length, 2);
+  assertEq(z[0].bereichName, 'Lagerraum');
+  assertEq(z[0].haeufigkeit, 'monatlich', 'die zweite Spalte ist hier die Häufigkeit');
+  assertEq(z[0].mittel, 'feucht wischen');
+});
+
+test('Hygieneplan-Foto: ohne Kopfzeile wird die Zeitangabe erkannt', (w) => {
+  const text = [
+    'Schleuderraum    wöchentlich    feucht wischen und lüften',
+    'Siebe            nach Gebrauch  heißes Wasser',
+  ].join('\n');
+  const z = w.hygieneplanParsen(text);
+  assertEq(z.length, 2);
+  assertEq(z[0].bereichName, 'Schleuderraum');
+  assertEq(z[0].haeufigkeit, 'wöchentlich', 'die Zeitangabe wird an ihrer Formulierung erkannt');
+  assertEq(z[0].mittel, 'feucht wischen und lüften', 'der längste Rest ist das Mittel');
+  assertEq(z[1].haeufigkeit, 'nach Gebrauch');
+});
+
+test('Hygieneplan-Foto: Fließtext-Pläne werden aufgeteilt', (w) => {
+  const text = [
+    'Schleuderraum: heißes Wasser, nach jeder Schleuderung',
+    'Honigeimer – Spülmittel, vor jedem Abfüllen',
+    'Smoker täglich ausleeren',
+  ].join('\n');
+  const z = w.hygieneplanParsen(text);
+  assertEq(z.length, 3);
+  assertEq(z[0].bereichName, 'Schleuderraum');
+  assertEq(z[0].haeufigkeit, 'nach jeder Schleuderung');
+  assertEq(z[0].mittel, 'heißes Wasser', 'das Komma vor der Zeitangabe fällt weg');
+  assertEq(z[1].bereichName, 'Honigeimer');
+  assertEq(z[2].bereichName, 'Smoker');
+  assertEq(z[2].haeufigkeit, 'täglich');
+});
+
+test('Hygieneplan-Foto: Umbrüche und Dopplungen fallen nicht auseinander', (w) => {
+  const text = [
+    'Bereich   Womit   Wie oft',
+    'Schleuderraum   heißes Wasser und   wöchentlich',
+    'Schleuderraum   heißes Wasser und   wöchentlich',
+    'milde Sodalösung',
+  ].join('\n');
+  const z = w.hygieneplanParsen(text);
+  assertEq(z.length, 1, 'die doppelt gelesene Zeile zählt einmal');
+  assertEq(z[0].mittel, 'heißes Wasser und milde Sodalösung', 'der Umbruch hängt an der vorigen Zeile');
+});
+
+test('Hygieneplan-Foto: unklare Zeilen werden gemeldet, nicht stillschweigend übernommen', (w) => {
+  const z = w.hygieneplanParsen('Smarungen\nxyz\nSchleuder   heißes Wasser   täglich');
+  const unsicher = z.filter((x) => !x.sicher);
+  assert(unsicher.length >= 1, 'Kauderwelsch gilt als unsicher');
+  assert(unsicher.every((x) => x.bereichName), 'der gelesene Text geht dabei nicht verloren');
+  const sicher = z.filter((x) => x.sicher);
+  assertEq(sicher.length, 1, 'die saubere Zeile bleibt sicher');
+  assertEq(sicher[0].bereichName, 'Schleuder');
+});
+
+test('Hygieneplan-Foto: leere und wirre Eingaben ergeben nichts', (w) => {
+  assertEq(w.hygieneplanParsen('').length, 0);
+  assertEq(w.hygieneplanParsen(null).length, 0);
+  assertEq(w.hygieneplanParsen('Hygieneplan\nStand: 01.01.2026\nSeite 1\n---').length, 0, 'nur Kopf- und Fußzeilen ergeben keine Einträge');
+  assert(w.hygieneplanParsen(Array(200).fill('Raum   Wasser   täglich').map((z, i) => z + ' ' + i).join('\n')).length <= 60, 'die Menge ist gedeckelt');
+});
+
+test('Hygieneplan-Foto: Spalten werden aus den Wortpositionen zurückgewonnen', (w) => {
+  // So liefert Tesseract eine Tabelle: Wortkästchen mit Koordinaten. Zwischen
+  // Spalten klaffen ~200 px, zwischen Wörtern ~10 px.
+  const wort = (text, x0, br) => ({ text, bbox: { x0, x1: x0 + br, y0: 100, y1: 126 } });
+  const zeilen = [
+    { words: [wort('Bereich', 40, 100), wort('Womit', 420, 80), wort('Wie', 830, 50), wort('oft', 890, 40)] },
+    { words: [wort('Schleuderraum', 40, 210), wort('heisses', 420, 100), wort('Wasser', 530, 100), wort('nach', 830, 60), wort('jeder', 900, 70)] },
+    { words: [wort('Lagerraum', 40, 150), wort('wischen', 420, 110), wort('monatlich', 830, 130)] },
+  ];
+  const text = w.spaltenAusWorten(zeilen);
+  const z = text.split('\n');
+  assertEq(z.length, 3);
+  assertEq(z[1], 'Schleuderraum   heisses Wasser   nach jeder', 'Spaltenlücken werden breit, Wortlücken schmal');
+  assertEq(z[0], 'Bereich   Womit   Wie oft');
+  // Und der Erkenner findet damit die Spalten wieder
+  const geparst = w.hygieneplanParsen(text);
+  assertEq(geparst.length, 2, 'die Kopfzeile wird als Kopfzeile erkannt');
+  assertEq(geparst[0].bereichName, 'Schleuderraum');
+  assertEq(geparst[0].mittel, 'heisses Wasser');
+  assertEq(geparst[0].haeufigkeit, 'nach jeder');
+});
+
+test('Hygieneplan-Foto: Fließtext wird nicht künstlich in Spalten zerlegt', (w) => {
+  // Eine normale Textzeile: alle Lücken sind Wortlücken – es darf keine Spalte entstehen.
+  const wort = (text, x0, br) => ({ text, bbox: { x0, x1: x0 + br, y0: 100, y1: 126 } });
+  let x = 40;
+  const words = 'Der Schleuderraum wird nach jeder Schleuderung feucht gewischt'.split(' ')
+    .map((t) => { const o = wort(t, x, t.length * 14); x += t.length * 14 + 10; return o; });
+  const text = w.spaltenAusWorten([{ words }]);
+  assert(!/ {2,}/.test(text), 'kein künstlicher Spaltenumbruch: ' + text);
+  assertEq(text, 'Der Schleuderraum wird nach jeder Schleuderung feucht gewischt');
+});

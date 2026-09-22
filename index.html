@@ -540,6 +540,13 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .gallery .g-item svg{width:24px;height:24px;color:var(--muted)}
 .gallery .g-badge{position:absolute;bottom:4px;left:4px;right:4px;background:rgba(20,15,5,.62);color:#fff;font-size:9.5px;padding:2px 6px;border-radius:7px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;backdrop-filter:blur(4px)}
 .viewer-img{max-width:100%;max-height:60dvh;border-radius:12px;display:block;margin:0 auto}
+.hyg-kopf,.hyg-zeile{display:grid;grid-template-columns:24px minmax(0,1.05fr) minmax(0,1.3fr) minmax(0,1fr) minmax(0,.7fr);gap:6px;align-items:center}
+.hyg-kopf{font-size:12px;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--line)}
+.hyg-zeile{padding:5px 4px;border-bottom:1px solid var(--line)}
+.hyg-zeile.unsicher{background:var(--warn-bg);border-radius:8px}
+@media(max-width:700px){.hyg-kopf{display:none}
+  .hyg-zeile{grid-template-columns:24px 1fr;row-gap:4px;padding:9px 4px}
+  .hyg-zeile>input[type=checkbox]{grid-row:span 4}}
 .progress{height:9px;background:var(--card2);border:1px solid var(--line);border-radius:99px;overflow:hidden}
 .progress>div{height:100%;background:linear-gradient(90deg,var(--honey),var(--honey-dark));border-radius:99px;transition:width .25s;min-width:2%}
 .audio-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
@@ -987,8 +994,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.65';
+const APP_VERSION = '1.66';
 const CHANGELOG = [
+  { version: '1.66', datum: '2026-09-22', punkte: [
+    'Neu unter <b>Bio → Hygiene</b>: <b>Plan einlesen</b>. Wer seinen Hygieneplan schon auf Papier oder als PDF hat, fotografiert ihn ab oder lädt die Datei hoch – die App liest ihn und schlägt die Einträge vor. Du siehst jede erkannte Zeile vorher in einer Tabelle, kannst sie ändern und hakst ab, was angelegt werden soll. <b>Ungeprüft wird nichts gespeichert.</b>',
+    'Zeilen, bei denen die Erkennung unsicher war, sind gelb hervorgehoben und nicht vorausgewählt – so fällt nichts Falsches unbemerkt in den Plan.',
+    'Ein PDF aus einem Schreibprogramm wird direkt gelesen, ganz ohne Texterkennung – das ist genauer. Nur ein eingescanntes PDF geht durch die Texterkennung.',
+    'Auf Wunsch wandert der erkannte Text zusätzlich in die Betriebsbeschreibung (Abschnitt „Reinigung und Desinfektion“).',
+    'Handschrift wird weiterhin nicht zuverlässig gelesen – dafür ist die Erkennung nicht gemacht.',
+  ] },
   { version: '1.65', datum: '2026-09-22', punkte: [
     'Der Abschnitt <b>Standortwahl und Umfeld</b> in der Betriebsbeschreibung ist jetzt <b>gegliedert statt ein Fließtext</b>: ein Block je Stand, jede Angabe auf einer eigenen Zeile – Umkreis, Trachtanteil, Bebauung, Sonstiges, die größten Flächen und das Erhebungsdatum. Neu dabei: die <b>Verschmutzungsquellen im Umkreis</b> (danach fragt die Kontrolle), eine Mittelwert-Zeile über alle erhobenen Stände und der Hinweis, welche Stände noch offen sind.',
     'Außerdem bleiben <b>Zeilenumbrüche in allen Abschnitten</b> der Betriebsbeschreibung jetzt erhalten. Bisher wurde alles, was du dort eingetippt hast, in der Übersicht zu einem einzigen Absatz zusammengezogen.',
@@ -2773,6 +2787,28 @@ const Anhang = {
    OCR: Tesseract.js (deu), lazy geladen
    ===================================================================== */
 const Ocr = {
+  /* Tesseract setzt zwischen zwei SPALTEN dasselbe einzelne Leerzeichen wie
+     zwischen zwei Wörtern – aus „Schleuderraum | heißes Wasser" wird dann ein
+     Satz, und eine Tabelle ist nicht mehr als Tabelle zu erkennen. Die
+     Wortkästchen wissen es aber genau: Wo eine ungewöhnlich große Lücke
+     klafft, endet eine Spalte. Diese Lücken werden hier zu drei Leerzeichen,
+     damit die Spalten so lesbar bleiben wie in einem PDF. */
+  async runMitLayout(blob, onProgress = () => {}) {
+    await this._laden();
+    const { data } = await Tesseract.recognize(blob, 'deu', {
+      logger: (m) => { if (m.status === 'recognizing text') onProgress(m.progress || 0); },
+    });
+    const zeilen = (data.lines || []).filter((z) => z.words && z.words.length);
+    if (!zeilen.length) return data.text || '';
+    return spaltenAusWorten(zeilen);
+  },
+  async _laden() {
+    await U.loadScript(
+      'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+      'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
+    );
+  },
   async run(blob, onProgress = () => {}) {
     if (!navigator.onLine && !U._scripts['tesseract']) { /* SW-Cache kann trotzdem greifen */ }
     await U.loadScript(
@@ -6667,6 +6703,219 @@ function bioSummen(anteile) {
 const BIO_STATUS_FOERDER = ['geplant', 'beantragt', 'bewilligt', 'abgelehnt', 'abgerechnet'];
 const BIO_ZERT_ARTEN = ['Öko-Zertifikat eigener Betrieb', 'Zertifikat eines Lieferanten', 'Begleitpapier / Lieferschein', 'Analysenbericht', 'Rechnung mit Öko-Hinweis', 'Sonstiges'];
 const BIO_ROLLEN = ['Lieferant', 'Abnehmer', 'beides'];
+/* =====================================================================
+   HYGIENEPLAN AUS EINEM FOTO
+   Wer im Bio-Bereich arbeitet, hat den Plan meist längst auf Papier – an der
+   Wand im Schleuderraum, im Ordner der Kontrollstelle. Abtippen ist Arbeit,
+   bei der sich Fehler einschleichen. Deshalb: abfotografieren, erkennen
+   lassen, DURCHSEHEN, übernehmen. Der Zwischenschritt ist Absicht – eine
+   Texterkennung liest nie zuverlässig genug, um ungeprüft Daten anzulegen,
+   und bei der Öko-Kontrolle zählt, was wirklich dasteht.
+   ===================================================================== */
+
+/**
+ * Erkannte Zeilen mit Wortkästchen in Text mit sichtbaren Spalten verwandeln.
+ *
+ * Herzstück ist die Frage, ab welcher Lücke eine neue Spalte beginnt. Der
+ * MITTELWERT aller Lücken taugt dafür nicht: In einer Tabelle mit kurzen
+ * Zellen sind die meisten Lücken bereits Spaltenlücken – der Mittelwert liegt
+ * dann mitten zwischen den Spalten und die Schwelle rutscht darüber, sodass
+ * gar keine Spalte mehr erkannt wird. Das UNTERE VIERTEL trifft dagegen
+ * verlässlich die gewöhnlichen Wortabstände. Die Schrifthöhe dient als
+ * Untergrenze: Ein Wortabstand ist nie so breit, wie ein Buchstabe hoch ist.
+ */
+function spaltenAusWorten(zeilen) {
+  const luecken = [];
+  for (const z of zeilen) {
+    for (let i = 1; i < z.words.length; i++) luecken.push(z.words[i].bbox.x0 - z.words[i - 1].bbox.x1);
+  }
+  const sortiert = luecken.filter((l) => l > 0).sort((a, b) => a - b);
+  const wortabstand = sortiert.length ? sortiert[Math.floor(sortiert.length * 0.25)] : 10;
+  const hoehen = zeilen.flatMap((z) => z.words.map((w) => w.bbox.y1 - w.bbox.y0)).sort((a, b) => a - b);
+  const hoehe = hoehen.length ? hoehen[Math.floor(hoehen.length / 2)] : 20;
+  const schwelle = Math.max(wortabstand * 3, hoehe * 0.9, 15);
+  return zeilen.map((z) => {
+    let text = '';
+    z.words.forEach((w, i) => {
+      if (i > 0) text += (w.bbox.x0 - z.words[i - 1].bbox.x1 > schwelle) ? '   ' : ' ';
+      text += w.text;
+    });
+    return text.trim();
+  }).join('\n');
+}
+
+/**
+ * Text aus einem PDF holen – mit Rücksicht auf die Anordnung auf der Seite.
+ *
+ * Der vorhandene PDF-Import reiht alle Textstücke mit einem Leerzeichen
+ * aneinander; für Fließtext reicht das, für eine TABELLE nicht – dort geht
+ * genau die Information verloren, die die Spalten trennt. Deshalb hier:
+ * Stücke nach Zeilen gruppieren (gleiche Höhe), nach links-rechts sortieren,
+ * und wo eine größere Lücke klafft, drei Leerzeichen setzen. Damit findet
+ * `hygieneSpalten` die Spalten genauso wieder wie bei einem Foto.
+ *
+ * Gibt `{ text, seiten, ausText }` zurück. `ausText: false` heißt: Das PDF
+ * ist ein Scan ohne Textebene – dann muss die Texterkennung ran.
+ */
+async function pdfTextMitLayout(datei, maxSeiten = 5) {
+  const gewinner = await U.loadScript(...CDN.pdfjs);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
+  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+  const seiten = Math.min(pdf.numPages, maxSeiten);
+  const alles = [];
+  for (let i = 1; i <= seiten; i++) {
+    const inhalt = await (await pdf.getPage(i)).getTextContent();
+    const stuecke = inhalt.items
+      .filter((it) => it.str && it.str.trim())
+      .map((it) => ({ x: it.transform[4], y: it.transform[5], breite: it.width || 0, str: it.str }));
+    // Nach Zeilen gruppieren: gleiche Grundlinie ± 3 Punkt gilt als eine Zeile.
+    const zeilen = [];
+    for (const st of U.sortBy(stuecke, (a) => -a.y)) {
+      const treffer = zeilen.find((z) => Math.abs(z.y - st.y) <= 3);
+      if (treffer) treffer.teile.push(st); else zeilen.push({ y: st.y, teile: [st] });
+    }
+    for (const z of zeilen) {
+      const teile = U.sortBy(z.teile, (a) => a.x);
+      let text = '';
+      let endeVorher = null;
+      for (const t of teile) {
+        if (endeVorher !== null) text += (t.x - endeVorher > 8) ? '   ' : (/\s$/.test(text) ? '' : ' ');
+        text += t.str.trim();
+        endeVorher = t.x + t.breite;
+      }
+      if (text.trim()) alles.push(text.trim());
+    }
+    if (i < seiten) alles.push('');
+  }
+  const text = alles.join('\n');
+  // Weniger als ein paar Zeichen je Seite = keine echte Textebene, sondern ein Scan.
+  return { text, seiten, ausText: text.replace(/\s/g, '').length >= seiten * 20 };
+}
+
+/** Eine PDF-Seite als Bild – für Scans, die durch die Texterkennung müssen. */
+async function pdfSeiteAlsBild(datei, seite = 1, breitePx = 1600) {
+  const gewinner = await U.loadScript(...CDN.pdfjs);
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
+  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+  const page = await pdf.getPage(Math.min(seite, pdf.numPages));
+  const roh = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: Math.min(3, Math.max(1, breitePx / roh.width)) });
+  const c = document.createElement('canvas');
+  c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return { blob: await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.92)), seiten: pdf.numPages };
+}
+
+/** Spaltenüberschriften, wie sie auf echten Plänen stehen. */
+const HYGIENE_KOPF = [
+  ['bereichName', /^(bereich|was|gegenstand|objekt|ger[äa]t|raum|r[äa]ume|teilbereich|anlage)\b/i],
+  ['mittel', /^(mittel|womit|reinigungsmittel|desinfektionsmittel|verfahren|ma[sß]nahme|reinigung|durchf[üu]hrung\b)/i],
+  ['haeufigkeit', /^(h[äa]ufigkeit|wann|wie ?oft|intervall|turnus|zeitpunkt|rhythmus|zyklus)/i],
+  ['verantwortlich', /^(wer\b|verantwortlich|zust[äa]ndig|ausf[üu]hrend)/i],
+];
+/** Formulierungen, an denen eine Häufigkeit zu erkennen ist. */
+const HYGIENE_ZEIT = /(t[äa]glich|arbeitst[äa]glich|w[öo]chentlich|monatlich|halbj[äa]hrlich|viertelj[äa]hrlich|j[äa]hrlich|quartal\w*|saison\w*|(?:nach|vor)\s+jed\w*(?:\s+[A-Za-zÄÖÜäöüß]+)?|nach gebrauch|vor gebrauch|bei bedarf|anlassbezogen|laufend|st[äa]ndig|einmal\s+\w+|jede[nsr]?\s+\w+|\d+\s*(?:x|mal)\s*(?:pro|im|je)\s*\w+|\d+\s*(?:x|mal)\s+\w+)/i;
+/** Zeilen, die nur Überschrift, Seitenzahl oder Unterschriftszeile sind. */
+const HYGIENE_MUELL = /^(hygiene ?plan|reinigungs ?plan|desinfektions ?plan|reinigungs- und desinfektionsplan|seite\s*\d|stand:|datum:|unterschrift|betrieb:|erstellt|\d+\s*$|[-–—_.·]+$)/i;
+
+/** Eine Zeile in Spalten zerlegen: Strich, Tabulator, Semikolon oder mehrere Leerzeichen. */
+function hygieneSpalten(zeile) {
+  const t = String(zeile).replace(/\t/g, '   ').trim();
+  if (/\|/.test(t)) return t.split('|').map((x) => x.trim()).filter((x, i, a) => x !== '' || (i > 0 && i < a.length - 1));
+  if (/;/.test(t)) return t.split(';').map((x) => x.trim());
+  if (/ {2,}/.test(t)) return t.split(/ {2,}/).map((x) => x.trim()).filter(Boolean);
+  return [t];
+}
+
+/** Erkennt eine Kopfzeile und gibt die Spaltenzuordnung zurück – sonst null. */
+function hygieneKopfzeile(spalten) {
+  if (spalten.length < 2) return null;
+  const zu = spalten.map((z) => (HYGIENE_KOPF.find(([, re]) => re.test(z.trim())) || [null])[0]);
+  return zu.filter(Boolean).length >= 2 ? zu : null;
+}
+
+/**
+ * Macht aus dem erkannten Text eines Hygieneplans Zeilen für den Plan.
+ * Gibt je Zeile zusätzlich `sicher` zurück: false heißt „konnte ich nicht
+ * sauber zuordnen" – solche Zeilen werden in der Durchsicht hervorgehoben
+ * und NICHT vorausgewählt.
+ */
+function hygieneplanParsen(text) {
+  const roh = String(text || '').split(/\r?\n/).map((z) => z.replace(/\s+$/, ''));
+  const zeilen = [];
+  let zuordnung = null;
+  for (const z of roh) {
+    const t = z.trim();
+    if (!t || t.length < 3 || HYGIENE_MUELL.test(t)) continue;
+    const spalten = hygieneSpalten(t);
+    const kopf = hygieneKopfzeile(spalten);
+    if (kopf) { zuordnung = kopf; continue; }
+
+    const satz = { bereichName: '', mittel: '', haeufigkeit: '', verantwortlich: '', sicher: true };
+    if (zuordnung && spalten.length >= 2) {
+      // Kopfzeile bekannt: Spalten der Reihe nach zuordnen.
+      spalten.forEach((wert, i) => { const k = zuordnung[i]; if (k && wert) satz[k] = wert; });
+      if (!satz.bereichName) satz.bereichName = spalten[0] || '';
+      satz.sicher = !!(satz.bereichName && (satz.mittel || satz.haeufigkeit));
+    } else if (spalten.length >= 2) {
+      /* Ohne Kopfzeile raten wir: die erste Spalte ist der Bereich, die
+         Spalte mit einer Zeitangabe die Häufigkeit, die längste vom Rest das
+         Mittel – und eine kurze übrige Spalte die verantwortliche Person. */
+      satz.bereichName = spalten[0];
+      const rest = spalten.slice(1);
+      const zi = rest.findIndex((x) => HYGIENE_ZEIT.test(x));
+      if (zi >= 0) { satz.haeufigkeit = rest[zi]; rest.splice(zi, 1); }
+      if (rest.length) {
+        const laengste = rest.reduce((a, b) => (b.length > a.length ? b : a));
+        satz.mittel = laengste;
+        const uebrig = rest.filter((x) => x !== laengste);
+        if (uebrig.length) satz.verantwortlich = uebrig[0];
+      }
+      satz.sicher = !!(satz.bereichName && (satz.mittel || satz.haeufigkeit));
+    } else {
+      /* Eine einzige Spalte – häufig „Schleuderraum: heißes Wasser, nach
+         jeder Schleuderung" oder eine Fortsetzung der vorigen Zeile. */
+      const treffer = t.match(HYGIENE_ZEIT);
+      const doppel = t.match(/^([^:–—-]{2,60})\s*[:–—-]\s*(.+)$/);
+      if (doppel) {
+        satz.bereichName = doppel[1].trim();
+        const rest = doppel[2].trim();
+        const z2 = rest.match(HYGIENE_ZEIT);
+        if (z2) {
+          satz.haeufigkeit = z2[0].trim();
+          satz.mittel = rest.replace(z2[0], '').replace(/[,;]\s*$/, '').replace(/^[,;]\s*/, '').trim();
+        } else { satz.mittel = rest; }
+        satz.sicher = !!(satz.mittel || satz.haeufigkeit);
+      } else if (treffer && t.indexOf(treffer[0]) > 2) {
+        satz.bereichName = t.slice(0, t.indexOf(treffer[0])).replace(/[,;:\s]+$/, '').trim();
+        satz.haeufigkeit = treffer[0].trim();
+        satz.sicher = !!satz.bereichName;
+      } else if (zeilen.length && /^[a-zäöüß(]/.test(t)) {
+        // Umbruch mitten im Satz: an die vorige Zeile anhängen, statt sie zu zerreißen.
+        const vor = zeilen[zeilen.length - 1];
+        vor.mittel = [vor.mittel, t].filter(Boolean).join(' ');
+        continue;
+      } else {
+        satz.bereichName = t;
+        satz.sicher = false;
+      }
+    }
+
+    if (!satz.bereichName.trim()) continue;
+    for (const k of ['bereichName', 'mittel', 'haeufigkeit', 'verantwortlich']) {
+      satz[k] = satz[k].replace(/\s{2,}/g, ' ').trim();
+    }
+    // Dieselbe Zeile nicht zweimal (OCR liest Tabellenlinien gelegentlich doppelt).
+    const schluessel = [satz.bereichName, satz.mittel, satz.haeufigkeit].join('|').toLowerCase();
+    if (zeilen.some((x) => [x.bereichName, x.mittel, x.haeufigkeit].join('|').toLowerCase() === schluessel)) continue;
+    zeilen.push(satz);
+    if (zeilen.length >= 60) break;
+  }
+  return zeilen;
+}
+
 const BIO_BEREICHE = {
   hygieneplan: {
     titel: 'Hygieneplan', icon: 'check',
@@ -7328,11 +7577,145 @@ Views.bio = {
     else await Views.bio.tabBetrieb(box);
   },
 
+  /** Hygieneplan übernehmen: Foto oder PDF → Text → Durchsicht → Einträge. */
+  async planAusFoto(datei) {
+    const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
+
+    /* Ein PDF, das aus einem Schreibprogramm kommt, trägt seinen Text schon in
+       sich. Den zu lesen ist genauer als jede Erkennung aus einem Bild – also
+       zuerst das versuchen. Nur ein eingescanntes PDF muss durch die
+       Texterkennung, und dafür wird die erste Seite als Bild gerendert. */
+    if (istPdf) {
+      const lade = UI.modal({ title: 'PDF wird gelesen', body: '<p class="small">Einen Moment – die Seiten werden ausgewertet.</p>', footer: '' });
+      try {
+        const erg = await pdfTextMitLayout(datei);
+        if (erg.ausText) {
+          lade.close(true);
+          const zeilen = hygieneplanParsen(erg.text);
+          return zeilen.length
+            ? Views.bio.planDurchsicht(zeilen, erg.text, `PDF · ${erg.seiten} ${erg.seiten === 1 ? 'Seite' : 'Seiten'}`)
+            : Views.bio.planNichtsErkannt(erg.text);
+        }
+        // Scan ohne Textebene: erste Seite als Bild, weiter mit der Texterkennung.
+        const bild = await pdfSeiteAlsBild(datei);
+        lade.close(true);
+        UI.toast(bild.seiten > 1 ? 'Eingescanntes PDF – die erste Seite wird gelesen' : 'Eingescanntes PDF – es wird gelesen');
+        datei = bild.blob;
+      } catch (e) {
+        lade.close(true);
+        return UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err');
+      }
+    }
+
+    if (!S.get('features').ocr) {
+      if (!(await UI.confirm({ title: 'Texterkennung einschalten?',
+        text: 'Zum Lesen des Plans wird die Texterkennung gebraucht. Sie lädt beim ersten Mal einmalig rund 15 MB und arbeitet danach auf dem Gerät – die Fotos verlassen es nicht.',
+        confirmText: 'Einschalten', danger: false }))) return;
+      const f = S.get('features'); f.ocr = true; await S.set('features', f);
+    }
+    const m = UI.modal({
+      title: 'Hygieneplan wird gelesen',
+      body: '<p class="small">Das Foto wird gerade Zeile für Zeile gelesen. Beim ersten Mal dauert es länger, weil die Erkennung nachgeladen wird.</p>'
+        + '<div class="mt12"><div class="progress"><div data-bar style="width:0%"></div></div><div class="hint mt6" data-stand>0 %</div></div>',
+      footer: '',
+    });
+    let text = '';
+    try {
+      text = await Ocr.runMitLayout(datei, (p) => {
+        const bar = $('[data-bar]', m.el), st = $('[data-stand]', m.el);
+        if (bar) bar.style.width = Math.round(p * 100) + '%';
+        if (st) st.textContent = Math.round(p * 100) + ' %';
+      });
+    } catch (e) {
+      m.close(true);
+      return UI.toast('Der Plan konnte nicht gelesen werden: ' + e.message, 'err');
+    }
+    m.close(true);
+    const zeilen = hygieneplanParsen(text);
+    if (!zeilen.length) return Views.bio.planNichtsErkannt(text);
+    Views.bio.planDurchsicht(zeilen, text, 'Foto');
+  },
+
+  /** Ehrlich sagen, dass nichts brauchbar war – und was zu tun ist. */
+  planNichtsErkannt(text) {
+    UI.modal({
+      title: 'Nichts erkannt',
+      body: `<p class="small">Es war keine verwertbare Zeile zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel: gerade von oben, gut ausgeleuchtet und nah genug, dass die Schrift scharf ist. Handschrift wird nicht zuverlässig gelesen.</p>
+        <div class="field mt12"><label>Was gelesen wurde</label><textarea class="inp" rows="6" readonly>${U.esc(text.trim() || '(nichts)')}</textarea></div>`,
+      footer: '<button class="btn btn-primary" data-zu>Verstanden</button>',
+    });
+    $$('[data-zu]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
+  },
+
+  /** Durchsicht vor dem Anlegen – nichts wird ungeprüft gespeichert. */
+  planDurchsicht(zeilen, volltext, quelle = '') {
+    const unsicher = zeilen.filter((z) => !z.sicher).length;
+    const feld = (z, k, ph) => `<input class="inp" data-f="${U.esc(k)}" value="${U.esc(z[k] || '')}" placeholder="${U.esc(ph)}" style="height:34px;font-size:13px">`;
+    const m = UI.modal({
+      title: 'Erkannter Hygieneplan', wide: true,
+      body: `<p class="small">${zeilen.length} ${zeilen.length === 1 ? 'Zeile' : 'Zeilen'} erkannt${quelle ? ` (${U.esc(quelle)})` : ''}. Bitte durchsehen und bei Bedarf ändern – angelegt wird nur, was angehakt ist.</p>
+        ${unsicher ? `<div class="banner warn mt8">${icon('warn')} ${unsicher} ${unsicher === 1 ? 'Zeile ließ' : 'Zeilen ließen'} sich nicht sauber zuordnen. Sie sind hervorgehoben und nicht vorausgewählt.</div>` : ''}
+        <div class="hyg-kopf mt12"><span></span><span>Bereich</span><span>Mittel und Verfahren</span><span>Häufigkeit</span><span>Wer</span></div>
+        <div data-zeilen>${zeilen.map((z, i) => `<div class="hyg-zeile${z.sicher ? '' : ' unsicher'}" data-i="${U.esc(i)}">
+          <input type="checkbox" data-an ${z.sicher ? 'checked' : ''}>
+          ${feld(z, 'bereichName', 'Bereich')}${feld(z, 'mittel', 'nicht erkannt')}${feld(z, 'haeufigkeit', 'nicht erkannt')}${feld(z, 'verantwortlich', '–')}
+        </div>`).join('')}</div>
+        <label class="check-line mt12"><input type="checkbox" data-beschreibung checked> <span>Erkannten Text zusätzlich in die Betriebsbeschreibung übernehmen (Reinigung und Desinfektion)</span></label>
+        <details class="mt8"><summary class="small muted" style="cursor:pointer">Ganzen erkannten Text ansehen</summary>
+          <textarea class="inp mt8" rows="8" readonly style="font-size:12px">${U.esc(volltext.trim())}</textarea></details>`,
+      footer: `<button class="btn btn-ghost" data-ab>Abbrechen</button><button class="btn btn-primary" data-ok>Einträge anlegen</button>`,
+    });
+    const zaehlen = () => {
+      const n = $$('[data-an]', m.el).filter((c) => c.checked).length;
+      const ok = $('[data-ok]', m.el);
+      ok.textContent = n ? `${n} ${n === 1 ? 'Eintrag' : 'Einträge'} anlegen` : 'Nichts ausgewählt';
+      ok.disabled = !n;
+    };
+    m.el.addEventListener('change', zaehlen); zaehlen();
+    $('[data-ab]', m.el).onclick = () => m.close(true);
+    $('[data-ok]', m.el).onclick = async () => {
+      const gewaehlt = $$('.hyg-zeile', m.el).filter((r) => $('[data-an]', r).checked);
+      let n = 0;
+      for (const r of gewaehlt) {
+        const w = {};
+        for (const i of $$('[data-f]', r)) w[i.dataset.f] = i.value.trim();
+        if (!w.bereichName) continue;
+        await DB.put('bioeintraege', { bereich: 'hygieneplan', ...w });
+        n++;
+      }
+      if ($('[data-beschreibung]', m.el).checked) {
+        const bb = S.get('bioBetrieb') || {};
+        const kopf = `Vorhandener Hygieneplan${quelle ? ` (${quelle})` : ''}, übernommen am ${U.fmtDate(U.todayIso())}:`;
+        bb.reinigung = [bb.reinigung, kopf, volltext.trim()].filter(Boolean).join('\n\n');
+        await S.set('bioBetrieb', bb);
+      }
+      m.close(true);
+      UI.toast(n ? `${n} ${n === 1 ? 'Eintrag' : 'Einträge'} im Hygieneplan angelegt` : 'Nichts angelegt');
+      renderRoute();
+    };
+  },
+
   /** Hygiene besteht aus zwei Listen: der Plan und die Nachweise dazu. */
   async tabHygiene(box) {
     box.innerHTML = '<div id="bio-plan"></div><div id="bio-nachweis"></div>';
     await Views.bio.tabListe($('#bio-plan', box), 'hygieneplan');
     await Views.bio.tabListe($('#bio-nachweis', box), 'hygienenachweis');
+    /* Der Knopf sitzt IM Plan-Kasten, neben „Eintrag" – dort sucht man ihn,
+       wenn man den Plan gerade in der Hand hält. */
+    const kopf = $('#bio-plan .card-title', box);
+    if (kopf) {
+      const label = document.createElement('label');
+      label.className = 'btn btn-ghost btn-sm no-print';
+      label.style.cursor = 'pointer';
+      label.innerHTML = `${icon('camera')} Plan einlesen<input type="file" accept="image/*,application/pdf" hidden>`;
+      const eingabe = $('input', label);
+      eingabe.onchange = async (e) => {
+        const f = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (f) await Views.bio.planAusFoto(f);
+      };
+      kopf.insertBefore(label, kopf.querySelector('[data-add]'));
+    }
   },
 
   /** Ein Reiter für alle Listen-Bereiche – die Felder kommen aus BIO_BEREICHE. */
