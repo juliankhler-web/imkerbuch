@@ -6,6 +6,8 @@ Vom Nutzer am 21.09.2026 ausdrücklich priorisiert: Die App wird bereits mit ech
 
 Bericht, reproduzierbare Gegenproben und einen getrennten Bedienentwurf. **Keine Änderung an index.html, Service Worker, Datenmodell oder bestehenden Nutzerdaten. Keine neue Produktivversion.** Die Originalsuite meldet 412 grüne Tests, die zusätzlichen Gegenproben weisen noch offene Fehler nach. Ein Push dieses Zweigs ist keine Freigabe zum Einsatz einer reparierten App; eine Reparatur ist hier noch nicht enthalten.
 
+Dieser Absatz beschreibt den historischen Prüfzweig. Der aktuelle Reparaturzweig enthält inzwischen Codeänderungen und zusätzliche Nachweise; maßgeblich sind [Reparaturstatus](REPARATURSTATUS.md) und die dort verlinkten Übergaben.
+
 ## Anforderungen an jede spätere Reparatur
 
 1. IDs und Beziehungen bestehender gültiger Datensätze bleiben erhalten. Keine stillen Ersatz-IDs, keine Neubuchung alter Rechnungen, keine Umnummerierung. Ungültige Importwerte mit präzisem Hinweis melden, nicht unbemerkt verfälschen.

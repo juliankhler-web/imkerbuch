@@ -1232,7 +1232,7 @@ const CHANGELOG = [
   { version: '1.17', datum: '2026-08-01', punkte: [
     'Rechnungspositionen haben jetzt ein Feld „Pfand je Gebinde“ – für Glas, Eimer oder Kiste. Der Pfand steht als eigene Spalte in der Rechnung und wird in der Summe getrennt ausgewiesen.',
     'Neu: Rabatt und Skonto, bewusst getrennt. <b>Rabatt</b> (Prozent oder Betrag, mit Grund wie „Großkunde“) mindert die Rechnung sofort und damit auch die Umsatzsteuer. <b>Skonto</b> wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen („bei Zahlung bis … 2 %“) – es wirkt erst, wenn wirklich früh gezahlt wird.',
-    'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt außerhalb von Rabatt, Skonto und Umsatzsteuer – er wird nur ausgewiesen.',
+    'Dazu ein Zahlungsziel in Tagen; das Fälligkeitsdatum steht in der Rechnung und in der PDF. Der Pfand bleibt außerhalb von Rabatt und Skonto; seine Umsatzsteuer folgt dem gewählten Pfandsteuersatz.',
     'Kunden lassen sich jetzt dort anlegen, wo man sie braucht: in der Rechnung direkt neben der Kundenauswahl und ebenso beim Verkauf. Der neue Kunde ist sofort gesetzt – der Umweg über Kassenbuch → Kunden & Lieferanten fällt weg.',
     'Die erste Fütterung darf eine eigene Menge haben, und zwar in <b>Litern Sirup</b> – so wie du es einfüllst. Die App rechnet daraus, wie viel Futter das ergibt, und verteilt den Rest gleichmäßig auf die weiteren Termine. Lässt du das Feld leer, sind alle Gaben gleich groß.',
     'Im Reiter „Fütterung" zeigten „Futter" und „Zucker verbraucht" dieselbe Zahl. Jetzt stehen dort drei verschiedene Größen: <b>Zucker</b> (kg), <b>Sirup angesetzt</b> (Liter) und der Zucker in den Winterfutter-Gaben. In der Liste steht unter den Kilogramm die Litermenge.',
@@ -1849,6 +1849,16 @@ const DB = {
   async get(store, id) { return this._req((await this._store(store, 'readonly')).get(id)); },
   async getAll(store) { return this._req((await this._store(store, 'readonly')).getAll()); },
   async count(store) { return this._req((await this._store(store, 'readonly')).count()); },
+  async leseAlles(stores) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(stores, 'readonly'), daten = Object.create(null);
+      tx.oncomplete = () => resolve(daten);
+      tx.onabort = () => reject(tx.error || new Error('Sicherung konnte nicht vollständig gelesen werden.'));
+      tx.onerror = () => reject(tx.error || new Error('Lesefehler'));
+      for (const store of stores) { const rq = tx.objectStore(store).getAll(); rq.onsuccess = () => { daten[store] = rq.result; }; }
+    });
+  },
   /** Speichern: vergibt UUID + createdAt, aktualisiert lastModified */
   async put(store, obj, keepStamp = false) {
     if (store !== 'settings' && !obj.id) obj.id = U.uuid();
@@ -1900,6 +1910,16 @@ const DB = {
       tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
     });
     try {
+      this._auftraege(tx, liste);
+    } catch (e) {
+      try { tx.abort(); } catch (e2) { /* bereits beendet */ }
+      // Auch die Transaktions-Promise behandeln, den ursprünglichen Fehler erhalten.
+      await fertig.catch(() => {});
+      throw e;
+    }
+    return fertig;
+  },
+  _auftraege(tx, liste) {
       for (const o of liste) {
         const st = tx.objectStore(o.store);
         if (o.op === 'clear') { st.clear(); continue; }
@@ -1912,20 +1932,43 @@ const DB = {
         }
         st.put(obj);
       }
-    } catch (e) {
-      try { tx.abort(); } catch (e2) { /* bereits beendet */ }
-      // Auch die Transaktions-Promise behandeln, den ursprünglichen Fehler erhalten.
-      await fertig.catch(() => {});
-      throw e;
-    }
-    return fertig;
+  },
+  /* Liest, prüft und schreibt unter EINER IndexedDB-Schreibsperre.
+     berechne ist synchron und liefert { ops, wert }; keine UI oder awaits darin. */
+  async aendereAtomar(stores, berechne) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const namen = [...new Set(stores)];
+      const tx = db.transaction(namen, 'readwrite');
+      const daten = Object.create(null);
+      let offen = namen.length, wert, ops = [], ursache;
+      tx.oncomplete = () => {
+        if (ops.some((o) => o.store !== 'settings' && o.store !== 'snapshots')) window._changedSinceBackup = true;
+        resolve(wert);
+      };
+      tx.onerror = () => { ursache = ursache || tx.error; };
+      tx.onabort = () => reject(ursache || tx.error || new Error('Buchung abgebrochen – nichts wurde geändert.'));
+      for (const name of namen) {
+        const rq = tx.objectStore(name).getAll();
+        rq.onsuccess = () => {
+          daten[name] = rq.result;
+          if (--offen) return;
+          try {
+            const plan = berechne(daten);
+            if (!plan || typeof plan.then === 'function') throw new Error('Buchungsplan muss synchron berechnet werden.');
+            ops = plan.ops || []; wert = plan.wert;
+            this._auftraege(tx, ops);
+          } catch (e) { ursache = e; tx.abort(); }
+        };
+      }
+    });
   },
   /** Soft-Delete: Datensatz wandert für 30 Tage in den Papierkorb */
   async softDel(store, id) {
-    const rec = await this.get(store, id);
-    if (!rec) return;
-    await this.put('papierkorb', { id: U.uuid(), store, daten: rec, geloeschtAm: U.nowIso() });
-    await this.del(store, id);
+    return this.aendereAtomar([store, 'papierkorb'], (d) => {
+      const rec = d[store].find((r) => r.id === id);
+      return { ops: rec ? papierkorbAuftraege(store, rec) : [] };
+    });
   },
   async trashRestore(trashId) {
     // Vorab nur den Transaktionsumfang bestimmen; maßgeblich ist der erneute
@@ -2715,13 +2758,30 @@ const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zi
    „große" Dialog: Wer eine Fütterung über das VOLK löschte, verlor den Zucker
    für immer – dieselbe Fütterung über den Fütterungs-Reiter gelöscht gab ihn
    zurück. Ein Weg, ein Ergebnis. */
+async function loescheMitMaterial(store, erwartet) {
+  return DB.aendereAtomar([store, 'inventar', 'papierkorb'], (d) => {
+    const rec = d[store].find((x) => x.id === erwartet.id);
+    if (!rec) return { ops: [], wert: 0 };
+    if (JSON.stringify(rec) !== JSON.stringify(erwartet)) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
+    const material = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
+    let menge = 0;
+    for (const a of (rec.verbrauchAbzug || [])) {
+      const p = material.get(a.inventarId);
+      if (!p) throw new Error('Ein Materialposten für die Rückbuchung fehlt. Bitte zuerst wiederherstellen.');
+      const n = buchungsZahl(a.menge, 'Materialabzug'); menge += n;
+      const neu = buchungsZahl(p.stueckzahl, 'Materialbestand') + n;
+      p.stueckzahl = verbrauchEinheit(p) === 'Stück' ? Math.round(neu) : Math.round(neu * 1000) / 1000;
+      geaendert.set(p.id, p);
+    }
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(papierkorbAuftraege(store, rec)), wert: menge };
+  });
+}
 const papierkorbDelete = (store, rec, titel, text = 'Wandert in den Papierkorb (30 Tage wiederherstellbar).') =>
   rec ? async () => {
     const abzug = rec.verbrauchAbzug || [];
     const zurueck = abzug.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
     if (!(await UI.confirm({ title: titel, text: text + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') }))) return false;
-    if (abzug.length) await verbrauchZurueckbuchen(abzug);
-    await DB.softDel(store, rec.id);
+    await loescheMitMaterial(store, rec);
     UI.toast('In den Papierkorb verschoben' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
     renderRoute(); return true;
   } : null;
@@ -4441,7 +4501,8 @@ Views.volk = {
       async onSave(val) {
         const neu = !f;
         delete val._sirupLiter;            // nur Anzeige, gespeichert wird der Zucker
-        await DB.put('fuetterungen', Object.assign(f || { volkId: v.id }, val));
+        if (f) await fuetterungAendern(f, val);
+        else await DB.put('fuetterungen', { volkId: v.id, ...val });
         if (neu && val.wiedervorlageTage > 0) {
           await DB.put('aufgaben', { titel: `Fütterung prüfen: ${v.name}`, faellig: U.addDays(val.datum, Math.round(val.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: v.id, volkId: v.id, notiz: `Nach ${val.futterart} (${U.fmtNum(val.mengeKg)} kg) vom ${U.fmtDate(val.datum)}` });
           Notif.check();
@@ -5447,8 +5508,7 @@ Views.behandlungen = {
         if (!(await UI.confirm({ title: 'Behandlung löschen?',
           text: 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
           confirmText: 'Löschen', danger: true }))) return false;
-        await verbrauchZurueckbuchen(b.verbrauchAbzug);
-        await DB.softDel('behandlungen', b.id);
+        await loescheMitMaterial('behandlungen', b);
         UI.toast('Behandlung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
         renderRoute();
         return true;
@@ -5611,6 +5671,44 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   return Math.round(zucker * n * 1000) / 1000;
 }
 /** Dasselbe aus den Feldern eines offenen Formulars. */
+async function fuetterungAendern(erwartet, werte) {
+  const eingabe = { ...werte };
+  return DB.aendereAtomar(['fuetterungen', 'inventar'], (d) => {
+    const alt = d.fuetterungen.find((f) => f.id === erwartet.id);
+    if (!alt || JSON.stringify(alt) !== JSON.stringify(erwartet)) throw new Error('Diese Fütterung wurde inzwischen geändert. Bitte erneut öffnen.');
+    const posten = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
+    const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : Math.round(n * 1000) / 1000;
+    for (const a of (alt.verbrauchAbzug || [])) {
+      const p = posten.get(a.inventarId);
+      if (!p) throw new Error('Ein bisher gebuchter Materialposten fehlt. Bitte zuerst wiederherstellen.');
+      p.stueckzahl = runden(p, buchungsZahl(p.stueckzahl, 'Materialbestand') + buchungsZahl(a.menge, 'Materialabzug'));
+      geaendert.set(p.id, p);
+    }
+    const id = eingabe._verbrauchId !== undefined ? eingabe._verbrauchId : alt.verbrauchAbzug?.[0]?.inventarId;
+    const v = { ...alt, ...eingabe, _verbrauchId: id };
+    buchungsZahl(v.mengeKg, 'Futtermenge');
+    const abzug = [];
+    if (id) {
+      const start = posten.get(id);
+      if (!start) throw new Error('Der ausgewählte Materialposten fehlt.');
+      let offen = fuetterungVerbrauch(v, d.inventar, 1);
+      const weitere = U.sortBy(d.inventar.filter((p) => p.id !== id && inventarTyp(p) === inventarTyp(start) && verbrauchEinheit(p) === verbrauchEinheit(start) && (p.kategorie || '') === (start.kategorie || '') && (Number(p.gebindeG) || 0) === (Number(start.gebindeG) || 0)), (p) => p.anschaffung || p.createdAt || '');
+      for (const p of [start, ...weitere]) {
+        if (offen <= 0.0000001) break;
+        const vorher = buchungsZahl(p.stueckzahl, 'Materialbestand'), n = Math.min(vorher, offen);
+        if (!n) continue;
+        p.stueckzahl = runden(p, vorher - n);
+        const wirklich = Math.round((vorher - p.stueckzahl) * 1000) / 1000;
+        abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit: verbrauchEinheit(p) });
+        geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
+      }
+      if (offen > 0.0000001) throw new Error(`Material reicht nicht: ${U.fmtNum(offen)} ${verbrauchEinheit(start)} fehlen. Die Fütterung wurde nicht geändert.`);
+    }
+    const neu = { ...alt, ...eingabe, verbrauchAbzug: abzug };
+    delete neu._verbrauchId; delete neu._sirupLiter;
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'fuetterungen', obj: neu }), wert: neu };
+  });
+}
 function fuetterungVerbrauchAusFormular(m, posten, anzahlVoelker) {
   const wert = (id) => { const el = $(id, m.el); return el ? U.parseNum(el.value) : 0; };
   const n = anzahlVoelker != null ? anzahlVoelker : $$('#f-volkIds input:checked', m.el).length;
@@ -5952,14 +6050,9 @@ Views.fuetterung = {
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
       ],
-      values: f,
+      values: { ...f, _verbrauchId: f.verbrauchAbzug?.[0]?.inventarId || '' },
       async onSave(v) {
-        /* Erst zurückgeben, was diese Fütterung bisher abgezogen hat, dann neu
-           buchen. Sonst zöge jedes Bearbeiten ein zweites Mal ab. */
-        await verbrauchZurueckbuchen(f.verbrauchAbzug, { pruefen: false });
-        const buchung = await verbrauchBuchen(v, fuetterungVerbrauch(v, zuckerPosten, 1));
-        await DB.put('fuetterungen', Object.assign(f, { datum: v.datum, futterart: v.futterart, mengeKg: v.mengeKg, zuckerKg: v.zuckerKg, winterfutter: v.winterfutter,
-          verbrauchAbzug: buchung ? buchung.abzug : [] }));
+        await fuetterungAendern(f, v);
         UI.toast('Fütterung gespeichert'); renderRoute();
       },
       /* Löschen gibt den Zucker wieder frei – vorher blieb er für immer
@@ -5970,8 +6063,7 @@ Views.fuetterung = {
         if (!(await UI.confirm({ title: 'Fütterung löschen?',
           text: 'Wandert in den Papierkorb.' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
           confirmText: 'Löschen', danger: true }))) return false;
-        const menge = await verbrauchZurueckbuchen(f.verbrauchAbzug);
-        await DB.softDel('fuetterungen', f.id);
+        const menge = await loescheMitMaterial('fuetterungen', f);
         UI.toast('Fütterung gelöscht' + (menge > 0 ? ` · ${zurueck} zurück im Bestand` : ''));
         renderRoute();
         return true;
@@ -6501,29 +6593,48 @@ function honigName(charge, erntenMap) {
   return chargeSorten(charge, erntenMap)[0] || charge.etikettNotiz || 'Honig';
 }
 
-/** Verkauf erfassen: prüft Bestand der Abfüllung, mindert die Gläser, bucht die Einnahme */
-async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
-  const a = await DB.get('abfuellungen', abfuellungId);
-  if (!a) throw new Error('Bitte eine Abfüllung auswählen.');
-  anzahl = Math.round(anzahl);
-  if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
-  if (anzahl > a.bestand) throw new Error(`Nur ${a.bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`);
-  const c = await DB.get('chargen', a.chargeId);
-  const los = c ? c.losnummer : '?';
-  const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
-  a.bestand -= anzahl;
-  await DB.put('abfuellungen', a);
-  const kb = await DB.put('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Charge ${los})`, rechnungId: null });
-  return DB.put('verkaeufe', { datum, abfuellungId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id });
+/** Endliche, nichtnegative Buchungszahl; numerische Alt-Strings bleiben lesbar. */
+function buchungsZahl(wert, label) {
+  if (!['number', 'string'].includes(typeof wert) || (typeof wert === 'string' && !wert.trim())) throw new Error(`${label}: Bitte eine gültige Zahl eingeben.`);
+  const n = Number(wert);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`${label}: Bitte eine endliche, nichtnegative Zahl eingeben.`);
+  return n;
 }
-/** Verkauf stornieren: Bestand zurückbuchen, Kassenbuch-Buchung + Verkauf in den Papierkorb */
+/** Verkauf: aktueller Bestand, Verkaufsbeleg und Einnahme in einer Transaktion. */
+async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
+  anzahl = Math.round(buchungsZahl(anzahl, 'Anzahl'));
+  preisJeGlas = buchungsZahl(preisJeGlas, 'Preis');
+  if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
+  return DB.aendereAtomar(['abfuellungen', 'chargen', 'kassenbuch', 'verkaeufe'], (d) => {
+    const a = d.abfuellungen.find((x) => x.id === abfuellungId);
+    if (!a) throw new Error('Bitte eine vorhandene Abfüllung auswählen.');
+    const bestand = buchungsZahl(a.bestand, 'Bestand');
+    if (anzahl > bestand) throw new Error(`Nur ${bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`);
+    const c = d.chargen.find((x) => x.id === a.chargeId);
+    const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
+    if (!Number.isFinite(betrag)) throw new Error('Verkaufsbetrag ist zu groß.');
+    a.bestand = bestand - anzahl;
+    const kb = { id: U.uuid(), datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Charge ${c ? c.losnummer : '?'})`, rechnungId: null };
+    const v = { id: U.uuid(), datum, abfuellungId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id };
+    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'kassenbuch', obj: kb }, { store: 'verkaeufe', obj: v }], wert: v };
+  });
+}
+/** Archiviert zusammengehörige Zeilen innerhalb eines bereits berechneten Plans. */
+function papierkorbAuftraege(store, rec) {
+  return [{ store: 'papierkorb', obj: { id: U.uuid(), store, daten: rec, geloeschtAm: U.nowIso() } }, { op: 'del', store, id: rec.id }];
+}
 async function verkaufStornieren(verkaufId) {
-  const v = await DB.get('verkaeufe', verkaufId);
-  if (!v) return;
-  const a = await DB.get('abfuellungen', v.abfuellungId);
-  if (a) { a.bestand += v.anzahl; await DB.put('abfuellungen', a); }
-  if (v.kassenbuchId) await DB.softDel('kassenbuch', v.kassenbuchId);
-  await DB.softDel('verkaeufe', verkaufId);
+  return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
+    const v = d.verkaeufe.find((x) => x.id === verkaufId);
+    if (!v) return { ops: [] }; // ein anderer Aufruf hat bereits storniert
+    const a = d.abfuellungen.find((x) => x.id === v.abfuellungId);
+    if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen; der Verkauf wurde nicht verändert.');
+    a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.anzahl, 'Verkaufsmenge');
+    const kb = d.kassenbuch.find((x) => x.id === v.kassenbuchId);
+    const ops = [{ store: 'abfuellungen', obj: a }, ...papierkorbAuftraege('verkaeufe', v)];
+    if (kb) ops.push(...papierkorbAuftraege('kassenbuch', kb));
+    return { ops };
+  });
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
 async function verkaufForm(vorAbfuellungId = '') {
@@ -8524,8 +8635,7 @@ Views.honig = {
           text: 'Wandert in den Papierkorb; die Menge zählt wieder als frei in der Charge.'
             + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
           confirmText: 'Löschen', danger: true }))) return false;
-        await verbrauchZurueckbuchen(a.verbrauchAbzug);
-        await DB.softDel('abfuellungen', a.id);
+        await loescheMitMaterial('abfuellungen', a);
         UI.toast('Abfüllung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
         renderRoute();
         return true;
@@ -8974,7 +9084,13 @@ function rechnungRabatt(r, waren) {
    Hauptleistung), es gibt aber auch die Behandlung als durchlaufender Posten.
    Die App entscheidet das nicht, sondern lässt es einstellen –
    `pfandSteuersatz` 0 heißt steuerfrei ausweisen (bisheriges Verhalten). */
+/* Alte, bereits vergebene Belege behalten ihre bisherige Rechenregel.
+   Neue Festschreibungen tragen berechnungVersion: 2; keine Altdatenmigration. */
 function rechnungSummen(r) {
+  const historisch = r.nummer || r.status === 'festgeschrieben' || r.status === 'storniert';
+  return historisch && r.berechnungVersion !== 2 ? rechnungSummenAlt(r) : rechnungSummenNeu(r);
+}
+function rechnungSummenAlt(r) {
   const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
   const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
   const rabatt = rechnungRabatt(r, waren);
@@ -9018,6 +9134,93 @@ function rechnungSummen(r) {
   return { waren, pfand, rabatt, nachRabatt, brutto, steuern, nettoJeSatz, skonto,
     zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
 }
+function rechnungSummenNeu(r) {
+  for (const p of (r.positionen || [])) {
+    buchungsZahl(p.menge, 'Menge'); buchungsZahl(p.einzelpreis, 'Einzelpreis');
+    buchungsZahl(p.pfand ?? 0, 'Pfand');
+  }
+  const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
+  const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
+  const rabatt = rechnungRabatt(r, waren);
+  const nachRabatt = Math.max(0, waren - rabatt);
+  const brutto = nachRabatt + pfand;
+  const steuern = {};
+  const art = rechnungSteuerart(r);
+  const nettoJeSatz = {};
+  const pfandSatz = Math.max(0, U.zahl(r.pfandSteuersatz, 0));
+  if (art === 'regel') {
+    const faktor = waren > 0 ? nachRabatt / waren : 1;   // Rabatt anteilig auf alle Sätze
+    for (const p of r.positionen) {
+      const satz = Math.max(0, U.zahl(p.steuersatz, 0));
+      const wert = p.menge * p.einzelpreis * faktor;
+      if (wert > 0) {
+        const ust = wert * (satz / (100 + satz));
+        if (satz > 0) steuern[satz] = (steuern[satz] || 0) + ust;
+        /* § 14 Abs. 4 Nr. 8 UStG verlangt das ENTGELT je Steuersatz, nicht nur
+           die enthaltene Steuer. Die Preise sind brutto erfasst, also Netto =
+           Bruttowert − Steuer. */
+        nettoJeSatz[satz] = (nettoJeSatz[satz] || 0) + (wert - ust);
+      }
+    }
+    if (pfandSatz > 0 && pfand > 0) {
+      const ust = pfand * (pfandSatz / (100 + pfandSatz));
+      steuern[pfandSatz] = (steuern[pfandSatz] || 0) + ust;
+      nettoJeSatz[pfandSatz] = (nettoJeSatz[pfandSatz] || 0) + (pfand - ust);
+    }
+  } else if (art === 'pauschal24') {
+    const satz = Math.max(0, U.zahl(r.pauschalsatz, 7.8)); // Pauschal-USt auf den Warenwert
+    if (nachRabatt > 0) {
+      const ust = nachRabatt * (satz / (100 + satz));
+      if (satz > 0) steuern[satz] = ust;
+      nettoJeSatz[satz] = nachRabatt - ust;
+    }
+    if (pfandSatz > 0 && pfand > 0) {
+      const ust = pfand * (pfandSatz / (100 + pfandSatz));
+      steuern[pfandSatz] = (steuern[pfandSatz] || 0) + ust;
+      nettoJeSatz[pfandSatz] = (nettoJeSatz[pfandSatz] || 0) + pfand - ust;
+    }
+  }
+  const zielTage = r.zahlungszielTage != null ? Math.max(0, Math.round(r.zahlungszielTage)) : ZAHLUNGSZIEL_VORGABE;
+  const skontoProzent = Math.min(100, Math.max(0, Number(r.skontoProzent) || 0));
+  let skonto = null;
+  if (skontoProzent > 0) {
+    const tage = Math.max(0, Math.round(Number(r.skontoTage) || 0));
+    const betrag = nachRabatt * skontoProzent / 100;      // Pfand bleibt skontofrei
+    skonto = { prozent: skontoProzent, tage, basis: nachRabatt, betrag, zahlbetrag: brutto - betrag, faellig: U.addDays(r.datum, tage) };
+  }
+  return { waren, pfand, rabatt, nachRabatt, brutto, steuern, nettoJeSatz, skonto,
+    zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
+}
+/** Nur den unveränderten, weiterhin offenen Entwurf überschreiben. */
+async function rechnungEntwurfSpeichern(neu, erwartet) {
+  const kopie = structuredClone(neu);
+  return DB.aendereAtomar(['rechnungen'], (d) => {
+    const alt = d.rechnungen.find((x) => x.id === kopie.id);
+    if (!alt || alt.status !== 'entwurf' || alt.nummer || JSON.stringify(alt) !== JSON.stringify(erwartet)) {
+      throw new Error('Die Rechnung wurde inzwischen geändert oder festgeschrieben. Bitte erneut öffnen; Ihre Änderung wurde nicht gespeichert.');
+    }
+    return { ops: [{ store: 'rechnungen', obj: kopie }], wert: kopie };
+  });
+}
+async function rechnungStornieren(id) {
+  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch'], (d) => {
+    const r = d.rechnungen.find((x) => x.id === id);
+    if (!r || r.status === 'storniert') return { ops: [], wert: false };
+    if (r.status !== 'festgeschrieben') throw new Error('Nur eine festgeschriebene Rechnung kann storniert werden.');
+    const ops = [], geaendert = new Map();
+    for (const p of r.positionen) if (p.abfuellungId) {
+      const a = geaendert.get(p.abfuellungId) || d.abfuellungen.find((x) => x.id === p.abfuellungId);
+      if (!a) throw new Error('Eine Abfüllung fehlt. Bitte zuerst wiederherstellen; nichts wurde storniert.');
+      a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(p.menge, 'Menge');
+      geaendert.set(a.id, a);
+    }
+    for (const a of geaendert.values()) ops.push({ store: 'abfuellungen', obj: a });
+    const { brutto } = rechnungSummen(r);
+    ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
+    r.status = 'storniert'; ops.push({ store: 'rechnungen', obj: r });
+    return { ops, wert: true };
+  });
+}
 Views.rechnungen = {
   title: 'Rechnungen',
   async render(main) {
@@ -9030,7 +9233,7 @@ Views.rechnungen = {
         const { brutto } = rechnungSummen(r);
         return `<button class="row" data-id="${U.esc(r.id)}">
           <span class="r-ic">${icon('rechnung')}</span>
-          <span class="r-main"><span class="r-title">${r.nummer ? U.esc(r.nummer) : 'Entwurf'} <span class="badge ${statusBadge[r.status]}">${r.status}</span></span>
+          <span class="r-main"><span class="r-title">${r.nummer ? U.esc(r.nummer) : 'Entwurf'} <span class="badge ${statusBadge[r.status]}">${U.esc(r.status)}</span></span>
           <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(kontakte.get(r.kundeId)?.name || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
@@ -9122,19 +9325,30 @@ Views.rechnung = {
           </div>`
         : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand oder freie Positionen hinzu.')}
       </div>`;
-    const saveField = async (fn) => { fn(); await DB.put('rechnungen', r); };
+    let gespeichert = structuredClone(r);
+    let wartend = Promise.resolve();
+    const saveField = (fn) => {
+      wartend = wartend.then(async () => {
+        fn();
+        try {
+          const neu = await rechnungEntwurfSpeichern(r, gespeichert);
+          Object.assign(r, neu); gespeichert = structuredClone(neu); return true;
+        } catch (e) { UI.toast(e.message, 'err'); return false; }
+      });
+      return wartend;
+    };
     if (entwurf) {
       $('#r-kunde').onchange = (e) => saveField(() => { r.kundeId = e.target.value || null; });
       // Kunde anlegen, ohne die Rechnung zu verlassen – der neue Kunde ist gleich gesetzt
       $('#r-kunde-neu').onclick = () => kontaktForm(null, {
         typ: 'kunde',
-        onSaved: async (k) => { r.kundeId = k.id; await DB.put('rechnungen', r); renderRoute(); },
+        onSaved: async (k) => { if (await saveField(() => { r.kundeId = k.id; })) renderRoute(); },
       });
       $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
       const lf = $('#r-lieferdatum'); if (lf) lf.onchange = (e) => saveField(() => { r.lieferdatum = e.target.value; });
-      $('#r-steuerart').onchange = (e) => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); DB.put('rechnungen', r).then(renderRoute); };
+      $('#r-steuerart').onchange = async (e) => { if (await saveField(() => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); })) renderRoute(); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
-      const neuZeichnen = async (fn) => { fn(); await DB.put('rechnungen', r); renderRoute(); };
+      const neuZeichnen = async (fn) => { if (await saveField(fn)) renderRoute(); };
       $('#r-rabattTyp').onchange = (e) => neuZeichnen(() => { r.rabattTyp = e.target.value; });
       $('#r-rabattWert').onchange = (e) => neuZeichnen(() => { r.rabattWert = U.parseNum(e.target.value) || 0; });
       $('#r-rabattGrund').onchange = (e) => saveField(() => { r.rabattGrund = e.target.value.trim(); });
@@ -9144,26 +9358,30 @@ Views.rechnung = {
       $('#addPos').onclick = () => Views.rechnung.posForm(r, abfAlle, chargenM);
       main.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-pdel]');
-        if (b && (await UI.confirm({ title: 'Position entfernen?', text: '', confirmText: 'Entfernen' }))) { r.positionen.splice(+b.dataset.pdel, 1); await DB.put('rechnungen', r); renderRoute(); }
+        if (b && (await UI.confirm({ title: 'Position entfernen?', text: '', confirmText: 'Entfernen' }))) { if (await saveField(() => r.positionen.splice(+b.dataset.pdel, 1))) renderRoute(); }
       });
       $('#del').onclick = async () => {
         if (!(await UI.confirm({ title: 'Rechnungsentwurf löschen?', text: 'Wandert in den Papierkorb.' }))) return;
-        await DB.softDel('rechnungen', r.id); navTo('rechnungen');
+        try {
+          await DB.aendereAtomar(['rechnungen', 'papierkorb'], (d) => {
+            const alt = d.rechnungen.find((x) => x.id === r.id);
+            if (!alt || alt.status !== 'entwurf' || alt.nummer || JSON.stringify(alt) !== JSON.stringify(gespeichert)) throw new Error('Die Rechnung wurde inzwischen geändert. Bitte erneut öffnen.');
+            return { ops: papierkorbAuftraege('rechnungen', alt) };
+          }); navTo('rechnungen');
+        } catch (e) { UI.toast(e.message, 'err'); }
       };
       $('#final').onclick = () => Views.rechnung.festschreiben(r, abfAlle);
     }
     const st = $('#storno');
     if (st) st.onclick = async () => {
       if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: 'Der Honigbestand wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
-      for (const p of r.positionen) if (p.abfuellungId) { const a = await DB.get('abfuellungen', p.abfuellungId); if (a) { a.bestand += p.menge; await DB.put('abfuellungen', a); } }
-      const { brutto } = rechnungSummen(r);
-      await DB.put('kassenbuch', { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id });
-      r.status = 'storniert'; await DB.put('rechnungen', r);
-      UI.toast('Rechnung storniert'); renderRoute();
+      try { await rechnungStornieren(r.id); UI.toast('Rechnung storniert'); renderRoute(); }
+      catch (e) { UI.toast(e.message, 'err'); }
     };
     $('#pdf').onclick = () => Pdf.rechnung(r.id);
   },
   async posForm(r, abf, chargenM) {
+    const gespeichert = structuredClone(r);
     const verf = (abf || []).filter((a) => a.bestand > 0);
     /* Das Pfand steht schon am Gebinde im Verbrauchsmaterial – hier soll man es
        nicht zweimal wissen müssen. Zuordnung über die Gebindegröße, dieselbe
@@ -9181,7 +9399,7 @@ Views.rechnung = {
         { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Abfüllung automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
         { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
-        { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen und bleibt außerhalb von Rabatt, Skonto und Umsatzsteuer. 0 oder leer = kein Pfand.' },
+        { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen, ohne Rabatt und Skonto. Die Umsatzsteuer folgt dem gewählten Pfandsteuersatz. 0 oder leer = kein Pfand.' },
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
@@ -9196,7 +9414,7 @@ Views.rechnung = {
         }
         if (!text) throw new Error('Bitte eine Bezeichnung angeben.');
         r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
-        await DB.put('rechnungen', r); renderRoute();
+        await rechnungEntwurfSpeichern(r, gespeichert); renderRoute();
       },
     });
     /* Wird eine Abfüllung gewählt, springt das Pfand der passenden Glassorte ins
@@ -9217,66 +9435,55 @@ Views.rechnung = {
     return m;
   },
   async festschreiben(r, abf) {
-    /* Q4: Gegen den DATENBANKSTAND prüfen, nicht gegen das übergebene Objekt.
-       Ein zweites Fenster hält eine alte Kopie in der Hand – dort stand noch
-       „Entwurf", während die Rechnung längst festgeschrieben war. Ergebnis:
-       zweite Kassenbuchung, zweiter Bestandsabzug, überschriebene Nummer. */
-    const aktuell = await DB.get('rechnungen', r.id);
-    if (!aktuell) return UI.toast('Diese Rechnung gibt es nicht mehr', 'err');
-    if (aktuell.status === 'festgeschrieben' || aktuell.nummer) {
-      return UI.toast(`Diese Rechnung ist bereits festgeschrieben${aktuell.nummer ? ` (${aktuell.nummer})` : ''}`, 'err');
-    }
+    const vorab = await DB.get('rechnungen', r.id);
+    if (!vorab || vorab.status !== 'entwurf' || vorab.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben oder nicht mehr vorhanden.', 'err');
     if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
     if (!r.positionen.length) return UI.toast('Die Rechnung hat keine Positionen', 'err');
-    /* Q3: Der Bestand wird je ABFÜLLUNG summiert geprüft, nicht je Zeile.
-       Zwei Positionen à 6 Gläser aus einem Bestand von 10 kamen vorher beide
-       einzeln durch – abgezogen wurden am Ende trotzdem 12. */
-    const abfAktuell = await DB.getAll('abfuellungen');
-    const gebraucht = new Map();
-    for (const p of r.positionen) if (p.abfuellungId) {
-      gebraucht.set(p.abfuellungId, (gebraucht.get(p.abfuellungId) || 0) + (Number(p.menge) || 0));
-    }
-    for (const [id, menge] of gebraucht) {
-      const a = abfAktuell.find((x) => x.id === id) || abf.find((x) => x.id === id);
-      if (!a) return UI.toast('Eine Position verweist auf eine gelöschte Abfüllung', 'err');
-      if (menge > a.bestand) {
-        return UI.toast(`Bestand reicht nicht: ${abfLabel(a, null)} – ${U.fmtNum(menge, 0)} verlangt, ${a.bestand} verfügbar`, 'err');
-      }
+    const vorBestand = await DB.getAll('abfuellungen'), vorMengen = new Map();
+    for (const p of r.positionen) if (p.abfuellungId) vorMengen.set(p.abfuellungId, (vorMengen.get(p.abfuellungId) || 0) + Number(p.menge));
+    for (const [id, menge] of vorMengen) {
+      const a = vorBestand.find((x) => x.id === id);
+      if (!a || menge > a.bestand) return UI.toast('Bestand reicht nicht oder die Abfüllung fehlt.', 'err');
     }
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
-    const kreis = S.get('rechnungskreis');
-    /* Die Nummer wird nicht blind aus dem Zähler genommen. Ein zurückgespieltes
-       Backup, ein zweites Gerät oder eine von Hand geänderte Einstellung können
-       den Zähler hinter den Bestand zurückwerfen – dann gäbe es dieselbe Nummer
-       zweimal, und eine doppelte Rechnungsnummer ist ein Buchführungsfehler
-       (§ 14 UStG verlangt eine einmalig vergebene, fortlaufende Nummer). */
-    const nr = naechsteRechnungsnummer(kreis, await DB.getAll('rechnungen'));
-    r.nummer = nr.nummer;
-    /* Bestand, Kassenbuch und Rechnung gehen GEMEINSAM in die Datenbank.
-       Vorher waren es drei einzelne Schreibvorgänge: Scheiterte einer nach dem
-       Bestandsabzug, fehlten Gläser im Regal, ohne dass es eine Rechnung dazu
-       gab. Der Nummernkreis wird erst danach weitergestellt – lieber eine
-       Nummer doppelt vergeben können (das fängt `naechsteRechnungsnummer` ab)
-       als eine Lücke in einer fortlaufenden Nummer. */
-    const ops = [];
-    const bestandNeu = new Map();
-    for (const p of r.positionen) if (p.abfuellungId) {
-      const a = bestandNeu.get(p.abfuellungId) || await DB.get('abfuellungen', p.abfuellungId);
-      if (a) { a.bestand -= p.menge; bestandNeu.set(p.abfuellungId, a); }
-    }
-    for (const a of bestandNeu.values()) ops.push({ op: 'put', store: 'abfuellungen', obj: a });
-    const { brutto } = rechnungSummen(r);
-    ops.push({ op: 'put', store: 'kassenbuch', obj: { datum: r.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Rechnung ${r.nummer}`, rechnungId: r.id } });
-    r.status = 'festgeschrieben';
-    ops.push({ op: 'put', store: 'rechnungen', obj: r });
     try {
-      await DB.schreibeAlles(ops);
-    } catch (e) {
-      r.status = 'entwurf'; r.nummer = null;
-      return UI.toast('Festschreiben fehlgeschlagen – es wurde nichts gebucht: ' + e.message, 'err');
-    }
-    kreis.next = nr.next; await S.set('rechnungskreis', kreis);
-    UI.toast(`Rechnung ${r.nummer} festgeschrieben`); renderRoute();
+      const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings'], (d) => {
+        const aktuell = d.rechnungen.find((x) => x.id === r.id);
+        if (!aktuell || aktuell.status !== 'entwurf' || aktuell.nummer) throw new Error('Diese Rechnung ist nicht mehr als Entwurf vorhanden. Bitte erneut öffnen.');
+        if (JSON.stringify(aktuell) !== JSON.stringify(r)) throw new Error('Die Rechnung wurde inzwischen geändert. Bitte erneut öffnen und prüfen.');
+        if (!aktuell.kundeId) throw new Error('Bitte zuerst einen Kunden wählen.');
+        if (!aktuell.positionen.length) throw new Error('Die Rechnung hat keine Positionen.');
+        const gebraucht = new Map();
+        for (const p of aktuell.positionen) {
+          const menge = buchungsZahl(p.menge, 'Menge');
+          if (menge <= 0) throw new Error('Jede Position braucht eine Menge größer als null.');
+          buchungsZahl(p.einzelpreis, 'Einzelpreis'); buchungsZahl(p.pfand ?? 0, 'Pfand');
+          buchungsZahl(p.steuersatz ?? 0, 'Steuersatz');
+          if (p.abfuellungId) gebraucht.set(p.abfuellungId, (gebraucht.get(p.abfuellungId) || 0) + menge);
+        }
+        buchungsZahl(aktuell.pauschalsatz ?? 7.8, 'Pauschalsatz'); buchungsZahl(aktuell.pfandSteuersatz ?? 0, 'Pfandsteuersatz');
+        const ops = [];
+        for (const [id, menge] of gebraucht) {
+          const a = d.abfuellungen.find((x) => x.id === id);
+          if (!a) throw new Error('Eine Position verweist auf eine gelöschte Abfüllung.');
+          const bestand = buchungsZahl(a.bestand, 'Bestand');
+          if (menge > bestand) throw new Error(`Bestand reicht nicht: ${U.fmtNum(menge, 0)} verlangt, ${bestand} verfügbar.`);
+          a.bestand = bestand - menge; ops.push({ store: 'abfuellungen', obj: a });
+        }
+        const kreis = structuredClone(d.settings.find((x) => x.key === 'rechnungskreis')?.value || S.defaults.rechnungskreis);
+        const nr = naechsteRechnungsnummer(kreis, d.rechnungen);
+        aktuell.berechnungVersion = 2;
+        const { brutto } = rechnungSummen(aktuell);
+        if (!Number.isFinite(brutto)) throw new Error('Der Rechnungsbetrag ist ungültig.');
+        aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
+        ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } },
+          { store: 'rechnungen', obj: aktuell }, { store: 'settings', obj: { key: 'rechnungskreis', value: kreis } });
+        return { ops, wert: { rechnung: aktuell, kreis } };
+      });
+      Object.assign(r, gespeichert.rechnung); S.data.rechnungskreis = gespeichert.kreis;
+      UI.toast(`Rechnung ${r.nummer} festgeschrieben`); renderRoute();
+    } catch (e) { UI.toast('Festschreiben fehlgeschlagen – es wurde nichts gebucht: ' + e.message, 'err'); }
+
   },
 };
 
@@ -12596,8 +12803,9 @@ const Backup = {
   /* ---------- Datenpaket bauen ---------- */
   async buildData(mitAnhaengen = true) {
     const out = { app: 'ImkerBuch', formatVersion: 1, exportiert: U.nowIso(), stores: {} };
+    const daten = await DB.leseAlles(DB.DATA_STORES);
     for (const store of DB.DATA_STORES) {
-      const rows = await DB.getAll(store);
+      const rows = daten[store];
       if (store === 'anhaenge') {
         out.stores[store] = [];
         for (const r of rows) {
@@ -12783,7 +12991,9 @@ const Backup = {
     $('[data-cancel]', m.el).onclick = () => m.close();
     $('[data-merge]', m.el).onclick = async () => {
       m.close(true);
-      const erg = await this.applyMerge(data);
+      let erg;
+      try { erg = await this.applyMerge(data); }
+      catch (e) { UI.toast('Zusammenführen fehlgeschlagen – nichts wurde übernommen: ' + e.message, 'err'); return; }
       const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
@@ -12852,9 +13062,9 @@ const Backup = {
       }
       return r;
     }
-    /* Eine ID, die aus HTML ausbrechen könnte, wird ersetzt statt übernommen.
-       Der Datensatz geht dabei nicht verloren – er kommt nur als neuer an. */
-    if (typeof r.id !== 'string' || !this.ID_MUSTER.test(r.id)) return { ...r, id: U.uuid() };
+    /* Ungültige Kennungen nicht ersetzen: das würde Beziehungen zerreißen
+       und beim nächsten Import erneut Duplikate erzeugen. */
+    if (typeof r.id !== 'string' || !this.ID_MUSTER.test(r.id)) throw new Error(`Ungültige Kennung im Bereich „${STORE_LABELS[store] || store}“. Bitte die Sicherung an der Quelle korrigieren; nichts wurde übernommen.`);
     return r;
   },
 
@@ -12897,46 +13107,42 @@ const Backup = {
   },
 
   async applyReplace(data, { blobsBehalten }) {
-    const vorbereitet = this._vorbereiten(data);          // wirft, bevor etwas gelöscht wird
-    const alteBlobs = new Map();
-    if (blobsBehalten) for (const a of await DB.getAll('anhaenge')) alteBlobs.set(a.id, a.blob);
-    /* Leeren und Neuschreiben laufen in EINER Transaktion über alle Bereiche.
-       Vorher war jeder Bereich für sich: Ein Fehler im fünften ließ vier
-       geleerte und einen unveränderten Bestand zurück – ein Zwischenzustand,
-       den es fachlich gar nicht gibt. Jetzt macht der Browser im Fehlerfall
-       alles rückgängig. */
-    const ops = [];
-    for (const store of DB.DATA_STORES) {
-      let rows = vorbereitet.get(store);
-      if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => (r.blob ? r : { ...r, blob: alteBlobs.get(r.id) })).filter((r) => r.blob);
-      ops.push({ op: 'clear', store });
-      for (const r of rows) ops.push({ op: 'put', store, obj: r, keepStamp: true });
-    }
-    await DB.schreibeAlles(ops);
+    const vorbereitet = this._vorbereiten(data);
+    await DB.aendereAtomar(DB.DATA_STORES, (d) => {
+      const alteBlobs = new Map(blobsBehalten ? d.anhaenge.map((a) => [a.id, a.blob]) : []);
+      const ops = [];
+      for (const store of DB.DATA_STORES) {
+        let rows = vorbereitet.get(store);
+        if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => r.blob ? r : { ...r, blob: alteBlobs.get(r.id) }).filter((r) => r.blob);
+        ops.push({ op: 'clear', store });
+        for (const r of rows) ops.push({ store, obj: r, keepStamp: true });
+      }
+      return { ops };
+    });
   },
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
   async applyMerge(data) {
-    let uebernommen = 0;
-    const jeStore = {};
-    const ops = [];                        // erst sammeln, dann in einer Transaktion schreiben
-    for (const store of DB.DATA_STORES) {
-      const importRows = this._rowsAusImport(store, data.stores[store] || []);
-      if (!importRows.length) continue;
-      const keyOf = (r) => (store === 'settings' ? r.key : r.id);
-      const vorhanden = new Map((await DB.getAll(store)).map((r) => [keyOf(r), r]));
-      const zuSchreiben = [];
-      for (const r of importRows) {
-        if (store === 'anhaenge' && !r.blob) continue; // Metadaten ohne Datei nutzen nichts
-        const alt = vorhanden.get(keyOf(r));
-        if (!alt || (r.lastModified || '') > (alt.lastModified || '')) zuSchreiben.push(r);
+    const vorbereitet = this._vorbereiten(data); // vollständig prüfen, bevor eine Transaktion schreibt
+    return DB.aendereAtomar(DB.DATA_STORES, (d) => {
+      let gesamt = 0;
+      const jeStore = {}, ops = [];
+      for (const store of DB.DATA_STORES) {
+        const key = (r) => store === 'settings' ? r.key : r.id;
+        const map = new Map(d[store].map((r) => [key(r), r]));
+        const neu = new Map();
+        for (const r of vorbereitet.get(store)) {
+          if (store === 'anhaenge' && !r.blob) continue;
+          const alt = map.get(key(r));
+          if (!alt || (r.lastModified || '') > (alt.lastModified || '')) { map.set(key(r), r); neu.set(key(r), r); }
+        }
+        for (const r of neu.values()) ops.push({ store, obj: r, keepStamp: true });
+        if (neu.size) { jeStore[store] = neu.size; gesamt += neu.size; }
+        d[store] = [...map.values()];
       }
-      for (const r of zuSchreiben) ops.push({ op: 'put', store, obj: r, keepStamp: true });
-      uebernommen += zuSchreiben.length;
-      if (zuSchreiben.length) jeStore[store] = zuSchreiben.length;
-    }
-    await DB.schreibeAlles(ops);          // alles oder nichts
-    const korrigiert = await this.bestandAbgleich();
-    return { gesamt: uebernommen, jeStore, bestandKorrigiert: korrigiert };
+      const korrekturen = this.bestandAbgleichPlan(d);
+      ops.push(...korrekturen);
+      return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length } };
+    });
   },
 
   /* Beim Zusammenführen entscheidet je Datensatz der jüngere Stand. Bei
@@ -12949,22 +13155,31 @@ const Backup = {
      Positionen festgeschriebener Rechnungen. Korrigiert wird ausdrücklich nur
      nach UNTEN – ein von Hand niedriger gesetzter Bestand (Bruch, Eigenbedarf,
      Verschenktes) bleibt stehen. */
+  bestandAbgleichPlan(d) {
+    const verkauft = new Map(), ungueltig = new Set();
+    const zaehle = (id, wert) => {
+      if (!id) return;
+      const n = Number(wert);
+      if (!Number.isFinite(n) || n < 0) { ungueltig.add(id); return; }
+      verkauft.set(id, (verkauft.get(id) || 0) + n);
+    };
+    for (const v of d.verkaeufe) zaehle(v.abfuellungId, v.anzahl);
+    for (const r of d.rechnungen) if (r.status === 'festgeschrieben') for (const p of (r.positionen || [])) zaehle(p.abfuellungId, p.menge);
+    const ops = [];
+    for (const a of d.abfuellungen) {
+      const anzahl = Number(a.anzahl), bestand = Number(a.bestand);
+      // Beschädigte Zahlen niemals zu 0 umdeuten und dann Lagerwerte überschreiben.
+      if (ungueltig.has(a.id) || !Number.isFinite(anzahl) || !Number.isFinite(bestand) || anzahl < 0 || bestand < 0) continue;
+      const soll = Math.max(0, anzahl - (verkauft.get(a.id) || 0));
+      if (bestand > soll) { a.bestand = soll; ops.push({ store: 'abfuellungen', obj: a }); }
+    }
+    return ops;
+  },
   async bestandAbgleich() {
-    const [abf, verkaeufe, rechnungen] = await Promise.all(
-      ['abfuellungen', 'verkaeufe', 'rechnungen'].map((st) => DB.getAll(st)));
-    const verkauft = new Map();
-    const zaehle = (id, n) => { if (id) verkauft.set(id, (verkauft.get(id) || 0) + (U.zahl(n, 0) || 0)); };
-    for (const v of verkaeufe) zaehle(v.abfuellungId, v.anzahl);
-    for (const r of rechnungen) {
-      if (r.status !== 'festgeschrieben') continue;
-      for (const p of (r.positionen || [])) zaehle(p.abfuellungId, p.menge);
-    }
-    let korrigiert = 0;
-    for (const a of abf) {
-      const soll = Math.max(0, U.zahl(a.anzahl, 0) - (verkauft.get(a.id) || 0));
-      if (U.zahl(a.bestand, 0) > soll) { a.bestand = soll; await DB.put('abfuellungen', a); korrigiert++; }
-    }
-    return korrigiert;
+    return DB.aendereAtomar(['abfuellungen', 'verkaeufe', 'rechnungen'], (d) => {
+      const ops = this.bestandAbgleichPlan(d);
+      return { ops, wert: ops.length };
+    });
   },
 
   /* ---------- Automatische Sicherung ---------- */
@@ -13807,6 +14022,13 @@ const Pdf = {
     try {
       const jsPDF = await this.lib();
       const imk = S.get('imkerei');
+      const bioBilder = imk.bio === 'ja' ? (await Promise.all((imk.bioLogos || []).slice(0, 3).map((lg) => this.bildFuerPdf(lg, 256)))).filter(Boolean) : [];
+      if (imk.bio === 'ja' && !bioBilder.length) {
+        const ergaenzt = await UI.confirm({ title: 'EU-Bio-Logo fehlt auf diesem Etikett',
+          text: 'Für vorverpackten Bio-Honig aus der EU ist das EU-Bio-Logo vorgeschrieben. Dieses Etikett enthält kein druckbares Bio-Logo. Bitte in den Einstellungen ergänzen. Nur fortfahren, wenn das EU-Bio-Logo mit Kontrollstellencode und Herkunft bereits an anderer Stelle auf der Verpackung angebracht wird.',
+          confirmText: 'Als Zusatzetikett erzeugen', danger: false });
+        if (!ergaenzt) return;
+      }
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
       const los = abfLos(a, c), mhd = abfMhd(a, c);
@@ -13839,16 +14061,14 @@ const Pdf = {
            Imkerei bekommt entsprechend weniger Breite. */
         let bioBreite = 0;
         if (imk.bio === 'ja') {
-          const logos = (imk.bioLogos || []).slice(0, 3);
+          const logos = bioBilder;
           let bx = x + LW - 5;
           /* Logos NICHT ins Quadrat pressen: das EU-Bio-Blatt ist 1 : 1,5 und
              wäre auf 8 × 8 mm gestaucht – das ist nicht zulässig. Wir halten
              deshalb die Höhe fest (9 mm Mindesthöhe des EU-Logos) und
              berechnen die Breite aus dem echten Seitenverhältnis. */
           const LOGO_H = 9;
-          for (const lg of logos) {
-            const bild = await this.bildFuerPdf(lg, 256);
-            if (!bild) continue;
+          for (const bild of logos) {
             let bw = LOGO_H;
             try { const pr = doc.getImageProperties(bild); if (pr && pr.width && pr.height) bw = Math.min(20, Math.max(4, LOGO_H * (pr.width / pr.height))); } catch (e) {}
             bx -= bw;
@@ -13975,8 +14195,9 @@ const Pdf = {
          „Im Gesamtbetrag enthaltene USt" allein genügt dort nicht; bei § 19
          (keine Steuer) und § 24 (pauschaliert) bleibt es bei der alten Zeile. */
       if (rechnungSteuerart(r) === 'regel') {
-        for (const [satz, val] of Object.entries(steuern)) {
-          doc.text(`Entgelt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur((sum.nettoJeSatz || {})[satz] || 0)}    darauf USt: ${U.fmtEur(val)}`, 196, y, { align: 'right' });
+        for (const [satz, netto] of Object.entries(sum.nettoJeSatz || {})) {
+          const val = steuern[satz] || 0;
+          doc.text(`Entgelt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur(netto)}    darauf USt: ${U.fmtEur(val)}`, 196, y, { align: 'right' });
           y += 4.5;
         }
         const nettoSumme = Object.values(sum.nettoJeSatz || {}).reduce((a, b) => a + b, 0);
@@ -15616,13 +15837,17 @@ async function migriereInventarTyp() {
    keine Dubletten entstehen), Zertifikate wandern an den passenden Partner und das
    eigene Öko-Zertifikat in die Imkerei-Angaben. Nichts geht verloren. */
 async function migriereBioPartner() {
-  if (S.get('bioPartnerMigriert')) return;
-  const eintraege = await DB.getAll('bioeintraege');
+  await DB.aendereAtomar(['bioeintraege', 'kontakte', 'settings'], (d) => {
+    if (d.settings.find((r) => r.key === 'bioPartnerMigriert')?.value) return { ops: [] };
+    const ops = [], settings = new Map(d.settings.map((r) => [r.key, r.value]));
+    const lesen = (key) => structuredClone(settings.has(key) ? settings.get(key) : S.defaults[key]);
+    const setzen = (key, value) => { settings.set(key, value); ops.push({ store: 'settings', obj: { key, value } }); };
+    const kontaktSpeichern = (obj) => { if (!obj.id) obj.id = U.uuid(); ops.push({ store: 'kontakte', obj }); return obj; };
+  const eintraege = d.bioeintraege;
   const partner = eintraege.filter((e) => e.bereich === 'partner');
   const zerts = eintraege.filter((e) => e.bereich === 'zertifikat');
-  if (!partner.length && !zerts.length) { await S.set('bioPartnerMigriert', true); return; }
 
-  const kontakte = await DB.getAll('kontakte');
+  const kontakte = d.kontakte;
   const schluessel = (x) => String(x || '').trim().toLowerCase();
   const finde = (name) => kontakte.find((k) => schluessel(k.name) === schluessel(name));
   const artAus = (rolle) => (rolle === 'Abnehmer' ? 'kunde' : rolle === 'beides' ? 'beides' : 'lieferant');
@@ -15638,22 +15863,21 @@ async function migriereBioPartner() {
       // Rolle aufwerten: wer Kunde war und jetzt auch Lieferant ist, wird „beides"
       const neueArt = artAus(e.rolle);
       if (vorhanden.typ && vorhanden.typ !== neueArt) daten.typ = 'beides';
-      await DB.put('kontakte', Object.assign(vorhanden, daten));
+      kontaktSpeichern( Object.assign(vorhanden, daten));
     } else {
-      const neu = await DB.put('kontakte', Object.assign({ typ: artAus(e.rolle), name: e.name, strasse: '', plz: '', ort: '', email: '', telefon: '' }, daten));
+      const neu = kontaktSpeichern( Object.assign({ typ: artAus(e.rolle), name: e.name, strasse: '', plz: '', ort: '', email: '', telefon: '' }, daten));
       kontakte.push(neu);
     }
-    await DB.del('bioeintraege', e.id);
+    ops.push({ op: 'del', store: 'bioeintraege', id: e.id });
   }
 
   /* Zertifikate: was einem Partner zuzuordnen ist, wandert dorthin. Das eigene
      Zertifikat kommt zur Imkerei. Alles andere bleibt als Notiz am Betrieb – die
      Papiere selbst liegen ohnehin im Ordner, die App hat sie nie gespeichert. */
-  /* WICHTIG: Erst das Ziel schreiben, dann die Quelle löschen. Vorher wurde
-     jeder Eintrag sofort gelöscht, die Imkerei-Angaben aber erst ganz am Ende
-     gespeichert – ein Abbruch dazwischen hätte das eigene Öko-Zertifikat
-     ersatzlos verschwinden lassen. */
-  const imk = structuredClone(S.get('imkerei'));
+  /* Ziel, Quelle und Migrationsflag werden gemeinsam festgeschrieben.
+     Bei Abbruch bleiben alle Quellen erhalten; parallele Starts lesen das
+     Flag erst unter derselben Schreibsperre. */
+  const imk = structuredClone(lesen('imkerei'));
   const uebrig = [];
   for (const z of zerts) {
     const eigen = /eigener betrieb/i.test(z.art || '');
@@ -15662,26 +15886,28 @@ async function migriereBioPartner() {
       imk.oekoZertNummer = imk.oekoZertNummer || z.nummer || '';
       imk.oekoZertGueltigBis = imk.oekoZertGueltigBis || z.gueltigBis || '';
       imk.oekoZertAblage = imk.oekoZertAblage || z.ablage || '';
-      await S.set('imkerei', imk);           // gesichert, bevor die Quelle fällt
+      setzen('imkerei', imk);           // gesichert, bevor die Quelle fällt
     } else if (ziel) {
       const notiz = [ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`].filter(Boolean).join('\n');
-      await DB.put('kontakte', Object.assign(ziel, {
+      kontaktSpeichern( Object.assign(ziel, {
         notiz,
         oekoGueltigBis: ziel.oekoGueltigBis || z.gueltigBis || '',
         oekoNummer: ziel.oekoNummer || z.nummer || '',
       }));
     } else {
       uebrig.push(`${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.datum ? ` vom ${U.fmtDate(z.datum)}` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`);
-      const bb = structuredClone(S.get('bioBetrieb') || {});
+      const bb = structuredClone(lesen('bioBetrieb') || {});
       const kopf = 'Aus dem früheren Reiter „Zertifikate" übernommen:';
       const hatKopf = String(bb.zertifikate || '').includes(kopf);
       bb.zertifikate = [bb.zertifikate, hatKopf ? '' : kopf, uebrig[uebrig.length - 1]].filter(Boolean).join('\n');
-      await S.set('bioBetrieb', bb);          // ebenfalls zuerst sichern
+      setzen('bioBetrieb', bb);          // ebenfalls zuerst sichern
     }
-    await DB.del('bioeintraege', z.id);
+    ops.push({ op: 'del', store: 'bioeintraege', id: z.id });
   }
-  await S.set('bioPartnerMigriert', true);
-  console.info(`Bio: ${partner.length} Partner und ${zerts.length} Zertifikat-Einträge zusammengeführt`);
+  setzen('bioPartnerMigriert', true);
+  return { ops };
+  });
+  await S.load();
 }
 
 /** Einmalige Migration: alte Freitext-Belegstellen (nur Name als String auf Königin/Zuchtserie)

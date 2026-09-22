@@ -35,3 +35,7 @@ F04, F07 und F15 für die bestätigten Fälle korrigiert. Details, Auswirkungen 
 ## 22.09.2026 – Papierkorb und Materialbestand
 
 F05/F06 korrigiert: gemeinsamer Lese-/Schreibvorgang in einer Transaktion; knapper oder fehlender Materialbestand bricht vollständig ab; doppelte Materialzeilen werden summiert; vorhandene Ziel-IDs werden nicht überschrieben. Zwei getrennte Datenbankverbindungen und Rollback nach Materialauftrag getestet. **442/442 Tests grün**, zusätzliche Gegenproben **39 bestanden, 9 verletzte Erwartungen**. Details und bewusst geänderte Fehlerregel: [Claude-Papierkorb-Übergabe](CLAUDE-PAPIERKORB-2026-09-22.md).
+
+## 22.09.2026 – gemeinsame fachliche Transaktionen
+
+F02/F03/F08/F09/F10 und neue Rechenregeln F11–F13 umgesetzt; F14 lehnt ungültige IDs vollständig ab, F16 erhält eine ausdrückliche Zusatzetikett-Bestätigung, F17 prüft die Installation. **464/464 reguläre Tests, 48/48 ursprüngliche Gegenproben**. Alte Beispiele v1.61–v1.64 und Offline-Neuinstallation geprüft. **Neue F20–F22 offen**, daher keine Produktivfreigabe. Details: [Claude-Transaktionsübergabe](CLAUDE-TRANSAKTIONEN-2026-09-22.md).

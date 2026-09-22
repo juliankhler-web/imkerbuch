@@ -48,9 +48,9 @@ await test('N6','Fehlerhafter Restore erhält ursprüngliche Anhänge',async()=>
 });
 await test('N7','ID-Bereinigung erhält Zuordnung und wiederholter Import bleibt eindeutig',async()=>{
  const stores={staende:[{id:'stand:1',name:'Prüfstand'}],voelker:[{id:'volk-1',name:'Prüfvolk',status:'aktiv',standId:'stand:1'}]};
- await merge(stores);await merge(stores);
+ let error;try{await merge(stores);}catch(e){error=e.message;}
  const stands=await DB.getAll('staende'),v=await DB.get('voelker','volk-1');
- return check(stands.length===1&&stands.some(s=>s.id===v.standId),{standCount:stands.length,standIds:stands.map(s=>s.id),volkStandId:v.standId});
+ return check(!!error&&stands.length===0&&!v,{error,standCount:stands.length,volk:v||null,expected:'Datei vollständig abgelehnt, keine Ersatz-IDs'});
 });
 await test('N8','Neueres Entfernen eines Zahlungs-QR wird übernommen',async()=>{
  await S.set('rechnungQr','data:image/png;base64,AA==');
@@ -60,9 +60,10 @@ await test('N8','Neueres Entfernen eines Zahlungs-QR wird übernommen',async()=>
 await test('N9','Bio-Migration übersteht Unterbrechung nach Quellenlöschung',async()=>{
  await S.set('bioPartnerMigriert',false);
  await DB.put('bioeintraege',{id:'cert',bereich:'zertifikat',art:'Eigener Betrieb',nummer:'BIO-123',gueltigBis:'2027-12-31',ablage:'Ordner A'});
- const del=DB.del;let injected=false;
- DB.del=async function(store,id){await del.call(this,store,id);if(store==='bioeintraege'){await new Promise(r=>setTimeout(r,30));injected=true;throw new Error('Gezielter Abbruch nach Löschen');}};
- try {await migriereBioPartner();}catch(e){if(!injected)throw e;}finally{DB.del=del;}
+ const del=IDBObjectStore.prototype.delete;let injected=false;
+ IDBObjectStore.prototype.delete=function(id){const rq=del.call(this,id);if(this.name==='bioeintraege'){const tx=this.transaction;rq.addEventListener('success',()=>{injected=true;tx.abort();});}return rq;};
+ try {await migriereBioPartner();}catch(e){if(!injected)throw e;}finally{IDBObjectStore.prototype.delete=del;}
+ if(!injected || !(await DB.get('bioeintraege','cert'))) return check(false,{faultInjected:injected,sourcePreserved:false});
  await S.load();await migriereBioPartner();
  return check(S.get('imkerei').oekoZertNummer==='BIO-123',{faultInjected:injected,remainingSources:(await DB.getAll('bioeintraege')).length,certificate:S.get('imkerei').oekoZertNummer||null});
 });
@@ -96,11 +97,11 @@ await test('R1','Bestandskette verbraucht keine andere Glasgröße',async()=>{
  return check(small===100,{expectedSmall:100,actualSmall:small,booking});
 });
 await test('D1','Verkauf bei Schreibfehler hinterlässt keinen halben Vorgang',async()=>{
- await invoiceSeed();const put=DB.put;let error=null;
- DB.put=async function(store,...args){if(store==='kassenbuch')throw new DOMException('Gezielter Speicherausfall','QuotaExceededError');return put.call(this,store,...args);};
- try{await verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});}catch(e){error=e.message;}finally{DB.put=put;}
+ await invoiceSeed();const put=IDBObjectStore.prototype.put;let error=null,injected=false;
+ IDBObjectStore.prototype.put=function(obj,...args){const rq=put.call(this,obj,...args);if(this.name==='kassenbuch'){const tx=this.transaction;rq.addEventListener('success',()=>{injected=true;tx.abort();});}return rq;};
+ try{await verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});}catch(e){error=e.message;}finally{IDBObjectStore.prototype.put=put;}
  const stock=(await DB.get('abfuellungen','a')).bestand,sales=(await DB.getAll('verkaeufe')).length;
- return check(stock===10&&sales===0,{expectedStock:10,actualStock:stock,sales,injectedError:error});
+ return check(injected&&!!error&&stock===10&&sales===0,{expectedStock:10,actualStock:stock,sales,injected,error});
 });
 await test('P1','Regelbesteuerung mit Rabatt und Skonto ohne Pfand',async()=>{
  const s=rechnungSummen({steuerart:'regel',datum:'2026-09-21',rabattTyp:'prozent',rabattWert:10,skontoProzent:2,skontoTage:7,positionen:[{menge:10,einzelpreis:10.7,steuersatz:7}]});
@@ -215,10 +216,11 @@ await test('RESTORE-repeat','Mehrere Abzüge desselben Postens werden summiert',
  await DB.trashRestore('t');const stock=(await DB.get('inventar','s')).stueckzahl;return check(stock===15,{expected:15,actual:stock});
 });
 await test('MERGE-abort','Merge und Bestandskorrektur gehören zusammen',async()=>{
- await invoiceSeed();const put=DB.put;DB.put=async function(st,...args){if(st==='abfuellungen')throw new Error('Abgleich-Abbruch');return put.call(this,st,...args);};
- let error;try{await merge({verkaeufe:[{id:'v',abfuellungId:'a',anzahl:3}]});}catch(e){error=e.message;}finally{DB.put=put;}
- const stock=(await DB.get('abfuellungen','a')).bestand, sales=(await DB.getAll('verkaeufe')).length;
- return check(stock===7||sales===0,{error,stock,sales,expected:'kein Verkauf oder Bestand 7'});
+ await invoiceSeed();const put=IDBObjectStore.prototype.put;let error,injected=false;
+ IDBObjectStore.prototype.put=function(obj,...args){const rq=put.call(this,obj,...args);if(this.name==='abfuellungen'){const tx=this.transaction;rq.addEventListener('success',()=>{injected=true;tx.abort();});}return rq;};
+ try{await merge({verkaeufe:[{id:'v',abfuellungId:'a',anzahl:3}]});}catch(e){error=e.message;}finally{IDBObjectStore.prototype.put=put;}
+ const stock=(await DB.get('abfuellungen','a')).bestand,sales=(await DB.getAll('verkaeufe')).length;
+ return check(injected&&!!error&&stock===10&&sales===0,{error,injected,stock,sales,expected:'kein Verkauf und Bestand 10'});
 });
 await test('MIGRATE-retry','Wiederanlauf nach abgeschlossenem Chargen-Commit',async()=>{
  await S.set('abfuellungMigriert',false);await DB.put('chargen',{id:'c',glasGroesseG:500,anzahlGlaeser:10});await DB.put('verkaeufe',{id:'v',chargeId:'c',anzahl:1});

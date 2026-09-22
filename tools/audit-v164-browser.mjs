@@ -5,7 +5,7 @@
    NICHT Fehlerfreiheit; technische Abbrüche liefern Exit 2.
 */
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, mkdtemp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { extname, join, normalize } from 'node:path';
@@ -28,6 +28,7 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 let offlineServer = false; let poisonInstall = false;
 function serverStarten() {
   const srv = createServer(async (req, res) => {
+    if(process.env.AUDIT_DEBUG) console.error('GET',req.url);
     if (offlineServer) { req.socket.destroy(); return; }
     try {
       if (req.url.includes('audit-maintenance=1') || (poisonInstall && (req.url === '/' || req.url.startsWith('/index.html')))) { res.writeHead(200, {'Content-Type':'text/html'}).end('<!doctype html><title>Wartung</title><p>Audit-Wartungsseite</p>'); return; }
@@ -37,7 +38,7 @@ function serverStarten() {
       let inhalt = await readFile(datei); if (poisonInstall && datei.endsWith('service-worker.js')) inhalt = Buffer.from(inhalt.toString().replace('imkerbuch-v176', 'imkerbuch-v176-auditinstall'));
       res.writeHead(200, { 'Content-Type': MIME[extname(datei)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(inhalt);
-    } catch (e) { res.writeHead(404).end('nicht gefunden'); }
+    } catch (e) { console.error('Serverdatei', req.url, e.message); res.writeHead(404).end('nicht gefunden'); }
   });
   return new Promise((r) => srv.listen(PORT, '127.0.0.1', () => r(srv)));
 }
@@ -85,13 +86,16 @@ async function verbinde() {
 async function main() {
  await mkdir(join(WURZEL, "tools", "coverage"), {recursive:true});
  const srv=await serverStarten();
- const chrome=spawn(CHROME,['--headless=new',`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${join(WURZEL,'tools','.chromeprofil-offline3')}`,'--no-first-run','--no-default-browser-check','--disable-gpu'],{stdio:'ignore'});
+ const profil=await mkdtemp(join(WURZEL,'tools','.chromeprofil-offline-'));
+ const chrome=spawn(CHROME,['--headless=new',`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${profil}`,'--no-first-run','--no-default-browser-check','--disable-gpu','--enable-logging=stderr'],{stdio:process.env.AUDIT_DEBUG?'inherit':'ignore'});
  const results=[];
  try {
  const cdp=await verbinde();
  const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
  cdp.session=(await cdp.send('Target.attachToTarget',{targetId,flatten:true})).sessionId;
  await cdp.send('Page.enable');await cdp.send('Runtime.enable');await cdp.send('Network.enable');
+ cdp.ws.addEventListener('message', (e) => { const m=JSON.parse(e.data); if(m.method==='ServiceWorker.workerErrorReported'||m.method==='Runtime.exceptionThrown'||m.method==='Runtime.consoleAPICalled') console.error('SW-Diagnose',JSON.stringify(m.params)); });
+
  const base=`http://127.0.0.1:${PORT}`;
  async function ready(){for(let i=0;i<150;i++){try{if(await cdp.js('return !!window.appReady'))return true;}catch{}await schlaf(100);}return false;}
  await cdp.send('Page.navigate',{url:base+'/index.html?testdb=1'});await ready();
@@ -119,8 +123,8 @@ async function main() {
  results.push({id:'B2',name:'Mobile Messung Einstellungen, 390 Pixel',...mobile});
  await writeFile(new URL('./coverage/mobile-settings-v164.png',import.meta.url),Buffer.from((await cdp.send('Page.captureScreenshot',{format:'png'})).data,'base64'));
  await cdp.send('Emulation.clearDeviceMetricsOverride');
- await cdp.send('Page.navigate',{url:base+'/index.html'});await ready();
- const sw=await cdp.js(`await Promise.race([navigator.serviceWorker.ready,new Promise((_,r)=>setTimeout(()=>r(new Error('SW timeout')),10000))]);return {controller:!!navigator.serviceWorker.controller,keys:await caches.keys(),cachedIndex:!!(await caches.match('./index.html'))};`);
+ await cdp.js('window.appReady=false');await cdp.send('Page.navigate',{url:base+'/index.html'});await ready();
+ const sw=await cdp.js(`await Promise.race([navigator.serviceWorker.ready,new Promise((_,r)=>setTimeout(()=>r(new Error('SW timeout')),30000))]);return {controller:!!navigator.serviceWorker.controller,keys:await caches.keys(),cachedIndex:!!(await caches.match('./index.html'))};`);
  results.push({id:'B3',name:'Service Worker installiert und App gespeichert',...sw});
  await cdp.send('Page.navigate',{url:base+'/impressum.html'});await schlaf(300);
  offlineServer=true;
@@ -141,13 +145,15 @@ async function main() {
  await cdp.send('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
  await cdp.js(`const reg=await navigator.serviceWorker.getRegistration();await reg.update();return true;`);
  await schlaf(2000);
- results.push({id:'B8',name:'Neue Installation prüft die App-Hülle ebenfalls',...(await cdp.js(`const c=await caches.open('imkerbuch-v176-auditinstall');const r=await c.match('./index.html');return {cachedMaintenance:r?(await r.text()).includes('Audit-Wartungsseite'):null,keys:await caches.keys()};`))});
+ results.push({id:'B8',name:'Neue Installation prüft die App-Hülle ebenfalls',...(await cdp.js(`const keys=await caches.keys();const c=keys.includes('imkerbuch-v176-auditinstall')?await caches.open('imkerbuch-v176-auditinstall'):null;const r=c?await c.match('./index.html'):null;return {cachedMaintenance:r?(await r.text()).includes('Audit-Wartungsseite'):null,keys};`))});
  offlineServer=true;
  await cdp.send('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0});
+ await cdp.js('window.appReady=false');await cdp.send('Page.navigate',{url:base+'/index.html'});await ready();
+ results.push({id:'B9',name:'Alte App startet offline nach abgelehnter Installation',...(await cdp.js('return {appReady:!!window.appReady,keys:await caches.keys()}'))});
  // A second origin on the same isolated server has no previous installation.
  await cdp.send('Page.navigate',{url:`http://localhost:${PORT}/index.html`});await schlaf(500);
  results.push({id:'B7',name:'Erstbesuch ohne Netz und ohne Cache',...(await cdp.js('return {appReady:!!window.appReady,url:location.href,title:document.title}'))});
- await writeFile(new URL('../docs/pruefung-v164/browser-v164-results.json',import.meta.url),JSON.stringify({browser:browserKennung,date:new Date().toISOString(),results},null,2));
+ await writeFile(new URL('../docs/pruefung-v164/update-reparatur-results.json',import.meta.url),JSON.stringify({browser:browserKennung,date:new Date().toISOString(),results},null,2));
  console.log(JSON.stringify(results,null,2));
  } finally {chrome.kill();srv.close();}
  process.exit(0);

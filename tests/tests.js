@@ -7422,11 +7422,9 @@ test('S1: Unbekannter Bereich in der Sicherung landet nicht im Vorschau-Dialog',
 test('S2: Importierte ID kann nicht aus einem Attribut ausbrechen', async (w) => {
   delete w.__boese;
   const boeseId = 'x"><img src=x onerror="window.__boese=1">';
-  const rows = w.Backup._rowsAusImport('staende', [{ id: boeseId, name: 'Prüfstand', lastModified: w.U.nowIso() }]);
-  assertEq(rows.length, 1, 'der Datensatz geht nicht verloren');
-  assert(rows[0].id !== boeseId, 'aber er bekommt eine neue Kennung');
-  assert(/^[A-Za-z0-9_-]+$/.test(rows[0].id), 'und die ist unverdächtig: ' + rows[0].id);
-  assertEq(rows[0].name, 'Prüfstand', 'der Name bleibt unangetastet');
+  let abgelehnt = false;
+  try { w.Backup._rowsAusImport('staende', [{ id: boeseId, name: 'Prüfstand', lastModified: w.U.nowIso() }]); } catch (e) { abgelehnt = true; }
+  assert(abgelehnt, 'ungültige ID wird abgelehnt statt Beziehungen durch Ersatz-ID zu zerreißen');
   // Harmlose Kennungen bleiben, sonst zerrisse jeder Import die Verknüpfungen
   const heil = w.U.uuid();
   assertEq(w.Backup._rowsAusImport('staende', [{ id: heil, name: 'Heil' }])[0].id, heil, 'gültige IDs bleiben erhalten');
@@ -7810,11 +7808,11 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
   const r = await w.DB.put('rechnungen', { nummer: null, datum: '2026-06-01', kundeId: k.id, status: 'entwurf', steuerart: 'klein',
     positionen: [{ text: 'Rapshonig 500 g', menge: 3, einzelpreis: 6, steuersatz: 0, pfand: 0, abfuellungId: a.id }] });
   const kasseVorher = (await w.DB.getAll('kassenbuch')).length;
-  const altSchreib = w.DB.schreibeAlles, altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
+  const altSchreib = w.DB.aendereAtomar, altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
   const toasts = [];
   w.UI.confirm = async () => true; w.UI.toast = (t, art) => toasts.push([t, art]); w.renderRoute = async () => {};
   try {
-    w.DB.schreibeAlles = async () => { throw new Error('Platte voll'); };
+    w.DB.aendereAtomar = async () => { throw new Error('Platte voll'); };
     await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), [a]);
     const rNach = await w.DB.get('rechnungen', r.id);
     assertEq(rNach.status, 'entwurf', 'die Rechnung bleibt Entwurf');
@@ -7823,7 +7821,7 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
     assertEq((await w.DB.getAll('kassenbuch')).length, kasseVorher, 'und es wurde nichts ins Kassenbuch gebucht');
     assert(toasts.some(([, art]) => art === 'err'), 'der Fehler wird gemeldet');
   } finally {
-    w.DB.schreibeAlles = altSchreib; w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
+    w.DB.aendereAtomar = altSchreib; w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
     await w.DB.del('rechnungen', r.id); await w.DB.del('abfuellungen', a.id);
     await w.DB.del('chargen', c.id); await w.DB.del('kontakte', k.id);
   }
@@ -8094,3 +8092,204 @@ test('Papierkorb: Abbruch nach Materialauftrag rollt alle beteiligten Speicher z
     assert(await w.DB.get('papierkorb', 'restore-test'), 'Quelle bleibt vorhanden');
   } finally { w.IDBObjectStore.prototype.put = original; await restoreTestAufraeumen(w); }
 });
+
+/* Gemeinsame Transaktionen: echte Speicherfehler und konkurrierende Vorgänge. */
+async function buchungTest(w, fn) {
+  const confirm = w.UI.confirm, render = w.renderRoute, kreis = await w.DB.get('settings', 'rechnungskreis');
+  w.UI.confirm = async () => true; w.renderRoute = async () => {};
+  try {
+    await w.DB.put('chargen', { id: 'atom-c', losnummer: 'ATOM', mengeKg: 5 });
+    await w.DB.put('abfuellungen', { id: 'atom-a', chargeId: 'atom-c', anzahl: 10, bestand: 10, gebindeG: 500 });
+    await fn();
+  } finally {
+    w.UI.confirm = confirm; w.renderRoute = render;
+    for (const store of ['rechnungen', 'verkaeufe', 'kassenbuch', 'papierkorb']) for (const x of await w.DB.getAll(store)) {
+      if (x.id?.startsWith('atom-') || x.abfuellungId === 'atom-a' || x.rechnungId?.startsWith('atom-') || x.daten?.abfuellungId === 'atom-a' || x.daten?.rechnungId?.startsWith('atom-')) await w.DB.del(store, x.id);
+    }
+    await w.DB.del('abfuellungen', 'atom-a'); await w.DB.del('chargen', 'atom-c');
+    if (kreis) await w.DB.put('settings', kreis, true); else await w.DB.del('settings', 'rechnungskreis'); await w.S.load();
+  }
+}
+async function atomRechnung(w, id = 'atom-r', menge = 2) {
+  return w.DB.put('rechnungen', { id, status: 'entwurf', datum: '2026-09-22', kundeId: 'atom-k', steuerart: 'regel', positionen: [{ abfuellungId: 'atom-a', menge, einzelpreis: 5, steuersatz: 7 }] });
+}
+async function mitAbbruch(w, store, fn) {
+  const put = w.IDBObjectStore.prototype.put; let injected = false;
+  w.IDBObjectStore.prototype.put = function (o, ...args) {
+    const rq = put.call(this, o, ...args);
+    if (this.name === store) { const tx = this.transaction; rq.addEventListener('success', () => { injected = true; tx.abort(); }); }
+    return rq;
+  };
+  try { await fn(); assert(injected, 'Abbruchstelle wurde wirklich erreicht'); } finally { w.IDBObjectStore.prototype.put = put; }
+}
+test('Atomar: parallele Verkäufe können zusammen nicht mehr als den Bestand verkaufen', async (w) => buchungTest(w, async () => {
+  const result = await Promise.allSettled([w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 6, preisJeGlas: 5 }), w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 6, preisJeGlas: 5 })]);
+  assertEq(result.filter((r) => r.status === 'fulfilled').length, 1);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 4);
+  assertEq((await w.DB.getAll('verkaeufe')).filter((r) => r.abfuellungId === 'atom-a').length, 1);
+}));
+test('Atomar: Verkaufsabbruch lässt Bestand, Kasse und Verkauf unverändert', async (w) => buchungTest(w, async () => {
+  await mitAbbruch(w, 'kassenbuch', async () => {
+    let error; try { await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 }); } catch (e) { error = e; }
+    assert(error); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+    assertEq((await w.DB.getAll('verkaeufe')).filter((r) => r.abfuellungId === 'atom-a').length, 0);
+  });
+}));
+test('Atomar: paralleles Verkaufsstorno gibt die Menge nur einmal zurück', async (w) => buchungTest(w, async () => {
+  const v = await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 });
+  await Promise.all([w.verkaufStornieren(v.id), w.verkaufStornieren(v.id)]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq(await w.DB.get('verkaeufe', v.id), undefined); assertEq(await w.DB.get('kassenbuch', v.kassenbuchId), undefined);
+  assertEq((await w.DB.getAll('papierkorb')).filter((x) => x.daten?.id === v.id).length, 1);
+}));
+test('Atomar: Verkaufsstorno mit Abbruch erhält ursprünglichen Verkauf', async (w) => buchungTest(w, async () => {
+  const v = await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 });
+  await mitAbbruch(w, 'papierkorb', async () => { let error; try { await w.verkaufStornieren(v.id); } catch (e) { error = e; } assert(error); });
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 8); assert(await w.DB.get('verkaeufe', v.id)); assert(await w.DB.get('kassenbuch', v.kassenbuchId));
+}));
+test('Atomar: parallele Festschreibungen derselben Rechnung buchen einmal', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w);
+  await Promise.all([w.Views.rechnung.festschreiben(structuredClone(r), []), w.Views.rechnung.festschreiben(structuredClone(r), [])]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 8);
+  assertEq((await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r.id).length, 1);
+  assertEq((await w.DB.get('rechnungen', r.id)).berechnungVersion, 2);
+}));
+test('Atomar: verschiedene Rechnungen erhalten parallell eindeutige Nummern', async (w) => buchungTest(w, async () => {
+  const a = await atomRechnung(w, 'atom-r1'), b = await atomRechnung(w, 'atom-r2');
+  await Promise.all([w.Views.rechnung.festschreiben(a, []), w.Views.rechnung.festschreiben(b, [])]);
+  const ra = await w.DB.get('rechnungen', a.id), rb = await w.DB.get('rechnungen', b.id);
+  assert(ra.nummer && rb.nummer && ra.nummer !== rb.nummer); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 6);
+}));
+test('Atomar: Rechnungsstorno bucht auch bei zwei Aufrufen nur einmal', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w); await w.Views.rechnung.festschreiben(r, []);
+  await Promise.all([w.rechnungStornieren(r.id), w.rechnungStornieren(r.id)]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq((await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r.id && k.betrag < 0).length, 1);
+}));
+test('Atomar: Rechnungsabbruch vergibt weder Nummer noch Einnahme', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w), kreis = await w.DB.get('settings', 'rechnungskreis');
+  await mitAbbruch(w, 'kassenbuch', () => w.Views.rechnung.festschreiben(r, []));
+  assertEq((await w.DB.get('rechnungen', r.id)).status, 'entwurf'); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq(await w.DB.get('settings', 'rechnungskreis'), kreis);
+}));
+test('Atomar: älterer Entwurf überschreibt keine neuere Bearbeitung', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w), neu = { ...r, datum: '2026-09-23' };
+  await w.rechnungEntwurfSpeichern(neu, r);
+  let error; try { await w.rechnungEntwurfSpeichern({ ...r, datum: '2026-09-24' }, r); } catch (e) { error = e; }
+  assert(error); assertEq((await w.DB.get('rechnungen', r.id)).datum, '2026-09-23');
+}));
+test('Atomar: zwei zusammengeführte Verkäufe mindern denselben Bestand gemeinsam', async (w) => buchungTest(w, async () => {
+  await Promise.all(['atom-v1', 'atom-v2'].map((id) => w.Backup.applyMerge({ stores: { verkaeufe: [{ id, abfuellungId: 'atom-a', anzahl: 3 }] } })));
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 4);
+}));
+test('Atomar: Abbruch des Merge-Abgleichs verwirft auch importierten Verkauf', async (w) => buchungTest(w, async () => {
+  await mitAbbruch(w, 'abfuellungen', async () => { let error; try { await w.Backup.applyMerge({ stores: { verkaeufe: [{ id: 'atom-v1', abfuellungId: 'atom-a', anzahl: 3 }] } }); } catch (e) { error = e; } assert(error); });
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10); assertEq(await w.DB.get('verkaeufe', 'atom-v1'), undefined);
+}));
+test('Import: ungültige Kennungen lassen beim Merge und Ersetzen alle Daten erhalten', async (w) => buchungTest(w, async () => {
+  const data = { stores: { staende: [{ id: 'stand:alt', name: 'Stand' }], voelker: [{ id: 'atom-volk', standId: 'stand:alt' }] } };
+  for (const aktion of [() => w.Backup.applyMerge(data), () => w.Backup.applyReplace(data, { blobsBehalten: false })]) {
+    let error; try { await aktion(); } catch (e) { error = e; } assert(error);
+    assert(await w.DB.get('abfuellungen', 'atom-a')); assertEq(await w.DB.get('voelker', 'atom-volk'), undefined);
+  }
+}));
+test('Rechnung: korrigierte Steuern für Entwürfe, historischer Beleg unverändert', (w) => {
+  const r = { datum: '2026-09-22', steuerart: 'regel', positionen: [{ menge: 1, einzelpreis: 107, steuersatz: '7' }, { menge: 1, einzelpreis: 50, steuersatz: 0 }] };
+  const neu = w.rechnungSummen(r); assertNah(neu.steuern[7], 7); assertNah(Object.values(neu.nettoJeSatz).reduce((a,b)=>a+b,0), 150);
+  const historisch = { ...r, status: 'festgeschrieben', nummer: 'ALT-1' };
+  assertEq(w.rechnungSummen(historisch), w.rechnungSummenAlt(historisch), 'alter Beleg bleibt exakt bei seiner bisherigen Berechnung');
+  assertNah(w.rechnungSummen({ ...historisch, berechnungVersion: 2 }).steuern[7], 7);
+  const pauschal = w.rechnungSummen({ steuerart: 'pauschal24', pauschalsatz: '7.8', pfandSteuersatz: 7.8, positionen: [{ menge: 10, einzelpreis: 10.78, pfand: 1.078 }] });
+  assertNah(pauschal.steuern[7.8], 8.58);
+});
+
+test('F03: Fütterungsänderung bucht alten und neuen Verbrauch gemeinsam', async (w) => {
+  const id = 'futter-atom', pos = 'futter-material';
+  try {
+    await w.DB.put('inventar', { id: pos, typ: 'verbrauch', einheit: 'kg', kategorie: 'Futter-Atomtest', stueckzahl: 25 });
+    const f = await w.DB.put('fuetterungen', { id, volkId: 'v', mengeKg: 15, futterart: 'Zuckerwasser 3:2', verbrauchAbzug: [{ inventarId: pos, menge: 15 }] });
+    await w.fuetterungAendern(f, { mengeKg: 20 });
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20);
+    const neu = await w.DB.get('fuetterungen', id); assertEq(neu.verbrauchAbzug[0].menge, 20);
+    let error; try { await w.fuetterungAendern(f, { mengeKg: 30 }); } catch (e) { error = e; } assert(error, 'veralteter Editor abgewiesen');
+    await mitAbbruch(w, 'fuetterungen', async () => { let e; try { await w.fuetterungAendern(neu, { mengeKg: 25 }); } catch (x) { e = x; } assert(e); });
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20); assertEq((await w.DB.get('fuetterungen', id)).mengeKg, 20);
+    let knapp; try { await w.fuetterungAendern(neu, { mengeKg: 50 }); } catch (e) { knapp = e; } assert(knapp);
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20, 'Fehlmenge ändert auch die alte Buchung nicht');
+  } finally { await w.DB.del('fuetterungen', id); await w.DB.del('inventar', pos); }
+});
+
+test('F16: Bio-Etikett ohne druckbares Logo verlangt Ergänzung, Abbrechen erzeugt keine Datei', async (w) => {
+  const imk = structuredClone(w.S.get('imkerei')), confirm = w.UI.confirm, finish = w.Pdf.finish;
+  let frage, dateien = 0;
+  try {
+    await w.S.set('imkerei', { ...imk, bio: 'ja', bioLogos: [], bioKontrollstelle: 'DE-ÖKO-000' });
+    w.UI.confirm = async (o) => { frage = o; return false; }; w.Pdf.finish = () => { dateien++; };
+    await w.Pdf.honigEtikett({ gebindeG: 500, mhd: '2028-09-22' }, { losnummer: 'BIO-TEST' }, { anzahl: 1, bezeichnung: 'Honig', ursprung: 'Deutschland' });
+    assert(frage && frage.text.includes('EU-Bio-Logo')); assertEq(dateien, 0);
+    w.UI.confirm = async () => true;
+    await w.Pdf.honigEtikett({ gebindeG: 500, mhd: '2028-09-22' }, { losnummer: 'BIO-TEST' }, { anzahl: 1, bezeichnung: 'Honig', ursprung: 'Deutschland' });
+    assertEq(dateien, 1, 'ausdrücklich bestätigtes Zusatzetikett bleibt möglich');
+  } finally { w.UI.confirm = confirm; w.Pdf.finish = finish; await w.S.set('imkerei', imk); }
+});
+
+async function isolierteDaten(w, fn) {
+  const vorher = await w.Backup.buildData(true);
+  try { await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load(); await fn(); }
+  finally { await w.Backup.applyReplace(vorher, { blobsBehalten: false }); await w.S.load(); }
+}
+test('Bio-Migration: Abbruch, Wiederholung und paralleler Start erhalten genau einen Partner', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('bioeintraege', { id: 'bio-atom-partner', bereich: 'partner', name: 'Test-Partner', notiz: 'Einmalige Notiz', rolle: 'Lieferant' });
+  await w.DB.put('bioeintraege', { id: 'bio-atom-cert', bereich: 'zertifikat', art: 'Eigener Betrieb', nummer: 'ATOM-123' });
+  await mitAbbruch(w, 'settings', async () => { let error; try { await w.migriereBioPartner(); } catch(e) { error=e; } assert(error); });
+  assertEq((await w.DB.getAll('kontakte')).length, 0); assertEq((await w.DB.getAll('bioeintraege')).length, 2);
+  assert(!(await w.DB.get('settings', 'bioPartnerMigriert')));
+  await Promise.all([w.migriereBioPartner(), w.migriereBioPartner()]);
+  const partner = await w.DB.getAll('kontakte'); assertEq(partner.length, 1); assertEq(partner[0].notiz, 'Einmalige Notiz');
+  assertEq((await w.DB.getAll('bioeintraege')).length, 0); assertEq(w.S.get('imkerei').oekoZertNummer, 'ATOM-123');
+  await w.migriereBioPartner(); assertEq((await w.DB.getAll('kontakte')).length, 1);
+}));
+test('Material-Löschen: Abbruch erhält Quelle, paralleles Löschen gibt nur einmal zurück', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('inventar', { id: 'mat', typ: 'verbrauch', einheit: 'kg', stueckzahl: 20 });
+  const f = await w.DB.put('fuetterungen', { id: 'feed', mengeKg: 10, verbrauchAbzug: [{ inventarId: 'mat', menge: 5 }, { inventarId: 'mat', menge: 5 }] });
+  await mitAbbruch(w, 'papierkorb', async () => { let error; try { await w.loescheMitMaterial('fuetterungen', f); } catch(e) { error=e; } assert(error); });
+  assertEq((await w.DB.get('inventar', 'mat')).stueckzahl, 20); assert(await w.DB.get('fuetterungen', 'feed')); assertEq((await w.DB.getAll('papierkorb')).length, 0);
+  await Promise.all([w.loescheMitMaterial('fuetterungen', f), w.loescheMitMaterial('fuetterungen', f)]);
+  assertEq((await w.DB.get('inventar', 'mat')).stueckzahl, 30); assertEq(await w.DB.get('fuetterungen', 'feed'), undefined); assertEq((await w.DB.getAll('papierkorb')).length, 1);
+}));
+test('Sicherung: gemeinsamer Lesestand bleibt bei anschließender Buchung konsistent', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('abfuellungen', { id: 'snap-a', bestand: 10 });
+  const lesen = w.IDBObjectStore.prototype.getAll; let buchung, ausgeloest = false;
+  w.IDBObjectStore.prototype.getAll = function (...args) {
+    const rq = lesen.apply(this, args);
+    if (this.name === 'abfuellungen' && !ausgeloest) rq.addEventListener('success', () => {
+      if (ausgeloest) return; ausgeloest = true;
+      buchung = w.DB.schreibeAlles([{ store: 'abfuellungen', obj: { id: 'snap-a', bestand: 8 } }, { store: 'verkaeufe', obj: { id: 'snap-v', abfuellungId: 'snap-a', anzahl: 2 } }]);
+    });
+    return rq;
+  };
+  let backup;
+  try { backup = await w.Backup.buildData(true); await buchung; }
+  finally { w.IDBObjectStore.prototype.getAll = lesen; }
+  assert(ausgeloest); assertEq(backup.stores.abfuellungen[0].bestand, 10); assertEq(backup.stores.verkaeufe.length, 0);
+  assertEq((await w.DB.get('abfuellungen', 'snap-a')).bestand, 8); assert(await w.DB.get('verkaeufe', 'snap-v'));
+}));
+for (const version of ['1.61', '1.62', '1.63', '1.64']) test(`Sicherung v${version}: IDs, Werte, Anhänge und Wiederholungsimport bleiben erhalten`, async (w) => isolierteDaten(w, async () => {
+  const quelle = await fetch(`fixtures/backup/v${version}.json`).then(r => { assert(r.ok); return r.json(); });
+  await w.Backup.applyReplace(quelle, { blobsBehalten: false });
+  const sortiert = (rows, store) => [...rows].sort((a,b)=>String(store==='settings'?a.key:a.id).localeCompare(String(store==='settings'?b.key:b.id)));
+  const export1 = await w.Backup.buildData(true);
+  for (const store of w.DB.DATA_STORES) {
+    const erwartet = (quelle.stores[store] || []).map(r => w.Backup._saeubereZeile(store, r)).filter(Boolean);
+    assertEq(sortiert(export1.stores[store], store), sortiert(erwartet, store), `v${version}: ${store}, erster Import`);
+  }
+  await w.DB.put('anhaenge', { id: 'fixture-blob', parentTyp: 'volk', parentId: 'test', mime: 'application/octet-stream', blob: new w.Blob([new Uint8Array([0,1,127,128,255])], {type:'application/octet-stream'}) });
+  const mitBlob = await w.Backup.buildData(true);
+  await w.Backup.applyReplace(mitBlob, { blobsBehalten: false });
+  assertEq((await w.Backup.buildData(true)).stores, mitBlob.stores, 'Export → Import → Export vollständig gleich');
+  assertEq([...new Uint8Array(await (await w.DB.get('anhaenge','fixture-blob')).blob.arrayBuffer())], [0,1,127,128,255]);
+  await w.Backup.applyMerge(mitBlob); const nachMerge = await w.Backup.buildData(true);
+  await w.Backup.applyMerge(mitBlob); const erneut = await w.Backup.buildData(true);
+  assertEq(erneut.stores, nachMerge.stores, 'zweiter Merge ändert keine Werte und erzeugt keine Duplikate');
+  for (const store of w.DB.DATA_STORES) assertEq(erneut.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), mitBlob.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), `${store}: alle Kennungen erhalten`);
+}));

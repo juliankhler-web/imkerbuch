@@ -2,6 +2,8 @@
 
 Der ursprüngliche Zweig `codex/v164-pruefung` enthält Prüfunterlagen und Diagnosetests ohne Änderung der Anwendung. Auf `codex/v164-sicherheitskorrekturen` werden die Reparaturen getrennt weitergeführt: siehe [aktueller Reparaturstatus](REPARATURSTATUS.md). **Noch keine Freigabe für ein Update.** Das Originaldesign bleibt erhalten; die früheren Bedienentwürfe wurden verworfen.
 
+Aktuelle Etappe: [Transaktionen und Sicherungen](CLAUDE-TRANSAKTIONEN-2026-09-22.md), 464/464 Tests und 48/48 ursprüngliche Gegenproben. Drei neue Fälle F20–F22 sind separat nachgewiesen und noch offen.
+
 ## Zuerst lesen
 
 1. [Datenerhalt und Freigabe](DATENERHALT-UND-FREIGABE.md): bestehende Nutzer und alte Sicherungen haben Vorrang.

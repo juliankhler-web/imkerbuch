@@ -11,14 +11,31 @@ const CDN_HOSTS = ['cdn.sheetjs.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net'
 // Hosts, die NIE gecacht werden (Live-Daten bzw. eigenes Caching der Bibliothek)
 const BYPASS_HOSTS = ['api.open-meteo.com', 'nominatim.openstreetmap.org', 'overpass-api.de', 'sgx.geodatenzentrum.de', 'geoservice.rlp.de', 'huggingface.co', 'cdn-lfs.huggingface.co', 'cas-bridge.xethub.hf.co'];
 
+const istAppHtml = (text) => /const APP_VERSION\s*=/.test(text) && /<title>\s*ImkerBuch/i.test(text);
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    // Erst ALLE Antworten holen und prüfen. Eine Wartungsseite darf niemals
+    // einen funktionsfähigen Offline-Stand ersetzen oder den Worker aktivieren.
+    const antworten = await Promise.all(SHELL.map(async (pfad) => {
+      const request = new Request(new URL(pfad, self.location.href), { cache: 'reload' });
+      const response = await fetch(request);
+      if (!response.ok || response.status === 206) throw new Error('App-Datei nicht vollständig verfügbar: ' + pfad);
+      const body = await response.arrayBuffer();
+      if ((pfad === './' || pfad === './index.html') && !istAppHtml(new TextDecoder().decode(body))) {
+        throw new Error('Keine gültige ImkerBuch-App: ' + pfad);
+      }
+      return [request, new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers })];
+    }));
+    const cache = await caches.open(CACHE);
+    await Promise.all(antworten.map(([request, response]) => cache.put(request, response)));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('imkerbuch-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -74,7 +91,7 @@ self.addEventListener('fetch', (e) => {
                    der App. Zwei Merkmale müssen stimmen, sonst bleibt der
                    bisherige Stand liegen. */
                 copy.text().then((t) => {
-                  if (/const APP_VERSION\s*=/.test(t) && /<title>\s*ImkerBuch/i.test(t)) {
+                  if (istAppHtml(t)) {
                     caches.open(CACHE).then((c) => c.put('./index.html',
                       new Response(t, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
                   } else {

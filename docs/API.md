@@ -80,6 +80,9 @@ await DB.open()                          // Verbindung (idempotent)
 await DB.get(store, id)                  // ein Datensatz
 await DB.getAll(store)                   // alle Datensätze
 await DB.count(store)
+await DB.leseAlles(stores)              // konsistenter Stand über alle genannten Speicher
+await DB.schreibeAlles(ops)             // gemeinsame Schreibtransaktion; bestätigt erst Commit
+await DB.aendereAtomar(stores, berechne) // aktuelles Lesen + Prüfen + Schreiben unter einer Sperre
 await DB.put(store, obj, keepStamp=false) // legt an oder aktualisiert, gibt obj zurück
 await DB.bulkPut(store, objs, keepStamp=true)
 await DB.del(store, id)                  // endgültig
@@ -92,6 +95,13 @@ await DB.purgeTrash()                    // löscht Papierkorb-Einträge > 30 Ta
 **`put` vergibt automatisch** `id` (UUID) sowie `createdAt` und `lastModified` (ISO).
 `keepStamp: true` lässt die Zeitstempel unangetastet – nötig beim Import und beim
 Wiederherstellen, sonst gewinnt beim Zusammenführen immer der zuletzt importierte Stand.
+
+`aendereAtomar` ruft `berechne(daten)` synchron nach dem Lesen aller Speicher auf.
+Der Rückgabewert ist `{ ops, wert }`; `ops` enthält Aufträge wie bei `schreibeAlles`
+(`{ store, obj, keepStamp }`, `{ op: 'del', store, id }` oder `{ op: 'clear', store }`).
+Innerhalb des Callbacks keine `await`, Promises, Dialoge oder anderen Datenbankaufrufe.
+Ein Fehler rollt alle Aufträge zurück; `wert` wird erst beim Commit geliefert.
+Der Callback darf nur die übergebenen Kopien bearbeiten, keinen UI- oder Einstellungszustand.
 
 **`DB.STORES`** listet alle 31 Stores. **`DB.DATA_STORES`** ist dieselbe Liste ohne
 `snapshots` und steuert Export, Import und Snapshot – ein neuer Store wird also
@@ -284,7 +294,7 @@ await Backup.share()                        // Web Share API, sonst Download + m
 await Backup.importFile(file)               // fragt Ersetzen oder Zusammenführen
 await Backup.applyReplace(data, { blobsBehalten })
 await Backup.applyMerge(data)               // jüngeres lastModified gewinnt, keine Dubletten
-Backup._saeubereZeile(store, r)             // prüft jede Zeile aus der Datei (siehe adr/0004)
+Backup._saeubereZeile(store, r)             // ungültige ID: gesamter Import bricht vor Schreibbeginn ab
 Xlsx.zelleSicher(v) / Xlsx.zeilenSicher(rows)  // keine Formeln, keine Zellobjekte aus Fremddaten
 await Backup.snapshotInternal(grund)        // rollierend 10, ohne Anhang-Blobs
 await Backup.restoreSnapshot(id)
@@ -511,9 +521,20 @@ rechnungRabatt(r, waren)
 rechnungSummen(r)      // Warenwert, Rabatt, Pfand, USt, Brutto, Skonto-Hinweis
 ```
 
-Regeln, die in den Tests festgeschrieben sind: **Pfand ist kein Erlös** – er bleibt außerhalb
-von Rabatt und Umsatzsteuer. **Skonto wird ausgewiesen, aber nicht abgezogen.** Die
-Umsatzsteuer folgt dem Rabatt.
+Pfand bleibt außerhalb von Rabatt und Skonto; seine Umsatzsteuer folgt dem gewählten
+`pfandSteuersatz`. Skonto wird als Zahlungsbedingung ausgewiesen, nicht bereits abgezogen.
+Die Umsatzsteuer auf Waren folgt dem Rabatt.
+
+Neue Festschreibungen erhalten `berechnungVersion: 2`. Entwürfe und solche Belege verwenden
+`rechnungSummenNeu`: Zahlentexte als Steuersatz, 0-%-Nettogruppen und Pfand bei §24 werden
+korrigiert behandelt. Bereits nummerierte oder festgeschriebene/stornierte Altdaten ohne
+Version 2 laufen ausdrücklich über die eingefrorene `rechnungSummenAlt`; keine automatische
+Neuberechnung historischer Belege. Alte App-Versionen kennen diesen Schalter nicht: Eine
+Rückgabe neu erstellter Belege an eine alte App ist nicht als rechenkompatibel freigegeben.
+
+`rechnungEntwurfSpeichern(neu, erwartet)` verhindert das Überschreiben eines inzwischen
+geänderten oder festgeschriebenen Entwurfs. Festschreiben, Rechnungsstorno, Verkauf und
+Verkaufsstorno lesen aktuelle Bestände innerhalb ihrer jeweiligen Schreibtransaktion.
 
 ---
 

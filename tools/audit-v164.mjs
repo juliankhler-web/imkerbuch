@@ -5,7 +5,7 @@
    NICHT Fehlerfreiheit; technische Abbrüche liefern Exit 2.
 */
 import { createServer } from 'node:http';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, mkdtemp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { extname, join, normalize } from 'node:path';
@@ -14,6 +14,7 @@ const WURZEL = new URL('..', import.meta.url).pathname;
 const ARG = process.argv.slice(2);
 const PORT = +((ARG.find((a) => a.startsWith('--port=')) || '').split('=')[1] || 8952);
 const CDP_PORT = PORT + 400;
+const ERWEITERT = ARG.includes('--neufunde');
 const CHROME = process.env.CHROME_BIN
   || ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/usr/bin/google-chrome', '/usr/bin/chromium-browser', '/usr/bin/chromium']
@@ -82,7 +83,8 @@ async function verbinde() {
 async function main() {
  await mkdir(join(WURZEL, "tools", "coverage"), {recursive:true});
  const srv=await serverStarten();
- const chrome=spawn(CHROME,['--headless=new',`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${join(WURZEL,'tools','.chromeprofil-audit')}`,'--no-first-run','--no-default-browser-check','--disable-gpu'],{stdio:'ignore'});
+ const profil=await mkdtemp(join(WURZEL,'tools','.chromeprofil-audit-'));
+ const chrome=spawn(CHROME,['--headless=new',`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${profil}`,'--no-first-run','--no-default-browser-check','--disable-gpu'],{stdio:'ignore'});
  try {
  const cdp=await verbinde();
  const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
@@ -90,10 +92,10 @@ async function main() {
  await cdp.send('Page.enable');await cdp.send('Runtime.enable');
  await cdp.send('Page.navigate',{url:`http://127.0.0.1:${PORT}/index.html?testdb=1`});
  for(let i=0;i<200;i++){if(await cdp.js('return !!window.appReady'))break;await schlaf(100);}
- const script=await readFile(new URL('./audit-v164-cases.js',import.meta.url),'utf8');
+ const script=await readFile(new URL(ERWEITERT ? './audit-v164-neufunde.js' : './audit-v164-cases.js',import.meta.url),'utf8');
  const result=await cdp.js(script);
  const out={version:'1.64',browser:browserKennung,datum:new Date().toISOString(),...result};
- await writeFile(new URL('../docs/pruefung-v164/regression-v164-results.json',import.meta.url),JSON.stringify(out,null,2));
+ await writeFile(new URL('../docs/pruefung-v164/'+(ERWEITERT?'neufunde-results.json':'abschluss-regression-results.json'),import.meta.url),JSON.stringify(out,null,2));
  console.log(JSON.stringify(out,null,2));
  }finally{chrome.kill();srv.close();}
  process.exit(0);
