@@ -4184,7 +4184,7 @@ Views.volk = {
     const q = v.koeniginId ? await DB.get('koeniginnen', v.koeniginId) : null;
     const qc = q ? queenColor(q.jahrgang) : null;
     const tab = Views.volk._tab || 'stockkarte';
-    const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${v.status}</span>`;
+    const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${U.esc(v.status)}</span>`;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('voelker')">${icon('back')} Alle Völker</button>
       ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : ''}${v.funktion ? U.esc(v.funktion) + ' · ' : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}`, `
@@ -5207,7 +5207,7 @@ Views.zucht = {
         ${s.notiz ? `<p class="small muted mb12">${U.esc(s.notiz)}</p>` : ''}
         ${bereitsErzeugt ? `<div class="banner info mb12">${icon('info')} <span class="b-msg">Aus dieser Serie wurden bereits <b>${bereitsErzeugt} Töchter</b> als Königinnen angelegt.</span></div>` : ''}
         <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tag</th><th>Schritt</th><th>Datum</th><th></th></tr></thead>
-        <tbody>${s.termine.map((t) => `<tr><td>Tag ${t.tag}</td><td>${U.esc(t.titel)}</td><td>${U.fmtDate(t.datum)}</td>
+        <tbody>${s.termine.map((t) => `<tr><td>Tag ${U.esc(t.tag)}</td><td>${U.esc(t.titel)}</td><td>${U.fmtDate(t.datum)}</td>
           <td>${t.datum < heute ? '<span class="badge b-muted">vorbei</span>' : t.datum === heute ? '<span class="badge b-honey">heute</span>' : '<span class="badge b-ok">geplant</span>'}</td></tr>`).join('')}</tbody></table></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button><button class="btn btn-ghost" data-pdf>${icon('doc')} Zuchtbuch (PDF)</button><button class="btn btn-primary" data-toechter>${icon('crown')} Töchter erzeugen</button>`,
     });
@@ -5297,7 +5297,7 @@ Views.behandlungen = {
         <button class="row" data-id="${U.esc(b.id)}">
           <span class="r-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span>
           <span class="r-main"><span class="r-title">${U.esc(b.mittel)}</span>
-          <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${b.wartezeitTage} Tage` : ''}</span></span>
+          <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${U.esc(b.wartezeitTage)} Tage` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>`
       : emptyState('flask', 'Noch keine Behandlung dokumentiert. Jede Anwendung gehört ins Bestandsbuch – inklusive Mittel, Menge und Wartezeit.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Behandlung</button>`)) + `</div>`;
     const add = () => Views.behandlungen.sammelForm();
@@ -6327,7 +6327,7 @@ async function honigEtikettForm(a, c) {
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
       { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
       { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
-      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${abfLos(a, c)}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
+      { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${U.esc(abfLos(a, c))}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
     ],
     saveText: 'Etiketten-PDF erzeugen',
     async onSave(v) { await Pdf.honigEtikett(a, c, v); },
@@ -7543,9 +7543,9 @@ Views.bio = {
     const m = UI.modal({
       title: `Landbedeckung · ${stand.name}`, wide: true,
       body: `<div class="grid2">
-          <div class="field"><label>Umkreis (Meter)</label><input class="inp" id="bio-umkreis" inputmode="numeric" value="${b.umkreisM || BIO_UMKREIS_VORGABE}">
+          <div class="field"><label>Umkreis (Meter)</label><input class="inp" id="bio-umkreis" inputmode="numeric" value="${U.esc(b.umkreisM || BIO_UMKREIS_VORGABE)}">
             <div class="chip-row mt8">${BIO_UMKREIS_WAHL.map((w) => `<button type="button" class="chip" data-umkreis="${U.esc(w)}">${U.fmtNum(w / 1000, 1)} km</button>`).join('')}</div></div>
-          <div class="field"><label>Stand der Erhebung</label><input class="inp" type="date" id="bio-datum" value="${b.erhebung || U.todayIso()}"></div>
+          <div class="field"><label>Stand der Erhebung</label><input class="inp" type="date" id="bio-datum" value="${U.esc(b.erhebung || U.todayIso())}"></div>
           <div class="field"><label>Quelle der Zahlen</label><input class="inp" id="bio-quelle" value="${U.esc(b.quelle || GBV_QUELLE_KURZ)}"></div>
         </div>
         <div class="card mb12" style="box-shadow:none;border:1px solid var(--line)">
@@ -7765,7 +7765,7 @@ Views.honig = {
         const a = abf.get(v.abfuellungId); const c = a ? chargen.get(a.chargeId) : null;
         return `<div class="row">
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
-          <span class="r-main"><span class="r-title">${v.anzahl} × ${a ? U.esc(gebindeLabel(a.gebindeG)) + ' · ' + U.esc(honigName(c, ernten)) : 'Gebinde'} · ${U.fmtEur(v.betrag)}</span>
+          <span class="r-main"><span class="r-title">${U.esc(v.anzahl)} × ${a ? U.esc(gebindeLabel(a.gebindeG)) + ' · ' + U.esc(honigName(c, ernten)) : 'Gebinde'} · ${U.fmtEur(v.betrag)}</span>
           <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
           <button class="btn btn-xs btn-danger no-print" data-storno="${U.esc(v.id)}">Stornieren</button>
         </div>`;
@@ -8206,8 +8206,8 @@ Views.honig = {
         <h3 class="mb8">Abfüllungen dieser Charge</h3>
         <div class="rows mb12">${abf.length ? abf.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
-          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${a.anzahl} Gebinde</span>
-          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${a.bestand} zum Verkauf</span></span>
+          <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${U.esc(a.anzahl)} Gebinde</span>
+          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${U.esc(a.bestand)} zum Verkauf</span></span>
           <button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${U.esc(a.id)}">${icon('doc')} Etikett</button></div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
         ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gebinden stehen noch zum Verkauf.</p>` : ''}
         <h3 class="mb8">Rückverfolgung: Charge → Ernte → Volk</h3>
@@ -8270,8 +8270,8 @@ Views.honig = {
         return `<button class="row" data-id="${U.esc(a.id)}">
           <span class="r-ic">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))}</span>
-          <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${a.anzahl} abgefüllt · noch ${a.bestand} zum Verkauf</span></span>
-          <span class="r-side"><b>${a.bestand}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
+          <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${U.esc(a.anzahl)} abgefüllt · noch ${U.esc(a.bestand)} zum Verkauf</span></span>
+          <span class="r-side"><b>${U.esc(a.bestand)}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>`
       : emptyState('honig', 'Noch nichts abgefüllt. Lege zuerst eine Charge an, dann füllst du sie hier in Gebinde ab.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Abfüllung</button>`)}
     </div>`;
@@ -9025,16 +9025,16 @@ Views.rechnung = {
             <div class="hint">Mindert die Rechnung sofort und damit auch die Umsatzsteuer.</div></div>
           <div class="field"><label>Rabatt-Grund</label><input class="inp" id="r-rabattGrund" list="rabattGruende" value="${U.esc(r.rabattGrund || '')}" placeholder="z. B. Großkunde">
             <datalist id="rabattGruende">${['Großkunde', 'Stammkunde', 'Abnahmemenge', 'Aktion', 'Wiederverkäufer'].map((g) => `<option value="${g}">`).join('')}</datalist></div>
-          <div class="field"><label>Zahlungsziel (Tage)</label><input class="inp" id="r-ziel" inputmode="numeric" value="${r.zahlungszielTage != null ? r.zahlungszielTage : ZAHLUNGSZIEL_VORGABE}"></div>
+          <div class="field"><label>Zahlungsziel (Tage)</label><input class="inp" id="r-ziel" inputmode="numeric" value="${U.esc(r.zahlungszielTage != null ? r.zahlungszielTage : ZAHLUNGSZIEL_VORGABE)}"></div>
           <div class="field"><label>Skonto (%)</label><input class="inp" id="r-skonto" inputmode="decimal" value="${r.skontoProzent != null ? U.fmtNum(r.skontoProzent, 1) : ''}" placeholder="0"></div>
-          <div class="field"><label>Skonto-Frist (Tage)</label><input class="inp" id="r-skontoTage" inputmode="numeric" value="${r.skontoTage != null ? r.skontoTage : 7}">
+          <div class="field"><label>Skonto-Frist (Tage)</label><input class="inp" id="r-skontoTage" inputmode="numeric" value="${U.esc(r.skontoTage != null ? r.skontoTage : 7)}">
             <div class="hint">Skonto wird nicht abgezogen, sondern als Zahlungsbedingung ausgewiesen – es wirkt erst, wenn früh gezahlt wird.</div></div>
         </div>
       </div>` : ''}
       <div class="card">
         <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${entwurf ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
         ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
-          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${p.steuersatz || 0} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
+          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${U.esc(p.steuersatz || 0)} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
             ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${U.esc(i)}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
             ${sum.rabatt > 0 || sum.pfand > 0 ? `<div class="small muted">Warenwert: ${U.fmtEur(sum.waren)}</div>` : ''}

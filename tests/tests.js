@@ -7828,3 +7828,49 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
     await w.DB.del('chargen', c.id); await w.DB.del('kontakte', k.id);
   }
 });
+
+/* F01: Fremde Sicherungen durch den echten Import und die echten Ansichten.
+   Auch harmlose Sonderzeichen müssen nach dem Anzeigen unverändert gespeichert sein. */
+const F01_FAELLE = [
+  ['Rechnung: Steuersatz', (p) => ({ rechnungen: [{ id: 'f01-r', datum: '2026-09-21', status: 'entwurf', steuerart: 'regel', positionen: [{ text: 'Honig', menge: 1, einzelpreis: 10, steuersatz: p }] }] }), (w, h) => w.Views.rechnung.render(h, 'f01-r')],
+  ...['zahlungszielTage', 'skontoTage'].map((feld) => ['Rechnung: ' + feld, (p) => ({ rechnungen: [{ id: 'f01-r', datum: '2026-09-21', status: 'entwurf', steuerart: 'klein', positionen: [], [feld]: p }] }), (w, h) => w.Views.rechnung.render(h, 'f01-r')]),
+  ['Volk: Status', (p) => ({ voelker: [{ id: 'f01-v', name: 'Anna', status: p, historie: [] }] }), (w, h) => w.Views.volk.render(h, 'f01-v')],
+  ['Behandlung: Wartezeit', (p) => ({ behandlungen: [{ id: 'f01-b', datum: '2026-09-21', mittel: 'Test', menge: 1, wartezeitTage: p }] }), (w, h) => w.Views.behandlungen.render(h)],
+  ...['anzahl', 'bestand'].flatMap((feld) => ['Liste', 'Chargendetail'].map((ansicht) => ['Abfüllung: ' + feld + ' / ' + ansicht, (p) => ({ chargen: [{ id: 'f01-c', losnummer: 'L1', mengeKg: 10 }], abfuellungen: [{ id: 'f01-a', chargeId: 'f01-c', gebindeG: 500, anzahl: 10, bestand: 10, datum: '2026-09-21', [feld]: p }] }), async (w, h) => ansicht === 'Liste' ? w.Views.honig.tabAbfuellung(h) : w.Views.honig.chargeDetail(await w.DB.get('chargen', 'f01-c'))])),
+  ['Verkauf: Anzahl', (p) => ({ verkaeufe: [{ id: 'f01-v', anzahl: p, betrag: 5, datum: '2026-09-21' }] }), (w, h) => w.Views.honig.tabVerkaeufe(h)],
+  ...['erhebung', 'umkreisM'].map((feld) => ['Bio: ' + feld, (p) => ({ staende: [{ id: 'f01-s', name: 'Stand', bio: { [feld]: p } }] }), async (w) => w.Views.bio.standortForm(await w.DB.get('staende', 'f01-s'))]),
+  ['Zucht: Termintag', (p) => ({ zuchtserien: [{ id: 'f01-z', name: 'Serie', startdatum: '2026-09-21', anzahl: 1, termine: [{ tag: p, titel: 'Test', datum: '2026-09-21' }] }] }), async (w) => w.Views.zucht.detail(await w.DB.get('zuchtserien', 'f01-z'))],
+  ['Etikett: Losnummer', (p) => ({ chargen: [{ id: 'f01-c', losnummer: p, mengeKg: 10 }], abfuellungen: [{ id: 'f01-a', chargeId: 'f01-c', anzahl: 10, bestand: 10, gebindeG: 500, datum: '2026-09-21' }] }), async (w) => w.honigEtikettForm(await w.DB.get('abfuellungen', 'f01-a'), await w.DB.get('chargen', 'f01-c'))],
+];
+for (const [name, daten, anzeigen] of F01_FAELLE) {
+  test('F01: Import + Anzeige schützt ' + name, async (w) => {
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    const bestaetigen = w.UI.confirm;
+    w.UI.confirm = async () => true;
+    try {
+      // Ein Wert testet sowohl Text- als auch Attributkontext; kein echter Datenabfluss.
+      for (const wert of ['"><img data-f01-angriff src=x onerror="window.__f01Angriff++">', 'Prüfung & "Sonderzeichen" <ohne HTML>']) {
+        dialogeSchliessen(w); w.__f01Angriff = 0;
+        const stores = daten(wert);
+        // Nur die eigenen Testdatensätze entfernen, keine anderen Tests beeinflussen.
+        for (const [store, rows] of Object.entries(stores)) for (const row of rows) await w.DB.del(store, row.id);
+        await w.Backup.applyMerge({ app: 'ImkerBuch', formatVersion: 1, stores });
+        const lesen = async () => {
+          const rows = [];
+          for (const [store, list] of Object.entries(stores)) for (const row of list) rows.push(await w.DB.get(store, row.id));
+          return rows;
+        };
+        const vorher = JSON.stringify(await lesen());
+        await anzeigen(w, host);
+        await new Promise((r) => setTimeout(r, 100));
+        assertEq(w.__f01Angriff, 0, 'importierter Text wird nicht ausgeführt');
+        assert(!w.document.querySelector('[data-f01-angriff]'), 'kein eingeschleustes HTML-Element');
+        assertEq(JSON.stringify(await lesen()), vorher, 'Anzeige verändert keine gespeicherten Daten');
+        host.innerHTML = '';
+      }
+    } finally {
+      dialogeSchliessen(w); host.remove(); w.UI.confirm = bestaetigen; delete w.__f01Angriff;
+      for (const [store, rows] of Object.entries(daten(''))) for (const row of rows) await w.DB.del(store, row.id);
+    }
+  });
+}
