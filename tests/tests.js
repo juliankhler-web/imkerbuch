@@ -8079,3 +8079,80 @@ test('GdeB-Automatik: Wetter zum Bewertungstag, sonst der nächste Eintrag', (w)
   assertEq(w.wetterZumTag(wetter, 's1', '2026-06-12').bemerkung, 'Regen', 'der nächstgelegene gewinnt');
   assertEq(w.wetterZumTag(wetter, null, '2026-06-18'), null, 'ohne Stand kein Wetter');
 });
+
+test('Formular: halbBreit steht nur nebeneinander, solange Platz ist', (w) => {
+  // Zwei Auswahlmenüs mit deutschen Beschriftungen passen auf dem Handy nicht
+  // nebeneinander – „50“ + „kg“ dagegen schon. Deshalb zwei Varianten.
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const m = w.UI.formModal({
+      title: 'Test', fields: [
+        { key: 'a', label: 'Menge', halb: true },
+        { key: 'b', label: 'Einheit', halb: true },
+        { key: 'c', label: 'Bewertungsdatum', halbBreit: true },
+        { key: 'd', label: 'Temperatur', halbBreit: true },
+      ], values: {}, onSave() {},
+    });
+    const feld = (k) => m.el.querySelector(`[data-field="${k}"]`);
+    assert(feld('a').classList.contains('halb'), 'kurzes Paar bleibt halb');
+    assert(!feld('a').classList.contains('halb-breit'), 'und ohne Umbruch-Regel');
+    assert(feld('c').classList.contains('halb'), 'das breite Paar ist ebenfalls halb …');
+    assert(feld('c').classList.contains('halb-breit'), '… trägt aber die Umbruch-Regel');
+    assert(feld('d').classList.contains('halb-breit'));
+    m.close(true);
+  } finally { host.remove(); dialogeSchliessen(w); }
+});
+
+test('Formular: die Umbruch-Regel für halbBreit steht im Stylesheet', (w) => {
+  let gefunden = false;
+  for (const blatt of w.document.styleSheets) {
+    let regeln; try { regeln = blatt.cssRules; } catch (e) { continue; }
+    for (const r of regeln) {
+      if (r.type !== CSSRule.MEDIA_RULE || !/max-width/.test(r.conditionText || '')) continue;
+      for (const inner of r.cssRules) {
+        if (/halb-breit/.test(inner.selectorText || '') && /span 2/.test(inner.style.gridColumn || '')) gefunden = true;
+      }
+    }
+  }
+  assert(gefunden, 'auf schmalen Schirmen nimmt ein halbBreit-Feld die ganze Zeile');
+});
+
+test('Bewertungs-Runde: Völker ohne erfasste Königin sind wählbar', async (w) => {
+  const st = await w.DB.put('staende', { name: 'BR-Teststand' });
+  const ohne = await w.DB.put('voelker', { name: 'BR-Volk ohne Königin', standId: st.id, koeniginId: null, status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.koeniginnen.bewertungsRunde();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = w.document.querySelector('.modal-back');
+    assert(m, 'die Runde öffnet sich – früher gab es hier nur eine Fehlermeldung');
+    const zeile = [...m.querySelectorAll('#f-volkIds label')].find((l) => l.textContent.includes('BR-Volk ohne Königin'));
+    assert(zeile, 'das Volk ohne Königin steht zur Wahl');
+    assert(zeile.textContent.includes('noch keine Königin erfasst'), 'und ist als solches gekennzeichnet');
+    assert(m.querySelector('#f-neuJahrgang'), 'der Jahrgang für neu angelegte Königinnen wird abgefragt, nicht geraten');
+
+    // Auswählen und weitergehen: die App legt die Königin an und ordnet sie zu
+    const box = zeile.querySelector('input[type=checkbox]');
+    box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true }));
+    m.querySelector('#f-neuJahrgang').value = '2026';
+    const vorher = (await w.DB.getAll('koeniginnen')).length;
+    [...m.querySelectorAll('button')].find((b) => /speichern/i.test(b.textContent)).click();
+    await new Promise((r) => setTimeout(r, 500));
+    const nachher = (await w.DB.getAll('koeniginnen')).length;
+    assertEq(nachher, vorher + 1, 'genau eine Königin ist dazugekommen');
+    const volkNeu = await w.DB.get('voelker', ohne.id);
+    assert(volkNeu.koeniginId, 'sie ist dem Volk zugeordnet');
+    const q = await w.DB.get('koeniginnen', volkNeu.koeniginId);
+    assertEq(q.jahrgang, 2026, 'mit dem angegebenen Jahrgang');
+    assert(q.kennung, 'und einer vergebenen Kennung');
+    // Schritt 2 steht offen und fragt die Schnell-Merkmale ab
+    const m2 = w.document.querySelector('#modal-root').lastElementChild;
+    assert(/Bewerten/.test(m2.textContent), 'Schritt 2 ist offen');
+    assertEq(m2.querySelectorAll('select').length, 6, 'sechs Merkmale für ein Volk');
+    // aufräumen
+    await w.DB.del('koeniginnen', q.id);
+  } finally {
+    dialogeSchliessen(w); host.remove();
+    await w.DB.del('voelker', ohne.id); await w.DB.del('staende', st.id);
+  }
+});
