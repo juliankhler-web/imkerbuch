@@ -27,3 +27,7 @@ Die zusätzlichen 48 Gegenproben liefern jetzt **33 bestanden, 15 verletzte Erwa
 Die übrigen Fehler sind nicht durch diese Korrekturen mitbehoben. Insbesondere Rechnungen aus parallelen Fenstern, Bestandskorrekturen und unterbrochene Zusammenführungen bleiben offene Arbeitsblöcke. Es gibt weiterhin keine Produktivfreigabe.
 
 Vollständige Suite nach der Speicherkorrektur: **430/430 grün**, Chrome 153.0.8010.53, 22.09.2026, 03:49:14 UTC. Vier neue verpflichtende Tests prüfen Commit-Abbruch, unveränderte Einstellungen, behandelte Fehler und den Sicherungshinweis.
+
+## 22.09.2026 – Material, Warenkorb und Bildlöschung
+
+F04, F07 und F15 für die bestätigten Fälle korrigiert. Details, Auswirkungen auf Altdaten und offene Grenzen stehen in [Claude-Änderungsübergabe](CLAUDE-AENDERUNGEN-2026-09-22.md). Vollständige Suite: **435/435 grün**. Zusätzliche Gegenproben: **37 bestanden, 11 verletzte Erwartungen**, keine technischen Abbrüche. Keine Veröffentlichung.

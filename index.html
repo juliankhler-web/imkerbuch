@@ -8545,11 +8545,15 @@ Views.markt = {
   title: 'Marktverkauf',
   _korb: {}, // abfuellungId -> anzahl
   async render(main) {
-    const abf = U.sortBy((await DB.getAll('abfuellungen')).filter((a) => a.bestand > 0), (a) => a.gebindeG, true);
-    const chargen = await idMap('chargen'), ernten = await idMap('ernten');
     const korb = Views.markt._korb;
-    // Positionen ohne Bestand/Abfüllung aus dem Korb entfernen
-    for (const id of Object.keys(korb)) { const a = abf.find((x) => x.id === id); if (!a || korb[id] > a.bestand) delete korb[id]; }
+    const alleAbf = await DB.getAll('abfuellungen');
+    // Fehlpositionen sichtbar erhalten, auch wenn ihr Bestand inzwischen null ist.
+    const abf = U.sortBy(alleAbf.filter((a) => a.bestand > 0 || korb[a.id]), (a) => a.gebindeG, true);
+    const chargen = await idMap('chargen'), ernten = await idMap('ernten');
+    const fehlpositionen = Object.entries(korb).filter(([id, n]) => {
+      const a = alleAbf.find((x) => x.id === id);
+      return !a || n > a.bestand;
+    });
     const preise = S.get('marktpreise') || {};
     const preis = (a) => preise[a.id] ?? 0;
     const summe = Object.entries(korb).reduce((s, [id, n]) => { const a = abf.find((x) => x.id === id); return s + (a ? n * preis(a) : 0); }, 0);
@@ -8557,13 +8561,16 @@ Views.markt = {
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('honig')">${icon('back')} Zurück</button>
       ${pageHead('Marktverkauf', 'Gebinde antippen legt es in den Warenkorb. „Kassieren“ bucht Bestand + Kassenbuch.')}
+      ${fehlpositionen.length ? `<div class="banner warn mb16"><span class="b-msg"><b>Warenkorb prüfen</b> – diese Positionen bleiben erhalten, können aber derzeit nicht vollständig verkauft werden:
+        ${fehlpositionen.map(([id, n]) => { const a = alleAbf.find((x) => x.id === id); return `<div class="flex-wrap mt8"><span>${a ? U.esc(abfLabel(a, chargen.get(a.chargeId))) : 'Abfüllung nicht mehr vorhanden'}: ${U.fmtNum(n, 0)} im Korb, ${a ? U.fmtNum(a.bestand, 0) : '0'} verfügbar.</span><button class="btn btn-ghost btn-sm" data-korb-entfernen="${U.esc(id)}">Aus Warenkorb entfernen</button></div>`; }).join('')}
+      </span></div>` : ''}
       ${abf.length ? `<div class="markt-grid mb16">${abf.map((a) => {
         const c = chargen.get(a.chargeId);
         const name = honigName(c, ernten);
         const imKorb = korb[a.id] || 0;
         return `<button class="markt-tile" data-tile="${U.esc(a.id)}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
-          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))} · ${a.bestand - imKorb} übrig</span>
+          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))} · ${Math.max(0, a.bestand - imKorb)} übrig</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
         </button>`;
       }).join('')}</div>`
@@ -8580,6 +8587,8 @@ Views.markt = {
         korb[a.id] = (korb[a.id] || 0) + 1;
         return renderRoute();
       }
+      const entfernen = e.target.closest('[data-korb-entfernen]');
+      if (entfernen) { delete korb[entfernen.dataset.korbEntfernen]; return renderRoute(); }
       if (e.target.closest('#leeren')) { Views.markt._korb = {}; return renderRoute(); }
       if (e.target.closest('#wechsel')) return Views.markt.wechselgeld(summe);
       if (e.target.closest('#kassieren')) return Views.markt.kassieren(korb, abf, preis, summe);
@@ -11433,7 +11442,9 @@ async function verbrauchAbziehen(inventarId, menge, { pruefen = true } = {}) {
   /* Beim Abfüllen fallen mehrere Abzüge hintereinander an – dann lohnt ein
      Prüflauf am Ende statt bei jedem einzelnen. */
   if (pruefen) pruefeMhd();
-  return { pos, vorher, nachher: pos.stueckzahl, abgezogen: m, gefehlt: Math.max(0, Math.round((m - vorher) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
+  // Nur die tatsächlich gebuchte Differenz darf später zurückgegeben werden.
+  const abgezogen = Math.max(0, Math.round((vorher - pos.stueckzahl) * 1000) / 1000);
+  return { pos, vorher, nachher: pos.stueckzahl, abgezogen, gefehlt: Math.max(0, Math.round((m - abgezogen) * 1000) / 1000), einheit: verbrauchEinheit(pos) };
 }
 
 /** Zieht eine Menge ab und geht dabei nötigenfalls auf die NÄCHSTE Position
@@ -12776,6 +12787,7 @@ const Backup = {
          allein die Werte, die als Bildadresse enden. */
       if (typeof r.key !== 'string') return null;
       if (this.BILD_SCHLUESSEL.includes(r.key)) {
+        if (r.value === null) return r; // ausdrücklich entferntes Bild; Zeitstempel entscheidet beim Merge
         const quelle = U.bildQuelle(r.value);
         if (!quelle) return null;                                             // kein gültiges Bild: weg
         return { ...r, value: quelle };

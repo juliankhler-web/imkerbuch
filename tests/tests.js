@@ -7939,3 +7939,80 @@ test('DB.schreibeAlles: erfolgreiche Datenänderung aktiviert Sicherungshinweis'
     assertEq(w._changedSinceBackup, true, 'erfolgreiche Datenbuchung ist sicherungsbedürftig');
   } finally { w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); await w.DB.del('settings', 'commit-test'); }
 });
+
+/* F04: Rückgabe darf nur tatsächlich entnommenes Material umfassen. */
+test('F04: Abzug meldet echte Differenz bei vollem, knappem und leerem Bestand', async (w) => {
+  const id = 'f04-material';
+  try {
+    for (const [bestand, menge, einheit, erwartet, rest] of [[12, 5, 'Stück', 5, 7], [2, 10, 'Stück', 2, 0], [0, 10, 'Stück', 0, 0], [2.345, 0.333, 'kg', 0.333, 2.012]]) {
+      await w.DB.put('inventar', { id, typ: 'verbrauch', einheit, stueckzahl: bestand });
+      const b = await w.verbrauchAbziehen(id, menge, { pruefen: false });
+      assertNah(b.abgezogen, erwartet, 0.00001, 'wirklicher Abzug');
+      assertNah(b.nachher, rest, 0.00001, 'Restbestand');
+      assertNah(b.gefehlt, Math.max(0, menge - erwartet), 0.00001, 'Fehlmenge');
+      await w.verbrauchZurueckbuchen([{ inventarId: id, menge: b.abgezogen }], { pruefen: false });
+      assertNah((await w.DB.get('inventar', id)).stueckzahl, bestand, 0.00001, 'Rückgabe erzeugt keine zusätzliche Menge');
+    }
+  } finally { await w.DB.del('inventar', id); }
+});
+
+test('F04: Abfüllkorrektur und Rückgabe erzeugen bei leerem Materiallager keine Gläser', async (w) => {
+  const form = w.UI.formModal, render = w.renderRoute;
+  const c = await w.DB.put('chargen', { id: 'f04-charge', mengeKg: 20, losnummer: 'F04' });
+  await w.DB.put('inventar', { id: 'f04-material', typ: 'verbrauch', einheit: 'Stück', stueckzahl: 0 });
+  const a = await w.DB.put('abfuellungen', { id: 'f04-abf', chargeId: c.id, anzahl: 10, bestand: 10, gebindeG: 500, verbrauchAbzug: [{ inventarId: 'f04-material', menge: 10 }] });
+  let formular;
+  w.UI.formModal = (o) => { formular = o; }; w.renderRoute = async () => {};
+  try {
+    await w.Views.honig.abfuellEditForm(a);
+    await formular.onSave({ anzahl: 20, bestand: 20, gebindeG: 500, datum: '2026-09-22' });
+    const gespeichert = await w.DB.get('abfuellungen', a.id);
+    assertEq(gespeichert.verbrauchAbzug[0].menge, 10, 'nur zuvor tatsächlich gebuchte Gläser bleiben gemerkt');
+    await w.verbrauchZurueckbuchen(gespeichert.verbrauchAbzug, { pruefen: false });
+    assertEq((await w.DB.get('inventar', 'f04-material')).stueckzahl, 10, 'Rückgabe 10 statt 20');
+  } finally {
+    w.UI.formModal = form; w.renderRoute = render;
+    await w.DB.del('abfuellungen', a.id); await w.DB.del('chargen', c.id); await w.DB.del('inventar', 'f04-material');
+  }
+});
+
+for (const key of ['logo', 'rechnungQr']) test('F15: Zusammenführen erhält ausdrückliche Bildlöschung für ' + key, async (w) => {
+  const alt = await w.DB.get('settings', key), bild = 'data:image/png;base64,AA==';
+  try {
+    await w.DB.put('settings', { key, value: bild, lastModified: '2026-09-20T00:00:00.000Z' }, true);
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: null, lastModified: '2026-09-21T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'neuere Entfernung wird übernommen');
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: bild, lastModified: '2026-09-19T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'älteres Bild kommt nicht zurück');
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: 'javascript:alert(1)', lastModified: '2026-09-22T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'unsichere Bildquelle bleibt abgelehnt');
+    await w.DB.put('settings', { key, value: bild, lastModified: '2026-09-22T00:00:00.000Z' }, true);
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: null, lastModified: '2026-09-21T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, bild, 'ältere Löschung überschreibt neueres Bild nicht');
+    await w.Backup.applyMerge({ stores: { settings: [] } });
+    assertEq((await w.DB.get('settings', key)).value, bild, 'fehlender Schlüssel ist keine Löschung');
+  } finally { if (alt) await w.DB.put('settings', alt, true); else await w.DB.del('settings', key); await w.S.load(); }
+});
+
+test('F07: Marktwarenkorb bewahrt knappe, leere und gelöschte Positionen sichtbar', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const korbAlt = w.Views.markt._korb, render = w.renderRoute;
+  w.renderRoute = async () => {};
+  try {
+    await w.DB.put('abfuellungen', { id: 'f07-knapp', chargeId: 'f07-charge', anzahl: 10, bestand: 1, gebindeG: 500 });
+    await w.DB.put('abfuellungen', { id: 'f07-leer', chargeId: 'f07-charge', anzahl: 10, bestand: 0, gebindeG: 500 });
+    const korb = { 'f07-knapp': 4, 'f07-leer': 2, 'f07-geloescht': 3 };
+    w.Views.markt._korb = korb;
+    await w.Views.markt.render(host);
+    assertEq(korb, { 'f07-knapp': 4, 'f07-leer': 2, 'f07-geloescht': 3 }, 'Rendern löscht keine Position');
+    assertEq(host.querySelectorAll('[data-korb-entfernen]').length, 3, 'jede Fehlposition ist sichtbar und einzeln entfernbar');
+    assert(host.textContent.includes('Abfüllung nicht mehr vorhanden'), 'gelöschte Abfüllung verständlich benannt');
+    assert(!host.textContent.includes('-3 übrig'), 'keine negative Restmenge angezeigt');
+    host.querySelector('[data-korb-entfernen="f07-geloescht"]').click();
+    assertEq(korb, { 'f07-knapp': 4, 'f07-leer': 2 }, 'nur ausdrücklich ausgewählte Position entfernt');
+    assertEq((await w.DB.get('abfuellungen', 'f07-knapp')).bestand, 1, 'Anzeige und Entfernen buchen nichts');
+  } finally {
+    w.Views.markt._korb = korbAlt; w.renderRoute = render; host.remove();
+    await w.DB.del('abfuellungen', 'f07-knapp'); await w.DB.del('abfuellungen', 'f07-leer');
+  }
+});
