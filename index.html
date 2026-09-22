@@ -1853,7 +1853,16 @@ const DB = {
   async put(store, obj, keepStamp = false) {
     if (store !== 'settings' && !obj.id) obj.id = U.uuid();
     if (!keepStamp) { obj.lastModified = U.nowIso(); if (store !== 'settings' && !obj.createdAt) obj.createdAt = obj.lastModified; }
-    await this._req((await this._store(store, 'readwrite')).put(obj));
+    const st = await this._store(store, 'readwrite');
+    // Ein erfolgreicher Einzelauftrag ist noch kein erfolgreicher Commit.
+    await new Promise((res, rej) => {
+      const tx = st.transaction;
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
+      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
+      try { st.put(obj); }
+      catch (e) { tx.abort(); rej(e); }
+    });
     return obj;
   },
   async bulkPut(store, objs, keepStamp = true) {
@@ -1883,7 +1892,10 @@ const DB = {
     const db = await this.open();
     const tx = db.transaction(stores, 'readwrite');
     const fertig = new Promise((res, rej) => {
-      tx.oncomplete = () => res(true);
+      tx.oncomplete = () => {
+        if (stores.some((s) => s !== 'settings' && s !== 'snapshots')) window._changedSinceBackup = true;
+        res(true);
+      };
       tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
       tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
     });
@@ -1900,7 +1912,12 @@ const DB = {
         }
         st.put(obj);
       }
-    } catch (e) { try { tx.abort(); } catch (e2) {} throw e; }
+    } catch (e) {
+      try { tx.abort(); } catch (e2) { /* bereits beendet */ }
+      // Auch die Transaktions-Promise behandeln, den ursprünglichen Fehler erhalten.
+      await fertig.catch(() => {});
+      throw e;
+    }
     return fertig;
   },
   /** Soft-Delete: Datensatz wandert für 30 Tage in den Papierkorb */
@@ -1986,7 +2003,7 @@ const S = {
   },
   async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
-  async set(key, value) { this.data[key] = value; await DB.put('settings', { key, value }); },
+  async set(key, value) { await DB.put('settings', { key, value }); this.data[key] = value; },
 };
 
 /* =====================================================================
@@ -15569,7 +15586,7 @@ async function migriereBioPartner() {
      jeder Eintrag sofort gelöscht, die Imkerei-Angaben aber erst ganz am Ende
      gespeichert – ein Abbruch dazwischen hätte das eigene Öko-Zertifikat
      ersatzlos verschwinden lassen. */
-  const imk = S.get('imkerei');
+  const imk = structuredClone(S.get('imkerei'));
   const uebrig = [];
   for (const z of zerts) {
     const eigen = /eigener betrieb/i.test(z.art || '');
@@ -15588,7 +15605,7 @@ async function migriereBioPartner() {
       }));
     } else {
       uebrig.push(`${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.datum ? ` vom ${U.fmtDate(z.datum)}` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`);
-      const bb = S.get('bioBetrieb') || {};
+      const bb = structuredClone(S.get('bioBetrieb') || {});
       const kopf = 'Aus dem früheren Reiter „Zertifikate" übernommen:';
       const hatKopf = String(bb.zertifikate || '').includes(kopf);
       bb.zertifikate = [bb.zertifikate, hatKopf ? '' : kopf, uebrig[uebrig.length - 1]].filter(Boolean).join('\n');

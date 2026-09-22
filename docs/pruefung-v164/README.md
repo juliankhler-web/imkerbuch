@@ -1,6 +1,6 @@
 # Prüfstand v1.64 – Übergabe für die Weiterentwicklung
 
-Dieser Zweig enthält Prüfunterlagen, zusätzliche Diagnosetests und einen getrennten Bedienentwurf. **Die Anwendung ist unverändert. Dies ist keine Fehlerbereinigung oder Freigabe für ein Update.**
+Der ursprüngliche Zweig `codex/v164-pruefung` enthält Prüfunterlagen und Diagnosetests ohne Änderung der Anwendung. Auf `codex/v164-sicherheitskorrekturen` werden die Reparaturen getrennt weitergeführt: siehe [aktueller Reparaturstatus](REPARATURSTATUS.md). **Noch keine Freigabe für ein Update.** Das Originaldesign bleibt erhalten; die früheren Bedienentwürfe wurden verworfen.
 
 ## Zuerst lesen
 

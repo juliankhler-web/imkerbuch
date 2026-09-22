@@ -7874,3 +7874,68 @@ for (const [name, daten, anzeigen] of F01_FAELLE) {
     }
   });
 }
+
+/* Commit-Grenzen: Fehler erst NACH erfolgreichem Einzelauftrag auslösen. */
+test('DB.put: Request-Erfolg mit anschließendem Abbruch ist kein Speichererfolg', async (w) => {
+  const id = 'commit-test', original = w.IDBObjectStore.prototype.put;
+  await w.DB.put('kontakte', { id, name: 'Vorher' });
+  let ausgeloest = false, fehler;
+  w.IDBObjectStore.prototype.put = function (obj, ...args) {
+    const rq = original.call(this, obj, ...args);
+    if (this.name === 'kontakte' && obj.id === id) {
+      const tx = this.transaction;
+      rq.addEventListener('success', () => { ausgeloest = true; tx.abort(); });
+    }
+    return rq;
+  };
+  try {
+    try { await w.DB.put('kontakte', { id, name: 'Nachher' }); } catch (e) { fehler = e; }
+    assert(ausgeloest && fehler, 'Abbruch wird an Aufrufer gemeldet');
+    assertEq((await w.DB.get('kontakte', id)).name, 'Vorher', 'alter Datensatz erhalten');
+  } finally { w.IDBObjectStore.prototype.put = original; await w.DB.del('kontakte', id); }
+});
+
+test('S.set: abgebrochener Commit lässt Einstellung in Speicher und Datenbank unverändert', async (w) => {
+  const key = 'commit-test', original = w.IDBObjectStore.prototype.put;
+  await w.S.set(key, { wert: 'Vorher' });
+  w.IDBObjectStore.prototype.put = function (obj, ...args) {
+    const rq = original.call(this, obj, ...args);
+    if (this.name === 'settings' && obj.key === key) {
+      const tx = this.transaction; rq.addEventListener('success', () => tx.abort());
+    }
+    return rq;
+  };
+  try {
+    let fehler;
+    try { await w.S.set(key, { wert: 'Nachher' }); } catch (e) { fehler = e; }
+    assert(fehler, 'Fehler gemeldet');
+    assertEq(w.S.get(key), { wert: 'Vorher' }, 'Arbeitsspeicher erhalten');
+    assertEq((await w.DB.get('settings', key)).value, { wert: 'Vorher' }, 'Datenbank erhalten');
+  } finally { w.IDBObjectStore.prototype.put = original; await w.DB.del('settings', key); delete w.S.data[key]; }
+});
+
+test('DB.schreibeAlles: synchroner Fehler erzeugt keine unbehandelte Ablehnung', async (w) => {
+  const fehler = [], handler = (e) => { fehler.push(e.reason); e.preventDefault(); };
+  w.addEventListener('unhandledrejection', handler);
+  const flag = w._changedSinceBackup; w._changedSinceBackup = false;
+  try {
+    let abgelehnt = false;
+    try { await w.DB.schreibeAlles([{ store: 'kontakte', obj: { id: 'commit-test', name: 'Rollback' } }, { store: 'settings', obj: { value: 'Schlüssel fehlt' } }]); }
+    catch (e) { abgelehnt = true; }
+    await new Promise((r) => setTimeout(r, 100));
+    assert(abgelehnt, 'Aufruf schlägt fehl');
+    assertEq(fehler.length, 0, 'kein zweiter unbehandelter Fehler');
+    assert(!(await w.DB.get('kontakte', 'commit-test')), 'erster Schreibauftrag zurückgerollt');
+    assertEq(w._changedSinceBackup, false, 'Rollback setzt kein Änderungsflag');
+  } finally { w.removeEventListener('unhandledrejection', handler); w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); }
+});
+
+test('DB.schreibeAlles: erfolgreiche Datenänderung aktiviert Sicherungshinweis', async (w) => {
+  const flag = w._changedSinceBackup; w._changedSinceBackup = false;
+  try {
+    await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'commit-test', value: true } }]);
+    assertEq(w._changedSinceBackup, false, 'reine Einstellung bleibt ausgenommen');
+    await w.DB.schreibeAlles([{ store: 'kontakte', obj: { id: 'commit-test', name: 'Gespeichert' } }]);
+    assertEq(w._changedSinceBackup, true, 'erfolgreiche Datenbuchung ist sicherungsbedürftig');
+  } finally { w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); await w.DB.del('settings', 'commit-test'); }
+});
