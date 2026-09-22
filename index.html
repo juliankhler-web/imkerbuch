@@ -994,8 +994,17 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.66';
+const APP_VERSION = '1.67';
 const CHANGELOG = [
+  { version: '1.67', datum: '2026-09-22', punkte: [
+    'Die <b>Königinnen-Bewertung folgt jetzt der Stockkarte der GdeB</b> (Gemeinschaft der europäischen Buckfast-Imker): 15 Merkmale in fünf Gruppen – Vitalität, Verhalten, Ertrag, Wabenbau, Varroa – auf der <b>Skala 1 bis 6</b> (1 = sehr schlecht · 3 = schlechter Schnitt · 4 = guter Schnitt · 6 = Optimum). Angezeigt wird der Mittelwert und, ob die <b>10 von 13 Kernmerkmalen</b> für ein Zuchtvolk erreicht sind.',
+    'Eine Bewertung ist jetzt ein <b>datierter Eintrag</b> – wie eine Spalte auf der Papierkarte. Über das Jahr entstehen mehrere, der Verlauf bleibt stehen und ist in der Königin einzeln anzutippen.',
+    'So viel wie möglich kommt <b>von selbst</b>: <b>Wetter und Temperatur</b> aus deinen Wettereinträgen zum Bewertungstag, der <b>Ertrag je Tracht</b> aus den Ernten des Volkes und die <b>letzte Varroa-Messung</b> stehen als Hinweis direkt neben der passenden Note.',
+    'Neu: das <b>Pedigree der Königin</b> wird automatisch aus dem Stammbaum gebildet – in der Schreibweise der Stockkarte, über so viele Generationen wie bekannt. Du kannst es jederzeit überschreiben; erfunden wird nichts, fehlt die Mutter, endet die Kette.',
+    'Neu: die <b>Stockkarte als PDF</b> (Königin öffnen → Stockkarte). Merkmale als Zeilen, Bewertungstermine als Spalten – wie das Original, mit Kastennummer, Standort, Zeichenfarbe und Pedigree im Kopf.',
+    'Die <b>Bewertungs-Runde</b> am Stand fragt die sechs Merkmale ab, die man vor dem Volk wirklich beurteilen kann. Ertrag und Varroa trägst du später nach – beides landet im selben datierten Eintrag.',
+    'Frühere Bewertungen (Skala 1–4) bleiben erhalten und werden weiter angezeigt. Sie werden <b>nicht umgerechnet</b> – die alten Zahlen standen auf einer anderen Skala, jede Umrechnung wäre erfunden. Sie sind entsprechend gekennzeichnet.',
+  ] },
   { version: '1.66', datum: '2026-09-22', punkte: [
     'Neu unter <b>Bio → Hygiene</b>: <b>Plan einlesen</b>. Wer seinen Hygieneplan schon auf Papier oder als PDF hat, fotografiert ihn ab oder lädt die Datei hoch – die App liest ihn und schlägt die Einträge vor. Du siehst jede erkannte Zeile vorher in einer Tabelle, kannst sie ändern und hakst ab, was angelegt werden soll. <b>Ungeprüft wird nichts gespeichert.</b>',
     'Zeilen, bei denen die Erkennung unsicher war, sind gelb hervorgehoben und nicht vorausgewählt – so fällt nichts Falsches unbemerkt in den Plan.',
@@ -3425,13 +3434,18 @@ const Demo = {
       kennung: `IK-${String(jg).slice(-2)}-${String(++qn).padStart(3, '0')}`, jahrgang: jg, herkunft: herk, linie, status: 'aktiv',
       historie: [], notiz: '', mutterId: mutterId || null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null, bewertung: {},
     }, extra));
-    const bew = (sanftmut, wabensitz, schwarm, entwicklung, honigKg) => ({ bewertung: { sanftmut, wabensitz, schwarm, entwicklung, honigKg } });
+    /* Beispiel-Bewertung nach GdeB: eine datierte Spalte der Stockkarte. */
+    const bew = (sanftmut, wabenstetigkeit, schwarmtraegheit, bienen, fruehtracht) => {
+      const noten = { sanftmut, wabenstetigkeit, schwarmtraegheit, bienen, brut: bienen, fruchtbarkeit: sanftmut,
+        fruehtracht, sommertracht: Math.max(1, fruehtracht - 1), wirrbau: 5, propolis: 4, varroaschaeden: 4, ueberwinterung: 4 };
+      return { bewertungen: [{ datum: d(-40), wetter: 'sonnig', temperatur: 22, noten, bemerkung: '' }], bewertung: noten, bewertetAm: d(-40) };
+    };
     const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null, bew(4, 4, 3, 4, 32));
     const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, { anpaarung: 'belegstelle', belegstelle: belegNorderney.name, belegstelleId: belegNorderney.id, ...bew(4, 3, 4, 3, 27) });
     const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, bew(3, 4, 3, 4, 29));
     const qD = await mkQ(Y - 2, 'Belegstelle', 'Buckfast B7', qB.id, { anpaarung: 'belegstelle', belegstelle: belegBaltrum.name, belegstelleId: belegBaltrum.id });
-    const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id, { anpaarung: 'besamung', vatervolkId: qA.id, ...bew(4, 4, 4, 4, 31) });
-    const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 26));
+    const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id, { anpaarung: 'besamung', vatervolkId: qA.id, ...bew(5, 5, 4, 5, 6) });
+    const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 4));
     const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id, { anpaarung: 'standbegattung', vatervolkId: qC.id });
 
     /* Tiefe Buckfast-Linie über 9 Generationen, Kennungen in echter
@@ -4564,7 +4578,7 @@ Views.koeniginnen = {
     const belegOpts = belegstellen.map((b) => ({ v: b.id, l: belegstelleLabel(b) })); // leeres „–“ fügt das Formular selbst hinzu
     const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
     const kennungVorschlag = q ? (q.kennung || '') : await naechsteKennung(jahr);
-    const b = q && q.bewertung || {};
+    const vorschlagPedigree = q ? pedigreeGdeB({ ...q, kennung: q.kennung || kennungVorschlag }, qm) : '';
     const m = UI.formModal({
       title: q ? 'Königin bearbeiten' : 'Neue Königin', wide: true, // breiter, damit lange Einträge (Belegstelle/Vatervolk unter „Drohnenlinie“) komplett sichtbar sind
       fields: [
@@ -4578,25 +4592,27 @@ Views.koeniginnen = {
         { key: 'anpaarung', label: 'Drohnenlinie', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (4a). Bei „Belegstelle“ wählst du eine deiner Belegstellen.' },
         { key: 'belegstelleId', label: 'Belegstelle', type: 'select', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle', hint: 'Aus deinen Belegstellen (Einstellungen). Eine neue kannst du direkt hier unten anlegen.' },
         { key: 'vatervolkId', label: 'Vatervolk (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Die Drohnenmutter – die Königin des 4a-Volks, deren Drohnen die Anpaarung stellen.' },
-        { key: '_bewTitel', type: 'static', html: '<h3 class="mt8 mb8">Bewertung (Zuchtauslese)</h3><div class="hint mb8">Optional – Skala 1–4, 4 = bester Wert. Hilft bei der Auswahl der Zuchtmütter.</div>' },
-        { key: 'bSanftmut', label: 'Sanftmut', type: 'select', default: 0, options: note, keepOrder: true },
-        { key: 'bWabensitz', label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', default: 0, options: note, keepOrder: true },
-        { key: 'bSchwarm', label: 'Schwarmträgheit', type: 'select', default: 0, options: note, keepOrder: true },
-        { key: 'bEntwicklung', label: 'Volksentwicklung', type: 'select', default: 0, options: note, keepOrder: true },
-        { key: 'bHonigKg', label: 'Honigertrag (kg)', type: 'number', placeholder: 'z. B. 28' },
+        { key: '_pedTitel', type: 'static', html: '<h3 class="mt8 mb8">Pedigree</h3>' },
+        { key: 'pedigree', label: 'Pedigree der Königin', type: 'textarea',
+          hint: 'Schreibweise der GdeB-Stockkarte. Leer lassen: Die App bildet es dann selbst aus Mutter und Drohnenlinie – siehe Vorschlag darunter.' },
+        { key: '_pedVorschlag', type: 'static',
+          html: vorschlagPedigree && vorschlagPedigree.includes('=')
+            ? `<div class="hint mb8">Aus dem Stammbaum gebildet:<br><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all">${U.esc(vorschlagPedigree)}</span>
+               <button type="button" class="btn btn-ghost btn-xs mt6" data-ped-uebernehmen>${icon('download')} Als Text übernehmen</button></div>`
+            : '<div class="hint mb8">Sobald Mutter und Drohnenlinie eingetragen sind, bildet die App hier einen Vorschlag.</div>' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
-      values: q ? { ...q, kennung: kennungVorschlag, bSanftmut: b.sanftmut || 0, bWabensitz: b.wabensitz || 0, bSchwarm: b.schwarm || 0, bEntwicklung: b.entwicklung || 0, bHonigKg: b.honigKg ?? '' } : { kennung: kennungVorschlag },
+      values: q ? { ...q, kennung: kennungVorschlag } : { kennung: kennungVorschlag },
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
-        const bewertung = { sanftmut: +v.bSanftmut || 0, wabensitz: +v.bWabensitz || 0, schwarm: +v.bSchwarm || 0, entwicklung: +v.bEntwicklung || 0, honigKg: (v.bHonigKg === '' || v.bHonigKg == null) ? null : v.bHonigKg };
         const rec = Object.assign(q || { historie: [] }, {
           kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
+          // Leer lassen heißt: aus dem Stammbaum bilden. Nur was getippt wurde, wird gespeichert.
+          pedigree: (v.pedigree || '').trim(),
           mutterId: v.mutterId || null, anpaarung: v.anpaarung || '',
           belegstelleId: v.anpaarung === 'belegstelle' ? (v.belegstelleId || null) : null,
           belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || '') : '', // Name mitschreiben für Anzeige/PDF/Stammbaum
           vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
-          bewertung,
         });
         const saved = await DB.put('koeniginnen', rec);
         // Bei Verlust/Umweiselung: Zuordnung im Volk beenden
@@ -4623,6 +4639,11 @@ Views.koeniginnen = {
     koeniginNeuShortcut(m, 'mutterId', 'Neue Mutter anlegen', abstammungsFelder);
     koeniginNeuShortcut(m, 'vatervolkId', 'Neue Drohnenmutter anlegen', abstammungsFelder);
     belegstelleNeuShortcut(m, 'belegstelleId');
+    const pedKnopf = $('[data-ped-uebernehmen]', m.el);
+    if (pedKnopf) pedKnopf.onclick = () => {
+      const feld = $('#f-pedigree', m.el);
+      if (feld) { feld.value = vorschlagPedigree; FormGuard.dirty = true; }
+    };
   },
   async detail(q, voelker) {
     const [farbe, hex] = queenColor(q.jahrgang);
@@ -4639,11 +4660,17 @@ Views.koeniginnen = {
     const belegRec = q.belegstelleId ? await DB.get('belegstellen', q.belegstelleId) : null;
     const belegAnzeige = belegRec ? U.esc(belegstelleLabel(belegRec)) : (q.belegstelle ? U.esc(q.belegstelle) : '');
     const vaterHtml = q.vatervolkId && qm.get(q.vatervolkId) ? koeniginLabel(qm.get(q.vatervolkId)) : '<span class="muted">–</span>';
-    const b = q.bewertung || {};
-    const note = zuchtNote(b);
-    const punkte = (n) => n ? '◆'.repeat(n) + '◇'.repeat(4 - n) : '<span class="muted">nicht bewertet</span>';
-    const bewZeile = (label, wert) => `<dt>${label}</dt><dd>${punkte(wert)}</dd>`;
-    const hatBewertung = note || b.honigKg != null;
+    const bewertungen = gdebListe(q);
+    const aktuell = bewertungen[0] || null;
+    const noten = gdebNoten(aktuell);
+    const note = gdebMittel(aktuell);
+    const voll = gdebVollstaendig(aktuell);
+    const punkte = (n) => n ? `<b>${n}</b> <span class="muted">${'◆'.repeat(n)}${'◇'.repeat(6 - n)}</span>` : '<span class="muted">–</span>';
+    const gruppenHtml = GDEB_GRUPPEN.map((g) => {
+      const zeilen = g.merkmale.map((mm) => `<dt>${U.esc(mm.label)}${mm.zusatz ? ' <span class="muted">(Zusatz)</span>' : ''}</dt><dd>${punkte(noten[mm.key])}</dd>`).join('');
+      return `<div class="mb8"><b class="small">${U.esc(g.titel)}</b><div class="detail-kv">${zeilen}</div></div>`;
+    }).join('');
+    const pedigree = pedigreeGdeB(q, qm);
     const m = UI.modal({
       title: q.kennung ? `Königin ${U.esc(q.kennung)}` : `Königin ${q.jahrgang} (${farbe})`, wide: true,
       body: `<div class="detail-kv mb12">
@@ -4656,8 +4683,24 @@ Views.koeniginnen = {
           ${(q.anpaarung === 'standbegattung' || q.anpaarung === 'besamung') ? `<dt>Vatervolk (4a)</dt><dd>${vaterHtml}</dd>` : ''}
           <dt>Status</dt><dd>${U.esc(q.status)}</dd><dt>Notiz</dt><dd>${U.esc(q.notiz) || '–'}</dd>
         </div>
-        ${hatBewertung ? `<h3 class="mb8">Bewertung${note ? ` · Zuchtnote ⌀ ${U.fmtNum(note, 1)}` : ''}</h3>
-        <div class="detail-kv mb12">${bewZeile('Sanftmut', b.sanftmut)}${bewZeile('Wabensitz', b.wabensitz)}${bewZeile('Schwarmträgheit', b.schwarm)}${bewZeile('Volksentwicklung', b.entwicklung)}<dt>Honigertrag</dt><dd>${b.honigKg != null ? U.fmtNum(b.honigKg) + ' kg' : '–'}</dd></div>` : ''}
+        ${pedigree && pedigree.includes('=') ? `<h3 class="mb8">Pedigree</h3>
+        <div class="mb4" style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--card2);border-radius:10px;padding:9px 11px;word-break:break-all">${U.esc(q.pedigree || pedigree)}</div>
+        <div class="hint mb12">${q.pedigree ? 'Von Hand eingetragen.' : 'Automatisch aus dem Stammbaum gebildet.'}</div>` : ''}
+        <h3 class="mb8">Bewertung nach GdeB${note ? ` · Mittelwert ${U.fmtNum(note, 1)}` : ''}</h3>
+        ${aktuell ? `<div class="flex-wrap mb8" style="gap:8px">
+            <span class="kpill">${aktuell.datum ? U.fmtDate(aktuell.datum) : 'ohne Datum'}</span>
+            ${aktuell.wetter || aktuell.temperatur != null ? `<span class="kpill">${U.esc(aktuell.wetter || '')}${aktuell.temperatur != null ? ` ${U.fmtNum(aktuell.temperatur, 1)} °C` : ''}</span>` : ''}
+            <span class="badge ${voll.reicht ? 'b-ok' : 'b-warn'}">${voll.kern} von ${voll.von} Kernmerkmalen${voll.reicht ? ' – zuchttauglich' : ` – ${voll.mindest} nötig`}</span>
+          </div>
+          ${aktuell.skalaAlt ? `<div class="hint mb8">Noch aus der früheren Bewertung (Skala 1–4). Die Zahlen wurden unverändert übernommen, nicht umgerechnet – eine neue Bewertung ersetzt sie.</div>` : ''}
+          ${gruppenHtml}
+          ${aktuell.bemerkung ? `<div class="hint mb8"><b>Bemerkung:</b> ${U.esc(aktuell.bemerkung)}</div>` : ''}`
+          : '<p class="small muted mb8">Noch nicht bewertet.</p>'}
+        <button class="btn btn-primary btn-sm mb8 no-print" data-bewerten>${icon('crown')} ${aktuell ? 'Neue Bewertung' : 'Jetzt bewerten'}</button>
+        ${bewertungen.length > 1 ? `<div class="rows mb12">${bewertungen.map((x) => `<button class="row" style="min-height:40px;padding:7px 4px" data-bew="${U.esc(x.datum || '')}">
+            <span class="r-main"><span class="r-title">${x.datum ? U.fmtDate(x.datum) : 'ohne Datum'}</span>
+            <span class="r-sub">${gdebVollstaendig(x).gesamt} Merkmale${x.wetter ? ' · ' + U.esc(x.wetter) : ''}${x.temperatur != null ? ` ${U.fmtNum(x.temperatur, 1)} °C` : ''}</span></span>
+            <span class="r-side"><b>${U.fmtNum(gdebMittel(x), 1)}</b></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : ''}
         <h3 class="mb8">Zucht-Stammbaum</h3>
         <div class="sb-tiefe mb8 no-print">
           <span class="small muted">Generationen</span>
@@ -4671,10 +4714,13 @@ Views.koeniginnen = {
           <span class="r-sub">${U.fmtDate(h.von)} – ${h.bis ? U.fmtDate(h.bis) : 'heute'}</span></span>${icon('pencil', 'chev')}</button>`).join('') || '<span class="muted small">Noch nie einem Volk zugeordnet.</span>'}</div>
         <button class="btn btn-ghost btn-sm mb12 no-print" data-hist-add>${icon('plus')} Zuordnung hinzufügen</button>
         <div data-anhang></div>`,
-      footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
+      footer: `<button class="btn btn-ghost" data-stockkarte>${icon('doc')} Stockkarte (PDF)</button><button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
     });
+    $('[data-stockkarte]', m.el).onclick = () => Pdf.stockkarte(q.id);
     $('[data-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'koenigin', parentId: q.id, titel: 'Dokumente & Fotos (z. B. Zuchtnachweis)' }));
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.koeniginnen.form(q); };
+    $('[data-bewerten]', m.el).onclick = () => { m.close(true); gdebBewertungForm(q.id); };
+    $$('[data-bew]', m.el).forEach((b) => { b.onclick = () => { m.close(true); gdebBewertungForm(q.id, b.dataset.bew); }; });
     $('[data-hist-add]', m.el).onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, null); };
     $$('[data-hist]', m.el).forEach((b) => { b.onclick = () => { m.close(true); Views.koeniginnen.historieForm(q, +b.dataset.hist); }; });
     /* Stammbaum: Tiefe schieben und Drohnen-Zweige auf-/zuklappen – nur der Baum wird neu gezeichnet */
@@ -4753,21 +4799,25 @@ Views.koeniginnen = {
     });
     verdrahteVolkFilter(m, voelker);
   },
+  /* Am Stand bewertet man nicht alle 15 Merkmale – man steht vor dem Volk und
+     sieht Verhalten und Vitalität. Deshalb hier die sechs Merkmale, die ohne
+     Laborprobe und ohne Jahresrückblick zu beurteilen sind. Die Ertrags- und
+     Varroa-Noten kommen später in der vollen Maske dazu; beides landet im
+     SELBEN datierten Eintrag, weil setBewertung ergänzt statt zu ersetzen. */
   async bewertenStep2(voelker, qm, datum) {
-    const note = [{ v: 0, l: '– nicht bewertet –' }, { v: 4, l: '4 – sehr gut' }, { v: 3, l: '3 – gut' }, { v: 2, l: '2 – mittel' }, { v: 1, l: '1 – schwach' }];
-    const fields = [{ key: '_hint', type: 'static', html: `<div class="hint mb8">Skala 1–4 (4 = bester Wert), am ${U.fmtDate(datum)}. Leere Felder lassen die bisherige Bewertung unverändert.</div>` }];
+    const schnell = ['sanftmut', 'wabenstetigkeit', 'schwarmtraegheit', 'bienen', 'brut', 'fruchtbarkeit']
+      .map((k) => GDEB_MERKMALE.find((m) => m.key === k));
+    const fields = [{ key: '_hint', type: 'static', html: `<div class="hint mb8">Nach GdeB, <b>Skala 1–6</b> (1 = sehr schlecht · 4 = guter Schnitt · 6 = Optimum), am ${U.fmtDate(datum)}. Leere Felder lassen die bisherige Note unverändert. Ertrag, Wabenbau und Varroa trägst du in der vollen Bewertung je Königin nach.</div>` }];
     const values = {};
     voelker.forEach((v) => {
-      const q = qm.get(v.koeniginId), b = q.bewertung || {}, alt = zuchtNote(b);
+      const q = qm.get(v.koeniginId);
+      const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), alt = gdebMittel(aktuell);
       fields.push({ key: '_h_' + q.id, type: 'static', html: `<h3 class="mt8 mb4">${U.esc(v.name)} <span class="small muted">· ${U.esc(koeniginKurz(q))}${alt ? ` · bisher ⌀ ${U.fmtNum(alt, 1)}` : ''}</span></h3>` });
-      fields.push({ key: 's_' + q.id, label: 'Sanftmut', type: 'select', options: note, keepOrder: true });
-      fields.push({ key: 'w_' + q.id, label: 'Wabensitz (Ruhe auf der Wabe)', type: 'select', options: note, keepOrder: true });
-      fields.push({ key: 'c_' + q.id, label: 'Schwarmträgheit', type: 'select', options: note, keepOrder: true });
-      fields.push({ key: 'e_' + q.id, label: 'Volksentwicklung', type: 'select', options: note, keepOrder: true });
-      fields.push({ key: 'h_' + q.id, label: 'Honigertrag (kg)', type: 'number', placeholder: 'optional' });
-      values['s_' + q.id] = b.sanftmut || 0; values['w_' + q.id] = b.wabensitz || 0;
-      values['c_' + q.id] = b.schwarm || 0; values['e_' + q.id] = b.entwicklung || 0;
-      values['h_' + q.id] = b.honigKg ?? '';
+      schnell.forEach((mm) => {
+        fields.push({ key: `${mm.key}_${q.id}`, label: mm.label, type: 'select', options: GDEB_SKALA, keepOrder: true, halb: true });
+        values[`${mm.key}_${q.id}`] = noten[mm.key] || 0;
+      });
+      fields.push({ key: '_t_' + q.id, type: 'static', html: '' });
     });
     UI.formModal({
       title: `Bewerten · ${voelker.length} ${voelker.length === 1 ? 'Volk' : 'Völker'}`, wide: true,
@@ -4776,13 +4826,16 @@ Views.koeniginnen = {
         let n = 0;
         for (const volk of voelker) {
           const id = volk.koeniginId;
-          const bewertung = { sanftmut: +v['s_' + id] || 0, wabensitz: +v['w_' + id] || 0, schwarm: +v['c_' + id] || 0, entwicklung: +v['e_' + id] || 0, honigKg: (v['h_' + id] === '' || v['h_' + id] == null) ? null : v['h_' + id] };
-          if (await setBewertung(id, bewertung, datum)) n++;
+          const noten = {};
+          for (const mm of schnell) noten[mm.key] = U.zahl(v[`${mm.key}_${id}`], 0);
+          if (await setBewertung(id, noten, datum)) n++;
         }
-        UI.toast(`${n} ${n === 1 ? 'Königin' : 'Königinnen'} bewertet`); renderRoute();
+        UI.toast(`${n} ${n === 1 ? 'Königin' : 'Königinnen'} bewertet`);
+        renderRoute();
       },
     });
   },
+
 
   /* ---- Sammel-Umweiseln: gefilterte Völker wählen → je Volk eine freie Königin zuordnen ---- */
   async sammelUmweiseln() {
@@ -4920,11 +4973,207 @@ function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalt
 }
 /** Kurzlabel einer Königin (Kennung falls vorhanden, sonst Jahrgang+Farbe) */
 function koeniginLabel(k) { return k ? `${k.kennung ? U.esc(k.kennung) + ' · ' : ''}${U.zahl(k.jahrgang)} <span class="dot" style="background:${queenColor(k.jahrgang)[1]};width:10px;height:10px"></span> ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + U.esc(k.linie) : ''}` : '–'; }
-/** Durchschnittliche Zuchtnote aus den vier 1–4-Merkmalen (nur bewertete zählen). */
+/* =====================================================================
+   BEWERTUNG NACH DER GdeB-STOCKKARTE
+
+   Grundlage: die Stockkarte der Gemeinschaft der europäischen Buckfast-Imker
+   und die Merkmalsbeschreibung dazu. Bewertet wird in fünf Gruppen, die Skala
+   geht von 1 bis 6:
+
+     1 = sehr schlecht · 3 = schlechter Schnitt · 4 = guter Schnitt
+     6 = Optimum der jeweiligen Eigenschaft
+
+   Die 6 ist bewusst eine Auszeichnung und keine normale Note – sie steht für
+   ein außergewöhnlich deutlich ausgeprägtes Merkmal. Für ein Zuchtvolk sollen
+   mindestens 10 der 13 Kernmerkmale bewertet sein; VSH+ und HYG+ zählen als
+   Zusatzmerkmale darüber hinaus.
+
+   Eine Bewertung ist ein DATIERTER Eintrag – auf der Papier-Stockkarte eine
+   Spalte. Über das Jahr entstehen mehrere; die jüngste gilt als der aktuelle
+   Stand, der Verlauf bleibt erhalten.
+   ===================================================================== */
+const GDEB_SKALA = [
+  { v: 0, l: '– nicht bewertet –' },
+  { v: 6, l: '6 – Optimum' },
+  { v: 5, l: '5' },
+  { v: 4, l: '4 – guter Schnitt' },
+  { v: 3, l: '3 – schlechter Schnitt' },
+  { v: 2, l: '2' },
+  { v: 1, l: '1 – sehr schlecht' },
+];
+const GDEB_GRUPPEN = [
+  { titel: 'Vitalität', merkmale: [
+    { key: 'bienen', label: 'Bienen', hint: 'Lebenskraft und Volksstärke der Bienen.' },
+    { key: 'brut', label: 'Brut', hint: 'Geschlossenes Brutbild, wenig Lücken.' },
+    { key: 'ueberwinterung', label: 'Überwinterung', hint: 'Zustand im Frühjahr, Winterfestigkeit.' },
+    { key: 'fruchtbarkeit', label: 'Fruchtbarkeit', hint: 'Legeleistung der Königin.' },
+  ] },
+  { titel: 'Verhalten', merkmale: [
+    { key: 'sanftmut', label: 'Sanftmut' },
+    { key: 'wabenstetigkeit', label: 'Wabenstetigkeit', hint: 'Ruhiges Sitzen auf der Wabe.' },
+    { key: 'schwarmtraegheit', label: 'Schwarmträgheit' },
+  ] },
+  { titel: 'Ertrag', merkmale: [
+    { key: 'fruehtracht', label: 'Frühtracht' },
+    { key: 'sommertracht', label: 'Sommertracht' },
+    { key: 'spaettracht', label: 'Spättracht' },
+  ] },
+  { titel: 'Wabenbau', merkmale: [
+    { key: 'wirrbau', label: 'Wirrbau', hint: '6 = kein Wirrbau, sauberer Bau.' },
+    { key: 'propolis', label: 'Propolis', hint: '6 = kaum Propolis.' },
+  ] },
+  { titel: 'Varroa', merkmale: [
+    { key: 'varroaschaeden', label: 'Varroaschäden', hint: '6 = keine Schäden.' },
+    { key: 'vsh', label: 'VSH+', zusatz: true, hint: 'Varroa Sensitive Hygiene – Zusatzmerkmal.' },
+    { key: 'hyg', label: 'HYG+', zusatz: true, hint: 'Ausräumverhalten (Nadel-/Gefriertest) – Zusatzmerkmal.' },
+  ] },
+];
+/** Alle Merkmale flach – in der Reihenfolge der Stockkarte. */
+const GDEB_MERKMALE = GDEB_GRUPPEN.flatMap((g) => g.merkmale.map((m) => ({ ...m, gruppe: g.titel })));
+/** Die 13 Kernmerkmale ohne VSH+/HYG+ – auf sie bezieht sich die 10-von-13-Regel. */
+const GDEB_KERN = GDEB_MERKMALE.filter((m) => !m.zusatz).map((m) => m.key);
+const GDEB_MINDEST = 10;
+
+/** Noten einer Bewertung (altes Format wird mitgelesen). */
+function gdebNoten(b) {
+  if (!b) return {};
+  const roh = b.noten || b;
+  const raus = {};
+  for (const m of GDEB_MERKMALE) {
+    const n = U.zahl(roh[m.key], 0);
+    if (n >= 1 && n <= 6) raus[m.key] = n;
+  }
+  /* Die frühere Bewertung kannte drei Merkmale unter anderen Namen. Sie
+     werden mitgelesen, aber NICHT umgerechnet: Die alten Zahlen standen auf
+     einer 1–4-Skala, jede Umrechnung wäre erfunden. Der Eintrag trägt
+     deshalb einen Vermerk, siehe `skalaAlt`. Ein neuer Wert hat Vorrang. */
+  const alt = { wabenstetigkeit: roh.wabensitz, schwarmtraegheit: roh.schwarm, bienen: roh.entwicklung };
+  for (const [k, v] of Object.entries(alt)) {
+    if (raus[k]) continue;
+    const n = U.zahl(v, 0);
+    if (n >= 1 && n <= 6) raus[k] = n;
+  }
+  return raus;
+}
+/** Mittelwert über alle bewerteten Merkmale – der „Mittelwert" der Stockkarte. */
+function gdebMittel(b) {
+  const w = Object.values(gdebNoten(b));
+  return w.length ? Math.round((w.reduce((a, n) => a + n, 0) / w.length) * 10) / 10 : 0;
+}
+/** Wie viele der 13 Kernmerkmale sind bewertet – und reicht das für ein Zuchtvolk? */
+function gdebVollstaendig(b) {
+  const noten = gdebNoten(b);
+  const kern = GDEB_KERN.filter((k) => noten[k] > 0).length;
+  return { kern, gesamt: Object.keys(noten).length, reicht: kern >= GDEB_MINDEST, mindest: GDEB_MINDEST, von: GDEB_KERN.length };
+}
+/** Alle Bewertungen einer Königin, jüngste zuerst. */
+function gdebListe(q) {
+  const liste = Array.isArray(q && q.bewertungen) ? q.bewertungen.filter(Boolean) : [];
+  if (liste.length) return U.sortBy(liste, (x) => x.datum || '', true);
+  // Noch nicht umgestellt: die einzelne alte Bewertung als ein Eintrag lesen.
+  const alt = q && q.bewertung;
+  return alt && Object.keys(gdebNoten(alt)).length
+    ? [{ datum: q.bewertetAm || '', noten: gdebNoten(alt), honigKg: alt.honigKg ?? null, skalaAlt: true }] : [];
+}
+/** Die jüngste Bewertung – der aktuelle Stand. */
+function gdebAktuell(q) { return gdebListe(q)[0] || null; }
+
+/* Die Zuchtnote ist jetzt der Mittelwert der GdeB-Bewertung. Der Name bleibt,
+   weil Listen, PDF und Sortierung ihn an vielen Stellen benutzen. Übergeben
+   wird entweder eine einzelne Bewertung oder die Königin selbst. */
+/* ---- Automatik: was die App über das Volk ohnehin weiß ----------------
+   Die Stockkarte verlangt Wetter und Temperatur zum Bewertungstag, und die
+   Ertragsnoten sollen zu den tatsächlichen Ernten passen. Beides steht schon
+   in der App – es noch einmal abzutippen ist Arbeit, bei der sich Fehler
+   einschleichen. Deshalb wird es vorgeschlagen; entscheiden tut der Imker. */
+
+/** Wetter eines Standes an einem Tag (oder der nächstgelegene Eintrag ±2 Tage). */
+function wetterZumTag(wetterAlle, standId, datum) {
+  if (!standId || !datum) return null;
+  const nahe = (wetterAlle || [])
+    .filter((x) => x.standId === standId && x.datum)
+    .map((x) => ({ x, abstand: Math.abs(U.daysBetween(x.datum, datum)) }))
+    .filter((o) => o.abstand <= 2);
+  if (!nahe.length) return null;
+  return U.sortBy(nahe, (o) => o.abstand)[0].x;
+}
+
+/* Trachtzeiten nach Monaten – grob, aber für einen VORSCHLAG genügt es:
+   Frühtracht bis Ende Mai, Sommertracht Juni/Juli, danach Spättracht. */
+function trachtAusDatum(datum) {
+  const m = +String(datum || '').slice(5, 7);
+  if (!m) return '';
+  if (m <= 5) return 'fruehtracht';
+  if (m <= 7) return 'sommertracht';
+  return 'spaettracht';
+}
+
+/** Geernteter Honig eines Volkes im Jahr, aufgeteilt auf die drei Trachten. */
+function ertragJeTracht(ernten, volkId, jahr) {
+  const raus = { fruehtracht: 0, sommertracht: 0, spaettracht: 0, gesamt: 0 };
+  for (const e of ernten || []) {
+    if (e.zielTyp !== 'volk' || e.zielId !== volkId) continue;
+    if (jahr && String(e.datum || '').slice(0, 4) !== String(jahr)) continue;
+    const kg = U.zahl(e.mengeKg, 0);
+    const t = trachtAusDatum(e.datum);
+    if (t) raus[t] += kg;
+    raus.gesamt += kg;
+  }
+  for (const k of Object.keys(raus)) raus[k] = Math.round(raus[k] * 10) / 10;
+  return raus;
+}
+
+/** Jüngste Varroa-Messung eines Volkes – als Hinweis neben der Varroa-Note. */
+function varroaLetzte(varroaAlle, volkId) {
+  const eigene = (varroaAlle || []).filter((x) => x.volkId === volkId && x.datum);
+  if (!eigene.length) return null;
+  const x = U.sortBy(eigene, (a) => a.datum, true)[0];
+  const m = varroaMetrik(x);
+  return { datum: x.datum, text: `${U.fmtNum(m.wert, 1)} ${m.einheit} am ${U.fmtDate(x.datum)}`, ampel: m.ampel };
+}
+
 function zuchtNote(b) {
   if (!b) return 0;
-  const w = [b.sanftmut, b.wabensitz, b.schwarm, b.entwicklung].filter((n) => n > 0);
-  return w.length ? Math.round((w.reduce((a, n) => a + n, 0) / w.length) * 10) / 10 : 0;
+  if (Array.isArray(b.bewertungen) || b.bewertung) return gdebMittel(gdebAktuell(b));
+  return gdebMittel(b);
+}
+
+/**
+ * Pedigree der Königin in der Schreibweise der GdeB-Stockkarte, gebildet aus
+ * dem gespeicherten Stammbaum:
+ *
+ *   B110(JK) = 25.B111(JK) - B311(KK) : 24.B112(JK) - B312(KK) : …
+ *
+ * Gelesen wird: die Königin, dahinter je Generation das Elternpaar –
+ * Mutterlinie (2a) und Drohnenvolk (4a) – mit dem Jahrgang davor. Steht
+ * statt eines Vatervolks eine Belegstelle, kommt deren Name in die
+ * Vaterposition; das entspricht der Praxis auf der Papierkarte.
+ *
+ * Erzeugt wird nur, was WIRKLICH bekannt ist: Fehlt die Mutter, endet die
+ * Kette. Eine erfundene Generation wäre in einem Zuchtbuch schlimmer als
+ * eine fehlende.
+ */
+function pedigreeGdeB(q, qm, tiefe = 6) {
+  if (!q) return '';
+  const name = (k) => (k && (k.kennung || '').trim()) || (k ? koeniginKurz(k) : '');
+  const kopf = name(q);
+  if (!kopf) return '';
+  const teile = [];
+  const gesehen = new Set([q.id]);
+  let c = q;
+  for (let i = 0; i < tiefe; i++) {
+    const mutter = c.mutterId ? qm.get(c.mutterId) : null;
+    const vater = c.vatervolkId ? qm.get(c.vatervolkId) : null;
+    const belegstelle = (c.anpaarung === 'belegstelle' && (c.belegstelle || '').trim()) || '';
+    if (!mutter && !vater && !belegstelle) break;
+    const jahr = c.jahrgang ? String(c.jahrgang).slice(-2) : '';
+    const rechts = vater ? name(vater) : belegstelle;
+    teile.push(`${jahr ? jahr + '.' : ''}${mutter ? name(mutter) : '?'}${rechts ? ' - ' + rechts : ''}`);
+    if (!mutter || gesehen.has(mutter.id)) break;   // Schleifen in fehlerhaften Daten abfangen
+    gesehen.add(mutter.id);
+    c = mutter;
+  }
+  return teile.length ? `${kopf} = ${teile.join(' : ')}` : kopf;
 }
 /** Beidseitiger Stammbaum: Mutterlinie (2a) UND Vaterlinie (4a/Belegstelle) aufwärts + Töchter. */
 /* ---------------------------------------------------------------------
@@ -5088,11 +5337,114 @@ async function erzeugeToechter(serie, n, jahrgang) {
   return erzeugt;
 }
 /** Setzt die Bewertung einer Königin (mit optionalem Bewertungsdatum). Gibt true bei Erfolg. */
-async function setBewertung(queenId, bewertung, datum) {
+/**
+ * Bewertungs-Dialog nach der GdeB-Stockkarte: eine Spalte der Papierkarte,
+ * also ein datierter Eintrag mit Wetter, allen Merkmalen und einer Bemerkung.
+ * Wetter, Ertrag und Varroa stehen als Hinweis daneben – aus den eigenen
+ * Daten, damit man nicht zwischen den Reitern hin und her springt.
+ */
+async function gdebBewertungForm(queenId, vorhandenDatum = null) {
+  const q = await DB.get('koeniginnen', queenId);
+  if (!q) return;
+  const [voelker, ernten, varroaAlle, wetterAlle] = await Promise.all(
+    ['voelker', 'ernten', 'varroa', 'wetter'].map((st) => DB.getAll(st)));
+  const volk = voelker.find((v) => v.koeniginId === q.id) || null;
+  const liste = gdebListe(q);
+  const vorhanden = vorhandenDatum ? liste.find((x) => x.datum === vorhandenDatum) : null;
+  const datum = (vorhanden && vorhanden.datum) || U.todayIso();
+  const noten = gdebNoten(vorhanden);
+
+  const jahr = datum.slice(0, 4);
+  const ertrag = volk ? ertragJeTracht(ernten, volk.id, jahr) : null;
+  const varroa = volk ? varroaLetzte(varroaAlle, volk.id) : null;
+  const wetter = volk ? wetterZumTag(wetterAlle, volk.standId, datum) : null;
+  const wetterText = (vorhanden && vorhanden.wetter) || (wetter ? (wetter.bemerkung || '') : '');
+  const tempWert = (vorhanden && vorhanden.temperatur != null) ? vorhanden.temperatur : (wetter && wetter.tempC != null ? wetter.tempC : '');
+
+  const hinweis = {
+    fruehtracht: ertrag && ertrag.fruehtracht ? `${U.fmtNum(ertrag.fruehtracht, 1)} kg geerntet` : '',
+    sommertracht: ertrag && ertrag.sommertracht ? `${U.fmtNum(ertrag.sommertracht, 1)} kg geerntet` : '',
+    spaettracht: ertrag && ertrag.spaettracht ? `${U.fmtNum(ertrag.spaettracht, 1)} kg geerntet` : '',
+    varroaschaeden: varroa ? `letzte Messung: ${varroa.text}` : '',
+  };
+
+  const felder = [
+    { key: 'datum', label: 'Bewertungsdatum', type: 'date', required: true, default: datum, halb: true },
+    { key: 'temperatur', label: 'Temperatur (°C)', type: 'number', default: tempWert, halb: true,
+      hint: wetter && wetter.tempC != null && !vorhanden ? 'Aus deinen Wetterdaten übernommen.' : '' },
+    { key: 'wetter', label: 'Wetter', type: 'suggest', default: wetterText,
+      options: ['sonnig', 'heiter', 'bewölkt', 'bedeckt', 'wechselhaft', 'Regen', 'windig', 'schwül'],
+      hint: wetter && wetter.bemerkung && !vorhanden ? `Aus dem Wettereintrag vom ${U.fmtDate(wetter.datum)}.` : '' },
+  ];
+  for (const g of GDEB_GRUPPEN) {
+    const kopfHinweis = g.titel === 'Ertrag' && ertrag && ertrag.gesamt
+      ? `<div class="hint mb8">Geerntet ${jahr}: <b>${U.fmtNum(ertrag.gesamt, 1)} kg</b> · Früh ${U.fmtNum(ertrag.fruehtracht, 1)} · Sommer ${U.fmtNum(ertrag.sommertracht, 1)} · Spät ${U.fmtNum(ertrag.spaettracht, 1)}</div>`
+      : (g.titel === 'Varroa' && varroa ? `<div class="hint mb8">Letzte Varroa-Messung: <b>${U.esc(varroa.text)}</b></div>` : '');
+    felder.push({ key: `_g${g.titel}`, type: 'static', html: `<h3 class="mt8 mb8">${g.titel}</h3>${kopfHinweis}` });
+    for (const m of g.merkmale) {
+      felder.push({ key: m.key, label: m.label + (m.zusatz ? ' (Zusatz)' : ''), type: 'select', default: noten[m.key] || 0,
+        options: GDEB_SKALA, keepOrder: true, halb: true,
+        hint: [m.hint, hinweis[m.key]].filter(Boolean).join(' ') });
+    }
+    if (g.merkmale.length % 2) felder.push({ key: `_t${g.titel}`, type: 'static', html: '' });
+  }
+  felder.push({ key: 'bemerkung', label: 'Bemerkungen', type: 'textarea', default: (vorhanden && vorhanden.bemerkung) || '' });
+
+  UI.formModal({
+    title: `Bewertung · ${koeniginKurz(q)}`, wide: true, saveText: 'Bewertung speichern',
+    fields: [
+      { key: '_kopf', type: 'static', html: `<div class="hint mb8">Nach der Stockkarte der Gemeinschaft der europäischen Buckfast-Imker. <b>Skala 1–6</b>: 1 = sehr schlecht · 3 = schlechter Schnitt · 4 = guter Schnitt · 6 = Optimum. Für ein Zuchtvolk sollen mindestens ${GDEB_MINDEST} der ${GDEB_KERN.length} Kernmerkmale bewertet sein.</div>` },
+      ...felder,
+    ],
+    values: {},
+    onDelete: vorhanden ? async () => {
+      if (!(await UI.confirm({ title: 'Bewertung löschen?', text: `Die Bewertung vom ${U.fmtDate(vorhanden.datum)} wird entfernt.`, confirmText: 'Löschen' }))) return false;
+      const rec = await DB.get('koeniginnen', q.id);
+      rec.bewertungen = gdebListe(rec).filter((x) => x.datum !== vorhanden.datum);
+      rec.bewertung = gdebNoten(rec.bewertungen[0] || null);
+      rec.bewertetAm = (rec.bewertungen[0] || {}).datum || null;
+      await DB.put('koeniginnen', rec);
+      UI.toast('Bewertung gelöscht'); renderRoute();
+      return true;
+    } : null,
+    async onSave(v) {
+      const neu = { datum: v.datum, wetter: (v.wetter || '').trim(),
+        temperatur: (v.temperatur === '' || v.temperatur == null) ? null : U.zahl(v.temperatur, null),
+        noten: {}, bemerkung: (v.bemerkung || '').trim() };
+      for (const m of GDEB_MERKMALE) { const n = U.zahl(v[m.key], 0); if (n >= 1 && n <= 6) neu.noten[m.key] = n; }
+      const rec = await DB.get('koeniginnen', q.id);
+      // Eine Bewertung je Tag: ein zweiter Eintrag am selben Datum ersetzt den ersten.
+      const rest = gdebListe(rec).filter((x) => x.datum !== neu.datum && x.datum !== (vorhanden || {}).datum);
+      rec.bewertungen = U.sortBy([...rest, neu], (x) => x.datum || '', true);
+      rec.bewertung = gdebNoten(rec.bewertungen[0]);      // Kurzform für Listen, PDF und Sortierung
+      rec.bewertetAm = rec.bewertungen[0].datum;
+      await DB.put('koeniginnen', rec);
+      const voll = gdebVollstaendig(neu);
+      UI.toast(`Bewertung gespeichert · Mittelwert ${U.fmtNum(gdebMittel(neu), 1)}${voll.reicht ? '' : ` · noch ${voll.mindest - voll.kern} Merkmal(e) bis zur Zuchttauglichkeit`}`);
+      renderRoute();
+    },
+  });
+}
+
+/* Schreibt Noten als DATIERTE Bewertung – so, wie eine Spalte auf der
+   Stockkarte entsteht. Wird von der Bewertungs-Runde benutzt, die mehrere
+   Völker am selben Tag benotet. Bereits vorhandene Noten dieses Tages bleiben
+   erhalten und werden ergänzt, nicht ersetzt: Wer morgens die Sanftmut und
+   abends den Ertrag einträgt, soll am Ende beides haben. */
+async function setBewertung(queenId, noten, datum, zusatz = {}) {
   const q = await DB.get('koeniginnen', queenId);
   if (!q) return false;
-  q.bewertung = bewertung;
-  if (datum) q.bewertetAm = datum;
+  const tag = datum || U.todayIso();
+  const liste = gdebListe(q);
+  const vorher = liste.find((x) => x.datum === tag);
+  const zusammen = { ...(vorher ? vorher.noten : {}) };
+  for (const m of GDEB_MERKMALE) { const nn = U.zahl(noten[m.key], 0); if (nn >= 1 && nn <= 6) zusammen[m.key] = nn; }
+  if (!Object.keys(zusammen).length && !zusatz.bemerkung) return false;
+  const eintrag = { ...(vorher || {}), datum: tag, noten: zusammen, ...zusatz };
+  delete eintrag.skalaAlt;
+  q.bewertungen = U.sortBy([...liste.filter((x) => x.datum !== tag), eintrag], (x) => x.datum || '', true);
+  q.bewertung = gdebNoten(q.bewertungen[0]);
+  q.bewertetAm = q.bewertungen[0].datum;
   await DB.put('koeniginnen', q);
   return true;
 }
@@ -13618,7 +13970,9 @@ const Xlsx = {
       staende: { blatt: 'Stände', rows: async () => (await DB.getAll('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
       voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await DB.getAll('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
-      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await DB.getAll('koeniginnen')).map((q) => { const b = q.bewertung || {}; return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Sanftmut: b.sanftmut || '', Wabensitz: b.wabensitz || '', Schwarmträgheit: b.schwarm || '', Entwicklung: b.entwicklung || '', 'Honig (kg)': b.honigKg ?? '', Zuchtnote: zuchtNote(b) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
+      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await DB.getAll('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
+        ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
+        'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
@@ -13867,6 +14221,87 @@ const Pdf = {
       const body = list.map((w) => [U.fmtDate(w.datum), staende.get(w.vonStandId)?.name || w.vonOrt || '–', staende.get(w.nachStandId)?.name || w.nachOrt || '–', wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
       this.table(doc, { head: ['Datum', 'Von', 'Nach', 'Völker', 'Grund', 'Notiz'], body, startY: y });
       this.finish(doc, `wanderbuch-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Stockkarte (GdeB) ----------
+     Die Papierform der Gemeinschaft der europäischen Buckfast-Imker: Merkmale
+     als ZEILEN, Bewertungstermine als SPALTEN. Damit lässt sich ausdrucken,
+     was bisher nur am Bildschirm stand – und die Kontrolle bzw. der
+     Zuchtverband bekommt das gewohnte Bild. */
+  async stockkarte(queenId) {
+    try {
+      const q = await DB.get('koeniginnen', queenId);
+      if (!q) return UI.toast('Königin nicht gefunden', 'err');
+      const km = await idMap('koeniginnen');
+      const voelker = await DB.getAll('voelker');
+      const volk = voelker.find((v) => v.koeniginId === q.id) || null;
+      const stand = volk && volk.standId ? await DB.get('staende', volk.standId) : null;
+      const liste = U.sortBy(gdebListe(q), (x) => x.datum || '');   // älteste links, wie auf Papier
+      const spalten = liste.slice(-8);                              // mehr als acht passen nicht auf die Breite
+      const { doc, y } = await this.newDoc(`Stockkarte – ${q.kennung || koeniginKurz(q)}`,
+        `Bewertung nach der Stockkarte der Gemeinschaft der europäischen Buckfast-Imker`);
+      let yy = y;
+      doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(60);
+      const kopf = [
+        ['Kastennummer', volk ? volk.name : '–'],
+        ['Standort des Volkes', stand ? stand.name : '–'],
+        ['Geburtsjahr der Königin', q.jahrgang ? String(q.jahrgang) : '–'],
+        ['Gezeichnet', q.jahrgang ? queenColor(q.jahrgang)[0] : '–'],
+      ];
+      for (const [k, v] of kopf) {
+        doc.setTextColor(120).text(k + ':', 14, yy);
+        doc.setTextColor(40).text(String(v), 62, yy); yy += 5;
+      }
+      const ped = q.pedigree || pedigreeGdeB(q, km);
+      doc.setTextColor(120).text('Pedigree der Königin:', 14, yy);
+      doc.setTextColor(40);
+      const pedZeilen = doc.splitTextToSize(ped || '–', 132);
+      doc.text(pedZeilen, 62, yy); yy += pedZeilen.length * 4.4 + 4;
+
+      doc.setFontSize(8.5).setTextColor(110);
+      doc.text('Bewertungsskala: 1 bis 6 – 1 = sehr schlecht | 3 = schlechter Schnitt | 4 = guter Schnitt | 6 = Optimum der jeweiligen Eigenschaft', 14, yy);
+      yy += 6;
+
+      // Eine übernommene Altbewertung hat kein Datum – „früher" sagt mehr als ein Strich.
+      const kopfZeile = ['', ...spalten.map((x) => x.datum ? U.fmtDate(x.datum).slice(0, 6) + U.fmtDate(x.datum).slice(-2) : 'früher')];
+      const body = [];
+      body.push(['Wetter', ...spalten.map((x) => x.wetter || '')]);
+      body.push(['Temperatur', ...spalten.map((x) => x.temperatur != null ? U.fmtNum(x.temperatur, 1) + ' °C' : '')]);
+      body.push(['Mittelwert', ...spalten.map((x) => gdebMittel(x) ? U.fmtNum(gdebMittel(x), 1) : '')]);
+      for (const g of GDEB_GRUPPEN) {
+        body.push([{ content: g.titel, colSpan: spalten.length + 1, styles: { fontStyle: 'bold', fillColor: [245, 240, 228] } }]);
+        for (const mm of g.merkmale) {
+          body.push([mm.label + (mm.zusatz ? ' *' : ''), ...spalten.map((x) => { const n = gdebNoten(x)[mm.key]; return n ? String(n) : ''; })]);
+        }
+      }
+      const breiten = { 0: { cellWidth: 44, fontStyle: 'bold' } };
+      this.table(doc, { head: kopfZeile, body, startY: yy, widths: breiten });
+      /* Unten stehen „Erstellt mit ImkerBuch" und die Seitenzahl (bei 290 mm).
+         Was darüber hinausginge, kommt auf eine neue Seite statt sich zu
+         überlagern. */
+      let ny = doc.lastAutoTable.finalY + 6;
+      const platz = (mm) => { if (ny + mm > 282) { doc.addPage(); ny = 22; } };
+      const bemerkungen = spalten.filter((x) => (x.bemerkung || '').trim());
+      if (bemerkungen.length) {
+        platz(12);
+        doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(60).text('Bemerkungen', 14, ny); ny += 5;
+        doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(40);
+        for (const x of bemerkungen) {
+          const z = doc.splitTextToSize(`${x.datum ? U.fmtDate(x.datum) : 'früher'}: ${x.bemerkung.trim()}`, 180);
+          platz(z.length * 4.2 + 2);
+          doc.text(z, 14, ny); ny += z.length * 4.2 + 1.5;
+        }
+        ny += 2;
+      }
+      const voll = gdebVollstaendig(liste[liste.length - 1] || null);
+      platz(10);
+      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(110);
+      doc.text(`* Zusatzmerkmale. Zuletzt bewertet: ${voll.kern} von ${voll.von} Kernmerkmalen – für ein Zuchtvolk sollen mindestens ${voll.mindest} bewertet sein.`, 14, ny);
+      if (liste.length > spalten.length) {
+        doc.text(`Es werden die letzten ${spalten.length} von ${liste.length} Bewertungen gezeigt.`, 14, ny + 4.5);
+      }
+      this.finish(doc, `stockkarte-${(q.kennung || 'koenigin').replace(/[^\wäöüß.-]+/gi, '_')}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -16160,6 +16595,7 @@ Object.assign(window, {
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
+  GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,

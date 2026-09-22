@@ -4235,16 +4235,29 @@ test('bioZertText: Kontrollstelle + EU-Bio bzw. Verbände; leer wenn keine Bio-I
   assertEq(w.bioZertText({ bio: 'ja', bioKontrollstelle: 'DE-ÖKO-006 – ABCERT AG', bioVerbandJN: 'ja', bioVerband: ['Demeter', 'Bioland'] }), 'DE-ÖKO-006 – ABCERT AG · Demeter, Bioland', 'mit Verbänden (mehrere)');
   assertEq(w.bioZertText({ bio: 'ja', bioKontrollstelle: '', bioVerbandJN: 'ja', bioVerband: [] }), 'EU-Bio', 'Verband ja aber leer → EU-Bio');
 });
-test('setBewertung: schreibt Bewertung + Bewertungsdatum an die Königin', async (w) => {
-  const q = await w.DB.put('koeniginnen', { kennung: 'BW-27-001', jahrgang: 2027, status: 'aktiv', historie: [], bewertung: {} });
-  const ok = await w.setBewertung(q.id, { sanftmut: 4, wabensitz: 3, schwarm: 2, entwicklung: 4, honigKg: 30 }, '2027-06-01');
+test('setBewertung: schreibt eine datierte GdeB-Bewertung an die Königin', async (w) => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'BW-27-001', jahrgang: 2027, status: 'aktiv', historie: [] });
+  const ok = await w.setBewertung(q.id, { sanftmut: 5, wabenstetigkeit: 4, schwarmtraegheit: 6, bienen: 5 }, '2027-06-01');
   assert(ok, 'true bei Erfolg');
   const nach = await w.DB.get('koeniginnen', q.id);
-  assertEq(nach.bewertung.sanftmut, 4, 'Sanftmut gespeichert');
-  assertEq(nach.bewertung.honigKg, 30, 'Honig gespeichert');
+  assertEq(nach.bewertungen.length, 1, 'ein datierter Eintrag');
+  assertEq(nach.bewertungen[0].datum, '2027-06-01');
+  assertEq(nach.bewertungen[0].noten.sanftmut, 5);
   assertEq(nach.bewertetAm, '2027-06-01', 'Bewertungsdatum gespeichert');
-  assertEq(w.zuchtNote(nach.bewertung), 3.3, 'Zuchtnote aus den vier Merkmalen');
-  assert(!(await w.setBewertung('gibts-nicht', {}, '2027-06-01')), 'false bei unbekannter Königin');
+  assertEq(w.zuchtNote(nach), 5, 'Mittelwert aus (5+4+6+5)/4');
+  // Am selben Tag nachtragen ERGÄNZT, statt zu überschreiben
+  await w.setBewertung(q.id, { fruehtracht: 6, sommertracht: 4 }, '2027-06-01');
+  const nach2 = await w.DB.get('koeniginnen', q.id);
+  assertEq(nach2.bewertungen.length, 1, 'immer noch ein Eintrag für den Tag');
+  assertEq(nach2.bewertungen[0].noten.sanftmut, 5, 'die alte Note steht noch');
+  assertEq(nach2.bewertungen[0].noten.fruehtracht, 6, 'die neue ist dazugekommen');
+  // Ein anderer Tag ist eine eigene Spalte der Stockkarte
+  await w.setBewertung(q.id, { sanftmut: 3 }, '2027-07-15');
+  const nach3 = await w.DB.get('koeniginnen', q.id);
+  assertEq(nach3.bewertungen.length, 2, 'zweiter Termin, zweiter Eintrag');
+  assertEq(nach3.bewertungen[0].datum, '2027-07-15', 'die jüngste steht vorn');
+  assertEq(nach3.bewertetAm, '2027-07-15');
+  assert(!(await w.setBewertung('gibts-nicht', { sanftmut: 4 }, '2027-06-01')), 'false bei unbekannter Königin');
 });
 test('umweiseln: neue Königin einsetzen, alte auf umgeweiselt, Historie sauber', async (w) => {
   const alt = await w.DB.put('koeniginnen', { kennung: 'ALT-27-001', jahrgang: 2027, status: 'aktiv', historie: [] });
@@ -7960,4 +7973,109 @@ test('Hygieneplan-Foto: Fließtext wird nicht künstlich in Spalten zerlegt', (w
   const text = w.spaltenAusWorten([{ words }]);
   assert(!/ {2,}/.test(text), 'kein künstlicher Spaltenumbruch: ' + text);
   assertEq(text, 'Der Schleuderraum wird nach jeder Schleuderung feucht gewischt');
+});
+
+/* =====================================================================
+   Bewertung nach der GdeB-Stockkarte
+   ===================================================================== */
+
+test('GdeB: Mittelwert und die 10-von-13-Regel', (w) => {
+  const b = { datum: '2026-06-18', noten: { sanftmut: 5, wabenstetigkeit: 4, schwarmtraegheit: 6 } };
+  assertEq(w.gdebMittel(b), 5, '(5+4+6)/3');
+  let voll = w.gdebVollstaendig(b);
+  assertEq(voll.kern, 3, 'drei Kernmerkmale bewertet');
+  assertEq(voll.von, 13, 'dreizehn Kernmerkmale insgesamt');
+  assert(!voll.reicht, 'drei reichen nicht für ein Zuchtvolk');
+  // Zehn Kernmerkmale reichen
+  const zehn = {}; w.GDEB_KERN.slice(0, 10).forEach((k) => { zehn[k] = 4; });
+  voll = w.gdebVollstaendig({ noten: zehn });
+  assertEq(voll.kern, 10);
+  assert(voll.reicht, 'zehn von dreizehn genügen');
+  // VSH+ und HYG+ zählen als Zusatz, nicht zu den dreizehn
+  const mitZusatz = w.gdebVollstaendig({ noten: { ...zehn, vsh: 5, hyg: 5 } });
+  assertEq(mitZusatz.kern, 10, 'Zusatzmerkmale zählen nicht zu den Kernmerkmalen');
+  assertEq(mitZusatz.gesamt, 12, 'sie zählen aber mit bewertet');
+});
+
+test('GdeB: Skala 1–6, Ausreißer werden verworfen', (w) => {
+  const rand = w.gdebNoten({ noten: { sanftmut: 6, brut: 1 } });
+  assertEq(rand.sanftmut, 6, 'die 6 ist gültig');
+  assertEq(rand.brut, 1, 'die 1 ebenfalls');
+  assertEq(Object.keys(rand).length, 2, 'und sonst nichts');
+  assertEq(w.gdebNoten({ noten: { sanftmut: 7, brut: 0, propolis: -2, wirrbau: 'viel' } }), {}, 'alles außerhalb 1–6 fällt weg');
+  assertEq(w.gdebMittel(null), 0, 'ohne Bewertung keine Note');
+  assertEq(w.GDEB_SKALA.filter((o) => o.v > 0).length, 6, 'sechs Noten stehen zur Wahl');
+  assertEq(w.GDEB_MERKMALE.length, 15, '13 Kernmerkmale + VSH+ und HYG+');
+});
+
+test('GdeB: alte 1–4-Bewertung wird gelesen, aber nicht umgerechnet', (w) => {
+  const q = { bewertung: { sanftmut: 4, wabensitz: 3, schwarm: 2, entwicklung: 4 }, bewertetAm: '2025-06-01' };
+  const liste = w.gdebListe(q);
+  assertEq(liste.length, 1, 'die alte Bewertung erscheint als ein Eintrag');
+  assert(liste[0].skalaAlt, 'und ist als alte Skala gekennzeichnet');
+  assertEq(liste[0].noten.wabenstetigkeit, 3, 'Wabensitz heißt jetzt Wabenstetigkeit');
+  assertEq(liste[0].noten.schwarmtraegheit, 2);
+  assertEq(liste[0].noten.bienen, 4, 'Volksentwicklung zählt als Vitalität der Bienen');
+  assertEq(liste[0].noten.sanftmut, 4, 'die Zahl bleibt unverändert – nichts wird hochgerechnet');
+  assertEq(w.zuchtNote(q), 3.3, 'Mittelwert wie zuvor');
+});
+
+test('GdeB-Pedigree: wird aus dem Stammbaum gebildet', (w) => {
+  const qm = new Map();
+  const mk = (id, kennung, jahrgang, mutterId, vatervolkId, extra = {}) => {
+    const q = { id, kennung, jahrgang, mutterId, vatervolkId, anpaarung: vatervolkId ? 'besamung' : '', ...extra };
+    qm.set(id, q); return q;
+  };
+  mk('om', 'B113.2.23(JK)', 2023, null, null);
+  mk('ov', 'B313.1.23(KK)', 2023, null, null);
+  mk('m', 'B112.2.24(JK)', 2024, 'om', 'ov');
+  mk('v', 'B312.1.25(KK)', 2025, null, null);
+  const q = mk('q', 'B110.2.26(JK)', 2026, 'm', 'v');
+  const p = w.pedigreeGdeB(q, qm);
+  assertEq(p, 'B110.2.26(JK) = 26.B112.2.24(JK) - B312.1.25(KK) : 24.B113.2.23(JK) - B313.1.23(KK)');
+  // Ohne Abstammung bleibt nur die eigene Kennung
+  assertEq(w.pedigreeGdeB(qm.get('ov'), qm), 'B313.1.23(KK)', 'keine erfundene Generation');
+  assertEq(w.pedigreeGdeB(null, qm), '', 'robust ohne Königin');
+});
+
+test('GdeB-Pedigree: Belegstelle steht in der Vaterposition, Schleifen brechen ab', (w) => {
+  const qm = new Map();
+  const m = { id: 'm', kennung: 'B9(JK)', jahrgang: 2025, mutterId: null, vatervolkId: null };
+  const q = { id: 'q', kennung: 'B1(JK)', jahrgang: 2026, mutterId: 'm', anpaarung: 'belegstelle', belegstelle: 'Baltrum' };
+  qm.set('m', m); qm.set('q', q);
+  assertEq(w.pedigreeGdeB(q, qm), 'B1(JK) = 26.B9(JK) - Baltrum');
+  // Fehlerhafte Daten: Mutter zeigt auf sich selbst
+  const kreis = { id: 'k', kennung: 'B5(JK)', jahrgang: 2026, mutterId: 'k' };
+  qm.set('k', kreis);
+  const p = w.pedigreeGdeB(kreis, qm);
+  assert(p.length < 120, 'keine Endlosschleife: ' + p);
+});
+
+test('GdeB-Automatik: Ertrag je Tracht aus den Ernten des Volkes', (w) => {
+  const ernten = [
+    { zielTyp: 'volk', zielId: 'v1', datum: '2026-05-20', mengeKg: 18 },
+    { zielTyp: 'volk', zielId: 'v1', datum: '2026-07-04', mengeKg: 13.5 },
+    { zielTyp: 'volk', zielId: 'v1', datum: '2026-09-01', mengeKg: 4 },
+    { zielTyp: 'volk', zielId: 'v2', datum: '2026-05-20', mengeKg: 99 },
+    { zielTyp: 'volk', zielId: 'v1', datum: '2025-05-20', mengeKg: 50 },
+    { zielTyp: 'stand', zielId: 'v1', datum: '2026-05-21', mengeKg: 77 },
+  ];
+  const e = w.ertragJeTracht(ernten, 'v1', '2026');
+  assertEq(e.fruehtracht, 18, 'bis Ende Mai ist Frühtracht');
+  assertEq(e.sommertracht, 13.5, 'Juni und Juli sind Sommertracht');
+  assertEq(e.spaettracht, 4, 'danach Spättracht');
+  assertEq(e.gesamt, 35.5, 'fremdes Volk, anderes Jahr und Stand-Ernten zählen nicht mit');
+});
+
+test('GdeB-Automatik: Wetter zum Bewertungstag, sonst der nächste Eintrag', (w) => {
+  const wetter = [
+    { standId: 's1', datum: '2026-06-18', tempC: 24, bemerkung: 'sonnig' },
+    { standId: 's1', datum: '2026-06-10', tempC: 15, bemerkung: 'Regen' },
+    { standId: 's2', datum: '2026-06-18', tempC: 9, bemerkung: 'kalt' },
+  ];
+  assertEq(w.wetterZumTag(wetter, 's1', '2026-06-18').tempC, 24, 'genau der Tag');
+  assertEq(w.wetterZumTag(wetter, 's1', '2026-06-19').tempC, 24, 'ein Tag daneben zählt noch');
+  assertEq(w.wetterZumTag(wetter, 's1', '2026-06-25'), null, 'eine Woche später nicht mehr');
+  assertEq(w.wetterZumTag(wetter, 's1', '2026-06-12').bemerkung, 'Regen', 'der nächstgelegene gewinnt');
+  assertEq(w.wetterZumTag(wetter, null, '2026-06-18'), null, 'ohne Stand kein Wetter');
 });
