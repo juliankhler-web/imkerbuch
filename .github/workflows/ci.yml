@@ -104,3 +104,37 @@ jobs:
             exit 1
           fi
           echo "In Ordnung."
+
+  weitere-browser:
+    name: Zusätzliche Browser (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Update-Prüfung startet mit dem tatsächlichen v1.64-Commit.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Isolierte Browser-Testumgebung bereitstellen
+        run: |
+          rm -f docs/pruefung-v165/${{ matrix.browser }}-*.json
+          npm install --no-save --package-lock=false playwright@1.62.1
+          npx playwright install --with-deps ${{ matrix.browser }}
+      - name: Vollständige Suite
+        run: node tools/release-pruefung.mjs ${{ matrix.browser }} suite
+      - name: Versionswechsel und alte Sicherungen
+        if: always()
+        run: node tools/release-pruefung.mjs ${{ matrix.browser }} update
+      - name: Prüfergebnisse sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.browser }}
+          path: docs/pruefung-v165/${{ matrix.browser }}-*.json
+          if-no-files-found: warn

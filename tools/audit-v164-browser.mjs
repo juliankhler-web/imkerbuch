@@ -35,7 +35,7 @@ function serverStarten() {
       const pfad = decodeURIComponent(new URL(req.url, 'http://x').pathname);
       const datei = join(WURZEL, normalize(pfad.endsWith('/') ? pfad+'index.html' : pfad).replace(/^(\.\.[/\\])+/, ''));
       if (!datei.startsWith(WURZEL)) { res.writeHead(403).end(); return; }
-      let inhalt = await readFile(datei); if (poisonInstall && datei.endsWith('service-worker.js')) inhalt = Buffer.from(inhalt.toString().replace('imkerbuch-v176', 'imkerbuch-v176-auditinstall'));
+      let inhalt = await readFile(datei); if (poisonInstall && datei.endsWith('service-worker.js')) inhalt = Buffer.from(inhalt.toString().replace('imkerbuch-v177', 'imkerbuch-v177-auditinstall'));
       res.writeHead(200, { 'Content-Type': MIME[extname(datei)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(inhalt);
     } catch (e) { console.error('Serverdatei', req.url, e.message); res.writeHead(404).end('nicht gefunden'); }
@@ -159,7 +159,7 @@ async function main() {
  await cdp.send('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
  await cdp.js(`const reg=await navigator.serviceWorker.getRegistration();await reg.update();return true;`);
  await schlaf(2000);
- results.push({id:'B8',name:'Neue Installation prüft die App-Hülle ebenfalls',...(await cdp.js(`const keys=await caches.keys();const c=keys.includes('imkerbuch-v176-auditinstall')?await caches.open('imkerbuch-v176-auditinstall'):null;const r=c?await c.match('./index.html'):null;return {cachedMaintenance:r?(await r.text()).includes('Audit-Wartungsseite'):null,keys};`))});
+ results.push({id:'B8',name:'Neue Installation prüft die App-Hülle ebenfalls',...(await cdp.js(`const keys=await caches.keys();const c=keys.includes('imkerbuch-v177-auditinstall')?await caches.open('imkerbuch-v177-auditinstall'):null;const r=c?await c.match('./index.html'):null;return {cachedMaintenance:r?(await r.text()).includes('Audit-Wartungsseite'):null,keys};`))});
  offlineServer=true;
  await cdp.send('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:0,uploadThroughput:0});
  await cdp.js('window.appReady=false');await cdp.send('Page.navigate',{url:base+'/index.html'});await ready();

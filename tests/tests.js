@@ -5374,14 +5374,16 @@ test('Zugang: Art steht oben, bedingte Felder nehmen die ganze Breite', async (w
     assert(!m.el.querySelector('[data-field="art"]').classList.contains('halb'), 'die Art nimmt die ganze Breite');
     assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'Datum und Menge bilden das Paar');
     // Wechsel auf eine Art ohne Preis darf nichts verschieben
-    const obenVorher = Math.round(kasten('datum').top);
+    const relativOben = () => Math.round(kasten('datum').top - m.el.querySelector('.modal-body').getBoundingClientRect().top);
+    const obenVorher = relativOben();
     const sel = m.el.querySelector('#f-art');
     sel.value = 'Eigenproduktion'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 150));
     assert(m.el.querySelector('[data-field="preis"]').classList.contains('hidden'), 'ohne Einkauf kein Preisfeld');
     /* Toleranz von 2 px: ein Unterpixel-Unterschied ist kein Sprung – geprüft
        wird, dass die Zeile nicht umbricht, nicht dass sie auf das Pixel liegt. */
-    nah(Math.round(kasten('datum').top), obenVorher, 2, 'Datum und Menge bleiben, wo sie waren');
+    // Der ganze Dialog darf sich bei anderer Höhe neu zentrieren. Entscheidend ist die Zeile innerhalb des Dialogs.
+    nah(relativOben(), obenVorher, 2, 'Datum und Menge bleiben innerhalb des Dialogs, wo sie waren');
     assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'und bleiben ein Paar');
   } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });

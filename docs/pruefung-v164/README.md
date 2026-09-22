@@ -4,6 +4,8 @@ Zuerst [CLAUDE-ABSCHLUSS-2026-09-22.md](CLAUDE-ABSCHLUSS-2026-09-22.md) lesen. D
 
 Aktuell: **471/471 reguläre Tests**, **48/48 ursprüngliche Gegenproben**, **3/3 Anschlussgegenproben**. Die zunächst neu gefundenen F20–F22 sind ebenfalls repariert. Zwei echte Fenster, Neustart und Offline-Update-Abbruch wurden zusätzlich geprüft. **Noch keine Produktivfreigabe und keine Zusicherung für sämtliche alten Sicherungen oder Geräte.**
 
+Neuere Release-Prüfung: [v1.65 und Push-Empfehlung](../pruefung-v165/CLAUDE-RELEASEPRUEFUNG-v1.65.md).
+
 ## Unterlagen
 
 - [Aktuelle Claude-Übergabe](CLAUDE-ABSCHLUSS-2026-09-22.md): kompakter Einstieg und endgültiger Stand dieser Reparaturrunde.

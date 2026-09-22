@@ -94,8 +94,10 @@ async function main() {
  for(let i=0;i<200;i++){if(await cdp.js('return !!window.appReady'))break;await schlaf(100);}
  const script=await readFile(new URL(ERWEITERT ? './audit-v164-neufunde.js' : './audit-v164-cases.js',import.meta.url),'utf8');
  const result=await cdp.js(script);
- const out={version:'1.64',browser:browserKennung,datum:new Date().toISOString(),...result};
- await writeFile(new URL('../docs/pruefung-v164/'+(ERWEITERT?'neufunde-reparatur-results.json':'abschluss-regression-results.json'),import.meta.url),JSON.stringify(out,null,2));
+ const out={version:(await readFile(join(WURZEL,'index.html'),'utf8')).match(/const APP_VERSION = '([^']+)'/)[1],browser:browserKennung,datum:new Date().toISOString(),...result};
+ const reportDir=new URL('../docs/pruefung-v'+out.version.replaceAll('.','')+'/',import.meta.url);
+ await mkdir(reportDir,{recursive:true});
+ await writeFile(new URL(ERWEITERT?'neufunde-reparatur-results.json':'abschluss-regression-results.json',reportDir),JSON.stringify(out,null,2));
  console.log(JSON.stringify(out,null,2));
  }finally{chrome.kill();srv.close();}
  process.exit(0);
