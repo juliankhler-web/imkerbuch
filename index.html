@@ -1928,26 +1928,74 @@ const DB = {
     await this.del(store, id);
   },
   async trashRestore(trashId) {
-    const t = await this.get('papierkorb', trashId);
-    if (!t) return null;
-    t.daten.lastModified = U.nowIso(); // beim Merge gewinnt der wiederhergestellte Stand
-    /* Wiederherstellen ist EIN Vorgang: Datensatz zurück, Papierkorb-Eintrag
-       weg, und der beim Löschen zurückgebuchte Materialabzug wieder abgezogen.
-       Vorher liefen die drei Teile getrennt – ein Fehler beim letzten ließ
-       Datensatz und Lagerbestand auseinanderlaufen. */
-    const abzug = (t.daten && t.daten.verbrauchAbzug) || [];
-    const ops = [{ op: 'put', store: t.store, obj: t.daten, keepStamp: true },
-      { op: 'del', store: 'papierkorb', id: trashId }];
-    for (const a of abzug) {
-      const pos = await this.get('inventar', a.inventarId);
-      if (!pos) continue;
-      // Gerechnet wird wie in verbrauchAbziehen – Stück ganzzahlig, alles andere auf Gramm/Milliliter genau.
-      const nachher = Math.max(0, verbrauchBestand(pos) - Math.max(0, U.zahl(a.menge)));
-      pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
-      ops.push({ op: 'put', store: 'inventar', obj: pos });
+    // Vorab nur den Transaktionsumfang bestimmen; maßgeblich ist der erneute
+    // Lesezugriff INNERHALB der Schreibtransaktion.
+    const vorab = await this.get('papierkorb', trashId);
+    if (!vorab) return null;
+    if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
+      throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
-    await this.schreibeAlles(ops);
-    return t;
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([...new Set(['papierkorb', 'inventar', vorab.store])], 'readwrite');
+      let ergebnis = null, ursache = null;
+      tx.oncomplete = () => {
+        if (ergebnis) window._changedSinceBackup = true;
+        resolve(ergebnis);
+      };
+      tx.onerror = () => { ursache = ursache || tx.error; };
+      tx.onabort = () => reject(ursache || tx.error || new Error('Wiederherstellen abgebrochen – nichts wurde geändert.'));
+      const schritt = (fn) => () => {
+        try { fn(); }
+        catch (e) { ursache = e; tx.abort(); }
+      };
+      const lesen = tx.objectStore('papierkorb').get(trashId);
+      lesen.onsuccess = schritt(() => {
+        const t = lesen.result;
+        if (!t) return; // bereits in einem anderen Fenster wiederhergestellt
+        if (t.store !== vorab.store || !t.daten || !t.daten.id) {
+          throw new Error('Der Papierkorb-Eintrag wurde geändert oder ist beschädigt. Bitte die Ansicht neu öffnen.');
+        }
+        const ziel = tx.objectStore(t.store);
+        const vorhanden = ziel.get(t.daten.id);
+        vorhanden.onsuccess = schritt(() => {
+          if (vorhanden.result) throw new Error('Ein Datensatz mit dieser Kennung ist bereits vorhanden. Er wurde nicht überschrieben.');
+          const abzug = t.daten.verbrauchAbzug || [];
+          if (!Array.isArray(abzug)) throw new Error('Der gespeicherte Materialabzug ist beschädigt. Der Eintrag bleibt im Papierkorb.');
+          const material = tx.objectStore('inventar').getAll();
+          material.onsuccess = schritt(() => {
+            const posten = new Map(material.result.map((p) => [p.id, p]));
+            const mengen = new Map();
+            for (const a of abzug) {
+              const menge = Number(a && a.menge);
+              if (!a || !Number.isFinite(menge) || menge < 0) throw new Error('Der gespeicherte Materialabzug enthält eine ungültige Menge. Nichts wurde geändert.');
+              if (menge === 0) continue;
+              mengen.set(a.inventarId, (mengen.get(a.inventarId) || 0) + menge);
+            }
+            const geaendert = [];
+            for (const [id, menge] of mengen) {
+              const pos = posten.get(id);
+              if (!pos) throw new Error('Ein benötigter Materialposten fehlt. Bitte zuerst den Materialposten wiederherstellen; der Eintrag bleibt im Papierkorb.');
+              const bestand = verbrauchBestand(pos);
+              if (!Number.isFinite(menge) || !Number.isFinite(bestand) || bestand < menge - 0.0000001) {
+                throw new Error(`Material reicht nicht: ${pos.bezeichnung || 'Materialposten'} – ${U.fmtNum(menge)} ${verbrauchEinheit(pos)} benötigt, ${U.fmtNum(bestand)} vorhanden. Bestand prüfen; der Eintrag bleibt im Papierkorb.`);
+              }
+              const nachher = Math.max(0, bestand - menge);
+              pos.stueckzahl = verbrauchEinheit(pos) === 'Stück' ? Math.round(nachher) : Math.round(nachher * 1000) / 1000;
+              pos.lastModified = U.nowIso();
+              geaendert.push(pos);
+            }
+            // Alle Reads und Prüfungen sind Teil derselben Transaktion.
+            // Kein await und keine Rückfrage zwischen diesen Aufträgen.
+            for (const pos of geaendert) tx.objectStore('inventar').put(pos);
+            t.daten.lastModified = U.nowIso();
+            ziel.put(t.daten);
+            tx.objectStore('papierkorb').delete(trashId);
+            ergebnis = t;
+          });
+        });
+      });
+    });
   },
   /** Papierkorb-Einträge älter als 30 Tage endgültig entfernen */
   async purgeTrash() {
@@ -11929,7 +11977,14 @@ Views.papierkorb = {
         </div>`).join('') + `</div>` : emptyState('trash', 'Der Papierkorb ist leer.')) + `</div>`;
     main.addEventListener('click', async (e) => {
       const rs = e.target.closest('[data-restore]');
-      if (rs) { await DB.trashRestore(rs.dataset.restore); UI.toast('Wiederhergestellt'); renderRoute(); return; }
+      if (rs) {
+        try {
+          const wiederhergestellt = await DB.trashRestore(rs.dataset.restore);
+          UI.toast(wiederhergestellt ? 'Wiederhergestellt' : 'Der Eintrag ist nicht mehr im Papierkorb.');
+          renderRoute();
+        } catch (err) { UI.toast(err.message || 'Wiederherstellen fehlgeschlagen – bitte erneut versuchen.', 'err'); }
+        return;
+      }
       const kl = e.target.closest('[data-kill]');
       if (kl && (await UI.confirm({ title: 'Endgültig löschen?', text: 'Dieser Eintrag kann danach NICHT mehr wiederhergestellt werden.', confirmText: 'Endgültig löschen' }))) { await DB.del('papierkorb', kl.dataset.kill); renderRoute(); }
     });

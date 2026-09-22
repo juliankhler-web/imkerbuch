@@ -8016,3 +8016,81 @@ test('F07: Marktwarenkorb bewahrt knappe, leere und gelöschte Positionen sichtb
     await w.DB.del('abfuellungen', 'f07-knapp'); await w.DB.del('abfuellungen', 'f07-leer');
   }
 });
+
+/* F05/F06: Papierkorb und Bestände bilden eine gemeinsame Transaktion. */
+async function restoreTestDaten(w, abzug, bestaende) {
+  for (const [id, n] of Object.entries(bestaende)) await w.DB.put('inventar', { id, typ: 'verbrauch', einheit: 'kg', stueckzahl: n, bezeichnung: id });
+  await w.DB.put('papierkorb', { id: 'restore-test', store: 'fuetterungen', daten: { id: 'restore-futter', mengeKg: 15, verbrauchAbzug: abzug } });
+}
+async function restoreTestAufraeumen(w) {
+  for (const id of ['restore-a', 'restore-b']) await w.DB.del('inventar', id);
+  await w.DB.del('fuetterungen', 'restore-futter'); await w.DB.del('papierkorb', 'restore-test');
+}
+test('F06: Wiederherstellung summiert wiederholte Abzüge desselben Postens', async (w) => {
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-a', menge: 5 }], { 'restore-a': 30 });
+    await w.DB.trashRestore('restore-test');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 15, '30−10−5');
+    const f = await w.DB.get('fuetterungen', 'restore-futter');
+    assertEq(f.verbrauchAbzug.length, 2, 'ursprüngliche Buchungsnachweise erhalten');
+    assertEq(await w.DB.get('papierkorb', 'restore-test'), undefined, 'Quelle erst bei erfolgreicher Wiederherstellung entfernt');
+    await w.verbrauchZurueckbuchen(f.verbrauchAbzug, { pruefen: false });
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 30, 'anschließende Rückgabe stimmt');
+  } finally { await restoreTestAufraeumen(w); }
+});
+for (const [name, abzug, bestaende] of [
+  ['zu wenig Material', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30, 'restore-b': 5 }],
+  ['Materialposten fehlt', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30 }],
+  ['ungültige Menge', [{ inventarId: 'restore-a', menge: 'kein Betrag' }], { 'restore-a': 30 }],
+]) test('F05: Wiederherstellung abgelehnt bei ' + name, async (w) => {
+  try {
+    await restoreTestDaten(w, abzug, bestaende);
+    const vorher = await w.DB.get('papierkorb', 'restore-test'); let fehler;
+    try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(fehler, 'Fehler wird gemeldet');
+    assertEq(await w.DB.get('papierkorb', 'restore-test'), vorher, 'vollständiger Originaleintrag bleibt erhalten');
+    assertEq(await w.DB.get('fuetterungen', 'restore-futter'), undefined, 'kein halber wiederhergestellter Datensatz');
+    for (const [id, n] of Object.entries(bestaende)) assertEq((await w.DB.get('inventar', id)).stueckzahl, n, 'Bestand unverändert');
+  } finally { await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: vorhandener Datensatz wird beim Wiederherstellen nicht überschrieben', async (w) => {
+  try {
+    await restoreTestDaten(w, [], {});
+    await w.DB.put('fuetterungen', { id: 'restore-futter', mengeKg: 99 });
+    let fehler; try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(fehler, 'Konflikt gemeldet');
+    assertEq((await w.DB.get('fuetterungen', 'restore-futter')).mengeKg, 99, 'vorhandener Stand erhalten');
+    assert(await w.DB.get('papierkorb', 'restore-test'), 'alte Fassung bleibt im Papierkorb');
+  } finally { await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: zwei Datenbankverbindungen stellen nur einmal wieder her', async (w) => {
+  let zweite;
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 15 }], { 'restore-a': 30 });
+    zweite = await new Promise((res, rej) => { const r = w.indexedDB.open(w.DB.NAME, w.DB.VER); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const peer = Object.create(w.DB); peer._db = zweite;
+    const resultate = await Promise.all([w.DB.trashRestore('restore-test'), peer.trashRestore('restore-test')]);
+    assertEq(resultate.filter(Boolean).length, 1, 'nur ein erfolgreicher Vorgang');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 15, 'nur ein Abzug');
+    assert(await w.DB.get('fuetterungen', 'restore-futter'), 'Datensatz wieder da');
+  } finally { if (zweite) zweite.close(); await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: Abbruch nach Materialauftrag rollt alle beteiligten Speicher zurück', async (w) => {
+  const original = w.IDBObjectStore.prototype.put;
+  let ausgeloest = false;
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 15 }], { 'restore-a': 30 });
+    w.IDBObjectStore.prototype.put = function (obj, ...args) {
+      const rq = original.call(this, obj, ...args);
+      if (this.name === 'inventar' && obj.id === 'restore-a') {
+        const tx = this.transaction; rq.addEventListener('success', () => { ausgeloest = true; tx.abort(); });
+      }
+      return rq;
+    };
+    let fehler; try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(ausgeloest && fehler, 'echter Transaktionsabbruch gemeldet');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 30, 'Material vollständig zurückgerollt');
+    assertEq(await w.DB.get('fuetterungen', 'restore-futter'), undefined, 'Ziel nicht teilweise gespeichert');
+    assert(await w.DB.get('papierkorb', 'restore-test'), 'Quelle bleibt vorhanden');
+  } finally { w.IDBObjectStore.prototype.put = original; await restoreTestAufraeumen(w); }
+});

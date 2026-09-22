@@ -205,8 +205,9 @@ await test('R2-return','Tatsächlich abgezogen bei leerem Materiallager',async()
 await test('RESTORE-short','Wiederherstellen bei knappem Lager erzeugt keine Mengen',async()=>{
  await DB.put('inventar',{id:'s',typ:'verbrauch',einheit:'kg',stueckzahl:5});
  await DB.put('papierkorb',{id:'t',store:'fuetterungen',daten:{id:'f',verbrauchAbzug:[{inventarId:'s',menge:15}]}});
- await DB.trashRestore('t');const f=await DB.get('fuetterungen','f');await verbrauchZurueckbuchen(f.verbrauchAbzug,{pruefen:false});
- const stock=(await DB.get('inventar','s')).stueckzahl;return check(stock===5,{expected:5,actual:stock});
+ let error;try{await DB.trashRestore('t');}catch(e){error=e.message;}
+ const stock=(await DB.get('inventar','s')).stueckzahl, f=await DB.get('fuetterungen','f'), trash=await DB.get('papierkorb','t');
+ return check(!!error&&stock===5&&!f&&!!trash,{expected:'Wiederherstellung abgelehnt, Bestand 5, Quelle erhalten',actual:stock,error,restored:!!f,trashPreserved:!!trash});
 });
 await test('RESTORE-repeat','Mehrere Abzüge desselben Postens werden summiert',async()=>{
  await DB.put('inventar',{id:'s',typ:'verbrauch',einheit:'Stück',stueckzahl:30});

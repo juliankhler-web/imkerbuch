@@ -31,3 +31,7 @@ Vollständige Suite nach der Speicherkorrektur: **430/430 grün**, Chrome 153.0.
 ## 22.09.2026 – Material, Warenkorb und Bildlöschung
 
 F04, F07 und F15 für die bestätigten Fälle korrigiert. Details, Auswirkungen auf Altdaten und offene Grenzen stehen in [Claude-Änderungsübergabe](CLAUDE-AENDERUNGEN-2026-09-22.md). Vollständige Suite: **435/435 grün**. Zusätzliche Gegenproben: **37 bestanden, 11 verletzte Erwartungen**, keine technischen Abbrüche. Keine Veröffentlichung.
+
+## 22.09.2026 – Papierkorb und Materialbestand
+
+F05/F06 korrigiert: gemeinsamer Lese-/Schreibvorgang in einer Transaktion; knapper oder fehlender Materialbestand bricht vollständig ab; doppelte Materialzeilen werden summiert; vorhandene Ziel-IDs werden nicht überschrieben. Zwei getrennte Datenbankverbindungen und Rollback nach Materialauftrag getestet. **442/442 Tests grün**, zusätzliche Gegenproben **39 bestanden, 9 verletzte Erwartungen**. Details und bewusst geänderte Fehlerregel: [Claude-Papierkorb-Übergabe](CLAUDE-PAPIERKORB-2026-09-22.md).
