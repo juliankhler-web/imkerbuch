@@ -76,6 +76,11 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-22 (v1.68/1.69)**: **Zwei Fehler aus Julians Test am GdeB-Modul** und eine Beschriftung.
+  (1) Die **Bewertungs-Runde** listete nur Völker mit bereits zugeordneter Königin – wer seine Königinnen nicht einzeln erfasst hat, bekam eine leere Liste. Jetzt stehen alle aktiven Völker zur Wahl; für die ohne erfasste Königin wird beim Weitergehen eine angelegt und zugeordnet, Jahrgang wird **abgefragt statt geraten**, Kennung fortlaufend vergeben.
+  (2) Neu **`halbBreit`** im Formular-Raster: nebeneinander nur oberhalb 620 px, darunter volle Breite. Datum + Temperatur sahen verschoben aus (nur eines der beiden hat einen Hinweistext), und auf dem Handy war „– nicht bewertet –" in den Auswahlmenüs abgeschnitten. Kurze Paare (Menge + Einheit) bleiben bei `halb`.
+  (3) Schritt 1 von zwei heißt jetzt **Weiter** statt „Speichern" – bei Bewertungs-Runde und Sammel-Umweiseln.
+
 - **2026-09-22 (v1.67)**: **Königinnen-Bewertung nach der GdeB-Stockkarte.** Quelle: die Stockkarte der Gemeinschaft der europäischen Buckfast-Imker (von Julian als PDF geliefert) plus die Merkmalsbeschreibung auf bienen-ingo.de.
   15 Merkmale in fünf Gruppen (Vitalität, Verhalten, Ertrag, Wabenbau, Varroa), **Skala 1–6** (1 sehr schlecht · 3 schlechter Schnitt · 4 guter Schnitt · 6 Optimum), Mittelwert und die **10-von-13-Regel** für Zuchtvölker. VSH+ und HYG+ zählen als Zusatzmerkmale außerhalb der 13.
   Eine Bewertung ist ein **datierter Eintrag** (`koeniginnen.bewertungen[]`) – eine Spalte der Papierkarte. `setBewertung` **ergänzt** einen Eintrag desselben Tages, statt ihn zu ersetzen: Die Bewertungs-Runde am Stand liefert sechs Merkmale, Ertrag und Varroa kommen später in derselben Spalte dazu.

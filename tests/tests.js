@@ -8130,13 +8130,16 @@ test('Bewertungs-Runde: Völker ohne erfasste Königin sind wählbar', async (w)
     assert(zeile, 'das Volk ohne Königin steht zur Wahl');
     assert(zeile.textContent.includes('noch keine Königin erfasst'), 'und ist als solches gekennzeichnet');
     assert(m.querySelector('#f-neuJahrgang'), 'der Jahrgang für neu angelegte Königinnen wird abgefragt, nicht geraten');
+    // Schritt 1 von zwei: der Knopf führt weiter, gespeichert wird noch nichts
+    const weiter = [...m.querySelectorAll('.modal-foot button')].find((b) => /weiter/i.test(b.textContent));
+    assert(weiter, 'der Knopf heißt „Weiter", nicht „Speichern"');
 
     // Auswählen und weitergehen: die App legt die Königin an und ordnet sie zu
     const box = zeile.querySelector('input[type=checkbox]');
     box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true }));
     m.querySelector('#f-neuJahrgang').value = '2026';
     const vorher = (await w.DB.getAll('koeniginnen')).length;
-    [...m.querySelectorAll('button')].find((b) => /speichern/i.test(b.textContent)).click();
+    weiter.click();
     await new Promise((r) => setTimeout(r, 500));
     const nachher = (await w.DB.getAll('koeniginnen')).length;
     assertEq(nachher, vorher + 1, 'genau eine Königin ist dazugekommen');
