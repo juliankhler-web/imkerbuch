@@ -1,47 +1,34 @@
-# Prüfstand v1.64 – Übergabe für die Weiterentwicklung
+# Prüfstand v1.64 – aktuelle Übergabe
 
-Der ursprüngliche Zweig `codex/v164-pruefung` enthält Prüfunterlagen und Diagnosetests ohne Änderung der Anwendung. Auf `codex/v164-sicherheitskorrekturen` werden die Reparaturen getrennt weitergeführt: siehe [aktueller Reparaturstatus](REPARATURSTATUS.md). **Noch keine Freigabe für ein Update.** Das Originaldesign bleibt erhalten; die früheren Bedienentwürfe wurden verworfen.
+Zuerst [CLAUDE-ABSCHLUSS-2026-09-22.md](CLAUDE-ABSCHLUSS-2026-09-22.md) lesen. Dort stehen alle gruppierten Befunde, aktuelle Korrekturen, Prüfnachweise und die noch ausstehende Release-Prüfung. Originaldesign unverändert.
 
-Aktuelle Etappe: [Transaktionen und Sicherungen](CLAUDE-TRANSAKTIONEN-2026-09-22.md), 464/464 Tests und 48/48 ursprüngliche Gegenproben. Drei neue Fälle F20–F22 sind separat nachgewiesen und noch offen.
+Aktuell: **471/471 reguläre Tests**, **48/48 ursprüngliche Gegenproben**, **3/3 Anschlussgegenproben**. Die zunächst neu gefundenen F20–F22 sind ebenfalls repariert. Zwei echte Fenster, Neustart und Offline-Update-Abbruch wurden zusätzlich geprüft. **Noch keine Produktivfreigabe und keine Zusicherung für sämtliche alten Sicherungen oder Geräte.**
 
-## Zuerst lesen
+## Unterlagen
 
-1. [Datenerhalt und Freigabe](DATENERHALT-UND-FREIGABE.md): bestehende Nutzer und alte Sicherungen haben Vorrang.
-2. [Prüfbericht](PRUEFBERICHT-v1.64.md): Einzelabnahme der bisherigen Funde, elf Reparaturen und 19 gruppierte offene Punkte mit Nachweisen und Lösungsvorschlägen.
-3. [Bedienentwurf](bedienentwurf.html): eigenständige HTML-Datei mit künstlichen Daten. Wischaktionen und Rückgängig sind nur ein Bedienbeispiel, noch keine Funktion der App.
+- [Aktuelle Claude-Übergabe](CLAUDE-ABSCHLUSS-2026-09-22.md): kompakter Einstieg und endgültiger Stand dieser Reparaturrunde.
+- [Datenerhalt und Freigabe](DATENERHALT-UND-FREIGABE.md): Nutzerdaten und alte Sicherungen haben Vorrang.
+- [Historischer Prüfbericht](PRUEFBERICHT-v1.64.md): Einzelabnahme der Altberichte und elf Reparaturen sowie ursprüngliche Befunde F01–F19.
+- [Verlauf der Reparaturen](REPARATURSTATUS.md): Zwischenstände mit ihren jeweiligen Ergebnissen.
+- [Transaktionsetappe](CLAUDE-TRANSAKTIONEN-2026-09-22.md): Stand vor den Folgekorrekturen, einschließlich ursprünglicher Nachweise F20–F22.
+
+Die früheren Bedienentwürfe sind verworfen und keine Umsetzungsvorgabe. Kein grafischer Umbau wurde durchgeführt.
 
 ## Nachprüfen
 
-Voraussetzungen: Node.js 24 und Google Chrome oder Chromium. Bei abweichendem Installationspfad die Umgebungsvariable `CHROME_BIN` setzen. Im Repository-Stamm ausführen:
+Voraussetzungen: Node.js 24 und Chrome/Chromium; bei abweichendem Browserpfad `CHROME_BIN` setzen. Im Repository-Stamm:
 
 ```sh
 node tools/test-run.mjs
 node tools/audit-v164.mjs
+node tools/audit-v164.mjs --neufunde --port=8970
 node tools/audit-v164-browser.mjs
 ```
 
-Die beiden Audit-Läufe verwenden eigene Browserprofile und lokale Adressen, künstliche Daten und keine bestehende Betriebsdatenbank. Nicht gleichzeitig mehrere Exemplare desselben Läufers starten. Die Fall-Datei `tools/audit-v164-cases.js` wird im Browser innerhalb einer asynchronen Funktion ausgeführt und ist kein eigenständig startbares Node-Skript.
+Nur isolierte Testdatenbanken und Browserprofile verwenden. Nicht mehrere Exemplare desselben Läufers auf demselben Port starten. Audit-Läufe: Exit 0 bedeutet vollständiger Lauf; zusätzlich JSON-Zähler und Einzelwerte prüfen. Ursprüngliche Protokolle bleiben erhalten; aktuelle Protokolle werden bei Wiederholung ersetzt.
 
-Die Grundsuite meldete 412/412 grüne Tests. Die zusätzlichen 48 Gegenproben ergaben 22 bestandene und 26 verletzte Erwartungen ohne technische Abbrüche. Mehrere Gegenproben betreffen denselben Fehler. Die JSON-Protokolle dokumentieren die Ergebnisse; beim erneuten Ausführen werden sie überschrieben.
+## GitHub-Vorbereitung
 
-**Exit 0 der Audit-Läufe bedeutet nur, dass der Diagnoselauf abgeschlossen wurde.** Das ist kein grünes Freigabesignal. Für die spätere Übernahme als verpflichtende Regressionstests müssen die erwarteten Ergebnisse ausgewertet und die nachgewiesenen Fehler behoben werden. Der Browserlauf simuliert Wartungsantworten und eine neue Cache-Version ausschließlich in seinem lokalen Testserver.
+Aktueller Arbeitszweig: `codex/v164-sicherheitskorrekturen`, Basis `46e2923` (v1.64). Der getrennte historische Prüfzweig heißt `codex/v164-pruefung`. Beim Anlegen lag die lokale Basishistorie acht Commits vor dem lokal gespeicherten `origin/main`; kein erneuter Abgleich mit GitHub erfolgte.
 
-## GitHub vorbereiten
-
-Zweig: `codex/v164-pruefung`. Ausgangspunkt: `46e2923` (v1.64). Beim Anlegen lag dieser lokale Stand acht Commits vor dem lokal gespeicherten Stand von `origin/main`; es wurde kein Abgleich mit GitHub durchgeführt. Ein Push dieses Zweigs enthält auch diese Ausgangshistorie.
-
-Im Checkout dieses Zweigs kann der Nutzer anschließend veröffentlichen:
-
-```sh
-git push -u origin codex/v164-pruefung
-```
-
-Es wurde noch nichts gepusht und nichts nach `main` übernommen. Ein Pull Request sollte zunächst als Prüf- und Übergabezweig behandelt werden. Repository-Einstellungen für automatische Bereitstellung vor einem Push selbst kontrollieren. Keine privaten Sicherungsdateien oder Browserprofile hinzufügen.
-
-## Reihenfolge für die nächste Arbeit
-
-1. Sicherheitslücken und unteilbare Buchungen reparieren, mit den Gegenproben belegen.
-2. Alte Sicherungsformate, Migrationen mit Abbruch und parallele Fenster gemäß Datenerhalt-Vorgabe prüfen. Fehlende historische Beispiele ausdrücklich dokumentieren.
-3. Erst danach Layout und Wischaktionen umsetzen; fachliche Lösch-, Rückbuchungs- und Stornoregeln beibehalten.
-
-Der Bericht trennt bestätigte Befunde, bewusst akzeptierte Einschränkungen und noch nicht nachgewiesene Kompatibilität. Auch eine vollständig grüne Testsuite ersetzt diese Grenzen nicht.
+Der Reparaturzweig enthält Code, Tests, künstliche Fixtures und Dokumentation. Browserprofile, private Sicherungen und Testartefakte unter `tools/coverage` sind ausgeschlossen. Es wurde nichts gepusht oder in main übernommen. Vor Veröffentlichung Versions-/Cache-Namen und den tatsächlichen Updatepfad gemäß Abschlussübergabe prüfen.

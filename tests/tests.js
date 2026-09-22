@@ -8293,3 +8293,67 @@ for (const version of ['1.61', '1.62', '1.63', '1.64']) test(`Sicherung v${versi
   assertEq(erneut.stores, nachMerge.stores, 'zweiter Merge ändert keine Werte und erzeugt keine Duplikate');
   for (const store of w.DB.DATA_STORES) assertEq(erneut.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), mitBlob.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), `${store}: alle Kennungen erhalten`);
 }));
+
+test('F20: Verkauf und Kasse werden aus jedem Papierkorb-Einstieg gemeinsam wiederhergestellt', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:5});
+  await w.DB.put('abfuellungen',{id:'a',chargeId:'c',anzahl:10,bestand:10,gebindeG:500});
+  for (const einstieg of ['verkaeufe','kassenbuch']) {
+    const v=await w.verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});
+    await w.verkaufStornieren(v.id);
+    const t=(await w.DB.getAll('papierkorb')).find(t=>t.store===einstieg);
+    await Promise.all([w.DB.trashRestore(t.id),w.DB.trashRestore(t.id)]);
+    assertEq((await w.DB.get('abfuellungen','a')).bestand,8);assert(await w.DB.get('verkaeufe',v.id));assertEq((await w.DB.get('kassenbuch',v.kassenbuchId)).betrag,10);
+    assertEq((await w.DB.getAll('papierkorb')).length,0);
+    await w.verkaufStornieren(v.id);for(const x of await w.DB.getAll('papierkorb'))await w.DB.del('papierkorb',x.id);
+  }
+}));
+test('F20: Fehlbestand und Transaktionsabbruch erhalten Verkauf und Kasse im Papierkorb', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('abfuellungen',{id:'a',anzahl:10,bestand:10,gebindeG:500});
+  const v=await w.verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});await w.verkaufStornieren(v.id);
+  const t=(await w.DB.getAll('papierkorb')).find(t=>t.store==='verkaeufe');
+  await mitAbbruch(w,'verkaeufe',async()=>{let error;try{await w.DB.trashRestore(t.id);}catch(e){error=e;}assert(error);});
+  assertEq((await w.DB.get('abfuellungen','a')).bestand,10);assertEq((await w.DB.getAll('papierkorb')).length,2);assertEq(await w.DB.get('verkaeufe',v.id),undefined);
+  await w.DB.put('abfuellungen',{id:'a',anzahl:10,bestand:1,gebindeG:500});
+  let error;try{await w.DB.trashRestore(t.id);}catch(e){error=e;}assert(error);assertEq((await w.DB.getAll('papierkorb')).length,2);assertEq((await w.DB.get('abfuellungen','a')).bestand,1);
+}));
+test('F21: Dateistand bestätigt keine spätere Änderung; Warnung überlebt erneutes Laden',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('staende',{id:'vorher',name:'Vor Sicherung'});const datei=await w.Backup.buildBlob();
+  await w.DB.put('staende',{id:'nachher',name:'Nach Sicherung'});await w.Backup.markExternal(datei);
+  assertEq(w._changedSinceBackup,true);assert(!JSON.parse(await datei.text()).stores.staende.some(r=>r.id==='nachher'));
+  w._changedSinceBackup=false;await w.S.load();assertEq(w._changedSinceBackup,true,'persistenter Vergleich nach Neustart');
+  const aktuell=await w.Backup.buildBlob();await w.Backup.markExternal(aktuell);assertEq(w._changedSinceBackup,false);
+  w._changedSinceBackup=true;await w.S.load();assertEq(w._changedSinceBackup,false);
+  const d=JSON.parse(await aktuell.text());assert(!d.stores.settings.some(r=>['_datenRevision','_gesicherteRevision'].includes(r.key)),'lokale Revisionen wandern nicht in fremde Geräte');
+}));
+test('F21: Zweite Verbindung, Löschung und abgebrochene Buchung ändern den Sicherungsstand korrekt',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('staende',{id:'s',name:'Stand'});await w.Backup.markExternal(await w.Backup.buildBlob());
+  const revision=await w.DB.get('settings','_datenRevision');
+  await mitAbbruch(w,'staende',async()=>{let error;try{await w.DB.put('staende',{id:'fehl',name:'Abbruch'});}catch(e){error=e;}assert(error);});
+  assertEq(await w.DB.get('settings','_datenRevision'),revision);assertEq(await w.Backup.leseAenderungsstand(),false);
+  const conn=await new Promise((res,rej)=>{const r=w.indexedDB.open(w.DB.NAME,w.DB.VER);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+  try{const peer=Object.create(w.DB);peer._db=conn;await peer.del('staende','s');}finally{conn.close();}
+  assertEq(await w.Backup.leseAenderungsstand(),true);assertEq(await w.DB.get('staende','s'),undefined);
+}));
+test('F22: Gleichzeitige Abfüllungen bleiben in der Charge, und Abbruch hinterlässt weder Glas noch Materialabzug',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  await w.DB.put('inventar',{id:'glas',typ:'verbrauch',einheit:'Stück',kategorie:'Glas',gebindeG:500,stueckzahl:30});
+  const v={chargeId:'c',datum:'2026-09-22',g_500:15,gl_500:'glas'};
+  await mitAbbruch(w,'abfuellungen',async()=>{let error;try{await w.abfuellungenAnlegen(v);}catch(e){error=e;}assert(error);});
+  assertEq((await w.DB.getAll('abfuellungen')).length,0);assertEq((await w.DB.get('inventar','glas')).stueckzahl,30);
+  const erg=await Promise.allSettled([w.abfuellungenAnlegen(v),w.abfuellungenAnlegen(v)]);
+  assertEq(erg.filter(x=>x.status==='fulfilled').length,1);assertEq((await w.DB.get('inventar','glas')).stueckzahl,15);assertEq((await w.DB.getAll('abfuellungen')).length,1);
+}));
+test('F22: Gemeinsame Deckel werden ohne Rundungsgewinn verteilt und beim Löschen vollständig zurückgegeben',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  await w.DB.put('inventar',{id:'deckel',typ:'verbrauch',einheit:'Stück',kategorie:'Deckel',stueckzahl:5});
+  const erg=await w.abfuellungenAnlegen({chargeId:'c',datum:'2026-09-22',g_250:2,g_500:1,gl_deckel:'deckel'});
+  assertEq((await w.DB.get('inventar','deckel')).stueckzahl,2);assertEq(erg.recs.reduce((s,r)=>s+r.verbrauchAbzug.reduce((s,a)=>s+a.menge,0),0),3);
+  for(const a of erg.recs)await w.loescheMitMaterial('abfuellungen',a);
+  assertEq((await w.DB.get('inventar','deckel')).stueckzahl,5);
+}));
+test('F22: Veraltete Abfüllkorrektur überschreibt keinen Verkauf',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  const erg=await w.abfuellungenAnlegen({chargeId:'c',datum:'2026-09-22',g_500:10});const a=erg.recs[0];
+  await w.verkaufErfassen({abfuellungId:a.id,anzahl:2,preisJeGlas:5});
+  let error;try{await w.abfuellungAendern(a,{...a,anzahl:12,bestand:12});}catch(e){error=e;}assert(error);assertEq((await w.DB.get('abfuellungen',a.id)).bestand,8);
+}));

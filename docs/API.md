@@ -103,6 +103,15 @@ Innerhalb des Callbacks keine `await`, Promises, Dialoge oder anderen Datenbanka
 Ein Fehler rollt alle Aufträge zurück; `wert` wird erst beim Commit geliefert.
 Der Callback darf nur die übergebenen Kopien bearbeiten, keinen UI- oder Einstellungszustand.
 
+Alle Schreibwege (`put`, `bulkPut`, `del`, `clear`) laufen über die gemeinsame
+Commit-Behandlung. Jede Transaktion mit Betriebsdaten führt `settings` mit und schreibt
+dort `_datenRevision`. `_gesicherteRevision` bezeichnet den Stand der tatsächlich
+exportierten Datei. Beide Schlüssel sind lokale Betriebsmetadaten: nicht exportieren,
+nicht aus fremden Sicherungen übernehmen. Reine Einstellungen und interne Snapshots
+lösen wie bisher keine neue Betriebsdatenrevision aus. `S.load` stellt den Vergleich
+nach einem Neustart wieder her; BroadcastChannel und Fokuswechsel aktualisieren ihn
+in weiteren Fenstern. Fehlgeschlagene Schreibvorgänge verändern keine Revision.
+
 **`DB.STORES`** listet alle 31 Stores. **`DB.DATA_STORES`** ist dieselbe Liste ohne
 `snapshots` und steuert Export, Import und Snapshot – ein neuer Store wird also
 automatisch mitgesichert, sobald er in `STORES` steht.
@@ -306,7 +315,7 @@ await Backup.restoreSnapshot(id)
 Backup.reminderInfo()      // { tage, stufe: 'ok'|'gelb'(ab 7 T)|'rot'(ab 14 T) }
 Backup.updateBanners()     // zeichnet #banners neu
 Backup.updateStand()       // zieht die Anzeigen auf den Seiten nach
-await Backup.markExternal()// merkt die Sicherung + beides oben
+await Backup.markExternal(blob) // bestätigt nur den Datenstand dieser von buildBlob erzeugten Datei
 await Backup.erinnerungAus()
 backupBadgeHtml()          // gemeinsame Badge für Dashboard und Einstellungen
 ```
@@ -685,3 +694,18 @@ ein Netz brauchen (Landbedeckung, Adresssuche, Update-Prüfung), bleiben bewusst
 Die CI (`.github/workflows/ci.yml`) fährt bei jedem Push dieselben Befehle und prüft
 zusätzlich, dass `APP_VERSION`, der `CHANGELOG`-Eintrag und die Version in
 `package.json` zusammenpassen.
+
+## 21. Atomare Fachvorgänge im Reparaturzweig
+
+- `verkaufsPapierkorbWiederherstellen(trashId)` stellt Verkauf und zugehörige Einnahme
+  gemeinsam wieder her, zieht die Menge von der Abfüllung ab und entfernt beide
+  Papierkorbeinträge. Einstieg über Verkauf oder Einnahme möglich; fehlender Gegenbeleg,
+  vorhandene Ziel-ID oder Fehlbestand führen zum vollständigen Abbruch.
+- `abfuellungenAnlegen(formwerte)` prüft Chargenkapazität und schreibt alle Gebindegrößen,
+  Materialbestände und gemerkten Verbräuche in einer Transaktion.
+- `abfuellungAendern(erwartet, formwerte)` prüft den aktuellen Datensatz auf Änderungen
+  seit Öffnen des Formulars. Verwaiste Altdaten dürfen verkleinert werden; für eine
+  Vergrößerung muss die Charge wiederhergestellt werden.
+- `pruefeAbfuellMenge` und `materialAbzugPlan` sind synchrone Planungshelfer auf den
+  Kopien der laufenden Transaktion. `materialAbzugPlan` wird auch beim Ändern von
+  Fütterungen benutzt. Beide Helfer selbst schreiben nichts in IndexedDB.

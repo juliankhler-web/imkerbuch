@@ -1,5 +1,7 @@
 # Reparaturstatus nach der Prüfung von v1.64
 
+Aktueller Gesamtstand: [Claude-Abschlussübergabe](CLAUDE-ABSCHLUSS-2026-09-22.md). Die Abschnitte darunter dokumentieren aufeinanderfolgende Zwischenstände.
+
 ## 22.09.2026 – erste Sicherheitskorrektur
 
 Arbeitszweig: `codex/v164-sicherheitskorrekturen`. Der historische Prüfbericht und seine ursprünglichen Protokolle bleiben als Ausgangsbefund erhalten.
@@ -39,3 +41,18 @@ F05/F06 korrigiert: gemeinsamer Lese-/Schreibvorgang in einer Transaktion; knapp
 ## 22.09.2026 – gemeinsame fachliche Transaktionen
 
 F02/F03/F08/F09/F10 und neue Rechenregeln F11–F13 umgesetzt; F14 lehnt ungültige IDs vollständig ab, F16 erhält eine ausdrückliche Zusatzetikett-Bestätigung, F17 prüft die Installation. **464/464 reguläre Tests, 48/48 ursprüngliche Gegenproben**. Alte Beispiele v1.61–v1.64 und Offline-Neuinstallation geprüft. **Neue F20–F22 offen**, daher keine Produktivfreigabe. Details: [Claude-Transaktionsübergabe](CLAUDE-TRANSAKTIONEN-2026-09-22.md).
+
+## 22.09.2026 – Anschlussfunde F20–F22 ebenfalls repariert
+
+Verkaufs-Restore stellt Verkauf, Kasse und Bestandsabzug gemeinsam wieder her.
+Sicherungen bestätigen nur den tatsächlich exportierten Datenstand; der Vergleich
+bleibt nach Neustart erhalten und wird in weiteren Fenstern aktualisiert. Abfüllung
+und Abfüllkorrektur prüfen die aktuelle Chargenkapazität innerhalb derselben
+Transaktion wie ihre Materialbuchungen. Gemeinsame Deckel werden ohne Bruchteile
+aufgeteilt; verwaiste Altdaten bleiben verkleinerbar.
+
+**471/471 reguläre Tests, 48/48 ursprüngliche und 3/3 neue Gegenproben bestanden.**
+Zusätzlich zwei echte Fenster und Neustart, 28 Ansichten, alle lokalen Bibliotheken
+offline und Schutz des bisherigen Caches vor einem fehlerhaften Update geprüft.
+Details, Codezeilen und Grenzen: [Abschlussübergabe](CLAUDE-ABSCHLUSS-2026-09-22.md).
+Kein Push, keine Veröffentlichung, keine Änderung an Produktivdaten.

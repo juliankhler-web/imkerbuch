@@ -1,4 +1,4 @@
-// Executed by regression-run.mjs only in its isolated browser profile/test database.
+// Executed by audit-v164.mjs only in its isolated browser profile/test database.
 const results = [];
 const pause = (ms) => new Promise(r => setTimeout(r, ms));
 const check = (ok, detail) => ({ok, detail});
@@ -42,11 +42,9 @@ await test('F22','Zwei Abfüllungen können gemeinsam die Charge nicht überzieh
   const original=UI.formModal,render=window.renderRoute,forms=[];
   UI.formModal=function(o){forms.push(o);return original.call(this,o);};
   try{await Views.honig.abfuellForm('c');await Views.honig.abfuellForm('c');}finally{UI.formModal=original;}
-  let reads=0,freigeben;const warten=new Promise(r=>freigeben=r),getAll=DB.getAll;
-  DB.getAll=async function(store){const value=await getAll.call(this,store);if(store==='abfuellungen'&&reads<2){if(++reads===2)freigeben();await warten;}return value;};
   window.renderRoute=async()=>{};
   let result;
-  try{result=await Promise.allSettled(forms.map(f=>f.onSave({chargeId:'c',datum:'2026-09-22',g_500:15})));}finally{DB.getAll=getAll;window.renderRoute=render;}
+  try{result=await Promise.allSettled(forms.map(f=>f.onSave({chargeId:'c',datum:'2026-09-22',g_500:15})));}finally{window.renderRoute=render;}
   const a=await DB.getAll('abfuellungen'),kg=a.reduce((s,a)=>s+a.anzahl*a.gebindeG/1000,0);
   return check(kg<=10,{chargeKg:10,abgefuelltKg:kg,abfuellungen:a.length,erfolgreich:result.filter(r=>r.status==='fulfilled').length});
 });

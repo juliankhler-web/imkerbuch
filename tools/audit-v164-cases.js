@@ -1,4 +1,4 @@
-// Executed by regression-run.mjs only in its isolated browser profile/test database.
+// Executed by audit-v164.mjs only in its isolated browser profile/test database.
 const results = [];
 const pause = (ms) => new Promise(r => setTimeout(r, ms));
 const check = (ok, detail) => ({ok, detail});

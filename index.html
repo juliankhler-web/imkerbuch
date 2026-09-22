@@ -1859,30 +1859,24 @@ const DB = {
       for (const store of stores) { const rq = tx.objectStore(store).getAll(); rq.onsuccess = () => { daten[store] = rq.result; }; }
     });
   },
-  /** Speichern: vergibt UUID + createdAt, aktualisiert lastModified */
+  /** Alle Schreibwege bestätigen erst den Commit. */
   async put(store, obj, keepStamp = false) {
-    if (store !== 'settings' && !obj.id) obj.id = U.uuid();
-    if (!keepStamp) { obj.lastModified = U.nowIso(); if (store !== 'settings' && !obj.createdAt) obj.createdAt = obj.lastModified; }
-    const st = await this._store(store, 'readwrite');
-    // Ein erfolgreicher Einzelauftrag ist noch kein erfolgreicher Commit.
-    await new Promise((res, rej) => {
-      const tx = st.transaction;
-      tx.oncomplete = () => res();
-      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
-      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
-      try { st.put(obj); }
-      catch (e) { tx.abort(); rej(e); }
-    });
+    await this.schreibeAlles([{ store, obj, keepStamp }]);
     return obj;
   },
   async bulkPut(store, objs, keepStamp = true) {
-    if (!objs.length) return;
-    const st = await this._store(store, 'readwrite');
-    for (const o of objs) { if (!keepStamp) o.lastModified = U.nowIso(); st.put(o); }
-    return new Promise((res, rej) => { st.transaction.oncomplete = res; st.transaction.onerror = () => rej(st.transaction.error); });
+    return this.schreibeAlles(objs.map((obj) => ({ store, obj, keepStamp })));
   },
-  async del(store, id) { await this._req((await this._store(store, 'readwrite')).delete(id)); },
-  async clear(store) { await this._req((await this._store(store, 'readwrite')).clear()); },
+  async del(store, id) { return this.schreibeAlles([{ op: 'del', store, id }]); },
+  async clear(store) { return this.schreibeAlles([{ op: 'clear', store }]); },
+  _betriebsdaten(ops) { return ops.some((o) => o.store !== 'settings' && o.store !== 'snapshots'); },
+  _revisionSchreiben(tx) {
+    tx.objectStore('settings').put({ key: '_datenRevision', value: U.uuid() });
+  },
+  _aenderungMelden() {
+    window._changedSinceBackup = true;
+    window._sicherungKanal?.postMessage('aktualisieren');
+  },
   /* Mehrere Speicher in EINER Transaktion: entweder alles oder nichts.
 
      Nötig überall dort, wo ein halb ausgeführter Vorgang Schaden anrichtet –
@@ -1898,12 +1892,12 @@ const DB = {
   async schreibeAlles(ops) {
     const liste = (ops || []).filter(Boolean);
     if (!liste.length) return true;
-    const stores = [...new Set(liste.map((o) => o.store))];
+    const stores = [...new Set([...liste.map((o) => o.store), 'settings'])];
     const db = await this.open();
     const tx = db.transaction(stores, 'readwrite');
     const fertig = new Promise((res, rej) => {
       tx.oncomplete = () => {
-        if (stores.some((s) => s !== 'settings' && s !== 'snapshots')) window._changedSinceBackup = true;
+        if (this._betriebsdaten(liste)) this._aenderungMelden();
         res(true);
       };
       tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
@@ -1932,18 +1926,19 @@ const DB = {
         }
         st.put(obj);
       }
+      if (this._betriebsdaten(liste)) this._revisionSchreiben(tx);
   },
   /* Liest, prüft und schreibt unter EINER IndexedDB-Schreibsperre.
      berechne ist synchron und liefert { ops, wert }; keine UI oder awaits darin. */
   async aendereAtomar(stores, berechne) {
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const namen = [...new Set(stores)];
+      const namen = [...new Set([...stores, 'settings'])];
       const tx = db.transaction(namen, 'readwrite');
       const daten = Object.create(null);
       let offen = namen.length, wert, ops = [], ursache;
       tx.oncomplete = () => {
-        if (ops.some((o) => o.store !== 'settings' && o.store !== 'snapshots')) window._changedSinceBackup = true;
+        if (this._betriebsdaten(ops)) this._aenderungMelden();
         resolve(wert);
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
@@ -1975,15 +1970,19 @@ const DB = {
     // Lesezugriff INNERHALB der Schreibtransaktion.
     const vorab = await this.get('papierkorb', trashId);
     if (!vorab) return null;
+    if (vorab.store === 'verkaeufe' || vorab.store === 'kassenbuch') {
+      const verbunden = await verkaufsPapierkorbWiederherstellen(trashId);
+      if (verbunden) return verbunden.bereitsErledigt ? null : verbunden;
+    }
     if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
       throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
     const db = await this.open();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([...new Set(['papierkorb', 'inventar', vorab.store])], 'readwrite');
+      const tx = db.transaction([...new Set(['papierkorb', 'inventar', 'settings', vorab.store])], 'readwrite');
       let ergebnis = null, ursache = null;
       tx.oncomplete = () => {
-        if (ergebnis) window._changedSinceBackup = true;
+        if (ergebnis) this._aenderungMelden();
         resolve(ergebnis);
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
@@ -2034,6 +2033,7 @@ const DB = {
             t.daten.lastModified = U.nowIso();
             ziel.put(t.daten);
             tx.objectStore('papierkorb').delete(trashId);
+            this._revisionSchreiben(tx);
             ergebnis = t;
           });
         });
@@ -2092,7 +2092,7 @@ const S = {
     chargeDatumMigriert: false,
     darkMode: 'auto', wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
-  async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; },
+  async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; window._changedSinceBackup = (this.data._datenRevision || null) !== (this.data._gesicherteRevision || null); },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
   async set(key, value) { await DB.put('settings', { key, value }); this.data[key] = value; },
 };
@@ -5670,6 +5670,99 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   }
   return Math.round(zucker * n * 1000) / 1000;
 }
+/** Plant einen Materialabzug auf den Kopien einer laufenden Transaktion. */
+function materialAbzugPlan(posten, inventarId, menge, geaendert) {
+  const m = buchungsZahl(menge, 'Materialmenge');
+  if (!inventarId || m === 0) return { abzug: [], gefehlt: 0 };
+  const start = posten.find((p) => p.id === inventarId);
+  if (!start) throw new Error('Der ausgewählte Materialposten fehlt.');
+  const einheit = verbrauchEinheit(start);
+  const weitere = U.sortBy(posten.filter((p) => p.id !== start.id && inventarTyp(p) === inventarTyp(start)
+    && verbrauchEinheit(p) === einheit && (p.kategorie || '') === (start.kategorie || '')
+    && (Number(p.gebindeG) || 0) === (Number(start.gebindeG) || 0)), (p) => p.anschaffung || p.createdAt || '');
+  const abzug = []; let offen = m;
+  for (const p of [start, ...weitere]) {
+    if (offen <= 0.0000001) break;
+    const vorher = buchungsZahl(p.stueckzahl, 'Materialbestand'), n = Math.min(vorher, offen);
+    if (!n) continue;
+    p.stueckzahl = einheit === 'Stück' ? Math.round(vorher - n) : Math.round((vorher - n) * 1000) / 1000;
+    const wirklich = Math.round((vorher - p.stueckzahl) * 1000) / 1000;
+    if (!wirklich) continue;
+    abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit });
+    geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
+  }
+  return { abzug, gefehlt: Math.max(0, offen), einheit };
+}
+/** Prüft die gemeinsame Chargenkapazität aus aktuellen Transaktionsdaten. */
+function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
+  const c = d.chargen.find((x) => x.id === chargeId);
+  if (!c) {
+    const alt = d.abfuellungen.find((a) => a.id === ohneId);
+    const neuKg = neue.reduce((n, a) => n + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
+    // Verwaiste Altdaten dürfen noch reduziert werden, aber nicht mehr Honig beanspruchen.
+    if (alt && neuKg <= buchungsZahl(alt.anzahl, 'Bisherige Anzahl') * buchungsZahl(alt.gebindeG, 'Bisherige Gebindegröße') / 1000) return;
+    throw new Error('Die Charge fehlt. Bitte zuerst wiederherstellen.');
+  }
+  const vorhandene = d.abfuellungen.filter((a) => a.chargeId === chargeId && a.id !== ohneId);
+  const kg = [...vorhandene, ...neue].reduce((sum, a) => sum + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
+  if (!Number.isFinite(kg) || kg > buchungsZahl(c.mengeKg, 'Chargenmenge') + 0.0001) throw new Error('Die Abfüllungen übersteigen die verfügbare Honigmenge. Bitte Charge und andere Abfüllungen prüfen.');
+}
+async function abfuellungenAnlegen(v) {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar'], (d) => {
+    const posten = GEBINDE_PRESETS.map((g) => ({ gebindeG: g, anzahl: Math.round(buchungsZahl(v['g_' + g] || 0, 'Anzahl')), feld: 'gl_' + g })).filter((p) => p.anzahl > 0);
+    if (v.eigenesG > 0 && v.eigenesN > 0) posten.push({ gebindeG: Math.round(buchungsZahl(v.eigenesG, 'Gebindegröße')), anzahl: Math.round(buchungsZahl(v.eigenesN, 'Anzahl')), feld: 'gl_eigen' });
+    if (!posten.length || posten.some((p) => p.gebindeG <= 0 || p.anzahl <= 0)) throw new Error('Bitte eine positive Gebindegröße und Anzahl eintragen.');
+    pruefeAbfuellMenge(d, v.chargeId, posten);
+    const geaendert = new Map(); let gefehlt = 0;
+    const recs = posten.map((p) => {
+      const b = materialAbzugPlan(d.inventar, v[p.feld], p.anzahl, geaendert); gefehlt += b.gefehlt;
+      return { id: U.uuid(), chargeId: v.chargeId, datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim(), gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl, verbrauchAbzug: b.abzug };
+    });
+    const gesamt = posten.reduce((n, p) => n + p.anzahl, 0);
+    for (const id of [v.gl_deckel, v.gl_etikett]) {
+      const b = materialAbzugPlan(d.inventar, id, gesamt, geaendert); gefehlt += b.gefehlt;
+      // Ganze Stücke verteilen, nie gerundete Bruchteile mehrfach zurückgeben.
+      let i = 0, frei = recs[0].anzahl;
+      for (const x of b.abzug) {
+        let rest = x.menge;
+        while (rest > 0 && i < recs.length) {
+          const n = Math.min(rest, frei);
+          if (n) recs[i].verbrauchAbzug.push({ ...x, menge: n });
+          rest -= n; frei -= n;
+          if (!frei && ++i < recs.length) frei = recs[i].anzahl;
+        }
+      }
+    }
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'abfuellungen', obj }))), wert: { recs, gesamt, gefehlt } };
+  });
+}
+async function abfuellungAendern(erwartet, v) {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar'], (d) => {
+    const a = d.abfuellungen.find((x) => x.id === erwartet.id);
+    if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf. Bitte erneut öffnen.');
+    const alteAnzahl = buchungsZahl(a.anzahl, 'Bisherige Anzahl'), anzahl = Math.round(buchungsZahl(v.anzahl, 'Anzahl')), gebindeG = Math.round(buchungsZahl(v.gebindeG, 'Gebindegröße'));
+    const bestand = Math.round(buchungsZahl(v.bestand, 'Bestand'));
+    if (gebindeG <= 0 || bestand > anzahl) throw new Error('Gebindegröße muss positiv sein; verfügbarer Bestand darf die abgefüllte Anzahl nicht überschreiten.');
+    pruefeAbfuellMenge(d, a.chargeId, [{ anzahl, gebindeG }], a.id);
+    const geaendert = new Map(); let gefehlt = 0;
+    if (alteAnzahl > 0 && anzahl !== alteAnzahl) {
+      a.verbrauchAbzug = (a.verbrauchAbzug || []).map((x) => {
+        const pos = d.inventar.find((p) => p.id === x.inventarId);
+        if (!pos) throw new Error('Ein gebuchter Materialposten fehlt. Bitte zuerst wiederherstellen.');
+        const bisher = buchungsZahl(x.menge, 'Gemerkter Verbrauch');
+        const ziel = verbrauchEinheit(pos) === 'Stück' ? Math.round(bisher * anzahl / alteAnzahl) : Math.round(bisher * anzahl / alteAnzahl * 1000) / 1000;
+        const vorher = buchungsZahl(pos.stueckzahl, 'Materialbestand');
+        const diff = bisher - ziel;
+        const wirklich = diff >= 0 ? diff : -Math.min(vorher, -diff);
+        pos.stueckzahl = Math.round((vorher + wirklich) * 1000) / 1000;
+        geaendert.set(pos.id, pos); gefehlt += Math.max(0, wirklich - diff);
+        return { ...x, menge: Math.round((bisher - wirklich) * 1000) / 1000 };
+      });
+    }
+    Object.assign(a, { anzahl, gebindeG, bestand, datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() });
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'abfuellungen', obj: a }), wert: { rec: a, gefehlt } };
+  });
+}
 /** Dasselbe aus den Feldern eines offenen Formulars. */
 async function fuetterungAendern(erwartet, werte) {
   const eingabe = { ...werte };
@@ -5689,20 +5782,9 @@ async function fuetterungAendern(erwartet, werte) {
     buchungsZahl(v.mengeKg, 'Futtermenge');
     const abzug = [];
     if (id) {
-      const start = posten.get(id);
-      if (!start) throw new Error('Der ausgewählte Materialposten fehlt.');
-      let offen = fuetterungVerbrauch(v, d.inventar, 1);
-      const weitere = U.sortBy(d.inventar.filter((p) => p.id !== id && inventarTyp(p) === inventarTyp(start) && verbrauchEinheit(p) === verbrauchEinheit(start) && (p.kategorie || '') === (start.kategorie || '') && (Number(p.gebindeG) || 0) === (Number(start.gebindeG) || 0)), (p) => p.anschaffung || p.createdAt || '');
-      for (const p of [start, ...weitere]) {
-        if (offen <= 0.0000001) break;
-        const vorher = buchungsZahl(p.stueckzahl, 'Materialbestand'), n = Math.min(vorher, offen);
-        if (!n) continue;
-        p.stueckzahl = runden(p, vorher - n);
-        const wirklich = Math.round((vorher - p.stueckzahl) * 1000) / 1000;
-        abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit: verbrauchEinheit(p) });
-        geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
-      }
-      if (offen > 0.0000001) throw new Error(`Material reicht nicht: ${U.fmtNum(offen)} ${verbrauchEinheit(start)} fehlen. Die Fütterung wurde nicht geändert.`);
+      const plan = materialAbzugPlan(d.inventar, id, fuetterungVerbrauch(v, d.inventar, 1), geaendert);
+      abzug.push(...plan.abzug);
+      if (plan.gefehlt > 0.0000001) throw new Error(`Material reicht nicht: ${U.fmtNum(plan.gefehlt)} ${plan.einheit} fehlen. Die Fütterung wurde nicht geändert.`);
     }
     const neu = { ...alt, ...eingabe, verbrauchAbzug: abzug };
     delete neu._verbrauchId; delete neu._sirupLiter;
@@ -6634,6 +6716,25 @@ async function verkaufStornieren(verkaufId) {
     const ops = [{ store: 'abfuellungen', obj: a }, ...papierkorbAuftraege('verkaeufe', v)];
     if (kb) ops.push(...papierkorbAuftraege('kassenbuch', kb));
     return { ops };
+  });
+}
+/** Verkauf und Einnahme bilden auch im Papierkorb einen gemeinsamen Vorgang. */
+async function verkaufsPapierkorbWiederherstellen(trashId) {
+  return DB.aendereAtomar(['papierkorb', 'verkaeufe', 'abfuellungen', 'kassenbuch'], (d) => {
+    const angeklickt = d.papierkorb.find((t) => t.id === trashId);
+    if (!angeklickt) return { ops: [], wert: { bereitsErledigt: true } };
+    const t = angeklickt.store === 'verkaeufe' ? angeklickt : d.papierkorb.find((t) => t.store === 'verkaeufe' && t.daten?.kassenbuchId === angeklickt.daten?.id);
+    if (!t) return { ops: [], wert: null }; // eigenständiger Kassenbucheintrag
+    const v = t.daten, k = d.papierkorb.find((x) => x.store === 'kassenbuch' && x.daten?.id === v.kassenbuchId);
+    if (!k) throw new Error('Der zugehörige Kassenbucheintrag fehlt im Papierkorb. Der Verkauf wurde nicht wiederhergestellt.');
+    if (d.verkaeufe.some((x) => x.id === v.id) || d.kassenbuch.some((x) => x.id === v.kassenbuchId)) throw new Error('Verkauf oder Einnahme ist bereits vorhanden. Bitte die Buchungen prüfen.');
+    const a = d.abfuellungen.find((x) => x.id === v.abfuellungId);
+    if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen.');
+    const menge = buchungsZahl(v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
+    if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
+    a.bestand = bestand - menge;
+    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'verkaeufe', obj: v }, { store: 'kassenbuch', obj: k.daten },
+      { op: 'del', store: 'papierkorb', id: t.id }, { op: 'del', store: 'papierkorb', id: k.id }], wert: t };
   });
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
@@ -8506,54 +8607,10 @@ Views.honig = {
       ],
       values: {},
       async onSave(v) {
-        const posten = [];
-        for (const g of GEBINDE_PRESETS) { const n = Math.round(v['g_' + g] || 0); if (n > 0) posten.push({ gebindeG: g, anzahl: n, feld: 'gl_' + g }); }
-        if (v.eigenesG > 0 && Math.round(v.eigenesN || 0) > 0) posten.push({ gebindeG: Math.round(v.eigenesG), anzahl: Math.round(v.eigenesN), feld: 'gl_eigen' });
-        if (!posten.length) throw new Error('Bitte bei mindestens einem Gebinde eine Anzahl eintragen.');
-        const charge = await DB.get('chargen', v.chargeId);
-        const rest = chargeRestKg(charge, await DB.getAll('abfuellungen'));
-        const brauchtKg = posten.reduce((s, p) => s + p.anzahl * p.gebindeG / 1000, 0);
-        if (brauchtKg > rest + 0.0001) throw new Error(`Das wären ${U.fmtNum(brauchtKg, 2)} kg, aber es sind nur noch ${U.fmtNum(rest, 2)} kg von Charge ${charge.losnummer} frei.`);
-        let glaeser = 0;
-        const angelegt = [];
-        for (const p of posten) {
-          angelegt.push({ p, rec: await DB.put('abfuellungen', { chargeId: v.chargeId, datum: v.datum, mhd: v.mhd || null,
-            losnummer: (v.losnummer || '').trim(), gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl }) });
-          glaeser += p.anzahl;
-        }
-        UI.toast(`${glaeser} Gebinde abgefüllt${posten.length > 1 ? ` (${posten.length} Größen)` : ''}`);
-        /* Erst die Gebinde je Größe, dann Deckel und Etiketten über die
-           Gesamtzahl. Über die KETTE, damit ein zweiter Karton derselben Größe
-           einspringt, wenn der erste leer wird. Der Prüflauf kommt am Ende.
-
-           Was abgezogen wurde, wird an der Abfüllung festgehalten: die Gläser
-           je Größe an ihrer eigenen Abfüllung, Deckel und Etiketten anteilig –
-           sonst könnte das Löschen sie nicht zurückgeben. */
-        const meldungen = [];
-        let knapp = false;
-        const merke = (rec, liste) => { rec.verbrauchAbzug = [...(rec.verbrauchAbzug || []), ...liste]; };
-        const buche = async (id, menge) => {
-          const b = await verbrauchAbziehenKette(id, menge, { pruefen: false });
-          if (!b || !b.abzug.length) return null;
-          if (b.gefehlt > 0) knapp = true;
-          meldungen.push(b.abzug.map((a) => `${a.bezeichnung}: −${U.fmtNum(a.menge, 0)} ${a.einheit}`).join(' · ')
-            + (b.gefehlt > 0 ? ` (${U.fmtNum(b.gefehlt, 0)} fehlten)` : ''));
-          return b;
-        };
-        for (const { p, rec } of angelegt) {
-          const b = await buche(v[p.feld], p.anzahl);
-          if (b) merke(rec, b.abzug);
-        }
-        for (const id of [v.gl_deckel, v.gl_etikett]) {
-          const b = await buche(id, glaeser);
-          if (!b || glaeser <= 0) continue;
-          for (const { p, rec } of angelegt) {
-            merke(rec, b.abzug.map((a) => ({ ...a, menge: Math.round((a.menge * p.anzahl / glaeser) * 1000) / 1000 })));
-          }
-        }
-        for (const { rec } of angelegt) if (rec.verbrauchAbzug && rec.verbrauchAbzug.length) await DB.put('abfuellungen', rec);
-        if (meldungen.length) { UI.toast(meldungen.join(' · '), knapp ? 'err' : undefined); await pruefeMhd(); }
-        renderRoute();
+        const erg = await abfuellungenAnlegen(v);
+        UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}`);
+        if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten – nur der vorhandene Bestand wurde abgezogen`, 'err');
+        await pruefeMhd(); renderRoute();
       },
     });
     verdrahteGlasAbzug(m, stueck);
@@ -8578,54 +8635,10 @@ Views.honig = {
       ],
       values: a,
       async onSave(v) {
-        const alteAnzahl = Math.max(0, Number(a.anzahl) || 0);
-        const neueAnzahl = Math.max(0, Math.round(v.anzahl));
-        const gebindeG = Math.round(v.gebindeG);
-
-        /* R3: Auch beim Bearbeiten darf nicht mehr abgefüllt werden, als die
-           Charge hergibt. Der Anlegeweg prüfte das, der Korrekturweg nicht –
-           so ließen sich aus 10 kg Charge 20 kg Gläser machen. */
-        if (c) {
-          const andere = (await DB.getAll('abfuellungen')).filter((x) => x.chargeId === c.id && x.id !== a.id);
-          const belegt = U.sum(andere, (x) => (x.anzahl || 0) * (x.gebindeG || 0) / 1000);
-          const neuKg = neueAnzahl * gebindeG / 1000;
-          const gesamt = Math.max(0, Number(c.mengeKg) || 0);
-          if (neuKg + belegt > gesamt + 0.0001) {
-            throw new Error(`Das wären ${U.fmtNum(neuKg + belegt, 2)} kg abgefüllt, die Charge hat aber nur ${U.fmtNum(gesamt, 2)} kg.`
-              + ' Erhöhe zuerst die Gesamtmenge der Charge.');
-          }
-        }
-
-        /* Ändert sich die Anzahl, wandert der Verbrauch mit: der gespeicherte
-           Abzug wird auf die neue Anzahl umgerechnet und die Differenz gebucht.
-
-           R2: Gemerkt wird nur, was WIRKLICH gebucht wurde. Reichte der Bestand
-           für die Erhöhung nicht, wurde vorher trotzdem die volle neue Menge
-           vermerkt – beim späteren Löschen entstanden Gläser aus dem Nichts. */
-        const alt = a.verbrauchAbzug || [];
-        if (alt.length && alteAnzahl > 0 && neueAnzahl !== alteAnzahl) {
-          const f = neueAnzahl / alteAnzahl;
-          const neu = [];
-          let knapp = 0;
-          for (const x of alt) {
-            const ziel = Math.round(x.menge * f * 1000) / 1000;
-            const diff = Math.round((x.menge - ziel) * 1000) / 1000;
-            if (diff > 0) {
-              await verbrauchZugang(x.inventarId, diff, { pruefen: false });
-              neu.push({ ...x, menge: ziel });
-            } else if (diff < 0) {
-              const b = await verbrauchAbziehen(x.inventarId, -diff, { pruefen: false });
-              const wirklich = b ? b.abgezogen : 0;
-              if (b && b.gefehlt > 0) knapp += b.gefehlt;
-              neu.push({ ...x, menge: Math.round((x.menge + wirklich) * 1000) / 1000 });
-            } else neu.push({ ...x });
-          }
-          a.verbrauchAbzug = neu;
-          if (knapp > 0) UI.toast(`${U.fmtNum(knapp, 0)} Stück fehlten im Lager – nur der vorhandene Bestand wurde abgezogen`, 'err');
-        }
-        await DB.put('abfuellungen', Object.assign(a, { gebindeG, anzahl: neueAnzahl, bestand: Math.max(0, Math.round(v.bestand)), datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() }));
-        await pruefeMhd();
-        UI.toast('Abfüllung gespeichert'); renderRoute();
+        const erg = await abfuellungAendern(a, v);
+        Object.assign(a, erg.rec);
+        if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück fehlten im Lager – nur der vorhandene Bestand wurde abgezogen`, 'err');
+        await pruefeMhd(); UI.toast('Abfüllung gespeichert'); renderRoute();
       },
       /* Löschen gibt Gläser, Deckel und Etiketten zurück – wie bei Fütterung
          und Behandlung. */
@@ -12804,6 +12817,8 @@ const Backup = {
   async buildData(mitAnhaengen = true) {
     const out = { app: 'ImkerBuch', formatVersion: 1, exportiert: U.nowIso(), stores: {} };
     const daten = await DB.leseAlles(DB.DATA_STORES);
+    Object.defineProperty(out, '_stand', { value: daten.settings.find((r) => r.key === '_datenRevision')?.value || null });
+    daten.settings = daten.settings.filter((r) => !['_datenRevision', '_gesicherteRevision'].includes(r.key));
     for (const store of DB.DATA_STORES) {
       const rows = daten[store];
       if (store === 'anhaenge') {
@@ -12822,7 +12837,13 @@ const Backup = {
     const p = (n) => String(n).padStart(2, '0');
     return `imkerbuch-backup-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
   },
-  async buildBlob() { return new Blob([JSON.stringify(await this.buildData(true))], { type: 'application/json' }); },
+  _dateistaende: new WeakMap(),
+  async buildBlob() {
+    const daten = await this.buildData(true);
+    const blob = new Blob([JSON.stringify(daten)], { type: 'application/json' });
+    this._dateistaende.set(blob, daten._stand);
+    return blob;
+  },
 
   /* ---------- Export: Download & Teilen ---------- */
   async exportDownload() {
@@ -12843,11 +12864,11 @@ const Backup = {
       const w = await handle.createWritable();
       await w.write(blob);
       await w.close();
-      await this.markExternal(); UI.toast('Backup gespeichert');
+      await this.markExternal(blob); UI.toast('Backup gespeichert');
       return;
     }
     U.download(blob, name);
-    await this.markExternal(); UI.toast('Backup heruntergeladen (Ordner „Downloads“)');
+    await this.markExternal(blob); UI.toast('Backup heruntergeladen (Ordner „Downloads“)');
   },
   /** „Sicherung senden“: Web Share API Level 2 mit Datei, sonst Download + mailto */
   async share() {
@@ -12856,11 +12877,11 @@ const Backup = {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file], title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}` });
-        await this.markExternal(); UI.toast('Sicherung geteilt');
+        await this.markExternal(blob); UI.toast('Sicherung geteilt');
       } catch (e) { if (e.name !== 'AbortError') UI.toast('Teilen abgebrochen', 'err'); }
     } else {
       U.download(blob, this.dateiname());
-      await this.markExternal();
+      await this.markExternal(blob);
       const subject = encodeURIComponent(`ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}`);
       const body = encodeURIComponent('Anbei die aktuelle ImkerBuch-Sicherung.\n\nHinweis: Die soeben heruntergeladene Datei bitte manuell als Anhang hinzufügen.');
       UI.modal({
@@ -12872,9 +12893,21 @@ const Backup = {
       $$('[data-close2]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
     }
   },
-  async markExternal() {
+  async leseAenderungsstand() {
+    const d = await DB.leseAlles(['settings']);
+    const wert = (key) => d.settings.find((r) => r.key === key)?.value || null;
+    window._changedSinceBackup = wert('_datenRevision') !== wert('_gesicherteRevision');
+    return window._changedSinceBackup;
+  },
+  async markExternal(blob) {
+    // Ohne bekannte Datei nur den Zeitpunkt melden, niemals fremde Änderungen quittieren.
+    if (blob && this._dateistaende.has(blob)) {
+      const stand = this._dateistaende.get(blob);
+      await DB.schreibeAlles([{ store: 'settings', obj: { key: '_gesicherteRevision', value: stand } }]);
+    }
     await S.set('letzteExterneSicherung', U.nowIso());
-    window._changedSinceBackup = false;
+    await this.leseAenderungsstand();
+    window._sicherungKanal?.postMessage('aktualisieren');
     this.updateBanners();
     this.updateStand();
   },
@@ -13050,7 +13083,7 @@ const Backup = {
          Backup-Ordner). Sie werden nur von Code gelesen, der ihren Namen kennt –
          ein erfundener Schlüssel wird also nie angefasst. Gefährlich sind
          allein die Werte, die als Bildadresse enden. */
-      if (typeof r.key !== 'string') return null;
+      if (typeof r.key !== 'string' || ['_datenRevision', '_gesicherteRevision'].includes(r.key)) return null;
       if (this.BILD_SCHLUESSEL.includes(r.key)) {
         if (r.value === null) return r; // ausdrücklich entferntes Bild; Zeitstempel entscheidet beim Merge
         const quelle = U.bildQuelle(r.value);
@@ -13200,7 +13233,9 @@ const Backup = {
           (await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return false;
       const fh = await handle.getFileHandle(this.dateiname(), { create: true });
       const w = await fh.createWritable();
-      await w.write(await this.buildBlob()); await w.close();
+      const blob = await this.buildBlob();
+      await w.write(blob); await w.close();
+      await this.markExternal(blob);
       return true;
     } catch (e) { console.error('Ordner-Backup fehlgeschlagen', e); return false; }
   },
@@ -13218,7 +13253,7 @@ const Backup = {
     await this.snapshotInternal('auto');
     let extern = false;
     if (S.get('backupDirHandle')) extern = await this.writeToDir();
-    else { U.download(await this.buildBlob(), this.dateiname()); extern = true; }
+    else { const blob = await this.buildBlob(); U.download(blob, this.dateiname()); await this.markExternal(blob); extern = true; }
     const jetzt = U.nowIso();
     /* Scheitert das Schreiben in den Ordner (Recht entzogen, Ordner gelöscht,
        Platte voll), darf das NICHT als Erfolg durchgehen: sonst meldet die App
@@ -13236,7 +13271,7 @@ const Backup = {
       return null;
     }
     await S.set('letzteAutoSicherung', jetzt);
-    await this.markExternal();
+    await this.markExternal(); // Ordner-/Downloadweg hat seinen konkreten Dateistand bereits bestätigt.
     UI.toast(quelle === 'aktivierung' ? 'Erste Sicherung erstellt' : 'Automatische Sicherung erstellt');
     const naechste = this.naechsteSicherung();
     Notif.zeigen('🐝 Sicherung erstellt',
@@ -13264,7 +13299,7 @@ const Backup = {
       if (f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
         this.snapshotInternal('auto'); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
         // Nur ein tatsächlich geschriebenes Ordner-Backup stellt den Termin weiter.
-        this.writeToDir().then((ok) => { if (ok) { this.markExternal(); S.set('letzteAutoSicherung', U.nowIso()); } });
+        this.writeToDir().then((ok) => { if (ok) { S.set('letzteAutoSicherung', U.nowIso()); } });
       }
     });
     window.addEventListener('beforeunload', (e) => {
@@ -13375,9 +13410,12 @@ async function pruefeMhd() {
   }
 }
 
-/* Änderungs-Flag für „seit letzter Sicherung“ */
-const _origPut = DB.put.bind(DB);
-DB.put = async function (store, obj, keepStamp) { if (store !== 'settings' && store !== 'snapshots') window._changedSinceBackup = true; return _origPut(store, obj, keepStamp); };
+/* Andere Fenster lesen den dauerhaft gespeicherten Sicherungsstand nach. */
+if ('BroadcastChannel' in window) {
+  window._sicherungKanal = new BroadcastChannel(DB.NAME + '-sicherung');
+  window._sicherungKanal.onmessage = () => Backup.leseAenderungsstand().catch(console.error);
+}
+window.addEventListener('focus', () => Backup.leseAenderungsstand().catch(console.error));
 
 /* =====================================================================
    ERINNERUNGEN: System-Benachrichtigung + App-Icon-Badge bei fälligen

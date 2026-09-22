@@ -1,5 +1,7 @@
 # Claude-Übergabe: Transaktionen, Sicherungen und Rechnungen
 
+Historischer Zwischenstand. F20–F22 wurden anschließend korrigiert; siehe [aktuelle Abschlussübergabe](CLAUDE-ABSCHLUSS-2026-09-22.md).
+
 Stand 22.09.2026, unveröffentlichter Reparaturzweig `codex/v164-sicherheitskorrekturen`, Ausgang v1.64 (`46e2923`). Originaldesign unverändert. Keine Betriebsdaten angefasst, kein Push, keine Übernahme auf main. Diese Datei ergänzt die früheren Übergaben; der historische Prüfbericht bleibt unverändert.
 
 ## Was umgesetzt ist

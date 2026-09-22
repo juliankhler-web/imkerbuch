@@ -95,7 +95,7 @@ async function main() {
  const script=await readFile(new URL(ERWEITERT ? './audit-v164-neufunde.js' : './audit-v164-cases.js',import.meta.url),'utf8');
  const result=await cdp.js(script);
  const out={version:'1.64',browser:browserKennung,datum:new Date().toISOString(),...result};
- await writeFile(new URL('../docs/pruefung-v164/'+(ERWEITERT?'neufunde-results.json':'abschluss-regression-results.json'),import.meta.url),JSON.stringify(out,null,2));
+ await writeFile(new URL('../docs/pruefung-v164/'+(ERWEITERT?'neufunde-reparatur-results.json':'abschluss-regression-results.json'),import.meta.url),JSON.stringify(out,null,2));
  console.log(JSON.stringify(out,null,2));
  }finally{chrome.kill();srv.close();}
  process.exit(0);

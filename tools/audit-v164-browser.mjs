@@ -94,7 +94,7 @@ async function main() {
  const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
  cdp.session=(await cdp.send('Target.attachToTarget',{targetId,flatten:true})).sessionId;
  await cdp.send('Page.enable');await cdp.send('Runtime.enable');await cdp.send('Network.enable');
- cdp.ws.addEventListener('message', (e) => { const m=JSON.parse(e.data); if(m.method==='ServiceWorker.workerErrorReported'||m.method==='Runtime.exceptionThrown'||m.method==='Runtime.consoleAPICalled') console.error('SW-Diagnose',JSON.stringify(m.params)); });
+ cdp.ws.addEventListener('message', (e) => { const m=JSON.parse(e.data); if(process.env.AUDIT_DEBUG&&(m.method==='ServiceWorker.workerErrorReported'||m.method==='Runtime.exceptionThrown'||m.method==='Runtime.consoleAPICalled')) console.error('SW-Diagnose',JSON.stringify(m.params)); });
 
  const base=`http://127.0.0.1:${PORT}`;
  async function ready(){for(let i=0;i<150;i++){try{if(await cdp.js('return !!window.appReady'))return true;}catch{}await schlaf(100);}return false;}
@@ -115,6 +115,20 @@ async function main() {
  }
  return result;`);
  results.push({id:'B1',name:'Alle registrierten Ansichten mit Beispieldaten aufrufen',views:sweep});
+ // Zweites echtes Fenster: derselbe Testbestand, eigenes JavaScript-Gedächtnis.
+ const ersteSession=cdp.session;
+ const peerTarget=await cdp.send('Target.createTarget',{url:base+'/index.html?testdb=1'});
+ const peerSession=(await cdp.send('Target.attachToTarget',{targetId:peerTarget.targetId,flatten:true})).sessionId;
+ cdp.session=peerSession;await cdp.send('Runtime.enable');await ready();
+ cdp.session=ersteSession;await cdp.js('await Backup.markExternal(await Backup.buildBlob());return true;');
+ cdp.session=peerSession;await cdp.js("await DB.put('staende',{id:'fenster-test',name:'Änderung im zweiten Fenster'});return true;");
+ cdp.session=ersteSession;
+ let nachZweitemFenster=false;
+ for(let i=0;i<50;i++){nachZweitemFenster=await cdp.js('return window._changedSinceBackup===true;');if(nachZweitemFenster)break;await schlaf(100);}
+ await cdp.send('Target.closeTarget',{targetId:peerTarget.targetId});
+ await cdp.js('window.appReady=false;');await cdp.send('Page.navigate',{url:base+'/index.html?testdb=1'});await ready();
+ const nachNeustart=await cdp.js('return window._changedSinceBackup===true;');
+ results.push({id:'B10',name:'Sicherungswarnung folgt zweitem Fenster und bleibt nach Neustart',nachZweitemFenster,nachNeustart});
  await cdp.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  const mobile=await cdp.js(`
  document.querySelectorAll('.modal-back').forEach(e=>e.remove());
