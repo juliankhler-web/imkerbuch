@@ -92,7 +92,6 @@ Abschließender Lauf: **497/497 Chrome, 497/497 WebKit; 48+3+11 = 62/62
 Gegenproben bestanden.** Keine roten fachlichen Fälle oder technischen Abbrüche
 in diesen Läufen. Die Update-Läufe prüfen jeweils elf Bedingungen.
 
-
 Die JSON-Dateien in diesem Ordner enthalten Datum, Browser und Einzelergebnisse.
 `manifest.json` benennt die abschließend geprüften Datei-Hashes.
 
