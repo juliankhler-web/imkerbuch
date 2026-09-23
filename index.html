@@ -1905,6 +1905,78 @@ const DB = {
     for (const o of objs) { if (!keepStamp) o.lastModified = U.nowIso(); st.put(o); }
     return new Promise((res, rej) => { st.transaction.oncomplete = res; st.transaction.onerror = () => rej(st.transaction.error); });
   },
+  /* Lesen-Ändern-Schreiben EINES Datensatzes atomar: verhindert, dass zwei
+     gleichzeitige Änderungen sich gegenseitig überschreiben, weil jede vom
+     alten Stand ausgeht (get → put in ZWEI getrennten Transaktionen lässt
+     die zweite immer gewinnen, unabhängig davon, was die erste ergänzt hat).
+     `updater(aktuell)` bekommt den frisch in DIESER Transaktion gelesenen
+     Datensatz (oder null) und gibt den neuen zurück; `null`/`undefined`
+     bricht ohne Schreiben ab. Zwischen get und put darf nichts awaited
+     werden, sonst schließt der Browser die Transaktion vorzeitig – deshalb
+     hier von Hand statt über `get`/`put`. */
+  async update(store, id, updater) {
+    const db = await this.open();
+    const tx = db.transaction(store, 'readwrite');
+    const st = tx.objectStore(store);
+    let ergebnis = null;
+    const fertig = new Promise((res, rej) => {
+      tx.oncomplete = () => res(ergebnis);
+      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
+      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
+    });
+    try {
+      const aktuell = await this._req(st.get(id));
+      ergebnis = await updater(aktuell || null);
+      if (ergebnis) {
+        if (store !== 'settings' && !ergebnis.id) ergebnis.id = id || U.uuid();
+        ergebnis.lastModified = U.nowIso();
+        if (store !== 'settings' && !ergebnis.createdAt) ergebnis.createdAt = ergebnis.lastModified;
+        st.put(ergebnis);
+      }
+      // kein updater-Ergebnis = bewusst nichts zu schreiben; die leere
+      // Transaktion schließt trotzdem normal ab (oncomplete feuert auch ohne Requests).
+    } catch (e) { try { tx.abort(); } catch (e2) {} throw e; }
+    return fertig;
+  },
+  /* Lesen UND Schreiben über mehrere Speicher in EINER Transaktion.
+
+     `schreibeAlles` schreibt nur – es kann nicht prüfen, ob sich der Stand
+     seit dem Lesen geändert hat. Genau daran scheiterten die Wettlauf-Fälle:
+     zwei Fenster lesen denselben Bestand, beide halten ihn für frei, beide
+     buchen. `fn` bekommt hier einen Zugriff, der an dieselbe Transaktion
+     gebunden ist – was darin gelesen wird, kann zwischen Prüfen und Schreiben
+     niemand mehr ändern.
+
+     WICHTIG: In `fn` darf nichts anderes awaited werden (kein fetch, kein
+     Dialog, kein Timer) – nur die hier gelieferten Zugriffe. Sonst schließt
+     der Browser die Transaktion vorzeitig. */
+  async transaktion(stores, fn, modus = 'readwrite') {
+    const db = await this.open();
+    const tx = db.transaction(stores, modus);
+    let ergebnis;
+    const fertig = new Promise((res, rej) => {
+      tx.oncomplete = () => res(ergebnis);
+      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
+      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
+    });
+    const zugriff = {
+      get: (store, id) => this._req(tx.objectStore(store).get(id)),
+      getAll: (store) => this._req(tx.objectStore(store).getAll()),
+      del: (store, id) => { tx.objectStore(store).delete(id); },
+      put: (store, obj, keepStamp = false) => {
+        if (store !== 'settings' && !obj.id) obj.id = U.uuid();
+        if (!keepStamp) {
+          obj.lastModified = U.nowIso();
+          if (store !== 'settings' && !obj.createdAt) obj.createdAt = obj.lastModified;
+        }
+        tx.objectStore(store).put(obj);
+        return obj;
+      },
+      abbruch: () => { tx.abort(); },
+    };
+    try { ergebnis = await fn(zugriff); } catch (e) { try { tx.abort(); } catch (e2) {} throw e; }
+    return fertig;
+  },
   async del(store, id) { await this._req((await this._store(store, 'readwrite')).delete(id)); },
   async clear(store) { await this._req((await this._store(store, 'readwrite')).clear()); },
   /* Mehrere Speicher in EINER Transaktion: entweder alles oder nichts.
@@ -4826,20 +4898,38 @@ Views.koeniginnen = {
         const fehlende = gewaehlt.filter((x) => !hatKoenigin(x));
         if (fehlende.length) {
           const jg = Math.round(U.zahl(v.neuJahrgang, +U.todayIso().slice(0, 4)));
+          let angelegt = 0;
           for (const volk of fehlende) {
-            const neu = await DB.put('koeniginnen', {
-              kennung: await naechsteKennung(jg), jahrgang: jg, linie: '', herkunft: '', status: 'aktiv',
-              historie: [{ volkId: volk.id, von: v.datum || U.todayIso() }], notiz: `Beim Bewerten für „${volk.name}" angelegt.`,
-              mutterId: null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null, pedigree: '',
+            /* Prüfen und Anlegen gehören in DIESELBE Transaktion: sonst legen
+               zwei gleichzeitig geöffnete Runden für dasselbe Volk je eine
+               Königin an, und beide behaupten die Zuordnung (Bericht v1.69,
+               F30). Die Momentaufnahme `qm`/`voelker` von vorhin genügt dafür
+               nicht – maßgeblich ist der Stand in der Datenbank. */
+            const kennung = await naechsteKennung(jg);
+            const zugeordnet = await DB.transaktion(['voelker', 'koeniginnen'], async (t) => {
+              const frisch = await t.get('voelker', volk.id);
+              if (!frisch) return null;
+              if (frisch.koeniginId) {
+                // inzwischen von woanders angelegt – die vorhandene verwenden
+                const schon = await t.get('koeniginnen', frisch.koeniginId);
+                if (schon) return { koenigin: schon, neuAngelegt: false };
+              }
+              const neu = t.put('koeniginnen', {
+                kennung, jahrgang: jg, linie: '', herkunft: '', status: 'aktiv',
+                historie: [{ volkId: volk.id, von: v.datum || U.todayIso() }], notiz: `Beim Bewerten für „${volk.name}" angelegt.`,
+                mutterId: null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null, pedigree: '',
+              });
+              frisch.koeniginId = neu.id;
+              (frisch.historie = frisch.historie || []).push({ datum: v.datum || U.todayIso(), text: `Königin ${koeniginKurz(neu)} erfasst` });
+              t.put('voelker', frisch);
+              return { koenigin: neu, neuAngelegt: true };
             });
-            const frisch = await DB.get('voelker', volk.id);
-            frisch.koeniginId = neu.id;
-            (frisch.historie = frisch.historie || []).push({ datum: v.datum || U.todayIso(), text: `Königin ${koeniginKurz(neu)} erfasst` });
-            await DB.put('voelker', frisch);
-            volk.koeniginId = neu.id;
-            qm.set(neu.id, neu);
+            if (!zugeordnet) continue;
+            volk.koeniginId = zugeordnet.koenigin.id;
+            qm.set(zugeordnet.koenigin.id, zugeordnet.koenigin);
+            if (zugeordnet.neuAngelegt) angelegt++;
           }
-          UI.toast(`${fehlende.length} ${fehlende.length === 1 ? 'Königin' : 'Königinnen'} angelegt und zugeordnet`);
+          if (angelegt) UI.toast(`${angelegt} ${angelegt === 1 ? 'Königin' : 'Königinnen'} angelegt und zugeordnet`);
         }
         Views.koeniginnen.bewertenStep2(gewaehlt, qm, v.datum);
       },
@@ -5446,26 +5536,41 @@ async function gdebBewertungForm(queenId, vorhandenDatum = null) {
     values: {},
     onDelete: vorhanden ? async () => {
       if (!(await UI.confirm({ title: 'Bewertung löschen?', text: `Die Bewertung vom ${U.fmtDate(vorhanden.datum)} wird entfernt.`, confirmText: 'Löschen' }))) return false;
-      const rec = await DB.get('koeniginnen', q.id);
-      rec.bewertungen = gdebListe(rec).filter((x) => x.datum !== vorhanden.datum);
-      rec.bewertung = gdebNoten(rec.bewertungen[0] || null);
-      rec.bewertetAm = (rec.bewertungen[0] || {}).datum || null;
-      await DB.put('koeniginnen', rec);
+      await DB.update('koeniginnen', q.id, (rec) => {
+        if (!rec) return null;
+        rec.bewertungen = gdebListe(rec).filter((x) => x.datum !== vorhanden.datum);
+        rec.bewertung = gdebNoten(rec.bewertungen[0] || null);
+        rec.bewertetAm = (rec.bewertungen[0] || {}).datum || null;
+        return rec;
+      });
       UI.toast('Bewertung gelöscht'); renderRoute();
       return true;
     } : null,
     async onSave(v) {
-      const neu = { datum: v.datum, wetter: (v.wetter || '').trim(),
+      const eingegeben = {};
+      for (const m of GDEB_MERKMALE) { const n = U.zahl(v[m.key], 0); if (n >= 1 && n <= 6) eingegeben[m.key] = n; }
+      const zusatz = { wetter: (v.wetter || '').trim(),
         temperatur: (v.temperatur === '' || v.temperatur == null) ? null : U.zahl(v.temperatur, null),
-        noten: {}, bemerkung: (v.bemerkung || '').trim() };
-      for (const m of GDEB_MERKMALE) { const n = U.zahl(v[m.key], 0); if (n >= 1 && n <= 6) neu.noten[m.key] = n; }
-      const rec = await DB.get('koeniginnen', q.id);
-      // Eine Bewertung je Tag: ein zweiter Eintrag am selben Datum ersetzt den ersten.
-      const rest = gdebListe(rec).filter((x) => x.datum !== neu.datum && x.datum !== (vorhanden || {}).datum);
-      rec.bewertungen = U.sortBy([...rest, neu], (x) => x.datum || '', true);
-      rec.bewertung = gdebNoten(rec.bewertungen[0]);      // Kurzform für Listen, PDF und Sortierung
-      rec.bewertetAm = rec.bewertungen[0].datum;
-      await DB.put('koeniginnen', rec);
+        bemerkung: (v.bemerkung || '').trim() };
+      let neu;
+      // Lesen+Zusammenführen+Schreiben in EINER Transaktion (F23: zwei
+      // gleichzeitige Bewertungen dürfen sich nicht überschreiben) UND beim
+      // Zieldatum vorhandene Noten übernehmen statt zu ersetzen (F24: „Neue
+      // Bewertung“ statt „Bearbeiten“ am selben Tag löschte sonst, was schon
+      // eingetragen war) – dieselbe Ergänzungsregel wie setBewertung().
+      await DB.update('koeniginnen', q.id, (rec) => {
+        if (!rec) return null;
+        const liste = gdebListe(rec);
+        const altAmZiel = liste.find((x) => x.datum === v.datum);
+        const zusammen = { ...(altAmZiel ? altAmZiel.noten : {}), ...eingegeben };
+        neu = { ...(altAmZiel || {}), ...zusatz, datum: v.datum, noten: zusammen };
+        delete neu.skalaAlt;
+        const rest = liste.filter((x) => x.datum !== v.datum && x.datum !== (vorhanden || {}).datum);
+        rec.bewertungen = U.sortBy([...rest, neu], (x) => x.datum || '', true);
+        rec.bewertung = gdebNoten(rec.bewertungen[0]);      // Kurzform für Listen, PDF und Sortierung
+        rec.bewertetAm = rec.bewertungen[0].datum;
+        return rec;
+      });
       const voll = gdebVollstaendig(neu);
       UI.toast(`Bewertung gespeichert · Mittelwert ${U.fmtNum(gdebMittel(neu), 1)}${voll.reicht ? '' : ` · noch ${voll.mindest - voll.kern} Merkmal(e) bis zur Zuchttauglichkeit`}`);
       renderRoute();
@@ -5479,21 +5584,26 @@ async function gdebBewertungForm(queenId, vorhandenDatum = null) {
    erhalten und werden ergänzt, nicht ersetzt: Wer morgens die Sanftmut und
    abends den Ertrag einträgt, soll am Ende beides haben. */
 async function setBewertung(queenId, noten, datum, zusatz = {}) {
-  const q = await DB.get('koeniginnen', queenId);
-  if (!q) return false;
   const tag = datum || U.todayIso();
-  const liste = gdebListe(q);
-  const vorher = liste.find((x) => x.datum === tag);
-  const zusammen = { ...(vorher ? vorher.noten : {}) };
-  for (const m of GDEB_MERKMALE) { const nn = U.zahl(noten[m.key], 0); if (nn >= 1 && nn <= 6) zusammen[m.key] = nn; }
-  if (!Object.keys(zusammen).length && !zusatz.bemerkung) return false;
-  const eintrag = { ...(vorher || {}), datum: tag, noten: zusammen, ...zusatz };
-  delete eintrag.skalaAlt;
-  q.bewertungen = U.sortBy([...liste.filter((x) => x.datum !== tag), eintrag], (x) => x.datum || '', true);
-  q.bewertung = gdebNoten(q.bewertungen[0]);
-  q.bewertetAm = q.bewertungen[0].datum;
-  await DB.put('koeniginnen', q);
-  return true;
+  /* Lesen, Ergänzen und Schreiben in EINER Transaktion: zwei Fenster, die
+     dieselbe Königin am selben Tag benoten, gingen sonst beide vom alten
+     Stand aus – die zuletzt gespeicherte Note löschte die andere (F01-Bericht
+     v1.69, F23). */
+  const rec = await DB.update('koeniginnen', queenId, (q) => {
+    if (!q) return null;
+    const liste = gdebListe(q);
+    const vorher = liste.find((x) => x.datum === tag);
+    const zusammen = { ...(vorher ? vorher.noten : {}) };
+    for (const m of GDEB_MERKMALE) { const nn = U.zahl(noten[m.key], 0); if (nn >= 1 && nn <= 6) zusammen[m.key] = nn; }
+    if (!Object.keys(zusammen).length && !zusatz.bemerkung) return null;
+    const eintrag = { ...(vorher || {}), datum: tag, noten: zusammen, ...zusatz };
+    delete eintrag.skalaAlt;
+    q.bewertungen = U.sortBy([...liste.filter((x) => x.datum !== tag), eintrag], (x) => x.datum || '', true);
+    q.bewertung = gdebNoten(q.bewertungen[0]);
+    q.bewertetAm = q.bewertungen[0].datum;
+    return q;
+  });
+  return !!rec;
 }
 /** Weiselt ein Volk auf eine neue Königin um: beendet die Zuordnung der bisherigen
     Königin (Status → umgeweiselt), löst die neue aus einem etwaigen anderen Volk und
