@@ -76,6 +76,12 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-23 (v1.72)**: **Datumsfelder ragten auf dem iPhone aus dem Bild.** `input[type=date]` hat im WKWebView eine eigene intrinsische Mindestbreite, die `width:100%` überstimmt (`min-width:auto` ist die Vorgabe) – der Kasten lief rechts über den Rand, der Rahmen fehlte dort, und Safari zentrierte den Text. Fix: `min-width:0; max-width:100%; box-sizing:border-box` für alle `.inp` plus `-webkit-appearance:none; text-align:left` für date/time/datetime-local/month. Betraf **alle** Datumsfelder der App. **Gefunden nur durch den Durchklick auf dem echten iOS-Simulator** – am Rechner ist genug Platz, dort fällt es nie auf.
+
+- **2026-09-23 (v1.71)**: **Codex' Prüfkorrekturen übernommen** (`git pull` aus dessen Arbeitskopie, Zweig `codex/v170-pruefung-abschliessen`). 30 Funde der v1.69-Prüfung behoben; Einzelheiten in [docs/pruefung-v171/CLAUDE-ABSCHLUSS-v1.71.md](docs/pruefung-v171/CLAUDE-ABSCHLUSS-v1.71.md).
+  **Selbst nachgeprüft statt Protokoll geglaubt:** 497/497 Tests selbst gelaufen; alle sechs eigenen Commits als Vorfahren von `fbfeb50` bestätigt (Codex hat gemerged, nicht überschrieben); echte Tesseract-Erkennung nach der F27-Schwellenänderung nachgestellt (Spalten weiter korrekt); F23 am echten Datensatz geprüft (zwei Bewertungen desselben Tages ergänzen sich); alle 11 PDFs neu gerendert.
+  **„Was ist neu" ausformuliert** – Codex hatte für 30 Funde zwei Sätze; jetzt steht dort, was sich für Julian tatsächlich ändert, inklusive des Hinweises, dass festgeschriebene Rechnungen **nicht** nachträglich umgerechnet werden.
+
 - **2026-09-22 (v1.68/1.69)**: **Zwei Fehler aus Julians Test am GdeB-Modul** und eine Beschriftung.
   (1) Die **Bewertungs-Runde** listete nur Völker mit bereits zugeordneter Königin – wer seine Königinnen nicht einzeln erfasst hat, bekam eine leere Liste. Jetzt stehen alle aktiven Völker zur Wahl; für die ohne erfasste Königin wird beim Weitergehen eine angelegt und zugeordnet, Jahrgang wird **abgefragt statt geraten**, Kennung fortlaufend vergeben.
   (2) Neu **`halbBreit`** im Formular-Raster: nebeneinander nur oberhalb 620 px, darunter volle Breite. Datum + Temperatur sahen verschoben aus (nur eines der beiden hat einen Hinweistext), und auf dem Handy war „– nicht bewertet –" in den Auswahlmenüs abgeschnitten. Kurze Paare (Menge + Einheit) bleiben bei `halb`.
