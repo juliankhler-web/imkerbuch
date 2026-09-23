@@ -37,7 +37,7 @@ await test('G3','Neue Bewertung am selben Tag erhält frühere Noten',async()=>{
 });
 await test('G4','Alte Skala bleibt bei Teilergänzung erkennbar',async()=>{
  await DB.put('koeniginnen',{id:'q',kennung:'B1',bewertung:{sanftmut:4,wabensitz:4},bewertetAm:'2026-09-22'});
- await setBewertung('q',{fruehtracht:6},'2026-09-22');const b=gdebAktuell(await DB.get('koeniginnen','q'));return check(b.skalaAlt===true,{b,mittel:gdebMittel(b)});
+ await setBewertung('q',{fruehtracht:6},'2026-09-22');const b=gdebAktuell(await DB.get('koeniginnen','q'));const liste=gdebListe(await DB.get('koeniginnen','q'));return check(liste.some(x=>x.skalaAlt&&x.noten.sanftmut===4)&&b.noten.fruehtracht===6&&!b.noten.sanftmut,{liste,b,mittel:gdebMittel(b)});
 });
 await test('G5','Stammbaumschleife bleibt endlich',async()=>{
  const q={id:'q',kennung:'B1',mutterId:'m'},m={id:'m',kennung:'B2',mutterId:'q'};const p=pedigreeGdeB(q,new Map([['q',q],['m',m]]));return check(p.length<200,{p});
@@ -50,7 +50,7 @@ await test('H1','OCR erkennt Tabelle mit Einwortzellen',async()=>{
  const text=spaltenAusWorten(lines),rows=hygieneplanParsen(text);return check(rows.length===1&&rows[0].mittel==='Wasser',{text,rows});
 });
 await test('H2','Mehr als 60 Planzeilen werden nicht still abgeschnitten',async()=>{
- const input='Bereich;Mittel;Häufigkeit\n'+Array.from({length:61},(_,i)=>`Raum ${i};Wasser;täglich`).join('\n');const rows=hygieneplanParsen(input);return check(rows.length===61,{inputRows:61,outputRows:rows.length});
+ const input='Bereich;Mittel;Häufigkeit\n'+Array.from({length:61},(_,i)=>`Raum ${i};Wasser;täglich`).join('\n');const rows=hygieneplanParsen(input);Views.bio.planDurchsicht(rows,input);return check(rows.length===60&&rows.gekuerzt&&document.querySelector('.modal-back').textContent.includes('begrenzt'),{inputRows:61,outputRows:rows.length,gekuerzt:rows.gekuerzt});
 });
 await test('H3','Plan-Durchsicht führt importiertes HTML nicht aus',async()=>{
  const p='<img src=x onerror=window.__auditHit++>';Views.bio.planDurchsicht([{bereichName:p,mittel:p,haeufigkeit:p,verantwortlich:p,sicher:true}],p,p);await pause(100);return check(window.__auditHit===0,{scriptExecutions:window.__auditHit});

@@ -1,6 +1,6 @@
 # API-Referenz ImkerBuch
 
-Diese Datei beschreibt die **interne Schnittstelle** von `index.html` (v1.48) – also alles,
+Diese Datei beschreibt die **interne Schnittstelle** von `index.html` (v1.71) – also alles,
 was ein Modul einem anderen anbietet. Eine Netzwerk-API gibt es nicht: Die App läuft
 vollständig lokal, alle Daten liegen in IndexedDB auf dem Gerät.
 
@@ -80,6 +80,9 @@ await DB.open()                          // Verbindung (idempotent)
 await DB.get(store, id)                  // ein Datensatz
 await DB.getAll(store)                   // alle Datensätze
 await DB.count(store)
+await DB.leseAlles(stores)              // konsistenter Stand über alle genannten Speicher
+await DB.schreibeAlles(ops)             // gemeinsame Schreibtransaktion; bestätigt erst Commit
+await DB.aendereAtomar(stores, berechne) // aktuelles Lesen + Prüfen + Schreiben unter einer Sperre
 await DB.put(store, obj, keepStamp=false) // legt an oder aktualisiert, gibt obj zurück
 await DB.bulkPut(store, objs, keepStamp=true)
 await DB.del(store, id)                  // endgültig
@@ -92,6 +95,22 @@ await DB.purgeTrash()                    // löscht Papierkorb-Einträge > 30 Ta
 **`put` vergibt automatisch** `id` (UUID) sowie `createdAt` und `lastModified` (ISO).
 `keepStamp: true` lässt die Zeitstempel unangetastet – nötig beim Import und beim
 Wiederherstellen, sonst gewinnt beim Zusammenführen immer der zuletzt importierte Stand.
+
+`aendereAtomar` ruft `berechne(daten)` synchron nach dem Lesen aller Speicher auf.
+Der Rückgabewert ist `{ ops, wert }`; `ops` enthält Aufträge wie bei `schreibeAlles`
+(`{ store, obj, keepStamp }`, `{ op: 'del', store, id }` oder `{ op: 'clear', store }`).
+Innerhalb des Callbacks keine `await`, Promises, Dialoge oder anderen Datenbankaufrufe.
+Ein Fehler rollt alle Aufträge zurück; `wert` wird erst beim Commit geliefert.
+Der Callback darf nur die übergebenen Kopien bearbeiten, keinen UI- oder Einstellungszustand.
+
+Alle Schreibwege (`put`, `bulkPut`, `del`, `clear`) laufen über die gemeinsame
+Commit-Behandlung. Jede Transaktion mit Betriebsdaten führt `settings` mit und schreibt
+dort `_datenRevision`. `_gesicherteRevision` bezeichnet den Stand der tatsächlich
+exportierten Datei. Beide Schlüssel sind lokale Betriebsmetadaten: nicht exportieren,
+nicht aus fremden Sicherungen übernehmen. Reine Einstellungen und interne Snapshots
+lösen wie bisher keine neue Betriebsdatenrevision aus. `S.load` stellt den Vergleich
+nach einem Neustart wieder her; BroadcastChannel und Fokuswechsel aktualisieren ihn
+in weiteren Fenstern. Fehlgeschlagene Schreibvorgänge verändern keine Revision.
 
 **`DB.STORES`** listet alle 31 Stores. **`DB.DATA_STORES`** ist dieselbe Liste ohne
 `snapshots` und steuert Export, Import und Snapshot – ein neuer Store wird also
@@ -284,7 +303,7 @@ await Backup.share()                        // Web Share API, sonst Download + m
 await Backup.importFile(file)               // fragt Ersetzen oder Zusammenführen
 await Backup.applyReplace(data, { blobsBehalten })
 await Backup.applyMerge(data)               // jüngeres lastModified gewinnt, keine Dubletten
-Backup._saeubereZeile(store, r)             // prüft jede Zeile aus der Datei (siehe adr/0004)
+Backup._saeubereZeile(store, r)             // ungültige ID: gesamter Import bricht vor Schreibbeginn ab
 Xlsx.zelleSicher(v) / Xlsx.zeilenSicher(rows)  // keine Formeln, keine Zellobjekte aus Fremddaten
 await Backup.snapshotInternal(grund)        // rollierend 10, ohne Anhang-Blobs
 await Backup.restoreSnapshot(id)
@@ -296,7 +315,7 @@ await Backup.restoreSnapshot(id)
 Backup.reminderInfo()      // { tage, stufe: 'ok'|'gelb'(ab 7 T)|'rot'(ab 14 T) }
 Backup.updateBanners()     // zeichnet #banners neu
 Backup.updateStand()       // zieht die Anzeigen auf den Seiten nach
-await Backup.markExternal()// merkt die Sicherung + beides oben
+await Backup.markExternal(blob) // bestätigt nur den Datenstand dieser von buildBlob erzeugten Datei
 await Backup.erinnerungAus()
 backupBadgeHtml()          // gemeinsame Badge für Dashboard und Einstellungen
 ```
@@ -511,9 +530,20 @@ rechnungRabatt(r, waren)
 rechnungSummen(r)      // Warenwert, Rabatt, Pfand, USt, Brutto, Skonto-Hinweis
 ```
 
-Regeln, die in den Tests festgeschrieben sind: **Pfand ist kein Erlös** – er bleibt außerhalb
-von Rabatt und Umsatzsteuer. **Skonto wird ausgewiesen, aber nicht abgezogen.** Die
-Umsatzsteuer folgt dem Rabatt.
+Pfand bleibt außerhalb von Rabatt und Skonto; seine Umsatzsteuer folgt dem gewählten
+`pfandSteuersatz`. Skonto wird als Zahlungsbedingung ausgewiesen, nicht bereits abgezogen.
+Die Umsatzsteuer auf Waren folgt dem Rabatt.
+
+Neue Festschreibungen erhalten `berechnungVersion: 2`. Entwürfe und solche Belege verwenden
+`rechnungSummenNeu`: Zahlentexte als Steuersatz, 0-%-Nettogruppen und Pfand bei §24 werden
+korrigiert behandelt. Bereits nummerierte oder festgeschriebene/stornierte Altdaten ohne
+Version 2 laufen ausdrücklich über die eingefrorene `rechnungSummenAlt`; keine automatische
+Neuberechnung historischer Belege. Alte App-Versionen kennen diesen Schalter nicht: Eine
+Rückgabe neu erstellter Belege an eine alte App ist nicht als rechenkompatibel freigegeben.
+
+`rechnungEntwurfSpeichern(neu, erwartet)` verhindert das Überschreiben eines inzwischen
+geänderten oder festgeschriebenen Entwurfs. Festschreiben, Rechnungsstorno, Verkauf und
+Verkaufsstorno lesen aktuelle Bestände innerhalb ihrer jeweiligen Schreibtransaktion.
 
 ---
 
@@ -664,3 +694,43 @@ ein Netz brauchen (Landbedeckung, Adresssuche, Update-Prüfung), bleiben bewusst
 Die CI (`.github/workflows/ci.yml`) fährt bei jedem Push dieselben Befehle und prüft
 zusätzlich, dass `APP_VERSION`, der `CHANGELOG`-Eintrag und die Version in
 `package.json` zusammenpassen.
+
+## 21. Atomare Fachvorgänge im Reparaturzweig
+
+- `verkaufsPapierkorbWiederherstellen(trashId)` stellt Verkauf und zugehörige Einnahme
+  gemeinsam wieder her, zieht die Menge von der Abfüllung ab und entfernt beide
+  Papierkorbeinträge. Einstieg über Verkauf oder Einnahme möglich; fehlender Gegenbeleg,
+  vorhandene Ziel-ID oder Fehlbestand führen zum vollständigen Abbruch.
+- `abfuellungenAnlegen(formwerte)` prüft Chargenkapazität und schreibt alle Gebindegrößen,
+  Materialbestände und gemerkten Verbräuche in einer Transaktion.
+- `abfuellungAendern(erwartet, formwerte)` prüft den aktuellen Datensatz auf Änderungen
+  seit Öffnen des Formulars. Verwaiste Altdaten dürfen verkleinert werden; für eine
+  Vergrößerung muss die Charge wiederhergestellt werden.
+- `pruefeAbfuellMenge` und `materialAbzugPlan` sind synchrone Planungshelfer auf den
+  Kopien der laufenden Transaktion. `materialAbzugPlan` wird auch beim Ändern von
+  Fütterungen benutzt. Beide Helfer selbst schreiben nichts in IndexedDB.
+
+## Ergänzungen v1.71: Bewertungen und Planimport
+
+`DB.update(store, id, updater)` verwendet `DB.aendereAtomar`. Der Updater ist
+synchron; ein Promise wird vor dem Schreiben abgelehnt. Erfolg wird erst nach
+Commit gemeldet, die persistente Sicherungsrevision wird gemeinsam geschrieben.
+
+`koeniginnen.bewertungen[]` enthält datierte Einträge mit `noten`, `wetter`,
+`temperatur`, `bemerkung`. `skalaAlt: true` kennzeichnet unverändert erhaltene
+1–4-Altwerte. Am selben Tag darf eine getrennte alte und neue Spalte existieren;
+neue 1–6-Noten werden niemals mit alten Noten zu einem Mittelwert vermischt.
+`bewertung` und `bewertetAm` bleiben als kompatible Kurzfassung erhalten.
+`gdebErgaenzen` verändert den bereits gesperrten Datensatz synchron. Es werden
+nur bekannte Merkmale und Zusatzfelder übernommen; null löscht bewusst eine
+neue Note. Die Bewertungsrunde vergibt Kennung und Volk-Zuordnung unter derselben
+Schreibsperre. `freieKoeniginKennung` berechnet aus dem gesperrten Bestand.
+
+Der Hygieneplan-Parser liefert weiterhin ein Array; `gekuerzt: true` signalisiert
+mehr als 60 Ergebniszeilen. Die Durchsicht zeigt die Begrenzung an. PDF-Text wird
+bis fünf Seiten, 50.000 Textobjekten pro Seite und 500.000 Textzeichen verarbeitet;
+OCR-Layout bis 50.000 Wörtern, Eingabedateien bis 20 MB. Scanrendering wird auf
+vier Millionen Pixel begrenzt. Dies sind Verarbeitungsbudgets, keine Garantie
+gegen jede fehlerhafte Fremdbibliothek. PDF-Ressourcen werden freigegeben.
+Planübernahme sperrt Doppelklicks und schreibt Einträge sowie optionalen
+Beschreibungstext gemeinsam. Bei Abbruch bleiben Formular und Ausgangsdaten erhalten.

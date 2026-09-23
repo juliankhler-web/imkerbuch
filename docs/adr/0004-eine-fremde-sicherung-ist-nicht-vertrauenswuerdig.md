@@ -2,6 +2,7 @@
 
 - **Status:** Angenommen
 - **Datum:** 2026-09-21
+- **Ergänzt:** 2026-09-22 (Kennungen, siehe Nachtrag)
 - **Betrifft:** Backup-Import, alle Anzeigen, Tabellen-Export
 
 ## Kontext
@@ -90,3 +91,18 @@ führt ihn über `_saeubereZeile` — oder begründet, warum nicht.
 Fünf Tests stellen genau diese Angriffe nach (`S1` bis `S5/S6` in
 `tests/tests.js`) und prüfen zugleich, dass rechtmäßige Daten unverändert
 durchkommen: gültige IDs bleiben, ein echtes Logo bleibt, normaler Text bleibt.
+
+## Nachtrag 22.09.2026: ungültige Kennungen vollständig zurückweisen
+
+Die ursprüngliche Ersatz-ID-Regel oben ist ab dem Reparaturzweig aufgehoben. Sie
+zerriss Beziehungen und erzeugte bei wiederholtem Import neue Duplikate (F14).
+`_saeubereZeile` wirft jetzt bei einer ungültigen Datensatz-ID einen verständlichen
+Fehler. Ersetzen und Zusammenführen bereiten die gesamte Datei vor dem Schreiben
+auf; deshalb bleibt bei diesem Fehler der komplette lokale Bestand unverändert.
+Gültige IDs, Beziehungen und das Sicherungsformat bleiben erhalten. Eine beschädigte
+Datei muss an ihrer Quelle korrigiert werden; es gibt keine stillen Ersatzkennungen.
+
+Die frühere Aussage „Eine fremde Datei kann keinen Code mehr ausführen“ ist keine
+allgemeine Sicherheitsgarantie. Nachprüfungen fanden weitere Ausgabestellen (F01);
+sie sind mit gezielten Import-/Render-Tests abgesichert. Vollständige Schemaprüfung
+und beliebige künftige Ausgabepfade werden damit nicht bewiesen.

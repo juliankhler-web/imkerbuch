@@ -5387,14 +5387,16 @@ test('Zugang: Art steht oben, bedingte Felder nehmen die ganze Breite', async (w
     assert(!m.el.querySelector('[data-field="art"]').classList.contains('halb'), 'die Art nimmt die ganze Breite');
     assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'Datum und Menge bilden das Paar');
     // Wechsel auf eine Art ohne Preis darf nichts verschieben
-    const obenVorher = Math.round(kasten('datum').top);
+    const relativOben = () => Math.round(kasten('datum').top - m.el.querySelector('.modal-body').getBoundingClientRect().top);
+    const obenVorher = relativOben();
     const sel = m.el.querySelector('#f-art');
     sel.value = 'Eigenproduktion'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 150));
     assert(m.el.querySelector('[data-field="preis"]').classList.contains('hidden'), 'ohne Einkauf kein Preisfeld');
     /* Toleranz von 2 px: ein Unterpixel-Unterschied ist kein Sprung – geprüft
        wird, dass die Zeile nicht umbricht, nicht dass sie auf das Pixel liegt. */
-    nah(Math.round(kasten('datum').top), obenVorher, 2, 'Datum und Menge bleiben, wo sie waren');
+    // Der ganze Dialog darf sich bei anderer Höhe neu zentrieren. Entscheidend ist die Zeile innerhalb des Dialogs.
+    nah(relativOben(), obenVorher, 2, 'Datum und Menge bleiben innerhalb des Dialogs, wo sie waren');
     assertEq(Math.round(kasten('datum').top), Math.round(kasten('menge').top), 'und bleiben ein Paar');
   } finally { m.close && m.close(true); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 });
@@ -7441,11 +7443,9 @@ test('S1: Unbekannter Bereich in der Sicherung landet nicht im Vorschau-Dialog',
 test('S2: Importierte ID kann nicht aus einem Attribut ausbrechen', async (w) => {
   delete w.__boese;
   const boeseId = 'x"><img src=x onerror="window.__boese=1">';
-  const rows = w.Backup._rowsAusImport('staende', [{ id: boeseId, name: 'Prüfstand', lastModified: w.U.nowIso() }]);
-  assertEq(rows.length, 1, 'der Datensatz geht nicht verloren');
-  assert(rows[0].id !== boeseId, 'aber er bekommt eine neue Kennung');
-  assert(/^[A-Za-z0-9_-]+$/.test(rows[0].id), 'und die ist unverdächtig: ' + rows[0].id);
-  assertEq(rows[0].name, 'Prüfstand', 'der Name bleibt unangetastet');
+  let abgelehnt = false;
+  try { w.Backup._rowsAusImport('staende', [{ id: boeseId, name: 'Prüfstand', lastModified: w.U.nowIso() }]); } catch (e) { abgelehnt = true; }
+  assert(abgelehnt, 'ungültige ID wird abgelehnt statt Beziehungen durch Ersatz-ID zu zerreißen');
   // Harmlose Kennungen bleiben, sonst zerrisse jeder Import die Verknüpfungen
   const heil = w.U.uuid();
   assertEq(w.Backup._rowsAusImport('staende', [{ id: heil, name: 'Heil' }])[0].id, heil, 'gültige IDs bleiben erhalten');
@@ -7829,11 +7829,11 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
   const r = await w.DB.put('rechnungen', { nummer: null, datum: '2026-06-01', kundeId: k.id, status: 'entwurf', steuerart: 'klein',
     positionen: [{ text: 'Rapshonig 500 g', menge: 3, einzelpreis: 6, steuersatz: 0, pfand: 0, abfuellungId: a.id }] });
   const kasseVorher = (await w.DB.getAll('kassenbuch')).length;
-  const altSchreib = w.DB.schreibeAlles, altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
+  const altSchreib = w.DB.aendereAtomar, altConfirm = w.UI.confirm, altToast = w.UI.toast, altRender = w.renderRoute;
   const toasts = [];
   w.UI.confirm = async () => true; w.UI.toast = (t, art) => toasts.push([t, art]); w.renderRoute = async () => {};
   try {
-    w.DB.schreibeAlles = async () => { throw new Error('Platte voll'); };
+    w.DB.aendereAtomar = async () => { throw new Error('Platte voll'); };
     await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), [a]);
     const rNach = await w.DB.get('rechnungen', r.id);
     assertEq(rNach.status, 'entwurf', 'die Rechnung bleibt Entwurf');
@@ -7842,7 +7842,7 @@ test('B63-9: Scheiterndes Festschreiben bucht gar nichts', async (w) => {
     assertEq((await w.DB.getAll('kassenbuch')).length, kasseVorher, 'und es wurde nichts ins Kassenbuch gebucht');
     assert(toasts.some(([, art]) => art === 'err'), 'der Fehler wird gemeldet');
   } finally {
-    w.DB.schreibeAlles = altSchreib; w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
+    w.DB.aendereAtomar = altSchreib; w.UI.confirm = altConfirm; w.UI.toast = altToast; w.renderRoute = altRender;
     await w.DB.del('rechnungen', r.id); await w.DB.del('abfuellungen', a.id);
     await w.DB.del('chargen', c.id); await w.DB.del('kontakte', k.id);
   }
@@ -8158,4 +8158,586 @@ test('Bewertungs-Runde: Völker ohne erfasste Königin sind wählbar', async (w)
     dialogeSchliessen(w); host.remove();
     await w.DB.del('voelker', ohne.id); await w.DB.del('staende', st.id);
   }
+});
+/* F01: Fremde Sicherungen durch den echten Import und die echten Ansichten.
+   Auch harmlose Sonderzeichen müssen nach dem Anzeigen unverändert gespeichert sein. */
+const F01_FAELLE = [
+  ['Rechnung: Steuersatz', (p) => ({ rechnungen: [{ id: 'f01-r', datum: '2026-09-21', status: 'entwurf', steuerart: 'regel', positionen: [{ text: 'Honig', menge: 1, einzelpreis: 10, steuersatz: p }] }] }), (w, h) => w.Views.rechnung.render(h, 'f01-r')],
+  ...['zahlungszielTage', 'skontoTage'].map((feld) => ['Rechnung: ' + feld, (p) => ({ rechnungen: [{ id: 'f01-r', datum: '2026-09-21', status: 'entwurf', steuerart: 'klein', positionen: [], [feld]: p }] }), (w, h) => w.Views.rechnung.render(h, 'f01-r')]),
+  ['Volk: Status', (p) => ({ voelker: [{ id: 'f01-v', name: 'Anna', status: p, historie: [] }] }), (w, h) => w.Views.volk.render(h, 'f01-v')],
+  ['Behandlung: Wartezeit', (p) => ({ behandlungen: [{ id: 'f01-b', datum: '2026-09-21', mittel: 'Test', menge: 1, wartezeitTage: p }] }), (w, h) => w.Views.behandlungen.render(h)],
+  ...['anzahl', 'bestand'].flatMap((feld) => ['Liste', 'Chargendetail'].map((ansicht) => ['Abfüllung: ' + feld + ' / ' + ansicht, (p) => ({ chargen: [{ id: 'f01-c', losnummer: 'L1', mengeKg: 10 }], abfuellungen: [{ id: 'f01-a', chargeId: 'f01-c', gebindeG: 500, anzahl: 10, bestand: 10, datum: '2026-09-21', [feld]: p }] }), async (w, h) => ansicht === 'Liste' ? w.Views.honig.tabAbfuellung(h) : w.Views.honig.chargeDetail(await w.DB.get('chargen', 'f01-c'))])),
+  ['Verkauf: Anzahl', (p) => ({ verkaeufe: [{ id: 'f01-v', anzahl: p, betrag: 5, datum: '2026-09-21' }] }), (w, h) => w.Views.honig.tabVerkaeufe(h)],
+  ...['erhebung', 'umkreisM'].map((feld) => ['Bio: ' + feld, (p) => ({ staende: [{ id: 'f01-s', name: 'Stand', bio: { [feld]: p } }] }), async (w) => w.Views.bio.standortForm(await w.DB.get('staende', 'f01-s'))]),
+  ['Zucht: Termintag', (p) => ({ zuchtserien: [{ id: 'f01-z', name: 'Serie', startdatum: '2026-09-21', anzahl: 1, termine: [{ tag: p, titel: 'Test', datum: '2026-09-21' }] }] }), async (w) => w.Views.zucht.detail(await w.DB.get('zuchtserien', 'f01-z'))],
+  ['Etikett: Losnummer', (p) => ({ chargen: [{ id: 'f01-c', losnummer: p, mengeKg: 10 }], abfuellungen: [{ id: 'f01-a', chargeId: 'f01-c', anzahl: 10, bestand: 10, gebindeG: 500, datum: '2026-09-21' }] }), async (w) => w.honigEtikettForm(await w.DB.get('abfuellungen', 'f01-a'), await w.DB.get('chargen', 'f01-c'))],
+];
+for (const [name, daten, anzeigen] of F01_FAELLE) {
+  test('F01: Import + Anzeige schützt ' + name, async (w) => {
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    const bestaetigen = w.UI.confirm;
+    w.UI.confirm = async () => true;
+    try {
+      // Ein Wert testet sowohl Text- als auch Attributkontext; kein echter Datenabfluss.
+      for (const wert of ['"><img data-f01-angriff src=x onerror="window.__f01Angriff++">', 'Prüfung & "Sonderzeichen" <ohne HTML>']) {
+        dialogeSchliessen(w); w.__f01Angriff = 0;
+        const stores = daten(wert);
+        // Nur die eigenen Testdatensätze entfernen, keine anderen Tests beeinflussen.
+        for (const [store, rows] of Object.entries(stores)) for (const row of rows) await w.DB.del(store, row.id);
+        await w.Backup.applyMerge({ app: 'ImkerBuch', formatVersion: 1, stores });
+        const lesen = async () => {
+          const rows = [];
+          for (const [store, list] of Object.entries(stores)) for (const row of list) rows.push(await w.DB.get(store, row.id));
+          return rows;
+        };
+        const vorher = JSON.stringify(await lesen());
+        await anzeigen(w, host);
+        await new Promise((r) => setTimeout(r, 100));
+        assertEq(w.__f01Angriff, 0, 'importierter Text wird nicht ausgeführt');
+        assert(!w.document.querySelector('[data-f01-angriff]'), 'kein eingeschleustes HTML-Element');
+        assertEq(JSON.stringify(await lesen()), vorher, 'Anzeige verändert keine gespeicherten Daten');
+        host.innerHTML = '';
+      }
+    } finally {
+      dialogeSchliessen(w); host.remove(); w.UI.confirm = bestaetigen; delete w.__f01Angriff;
+      for (const [store, rows] of Object.entries(daten(''))) for (const row of rows) await w.DB.del(store, row.id);
+    }
+  });
+}
+
+/* Commit-Grenzen: Fehler erst NACH erfolgreichem Einzelauftrag auslösen. */
+test('DB.put: Request-Erfolg mit anschließendem Abbruch ist kein Speichererfolg', async (w) => {
+  const id = 'commit-test', original = w.IDBObjectStore.prototype.put;
+  await w.DB.put('kontakte', { id, name: 'Vorher' });
+  let ausgeloest = false, fehler;
+  w.IDBObjectStore.prototype.put = function (obj, ...args) {
+    const rq = original.call(this, obj, ...args);
+    if (this.name === 'kontakte' && obj.id === id) {
+      const tx = this.transaction;
+      rq.addEventListener('success', () => { ausgeloest = true; tx.abort(); });
+    }
+    return rq;
+  };
+  try {
+    try { await w.DB.put('kontakte', { id, name: 'Nachher' }); } catch (e) { fehler = e; }
+    assert(ausgeloest && fehler, 'Abbruch wird an Aufrufer gemeldet');
+    assertEq((await w.DB.get('kontakte', id)).name, 'Vorher', 'alter Datensatz erhalten');
+  } finally { w.IDBObjectStore.prototype.put = original; await w.DB.del('kontakte', id); }
+});
+
+test('S.set: abgebrochener Commit lässt Einstellung in Speicher und Datenbank unverändert', async (w) => {
+  const key = 'commit-test', original = w.IDBObjectStore.prototype.put;
+  await w.S.set(key, { wert: 'Vorher' });
+  w.IDBObjectStore.prototype.put = function (obj, ...args) {
+    const rq = original.call(this, obj, ...args);
+    if (this.name === 'settings' && obj.key === key) {
+      const tx = this.transaction; rq.addEventListener('success', () => tx.abort());
+    }
+    return rq;
+  };
+  try {
+    let fehler;
+    try { await w.S.set(key, { wert: 'Nachher' }); } catch (e) { fehler = e; }
+    assert(fehler, 'Fehler gemeldet');
+    assertEq(w.S.get(key), { wert: 'Vorher' }, 'Arbeitsspeicher erhalten');
+    assertEq((await w.DB.get('settings', key)).value, { wert: 'Vorher' }, 'Datenbank erhalten');
+  } finally { w.IDBObjectStore.prototype.put = original; await w.DB.del('settings', key); delete w.S.data[key]; }
+});
+
+test('DB.schreibeAlles: synchroner Fehler erzeugt keine unbehandelte Ablehnung', async (w) => {
+  const fehler = [], handler = (e) => { fehler.push(e.reason); e.preventDefault(); };
+  w.addEventListener('unhandledrejection', handler);
+  const flag = w._changedSinceBackup; w._changedSinceBackup = false;
+  try {
+    let abgelehnt = false;
+    try { await w.DB.schreibeAlles([{ store: 'kontakte', obj: { id: 'commit-test', name: 'Rollback' } }, { store: 'settings', obj: { value: 'Schlüssel fehlt' } }]); }
+    catch (e) { abgelehnt = true; }
+    await new Promise((r) => setTimeout(r, 100));
+    assert(abgelehnt, 'Aufruf schlägt fehl');
+    assertEq(fehler.length, 0, 'kein zweiter unbehandelter Fehler');
+    assert(!(await w.DB.get('kontakte', 'commit-test')), 'erster Schreibauftrag zurückgerollt');
+    assertEq(w._changedSinceBackup, false, 'Rollback setzt kein Änderungsflag');
+  } finally { w.removeEventListener('unhandledrejection', handler); w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); }
+});
+
+test('DB.schreibeAlles: erfolgreiche Datenänderung aktiviert Sicherungshinweis', async (w) => {
+  const flag = w._changedSinceBackup; w._changedSinceBackup = false;
+  try {
+    await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'commit-test', value: true } }]);
+    assertEq(w._changedSinceBackup, false, 'reine Einstellung bleibt ausgenommen');
+    await w.DB.schreibeAlles([{ store: 'kontakte', obj: { id: 'commit-test', name: 'Gespeichert' } }]);
+    assertEq(w._changedSinceBackup, true, 'erfolgreiche Datenbuchung ist sicherungsbedürftig');
+  } finally { w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); await w.DB.del('settings', 'commit-test'); }
+});
+
+/* F04: Rückgabe darf nur tatsächlich entnommenes Material umfassen. */
+test('F04: Abzug meldet echte Differenz bei vollem, knappem und leerem Bestand', async (w) => {
+  const id = 'f04-material';
+  try {
+    for (const [bestand, menge, einheit, erwartet, rest] of [[12, 5, 'Stück', 5, 7], [2, 10, 'Stück', 2, 0], [0, 10, 'Stück', 0, 0], [2.345, 0.333, 'kg', 0.333, 2.012]]) {
+      await w.DB.put('inventar', { id, typ: 'verbrauch', einheit, stueckzahl: bestand });
+      const b = await w.verbrauchAbziehen(id, menge, { pruefen: false });
+      assertNah(b.abgezogen, erwartet, 0.00001, 'wirklicher Abzug');
+      assertNah(b.nachher, rest, 0.00001, 'Restbestand');
+      assertNah(b.gefehlt, Math.max(0, menge - erwartet), 0.00001, 'Fehlmenge');
+      await w.verbrauchZurueckbuchen([{ inventarId: id, menge: b.abgezogen }], { pruefen: false });
+      assertNah((await w.DB.get('inventar', id)).stueckzahl, bestand, 0.00001, 'Rückgabe erzeugt keine zusätzliche Menge');
+    }
+  } finally { await w.DB.del('inventar', id); }
+});
+
+test('F04: Abfüllkorrektur und Rückgabe erzeugen bei leerem Materiallager keine Gläser', async (w) => {
+  const form = w.UI.formModal, render = w.renderRoute;
+  const c = await w.DB.put('chargen', { id: 'f04-charge', mengeKg: 20, losnummer: 'F04' });
+  await w.DB.put('inventar', { id: 'f04-material', typ: 'verbrauch', einheit: 'Stück', stueckzahl: 0 });
+  const a = await w.DB.put('abfuellungen', { id: 'f04-abf', chargeId: c.id, anzahl: 10, bestand: 10, gebindeG: 500, verbrauchAbzug: [{ inventarId: 'f04-material', menge: 10 }] });
+  let formular;
+  w.UI.formModal = (o) => { formular = o; }; w.renderRoute = async () => {};
+  try {
+    await w.Views.honig.abfuellEditForm(a);
+    await formular.onSave({ anzahl: 20, bestand: 20, gebindeG: 500, datum: '2026-09-22' });
+    const gespeichert = await w.DB.get('abfuellungen', a.id);
+    assertEq(gespeichert.verbrauchAbzug[0].menge, 10, 'nur zuvor tatsächlich gebuchte Gläser bleiben gemerkt');
+    await w.verbrauchZurueckbuchen(gespeichert.verbrauchAbzug, { pruefen: false });
+    assertEq((await w.DB.get('inventar', 'f04-material')).stueckzahl, 10, 'Rückgabe 10 statt 20');
+  } finally {
+    w.UI.formModal = form; w.renderRoute = render;
+    await w.DB.del('abfuellungen', a.id); await w.DB.del('chargen', c.id); await w.DB.del('inventar', 'f04-material');
+  }
+});
+
+for (const key of ['logo', 'rechnungQr']) test('F15: Zusammenführen erhält ausdrückliche Bildlöschung für ' + key, async (w) => {
+  const alt = await w.DB.get('settings', key), bild = 'data:image/png;base64,AA==';
+  try {
+    await w.DB.put('settings', { key, value: bild, lastModified: '2026-09-20T00:00:00.000Z' }, true);
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: null, lastModified: '2026-09-21T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'neuere Entfernung wird übernommen');
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: bild, lastModified: '2026-09-19T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'älteres Bild kommt nicht zurück');
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: 'javascript:alert(1)', lastModified: '2026-09-22T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, null, 'unsichere Bildquelle bleibt abgelehnt');
+    await w.DB.put('settings', { key, value: bild, lastModified: '2026-09-22T00:00:00.000Z' }, true);
+    await w.Backup.applyMerge({ stores: { settings: [{ key, value: null, lastModified: '2026-09-21T00:00:00.000Z' }] } });
+    assertEq((await w.DB.get('settings', key)).value, bild, 'ältere Löschung überschreibt neueres Bild nicht');
+    await w.Backup.applyMerge({ stores: { settings: [] } });
+    assertEq((await w.DB.get('settings', key)).value, bild, 'fehlender Schlüssel ist keine Löschung');
+  } finally { if (alt) await w.DB.put('settings', alt, true); else await w.DB.del('settings', key); await w.S.load(); }
+});
+
+test('F07: Marktwarenkorb bewahrt knappe, leere und gelöschte Positionen sichtbar', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const korbAlt = w.Views.markt._korb, render = w.renderRoute;
+  w.renderRoute = async () => {};
+  try {
+    await w.DB.put('abfuellungen', { id: 'f07-knapp', chargeId: 'f07-charge', anzahl: 10, bestand: 1, gebindeG: 500 });
+    await w.DB.put('abfuellungen', { id: 'f07-leer', chargeId: 'f07-charge', anzahl: 10, bestand: 0, gebindeG: 500 });
+    const korb = { 'f07-knapp': 4, 'f07-leer': 2, 'f07-geloescht': 3 };
+    w.Views.markt._korb = korb;
+    await w.Views.markt.render(host);
+    assertEq(korb, { 'f07-knapp': 4, 'f07-leer': 2, 'f07-geloescht': 3 }, 'Rendern löscht keine Position');
+    assertEq(host.querySelectorAll('[data-korb-entfernen]').length, 3, 'jede Fehlposition ist sichtbar und einzeln entfernbar');
+    assert(host.textContent.includes('Abfüllung nicht mehr vorhanden'), 'gelöschte Abfüllung verständlich benannt');
+    assert(!host.textContent.includes('-3 übrig'), 'keine negative Restmenge angezeigt');
+    host.querySelector('[data-korb-entfernen="f07-geloescht"]').click();
+    assertEq(korb, { 'f07-knapp': 4, 'f07-leer': 2 }, 'nur ausdrücklich ausgewählte Position entfernt');
+    assertEq((await w.DB.get('abfuellungen', 'f07-knapp')).bestand, 1, 'Anzeige und Entfernen buchen nichts');
+  } finally {
+    w.Views.markt._korb = korbAlt; w.renderRoute = render; host.remove();
+    await w.DB.del('abfuellungen', 'f07-knapp'); await w.DB.del('abfuellungen', 'f07-leer');
+  }
+});
+
+/* F05/F06: Papierkorb und Bestände bilden eine gemeinsame Transaktion. */
+async function restoreTestDaten(w, abzug, bestaende) {
+  for (const [id, n] of Object.entries(bestaende)) await w.DB.put('inventar', { id, typ: 'verbrauch', einheit: 'kg', stueckzahl: n, bezeichnung: id });
+  await w.DB.put('papierkorb', { id: 'restore-test', store: 'fuetterungen', daten: { id: 'restore-futter', mengeKg: 15, verbrauchAbzug: abzug } });
+}
+async function restoreTestAufraeumen(w) {
+  for (const id of ['restore-a', 'restore-b']) await w.DB.del('inventar', id);
+  await w.DB.del('fuetterungen', 'restore-futter'); await w.DB.del('papierkorb', 'restore-test');
+}
+test('F06: Wiederherstellung summiert wiederholte Abzüge desselben Postens', async (w) => {
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-a', menge: 5 }], { 'restore-a': 30 });
+    await w.DB.trashRestore('restore-test');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 15, '30−10−5');
+    const f = await w.DB.get('fuetterungen', 'restore-futter');
+    assertEq(f.verbrauchAbzug.length, 2, 'ursprüngliche Buchungsnachweise erhalten');
+    assertEq(await w.DB.get('papierkorb', 'restore-test'), undefined, 'Quelle erst bei erfolgreicher Wiederherstellung entfernt');
+    await w.verbrauchZurueckbuchen(f.verbrauchAbzug, { pruefen: false });
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 30, 'anschließende Rückgabe stimmt');
+  } finally { await restoreTestAufraeumen(w); }
+});
+for (const [name, abzug, bestaende] of [
+  ['zu wenig Material', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30, 'restore-b': 5 }],
+  ['Materialposten fehlt', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30 }],
+  ['ungültige Menge', [{ inventarId: 'restore-a', menge: 'kein Betrag' }], { 'restore-a': 30 }],
+]) test('F05: Wiederherstellung abgelehnt bei ' + name, async (w) => {
+  try {
+    await restoreTestDaten(w, abzug, bestaende);
+    const vorher = await w.DB.get('papierkorb', 'restore-test'); let fehler;
+    try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(fehler, 'Fehler wird gemeldet');
+    assertEq(await w.DB.get('papierkorb', 'restore-test'), vorher, 'vollständiger Originaleintrag bleibt erhalten');
+    assertEq(await w.DB.get('fuetterungen', 'restore-futter'), undefined, 'kein halber wiederhergestellter Datensatz');
+    for (const [id, n] of Object.entries(bestaende)) assertEq((await w.DB.get('inventar', id)).stueckzahl, n, 'Bestand unverändert');
+  } finally { await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: vorhandener Datensatz wird beim Wiederherstellen nicht überschrieben', async (w) => {
+  try {
+    await restoreTestDaten(w, [], {});
+    await w.DB.put('fuetterungen', { id: 'restore-futter', mengeKg: 99 });
+    let fehler; try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(fehler, 'Konflikt gemeldet');
+    assertEq((await w.DB.get('fuetterungen', 'restore-futter')).mengeKg, 99, 'vorhandener Stand erhalten');
+    assert(await w.DB.get('papierkorb', 'restore-test'), 'alte Fassung bleibt im Papierkorb');
+  } finally { await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: zwei Datenbankverbindungen stellen nur einmal wieder her', async (w) => {
+  let zweite;
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 15 }], { 'restore-a': 30 });
+    zweite = await new Promise((res, rej) => { const r = w.indexedDB.open(w.DB.NAME, w.DB.VER); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    const peer = Object.create(w.DB); peer._db = zweite;
+    const resultate = await Promise.all([w.DB.trashRestore('restore-test'), peer.trashRestore('restore-test')]);
+    assertEq(resultate.filter(Boolean).length, 1, 'nur ein erfolgreicher Vorgang');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 15, 'nur ein Abzug');
+    assert(await w.DB.get('fuetterungen', 'restore-futter'), 'Datensatz wieder da');
+  } finally { if (zweite) zweite.close(); await restoreTestAufraeumen(w); }
+});
+test('Papierkorb: Abbruch nach Materialauftrag rollt alle beteiligten Speicher zurück', async (w) => {
+  const original = w.IDBObjectStore.prototype.put;
+  let ausgeloest = false;
+  try {
+    await restoreTestDaten(w, [{ inventarId: 'restore-a', menge: 15 }], { 'restore-a': 30 });
+    w.IDBObjectStore.prototype.put = function (obj, ...args) {
+      const rq = original.call(this, obj, ...args);
+      if (this.name === 'inventar' && obj.id === 'restore-a') {
+        const tx = this.transaction; rq.addEventListener('success', () => { ausgeloest = true; tx.abort(); });
+      }
+      return rq;
+    };
+    let fehler; try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
+    assert(ausgeloest && fehler, 'echter Transaktionsabbruch gemeldet');
+    assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 30, 'Material vollständig zurückgerollt');
+    assertEq(await w.DB.get('fuetterungen', 'restore-futter'), undefined, 'Ziel nicht teilweise gespeichert');
+    assert(await w.DB.get('papierkorb', 'restore-test'), 'Quelle bleibt vorhanden');
+  } finally { w.IDBObjectStore.prototype.put = original; await restoreTestAufraeumen(w); }
+});
+
+/* Gemeinsame Transaktionen: echte Speicherfehler und konkurrierende Vorgänge. */
+async function buchungTest(w, fn) {
+  const confirm = w.UI.confirm, render = w.renderRoute, kreis = await w.DB.get('settings', 'rechnungskreis');
+  w.UI.confirm = async () => true; w.renderRoute = async () => {};
+  try {
+    await w.DB.put('chargen', { id: 'atom-c', losnummer: 'ATOM', mengeKg: 5 });
+    await w.DB.put('abfuellungen', { id: 'atom-a', chargeId: 'atom-c', anzahl: 10, bestand: 10, gebindeG: 500 });
+    await fn();
+  } finally {
+    w.UI.confirm = confirm; w.renderRoute = render;
+    for (const store of ['rechnungen', 'verkaeufe', 'kassenbuch', 'papierkorb']) for (const x of await w.DB.getAll(store)) {
+      if (x.id?.startsWith('atom-') || x.abfuellungId === 'atom-a' || x.rechnungId?.startsWith('atom-') || x.daten?.abfuellungId === 'atom-a' || x.daten?.rechnungId?.startsWith('atom-')) await w.DB.del(store, x.id);
+    }
+    await w.DB.del('abfuellungen', 'atom-a'); await w.DB.del('chargen', 'atom-c');
+    if (kreis) await w.DB.put('settings', kreis, true); else await w.DB.del('settings', 'rechnungskreis'); await w.S.load();
+  }
+}
+async function atomRechnung(w, id = 'atom-r', menge = 2) {
+  return w.DB.put('rechnungen', { id, status: 'entwurf', datum: '2026-09-22', kundeId: 'atom-k', steuerart: 'regel', positionen: [{ abfuellungId: 'atom-a', menge, einzelpreis: 5, steuersatz: 7 }] });
+}
+async function mitAbbruch(w, store, fn) {
+  const put = w.IDBObjectStore.prototype.put; let injected = false;
+  w.IDBObjectStore.prototype.put = function (o, ...args) {
+    const rq = put.call(this, o, ...args);
+    if (this.name === store) { const tx = this.transaction; rq.addEventListener('success', () => { injected = true; tx.abort(); }); }
+    return rq;
+  };
+  try { await fn(); assert(injected, 'Abbruchstelle wurde wirklich erreicht'); } finally { w.IDBObjectStore.prototype.put = put; }
+}
+test('Atomar: parallele Verkäufe können zusammen nicht mehr als den Bestand verkaufen', async (w) => buchungTest(w, async () => {
+  const result = await Promise.allSettled([w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 6, preisJeGlas: 5 }), w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 6, preisJeGlas: 5 })]);
+  assertEq(result.filter((r) => r.status === 'fulfilled').length, 1);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 4);
+  assertEq((await w.DB.getAll('verkaeufe')).filter((r) => r.abfuellungId === 'atom-a').length, 1);
+}));
+test('Atomar: Verkaufsabbruch lässt Bestand, Kasse und Verkauf unverändert', async (w) => buchungTest(w, async () => {
+  await mitAbbruch(w, 'kassenbuch', async () => {
+    let error; try { await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 }); } catch (e) { error = e; }
+    assert(error); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+    assertEq((await w.DB.getAll('verkaeufe')).filter((r) => r.abfuellungId === 'atom-a').length, 0);
+  });
+}));
+test('Atomar: paralleles Verkaufsstorno gibt die Menge nur einmal zurück', async (w) => buchungTest(w, async () => {
+  const v = await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 });
+  await Promise.all([w.verkaufStornieren(v.id), w.verkaufStornieren(v.id)]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq(await w.DB.get('verkaeufe', v.id), undefined); assertEq(await w.DB.get('kassenbuch', v.kassenbuchId), undefined);
+  assertEq((await w.DB.getAll('papierkorb')).filter((x) => x.daten?.id === v.id).length, 1);
+}));
+test('Atomar: Verkaufsstorno mit Abbruch erhält ursprünglichen Verkauf', async (w) => buchungTest(w, async () => {
+  const v = await w.verkaufErfassen({ abfuellungId: 'atom-a', anzahl: 2, preisJeGlas: 5 });
+  await mitAbbruch(w, 'papierkorb', async () => { let error; try { await w.verkaufStornieren(v.id); } catch (e) { error = e; } assert(error); });
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 8); assert(await w.DB.get('verkaeufe', v.id)); assert(await w.DB.get('kassenbuch', v.kassenbuchId));
+}));
+test('Atomar: parallele Festschreibungen derselben Rechnung buchen einmal', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w);
+  await Promise.all([w.Views.rechnung.festschreiben(structuredClone(r), []), w.Views.rechnung.festschreiben(structuredClone(r), [])]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 8);
+  assertEq((await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r.id).length, 1);
+  assertEq((await w.DB.get('rechnungen', r.id)).berechnungVersion, 2);
+}));
+test('Atomar: verschiedene Rechnungen erhalten parallell eindeutige Nummern', async (w) => buchungTest(w, async () => {
+  const a = await atomRechnung(w, 'atom-r1'), b = await atomRechnung(w, 'atom-r2');
+  await Promise.all([w.Views.rechnung.festschreiben(a, []), w.Views.rechnung.festschreiben(b, [])]);
+  const ra = await w.DB.get('rechnungen', a.id), rb = await w.DB.get('rechnungen', b.id);
+  assert(ra.nummer && rb.nummer && ra.nummer !== rb.nummer); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 6);
+}));
+test('Atomar: Rechnungsstorno bucht auch bei zwei Aufrufen nur einmal', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w); await w.Views.rechnung.festschreiben(r, []);
+  await Promise.all([w.rechnungStornieren(r.id), w.rechnungStornieren(r.id)]);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq((await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r.id && k.betrag < 0).length, 1);
+}));
+test('Atomar: Rechnungsabbruch vergibt weder Nummer noch Einnahme', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w), kreis = await w.DB.get('settings', 'rechnungskreis');
+  await mitAbbruch(w, 'kassenbuch', () => w.Views.rechnung.festschreiben(r, []));
+  assertEq((await w.DB.get('rechnungen', r.id)).status, 'entwurf'); assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10);
+  assertEq(await w.DB.get('settings', 'rechnungskreis'), kreis);
+}));
+test('Atomar: älterer Entwurf überschreibt keine neuere Bearbeitung', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w), neu = { ...r, datum: '2026-09-23' };
+  await w.rechnungEntwurfSpeichern(neu, r);
+  let error; try { await w.rechnungEntwurfSpeichern({ ...r, datum: '2026-09-24' }, r); } catch (e) { error = e; }
+  assert(error); assertEq((await w.DB.get('rechnungen', r.id)).datum, '2026-09-23');
+}));
+test('Atomar: zwei zusammengeführte Verkäufe mindern denselben Bestand gemeinsam', async (w) => buchungTest(w, async () => {
+  await Promise.all(['atom-v1', 'atom-v2'].map((id) => w.Backup.applyMerge({ stores: { verkaeufe: [{ id, abfuellungId: 'atom-a', anzahl: 3 }] } })));
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 4);
+}));
+test('Atomar: Abbruch des Merge-Abgleichs verwirft auch importierten Verkauf', async (w) => buchungTest(w, async () => {
+  await mitAbbruch(w, 'abfuellungen', async () => { let error; try { await w.Backup.applyMerge({ stores: { verkaeufe: [{ id: 'atom-v1', abfuellungId: 'atom-a', anzahl: 3 }] } }); } catch (e) { error = e; } assert(error); });
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 10); assertEq(await w.DB.get('verkaeufe', 'atom-v1'), undefined);
+}));
+test('Import: ungültige Kennungen lassen beim Merge und Ersetzen alle Daten erhalten', async (w) => buchungTest(w, async () => {
+  const data = { stores: { staende: [{ id: 'stand:alt', name: 'Stand' }], voelker: [{ id: 'atom-volk', standId: 'stand:alt' }] } };
+  for (const aktion of [() => w.Backup.applyMerge(data), () => w.Backup.applyReplace(data, { blobsBehalten: false })]) {
+    let error; try { await aktion(); } catch (e) { error = e; } assert(error);
+    assert(await w.DB.get('abfuellungen', 'atom-a')); assertEq(await w.DB.get('voelker', 'atom-volk'), undefined);
+  }
+}));
+test('Rechnung: korrigierte Steuern für Entwürfe, historischer Beleg unverändert', (w) => {
+  const r = { datum: '2026-09-22', steuerart: 'regel', positionen: [{ menge: 1, einzelpreis: 107, steuersatz: '7' }, { menge: 1, einzelpreis: 50, steuersatz: 0 }] };
+  const neu = w.rechnungSummen(r); assertNah(neu.steuern[7], 7); assertNah(Object.values(neu.nettoJeSatz).reduce((a,b)=>a+b,0), 150);
+  const historisch = { ...r, status: 'festgeschrieben', nummer: 'ALT-1' };
+  assertEq(w.rechnungSummen(historisch), w.rechnungSummenAlt(historisch), 'alter Beleg bleibt exakt bei seiner bisherigen Berechnung');
+  assertNah(w.rechnungSummen({ ...historisch, berechnungVersion: 2 }).steuern[7], 7);
+  const pauschal = w.rechnungSummen({ steuerart: 'pauschal24', pauschalsatz: '7.8', pfandSteuersatz: 7.8, positionen: [{ menge: 10, einzelpreis: 10.78, pfand: 1.078 }] });
+  assertNah(pauschal.steuern[7.8], 8.58);
+});
+
+test('F03: Fütterungsänderung bucht alten und neuen Verbrauch gemeinsam', async (w) => {
+  const id = 'futter-atom', pos = 'futter-material';
+  try {
+    await w.DB.put('inventar', { id: pos, typ: 'verbrauch', einheit: 'kg', kategorie: 'Futter-Atomtest', stueckzahl: 25 });
+    const f = await w.DB.put('fuetterungen', { id, volkId: 'v', mengeKg: 15, futterart: 'Zuckerwasser 3:2', verbrauchAbzug: [{ inventarId: pos, menge: 15 }] });
+    await w.fuetterungAendern(f, { mengeKg: 20 });
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20);
+    const neu = await w.DB.get('fuetterungen', id); assertEq(neu.verbrauchAbzug[0].menge, 20);
+    let error; try { await w.fuetterungAendern(f, { mengeKg: 30 }); } catch (e) { error = e; } assert(error, 'veralteter Editor abgewiesen');
+    await mitAbbruch(w, 'fuetterungen', async () => { let e; try { await w.fuetterungAendern(neu, { mengeKg: 25 }); } catch (x) { e = x; } assert(e); });
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20); assertEq((await w.DB.get('fuetterungen', id)).mengeKg, 20);
+    let knapp; try { await w.fuetterungAendern(neu, { mengeKg: 50 }); } catch (e) { knapp = e; } assert(knapp);
+    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20, 'Fehlmenge ändert auch die alte Buchung nicht');
+  } finally { await w.DB.del('fuetterungen', id); await w.DB.del('inventar', pos); }
+});
+
+test('F16: Bio-Etikett ohne druckbares Logo verlangt Ergänzung, Abbrechen erzeugt keine Datei', async (w) => {
+  const imk = structuredClone(w.S.get('imkerei')), confirm = w.UI.confirm, finish = w.Pdf.finish;
+  let frage, dateien = 0;
+  try {
+    await w.S.set('imkerei', { ...imk, bio: 'ja', bioLogos: [], bioKontrollstelle: 'DE-ÖKO-000' });
+    w.UI.confirm = async (o) => { frage = o; return false; }; w.Pdf.finish = () => { dateien++; };
+    await w.Pdf.honigEtikett({ gebindeG: 500, mhd: '2028-09-22' }, { losnummer: 'BIO-TEST' }, { anzahl: 1, bezeichnung: 'Honig', ursprung: 'Deutschland' });
+    assert(frage && frage.text.includes('EU-Bio-Logo')); assertEq(dateien, 0);
+    w.UI.confirm = async () => true;
+    await w.Pdf.honigEtikett({ gebindeG: 500, mhd: '2028-09-22' }, { losnummer: 'BIO-TEST' }, { anzahl: 1, bezeichnung: 'Honig', ursprung: 'Deutschland' });
+    assertEq(dateien, 1, 'ausdrücklich bestätigtes Zusatzetikett bleibt möglich');
+  } finally { w.UI.confirm = confirm; w.Pdf.finish = finish; await w.S.set('imkerei', imk); }
+});
+
+async function isolierteDaten(w, fn) {
+  const vorher = await w.Backup.buildData(true);
+  try { await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load(); await fn(); }
+  finally { await w.Backup.applyReplace(vorher, { blobsBehalten: false }); await w.S.load(); }
+}
+test('Bio-Migration: Abbruch, Wiederholung und paralleler Start erhalten genau einen Partner', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('bioeintraege', { id: 'bio-atom-partner', bereich: 'partner', name: 'Test-Partner', notiz: 'Einmalige Notiz', rolle: 'Lieferant' });
+  await w.DB.put('bioeintraege', { id: 'bio-atom-cert', bereich: 'zertifikat', art: 'Eigener Betrieb', nummer: 'ATOM-123' });
+  await mitAbbruch(w, 'settings', async () => { let error; try { await w.migriereBioPartner(); } catch(e) { error=e; } assert(error); });
+  assertEq((await w.DB.getAll('kontakte')).length, 0); assertEq((await w.DB.getAll('bioeintraege')).length, 2);
+  assert(!(await w.DB.get('settings', 'bioPartnerMigriert')));
+  await Promise.all([w.migriereBioPartner(), w.migriereBioPartner()]);
+  const partner = await w.DB.getAll('kontakte'); assertEq(partner.length, 1); assertEq(partner[0].notiz, 'Einmalige Notiz');
+  assertEq((await w.DB.getAll('bioeintraege')).length, 0); assertEq(w.S.get('imkerei').oekoZertNummer, 'ATOM-123');
+  await w.migriereBioPartner(); assertEq((await w.DB.getAll('kontakte')).length, 1);
+}));
+test('Material-Löschen: Abbruch erhält Quelle, paralleles Löschen gibt nur einmal zurück', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('inventar', { id: 'mat', typ: 'verbrauch', einheit: 'kg', stueckzahl: 20 });
+  const f = await w.DB.put('fuetterungen', { id: 'feed', mengeKg: 10, verbrauchAbzug: [{ inventarId: 'mat', menge: 5 }, { inventarId: 'mat', menge: 5 }] });
+  await mitAbbruch(w, 'papierkorb', async () => { let error; try { await w.loescheMitMaterial('fuetterungen', f); } catch(e) { error=e; } assert(error); });
+  assertEq((await w.DB.get('inventar', 'mat')).stueckzahl, 20); assert(await w.DB.get('fuetterungen', 'feed')); assertEq((await w.DB.getAll('papierkorb')).length, 0);
+  await Promise.all([w.loescheMitMaterial('fuetterungen', f), w.loescheMitMaterial('fuetterungen', f)]);
+  assertEq((await w.DB.get('inventar', 'mat')).stueckzahl, 30); assertEq(await w.DB.get('fuetterungen', 'feed'), undefined); assertEq((await w.DB.getAll('papierkorb')).length, 1);
+}));
+test('Sicherung: gemeinsamer Lesestand bleibt bei anschließender Buchung konsistent', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('abfuellungen', { id: 'snap-a', bestand: 10 });
+  const lesen = w.IDBObjectStore.prototype.getAll; let buchung, ausgeloest = false;
+  w.IDBObjectStore.prototype.getAll = function (...args) {
+    const rq = lesen.apply(this, args);
+    if (this.name === 'abfuellungen' && !ausgeloest) rq.addEventListener('success', () => {
+      if (ausgeloest) return; ausgeloest = true;
+      buchung = w.DB.schreibeAlles([{ store: 'abfuellungen', obj: { id: 'snap-a', bestand: 8 } }, { store: 'verkaeufe', obj: { id: 'snap-v', abfuellungId: 'snap-a', anzahl: 2 } }]);
+    });
+    return rq;
+  };
+  let backup;
+  try { backup = await w.Backup.buildData(true); await buchung; }
+  finally { w.IDBObjectStore.prototype.getAll = lesen; }
+  assert(ausgeloest); assertEq(backup.stores.abfuellungen[0].bestand, 10); assertEq(backup.stores.verkaeufe.length, 0);
+  assertEq((await w.DB.get('abfuellungen', 'snap-a')).bestand, 8); assert(await w.DB.get('verkaeufe', 'snap-v'));
+}));
+for (const version of ['1.61', '1.62', '1.63', '1.64']) test(`Sicherung v${version}: IDs, Werte, Anhänge und Wiederholungsimport bleiben erhalten`, async (w) => isolierteDaten(w, async () => {
+  const quelle = await fetch(`fixtures/backup/v${version}.json`).then(r => { assert(r.ok); return r.json(); });
+  await w.Backup.applyReplace(quelle, { blobsBehalten: false });
+  const sortiert = (rows, store) => [...rows].sort((a,b)=>String(store==='settings'?a.key:a.id).localeCompare(String(store==='settings'?b.key:b.id)));
+  const export1 = await w.Backup.buildData(true);
+  for (const store of w.DB.DATA_STORES) {
+    const erwartet = (quelle.stores[store] || []).map(r => w.Backup._saeubereZeile(store, r)).filter(Boolean);
+    assertEq(sortiert(export1.stores[store], store), sortiert(erwartet, store), `v${version}: ${store}, erster Import`);
+  }
+  await w.DB.put('anhaenge', { id: 'fixture-blob', parentTyp: 'volk', parentId: 'test', mime: 'application/octet-stream', blob: new w.Blob([new Uint8Array([0,1,127,128,255])], {type:'application/octet-stream'}) });
+  const mitBlob = await w.Backup.buildData(true);
+  await w.Backup.applyReplace(mitBlob, { blobsBehalten: false });
+  assertEq((await w.Backup.buildData(true)).stores, mitBlob.stores, 'Export → Import → Export vollständig gleich');
+  assertEq([...new Uint8Array(await (await w.DB.get('anhaenge','fixture-blob')).blob.arrayBuffer())], [0,1,127,128,255]);
+  await w.Backup.applyMerge(mitBlob); const nachMerge = await w.Backup.buildData(true);
+  await w.Backup.applyMerge(mitBlob); const erneut = await w.Backup.buildData(true);
+  assertEq(erneut.stores, nachMerge.stores, 'zweiter Merge ändert keine Werte und erzeugt keine Duplikate');
+  for (const store of w.DB.DATA_STORES) assertEq(erneut.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), mitBlob.stores[store].map(r=>store==='settings'?r.key:r.id).sort(), `${store}: alle Kennungen erhalten`);
+}));
+
+test('F20: Verkauf und Kasse werden aus jedem Papierkorb-Einstieg gemeinsam wiederhergestellt', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:5});
+  await w.DB.put('abfuellungen',{id:'a',chargeId:'c',anzahl:10,bestand:10,gebindeG:500});
+  for (const einstieg of ['verkaeufe','kassenbuch']) {
+    const v=await w.verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});
+    await w.verkaufStornieren(v.id);
+    const t=(await w.DB.getAll('papierkorb')).find(t=>t.store===einstieg);
+    await Promise.all([w.DB.trashRestore(t.id),w.DB.trashRestore(t.id)]);
+    assertEq((await w.DB.get('abfuellungen','a')).bestand,8);assert(await w.DB.get('verkaeufe',v.id));assertEq((await w.DB.get('kassenbuch',v.kassenbuchId)).betrag,10);
+    assertEq((await w.DB.getAll('papierkorb')).length,0);
+    await w.verkaufStornieren(v.id);for(const x of await w.DB.getAll('papierkorb'))await w.DB.del('papierkorb',x.id);
+  }
+}));
+test('F20: Fehlbestand und Transaktionsabbruch erhalten Verkauf und Kasse im Papierkorb', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('abfuellungen',{id:'a',anzahl:10,bestand:10,gebindeG:500});
+  const v=await w.verkaufErfassen({abfuellungId:'a',anzahl:2,preisJeGlas:5});await w.verkaufStornieren(v.id);
+  const t=(await w.DB.getAll('papierkorb')).find(t=>t.store==='verkaeufe');
+  await mitAbbruch(w,'verkaeufe',async()=>{let error;try{await w.DB.trashRestore(t.id);}catch(e){error=e;}assert(error);});
+  assertEq((await w.DB.get('abfuellungen','a')).bestand,10);assertEq((await w.DB.getAll('papierkorb')).length,2);assertEq(await w.DB.get('verkaeufe',v.id),undefined);
+  await w.DB.put('abfuellungen',{id:'a',anzahl:10,bestand:1,gebindeG:500});
+  let error;try{await w.DB.trashRestore(t.id);}catch(e){error=e;}assert(error);assertEq((await w.DB.getAll('papierkorb')).length,2);assertEq((await w.DB.get('abfuellungen','a')).bestand,1);
+}));
+test('F21: Dateistand bestätigt keine spätere Änderung; Warnung überlebt erneutes Laden',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('staende',{id:'vorher',name:'Vor Sicherung'});const datei=await w.Backup.buildBlob();
+  await w.DB.put('staende',{id:'nachher',name:'Nach Sicherung'});await w.Backup.markExternal(datei);
+  assertEq(w._changedSinceBackup,true);assert(!JSON.parse(await datei.text()).stores.staende.some(r=>r.id==='nachher'));
+  w._changedSinceBackup=false;await w.S.load();assertEq(w._changedSinceBackup,true,'persistenter Vergleich nach Neustart');
+  const aktuell=await w.Backup.buildBlob();await w.Backup.markExternal(aktuell);assertEq(w._changedSinceBackup,false);
+  w._changedSinceBackup=true;await w.S.load();assertEq(w._changedSinceBackup,false);
+  const d=JSON.parse(await aktuell.text());assert(!d.stores.settings.some(r=>['_datenRevision','_gesicherteRevision'].includes(r.key)),'lokale Revisionen wandern nicht in fremde Geräte');
+}));
+test('F21: Zweite Verbindung, Löschung und abgebrochene Buchung ändern den Sicherungsstand korrekt',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('staende',{id:'s',name:'Stand'});await w.Backup.markExternal(await w.Backup.buildBlob());
+  const revision=await w.DB.get('settings','_datenRevision');
+  await mitAbbruch(w,'staende',async()=>{let error;try{await w.DB.put('staende',{id:'fehl',name:'Abbruch'});}catch(e){error=e;}assert(error);});
+  assertEq(await w.DB.get('settings','_datenRevision'),revision);assertEq(await w.Backup.leseAenderungsstand(),false);
+  const conn=await new Promise((res,rej)=>{const r=w.indexedDB.open(w.DB.NAME,w.DB.VER);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
+  try{const peer=Object.create(w.DB);peer._db=conn;await peer.del('staende','s');}finally{conn.close();}
+  assertEq(await w.Backup.leseAenderungsstand(),true);assertEq(await w.DB.get('staende','s'),undefined);
+}));
+test('F22: Gleichzeitige Abfüllungen bleiben in der Charge, und Abbruch hinterlässt weder Glas noch Materialabzug',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  await w.DB.put('inventar',{id:'glas',typ:'verbrauch',einheit:'Stück',kategorie:'Glas',gebindeG:500,stueckzahl:30});
+  const v={chargeId:'c',datum:'2026-09-22',g_500:15,gl_500:'glas'};
+  await mitAbbruch(w,'abfuellungen',async()=>{let error;try{await w.abfuellungenAnlegen(v);}catch(e){error=e;}assert(error);});
+  assertEq((await w.DB.getAll('abfuellungen')).length,0);assertEq((await w.DB.get('inventar','glas')).stueckzahl,30);
+  const erg=await Promise.allSettled([w.abfuellungenAnlegen(v),w.abfuellungenAnlegen(v)]);
+  assertEq(erg.filter(x=>x.status==='fulfilled').length,1);assertEq((await w.DB.get('inventar','glas')).stueckzahl,15);assertEq((await w.DB.getAll('abfuellungen')).length,1);
+}));
+test('F22: Gemeinsame Deckel werden ohne Rundungsgewinn verteilt und beim Löschen vollständig zurückgegeben',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  await w.DB.put('inventar',{id:'deckel',typ:'verbrauch',einheit:'Stück',kategorie:'Deckel',stueckzahl:5});
+  const erg=await w.abfuellungenAnlegen({chargeId:'c',datum:'2026-09-22',g_250:2,g_500:1,gl_deckel:'deckel'});
+  assertEq((await w.DB.get('inventar','deckel')).stueckzahl,2);assertEq(erg.recs.reduce((s,r)=>s+r.verbrauchAbzug.reduce((s,a)=>s+a.menge,0),0),3);
+  for(const a of erg.recs)await w.loescheMitMaterial('abfuellungen',a);
+  assertEq((await w.DB.get('inventar','deckel')).stueckzahl,5);
+}));
+test('F22: Veraltete Abfüllkorrektur überschreibt keinen Verkauf',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('chargen',{id:'c',losnummer:'L',mengeKg:10});
+  const erg=await w.abfuellungenAnlegen({chargeId:'c',datum:'2026-09-22',g_500:10});const a=erg.recs[0];
+  await w.verkaufErfassen({abfuellungId:a.id,anzahl:2,preisJeGlas:5});
+  let error;try{await w.abfuellungAendern(a,{...a,anzahl:12,bestand:12});}catch(e){error=e;}assert(error);assertEq((await w.DB.get('abfuellungen',a.id)).bestand,8);
+}));
+
+/* v1.71: Nachweise für Bewertung, Altbestand und begrenzten Planimport. */
+test('F23/F25: Gleichzeitige neue Noten ergänzen sich, Altspalte bleibt unverändert', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('koeniginnen', { id:'gdeb-alt', bewertung:{ sanftmut:4, wabensitz:3 }, bewertetAm:'2026-09-23' });
+  await Promise.all([w.setBewertung('gdeb-alt',{sanftmut:6},'2026-09-23'),w.setBewertung('gdeb-alt',{fruehtracht:5},'2026-09-23')]);
+  const q=await w.DB.get('koeniginnen','gdeb-alt'), liste=w.gdebListe(q);
+  assertEq(liste.length,2);const alt=liste.find(x=>x.skalaAlt),neu=liste.find(x=>!x.skalaAlt);
+  assertEq(alt.noten.sanftmut,4);assertEq(alt.noten.wabenstetigkeit,3);
+  assertEq(neu.noten.sanftmut,6);assertEq(neu.noten.fruehtracht,5);assert(!neu.noten.wabenstetigkeit);
+  const backup=await w.Backup.buildData(true);await w.Backup.applyReplace(backup,{blobsBehalten:false});
+  assertEq((await w.DB.get('koeniginnen','gdeb-alt')).bewertungen,q.bewertungen);
+}));
+test('F23: Bewertungsabbruch erhält alte Noten und Sicherungsrevision',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('koeniginnen',{id:'q',bewertung:{sanftmut:4}});const vorher=await w.DB.get('koeniginnen','q');
+  const rev=await w.DB.get('settings','_datenRevision');
+  await mitAbbruch(w,'koeniginnen',async()=>{let e;try{await w.setBewertung('q',{brut:5},'2026-09-23');}catch(x){e=x;}assert(e);});
+  assertEq(await w.DB.get('koeniginnen','q'),vorher);assertEq(await w.DB.get('settings','_datenRevision'),rev);
+}));
+test('DB.update verweigert asynchrone Änderungspläne ohne halben Schreibvorgang',async(w)=>isolierteDaten(w,async()=>{
+  await w.DB.put('kontakte',{id:'k',name:'vorher'});let e;
+  try{await w.DB.update('kontakte','k',async r=>({...r,name:'nachher'}));}catch(x){e=x;}
+  assert(e);assertEq((await w.DB.get('kontakte','k')).name,'vorher');
+}));
+test('F27/F28: Einwortzellen werden getrennt, lange Pläne sichtbar begrenzt',w=>{
+  const words=['Bereich','Mittel','Häufigkeit'].map((text,i)=>({text,bbox:{x0:i*150,x1:i*150+50,y0:0,y1:10}}));
+  assert(w.spaltenAusWorten([{words}]).includes('   '));
+  const rows=w.hygieneplanParsen('Bereich;Mittel;Häufigkeit\n'+Array.from({length:61},(_,i)=>`Raum ${i};Wasser;täglich`).join('\n'));
+  assertEq(rows.length,60);assertEq(rows.gekuerzt,true);
+  let e;try{w.hygieneplanParsen('x'.repeat(500001));}catch(x){e=x;}assert(e,'Textbudget schützt vor unbegrenzter Verarbeitung');
+});
+test('F29: Fehlgeschlagene Planübernahme hinterlässt keine Einträge und lässt Wiederholung zu',async(w)=>isolierteDaten(w,async()=>{
+  const render=w.renderRoute;w.renderRoute=async()=>{};
+  try{
+    w.Views.bio.planDurchsicht([{bereichName:'Raum',mittel:'Wasser',haeufigkeit:'täglich',verantwortlich:'',sicher:true}],'Testplan');
+    const button=w.document.querySelector('.modal-back [data-ok]');
+    await mitAbbruch(w,'bioeintraege',async()=>{await button.onclick();});
+    assertEq((await w.DB.getAll('bioeintraege')).length,0);assert(!button.disabled);
+    await Promise.all([button.onclick(),button.onclick()]);assertEq((await w.DB.getAll('bioeintraege')).length,1);
+    assert(w.S.get('bioBetrieb').reinigung.includes('Testplan'));
+  }finally{w.renderRoute=render;w.document.querySelectorAll('.modal-back').forEach(e=>e.remove());}
+}));
+test('F28: Genau 60 gültige Planzeilen melden keine Kürzung',w=>{
+ const input='Bereich;Mittel;Häufigkeit\n'+Array.from({length:60},(_,i)=>`Raum ${i};Wasser;täglich`).join('\n');
+ const rows=w.hygieneplanParsen(input);assertEq(rows.length,60);assert(!rows.gekuerzt);
+});
+test('F25: Bewertungsrunde übernimmt Altwerte nicht als Vorschlag der neuen Skala',w=>{
+ const form=w.UI.formModal;let maske;
+ w.UI.formModal=o=>{maske=o;return {};};
+ try{w.Views.koeniginnen.bewertenStep2([{id:'v',name:'Volk',koeniginId:'q'}],new Map([['q',{id:'q',kennung:'Q',bewertung:{sanftmut:4}}]]),'2026-09-23');}
+ finally{w.UI.formModal=form;}
+ assertEq(maske.values.sanftmut_q,0);
 });
