@@ -8741,3 +8741,106 @@ test('F25: Bewertungsrunde übernimmt Altwerte nicht als Vorschlag der neuen Ska
  finally{w.UI.formModal=form;}
  assertEq(maske.values.sanftmut_q,0);
 });
+
+/* =====================================================================
+   Sorten & Laborergebnisse bearbeiten (v1.73)
+   ===================================================================== */
+
+test('Laborformular: Ernten ohne Schleuderungs-Nummer sind erreichbar', async (w) => {
+  const v = await w.DB.put('voelker', { name: 'LF-Volk', status: 'aktiv', historie: [] });
+  const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, schleuderung: null, datum: '2026-07-01', produktart: 'Honig', sorte: '', mengeKg: 12 });
+  try {
+    await w.Views.honig.laborForm();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = w.document.querySelector('.modal-back');
+    const sel = m.querySelector('#f-schleuderung');
+    const texte = [...sel.options].map((o) => o.textContent);
+    assert(texte.some((t) => /^ohne Nummer/.test(t)), 'es gibt eine Auswahl „ohne Nummer"');
+    assert(texte.some((t) => /^alle Ernten/.test(t)), 'und „alle Ernten"');
+    const sichtbar = (wert) => {
+      sel.value = wert; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return [...m.querySelectorAll('#f-auswahl label.check-line')].some((l) => l.style.display !== 'none' && l.querySelector('input').value === e.id);
+    };
+    assert(!sichtbar('1') && !sichtbar('2') && !sichtbar('3'), 'bei 1–3 erscheint sie nicht – das war der Fehler');
+    assert(sichtbar('ohne'), 'unter „ohne Nummer" erscheint sie');
+    assert(sichtbar('alle'), 'und unter „alle Ernten"');
+  } finally {
+    dialogeSchliessen(w);
+    await w.DB.del('ernten', e.id); await w.DB.del('voelker', v.id);
+  }
+});
+
+test('Sorte bearbeiten: Umbenennen gilt für alle Einträge und die Sortenliste', async (w) => {
+  const v = await w.DB.put('voelker', { name: 'SB-Volk', status: 'aktiv', historie: [] });
+  const e1 = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, schleuderung: 1, datum: '2026-06-01', produktart: 'Honig', sorte: 'Tippfehlr', mengeKg: 10, wassergehalt: 17 });
+  const e2 = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, schleuderung: null, datum: '2026-06-02', produktart: 'Honig', sorte: 'Tippfehlr', mengeKg: 8, wassergehalt: 18 });
+  const c = await w.DB.put('chargen', { losnummer: 'SB-1', sorte: 'Tippfehlr', wassergehalt: 17.5, mengeKg: 5, ernteIds: [] });
+  const altListe = [...(w.S.get('honigsorten') || [])];
+  await w.S.set('honigsorten', [...altListe, 'Tippfehlr']);
+  try {
+    await w.Views.honig.sorteBearbeiten('Tippfehlr');
+    await new Promise((r) => setTimeout(r, 300));
+    const m = w.document.querySelector('.modal-back');
+    assert(m, 'der Dialog öffnet');
+    assertEq(m.querySelectorAll('[id^="f-e_"]').length, 2, 'beide Ernten stehen drin – auch die ohne Schleuderung');
+    assertEq(m.querySelectorAll('[id^="f-c_"]').length, 1, 'und die Charge mit eigener Sorte');
+    const setz = (sel, val) => { const x = m.querySelector(sel); x.value = val; x.dispatchEvent(new Event('input', { bubbles: true })); };
+    setz('#f-name', 'Tippfehler');
+    setz(`#f-e_${e1.id}`, '16,4');
+    [...m.querySelectorAll('.modal-foot button')].find((b) => /speichern/i.test(b.textContent)).click();
+    await new Promise((r) => setTimeout(r, 500));
+    assertEq((await w.DB.get('ernten', e1.id)).sorte, 'Tippfehler');
+    assertEq((await w.DB.get('ernten', e1.id)).wassergehalt, 16.4, 'der geänderte Laborwert ist gespeichert');
+    assertEq((await w.DB.get('ernten', e2.id)).sorte, 'Tippfehler', 'auch die Ernte ohne Schleuderung');
+    assertEq((await w.DB.get('ernten', e2.id)).wassergehalt, 18, 'ihr Laborwert bleibt');
+    assertEq((await w.DB.get('chargen', c.id)).sorte, 'Tippfehler', 'auch die Charge');
+    const liste = w.S.get('honigsorten');
+    assert(!liste.includes('Tippfehlr'), 'der alte Name ist aus der Sortenliste verschwunden');
+    assert(liste.includes('Tippfehler'), 'der neue steht dort');
+  } finally {
+    dialogeSchliessen(w);
+    await w.S.set('honigsorten', altListe);
+    await w.DB.del('ernten', e1.id); await w.DB.del('ernten', e2.id); await w.DB.del('chargen', c.id); await w.DB.del('voelker', v.id);
+  }
+});
+
+test('Sorte bearbeiten: unplausibler Wassergehalt ändert nichts', async (w) => {
+  const v = await w.DB.put('voelker', { name: 'SB2-Volk', status: 'aktiv', historie: [] });
+  const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, schleuderung: 1, datum: '2026-06-01', produktart: 'Honig', sorte: 'Prüfsorte', mengeKg: 10, wassergehalt: 17 });
+  try {
+    await w.Views.honig.sorteBearbeiten('Prüfsorte');
+    await new Promise((r) => setTimeout(r, 300));
+    const m = w.document.querySelector('.modal-back');
+    const f = m.querySelector(`#f-e_${e.id}`); f.value = '45'; f.dispatchEvent(new Event('input', { bubbles: true }));
+    const n = m.querySelector('#f-name'); n.value = 'Anders'; n.dispatchEvent(new Event('input', { bubbles: true }));
+    [...m.querySelectorAll('.modal-foot button')].find((b) => /speichern/i.test(b.textContent)).click();
+    await new Promise((r) => setTimeout(r, 400));
+    const x = await w.DB.get('ernten', e.id);
+    assertEq(x.wassergehalt, 17, 'der Wert bleibt');
+    assertEq(x.sorte, 'Prüfsorte', 'und auch der Name – nichts wird halb geschrieben');
+    assert(w.document.querySelector('.modal-back'), 'das Fenster bleibt offen zum Korrigieren');
+  } finally {
+    dialogeSchliessen(w);
+    await w.DB.del('ernten', e.id); await w.DB.del('voelker', v.id);
+  }
+});
+
+test('Sorte bearbeiten: Entfernen löscht nur Sorte und Laborwert, nicht die Ernte', async (w) => {
+  const v = await w.DB.put('voelker', { name: 'SB3-Volk', status: 'aktiv', historie: [] });
+  const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, schleuderung: 2, datum: '2026-06-01', produktart: 'Honig', sorte: 'Wegdamit', mengeKg: 10, wassergehalt: 17 });
+  const altConfirm = w.UI.confirm; w.UI.confirm = async () => true;
+  try {
+    await w.Views.honig.sorteBearbeiten('Wegdamit');
+    await new Promise((r) => setTimeout(r, 300));
+    w.document.querySelector('.modal-back [data-del]').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const x = await w.DB.get('ernten', e.id);
+    assert(x, 'die Ernte ist noch da');
+    assertEq(x.sorte, '', 'ohne Sorte');
+    assertEq(x.wassergehalt, null, 'und ohne Laborwert – sie wartet wieder aufs Labor');
+    assertEq(x.mengeKg, 10, 'die Menge bleibt');
+  } finally {
+    w.UI.confirm = altConfirm; dialogeSchliessen(w);
+    await w.DB.del('ernten', e.id); await w.DB.del('voelker', v.id);
+  }
+});

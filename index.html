@@ -334,6 +334,10 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .tbl td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--card2)}
+/* Antippbare Tabellenzeile – zeigt, dass man etwas öffnen kann. */
+.tbl tr.tr-klick{cursor:pointer}
+.tbl tr.tr-klick .tr-stift{opacity:.45;width:13px;height:13px;vertical-align:-1px}
+.tbl tr.tr-klick:hover .tr-stift{opacity:1}
 .tbl td.num,.tbl th.num{text-align:right;font-variant-numeric:tabular-nums}
 /* =====================================================================
    TABELLEN AUF SCHMALEN BILDSCHIRMEN: aus jeder Zeile wird ein Kärtchen –
@@ -1010,8 +1014,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.72';
+const APP_VERSION = '1.73';
 const CHANGELOG = [
+  { version: '1.73', datum: '2026-09-24', punkte: [
+    'Behoben: Im Reiter <b>Sorte</b> ließen sich Sorten und Laborergebnisse nicht bearbeiten. Der Grund: Die Schleuderungs-Nummer ist beim Erfassen einer Ernte freiwillig – und eine Ernte <b>ohne Nummer</b> tauchte in „Laborergebnis eintragen" bei keiner Auswahl auf. Jetzt gibt es dort zusätzlich <b>„ohne Nummer"</b> und <b>„alle Ernten"</b>, jeweils mit der Anzahl.',
+    'Neu: Jede Sorte in der Tabelle lässt sich <b>antippen</b>. Dort kannst du den <b>Namen ändern</b> (gilt für alle Ernten und Chargen dieser Sorte und auch für deine Sortenliste), den <b>Wassergehalt je Eintrag</b> korrigieren oder die Sorte ganz <b>entfernen</b> – die Ernten bleiben dabei erhalten und warten wieder auf ihr Laborergebnis.',
+    'Ein unplausibler Wassergehalt (außerhalb 10–30 %) wird abgelehnt, bevor etwas gespeichert wird; das Fenster bleibt zum Korrigieren offen.',
+  ] },
   { version: '1.72', datum: '2026-09-23', punkte: [
     'Behoben (nur auf dem iPhone sichtbar): <b>Datumsfelder ragten rechts aus dem Bild</b> – der Rahmen fehlte dort, und das Datum stand mittig statt links. Betraf alle Datumsfelder, z. B. „Fällig am" bei Aufgaben und das Bewertungsdatum. Gefunden beim Durchklicken auf einem echten iPhone-Simulator; am Rechner fiel es nie auf, weil dort mehr Platz ist.',
   ] },
@@ -9070,11 +9079,98 @@ Views.honig = {
       ${offen.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${offen.length} ${offen.length === 1 ? 'Ernte wartet' : 'Ernten warten'}</b> noch auf ein Laborergebnis (${U.fmtNum(U.sum(offen, (e) => e.mengeKg))} kg ohne Sorte).</span></div>` : ''}
       ${ohneSorte.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${ohneSorte.length} ${ohneSorte.length === 1 ? 'Charge aus Lagerbestand hat' : 'Chargen aus Lagerbestand haben'}</b> noch keine Sorte (${ohneSorte.map((c) => U.esc(c.losnummer)).join(', ')}). Ohne sie steht auf dem Etikett nur „Honig“ – die Sorte trägst du im Tab <b>Charge</b> ein.</span></div>` : ''}
       ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Einträge</th><th class="num">Menge</th><th class="num">Ø Wasser</th><th>Quelle</th></tr></thead>
-        <tbody>${sortenRows.map((r) => `<tr><td>${U.esc(r.sorte)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td><td class="small muted">${U.esc(r.quelle)}</td></tr>`).join('')}</tbody></table></div>`
+        <tbody>${sortenRows.map((r) => `<tr class="tr-klick" data-sorte="${U.esc(r.sorte)}" title="Antippen zum Bearbeiten"><td>${U.esc(r.sorte)} <span class="muted small no-print">${icon('pencil', 'tr-stift')}</span></td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td><td class="small muted">${U.esc(r.quelle)}</td></tr>`).join('')}</tbody></table></div>`
         : (offen.length ? '' : emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.'))}
     </div>`;
     $('#lab', box).onclick = () => Views.honig.laborForm();
+    $$('tr[data-sorte]', box).forEach((tr) => { tr.onclick = () => Views.honig.sorteBearbeiten(tr.dataset.sorte); });
   },
+
+  /* Eine Sorte nachträglich korrigieren: Name für alle Einträge umbenennen,
+     Wassergehalt je Eintrag ändern oder die Sorte ganz entfernen (dann wartet
+     die Ernte wieder auf ihr Laborergebnis). Vorher ging das nur über
+     „Laborergebnis eintragen" – und dort nur Ernte für Ernte neu.
+     Erfasst werden Ernten UND Chargen mit eigener Sorte (Honig aus dem
+     Lagerbestand), denn beide stehen in der Tabelle. */
+  async sorteBearbeiten(sorte) {
+    const name = String(sorte || '').trim();
+    if (!name) return;
+    const gleich = (x) => String(x || '').trim() === name;
+    const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
+    const ernten = U.sortBy((await DB.getAll('ernten')).filter((e) => istHonig(e) && gleich(e.sorte)), (e) => e.datum || '', true);
+    const chargen = (await DB.getAll('chargen')).filter((c) => gleich(c.sorte));
+    if (!ernten.length && !chargen.length) { UI.toast('Diese Sorte gibt es nicht mehr.', 'err'); return renderRoute(); }
+    const voelker = await idMap('voelker'), staende = await idMap('staende');
+    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : 'Stand ' + (staende.get(e.zielId)?.name || '')) || 'gelöscht';
+    const wert = (w) => (w == null || w === '' ? '' : w);
+    const felder = [
+      { key: 'name', label: 'Name der Sorte', type: 'suggest', required: true, default: name,
+        options: await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte'),
+        hint: `Gilt für alle ${ernten.length + chargen.length} Einträge. Heißt eine andere Sorte schon so, werden beide zusammengeführt.` },
+      { key: '_wTitel', type: 'static', html: '<h3 class="mt8 mb8">Wassergehalt je Eintrag (%)</h3><div class="hint mb8">Leer lassen heißt: kein Laborwert.</div>' },
+    ];
+    for (const e of ernten) {
+      felder.push({ key: 'e_' + e.id, type: 'number', halbBreit: true, default: wert(e.wassergehalt),
+        label: `${U.fmtDate(e.datum)} · ${zn(e)} · ${U.fmtNum(e.mengeKg)} kg${e.schleuderung ? ` · ${e.schleuderung}. Schl.` : ''}` });
+    }
+    for (const c of chargen) {
+      felder.push({ key: 'c_' + c.id, type: 'number', halbBreit: true, default: wert(c.wassergehalt),
+        label: `Charge ${c.losnummer || '–'}${(c.ernteIds || []).length ? '' : ' · Lagerbestand'}` });
+    }
+    if ((ernten.length + chargen.length) % 2) felder.push({ key: '_trennW', type: 'static', html: '' });
+
+    UI.formModal({
+      title: `Sorte bearbeiten · ${name}`, wide: true,
+      fields: felder, values: {},
+      onDelete: async () => {
+        if (!(await UI.confirm({ title: `Sorte „${name}" entfernen?`,
+          text: `Bei ${ernten.length + chargen.length} Einträgen werden Sorte und Wassergehalt gelöscht. Die Ernten selbst bleiben erhalten und warten danach wieder auf ein Laborergebnis.`,
+          confirmText: 'Entfernen' }))) return false;
+        const ops = [];
+        for (const e of ernten) { const x = await DB.get('ernten', e.id); if (x) { x.sorte = ''; x.wassergehalt = null; ops.push({ op: 'put', store: 'ernten', obj: x }); } }
+        for (const c of chargen) { const x = await DB.get('chargen', c.id); if (x) { x.sorte = ''; x.wassergehalt = null; ops.push({ op: 'put', store: 'chargen', obj: x }); } }
+        await DB.schreibeAlles(ops);
+        UI.toast(`Sorte „${name}" entfernt`); renderRoute();
+        return true;
+      },
+      async onSave(v) {
+        const neu = String(v.name || '').trim();
+        if (!neu) throw new Error('Bitte einen Namen für die Sorte angeben.');
+        const zahl = (roh) => {
+          if (roh === '' || roh == null) return null;
+          const n = U.zahl(roh, NaN);
+          if (!Number.isFinite(n) || n < 10 || n > 30) throw new Error(`Wassergehalt ${roh} % ist unplausibel – Honig liegt zwischen etwa 14 und 22 %.`);
+          return Math.round(n * 10) / 10;
+        };
+        // Erst alles prüfen, dann in EINEM Schritt schreiben – kein halb umbenannter Stand.
+        const ops = [];
+        for (const e of ernten) {
+          const x = await DB.get('ernten', e.id); if (!x) continue;
+          x.sorte = neu; x.wassergehalt = zahl(v['e_' + e.id]);
+          ops.push({ op: 'put', store: 'ernten', obj: x });
+        }
+        for (const c of chargen) {
+          const x = await DB.get('chargen', c.id); if (!x) continue;
+          x.sorte = neu; x.wassergehalt = zahl(v['c_' + c.id]);
+          ops.push({ op: 'put', store: 'chargen', obj: x });
+        }
+        await DB.schreibeAlles(ops);
+        /* Die Sortenliste in den Einstellungen mitziehen – sonst bietet jedes
+           Auswahlmenü den alten (vielleicht falsch geschriebenen) Namen weiter an. */
+        if (neu !== name) {
+          const liste = [...(S.get('honigsorten') || [])];
+          const idx = liste.indexOf(name);
+          if (idx >= 0) {
+            if (liste.includes(neu)) liste.splice(idx, 1); else liste[idx] = neu;
+            await S.set('honigsorten', liste);
+          }
+        }
+        UI.toast(neu !== name ? `„${name}" heißt jetzt „${neu}"` : 'Gespeichert');
+        renderRoute();
+      },
+    });
+  },
+
   async laborForm() {
     const alle = U.sortBy((await DB.getAll('ernten')).filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig'), (e) => e.datum, true);
     if (!alle.length) return UI.toast('Erst Ernten (Schleuderungen) erfassen, dann Laborergebnisse eintragen.', 'err');
@@ -9082,12 +9178,24 @@ Views.honig = {
     const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
     const label = (e) => `${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' ? '' : 'Stand '}${zn(e)} · ${U.fmtNum(e.mengeKg)} kg${e.sorte ? ' · ' + e.sorte : ''}${e.wassergehalt != null ? ' · ' + U.fmtNum(e.wassergehalt, 1) + ' %' : ''}`;
     const schleuderungById = new Map(alle.map((e) => [e.id, e.schleuderung || 0]));
+    const anzahlJe = (n) => alle.filter((e) => (e.schleuderung || 0) === n).length;
     const hatSorte = new Map(alle.map((e) => [e.id, !!e.sorte]));
     const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
     const m = UI.formModal({
       title: 'Laborergebnis eintragen', wide: true,
       fields: [
-        { key: 'schleuderung', label: '1. Welche Schleuderung?', type: 'select', required: true, options: [1, 2, 3].map((n) => ({ v: n, l: `${n}. Schleuderung` })) },
+        /* Die Schleuderungs-Nummer ist beim Erfassen einer Ernte FREIWILLIG.
+           Vorher boten wir hier nur 1–3 an – eine Ernte ohne Nummer tauchte
+           dann bei keiner Auswahl auf, ihre Sorte und ihr Wassergehalt ließen
+           sich nie eintragen oder ändern. Deshalb zusätzlich „ohne Nummer"
+           und „alle", jeweils mit der Anzahl, damit man sieht, wo die Ernten
+           liegen. */
+        { key: 'schleuderung', label: '1. Welche Schleuderung?', type: 'select', required: true, keepOrder: true,
+          options: [
+            ...[1, 2, 3].map((n) => ({ v: String(n), l: `${n}. Schleuderung (${anzahlJe(n)})` })),
+            { v: 'ohne', l: `ohne Nummer (${anzahlJe(0)})` },
+            { v: 'alle', l: `alle Ernten (${alle.length})` },
+          ] },
         { key: 'auswahl', label: '2. Betroffene Ernten (Datum · Volk · Menge)', type: 'multicheck', required: true, options: alle.map((e) => ({ v: e.id, l: label(e) })) },
         { key: 'sorte', label: '3. Honigsorte (Laborergebnis)', type: 'suggest', required: true, options: sortenOpts, placeholder: 'z. B. Raps' },
         { key: 'wassergehalt', label: '4. Wassergehalt in % (Laborergebnis)', type: 'number', required: true, placeholder: 'z. B. 17,2' },
@@ -9114,16 +9222,20 @@ Views.honig = {
     const sichtbare = () => zeilen().filter((l) => l.style.display !== 'none');
     const zahl = () => { const s = sichtbare(), n = s.filter((l) => $('input', l).checked).length; $('[data-zahl]', bar).textContent = s.length ? `${n} von ${s.length} ausgewählt` : ''; };
     const filtern = () => {
-      const sc = +sel.value || 0;
+      const wahl = sel.value;
+      const sc = wahl === 'alle' ? 'alle' : wahl === 'ohne' ? 0 : (+wahl || null);
       zeilen().forEach((lab) => {
         const inp = $('input', lab);
-        const zeig = !!sc && schleuderungById.get(inp.value) === sc;
+        const zeig = sc === 'alle' || (sc !== null && schleuderungById.get(inp.value) === sc);
         lab.style.display = zeig ? '' : 'none';
         inp.checked = zeig && !hatSorte.get(inp.value); // noch offene Ernten gleich vorhaken
       });
       const n = sichtbare().length;
-      leer.style.display = sc && !n ? '' : 'none';
-      leer.textContent = sc && !n ? `Keine Honigernte mit ${sc}. Schleuderung gefunden. Trage sie zuerst unter „Ernten“ ein.` : '';
+      const gewaehlt = sc !== null;
+      leer.style.display = gewaehlt && !n ? '' : 'none';
+      leer.textContent = gewaehlt && !n
+        ? (sc === 0 ? 'Keine Honigernte ohne Schleuderungs-Nummer.' : `Keine Honigernte mit ${sc}. Schleuderung gefunden. Trage sie zuerst unter „Ernten“ ein.`)
+        : '';
       bar.style.display = n ? '' : 'none';
       zahl();
     };

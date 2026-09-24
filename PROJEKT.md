@@ -76,6 +76,9 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-24 (v1.73)**: **Sorten und Laborergebnisse wieder bearbeitbar.** Ursache: `schleuderung` ist im Ernte-Formular freiwillig (und fehlt bei Ernten aus älteren Fassungen/Importen ganz), das Laborformular bot aber nur 1–3 an – eine Ernte ohne Nummer war dort **unerreichbar**. Jetzt zusätzlich „ohne Nummer" und „alle Ernten", jeweils mit Anzahl.
+  Neu `Views.honig.sorteBearbeiten(sorte)`: Tabellenzeile antippen → umbenennen (alle Ernten + Chargen mit eigener Sorte, zieht die Sortenliste in den Einstellungen mit; gleichnamige Sorten werden zusammengeführt), Wassergehalt je Eintrag, Sorte entfernen (Ernten bleiben, warten wieder aufs Labor). Erst prüfen (10–30 %), dann **eine** Transaktion über `DB.schreibeAlles` – nichts wird halb umbenannt. 4 neue Tests.
+
 - **2026-09-23 (v1.72)**: **Datumsfelder ragten auf dem iPhone aus dem Bild.** `input[type=date]` hat im WKWebView eine eigene intrinsische Mindestbreite, die `width:100%` überstimmt (`min-width:auto` ist die Vorgabe) – der Kasten lief rechts über den Rand, der Rahmen fehlte dort, und Safari zentrierte den Text. Fix: `min-width:0; max-width:100%; box-sizing:border-box` für alle `.inp` plus `-webkit-appearance:none; text-align:left` für date/time/datetime-local/month. Betraf **alle** Datumsfelder der App. **Gefunden nur durch den Durchklick auf dem echten iOS-Simulator** – am Rechner ist genug Platz, dort fällt es nie auf.
 
 - **2026-09-23 (v1.71)**: **Codex' Prüfkorrekturen übernommen** (`git pull` aus dessen Arbeitskopie, Zweig `codex/v170-pruefung-abschliessen`). 30 Funde der v1.69-Prüfung behoben; Einzelheiten in [docs/pruefung-v171/CLAUDE-ABSCHLUSS-v1.71.md](docs/pruefung-v171/CLAUDE-ABSCHLUSS-v1.71.md).
