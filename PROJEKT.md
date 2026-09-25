@@ -76,6 +76,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-09-25 (v1.76)**: Design: `.btn` von voller Pille (999px) auf `var(--r-sm)` (12px) umgestellt – eckiger, passend zu den Kacheln (`.card` nutzt `var(--r)`=20px). Bewusst NICHT geändert: `.bottomnav` (schwebende Navigation), `.chip`, `.seg`, `.tabs` – eigenständige runde Formen. Per Mockup mit Julian abgestimmt, am Dashboard verifiziert.
+
 - **2026-09-25 (v1.75)**: Reiter „Vorsorge" → **„Vorsorgekonzept"** umbenannt (klarer). Neuer **Hygieneplan-Assistent** nach demselben Muster wie der Vorsorge-Assistent: `HYGIENE_ASSISTENT_BEREICHE` (9 typische Bereiche, Rechtsgrundlage Anhang II Teil IV Nr. 2.2.3 für Verarbeitung/Reinigungsmittel und Anhang II Teil II Nr. 1.9.6.3 b für physikalische Beuten-Desinfektion — bewusst **keine chemischen Markennamen** vorgeschlagen, da die zugelassene Stoffliste in einer eigenen Durchführungsverordnung steht und sich ändern kann). `hygieneAssistentSchritt` **aktualisiert** einen vorhandenen Eintrag mit gleichem Bereichsnamen statt ihn zu verdoppeln. Neues PDF `Pdf.bioHygieneplan()`.
 
 - **2026-09-25 (v1.74)**: **Vorsorgekonzept nach Art. 28 VO (EU) 2018/848** — neuer Reiter Bio → Vorsorge. Quelle: der Verordnungstext selbst (Art. 28/29 sowie Anhang II Teil II Nr. 1.2.2 f, 1.3.4.2, 1.9.6.1–1.9.6.5, jeweils frisch von EUR-Lex gelesen, nicht aus dem Training zitiert).
