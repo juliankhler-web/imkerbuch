@@ -102,6 +102,14 @@ async function main() {
                   await setBewertung(v.koeniginId, { sanftmut: 6, wabenstetigkeit: 5, schwarmtraegheit: 4, bienen: 5, brut: 5, ueberwinterung: 4, fruchtbarkeit: 5, fruehtracht: 6, sommertracht: 4, wirrbau: 5, propolis: 4, varroaschaeden: 5, vsh: 4, hyg: 4 }, '2026-06-18', { wetter: 'sonnig', temperatur: 24, bemerkung: 'Sehr ruhig auf der Wabe, kein Wirrbau.' });
                   await setBewertung(v.koeniginId, { sanftmut: 5, wabenstetigkeit: 4, bienen: 4, brut: 5, ueberwinterung: 4 }, '2026-05-02', { wetter: 'bewölkt', temperatur: 17, bemerkung: 'Frühjahr etwas verhalten.' });
                   await Pdf.stockkarte(v.koeniginId);`],
+    ['vorsorgekonzept', `const stand = { bereiche: {}, geprueftAm: '2026-03-14', erstelltAm: '2026-03-14' };
+                  const ctx = await vorsorgeKontext({ bereiche: Object.fromEntries(VORSORGE_BEREICHE.map((b) => [b.key, { status: b.key === 'parallel' || b.key === 'fremd' ? 'nein' : 'ja' }])) });
+                  for (const b of VORSORGE_BEREICHE) {
+                    const nein = b.key === 'parallel' || b.key === 'fremd';
+                    stand.bereiche[b.key] = { status: nein ? 'nein' : 'ja', text: nein ? '' : vorsorgeVorschlag(b, {}, ctx), antworten: {} };
+                  }
+                  await S.set('bioVorsorge', stand);
+                  await Pdf.bioVorsorge();`],
     ['bestandsbuch', 'await Pdf.bestandsbuch();'],
     ['chargenuebersicht', 'await Pdf.chargenuebersicht();'],
     ['kassenbuch-jahr', `await Pdf.kassenbuchJahr('${jahr}');`],

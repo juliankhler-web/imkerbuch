@@ -2567,12 +2567,12 @@ test('osmAnteileAusFlaechen: Anteile, „nicht erfasst" und kleinere Fläche gew
 });
 
 /* ---------- Bio / Öko-Kontrolle ---------- */
-test('Bio: fünf Bereiche im Reiter – Zertifikate hängen am Partner', async (w) => {
+test('Bio: sechs Bereiche im Reiter – Zertifikate hängen am Partner', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.bio.render(host);
     const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
-    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Abnehmer & Lieferanten', 'Förderverfahren'],
+    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Vorsorge', 'Abnehmer & Lieferanten', 'Förderverfahren'],
       'kein eigener Zertifikate-Reiter mehr – Zertifikate gehören zum jeweiligen Partner');
     assert(!reiter.some((t) => /^\d/.test(t)), 'keine Ziffern vor den Namen');
     assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
@@ -8843,4 +8843,171 @@ test('Sorte bearbeiten: Entfernen löscht nur Sorte und Laborwert, nicht die Ern
     w.UI.confirm = altConfirm; dialogeSchliessen(w);
     await w.DB.del('ernten', e.id); await w.DB.del('voelker', v.id);
   }
+});
+
+/* =====================================================================
+   Vorsorgekonzept nach Art. 28 VO (EU) 2018/848 (v1.74)
+   ===================================================================== */
+
+test('Vorsorge: 16 Bereiche, drei davon verlangt Art. 28 von jedem', (w) => {
+  assertEq(w.VORSORGE_BEREICHE.length, 16);
+  const immer = w.VORSORGE_BEREICHE.filter((b) => b.immer).map((b) => b.key);
+  assertEq(immer, ['risiko', 'verdacht', 'ueberpruefung'], 'Risiko, Verdachtsfall und Überprüfung');
+  for (const b of w.VORSORGE_BEREICHE) {
+    assert(b.titel && b.grundlage && b.kurz, `${b.key} hat Titel, Rechtsgrundlage und Kurztext`);
+    assert(typeof b.text === 'function', `${b.key} kann einen Text vorschlagen`);
+  }
+  assertEq(new Set(w.VORSORGE_BEREICHE.map((b) => b.key)).size, 16, 'keine doppelten Schlüssel');
+});
+
+test('Vorsorge: Vorschläge entstehen für jeden Bereich, auch ohne Daten', (w) => {
+  const leer = { staende: 0, staendeErhoben: 0, quellen: [], voelker: 0, wanderungenJahr: 0, mittel: [], futterarten: [], zukaufJahr: 0,
+    chargen: 0, lieferantenMitZert: 0, hygieneplan: 0, kontrollcode: '', kontrollstelle: '', ausgewaehlt: [], hatWanderungen: false };
+  for (const b of w.VORSORGE_BEREICHE) {
+    const t = w.vorsorgeVorschlag(b, {}, leer);
+    assert(t.length > 60, `${b.key}: ein brauchbarer Satz (${t.length} Zeichen)`);
+    assert(!/undefined|NaN|\[object/.test(t), `${b.key}: keine Platzhalter-Reste`);
+  }
+});
+
+test('Vorsorge: Vorschläge greifen Antworten und Betriebsdaten auf', (w) => {
+  const b = (k) => w.VORSORGE_BEREICHE.find((x) => x.key === k);
+  const ctx = { staende: 3, staendeErhoben: 2, quellen: ['Autobahn / Bundesstraße'], voelker: 12, wanderungenJahr: 4,
+    mittel: ['Oxuvar', 'Thymovar'], futterarten: ['Bio-Zucker'], zukaufJahr: 1, chargen: 5, lieferantenMitZert: 2, hygieneplan: 6,
+    kontrollcode: 'DE-ÖKO-006', kontrollstelle: 'DE-ÖKO-006 – ABCERT AG', ausgewaehlt: ['Standorte und Umfeld', 'Fütterung'], hatWanderungen: true };
+  assert(/Autobahn/.test(w.vorsorgeVorschlag(b('standort'), {}, ctx)), 'die Verschmutzungsquelle aus den Standorten steht im Text');
+  assert(/bei einer Begehung/.test(w.vorsorgeVorschlag(b('standort'), { pruefung: 'begehung' }, ctx)), 'die Antwort bestimmt den Satz');
+  assert(/Oxuvar und Thymovar/.test(w.vorsorgeVorschlag(b('gesundheit'), {}, ctx)), 'die Mittel aus dem Bestandsbuch');
+  assert(/DE-ÖKO-006/.test(w.vorsorgeVorschlag(b('lager'), {}, ctx)), 'der Kontrollstellen-Code');
+  assert(/Standorte und Umfeld und Fütterung/.test(w.vorsorgeVorschlag(b('risiko'), {}, ctx)), 'die kritischen Punkte aus der Auswahl');
+  assert(/12 Völker an 3 Ständen/.test(w.vorsorgeVorschlag(b('risiko'), {}, ctx)), 'die Betriebsgröße');
+  const beides = w.vorsorgeVorschlag(b('parallel'), { art: 'beides' }, ctx);
+  assert(/zwölf Monate/.test(beides) && /getrennten/.test(beides), 'Umstellung UND Parallelerzeugung');
+});
+
+test('Vorsorge: nicht zugelassene Varroamittel werden erkannt', (w) => {
+  assertEq(w.varroaMittelPruefen('Bayvarol').zugelassen, false);
+  assertEq(w.varroaMittelPruefen('Apivar Streifen').zugelassen, false);
+  assertEq(w.varroaMittelPruefen('ApiLife Var').zugelassen, true, 'ApiLife Var: Thymol und ätherische Öle');
+  assertEq(w.varroaMittelPruefen('Oxuvar 5,7 %').zugelassen, true);
+  assertEq(w.varroaMittelPruefen('Ameisensäure 60 %').zugelassen, true);
+  assertEq(w.varroaMittelPruefen('Hausmittel XY'), null, 'Unbekanntes wird nicht bewertet');
+});
+
+test('Vorsorge: Vorauswahl – Pflichtbereiche immer, „betrifft nicht" bleibt abgewählt', (w) => {
+  const ctx = { hatWanderungen: false };
+  const leer = w.vorsorgeVorauswahl({ bereiche: {} }, ctx);
+  assert(['risiko', 'verdacht', 'ueberpruefung'].every((k) => leer.includes(k)), 'die drei Pflichtbereiche');
+  assert(!leer.includes('wanderung'), 'ohne Wanderungen keine Wanderung');
+  assert(!leer.includes('parallel'), 'Parallelerzeugung nur auf Wunsch');
+  assert(w.vorsorgeVorauswahl({ bereiche: {} }, { hatWanderungen: true }).includes('wanderung'), 'mit Wanderungen schon');
+  const mitNein = w.vorsorgeVorauswahl({ bereiche: { wachs: { status: 'nein' } } }, ctx);
+  assert(!mitNein.includes('wachs'), 'was als „betrifft nicht" markiert ist, bleibt abgewählt');
+});
+
+test('Vorsorge: Editor speichert, eigener Text wird nicht überschrieben, Löschen setzt zurück', async (w) => {
+  const alt = w.S.get('bioVorsorge');
+  const altConfirm = w.UI.confirm;
+  try {
+    await w.S.set('bioVorsorge', null);
+    await w.Views.bio.vorsorgeEditor('wachs');
+    await new Promise((r) => setTimeout(r, 400));
+    let m = w.document.querySelector('#modal-root').lastElementChild;
+    const ta = m.querySelector('#f-text');
+    ta.value = 'Eigener Wachstext.'; ta.dispatchEvent(new Event('input', { bubbles: true }));
+    const sel = m.querySelector('#f-q_herkunft'); sel.value = 'zukauf'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    assertEq(m.querySelector('#f-text').value, 'Eigener Wachstext.', 'eine geänderte Antwort überschreibt den eigenen Text nicht');
+    m.querySelector('#f-status').value = 'ja';
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    let e = w.vorsorgeEintrag(w.vorsorgeLaden(), 'wachs');
+    assertEq(e.status, 'ja'); assertEq(e.text, 'Eigener Wachstext.'); assertEq(e.antworten.herkunft, 'zukauf');
+    // Löschen
+    w.UI.confirm = async () => true;
+    await w.Views.bio.vorsorgeEditor('wachs');
+    await new Promise((r) => setTimeout(r, 400));
+    m = w.document.querySelector('#modal-root').lastElementChild;
+    m.querySelector('[data-del]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    e = w.vorsorgeEintrag(w.vorsorgeLaden(), 'wachs');
+    assertEq(e.status, '', 'wieder offen'); assertEq(e.text, '', 'ohne Text');
+  } finally {
+    w.UI.confirm = altConfirm; dialogeSchliessen(w);
+    await w.S.set('bioVorsorge', alt || null);
+  }
+});
+
+test('Vorsorge: Assistent – überspringen, „betrifft nicht" und beenden', async (w) => {
+  const alt = w.S.get('bioVorsorge');
+  const klick = (m, text) => [...m.querySelectorAll('.modal-foot button')].find((b) => b.textContent.trim() === text).click();
+  const oben = () => w.document.querySelector('#modal-root').lastElementChild;
+  const warte = (ms = 500) => new Promise((r) => setTimeout(r, ms));
+  try {
+    await w.S.set('bioVorsorge', null);
+    await w.Views.bio.vorsorgeAssistent(); await warte(400);
+    let m = oben();
+    // nur Risiko, Standort und Wachs auswählen
+    m.querySelectorAll('#f-bereiche input').forEach((i) => { i.checked = ['risiko', 'standort', 'wachs'].includes(i.value); });
+    klick(m, 'Weiter'); await warte(900);
+    m = oben(); assert(/Risikoermittlung/.test(m.querySelector('h2').textContent), 'Schritt 1: Risiko');
+    klick(m, 'Übernehmen · weiter'); await warte(900);
+    m = oben(); assert(/Standorte/.test(m.querySelector('h2').textContent), 'Schritt 2: Standorte');
+    klick(m, 'Überspringen'); await warte(900);
+    m = oben(); assert(/Wachs/.test(m.querySelector('h2').textContent), 'Schritt 3: Wachs');
+    klick(m, 'Betrifft mich nicht'); await warte(600);
+    const s = w.vorsorgeLaden();
+    assertEq(w.vorsorgeEintrag(s, 'risiko').status, 'ja');
+    assert(w.vorsorgeEintrag(s, 'risiko').text.length > 50, 'Risiko hat den übernommenen Text');
+    assertEq(w.vorsorgeEintrag(s, 'standort').status, 'ja', 'übersprungen: betrifft den Betrieb …');
+    assertEq(w.vorsorgeEintrag(s, 'standort').text, '', '… aber noch ohne Text');
+    assertEq(w.vorsorgeEintrag(s, 'wachs').status, 'nein', '„betrifft mich nicht"');
+    assertEq(w.vorsorgeEintrag(s, 'fuetterung').status, 'nein', 'nicht angehakt heißt: betrifft nicht');
+  } finally {
+    dialogeSchliessen(w);
+    await w.S.set('bioVorsorge', alt || null);
+  }
+});
+
+test('Bio-Formulare: Word/PDF hochladen, im Unterlagen-PDF aufgeführt', async (w) => {
+  const vorher = await w.Anhang.list('bio', 'formulare');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const neu = [];
+  try {
+    w.Views.bio._tab = 'betrieb';
+    await w.Views.bio.render(host);
+    await new Promise((r) => setTimeout(r, 400));
+    const zone = host.querySelector('[data-bio-formulare]');
+    assert(zone, 'die Formular-Ablage steht in der Betriebsbeschreibung');
+    const inp = zone.querySelector('[data-add-doc]');
+    assert(/\.docx/.test(inp.getAttribute('accept')) && /\.odt/.test(inp.getAttribute('accept')), 'Word und OpenOffice werden angenommen');
+    const datei = new w.File([new Uint8Array([80, 75, 3, 4])], 'Verband Formular 2026.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const dt = new w.DataTransfer(); dt.items.add(datei); inp.files = dt.files;
+    inp.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 500));
+    const nachher = await w.Anhang.list('bio', 'formulare');
+    for (const a of nachher) if (!vorher.some((v) => v.id === a.id)) neu.push(a.id);
+    assertEq(neu.length, 1, 'genau ein Formular dazugekommen');
+    // im Unterlagen-PDF aufgeführt
+    w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+    await w.Pdf.bioUnterlagen();
+    const text = w.Pdf.lastDocForTest.internal.pages.flat().filter((x) => typeof x === 'string').join(' ');
+    assert(/Hinterlegte Formulare/.test(text), 'Abschnitt „Hinterlegte Formulare"');
+    assert(/Verband Formular 2026/.test(text), 'mit dem Dateinamen');
+  } finally {
+    w.Pdf.noDownloadForTest = false;
+    for (const id of neu) await w.DB.del('anhaenge', id);
+    host.remove(); dialogeSchliessen(w);
+  }
+});
+
+test('Datei öffnen: PDF im neuen Tab, Word als Download (am Rechner)', async (w) => {
+  let klick = null;
+  const orig = w.HTMLAnchorElement.prototype.click;
+  w.HTMLAnchorElement.prototype.click = function () { klick = { download: this.download, target: this.target }; };
+  try {
+    await w.dateiOeffnen(new w.Blob(['%PDF'], { type: 'application/pdf' }), 'a.pdf', 'application/pdf');
+    assertEq(klick.target, '_blank', 'PDF wird angezeigt');
+    await w.dateiOeffnen(new w.Blob(['x']), 'b.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    assertEq(klick.download, 'b.docx', 'Word wird mit seinem Namen geladen');
+  } finally { w.HTMLAnchorElement.prototype.click = orig; }
 });

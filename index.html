@@ -711,6 +711,7 @@ try {
    ICONS_BUNT / iconBunt() und werden nur in der Navigation eingesetzt.
    ===================================================================== */
 const ICONS = {
+  minus: '<path d="M5 12h14"/>',
   home:'<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/>',
   hive:'<rect x="4.5" y="5" width="15" height="13" rx="1.8"/><path d="M4.5 9.5h15M4.5 14h15M10.5 18v2.5M13.5 18v2.5"/>',
   volk:'<path d="M12 3 19.8 7.5v9L12 21l-7.8-4.5v-9Z"/><path d="M8.7 10.2h6.6M8.7 13.8h6.6"/>',
@@ -1014,8 +1015,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.73';
+const APP_VERSION = '1.74';
 const CHANGELOG = [
+  { version: '1.74', datum: '2026-09-25', punkte: [
+    'Neu bei <b>Bio</b>: Reiter <b>Vorsorge</b> – das nach <b>Art. 28 der EU-Öko-Verordnung (VO (EU) 2018/848)</b> vorgeschriebene Vorsorgekonzept. 16 Bereiche, abgeleitet aus den Produktionsvorschriften für Bienen (Standorte, Wachs, Fütterung, Varroa, Ernte, Zukauf, Umstellung …), jeweils mit der genauen Fundstelle.',
+    'Ein <b>Assistent</b> führt auf Wunsch durch die Bereiche: Fragen beantworten, die App schlägt einen Text vor – übernehmen, ändern, <b>überspringen</b> oder als <b>„betrifft mich nicht"</b> markieren. Wer lieber selbst schreibt, tippt einen Bereich in der Liste an und trägt seinen eigenen Text ein. Jeder Bereich ist jederzeit <b>änderbar oder löschbar</b>.',
+    'Die Vorschläge nutzen, was die App ohnehin weiß: erfasste Verschmutzungsquellen an den Standorten, Mittel aus dem Bestandsbuch, Futterarten, Wanderungen, den Kontrollstellen-Code. Bei einem im Bestandsbuch erfassten Varroamittel, dessen Wirkstoff nicht zu den für Bio zugelassenen gehört, erscheint ein Hinweis.',
+    'Das Konzept lässt sich als <b>PDF ausdrucken</b> – mit Betrieb, Kontrollstelle, allen ausgefüllten Bereichen samt Rechtsgrundlage und Unterschriftszeile, genau richtig für die jährliche Kontrolle.',
+    'Neu: In der <b>Betriebsbeschreibung</b> lassen sich die <b>Formulare von Verband und Kontrollstelle</b> hochladen (PDF, Word, Excel, OpenOffice …) und direkt in der App zum Ausfüllen öffnen. Da sich diese Formulare ändern können, wählst du sie selbst aus, statt dass die App feste Vorlagen mitbringt. Das Unterlagen-PDF listet, welche Formulare hinterlegt sind.',
+    'Anhänge (Dokumente, Formulare) öffnen sich auf dem Handy jetzt zuverlässig über das Teilen-Menü – zum Bearbeiten in Word, Acrobat oder der Dateien-App, statt nur heruntergeladen zu werden.',
+  ] },
   { version: '1.73', datum: '2026-09-24', punkte: [
     'Behoben: Im Reiter <b>Sorte</b> ließen sich Sorten und Laborergebnisse nicht bearbeiten. Der Grund: Die Schleuderungs-Nummer ist beim Erfassen einer Ernte freiwillig – und eine Ernte <b>ohne Nummer</b> tauchte in „Laborergebnis eintragen" bei keiner Auswahl auf. Jetzt gibt es dort zusätzlich <b>„ohne Nummer"</b> und <b>„alle Ernten"</b>, jeweils mit der Anzahl.',
     'Neu: Jede Sorte in der Tabelle lässt sich <b>antippen</b>. Dort kannst du den <b>Namen ändern</b> (gilt für alle Ernten und Chargen dieser Sorte und auch für deine Sortenliste), den <b>Wassergehalt je Eintrag</b> korrigieren oder die Sorte ganz <b>entfernen</b> – die Ernten bleiben dabei erhalten und warten wieder auf ihr Laborergebnis.',
@@ -2877,6 +2886,30 @@ const papierkorbDelete = (store, rec, titel, text = 'Wandert in den Papierkorb (
    ANHÄNGE: Fotos (Kamera, Resize ≤1600px, JPEG), Dokumente, Galerie,
    Vollbild-Viewer, Dokumententypen, OCR-Anbindung
    ===================================================================== */
+/* Eine gespeicherte Datei öffnen, so dass man sie im passenden Programm
+   bearbeiten kann. Auf dem Handy und in der iPhone-App über das
+   Teilen-Menü („In Word öffnen", „In Dateien sichern", Acrobat …) – ein
+   einfacher Download-Link tut dort oft gar nichts. Am Rechner in einem neuen
+   Tab; was der Browser nicht anzeigen kann (Word), lädt er herunter. */
+async function dateiOeffnen(blob, name, mime) {
+  const typ = mime || blob.type || 'application/octet-stream';
+  const mobil = IST_NATIVE_APP || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
+  if (mobil && navigator.share) {
+    try {
+      const file = new File([blob], name || 'dokument', { type: typ });
+      if (!navigator.canShare || navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name || 'Dokument' }); return 'geteilt'; }
+    } catch (e) { if (e && e.name === 'AbortError') return 'abgebrochen'; }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.rel = 'noopener';
+  // Anzeigbares (PDF, Bild, Text) im neuen Tab, alles andere herunterladen
+  if (/^(application\/pdf|image\/|text\/)/.test(typ)) a.target = '_blank'; else a.download = name || 'dokument';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return 'geoeffnet';
+}
+
 const Anhang = {
   async list(parentTyp, parentId, arten) {
     const all = await DB.getAll('anhaenge');
@@ -2903,7 +2936,7 @@ const Anhang = {
           <label class="g-item" style="border-style:dashed" title="Foto aufnehmen">${icon('camera')}<span class="g-name">Foto</span>
             <input type="file" accept="image/*" capture="environment" class="hidden" data-add-foto></label>
           ${arten.includes('dokument') ? `<label class="g-item" style="border-style:dashed" title="Dokument anhängen">${icon('doc')}<span class="g-name">Dokument</span>
-            <input type="file" accept=".pdf,.doc,.docx,.txt,image/*,application/pdf" class="hidden" data-add-doc></label>` : ''}
+            <input type="file" accept=".pdf,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods,.txt,image/*,application/pdf" class="hidden" data-add-doc></label>` : ''}
         </div>
         <div class="hint small muted">Anhänge werden lokal gespeichert. Fotos werden automatisch verkleinert; Dokumente möglichst unter 5 MB halten, sonst werden Backups groß.</div>`;
       // Thumbnails über Blob-URLs; nach dem Laden freigeben, sonst leckt jeder Re-Render Speicher
@@ -2953,9 +2986,10 @@ const Anhang = {
       footer: `
         <button class="btn btn-danger no-flex" data-del>${icon('trash')}</button>
         ${ocrOn ? `<button class="btn btn-ghost" data-ocr>${icon('doc')} Text aus Foto übernehmen</button>` : ''}
-        <a class="btn btn-ghost" href="${url}" download="${U.esc(a.name)}" ${a.art !== 'foto' ? `target="_blank"` : ''}>${icon('download')} Öffnen/Laden</a>`,
+        <button class="btn btn-ghost" data-oeffnen>${icon('download')} ${a.art === 'foto' ? 'Öffnen/Laden' : 'Öffnen / bearbeiten'}</button>`,
     });
     $('[data-typ]', m.el).onchange = async (e) => { a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
+    $('[data-oeffnen]', m.el).onclick = () => dateiOeffnen(a.blob, a.name, a.mime);
     $('[data-del]', m.el).onclick = async () => {
       if (!(await UI.confirm({ title: 'Anhang löschen?', text: 'Der Anhang wandert in den Papierkorb (30 Tage wiederherstellbar).' }))) return;
       await DB.softDel('anhaenge', a.id); m.close(true); UI.toast('In den Papierkorb verschoben'); if (onChange) onChange();
@@ -7687,6 +7721,302 @@ function hygieneplanParsen(text) {
   return zeilen;
 }
 
+/* =====================================================================
+   VORSORGEKONZEPT nach Art. 28 VO (EU) 2018/848
+
+   Art. 28 Abs. 1 verlangt von jedem Bio-Betrieb, die Risiken einer
+   Kontamination mit nicht zugelassenen Erzeugnissen oder Stoffen zu
+   ERMITTELN (a), Maßnahmen dagegen zu ERGREIFEN (b), sie REGELMÄSSIG zu
+   überprüfen (c) und die Trennung von Bio- und Nicht-Bio-Ware
+   sicherzustellen (d). Abs. 2 legt fest, was im VERDACHTSFALL zu tun ist.
+   Die Verordnung schreibt keinen festen Text vor – was eine Imkerei konkret
+   tun muss, ergibt sich aus den Produktionsvorschriften für Bienen in
+   Anhang II Teil II Nr. 1.9.6 (Herkunft, Fütterung, Tiergesundheit,
+   Tierschutz, Standort und Haltung), der Umstellung (Nr. 1.2.2 f) und dem
+   Zukauf (Nr. 1.3.4.2). Daraus sind die Bereiche unten abgeleitet.
+
+   Die Texte sind VORSCHLÄGE aus den Antworten und aus dem, was die App ohnehin
+   weiß (Standorte, Behandlungen, Fütterungen …). Sie sind jederzeit frei
+   änderbar, löschbar und überspringbar – entscheidend ist, was im Betrieb
+   tatsächlich passiert, und was die eigene Kontrollstelle verlangt.
+   ===================================================================== */
+
+/* Wirkstoffe, die Anhang II Teil II Nr. 1.9.6.3 e gegen die Varroa zulässt. */
+const VARROA_ZUGELASSEN = ['Ameisensäure', 'Milchsäure', 'Essigsäure', 'Oxalsäure', 'Menthol', 'Thymol', 'Eukalyptol', 'Kampfer'];
+/* Handelsnamen, deren Wirkstoff bekannt ist – nur für einen HINWEIS in der
+   Maske, nicht für den Text. Was hier nicht steht, wird nicht bewertet. */
+const VARROA_PRODUKTE = [
+  [/api\s*life\s*var/i, 'Thymol, Menthol, Eukalyptol, Kampfer', true],
+  [/thymovar|apiguard|thymol/i, 'Thymol', true],
+  [/maqs|formivar|formicpro|ameisens/i, 'Ameisensäure', true],
+  [/oxuvar|api-?bioxal|oxybee|dany|oxals/i, 'Oxalsäure', true],
+  [/varromed/i, 'Ameisensäure, Oxalsäure', true],
+  [/milchs/i, 'Milchsäure', true],
+  [/bayvarol|flumethrin/i, 'Flumethrin (chemisch-synthetisch)', false],
+  [/apistan|fluvalinat/i, 'tau-Fluvalinat (chemisch-synthetisch)', false],
+  [/apivar|amitraz/i, 'Amitraz (chemisch-synthetisch)', false],
+  [/perizin|coumaphos|checkmite/i, 'Coumaphos (chemisch-synthetisch)', false],
+];
+function varroaMittelPruefen(name) {
+  const t = String(name || '');
+  const treffer = VARROA_PRODUKTE.find(([re]) => re.test(t));
+  return treffer ? { wirkstoff: treffer[1], zugelassen: treffer[2] } : null;
+}
+
+/** Aufzählung „a, b und c". */
+function vsListe(werte) {
+  const w = (werte || []).filter(Boolean);
+  if (w.length <= 1) return w.join('');
+  return `${w.slice(0, -1).join(', ')} und ${w[w.length - 1]}`;
+}
+
+const VORSORGE_BEREICHE = [
+  {
+    key: 'risiko', titel: 'Risikoermittlung und kritische Punkte', grundlage: 'Art. 28 Abs. 1 a und b', immer: true,
+    kurz: 'Wo können nicht zugelassene Stoffe in den Betrieb gelangen?',
+    fragen: [],
+    text: (a, ctx) => `Der Betrieb ermittelt die Risiken, durch die nicht zugelassene Erzeugnisse oder Stoffe in die ökologische Bienenhaltung und in die Imkereierzeugnisse gelangen können, und legt für jeden kritischen Punkt eine vorbeugende Maßnahme fest.${ctx.ausgewaehlt.length ? ` Als kritische Punkte wurden ermittelt: ${vsListe(ctx.ausgewaehlt)}.` : ''} Die Maßnahmen dazu sind in den folgenden Abschnitten beschrieben. Sie sind verhältnismäßig zur Größe des Betriebs gewählt (${ctx.voelker} ${ctx.voelker === 1 ? 'Volk' : 'Völker'} an ${ctx.staende} ${ctx.staende === 1 ? 'Stand' : 'Ständen'}).`,
+  },
+  {
+    key: 'standort', titel: 'Standorte und Umfeld', grundlage: 'Anhang II Teil II Nr. 1.9.6.5 a–c',
+    kurz: 'Tracht im Umkreis von 3 km, Abstand zu Verschmutzungsquellen.',
+    fragen: [
+      { key: 'pruefung', label: 'Wie prüfst du einen Standort?', type: 'select', default: 'beides', keepOrder: true, options: [
+        { v: 'karte', l: 'Auswertung der Landbedeckung (Karte, Luftbild)' },
+        { v: 'begehung', l: 'Begehung des Umkreises' },
+        { v: 'beides', l: 'beides' }] },
+    ],
+    text: (a, ctx) => {
+      const wie = { karte: 'anhand der Landbedeckung (Karte bzw. Luftbild) ausgewertet', begehung: 'bei einer Begehung geprüft', beides: 'anhand der Landbedeckung ausgewertet und bei einer Begehung geprüft' }[a.pruefung] || 'geprüft';
+      return `Die Bienenstände werden so gewählt, dass im Umkreis von 3 km die Nektar- und Pollenquellen im Wesentlichen aus ökologisch bewirtschafteten Flächen, Wildpflanzen oder mit geringer Umweltauswirkung bewirtschafteten Flächen bestehen und ausreichend Abstand zu Verschmutzungsquellen besteht. Vor dem Aufstellen wird der Umkreis ${wie}.`
+        + (ctx.staende ? ` Der Betrieb bewirtschaftet ${ctx.staende} ${ctx.staende === 1 ? 'Stand' : 'Stände'}${ctx.staendeErhoben ? `; für ${ctx.staendeErhoben} liegt eine Auswertung der Landbedeckung vor` : ''}.` : '')
+        + (ctx.quellen.length ? ` Bekannte Verschmutzungsquellen im Umkreis: ${vsListe(ctx.quellen)}; sie werden bei der Aufstellung berücksichtigt.` : ' Im Umkreis der Stände sind keine Verschmutzungsquellen bekannt.')
+        + ' Ändert sich das Umfeld – etwa durch eine neue Straße, Gewerbe oder den Umbruch zu Intensivkulturen –, wird der Standort neu bewertet.';
+    },
+  },
+  {
+    key: 'wanderung', titel: 'Wanderung', grundlage: 'Anhang II Teil II Nr. 1.9.6.5 a–c',
+    kurz: 'Wanderstandorte müssen dieselben Anforderungen erfüllen.',
+    fragen: [
+      { key: 'absprache', label: 'Sprichst du dich bei Tracht auf konventionellen Flächen mit dem Bewirtschafter ab?', type: 'select', default: 'ja', keepOrder: true, options: [
+        { v: 'ja', l: 'ja, wegen Pflanzenschutz während der Blüte' }, { v: 'nein', l: 'nein / trifft nicht zu' }] },
+    ],
+    text: (a, ctx) => `Für Wanderstandorte gelten dieselben Anforderungen wie für feste Stände. Vor dem Anwandern wird der Umkreis von 3 km auf Trachtpflanzen und Verschmutzungsquellen geprüft.`
+      + (a.absprache === 'ja' ? ' Liegt die Tracht auf konventionell bewirtschafteten Flächen, wird mit dem Bewirtschafter geklärt, ob während der Blüte Pflanzenschutzmittel ausgebracht werden.' : '')
+      + ` Jede Wanderung wird mit Datum, Standort und Anzahl der Völker dokumentiert${ctx.wanderungenJahr ? ` (im laufenden Jahr ${ctx.wanderungenJahr} ${ctx.wanderungenJahr === 1 ? 'Eintrag' : 'Einträge'} im Wanderbuch)` : ''}.`,
+  },
+  {
+    key: 'beuten', titel: 'Beuten und Imkereizubehör', grundlage: 'Anhang II Teil II Nr. 1.9.6.5 d und f',
+    kurz: 'Natürliche Materialien, keine Holzschutzmittel.',
+    fragen: [
+      { key: 'material', label: 'Woraus bestehen deine Beuten?', type: 'select', default: 'holz', keepOrder: true, options: [
+        { v: 'holz', l: 'Holz' }, { v: 'gemischt', l: 'überwiegend Holz, einzelne Teile aus anderem Material' }] },
+      { key: 'anstrich', label: 'Wie sind die Außenseiten behandelt?', type: 'select', default: 'natur', keepOrder: true, options: [
+        { v: 'unbehandelt', l: 'unbehandelt' }, { v: 'natur', l: 'mit Wachs oder Leinöl' }, { v: 'farbe', l: 'mit Farbe ohne Holzschutzmittel' }] },
+    ],
+    text: (a) => {
+      const mat = a.material === 'gemischt' ? 'überwiegend aus Holz; einzelne Teile aus anderem Material sind lebensmittelecht und geben nichts ab' : 'aus Holz';
+      const ans = { unbehandelt: 'unbehandelt', natur: 'mit Bienenwachs oder Leinöl behandelt', farbe: 'mit Farbe ohne Holzschutzmittel gestrichen' }[a.anstrich] || 'unbehandelt';
+      return `Beuten und Imkereizubehör bestehen ${mat}, sodass keine Gefahr einer Kontamination von Umwelt oder Imkereierzeugnissen besteht. Die Außenseiten sind ${ans}; chemisch-synthetische Holzschutzmittel werden nicht verwendet. In den Beuten werden nur natürliche Stoffe wie Propolis, Wachs und Pflanzenöle eingesetzt. Gebrauchtes oder neu gekauftes Material wird vor der Verwendung auf Anstriche und Rückstände geprüft.`;
+    },
+  },
+  {
+    key: 'wachs', titel: 'Wachs und Mittelwände', grundlage: 'Anhang II Teil II Nr. 1.9.6.5 e; Nr. 1.2.2 f',
+    kurz: 'Mittelwände aus Bio-Wachs, Rückstände vermeiden.',
+    fragen: [
+      { key: 'herkunft', label: 'Woher kommt das Wachs für deine Mittelwände?', type: 'select', default: 'kreislauf', keepOrder: true, options: [
+        { v: 'kreislauf', l: 'eigener Wachskreislauf' }, { v: 'zukauf', l: 'Zukauf von Bio-Mittelwänden' }, { v: 'beides', l: 'beides' }] },
+      { key: 'analyse', label: 'Zugekauftes Wachs nur mit Rückstandsanalyse', type: 'check', default: true },
+      { key: 'trennung', label: 'Bio-Wachs wird getrennt gelagert und verarbeitet', type: 'check', default: true },
+    ],
+    text: (a) => {
+      const her = { kreislauf: 'aus dem eigenen Wachskreislauf', zukauf: 'aus zugekauftem Wachs aus ökologischer Bienenhaltung', beides: 'aus dem eigenen Wachskreislauf und aus zugekauftem Wachs aus ökologischer Bienenhaltung' }[a.herkunft] || 'aus ökologischer Bienenhaltung';
+      return `Mittelwände stammen ausschließlich ${her}.`
+        + (a.herkunft !== 'kreislauf' ? ' Für zugekauftes Wachs liegt ein Bio-Nachweis des Lieferanten vor.' : '')
+        + (a.analyse ? ' Zugekauftes Wachs wird nur eingesetzt, wenn eine Rückstandsanalyse vorliegt, die keine Belastung mit nicht zugelassenen Stoffen zeigt.' : '')
+        + (a.trennung ? ' Wachs aus ökologischer Haltung wird getrennt von anderem Wachs gelagert, eingeschmolzen und zu Mittelwänden verarbeitet.' : '')
+        + ' Alte, dunkle Waben werden regelmäßig ausgeschieden.';
+    },
+  },
+  {
+    key: 'fuetterung', titel: 'Fütterung', grundlage: 'Anhang II Teil II Nr. 1.9.6.2',
+    kurz: 'Nur Bio-Futter, nur wenn das Überleben gefährdet ist.',
+    fragen: [
+      { key: 'futter', label: 'Womit fütterst du?', type: 'multicheck', keepOrder: true, default: ['zucker'], options: [
+        { v: 'zucker', l: 'Bio-Zucker' }, { v: 'sirup', l: 'Bio-Zuckersirup' }, { v: 'honig', l: 'eigener Bio-Honig' }] },
+    ],
+    text: (a, ctx) => {
+      const namen = { zucker: 'ökologischem Zucker', sirup: 'ökologischem Zuckersirup', honig: 'eigenem ökologischem Honig' };
+      const f = vsListe((a.futter || []).map((x) => namen[x]).filter(Boolean)) || 'ökologischem Futter';
+      return `Am Ende der Saison verbleibt genügend Honig und Pollen in den Völkern. Gefüttert wird nur, wenn das Überleben der Völker witterungsbedingt gefährdet ist, und ausschließlich mit ${f}. Für jedes Futter liegt ein Bio-Nachweis vor; Futter wird getrennt von konventionellen Erzeugnissen gelagert. Jede Fütterung wird mit Datum, Futterart und Menge dokumentiert.`
+        + (ctx.futterarten.length ? ` In den letzten zwölf Monaten erfasst: ${vsListe(ctx.futterarten)}.` : '');
+    },
+  },
+  {
+    key: 'gesundheit', titel: 'Tiergesundheit und Varroa', grundlage: 'Anhang II Teil II Nr. 1.9.6.3 c–f',
+    kurz: 'Nur zugelassene Mittel, Bestandsbuch, Isolierung bei Allopathie.',
+    fragen: [
+      { key: 'verfahren', label: 'Welche Verfahren setzt du ein?', type: 'multicheck', keepOrder: true, default: ['ameisen', 'oxal', 'drohnen'], options: [
+        { v: 'ameisen', l: 'Ameisensäure' }, { v: 'oxal', l: 'Oxalsäure' }, { v: 'milch', l: 'Milchsäure' },
+        { v: 'thymol', l: 'Thymol / ätherische Öle' }, { v: 'drohnen', l: 'Entnahme von Drohnenbrut' }, { v: 'brutpause', l: 'Brutentnahme / Brutpause' }] },
+    ],
+    text: (a, ctx) => {
+      const namen = { ameisen: 'Ameisensäure', oxal: 'Oxalsäure', milch: 'Milchsäure', thymol: 'Thymol und andere ätherische Öle', drohnen: 'die Entnahme von Drohnenbrut', brutpause: 'Brutentnahme bzw. eine Brutpause' };
+      const v = vsListe((a.verfahren || []).map((x) => namen[x]).filter(Boolean));
+      return `Gegen die Varroamilbe werden nur die für die ökologische Bienenhaltung zugelassenen Mittel und Verfahren eingesetzt${v ? `, im Betrieb ${v}` : ''}. Drohnenbrut wird nur zur Eindämmung der Varroa entnommen. Erkranken Völker trotz aller Vorbeugung, werden sie unverzüglich behandelt und bei Bedarf isoliert aufgestellt. Müssen chemisch-synthetische allopathische Tierarzneimittel eingesetzt werden, werden die Völker isoliert, das gesamte Wachs durch Wachs aus ökologischer Haltung ersetzt und die Umstellungszeit von zwölf Monaten beachtet. Jede Behandlung wird im Bestandsbuch dokumentiert.`
+        + (ctx.mittel.length ? ` In den letzten zwölf Monaten eingesetzt: ${vsListe(ctx.mittel)}.` : '');
+    },
+  },
+  {
+    key: 'schaedlinge', titel: 'Schädlinge an Waben und im Lager', grundlage: 'Anhang II Teil II Nr. 1.9.6.3 a und b',
+    kurz: 'Wachsmotte, Mäuse – vorrangig physikalisch.',
+    fragen: [
+      { key: 'wege', label: 'Wie schützt du Waben und Beuten?', type: 'multicheck', keepOrder: true, default: ['kaelte', 'luft', 'abflammen'], options: [
+        { v: 'kaelte', l: 'Einfrieren / Kälte' }, { v: 'luft', l: 'hell und luftig lagern' }, { v: 'abflammen', l: 'Abflammen oder Dampf' },
+        { v: 'fallen', l: 'Mausefallen' }] },
+    ],
+    text: (a) => {
+      const namen = { kaelte: 'Einfrieren bzw. Kälte', luft: 'helle, luftige Lagerung', abflammen: 'Abflammen oder Dampf', fallen: 'Fallen gegen Mäuse' };
+      const w = vsListe((a.wege || []).map((x) => namen[x]).filter(Boolean));
+      return `Waben, Rähmchen und Beuten werden vor Schädlingen – vor allem Wachsmotte und Mäusen – vorrangig mit physikalischen Mitteln geschützt${w ? `: ${w}` : ''}. Rodentizide werden nur in Fallen eingesetzt. Andere Stoffe werden nur verwendet, wenn sie für die ökologische Produktion zugelassen sind. Beuten werden physikalisch desinfiziert, zum Beispiel durch Abflammen oder mit Dampf.`;
+    },
+  },
+  {
+    key: 'ernte', titel: 'Ernte und Verarbeitung', grundlage: 'Anhang II Teil II Nr. 1.9.6.4 a; Nr. 1.9.6.5 g und h',
+    kurz: 'Keine Repellents, keine Brutwaben, saubere Geräte.',
+    fragen: [
+      { key: 'trennen', label: 'Wie trennst du die Bienen vom Honigraum?', type: 'select', default: 'flucht', keepOrder: true, options: [
+        { v: 'flucht', l: 'Bienenflucht' }, { v: 'abkehren', l: 'Abkehren / Abstoßen' }, { v: 'blaeser', l: 'Bienenbläser' }] },
+      { key: 'raum', label: 'Wo wird geschleudert?', type: 'select', default: 'eigen', keepOrder: true, options: [
+        { v: 'eigen', l: 'im eigenen Schleuderraum' }, { v: 'gemeinsam', l: 'in einem gemeinsam genutzten Raum' }] },
+    ],
+    text: (a) => {
+      const tr = { flucht: 'mit einer Bienenflucht', abkehren: 'durch Abkehren bzw. Abstoßen', blaeser: 'mit einem Bienenbläser' }[a.trennen] || 'mechanisch';
+      return `Bei der Honigernte werden keine chemisch-synthetischen Repellents eingesetzt; die Bienen werden ${tr} von den Honigwaben getrennt. Waben mit Brut werden nicht zur Honiggewinnung verwendet, und Bienen werden zur Ernte nicht abgetötet. Alle Geräte, die mit Honig in Berührung kommen, sind lebensmittelecht und werden vor der Ernte gereinigt.`
+        + (a.raum === 'gemeinsam' ? ' Der Schleuderraum wird mit anderen genutzt: Vor jeder Bio-Schleuderung werden Raum und Geräte gereinigt, Bio-Honig wird zuerst geschleudert und bleibt bis zur Abfüllung getrennt gekennzeichnet.' : ' Geschleudert wird im eigenen Schleuderraum.');
+    },
+  },
+  {
+    key: 'lager', titel: 'Lagerung, Abfüllung und Kennzeichnung', grundlage: 'Art. 28 Abs. 1 b und d',
+    kurz: 'Getrennt von Chemikalien, rückverfolgbar über die Charge.',
+    fragen: [],
+    text: (a, ctx) => `Honig und andere Imkereierzeugnisse werden in lebensmittelechten, verschlossenen Gebinden trocken und kühl gelagert – getrennt von Reinigungsmitteln, Treibstoffen, Tierarzneimitteln und nicht ökologischen Erzeugnissen. Jede Charge erhält eine Chargennummer, über die Ernte, Abfüllung und Verkauf zurückverfolgt werden können${ctx.chargen ? ` (derzeit ${ctx.chargen} ${ctx.chargen === 1 ? 'Charge' : 'Chargen'})` : ''}. Als ökologisch gekennzeichnet wird nur Ware aus dem eigenen Bio-Betrieb${ctx.kontrollcode ? `, mit dem Code der Kontrollstelle ${ctx.kontrollcode}` : ''}.`,
+  },
+  {
+    key: 'reinigung', titel: 'Reinigung und Desinfektion', grundlage: 'Art. 28 Abs. 1 b; Anhang II Teil II Nr. 1.9.6.3 b',
+    kurz: 'Fester Hygieneplan, nur zugelassene Mittel.',
+    fragen: [],
+    text: (a, ctx) => `Räume, Geräte und Behältnisse werden nach einem festen Hygieneplan gereinigt${ctx.hygieneplan ? ` (${ctx.hygieneplan} ${ctx.hygieneplan === 1 ? 'Vorgabe' : 'Vorgaben'} im Hygieneplan)` : ''}. Bevorzugt werden heißes Wasser, Dampf und mechanische Reinigung. Reinigungs- und Desinfektionsmittel werden nur eingesetzt, wenn sie für die ökologische Produktion zugelassen sind, und anschließend gründlich mit Trinkwasser abgespült. Jede Reinigung wird mit Datum dokumentiert.`,
+  },
+  {
+    key: 'zukauf', titel: 'Zukauf von Völkern, Königinnen und Material', grundlage: 'Anhang II Teil II Nr. 1.3.4.2',
+    kurz: 'Höchstens 20 % im Jahr, auf Bio-Waben, Zertifikate der Lieferanten.',
+    fragen: [],
+    text: (a, ctx) => `Bienenvölker, Schwärme und Königinnen werden bevorzugt aus ökologischer Haltung bezogen. Nicht ökologische Königinnen und Schwärme werden nur im zulässigen Umfang eingesetzt – jährlich höchstens 20 % des Bestands, mindestens aber eine Königin oder ein Schwarm – und auf Waben oder Mittelwände aus ökologischer Produktion gesetzt. Für zugekauftes Futter, Wachs und Völker liegen die Bio-Zertifikate der Lieferanten vor${ctx.lieferantenMitZert ? ` (${ctx.lieferantenMitZert} ${ctx.lieferantenMitZert === 1 ? 'Lieferant' : 'Lieferanten'} mit Zertifikat erfasst)` : ''}.`
+      + (ctx.zukaufJahr ? ` Im laufenden Jahr ${ctx.zukaufJahr === 1 ? 'wurde eine Königin' : `wurden ${ctx.zukaufJahr} Königinnen`} zugekauft.` : ''),
+  },
+  {
+    key: 'parallel', titel: 'Umstellung und Parallelerzeugung', grundlage: 'Art. 28 Abs. 1 d; Anhang II Teil II Nr. 1.2.2 f',
+    kurz: 'Trennung von Bio- und konventionellen Völkern.',
+    fragen: [
+      { key: 'art', label: 'Was trifft zu?', type: 'select', default: 'umstellung', keepOrder: true, options: [
+        { v: 'umstellung', l: 'Der Betrieb ist in Umstellung' }, { v: 'parallel', l: 'Es gibt zusätzlich konventionelle Völker' }, { v: 'beides', l: 'beides' }] },
+    ],
+    text: (a) => {
+      const teile = [];
+      if (a.art === 'umstellung' || a.art === 'beides') teile.push('Die Umstellungszeit beträgt zwölf Monate. In dieser Zeit wird das gesamte Wachs durch Wachs aus ökologischer Bienenhaltung ersetzt; Erzeugnisse aus der Umstellung werden als solche gekennzeichnet und getrennt gehalten.');
+      if (a.art === 'parallel' || a.art === 'beides') teile.push('Ökologisch und nicht ökologisch geführte Völker stehen an getrennten, eindeutig gekennzeichneten Ständen. Beuten, Waben, Wachs, Futter und Ernte beider Bereiche werden getrennt gehalten, getrennt verarbeitet und getrennt dokumentiert.');
+      return teile.join(' ');
+    },
+  },
+  {
+    key: 'fremd', titel: 'Dienstleister und Fremdverarbeitung', grundlage: 'Art. 28 Abs. 1 b und d',
+    kurz: 'Wachsumarbeitung, Lohnschleuderung, fremde Lager.',
+    fragen: [],
+    text: () => 'Wird Wachs zu Mittelwänden umgearbeitet oder Honig außer Haus geschleudert, abgefüllt oder gelagert, beauftragt der Betrieb nur Dienstleister, die für die ökologische Produktion zertifiziert sind oder die getrennte Verarbeitung schriftlich bestätigen. Das eigene Wachs wird gekennzeichnet übergeben, und die Rückgabe der eigenen Menge wird dokumentiert.',
+  },
+  {
+    key: 'verdacht', titel: 'Vorgehen im Verdachtsfall', grundlage: 'Art. 28 Abs. 2', immer: true,
+    kurz: 'Was passiert, wenn Rückstände vermutet werden.',
+    fragen: [],
+    text: (a, ctx) => `Besteht der Verdacht, dass ein Erzeugnis durch nicht zugelassene Erzeugnisse oder Stoffe verunreinigt ist, geht der Betrieb so vor: (1) Das betroffene Erzeugnis wird gekennzeichnet und von anderen Erzeugnissen getrennt. (2) Es wird geprüft, ob der Verdacht begründet ist, etwa durch eine Rückstandsanalyse. (3) Bis der Verdacht ausgeräumt ist, wird das Erzeugnis weder als ökologisch vermarktet noch in der ökologischen Produktion verwendet. (4) Ist der Verdacht begründet oder lässt er sich nicht ausräumen, wird ${ctx.kontrollstelle ? `die Kontrollstelle (${ctx.kontrollstelle})` : 'die Kontrollstelle'} unverzüglich informiert. (5) Bei der Aufklärung der Ursache arbeitet der Betrieb mit der Kontrollstelle zusammen.`,
+  },
+  {
+    key: 'ueberpruefung', titel: 'Überprüfung und Dokumentation', grundlage: 'Art. 28 Abs. 1 c', immer: true,
+    kurz: 'Wann das Konzept überprüft wird und wo alles steht.',
+    fragen: [
+      { key: 'intervall', label: 'Wie oft überprüfst du das Konzept?', type: 'select', default: 'jaehrlich', keepOrder: true, options: [
+        { v: 'jaehrlich', l: 'einmal im Jahr' }, { v: 'halbjaehrlich', l: 'zweimal im Jahr' }] },
+    ],
+    text: (a) => `Das Vorsorgekonzept wird ${a.intervall === 'halbjaehrlich' ? 'zweimal im Jahr' : 'einmal im Jahr'} und zusätzlich bei jeder wesentlichen Änderung überprüft und angepasst – etwa bei einem neuen Standort, neuen Mitteln, einem Zukauf oder nach einer Kontrolle. Die Aufzeichnungen – Bestandsbuch, Fütterungen, Wanderungen, Chargen und Reinigungsnachweise – werden laufend geführt und über die vorgeschriebenen Fristen aufbewahrt.`,
+  },
+];
+
+/** Gespeicherter Stand des Vorsorgekonzepts – robust gegen fehlende Teile. */
+function vorsorgeLaden() {
+  const v = S.get('bioVorsorge') || {};
+  return { bereiche: (v.bereiche && typeof v.bereiche === 'object') ? v.bereiche : {}, geprueftAm: v.geprueftAm || '', erstelltAm: v.erstelltAm || '' };
+}
+/** Eintrag eines Bereichs: status 'ja' | 'nein' | '' (offen), text, antworten. */
+function vorsorgeEintrag(stand, key) {
+  const e = stand.bereiche[key] || {};
+  return { status: e.status === 'ja' || e.status === 'nein' ? e.status : '', text: typeof e.text === 'string' ? e.text : '', antworten: (e.antworten && typeof e.antworten === 'object') ? e.antworten : {} };
+}
+
+/* Was die App über den Betrieb ohnehin weiß – daraus werden die Vorschläge
+   konkret statt allgemein. Nur lesend; es wird nichts verändert. */
+async function vorsorgeKontext(stand) {
+  const [staende, voelker, behandlungen, fuetterungen, wanderungen, koeniginnen, chargen, kontakte, bio] = await Promise.all(
+    ['staende', 'voelker', 'behandlungen', 'fuetterungen', 'wanderungen', 'koeniginnen', 'chargen', 'kontakte', 'bioeintraege'].map((s) => DB.getAll(s)));
+  const imk = S.get('imkerei') || {};
+  const jahr = U.todayIso().slice(0, 4);
+  const vor12 = U.addDays(U.todayIso(), -365);
+  const eindeutig = (arr) => [...new Set(arr.map((x) => String(x || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  const quellen = eindeutig(staende.flatMap((s) => (s.bio && Array.isArray(s.bio.quellen)) ? s.bio.quellen : []));
+  const code = String(imk.bioKontrollstelle || '').split('–')[0].trim();
+  const ausgewaehlt = VORSORGE_BEREICHE
+    .filter((b) => !['risiko', 'verdacht', 'ueberpruefung'].includes(b.key) && (stand.bereiche[b.key] || {}).status === 'ja')
+    .map((b) => b.titel);
+  return {
+    staende: staende.length,
+    staendeErhoben: staende.filter((s) => bioAnteile(s).length).length,
+    quellen,
+    voelker: voelker.filter((v) => v.status === 'aktiv').length,
+    wanderungenJahr: wanderungen.filter((w) => String(w.datum || '').startsWith(jahr)).length,
+    mittel: eindeutig(behandlungen.filter((b) => (b.datum || '') >= vor12).map((b) => b.mittel)),
+    futterarten: eindeutig(fuetterungen.filter((f) => (f.datum || '') >= vor12).map((f) => f.futterart)),
+    zukaufJahr: koeniginnen.filter((k) => /zukauf/i.test(k.herkunft || '') && String(k.jahrgang) === jahr).length,
+    chargen: chargen.length,
+    lieferantenMitZert: kontakte.filter((k) => (k.typ === 'lieferant' || k.typ === 'beides') && String(k.oekoNummer || '').trim()).length,
+    hygieneplan: bio.filter((e) => e.bereich === 'hygieneplan').length,
+    kontrollcode: code,
+    kontrollstelle: String(imk.bioKontrollstelle || '').trim(),
+    ausgewaehlt,
+    hatWanderungen: wanderungen.length > 0,
+  };
+}
+
+/** Vorschlagstext eines Bereichs aus Antworten und Betriebsdaten. */
+function vorsorgeVorschlag(bereich, antworten, ctx) {
+  const a = {};
+  for (const f of bereich.fragen) a[f.key] = (antworten && antworten[f.key] !== undefined) ? antworten[f.key] : f.default;
+  try { return String(bereich.text(a, ctx) || '').trim(); } catch (e) { return ''; }
+}
+
+/* Welche Bereiche der Assistent vorschlägt. Die drei, die Art. 28 von JEDEM
+   verlangt, immer; die übrigen, wenn die App Hinweise darauf hat oder sie für
+   eine Imkerei praktisch immer zutreffen. Alles bleibt abwählbar. */
+function vorsorgeVorauswahl(stand, ctx) {
+  const typisch = ['standort', 'beuten', 'wachs', 'fuetterung', 'gesundheit', 'schaedlinge', 'ernte', 'lager', 'reinigung', 'zukauf'];
+  return VORSORGE_BEREICHE.filter((b) => {
+    const e = vorsorgeEintrag(stand, b.key);
+    if (e.status === 'nein') return false;
+    if (e.status === 'ja' || b.immer) return true;
+    if (b.key === 'wanderung') return ctx.hatWanderungen;
+    return typisch.includes(b.key);
+  }).map((b) => b.key);
+}
+
 const BIO_BEREICHE = {
   hygieneplan: {
     titel: 'Hygieneplan', icon: 'check',
@@ -8337,12 +8667,13 @@ Views.bio = {
       + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar', main).appendChild(UI.tabs([
       { id: 'betrieb', label: 'Betriebsbeschreibung' }, { id: 'standorte', label: 'Standorte' },
-      { id: 'hygiene', label: 'Hygiene' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
+      { id: 'hygiene', label: 'Hygiene' }, { id: 'vorsorge', label: 'Vorsorge' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
       { id: 'foerderung', label: 'Förderverfahren' },
     ], tab, (t) => { Views.bio._tab = t; renderRoute(); }));
     const box = $('#tab-content', main);
     if (tab === 'standorte') await Views.bio.tabStandorte(box);
     else if (tab === 'hygiene') await Views.bio.tabHygiene(box);
+    else if (tab === 'vorsorge') await Views.bio.tabVorsorge(box);
     else if (tab === 'partner') await Views.bio.tabPartner(box);
     else if (tab === 'foerderung') await Views.bio.tabListe(box, 'foerderung');
     else await Views.bio.tabBetrieb(box);
@@ -8476,6 +8807,200 @@ Views.bio = {
         laeuft = false; button.disabled = false;
       }
     };
+  },
+
+  /* ---------- Vorsorgekonzept (Art. 28 VO (EU) 2018/848) ---------- */
+  async tabVorsorge(box) {
+    const stand = vorsorgeLaden();
+    const eintraege = VORSORGE_BEREICHE.map((b) => ({ b, e: vorsorgeEintrag(stand, b.key) }));
+    const fertig = eintraege.filter(({ e }) => e.status === 'ja' && e.text.trim()).length;
+    const nein = eintraege.filter(({ e }) => e.status === 'nein').length;
+    const offen = eintraege.length - fertig - nein;
+    const alt = stand.geprueftAm ? U.daysBetween(stand.geprueftAm, U.todayIso()) : null;
+    const pruefBadge = !stand.geprueftAm
+      ? '<span class="badge b-warn">noch nie überprüft</span>'
+      : alt > 365 ? `<span class="badge b-danger">zuletzt überprüft ${U.fmtDate(stand.geprueftAm)} – über ein Jahr her</span>`
+        : `<span class="badge b-ok">zuletzt überprüft ${U.fmtDate(stand.geprueftAm)}</span>`;
+    const zeile = ({ b, e }) => {
+      const ic = e.status === 'nein' ? 'minus' : (e.status === 'ja' && e.text.trim()) ? 'check' : 'info';
+      const sub = e.status === 'nein' ? '<span class="muted">betrifft den Betrieb nicht</span>'
+        : e.text.trim() ? U.esc(e.text.trim().slice(0, 150)) + (e.text.trim().length > 150 ? ' …' : '')
+          : e.status === 'ja' ? '<span style="color:var(--warn)">betrifft den Betrieb – noch kein Text</span>'
+            : `<span class="muted">noch offen – ${U.esc(b.kurz)}</span>`;
+      return `<button class="row" data-vorsorge="${U.esc(b.key)}" style="align-items:flex-start">
+        <span class="r-ic">${icon(ic)}</span>
+        <span class="r-main"><span class="r-title">${U.esc(b.titel)}${b.immer ? ' <span class="badge b-muted">immer</span>' : ''}</span>
+        <span class="r-sub small muted">${U.esc(b.grundlage)}</span>
+        <span class="r-sub" style="white-space:normal">${sub}</span></span>${icon('chevR', 'chev')}</button>`;
+    };
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon('check')}<h2>Vorsorgekonzept</h2>
+        <span class="badge ${offen ? 'b-warn' : 'b-ok'}">${fertig} ausgefüllt · ${nein} nicht zutreffend · ${offen} offen</span></div>
+      <p class="small muted mb8">Nach <b>Art. 28 der EU-Öko-Verordnung (VO (EU) 2018/848)</b> muss jeder Bio-Betrieb die Risiken ermitteln, durch die nicht zugelassene Stoffe in seine Erzeugnisse gelangen können, Maßnahmen dagegen treffen, sie regelmäßig überprüfen und festlegen, was im Verdachtsfall passiert. Die Bereiche unten sind aus den Vorschriften für die Bienenhaltung abgeleitet. Die Texte sind Vorschläge – alles ist änderbar, löschbar und überspringbar. Was deine Kontrollstelle konkret verlangt, geht vor.</p>
+      <div class="flex-wrap mb12" style="gap:8px;align-items:center">${pruefBadge}</div>
+      <div class="flex-wrap no-print mb12" style="gap:8px">
+        <button class="btn btn-primary btn-sm" id="vs-assistent">${icon('plus')} Assistent starten</button>
+        <button class="btn btn-ghost btn-sm" id="vs-pdf">${icon('doc')} Als PDF</button>
+        <button class="btn btn-ghost btn-sm" id="vs-geprueft">${icon('check')} Heute überprüft</button>
+      </div>
+      <div class="rows">${eintraege.map(zeile).join('')}</div>
+    </div>`;
+    $('#vs-assistent', box).onclick = () => Views.bio.vorsorgeAssistent();
+    $('#vs-pdf', box).onclick = () => Pdf.bioVorsorge();
+    $('#vs-geprueft', box).onclick = async () => {
+      const s = vorsorgeLaden(); s.geprueftAm = U.todayIso(); await S.set('bioVorsorge', s);
+      UI.toast('Als heute überprüft vermerkt'); renderRoute();
+    };
+    $$('[data-vorsorge]', box).forEach((b) => { b.onclick = () => Views.bio.vorsorgeEditor(b.dataset.vorsorge); });
+  },
+
+  /* Ein Bereich: betrifft/betrifft nicht, die Fragen dazu und der Text.
+     Der Text wird aus den Antworten vorgeschlagen, solange man ihn nicht
+     selbst verändert hat – danach bleibt er, wie man ihn geschrieben hat.
+     Im Assistenten kommen „Überspringen" und „Betrifft mich nicht" dazu. */
+  async vorsorgeEditor(key, assistent = null) {
+    const bereich = VORSORGE_BEREICHE.find((b) => b.key === key);
+    if (!bereich) return;
+    const stand = vorsorgeLaden();
+    const eintrag = vorsorgeEintrag(stand, key);
+    const ctx = await vorsorgeKontext(stand);
+    const vorschlag0 = vorsorgeVorschlag(bereich, eintrag.antworten, ctx);
+    const textStart = eintrag.text || (assistent || eintrag.status === 'ja' ? vorschlag0 : '');
+
+    // Hinweis bei Varroa-Mitteln, deren Wirkstoff nicht zu den zugelassenen gehört
+    let warnHtml = '';
+    if (key === 'gesundheit' && ctx.mittel.length) {
+      const bedenklich = ctx.mittel.map((m) => ({ m, p: varroaMittelPruefen(m) })).filter((x) => x.p && !x.p.zugelassen);
+      if (bedenklich.length) warnHtml = `<div class="banner warn mb8">${icon('warn')} <span class="b-msg">Im Bestandsbuch steht ${bedenklich.map((x) => `<b>${U.esc(x.m)}</b> (${U.esc(x.p.wirkstoff)})`).join(', ')}. Dieser Wirkstoff gehört nicht zu den für Bio zugelassenen – dann gilt die Regel mit Isolierung, Wachsaustausch und zwölf Monaten Umstellung. Bitte mit der Kontrollstelle klären.</span></div>`;
+    }
+
+    const felder = [
+      { key: '_kopf', type: 'static', html: `${assistent ? `<div class="small muted mb4">Schritt ${assistent.nr} von ${assistent.von}</div>` : ''}<div class="hint mb8"><b>${U.esc(bereich.grundlage)}</b> · ${U.esc(bereich.kurz)}</div>${warnHtml}` },
+    ];
+    if (!assistent) {
+      felder.push({ key: 'status', label: 'Betrifft das deinen Betrieb?', type: 'select', keepOrder: true, default: eintrag.status,
+        options: [{ v: 'ja', l: 'ja, betrifft den Betrieb' }, { v: 'nein', l: 'nein, betrifft den Betrieb nicht' }, { v: '', l: 'noch offen' }] });
+    }
+    for (const f of bereich.fragen) {
+      felder.push({ ...f, key: 'q_' + f.key, default: eintrag.antworten[f.key] !== undefined ? eintrag.antworten[f.key] : f.default });
+    }
+    felder.push({ key: 'text', label: 'Text für das Vorsorgekonzept', type: 'textarea', default: textStart,
+      hint: 'Vorschlag aus deinen Antworten und den Daten der App – frei änderbar. Leer lassen heißt: kein Text.' });
+    felder.push({ key: '_neu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-xs no-print" data-vs-neu>${icon('restore')} Text neu vorschlagen</button>` });
+
+    const antwortenAus = (root) => {
+      const a = {};
+      for (const f of bereich.fragen) {
+        const el = $(`#f-q_${f.key}`, root);
+        if (!el) continue;
+        if (f.type === 'check') a[f.key] = !!el.checked;
+        else if (f.type === 'multicheck') a[f.key] = $$('input[type=checkbox]', el).filter((i) => i.checked).map((i) => i.value);
+        else a[f.key] = el.value;
+      }
+      return a;
+    };
+
+    const speichern = async (status, text, antworten) => {
+      const s = vorsorgeLaden();
+      s.bereiche = { ...s.bereiche, [key]: { status, text: String(text || '').trim(), antworten } };
+      if (!s.erstelltAm && status === 'ja' && String(text || '').trim()) s.erstelltAm = U.todayIso();
+      await S.set('bioVorsorge', s);
+    };
+
+    const m = UI.formModal({
+      title: bereich.titel, wide: true,
+      saveText: assistent ? (assistent.nr < assistent.von ? 'Übernehmen · weiter' : 'Übernehmen · fertig') : 'Speichern',
+      fields: felder, values: {},
+      onDelete: (!assistent && (eintrag.text || eintrag.status)) ? async () => {
+        if (!(await UI.confirm({ title: 'Text und Antworten löschen?', text: `Für „${bereich.titel}" werden Text, Antworten und die Einstufung gelöscht. Der Bereich steht danach wieder auf „noch offen".`, confirmText: 'Löschen' }))) return false;
+        const s = vorsorgeLaden(); const b = { ...s.bereiche }; delete b[key]; s.bereiche = b;
+        await S.set('bioVorsorge', s);
+        UI.toast('Gelöscht'); renderRoute(); return true;
+      } : null,
+      async onSave(v) {
+        const status = assistent ? 'ja' : (v.status || '');
+        await speichern(status, v.text, antwortenAus(m.el));
+        if (assistent) assistent.weiter(); else { UI.toast('Gespeichert'); renderRoute(); }
+      },
+    });
+
+    // Textfeld großzügig, damit man den ganzen Absatz sieht
+    const ta = $('#f-text', m.el);
+    if (ta) { ta.style.minHeight = '170px'; ta.rows = 8; }
+    let zuletztVorgeschlagen = textStart === vorschlag0 ? vorschlag0 : null;
+    const neuVorschlagen = (erzwingen) => {
+      const ctx2 = { ...ctx };
+      const vorschlag = vorsorgeVorschlag(bereich, antwortenAus(m.el), ctx2);
+      // Selbst geschriebenen Text nie ungefragt überschreiben
+      if (erzwingen || ta.value.trim() === '' || ta.value === zuletztVorgeschlagen) {
+        ta.value = vorschlag; zuletztVorgeschlagen = vorschlag;
+      }
+    };
+    for (const f of bereich.fragen) {
+      const el = $(`#f-q_${f.key}`, m.el);
+      if (el) el.addEventListener('change', () => neuVorschlagen(false));
+    }
+    const nb = $('[data-vs-neu]', m.el);
+    if (nb) nb.onclick = async () => {
+      if (ta.value.trim() && ta.value !== zuletztVorgeschlagen
+        && !(await UI.confirm({ title: 'Eigenen Text ersetzen?', text: 'Der Text wurde von dir verändert. Soll er durch einen neuen Vorschlag ersetzt werden?', confirmText: 'Ersetzen', danger: false }))) return;
+      neuVorschlagen(true); FormGuard.dirty = true;
+    };
+
+    // Im Assistenten: überspringen, „betrifft mich nicht", beenden
+    if (assistent) {
+      const fuss = $('.modal-foot', m.el);
+      const abbr = $('[data-cancel]', fuss);
+      if (abbr) abbr.textContent = 'Beenden';
+      const knopf = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-ghost'; b.textContent = text; b.onclick = fn; fuss.insertBefore(b, $('[data-save]', fuss)); return b; };
+      knopf('Überspringen', () => { m.close(true); assistent.weiter(); });
+      knopf('Betrifft mich nicht', async () => { await speichern('nein', '', antwortenAus(m.el)); m.close(true); assistent.weiter(); });
+      if (abbr) abbr.onclick = () => { m.close(true); assistent.beenden(); };
+    }
+  },
+
+  /* Der Assistent: erst die Bereiche wählen, dann Bereich für Bereich durch.
+     Jeder Schritt lässt sich überspringen; „Beenden" hört sofort auf, und was
+     bis dahin übernommen wurde, bleibt. Wer lieber selbst schreibt, bricht
+     gleich im ersten Schritt ab und tippt die Bereiche in der Liste an. */
+  async vorsorgeAssistent() {
+    const stand = vorsorgeLaden();
+    const ctx = await vorsorgeKontext(stand);
+    const vorwahl = vorsorgeVorauswahl(stand, ctx);
+    UI.formModal({
+      title: 'Vorsorgekonzept – Assistent', wide: true, saveText: 'Weiter',
+      fields: [
+        { key: '_intro', type: 'static', html: `<p class="small">Wähle die Bereiche, die deine Imkerei betreffen. Danach gehen wir sie einzeln durch: ein, zwei Fragen, und die App schlägt einen Text vor, den du übernehmen, ändern oder überspringen kannst.</p>
+          <div class="hint mb8">Die mit „immer" markierten verlangt Art. 28 von jedem Bio-Betrieb. Du kannst trotzdem alles abwählen und später jederzeit ergänzen.</div>` },
+        { key: 'bereiche', label: 'Welche Bereiche betreffen dich?', type: 'multicheck', default: vorwahl, keepOrder: true,
+          options: VORSORGE_BEREICHE.map((b) => ({ v: b.key, l: `${b.titel}${b.immer ? ' (immer)' : ''} – ${b.kurz}` })) },
+      ],
+      values: {},
+      async onSave(v) {
+        const gewaehlt = new Set(v.bereiche || []);
+        const s = vorsorgeLaden();
+        const bereiche = { ...s.bereiche };
+        /* Angehakt = betrifft den Betrieb, nicht angehakt = betrifft ihn nicht.
+           Ein vorhandener Text bleibt in beiden Fällen gespeichert – wer einen
+           Bereich wieder anhakt, findet ihn unverändert vor. */
+        for (const b of VORSORGE_BEREICHE) {
+          const alt = vorsorgeEintrag(s, b.key);
+          bereiche[b.key] = { ...alt, status: gewaehlt.has(b.key) ? 'ja' : 'nein' };
+        }
+        s.bereiche = bereiche;
+        await S.set('bioVorsorge', s);
+        const reihe = VORSORGE_BEREICHE.filter((b) => gewaehlt.has(b.key)).map((b) => b.key);
+        if (!reihe.length) { UI.toast('Keine Bereiche gewählt'); renderRoute(); return; }
+        let i = 0;
+        const beenden = () => { UI.toast('Assistent beendet – alles Übernommene ist gespeichert'); renderRoute(); };
+        const weiter = () => {
+          if (i >= reihe.length) { UI.toast(`Vorsorgekonzept: ${reihe.length} ${reihe.length === 1 ? 'Bereich' : 'Bereiche'} durchgegangen`); renderRoute(); return; }
+          const key = reihe[i]; i++;
+          Views.bio.vorsorgeEditor(key, { nr: i, von: reihe.length, weiter, beenden });
+        };
+        weiter();
+      },
+    });
   },
 
   /** Hygiene besteht aus zwei Listen: der Plan und die Nachweise dazu. */
@@ -8628,6 +9153,10 @@ Views.bio = {
         <span class="r-main"><span class="r-title">${U.esc(a.label)}</span>
         <span class="r-sub" style="white-space:pre-wrap">${(bb[a.key] || '').trim() ? U.esc(bb[a.key].trim()) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
     </div>
+    <div class="card"><div class="card-title">${icon('doc')}<h2>Formulare von Verband und Kontrollstelle</h2></div>
+      <p class="small muted mb8">Verbände und Kontrollstellen haben eigene Formulare für die Betriebsbeschreibung – und die ändern sich. Lade deshalb die Fassung hoch, die du bekommen hast, als PDF oder Word-Datei. Antippen öffnet sie im passenden Programm auf deinem Gerät: dort ausfüllen, speichern und die ausgefüllte Fassung wieder hochladen. Alle Fassungen bleiben mit Datum stehen, so hast du bei der Kontrolle auch die vom Vorjahr dabei. Die Texte oben kannst du zum Übertragen einfach kopieren.</p>
+      <div data-bio-formulare></div>
+    </div>
     <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
       <button class="btn btn-ghost btn-sm no-print" id="zert-edit">${icon('pencil')} Bearbeiten</button></div>
       <p class="small muted mb12">Die eigene Bescheinigung der Kontrollstelle. Die Zertifikate deiner Lieferanten gehören nicht hierher,
@@ -8641,6 +9170,11 @@ Views.bio = {
       <div id="zert-anhang" class="mt12"></div>
     </div>`;
     $('#zert-anhang', box).appendChild(Anhang.section({ parentTyp: 'imkerei', parentId: 'eigen', arten: ['dokument', 'foto'], titel: 'Bescheinigung als Datei' }));
+    /* Formulare hängen an einem festen Anker „bio/formulare" – dieselbe
+       Anhang-Ablage wie bei Völkern und Königinnen, also mit Sicherung,
+       Papierkorb und Dokumententyp. */
+    const fz = $('[data-bio-formulare]', box);
+    if (fz) fz.appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'formulare', titel: 'Hochgeladene Formulare' }));
     $('#zert-edit', box).onclick = () => UI.formModal({
       title: 'Eigenes Öko-Zertifikat',
       fields: [
@@ -15513,6 +16047,74 @@ const Pdf = {
   },
 
   /* ---------- Bio-Unterlagen für die Öko-Kontrolle ---------- */
+  /* ---------- Vorsorgekonzept (Art. 28 VO (EU) 2018/848) ----------
+     Das Dokument, das bei der Öko-Kontrolle vorgelegt wird: Kopf mit
+     Betrieb und Kontrollstelle, dann jeder zutreffende Bereich mit
+     Rechtsgrundlage und Text, danach die nicht zutreffenden und offenen
+     Bereiche und eine Unterschriftszeile. Lange Texte brechen sauber um;
+     ein Bereich wird nicht mitten in der Überschrift getrennt. */
+  async bioVorsorge() {
+    try {
+      const stand = vorsorgeLaden();
+      const imk = S.get('imkerei') || {};
+      const eintraege = VORSORGE_BEREICHE.map((b) => ({ b, e: vorsorgeEintrag(stand, b.key) }));
+      const ja = eintraege.filter(({ e }) => e.status === 'ja');
+      const nein = eintraege.filter(({ e }) => e.status === 'nein');
+      const offen = eintraege.filter(({ e }) => !e.status);
+      const { doc, y } = await this.newDoc('Vorsorgekonzept nach Art. 28 VO (EU) 2018/848',
+        [imk.name ? `Betrieb: ${imk.name}` : '', imk.bioKontrollstelle ? `Kontrollstelle: ${imk.bioKontrollstelle}` : '',
+          `Stand: ${U.fmtDate(U.todayIso())}`, stand.geprueftAm ? `zuletzt überprüft: ${U.fmtDate(stand.geprueftAm)}` : 'noch nicht überprüft']
+          .filter(Boolean).join(' · '));
+      let yy = y;
+      const H = doc.internal.pageSize.getHeight();
+      const platz = (n) => { if (yy + n > H - 22) { doc.addPage(); yy = 20; } };
+      const absatz = (text, groesse = 9.5, farbe = 40, stil = 'normal') => {
+        doc.setFont('helvetica', stil).setFontSize(groesse).setTextColor(farbe);
+        const zeilen = doc.splitTextToSize(text, 182);
+        const hoehe = groesse * 0.42;
+        for (const z of zeilen) { platz(hoehe + 1); doc.text(z, 14, yy); yy += hoehe; }
+      };
+
+      absatz('Der Betrieb ergreift nach Art. 28 Abs. 1 der Verordnung (EU) 2018/848 verhältnismäßige und angemessene Vorsorgemaßnahmen, um eine Kontamination der ökologischen Bienenhaltung und der Imkereierzeugnisse durch nicht zugelassene Erzeugnisse oder Stoffe zu vermeiden. Die Risiken und Maßnahmen sind im Folgenden nach Bereichen beschrieben.', 9.5, 70);
+      yy += 4;
+
+      ja.forEach(({ b, e }, i) => {
+        platz(18);
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text(`${i + 1}. ${b.titel}`, 14, yy); yy += 4.6;
+        doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130);
+        doc.text(b.grundlage, 14, yy); yy += 4.6;
+        if (e.text.trim()) {
+          for (const teil of e.text.trim().split(/\n+/)) { absatz(teil.trim(), 9.5, 40); yy += 1; }
+        } else absatz('(noch kein Text hinterlegt)', 9.5, 150, 'italic');
+        yy += 4;
+      });
+      if (!ja.length) { absatz('Es sind noch keine Bereiche als zutreffend erfasst.', 9.5, 150, 'italic'); yy += 4; }
+
+      if (nein.length) {
+        platz(12);
+        absatz('Nicht zutreffende Bereiche', 10, 60, 'bold'); yy += 1;
+        absatz(nein.map(({ b }) => b.titel).join(' · '), 9, 90);
+        yy += 4;
+      }
+      if (offen.length) {
+        platz(12);
+        absatz('Noch nicht bewertete Bereiche', 10, 60, 'bold'); yy += 1;
+        absatz(offen.map(({ b }) => b.titel).join(' · '), 9, 90);
+        yy += 4;
+      }
+
+      // Unterschrift – der Betrieb bestätigt das Konzept
+      platz(24); yy += 8;
+      doc.setDrawColor(150).setLineWidth(0.2);
+      doc.line(14, yy, 84, yy); doc.line(110, yy, 196, yy);
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(120);
+      doc.text('Ort, Datum', 14, yy + 4); doc.text('Unterschrift Betriebsleitung', 110, yy + 4);
+
+      this.finish(doc, `vorsorgekonzept-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
   async bioUnterlagen() {
     try {
       const bb = S.get('bioBetrieb') || {};
@@ -15611,6 +16213,16 @@ const Pdf = {
         }));
         platz(20);
         yy = this.table(doc, { head: spalten.map((f) => f.label.replace(/ \(.*\)$/, '')), body, startY: yy }) + 5;
+      }
+      /* Die Formulare selbst kann ein PDF nicht einbetten (Word, fremde PDFs) –
+         aber es sagt dem Prüfer, welche Fassungen in der App hinterlegt sind. */
+      const formulare = await Anhang.list('bio', 'formulare');
+      if (formulare.length) {
+        platz(14);
+        doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
+        doc.text('Hinterlegte Formulare', 14, yy); yy += 5;
+        yy = this.table(doc, { head: ['Datei', 'Hochgeladen', 'Größe'],
+          body: formulare.map((a) => [a.name || '–', U.fmtDate(String(a.datum || '').slice(0, 10)), U.fmtBytes(a.groesse)]), startY: yy }) + 5;
       }
       platz(12);
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130);
@@ -17202,6 +17814,7 @@ Object.assign(window, {
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
+  VORSORGE_BEREICHE, VARROA_ZUGELASSEN, VARROA_PRODUKTE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
