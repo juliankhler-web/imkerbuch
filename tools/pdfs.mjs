@@ -110,6 +110,13 @@ async function main() {
                   }
                   await S.set('bioVorsorge', stand);
                   await Pdf.bioVorsorge();`],
+    ['hygieneplan', `for (const [bereichName, mittel, haeufigkeit, verantwortlich] of [
+                    ['Schleuderraum', 'heißes Wasser, mechanische Reinigung', 'vor jeder Schleuderung', 'Imkerei Sonnenwiese'],
+                    ['Beuten und Rähmchen', 'Abflammen bzw. Dampf (physikalische Desinfektion)', 'bei Wiederbelegung bzw. nach Verdacht auf Faulbrut', 'Imkerei Sonnenwiese'],
+                    ['Abfüllkessel und Abfülleimer', 'heißes Wasser, mechanische Reinigung', 'nach jedem Gebrauch', 'Imkerei Sonnenwiese'],
+                  ]) await DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName, mittel, haeufigkeit, verantwortlich });
+                  await DB.put('bioeintraege', { bereich: 'hygienenachweis', bereichName: 'Schleuderraum', datum: '2026-06-18', mittel: 'heißes Wasser', verantwortlich: 'Julian', notiz: 'vor der Schleuderung' });
+                  await Pdf.bioHygieneplan();`],
     ['bestandsbuch', 'await Pdf.bestandsbuch();'],
     ['chargenuebersicht', 'await Pdf.chargenuebersicht();'],
     ['kassenbuch-jahr', `await Pdf.kassenbuchJahr('${jahr}');`],

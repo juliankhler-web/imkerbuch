@@ -1015,8 +1015,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.74';
+const APP_VERSION = '1.75';
 const CHANGELOG = [
+  { version: '1.75', datum: '2026-09-25', punkte: [
+    'Der Reiter bei <b>Bio</b> heißt jetzt <b>Vorsorgekonzept</b> statt „Vorsorge" – deutlicher, worum es geht.',
+    'Neu bei <b>Hygiene</b>: ein <b>Assistent</b>, wie beim Vorsorgekonzept. Er schlägt neun typische Bereiche vor (Schleuderraum, Beuten, Abfüllkessel, Gebinde, Werkzeug, Arbeitskleidung, Lager, Transport …) mit Mittel, Häufigkeit und der passenden Fundstelle in der Öko-Verordnung – übernehmen, ändern oder überspringen. Ein Bereich, den es schon im Plan gibt, wird beim erneuten Durchlauf aktualisiert statt verdoppelt.',
+    'Der <b>Hygieneplan lässt sich jetzt als PDF ausdrucken</b> – mit dem Plan und den bisher durchgeführten Reinigungen, für die jährliche Kontrolle.',
+  ] },
   { version: '1.74', datum: '2026-09-25', punkte: [
     'Neu bei <b>Bio</b>: Reiter <b>Vorsorge</b> – das nach <b>Art. 28 der EU-Öko-Verordnung (VO (EU) 2018/848)</b> vorgeschriebene Vorsorgekonzept. 16 Bereiche, abgeleitet aus den Produktionsvorschriften für Bienen (Standorte, Wachs, Fütterung, Varroa, Ernte, Zukauf, Umstellung …), jeweils mit der genauen Fundstelle.',
     'Ein <b>Assistent</b> führt auf Wunsch durch die Bereiche: Fragen beantworten, die App schlägt einen Text vor – übernehmen, ändern, <b>überspringen</b> oder als <b>„betrifft mich nicht"</b> markieren. Wer lieber selbst schreibt, tippt einen Bereich in der Liste an und trägt seinen eigenen Text ein. Jeder Bereich ist jederzeit <b>änderbar oder löschbar</b>.',
@@ -8017,6 +8022,41 @@ function vorsorgeVorauswahl(stand, ctx) {
   }).map((b) => b.key);
 }
 
+/* =====================================================================
+   HYGIENEPLAN-ASSISTENT
+
+   Rechtsgrundlage der Vorschläge: Anhang II Teil II Nr. 1.9.6.3 b VO (EU)
+   2018/848 erlaubt für Beuten ausdrücklich PHYSIKALISCHE Desinfektion
+   (Dampf, Abflammen). Für die Verarbeitung – dazu zählt das Schleudern und
+   Abfüllen von Honig als Lebensmittel – schreibt Anhang II Teil IV Nr. 2.2.3
+   vor, dass Reinigungs- und Desinfektionsmittel nur eingesetzt werden
+   dürfen, wenn sie nach Art. 24 für die Verarbeitung zugelassen sind; die
+   genaue Liste steht im Anhang der Durchführungsverordnung (EU) 2021/1165
+   und wird von den Kontrollstellen geführt – die App nennt deshalb bewusst
+   nur physikalische Verfahren (heißes Wasser, Dampf, mechanische Reinigung)
+   als Vorschlag und keine chemischen Markennamen.
+   ===================================================================== */
+const HYGIENE_ASSISTENT_BEREICHE = [
+  { key: 'schleuderraum', bereichName: 'Schleuderraum', grundlage: 'Anhang II Teil IV Nr. 2.2.3',
+    mittel: 'heißes Wasser, mechanische Reinigung', haeufigkeit: 'vor jeder Schleuderung' },
+  { key: 'schleuder', bereichName: 'Schleuder und Siebe', grundlage: 'Anhang II Teil IV Nr. 2.2.3',
+    mittel: 'heißes Wasser, danach trocknen lassen', haeufigkeit: 'nach jeder Schleuderung' },
+  { key: 'abfuellkessel', bereichName: 'Abfüllkessel und Abfülleimer', grundlage: 'Anhang II Teil IV Nr. 2.2.3',
+    mittel: 'heißes Wasser, mechanische Reinigung', haeufigkeit: 'nach jedem Gebrauch' },
+  { key: 'gebinde', bereichName: 'Gläser und Gebinde vor der Befüllung', grundlage: 'Anhang II Teil IV Nr. 2.2.3',
+    mittel: 'gespült, trocken und staubfrei gelagert', haeufigkeit: 'vor jeder Abfüllung' },
+  { key: 'beuten', bereichName: 'Beuten und Rähmchen', grundlage: 'Anhang II Teil II Nr. 1.9.6.3 b',
+    mittel: 'Abflammen bzw. Dampf (physikalische Desinfektion)', haeufigkeit: 'bei Wiederbelegung bzw. nach Verdacht auf Faulbrut' },
+  { key: 'werkzeug', bereichName: 'Stockmeißel und Imkerwerkzeug', grundlage: 'Anhang II Teil II Nr. 1.9.6.3 b',
+    mittel: 'Abflammen bzw. heißes Wasser', haeufigkeit: 'beim Wechsel zwischen Völkern bei Krankheitsverdacht' },
+  { key: 'kleidung', bereichName: 'Arbeitskleidung und Hände', grundlage: 'Art. 28 Abs. 1 b',
+    mittel: 'waschen bzw. mit Seife reinigen', haeufigkeit: 'nach der Arbeit, vor dem Umgang mit Honig' },
+  { key: 'lager', bereichName: 'Lagerraum für Honig und Gebinde', grundlage: 'Anhang II Teil IV Nr. 2.2.3',
+    mittel: 'trocken, staubfrei, getrennt von Chemikalien und Kraftstoffen', haeufigkeit: 'laufend, Sichtkontrolle bei jeder Nutzung' },
+  { key: 'transport', bereichName: 'Transportbehälter und Fahrzeug', grundlage: 'Art. 28 Abs. 1 b',
+    mittel: 'gereinigt, frei von Chemikalien- oder Futterresten', haeufigkeit: 'vor jedem Transport von Honig' },
+];
+
 const BIO_BEREICHE = {
   hygieneplan: {
     titel: 'Hygieneplan', icon: 'check',
@@ -8667,7 +8707,7 @@ Views.bio = {
       + `<div id="tabbar"></div><div id="tab-content"></div>`;
     $('#tabbar', main).appendChild(UI.tabs([
       { id: 'betrieb', label: 'Betriebsbeschreibung' }, { id: 'standorte', label: 'Standorte' },
-      { id: 'hygiene', label: 'Hygiene' }, { id: 'vorsorge', label: 'Vorsorge' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
+      { id: 'hygiene', label: 'Hygiene' }, { id: 'vorsorge', label: 'Vorsorgekonzept' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
       { id: 'foerderung', label: 'Förderverfahren' },
     ], tab, (t) => { Views.bio._tab = t; renderRoute(); }));
     const box = $('#tab-content', main);
@@ -9004,6 +9044,65 @@ Views.bio = {
   },
 
   /** Hygiene besteht aus zwei Listen: der Plan und die Nachweise dazu. */
+  /* Geführte Erfassung: Bereiche wählen, dann einzeln durchgehen. Gibt es
+     für einen Bereich schon einen Eintrag (gleicher Bereichsname), wird der
+     AKTUALISIERT statt verdoppelt – wer den Assistenten ein zweites Mal
+     durchläuft, bekommt keine Dubletten. */
+  async hygieneAssistent() {
+    const vorhanden = await DB.getAll('bioeintraege');
+    const findEintrag = (bereichName) => vorhanden.find((e) => e.bereich === 'hygieneplan' && (e.bereichName || '').trim().toLowerCase() === bereichName.toLowerCase());
+    const vorwahl = HYGIENE_ASSISTENT_BEREICHE.filter((b) => !findEintrag(b.bereichName)).map((b) => b.key);
+    UI.formModal({
+      title: 'Hygieneplan – Assistent', wide: true, saveText: 'Weiter',
+      fields: [
+        { key: '_intro', type: 'static', html: `<p class="small">Wähle die Bereiche, die es bei dir gibt. Danach gehen wir sie einzeln durch: Mittel und Häufigkeit sind vorgeschlagen – du kannst sie übernehmen, ändern oder überspringen. Bereiche, die schon im Plan stehen, sind vorausgewählt abgewählt – ihr Eintrag bleibt unangetastet, wenn du sie nicht extra anhakst.</p>` },
+        { key: 'bereiche', label: 'Welche Bereiche betreffen dich?', type: 'multicheck', default: vorwahl, keepOrder: true,
+          options: HYGIENE_ASSISTENT_BEREICHE.map((b) => ({ v: b.key, l: `${b.bereichName}${findEintrag(b.bereichName) ? ' (schon im Plan)' : ''}` })) },
+      ],
+      values: {},
+      async onSave(v) {
+        const reihe = HYGIENE_ASSISTENT_BEREICHE.filter((b) => (v.bereiche || []).includes(b.key));
+        if (!reihe.length) { UI.toast('Keine Bereiche gewählt'); renderRoute(); return; }
+        let i = 0;
+        const beenden = () => { UI.toast('Assistent beendet – alles Übernommene ist gespeichert'); renderRoute(); };
+        const weiter = () => {
+          if (i >= reihe.length) { UI.toast(`Hygieneplan: ${reihe.length} ${reihe.length === 1 ? 'Bereich' : 'Bereiche'} durchgegangen`); renderRoute(); return; }
+          const b = reihe[i]; i++;
+          Views.bio.hygieneAssistentSchritt(b, { nr: i, von: reihe.length, weiter, beenden });
+        };
+        weiter();
+      },
+    });
+  },
+
+  async hygieneAssistentSchritt(b, assistent) {
+    const alle = await DB.getAll('bioeintraege');
+    const eintrag = alle.find((e) => e.bereich === 'hygieneplan' && (e.bereichName || '').trim().toLowerCase() === b.bereichName.toLowerCase());
+    const imk = S.get('imkerei') || {};
+    const m = UI.formModal({
+      title: b.bereichName, wide: true, saveText: assistent.nr < assistent.von ? 'Übernehmen · weiter' : 'Übernehmen · fertig',
+      fields: [
+        { key: '_kopf', type: 'static', html: `<div class="small muted mb4">Schritt ${assistent.nr} von ${assistent.von}</div><div class="hint mb8">${U.esc(b.grundlage)}</div>` },
+        { key: 'mittel', label: 'Mittel und Verfahren', default: eintrag ? eintrag.mittel : b.mittel },
+        { key: 'haeufigkeit', label: 'Häufigkeit', default: eintrag ? eintrag.haeufigkeit : b.haeufigkeit },
+        { key: 'verantwortlich', label: 'Verantwortlich', default: eintrag ? eintrag.verantwortlich : (imk.name || '') },
+      ],
+      values: {},
+      async onSave(v) {
+        const daten = { bereich: 'hygieneplan', bereichName: b.bereichName, mittel: (v.mittel || '').trim(), haeufigkeit: (v.haeufigkeit || '').trim(), verantwortlich: (v.verantwortlich || '').trim(), notiz: eintrag ? eintrag.notiz : '' };
+        await DB.put('bioeintraege', eintrag ? Object.assign(eintrag, daten) : daten);
+        assistent.weiter();
+      },
+    });
+    const fuss = $('.modal-foot', m.el);
+    const abbr = $('[data-cancel]', fuss);
+    if (abbr) { abbr.textContent = 'Beenden'; abbr.onclick = () => { m.close(true); assistent.beenden(); }; }
+    const skip = document.createElement('button');
+    skip.type = 'button'; skip.className = 'btn btn-ghost'; skip.textContent = 'Überspringen';
+    skip.onclick = () => { m.close(true); assistent.weiter(); };
+    fuss.insertBefore(skip, $('[data-save]', fuss));
+  },
+
   async tabHygiene(box) {
     box.innerHTML = '<div id="bio-plan"></div><div id="bio-nachweis"></div>';
     await Views.bio.tabListe($('#bio-plan', box), 'hygieneplan');
@@ -9022,7 +9121,17 @@ Views.bio = {
         e.target.value = '';
         if (f) await Views.bio.planAusFoto(f);
       };
+      const assistentKnopf = document.createElement('button');
+      assistentKnopf.className = 'btn btn-primary btn-sm no-print';
+      assistentKnopf.innerHTML = `${icon('plus')} Assistent`;
+      assistentKnopf.onclick = () => Views.bio.hygieneAssistent();
+      kopf.insertBefore(assistentKnopf, kopf.querySelector('[data-add]'));
       kopf.insertBefore(label, kopf.querySelector('[data-add]'));
+      const pdfKnopf = document.createElement('button');
+      pdfKnopf.className = 'btn btn-ghost btn-sm no-print';
+      pdfKnopf.innerHTML = `${icon('doc')} Als PDF`;
+      pdfKnopf.onclick = () => Pdf.bioHygieneplan();
+      kopf.appendChild(pdfKnopf);
     }
   },
 
@@ -16053,6 +16162,42 @@ const Pdf = {
      Rechtsgrundlage und Text, danach die nicht zutreffenden und offenen
      Bereiche und eine Unterschriftszeile. Lange Texte brechen sauber um;
      ein Bereich wird nicht mitten in der Überschrift getrennt. */
+  /* ---------- Hygieneplan (Reinigung und Desinfektion) ----------
+     Plan als Tabelle (Bereich/Mittel/Häufigkeit/Verantwortlich), danach die
+     durchgeführten Reinigungen als Nachweis – das ist, was die Kontrolle
+     sehen will: die Vorgabe UND den Beleg, dass sie eingehalten wird. */
+  async bioHygieneplan() {
+    try {
+      const alle = await DB.getAll('bioeintraege');
+      const plan = U.sortBy(alle.filter((e) => e.bereich === 'hygieneplan'), (e) => (e.bereichName || '').toLowerCase());
+      const nachweise = U.sortBy(alle.filter((e) => e.bereich === 'hygienenachweis'), (e) => e.datum || '', true);
+      const imk = S.get('imkerei') || {};
+      const { doc, y } = await this.newDoc('Hygieneplan',
+        [imk.name ? `Betrieb: ${imk.name}` : '', `${plan.length} ${plan.length === 1 ? 'Bereich' : 'Bereiche'}`, `${nachweise.length} durchgeführte ${nachweise.length === 1 ? 'Reinigung' : 'Reinigungen'}`].filter(Boolean).join(' · '));
+      let yy = y;
+      if (!plan.length) {
+        doc.setFont('helvetica', 'italic').setFontSize(9.5).setTextColor(150);
+        doc.text('Noch kein Hygieneplan erfasst.', 14, yy); yy += 8;
+      } else {
+        yy = this.table(doc, { head: ['Bereich / Gegenstand', 'Mittel und Verfahren', 'Häufigkeit', 'Verantwortlich'],
+          body: plan.map((e) => [e.bereichName || '–', e.mittel || '–', e.haeufigkeit || '–', e.verantwortlich || '–']), startY: yy }) + 8;
+      }
+      const H = doc.internal.pageSize.getHeight();
+      const platz = (n) => { if (yy + n > H - 20) { doc.addPage(); yy = 20; } };
+      platz(14);
+      doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
+      doc.text('Durchgeführte Reinigungen (Nachweis)', 14, yy); yy += 6;
+      if (!nachweise.length) {
+        doc.setFont('helvetica', 'italic').setFontSize(9.5).setTextColor(150);
+        doc.text('Noch keine Reinigung eingetragen.', 14, yy); yy += 8;
+      } else {
+        yy = this.table(doc, { head: ['Datum', 'Bereich / Gegenstand', 'Mittel und Verfahren', 'Ausgeführt von', 'Bemerkung'],
+          body: nachweise.map((e) => [U.fmtDate(e.datum), e.bereichName || '–', e.mittel || '–', e.verantwortlich || '–', e.notiz || '–']), startY: yy }) + 8;
+      }
+      this.finish(doc, `hygieneplan-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
   async bioVorsorge() {
     try {
       const stand = vorsorgeLaden();
@@ -17814,7 +17959,7 @@ Object.assign(window, {
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
-  VORSORGE_BEREICHE, VARROA_ZUGELASSEN, VARROA_PRODUKTE,
+  VORSORGE_BEREICHE, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,

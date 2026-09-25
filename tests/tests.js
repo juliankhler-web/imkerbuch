@@ -2572,7 +2572,7 @@ test('Bio: sechs Bereiche im Reiter – Zertifikate hängen am Partner', async (
   try {
     await w.Views.bio.render(host);
     const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
-    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Vorsorge', 'Abnehmer & Lieferanten', 'Förderverfahren'],
+    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Vorsorgekonzept', 'Abnehmer & Lieferanten', 'Förderverfahren'],
       'kein eigener Zertifikate-Reiter mehr – Zertifikate gehören zum jeweiligen Partner');
     assert(!reiter.some((t) => /^\d/.test(t)), 'keine Ziffern vor den Namen');
     assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
@@ -9010,4 +9010,80 @@ test('Datei öffnen: PDF im neuen Tab, Word als Download (am Rechner)', async (w
     await w.dateiOeffnen(new w.Blob(['x']), 'b.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     assertEq(klick.download, 'b.docx', 'Word wird mit seinem Namen geladen');
   } finally { w.HTMLAnchorElement.prototype.click = orig; }
+});
+
+/* =====================================================================
+   Hygieneplan-Assistent und PDF (v1.75)
+   ===================================================================== */
+
+test('Hygiene-Assistent: 9 Bereiche mit Rechtsgrundlage und Vorschlag', (w) => {
+  assertEq(w.HYGIENE_ASSISTENT_BEREICHE.length, 9);
+  for (const b of w.HYGIENE_ASSISTENT_BEREICHE) {
+    assert(b.bereichName && b.grundlage && b.mittel && b.haeufigkeit, `${b.key}: vollständig`);
+  }
+  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.key)).size, 9, 'keine doppelten Schlüssel');
+  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.bereichName)).size, 9, 'keine doppelten Bereichsnamen');
+});
+
+test('Hygiene-Assistent: legt Einträge an und aktualisiert bestehende, statt zu verdoppeln', async (w) => {
+  const b = w.HYGIENE_ASSISTENT_BEREICHE.find((x) => x.key === 'schleuderraum');
+  const vorAlle = await w.DB.getAll('bioeintraege');
+  const vorherEigene = vorAlle.filter((e) => e.bereich === 'hygieneplan' && e.bereichName === b.bereichName);
+  for (const e of vorherEigene) await w.DB.del('bioeintraege', e.id);
+  try {
+    // erster Durchlauf: legt neu an
+    await w.Views.bio.hygieneAssistentSchritt(b, { nr: 1, von: 1, weiter: () => {}, beenden: () => {} });
+    await new Promise((r) => setTimeout(r, 300));
+    let m = w.document.querySelector('#modal-root').lastElementChild;
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    let treffer = (await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'hygieneplan' && e.bereichName === b.bereichName);
+    assertEq(treffer.length, 1, 'genau ein Eintrag');
+    assertEq(treffer[0].mittel, b.mittel, 'mit dem vorgeschlagenen Mittel');
+    // zweiter Durchlauf: aktualisiert denselben statt einen zweiten anzulegen
+    await w.Views.bio.hygieneAssistentSchritt(b, { nr: 1, von: 1, weiter: () => {}, beenden: () => {} });
+    await new Promise((r) => setTimeout(r, 300));
+    m = w.document.querySelector('#modal-root').lastElementChild;
+    const feld = m.querySelector('#f-mittel'); feld.value = 'Dampf statt Wasser'; feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    treffer = (await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'hygieneplan' && e.bereichName === b.bereichName);
+    assertEq(treffer.length, 1, 'immer noch nur ein Eintrag');
+    assertEq(treffer[0].mittel, 'Dampf statt Wasser', 'aktualisiert statt verdoppelt');
+  } finally {
+    dialogeSchliessen(w);
+    for (const e of (await w.DB.getAll('bioeintraege')).filter((x) => x.bereich === 'hygieneplan' && x.bereichName === b.bereichName)) await w.DB.del('bioeintraege', e.id);
+    for (const e of vorherEigene) await w.DB.put('bioeintraege', e, true);
+  }
+});
+
+test('Hygiene-Assistent: Vorauswahl lässt bereits vorhandene Bereiche aus', async (w) => {
+  const b = w.HYGIENE_ASSISTENT_BEREICHE.find((x) => x.key === 'gebinde');
+  const eig = await w.DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName: b.bereichName, mittel: 'x', haeufigkeit: 'x', verantwortlich: '' });
+  try {
+    await w.Views.bio.hygieneAssistent();
+    await new Promise((r) => setTimeout(r, 300));
+    const m = w.document.querySelector('.modal-back');
+    const box = [...m.querySelectorAll('#f-bereiche input')].find((i) => i.value === 'gebinde');
+    assert(!box.checked, 'ein bereits vorhandener Bereich ist nicht vorausgewählt');
+    const label = box.closest('label').textContent;
+    assert(/schon im Plan/.test(label), 'und als solcher gekennzeichnet');
+  } finally { dialogeSchliessen(w); await w.DB.del('bioeintraege', eig.id); }
+});
+
+test('Hygieneplan-PDF: Plan und Nachweise stehen drin', async (w) => {
+  const p = await w.DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName: 'PDF-Testbereich', mittel: 'Testmittel', haeufigkeit: 'wöchentlich', verantwortlich: 'Julian' });
+  const n = await w.DB.put('bioeintraege', { bereich: 'hygienenachweis', bereichName: 'PDF-Testbereich', datum: '2026-06-01', mittel: 'Testmittel', verantwortlich: 'Julian', notiz: 'alles sauber' });
+  try {
+    w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+    await w.Pdf.bioHygieneplan();
+    const text = w.Pdf.lastDocForTest.internal.pages.flat().filter((x) => typeof x === 'string').join(' ');
+    assert(/PDF-Testbereich/.test(text), 'der Bereich steht drin');
+    assert(/Testmittel/.test(text), 'das Mittel');
+    assert(/wöchentlich/.test(text), 'die Häufigkeit');
+    assert(/Durchgeführte Reinigungen/.test(text), 'der Nachweis-Abschnitt');
+  } finally {
+    w.Pdf.noDownloadForTest = false;
+    await w.DB.del('bioeintraege', p.id); await w.DB.del('bioeintraege', n.id);
+  }
 });
