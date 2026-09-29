@@ -9134,3 +9134,20 @@ test('Vorsorgekonzept einlesen: Ladekreis füllt sich und lässt sich schließen
   k.close();
   assert(!w.document.querySelector('.lade-kreis'), 'Kreis ist weg');
 });
+
+
+test('PDF-Layout: lange Namen werden gekürzt bzw. verkleinert statt über den Text zu laufen', async (w) => {
+  const jsPDF = await w.Pdf.lib();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  doc.setFont('helvetica', 'bold');
+  const lang = 'Imkerei Sonnenwiese Familie Müller-Lüdenscheidt & Söhne Bienenzucht und Honigvertrieb GmbH & Co. KG';
+  const t = w.Pdf.einzeilig(doc, lang, 150, 13, 9);
+  assert(doc.getTextWidth(t) <= 150.01, 'Text passt in die Breite');
+  assert(/…$/.test(t), 'zu lang selbst bei kleinster Schrift → mit „…" gekürzt');
+  assertEq(w.Pdf.einzeilig(doc, 'Imkerei Kurz', 150, 13, 9), 'Imkerei Kurz', 'kurzer Text bleibt unverändert');
+  doc.setFont('helvetica', 'normal').setFontSize(8.5);
+  const z = w.Pdf.zeilen(doc, lang + ' ' + lang + ' ' + lang, 100, 2);
+  assertEq(z.length, 2, 'höchstens zwei Zeilen');
+  assert(z.every((x) => doc.getTextWidth(x) <= 100.01), 'jede Zeile passt');
+  assert(/…$/.test(z[1]), 'Rest wird mit „…" abgeschlossen');
+});

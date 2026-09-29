@@ -90,6 +90,21 @@ async function main() {
     console.log('Beispieldaten anlegen …'); await cdp.js('await Demo.reset(); return 1;');
   }
   console.log(await cdp.js(VORBEREITEN));
+  const STRESS = !!process.env.STRESS;
+  if (STRESS) {
+    console.log('Stresstest: extra lange Namen und Texte');
+    await cdp.js(`
+      const imk = S.get('imkerei');
+      Object.assign(imk, { name: 'Imkerei Sonnenwiese Familie Müller-Lüdenscheidt & Söhne Bienenzucht und Honigvertrieb GmbH & Co. KG',
+        strasse: 'Am Lindenweg zum Alten Bienenhaus 12 a', plz: '34266', ort: 'Frielendorf-Obergrenzebach',
+        email: 'kontakt.und.bestellungen@imkerei-sonnenwiese-mueller-luedenscheidt.example.de' });
+      await S.set('imkerei', imk);
+      const lang = 'Die Imkerei wird als Familienbetrieb im Nebenerwerb geführt. Verantwortlich für die Einhaltung der Öko-Auflagen ist die Betriebsleitung; Vertretung übernimmt ein zweiter Imker, der ebenfalls geschult ist. Die Umstellung erfolgte im Jahr 2019, seitdem wird ohne Unterbrechung ökologisch geimkert.\\n\\nAlle Völker stehen an drei Ständen; ein vierter Wanderstand wird nur zur Rapsblüte genutzt. Für jeden Stand liegt eine Auswertung der Landbedeckung im Umkreis von drei Kilometern vor, die jährlich überprüft wird.';
+      const bb = {}; for (const a of BIO_ABSCHNITTE) bb[a.key] = lang; await S.set('bioBetrieb', bb);
+      const st = await DB.getAll('staende'); st[0].name = 'Heimstand Obstwiese am Waldrand oberhalb von Frielendorf-Obergrenzebach'; await DB.put('staende', st[0]);
+      return 1;`);
+  }
+  const BEZ = STRESS ? 'Sommerblütenhonig aus Raps, Linde und Wildblumen – cremig gerührt' : 'Sommerblütenhonig';
   await cdp.js('Pdf.noDownloadForTest = true; return 1;');
 
   const jahr = new Date().getFullYear();
@@ -97,7 +112,7 @@ async function main() {
     ['rechnung', `const r = (await DB.getAll('rechnungen')).find(x => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0];
                   await Pdf.rechnung(r.id);`],
     ['honig-etikett', `const a = (await DB.getAll('abfuellungen'))[0]; const c = await DB.get('chargen', a.chargeId);
-                  await Pdf.honigEtikett(a, c, { anzahl: 4, bezeichnung: 'Sommerblütenhonig', ursprung: 'Deutschland', mitQr: true });`],
+                  await Pdf.honigEtikett(a, c, { anzahl: 4, bezeichnung: '${BEZ}', ursprung: 'Deutschland', mitQr: true });`],
     ['stockkarte', `const v = (await DB.getAll('voelker')).find(x => x.koeniginId && x.status === 'aktiv');
                   await setBewertung(v.koeniginId, { sanftmut: 6, wabenstetigkeit: 5, schwarmtraegheit: 4, bienen: 5, brut: 5, ueberwinterung: 4, fruchtbarkeit: 5, fruehtracht: 6, sommertracht: 4, wirrbau: 5, propolis: 4, varroaschaeden: 5, vsh: 4, hyg: 4 }, '2026-06-18', { wetter: 'sonnig', temperatur: 24, bemerkung: 'Sehr ruhig auf der Wabe, kein Wirrbau.' });
                   await setBewertung(v.koeniginId, { sanftmut: 5, wabenstetigkeit: 4, bienen: 4, brut: 5, ueberwinterung: 4 }, '2026-05-02', { wetter: 'bewölkt', temperatur: 17, bemerkung: 'Frühjahr etwas verhalten.' });

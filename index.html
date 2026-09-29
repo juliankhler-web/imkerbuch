@@ -576,6 +576,7 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 @media(prefers-reduced-motion:reduce){.lade-kreis.unbestimmt svg{animation:none}}
 .vk-abschnitt{padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:10px}
 .vk-abschnitt.unsicher{background:var(--warn-bg)}
+.vk-abschnitt svg{width:16px;height:16px;vertical-align:-3px;flex-shrink:0}
 .vk-kopf{display:flex;gap:8px;align-items:center}
 .vk-kopf select{flex:1;min-width:0}
 @media(max-width:700px){.hyg-kopf{display:none}
@@ -1029,8 +1030,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.81';
+const APP_VERSION = '1.82';
 const CHANGELOG = [
+  { version: '1.82', datum: '2026-09-29', punkte: [
+    '<b>PDFs aufgeräumt:</b> Bei langen Firmen- oder Standortnamen überlagerten sich Texte – im Kopf jeder PDF (Name über der Adresse), auf dem <b>Honig-Etikett</b> (Name, Bezeichnung, Füllmenge und Adresse liefen ineinander), bei der <b>Rechnung</b> (Absender lief aus dem Blatt, Fußzeile lag über „Erstellt mit ImkerBuch“) und bei <b>Bestandsmeldung/Tierseuchenkasse</b> (Angaben liefen über den rechten Rand). Jetzt werden lange Namen kleiner gesetzt, umgebrochen oder mit „…“ gekürzt, und alles darunter rückt nach.',
+    'Bei den <b>Unterlagen zur Öko-Kontrolle</b> stand eine Überschrift manchmal allein am Seitenende, die Tabelle darunter auf der nächsten Seite – jetzt bleibt sie beim Text. Außerdem fehlten Umlaute („Völker“, „Fläche“, „für“).',
+    'Tabellen: Die Überschrift einer rechtsbündigen Spalte (Menge, Preis, Summe …) steht jetzt auch rechts über den Zahlen. Die Rechnung hat keine leere Spalte mehr, wenn keine Umsatzsteuer ausgewiesen wird.',
+    'Beim Einlesen eines Konzepts war der Hinweis „Dieser Bereich hat schon einen Text“ mit einem riesigen Ausrufezeichen versehen – jetzt normal groß.',
+  ] },
   { version: '1.81', datum: '2026-09-29', punkte: [
     'Neu bei <b>Bio → Vorsorgekonzept</b>: <b>Konzept einlesen</b>. Wer sein Vorsorgekonzept schon als PDF oder Foto hat, lädt es hoch – die Datei wird gespeichert, die App liest den Text, erkennt die Abschnitte und ordnet sie den Bereichen zu (Standorte, Fütterung, Varroa, Reinigung …). Du siehst jeden Abschnitt vorher, kannst die Zuordnung und den Text ändern und hakst ab, was übernommen werden soll. Unsichere Zuordnungen sind hervorgehoben und nicht vorausgewählt; ein Bereich mit eigenem Text wird nie ungefragt überschrieben (ersetzen oder unten anhängen).',
     'Bei <b>Bio → Hygiene</b> gibt es jetzt eine Kachel <b>Zertifikate und Nachweise hochladen</b>: PDF oder Foto einfach ablegen und jederzeit wieder öffnen – ohne Auslesen, genau wie beim Vorsorgekonzept.',
@@ -15620,16 +15627,42 @@ const Pdf = {
     const y = await this.header(doc, titel, untertitel);
     return { doc, y };
   },
+  /** Text auf eine Breite kürzen (mit „…"), wenn er nicht passt. Schrift und Größe vorher setzen. */
+  kuerzen(doc, text, maxW) {
+    let s = String(text == null ? '' : text);
+    if (doc.getTextWidth(s) <= maxW) return s;
+    while (s.length > 1 && doc.getTextWidth(s + '…') > maxW) s = s.slice(0, -1);
+    return s.trimEnd() + '…';
+  },
+  /** Höchstens `maxZeilen` Zeilen; was nicht mehr passt, endet mit „…". */
+  zeilen(doc, text, maxW, maxZeilen) {
+    const l = doc.splitTextToSize(String(text == null ? '' : text), maxW);
+    if (l.length <= maxZeilen) return l;
+    const aus = l.slice(0, maxZeilen - 1);
+    aus.push(this.kuerzen(doc, l.slice(maxZeilen - 1).join(' '), maxW));
+    return aus;
+  },
+  /** Setzt die größte Schriftgröße (max … min), bei der der Text in eine Zeile passt; gibt den ggf. gekürzten Text zurück. */
+  einzeilig(doc, text, maxW, max, min) {
+    let s = max;
+    doc.setFontSize(s);
+    while (s > min && doc.getTextWidth(String(text)) > maxW) { s -= 0.5; doc.setFontSize(s); }
+    return this.kuerzen(doc, text, maxW);
+  },
   async header(doc, titel, untertitel = '') {
     const imk = S.get('imkerei');
     const W = doc.internal.pageSize.getWidth(); // seiten-maß-abhängig → Hoch- und Querformat
     const usable = W - 28; // 2×14 mm Rand
     try { doc.addImage(await this.logoDataUrl(), 'PNG', 14, 12, 16, 16); } catch (e) {}
-    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(38, 38, 43);
-    doc.text(imk.name || 'ImkerBuch', 34, 18, { maxWidth: usable - 20 });
+    /* Name in EINER Zeile (bei Bedarf kleiner, zuletzt gekürzt) und die Anschrift
+       auf höchstens zwei Zeilen – sonst schreibt ein langer Firmenname über die
+       Adresszeile und die Orangelinie. */
+    const textW = usable - 20;
+    doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
+    doc.text(this.einzeilig(doc, imk.name || 'ImkerBuch', textW, 13, 9), 34, 18);
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(120);
     const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
-    if (adr) doc.text(adr, 34, 23, { maxWidth: usable - 20 });
+    if (adr) doc.text(this.zeilen(doc, adr, textW, 2), 34, 22.5);
     doc.setDrawColor(232, 160, 19).setLineWidth(0.8).line(14, 31, W - 14, 31);
     // Titel und Untertitel umbrechen, damit nichts über den rechten Rand hinausläuft
     doc.setFont('helvetica', 'bold').setFontSize(16).setTextColor(38, 38, 43);
@@ -15652,6 +15685,8 @@ const Pdf = {
       alternateRowStyles: { fillColor: [250, 246, 239] },
       columnStyles: widths || {}, margin: margin || { left: 14, right: 14 },
       tableWidth: 'auto', rowPageBreak: 'avoid',
+      // Die Überschrift einer rechtsbündigen Spalte steht auch rechts – sonst sitzt sie über dem Zahlenanfang statt über dem Zahlenende.
+      didParseCell: (d) => { if (d.section === 'head') { const cs = (widths || {})[d.column.index]; if (cs && cs.halign) d.cell.styles.halign = cs.halign; } },
     });
     return doc.lastAutoTable.finalY;
   },
@@ -15743,7 +15778,8 @@ const Pdf = {
       ];
       for (const [k, v] of kopf) {
         doc.setTextColor(120).text(k + ':', 14, yy);
-        doc.setTextColor(40).text(String(v), 62, yy); yy += 5;
+        const vz = doc.splitTextToSize(String(v), 132);
+        doc.setTextColor(40).text(vz, 62, yy); yy += Math.max(5, vz.length * 4.4 + 0.6);
       }
       const ped = q.pedigree || pedigreeGdeB(q, km);
       doc.setTextColor(120).text('Pedigree der Königin:', 14, yy);
@@ -16120,20 +16156,37 @@ const Pdf = {
             try { doc.addImage(bild, 'JPEG', bx, yy + 3.5, bw, LOGO_H); bioBreite += bw + 1; bx -= 1; } catch (e) { bx += bw; }
           }
         }
-        doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(120, 80, 0);
-        doc.text(imk.name || 'Imkerei', x + 16, yy + 10, { maxWidth: Math.max(24, LW - 20 - bioBreite) });
-        doc.setFont('helvetica', 'bold').setFontSize(15).setTextColor(38, 38, 43);
-        doc.text(opts.bezeichnung, x + 6, yy + 22, { maxWidth: LW - 12 });
-        doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(40);
-        doc.text(`Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`, x + 6, yy + 30);
-        doc.setFontSize(8.5).setTextColor(90);
+        /* Alles in einem Fluss von oben nach unten statt auf festen Höhen: ein
+           langer Firmenname oder eine lange Bezeichnung schrieb sonst über die
+           Zeilen darunter. Name einzeilig (notfalls kleiner/gekürzt), Bezeichnung
+           erst kleiner in EINER Zeile, dann in zwei enger gesetzten Zeilen; die
+           Angaben darunter rücken entsprechend nach. */
+        const innen = LW - 12;
+        doc.setFont('helvetica', 'bold').setTextColor(120, 80, 0);
+        doc.text(this.einzeilig(doc, imk.name || 'Imkerei', Math.max(24, LW - 20 - bioBreite), 13, 8), x + 16, yy + 10);
+        doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
+        let bs = 15;
+        doc.setFontSize(bs);
+        while (bs > 11 && doc.getTextWidth(String(opts.bezeichnung)) > innen) { bs -= 0.5; doc.setFontSize(bs); }
+        let bZeilen = doc.splitTextToSize(String(opts.bezeichnung), innen);
+        const eng = bZeilen.length > 1;
+        if (eng) { bs = 10.5; doc.setFontSize(bs); bZeilen = this.zeilen(doc, String(opts.bezeichnung), innen, 2); }
+        let cy = yy + (eng ? 19 : 22);
+        doc.text(bZeilen, x + 6, cy);
+        cy += (bZeilen.length - 1) * bs * 0.3528 * 1.15;
+        doc.setFont('helvetica', 'normal').setTextColor(40);
+        const netto = this.einzeilig(doc, `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`, innen, eng ? 10 : 11, 8);
+        cy += eng ? 6 : 8;
+        doc.text(netto, x + 6, cy);
+        doc.setTextColor(90);
         /* Mit Bio kommen zwei Zeilen dazu (Kontrollstelle + Herkunft). Der Block
            rückt dann etwas höher und enger zusammen, sonst rutscht die letzte
            Zeile unter den Rahmen. */
         const bioEtikett = imk.bio === 'ja';
-        let ly = yy + (bioEtikett ? 34 : 37);
-        const zh = bioEtikett ? 3.6 : 3.8;
-        const zeile = (t) => { doc.text(t, x + 6, ly, { maxWidth: LW - 12 - (qr ? 18 : 0) }); ly += zh; };
+        let ly = cy + (eng ? (bioEtikett ? 3.8 : 5.5) : (bioEtikett ? 4 : 7));
+        const zh = eng ? 3.3 : (bioEtikett ? 3.6 : 3.8);
+        const fs = eng ? 8 : 8.5;
+        const zeile = (tx) => { doc.text(this.einzeilig(doc, tx, LW - 12 - (qr ? 18 : 0), fs, 6.5), x + 6, ly); ly += zh; };
         zeile(`Ursprungsland: ${opts.ursprung}`);
         /* Chargennummer als EIGENE Zeile, fett und mit vorangestelltem „L".
            Vorher hing sie hinten an der MHD-Zeile in 8,5 pt und ging dort unter.
@@ -16182,11 +16235,11 @@ const Pdf = {
       // Anschriftfeld DIN 5008 (Form B): kleine Rücksendeangabe, darunter der Empfänger – sichtbar im Umschlagfenster
       doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(120);
       const absender = [imk.name, imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
-      if (absender) doc.text(absender, 25, 45);
+      if (absender) doc.text(this.kuerzen(doc, absender, 80), 25, 45);
       doc.setDrawColor(150).setLineWidth(0.1); doc.line(25, 46.5, 105, 46.5);
       doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(25, 25, 25);
       const empf = kunde ? [kunde.name, kunde.strasse || '', [kunde.plz, kunde.ort].filter(Boolean).join(' ')].filter(Boolean) : ['(kein Kunde ausgewählt)'];
-      doc.text(empf, 25, 53);
+      doc.text(empf.flatMap((l) => doc.splitTextToSize(String(l), 80)).slice(0, 6), 25, 53);
       // Infoblock rechts, auf Höhe der Anschrift
       doc.setFontSize(9.5);
       let iy = 53;
@@ -16212,13 +16265,14 @@ const Pdf = {
       const body = r.positionen.map((p, i) => {
         const zeile = [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis)];
         if (zeigtPfand) zeile.push(p.pfand ? U.fmtEur(p.pfand) : '–');
-        zeile.push(zeigtUst ? `${p.steuersatz || 0} %` : '');
+        if (zeigtUst) zeile.push(`${p.steuersatz || 0} %`);
         zeile.push(U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0)));
         return zeile;
       });
       const head = ['Pos.', 'Bezeichnung', 'Menge', 'Einzelpreis'];
       if (zeigtPfand) head.push('Pfand');
-      head.push(zeigtUst ? 'USt.' : '', 'Summe');
+      if (zeigtUst) head.push('USt.');
+      head.push('Summe');
       const letzte = head.length - 1;
       let y = this.table(doc, { head, body, startY: 104, margin: { left: 25, right: 14 },
         widths: { 1: { cellWidth: zeigtPfand ? 62 : 74 }, 2: { halign: 'right' }, 3: { halign: 'right' }, [letzte]: { halign: 'right' }, ...(zeigtPfand ? { 4: { halign: 'right' } } : {}) } });
@@ -16295,8 +16349,8 @@ const Pdf = {
            („Erstellt mit ImkerBuch" / „Seite 1 von 1" stehen bei 290 mm) –
            vorher lagen beide übereinander und waren kaum zu lesen. */
         doc.setDrawColor(210).setLineWidth(0.2); doc.line(25, 278, 196, 278);
-        doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(140);
-        doc.text(doc.splitTextToSize(foot, 171), 110.5, 282, { align: 'center' });
+        doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(140);
+        doc.text(this.zeilen(doc, foot, 171, 2), 110.5, 281.5, { align: 'center' });
       }
       this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -16311,7 +16365,7 @@ const Pdf = {
       const { doc, y } = await this.newDoc('Bestandsmeldung Bienenhaltung', 'zur Vorlage beim zuständigen Veterinäramt');
       let yy = y + 4;
       doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40);
-      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold'); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); doc.text(String(wert || '________________________'), 75, yy); yy += 7; };
+      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold'); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); const z = doc.splitTextToSize(String(wert || '________________________'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
       zeile('Name des Tierhalters:', imk.name);
       zeile('Anschrift:', [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '));
       zeile('Telefon / E-Mail:', [imk.telefon, imk.email].filter(Boolean).join(' / '));
@@ -16358,7 +16412,7 @@ const Pdf = {
       const amStichtag = voelkerAmStichtag(alleVoelker, stichtag);
       const { doc, y } = await this.newDoc('Meldedaten Tierseuchenkasse', `Stichtag: ${U.fmtDate(stichtag)} · Zusammenstellung zur Übertragung in das Meldeportal`);
       let yy = y + 4;
-      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); doc.text(String(wert || '–'), 75, yy); yy += 7; };
+      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); const z = doc.splitTextToSize(String(wert || '–'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
       zeile('Tierhalter:', imk.name);
       zeile('Landw. Betriebsnummer:', imk.registriernummer);
       if (imk.tskPflicht === 'ja' && imk.tskNummer) zeile('TSK-/Melde-Nummer:', imk.tskNummer);
@@ -16530,29 +16584,32 @@ const Pdf = {
       const H = doc.internal.pageSize.getHeight();
       const platz = (n) => { if (yy + n > H - 20) { doc.addPage(); yy = 20; } };
       doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
-      platz(10); doc.text('Betriebsbeschreibung', 14, yy); yy += 6;
+      platz(24); doc.text('Betriebsbeschreibung', 14, yy); yy += 6;
       for (const a of BIO_ABSCHNITTE) {
         const txt = (bb[a.key] || '').trim();
-        platz(12);
+        doc.setFont('helvetica', 'normal').setFontSize(9);
+        const zeilen = doc.splitTextToSize(txt || '(nicht ausgefüllt)', 180);
+        // Überschrift und mindestens die ersten drei Zeilen bleiben zusammen – nie eine Überschrift allein am Seitenende.
+        platz(4.5 + Math.min(zeilen.length, 3) * 4.2 + 2);
         doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(60);
         doc.text(a.label, 14, yy); yy += 4.5;
         doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(txt ? 40 : 150);
-        const zeilen = doc.splitTextToSize(txt || '(nicht ausgefüllt)', 180);
-        platz(zeilen.length * 4.2 + 2);
-        doc.text(zeilen, 14, yy); yy += zeilen.length * 4.2 + 3;
+        for (const z of zeilen) { platz(4.2); doc.text(z, 14, yy); yy += 4.2; }
+        yy += 3;
       }
+      yy += 3;
       for (const st of staende) {
         const anteile = bioAnteile(st);
         const su = bioSummen(anteile);
         const b = st.bio || {};
         const zahl = voelker.filter((v) => v.standId === st.id).length;
-        platz(16);
-        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
-        doc.text(`Standort: ${st.name}`, 14, yy); yy += 5;
+        platz(anteile.length ? 42 : 18);
+        doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
+        doc.text(this.einzeilig(doc, `Standort: ${st.name}`, 182, 11, 8.5), 14, yy); yy += 5;
         doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);
         const kopfzeile = anteile.length
-          ? `${zahl} Voelker · Umkreis ${U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1)} km · erhoben ${U.fmtDate(b.erhebung) || 'ohne Datum'} · Quelle: ${b.quelle || 'ohne Angabe'}`
-          : `${zahl} Voelker · keine Landbedeckung erfasst`;
+          ? `${zahl} Völker · Umkreis ${U.fmtNum((b.umkreisM || BIO_UMKREIS_VORGABE) / 1000, 1)} km · erhoben ${U.fmtDate(b.erhebung) || 'ohne Datum'} · Quelle: ${b.quelle || 'ohne Angabe'}`
+          : `${zahl} Völker · keine Landbedeckung erfasst`;
         const kz = doc.splitTextToSize(kopfzeile, 180);
         platz(kz.length * 4.2 + 2); doc.text(kz, 14, yy); yy += kz.length * 4.2 + 2;
         if (anteile.length) {
@@ -16560,8 +16617,7 @@ const Pdf = {
           body.push(['Tracht / Vegetation', '', U.fmtNum(su.tracht, 1) + ' %']);
           body.push(['Bebauung, Verkehr, Industrie', '', U.fmtNum(su.bebaut, 1) + ' %']);
           body.push(['Summe', '', U.fmtNum(su.gesamt, 1) + ' %']);
-          platz(20);
-          yy = this.table(doc, { head: ['Flaeche', 'Art', 'Anteil'], body, startY: yy, widths: { 2: { halign: 'right' } } }) + 4;
+          yy = this.table(doc, { head: ['Fläche', 'Art', 'Anteil'], body, startY: yy, widths: { 2: { halign: 'right' } } }) + 4;
         }
         if ((b.quellen || []).length) {
           doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);
@@ -16582,7 +16638,7 @@ const Pdf = {
       const anhaengeAlle = await DB.getAll('anhaenge');
       const partner = U.sortBy(kontakteAlle.filter((c) => c.oekoNummer || c.oekoWas || c.oekoGueltigBis), (c) => (c.name || '').toLowerCase());
       if (partner.length) {
-        platz(16);
+        platz(34);
         doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
         doc.text('Abnehmer und Lieferanten', 14, yy); yy += 5;
         const body = partner.map((c) => [
@@ -16600,7 +16656,7 @@ const Pdf = {
       for (const [bereich, def] of Object.entries(BIO_BEREICHE)) {
         const list = U.sortBy(bioAlle.filter((x) => x.bereich === bereich), def.sort, !!def.rueckwaerts);
         if (!list.length) continue;
-        platz(16);
+        platz(34);
         doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
         doc.text(def.titel, 14, yy); yy += 5;
         const spalten = def.felder.filter((f) => f.key !== 'notiz');
@@ -16611,14 +16667,13 @@ const Pdf = {
           if (f.type === 'number') return U.fmtNum(w, f.key === 'betrag' ? 2 : 0);
           return String(w);
         }));
-        platz(20);
-        yy = this.table(doc, { head: spalten.map((f) => f.label.replace(/ \(.*\)$/, '')), body, startY: yy }) + 5;
+        yy = this.table(doc, { head: spalten.map((f) => f.label.replace(/ \(.*\)$/, '')), body, startY: yy }) + 9;
       }
       /* Die Formulare selbst kann ein PDF nicht einbetten (Word, fremde PDFs) –
          aber es sagt dem Prüfer, welche Fassungen in der App hinterlegt sind. */
       const formulare = await Anhang.list('bio', 'formulare');
       if (formulare.length) {
-        platz(14);
+        platz(30);
         doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
         doc.text('Hinterlegte Formulare', 14, yy); yy += 5;
         yy = this.table(doc, { head: ['Datei', 'Hochgeladen', 'Größe'],
@@ -16626,7 +16681,7 @@ const Pdf = {
       }
       platz(12);
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130);
-      doc.text(doc.splitTextToSize('Die Flaechenanteile wurden mit dem GeoBox-Viewer (geobox-i.de/GBV-RLP-Bienen, Fachzentrum fuer Bienen und Imkerei) ermittelt und hier eingetragen. Welchen Umkreis die Kontrollstelle betrachtet, gibt sie vor.', 180), 14, yy);
+      doc.text(doc.splitTextToSize('Die Flächenanteile wurden mit dem GeoBox-Viewer (geobox-i.de/GBV-RLP-Bienen, Fachzentrum für Bienen und Imkerei) ermittelt und hier eingetragen. Welchen Umkreis die Kontrollstelle betrachtet, gibt sie vor.', 180), 14, yy);
       this.finish(doc, 'bio-unterlagen.pdf');
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
