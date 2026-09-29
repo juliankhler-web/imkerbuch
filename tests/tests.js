@@ -2682,7 +2682,7 @@ test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
     const h = w.document.createElement('div'); w.document.body.appendChild(h);
     await w.Views.bio.tabHygiene(h);
     const titel = [...h.querySelectorAll('.card h2')].map((e) => e.textContent.trim());
-    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen'], 'Plan und Nachweise');
+    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise und Datei-Ablage');
     h.remove();
   } finally {
     host.remove();
@@ -9086,4 +9086,51 @@ test('Hygieneplan-PDF: Plan und Nachweise stehen drin', async (w) => {
     w.Pdf.noDownloadForTest = false;
     await w.DB.del('bioeintraege', p.id); await w.DB.del('bioeintraege', n.id);
   }
+});
+
+
+test('Vorsorgekonzept einlesen: Überschriften werden den richtigen Bereichen zugeordnet', (w) => {
+  const text = [
+    '1. Standorte',
+    'Die Bienenstände liegen im Umkreis von 3 km überwiegend auf Wiesen und Wald, Verschmutzungsquellen sind nicht bekannt.',
+    '2. Fütterung',
+    'Im Herbst wird mit ökologischem Zuckersirup gefüttert, Futterteig nur im Notfall.',
+    '3. Varroa-Behandlung',
+    'Behandelt wird mit Ameisensäure und Oxalsäure, alles im Bestandsbuch dokumentiert.',
+    'Seite 1',
+  ].join('\n');
+  const r = w.vorsorgeParsen(text);
+  assertEq(r.length, 3, 'drei Abschnitte, Seitenzahl fällt weg');
+  assertEq(r[0].key, 'standort'); assertEq(r[1].key, 'fuetterung'); assertEq(r[2].key, 'gesundheit');
+  assert(r.every((x) => x.sicher), 'Überschriften passen eindeutig');
+  assert(!/^1\./.test(r[0].kopf), 'Nummerierung wird aus der Überschrift entfernt');
+});
+
+test('Vorsorgekonzept einlesen: Absätze ohne Überschrift werden über den Inhalt zugeordnet oder als unsicher markiert', (w) => {
+  const text = [
+    'Wir behandeln gegen Varroa mit Ameisensäure und Milchsäure, die Behandlung wird dokumentiert.',
+    '',
+    'Das Wetter war in diesem Jahr ziemlich wechselhaft und wir hatten viel Spaß beim Imkern.',
+  ].join('\n');
+  const r = w.vorsorgeParsen(text);
+  assertEq(r.length, 2);
+  assertEq(r[0].key, 'gesundheit'); assert(r[0].sicher, 'zwei Stichwörter → sicher');
+  assertEq(r[1].key, '', 'ohne Stichwort keine Zuordnung'); assert(!r[1].sicher);
+});
+
+test('Vorsorgekonzept einlesen: Zeilenumbruch mitten im Satz wird zusammengezogen, Überschriften ohne Nummer erkannt', (w) => {
+  const text = ['REINIGUNG UND DESINFEKTION', 'Der Schleuderraum wird nach jeder Ernte mit heißem Wasser gereinigt und', 'anschließend getrocknet, Geräte werden desinfiziert.'].join('\n');
+  const r = w.vorsorgeParsen(text);
+  assertEq(r.length, 1); assertEq(r[0].key, 'reinigung');
+  assert(!/\n/.test(r[0].text), 'Satz steht in einer Zeile');
+});
+
+test('Vorsorgekonzept einlesen: Ladekreis füllt sich und lässt sich schließen', (w) => {
+  const k = w.ladeKreis('Test', 'x');
+  k.set(0.5);
+  const fuell = w.document.querySelector('.lade-kreis .fuell');
+  assert(fuell && Math.abs(parseFloat(fuell.style.strokeDashoffset) - 263.9 * 0.5) < 0.5, 'Kreis zur Hälfte gefüllt');
+  assertEq(w.document.querySelector('.lade-kreis [data-proz]').textContent, '50 %');
+  k.close();
+  assert(!w.document.querySelector('.lade-kreis'), 'Kreis ist weg');
 });

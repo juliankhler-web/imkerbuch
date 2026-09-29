@@ -564,6 +564,20 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .hyg-kopf{font-size:12px;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--line)}
 .hyg-zeile{padding:5px 4px;border-bottom:1px solid var(--line)}
 .hyg-zeile.unsicher{background:var(--warn-bg);border-radius:8px}
+.lade-kreis{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0}
+.lade-kreis .ring{position:relative;width:104px;height:104px}
+.lade-kreis svg{width:104px;height:104px;transform:rotate(-90deg)}
+.lade-kreis .spur{fill:none;stroke:var(--line);stroke-width:9}
+.lade-kreis .fuell{fill:none;stroke:var(--honey);stroke-width:9;stroke-linecap:round;stroke-dasharray:263.9;stroke-dashoffset:263.9;transition:stroke-dashoffset .25s}
+.lade-kreis .prozent{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px}
+.lade-kreis.unbestimmt svg{animation:ladeDreh 1.1s linear infinite}
+.lade-kreis.unbestimmt .fuell{stroke-dashoffset:190}
+@keyframes ladeDreh{to{transform:rotate(270deg)}}
+@media(prefers-reduced-motion:reduce){.lade-kreis.unbestimmt svg{animation:none}}
+.vk-abschnitt{padding:10px;border:1px solid var(--line);border-radius:var(--r-sm);margin-bottom:10px}
+.vk-abschnitt.unsicher{background:var(--warn-bg)}
+.vk-kopf{display:flex;gap:8px;align-items:center}
+.vk-kopf select{flex:1;min-width:0}
 @media(max-width:700px){.hyg-kopf{display:none}
   .hyg-zeile{grid-template-columns:24px 1fr;row-gap:4px;padding:9px 4px}
   .hyg-zeile>input[type=checkbox]{grid-row:span 4}}
@@ -1015,8 +1029,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.80';
+const APP_VERSION = '1.81';
 const CHANGELOG = [
+  { version: '1.81', datum: '2026-09-29', punkte: [
+    'Neu bei <b>Bio → Vorsorgekonzept</b>: <b>Konzept einlesen</b>. Wer sein Vorsorgekonzept schon als PDF oder Foto hat, lädt es hoch – die Datei wird gespeichert, die App liest den Text, erkennt die Abschnitte und ordnet sie den Bereichen zu (Standorte, Fütterung, Varroa, Reinigung …). Du siehst jeden Abschnitt vorher, kannst die Zuordnung und den Text ändern und hakst ab, was übernommen werden soll. Unsichere Zuordnungen sind hervorgehoben und nicht vorausgewählt; ein Bereich mit eigenem Text wird nie ungefragt überschrieben (ersetzen oder unten anhängen).',
+    'Bei <b>Bio → Hygiene</b> gibt es jetzt eine Kachel <b>Zertifikate und Nachweise hochladen</b>: PDF oder Foto einfach ablegen und jederzeit wieder öffnen – ohne Auslesen, genau wie beim Vorsorgekonzept.',
+    'Word-Dateien werden weiter nur aufbewahrt, nicht gelesen – dafür als PDF speichern und dieses einlesen.',
+    'Beim Einlesen (Vorsorgekonzept <b>und</b> Hygieneplan) läuft jetzt derselbe Ablauf: ein <b>Ladekreis</b>, der sich füllt, dann die Frage „Erkannt – in die App übernehmen?“ mit allem Erkannten zum Prüfen und Abhaken.',
+  ] },
   { version: '1.80', datum: '2026-09-29', punkte: [
     'Beim Hochladen des eigenen Vorsorgekonzepts steht jetzt klar dabei: Die Datei wird nur <b>aufbewahrt</b> und lässt sich wieder öffnen – die App liest sie nicht aus und trägt nichts in die Bereiche ein.',
   ] },
@@ -7575,7 +7595,27 @@ function spaltenAusWorten(zeilen) {
  * Gibt `{ text, seiten, ausText }` zurück. `ausText: false` heißt: Das PDF
  * ist ein Scan ohne Textebene – dann muss die Texterkennung ran.
  */
-async function pdfTextMitLayout(datei, maxSeiten = 5) {
+/** Ladekreis, der sich füllt. `set(0..1)` setzt den Stand, `unbestimmt()` lässt ihn kreisen, wenn die Dauer nicht bekannt ist. */
+function ladeKreis(titel, text) {
+  const m = UI.modal({ title: titel, footer: '', body: `<div class="lade-kreis unbestimmt" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+    <div class="ring"><svg viewBox="0 0 100 100"><circle class="spur" cx="50" cy="50" r="42"/><circle class="fuell" cx="50" cy="50" r="42"/></svg><div class="prozent" data-proz></div></div>
+    <div class="small muted" data-info style="text-align:center">${U.esc(text || '')}</div></div>` });
+  const wurzel = $('.lade-kreis', m.el);
+  return {
+    set(p, info) {
+      const v = Math.max(0, Math.min(1, Number(p) || 0));
+      wurzel.classList.remove('unbestimmt');
+      $('.fuell', m.el).style.strokeDashoffset = String(263.9 * (1 - v));
+      $('[data-proz]', m.el).textContent = Math.round(v * 100) + ' %';
+      wurzel.setAttribute('aria-valuenow', String(Math.round(v * 100)));
+      if (info) $('[data-info]', m.el).textContent = info;
+    },
+    unbestimmt(info) { wurzel.classList.add('unbestimmt'); $('[data-proz]', m.el).textContent = ''; if (info) $('[data-info]', m.el).textContent = info; },
+    close() { m.close(true); },
+  };
+}
+
+async function pdfTextMitLayout(datei, maxSeiten = 5, beiSeite = null) {
   const gewinner = await U.loadScript(...CDN.pdfjs);
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
   const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
@@ -7583,6 +7623,7 @@ async function pdfTextMitLayout(datei, maxSeiten = 5) {
   const seiten = Math.min(pdf.numPages, maxSeiten);
   const alles = [];
   for (let i = 1; i <= seiten; i++) {
+    if (beiSeite) beiSeite((i - 1) / seiten, `Seite ${i} von ${seiten}`);
     const inhalt = await (await pdf.getPage(i)).getTextContent();
     if (inhalt.items.length > 50000) throw new Error('Zu viele Textobjekte auf einer Seite. Bitte das PDF vereinfachen.');
     const stuecke = inhalt.items
@@ -7983,6 +8024,101 @@ function vorsorgeLaden() {
 function vorsorgeEintrag(stand, key) {
   const e = stand.bereiche[key] || {};
   return { status: e.status === 'ja' || e.status === 'nein' ? e.status : '', text: typeof e.text === 'string' ? e.text : '', antworten: (e.antworten && typeof e.antworten === 'object') ? e.antworten : {} };
+}
+
+/* ---------- Eigenes Konzept einlesen ----------
+   Stichwörter je Bereich: `kopf` prüft die Überschrift, `text` den Inhalt.
+   Eine passende Überschrift zählt viel, Treffer im Text nur wenig – eine
+   Überschrift ist die deutlichere Aussage. */
+const VORSORGE_STICHWORTE = {
+  risiko: { kopf: /risiko|kritische[nr]? punkte?|gefahrenanalyse|schwachstelle/i, text: [/nicht zugelassen/i, /kontaminat|verunreinig/i, /risikoanalyse|risikobewertung/i, /kritisch/i] },
+  standort: { kopf: /standort|bienenstand|bienenst[äa]nde|umfeld|umkreis|aufstellung|trachtfl/i, text: [/3 ?km/i, /umkreis/i, /verschmutzung|verunreinigung/i, /landbedeckung|trachtfl/i, /intensiv/i] },
+  wanderung: { kopf: /wander|anwandern/i, text: [/wander/i, /anwandern|abwandern/i] },
+  beuten: { kopf: /beute|zubeh[öo]r|holzschutz/i, text: [/beute/i, /holzschutz|lasur|anstrich/i, /kunststoff/i, /zubeh[öo]r|imkereigeräte|geräte/i] },
+  wachs: { kopf: /wachs|mittelw[äa]nd|wabenbau/i, text: [/wachs/i, /mittelw[äa]nd/i, /wabenerneuerung|waben(?:er)?neu/i, /einschmelz|umarbeit/i] },
+  fuetterung: { kopf: /f[üu]tter/i, text: [/f[üu]tter/i, /zucker|sirup/i, /futterteig|winterfutter/i, /honig als futter|eigener honig/i] },
+  gesundheit: { kopf: /gesundheit|varroa|tierarzt|krankheit|behandlung/i, text: [/varroa/i, /ameisens[äa]ure|oxals[äa]ure|milchs[äa]ure|thymol/i, /tier[äa]rzt/i, /behandl/i, /faulbrut|seuche|krankheit/i] },
+  schaedlinge: { kopf: /sch[äa]dling|wachsmotte|lagerschutz/i, text: [/wachsmotte/i, /sch[äa]dling/i, /maus|m[äa]use/i, /lagerschutz|bacillus|frost/i] },
+  ernte: { kopf: /ernte|verarbeitung|schleuder|gewinnung/i, text: [/schleuder/i, /ernte/i, /honigraum|entdeckel/i, /bienenflucht|absperrgitter|abkehr/i, /sieb|r[üu]hr/i] },
+  lager: { kopf: /lagerung|abf[üu]ll|kennzeichnung|etikett|gebinde/i, text: [/lager/i, /abf[üu]ll/i, /etikett|kennzeichn/i, /gebinde|glas|gl[äa]ser/i, /losnummer|charge/i] },
+  reinigung: { kopf: /reinigung|desinfektion|hygiene/i, text: [/reinig/i, /desinfekt/i, /hygiene/i, /sp[üu]l|sanit/i] },
+  zukauf: { kopf: /zukauf|einkauf|zugekauft|bezug\b|lieferant/i, text: [/zukauf|zugekauft/i, /ableger|schwarm/i, /lieferant/i, /konventionell/i, /k[öo]nigin\w*/i] },
+  parallel: { kopf: /umstellung|parallel|teilumstellung/i, text: [/umstellung/i, /parallel/i, /konventionell/i, /12 monate|zw[öo]lf monate/i, /getrennt/i] },
+  fremd: { kopf: /dienstleister|fremd|lohn|auftrag|dritte/i, text: [/dienstleister/i, /fremdverarbeit|lohnverarbeit/i, /auftrag/i, /extern/i, /dritte/i] },
+  verdacht: { kopf: /verdacht|beanstandung|r[üu]ckruf|vorfall|notfall/i, text: [/verdacht/i, /sperr/i, /kontrollstelle (?:informier|melde|benachrichtig)/i, /r[üu]ckruf/i, /untersuch|probe|analyse/i] },
+  ueberpruefung: { kopf: /[üu]berpr[üu]fung|dokumentation|evaluation|aktualisierung|revision|regelm[äa][sß]ig/i, text: [/[üu]berpr[üu]f/i, /j[äa]hrlich/i, /aktualisier/i, /dokumentier|aufzeichn/i] },
+};
+
+/** Ist diese Zeile eine Überschrift? Nummeriert, GROSSGESCHRIEBEN, mit Doppelpunkt oder ein bekanntes Stichwort. */
+function vorsorgeIstKopf(zeile, naechste) {
+  const z = zeile.trim();
+  if (!z || z.length > 90 || /[.,;]$/.test(z)) return false;
+  if (z.split(/\s+/).length > 12) return false;
+  if (naechste === undefined) return false; // letzte Zeile: nichts folgt
+  if (/^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)]|[IVX]+\.)\s+\S/.test(z)) return true;
+  const buchst = z.replace(/[^A-Za-zÄÖÜäöüß]/g, '');
+  if (buchst.length >= 4 && buchst === buchst.toUpperCase()) return true;
+  if (/:$/.test(z) && z.length <= 70) return true;
+  const ohne = z.replace(/^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)]|[IVX]+\.)\s+/, '');
+  return z.split(/\s+/).length <= 6 && Object.values(VORSORGE_STICHWORTE).some((s) => s.kopf.test(ohne)) && !/[a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,}/.test(z);
+}
+
+/**
+ * Zerlegt den erkannten Text eines Vorsorgekonzepts in Abschnitte und ordnet
+ * jeden einem Bereich zu. `sicher` = die Überschrift passt eindeutig oder der
+ * Inhalt trägt mindestens zwei Stichwörter mit Abstand zum Zweitplatzierten.
+ * Was sich nicht zuordnen lässt, bekommt `key: ''` – der Nutzer entscheidet.
+ */
+function vorsorgeParsen(text) {
+  const rein = String(text || '').split('\n').map((z) => z.replace(/\s+/g, ' ').trim())
+    .filter((z) => !/^(seite\s*\d+(\s*(von|\/)\s*\d+)?|\d+|[-–—_.·]+)$/i.test(z));
+  const kopfNr = (z) => z.replace(/^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)]|[IVX]+\.)\s+/, '').replace(/:$/, '').trim();
+  const abschnitte = [];
+  let akt = { kopf: '', zeilen: [] };
+  const zu = () => { if (akt.kopf || akt.zeilen.some(Boolean)) abschnitte.push(akt); };
+  let ersteKopfGefunden = false;
+  for (let i = 0; i < rein.length; i++) {
+    const z = rein[i];
+    if (z && vorsorgeIstKopf(z, rein[i + 1])) { zu(); akt = { kopf: kopfNr(z), zeilen: [] }; ersteKopfGefunden = true; }
+    else akt.zeilen.push(z);
+  }
+  zu();
+  // Ganz ohne Überschriften: an Leerzeilen in Absätze teilen.
+  let liste = abschnitte;
+  if (!ersteKopfGefunden) {
+    liste = []; let cur = [];
+    for (const z of rein.concat([''])) { if (z) cur.push(z); else if (cur.length) { liste.push({ kopf: '', zeilen: cur }); cur = []; } }
+  }
+  // Umbrüche mitten im Satz zusammenziehen, Aufzählungen behalten.
+  const fliesstext = (zeilen) => {
+    const aus = [];
+    for (const z of zeilen.filter(Boolean)) {
+      const vor = aus[aus.length - 1];
+      if (vor !== undefined && !/[.:;!?]$/.test(vor) && !/^([-•*–·]|\d+[.)])\s/.test(z) && /^[a-zäöüß(„"]/.test(z)) aus[aus.length - 1] = vor + ' ' + z;
+      else aus.push(z);
+    }
+    return aus.join('\n');
+  };
+  const ergebnis = [];
+  for (const a of liste) {
+    const body = fliesstext(a.zeilen);
+    if (body.replace(/\s/g, '').length < 15) continue;
+    const punkte = VORSORGE_BEREICHE.map((b) => {
+      const s = VORSORGE_STICHWORTE[b.key];
+      const kopf = !!(a.kopf && s.kopf.test(a.kopf));
+      const treffer = s.text.filter((re) => re.test(body)).length;
+      return { key: b.key, kopf, treffer, wert: (kopf ? 6 : 0) + Math.min(treffer, 4) };
+    }).sort((x, y) => y.wert - x.wert || Number(y.kopf) - Number(x.kopf));
+    const best = punkte[0], zweit = punkte[1];
+    let key = '', sicher = false;
+    if (best.wert > 0) {
+      key = best.key;
+      sicher = best.kopf ? best.wert - zweit.wert >= 2 || !zweit.kopf : (best.treffer >= 2 && best.wert - zweit.wert >= 1);
+      if (!best.kopf && best.treffer < 1) key = '';
+    }
+    ergebnis.push({ kopf: a.kopf, text: body, key, sicher: key ? sicher : false });
+  }
+  return ergebnis;
 }
 
 /* Was die App über den Betrieb ohnehin weiß – daraus werden die Vorschläge
@@ -8738,63 +8874,12 @@ Views.bio = {
 
   /** Hygieneplan übernehmen: Foto oder PDF → Text → Durchsicht → Einträge. */
   async planAusFoto(datei) {
-    if (!datei || datei.size > 20 * 1024 * 1024) return UI.toast('Die Datei ist größer als 20 MB. Bitte verkleinern oder aufteilen.', 'err');
-    const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
-
-    /* Ein PDF, das aus einem Schreibprogramm kommt, trägt seinen Text schon in
-       sich. Den zu lesen ist genauer als jede Erkennung aus einem Bild – also
-       zuerst das versuchen. Nur ein eingescanntes PDF muss durch die
-       Texterkennung, und dafür wird die erste Seite als Bild gerendert. */
-    if (istPdf) {
-      const lade = UI.modal({ title: 'PDF wird gelesen', body: '<p class="small">Einen Moment – die Seiten werden ausgewertet.</p>', footer: '' });
-      try {
-        const erg = await pdfTextMitLayout(datei);
-        if (erg.ausText) {
-          lade.close(true);
-          const zeilen = hygieneplanParsen(erg.text);
-          if (erg.gekuerzt) zeilen.gekuerzt = true;
-          return zeilen.length
-            ? Views.bio.planDurchsicht(zeilen, erg.text, `PDF · ${erg.seiten} ${erg.seiten === 1 ? 'Seite' : 'Seiten'}`)
-            : Views.bio.planNichtsErkannt(erg.text);
-        }
-        // Scan ohne Textebene: erste Seite als Bild, weiter mit der Texterkennung.
-        const bild = await pdfSeiteAlsBild(datei);
-        lade.close(true);
-        UI.toast(bild.seiten > 1 ? 'Eingescanntes PDF – die erste Seite wird gelesen' : 'Eingescanntes PDF – es wird gelesen');
-        datei = bild.blob;
-      } catch (e) {
-        lade.close(true);
-        return UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err');
-      }
-    }
-
-    if (!S.get('features').ocr) {
-      if (!(await UI.confirm({ title: 'Texterkennung einschalten?',
-        text: 'Zum Lesen des Plans wird die Texterkennung gebraucht. Sie lädt beim ersten Mal einmalig rund 15 MB und arbeitet danach auf dem Gerät – die Fotos verlassen es nicht.',
-        confirmText: 'Einschalten', danger: false }))) return;
-      const f = S.get('features'); f.ocr = true; await S.set('features', f);
-    }
-    const m = UI.modal({
-      title: 'Hygieneplan wird gelesen',
-      body: '<p class="small">Das Foto wird gerade Zeile für Zeile gelesen. Beim ersten Mal dauert es länger, weil die Erkennung nachgeladen wird.</p>'
-        + '<div class="mt12"><div class="progress"><div data-bar style="width:0%"></div></div><div class="hint mt6" data-stand>0 %</div></div>',
-      footer: '',
-    });
-    let text = '';
-    try {
-      text = await Ocr.runMitLayout(datei, (p) => {
-        const bar = $('[data-bar]', m.el), st = $('[data-stand]', m.el);
-        if (bar) bar.style.width = Math.round(p * 100) + '%';
-        if (st) st.textContent = Math.round(p * 100) + ' %';
-      });
-    } catch (e) {
-      m.close(true);
-      return UI.toast('Der Plan konnte nicht gelesen werden: ' + e.message, 'err');
-    }
-    m.close(true);
-    const zeilen = hygieneplanParsen(text);
-    if (!zeilen.length) return Views.bio.planNichtsErkannt(text);
-    Views.bio.planDurchsicht(zeilen, text, 'Foto');
+    const gelesen = await Views.bio.dateiZuText(datei, 'Hygieneplan wird gelesen', 5);
+    if (!gelesen) return;
+    const zeilen = hygieneplanParsen(gelesen.text);
+    if (gelesen.gekuerzt) zeilen.gekuerzt = true;
+    if (!zeilen.length) return Views.bio.planNichtsErkannt(gelesen.text);
+    Views.bio.planDurchsicht(zeilen, gelesen.text, gelesen.quelle);
   },
 
   /** Ehrlich sagen, dass nichts brauchbar war – und was zu tun ist. */
@@ -8813,7 +8898,7 @@ Views.bio = {
     const unsicher = zeilen.filter((z) => !z.sicher).length;
     const feld = (z, k, ph) => `<input class="inp" data-f="${U.esc(k)}" value="${U.esc(z[k] || '')}" placeholder="${U.esc(ph)}" style="height:34px;font-size:13px">`;
     const m = UI.modal({
-      title: 'Erkannter Hygieneplan', wide: true,
+      title: 'Erkannt – in die App übernehmen?', wide: true,
       body: `<p class="small">${zeilen.length} ${zeilen.length === 1 ? 'Zeile' : 'Zeilen'} erkannt${quelle ? ` (${U.esc(quelle)})` : ''}. Bitte durchsehen und bei Bedarf ändern – angelegt wird nur, was angehakt ist.</p>
         ${zeilen.gekuerzt ? '<div class="banner warn mt8">Der Plan wurde begrenzt (höchstens 5 PDF-Seiten bzw. 60 Einträge). Bitte restliche Seiten/Einträge separat einlesen.</div>' : ''}
         ${unsicher ? `<div class="banner warn mt8">${icon('warn')} ${unsicher} ${unsicher === 1 ? 'Zeile ließ' : 'Zeilen ließen'} sich nicht sauber zuordnen. Sie sind hervorgehoben und nicht vorausgewählt.</div>` : ''}
@@ -8899,17 +8984,24 @@ Views.bio = {
         <button class="btn btn-primary btn-sm" id="vs-assistent">${icon('plus')} Assistent starten</button>
         <button class="btn btn-ghost btn-sm" id="vs-pdf">${icon('doc')} Als PDF</button>
         <button class="btn btn-ghost btn-sm" id="vs-eigenes">${icon('upload')} Eigenes hochladen</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('camera')} Konzept einlesen<input type="file" accept="image/*,application/pdf" hidden data-vs-lesen></label>
         <button class="btn btn-ghost btn-sm" id="vs-geprueft">${icon('check')} Heute überprüft</button>
       </div>
       <div class="rows">${eintraege.map(zeile).join('')}</div>
     </div>
     <div class="card" id="vs-eigenes-card">
       <div class="card-title">${icon('upload')}<h2>Eigenes Vorsorgekonzept hochladen</h2></div>
-      <p class="small muted mb8">Du hast schon ein fertiges Konzept (z. B. von deinem Verband oder als Word/PDF)? Lade es hier hoch – es wird als Datei in der App aufbewahrt und lässt sich jederzeit wieder öffnen (z. B. für die Kontrolle). Die App liest den Inhalt <b>nicht</b> aus und trägt nichts in die Bereiche oben ein – die bleiben unabhängig davon.</p>
+      <p class="small muted mb8">Du hast schon ein fertiges Konzept (z. B. von deinem Verband oder als Word/PDF)? Zwei Wege: <b>Nur aufbewahren</b> – Datei über „Foto“ oder „Dokument“ unten hochladen (auch Word), sie lässt sich jederzeit wieder öffnen. Oder <b>einlesen</b> – ein PDF oder Foto liest die App aus, ordnet die Abschnitte den Bereichen oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
+      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('camera')} Konzept einlesen und Texte übernehmen<input type="file" accept="image/*,application/pdf" hidden data-vs-lesen></label>
       <div id="vs-eigenes-zone"></div>
     </div>`;
     $('#vs-eigenes-zone', box).appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'vorsorge', titel: 'Hochgeladene Konzepte' }));
     $('#vs-eigenes', box).onclick = () => $('#vs-eigenes-card', box).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $$('[data-vs-lesen]', box).forEach((eingabe) => { eingabe.onchange = async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) await Views.bio.vorsorgeEinlesen(f);
+    }; });
     $('#vs-assistent', box).onclick = () => Views.bio.vorsorgeAssistent();
     $('#vs-pdf', box).onclick = () => Pdf.bioVorsorge();
     $('#vs-geprueft', box).onclick = async () => {
@@ -8917,6 +9009,135 @@ Views.bio = {
       UI.toast('Als heute überprüft vermerkt'); renderRoute();
     };
     $$('[data-vorsorge]', box).forEach((b) => { b.onclick = () => Views.bio.vorsorgeEditor(b.dataset.vorsorge); });
+  },
+
+  /** Datei (PDF oder Foto) → Text, mit Ladekreis. Gibt { text, quelle, gekuerzt } zurück oder null, wenn abgebrochen/fehlgeschlagen. */
+  async dateiZuText(datei, titel, maxSeiten = 15) {
+    if (!datei || datei.size > 20 * 1024 * 1024) { UI.toast('Die Datei ist größer als 20 MB. Bitte verkleinern oder aufteilen.', 'err'); return null; }
+    const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
+    let quelle = 'Foto';
+    if (istPdf) {
+      const kreis = ladeKreis(titel, 'Die Seiten werden ausgewertet …');
+      try {
+        kreis.unbestimmt('Die Seiten werden ausgewertet …');
+        const erg = await pdfTextMitLayout(datei, maxSeiten, (p, info) => kreis.set(p, info));
+        if (erg.ausText) {
+          kreis.set(1, 'Fertig');
+          kreis.close();
+          return { text: erg.text, quelle: `PDF · ${erg.seiten} ${erg.seiten === 1 ? 'Seite' : 'Seiten'}`, gekuerzt: erg.gekuerzt };
+        }
+        kreis.unbestimmt('Eingescanntes PDF – die Seite wird vorbereitet …');
+        const bild = await pdfSeiteAlsBild(datei);
+        kreis.close();
+        UI.toast(bild.seiten > 1 ? 'Eingescanntes PDF – nur die erste Seite wird gelesen' : 'Eingescanntes PDF – es wird gelesen');
+        datei = bild.blob; quelle = bild.seiten > 1 ? 'Scan · erste Seite' : 'Scan';
+      } catch (e) { kreis.close(); UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
+    }
+    if (!S.get('features').ocr) {
+      if (!(await UI.confirm({ title: 'Texterkennung einschalten?',
+        text: 'Zum Lesen wird die Texterkennung gebraucht. Sie lädt beim ersten Mal einmalig rund 15 MB und arbeitet danach auf dem Gerät – die Fotos verlassen es nicht.',
+        confirmText: 'Einschalten', danger: false }))) return null;
+      const f = S.get('features'); f.ocr = true; await S.set('features', f);
+    }
+    const kreis = ladeKreis(titel, 'Die Erkennung wird geladen – beim ersten Mal dauert das länger …');
+    try {
+      const text = await Ocr.runMitLayout(datei, (p) => kreis.set(p, 'Das Bild wird Zeile für Zeile gelesen …'));
+      kreis.close();
+      return { text, quelle };
+    } catch (e) { kreis.close(); UI.toast('Konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
+  },
+
+  /** Eigenes Vorsorgekonzept: Datei aufbewahren, Text lesen, Abschnitte den Bereichen zuordnen, Durchsicht. */
+  async vorsorgeEinlesen(datei) {
+    if (!datei) return;
+    // Erst die Datei sichern – so ist sie da, auch wenn man die Durchsicht abbricht.
+    try {
+      const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
+      await DB.put('anhaenge', { parentTyp: 'bio', parentId: 'vorsorge', art: istPdf ? 'dokument' : 'foto', name: datei.name || (istPdf ? 'vorsorgekonzept.pdf' : 'vorsorgekonzept.jpg'),
+        mime: datei.type || (istPdf ? 'application/pdf' : 'image/jpeg'), blob: datei, groesse: datei.size, datum: U.nowIso(), dokumentTyp: '' });
+    } catch (e) { return UI.toast('Die Datei konnte nicht gespeichert werden: ' + e.message, 'err'); }
+    const gelesen = await Views.bio.dateiZuText(datei, 'Vorsorgekonzept wird gelesen');
+    if (!gelesen) { renderRoute(); return; }
+    const abschnitte = vorsorgeParsen(gelesen.text);
+    if (!abschnitte.length) {
+      UI.modal({
+        title: 'Nichts erkannt',
+        body: `<p class="small">Die Datei ist gespeichert, aber es war kein verwertbarer Text zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel; Handschrift wird nicht zuverlässig gelesen. Die Bereiche kannst du über „Assistent starten“ oder von Hand ausfüllen.</p>
+          <div class="field mt12"><label>Was gelesen wurde</label><textarea class="inp" rows="6" readonly>${U.esc((gelesen.text || '').trim() || '(nichts)')}</textarea></div>`,
+        footer: '<button class="btn btn-primary" data-zu>Verstanden</button>',
+      });
+      $$('[data-zu]').forEach((b) => b.onclick = () => { b.closest('.modal-back').remove(); renderRoute(); });
+      return;
+    }
+    Views.bio.vorsorgeDurchsicht(abschnitte, gelesen);
+  },
+
+  /** Durchsicht: jeder erkannte Abschnitt mit Bereich, Text und Häkchen – gespeichert wird nur, was angehakt ist. */
+  vorsorgeDurchsicht(abschnitte, gelesen) {
+    const stand = vorsorgeLaden();
+    const hatText = (key) => !!vorsorgeEintrag(stand, key).text.trim();
+    const optionen = (sel) => '<option value="">– nicht übernehmen –</option>'
+      + VORSORGE_BEREICHE.map((b) => `<option value="${U.esc(b.key)}"${b.key === sel ? ' selected' : ''}>${U.esc(b.titel)}</option>`).join('');
+    const unsicher = abschnitte.filter((a) => !a.sicher).length;
+    const m = UI.modal({
+      title: 'Erkannt – in die App übernehmen?', wide: true,
+      body: `<p class="small">${abschnitte.length} ${abschnitte.length === 1 ? 'Abschnitt' : 'Abschnitte'} erkannt (${U.esc(gelesen.quelle)}). Die Datei ist bereits gespeichert. Prüfe Zuordnung und Text – übernommen wird nur, was angehakt ist.</p>
+        ${gelesen.gekuerzt ? '<div class="banner warn mt8">Es wurden nur die ersten 15 Seiten gelesen.</div>' : ''}
+        ${unsicher ? `<div class="banner warn mt8">${icon('warn')} <span class="b-msg">${unsicher} ${unsicher === 1 ? 'Abschnitt ließ' : 'Abschnitte ließen'} sich nicht sicher zuordnen. Sie sind hervorgehoben und nicht vorausgewählt.</span></div>` : ''}
+        <div data-abschnitte class="mt12">${abschnitte.map((a, i) => {
+          const konflikt = a.key && hatText(a.key);
+          return `<div class="vk-abschnitt${a.sicher ? '' : ' unsicher'}" data-i="${i}">
+            <div class="vk-kopf"><input type="checkbox" data-an ${a.sicher && !konflikt ? 'checked' : ''} aria-label="übernehmen">
+              <select class="inp" data-bereich>${optionen(a.key)}</select></div>
+            ${a.kopf ? `<div class="small muted mt4">Überschrift im Dokument: ${U.esc(a.kopf)}</div>` : ''}
+            <textarea class="inp mt4" data-text rows="4" style="font-size:13px">${U.esc(a.text)}</textarea>
+            <div class="vk-konflikt small mt4" data-konflikt hidden><span style="color:var(--warn)">${icon('warn')} Dieser Bereich hat schon einen Text.</span>
+              <select class="inp" data-modus style="height:32px;width:auto;display:inline-block"><option value="anhaengen">unten anhängen</option><option value="ersetzen">ersetzen</option></select></div>
+          </div>`; }).join('')}</div>
+        <details class="mt8"><summary class="small muted" style="cursor:pointer">Ganzen erkannten Text ansehen</summary>
+          <textarea class="inp mt8" rows="8" readonly style="font-size:12px">${U.esc((gelesen.text || '').trim())}</textarea></details>`,
+      footer: '<button class="btn btn-ghost" data-ab>Abbrechen</button><button class="btn btn-primary" data-ok>Übernehmen</button>',
+    });
+    const aktualisieren = () => {
+      let n = 0;
+      for (const r of $$('.vk-abschnitt', m.el)) {
+        const key = $('[data-bereich]', r).value;
+        const k = $('[data-konflikt]', r);
+        k.hidden = !(key && hatText(key));
+        if ($('[data-an]', r).checked && key) n++;
+      }
+      const ok = $('[data-ok]', m.el);
+      ok.textContent = n ? `${n} ${n === 1 ? 'Abschnitt' : 'Abschnitte'} übernehmen` : 'Nichts ausgewählt';
+      ok.disabled = !n;
+    };
+    m.el.addEventListener('change', aktualisieren); aktualisieren();
+    $('[data-ab]', m.el).onclick = () => { m.close(true); renderRoute(); };
+    let laeuft = false;
+    $('[data-ok]', m.el).onclick = async () => {
+      if (laeuft) return; laeuft = true;
+      const knopf = $('[data-ok]', m.el); knopf.disabled = true;
+      try {
+        const gewaehlt = $$('.vk-abschnitt', m.el).filter((r) => $('[data-an]', r).checked && $('[data-bereich]', r).value)
+          .map((r) => ({ key: $('[data-bereich]', r).value, text: $('[data-text]', r).value.trim(), modus: $('[data-modus]', r).value })).filter((x) => x.text);
+        if (!gewaehlt.length) { laeuft = false; return UI.toast('Kein Text zum Übernehmen.', 'err'); }
+        const s = vorsorgeLaden();
+        const bereiche = { ...s.bereiche };
+        const je = new Map();
+        for (const g of gewaehlt) { if (!je.has(g.key)) je.set(g.key, []); je.get(g.key).push(g); }
+        for (const [key, liste] of je) {
+          const alt = vorsorgeEintrag(s, key);
+          const neu = liste.map((x) => x.text).join('\n\n');
+          const ersetzen = !alt.text.trim() || liste.some((x) => x.modus === 'ersetzen');
+          bereiche[key] = { status: 'ja', text: ersetzen ? neu : alt.text.trim() + '\n\n' + neu, antworten: alt.antworten };
+        }
+        s.bereiche = bereiche;
+        if (!s.erstelltAm) s.erstelltAm = U.todayIso();
+        await S.set('bioVorsorge', s);
+        m.close(true);
+        UI.toast(`${je.size} ${je.size === 1 ? 'Bereich' : 'Bereiche'} übernommen`);
+        renderRoute();
+      } catch (e) { laeuft = false; knopf.disabled = false; UI.toast('Konnte nicht gespeichert werden: ' + e.message, 'err'); }
+    };
   },
 
   /* Ein Bereich: betrifft/betrifft nicht, die Fragen dazu und der Text.
@@ -9132,9 +9353,15 @@ Views.bio = {
     /* Beide Listen stecken in eigenen Wrapper-<div>s – die CSS-Regel
        „.card + .card" wirkt nur zwischen direkten Geschwistern und greift
        hier deshalb NICHT: die Karten berührten sich ohne Abstand. */
-    box.innerHTML = '<div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>';
+    box.innerHTML = `<div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>
+      <div class="card" id="hyg-dateien" style="margin-top:14px">
+        <div class="card-title">${icon('upload')}<h2>Zertifikate und Nachweise hochladen</h2></div>
+        <p class="small muted mb8">Zum <b>Aufbewahren</b>: z. B. Bescheinigung eines Reinigungsmittels, Sicherheitsdatenblatt oder ein Zertifikat als PDF oder Foto (auch Word). Die Datei wird nur gespeichert und lässt sich jederzeit wieder öffnen – die App liest sie nicht aus.</p>
+        <div id="hyg-dateien-zone"></div>
+      </div>`;
     await Views.bio.tabListe($('#bio-plan', box), 'hygieneplan');
     await Views.bio.tabListe($('#bio-nachweis', box), 'hygienenachweis');
+    $('#hyg-dateien-zone', box).appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'hygiene', titel: 'Hochgeladene Dateien' }));
     /* Der Knopf sitzt IM Plan-Kasten, neben „Eintrag" – dort sucht man ihn,
        wenn man den Plan gerade in der Hand hält. */
     const kopf = $('#bio-plan .card-title', box);
