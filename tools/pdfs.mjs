@@ -140,6 +140,7 @@ async function main() {
     ['bestandsmeldung', 'await Pdf.bestandsmeldung();'],
     ['tierseuchenkasse', 'await Pdf.tierseuchenkasse();'],
     ['fuetterungsliste', `await Pdf.fuetterungsliste('${jahr}');`],
+    ['betriebsbeschreibung', `const c = await betriebKontext(); const bb = {}; for (const a of BIO_ABSCHNITTE) bb[a.key] = bbVorschlag(a.key, {}, c); delete bb.zucht; await S.set('bioBetrieb', bb); await Pdf.bioBetriebsbeschreibung();`],
   ];
   for (const [name, code] of jobs) {
     try {

@@ -1030,8 +1030,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.82';
+const APP_VERSION = '1.83';
 const CHANGELOG = [
+  { version: '1.83', datum: '2026-09-29', punkte: [
+    'Neu bei <b>Bio → Betriebsbeschreibung</b>: ein <b>Assistent</b> wie beim Vorsorgekonzept. Für jeden der 13 Abschnitte stellt er ein bis drei Fragen und schlägt einen Text vor – aus deinen Antworten und den Daten der App (Standorte, Fütterung, Behandlungen, Hygieneplan, Zertifikat …). Übernehmen, ändern oder überspringen; alles bleibt später änderbar und löschbar.',
+    'Die Betriebsbeschreibung lässt sich jetzt <b>als PDF ausdrucken</b>, eine <b>eigene Unterlage einlesen</b> (PDF oder Foto: die App ordnet die Abschnitte zu und fragt vor dem Übernehmen) und die Fassung von Verband oder Kontrollstelle <b>hochladen</b>. Vorsorgekonzept, Betriebsbeschreibung und Hygiene haben jetzt dieselben Knöpfe in derselben Reihenfolge: Assistent starten · Einlesen · Als PDF · Eigenes hochladen.',
+    '<b>Herkunft sichtbar:</b> Was aus einer eigenen Unterlage übernommen wurde, trägt in der Liste die Marke „aus deiner Unterlage“. Öffnest du den Bereich und der Text passt doch nicht, übernimmst du mit einem Tipp den <b>Vorschlag der App</b> – und kommst mit „Text aus meiner Unterlage“ jederzeit wieder zurück. Gilt für Betriebsbeschreibung und Vorsorgekonzept.',
+  ] },
   { version: '1.82', datum: '2026-09-29', punkte: [
     '<b>PDFs aufgeräumt:</b> Bei langen Firmen- oder Standortnamen überlagerten sich Texte – im Kopf jeder PDF (Name über der Adresse), auf dem <b>Honig-Etikett</b> (Name, Bezeichnung, Füllmenge und Adresse liefen ineinander), bei der <b>Rechnung</b> (Absender lief aus dem Blatt, Fußzeile lag über „Erstellt mit ImkerBuch“) und bei <b>Bestandsmeldung/Tierseuchenkasse</b> (Angaben liefen über den rechten Rand). Jetzt werden lange Namen kleiner gesetzt, umgebrochen oder mit „…“ gekürzt, und alles darunter rückt nach.',
     'Bei den <b>Unterlagen zur Öko-Kontrolle</b> stand eine Überschrift manchmal allein am Seitenende, die Tabelle darunter auf der nächsten Seite – jetzt bleibt sie beim Text. Außerdem fehlten Umlaute („Völker“, „Fläche“, „für“).',
@@ -2222,6 +2227,7 @@ const S = {
     aufgabenHinweise: { offen: [], weg: [] },
     /* Betriebsbeschreibung für die Öko-Kontrolle: freie Texte je Abschnitt. */
     bioBetrieb: {},
+    bioBetriebQuelle: {}, // Abschnitte der Betriebsbeschreibung, die aus einer eigenen Unterlage übernommen wurden: { key: { typ:'eigen', datum, text } }
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     /* Verkaufspreise je Abfüllung für den Marktverkauf. Gehören gespeichert:
        auf dem Markt schließt man die App zwischendurch, und die Preise mitten
@@ -8030,7 +8036,8 @@ function vorsorgeLaden() {
 /** Eintrag eines Bereichs: status 'ja' | 'nein' | '' (offen), text, antworten. */
 function vorsorgeEintrag(stand, key) {
   const e = stand.bereiche[key] || {};
-  return { status: e.status === 'ja' || e.status === 'nein' ? e.status : '', text: typeof e.text === 'string' ? e.text : '', antworten: (e.antworten && typeof e.antworten === 'object') ? e.antworten : {} };
+  return { status: e.status === 'ja' || e.status === 'nein' ? e.status : '', text: typeof e.text === 'string' ? e.text : '', antworten: (e.antworten && typeof e.antworten === 'object') ? e.antworten : {},
+    quelle: (e.quelle && e.quelle.typ === 'eigen') ? { typ: 'eigen', datum: e.quelle.datum || '', text: String(e.quelle.text || '') } : null };
 }
 
 /* ---------- Eigenes Konzept einlesen ----------
@@ -8056,8 +8063,156 @@ const VORSORGE_STICHWORTE = {
   ueberpruefung: { kopf: /[üu]berpr[üu]fung|dokumentation|evaluation|aktualisierung|revision|regelm[äa][sß]ig/i, text: [/[üu]berpr[üu]f/i, /j[äa]hrlich/i, /aktualisier/i, /dokumentier|aufzeichn/i] },
 };
 
+/* Betriebsbeschreibung: Stichwörter je Abschnitt (gleiche Erkennung wie beim Vorsorgekonzept). */
+const BB_STICHWORTE = {
+  betrieb: { kopf: /^betrieb\b|betriebsdaten|verantwortlich|betriebsleit|allgemein/i, text: [/verantwortlich/i, /nebenerwerb|haupterwerb|hobby/i, /umstellung|seit\s+\d{4}/i, /kontrollstelle/i] },
+  umfang: { kopf: /umfang|betriebsgr[öo]ß|bestand\b|anzahl/i, text: [/v[öo]lker/i, /st[äa]nde|bienenst[äa]nde/i, /parallel/i, /gesamte[nr]? betrieb|ganze[nr]? betrieb/i] },
+  standorte: VORSORGE_STICHWORTE.standort,
+  beuten: VORSORGE_STICHWORTE.beuten,
+  wachs: VORSORGE_STICHWORTE.wachs,
+  fuetterung: VORSORGE_STICHWORTE.fuetterung,
+  gesundheit: VORSORGE_STICHWORTE.gesundheit,
+  zucht: { kopf: /k[öo]nigin|vermehrung|zucht|ableger/i, text: [/k[öo]nigin/i, /nachzucht|zucht/i, /ableger|schwarm/i, /fl[üu]gel/i] },
+  ernte: VORSORGE_STICHWORTE.ernte,
+  reinigung: VORSORGE_STICHWORTE.reinigung,
+  kennzeichnung: { kopf: /kennzeichnung|etikett|vermarktung|vertrieb|verkauf/i, text: [/etikett|kennzeichn/i, /vermarkt|vertrieb|verkauf/i, /bio.?logo|eu.?bio|verbandszeichen/i, /kontrollstellen.?code|code der kontrollstelle/i] },
+  doku: { kopf: /aufzeichnung|dokumentation|nachweis|buchf[üu]hrung/i, text: [/aufzeichn/i, /dokumentier/i, /bestandsbuch|stockkarte|wanderbuch/i, /aufbewahr|belege|rechnung/i] },
+  zertifikate: { kopf: /zertifikat|bescheinigung|begleitpapier/i, text: [/zertifikat/i, /bescheinigung/i, /g[üu]ltig bis/i, /original/i] },
+};
+const bbBereiche = () => BIO_ABSCHNITTE.map((a) => ({ key: a.key, titel: a.label }));
+
+/* Was der Assistent zur Betriebsbeschreibung fragt und wie er daraus – und aus den
+   Daten der App – einen Text baut. Nur Vorschläge: alles bleibt änderbar. */
+const BB_ASSISTENT = {
+  betrieb: {
+    fragen: [
+      { key: 'form', label: 'Wie wird die Imkerei geführt?', type: 'select', default: 'neben', keepOrder: true, options: [
+        { v: 'haupt', l: 'im Haupterwerb' }, { v: 'neben', l: 'im Nebenerwerb' }, { v: 'hobby', l: 'als Hobby mit Vermarktung' }] },
+      { key: 'verantw', label: 'Wer ist für die Öko-Auflagen verantwortlich?', type: 'text', default: '', placeholder: 'Name, ggf. Vertretung' },
+      { key: 'seit', label: 'Seit wann wird ökologisch geimkert?', type: 'text', default: '', placeholder: 'z. B. seit 2019' },
+    ],
+    text: (a, c) => `Die ${c.name ? (/imkerei/i.test(c.name) ? c.name : 'Imkerei ' + c.name) : 'Imkerei'} ${c.ort ? 'in ' + c.ort + ' ' : ''}wird ${{ haupt: 'im Haupterwerb', neben: 'im Nebenerwerb', hobby: 'als Hobbyimkerei mit Vermarktung der Erzeugnisse' }[a.form] || ''} geführt.`.replace(/ +/g, ' ')
+      + ` Verantwortlich für die Einhaltung der Öko-Vorschriften ist ${String(a.verantw || '').trim() || 'die Betriebsleitung'}.`
+      + (String(a.seit || '').trim() ? ` Ökologisch geimkert wird ${String(a.seit).trim()}.` : '')
+      + (c.kontrollstelle ? ` Der Betrieb unterliegt der Kontrolle durch ${c.kontrollstelle}.` : ''),
+  },
+  umfang: {
+    fragen: [{ key: 'parallel', label: 'Wird auch konventionell geimkert?', type: 'select', default: 'nein', keepOrder: true, options: [
+      { v: 'nein', l: 'nein – der ganze Betrieb ist ökologisch' }, { v: 'ja', l: 'ja – Parallelerzeugung' }] }],
+    text: (a, c) => `Die Imkerei umfasst ${c.voelker} ${c.voelker === 1 ? 'Volk' : 'Völker'} an ${c.staende} ${c.staende === 1 ? 'Stand' : 'Ständen'}. `
+      + (a.parallel === 'ja' ? 'Neben der ökologischen wird auch konventionell geimkert (Parallelerzeugung); Völker, Geräte und Erzeugnisse werden eindeutig gekennzeichnet und getrennt gehalten und gelagert.' : 'Der gesamte Betrieb wird ökologisch geführt.'),
+  },
+  standorte: {
+    fragen: [],
+    text: (a, c) => 'Die Bienenstände werden so gewählt, dass im Umkreis von 3 km die Nektar- und Pollenquellen im Wesentlichen aus ökologisch bewirtschafteten Flächen, Wildpflanzen oder mit geringer Umweltauswirkung bewirtschafteten Flächen bestehen. Verschmutzungsquellen im Umfeld werden bei der Standortwahl berücksichtigt.'
+      + (c.standorteText ? '\n\n' + c.standorteText : ' Die Landbedeckung je Stand wird im Reiter „Standorte“ ausgewertet.'),
+  },
+  beuten: {
+    fragen: [
+      { key: 'material', label: 'Woraus bestehen die Beuten?', type: 'select', default: 'holz', keepOrder: true, options: [
+        { v: 'holz', l: 'Holz' }, { v: 'gemischt', l: 'überwiegend Holz, einzelne Teile aus anderem Material' }] },
+      { key: 'anstrich', label: 'Wie sind die Außenseiten behandelt?', type: 'select', default: 'wachs', keepOrder: true, options: [
+        { v: 'wachs', l: 'Bienenwachs oder Leinöl' }, { v: 'unbehandelt', l: 'unbehandelt' }] },
+    ],
+    text: (a) => `Die Beuten bestehen ${a.material === 'gemischt' ? 'überwiegend aus Holz, einzelne Teile aus anderem Material' : 'aus Holz'}. `
+      + (a.anstrich === 'unbehandelt' ? 'Die Außenseiten bleiben unbehandelt. ' : 'Die Außenseiten sind mit Bienenwachs oder Leinöl behandelt. ')
+      + 'Chemisch-synthetische Holzschutzmittel werden nicht verwendet; in den Beuten kommen nur natürliche Stoffe wie Propolis, Wachs und Pflanzenöle zum Einsatz.',
+  },
+  wachs: {
+    fragen: [{ key: 'herkunft', label: 'Woher stammen die Mittelwände?', type: 'select', default: 'eigen', keepOrder: true, options: [
+      { v: 'eigen', l: 'aus dem eigenen Wachskreislauf' }, { v: 'zukauf', l: 'zugekaufte Öko-Mittelwände' }, { v: 'beides', l: 'beides' }] }],
+    text: (a) => ({ eigen: 'Die Mittelwände stammen ausschließlich aus dem eigenen Wachskreislauf.', zukauf: 'Es werden nur Mittelwände aus ökologischer Erzeugung zugekauft; die Bio-Zertifikate der Lieferanten liegen vor.', beides: 'Die Mittelwände stammen aus dem eigenen Wachskreislauf oder aus ökologischer Erzeugung; für zugekauftes Wachs liegen die Zertifikate der Lieferanten vor.' }[a.herkunft] || '')
+      + ' Alte, dunkle Waben werden regelmäßig ausgeschieden und erneuert. Wachs aus ökologischer Haltung wird getrennt von anderem Wachs gelagert und verarbeitet.',
+  },
+  fuetterung: {
+    fragen: [
+      { key: 'futter', label: 'Womit wird gefüttert?', type: 'multicheck', default: ['zucker'], options: [
+        { v: 'zucker', l: 'ökologischer Zucker bzw. Zuckersirup' }, { v: 'honig', l: 'eigener Honig / Futterwaben' }, { v: 'teig', l: 'Futterteig aus ökologischem Zucker' }] },
+      { key: 'wann', label: 'Wann wird gefüttert?', type: 'select', default: 'beides', keepOrder: true, options: [
+        { v: 'winter', l: 'zur Einwinterung nach der Ernte' }, { v: 'bedarf', l: 'nur wenn das Überleben gefährdet ist' }, { v: 'beides', l: 'zur Einwinterung und bei Bedarf' }] },
+    ],
+    text: (a, c) => {
+      const namen = { zucker: 'ökologischem Zucker bzw. Zuckersirup', honig: 'eigenem Honig', teig: 'Futterteig aus ökologischem Zucker' };
+      const wahl = (a.futter && a.futter.length ? a.futter : ['zucker']).map((k) => namen[k]);
+      const wann = { winter: 'zur Einwinterung nach der Ernte', bedarf: 'nur, wenn das Überleben der Völker gefährdet ist', beides: 'zur Einwinterung nach der Ernte und bei Bedarf' }[a.wann] || '';
+      return `Am Ende der Saison verbleibt genügend Honig und Pollen in den Völkern. Gefüttert wird ${wann} mit ${vsListe(wahl)}. Für jedes zugekaufte Futter liegt ein Bio-Nachweis vor; Futter wird getrennt von konventionellen Erzeugnissen gelagert. Jede Fütterung wird mit Datum, Futterart und Menge dokumentiert${c.futterarten.length ? ` (zuletzt erfasst: ${vsListe(c.futterarten)})` : ''}.`;
+    },
+  },
+  gesundheit: {
+    fragen: [{ key: 'verfahren', label: 'Welche Verfahren setzt du ein?', type: 'multicheck', default: ['drohnen', 'ameisen', 'oxal'], options: [
+      { v: 'drohnen', l: 'Drohnenbrutentnahme' }, { v: 'ameisen', l: 'Ameisensäure' }, { v: 'oxal', l: 'Oxalsäure' }, { v: 'milch', l: 'Milchsäure' }, { v: 'thymol', l: 'Thymol' }, { v: 'brutlos', l: 'Bannwabe / Brutunterbrechung' }] }],
+    text: (a, c) => {
+      const namen = { drohnen: 'Drohnenbrutentnahme', ameisen: 'Ameisensäure', oxal: 'Oxalsäure', milch: 'Milchsäure', thymol: 'Thymol', brutlos: 'Bannwabe bzw. Brutunterbrechung' };
+      const wahl = (a.verfahren || []).map((k) => namen[k]).filter(Boolean);
+      return 'Zur Vorbeugung werden die Völker regelmäßig auf Krankheiten und Varroabefall geprüft.'
+        + (wahl.length ? ` Gegen die Varroamilbe kommen nur die für die ökologische Bienenhaltung zugelassenen Verfahren zum Einsatz: ${vsListe(wahl)}.` : ' Gegen die Varroamilbe kommen nur die für die ökologische Bienenhaltung zugelassenen Verfahren zum Einsatz.')
+        + ' Jede Behandlung wird im Bestandsbuch mit Mittel, Menge, Datum und Volk dokumentiert.'
+        + (c.mittel.length ? ` In den letzten zwölf Monaten erfasst: ${vsListe(c.mittel)}.` : '');
+    },
+  },
+  zucht: {
+    fragen: [{ key: 'herkunft', label: 'Woher stammen die Königinnen?', type: 'select', default: 'eigen', keepOrder: true, options: [
+      { v: 'eigen', l: 'eigene Nachzucht / eigene Vermehrung' }, { v: 'zukauf', l: 'Zukauf aus ökologischer Haltung' }, { v: 'beides', l: 'beides' }] }],
+    text: (a, c) => ({ eigen: 'Die Königinnen stammen aus der eigenen Nachzucht; Völker werden durch Ableger und Schwärme vermehrt.', zukauf: 'Königinnen werden bevorzugt aus ökologischer Haltung zugekauft.', beides: 'Königinnen stammen aus der eigenen Nachzucht oder werden bevorzugt aus ökologischer Haltung zugekauft; Völker werden durch Ableger und Schwärme vermehrt.' }[a.herkunft] || '')
+      + ' Nicht ökologische Königinnen werden nur im zulässigen Umfang eingesetzt. Das Beschneiden der Flügel von Königinnen findet nicht statt.'
+      + (c.zukaufJahr ? ` Im laufenden Jahr wurde ${c.zukaufJahr === 1 ? 'eine Königin' : c.zukaufJahr + ' Königinnen'} zugekauft.` : ''),
+  },
+  ernte: {
+    fragen: [{ key: 'raum', label: 'Wo wird der Honig verarbeitet?', type: 'select', default: 'eigen', keepOrder: true, options: [
+      { v: 'eigen', l: 'in einem eigenen Schleuderraum' }, { v: 'gemeinsam', l: 'in einem Gemeinschaftsraum / bei einem Dienstleister' }, { v: 'wirtschaft', l: 'in Küche bzw. Wirtschaftsraum' }] }],
+    text: (a) => `Der Honig wird ${{ eigen: 'in einem eigenen Schleuderraum', gemeinsam: 'in einem Gemeinschaftsraum bzw. bei einem Dienstleister', wirtschaft: 'in einem Wirtschaftsraum' }[a.raum] || ''} geschleudert und abgefüllt. `.replace(/ +/g, ' ')
+      + 'Bei der Ernte werden keine chemisch-synthetischen Repellents eingesetzt; die Bienen werden mit einer Bienenflucht von den Honigwaben getrennt, Waben mit Brut werden nicht geschleudert. Alle Geräte, die mit Honig in Berührung kommen, sind lebensmittelecht und werden vor der Ernte gereinigt. Ökologische und konventionelle Ware werden getrennt verarbeitet und gelagert.',
+  },
+  reinigung: {
+    fragen: [],
+    text: (a, c) => `Räume, Geräte und Behälter werden nach einem festen Hygieneplan gereinigt${c.hygieneplan ? ` (derzeit ${c.hygieneplan} ${c.hygieneplan === 1 ? 'Eintrag' : 'Einträge'} im Reiter „Hygiene“)` : ''}. Bevorzugt werden heißes Wasser, Dampf und mechanische Reinigung. Reinigungs- und Desinfektionsmittel werden nur eingesetzt, wenn sie für die ökologische Produktion zugelassen sind, und anschließend gründlich mit Trinkwasser abgespült. Jede Reinigung wird mit Datum dokumentiert.`,
+  },
+  kennzeichnung: {
+    fragen: [{ key: 'wege', label: 'Wie wird vermarktet?', type: 'multicheck', default: ['hof'], options: [
+      { v: 'hof', l: 'ab Hof' }, { v: 'markt', l: 'auf dem Wochenmarkt' }, { v: 'handel', l: 'über Hofladen / Einzelhandel' }, { v: 'online', l: 'online / Versand' }] }],
+    text: (a, c) => {
+      const namen = { hof: 'ab Hof', markt: 'auf dem Wochenmarkt', handel: 'über Hofladen bzw. Einzelhandel', online: 'online bzw. per Versand' };
+      const wege = (a.wege || []).map((k) => namen[k]).filter(Boolean);
+      return `Der Honig wird ${wege.length ? vsListe(wege) : 'direkt'} vermarktet. Ökologische Ware wird als „Bio“ bzw. „Öko“ gekennzeichnet – mit dem EU-Bio-Logo${c.verband ? `, dem Zeichen ${c.verband}` : ''} und dem Code der Kontrollstelle${c.kontrollcode ? ` (${c.kontrollcode})` : ''}. Auf jedem Etikett stehen außerdem Herkunft, Nettofüllmenge, Losnummer und Mindesthaltbarkeitsdatum.`;
+    },
+  },
+  doku: {
+    fragen: [{ key: 'womit', label: 'Womit wird dokumentiert?', type: 'multicheck', default: ['app', 'belege'], options: [
+      { v: 'app', l: 'diese App (Bestandsbuch, Wanderbuch, Fütterung, Chargen, Kassenbuch)' }, { v: 'papier', l: 'Papier-Aufzeichnungen' }, { v: 'belege', l: 'Rechnungen und Belege' }] }],
+    text: (a) => {
+      const namen = { app: 'in der App ImkerBuch (Bestandsbuch, Wanderbuch, Fütterungen, Chargen und Kassenbuch)', papier: 'in Papier-Aufzeichnungen', belege: 'durch Rechnungen und Belege' };
+      const w = (a.womit || []).map((k) => namen[k]).filter(Boolean);
+      return `Der Betrieb dokumentiert laufend ${w.length ? vsListe(w) : 'alle Vorgänge'}. Aufzeichnungen und Belege werden über die vorgeschriebenen Fristen aufbewahrt und der Kontrollstelle auf Verlangen vorgelegt.`;
+    },
+  },
+  zertifikate: {
+    fragen: [],
+    text: (a, c) => c.zertNr
+      ? `Bescheinigung der Kontrollstelle Nr. ${c.zertNr}${c.zertBis ? `, gültig bis ${U.fmtDate(c.zertBis)}` : ''}.${c.zertAblage ? ` Das Original liegt: ${c.zertAblage}.` : ''} Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Abnehmer & Lieferanten“ hinterlegt.`
+      : 'Die Bescheinigung der Kontrollstelle (Nummer, Gültigkeit, Ablageort) ist unten unter „Eigenes Öko-Zertifikat“ eingetragen. Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Abnehmer & Lieferanten“ hinterlegt.',
+  },
+};
+
+async function betriebKontext() {
+  const basis = await vorsorgeKontext(vorsorgeLaden());
+  const imk = S.get('imkerei') || {};
+  const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
+  const jeStand = new Map();
+  for (const v of (await DB.getAll('voelker')).filter((x) => x.status === 'aktiv')) jeStand.set(v.standId, (jeStand.get(v.standId) || 0) + 1);
+  return { ...basis, name: imk.name || '', ort: imk.ort || '', staende: staende.length, standorteText: bioStandorteText(staende, jeStand),
+    verband: (imk.bioVerbandJN === 'ja' && (imk.bioVerband || []).length) ? imk.bioVerband.join(', ') : '',
+    zertNr: imk.oekoZertNummer || '', zertBis: imk.oekoZertGueltigBis || '', zertAblage: imk.oekoZertAblage || '' };
+}
+function bbVorschlag(key, antworten, ctx) {
+  const cfg = BB_ASSISTENT[key];
+  if (!cfg) return '';
+  const a = {};
+  for (const f of cfg.fragen) a[f.key] = (antworten && antworten[f.key] !== undefined) ? antworten[f.key] : f.default;
+  try { return String(cfg.text(a, ctx) || '').trim(); } catch (e) { return ''; }
+}
+
 /** Ist diese Zeile eine Überschrift? Nummeriert, GROSSGESCHRIEBEN, mit Doppelpunkt oder ein bekanntes Stichwort. */
-function vorsorgeIstKopf(zeile, naechste) {
+function vorsorgeIstKopf(zeile, naechste, stichworte = VORSORGE_STICHWORTE) {
   const z = zeile.trim();
   if (!z || z.length > 90 || /[.,;]$/.test(z)) return false;
   if (z.split(/\s+/).length > 12) return false;
@@ -8067,7 +8222,7 @@ function vorsorgeIstKopf(zeile, naechste) {
   if (buchst.length >= 4 && buchst === buchst.toUpperCase()) return true;
   if (/:$/.test(z) && z.length <= 70) return true;
   const ohne = z.replace(/^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)]|[IVX]+\.)\s+/, '');
-  return z.split(/\s+/).length <= 6 && Object.values(VORSORGE_STICHWORTE).some((s) => s.kopf.test(ohne)) && !/[a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,}/.test(z);
+  return z.split(/\s+/).length <= 6 && Object.values(stichworte).some((s) => s.kopf.test(ohne)) && !/[a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,} [a-zäöüß]{2,}/.test(z);
 }
 
 /**
@@ -8076,7 +8231,7 @@ function vorsorgeIstKopf(zeile, naechste) {
  * Inhalt trägt mindestens zwei Stichwörter mit Abstand zum Zweitplatzierten.
  * Was sich nicht zuordnen lässt, bekommt `key: ''` – der Nutzer entscheidet.
  */
-function vorsorgeParsen(text) {
+function vorsorgeParsen(text, bereiche = VORSORGE_BEREICHE, stichworte = VORSORGE_STICHWORTE) {
   const rein = String(text || '').split('\n').map((z) => z.replace(/\s+/g, ' ').trim())
     .filter((z) => !/^(seite\s*\d+(\s*(von|\/)\s*\d+)?|\d+|[-–—_.·]+)$/i.test(z));
   const kopfNr = (z) => z.replace(/^(?:\d+(?:\.\d+)*[.)]?|[A-Za-z][.)]|[IVX]+\.)\s+/, '').replace(/:$/, '').trim();
@@ -8086,7 +8241,7 @@ function vorsorgeParsen(text) {
   let ersteKopfGefunden = false;
   for (let i = 0; i < rein.length; i++) {
     const z = rein[i];
-    if (z && vorsorgeIstKopf(z, rein[i + 1])) { zu(); akt = { kopf: kopfNr(z), zeilen: [] }; ersteKopfGefunden = true; }
+    if (z && vorsorgeIstKopf(z, rein[i + 1], stichworte)) { zu(); akt = { kopf: kopfNr(z), zeilen: [] }; ersteKopfGefunden = true; }
     else akt.zeilen.push(z);
   }
   zu();
@@ -8110,8 +8265,8 @@ function vorsorgeParsen(text) {
   for (const a of liste) {
     const body = fliesstext(a.zeilen);
     if (body.replace(/\s/g, '').length < 15) continue;
-    const punkte = VORSORGE_BEREICHE.map((b) => {
-      const s = VORSORGE_STICHWORTE[b.key];
+    const punkte = bereiche.map((b) => {
+      const s = stichworte[b.key];
       const kopf = !!(a.kopf && s.kopf.test(a.kopf));
       const treffer = s.text.filter((re) => re.test(body)).length;
       return { key: b.key, kopf, treffer, wert: (kopf ? 6 : 0) + Math.min(treffer, 4) };
@@ -8978,7 +9133,7 @@ Views.bio = {
             : `<span class="muted">noch offen – ${U.esc(b.kurz)}</span>`;
       return `<button class="row" data-vorsorge="${U.esc(b.key)}" style="align-items:flex-start">
         <span class="r-ic">${icon(ic)}</span>
-        <span class="r-main"><span class="r-title">${U.esc(b.titel)}${b.immer ? ' <span class="badge b-muted">immer</span>' : ''}</span>
+        <span class="r-main"><span class="r-title">${U.esc(b.titel)}${b.immer ? ' <span class="badge b-muted">immer</span>' : ''}${e.quelle ? ' <span class="badge b-violet">aus deiner Unterlage</span>' : ''}</span>
         <span class="r-sub small muted">${U.esc(b.grundlage)}</span>
         <span class="r-sub" style="white-space:normal">${sub}</span></span>${icon('chevR', 'chev')}</button>`;
     };
@@ -9055,36 +9210,59 @@ Views.bio = {
   },
 
   /** Eigenes Vorsorgekonzept: Datei aufbewahren, Text lesen, Abschnitte den Bereichen zuordnen, Durchsicht. */
-  async vorsorgeEinlesen(datei) {
+  async vorsorgeEinlesen(datei, opt = null) {
     if (!datei) return;
+    opt = opt || { anker: 'vorsorge', titel: 'Vorsorgekonzept wird gelesen', bereiche: VORSORGE_BEREICHE, stichworte: VORSORGE_STICHWORTE, cfg: null,
+      leer: 'Die Bereiche kannst du über „Assistent starten“ oder von Hand ausfüllen.' };
     // Erst die Datei sichern – so ist sie da, auch wenn man die Durchsicht abbricht.
     try {
       const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
-      await DB.put('anhaenge', { parentTyp: 'bio', parentId: 'vorsorge', art: istPdf ? 'dokument' : 'foto', name: datei.name || (istPdf ? 'vorsorgekonzept.pdf' : 'vorsorgekonzept.jpg'),
+      await DB.put('anhaenge', { parentTyp: 'bio', parentId: opt.anker, art: istPdf ? 'dokument' : 'foto', name: datei.name || (istPdf ? 'vorsorgekonzept.pdf' : 'vorsorgekonzept.jpg'),
         mime: datei.type || (istPdf ? 'application/pdf' : 'image/jpeg'), blob: datei, groesse: datei.size, datum: U.nowIso(), dokumentTyp: '' });
     } catch (e) { return UI.toast('Die Datei konnte nicht gespeichert werden: ' + e.message, 'err'); }
-    const gelesen = await Views.bio.dateiZuText(datei, 'Vorsorgekonzept wird gelesen');
+    const gelesen = await Views.bio.dateiZuText(datei, opt.titel);
     if (!gelesen) { renderRoute(); return; }
-    const abschnitte = vorsorgeParsen(gelesen.text);
+    const abschnitte = vorsorgeParsen(gelesen.text, opt.bereiche, opt.stichworte);
     if (!abschnitte.length) {
       UI.modal({
         title: 'Nichts erkannt',
-        body: `<p class="small">Die Datei ist gespeichert, aber es war kein verwertbarer Text zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel; Handschrift wird nicht zuverlässig gelesen. Die Bereiche kannst du über „Assistent starten“ oder von Hand ausfüllen.</p>
+        body: `<p class="small">Die Datei ist gespeichert, aber es war kein verwertbarer Text zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel; Handschrift wird nicht zuverlässig gelesen. ${U.esc(opt.leer)}</p>
           <div class="field mt12"><label>Was gelesen wurde</label><textarea class="inp" rows="6" readonly>${U.esc((gelesen.text || '').trim() || '(nichts)')}</textarea></div>`,
         footer: '<button class="btn btn-primary" data-zu>Verstanden</button>',
       });
       $$('[data-zu]').forEach((b) => b.onclick = () => { b.closest('.modal-back').remove(); renderRoute(); });
       return;
     }
-    Views.bio.vorsorgeDurchsicht(abschnitte, gelesen);
+    Views.bio.vorsorgeDurchsicht(abschnitte, gelesen, opt.cfg);
   },
 
   /** Durchsicht: jeder erkannte Abschnitt mit Bereich, Text und Häkchen – gespeichert wird nur, was angehakt ist. */
-  vorsorgeDurchsicht(abschnitte, gelesen) {
+  vorsorgeCfg() {
     const stand = vorsorgeLaden();
-    const hatText = (key) => !!vorsorgeEintrag(stand, key).text.trim();
+    return {
+      bereiche: VORSORGE_BEREICHE,
+      hatText: (key) => !!vorsorgeEintrag(stand, key).text.trim(),
+      async speichern(je) {
+        const s = vorsorgeLaden();
+        const bereiche = { ...s.bereiche };
+        for (const [key, liste] of je) {
+          const alt = vorsorgeEintrag(s, key);
+          const neu = liste.map((x) => x.text).join('\n\n');
+          const ersetzen = !alt.text.trim() || liste.some((x) => x.modus === 'ersetzen');
+          bereiche[key] = { status: 'ja', text: ersetzen ? neu : alt.text.trim() + '\n\n' + neu, antworten: alt.antworten, quelle: { typ: 'eigen', datum: U.todayIso(), text: neu } };
+        }
+        s.bereiche = bereiche;
+        if (!s.erstelltAm) s.erstelltAm = U.todayIso();
+        await S.set('bioVorsorge', s);
+      },
+    };
+  },
+
+  vorsorgeDurchsicht(abschnitte, gelesen, cfg = null) {
+    cfg = cfg || Views.bio.vorsorgeCfg();
+    const hatText = cfg.hatText;
     const optionen = (sel) => '<option value="">– nicht übernehmen –</option>'
-      + VORSORGE_BEREICHE.map((b) => `<option value="${U.esc(b.key)}"${b.key === sel ? ' selected' : ''}>${U.esc(b.titel)}</option>`).join('');
+      + cfg.bereiche.map((b) => `<option value="${U.esc(b.key)}"${b.key === sel ? ' selected' : ''}>${U.esc(b.titel)}</option>`).join('');
     const unsicher = abschnitte.filter((a) => !a.sicher).length;
     const m = UI.modal({
       title: 'Erkannt – in die App übernehmen?', wide: true,
@@ -9127,19 +9305,9 @@ Views.bio = {
         const gewaehlt = $$('.vk-abschnitt', m.el).filter((r) => $('[data-an]', r).checked && $('[data-bereich]', r).value)
           .map((r) => ({ key: $('[data-bereich]', r).value, text: $('[data-text]', r).value.trim(), modus: $('[data-modus]', r).value })).filter((x) => x.text);
         if (!gewaehlt.length) { laeuft = false; return UI.toast('Kein Text zum Übernehmen.', 'err'); }
-        const s = vorsorgeLaden();
-        const bereiche = { ...s.bereiche };
         const je = new Map();
         for (const g of gewaehlt) { if (!je.has(g.key)) je.set(g.key, []); je.get(g.key).push(g); }
-        for (const [key, liste] of je) {
-          const alt = vorsorgeEintrag(s, key);
-          const neu = liste.map((x) => x.text).join('\n\n');
-          const ersetzen = !alt.text.trim() || liste.some((x) => x.modus === 'ersetzen');
-          bereiche[key] = { status: 'ja', text: ersetzen ? neu : alt.text.trim() + '\n\n' + neu, antworten: alt.antworten };
-        }
-        s.bereiche = bereiche;
-        if (!s.erstelltAm) s.erstelltAm = U.todayIso();
-        await S.set('bioVorsorge', s);
+        await cfg.speichern(je);
         m.close(true);
         UI.toast(`${je.size} ${je.size === 1 ? 'Bereich' : 'Bereiche'} übernommen`);
         renderRoute();
@@ -9179,7 +9347,7 @@ Views.bio = {
     }
     felder.push({ key: 'text', label: 'Text für das Vorsorgekonzept', type: 'textarea', default: textStart,
       hint: 'Vorschlag aus deinen Antworten und den Daten der App – frei änderbar. Leer lassen heißt: kein Text.' });
-    felder.push({ key: '_neu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-xs no-print" data-vs-neu>${icon('restore')} Text neu vorschlagen</button>` });
+    felder.push({ key: '_neu', type: 'static', html: `${eintrag.quelle ? `<div class="banner info mb8">${icon('info')} <span class="b-msg">Dieser Text stammt aus deiner eigenen Unterlage. Passt er nicht, kannst du den Vorschlag der App übernehmen – und jederzeit zurückwechseln.</span></div>` : ''}<div class="flex-wrap no-print" style="gap:8px"><button type="button" class="btn btn-ghost btn-xs" data-vs-neu>${icon('restore')} ${eintrag.quelle ? 'Vorschlag der App übernehmen' : 'Text neu vorschlagen'}</button>${eintrag.quelle ? `<button type="button" class="btn btn-ghost btn-xs" data-vs-orig>${icon('restore')} Text aus meiner Unterlage</button>` : ''}</div>` });
 
     const antwortenAus = (root) => {
       const a = {};
@@ -9195,7 +9363,10 @@ Views.bio = {
 
     const speichern = async (status, text, antworten) => {
       const s = vorsorgeLaden();
-      s.bereiche = { ...s.bereiche, [key]: { status, text: String(text || '').trim(), antworten } };
+      /* Die Herkunft „aus deiner Unterlage" bleibt, solange der Text nicht durch den App-Vorschlag ersetzt wurde. */
+      let quelle = eintrag.quelle;
+      if (quelle && String(text || '').trim() === vorsorgeVorschlag(bereich, antworten, ctx).trim()) quelle = null;
+      s.bereiche = { ...s.bereiche, [key]: { status, text: String(text || '').trim(), antworten, ...(quelle ? { quelle } : {}) } };
       if (!s.erstelltAm && status === 'ja' && String(text || '').trim()) s.erstelltAm = U.todayIso();
       await S.set('bioVorsorge', s);
     };
@@ -9236,9 +9407,11 @@ Views.bio = {
     const nb = $('[data-vs-neu]', m.el);
     if (nb) nb.onclick = async () => {
       if (ta.value.trim() && ta.value !== zuletztVorgeschlagen
-        && !(await UI.confirm({ title: 'Eigenen Text ersetzen?', text: 'Der Text wurde von dir verändert. Soll er durch einen neuen Vorschlag ersetzt werden?', confirmText: 'Ersetzen', danger: false }))) return;
+        && !(await UI.confirm({ title: eintrag.quelle ? 'Vorschlag der App übernehmen?' : 'Eigenen Text ersetzen?', text: eintrag.quelle ? 'Der Text aus deiner Unterlage wird durch den Vorschlag der App ersetzt. Über „Text aus meiner Unterlage“ holst du ihn zurück.' : 'Der Text wurde von dir verändert. Soll er durch einen neuen Vorschlag ersetzt werden?', confirmText: 'Ersetzen', danger: false }))) return;
       neuVorschlagen(true); FormGuard.dirty = true;
     };
+    const ob = $('[data-vs-orig]', m.el);
+    if (ob) ob.onclick = () => { ta.value = eintrag.quelle.text; FormGuard.dirty = true; };
 
     // Im Assistenten: überspringen, „betrifft mich nicht", beenden
     if (assistent) {
@@ -9385,7 +9558,7 @@ Views.bio = {
       };
       const assistentKnopf = document.createElement('button');
       assistentKnopf.className = 'btn btn-primary btn-sm no-print';
-      assistentKnopf.innerHTML = `${icon('plus')} Assistent`;
+      assistentKnopf.innerHTML = `${icon('plus')} Assistent starten`;
       assistentKnopf.onclick = () => Views.bio.hygieneAssistent();
       kopf.insertBefore(assistentKnopf, kopf.querySelector('[data-add]'));
       kopf.insertBefore(label, kopf.querySelector('[data-add]'));
@@ -9394,6 +9567,11 @@ Views.bio = {
       pdfKnopf.innerHTML = `${icon('doc')} Als PDF`;
       pdfKnopf.onclick = () => Pdf.bioHygieneplan();
       kopf.appendChild(pdfKnopf);
+      const hochKnopf = document.createElement('button');
+      hochKnopf.className = 'btn btn-ghost btn-sm no-print';
+      hochKnopf.innerHTML = `${icon('upload')} Eigenes hochladen`;
+      hochKnopf.onclick = () => { const z = $('#hyg-dateien', box); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+      kopf.appendChild(hochKnopf);
     }
   },
 
@@ -9506,11 +9684,12 @@ Views.bio = {
     const imk = S.get('imkerei');
     const bb = S.get('bioBetrieb') || {};
     const gefuellt = BIO_ABSCHNITTE.filter((a) => (bb[a.key] || '').trim()).length;
+    const quelle = S.get('bioBetriebQuelle') || {};
+    const eigenAnz = BIO_ABSCHNITTE.filter((a) => quelle[a.key] && (bb[a.key] || '').trim()).length;
     box.innerHTML = `<div class="card">
       <div class="card-title">${icon('buch')}<h2>Betriebsbeschreibung</h2>
-        <span class="badge ${gefuellt === BIO_ABSCHNITTE.length ? 'b-ok' : 'b-warn'}">${gefuellt} von ${BIO_ABSCHNITTE.length} Abschnitten</span>
-        <button class="btn btn-primary btn-sm no-print" id="edit-bb">${icon('pencil')} Bearbeiten</button></div>
-      <p class="small muted mb12">Die Betriebsbeschreibung legt fest, wie du imkerst – sie ist Grundlage jeder Öko-Kontrolle. Was genau verlangt wird, gibt deine Kontrollstelle vor${imk.bioKontrollstelle ? ` (${U.esc(imk.bioKontrollstelle)})` : ''}.</p>
+        <span class="badge ${gefuellt === BIO_ABSCHNITTE.length ? 'b-ok' : 'b-warn'}">${gefuellt} von ${BIO_ABSCHNITTE.length} Abschnitten</span></div>
+      <p class="small muted mb12">Die Betriebsbeschreibung legt fest, wie du imkerst – sie ist Grundlage jeder Öko-Kontrolle. Was genau verlangt wird, gibt deine Kontrollstelle vor${imk.bioKontrollstelle ? ` (${U.esc(imk.bioKontrollstelle)})` : ''}. Die Texte sind Vorschläge – alles ist änderbar, löschbar und überspringbar.</p>
       <div class="flex-wrap mb12" style="gap:10px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--card2)">
         <span style="font-weight:600">Bio-Imkerei</span>
         <select class="inp" id="bio-an" style="width:auto;min-width:110px">
@@ -9519,13 +9698,25 @@ Views.bio = {
         <span class="small muted" style="flex:1 1 160px;min-width:0">${imk.bio === 'ja' ? U.esc(bioZertText(imk)) || 'Kontrollstelle noch nicht gewählt' : 'Etiketten und PDF führen keine Öko-Angaben.'}</span>
         <button class="btn btn-ghost btn-sm no-print" id="bio-daten">${icon('pencil')} Kontrollstelle & Verband</button>
       </div>
-      <div class="rows">${BIO_ABSCHNITTE.map((a) => `<div class="row" style="align-items:flex-start">
-        <span class="r-ic">${icon((bb[a.key] || '').trim() ? 'check' : 'info')}</span>
-        <span class="r-main"><span class="r-title">${U.esc(a.label)}</span>
-        <span class="r-sub" style="white-space:pre-wrap">${(bb[a.key] || '').trim() ? U.esc(bb[a.key].trim()) : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span></div>`).join('')}</div>
+      ${eigenAnz ? `<div class="flex-wrap mb8"><span class="badge b-violet">${eigenAnz} ${eigenAnz === 1 ? 'Abschnitt' : 'Abschnitte'} aus deiner Unterlage</span></div>` : ''}
+      <div class="flex-wrap no-print mb12" style="gap:8px">
+        <button class="btn btn-primary btn-sm" id="bb-assistent">${icon('plus')} Assistent starten</button>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('camera')} Beschreibung einlesen<input type="file" accept="image/*,application/pdf" hidden data-bb-lesen></label>
+        <button class="btn btn-ghost btn-sm" id="bb-pdf">${icon('doc')} Als PDF</button>
+        <button class="btn btn-ghost btn-sm" id="bb-eigenes">${icon('upload')} Eigenes hochladen</button>
+        <button class="btn btn-ghost btn-sm" id="edit-bb">${icon('pencil')} Alle bearbeiten</button>
+      </div>
+      <div class="rows">${BIO_ABSCHNITTE.map((a) => {
+        const txt = (bb[a.key] || '').trim();
+        return `<button class="row" data-bb="${U.esc(a.key)}" style="align-items:flex-start">
+        <span class="r-ic">${icon(txt ? 'check' : 'info')}</span>
+        <span class="r-main"><span class="r-title">${U.esc(a.label)}${quelle[a.key] && txt ? ' <span class="badge b-violet">aus deiner Unterlage</span>' : ''}</span>
+        <span class="r-sub" style="white-space:pre-wrap">${txt ? U.esc(txt.slice(0, 220)) + (txt.length > 220 ? ' …' : '') : `<i>noch nicht ausgefüllt – ${U.esc(a.hint)}</i>`}</span></span>${icon('chevR', 'chev')}</button>`;
+      }).join('')}</div>
     </div>
-    <div class="card"><div class="card-title">${icon('doc')}<h2>Formulare von Verband und Kontrollstelle</h2></div>
-      <p class="small muted mb8">Verbände und Kontrollstellen haben eigene Formulare für die Betriebsbeschreibung – und die ändern sich. Lade deshalb die Fassung hoch, die du bekommen hast, als PDF oder Word-Datei. Antippen öffnet sie im passenden Programm auf deinem Gerät: dort ausfüllen, speichern und die ausgefüllte Fassung wieder hochladen. Alle Fassungen bleiben mit Datum stehen, so hast du bei der Kontrolle auch die vom Vorjahr dabei. Die Texte oben kannst du zum Übertragen einfach kopieren.</p>
+    <div class="card" id="bb-eigenes-card"><div class="card-title">${icon('upload')}<h2>Eigene Betriebsbeschreibung und Formulare hochladen</h2></div>
+      <p class="small muted mb8">Zwei Wege: <b>Nur aufbewahren</b> – die Fassung von Verband oder Kontrollstelle (PDF, Word …) über „Foto“ oder „Dokument“ unten ablegen; sie lässt sich jederzeit wieder öffnen. Oder <b>einlesen</b> – ein PDF oder Foto liest die App aus, ordnet die Abschnitte den Punkten oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
+      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('camera')} Beschreibung einlesen und Texte übernehmen<input type="file" accept="image/*,application/pdf" hidden data-bb-lesen></label>
       <div data-bio-formulare></div>
     </div>
     <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
@@ -9574,6 +9765,15 @@ Views.bio = {
       values: imk,
       async onSave(v) { await S.set('imkerei', Object.assign({}, S.get('imkerei'), v)); UI.toast('Bio-Angaben gespeichert'); renderRoute(); },
     });
+    $('#bb-assistent', box).onclick = () => Views.bio.bbAssistent();
+    $('#bb-pdf', box).onclick = () => Pdf.bioBetriebsbeschreibung();
+    $('#bb-eigenes', box).onclick = () => $('#bb-eigenes-card', box).scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $$('[data-bb-lesen]', box).forEach((eingabe) => { eingabe.onchange = async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) await Views.bio.bbEinlesen(f);
+    }; });
+    $$('[data-bb]', box).forEach((b) => { b.onclick = () => Views.bio.bbEditor(b.dataset.bb); });
     $('#edit-bb', box).onclick = async () => {
       const staende = U.sortBy(await DB.getAll('staende'), (x) => x.name.toLowerCase());
       const voelkerAktiv = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
@@ -9605,6 +9805,135 @@ Views.bio = {
         UI.toast(`Zahlen aus ${staende.filter((st) => bioAnteile(st).length).length} Standorten übernommen`);
       };
     };
+  },
+
+  /* ---------- Betriebsbeschreibung: Assistent, Editor, Einlesen ---------- */
+  bbCfg() {
+    return {
+      bereiche: bbBereiche(),
+      hatText: (key) => !!((S.get('bioBetrieb') || {})[key] || '').trim(),
+      async speichern(je) {
+        const bb = { ...(S.get('bioBetrieb') || {}) };
+        const qu = { ...(S.get('bioBetriebQuelle') || {}) };
+        for (const [key, liste] of je) {
+          const alt = String(bb[key] || '').trim();
+          const neu = liste.map((x) => x.text).join('\n\n');
+          const ersetzen = !alt || liste.some((x) => x.modus === 'ersetzen');
+          bb[key] = ersetzen ? neu : alt + '\n\n' + neu;
+          qu[key] = { typ: 'eigen', datum: U.todayIso(), text: neu };
+        }
+        await S.set('bioBetrieb', bb);
+        await S.set('bioBetriebQuelle', qu);
+      },
+    };
+  },
+
+  async bbEinlesen(datei) {
+    await Views.bio.vorsorgeEinlesen(datei, { anker: 'formulare', titel: 'Betriebsbeschreibung wird gelesen',
+      bereiche: bbBereiche(), stichworte: BB_STICHWORTE, cfg: Views.bio.bbCfg(),
+      leer: 'Die Abschnitte kannst du über „Assistent starten“ oder von Hand ausfüllen.' });
+  },
+
+  /** Ein Abschnitt: Fragen, Text, Vorschlag der App – bzw. der Text aus der eigenen Unterlage. */
+  async bbEditor(key, assistent = null) {
+    const a = BIO_ABSCHNITTE.find((x) => x.key === key);
+    if (!a) return;
+    const cfg = BB_ASSISTENT[key] || { fragen: [], text: () => '' };
+    const bb = S.get('bioBetrieb') || {};
+    const quelle = (S.get('bioBetriebQuelle') || {})[key] || null;
+    const ctx = await betriebKontext();
+    const alt = String(bb[key] || '').trim();
+    const vorschlag0 = bbVorschlag(key, {}, ctx);
+    const textStart = alt || (assistent ? vorschlag0 : '');
+    const felder = [{ key: '_kopf', type: 'static', html: `${assistent ? `<div class="small muted mb4">Schritt ${assistent.nr} von ${assistent.von}</div>` : ''}<div class="hint mb8">${U.esc(a.hint)}</div>` }];
+    for (const f of cfg.fragen) felder.push({ ...f, key: 'q_' + f.key });
+    felder.push({ key: 'text', label: 'Text für die Betriebsbeschreibung', type: 'textarea', default: textStart,
+      hint: 'Vorschlag aus deinen Antworten und den Daten der App – frei änderbar. Leer lassen heißt: kein Text.' });
+    felder.push({ key: '_neu', type: 'static', html: `${quelle && alt ? `<div class="banner info mb8">${icon('info')} <span class="b-msg">Dieser Text stammt aus deiner eigenen Unterlage. Passt er nicht, kannst du den Vorschlag der App übernehmen – und jederzeit zurückwechseln.</span></div>` : ''}<div class="flex-wrap no-print" style="gap:8px"><button type="button" class="btn btn-ghost btn-xs" data-bb-neu>${icon('restore')} ${quelle && alt ? 'Vorschlag der App übernehmen' : 'Text neu vorschlagen'}</button>${quelle && alt ? `<button type="button" class="btn btn-ghost btn-xs" data-bb-orig>${icon('restore')} Text aus meiner Unterlage</button>` : ''}</div>` });
+    const antwortenAus = (root) => {
+      const r = {};
+      for (const f of cfg.fragen) {
+        const el = $(`#f-q_${f.key}`, root);
+        if (!el) continue;
+        if (f.type === 'check') r[f.key] = !!el.checked;
+        else if (f.type === 'multicheck') r[f.key] = $$('input[type=checkbox]', el).filter((i) => i.checked).map((i) => i.value);
+        else r[f.key] = el.value;
+      }
+      return r;
+    };
+    const speichern = async (text, antworten) => {
+      const neu = String(text || '').trim();
+      const b = { ...(S.get('bioBetrieb') || {}) };
+      const qu = { ...(S.get('bioBetriebQuelle') || {}) };
+      if (neu) b[key] = neu; else delete b[key];
+      // Die Herkunft bleibt, solange der Text nicht durch den App-Vorschlag ersetzt wurde.
+      if (!neu || neu === bbVorschlag(key, antworten, ctx)) delete qu[key];
+      await S.set('bioBetrieb', b);
+      await S.set('bioBetriebQuelle', qu);
+    };
+    const m = UI.formModal({
+      title: a.label, wide: true,
+      saveText: assistent ? (assistent.nr < assistent.von ? 'Übernehmen · weiter' : 'Übernehmen · fertig') : 'Speichern',
+      fields: felder, values: {},
+      onDelete: (!assistent && alt) ? async () => {
+        if (!(await UI.confirm({ title: 'Text löschen?', text: `Der Text für „${a.label}“ wird gelöscht. Der Abschnitt steht danach wieder auf „noch nicht ausgefüllt“.`, confirmText: 'Löschen' }))) return;
+        await speichern('', {});
+        UI.toast('Gelöscht'); renderRoute(); return true;
+      } : null,
+      async onSave(v) {
+        await speichern(v.text, antwortenAus(m.el));
+        if (assistent) assistent.weiter(); else { UI.toast('Gespeichert'); renderRoute(); }
+      },
+    });
+    const ta = $('#f-text', m.el);
+    if (ta) { ta.style.minHeight = '170px'; ta.rows = 8; }
+    let zuletzt = textStart === vorschlag0 ? vorschlag0 : null;
+    const neuVorschlagen = (erzwingen) => {
+      const v = bbVorschlag(key, antwortenAus(m.el), ctx);
+      if (erzwingen || ta.value.trim() === '' || ta.value === zuletzt) { ta.value = v; zuletzt = v; }
+    };
+    for (const f of cfg.fragen) { const el = $(`#f-q_${f.key}`, m.el); if (el) el.addEventListener('change', () => neuVorschlagen(false)); }
+    const nb = $('[data-bb-neu]', m.el);
+    if (nb) nb.onclick = async () => {
+      if (ta.value.trim() && ta.value !== zuletzt
+        && !(await UI.confirm({ title: quelle ? 'Vorschlag der App übernehmen?' : 'Eigenen Text ersetzen?', text: quelle ? 'Der Text aus deiner Unterlage wird durch den Vorschlag der App ersetzt. Über „Text aus meiner Unterlage“ holst du ihn zurück.' : 'Der Text wurde von dir verändert. Soll er durch einen neuen Vorschlag ersetzt werden?', confirmText: 'Ersetzen', danger: false }))) return;
+      neuVorschlagen(true); FormGuard.dirty = true;
+    };
+    const ob = $('[data-bb-orig]', m.el);
+    if (ob) ob.onclick = () => { ta.value = quelle.text; FormGuard.dirty = true; };
+    if (assistent) {
+      const fuss = $('.modal-foot', m.el);
+      const abbr = $('[data-cancel]', fuss);
+      if (abbr) { abbr.textContent = 'Beenden'; abbr.onclick = () => { m.close(true); assistent.beenden(); }; }
+      const knopf = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-ghost'; b.textContent = text; b.onclick = fn; fuss.insertBefore(b, $('[data-save]', fuss)); };
+      knopf('Überspringen', () => { m.close(true); assistent.weiter(); });
+    }
+  },
+
+  async bbAssistent() {
+    const bb = S.get('bioBetrieb') || {};
+    UI.formModal({
+      title: 'Betriebsbeschreibung – Assistent', wide: true, saveText: 'Weiter',
+      fields: [
+        { key: '_intro', type: 'static', html: `<p class="small">Wähle die Abschnitte, die du jetzt durchgehen möchtest. Für jeden stellt die App ein bis drei Fragen und schlägt einen Text vor, den du übernehmen, ändern oder überspringen kannst. Bereits ausgefüllte Abschnitte sind nicht vorgewählt – ihr Text bleibt unverändert, solange du ihn nicht selbst übernimmst.</p>` },
+        { key: 'bereiche', label: 'Welche Abschnitte?', type: 'multicheck', keepOrder: true,
+          default: BIO_ABSCHNITTE.filter((a) => !(bb[a.key] || '').trim()).map((a) => a.key),
+          options: BIO_ABSCHNITTE.map((a) => ({ v: a.key, l: `${a.label}${(bb[a.key] || '').trim() ? ' (schon ausgefüllt)' : ''}` })) },
+      ],
+      values: {},
+      async onSave(v) {
+        const reihe = BIO_ABSCHNITTE.filter((a) => (v.bereiche || []).includes(a.key)).map((a) => a.key);
+        if (!reihe.length) { UI.toast('Keine Abschnitte gewählt'); renderRoute(); return; }
+        let i = 0;
+        const beenden = () => { UI.toast('Assistent beendet – alles Übernommene ist gespeichert'); renderRoute(); };
+        const weiter = () => {
+          if (i >= reihe.length) { UI.toast(`Betriebsbeschreibung: ${reihe.length} ${reihe.length === 1 ? 'Abschnitt' : 'Abschnitte'} durchgegangen`); renderRoute(); return; }
+          const key = reihe[i]; i++;
+          Views.bio.bbEditor(key, { nr: i, von: reihe.length, weiter, beenden });
+        };
+        weiter();
+      },
+    });
   },
 
   async tabStandorte(box) {
@@ -16569,6 +16898,46 @@ const Pdf = {
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
+  async bioBetriebsbeschreibung() {
+    try {
+      const bb = S.get('bioBetrieb') || {};
+      const imk = S.get('imkerei') || {};
+      const gefuellt = BIO_ABSCHNITTE.filter((a) => (bb[a.key] || '').trim());
+      const offen = BIO_ABSCHNITTE.filter((a) => !(bb[a.key] || '').trim());
+      const { doc, y } = await this.newDoc('Betriebsbeschreibung',
+        [imk.name ? `Betrieb: ${imk.name}` : '', imk.bioKontrollstelle ? `Kontrollstelle: ${imk.bioKontrollstelle}` : '', `Stand: ${U.fmtDate(U.todayIso())}`].filter(Boolean).join(' · '));
+      let yy = y;
+      const H = doc.internal.pageSize.getHeight();
+      const platz = (n) => { if (yy + n > H - 22) { doc.addPage(); yy = 20; } };
+      const absatz = (text, groesse = 9.5, farbe = 40, stil = 'normal') => {
+        doc.setFont('helvetica', stil).setFontSize(groesse).setTextColor(farbe);
+        const hoehe = groesse * 0.42;
+        for (const z of doc.splitTextToSize(text, 182)) { platz(hoehe + 1); doc.text(z, 14, yy); yy += hoehe; }
+      };
+      gefuellt.forEach((a, i) => {
+        // Überschrift bleibt beim Text: mindestens drei Zeilen müssen mit auf die Seite.
+        platz(18);
+        doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
+        doc.text(`${i + 1}. ${a.label}`, 14, yy); yy += 5.4;
+        for (const teil of String(bb[a.key]).trim().split(/\n+/)) { absatz(teil.trim(), 9.5, 40); yy += 1; }
+        yy += 4;
+      });
+      if (!gefuellt.length) { absatz('Es ist noch kein Abschnitt ausgefüllt.', 9.5, 150, 'italic'); yy += 4; }
+      if (offen.length) {
+        platz(14);
+        absatz('Noch nicht ausgefüllte Abschnitte', 10, 60, 'bold'); yy += 1;
+        absatz(offen.map((a) => a.label).join(' · '), 9, 90);
+        yy += 4;
+      }
+      platz(24); yy += 8;
+      doc.setDrawColor(150).setLineWidth(0.2);
+      doc.line(14, yy, 84, yy); doc.line(110, yy, 196, yy);
+      doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(120);
+      doc.text('Ort, Datum', 14, yy + 4); doc.text('Unterschrift Betriebsleitung', 110, yy + 4);
+      this.finish(doc, `betriebsbeschreibung-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
   async bioUnterlagen() {
     try {
       const bb = S.get('bioBetrieb') || {};
@@ -18269,7 +18638,7 @@ Object.assign(window, {
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
-  VORSORGE_BEREICHE, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
+  VORSORGE_BEREICHE, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,

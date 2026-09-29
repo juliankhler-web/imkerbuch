@@ -9151,3 +9151,105 @@ test('PDF-Layout: lange Namen werden gekürzt bzw. verkleinert statt über den T
   assert(z.every((x) => doc.getTextWidth(x) <= 100.01), 'jede Zeile passt');
   assert(/…$/.test(z[1]), 'Rest wird mit „…" abgeschlossen');
 });
+
+
+test('Betriebsbeschreibung einlesen: Abschnitte werden den Punkten zugeordnet und mit Herkunft gespeichert', async (w) => {
+  const vorher = { bb: w.S.get('bioBetrieb'), qu: w.S.get('bioBetriebQuelle') };
+  try {
+    await w.S.set('bioBetrieb', { fuetterung: 'Mein eigener Fütterungstext.' }); await w.S.set('bioBetriebQuelle', {});
+    const text = ['1. Betrieb und Verantwortliche', 'Die Imkerei wird im Nebenerwerb geführt, verantwortlich ist Julian Köhler, die Kontrollstelle ist ABCERT.',
+      '2. Beuten', 'Die Beuten bestehen aus Holz und sind mit Leinöl behandelt, Holzschutzmittel werden nicht verwendet.',
+      '3. Fütterung', 'Gefüttert wird mit Bio-Zuckersirup im Spätsommer.'].join('\n');
+    const r = w.vorsorgeParsen(text, w.bbBereiche(), w.BB_STICHWORTE);
+    assertEq(r.map((x) => x.key), ['betrieb', 'beuten', 'fuetterung']);
+    const cfg = w.Views.bio.bbCfg();
+    assert(cfg.hatText('fuetterung') && !cfg.hatText('beuten'), 'vorhandener Text wird erkannt');
+    await cfg.speichern(new Map([['beuten', [{ text: r[1].text, modus: 'anhaengen' }]], ['fuetterung', [{ text: r[2].text, modus: 'anhaengen' }]]]));
+    const bb = w.S.get('bioBetrieb'), qu = w.S.get('bioBetriebQuelle');
+    assertEq(bb.beuten, r[1].text, 'leerer Abschnitt wird gefüllt');
+    assert(bb.fuetterung.startsWith('Mein eigener Fütterungstext.') && bb.fuetterung.endsWith(r[2].text), 'vorhandener Text bleibt, der neue hängt dran');
+    assert(qu.beuten && qu.fuetterung && !qu.wachs, 'Herkunft „eigene Unterlage“ nur bei den übernommenen');
+    await cfg.speichern(new Map([['fuetterung', [{ text: 'Ganz neu.', modus: 'ersetzen' }]]]));
+    assertEq(w.S.get('bioBetrieb').fuetterung, 'Ganz neu.', 'Ersetzen überschreibt');
+  } finally { await w.S.set('bioBetrieb', vorher.bb); await w.S.set('bioBetriebQuelle', vorher.qu || {}); }
+});
+
+test('Betriebsbeschreibung: Rückweg vom eigenen Text zum App-Vorschlag und zurück', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = { bb: w.S.get('bioBetrieb'), qu: w.S.get('bioBetriebQuelle') };
+  const echt = w.UI.confirm; w.UI.confirm = () => Promise.resolve(true);
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.S.set('bioBetrieb', { wachs: 'Text aus meiner Unterlage.' });
+    await w.S.set('bioBetriebQuelle', { wachs: { typ: 'eigen', datum: '2026-09-29', text: 'Text aus meiner Unterlage.' } });
+    w.Views.bio._tab = 'betrieb'; await w.Views.bio.render(host);
+    await new Promise((r) => setTimeout(r, 300));
+    const zeile = host.querySelector('[data-bb="wachs"]');
+    assert(/aus deiner Unterlage/.test(zeile.textContent), 'die Liste zeigt die Herkunft');
+    assert(!/aus deiner Unterlage/.test(host.querySelector('[data-bb="betrieb"]').textContent), 'andere Zeilen zeigen sie nicht');
+    zeile.click(); await new Promise((r) => setTimeout(r, 500));
+    const m = w.document.querySelector('.modal-back');
+    const ta = m.querySelector('#f-text');
+    assertEq(ta.value, 'Text aus meiner Unterlage.');
+    m.querySelector('[data-bb-neu]').click(); await new Promise((r) => setTimeout(r, 200));
+    assert(/Wachskreislauf/.test(ta.value) && ta.value !== 'Text aus meiner Unterlage.', 'Vorschlag der App steht im Feld');
+    m.querySelector('[data-bb-orig]').click();
+    assertEq(ta.value, 'Text aus meiner Unterlage.', 'Zurück zum eigenen Text');
+    m.querySelector('[data-bb-neu]').click(); await new Promise((r) => setTimeout(r, 200));
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 400));
+    assert(/Wachskreislauf/.test(w.S.get('bioBetrieb').wachs), 'App-Vorschlag ist gespeichert');
+    assert(!(w.S.get('bioBetriebQuelle') || {}).wachs, 'Herkunft ist nach Übernahme des App-Vorschlags weg');
+  } finally { w.UI.confirm = echt; host.remove(); dialogeSchliessen(w); w.FormGuard.dirty = false; await w.S.set('bioBetrieb', vorher.bb); await w.S.set('bioBetriebQuelle', vorher.qu || {}); }
+});
+
+test('Vorsorgekonzept einlesen: Herkunft wird in der Liste gezeigt', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.S.get('bioVorsorge');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.S.set('bioVorsorge', { bereiche: {}, geprueftAm: '', erstelltAm: '' });
+    await w.Views.bio.vorsorgeCfg().speichern(new Map([['standort', [{ text: 'Aus meinem Konzept.', modus: 'anhaengen' }]]]));
+    const e = w.vorsorgeEintrag(w.vorsorgeLaden(), 'standort');
+    assertEq(e.text, 'Aus meinem Konzept.'); assertEq(e.quelle.typ, 'eigen');
+    await w.Views.bio.tabVorsorge(host);
+    assert(/aus deiner Unterlage/.test(host.querySelector('[data-vorsorge="standort"]').textContent), 'Markierung an der Zeile');
+    assert(!/aus deiner Unterlage/.test(host.querySelector('[data-vorsorge="fuetterung"]').textContent), 'nicht an anderen');
+  } finally { host.remove(); await w.S.set('bioVorsorge', vorher); }
+});
+
+test('Betriebsbeschreibung: PDF mit Abschnitten, Unterschriftszeile und offenen Punkten', async (w) => {
+  const vorher = w.S.get('bioBetrieb');
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.S.set('bioBetrieb', { betrieb: 'Text zum Betrieb.', wachs: 'Text zum Wachs.' });
+    w.Pdf.lastDocForTest = null;
+    await w.Pdf.bioBetriebsbeschreibung();
+    const d = w.Pdf.lastDocForTest;
+    assert(d && d.getNumberOfPages() >= 1, 'PDF erzeugt');
+  } finally { w.Pdf.noDownloadForTest = false; await w.S.set('bioBetrieb', vorher); }
+});
+
+
+test('Vorsorgekonzept: Rückweg vom eigenen Text zum App-Vorschlag und zurück', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.S.get('bioVorsorge');
+  const echt = w.UI.confirm; w.UI.confirm = () => Promise.resolve(true);
+  try {
+    await w.S.set('bioVorsorge', { bereiche: {}, geprueftAm: '', erstelltAm: '' });
+    await w.Views.bio.vorsorgeCfg().speichern(new Map([['fuetterung', [{ text: 'Eigener Fütterungstext aus dem Konzept.', modus: 'anhaengen' }]]]));
+    w.Views.bio.vorsorgeEditor('fuetterung'); await new Promise((r) => setTimeout(r, 600));
+    const m = w.document.querySelector('.modal-back');
+    const ta = m.querySelector('#f-text');
+    assertEq(ta.value, 'Eigener Fütterungstext aus dem Konzept.');
+    assert(m.querySelector('[data-vs-orig]'), 'Knopf „Text aus meiner Unterlage“ ist da');
+    m.querySelector('[data-vs-neu]').click(); await new Promise((r) => setTimeout(r, 300));
+    assert(ta.value !== 'Eigener Fütterungstext aus dem Konzept.' && ta.value.length > 40, 'Vorschlag der App steht im Feld');
+    m.querySelector('[data-vs-orig]').click();
+    assertEq(ta.value, 'Eigener Fütterungstext aus dem Konzept.', 'zurück zum eigenen Text');
+    m.querySelector('[data-vs-neu]').click(); await new Promise((r) => setTimeout(r, 300));
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 500));
+    const e = w.vorsorgeEintrag(w.vorsorgeLaden(), 'fuetterung');
+    assert(e.text.length > 40 && e.text !== 'Eigener Fütterungstext aus dem Konzept.', 'App-Vorschlag gespeichert');
+    assertEq(e.quelle, null, 'Herkunft entfällt nach Übernahme des App-Vorschlags');
+  } finally { w.UI.confirm = echt; dialogeSchliessen(w); w.FormGuard.dirty = false; await w.S.set('bioVorsorge', vorher); }
+});
