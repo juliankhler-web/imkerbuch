@@ -141,6 +141,8 @@ async function main() {
     ['tierseuchenkasse', 'await Pdf.tierseuchenkasse();'],
     ['fuetterungsliste', `await Pdf.fuetterungsliste('${jahr}');`],
     ['betriebsbeschreibung', `const c = await betriebKontext(); const bb = {}; for (const a of BIO_ABSCHNITTE) bb[a.key] = bbVorschlag(a.key, {}, c); delete bb.zucht; await S.set('bioBetrieb', bb); await Pdf.bioBetriebsbeschreibung();`],
+    ['vorsorge-lang', `const lang = 'Dies ist ein langer eigener Absatz, der über die Seite laufen soll, damit man den Seitenumbruch prüfen kann. '.repeat(14); await S.set('bioVorsorgeEigen', [{ key: 'eigen_x', titel: 'Eigener Bereich mit sehr langem Namen für den Test des Umbruchs in der Überschrift' }]); const st = vorsorgeLaden(); const c = await vorsorgeKontext(st); for (const b of VORSORGE_BEREICHE) st.bereiche[b.key] = { status: 'ja', text: b.text({}, c) + (b.key === 'ernte' ? ' ' + lang : ''), antworten: {} }; st.bereiche.eigen_x = { status: 'ja', text: lang + '\\n' + lang, antworten: {} }; await S.set('bioVorsorge', st); await Pdf.bioVorsorge();`],
+    ['bb-lang', `const lang = 'Dies ist ein langer eigener Absatz, der über die Seite laufen soll, damit man den Seitenumbruch prüfen kann. '.repeat(14); await S.set('bioBetriebEigen', [{ key: 'eigen_y', titel: 'Sonstige Angaben' }]); const c = await betriebKontext(); const bb = {}; for (const a of BIO_ABSCHNITTE) bb[a.key] = bbVorschlag(a.key, {}, c); bb.gesundheit += ' ' + lang; bb.eigen_y = lang; await S.set('bioBetrieb', bb); await Pdf.bioBetriebsbeschreibung(); await S.set('bioBetriebEigen', []);`],
   ];
   for (const [name, code] of jobs) {
     try {

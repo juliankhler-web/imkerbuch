@@ -9253,3 +9253,94 @@ test('Vorsorgekonzept: Rückweg vom eigenen Text zum App-Vorschlag und zurück',
     assertEq(e.quelle, null, 'Herkunft entfällt nach Übernahme des App-Vorschlags');
   } finally { w.UI.confirm = echt; dialogeSchliessen(w); w.FormGuard.dirty = false; await w.S.set('bioVorsorge', vorher); }
 });
+
+
+test('Eigene Bereiche: Vorsorge und Betriebsbeschreibung – anlegen, erkennen, im PDF, löschen', async (w) => {
+  dialogeSchliessen(w);
+  const vor = { e1: w.S.get('bioVorsorgeEigen'), e2: w.S.get('bioBetriebEigen'), v: w.S.get('bioVorsorge'), b: w.S.get('bioBetrieb') };
+  const echt = w.UI.confirm; w.UI.confirm = () => Promise.resolve(true);
+  w.Pdf.noDownloadForTest = true;
+  try {
+    await w.S.set('bioVorsorgeEigen', [{ key: 'eigen_t1', titel: 'Bienenweide Sonderregel' }]);
+    await w.S.set('bioBetriebEigen', [{ key: 'eigen_t2', titel: 'Sonstige Angaben' }]);
+    assert(w.vorsorgeAlle().some((b) => b.key === 'eigen_t1' && b.eigen), 'eigener Vorsorge-Bereich steht in der Gesamtliste');
+    assert(w.bbAbschnitte().some((b) => b.key === 'eigen_t2' && b.label === 'Sonstige Angaben'), 'eigener Abschnitt steht in der Gesamtliste');
+    assertEq(w.vorsorgeAlle().length, w.VORSORGE_BEREICHE.length + 1, 'feste Bereiche bleiben');
+    // Einlesen: die Überschrift des eigenen Bereichs wird erkannt, nichts stürzt ab
+    const erg = w.vorsorgeParsen('Bienenweide Sonderregel\nWir säen jedes Jahr Blühstreifen an, damit die Völker Tracht haben und nichts Fremdes eintragen.\n\nFütterung\nGefüttert wird nur mit Bio-Zucker im Herbst nach der letzten Ernte.', w.vorsorgeAlle(), w.VORSORGE_STICHWORTE);
+    assert(erg.some((a) => a.key === 'eigen_t1'), 'Überschrift des eigenen Bereichs ordnet den Text zu');
+    // Text speichern, PDF
+    await w.S.set('bioVorsorge', { bereiche: { eigen_t1: { status: 'ja', text: 'Eigener Text.', antworten: {} } }, geprueftAm: '', erstelltAm: '' });
+    await w.S.set('bioBetrieb', { eigen_t2: 'Noch etwas.' });
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioVorsorge(); assert(w.Pdf.lastDocForTest, 'Vorsorge-PDF erzeugt');
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioBetriebsbeschreibung(); assert(w.Pdf.lastDocForTest, 'BB-PDF erzeugt');
+    // Löschen entfernt Bereich und Text
+    await w.Views.bio.eigenLoeschen('vorsorge', 'eigen_t1', 'x');
+    await w.Views.bio.eigenLoeschen('bb', 'eigen_t2', 'y');
+    assertEq(w.eigeneListe('bioVorsorgeEigen').length, 0, 'Vorsorge-Bereich gelöscht');
+    assert(!(w.S.get('bioVorsorge').bereiche || {}).eigen_t1, 'Text des Bereichs weg');
+    assert(!(w.S.get('bioBetrieb') || {}).eigen_t2, 'Text des Abschnitts weg');
+  } finally {
+    w.UI.confirm = echt; w.Pdf.noDownloadForTest = false;
+    await w.S.set('bioVorsorgeEigen', vor.e1 || []); await w.S.set('bioBetriebEigen', vor.e2 || []);
+    await w.S.set('bioVorsorge', vor.v); await w.S.set('bioBetrieb', vor.b);
+  }
+});
+
+test('PDF-Kapitel: kurzes Kapitel bleibt ganz beisammen, langes bricht nie mit einer Einzelzeile', async (w) => {
+  w.Pdf.noDownloadForTest = true;
+  try {
+    const { doc, y } = await w.Pdf.newDoc('Test', '');
+    const kurz = 'Eine kurze Zeile. '.repeat(40); // ein paar Zeilen
+    // Seite fast voll: das Kapitel darf nicht zerschnitten werden
+    let yy = 250;
+    const seiten0 = doc.getNumberOfPages();
+    yy = w.Pdf.kapitel(doc, yy, { titel: 'Kurz', text: kurz });
+    assertEq(doc.getNumberOfPages(), seiten0 + 1, 'kurzes Kapitel beginnt auf neuer Seite');
+    assert(yy < 120, 'und steht oben auf der neuen Seite');
+    // langes Kapitel bricht um, endet aber auf der Folgeseite mit mindestens zwei Zeilen
+    const lang = 'Dies ist ein langer Absatz für den Umbruch. '.repeat(120);
+    const s1 = doc.getNumberOfPages();
+    w.Pdf.kapitel(doc, 100, { titel: 'Lang', text: lang });
+    assert(doc.getNumberOfPages() >= s1 + 1, 'langes Kapitel läuft auf die nächste Seite');
+  } finally { w.Pdf.noDownloadForTest = false; }
+});
+
+
+test('PDF mit Anhängen: hochgeladene Fotos und PDF-Seiten werden hinten angefügt', async (w) => {
+  const alt = await w.DB.getAll('anhaenge');
+  w.Pdf.noDownloadForTest = true;
+  const angelegt = [];
+  try {
+    // ein Foto (1×1 PNG) und ein kleines zweiseitiges PDF unter „vorsorge"
+    const c = w.document.createElement('canvas'); c.width = 40; c.height = 30; c.getContext('2d').fillRect(0, 0, 40, 30);
+    const foto = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const { jsPDF } = w.jspdf; const q = new jsPDF(); q.text('Seite 1', 20, 20); q.addPage(); q.text('Seite 2', 20, 20);
+    const pdfBlob = q.output('blob');
+    angelegt.push(await w.DB.put('anhaenge', { parentTyp: 'bio', parentId: 'vorsorge', art: 'foto', name: 'test.png', mime: 'image/png', blob: foto, groesse: foto.size, datum: w.U.nowIso(), dokumentTyp: '' }));
+    angelegt.push(await w.DB.put('anhaenge', { parentTyp: 'bio', parentId: 'vorsorge', art: 'dokument', name: 'test.pdf', mime: 'application/pdf', blob: pdfBlob, groesse: pdfBlob.size, datum: w.U.nowIso(), dokumentTyp: '' }));
+    angelegt.push(await w.DB.put('anhaenge', { parentTyp: 'bio', parentId: 'vorsorge', art: 'dokument', name: 'konzept.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', blob: new Blob(['x']), groesse: 1, datum: w.U.nowIso(), dokumentTyp: '' }));
+    w.Pdf.anhangTestAntwort = 'ohne'; w.Pdf.lastDocForTest = null; await w.Pdf.bioVorsorge();
+    const ohne = w.Pdf.lastDocForTest.getNumberOfPages();
+    w.Pdf.anhangTestAntwort = 'mit'; w.Pdf.lastDocForTest = null; await w.Pdf.bioVorsorge();
+    const mit = w.Pdf.lastDocForTest.getNumberOfPages();
+    // Foto (1) + 2 PDF-Seiten + 1 Seite „nicht angehängt" (Word)
+    assertEq(mit - ohne, 4, 'Foto, zwei PDF-Seiten und die Liste der nicht angehängten Dateien');
+  } finally {
+    w.Pdf.anhangTestAntwort = null; w.Pdf.noDownloadForTest = false;
+    for (const a of await w.DB.getAll('anhaenge')) if (!alt.some((x) => x.id === a.id)) await w.DB.del('anhaenge', a.id);
+  }
+});
+
+
+test('Dokumententyp „Zertifikat“: kommt einmalig in bestehende Listen, ein Löschen bleibt bestehen', async (w) => {
+  const v = { t: w.S.get('dokumentTypen'), f: w.S.get('dokTypZertifikat') };
+  try {
+    await w.S.set('dokumentTypen', ['Kaufbeleg', 'Sonstiges']); await w.S.set('dokTypZertifikat', false);
+    await w.migriereDokTypZertifikat();
+    assertEq(w.S.get('dokumentTypen'), ['Kaufbeleg', 'Zertifikat', 'Sonstiges'], 'vor „Sonstiges“ eingefügt');
+    await w.S.set('dokumentTypen', ['Kaufbeleg', 'Sonstiges']);
+    await w.migriereDokTypZertifikat();
+    assertEq(w.S.get('dokumentTypen'), ['Kaufbeleg', 'Sonstiges'], 'zweiter Lauf ändert nichts mehr');
+  } finally { await w.S.set('dokumentTypen', v.t); await w.S.set('dokTypZertifikat', v.f); }
+});
