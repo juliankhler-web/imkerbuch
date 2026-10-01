@@ -9376,14 +9376,15 @@ test('Hygiene: Eigenkontrollen – Lager, Waage, Verarbeitung, Schädlinge, Maß
   const rest = await bioEintraegeSichern(w); w.Pdf.noDownloadForTest = true;
   try {
     w.S.get('hygieneSoll');
-    assertEq(w.hygieneSoll(), { tempMax: 15, feuchteMax: 60, wasserMax: 20 }, 'Standard-Sollwerte');
+    assertEq(w.hygieneSoll(), { tempMax: 15, feuchteMax: 60, wasserMax: 18 }, 'Standard-Sollwerte');
     const lager = w.BIO_BEREICHE.honiglager;
     assert(/über Sollwert/.test(lager.marke({ temperatur: 16, feuchte: 50 })), 'Temperatur zu hoch');
     assert(/über Sollwert/.test(lager.marke({ temperatur: 12, feuchte: 70 })), 'Feuchte zu hoch');
     assertEq(lager.marke({ temperatur: 12, feuchte: 55 }), '', 'im Rahmen');
     assert(/zu groß/.test(w.BIO_BEREICHE.waage.marke({ soll: 100, ist: 100.4 })), 'Waage 0,4 g daneben');
     assert(/in Ordnung/.test(w.BIO_BEREICHE.waage.marke({ soll: 100, ist: 100.2 })), 'genau 0,2 g ist noch ok');
-    assert(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: 21 }), 'Wasser 21 % ist zu hoch');
+    assert(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: 18.5 }), 'Wasser 18,5 % ist zu hoch');
+    assertEq(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: 18 }), '', 'genau 18 % ist noch ok');
     assertEq(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: '' }), '', 'leerer Wert ist kein Fehler');
     await w.DB.put('bioeintraege', { bereich: 'honigverarbeitung', datum: w.U.todayIso(), losNr: 'L-1', punkte: ['raum', 'siebe'], wasserAbfuellung: 17.5 });
     await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: w.U.todayIso(), temperatur: 14, feuchte: 55 });
