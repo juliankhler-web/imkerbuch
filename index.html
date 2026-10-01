@@ -1050,8 +1050,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.96';
+const APP_VERSION = '1.97';
 const CHANGELOG = [
+  { version: '1.97', datum: '2026-10-01', punkte: [
+    '<b>Archiv:</b> Im Hygiene-Reiter zeigen die Listen (Reinigungen, Honigverarbeitung Ernte und Abfüllung, Honiglager, Schädlinge, Waage, Maßnahmen) nur noch die <b>letzten 2 Jahre</b>. Ältere Einträge stehen unter „Archiv“ am Ende der jeweiligen Karte – aufklappbar, weiter änderbar und als PDF druckbar. Es wird nichts gelöscht. Noch offene Maßnahmen und Schädlingsfälle bleiben in der Liste, egal wie alt.',
+    'Das Hygiene-PDF und die Öko-Unterlagen enthalten nur die letzten 2 Jahre und weisen auf das Archiv hin.',
+  ] },
   { version: '1.96', datum: '2026-10-01', punkte: [
     'In App und PDF steht bei den Checklisten nicht mehr „4 von 8 geprüft“, sondern <b>was geprüft wurde</b> (z. B. „Geprüft: Siebe, Honigschleuder, Lagerbehälter“). Nicht Relevantes wirkt damit nicht wie etwas Fehlendes.',
     'Ernte-Checkliste: neu <b>Entdeckelungsmaschine</b> und <b>Klärbehälter</b> (jeweils gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen bzw. lebensmittelgeeignet).',
@@ -8529,6 +8533,22 @@ const HYGIENE_ASSISTENT_BEREICHE = [
 
 /* Sollwerte der Eigenkontrolle (gängige Vorlagen): Lager höchstens 15 °C und 60 % Luftfeuchte,
    Wassergehalt des Honigs höchstens 18 % (D.I.B.-Qualität; die gesetzliche Grenze liegt bei 20 %). Alles änderbar. */
+/* Archiv: Nachweise und Eigenkontrollen zeigt die App nur für die letzten 2 Jahre; ältere wandern ins Archiv (aufklappbar, weiter änderbar,
+   als PDF druckbar). Gelöscht wird nichts – so quillt die Liste nicht über, und alte Belege bleiben auffindbar. */
+const ARCHIV_JAHRE = 2;
+const ARCHIV_BEREICHE = ['hygienenachweis', 'honigverarbeitung', 'honigabfuellung', 'honiglager', 'schaedlinge', 'waage', 'massnahmen'];
+function archivGrenze() {
+  const d = new Date(U.todayIso() + 'T12:00:00');
+  d.setFullYear(d.getFullYear() - ARCHIV_JAHRE);
+  return d.toISOString().slice(0, 10);
+}
+/** Gehört der Eintrag ins Archiv? Älter als 2 Jahre – außer er ist noch offen (unerledigte Maßnahme, Befall ohne Nachkontrolle-Ergebnis). */
+function bioImArchiv(bereich, e) {
+  if (!ARCHIV_BEREICHE.includes(bereich) || !e.datum || e.datum >= archivGrenze()) return false;
+  if (bereich === 'massnahmen' && !e.erledigt) return false;
+  if (bereich === 'schaedlinge' && e.befall === 'ja' && !e.ergebnis) return false;
+  return true;
+}
 const HYGIENE_KURZ_STANDARD = ['schleuder', 'abfuellkessel', 'gebinde', 'kleingeraete', 'arbeitsflaechen', 'fussboden'];
 const HYGIENE_SOLL_STANDARD = { tempMax: 15, feuchteMax: 60, wasserMax: 18 };
 function hygieneSoll() {
@@ -10158,22 +10178,30 @@ Views.bio = {
       const was = e.gueltigBis ? 'gültig bis' : 'Frist';
       return ` <span class="badge ${st === 'vorbei' ? 'b-danger' : 'b-warn'}">${was} ${U.fmtDate(e.gueltigBis || e.frist)}${st === 'vorbei' ? ' – vorbei' : ''}</span>`;
     };
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon(def.icon)}<h2>${U.esc(def.titel)}</h2>
-        <button class="btn btn-primary btn-sm no-print" data-add="${U.esc(bereich)}">${icon('plus')} Eintrag</button></div>
-      <p class="small muted mb12">${U.esc(def.hinweis)}</p>
-      ${def.oben ? '<div data-oben></div>' : ''}
-      ${list.length ? `<div class="rows">${list.map((e) => {
-        const z = def.zeile(e);
-        return `<button class="row" data-eintrag="${U.esc(e.id)}">
+    const archiv = list.filter((e) => bioImArchiv(bereich, e));
+    const aktuell = archiv.length ? list.filter((e) => !archiv.includes(e)) : list;
+    const reihe = (e) => {
+      const z = def.zeile(e);
+      return `<button class="row" data-eintrag="${U.esc(e.id)}">
           <span class="r-ic">${icon(def.icon)}</span>
           <span class="r-main"><span class="r-title">${U.esc(z.titel)}${marke(e)}</span>
           ${z.sub ? `<span class="r-sub">${U.esc(z.sub)}</span>` : ''}
           ${e.notiz ? `<span class="r-sub">${U.esc(e.notiz)}</span>` : ''}</span>
           <span class="r-side">${z.seite ? `<b>${z.seite}</b>` : ''}</span>${icon('chevR', 'chev')}</button>`;
-      }).join('')}</div>`
-      : emptyState(def.icon, 'Noch kein Eintrag.', `<button class="btn btn-primary" data-add="${U.esc(bereich)}">${icon('plus')} Ersten Eintrag anlegen</button>`)}
+    };
+    box.innerHTML = `<div class="card">
+      <div class="card-title">${icon(def.icon)}<h2>${U.esc(def.titel)}</h2>
+        <button class="btn btn-primary btn-sm no-print" data-add="${U.esc(bereich)}">${icon('plus')} Eintrag</button></div>
+      <p class="small muted mb12">${U.esc(def.hinweis)}</p>
+      ${def.oben ? '<div data-oben></div>' : ''}
+      ${aktuell.length ? `<div class="rows">${aktuell.map(reihe).join('')}</div>`
+      : emptyState(def.icon, archiv.length ? `Keine Einträge aus den letzten ${ARCHIV_JAHRE} Jahren.` : 'Noch kein Eintrag.', `<button class="btn btn-primary" data-add="${U.esc(bereich)}">${icon('plus')} ${archiv.length ? 'Eintrag anlegen' : 'Ersten Eintrag anlegen'}</button>`)}
+      ${archiv.length ? `<details class="mt12" data-archiv><summary class="small" style="cursor:pointer;font-weight:700">Archiv – älter als ${ARCHIV_JAHRE} Jahre (${archiv.length})</summary>
+        <p class="small muted mt8 mb8">Diese Einträge sind nicht gelöscht, nur aus der Liste genommen. Antippen zum Ansehen oder Ändern.</p>
+        <div class="flex-wrap no-print mb8"><button class="btn btn-ghost btn-sm" data-archiv-pdf>${icon('doc')} Archiv als PDF</button></div>
+        <div class="rows">${archiv.map(reihe).join('')}</div></details>` : ''}
     </div>`;
+    const ap = $('[data-archiv-pdf]', box); if (ap) ap.onclick = () => Pdf.bioArchiv(bereich);
     $$('[data-add]', box).forEach((b) => b.onclick = () => Views.bio.eintragForm(bereich, null));
     if (def.oben) await def.oben($('[data-oben]', box), list);
     box.addEventListener('click', (ev) => {
@@ -17001,10 +17029,22 @@ const Pdf = {
     });
     return doc.lastAutoTable.finalY;
   },
+  /** Archiv eines Bereichs (Einträge älter als 2 Jahre) als PDF. */
+  async bioArchiv(bereich) {
+    try {
+      const def = BIO_BEREICHE[bereich];
+      const list = U.sortBy((await DB.getAll('bioeintraege')).filter((e) => e.bereich === bereich && bioImArchiv(bereich, e)), def.sort, !!def.rueckwaerts);
+      if (!list.length || !def.pdf) return UI.toast('Das Archiv ist leer.');
+      const imk = S.get('imkerei') || {};
+      const { doc, y } = await this.newDoc(`Archiv – ${def.titel}`, [imk.name ? `Betrieb: ${imk.name}` : '', `Einträge vor dem ${U.fmtDate(archivGrenze())}`, `${list.length} ${list.length === 1 ? 'Eintrag' : 'Einträge'}`].filter(Boolean).join(' · '));
+      this.table(doc, { head: def.pdf.kopf, body: list.map(def.pdf.zeile), startY: y, widths: def.pdf.widths });
+      this.finish(doc, `archiv-${bereich}-${U.todayIso()}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
   /** Tabelle eines Bio-Bereichs (Spalten aus `BIO_BEREICHE[bereich].pdf`) mit Überschrift; gibt das neue y zurück. Ohne Einträge passiert nichts. */
   bioListenTabelle(doc, yy, bereich, alle) {
     const def = BIO_BEREICHE[bereich];
-    const list = U.sortBy(alle.filter((e) => e.bereich === bereich), def.sort, !!def.rueckwaerts);
+    const list = U.sortBy(alle.filter((e) => e.bereich === bereich && !bioImArchiv(bereich, e)), def.sort, !!def.rueckwaerts);
     if (!list.length || !def.pdf) return yy;
     const H = doc.internal.pageSize.getHeight();
     if (yy + 34 > H - 20) { doc.addPage(); yy = 20; }
@@ -17901,7 +17941,7 @@ const Pdf = {
     try {
       const alle = await DB.getAll('bioeintraege');
       const plan = U.sortBy(alle.filter((e) => e.bereich === 'hygieneplan'), (e) => (e.bereichName || '').toLowerCase());
-      const nachweise = U.sortBy(alle.filter((e) => e.bereich === 'hygienenachweis'), (e) => e.datum || '', true);
+      const nachweise = U.sortBy(alle.filter((e) => e.bereich === 'hygienenachweis' && !bioImArchiv('hygienenachweis', e)), (e) => e.datum || '', true);
       const imk = S.get('imkerei') || {};
       const { doc, y } = await this.newDoc('Hygieneplan',
         [imk.name ? `Betrieb: ${imk.name}` : '', `${plan.length} ${plan.length === 1 ? 'Bereich' : 'Bereiche'}`, `${nachweise.length} durchgeführte ${nachweise.length === 1 ? 'Reinigung' : 'Reinigungen'}`].filter(Boolean).join(' · '));
@@ -17926,6 +17966,12 @@ const Pdf = {
       }
       // Eigenkontrollen: je Bereich eine Tabelle, nur wenn Einträge da sind
       for (const b of ['honigverarbeitung', 'honigabfuellung', 'honiglager', 'schaedlinge', 'waage', 'massnahmen']) yy = this.bioListenTabelle(doc, yy, b, alle);
+      const imArchiv = alle.filter((e) => bioImArchiv(e.bereich, e)).length;
+      if (imArchiv) {
+        if (yy + 12 > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); yy = 20; }
+        doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(120);
+        doc.text(doc.splitTextToSize(`Dieses Dokument zeigt die letzten ${ARCHIV_JAHRE} Jahre. ${imArchiv} ältere ${imArchiv === 1 ? 'Eintrag liegt' : 'Einträge liegen'} im Archiv der App.`, 182), 14, yy);
+      }
       if (!(await this.anhaengeAnfuegen(doc, 'hygiene'))) return;
       this.finish(doc, `hygieneplan-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -18099,7 +18145,7 @@ const Pdf = {
       // die Listen-Bereiche (Hygiene, Förderung)
       const bioAlle = await DB.getAll('bioeintraege');
       for (const [bereich, def] of Object.entries(BIO_BEREICHE)) {
-        const list = U.sortBy(bioAlle.filter((x) => x.bereich === bereich), def.sort, !!def.rueckwaerts);
+        const list = U.sortBy(bioAlle.filter((x) => x.bereich === bereich && !bioImArchiv(bereich, x)), def.sort, !!def.rueckwaerts);
         if (!list.length) continue;
         platz(34);
         doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
@@ -19731,7 +19777,7 @@ Object.assign(window, {
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
-  VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
+  VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, bioImArchiv, archivGrenze, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,

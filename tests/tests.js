@@ -9554,3 +9554,27 @@ test('Checklisten zeigen, was geprüft wurde – nicht „x von y“', async (w)
     assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.some((o) => /Entdeckelungsmaschine/.test(o.l)), 'Entdeckelungsmaschine in der Ernte-Checkliste');
   } finally { await w.S.set('hygienePunkteEigen', vorher || {}); }
 });
+
+
+test('Archiv: Einträge älter als 2 Jahre wandern aus der Liste ins Archiv, offene bleiben', async (w) => {
+  const rest = await bioEintraegeSichern(w); w.Pdf.noDownloadForTest = true;
+  try {
+    const alt = w.U.addDays(w.U.todayIso(), -800), neu = w.U.addDays(w.U.todayIso(), -300);
+    assert(alt < w.archivGrenze() && neu >= w.archivGrenze(), 'Grenze liegt zwischen den Testdaten');
+    assert(w.bioImArchiv('honiglager', { datum: alt }) && !w.bioImArchiv('honiglager', { datum: neu }), 'nach Datum');
+    assert(!w.bioImArchiv('massnahmen', { datum: alt }) && w.bioImArchiv('massnahmen', { datum: alt, erledigt: alt }), 'offene Maßnahme bleibt, erledigte geht ins Archiv');
+    assert(!w.bioImArchiv('schaedlinge', { datum: alt, befall: 'ja' }) && w.bioImArchiv('schaedlinge', { datum: alt, befall: 'nein' }), 'offener Befall bleibt');
+    assert(!w.bioImArchiv('hygieneplan', { datum: alt }) && !w.bioImArchiv('foerderung', { datum: alt }), 'Plan und Förderung sind nicht betroffen');
+    await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: alt, temperatur: 11, feuchte: 50 });
+    await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: neu, temperatur: 12, feuchte: 51 });
+    const box = w.document.createElement('div');
+    await w.Views.bio.tabListe(box, 'honiglager');
+    assertEq(box.querySelectorAll('.rows > .row').length, 2, 'ein aktueller Eintrag in der Liste plus einer im Archiv');
+    assert(box.querySelector('details[data-archiv]') && /Archiv – älter als 2 Jahre \(1\)/.test(box.querySelector('details[data-archiv] summary').textContent), 'Archiv mit Zähler');
+    assertEq(box.querySelectorAll('details[data-archiv] .row').length, 1, 'genau ein Eintrag im Archiv');
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioArchiv('honiglager');
+    assert(w.Pdf.lastDocForTest, 'Archiv-PDF erzeugt');
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioHygieneplan();
+    assert(w.Pdf.lastDocForTest, 'Hygiene-PDF mit Archiv-Hinweis erzeugt');
+  } finally { await rest(); w.Pdf.noDownloadForTest = false; }
+});
