@@ -2682,7 +2682,7 @@ test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
     const h = w.document.createElement('div'); w.document.body.appendChild(h);
     await w.Views.bio.tabHygiene(h);
     const titel = [...h.querySelectorAll('.card h2')].map((e) => e.textContent.trim());
-    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise und Datei-Ablage');
+    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Honigverarbeitung', 'Kontrolle Honiglager', 'Schädlingsüberwachung', 'Prüfmittelüberwachung Waage', 'Maßnahmenplan', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise, Eigenkontrollen und Datei-Ablage');
     h.remove();
   } finally {
     host.remove();
@@ -9016,13 +9016,13 @@ test('Datei öffnen: PDF im neuen Tab, Word als Download (am Rechner)', async (w
    Hygieneplan-Assistent und PDF (v1.75)
    ===================================================================== */
 
-test('Hygiene-Assistent: 9 Bereiche mit Rechtsgrundlage und Vorschlag', (w) => {
-  assertEq(w.HYGIENE_ASSISTENT_BEREICHE.length, 9);
+test('Hygiene-Assistent: 17 Bereiche mit Rechtsgrundlage und Vorschlag', (w) => {
+  assertEq(w.HYGIENE_ASSISTENT_BEREICHE.length, 17);
   for (const b of w.HYGIENE_ASSISTENT_BEREICHE) {
     assert(b.bereichName && b.grundlage && b.mittel && b.haeufigkeit, `${b.key}: vollständig`);
   }
-  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.key)).size, 9, 'keine doppelten Schlüssel');
-  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.bereichName)).size, 9, 'keine doppelten Bereichsnamen');
+  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.key)).size, 17, 'keine doppelten Schlüssel');
+  assertEq(new Set(w.HYGIENE_ASSISTENT_BEREICHE.map((b) => b.bereichName)).size, 17, 'keine doppelten Bereichsnamen');
 });
 
 test('Hygiene-Assistent: legt Einträge an und aktualisiert bestehende, statt zu verdoppeln', async (w) => {
@@ -9343,4 +9343,72 @@ test('Dokumententyp „Zertifikat“: kommt einmalig in bestehende Listen, ein L
     await w.migriereDokTypZertifikat();
     assertEq(w.S.get('dokumentTypen'), ['Kaufbeleg', 'Sonstiges'], 'zweiter Lauf ändert nichts mehr');
   } finally { await w.S.set('dokumentTypen', v.t); await w.S.set('dokTypZertifikat', v.f); }
+});
+
+
+async function bioEintraegeSichern(w) {
+  const alt = (await w.DB.getAll('bioeintraege')).map((e) => e.id);
+  return async () => { for (const e of await w.DB.getAll('bioeintraege')) if (!alt.includes(e.id)) await w.DB.del('bioeintraege', e.id); };
+}
+
+test('Hygiene: Kurzwahl bucht mit einem Tipp, Rückgängig nimmt es zurück', async (w) => {
+  const rest = await bioEintraegeSichern(w); const v = w.S.get('hygieneKurzwahlen');
+  try {
+    const kw = { id: 'k1', bereichName: 'Schleuder und Siebe', mittel: 'heißes Wasser', art: 'U', verantwortlich: 'Julian' };
+    const e = await w.Views.bio.reinigungBuchen(kw, { still: true });
+    const da = (await w.DB.getAll('bioeintraege')).find((x) => x.id === e.id);
+    assertEq([da.bereich, da.datum, da.bereichName, da.art, da.verantwortlich], ['hygienenachweis', w.U.todayIso(), 'Schleuder und Siebe', 'U', 'Julian'], 'Nachweis für heute');
+    await w.S.set('hygieneKurzwahlen', []);
+    await w.DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName: 'Arbeitsflächen', mittel: 'Reinigungsmittel', haeufigkeit: 'nach Arbeitsende' });
+    assertEq(await w.Views.bio.kurzwahlenAusPlan(), 1, 'eine Kurzwahl aus dem Plan');
+    assertEq(await w.Views.bio.kurzwahlenAusPlan(), 0, 'beim zweiten Mal nichts doppelt');
+  } finally { await rest(); await w.S.set('hygieneKurzwahlen', v || []); }
+});
+
+test('Hygiene: Checkliste gruppiert nach Häufigkeit', (w) => {
+  const g = (h) => w.Views.bio.reinigungGruppe(h);
+  assertEq(g('bei Bedarf'), 'Bei Bedarf'); assertEq(g('vor jeder Abfüllung'), 'Vor dem Gebrauch bzw. der Abfüllung');
+  assertEq(g('nach Arbeitsende'), 'Nach der Arbeit bzw. dem Gebrauch'); assertEq(g('einmal im Monat'), 'Sonstige');
+  assertEq(g('nach dem Gebrauch, bei Bedarf'), 'Bei Bedarf', 'bei Bedarf gewinnt');
+});
+
+test('Hygiene: Eigenkontrollen – Lager, Waage, Verarbeitung, Schädlinge, Maßnahmen und PDF', async (w) => {
+  const rest = await bioEintraegeSichern(w); w.Pdf.noDownloadForTest = true;
+  try {
+    w.S.get('hygieneSoll');
+    assertEq(w.hygieneSoll(), { tempMax: 15, feuchteMax: 60, wasserMax: 20 }, 'Standard-Sollwerte');
+    const lager = w.BIO_BEREICHE.honiglager;
+    assert(/über Sollwert/.test(lager.marke({ temperatur: 16, feuchte: 50 })), 'Temperatur zu hoch');
+    assert(/über Sollwert/.test(lager.marke({ temperatur: 12, feuchte: 70 })), 'Feuchte zu hoch');
+    assertEq(lager.marke({ temperatur: 12, feuchte: 55 }), '', 'im Rahmen');
+    assert(/zu groß/.test(w.BIO_BEREICHE.waage.marke({ soll: 100, ist: 100.4 })), 'Waage 0,4 g daneben');
+    assert(/in Ordnung/.test(w.BIO_BEREICHE.waage.marke({ soll: 100, ist: 100.2 })), 'genau 0,2 g ist noch ok');
+    assert(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: 21 }), 'Wasser 21 % ist zu hoch');
+    assertEq(w.verarbeitungWasserHinweis({ wasser: 17, wasserAbfuellung: '' }), '', 'leerer Wert ist kein Fehler');
+    await w.DB.put('bioeintraege', { bereich: 'honigverarbeitung', datum: w.U.todayIso(), losNr: 'L-1', punkte: ['raum', 'siebe'], wasserAbfuellung: 17.5 });
+    await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: w.U.todayIso(), temperatur: 14, feuchte: 55 });
+    await w.DB.put('bioeintraege', { bereich: 'schaedlinge', datum: w.U.todayIso(), befall: 'ja', welche: 'Wachsmotten', nachkontrolle: w.U.addDays(w.U.todayIso(), -3) });
+    await w.DB.put('bioeintraege', { bereich: 'waage', datum: w.U.todayIso(), soll: 100, ist: 100.1 });
+    await w.DB.put('bioeintraege', { bereich: 'massnahmen', datum: w.U.todayIso(), massnahme: 'Lüftung verbessern', frist: w.U.addDays(w.U.todayIso(), 10) });
+    assert(/überfällig/.test(w.BIO_BEREICHE.schaedlinge.marke({ befall: 'ja', nachkontrolle: w.U.addDays(w.U.todayIso(), -3) })), 'Nachkontrolle überfällig');
+    assert(/erledigt/.test(w.BIO_BEREICHE.massnahmen.marke({ erledigt: w.U.todayIso() })), 'erledigt');
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioHygieneplan();
+    assert(w.Pdf.lastDocForTest, 'Hygiene-PDF mit allen Eigenkontrollen erzeugt');
+    w.Pdf.lastDocForTest = null; await w.Pdf.bioUnterlagen();
+    assert(w.Pdf.lastDocForTest, 'Öko-Unterlagen erzeugt');
+  } finally { await rest(); w.Pdf.noDownloadForTest = false; }
+});
+
+test('Hygiene-Reiter: alle Bereiche, Kurzwahlen und Checkliste öffnen ohne Fehler', async (w) => {
+  dialogeSchliessen(w);
+  const box = w.document.createElement('div'); w.document.body.appendChild(box);
+  try {
+    await w.Views.bio.tabHygiene(box);
+    assert(box.querySelector('[data-hk-check]'), 'Knopf „Checkliste abhaken“');
+    assert(box.querySelector('[data-hk-neu]'), 'Kachel „Neue Kurzwahl“');
+    assert(box.querySelector('[data-ohne]'), 'Knopf „kein Befund“');
+    assert(box.querySelectorAll('[data-sprung]').length === 8, 'Sprungleiste');
+    w.Views.bio.reinigungCheckliste(); await new Promise((r) => setTimeout(r, 500));
+    assert(w.document.querySelector('.modal-back'), 'Checkliste (oder der Hinweis auf den fehlenden Plan) öffnet');
+  } finally { dialogeSchliessen(w); box.remove(); }
 });
