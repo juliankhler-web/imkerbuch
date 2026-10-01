@@ -2682,7 +2682,7 @@ test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
     const h = w.document.createElement('div'); w.document.body.appendChild(h);
     await w.Views.bio.tabHygiene(h);
     const titel = [...h.querySelectorAll('.card h2')].map((e) => e.textContent.trim());
-    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Honigverarbeitung', 'Kontrolle Honiglager', 'Schädlingsüberwachung', 'Prüfmittelüberwachung Waage', 'Maßnahmenplan', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise, Eigenkontrollen und Datei-Ablage');
+    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Honigverarbeitung', 'Kontrolle Honiglager', 'Schädlingsüberwachung', 'Prüfmittelüberwachung Waage', 'Maßnahmenplan', 'Gefahren und Grenzwerte', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise, Eigenkontrollen und Datei-Ablage');
     h.remove();
   } finally {
     host.remove();
@@ -9408,8 +9408,21 @@ test('Hygiene-Reiter: alle Bereiche, Kurzwahlen und Checkliste öffnen ohne Fehl
     assert(box.querySelector('[data-hk-check]'), 'Knopf „Checkliste abhaken“');
     assert(box.querySelector('[data-hk-neu]'), 'Kachel „Neue Kurzwahl“');
     assert(box.querySelector('[data-ohne]'), 'Knopf „kein Befund“');
-    assert(box.querySelectorAll('[data-sprung]').length === 8, 'Sprungleiste');
+    assert(box.querySelectorAll('[data-sprung]').length === 9, 'Sprungleiste');
     w.Views.bio.reinigungCheckliste(); await new Promise((r) => setTimeout(r, 500));
     assert(w.document.querySelector('.modal-back'), 'Checkliste (oder der Hinweis auf den fehlenden Plan) öffnet');
   } finally { dialogeSchliessen(w); box.remove(); }
+});
+
+
+test('Hygiene: Grenzwerte-Karte folgt den Sollwerten, Los-Nr. kommt aus den Chargen', async (w) => {
+  const v = w.S.get('hygieneSoll');
+  try {
+    await w.S.set('hygieneSoll', { tempMax: 12, feuchteMax: 55, wasserMax: 20 });
+    const html = w.Views.bio.grenzwerteKarte();
+    assert(/höchstens 12(,0)? °C/.test(html) && /höchstens 55 %/.test(html) && /höchstens 20(,0)? %/.test(html), 'eigene Sollwerte stehen in der Übersicht');
+    const opt = w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'losNr').optionenAus;
+    const ch = await w.DB.put('chargen', { losnummer: 'TEST-LOS-99', datum: w.U.todayIso(), ernteIds: [], mengeKg: 1 });
+    try { assert((await opt()).includes('TEST-LOS-99'), 'Charge erscheint als Vorschlag'); } finally { await w.DB.del('chargen', ch.id); }
+  } finally { await w.S.set('hygieneSoll', v || {}); }
 });

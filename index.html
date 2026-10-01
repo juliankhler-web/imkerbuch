@@ -1049,8 +1049,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.87';
+const APP_VERSION = '1.88';
 const CHANGELOG = [
+  { version: '1.88', datum: '2026-10-01', punkte: [
+    'Neue Karte <b>„Gefahren und Grenzwerte“</b> im Hygiene-Reiter: was schiefgehen kann (Wassergehalt, Luftfeuchte, Temperatur, Glassplitter …), wo die Grenze liegt, wie du prüfst und was du dann tust. Die Zahlen folgen deinen Sollwerten.',
+    'In der Checkliste <b>Honigverarbeitung</b> wählst du die Los-Nummer jetzt aus deinen Chargen.',
+  ] },
   { version: '1.87', datum: '2026-10-01', punkte: [
     'Der Grenzwert für den <b>Wassergehalt</b> steht jetzt standardmäßig auf <b>18 %</b> (D.I.B.-Qualität; gesetzlich sind 20 % erlaubt). Du kannst ihn unter „Kontrolle Honiglager → Sollwerte“ jederzeit ändern.',
   ] },
@@ -8565,7 +8569,7 @@ const BIO_BEREICHE = {
     },
     felder: [
       { key: 'datum', label: 'Honig geschleudert am', type: 'date', required: true, default: U.todayIso() },
-      { key: 'losNr', label: 'Zugehörige Los-Nr.', placeholder: 'wie auf dem Etikett' },
+      { key: 'losNr', label: 'Zugehörige Los-Nr.', type: 'suggest', placeholder: 'wie auf dem Etikett', optionenAus: async () => U.sortBy(await DB.getAll('chargen'), (c) => c.datum || '', true).map((c) => c.losnummer).filter(Boolean) },
       { key: 'behandlungAm', label: 'Letzte Behandlung der Völker am', type: 'date', hint: 'Aus dem Bestandsbuch vorbelegt.' },
       { key: 'punkte', label: 'Kontrollpunkte – geprüft und in Ordnung', type: 'multicheck', keepOrder: true, alleKnopf: true, options: VERARBEITUNG_PUNKTE,
         hint: 'Nur abhaken, was du wirklich geprüft hast. Was nicht in Ordnung war, kommt unten in die Bemerkung.' },
@@ -9866,11 +9870,12 @@ Views.bio = {
     /* Beide Listen stecken in eigenen Wrapper-<div>s – die CSS-Regel
        „.card + .card" wirkt nur zwischen direkten Geschwistern und greift
        hier deshalb NICHT: die Karten berührten sich ohne Abstand. */
-    const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Honigverarbeitung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmenplan'], ['hyg-dateien', 'Dateien']];
+    const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Honigverarbeitung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmenplan'], ['hyg-grenzwerte', 'Grenzwerte'], ['hyg-dateien', 'Dateien']];
     box.innerHTML = `<div class="hyg-nav no-print">${teile.map(([id, l]) => `<button class="btn btn-ghost btn-xs" data-sprung="${id}">${l}</button>`).join('')}</div>
       <div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>
       <div id="bio-verarbeitung" style="margin-top:14px"></div><div id="bio-lager" style="margin-top:14px"></div>
       <div id="bio-schaedlinge" style="margin-top:14px"></div><div id="bio-waage" style="margin-top:14px"></div><div id="bio-massnahmen" style="margin-top:14px"></div>
+      <div id="hyg-grenzwerte" style="margin-top:14px"></div>
       <div class="card" id="hyg-dateien" style="margin-top:14px">
         <div class="card-title">${icon('upload')}<h2>Zertifikate und Nachweise hochladen</h2></div>
         <p class="small muted mb8">Zum <b>Aufbewahren</b>: z. B. Bescheinigung eines Reinigungsmittels, Sicherheitsdatenblatt oder ein Zertifikat als PDF oder Foto (auch Word). Die Datei wird nur gespeichert und lässt sich jederzeit wieder öffnen – die App liest sie nicht aus.</p>
@@ -9883,6 +9888,7 @@ Views.bio = {
     await Views.bio.tabListe($('#bio-schaedlinge', box), 'schaedlinge');
     await Views.bio.tabListe($('#bio-waage', box), 'waage');
     await Views.bio.tabListe($('#bio-massnahmen', box), 'massnahmen');
+    $('#hyg-grenzwerte', box).innerHTML = Views.bio.grenzwerteKarte();
     $$('[data-sprung]', box).forEach((b) => { b.onclick = () => { const z = $('#' + b.dataset.sprung, box); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'start' }); }; });
     $('#hyg-dateien-zone', box).appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'hygiene', titel: 'Hochgeladene Dateien' }));
     /* Der Knopf sitzt IM Plan-Kasten, neben „Eintrag" – dort sucht man ihn,
@@ -10011,7 +10017,7 @@ Views.bio = {
     const felder = [];
     for (const f of def.felder) {
       felder.push(f.type === 'suggest'
-        ? { ...f, options: await gelernteWerte(f.options || [], 'bioeintraege', f.key) }
+        ? { ...f, options: await gelernteWerte(f.optionenAus ? await f.optionenAus() : (f.options || []), 'bioeintraege', f.key) }
         : f);
     }
     const start = e ? e : (def.vorbelegen ? await def.vorbelegen() : {});
@@ -10194,6 +10200,25 @@ Views.bio = {
         renderRoute();
       } catch (e) { laeuft = false; ok.disabled = false; UI.toast('Konnte nicht gebucht werden: ' + e.message, 'err'); }
     };
+  },
+
+  /** Gefahren, Grenzwerte, Prüfung und Gegenmaßnahme – die Übersicht zur Eigenkontrolle (nach der Vorlage von Imkerschule/Imkerverband). Zahlen folgen den eigenen Sollwerten. */
+  grenzwerteKarte() {
+    const so = hygieneSoll();
+    const z = [
+      ['Wassergehalt des Honigs, Verderb', `höchstens ${U.fmtNum(so.wasserMax, 1)} % (gesetzlich 20 %)`, 'Refraktometer', 'vor und nach dem Schleudern', 'Honigwaben im Volk belassen; Ernte als Backhonig verwenden oder wieder einfüttern'],
+      ['Gläser und Deckel: Verunreinigung, Feuchtigkeit, Fremdgeruch', '–', 'Sicht- und Sinneskontrolle', 'je Charge bei Anlieferung bzw. vor Gebrauch', 'Beschädigte Gläser und Deckel entsorgen; nachreinigen'],
+      ['Hohe Luftfeuchtigkeit im Lager, steigender Wassergehalt', `höchstens ${U.fmtNum(so.feuchteMax, 0)} % relative Luftfeuchte`, 'Messen mit Hygrometer', 'wöchentlich', 'Raumtrocknung'],
+      ['Hohe Temperatur im Lager', `höchstens ${U.fmtNum(so.tempMax, 1)} °C`, 'Messen mit Raumthermometer', 'wöchentlich', 'Temperatur regulieren'],
+      ['Glassplitter', '–', 'Sichtkontrolle', 'nach der Reinigung', 'Anstoßen der Gläser vermeiden; in der Spülmaschine trocknen lassen'],
+      ['Säuglingsbotulismus', '–', '–', '–', 'Hinweis an Eltern: Honig nicht an Kinder unter einem Jahr geben'],
+    ];
+    return `<div class="card"><div class="card-title">${icon('info')}<h2>Gefahren und Grenzwerte</h2></div>
+      <p class="small muted mb8">Die Übersicht zur Eigenkontrolle: was schiefgehen kann, wo die Grenze liegt, wie du prüfst und was du dann tust. Die Zahlen folgen deinen Sollwerten (unter „Kontrolle Honiglager“ änderbar). Was deine Kontrollstelle konkret verlangt, geht vor.</p>
+      <details><summary class="small" style="cursor:pointer;font-weight:700">Übersicht anzeigen</summary>
+      <div class="rows mt8">${z.map((r) => `<div class="row" style="align-items:flex-start"><span class="r-main"><span class="r-title">${U.esc(r[0])}</span>
+        <span class="r-sub" style="white-space:normal"><b>Grenze:</b> ${U.esc(r[1])}</span><span class="r-sub" style="white-space:normal"><b>Prüfen:</b> ${U.esc(r[2])} · ${U.esc(r[3])}</span>
+        <span class="r-sub" style="white-space:normal"><b>Dann:</b> ${U.esc(r[4])}</span></span></div>`).join('')}</div></details></div>`;
   },
 
   /* ---------- Honiglager, Schädlinge ---------- */
