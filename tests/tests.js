@@ -9478,3 +9478,14 @@ test('Hygiene: Vorschläge – Standardplan, Standard-Kurzwahlen, Maßnahmen aus
     assert(!/Lagerklima/.test(box2.textContent), 'übernommener Vorschlag wird nicht noch einmal angeboten');
   } finally { await rest(); await w.S.set('hygieneKurzwahlen', kw || []);  }
 });
+
+
+test('Honigverarbeitung: alle Chargen ohne Checkliste werden angeboten, nicht nur vier', async (w) => {
+  const ids = [];
+  try {
+    for (let i = 0; i < 7; i++) ids.push((await w.DB.put('chargen', { losnummer: 'ALLE-' + i, datum: '2030-01-0' + (i + 1), ernteIds: [], mengeKg: 1 })).id);
+    const box = w.document.createElement('div');
+    await w.Views.bio.verarbeitungOben(box, []);
+    for (const id of ids) assert(box.querySelector(`[data-ch="${id}"]`), 'Charge ' + id + ' fehlt in den Vorschlägen');
+  } finally { for (const id of ids) await w.DB.del('chargen', id); }
+});

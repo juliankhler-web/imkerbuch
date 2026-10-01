@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-01 (v1.90)**: `verarbeitungOben` zeigt alle Chargen ohne Checkliste (vorher auf 4 begrenzt).
 - **2026-10-01 (v1.89)**: Verarbeitungs-Checkliste ↔ Chargen/Ernten/Abfüllungen (`chargeFuerVerarbeitung`, Feld `chargeId`, Snapshot `abfuellText`), Vorschläge im ganzen Hygiene-Reiter (`hygieneBekannt`, `planStandardUebernehmen`, `kurzwahlenStandard`, `mittelAutomatisch`, `lagerMassnahmeVorschlag`, `schaedlingVorschlag`, `massnahmenVorschlaege` mit `quelleKey`). BIO_BEREICHE-Defs neu: `vorSpeichern`, `nachOeffnen`, `optionenAus` (auch bei select). Halb-Felder mit kurzen Beschriftungen (sonst rutschen die Eingaben).
 - **2026-10-01 (v1.88)**: Karte „Gefahren und Grenzwerte“ (`Views.bio.grenzwerteKarte`, folgt `hygieneSoll()`); Los-Nr. der Verarbeitungs-Checkliste aus den Chargen (`optionenAus` an Suggest-Feldern).
 - **2026-10-01 (v1.87)**: Standard-Grenzwert Wassergehalt 18 % (`HYGIENE_SOLL_STANDARD.wasserMax`), über „Sollwerte“ änderbar (gesetzlich 20 %).
