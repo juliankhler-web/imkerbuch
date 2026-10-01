@@ -9421,8 +9421,60 @@ test('Hygiene: Grenzwerte-Karte folgt den Sollwerten, Los-Nr. kommt aus den Char
     await w.S.set('hygieneSoll', { tempMax: 12, feuchteMax: 55, wasserMax: 20 });
     const html = w.Views.bio.grenzwerteKarte();
     assert(/höchstens 12(,0)? °C/.test(html) && /höchstens 55 %/.test(html) && /höchstens 20(,0)? %/.test(html), 'eigene Sollwerte stehen in der Übersicht');
-    const opt = w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'losNr').optionenAus;
+    const opt = w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'chargeId').optionenAus;
     const ch = await w.DB.put('chargen', { losnummer: 'TEST-LOS-99', datum: w.U.todayIso(), ernteIds: [], mengeKg: 1 });
-    try { assert((await opt()).includes('TEST-LOS-99'), 'Charge erscheint als Vorschlag'); } finally { await w.DB.del('chargen', ch.id); }
+    try { assert((await opt()).some((o) => o.v === ch.id && /TEST-LOS-99/.test(o.l)), 'Charge erscheint als Auswahl'); } finally { await w.DB.del('chargen', ch.id); }
   } finally { await w.S.set('hygieneSoll', v || {}); }
+});
+
+
+test('Honigverarbeitung: Charge, Ernte und Abfüllungen werden logisch verknüpft', async (w) => {
+  const rest = await bioEintraegeSichern(w);
+  const neu = [];
+  try {
+    const ernte = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: '2026-06-08', produktart: 'Honig', sorte: 'Raps', mengeKg: 20, wassergehalt: 17.4 });
+    const ch = await w.DB.put('chargen', { losnummer: 'V-1', datum: '2026-06-10', ernteIds: [ernte.id], mengeKg: 20 });
+    const a1 = await w.DB.put('abfuellungen', { chargeId: ch.id, datum: '2026-06-12', mhd: '2028-06-12', gebindeG: 500, anzahl: 30, bestand: 30 });
+    const a2 = await w.DB.put('abfuellungen', { chargeId: ch.id, datum: '2026-06-15', mhd: '2028-06-15', gebindeG: 250, anzahl: 20, bestand: 20 });
+    neu.push(['ernten', ernte.id], ['chargen', ch.id], ['abfuellungen', a1.id], ['abfuellungen', a2.id]);
+    const info = await w.chargeFuerVerarbeitung(ch.id);
+    assertEq([info.los, info.geschleudert, info.wasser, info.abgefuelltAm, info.mhd], ['V-1', '2026-06-08', 17.4, '2026-06-15', '2028-06-12'], 'Los, Schleudertag, Wasser, letzte Abfüllung, frühestes MHD');
+    assertEq(info.text, '30 × 500 g, 20 × 250 g', 'Gläser');
+    const daten = await w.BIO_BEREICHE.honigverarbeitung.vorSpeichern({ chargeId: ch.id, losNr: '' });
+    assertEq([daten.losNr, daten.abfuellText], ['V-1', '30 × 500 g, 20 × 250 g'], 'Beim Speichern merkt sich der Eintrag Los und Abfüllung');
+    // Charge ohne Checkliste wird oben angeboten, mit Checkliste nicht mehr
+    const box = w.document.createElement('div');
+    await w.Views.bio.verarbeitungOben(box, []);
+    assert(box.querySelector(`[data-ch="${ch.id}"]`), 'Charge ohne Checkliste wird vorgeschlagen');
+    await w.Views.bio.verarbeitungOben(box, [{ chargeId: ch.id }]);
+    assert(!box.querySelector(`[data-ch="${ch.id}"]`), 'mit Checkliste nicht mehr');
+  } finally { for (const [st, id] of neu) await w.DB.del(st, id); await rest(); }
+});
+
+test('Hygiene: Vorschläge – Standardplan, Standard-Kurzwahlen, Maßnahmen aus Auffälligkeiten', async (w) => {
+  const rest = await bioEintraegeSichern(w); const kw = w.S.get('hygieneKurzwahlen');
+  try {
+    const vorher = (await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'hygieneplan').length;
+    const n = await w.Views.bio.planStandardUebernehmen();
+    assertEq((await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'hygieneplan').length, vorher + n, 'Vorschläge sind im Plan');
+    assertEq(await w.Views.bio.planStandardUebernehmen(), 0, 'beim zweiten Mal nichts doppelt');
+    await w.S.set('hygieneKurzwahlen', []);
+    assertEq(await w.Views.bio.kurzwahlenStandard(), w.HYGIENE_KURZ_STANDARD.length, 'typische Reinigungen als Kurzwahl');
+    assertEq(await w.Views.bio.kurzwahlenStandard(), 0, 'nicht doppelt');
+    const bekannt = await w.hygieneBekannt();
+    assert(bekannt.some((x) => x.name === 'Arbeitsflächen' && x.mittel), 'Bereiche mit Mittel bekannt');
+    // Auffälligkeiten → Maßnahmenvorschlag
+    await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: w.U.todayIso(), temperatur: 14, feuchte: 70 });
+    await w.DB.put('bioeintraege', { bereich: 'schaedlinge', datum: w.U.todayIso(), befall: 'ja', welche: 'Wachsmotten', wo: 'Wabenlager' });
+    const box = w.document.createElement('div');
+    await w.Views.bio.massnahmenVorschlaege(box, []);
+    const txt = box.textContent;
+    assert(/Lagerklima/.test(txt) && /Nachkontrolle/.test(txt), 'Vorschläge für Lager und Schädlinge');
+    box.querySelector('[data-mv]').click(); await new Promise((r) => setTimeout(r, 300));
+    const m = (await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'massnahmen');
+    assert(m.length === 1 && m[0].quelleKey, 'Vorschlag ist im Plan und merkt sich seine Herkunft');
+    const box2 = w.document.createElement('div');
+    await w.Views.bio.massnahmenVorschlaege(box2, m);
+    assert(!/Lagerklima/.test(box2.textContent), 'übernommener Vorschlag wird nicht noch einmal angeboten');
+  } finally { await rest(); await w.S.set('hygieneKurzwahlen', kw || []);  }
 });
