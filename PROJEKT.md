@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-01 (v1.96)**: Checklisten zeigen/drucken die geprüften Punkte als Text (`punkteText`, Kurznamen `k` je Punkt; Snapshot `punkteText` am Eintrag) statt „x von y“; PDF-Spalte „Geprüft und Bemerkung“ (`def.pdf.widths`). Ernte-Punkte: + `entdeckelmaschine`, `klaerbehaelter` (9).
 - **2026-10-01 (v1.95)**: Eigene Kontrollpunkte je Checkliste (`hygienePunkteEigen`, `Views.bio.eigenePunkteBedienung`, `punkteAbschluss`; Eintrag merkt `punkteGesamt` und `punkteEigenText`).
 - **2026-10-01 (v1.94)**: Abfüll-Punkte um `melitherm` (7).
 - **2026-10-01 (v1.93)**: Beide Checklisten (`honigverarbeitung` = Ernte/Schleudern, `honigabfuellung` = Abfüllung) hängen an der **Charge** (`chargeId`); `chargeFuerVerarbeitung` aggregiert Ernten (via `ernteFuerVerarbeitung`: Herkunft, Behandlung, Wartezeit) und Abfüllungen der Charge. Einträge der Fassung 1.91/1.92 (`ernteId`/`abfuellungId`) bleiben lesbar und zählen für ihre Charge.

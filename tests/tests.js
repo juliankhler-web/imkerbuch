@@ -9444,7 +9444,7 @@ test('Ernte- und Abfüll-Checkliste arbeiten mit der Charge und holen sich Ernte
     assertEq([dv.losNr, dv.ernteText], ['V-1', 'Raps · 20 kg'], 'Ernte-Checkliste merkt sich Los und Ernte');
     const da = await w.BIO_BEREICHE.honigabfuellung.vorSpeichern({ chargeId: ch.id, losNr: '' });
     assertEq([da.losNr, da.abfuellText], ['V-1', '30 × 500 g, 20 × 250 g'], 'Abfüll-Checkliste merkt sich Los und Gläser');
-    assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.length === 7 && w.ABFUELLUNG_PUNKTE.length === 7, 'Kontrollpunkte sind aufgeteilt');
+    assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.length === 9 && w.ABFUELLUNG_PUNKTE.length === 7, 'Kontrollpunkte sind aufgeteilt');
     // Angebote: Ernte – alle Chargen; Abfüllung – nur bereits abgefüllte
     const b1 = w.document.createElement('div'), b2 = w.document.createElement('div');
     await w.Views.bio.checklisteOben(b1, [], 'ernte'); await w.Views.bio.checklisteOben(b2, [], 'abf');
@@ -9538,4 +9538,19 @@ test('Checklisten: eigener Kontrollpunkt hinzufügen, anhaken, zählen und wiede
     m.querySelector('input[value^="eigen_"]').closest('label').querySelector('button').click(); await new Promise((r) => setTimeout(r, 300));
     assertEq(w.hygienePunkteEigen('honigabfuellung').length, 0, 'Entfernen klappt');
   } finally { dialogeSchliessen(w); await w.S.set('hygienePunkteEigen', vorher || {}); await rest(); }
+});
+
+
+test('Checklisten zeigen, was geprüft wurde – nicht „x von y“', async (w) => {
+  const vorher = w.S.get('hygienePunkteEigen');
+  try {
+    await w.S.set('hygienePunkteEigen', { honigabfuellung: [{ v: 'eigen_t', l: 'Dichtungen' }] });
+    const v = w.Views.bio.punkteAbschluss({ punkte: ['glaeser', 'melitherm', 'eigen_t'] }, 'honigabfuellung', w.ABFUELLUNG_PUNKTE);
+    assertEq(v.punkteText, 'Melitherm, Gläser, Dichtungen', 'geprüft in Listenreihenfolge, eigene mit Namen');
+    const z = w.BIO_BEREICHE.honigabfuellung.zeile({ ...v, bereich: 'honigabfuellung', datum: '2026-06-12', abfuellText: '30 × 500 g' });
+    assert(/Geprüft: Melitherm/.test(z.sub) && !/ von /.test(z.sub), 'App-Zeile nennt die geprüften Punkte');
+    assert(/Geprüft: Melitherm/.test(w.BIO_BEREICHE.honigabfuellung.pdf.zeile({ ...v, datum: '2026-06-12' }).pop()), 'PDF-Zelle ebenso');
+    assertEq(w.punkteText({ punkte: ['siebe', 'klaerbehaelter'] }), 'Siebe, Klärbehälter', 'ältere Einträge: aus den Haken gebildet');
+    assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.some((o) => /Entdeckelungsmaschine/.test(o.l)), 'Entdeckelungsmaschine in der Ernte-Checkliste');
+  } finally { await w.S.set('hygienePunkteEigen', vorher || {}); }
 });
