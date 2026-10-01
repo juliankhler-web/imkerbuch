@@ -1050,14 +1050,21 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.92';
+const APP_VERSION = '1.94';
 const CHANGELOG = [
+  { version: '1.94', datum: '2026-10-01', punkte: [
+    'Die Abfüll-Checkliste hat jetzt auch <b>„Melitherm: gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen“</b>. Bei Abfüllanlage, Rührstab und Abfüllbehälter steht „Abrieb ausgeschlossen“ ebenfalls dabei.',
+  ] },
+  { version: '1.93', datum: '2026-10-01', punkte: [
+    '<b>Honigverarbeitung – Ernte</b> und <b>Honigverarbeitung – Abfüllung</b> arbeiten jetzt mit der <b>Charge</b>: Du wählst die Charge, und die App holt sich alles aus ihr. Bei der Ernte-Checkliste sind das Schleuderdatum, Wassergehalt, Los-Nr. und die letzte Behandlung der Völker (mit Warnung bei laufender Wartezeit); bei der Abfüll-Checkliste schaut sie nach, <b>wann die Charge abgefüllt wurde</b>, und übernimmt Datum, Gläser, Los-Nr., Mindesthaltbarkeit und Wassergehalt.',
+    'Chargen ohne Checkliste werden oben als Kacheln angeboten; bei der Abfüllung nur die, die schon abgefüllt wurden.',
+  ] },
   { version: '1.92', datum: '2026-10-01', punkte: [
     'In der Abfüll-Checkliste gibt es jetzt auch <b>„Abfüllanlage: gereinigt, trocken, ohne Anhaftungen“</b>. Rührstab, Abfüllbehälter, Gläser, Deckel und Deckeleinlagen gehören nur zur Abfüllung, nicht zur Ernte.',
     '<b>Alles verbunden:</b> Wählst du eine Ernte, übernimmt die App Schleuderdatum, Wassergehalt, Los-Nr. und die <b>letzte Behandlung dieses Volkes bzw. Standes</b> aus dem Bestandsbuch – und warnt, wenn die Wartezeit zur Ernte noch lief. Dazu zeigt sie Herkunft und die zugehörigen Abfüllungen. Bei einer Abfüllung kommen Datum, Los, Mindesthaltbarkeit, Wassergehalt und die zugehörigen Ernten dazu. Die zuletzt eingetragene Person wird vorgeschlagen.',
   ] },
   { version: '1.91', datum: '2026-10-01', punkte: [
-    '<b>Ernte und Abfüllung getrennt:</b> Die Checkliste <b>Honigverarbeitung</b> gehört jetzt zur <b>Ernte</b> (Schleudern: Raum, Entdeckelungsgeschirr, Schleuder, Siebe, Lagerbehälter, Wassergehalt). Das <b>Abfüllen</b> hat eine eigene Checkliste je <b>Abfüllung</b> (Abfüllanlage, Rührstab, Abfüllbehälter, Gläser, Deckel, Wärmeschrank, Rückstellprobe, MHD). Beide füllen sich aus den Daten der App, und Ernten bzw. Abfüllungen ohne Checkliste werden angeboten. Bereits angelegte Einträge bleiben erhalten.',
+    '<b>Ernte und Abfüllung getrennt:</b> Die Checkliste <b>Honigverarbeitung</b> gehört jetzt zur <b>Ernte</b> (Schleudern: Raum, Entdeckelungsgeschirr, Schleuder, Siebe, Lagerbehälter, Wassergehalt). Das <b>Abfüllen</b> hat eine eigene Checkliste je <b>Abfüllung</b> (Abfüllanlage, Melitherm, Rührstab, Abfüllbehälter, Gläser, Deckel, Wärmeschrank, Rückstellprobe, MHD). Beide füllen sich aus den Daten der App, und Ernten bzw. Abfüllungen ohne Checkliste werden angeboten. Bereits angelegte Einträge bleiben erhalten.',
   ] },
   { version: '1.90', datum: '2026-10-01', punkte: [
     'Behoben: In der Honigverarbeitung wurden nur die vier neuesten Chargen ohne Checkliste angeboten. Jetzt stehen <b>alle</b> da, mit der Anzahl darüber.',
@@ -8535,6 +8542,7 @@ const VERARBEITUNG_PUNKTE = [
 /* Kontrollpunkte beim Abfüllen (Gläser, Deckel, Abfüllbehälter …) – eine eigene Checkliste je Abfüllung. */
 const ABFUELLUNG_PUNKTE = [
   { v: 'abfuellanlage', l: 'Abfüllanlage: gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen' },
+  { v: 'melitherm', l: 'Melitherm: gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen' },
   { v: 'ruehrstab', l: 'Rührstab o. Ä.: gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen' },
   { v: 'abfuellbehaelter', l: 'Abfüllbehälter: gereinigt, trocken, ohne Anhaftungen, Quetschhahn geprüft, Abrieb ausgeschlossen' },
   { v: 'glaeser', l: 'Gläser: gereinigt, trocken, ohne Fremdgeruch, ohne Absplitterungen und Sprünge' },
@@ -8550,19 +8558,29 @@ function verarbeitungWasserHinweis(e) {
   const hoch = werte.length ? Math.max(...werte) : null;
   return hoch != null && hoch > max ? `Wassergehalt ${U.fmtNum(hoch, 1)} % – über ${U.fmtNum(max, 1)} %` : '';
 }
-/** Alles, was die App über eine Charge schon weiß: Los, Honig, Schleuderdatum, Wassergehalt, Abfüllungen (mit Gläsern und Mindesthaltbarkeit). */
+/** Alles, was die App über eine Charge schon weiß: Los, Honig, Ernten (Schleuderdatum, Wassergehalt, Herkunft, letzte Behandlung samt Wartezeit),
+    Abfüllungen (Datum, Gläser, Mindesthaltbarkeit). Daraus füllen sich beide Checklisten – Ernte/Schleudern und Abfüllung. */
 async function chargeFuerVerarbeitung(chargeId) {
   const [chargen, ernten, abf] = await Promise.all(['chargen', 'ernten', 'abfuellungen'].map((st) => DB.getAll(st)));
   const c = chargen.find((x) => x.id === chargeId);
   if (!c) return null;
   const em = new Map(ernten.map((e) => [e.id, e]));
+  const es = (c.ernteIds || []).map((id) => em.get(id)).filter(Boolean);
+  const einzeln = [];
+  for (const e of es) { const x = await ernteFuerVerarbeitung(e.id); if (x) einzeln.push(x); }
   const abfs = abf.filter((a) => a.chargeId === c.id).sort((a, b) => (a.datum || '').localeCompare(b.datum || ''));
   const mhds = abfs.map((a) => a.mhd).filter(Boolean).sort();
-  const w = chargeWassergehalt(c, em);
+  const behandlungen = einzeln.filter((x) => x.behandlungAm).sort((a, b) => b.behandlungAm.localeCompare(a.behandlungAm));
   return {
     charge: c, los: c.losnummer || '', honig: honigName(c, em),
-    geschleudert: (c.ernteIds || []).map((id) => em.get(id)).filter(Boolean).map((e) => e.datum).filter(Boolean).sort()[0] || '',
-    wasser: w, abfuellungen: abfs, abgefuelltAm: abfs.length ? (abfs[abfs.length - 1].datum || '') : '', mhd: mhds[0] || '',
+    geschleudert: es.map((e) => e.datum).filter(Boolean).sort()[0] || '',
+    ernten: einzeln.map((x) => `${x.text} · ${U.fmtDate(x.geschleudert)}${x.herkunft ? ' · ' + x.herkunft : ''}`),
+    ernteText: einzeln.map((x) => x.text).join('; '),
+    wasser: chargeWassergehalt(c, em),
+    behandlungAm: behandlungen[0] ? behandlungen[0].behandlungAm : '', behandlungMittel: behandlungen[0] ? behandlungen[0].behandlungMittel : '',
+    wartezeitKonflikt: einzeln.map((x) => x.wartezeitKonflikt).filter(Boolean).sort().pop() || '',
+    abfuellungen: abfs, abgefuelltAm: abfs.length ? (abfs[abfs.length - 1].datum || '') : '', mhd: mhds[0] || '',
+    abfuellungenText: abfs.map((a) => `${U.fmtDate(a.datum)}: ${a.anzahl} × ${gebindeLabel(a.gebindeG)}`),
     text: abfs.map((a) => `${a.anzahl} × ${gebindeLabel(a.gebindeG)}`).join(', '),
   };
 }
@@ -8586,18 +8604,6 @@ async function ernteFuerVerarbeitung(ernteId) {
     wartezeitKonflikt: !!(wartezeitBis && wartezeitBis > (e.datum || '')) ? wartezeitBis : '',
     abfuellungen: abfs.map((a) => `${U.fmtDate(a.datum)}: ${a.anzahl} × ${gebindeLabel(a.gebindeG)}`),
     text: `${e.sorte || 'Honig'}${e.mengeKg ? ' · ' + U.fmtNum(e.mengeKg, 1) + ' kg' : ''}` };
-}
-/** Was die App über eine Abfüllung weiß – Datum, Gläser, Mindesthaltbarkeit, Los und Wassergehalt der Charge. */
-async function abfuellungFuerCheckliste(abfId) {
-  const [abf, chargen, ernten] = await Promise.all(['abfuellungen', 'chargen', 'ernten'].map((st) => DB.getAll(st)));
-  const a = abf.find((x) => x.id === abfId);
-  if (!a) return null;
-  const c = chargen.find((x) => x.id === a.chargeId);
-  const em = new Map(ernten.map((x) => [x.id, x]));
-  const es = c ? (c.ernteIds || []).map((id) => em.get(id)).filter(Boolean) : [];
-  return { abf: a, datum: a.datum || '', mhd: a.mhd || '', text: `${a.anzahl} × ${gebindeLabel(a.gebindeG)}`, los: a.losnummer || (c && c.losnummer) || '',
-    wasser: c ? chargeWassergehalt(c, em) : null, honig: c ? honigName(c, em) : 'Honig',
-    ernten: es.map((e) => `${e.sorte || 'Honig'}${e.mengeKg ? ' · ' + U.fmtNum(e.mengeKg, 1) + ' kg' : ''}, geschleudert ${U.fmtDate(e.datum)}`) };
 }
 /** Bereiche, die der Hygiene-Assistent kennt, plus die Zeilen des eigenen Plans – Vorschläge für Bereich und Mittel. */
 async function hygieneBekannt() {
@@ -8643,8 +8649,8 @@ const BIO_BEREICHE = {
       zeile: (e) => [U.fmtDate(e.datum), e.bereichName || '–', e.art || '', e.mittel || '–', e.verantwortlich || '–', e.notiz || ''] },
   },
   honigverarbeitung: {
-    titel: 'Honigverarbeitung', icon: 'flask',
-    hinweis: 'Die Checkliste fürs Schleudern – eine je Ernte: Raum, Geräte und Gefäße prüfen, Wassergehalt festhalten. Das Abfüllen hat unten eine eigene Checkliste.',
+    titel: 'Honigverarbeitung – Ernte', icon: 'flask',
+    hinweis: 'Die Checkliste fürs Schleudern – eine je Charge: Raum, Geräte und Gefäße prüfen, Wassergehalt festhalten. Das Abfüllen hat darunter eine eigene Checkliste.',
     sort: (e) => e.datum || '', rueckwaerts: true,
     vorbelegen: async () => {
       const b = U.sortBy(await DB.getAll('behandlungen'), (x) => x.datum || '', true)[0];
@@ -8652,9 +8658,8 @@ const BIO_BEREICHE = {
       return { ...(b && b.datum ? { behandlungAm: b.datum } : {}), ...(l && l.verantwortlich ? { verantwortlich: l.verantwortlich } : {}) };
     },
     felder: [
-      { key: 'ernteId', label: 'Ernte (Schleuderung)', type: 'select', optionenAus: async () => U.sortBy((await DB.getAll('ernten')).filter((e) => !e.produktart || /honig/i.test(e.produktart)), (e) => e.datum || '', true)
-          .map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Honig'}${e.mengeKg ? ' · ' + U.fmtNum(e.mengeKg, 1) + ' kg' : ''}` })),
-        hint: 'Wählst du eine Ernte, füllt die App Schleuderdatum, Wassergehalt und Los-Nr. aus.' },
+      { key: 'chargeId', label: 'Charge', type: 'select', optionenAus: () => Views.bio.chargenAuswahl(),
+        hint: 'Wählst du eine Charge, füllt die App Schleuderdatum, Wassergehalt, Los-Nr. und die letzte Behandlung aus – aus den Ernten dieser Charge.' },
       { key: '_abf', type: 'static', html: '<div data-abf class="hint mb8" hidden></div>' },
       { key: 'datum', label: 'Honig geschleudert am', type: 'date', required: true, default: U.todayIso() },
       { key: 'losNr', label: 'Zugehörige Los-Nr.', placeholder: 'wie auf dem Etikett' },
@@ -8672,8 +8677,8 @@ const BIO_BEREICHE = {
     },
     marke: (e) => (verarbeitungWasserHinweis(e) ? ' <span class="badge b-danger">Wasser zu hoch</span>' : ''),
     vorSpeichern: async (v) => {
-      const info = v.ernteId ? await ernteFuerVerarbeitung(v.ernteId) : null;
-      v.ernteText = info ? info.text : '';
+      const info = v.chargeId ? await chargeFuerVerarbeitung(v.chargeId) : null;
+      v.ernteText = info ? info.ernteText : '';
       if (info && !String(v.losNr || '').trim()) v.losNr = info.los;
       return v;
     },
@@ -8683,19 +8688,16 @@ const BIO_BEREICHE = {
       zeile: (e) => [U.fmtDate(e.datum), e.ernteText || '–', e.losNr || '–', zahlOderLeer(e.wasser) !== '' ? U.fmtNum(e.wasser, 1) : '–', `${Array.isArray(e.punkte) ? e.punkte.length : 0} von ${punkteVon(e)}`, e.notiz || ''] },
   },
   honigabfuellung: {
-    titel: 'Abfüllung', icon: 'honig',
-    hinweis: 'Die Checkliste fürs Abfüllen – eine je Abfüllung: Abfüllanlage, Gläser, Deckel und Abfüllbehälter prüfen, Wassergehalt und Wärmeschrank festhalten, Rückstellprobe vermerken. Die Daten kommen aus deinen Abfüllungen.',
+    titel: 'Honigverarbeitung – Abfüllung', icon: 'honig',
+    hinweis: 'Die Checkliste fürs Abfüllen – eine je Charge: Abfüllanlage, Melitherm, Gläser, Deckel und Abfüllbehälter prüfen, Wassergehalt und Wärmeschrank festhalten, Rückstellprobe vermerken. Wann und wie abgefüllt wurde, holt sich die App aus den Abfüllungen der Charge.',
     sort: (e) => e.datum || '', rueckwaerts: true,
     vorbelegen: async () => {
       const l = U.sortBy((await DB.getAll('bioeintraege')).filter((x) => x.bereich === 'honigabfuellung'), (x) => x.datum || '', true)[0];
       return l && l.verantwortlich ? { verantwortlich: l.verantwortlich } : {};
     },
     felder: [
-      { key: 'abfuellungId', label: 'Abfüllung', type: 'select', optionenAus: async () => {
-          const chargen = new Map((await DB.getAll('chargen')).map((c) => [c.id, c]));
-          return U.sortBy(await DB.getAll('abfuellungen'), (a) => a.datum || '', true)
-            .map((a) => ({ v: a.id, l: `${U.fmtDate(a.datum)} · ${a.anzahl} × ${gebindeLabel(a.gebindeG)} · Los ${a.losnummer || (chargen.get(a.chargeId) || {}).losnummer || '?'}` }));
-        }, hint: 'Wählst du eine Abfüllung, füllt die App Datum, Los-Nr., Mindesthaltbarkeit und Wassergehalt aus.' },
+      { key: 'chargeId', label: 'Charge', type: 'select', optionenAus: () => Views.bio.chargenAuswahl(),
+        hint: 'Wählst du eine Charge, schaut die App nach, wann sie abgefüllt wurde, und füllt Datum, Gläser, Los-Nr., Mindesthaltbarkeit und Wassergehalt aus.' },
       { key: '_abf', type: 'static', html: '<div data-abf class="hint mb8" hidden></div>' },
       { key: 'datum', label: 'Abgefüllt am', type: 'date', required: true, default: U.todayIso() },
       { key: 'losNr', label: 'Los-Nr.', placeholder: 'wie auf dem Etikett' },
@@ -8717,7 +8719,7 @@ const BIO_BEREICHE = {
     },
     marke: (e) => (verarbeitungWasserHinweis(e) ? ' <span class="badge b-danger">Wasser zu hoch</span>' : ''),
     vorSpeichern: async (v) => {
-      const info = v.abfuellungId ? await abfuellungFuerCheckliste(v.abfuellungId) : null;
+      const info = v.chargeId ? await chargeFuerVerarbeitung(v.chargeId) : null;
       v.abfuellText = info ? info.text : '';
       if (info && !String(v.losNr || '').trim()) v.losNr = info.los;
       return v;
@@ -10017,7 +10019,7 @@ Views.bio = {
     /* Beide Listen stecken in eigenen Wrapper-<div>s – die CSS-Regel
        „.card + .card" wirkt nur zwischen direkten Geschwistern und greift
        hier deshalb NICHT: die Karten berührten sich ohne Abstand. */
-    const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Verarbeitung'], ['bio-abfuellung', 'Abfüllung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmenplan'], ['hyg-grenzwerte', 'Grenzwerte'], ['hyg-dateien', 'Dateien']];
+    const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Verarb. Ernte'], ['bio-abfuellung', 'Verarb. Abfüllung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmenplan'], ['hyg-grenzwerte', 'Grenzwerte'], ['hyg-dateien', 'Dateien']];
     box.innerHTML = `<div class="hyg-nav no-print">${teile.map(([id, l]) => `<button class="btn btn-ghost btn-xs" data-sprung="${id}">${l}</button>`).join('')}</div>
       <div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>
       <div id="bio-verarbeitung" style="margin-top:14px"></div><div id="bio-abfuellung" style="margin-top:14px"></div><div id="bio-lager" style="margin-top:14px"></div>
@@ -10233,14 +10235,18 @@ Views.bio = {
     renderRoute();
     return neu.length;
   },
-  /** Ernte (Honigverarbeitung) bzw. Abfüllung (Abfüllcheckliste) wählen → die App füllt Datum, Los, Wassergehalt und MHD aus. */
+  /** Auswahlliste der Chargen für beide Checklisten (neueste zuerst). */
+  async chargenAuswahl() {
+    const [chargen, ernten] = await Promise.all([DB.getAll('chargen'), DB.getAll('ernten')]);
+    const em = new Map(ernten.map((e) => [e.id, e]));
+    return U.sortBy(chargen, (c) => c.datum || '', true).map((c) => ({ v: c.id, l: `Los ${c.losnummer || '?'} · ${honigName(c, em)}${c.mengeKg ? ' · ' + U.fmtNum(c.mengeKg, 0) + ' kg' : ''}` }));
+  },
+  /** Charge wählen → die App holt sich aus der Charge: bei „Ernte“ Schleuderdatum, Wassergehalt, Los, letzte Behandlung; bei „Abfüllung“ Datum, Gläser, MHD, Wassergehalt. */
   async checklisteVerknuepfen(m, e, start, art) {
-    const feld = art === 'ernte' ? 'ernteId' : 'abfuellungId';
-    const sel = $(`#f-${feld}`, m.el), info = $('[data-abf]', m.el);
+    const sel = $('#f-chargeId', m.el), info = $('[data-abf]', m.el);
     if (!sel || !info) return;
     const fuellen = async (erzwingen) => {
-      const id = sel.value;
-      const c = id ? (art === 'ernte' ? await ernteFuerVerarbeitung(id) : await abfuellungFuerCheckliste(id)) : null;
+      const c = sel.value ? await chargeFuerVerarbeitung(sel.value) : null;
       if (!c) { info.hidden = true; info.textContent = ''; return; }
       const setze = (key, val) => {
         const el = $(`#f-${key}`, m.el);
@@ -10248,34 +10254,37 @@ Views.bio = {
       };
       if (erzwingen) {
         if (art === 'ernte') { setze('datum', c.geschleudert); setze('losNr', c.los); setze('wasser', c.wasser); setze('behandlungAm', c.behandlungAm); }
-        else { setze('datum', c.datum); setze('losNr', c.los); setze('mhd', c.mhd); setze('wasserAbfuellung', c.wasser); }
+        else { setze('datum', c.abgefuelltAm); setze('losNr', c.los); setze('mhd', c.mhd); setze('wasserAbfuellung', c.wasser); }
         FormGuard.dirty = true;
       }
       info.hidden = false;
       info.innerHTML = art === 'ernte'
-        ? `<b>Ernte:</b> ${U.esc(c.text)} · ${U.fmtDate(c.geschleudert)}${c.wasser != null ? ' · Wasser ' + U.fmtNum(c.wasser, 1) + ' %' : ''}${c.herkunft ? '<br>' + U.esc(c.herkunft) : ''}
+        ? `<b>Los ${U.esc(c.los || '?')} · ${U.esc(c.honig)}</b>${c.ernten.length ? '<br>Ernten: ' + c.ernten.map(U.esc).join('; ') : '<br>Dieser Charge ist noch keine Ernte zugeordnet.'}
           <br>${c.behandlungAm ? 'Letzte Behandlung: ' + U.esc(c.behandlungMittel || '–') + ' am ' + U.fmtDate(c.behandlungAm) : 'Keine Behandlung im Bestandsbuch gefunden.'}
-          ${c.wartezeitKonflikt ? `<br><span style="color:var(--danger)"><b>Achtung:</b> Die Wartezeit lief noch bis ${U.fmtDate(c.wartezeitKonflikt)} – der Honig darf davon nicht als Bio-Honig verkauft werden.</span>` : ''}
-          <br>${c.los ? 'Geht in Los ' + U.esc(c.los) + ' ein' : 'Noch keinem Los zugeordnet'}${c.abfuellungen.length ? '; abgefüllt: ' + U.esc(c.abfuellungen.join('; ')) : ''}.`
-        : `<b>Abfüllung:</b> ${U.esc(c.text)} · ${U.fmtDate(c.datum)}${c.mhd ? ' · MHD ' + U.fmtDate(c.mhd) : ''}<br>${U.esc(c.honig)}${c.los ? ' · Los ' + U.esc(c.los) : ''}${c.wasser != null ? ' · Wasser ' + U.fmtNum(c.wasser, 1) + ' %' : ''}
-          ${c.ernten.length ? '<br>Aus: ' + c.ernten.map(U.esc).join('; ') : ''}`;
+          ${c.wartezeitKonflikt ? `<br><span style="color:var(--danger)"><b>Achtung:</b> Bei einer Ernte lief die Wartezeit noch bis ${U.fmtDate(c.wartezeitKonflikt)} – dieser Honig darf nicht als Bio-Honig verkauft werden.</span>` : ''}`
+        : `<b>Los ${U.esc(c.los || '?')} · ${U.esc(c.honig)}</b>${c.abfuellungenText.length ? '<br>Abgefüllt: ' + c.abfuellungenText.map(U.esc).join('; ') + (c.mhd ? ' · MHD ' + U.fmtDate(c.mhd) : '') : '<br>Zu dieser Charge gibt es noch keine Abfüllung.'}
+          ${c.wasser != null ? '<br>Wassergehalt der Charge: ' + U.fmtNum(c.wasser, 1) + ' %' : ''}${c.ernten.length ? '<br>Aus: ' + c.ernten.map(U.esc).join('; ') : ''}`;
     };
     sel.addEventListener('change', () => fuellen(true));
-    await fuellen(!e && !!(start && start[feld]));
+    await fuellen(!e && !!(start && start.chargeId));
   },
-  /** Ernten bzw. Abfüllungen ohne Checkliste – ein Tipp legt sie vorbefüllt an. */
+  /** Chargen ohne Checkliste – ein Tipp legt sie mit den Daten aus der Charge an. Bei „Abfüllung“ nur Chargen, die schon abgefüllt wurden. */
   async checklisteOben(box, list, art) {
     const ernte = art === 'ernte';
-    const feld = ernte ? 'ernteId' : 'abfuellungId';
-    const [quelle, chargen] = await Promise.all([DB.getAll(ernte ? 'ernten' : 'abfuellungen'), DB.getAll('chargen')]);
-    const hat = new Set(list.map((x) => x[feld]).filter(Boolean));
-    const lose = new Map(chargen.map((c) => [c.id, c.losnummer]));
-    const offen = U.sortBy(quelle.filter((x) => !hat.has(x.id) && (!ernte || !x.produktart || /honig/i.test(x.produktart))), (x) => x.datum || '', true);
+    const [chargen, ernten, abf] = await Promise.all(['chargen', 'ernten', 'abfuellungen'].map((st) => DB.getAll(st)));
+    const em = new Map(ernten.map((x) => [x.id, x]));
+    // Einträge aus der ersten Fassung (nach Ernte bzw. Abfüllung statt Charge) zählen für die passende Charge mit
+    const hat = new Set(list.map((x) => x.chargeId).filter(Boolean));
+    for (const x of list) {
+      if (x.ernteId) for (const c of chargen) if ((c.ernteIds || []).includes(x.ernteId)) hat.add(c.id);
+      if (x.abfuellungId) { const a = abf.find((y) => y.id === x.abfuellungId); if (a) hat.add(a.chargeId); }
+    }
+    const mitAbf = new Set(abf.map((a) => a.chargeId));
+    const offen = U.sortBy(chargen.filter((c) => !hat.has(c.id) && (ernte || mitAbf.has(c.id))), (c) => c.datum || '', true);
     if (!offen.length) { box.innerHTML = ''; return; }
-    box.innerHTML = `<div class="small muted mb8">${offen.length} ${ernte ? (offen.length === 1 ? 'Ernte' : 'Ernten') : (offen.length === 1 ? 'Abfüllung' : 'Abfüllungen')} ohne Checkliste – ein Tipp legt sie mit den Daten aus der App an:</div>
-      <div class="kw-grid no-print">${offen.map((x) => `<button class="kw-tile" data-ch="${U.esc(x.id)}">${icon(ernte ? 'flask' : 'honig')}<span><b>${ernte ? U.esc(U.fmtDate(x.datum)) : U.esc(`${x.anzahl} × ${gebindeLabel(x.gebindeG)}`)}</b>
-        <span>${ernte ? U.esc(`${x.sorte || 'Honig'}${x.mengeKg ? ' · ' + U.fmtNum(x.mengeKg, 1) + ' kg' : ''}`) : U.esc(`${U.fmtDate(x.datum)} · Los ${x.losnummer || lose.get(x.chargeId) || '?'}`)}</span></span></button>`).join('')}</div>`;
-    $$('[data-ch]', box).forEach((b) => { b.onclick = () => Views.bio.eintragForm(ernte ? 'honigverarbeitung' : 'honigabfuellung', null, { [feld]: b.dataset.ch }); });
+    box.innerHTML = `<div class="small muted mb8">${offen.length} ${offen.length === 1 ? 'Charge' : 'Chargen'} ohne Checkliste${ernte ? '' : ' (bereits abgefüllt)'} – ein Tipp legt sie mit den Daten aus der Charge an:</div>
+      <div class="kw-grid no-print">${offen.map((c) => `<button class="kw-tile" data-ch="${U.esc(c.id)}">${icon(ernte ? 'flask' : 'honig')}<span><b>Los ${U.esc(c.losnummer || '?')}</b><span>${U.esc(honigName(c, em))}${c.mengeKg ? ' · ' + U.fmtNum(c.mengeKg, 0) + ' kg' : ''}</span></span></button>`).join('')}</div>`;
+    $$('[data-ch]', box).forEach((b) => { b.onclick = () => Views.bio.eintragForm(ernte ? 'honigverarbeitung' : 'honigabfuellung', null, { chargeId: b.dataset.ch }); });
   },
   /** Honiglager: liegt ein Wert über dem Sollwert und ist noch keine Maßnahme eingetragen, schlägt die App eine vor. */
   lagerMassnahmeVorschlag(m) {
@@ -19643,7 +19652,7 @@ Object.assign(window, {
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
   ABGANG_ARTEN, abgangErloes, materialAbgangForm,
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
-  VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, chargeFuerVerarbeitung, ernteFuerVerarbeitung, abfuellungFuerCheckliste, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
+  VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,

@@ -2682,7 +2682,7 @@ test('Bio-Listen: Eintrag anlegen, Frist-Marke, Papierkorb', async (w) => {
     const h = w.document.createElement('div'); w.document.body.appendChild(h);
     await w.Views.bio.tabHygiene(h);
     const titel = [...h.querySelectorAll('.card h2')].map((e) => e.textContent.trim());
-    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Honigverarbeitung', 'Abfüllung', 'Kontrolle Honiglager', 'Schädlingsüberwachung', 'Prüfmittelüberwachung Waage', 'Maßnahmenplan', 'Gefahren und Grenzwerte', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise, Eigenkontrollen und Datei-Ablage');
+    assertEq(titel, ['Hygieneplan', 'Durchgeführte Reinigungen', 'Honigverarbeitung – Ernte', 'Honigverarbeitung – Abfüllung', 'Kontrolle Honiglager', 'Schädlingsüberwachung', 'Prüfmittelüberwachung Waage', 'Maßnahmenplan', 'Gefahren und Grenzwerte', 'Zertifikate und Nachweise hochladen'], 'Plan, Nachweise, Eigenkontrollen und Datei-Ablage');
     h.remove();
   } finally {
     host.remove();
@@ -9415,54 +9415,56 @@ test('Hygiene-Reiter: alle Bereiche, Kurzwahlen und Checkliste öffnen ohne Fehl
 });
 
 
-test('Hygiene: Grenzwerte-Karte folgt den Sollwerten, Ernten stehen zur Auswahl', async (w) => {
+test('Hygiene: Grenzwerte-Karte folgt den Sollwerten, Chargen stehen zur Auswahl', async (w) => {
   const v = w.S.get('hygieneSoll');
   try {
     await w.S.set('hygieneSoll', { tempMax: 12, feuchteMax: 55, wasserMax: 20 });
     const html = w.Views.bio.grenzwerteKarte();
     assert(/höchstens 12(,0)? °C/.test(html) && /höchstens 55 %/.test(html) && /höchstens 20(,0)? %/.test(html), 'eigene Sollwerte stehen in der Übersicht');
-    const opt = w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'ernteId').optionenAus;
-    const er = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: w.U.todayIso(), produktart: 'Honig', sorte: 'TESTSORTE', mengeKg: 3 });
-    try { assert((await opt()).some((o) => o.v === er.id && /TESTSORTE/.test(o.l)), 'Ernte erscheint als Auswahl'); } finally { await w.DB.del('ernten', er.id); }
+    const ch = await w.DB.put('chargen', { losnummer: 'TEST-LOS-99', datum: w.U.todayIso(), ernteIds: [], mengeKg: 3 });
+    try { assert((await w.Views.bio.chargenAuswahl()).some((o) => o.v === ch.id && /TEST-LOS-99/.test(o.l)), 'Charge erscheint als Auswahl'); } finally { await w.DB.del('chargen', ch.id); }
   } finally { await w.S.set('hygieneSoll', v || {}); }
 });
 
 
-test('Verarbeitung (Ernte) und Abfüllung sind getrennt und werden aus den Daten der App gefüllt', async (w) => {
+test('Ernte- und Abfüll-Checkliste arbeiten mit der Charge und holen sich Ernten und Abfüllungen daraus', async (w) => {
   const rest = await bioEintraegeSichern(w);
   const neu = [];
   try {
     const ernte = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: '2026-06-08', produktart: 'Honig', sorte: 'Raps', mengeKg: 20, wassergehalt: 17.4 });
     const ch = await w.DB.put('chargen', { losnummer: 'V-1', datum: '2026-06-10', ernteIds: [ernte.id], mengeKg: 20 });
+    const ch2 = await w.DB.put('chargen', { losnummer: 'V-2', datum: '2026-06-11', ernteIds: [], mengeKg: 5 });
     const a1 = await w.DB.put('abfuellungen', { chargeId: ch.id, datum: '2026-06-12', mhd: '2028-06-12', gebindeG: 500, anzahl: 30, bestand: 30 });
-    neu.push(['ernten', ernte.id], ['chargen', ch.id], ['abfuellungen', a1.id]);
-    const e = await w.ernteFuerVerarbeitung(ernte.id);
-    assertEq([e.geschleudert, e.wasser, e.los, e.text], ['2026-06-08', 17.4, 'V-1', 'Raps · 20 kg'], 'Ernte: Schleudertag, Wasser, Los, Text');
-    const a = await w.abfuellungFuerCheckliste(a1.id);
-    assertEq([a.datum, a.mhd, a.text, a.los, a.wasser], ['2026-06-12', '2028-06-12', '30 × 500 g', 'V-1', 17.4], 'Abfüllung: Datum, MHD, Gläser, Los, Wasser der Charge');
-    const dv = await w.BIO_BEREICHE.honigverarbeitung.vorSpeichern({ ernteId: ernte.id, losNr: '' });
-    assertEq([dv.losNr, dv.ernteText], ['V-1', 'Raps · 20 kg'], 'Verarbeitung merkt sich Ernte und Los');
-    const da = await w.BIO_BEREICHE.honigabfuellung.vorSpeichern({ abfuellungId: a1.id, losNr: '' });
-    assertEq([da.losNr, da.abfuellText], ['V-1', '30 × 500 g'], 'Abfüllung merkt sich Los und Gläser');
-    assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.length === 7 && w.ABFUELLUNG_PUNKTE.length === 6, 'Kontrollpunkte sind aufgeteilt');
-    // Angebote: Ernte bzw. Abfüllung ohne Checkliste, danach nicht mehr
+    const a2 = await w.DB.put('abfuellungen', { chargeId: ch.id, datum: '2026-06-15', mhd: '2028-06-15', gebindeG: 250, anzahl: 20, bestand: 20 });
+    neu.push(['ernten', ernte.id], ['chargen', ch.id], ['chargen', ch2.id], ['abfuellungen', a1.id], ['abfuellungen', a2.id]);
+    const c = await w.chargeFuerVerarbeitung(ch.id);
+    assertEq([c.los, c.geschleudert, c.wasser, c.abgefuelltAm, c.mhd, c.text], ['V-1', '2026-06-08', 17.4, '2026-06-15', '2028-06-12', '30 × 500 g, 20 × 250 g'], 'Charge: Los, Schleudertag, Wasser, letzte Abfüllung, frühestes MHD, Gläser');
+    assertEq(c.ernteText, 'Raps · 20 kg', 'Ernte der Charge');
+    const dv = await w.BIO_BEREICHE.honigverarbeitung.vorSpeichern({ chargeId: ch.id, losNr: '' });
+    assertEq([dv.losNr, dv.ernteText], ['V-1', 'Raps · 20 kg'], 'Ernte-Checkliste merkt sich Los und Ernte');
+    const da = await w.BIO_BEREICHE.honigabfuellung.vorSpeichern({ chargeId: ch.id, losNr: '' });
+    assertEq([da.losNr, da.abfuellText], ['V-1', '30 × 500 g, 20 × 250 g'], 'Abfüll-Checkliste merkt sich Los und Gläser');
+    assert(w.BIO_BEREICHE.honigverarbeitung.felder.find((f) => f.key === 'punkte').options.length === 7 && w.ABFUELLUNG_PUNKTE.length === 7, 'Kontrollpunkte sind aufgeteilt');
+    // Angebote: Ernte – alle Chargen; Abfüllung – nur bereits abgefüllte
     const b1 = w.document.createElement('div'), b2 = w.document.createElement('div');
     await w.Views.bio.checklisteOben(b1, [], 'ernte'); await w.Views.bio.checklisteOben(b2, [], 'abf');
-    assert(b1.querySelector(`[data-ch="${ernte.id}"]`), 'Ernte ohne Checkliste wird angeboten');
-    assert(b2.querySelector(`[data-ch="${a1.id}"]`), 'Abfüllung ohne Checkliste wird angeboten');
-    await w.Views.bio.checklisteOben(b1, [{ ernteId: ernte.id }], 'ernte');
-    assert(!b1.querySelector(`[data-ch="${ernte.id}"]`), 'mit Checkliste nicht mehr');
+    assert(b1.querySelector(`[data-ch="${ch.id}"]`) && b1.querySelector(`[data-ch="${ch2.id}"]`), 'Ernte: alle Chargen ohne Checkliste');
+    assert(b2.querySelector(`[data-ch="${ch.id}"]`) && !b2.querySelector(`[data-ch="${ch2.id}"]`), 'Abfüllung: nur die bereits abgefüllte Charge');
+    await w.Views.bio.checklisteOben(b1, [{ chargeId: ch.id }], 'ernte');
+    assert(!b1.querySelector(`[data-ch="${ch.id}"]`), 'mit Checkliste nicht mehr');
+    await w.Views.bio.checklisteOben(b2, [{ abfuellungId: a1.id }], 'abf');
+    assert(!b2.querySelector(`[data-ch="${ch.id}"]`), 'Eintrag der ersten Fassung (nach Abfüllung) zählt für seine Charge');
   } finally { for (const [st, id] of neu) await w.DB.del(st, id); await rest(); }
 });
 
-test('Checklisten: alle Ernten und Abfüllungen ohne Checkliste werden angeboten, nicht nur vier', async (w) => {
+test('Checklisten: alle Chargen ohne Checkliste werden angeboten, nicht nur vier', async (w) => {
   const ids = [];
   try {
-    for (let i = 0; i < 7; i++) ids.push(['ernten', (await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: '2031-01-0' + (i + 1), produktart: 'Honig', sorte: 'ALLE', mengeKg: 1 })).id]);
+    for (let i = 0; i < 7; i++) ids.push((await w.DB.put('chargen', { losnummer: 'ALLE-' + i, datum: '2031-01-0' + (i + 1), ernteIds: [], mengeKg: 1 })).id);
     const box = w.document.createElement('div');
     await w.Views.bio.checklisteOben(box, [], 'ernte');
-    for (const [, id] of ids) assert(box.querySelector(`[data-ch="${id}"]`), 'Ernte ' + id + ' fehlt in den Vorschlägen');
-  } finally { for (const [st, id] of ids) await w.DB.del(st, id); }
+    for (const id of ids) assert(box.querySelector(`[data-ch="${id}"]`), 'Charge ' + id + ' fehlt in den Vorschlägen');
+  } finally { for (const id of ids) await w.DB.del('chargen', id); }
 });
 
 test('Hygiene: Vorschläge – Standardplan, Standard-Kurzwahlen, Maßnahmen aus Auffälligkeiten', async (w) => {
@@ -9508,7 +9510,8 @@ test('Ernte-Checkliste: Behandlung des Volkes, Wartezeit-Warnung und Abfüllunge
     assertEq(i.wartezeitKonflikt, '2026-06-30', 'Wartezeit lief noch bis 30.06.');
     assert(/TESTVOLK/.test(i.herkunft), 'Herkunft Volk');
     assertEq(i.abfuellungen.length, 1, 'zugehörige Abfüllung');
-    const ab = await w.abfuellungFuerCheckliste(a.id);
-    assert(ab.ernten.length === 1 && /Raps/.test(ab.ernten[0]), 'Abfüllung kennt ihre Ernte');
+    const cc = await w.chargeFuerVerarbeitung(ch.id);
+    assertEq([cc.behandlungAm, cc.wartezeitKonflikt], ['2026-05-01', '2026-06-30'], 'Charge übernimmt Behandlung und Wartezeit-Warnung ihrer Ernte');
+    assert(cc.ernten.length === 1 && /Raps/.test(cc.ernten[0]), 'Charge kennt ihre Ernte');
   } finally { for (const [st, id] of neu.reverse()) await w.DB.del(st, id); }
 });

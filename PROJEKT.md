@@ -76,6 +76,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-01 (v1.94)**: Abfüll-Punkte um `melitherm` (7).
+- **2026-10-01 (v1.93)**: Beide Checklisten (`honigverarbeitung` = Ernte/Schleudern, `honigabfuellung` = Abfüllung) hängen an der **Charge** (`chargeId`); `chargeFuerVerarbeitung` aggregiert Ernten (via `ernteFuerVerarbeitung`: Herkunft, Behandlung, Wartezeit) und Abfüllungen der Charge. Einträge der Fassung 1.91/1.92 (`ernteId`/`abfuellungId`) bleiben lesbar und zählen für ihre Charge.
 - **2026-10-01 (v1.92)**: `ernteFuerVerarbeitung` liefert zusätzlich Herkunft (Volk/Stand), letzte Behandlung vor der Ernte (Volk, sonst Stand) mit Wartezeit-Konflikt und die Abfüllungen der Charge; `abfuellungFuerCheckliste` die Ernten der Charge. Abfüll-Punkte um `abfuellanlage` (6).
 - **2026-10-01 (v1.91)**: Honigverarbeitung = Checkliste je **Ernte** (`ernteId`, `ernteFuerVerarbeitung`, `VERARBEITUNG_PUNKTE` 7), neuer Bereich `honigabfuellung` = Checkliste je **Abfüllung** (`abfuellungId`, `abfuellungFuerCheckliste`, `ABFUELLUNG_PUNKTE` 5). `Views.bio.checklisteVerknuepfen/checklisteOben` ersetzen die Chargen-Varianten. Alteinträge mit `chargeId` bleiben lesbar (`punkteVon`).
 - **2026-10-01 (v1.90)**: `verarbeitungOben` zeigt alle Chargen ohne Checkliste (vorher auf 4 begrenzt).
