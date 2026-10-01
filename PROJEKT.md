@@ -76,6 +76,8 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-01 (v1.92)**: `ernteFuerVerarbeitung` liefert zusätzlich Herkunft (Volk/Stand), letzte Behandlung vor der Ernte (Volk, sonst Stand) mit Wartezeit-Konflikt und die Abfüllungen der Charge; `abfuellungFuerCheckliste` die Ernten der Charge. Abfüll-Punkte um `abfuellanlage` (6).
+- **2026-10-01 (v1.91)**: Honigverarbeitung = Checkliste je **Ernte** (`ernteId`, `ernteFuerVerarbeitung`, `VERARBEITUNG_PUNKTE` 7), neuer Bereich `honigabfuellung` = Checkliste je **Abfüllung** (`abfuellungId`, `abfuellungFuerCheckliste`, `ABFUELLUNG_PUNKTE` 5). `Views.bio.checklisteVerknuepfen/checklisteOben` ersetzen die Chargen-Varianten. Alteinträge mit `chargeId` bleiben lesbar (`punkteVon`).
 - **2026-10-01 (v1.90)**: `verarbeitungOben` zeigt alle Chargen ohne Checkliste (vorher auf 4 begrenzt).
 - **2026-10-01 (v1.89)**: Verarbeitungs-Checkliste ↔ Chargen/Ernten/Abfüllungen (`chargeFuerVerarbeitung`, Feld `chargeId`, Snapshot `abfuellText`), Vorschläge im ganzen Hygiene-Reiter (`hygieneBekannt`, `planStandardUebernehmen`, `kurzwahlenStandard`, `mittelAutomatisch`, `lagerMassnahmeVorschlag`, `schaedlingVorschlag`, `massnahmenVorschlaege` mit `quelleKey`). BIO_BEREICHE-Defs neu: `vorSpeichern`, `nachOeffnen`, `optionenAus` (auch bei select). Halb-Felder mit kurzen Beschriftungen (sonst rutschen die Eingaben).
 - **2026-10-01 (v1.88)**: Karte „Gefahren und Grenzwerte“ (`Views.bio.grenzwerteKarte`, folgt `hygieneSoll()`); Los-Nr. der Verarbeitungs-Checkliste aus den Chargen (`optionenAus` an Suggest-Feldern).
