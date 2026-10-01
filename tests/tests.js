@@ -9515,3 +9515,27 @@ test('Ernte-Checkliste: Behandlung des Volkes, Wartezeit-Warnung und Abfüllunge
     assert(cc.ernten.length === 1 && /Raps/.test(cc.ernten[0]), 'Charge kennt ihre Ernte');
   } finally { for (const [st, id] of neu.reverse()) await w.DB.del(st, id); }
 });
+
+
+test('Checklisten: eigener Kontrollpunkt hinzufügen, anhaken, zählen und wieder entfernen', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.S.get('hygienePunkteEigen'); const rest = await bioEintraegeSichern(w);
+  try {
+    await w.S.set('hygienePunkteEigen', {});
+    w.Views.bio.eintragForm('honigabfuellung', null); await new Promise((r) => setTimeout(r, 900));
+    const m = w.document.querySelector('.modal-back');
+    assert(m && m.querySelector('[data-neu-punkt]'), 'Eingabefeld für eigene Kontrollpunkte');
+    const eing = m.querySelector('[data-neu-punkt]'); eing.value = 'Dichtungen geprüft';
+    m.querySelector('[data-punkt-add]').click(); await new Promise((r) => setTimeout(r, 300));
+    const neu = m.querySelector('input[type=checkbox][value^="eigen_"]');
+    assert(neu && neu.checked, 'neuer Punkt steht in der Liste und ist angehakt');
+    assertEq(w.hygienePunkteEigen('honigabfuellung').map((x) => x.l), ['Dichtungen geprüft'], 'er ist gespeichert');
+    eing.value = 'dichtungen geprüft'; m.querySelector('[data-punkt-add]').click(); await new Promise((r) => setTimeout(r, 200));
+    assertEq(w.hygienePunkteEigen('honigabfuellung').length, 1, 'derselbe Punkt wird nicht doppelt angelegt');
+    const v = w.Views.bio.punkteAbschluss({ punkte: ['glaeser', neu.value] }, 'honigabfuellung', w.ABFUELLUNG_PUNKTE);
+    assertEq([v.punkteGesamt, v.punkteEigenText], [w.ABFUELLUNG_PUNKTE.length + 1, 'Dichtungen geprüft'], 'Zählung und Text im Eintrag');
+    assertEq(w.hygienePunkteEigen('honigverarbeitung').length, 0, 'die andere Checkliste bleibt unberührt');
+    m.querySelector('input[value^="eigen_"]').closest('label').querySelector('button').click(); await new Promise((r) => setTimeout(r, 300));
+    assertEq(w.hygienePunkteEigen('honigabfuellung').length, 0, 'Entfernen klappt');
+  } finally { dialogeSchliessen(w); await w.S.set('hygienePunkteEigen', vorher || {}); await rest(); }
+});

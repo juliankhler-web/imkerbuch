@@ -1050,8 +1050,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.94';
+const APP_VERSION = '1.95';
 const CHANGELOG = [
+  { version: '1.95', datum: '2026-10-01', punkte: [
+    '<b>Eigene Kontrollpunkte:</b> In der Checkliste Honigverarbeitung – Ernte und in der Checkliste Abfüllung kannst du unter der Liste einen eigenen Punkt eintragen („Hinzufügen“). Er steht dann in allen künftigen Checklisten, ist gleich angehakt und lässt sich mit dem ✕ wieder entfernen. Im PDF steht, was du zusätzlich geprüft hast.',
+  ] },
   { version: '1.94', datum: '2026-10-01', punkte: [
     'Die Abfüll-Checkliste hat jetzt auch <b>„Melitherm: gereinigt, trocken, ohne Anhaftungen, Abrieb ausgeschlossen“</b>. Bei Abfüllanlage, Rührstab und Abfüllbehälter steht „Abrieb ausgeschlossen“ ebenfalls dabei.',
   ] },
@@ -2296,6 +2299,7 @@ const S = {
     bioBetrieb: {},
     bioVorsorgeEigen: [], // selbst ergänzte Bereiche des Vorsorgekonzepts: [{ key, titel }]
     bioBetriebEigen: [], // selbst ergänzte Abschnitte der Betriebsbeschreibung: [{ key, titel }]
+    hygienePunkteEigen: {}, // eigene Kontrollpunkte der Checklisten: { honigverarbeitung: [{v,l}], honigabfuellung: [{v,l}] }
     bioBetriebQuelle: {}, // Abschnitte der Betriebsbeschreibung, die aus einer eigenen Unterlage übernommen wurden: { key: { typ:'eigen', datum, text } }
     fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
     /* Verkaufspreise je Abfüllung für den Marktverkauf. Gehören gespeichert:
@@ -8549,8 +8553,14 @@ const ABFUELLUNG_PUNKTE = [
   { v: 'deckel', l: 'Deckel: sauber, trocken, ohne Fremdgeruch, unbeschädigt' },
   { v: 'einlagen', l: 'Deckeleinlagen: neu, ohne Fremdgeruch' },
 ];
-/** Wie viele Kontrollpunkte eine Checkliste hat (frühe Einträge der Honigverarbeitung enthielten beide Listen). */
-const punkteVon = (e) => (e.bereich === 'honigabfuellung' ? ABFUELLUNG_PUNKTE.length : (e.chargeId ? VERARBEITUNG_PUNKTE.length + ABFUELLUNG_PUNKTE.length : VERARBEITUNG_PUNKTE.length));
+/** Selbst ergänzte Kontrollpunkte einer Checkliste (`honigverarbeitung` bzw. `honigabfuellung`): [{ v:'eigen_…', l:'…' }]. */
+function hygienePunkteEigen(bereich) {
+  const alle = S.get('hygienePunkteEigen') || {};
+  const l = alle[bereich];
+  return Array.isArray(l) ? l.filter((x) => x && x.v && String(x.l || '').trim()) : [];
+}
+/** Wie viele Kontrollpunkte eine Checkliste hat (frühe Einträge der Honigverarbeitung enthielten beide Listen); neue Einträge merken sich die Zahl samt eigener Punkte. */
+const punkteVon = (e) => (Number(e.punkteGesamt) > 0 ? Number(e.punkteGesamt) : e.bereich === 'honigabfuellung' ? ABFUELLUNG_PUNKTE.length : (e.chargeId ? VERARBEITUNG_PUNKTE.length + ABFUELLUNG_PUNKTE.length : VERARBEITUNG_PUNKTE.length));
 /** Hinweis zum Wassergehalt einer Verarbeitungs-Checkliste, wenn ein Wert über dem Grenzwert liegt. */
 function verarbeitungWasserHinweis(e) {
   const max = hygieneSoll().wasserMax;
@@ -8664,7 +8674,7 @@ const BIO_BEREICHE = {
       { key: 'datum', label: 'Honig geschleudert am', type: 'date', required: true, default: U.todayIso() },
       { key: 'losNr', label: 'Zugehörige Los-Nr.', placeholder: 'wie auf dem Etikett' },
       { key: 'behandlungAm', label: 'Letzte Behandlung der Völker am', type: 'date', hint: 'Aus dem Bestandsbuch vorbelegt.' },
-      { key: 'punkte', label: 'Kontrollpunkte – geprüft und in Ordnung', type: 'multicheck', keepOrder: true, alleKnopf: true, options: VERARBEITUNG_PUNKTE,
+      { key: 'punkte', label: 'Kontrollpunkte – geprüft und in Ordnung', type: 'multicheck', keepOrder: true, alleKnopf: true, eigenePunkte: true, options: VERARBEITUNG_PUNKTE,
         hint: 'Nur abhaken, was du wirklich geprüft hast. Was nicht in Ordnung war, kommt unten in die Bemerkung.' },
       { key: 'wasser', label: 'Wassergehalt nach dem Sieben (%)', type: 'number' },
       { key: 'verantwortlich', label: 'Geprüft von' },
@@ -8680,12 +8690,12 @@ const BIO_BEREICHE = {
       const info = v.chargeId ? await chargeFuerVerarbeitung(v.chargeId) : null;
       v.ernteText = info ? info.ernteText : '';
       if (info && !String(v.losNr || '').trim()) v.losNr = info.los;
-      return v;
+      return Views.bio.punkteAbschluss(v, 'honigverarbeitung', VERARBEITUNG_PUNKTE);
     },
     nachOeffnen: (m, e, start) => Views.bio.checklisteVerknuepfen(m, e, start, 'ernte'),
     oben: (box, list) => Views.bio.checklisteOben(box, list, 'ernte'),
     pdf: { kopf: ['Geschleudert', 'Ernte', 'Los-Nr.', 'Wasser %', 'Geprüft', 'Bemerkung'],
-      zeile: (e) => [U.fmtDate(e.datum), e.ernteText || '–', e.losNr || '–', zahlOderLeer(e.wasser) !== '' ? U.fmtNum(e.wasser, 1) : '–', `${Array.isArray(e.punkte) ? e.punkte.length : 0} von ${punkteVon(e)}`, e.notiz || ''] },
+      zeile: (e) => [U.fmtDate(e.datum), e.ernteText || '–', e.losNr || '–', zahlOderLeer(e.wasser) !== '' ? U.fmtNum(e.wasser, 1) : '–', `${Array.isArray(e.punkte) ? e.punkte.length : 0} von ${punkteVon(e)}`, [e.notiz, e.punkteEigenText ? 'Zusätzlich geprüft: ' + e.punkteEigenText : ''].filter(Boolean).join(' – ')] },
   },
   honigabfuellung: {
     titel: 'Honigverarbeitung – Abfüllung', icon: 'honig',
@@ -8704,7 +8714,7 @@ const BIO_BEREICHE = {
       { key: 'lagerbehaelter', label: 'Lagerbehälter Nr.' },
       { key: 'waerme', label: 'Temperatur im Wärmeschrank (°C)', type: 'number', hint: 'Nur wenn der Honig aufgelöst bzw. erwärmt wurde.' },
       { key: 'wasserAbfuellung', label: 'Wassergehalt vor der Abfüllung (%)', type: 'number' },
-      { key: 'punkte', label: 'Kontrollpunkte – geprüft und in Ordnung', type: 'multicheck', keepOrder: true, alleKnopf: true, options: ABFUELLUNG_PUNKTE,
+      { key: 'punkte', label: 'Kontrollpunkte – geprüft und in Ordnung', type: 'multicheck', keepOrder: true, alleKnopf: true, eigenePunkte: true, options: ABFUELLUNG_PUNKTE,
         hint: 'Nur abhaken, was du wirklich geprüft hast. Was nicht in Ordnung war, kommt unten in die Bemerkung.' },
       { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', halb: true },
       { key: 'rueckstellDatum', label: 'Rückstellprobe am', type: 'date', halb: true },
@@ -8722,13 +8732,13 @@ const BIO_BEREICHE = {
       const info = v.chargeId ? await chargeFuerVerarbeitung(v.chargeId) : null;
       v.abfuellText = info ? info.text : '';
       if (info && !String(v.losNr || '').trim()) v.losNr = info.los;
-      return v;
+      return Views.bio.punkteAbschluss(v, 'honigabfuellung', ABFUELLUNG_PUNKTE);
     },
     nachOeffnen: (m, e, start) => Views.bio.checklisteVerknuepfen(m, e, start, 'abf'),
     oben: (box, list) => Views.bio.checklisteOben(box, list, 'abf'),
     pdf: { kopf: ['Abgefüllt', 'Los-Nr.', 'Gläser', 'Wasser %', 'Wärmeschrank °C', 'MHD', 'Rückstellprobe', 'Geprüft', 'Bemerkung'],
       zeile: (e) => [U.fmtDate(e.datum), e.losNr || '–', e.abfuellText || '–', zahlOderLeer(e.wasserAbfuellung) !== '' ? U.fmtNum(e.wasserAbfuellung, 1) : '–', zahlOderLeer(e.waerme) !== '' ? U.fmtNum(e.waerme, 1) : '–', e.mhd ? U.fmtDate(e.mhd) : '–',
-        [e.rueckstellDatum ? U.fmtDate(e.rueckstellDatum) : '', e.rueckstellNr || ''].filter(Boolean).join(' · ') || '–', `${Array.isArray(e.punkte) ? e.punkte.length : 0} von ${punkteVon(e)}`, e.notiz || ''] },
+        [e.rueckstellDatum ? U.fmtDate(e.rueckstellDatum) : '', e.rueckstellNr || ''].filter(Boolean).join(' · ') || '–', `${Array.isArray(e.punkte) ? e.punkte.length : 0} von ${punkteVon(e)}`, [e.notiz, e.punkteEigenText ? 'Zusätzlich geprüft: ' + e.punkteEigenText : ''].filter(Boolean).join(' – ')] },
   },
   honiglager: {
     titel: 'Kontrolle Honiglager', icon: 'wetter',
@@ -10168,7 +10178,8 @@ Views.bio = {
     for (const f of def.felder) {
       felder.push(f.type === 'suggest'
         ? { ...f, options: await gelernteWerte(f.optionenAus ? await f.optionenAus() : (f.options || []), 'bioeintraege', f.key) }
-        : (f.type === 'select' && f.optionenAus ? { ...f, options: await f.optionenAus() } : f));
+        : (f.type === 'select' && f.optionenAus ? { ...f, options: await f.optionenAus() }
+          : (f.type === 'multicheck' && f.eigenePunkte ? { ...f, options: f.options.concat(hygienePunkteEigen(bereich)) } : f)));
     }
     const start = e ? e : { ...(def.vorbelegen ? await def.vorbelegen() : {}), ...(preset || {}) };
     const m = UI.formModal({
@@ -10183,6 +10194,7 @@ Views.bio = {
       onDelete: papierkorbDelete('bioeintraege', e, 'Eintrag löschen?'),
     });
     if (def.nachOeffnen) await def.nachOeffnen(m, e, start);
+    for (const f of felder.filter((x) => x.eigenePunkte)) Views.bio.eigenePunkteBedienung(m, bereich, f.key);
     /* Bei langen Checklisten: ein Knopf hakt alles ab bzw. nimmt alle Haken weg. */
     for (const f of felder.filter((x) => x.alleKnopf)) {
       const liste = $(`#f-${f.key}`, m.el);
@@ -10234,6 +10246,57 @@ Views.bio = {
     UI.toast(`${neu.length} ${neu.length === 1 ? 'Bereich' : 'Bereiche'} übernommen`, 'ok', neu.length ? { text: 'Rückgängig', fn: async () => { for (const e of neu) await DB.del('bioeintraege', e.id); renderRoute(); } } : null);
     renderRoute();
     return neu.length;
+  },
+  /** Beim Speichern einer Checkliste: Gesamtzahl der Kontrollpunkte (inkl. eigener) und die Namen der angehakten eigenen Punkte merken. */
+  punkteAbschluss(v, bereich, standard) {
+    const eigene = hygienePunkteEigen(bereich);
+    v.punkteGesamt = standard.length + eigene.length;
+    const an = Array.isArray(v.punkte) ? v.punkte : [];
+    v.punkteEigenText = eigene.filter((x) => an.includes(x.v)).map((x) => x.l).join('; ');
+    return v;
+  },
+  /** Eigene Kontrollpunkte: Eingabefeld unter der Liste, neue Punkte erscheinen angehakt; ein ✕ entfernt einen eigenen Punkt wieder. */
+  eigenePunkteBedienung(m, bereich, feldKey) {
+    const liste = $(`#f-${feldKey}`, m.el);
+    if (!liste) return;
+    const speichern = async (neu) => {
+      const alle = { ...(S.get('hygienePunkteEigen') || {}) };
+      alle[bereich] = neu;
+      await S.set('hygienePunkteEigen', alle);
+    };
+    const loeschKnopf = (label) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn btn-ghost btn-xs'; b.style.marginLeft = 'auto'; b.setAttribute('aria-label', 'Eigenen Kontrollpunkt entfernen'); b.innerHTML = icon('x');
+      b.onclick = async (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        const v = $('input', label).value;
+        await speichern(hygienePunkteEigen(bereich).filter((x) => x.v !== v));
+        label.remove();
+      };
+      label.appendChild(b);
+    };
+    $$('input[type=checkbox][value^="eigen_"]', liste).forEach((c) => loeschKnopf(c.closest('label')));
+    const zeile = document.createElement('div');
+    zeile.className = 'flex-wrap mt8 no-print'; zeile.style.gap = '8px';
+    zeile.innerHTML = `<input class="inp" data-neu-punkt maxlength="140" placeholder="Eigener Kontrollpunkt, z. B. Dichtungen geprüft" style="flex:1 1 200px"><button type="button" class="btn btn-ghost btn-sm" data-punkt-add>${icon('plus')} Hinzufügen</button>`;
+    liste.parentNode.insertBefore(zeile, liste.nextSibling);
+    const eingabe = $('[data-neu-punkt]', zeile);
+    const hinzu = async () => {
+      const text = String(eingabe.value || '').trim();
+      if (!text) return;
+      const vorhanden = $$('label span', liste).some((sp) => sp.textContent.trim().toLowerCase() === text.toLowerCase());
+      if (vorhanden) { UI.toast('Diesen Kontrollpunkt gibt es schon.', 'err'); return; }
+      const rec = { v: 'eigen_' + U.uuid().slice(0, 8), l: text };
+      await speichern(hygienePunkteEigen(bereich).concat([rec]));
+      const label = document.createElement('label');
+      label.className = 'check-line';
+      label.innerHTML = `<input type="checkbox" value="${U.esc(rec.v)}" checked> <span>${U.esc(rec.l)}</span>`;
+      liste.appendChild(label);
+      loeschKnopf(label);
+      eingabe.value = ''; FormGuard.dirty = true;
+    };
+    $('[data-punkt-add]', zeile).onclick = hinzu;
+    eingabe.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); hinzu(); } });
   },
   /** Auswahlliste der Chargen für beide Checklisten (neueste zuerst). */
   async chargenAuswahl() {
