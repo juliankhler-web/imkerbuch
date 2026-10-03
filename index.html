@@ -1052,8 +1052,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.98';
+const APP_VERSION = '1.99';
 const CHANGELOG = [
+  { version: '1.99', datum: '2026-10-03', punkte: [
+    '<b>Alle Buchungsmasken haben jetzt dieselbe Struktur</b> – Verbrauchsmaterial, Inventar, Honig-Verkauf und die reine Geldbuchung: erst <b>was</b> (Position, Abfüllung bzw. Art), dann <b>Grund bzw. Art</b>, <b>Datum und Menge nebeneinander</b>, dann <b>Preis</b>, <b>Kunde oder Lieferant</b>, <b>Beleg</b> und <b>Notiz</b>. Verbrauchsmaterial und Inventar nutzen ohnehin dasselbe Formular.',
+    'Einheitliche Überschriften: „Einkauf · Verbrauchsmaterial“, „Verkauf · Inventar“, „Eigenverbrauch / Verlust · Verbrauchsmaterial“, „Verkauf · Honig“, „Einkauf · Honig“ und „Einkauf · Sonstiges (nur Geld)“. Der Honig-Verkauf speichert wie alle anderen mit „Speichern“.',
+  ] },
   { version: '1.98', datum: '2026-10-03', punkte: [
     '<b>An- und Verkauf läuft zentral über das Kassenbuch:</b> Dort gibt es einen Knopf <b>„An- und Verkauf buchen – Eigenverbrauch / Verlust“</b>. Erst wählst du Einkauf, Verkauf oder Eigenverbrauch / Verlust, dann den Bereich (Verbrauchsmaterial, Inventar, Honig oder „Sonstiges“ als reine Geldbuchung). Danach öffnet sich das bekannte Formular, das Bestand und Kassenbuch zusammen bucht. Der alte Knopf „+ Buchung“ ist darin aufgegangen.',
     'Im Kassenbuch filterst du die Buchungen nach <b>Bereich</b> (Verbrauchsmaterial, Inventar, Honig, Pfand, Sonstiges); die Summen passen sich an, und jede Buchung zeigt ihren Bereich. <b>Eigenverbrauch, Verlust und Verschenktes</b> stehen als Zeilen mit 0,00 € in der Liste (antippen zum Ändern) und zählen nicht in die Summen.',
@@ -7453,17 +7457,17 @@ async function verkaufForm(vorAbfuellungId = '') {
   const chargen = await idMap('chargen'), ernten = await idMap('ernten');
   const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
   const m = UI.formModal({
-    title: 'Verkauf erfassen',
+    title: 'Verkauf · Honig',
     fields: [
       { key: 'abfuellungId', label: 'Welche Abfüllung (Gebinde)?', type: 'select', required: true, default: vorAbfuellungId, options: abf.map((a) => ({ v: a.id, l: `${gebindeLabel(a.gebindeG)} · ${honigName(chargen.get(a.chargeId), ernten)} · ${a.bestand} verfügbar` })) },
-      { key: 'anzahl', label: 'Anzahl Gebinde', type: 'number', required: true, default: 1 },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+      { key: 'anzahl', label: 'Anzahl Gebinde', type: 'number', required: true, default: 1, halb: true },
+      { key: '_trennVerkauf', type: 'static', html: '' },
       { key: 'preisJeGlas', label: 'Preis je Gebinde (€)', type: 'number', required: true },
-      { key: 'kontaktId', label: 'Verkauft an', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional.' },
-      { key: '_kundeNeu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" id="vk-kunde-neu">${icon('plus')} Neuer Kunde</button>` },
-      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional.' },
+      { key: '_kundeNeu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" id="vk-kunde-neu">${icon('plus')} Neuen Kunden anlegen</button>` },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. Haustürverkauf, Wochenmarkt' },
     ],
-    saveText: 'Verkauf buchen',
     async onSave(v) {
       await verkaufErfassen({ abfuellungId: v.abfuellungId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
       UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute();
@@ -12178,8 +12182,8 @@ Views.kassenbuch = {
       const cfg = bereichCfg(bereich);
       return richtung === 'ein' ? materialZugangForm(cfg) : materialAbgangForm(cfg, '', null, richtung === 'weg' ? 'Eigenverbrauch' : 'Verkauf');
     }
-    if (bereich === 'honig') return richtung === 'ver' ? verkaufForm() : Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: 'Honig-Zukauf', datum: U.todayIso() });
-    return Views.kassenbuch.form(null, { typ: richtung === 'ein' ? 'ausgabe' : 'einnahme', datum: U.todayIso() });
+    if (bereich === 'honig') return richtung === 'ver' ? verkaufForm() : Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: 'Honig-Zukauf', datum: U.todayIso(), titel: 'Einkauf · Honig' });
+    return Views.kassenbuch.form(null, { typ: richtung === 'ein' ? 'ausgabe' : 'einnahme', datum: U.todayIso(), titel: `${richtung === 'ein' ? 'Einkauf' : 'Verkauf'} · Sonstiges (nur Geld)` });
   },
 
   async tabBuchungen(box) {
@@ -12270,13 +12274,14 @@ Views.kassenbuch = {
     const einKats = [...KASSEN_KATEGORIEN.einnahme], ausKats = [...KASSEN_KATEGORIEN.ausgabe];
     if (k && k.kategorie) { const liste = k.typ === 'einnahme' ? einKats : ausKats; if (!liste.includes(k.kategorie)) liste.push(k.kategorie); }
     UI.formModal({
-      title: k ? 'Buchung bearbeiten' : 'Neue Buchung',
+      title: k ? 'Buchung bearbeiten' : ((vorgabe && vorgabe.titel) || 'Neue Buchung'),
       fields: [
         { key: 'typ', label: 'Art', type: 'select', required: true, default: 'einnahme', options: [{ v: 'einnahme', l: 'Einnahme' }, { v: 'ausgabe', l: 'Ausgabe' }] },
-        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'betrag', label: 'Betrag (€)', type: 'number', required: true, halb: true },
+        { key: '_trennBuchung', type: 'static', html: '' },
         { key: 'katEin', label: 'Kategorie', type: 'select', options: einKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'einnahme' },
         { key: 'katAus', label: 'Kategorie', type: 'select', options: ausKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'ausgabe' },
-        { key: 'betrag', label: 'Betrag (€)', type: 'number', required: true },
         { key: 'steuersatz', label: 'Steuersatz', type: 'select', default: '0', options: [{ v: '0', l: '0 % / keine' }, { v: '7', l: '7 %' }, { v: '19', l: '19 %' }] },
         { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${c.typ})` })) },
         { key: 'beschreibung', label: 'Beschreibung', type: 'suggest', options: beschrOpts, placeholder: 'z. B. 12 Gläser Rapshonig' },
@@ -14646,7 +14651,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
   const neu = (f) => f.inventarId === NEU;
   const kauf = (f) => (f.art || 'Einkauf') === 'Einkauf';
   const m = UI.formModal({
-    title: rec ? 'Zugang bearbeiten' : `Zugang / Einkauf · ${cfg.titel}`, wide: true,
+    title: rec ? `Zugang bearbeiten · ${cfg.titel}` : `Einkauf · ${cfg.titel}`, wide: true,
     fields: [
       { key: '_zuHinweis', type: 'static', showIf: () => !!rec,
         html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder.</div>' : '' },
@@ -14953,18 +14958,19 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
   if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
   const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
   const m = UI.formModal({
-    title: rec ? 'Abgang bearbeiten' : 'Abgang / Verkauf buchen', wide: true,
+    title: rec ? `Abgang bearbeiten · ${cfg.titel}` : `${(vorArt && vorArt !== 'Verkauf') ? 'Eigenverbrauch / Verlust' : 'Verkauf'} · ${cfg.titel}`, wide: true,
     fields: [
       { key: '_bearbHinweis', type: 'static', showIf: () => !!rec,
         html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder. Kam die Ware zurück, kannst du den Abgang unten auch löschen.</div>' : '' },
       { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
         options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
-      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-      { key: 'menge', label: 'Menge', type: 'number', required: true },
       { key: 'art', label: 'Grund des Abgangs', type: 'select', required: true, default: 'Verkauf', options: ABGANG_ARTEN.map((a) => ({ v: a, l: a })) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+      { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
+      { key: '_trennAbgang', type: 'static', html: '' },
+      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', showIf: (f) => f.art === 'Verkauf' },
       { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })), showIf: (f) => f.art === 'Verkauf' },
       { key: 'kaeufer', label: 'oder Name frei eintragen', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. Imkerkollege Meier' },
-      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', showIf: (f) => f.art === 'Verkauf' },
       { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. RE-0004 – oder leer bei Barverkauf',
         hint: 'Freier Verweis. Eine Rechnung in der App wird davon nicht verändert.' },
       { key: '_abgangInfo', type: 'static', html: '<div class="hint" data-abgang-info></div>' },

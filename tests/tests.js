@@ -9643,3 +9643,34 @@ test('Kassenbuch: Eigenverbrauch und Verlust stehen als 0-€-Zeilen in der List
     box.remove();
   } finally { w.Views.kassenbuch._bereich = alt || ''; for (const [st, id] of neu.reverse()) await w.DB.del(st, id); }
 });
+
+
+test('Buchungsmasken: gleiche Reihenfolge – Was, Grund/Art, Datum und Menge nebeneinander, Preis, Kunde, Beleg', async (w) => {
+  dialogeSchliessen(w);
+  const labels = (m) => [...m.querySelectorAll('.field')].filter((e) => !e.classList.contains('hidden')).map((e) => (e.querySelector('label') || {}).textContent || '').map((t) => t.replace(/[\s*]+$/, '').trim()).filter(Boolean);
+  const pos = async (typ) => (await w.DB.getAll('inventar')).find((i) => w.inventarTyp(i) === typ);
+  try {
+    for (const typ of ['verbrauch', 'inventar']) {
+      const p = await pos(typ); if (!p) continue;
+      w.materialAbgangForm(w.bereichCfg(typ), p.id); await new Promise((r) => setTimeout(r, 500));
+      let m = [...w.document.querySelectorAll('.modal-back')].pop();
+      const L = labels(m);
+      assert(L.indexOf('Grund des Abgangs') < L.indexOf('Datum') && L.indexOf('Datum') + 1 === L.indexOf('Menge'), typ + ': Abgang – Grund, dann Datum und Menge nebeneinander');
+      assert(L.indexOf('Menge') < L.indexOf('Preis je Einheit (€)') && L.indexOf('Preis je Einheit (€)') < L.indexOf('An wen verkauft?') && L.indexOf('An wen verkauft?') < L.indexOf('Rechnung / Belegnummer'), typ + ': Abgang – Preis, Kunde, Beleg');
+      assert(/^Verkauf · /.test(m.querySelector('.modal-head h2').textContent), typ + ': Überschrift „Verkauf · …“');
+      dialogeSchliessen(w);
+      w.materialZugangForm(w.bereichCfg(typ)); await new Promise((r) => setTimeout(r, 500));
+      m = [...w.document.querySelectorAll('.modal-back')].pop();
+      assert(/^Einkauf · /.test(m.querySelector('.modal-head h2').textContent), typ + ': Überschrift „Einkauf · …“');
+      const Z = labels(m);
+      assert(Z.indexOf('Art des Zugangs') < Z.indexOf('Datum') && Z.indexOf('Datum') + 1 === Z.indexOf('Menge'), typ + ': Zugang – Art, dann Datum und Menge nebeneinander');
+      dialogeSchliessen(w);
+    }
+    w.Views.kassenbuch.form(null, { typ: 'ausgabe', titel: 'Einkauf · Sonstiges (nur Geld)' }); await new Promise((r) => setTimeout(r, 500));
+    let m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const K = labels(m);
+    assertEq(K.slice(0, 3), ['Art', 'Datum', 'Betrag (€)'], 'Geldbuchung: Art, Datum und Betrag nebeneinander');
+    assert(/Einkauf · Sonstiges/.test(m.querySelector('.modal-head h2').textContent), 'Geldbuchung: Überschrift');
+    dialogeSchliessen(w);
+  } finally { dialogeSchliessen(w); }
+});
