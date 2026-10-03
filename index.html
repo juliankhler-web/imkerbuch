@@ -1052,8 +1052,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '1.99';
+const APP_VERSION = '2.00';
 const CHANGELOG = [
+  { version: '2.00', datum: '2026-10-03', punkte: [
+    '<b>Behandlung, Fütterung und Ernte haben dieselbe Struktur wie die Buchungsmasken:</b> erst <b>wer/wo</b> (Volk, Stand, bei Sammel-Erfassung Stand, Funktion und Völker), dann <b>was</b> (Mittel, Futterart, Produkt und Sorte), dann <b>Datum und Menge nebeneinander</b>, danach die Einzelheiten, der Abzug vom Verbrauchsmaterial, Erinnerung bzw. Wartezeit und zuletzt die Notiz.',
+    'Das Datum heißt überall einfach „Datum“ (früher „Datum der Anwendung“, „Erntedatum“). Die Nummern „1. 2. 3. 4.“ in den Sammel-Formularen sind weg, weil die übrigen Felder auch nicht nummeriert waren. Beim Sirup steht jetzt „Rechnet mit der Menge (kg) zusammen“, weil die Menge über dem Sirup steht.',
+  ] },
   { version: '1.99', datum: '2026-10-03', punkte: [
     '<b>Alle Buchungsmasken haben jetzt dieselbe Struktur</b> – Verbrauchsmaterial, Inventar, Honig-Verkauf und die reine Geldbuchung: erst <b>was</b> (Position, Abfüllung bzw. Art), dann <b>Grund bzw. Art</b>, <b>Datum und Menge nebeneinander</b>, dann <b>Preis</b>, <b>Kunde oder Lieferant</b>, <b>Beleg</b> und <b>Notiz</b>. Verbrauchsmaterial und Inventar nutzen ohnehin dasselbe Formular.',
     'Einheitliche Überschriften: „Einkauf · Verbrauchsmaterial“, „Verkauf · Inventar“, „Eigenverbrauch / Verlust · Verbrauchsmaterial“, „Verkauf · Honig“, „Einkauf · Honig“ und „Einkauf · Sonstiges (nur Geld)“. Der Honig-Verkauf speichert wie alle anderen mit „Speichern“.',
@@ -4578,10 +4582,11 @@ async function sammelFormular(art, volkIds, voelker) {
     verdrahteSirupLiter(UI.formModal({
       title: 'Sammel-Fütterung', wide: true,
       fields: [hinweis,
-        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
-        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
-        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: '_trennFue', type: 'static', html: '' },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
       ],
@@ -4792,10 +4797,11 @@ Views.volk = {
     const form = async (f) => verdrahteSirupLiter(UI.formModal({
       title: f ? 'Fütterung bearbeiten' : 'Fütterung erfassen',
       fields: [
-        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
-        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
-        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: '_trennFue', type: 'static', html: '' },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern automatisch eine Aufgabe an (nur bei neuer Fütterung).' },
@@ -6188,11 +6194,13 @@ Views.behandlungen = {
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true,
       fields: [
         ...ziel,
-        { key: 'datum', label: 'Datum der Anwendung', type: 'date', required: true, default: U.todayIso() },
         { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
-        { key: 'menge', label: 'Menge', type: 'number', required: true },
-        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
-        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
+        { key: '_trennBeh', type: 'static', html: '' },
+        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit, halb: true },
+        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts, halb: true },
+        { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerungs-Aufgabe zum Ende angelegt.' },
         ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird die Menge oben – wähle eine Position mit passender Einheit.' }),
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
@@ -6258,14 +6266,16 @@ Views.behandlungen = {
     const m = UI.formModal({
       title: 'Behandlung erfassen', wide: true,
       fields: [
-        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
-        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So behandelst du z. B. nur die Wirtschaftsvölker.' },
-        { key: 'volkIds', label: '3. Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
-        { key: 'datum', label: '4. Datum der Anwendung', type: 'date', required: true, default: U.todayIso() },
+        { key: 'standId', label: 'Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: 'Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So behandelst du z. B. nur die Wirtschaftsvölker.' },
+        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
-        { key: 'menge', label: 'Menge je Volk', type: 'number', required: true },
-        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit },
-        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'menge', label: 'Menge je Volk', type: 'number', required: true, halb: true },
+        { key: '_trennBeh', type: 'static', html: '' },
+        { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit, halb: true },
+        { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts, halb: true },
+        { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
         ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird Menge je Volk × Anzahl der angehakten Völker.' }),
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
@@ -6837,10 +6847,11 @@ Views.fuetterung = {
     const m = verdrahteSirupLiter(UI.formModal({
       title: `Fütterung bearbeiten · ${volkName}`,
       fields: [
-        { key: 'datum', label: 'Datum', type: 'date', required: true },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
-        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
-        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, halb: true },
+        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: '_trennFue', type: 'static', html: '' },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
@@ -6881,13 +6892,14 @@ Views.fuetterung = {
     const m = UI.formModal({
       title: plan ? 'Fütterung aus Futter-Rechner erfassen' : 'Fütterung erfassen', wide: true,
       fields: [
-        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
-        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So fütterst du z. B. nur die Wirtschaftsvölker.' },
-        { key: 'volkIds', label: '3. Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
-        { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'standId', label: 'Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: 'Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So fütterst du z. B. nur die Wirtschaftsvölker.' },
+        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
-        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge darunter zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
-        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: '_trennFue', type: 'static', html: '' },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
         { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
@@ -11266,15 +11278,16 @@ Views.honig = {
       const m = UI.formModal({
         title: e ? 'Ernte bearbeiten' : 'Ernte erfassen', wide: true,
         fields: [
-          { key: 'schleuderung', label: 'Schleuderung', type: 'select', options: [{ v: 1, l: '1. Schleuderung' }, { v: 2, l: '2. Schleuderung' }, { v: 3, l: '3. Schleuderung' }], hint: 'Für die spätere Zuordnung des Laborergebnisses (Tab „Sorten“).' },
           ...ziel,
-          { key: 'datum', label: 'Erntedatum', type: 'date', required: true, default: U.todayIso() },
-          { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
           // Alt-Ernten können Produkte tragen, die es in der Auswahl nicht mehr gibt (z. B. „Wachs“) –
           // den Bestandswert mit anbieten, sonst würde er beim Speichern still zu „Honig“.
           { key: 'produktart', label: 'Produkt', type: 'select', required: true, default: 'Honig', options: [...new Set([...BIENENPRODUKTE, ...(e && e.produktart ? [e.produktart] : [])])].map((p) => ({ v: p, l: p })) },
           { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'auswählen, eintippen oder später vom Labor' },
+          { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+          { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true },
+          { key: '_trennErnte', type: 'static', html: '' },
           { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', placeholder: 'z. B. 17,2 – meist erst nach dem Labor' },
+          { key: 'schleuderung', label: 'Schleuderung', type: 'select', options: [{ v: 1, l: '1. Schleuderung' }, { v: 2, l: '2. Schleuderung' }, { v: 3, l: '3. Schleuderung' }], hint: 'Für die spätere Zuordnung des Laborergebnisses (Tab „Sorten“).' },
           { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. Lagerort, Fass-Nr., Auffälligkeiten' },
         ],
         values: zielFormValues(e),

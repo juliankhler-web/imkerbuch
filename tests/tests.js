@@ -9674,3 +9674,25 @@ test('Buchungsmasken: gleiche Reihenfolge – Was, Grund/Art, Datum und Menge ne
     dialogeSchliessen(w);
   } finally { dialogeSchliessen(w); }
 });
+
+
+test('Masken Behandlung, Fütterung und Ernte: Datum und Menge nebeneinander, „Datum“ überall gleich benannt', async (w) => {
+  dialogeSchliessen(w);
+  const labels = (m) => [...m.querySelectorAll('.field')].filter((e) => !e.classList.contains('hidden')).map((e) => ((e.querySelector('label') || {}).textContent || '').replace(/[\s*]+$/, '').trim()).filter(Boolean);
+  const offen = async (fn) => { fn(); await new Promise((r) => setTimeout(r, 700)); const m = [...w.document.querySelectorAll('.modal-back')].pop(); const L = labels(m); dialogeSchliessen(w); return L; };
+  try {
+    const b = await offen(() => w.Views.behandlungen.form(null));
+    assert(b.indexOf('Arzneimittel / Mittel') < b.indexOf('Datum') && b.indexOf('Datum') + 1 === b.indexOf('Menge'), 'Behandlung: Mittel, dann Datum und Menge nebeneinander');
+    const bs = await offen(() => w.Views.behandlungen.sammelForm());
+    assert(bs.includes('Welche Völker?') && bs.indexOf('Datum') + 1 === bs.indexOf('Menge je Volk') && !bs.some((x) => /^\d\. /.test(x)), 'Sammel-Behandlung: ohne Nummerierung, Datum und Menge nebeneinander');
+    const fs = await offen(() => w.Views.fuetterung.sammelForm());
+    assert(fs.indexOf('Futterart') < fs.indexOf('Datum') && fs.indexOf('Datum') + 1 === fs.indexOf('Menge je Volk (kg)') && fs.indexOf('Menge je Volk (kg)') < fs.indexOf('Sirup je Volk (Liter)'), 'Sammel-Fütterung: Futterart, Datum und Menge, dann Sirup');
+    w.Views.honig._tab = 'ernten';
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    await w.Views.honig.render(host); await new Promise((r) => setTimeout(r, 500));
+    const e = await offen(() => (host.querySelector('#add') || host.querySelector('#add2')).click());
+    assert(e.indexOf('Produkt') < e.indexOf('Datum') && e.indexOf('Datum') + 1 === e.indexOf('Menge (kg)') && !e.includes('Erntedatum'), 'Ernte: Produkt, dann Datum und Menge nebeneinander, „Datum“ statt „Erntedatum“');
+    assert(e.indexOf('Schleuderung') > e.indexOf('Wassergehalt (%)'), 'Ernte: Schleuderung steht nicht mehr ganz oben');
+    host.remove();
+  } finally { dialogeSchliessen(w); }
+});
