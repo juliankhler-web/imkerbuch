@@ -1054,8 +1054,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.03';
+const APP_VERSION = '2.05';
 const CHANGELOG = [
+  { version: '2.05', datum: '2026-10-03', punkte: [
+    '<b>Löschen fragt nach – in beide Richtungen:</b> Löschst du im <b>Kassenbuch</b> eine Buchung, die zu einem Zugang, Verkauf, einer Honig-Abfüllung oder Pfand-Rücknahme gehört, fragt die App, ob der Eintrag im Bereich (Verbrauchsmaterial, Inventar, Weitere Produkte, Honig, Pfand) <b>auch gelöscht</b> werden soll – dann gehen Bestand und bei der Lohnverarbeitung auch der Honig der Charge zurück. Löschst du umgekehrt <b>im Bereich</b>, fragt sie, ob die Buchung im Kassenbuch mitgelöscht wird. „Nur hier löschen“ lässt die andere Seite stehen.',
+    'Ein Honig-Verkauf, der ohne seine Einnahme storniert wurde, lässt sich aus dem Papierkorb wieder herstellen.',
+  ] },
+  { version: '2.04', datum: '2026-10-03', punkte: [
+    'Behoben: Wird bei „Weitere Produkte“ eine <b>Position gelöscht</b>, die für eine Lohnverarbeitung gebucht war, kommt der lose abgegebene Honig jetzt wieder zur Charge zurück (und ist wieder abgegeben, wenn du die Position aus dem Papierkorb holst). Beim Löschen des Zugangs selbst funktionierte das schon.',
+  ] },
   { version: '2.03', datum: '2026-10-03', punkte: [
     'Weitere Masken angeglichen: <b>Pfand-Rücknahme</b> und <b>Abfüllung bearbeiten</b> haben Datum und Anzahl nebeneinander (Datum heißt jetzt auch dort „Datum“), und bei <b>Stand</b> und <b>Volk</b> heißt das Feld wie überall „Notiz“.',
   ] },
@@ -2149,7 +2156,7 @@ const DB = {
       tx.oncomplete = () => {
         if (this._betriebsdaten(liste)) this._aenderungMelden();
         // Honig, der lose zur Verarbeitung abgegeben wurde, steht in den Zugängen – bei jeder Änderung dort neu summieren
-        if (liste.some((o) => o.store === 'materialzugaenge' || o.op === 'clear' || o.store === 'papierkorb')) lohnIndexNeu().then(() => res(true), () => res(true));
+        if (liste.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.op === 'clear' || o.store === 'papierkorb')) lohnIndexNeu().then(() => res(true), () => res(true));
         else res(true);
       };
       tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
@@ -2192,7 +2199,7 @@ const DB = {
       tx.oncomplete = () => {
         if (this._betriebsdaten(ops)) this._aenderungMelden();
         // Lose zur Verarbeitung abgegebener Honig steht in den Zugängen – nach jeder Änderung dort neu summieren
-        const lohnNeu = ops.some((o) => o.store === 'materialzugaenge' || o.store === 'papierkorb' || o.op === 'clear');
+        const lohnNeu = ops.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.store === 'papierkorb' || o.op === 'clear');
         (lohnNeu ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(wert), () => resolve(wert));
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
@@ -2246,7 +2253,7 @@ const DB = {
       let ergebnis = null, ursache = null;
       tx.oncomplete = () => {
         if (ergebnis) this._aenderungMelden();
-        (ergebnis && ergebnis.store === 'materialzugaenge' ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
+        (ergebnis && (ergebnis.store === 'materialzugaenge' || ergebnis.store === 'inventar') ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
       tx.onabort = () => reject(ursache || tx.error || new Error('Wiederherstellen abgebrochen – nichts wurde geändert.'));
@@ -7348,7 +7355,9 @@ const chargeVerarbeitetKg = (chargeId) => LOHN_KG.get(chargeId) || 0;
 async function lohnIndexNeu() {
   const m = new Map();
   try {
-    for (const z of await DB.getAll('materialzugaenge')) if (z.lohn && z.chargeId && Number(z.honigKg) > 0) m.set(z.chargeId, (m.get(z.chargeId) || 0) + Number(z.honigKg));
+    /* Nur Zugänge, deren Position es noch gibt: wird die Position gelöscht (Papierkorb), kommt der Honig der Charge zurück – stellt man sie wieder her, ist er wieder abgegeben. */
+    const positionen = new Set((await DB.getAll('inventar')).map((i) => i.id));
+    for (const z of await DB.getAll('materialzugaenge')) if (z.lohn && z.chargeId && Number(z.honigKg) > 0 && positionen.has(z.inventarId)) m.set(z.chargeId, (m.get(z.chargeId) || 0) + Number(z.honigKg));
   } catch (e) { /* ohne Index zählt nur der abgefüllte Honig */ }
   LOHN_KG = m;
 }
@@ -7462,7 +7471,7 @@ async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = 
 function papierkorbAuftraege(store, rec) {
   return [{ store: 'papierkorb', obj: { id: U.uuid(), store, daten: rec, geloeschtAm: U.nowIso() } }, { op: 'del', store, id: rec.id }];
 }
-async function verkaufStornieren(verkaufId) {
+async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
   return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
     const v = d.verkaeufe.find((x) => x.id === verkaufId);
     if (!v) return { ops: [] }; // ein anderer Aufruf hat bereits storniert
@@ -7471,7 +7480,7 @@ async function verkaufStornieren(verkaufId) {
     a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.anzahl, 'Verkaufsmenge');
     const kb = d.kassenbuch.find((x) => x.id === v.kassenbuchId);
     const ops = [{ store: 'abfuellungen', obj: a }, ...papierkorbAuftraege('verkaeufe', v)];
-    if (kb) ops.push(...papierkorbAuftraege('kassenbuch', kb));
+    if (kb && kasse) ops.push(...papierkorbAuftraege('kassenbuch', kb));
     return { ops };
   });
 }
@@ -7483,15 +7492,17 @@ async function verkaufsPapierkorbWiederherstellen(trashId) {
     const t = angeklickt.store === 'verkaeufe' ? angeklickt : d.papierkorb.find((t) => t.store === 'verkaeufe' && t.daten?.kassenbuchId === angeklickt.daten?.id);
     if (!t) return { ops: [], wert: null }; // eigenständiger Kassenbucheintrag
     const v = t.daten, k = d.papierkorb.find((x) => x.store === 'kassenbuch' && x.daten?.id === v.kassenbuchId);
-    if (!k) throw new Error('Der zugehörige Kassenbucheintrag fehlt im Papierkorb. Der Verkauf wurde nicht wiederhergestellt.');
-    if (d.verkaeufe.some((x) => x.id === v.id) || d.kassenbuch.some((x) => x.id === v.kassenbuchId)) throw new Error('Verkauf oder Einnahme ist bereits vorhanden. Bitte die Buchungen prüfen.');
+    /* Wurde der Verkauf storniert, ohne die Einnahme zu löschen, steht diese noch im Kassenbuch – dann wird nur der Verkauf zurückgeholt. */
+    const einnahmeNochDa = d.kassenbuch.some((x) => x.id === v.kassenbuchId);
+    if (!k && !einnahmeNochDa) throw new Error('Der zugehörige Kassenbucheintrag fehlt im Papierkorb. Der Verkauf wurde nicht wiederhergestellt.');
+    if (d.verkaeufe.some((x) => x.id === v.id) || (k && einnahmeNochDa)) throw new Error('Verkauf oder Einnahme ist bereits vorhanden. Bitte die Buchungen prüfen.');
     const a = d.abfuellungen.find((x) => x.id === v.abfuellungId);
     if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen.');
     const menge = buchungsZahl(v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
     if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
     a.bestand = bestand - menge;
-    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'verkaeufe', obj: v }, { store: 'kassenbuch', obj: k.daten },
-      { op: 'del', store: 'papierkorb', id: t.id }, { op: 'del', store: 'papierkorb', id: k.id }], wert: t };
+    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'verkaeufe', obj: v }, ...(k ? [{ store: 'kassenbuch', obj: k.daten }] : []),
+      { op: 'del', store: 'papierkorb', id: t.id }, ...(k ? [{ op: 'del', store: 'papierkorb', id: k.id }] : [])], wert: t };
   });
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
@@ -11274,9 +11285,18 @@ Views.honig = {
     bindAdd(() => verkaufForm(), box);
     box.addEventListener('click', async (e) => {
       const st = e.target.closest('[data-storno]');
-      if (st && (await UI.confirm({ title: 'Verkauf stornieren?', text: 'Die Gebinde wandern zurück in den Bestand, die Kassenbuch-Buchung in den Papierkorb.', confirmText: 'Stornieren' }))) {
-        await verkaufStornieren(st.dataset.storno);
-        UI.toast('Verkauf storniert'); renderRoute();
+      if (st) {
+        const vk = list.find((x) => x.id === st.dataset.storno);
+        const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
+        let kasse = true;
+        if (kb) {
+          const w = await frageJaNein({ titel: 'Verkauf stornieren?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier stornieren',
+            text: `Die Gebinde wandern zurück in den Bestand. Zu diesem Verkauf gibt es im Kassenbuch eine Einnahme von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+          if (!w) return;
+          kasse = w === 'ja';
+        } else if (!(await UI.confirm({ title: 'Verkauf stornieren?', text: 'Die Gebinde wandern zurück in den Bestand.', confirmText: 'Stornieren' }))) return;
+        await verkaufStornieren(st.dataset.storno, { kasse });
+        UI.toast(kasse ? 'Verkauf storniert' : 'Verkauf storniert – die Einnahme bleibt im Kassenbuch'); renderRoute();
       }
     });
   },
@@ -12164,6 +12184,35 @@ async function kassenBereiche() {
 }
 const kassenBereich = (k, map) => map.get(k.id) || ({ Honigverkauf: 'honig', 'Honig-Zukauf': 'honig', 'Pfandrückgabe': 'pfand', Materialverkauf: 'verbrauch', 'Weitere Produkte': 'produkt', Lohnverarbeitung: 'produkt' }[k.kategorie]) || 'sonstiges';
 
+/** Gehört eine Kassenbuch-Buchung zu einem Eintrag in einem Bereich (Zugang, Abgang, Honig-Verkauf, Pfand)? Beschreibung + Aktion zum Mitlöschen, sonst null. */
+async function kassenbuchVerknuepft(k) {
+  const [zug, abg, vk, pf] = await Promise.all(['materialzugaenge', 'materialabgaenge', 'verkaeufe', 'pfandbewegungen'].map((st) => DB.getAll(st)));
+  const bereichName = (typ) => (KASSE_BEREICHE.find(([key]) => key === lagerBereichVon(typ)) || [])[1] || 'Lager';
+  const z = zug.find((x) => x.kassenbuchId === k.id);
+  if (z) return { text: `${z.lohn ? 'Lohnverarbeitung' : 'Einkauf'} „${z.bezeichnung}“ (+${U.fmtNum(z.menge, 2)} ${z.einheit || ''}) im Bereich ${bereichName(z.typ)}`, folge: z.lohn && z.honigKg > 0 ? ` Der abgegebene Honig (${U.fmtNum(z.honigKg, 1)} kg) kommt zur Charge zurück.` : '',
+    loeschen: async () => { await zugangZurueckbuchen(z, { kasse: true }); await DB.softDel('materialzugaenge', z.id); } };
+  const a = abg.find((x) => x.kassenbuchId === k.id);
+  if (a) return { text: `Verkauf „${a.bezeichnung}“ (${U.fmtNum(a.menge, 2)} ${a.einheit || ''}) im Bereich ${bereichName(a.typ)}`, folge: '',
+    loeschen: async () => { await abgangZurueckbuchen(a, { kasse: true }); await DB.softDel('materialabgaenge', a.id); } };
+  const v = vk.find((x) => x.kassenbuchId === k.id);
+  if (v) return { text: `Honig-Verkauf (${v.anzahl} Gebinde) im Bereich Honig`, folge: '', loeschen: async () => { await verkaufStornieren(v.id, { kasse: true }); } };
+  const b = pf.find((x) => x.kassenbuchId === k.id);
+  if (b) return { text: `Pfand-Rücknahme „${b.bezeichnung}“ (${U.fmtNum(b.anzahl, 0)} Stück)`, folge: '', loeschen: async () => { await pfandRuecknahmeZurueck(b, { kasse: true }); } };
+  return null;
+}
+/** Löschen einer Kassenbuch-Buchung: gehört sie zu einem Bereich, wird gefragt, ob der Eintrag dort auch gelöscht werden soll. */
+async function kassenbuchLoeschen(k) {
+  const vk = await kassenbuchVerknuepft(k);
+  if (!vk) return papierkorbDelete('kassenbuch', k, 'Buchung löschen?', 'Wandert in den Papierkorb (30 Tage).')();
+  const w = await frageJaNein({ titel: 'Buchung löschen?', ja: 'Auch dort löschen', nein: 'Nur im Kassenbuch löschen',
+    text: `Diese Buchung gehört zu: ${vk.text}. Soll der Eintrag dort auch gelöscht werden? Dann gehen Bestand${vk.folge ? ', Honig' : ''} und Kassenbuch zusammen zurück.${vk.folge} Alles wandert in den Papierkorb.` });
+  if (!w) return false;
+  if (w === 'ja') { await vk.loeschen(); UI.toast('Buchung und Eintrag im Bereich gelöscht'); }
+  else { await loescheMitMaterial('kassenbuch', k); UI.toast('Nur die Buchung gelöscht – der Eintrag im Bereich bleibt'); }
+  renderRoute();
+  return true;
+}
+
 Views.kassenbuch = {
   title: 'Kassenbuch',
   async render(main, param) {
@@ -12339,7 +12388,7 @@ Views.kassenbuch = {
         await DB.put('kassenbuch', Object.assign(k || {}, { typ: v.typ, datum: v.datum, kategorie, betrag: v.betrag, steuersatz: +v.steuersatz || 0, kontaktId: v.kontaktId || null, beschreibung: v.beschreibung }));
         UI.toast('Buchung gespeichert'); renderRoute();
       },
-      onDelete: papierkorbDelete('kassenbuch', k, 'Buchung löschen?', 'Wandert in den Papierkorb (30 Tage).'),
+      onDelete: k ? () => kassenbuchLoeschen(k) : null,
     });
   },
   detail(k, kontakte) {
@@ -13114,18 +13163,16 @@ async function renderInventarBereich(main, cfg) {
       if (!zeile) return;
       const b = bewegungen.find((x) => x.id === zeile.dataset.pfandweg);
       if (!b) return;
-      if (!(await UI.confirm({ title: 'Rücknahme zurücknehmen?',
-        text: `${U.fmtNum(b.anzahl, 0)} × „${b.bezeichnung}" gehen wieder vom Bestand ab`
-          + (b.betrag > 0 ? `, und die Erstattung von ${U.fmtEur(b.betrag)} wird aus dem Kassenbuch genommen` : '')
-          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Zurücknehmen', danger: true }))) return;
-      await verbrauchAbziehen(b.inventarId, b.anzahl, { pruefen: false });
-      if (b.kassenbuchId) { try { await DB.softDel('kassenbuch', b.kassenbuchId); } catch (err) { console.warn(err); } }
-      else if (b.betrag > 0) {
-        const treffer = (await DB.getAll('kassenbuch')).find((k) => k.kategorie === PFAND_KATEGORIE
-          && k.datum === b.datum && Math.abs((Number(k.betrag) || 0) - (Number(b.betrag) || 0)) < 0.005);
-        if (treffer) await DB.softDel('kassenbuch', treffer.id);
-      }
-      await DB.softDel('pfandbewegungen', b.id);
+      const kb = await kasseBuchungZu(b.kassenbuchId);
+      const basis = `${U.fmtNum(b.anzahl, 0)} × „${b.bezeichnung}" gehen wieder vom Bestand ab.`;
+      let kasse = true;
+      if (kb) {
+        const w = await frageJaNein({ titel: 'Rücknahme zurücknehmen?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier zurücknehmen',
+          text: `${basis} Zu dieser Rücknahme gibt es im Kassenbuch eine Erstattung von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+        if (!w) return;
+        kasse = w === 'ja';
+      } else if (!(await UI.confirm({ title: 'Rücknahme zurücknehmen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Zurücknehmen', danger: true }))) return;
+      await pfandRuecknahmeZurueck(b, { kasse });
       UI.toast('Rücknahme zurückgenommen');
       renderRoute();
     });
@@ -14653,13 +14700,30 @@ function zugangKosten(rec) {
   return Math.round((Math.max(0, Number(rec.menge) || 0) * Math.max(0, Number(rec.preis) || 0)) * 100) / 100;
 }
 
+/** Frage mit drei Antworten: gibt 'ja', 'nein' oder null (abgebrochen) zurück. */
+function frageJaNein({ titel, text, ja, nein }) {
+  return new Promise((res) => {
+    const m = UI.modal({
+      title: titel, onClose: () => res(null),
+      body: `<p>${U.esc(text)}</p>`,
+      footer: `<button class="btn btn-ghost" data-abbr>Abbrechen</button><button class="btn btn-ghost" data-nein>${U.esc(nein)}</button><button class="btn btn-danger" data-ja>${U.esc(ja)}</button>`,
+    });
+    $('[data-abbr]', m.el).onclick = () => m.close();
+    $('[data-nein]', m.el).onclick = () => { res('nein'); m.close(true); };
+    $('[data-ja]', m.el).onclick = () => { res('ja'); m.close(true); };
+  });
+}
+/** Die Kassenbuch-Buchung zu einem Datensatz – oder null, wenn es keine (mehr) gibt. */
+async function kasseBuchungZu(kassenbuchId) { return kassenbuchId ? ((await DB.get('kassenbuch', kassenbuchId)) || null) : null; }
+
 /** Nimmt einen gebuchten Zugang zurück – für Bearbeiten und Löschen. Abgezogen
     wird genau das, was damals draufgekommen ist. */
-async function zugangZurueckbuchen(rec) {
+async function zugangZurueckbuchen(rec, { kasse = true } = {}) {
   if (!rec) return;
   const drauf = Math.max(0, (Number(rec.bestandNachher) || 0) - (Number(rec.bestandVorher) || 0));
   if (drauf > 0) await verbrauchAbziehen(rec.inventarId, drauf, { pruefen: false });
   const kosten = zugangKosten(rec);
+  if (!kasse) return;
   if (rec.kassenbuchId) {
     try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
   } else if (kosten > 0) {
@@ -14907,13 +14971,19 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       renderRoute();
     },
     onDelete: rec ? async () => {
-      if (!(await UI.confirm({ title: 'Zugang löschen?',
-        text: `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" gehen wieder vom Bestand ab`
-          + (zugangKosten(rec) > 0 ? `, und die Ausgabe von ${U.fmtEur(zugangKosten(rec))} wird aus dem Kassenbuch genommen` : '')
-          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Löschen', danger: true }))) return false;
-      await zugangZurueckbuchen(rec);
+      const kb = await kasseBuchungZu(rec.kassenbuchId);
+      const basis = `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" gehen wieder vom Bestand ab`
+        + (rec.lohn && rec.honigKg > 0 ? ` und der abgegebene Honig (${U.fmtNum(rec.honigKg, 1)} kg) kommt zur Charge zurück` : '') + '.';
+      let kasse = true;
+      if (kb) {
+        const w = await frageJaNein({ titel: 'Zugang löschen?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier löschen',
+          text: `${basis} Zu diesem Eintrag gibt es im Kassenbuch eine Ausgabe von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+        if (!w) return false;
+        kasse = w === 'ja';
+      } else if (!(await UI.confirm({ title: 'Zugang löschen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Löschen', danger: true }))) return false;
+      await zugangZurueckbuchen(rec, { kasse });
       await DB.softDel('materialzugaenge', rec.id);
-      UI.toast('Zugang zurückgenommen – Bestand und Kassenbuch angepasst');
+      UI.toast(kasse ? 'Zugang zurückgenommen – Bestand und Kassenbuch angepasst' : 'Zugang zurückgenommen – die Buchung bleibt im Kassenbuch');
       await pruefeMhd();
       renderRoute();
       return true;
@@ -15009,11 +15079,12 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     Eine dazu gebuchte Kassenbuch-Einnahme wandert in den Papierkorb. Bei
     Datensätzen aus der Zeit vor `kassenbuchId` wird sie über Datum, Betrag und
     Bezeichnung gesucht – lieber gefunden als stehengelassen. */
-async function abgangZurueckbuchen(rec) {
+async function abgangZurueckbuchen(rec, { kasse = true } = {}) {
   if (!rec) return;
   const zurueck = Math.max(0, (Number(rec.bestandVorher) || 0) - (Number(rec.bestandNachher) || 0));
   if (zurueck > 0) await verbrauchZugang(rec.inventarId, zurueck, { pruefen: false });
   const erloes = abgangErloes(rec);
+  if (!kasse) return;
   if (rec.kassenbuchId) {
     try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
   } else if (erloes > 0) {
@@ -15092,13 +15163,18 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     /* Kunde hat zurückgegeben: Abgang löschen, Bestand und Kassenbuch gehen
        automatisch mit. */
     onDelete: rec ? async () => {
-      if (!(await UI.confirm({ title: 'Abgang löschen?',
-        text: `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" kommen wieder auf den Bestand`
-          + (abgangErloes(rec) > 0 ? `, und die Einnahme von ${U.fmtEur(abgangErloes(rec))} wird aus dem Kassenbuch genommen` : '')
-          + '. Der Eintrag wandert in den Papierkorb.', confirmText: 'Löschen', danger: true }))) return false;
-      await abgangZurueckbuchen(rec);
+      const kb = await kasseBuchungZu(rec.kassenbuchId);
+      const basis = `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" kommen wieder auf den Bestand.`;
+      let kasse = true;
+      if (kb) {
+        const w = await frageJaNein({ titel: 'Abgang löschen?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier löschen',
+          text: `${basis} Zu diesem Eintrag gibt es im Kassenbuch eine Einnahme von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+        if (!w) return false;
+        kasse = w === 'ja';
+      } else if (!(await UI.confirm({ title: 'Abgang löschen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Löschen', danger: true }))) return false;
+      await abgangZurueckbuchen(rec, { kasse });
       await DB.softDel('materialabgaenge', rec.id);
-      UI.toast('Abgang zurückgenommen – Bestand und Kassenbuch angepasst');
+      UI.toast(kasse ? 'Abgang zurückgenommen – Bestand und Kassenbuch angepasst' : 'Abgang zurückgenommen – die Buchung bleibt im Kassenbuch');
       await pruefeMhd();
       renderRoute();
       return true;
@@ -15288,6 +15364,19 @@ function pfandUmlauf(pos, abfuellungen, bewegungen) {
 
 /** Rücknahme buchen: Bestand hoch, Pfand als Ausgabe ins Kassenbuch, Vorgang
     bleibt als eigener Datensatz nachvollziehbar. */
+/** Nimmt eine Pfand-Rücknahme zurück: Gläser wieder vom Bestand ab, auf Wunsch auch die Erstattung aus dem Kassenbuch. */
+async function pfandRuecknahmeZurueck(b, { kasse = true } = {}) {
+  await verbrauchAbziehen(b.inventarId, b.anzahl, { pruefen: false });
+  if (kasse) {
+    if (b.kassenbuchId) { try { await DB.softDel('kassenbuch', b.kassenbuchId); } catch (err) { console.warn(err); } }
+    else if (b.betrag > 0) {
+      const treffer = (await DB.getAll('kassenbuch')).find((k) => k.kategorie === PFAND_KATEGORIE
+        && k.datum === b.datum && Math.abs((Number(k.betrag) || 0) - (Number(b.betrag) || 0)) < 0.005);
+      if (treffer) await DB.softDel('kassenbuch', treffer.id);
+    }
+  }
+  await DB.softDel('pfandbewegungen', b.id);
+}
 async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
   const posten = pfandPositionen((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ));
   if (!posten.length) {

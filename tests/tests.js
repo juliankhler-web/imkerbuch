@@ -9743,3 +9743,88 @@ test('Weitere Produkte: Lohnverarbeitung (Honig lose abgeben) und Verkauf buchen
     await w.lohnIndexNeu();
   }
 });
+
+
+test('Lohnverarbeitung: wird die Position gelöscht, kommt der Honig zur Charge zurück – und mit der Wiederherstellung wieder weg', async (w) => {
+  const neu = [];
+  try {
+    const ch = await w.DB.put('chargen', { losnummer: 'LOHN-POS', datum: w.U.todayIso(), ernteIds: [], mengeKg: 50 }); neu.push(['chargen', ch.id]);
+    const pos = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'POS-TEST Essig', kategorie: 'Honigessig', einheit: 'Stück', stueckzahl: 5, preis: 2 }); neu.push(['inventar', pos.id]);
+    const z = await w.DB.put('materialzugaenge', { inventarId: pos.id, typ: 'produkt', bezeichnung: pos.bezeichnung, datum: w.U.todayIso(), menge: 5, art: 'Einkauf', lohn: true, kostenGesamt: 10, honigKg: 12, chargeId: ch.id, preis: 2, einheit: 'Stück' }); neu.push(['materialzugaenge', z.id]);
+    await w.lohnIndexNeu();
+    assertEq(w.chargeVerarbeitetKg(ch.id), 12, 'mit Position: 12 kg abgegeben');
+    await w.DB.softDel('inventar', pos.id);
+    assertEq(w.chargeVerarbeitetKg(ch.id), 0, 'Position im Papierkorb: der Honig ist wieder offen');
+    const trash = (await w.DB.getAll('papierkorb')).find((t) => t.store === 'inventar' && t.daten && t.daten.id === pos.id);
+    assert(trash, 'Position liegt im Papierkorb');
+    await w.DB.trashRestore(trash.id);
+    assertEq(w.chargeVerarbeitetKg(ch.id), 12, 'Position wiederhergestellt: der Honig gilt wieder als abgegeben');
+  } finally { for (const [st, id] of neu.reverse()) { try { await w.DB.del(st, id); } catch (e) { /* weg */ } } await w.lohnIndexNeu(); }
+});
+
+
+async function loeschTestDaten(w) {
+  const ch = await w.DB.put('chargen', { losnummer: 'DEL-T', datum: w.U.todayIso(), ernteIds: [], mengeKg: 40 });
+  const pos = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'DEL-TEST Essig', kategorie: 'Honigessig', einheit: 'Stück', stueckzahl: 10, preis: 3 });
+  const kb = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'ausgabe', kategorie: 'Lohnverarbeitung', betrag: 30, steuersatz: 0, beschreibung: 'Lohnverarbeitung DEL-TEST Essig' });
+  const z = await w.DB.put('materialzugaenge', { inventarId: pos.id, typ: 'produkt', bezeichnung: pos.bezeichnung, datum: w.U.todayIso(), menge: 10, art: 'Einkauf', lohn: true, kostenGesamt: 30, honigKg: 15, chargeId: ch.id, preis: 3, einheit: 'Stück', bestandVorher: 0, bestandNachher: 10, kassenbuchId: kb.id });
+  await w.lohnIndexNeu();
+  return { ch, pos, kb, z };
+}
+async function loeschAufraeumen(w, d) {
+  for (const [st, id] of [['materialzugaenge', d.z.id], ['kassenbuch', d.kb.id], ['inventar', d.pos.id], ['chargen', d.ch.id]]) { try { await w.DB.del(st, id); } catch (e) { /* weg */ } }
+  for (const tr of await w.DB.getAll('papierkorb')) if (tr.daten && [d.z.id, d.kb.id, d.pos.id, d.ch.id].includes(tr.daten.id)) await w.DB.del('papierkorb', tr.id);
+  await w.lohnIndexNeu();
+}
+const klickeAntwort = async (w, was) => { await new Promise((r) => setTimeout(r, 350)); const m = [...w.document.querySelectorAll('.modal-back')].pop(); m.querySelector(`[data-${was}]`).click(); };
+
+test('Kassenbuch löschen: fragt, ob der Eintrag im Bereich auch gelöscht wird – „Auch dort löschen“ bucht Bestand und Honig zurück', async (w) => {
+  dialogeSchliessen(w);
+  const d = await loeschTestDaten(w);
+  try {
+    assertEq(w.chargeVerarbeitetKg(d.ch.id), 15, 'vorher: 15 kg abgegeben');
+    const verkn = await w.kassenbuchVerknuepft(d.kb);
+    assert(verkn && /Lohnverarbeitung/.test(verkn.text) && /Weitere Produkte/.test(verkn.text), 'die Buchung kennt ihren Zugang im Bereich');
+    const lauf = w.kassenbuchLoeschen(d.kb);
+    await klickeAntwort(w, 'ja');
+    assertEq(await lauf, true, 'gelöscht');
+    assertEq(await w.DB.get('materialzugaenge', d.z.id), undefined, 'der Zugang im Bereich ist weg');
+    assertEq(await w.DB.get('kassenbuch', d.kb.id), undefined, 'die Kassenbuch-Buchung auch');
+    assertEq(w.chargeVerarbeitetKg(d.ch.id), 0, 'der Honig ist wieder bei der Charge');
+  } finally { dialogeSchliessen(w); await loeschAufraeumen(w, d); }
+});
+
+test('Kassenbuch löschen: „Nur im Kassenbuch löschen“ lässt den Eintrag im Bereich stehen', async (w) => {
+  dialogeSchliessen(w);
+  const d = await loeschTestDaten(w);
+  try {
+    const lauf = w.kassenbuchLoeschen(d.kb);
+    await klickeAntwort(w, 'nein');
+    assertEq(await lauf, true, 'gelöscht');
+    assert(await w.DB.get('materialzugaenge', d.z.id), 'der Zugang im Bereich bleibt');
+    assertEq(await w.DB.get('kassenbuch', d.kb.id), undefined, 'die Buchung ist weg');
+    assertEq(w.chargeVerarbeitetKg(d.ch.id), 15, 'der Honig bleibt abgegeben');
+    // Abbrechen löscht nichts
+    const d2 = await loeschTestDaten(w);
+    const lauf2 = w.kassenbuchLoeschen(d2.kb);
+    await klickeAntwort(w, 'abbr');
+    assertEq(await lauf2, false, 'abgebrochen');
+    assert(await w.DB.get('kassenbuch', d2.kb.id), 'Abbrechen lässt die Buchung stehen');
+    await loeschAufraeumen(w, d2);
+  } finally { dialogeSchliessen(w); await loeschAufraeumen(w, d); }
+});
+
+test('Zugang löschen im Bereich: fragt, ob die Kassenbuch-Buchung mitgelöscht wird', async (w) => {
+  dialogeSchliessen(w);
+  const d = await loeschTestDaten(w);
+  try {
+    w.materialZugangForm(w.bereichCfg('produkt'), d.pos.id, d.z); await new Promise((r) => setTimeout(r, 500));
+    let m = [...w.document.querySelectorAll('.modal-back')].pop();
+    m.querySelector('[data-del]').click();
+    await klickeAntwort(w, 'nein');
+    await new Promise((r) => setTimeout(r, 700));
+    assertEq(await w.DB.get('materialzugaenge', d.z.id), undefined, 'der Zugang ist gelöscht');
+    assert(await w.DB.get('kassenbuch', d.kb.id), '„Nur hier löschen“: die Kassenbuch-Buchung bleibt');
+    assertEq(w.chargeVerarbeitetKg(d.ch.id), 0, 'der Honig ist zurück bei der Charge');
+  } finally { dialogeSchliessen(w); await loeschAufraeumen(w, d); }
+});
