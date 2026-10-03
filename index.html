@@ -1052,8 +1052,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.00';
+const APP_VERSION = '2.01';
 const CHANGELOG = [
+  { version: '2.01', datum: '2026-10-03', punkte: [
+    'Weitere Masken angeglichen: <b>Wanderung</b> ohne Nummerierung und mit „Datum“, <b>Fahrt</b> mit Datum und Kilometern nebeneinander (Ziel zuerst) und „Speichern“ statt „Fahrt buchen“, <b>Gewicht</b> mit Datum und Gewicht nebeneinander.',
+  ] },
   { version: '2.00', datum: '2026-10-03', punkte: [
     '<b>Behandlung, Fütterung und Ernte haben dieselbe Struktur wie die Buchungsmasken:</b> erst <b>wer/wo</b> (Volk, Stand, bei Sammel-Erfassung Stand, Funktion und Völker), dann <b>was</b> (Mittel, Futterart, Produkt und Sorte), dann <b>Datum und Menge nebeneinander</b>, danach die Einzelheiten, der Abzug vom Verbrauchsmaterial, Erinnerung bzw. Wartezeit und zuletzt die Notiz.',
     'Das Datum heißt überall einfach „Datum“ (früher „Datum der Anwendung“, „Erntedatum“). Die Nummern „1. 2. 3. 4.“ in den Sammel-Formularen sind weg, weil die übrigen Felder auch nicht nummeriert waren. Beim Sirup steht jetzt „Rechnet mit der Menge (kg) zusammen“, weil die Menge über dem Sirup steht.',
@@ -4020,16 +4023,16 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
   const m = UI.formModal({
     title: bearbeiten ? 'Fahrt bearbeiten' : 'Fahrt erfassen',
     fields: [
-      { key: 'datum', label: 'Datum', type: 'date', required: true, default: bearbeiten ? bearbeiten.datum : U.todayIso() },
       { key: 'ziel', label: 'Ziel', type: 'select', required: true, default: startZiel, options: zielOpts },
       { key: 'freiZiel', label: 'Wohin / Beschreibung', placeholder: 'z. B. Imkerbedarf Müller, Schulung Bienengesundheit', showIf: (f) => f.ziel === FREI },
-      { key: 'km', label: 'Gefahrene Kilometer (gesamt)', type: 'number', required: true, default: quelle && quelle.km != null && quelle.km !== '' ? quelle.km : kmVon(startZiel) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: bearbeiten ? bearbeiten.datum : U.todayIso(), halb: true },
+      { key: 'km', label: 'Kilometer (gesamt)', type: 'number', required: true, halb: true, default: quelle && quelle.km != null && quelle.km !== '' ? quelle.km : kmVon(startZiel) },
       { key: 'zweck', label: 'Zweck der Fahrt', type: 'suggest', options: VORSCHLAEGE.fahrtzweck, required: true, default: quelle ? quelle.zweck : '' },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. mit Anhänger', default: bearbeiten ? bearbeiten.notiz : '' },
       ...(bearbeiten ? [] : [{ key: 'alsVorlage', label: 'Als häufige Fahrt merken (Vorlage)', type: 'check' }]),
     ],
     values: quelle ? { freiZiel: quelle.freiZiel || '' } : {},
-    saveText: bearbeiten ? 'Speichern' : 'Fahrt buchen',
+    saveText: 'Speichern',
     async onSave(v) {
       const frei = v.ziel === FREI;
       if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw new Error('Bitte Ziel/Beschreibung oder Zweck angeben.');
@@ -4882,8 +4885,8 @@ Views.volk = {
     $('#gAdd', box).onclick = () => UI.formModal({
       title: 'Gewicht erfassen',
       fields: [
-        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-        { key: 'gewichtKg', label: 'Gewicht (kg)', type: 'number', required: true },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+        { key: 'gewichtKg', label: 'Gewicht (kg)', type: 'number', required: true, halb: true },
       ],
       async onSave(val) { await DB.put('gewichte', { volkId: v.id, ...val }); UI.toast('Gewicht gespeichert'); renderRoute(); },
     });
@@ -7133,10 +7136,10 @@ Views.wanderungen = {
       const m = UI.formModal({
         title: w ? 'Wanderung bearbeiten' : 'Neue Wanderung', wide: true,
         fields: [
-          { key: 'vonStandId', label: '1. Von welchem Stand?', type: 'select', required: true, options: standOpts },
-          { key: 'volkIds', label: '2. Welche Völker wandern?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.status !== 'aktiv' ? ` (${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'})` : '') })) },
-          { key: 'nachStandId', label: '3. Zu welchem Stand?', type: 'select', required: true, options: standOpts },
-          { key: 'datum', label: '4. Datum der Wanderung', type: 'date', required: true, default: U.todayIso() },
+          { key: 'vonStandId', label: 'Von welchem Stand?', type: 'select', required: true, options: standOpts },
+          { key: 'volkIds', label: 'Welche Völker wandern?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.status !== 'aktiv' ? ` (${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'})` : '') })) },
+          { key: 'nachStandId', label: 'Zu welchem Stand?', type: 'select', required: true, options: standOpts },
+          { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
           { key: 'grund', label: 'Grund der Wanderung', type: 'suggest', options: grundOpts, placeholder: 'z. B. Linde, Waldtracht, Belegstelle' },
           { key: 'notiz', label: 'Notiz', type: 'textarea' },
           { key: 'hinw', type: 'static', html: `<div class="hint">${w
