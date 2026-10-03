@@ -9884,3 +9884,50 @@ test('Kontakte erscheinen überall: auch „beides“ steht in Einkauf, Verarbei
     }
   } finally { dialogeSchliessen(w); await w.DB.del('kontakte', k.id); await w.DB.del('kontakte', l.id); }
 });
+
+
+test('Eigene Bereiche im Menü: Abnehmer & Lieferanten und Hygiene – mit Verknüpfungen', async (w) => {
+  dialogeSchliessen(w);
+  const routen = w.NAV.filter((n) => n.route).map((n) => n.route);
+  assert(routen.includes('kontakte') && routen.includes('hygiene'), 'beide Bereiche stehen im Menü');
+  assert(w.Views.kontakte && w.Views.hygiene, 'beide Ansichten sind registriert');
+  const k = await w.DB.put('kontakte', { typ: 'beides', name: 'MENUE-TEST Roth', oekoWas: 'Essig', oekoNummer: 'DE-ÖKO-999', ort: 'Dachau' });
+  const kb = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'ausgabe', kategorie: 'Lohnverarbeitung', betrag: 12, steuersatz: 0, beschreibung: 'MENUE-TEST', kontaktId: k.id });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const altF = w.Views.kontakte._filter, altS = w.Views.kontakte._suche, altKF = w.Views.kassenbuch._kontakt;
+  try {
+    w.Views.kontakte._filter = ''; w.Views.kontakte._suche = '';
+    await w.Views.kontakte.render(host);
+    const zeile = [...host.querySelectorAll('[data-kontakt]')].find((r) => /MENUE-TEST/.test(r.textContent));
+    assert(zeile, 'der Kontakt steht im eigenen Bereich');
+    assert(/Bio/.test(zeile.textContent) && /1 Buchung im Kassenbuch/.test(zeile.textContent), 'mit Bio-Kennzeichen und Verweis aufs Kassenbuch');
+    // Filter „Kunden“ und „Lieferanten“ enthalten einen Kontakt „beides“; Bio-Filter auch
+    for (const f of ['kunde', 'lieferant', 'bio']) { w.Views.kontakte._filter = f; await w.Views.kontakte.liste(host, {}); assert(/MENUE-TEST/.test(host.textContent), `Filter ${f} zeigt den Kontakt`); }
+    w.Views.kontakte._filter = ''; w.Views.kontakte._suche = 'dachau'; await w.Views.kontakte.liste(host, {}); assert(/MENUE-TEST/.test(host.textContent), 'Suche nach Ort');
+    w.Views.kontakte._suche = 'gibtesnicht'; await w.Views.kontakte.liste(host, {}); assert(!/MENUE-TEST/.test(host.textContent), 'Suche ohne Treffer');
+    w.Views.kontakte._suche = '';
+    // Detail: Verknüpfungen
+    await w.Views.kontakte.detail(k, {}); await new Promise((r) => setTimeout(r, 400));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(/1 Buchung/.test(m.textContent) && /kontakt-/.test(m.innerHTML) && /Ausgaben 12,00/.test(m.textContent), 'Detail zeigt Buchungen, Summen und den Sprung ins Kassenbuch');
+    dialogeSchliessen(w);
+    // Kassenbuch gefiltert nach Kontakt
+    w.Views.kassenbuch._kontakt = k.id;
+    const box = w.document.createElement('div'); w.document.body.appendChild(box);
+    await w.Views.kassenbuch.tabBuchungen(box);
+    assert(box.querySelector('[data-kontaktweg]') && /MENUE-TEST/.test(box.textContent), 'Kassenbuch zeigt nur die Buchungen dieses Kontakts');
+    box.remove();
+    // Bio-Reiter nutzt dieselbe Liste und denselben Filter
+    w.Views.bio._pfilter = 'lieferant'; assertEq(w.Views.kontakte._filter, 'lieferant', 'Bio-Filter ist derselbe wie im Menü');
+    // Hygiene als eigener Bereich
+    await w.Views.hygiene.render(host);
+    assert(host.querySelector('#bio-plan') && host.querySelector('[data-hk-check]'), 'Hygiene-Bereich zeigt Plan und Reinigungen');
+    assert(!/auch als eigenen Bereich/.test(host.textContent), 'im eigenen Bereich kein Verweis auf sich selbst');
+    const b2 = w.document.createElement('div'); await w.Views.bio.tabHygiene(b2);
+    assert(/eigenen Bereich im Menü/.test(b2.textContent), 'der Bio-Reiter verweist auf den eigenen Bereich');
+  } finally {
+    dialogeSchliessen(w); host.remove();
+    w.Views.kontakte._filter = altF; w.Views.kontakte._suche = altS; w.Views.kassenbuch._kontakt = altKF || '';
+    await w.DB.del('kassenbuch', kb.id); await w.DB.del('kontakte', k.id);
+  }
+});
