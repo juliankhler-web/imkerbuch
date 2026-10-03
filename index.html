@@ -1054,8 +1054,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.02';
+const APP_VERSION = '2.03';
 const CHANGELOG = [
+  { version: '2.03', datum: '2026-10-03', punkte: [
+    'Weitere Masken angeglichen: <b>Pfand-Rücknahme</b> und <b>Abfüllung bearbeiten</b> haben Datum und Anzahl nebeneinander (Datum heißt jetzt auch dort „Datum“), und bei <b>Stand</b> und <b>Volk</b> heißt das Feld wie überall „Notiz“.',
+  ] },
   { version: '2.02', datum: '2026-10-03', punkte: [
     '<b>Neuer Bereich „Weitere Produkte“</b> (Menü „Ernte & Geschäft“) für alles außer Honig, das du verkaufst oder zukaufst: Honigessig, Met, Honiglikör, Kerzen, Propolis, Pollen, Gelée Royale und mehr. Er funktioniert wie Verbrauchsmaterial und Inventar: Positionen mit Bestand, Einkauf, Verkauf, Eigenverbrauch / Verlust – gebucht über „An- und Verkauf buchen“ im Kassenbuch, das den neuen Bereich auch als Filter kennt.',
     '<b>Lohnverarbeitung:</b> Gibst du Honig lose an einen Verarbeiter und bekommst z. B. Essig zurück, wählst du beim Einkauf die Art „Lohnverarbeitung“: Der Bestand steigt, die Kosten gehen als Ausgabe „Lohnverarbeitung“ ins Kassenbuch, und der abgegebene Honig wird bei der Charge vermerkt („zur Verarbeitung abgegeben“) und zählt dort nicht mehr als offen.',
@@ -4144,7 +4147,7 @@ function standFormFields() {
     { key: 'lat', label: 'Breitengrad', type: 'number', placeholder: 'z. B. 51,3127' },
     { key: 'lng', label: 'Längengrad', type: 'number', placeholder: 'z. B. 9,4797' },
     { key: 'kmEntfernung', label: 'Entfernung von zu Hause (km, einfache Strecke)', type: 'number', hint: 'Fürs Fahrtenbuch: neue Fahrten zu diesem Stand werden mit Hin- und Rückweg (2 ×) vorbelegt.' },
-    { key: 'notizen', label: 'Notizen', type: 'textarea' },
+    { key: 'notizen', label: 'Notiz', type: 'textarea' },
   ];
 }
 function bindGeoButton(m) {
@@ -4431,7 +4434,7 @@ async function openVolkForm(volk, defaults = {}, onDone) {
       { key: 'koeniginId', label: 'Königin', type: 'select', options: qOpts },
       { key: 'beutentyp', label: 'Beutentyp', type: 'suggest', options: beutenOpts },
       { key: 'beutenkennung', label: 'Beutenkennung', placeholder: 'z. B. Z-07' },
-      { key: 'notizen', label: 'Notizen', type: 'textarea' },
+      { key: 'notizen', label: 'Notiz', type: 'textarea' },
     ],
     values: volk || Object.assign({ }, defaults),
     async onSave(v) {
@@ -11946,12 +11949,12 @@ Views.honig = {
       title: `Abfüllung bearbeiten · Charge ${c ? c.losnummer : '?'}`, wide: true,
       fields: [
         { key: 'gebindeG', label: 'Gebindegröße (g)', type: 'number', required: true },
-        { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true },
-        { key: 'bestand', label: 'Davon noch zum Verkauf', type: 'number', required: true, hint: 'Abgefüllt, aber noch nicht verkauft. Wird durch Verkäufe automatisch gemindert.' },
-        { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true },
-        { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', halb: true, default: abfMhd(a, c) || mhdVorschlag(a.datum),
-          hint: 'Steht auf dem Etikett dieser Abfüllung.' },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, halb: true },
+        { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true, halb: true },
         { key: '_trennAbfDatum', type: 'static', html: '' },
+        { key: 'bestand', label: 'Davon noch zum Verkauf', type: 'number', required: true, hint: 'Abgefüllt, aber noch nicht verkauft. Wird durch Verkäufe automatisch gemindert.' },
+        { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', default: abfMhd(a, c) || mhdVorschlag(a.datum),
+          hint: 'Steht auf dem Etikett dieser Abfüllung.' },
         { key: 'losnummer', label: 'Losnummer für diese Abfüllung', placeholder: `leer = Chargennummer ${c ? c.losnummer : ''}`,
           hint: 'Leer gelassen gilt die Nummer der Charge.' },
         { key: '_hinweis', type: 'static', html: '<div class="hint">Änderst du die <b>Anzahl abgefüllt</b>, rechnet die App Gläser, Deckel und Etiketten mit: weniger Gläser kommen zurück in den Bestand, mehr werden abgezogen.</div>' },
@@ -15301,9 +15304,10 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
           const u = pfandUmlauf(i, abfuellungen, bewegungen);
           return { v: i.id, l: `${i.bezeichnung} · ${U.fmtEur(u.pfand)} Pfand · ${U.fmtNum(u.draussen, 0)} draußen` };
         }) },
-      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
       { key: 'anzahl', label: 'Anzahl zurück', type: 'number', required: true, halb: true },
-      { key: 'kontaktId', label: 'Von wem?', type: 'select', halb: true, options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: '_trennPfand', type: 'static', html: '' },
+      { key: 'kontaktId', label: 'Von wem?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
       { key: 'wer', label: 'oder Name frei eintragen', placeholder: 'z. B. Stammkunde Meier' },
       { key: '_pfandInfo', type: 'static', html: '<div class="hint" data-pfand-info></div>' },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
