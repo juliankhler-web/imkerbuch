@@ -2470,7 +2470,7 @@ test('Neue Position: ein Datum, MHD optional, Einheiten und Kilopreis', async (w
        anlegen" gewählt ist. Geprüft wird dasselbe wie vorher. */
     await w.Views.material.render(host);
     assertEq(host.querySelector('#add'), null, 'den Knopf „Neue Position" gibt es nicht mehr');
-    host.querySelector('#zugang').click();
+    w.materialZugangForm(w.bereichCfg('verbrauch'));
     await new Promise((r) => setTimeout(r, 300));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const wahl = m.querySelector('#f-inventarId');
@@ -5214,7 +5214,7 @@ test('Verschmolzen: neue Position und Einkauf in einem Formular', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.material.render(host);
-    host.querySelector('#zugang').click();
+    w.materialZugangForm(w.bereichCfg('verbrauch'));
     await new Promise((r) => setTimeout(r, 300));
     const m = [...w.document.querySelectorAll('.modal-back')].pop();
     const sichtbar = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
@@ -9577,4 +9577,69 @@ test('Archiv: Einträge älter als 2 Jahre wandern aus der Liste ins Archiv, off
     w.Pdf.lastDocForTest = null; await w.Pdf.bioHygieneplan();
     assert(w.Pdf.lastDocForTest, 'Hygiene-PDF mit Archiv-Hinweis erzeugt');
   } finally { await rest(); w.Pdf.noDownloadForTest = false; }
+});
+
+
+test('Kassenbuch: An- und Verkauf buchen, Bereichs-Filter und Weg aus den Bereichen', async (w) => {
+  dialogeSchliessen(w);
+  const alt = w.Views.kassenbuch._bereich; const neu = [];
+  try {
+    const jahr = w.U.todayIso().slice(0, 4);
+    const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'BEREICHSTEST', kategorie: 'Futter', einheit: 'kg', menge: 10, preis: 1 }); neu.push(['inventar', pos.id]);
+    const k1 = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'ausgabe', kategorie: 'Futter', betrag: 41, beschreibung: 'Zucker BT', steuersatz: 0 }); neu.push(['kassenbuch', k1.id]);
+    const z = await w.DB.put('materialzugaenge', { inventarId: pos.id, typ: 'verbrauch', datum: w.U.todayIso(), menge: 5, art: 'Einkauf', kassenbuchId: k1.id }); neu.push(['materialzugaenge', z.id]);
+    const k2 = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'einnahme', kategorie: 'Sonstige Einnahme', betrag: 7, beschreibung: 'Von Hand BT', steuersatz: 0 }); neu.push(['kassenbuch', k2.id]);
+    const map = await w.kassenBereiche();
+    assertEq([w.kassenBereich(k1, map), w.kassenBereich(k2, map)], ['verbrauch', 'sonstiges'], 'Zuordnung über den Datensatz bzw. „Sonstiges“');
+    assertEq(w.kassenBereich({ id: 'x', kategorie: 'Honigverkauf' }, map), 'honig', 'ältere Buchungen über die Kategorie');
+    // Filter in der Liste
+    w.Views.kassenbuch._bereich = 'verbrauch';
+    const box = w.document.createElement('div'); w.document.body.appendChild(box);
+    await w.Views.kassenbuch.tabBuchungen(box);
+    assert(box.querySelector('#an-verkauf'), 'Knopf „An- und Verkauf buchen“');
+    assert(/Zucker BT/.test(box.textContent) && !/Von Hand BT/.test(box.textContent), 'Filter Verbrauchsmaterial zeigt nur dessen Buchungen');
+    w.Views.kassenbuch._bereich = ''; box.remove();
+    // Auswahl: Einkauf Verbrauchsmaterial → Zugangsformular; Honig ist auch beim Einkauf wählbar, Eigenverbrauch nur bei Material/Inventar
+    w.Views.kassenbuch.anVerkaufBuchen('honig'); await new Promise((r) => setTimeout(r, 300));
+    let m = w.document.querySelector('.modal-back');
+    assert(m.querySelector('[data-b="honig"]'), 'Honig ist beim Verkauf wählbar');
+    m.querySelector('[data-r="ein"]').click(); await new Promise((r) => setTimeout(r, 100));
+    assert(m.querySelector('[data-b="honig"]'), 'Honig ist auch beim Einkauf wählbar');
+    m.querySelector('[data-r="weg"]').click(); await new Promise((r) => setTimeout(r, 100));
+    assert(!m.querySelector('[data-b="honig"]') && !m.querySelector('[data-b="sonstiges"]') && m.querySelector('[data-b="inventar"]'), 'Eigenverbrauch / Verlust nur bei Verbrauchsmaterial und Inventar');
+    m.querySelector('[data-r="ein"]').click(); await new Promise((r) => setTimeout(r, 100));
+    m.querySelector('[data-b="verbrauch"]').click(); m.querySelector('[data-ok]').click(); await new Promise((r) => setTimeout(r, 500));
+    m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(m && m.querySelector('#f-inventarId'), 'das Zugangs-/Einkaufsformular öffnet sich');
+    dialogeSchliessen(w);
+    // Weg aus dem Bereich
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    await w.Views.material.render(host);
+    assertEq(host.querySelector('#kasse-buchen').getAttribute('href'), '#/kassenbuch/buchen-verbrauch', 'Verbrauchsmaterial führt ins Kassenbuch');
+    await w.Views.inventar.render(host);
+    assertEq(host.querySelector('#kasse-buchen').getAttribute('href'), '#/kassenbuch/buchen-inventar', 'Inventar ebenso');
+    host.remove();
+  } finally { dialogeSchliessen(w); w.Views.kassenbuch._bereich = alt || ''; for (const [st, id] of neu.reverse()) await w.DB.del(st, id); }
+});
+
+
+test('Kassenbuch: Eigenverbrauch und Verlust stehen als 0-€-Zeilen in der Liste, nicht in den Summen', async (w) => {
+  const neu = []; const alt = w.Views.kassenbuch._bereich;
+  try {
+    const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'EIGENTEST', kategorie: 'Futter', einheit: 'kg', menge: 10, preis: 1 }); neu.push(['inventar', pos.id]);
+    const a = await w.DB.put('materialabgaenge', { inventarId: pos.id, typ: 'verbrauch', bezeichnung: 'EIGENTEST', einheit: 'kg', datum: w.U.todayIso(), menge: 3, art: 'Eigenverbrauch', preis: 0 }); neu.push(['materialabgaenge', a.id]);
+    const b = await w.DB.put('materialabgaenge', { inventarId: pos.id, typ: 'verbrauch', bezeichnung: 'EIGENTEST', einheit: 'kg', datum: w.U.todayIso(), menge: 1, art: 'Korrektur', preis: 0 }); neu.push(['materialabgaenge', b.id]);
+    w.Views.kassenbuch._bereich = '';
+    const box = w.document.createElement('div'); w.document.body.appendChild(box);
+    await w.Views.kassenbuch.tabBuchungen(box);
+    const zeilen = [...box.querySelectorAll('.row[data-abgang]')].filter((r) => /EIGENTEST/.test(r.textContent));
+    assertEq(zeilen.length, 1, 'Eigenverbrauch erscheint, eine Korrektur nicht');
+    assert(/Eigenverbrauch/.test(zeilen[0].textContent) && /ohne Geld/.test(zeilen[0].textContent), 'mit Grund und „ohne Geld“');
+    // Summen unverändert gegenüber einer Liste ohne diese Zeile
+    const vorher = box.querySelector('.stat-grid').textContent;
+    await w.DB.del('materialabgaenge', a.id); neu.splice(neu.findIndex((x) => x[1] === a.id), 1);
+    await w.Views.kassenbuch.tabBuchungen(box);
+    assertEq(box.querySelector('.stat-grid').textContent, vorher, 'Einnahmen, Ausgaben und Saldo bleiben gleich');
+    box.remove();
+  } finally { w.Views.kassenbuch._bereich = alt || ''; for (const [st, id] of neu.reverse()) await w.DB.del(st, id); }
 });

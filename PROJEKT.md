@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-03 (v1.98)**: An-/Verkauf zentral im Kassenbuch: `Views.kassenbuch.anVerkaufBuchen` (Richtung ein/ver/weg → Bereich → bestehende Formulare `materialZugangForm`/`materialAbgangForm(…, vorArt)`/`verkaufForm`/`kassenbuch.form`), Bereichs-Filter über `kassenBereiche()` (Zuordnung per kassenbuchId der auslösenden Datensätze, Rückfall Kategorie), Eigenverbrauch/Verlust als 0-€-Zeilen aus `materialabgaenge` (nicht in den Summen), Router-Parameter `buchen-<bereich>`/`filter-<bereich>`, `bereichCfg(typ)`, Kategorie „Honig-Zukauf“. Bereichsseiten: ein Link, keine Buchungsknöpfe. Keine Datenänderung.
 - **2026-10-01 (v1.97)**: Archiv: `ARCHIV_JAHRE = 2`, `ARCHIV_BEREICHE`, `bioImArchiv(bereich, e)` (nach Datum berechnet, kein Datenumbau; offene Maßnahmen/Schädlingsfälle bleiben sichtbar), `tabListe` mit aufklappbarem Archiv, `Pdf.bioArchiv`; Hygiene-PDF/Unterlagen nur letzte 2 Jahre.
 - **2026-10-01 (v1.96)**: Checklisten zeigen/drucken die geprüften Punkte als Text (`punkteText`, Kurznamen `k` je Punkt; Snapshot `punkteText` am Eintrag) statt „x von y“; PDF-Spalte „Geprüft und Bemerkung“ (`def.pdf.widths`). Ernte-Punkte: + `entdeckelmaschine`, `klaerbehaelter` (9).
 - **2026-10-01 (v1.95)**: Eigene Kontrollpunkte je Checkliste (`hygienePunkteEigen`, `Views.bio.eigenePunkteBedienung`, `punkteAbschluss`; Eintrag merkt `punkteGesamt` und `punkteEigenText`).
