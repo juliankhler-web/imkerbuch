@@ -480,6 +480,12 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 /* Alle Beschriftungen bekommen zwei Zeilen Platz – so sitzen die Symbole in jeder Reihe auf einer Höhe */
 .sheet-grid button{min-height:130px}
 .sheet-grid button:hover{background:var(--card2)}
+/* Gedrückt halten zum Verschieben (Menü „Mehr“ und untere Leiste) */
+.lp-sort button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.lp-ph{opacity:.28}
+.lp-fly{position:fixed;z-index:3000;pointer-events:none;margin:0;opacity:.96;transform:scale(1.1);box-shadow:0 10px 28px rgba(0,0,0,.35);background:var(--card);border-radius:16px;transition:none}
+.sheet-hint{font-size:12px;color:var(--muted);text-align:center;margin:6px 0 2px}
+.sheet-hint a{cursor:pointer;text-decoration:underline}
 /* Gefärbte Icon-Kachel – größer & clean (Alle-Bereiche-Sheet) */
 .sg-ic{background:var(--honey-soft);color:var(--honey-deep);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
 .sheet-grid .sg-ic{width:60px;height:60px;border-radius:18px}
@@ -1065,8 +1071,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.11';
+const APP_VERSION = '2.12';
 const CHANGELOG = [
+  { version: '2.12', datum: '2026-10-03', punkte: [
+    '<b>Verschieben per Gedrückthalten:</b> Im Menü „Mehr“ lässt sich jede Kachel ~0,4 Sekunden gedrückt halten und an eine andere Stelle ziehen. Das Gleiche geht in der unteren Leiste – auch „Start“ darf überall stehen. Die Reihenfolge wird gemerkt; unter den Kacheln gibt es „Reihenfolge zurücksetzen“.',
+  ] },
   { version: '2.11', datum: '2026-10-03', punkte: [
     '<b>Menü „Alle Bereiche“ im Hochformat:</b> Alle Kacheln sind jetzt gleich hoch, die Symbole sitzen in jeder Reihe auf einer Linie – auch wenn eine Beschriftung zwei Zeilen braucht („Abnehmer & Lieferanten“).',
     'Die Spaltenzahl passt sich der Bildschirmbreite an (große iPhones wie das Pro Max, kleine iPhones, iPad) statt fest 3 oder 4 zu zeigen.',
@@ -2399,6 +2408,7 @@ const S = {
     dashboardWidgets: ['voelker', 'aufgaben', 'lerntipp', 'fahrt', 'zeiten', 'sicherung', 'behandlungen', 'ertrag', 'prognose', 'wetter'],
     /* Schnellzugriff (untere Leiste): erste Position bleibt „Start“ (dashboard, nicht entfernbar), danach frei; „Mehr“ hängt die App selbst an. */
     bottomNav: ['dashboard', 'voelker', 'aufgaben', 'honig'],
+    menuOrder: [], // Reihenfolge der Kacheln unter „Mehr“ (leer = Standard); per Gedrückthalten verschiebbar
     rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
     imkerschule: { level: 'anfaenger', done: {}, onboarded: false },
     chargeDatumMigriert: false,
@@ -2940,6 +2950,10 @@ function renderChrome() {
   side.addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) navTo(b.dataset.route); });
   const bn = $('#bottomnav');
   renderBottomNav();
+  langDruckSortieren(bn, 'button[data-route]', async (els) => {
+    await S.set('bottomNav', els.map((b) => b.dataset.route));
+    renderBottomNav();
+  });
   bn.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.hasAttribute('data-more')) return openMoreSheet();
@@ -2959,7 +2973,7 @@ function renderChrome() {
 function renderBottomNav() {
   const bn = $('#bottomnav'); if (!bn) return;
   let routes = (S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
-  if (routes[0] !== 'dashboard') routes = ['dashboard', ...routes.filter((r) => r !== 'dashboard')];
+  if (!routes.includes('dashboard')) routes = ['dashboard', ...routes];
   routes = routes.slice(0, 4);
   const bnLabel = (r) => (r === 'dashboard' ? 'Start' : bereichKurz(r));
   bn.innerHTML = routes.map((r) => `<button data-route="${U.esc(r)}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span>${U.esc(bnLabel(r))}</button>`).join('') +
@@ -2969,12 +2983,74 @@ function renderBottomNav() {
   $$('button', bn).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
 }
 
+/** Gedrückt halten (~0,4 s) und ziehen: sortiert die Kinder von `host` um. Funktioniert mit Finger und Maus.
+    `sel` = verschiebbare Elemente, `fertig(elemente)` bekommt die neue Reihenfolge. Das anschließende
+    Klick-Ereignis wird verschluckt, damit nach dem Loslassen nichts geöffnet wird. */
+function langDruckSortieren(host, sel, fertig) {
+  let st = null;
+  const aufraeumen = () => { if (!st) return; clearTimeout(st.timer); if (st.fly) st.fly.remove(); if (st.el) st.el.classList.remove('lp-ph'); st = null; };
+  host.classList.add('lp-sort');
+  host.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || st) return;
+    const el = e.target.closest(sel); if (!el || !host.contains(el)) return;
+    st = { el, id: e.pointerId, x0: e.clientX, y0: e.clientY, aktiv: false, fly: null };
+    st.timer = setTimeout(() => {
+      if (!st) return;
+      st.aktiv = true;
+      const r = el.getBoundingClientRect();
+      st.dx = st.x0 - r.left; st.dy = st.y0 - r.top;
+      const fly = el.cloneNode(true); fly.classList.add('lp-fly'); fly.style.width = r.width + 'px'; fly.style.height = r.height + 'px';
+      fly.style.left = r.left + 'px'; fly.style.top = r.top + 'px';
+      document.body.appendChild(fly); st.fly = fly; el.classList.add('lp-ph');
+      try { host.setPointerCapture(st.id); } catch (x) {}
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, 400);
+  });
+  host.addEventListener('pointermove', (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    if (!st.aktiv) { if (Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > 10) aufraeumen(); return; }
+    e.preventDefault();
+    st.fly.style.left = (e.clientX - st.dx) + 'px'; st.fly.style.top = (e.clientY - st.dy) + 'px';
+    const items = [...host.querySelectorAll(sel)];
+    const ziel = items.find((it) => { if (it === st.el) return false; const r = it.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+    if (ziel) {
+      const nachHinten = items.indexOf(st.el) < items.indexOf(ziel);
+      ziel.parentNode.insertBefore(st.el, nachHinten ? ziel.nextSibling : ziel);
+    }
+  });
+  /* Beim Finger wäre sonst das Scrollen schneller als der Griff: sobald gezogen wird, nicht scrollen */
+  host.addEventListener('touchmove', (e) => { if (st && st.aktiv && e.cancelable) e.preventDefault(); }, { passive: false });
+  host.addEventListener('contextmenu', (e) => { if (st) e.preventDefault(); });
+  const ende = (e) => {
+    if (!st || (e && e.pointerId !== st.id)) return;
+    const war = st.aktiv;
+    aufraeumen();
+    if (war) {
+      host.dataset.lpStop = String(Date.now());
+      fertig([...host.querySelectorAll(sel)]);
+    }
+  };
+  host.addEventListener('pointerup', ende);
+  host.addEventListener('pointercancel', ende);
+  host.addEventListener('click', (e) => { if (Date.now() - Number(host.dataset.lpStop || 0) < 450) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+/** Reihenfolge der Bereiche unter „Mehr“: gespeicherte Reihenfolge zuerst, Neues hinten dran. */
+function menuReihenfolge() {
+  const alle = NAV.filter((n) => n.route);
+  const gesp = (S.get('menuOrder') || []).filter((r) => alle.some((n) => n.route === r));
+  return [...gesp.map((r) => alle.find((n) => n.route === r)), ...alle.filter((n) => !gesp.includes(n.route))];
+}
+
 function openMoreSheet() {
-  const items = NAV.filter((n) => n.route);
+  const items = menuReihenfolge();
   const m = UI.modal({
     title: 'Alle Bereiche',
-    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${U.esc(n.route)}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>`,
+    body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${U.esc(n.route)}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>
+      <div class="sheet-hint">Zum Verschieben eine Kachel gedrückt halten und ziehen${(S.get('menuOrder') || []).length ? ' · <a data-reset>Reihenfolge zurücksetzen</a>' : ''}</div>`,
   });
+  langDruckSortieren($('.sheet-grid', m.el), 'button[data-route]', (els) => S.set('menuOrder', els.map((b) => b.dataset.route)));
+  const rs = $('[data-reset]', m.el);
+  if (rs) rs.onclick = async () => { await S.set('menuOrder', []); m.close(true); openMoreSheet(); };
   $('.sheet-grid', m.el).addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     m.close(true); navTo(b.dataset.route);
@@ -3685,7 +3761,7 @@ Views.dashboard = {
     const dashAktiv = S.get('dashboardWidgets').filter((e) => DASH_WIDGETS[e]);
     const dashVerf = dashAlleEintraege().filter((e) => !dashAktiv.includes(e));
     const navAktiv = S.get('bottomNav').filter((r) => BEREICHE[r]);
-    if (navAktiv[0] !== 'dashboard') { navAktiv.unshift('dashboard'); } // „Start“ immer erster
+    if (!navAktiv.includes('dashboard')) { navAktiv.unshift('dashboard'); } // „Start“ bleibt dabei, die Stelle ist frei
     const navVerf = Object.keys(BEREICHE).filter((r) => r !== 'dashboard' && !navAktiv.includes(r));
     const stDash = { aktiv: dashAktiv, verf: dashVerf };
     const stNav = { aktiv: [...new Set(navAktiv)], verf: navVerf };
@@ -3704,9 +3780,9 @@ Views.dashboard = {
     dashCfgListe($('#cfg-dash', m.el), stDash, { label: dashLabel, icon: dashIcon,
       aktivTitel: 'Auf dem Dashboard',
       hinweis: 'Rotes − nimmt eine Kachel weg, grünes + fügt sie hinzu, mit ⁝⁝ verschiebst du. Jeder Bereich lässt sich hinzufügen – ohne eigenes Daten-Widget als Verknüpfungskachel.' });
-    dashCfgListe($('#cfg-nav', m.el), stNav, { label: bereichKurz, icon: bereichIcon, fixFirst: true, max: 4,
+    dashCfgListe($('#cfg-nav', m.el), stNav, { label: bereichKurz, icon: bereichIcon, max: 4,
       aktivTitel: 'Im Schnellzugriff',
-      hinweis: '„Start“ bleibt der erste Eintrag. Bis zu vier Bereiche im Schnellzugriff – der Rest liegt unter „Mehr“.' });
+      hinweis: 'Bis zu vier Bereiche im Schnellzugriff – der Rest liegt unter „Mehr“. Du kannst die Leiste auch direkt verschieben: einen Eintrag unten gedrückt halten und ziehen.' });
     $('[data-cancel]', m.el).onclick = () => m.close();
     $('[data-ok]', m.el).onclick = async () => {
       await S.set('dashboardWidgets', stDash.aktiv);

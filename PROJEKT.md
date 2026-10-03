@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-03 (v2.12)**: `langDruckSortieren(host, sel, fertig)` (Pointer-Events, 400 ms Halten, fliegender Klon, schluckt den Folge-Klick) für das „Mehr“-Menü (`S.menuOrder`, `menuReihenfolge()`) und `#bottomnav` (`S.bottomNav`); Start nicht mehr zwingend an erster Stelle (nur noch: fehlt er, wird er vorn ergänzt).
 - **2026-10-03 (v2.11)**: „Alle Bereiche“-Kacheln: feste Mindesthöhe 130 px + `repeat(auto-fill,minmax(104px,1fr))` statt fester 3/4 Spalten (Pro Max = 440 px sprang auf 4 schmale Spalten; zweizeilige Namen machten Reihen ungleich hoch).
 - **2026-10-03 (v2.10)**: Gesamtprüfung (Seiten-/Knopf-Durchlauf Handy+Tablet, alle PDFs, iOS-Simulator-Build). Funde: Tagesbienen fehlten in den nativen Apps (`native/sync-app.sh` kopiert jetzt `assets/bienen`, SW legt sie vorab ab); Kennzeichen in langen `.r-title` wurden abgeschnitten (`:has(.badge)` → Umbruch); Excel-Export um Zugänge, Abgänge, Pfand, Hygiene & Bio erweitert; Menü-Kurzname „Abnehmer & Lieferanten“.
 - **2026-10-03 (v2.09)**: Neue Menü-Bereiche `kontakte` (`Views.kontakte.liste/detail`, geteilt mit Kassenbuch-Reiter und `Views.bio.tabPartner`; Filter-Zustand `Views.kontakte._filter`, `Views.bio._pfilter` ist ein Alias) und `hygiene` (`Views.hygiene` → `Views.bio.tabHygiene(box, { eigen: true })`); Kassenbuch-Filter `_kontakt` (Router `kontakt-<id>`); Icons `kontakte`/`hygiene`; Kurzwahl-Kacheln umbrechen lange Namen.

@@ -9931,3 +9931,27 @@ test('Eigene Bereiche im Menü: Abnehmer & Lieferanten und Hygiene – mit Verkn
     await w.DB.del('kassenbuch', kb.id); await w.DB.del('kontakte', k.id);
   }
 });
+
+test('Menü & untere Leiste: per Gedrückthalten verschiebbar, Reihenfolge wird gemerkt', async (w) => {
+  const altMenu = w.S.get('menuOrder'), altNav = w.S.get('bottomNav');
+  try {
+    await w.S.set('menuOrder', []);
+    const std = w.menuReihenfolge().map((n) => n.route);
+    assertEq(std[0], 'dashboard', 'ohne Eigenwunsch gilt die Standardreihenfolge');
+    await w.S.set('menuOrder', ['kassenbuch', 'bio']);
+    const neu = w.menuReihenfolge().map((n) => n.route);
+    assertEq(neu.slice(0, 2), ['kassenbuch', 'bio'], 'eigene Reihenfolge kommt zuerst');
+    assertEq(neu.length, std.length, 'nichts geht verloren, Neues hängt hinten dran');
+    await w.S.set('menuOrder', ['gibtsnicht', 'bio']);
+    assertEq(w.menuReihenfolge()[0].route, 'bio', 'unbekannte Einträge werden ignoriert');
+    // untere Leiste: Start darf an jeder Stelle stehen
+    await w.S.set('bottomNav', ['voelker', 'dashboard', 'aufgaben', 'honig']);
+    w.renderBottomNav();
+    const bn = [...w.document.querySelectorAll('#bottomnav button[data-route]')].map((b) => b.dataset.route);
+    assertEq(bn, ['voelker', 'dashboard', 'aufgaben', 'honig'], 'Start bleibt, wo der Nutzer ihn hingelegt hat');
+    await w.S.set('bottomNav', ['voelker', 'aufgaben']);
+    w.renderBottomNav();
+    assertEq(w.document.querySelector('#bottomnav button[data-route]').dataset.route, 'dashboard', 'fehlt Start, kommt er nach vorn');
+    assert(typeof w.langDruckSortieren === 'function', 'Sortier-Helfer ist da');
+  } finally { await w.S.set('menuOrder', altMenu); await w.S.set('bottomNav', altNav); w.renderBottomNav(); }
+});
