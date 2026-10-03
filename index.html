@@ -561,6 +561,7 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .gallery .g-item svg{width:24px;height:24px;color:var(--muted)}
 .btn-zwei{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:0;line-height:1.25;height:auto;padding-top:7px;padding-bottom:7px;text-align:left}
 .btn-zwei small{font-size:11.5px;font-weight:500;opacity:.85}
+.aufleuchten{outline:3px solid var(--danger);outline-offset:3px;border-radius:var(--r-sm);transition:outline-color .6s}
 .toast-aktion{margin-left:12px;background:none;border:0;color:var(--honey);font-weight:700;cursor:pointer;padding:4px 6px;font:inherit;font-weight:700;text-decoration:underline}
 .kw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-bottom:12px}
 .kw-tile{display:flex;gap:8px;align-items:flex-start;text-align:left;min-height:62px;padding:9px 10px;border:2px dashed var(--honey);background:var(--honey-soft);border-radius:var(--r-sm);cursor:pointer;color:var(--honey-deep);font:inherit}
@@ -1054,8 +1055,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.05';
+const APP_VERSION = '2.07';
 const CHANGELOG = [
+  { version: '2.07', datum: '2026-10-03', punkte: [
+    'Das Springen zum Fehlenden gilt jetzt auch für die <b>Rechnung</b> (fehlender Kunde oder fehlende Positionen: die App scrollt dorthin und lässt die Stelle kurz aufleuchten) und für die <b>Abfüllung</b> (keine oder falsche Gebindeangabe, Bestand größer als die abgefüllte Anzahl).',
+  ] },
+  { version: '2.06', datum: '2026-10-03', punkte: [
+    '<b>Fehlt etwas, springt das Formular dorthin:</b> Beim Speichern scrollt es zum ersten fehlenden Pflichtfeld, markiert es rot und setzt den Cursor hinein. Das gilt auch, wenn die App erst beim Speichern merkt, dass etwas fehlt (z. B. keine Position gewählt, keine Menge, kein Volk). Die rote Markierung verschwindet, sobald du das Feld ausfüllst.',
+    'Die Nummern „1. 2. 3. 4.“ sind jetzt auch in den übrigen Sammel-Formularen weg (Bewertungsrunde, Umweiseln, Laborergebnis).',
+  ] },
   { version: '2.05', datum: '2026-10-03', punkte: [
     '<b>Löschen fragt nach – in beide Richtungen:</b> Löschst du im <b>Kassenbuch</b> eine Buchung, die zu einem Zugang, Verkauf, einer Honig-Abfüllung oder Pfand-Rücknahme gehört, fragt die App, ob der Eintrag im Bereich (Verbrauchsmaterial, Inventar, Weitere Produkte, Honig, Pfand) <b>auch gelöscht</b> werden soll – dann gehen Bestand und bei der Lohnverarbeitung auch der Honig der Charge zurück. Löschst du umgekehrt <b>im Bereich</b>, fragt sie, ob die Buchung im Kassenbuch mitgelöscht wird. „Nur hier löschen“ lässt die andere Seite stehen.',
     'Ein Honig-Verkauf, der ohne seine Einnahme storniert wurde, lässt sich aus dem Papierkorb wieder herstellen.',
@@ -2504,8 +2512,8 @@ const UI = {
       footer: `${onDelete ? `<button class="btn btn-danger no-flex" data-del>${icon('trash')}</button>` : ''}<button class="btn btn-ghost" data-cancel>Abbrechen</button><button class="btn btn-primary" data-save>${U.esc(saveText)}</button>`,
     });
     const form = $('form', m.el);
-    form.addEventListener('input', () => { FormGuard.dirty = true; updateShowIf(); });
-    form.addEventListener('change', () => { FormGuard.dirty = true; updateShowIf(); }); // Selects lösen zuverlässig 'change' aus → Ein-/Ausblenden (showIf) funktioniert überall
+    form.addEventListener('input', (e) => { FormGuard.dirty = true; updateShowIf(); const w = e.target.closest && e.target.closest('.field'); if (w) w.classList.remove('invalid'); });
+    form.addEventListener('change', (e) => { FormGuard.dirty = true; updateShowIf(); const w = e.target.closest && e.target.closest('.field'); if (w) w.classList.remove('invalid'); }); // Selects lösen zuverlässig 'change' aus → Ein-/Ausblenden (showIf) funktioniert überall
     form.addEventListener('submit', (e) => e.preventDefault());
     // Auswahl-Dropdowns (eigenes Combo statt <datalist>): tippen filtert, Tippen/Tap wählt
     $$('.combo', form).forEach((combo) => {
@@ -2534,6 +2542,21 @@ const UI = {
       r.dataset.val = b.dataset.n; FormGuard.dirty = true;
       $$('button', r).forEach((x) => x.classList.toggle('active', +x.dataset.n <= +b.dataset.n));
     }));
+    /* Fehlt etwas, springt das Formular dorthin: das Feld wird in die Mitte gescrollt und angeklickt (Cursor bzw. Auswahl). */
+    const springeZu = (wrap) => {
+      if (!wrap) return;
+      try { wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* ältere Browser */ }
+      const eingabe = $('input,select,textarea', wrap);
+      if (eingabe) setTimeout(() => { try { eingabe.focus({ preventScroll: true }); } catch (e) { /* egal */ } }, 300);
+    };
+    const markiere = (key, text) => {
+      const wrap = $(`[data-field="${U.esc(key)}"]`, form);
+      if (!wrap || wrap.classList.contains('hidden')) return false;
+      wrap.classList.add('invalid');
+      const fehlerZeile = $('.err', wrap); if (fehlerZeile && text) fehlerZeile.textContent = text;
+      springeZu(wrap);
+      return true;
+    };
     const collect = () => {
       const out = {}; let ok = true;
       for (const f of fields) {
@@ -2557,6 +2580,7 @@ const UI = {
         }
         out[f.key] = v;
       }
+      if (!ok) springeZu($('.field.invalid', form));
       return ok ? out : null;
     };
     const updateShowIf = () => {
@@ -2581,7 +2605,12 @@ const UI = {
       // dirty erst NACH erfolgreichem Speichern zurücksetzen – wirft onSave, bleibt der
       // Ungespeichert-Schutz scharf und das Formular offen (kein stiller Datenverlust).
       try { await onSave(v); FormGuard.dirty = false; m.close(true); }
-      catch (e) { console.error(e); UI.toast(e.message || 'Speichern fehlgeschlagen', 'err'); }
+      catch (e) {
+        console.error(e);
+        UI.toast(e.message || 'Speichern fehlgeschlagen', 'err');
+        // Meldet der Speichervorgang, WELCHES Feld fehlt, springt das Formular dorthin
+        if (e && e.feld) markiere(e.feld, e.message);
+      }
     };
     if (onDelete) $('[data-del]', m.el).onclick = async () => { if (await onDelete()) m.close(true); };
     setTimeout(() => { const first = $('input,select,textarea', form); if (first && window.innerWidth > 900) first.focus(); }, 60);
@@ -3030,7 +3059,16 @@ function tagesbieneAktualisieren() {
 /** „Neu"-Buttons (Kopfzeile #add + leerer Zustand #add2) mit derselben Aktion verdrahten */
 function bindAdd(fn, root = document) { for (const id of ['#add', '#add2']) { const b = $(id, root); if (b) b.onclick = fn; } }
 /** Volk-/Stand-Auswahl aus zielFelder()-Formularwerten auflösen */
-function zielIdAus(v) { const id = v.zielTyp === 'volk' ? v.zielVolk : v.zielStand; if (!id) throw new Error('Bitte Volk bzw. Stand auswählen.'); return id; }
+/** Springt zu einem Element außerhalb eines Formulars (z. B. Kundenauswahl der Rechnung): scrollt in die Mitte, setzt den Cursor und lässt es kurz aufleuchten. */
+function springeZuElement(el) {
+  if (!el) return;
+  try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* ältere Browser */ }
+  setTimeout(() => { try { el.focus({ preventScroll: true }); } catch (e) { /* egal */ } }, 300);
+  el.classList.add('aufleuchten'); setTimeout(() => el.classList.remove('aufleuchten'), 1800);
+}
+/** Fehler mit Feldangabe: Das Formular springt beim Speichern zu diesem Feld (key), statt nur eine Meldung zu zeigen. */
+function feldFehler(feld, text) { return Object.assign(new Error(text), { feld }); }
+function zielIdAus(v) { const id = v.zielTyp === 'volk' ? v.zielVolk : v.zielStand; if (!id) throw feldFehler(v.zielTyp === 'volk' ? 'zielVolk' : 'zielStand', 'Bitte Volk bzw. Stand auswählen.'); return id; }
 /** Formular-Vorbelegung für Datensätze mit zielTyp/zielId */
 const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zielId : '', zielStand: r.zielTyp === 'stand' ? r.zielId : '' } : {});
 /** Standard-Löschaktion für onDelete: Bestätigung → Papierkorb → neu rendern */
@@ -4060,7 +4098,7 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
     saveText: 'Speichern',
     async onSave(v) {
       const frei = v.ziel === FREI;
-      if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw new Error('Bitte Ziel/Beschreibung oder Zweck angeben.');
+      if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw feldFehler((v.freiZiel || '').trim() ? 'zweck' : 'freiZiel', 'Bitte Ziel/Beschreibung oder Zweck angeben.');
       const rec = Object.assign(bearbeiten || {}, { datum: v.datum, standId: frei ? null : v.ziel, freiZiel: frei ? (v.freiZiel || '').trim() : '', km: v.km, zweck: v.zweck, notiz: v.notiz });
       await DB.put('fahrten', rec);
       if (v.alsVorlage) {
@@ -5201,21 +5239,21 @@ Views.koeniginnen = {
     const m = UI.formModal({
       title: 'Bewertungs-Runde', wide: true, saveText: 'Weiter',
       fields: [
-        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
-        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So bewertest du z. B. nur die Wirtschaftsvölker.' },
-        { key: 'volkIds', label: '3. Welche Völker bewerten?', type: 'multicheck', required: true,
+        { key: 'standId', label: 'Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: 'Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So bewertest du z. B. nur die Wirtschaftsvölker.' },
+        { key: 'volkIds', label: 'Welche Völker bewerten?', type: 'multicheck', required: true,
           options: voelker.map((v) => ({ v: v.id, l: hatKoenigin(v) ? `${v.name} · ${koeniginKurz(qm.get(v.koeniginId))}` : `${v.name} · noch keine Königin erfasst` })) },
-        { key: 'datum', label: '4. Bewertungsdatum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'datum', label: 'Bewertungsdatum', type: 'date', required: true, default: U.todayIso() },
         ...(ohne.length ? [
           { key: '_ohneHint', type: 'static', html: `<div class="hint mb8">${ohne.length} ${ohne.length === 1 ? 'Volk hat' : 'Völker haben'} noch keine erfasste Königin. Wählst du sie mit aus, legt die App dafür je eine Königin an und ordnet sie zu – bewertet wird immer die Königin.</div>` },
-          { key: 'neuJahrgang', label: '5. Jahrgang der neu angelegten Königinnen', type: 'number', default: +U.todayIso().slice(0, 4),
+          { key: 'neuJahrgang', label: 'Jahrgang der neu angelegten Königinnen', type: 'number', default: +U.todayIso().slice(0, 4),
             hint: 'Nur für Völker ohne erfasste Königin. Die Kennung vergibt die App fortlaufend.' },
         ] : []),
       ],
       values: {},
       onSave: async (v) => {
         const gewaehlt = voelker.filter((x) => (v.volkIds || []).includes(x.id));
-        if (!gewaehlt.length) throw new Error('Bitte mindestens ein Volk wählen.');
+        if (!gewaehlt.length) throw feldFehler('volkIds', 'Bitte mindestens ein Volk wählen.');
         const fehlende = gewaehlt.filter((x) => !hatKoenigin(x));
         if (fehlende.length) {
           const jg = Math.round(U.zahl(v.neuJahrgang, +U.todayIso().slice(0, 4)));
@@ -5305,15 +5343,15 @@ Views.koeniginnen = {
     const m = UI.formModal({
       title: 'Sammel-Umweiseln', wide: true, saveText: 'Weiter',
       fields: [
-        { key: 'standId', label: '1. Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
-        { key: 'funktion', label: '2. Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))] },
-        { key: 'volkIds', label: '3. Welche Völker umweiseln?', type: 'multicheck', required: true, options: voelker.map((v) => ({ v: v.id, l: `${v.name} · ${v.koeniginId && qm.get(v.koeniginId) ? 'aktuell ' + koeniginKurz(qm.get(v.koeniginId)) : 'weisellos'}` })) },
-        { key: 'datum', label: '4. Datum', type: 'date', required: true, default: U.todayIso() },
+        { key: 'standId', label: 'Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
+        { key: 'funktion', label: 'Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))] },
+        { key: 'volkIds', label: 'Welche Völker umweiseln?', type: 'multicheck', required: true, options: voelker.map((v) => ({ v: v.id, l: `${v.name} · ${v.koeniginId && qm.get(v.koeniginId) ? 'aktuell ' + koeniginKurz(qm.get(v.koeniginId)) : 'weisellos'}` })) },
+        { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
       ],
       values: {},
       onSave: async (v) => {
         const gewaehlt = voelker.filter((x) => (v.volkIds || []).includes(x.id));
-        if (!gewaehlt.length) throw new Error('Bitte mindestens ein Volk wählen.');
+        if (!gewaehlt.length) throw feldFehler('volkIds', 'Bitte mindestens ein Volk wählen.');
         Views.koeniginnen.umweiselnStep2(gewaehlt, frei, qm, v.datum);
       },
     });
@@ -5407,7 +5445,7 @@ function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalt
     values: {},
     async onSave(v) {
       const wert = (v.wert || '').trim();
-      if (!wert) throw new Error('Bitte einen Namen eingeben.');
+      if (!wert) throw feldFehler('wert', 'Bitte einen Namen eingeben.');
       const liste = [...S.get(settingKey)];
       if (!liste.some((x) => x.toLowerCase() === wert.toLowerCase())) { liste.push(wert); await S.set(settingKey, liste); }
       const field = $(`#f-${feldKey}`, m.el);
@@ -6462,7 +6500,7 @@ async function abfuellungenAnlegen(v) {
   return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar'], (d) => {
     const posten = GEBINDE_PRESETS.map((g) => ({ gebindeG: g, anzahl: Math.round(buchungsZahl(v['g_' + g] || 0, 'Anzahl')), feld: 'gl_' + g })).filter((p) => p.anzahl > 0);
     if (v.eigenesG > 0 && v.eigenesN > 0) posten.push({ gebindeG: Math.round(buchungsZahl(v.eigenesG, 'Gebindegröße')), anzahl: Math.round(buchungsZahl(v.eigenesN, 'Anzahl')), feld: 'gl_eigen' });
-    if (!posten.length || posten.some((p) => p.gebindeG <= 0 || p.anzahl <= 0)) throw new Error('Bitte eine positive Gebindegröße und Anzahl eintragen.');
+    if (!posten.length || posten.some((p) => p.gebindeG <= 0 || p.anzahl <= 0)) throw feldFehler('g_' + GEBINDE_PRESETS[0], 'Bitte eine positive Gebindegröße und Anzahl eintragen.');
     pruefeAbfuellMenge(d, v.chargeId, posten);
     const geaendert = new Map(); let gefehlt = 0;
     const recs = posten.map((p) => {
@@ -6493,7 +6531,7 @@ async function abfuellungAendern(erwartet, v) {
     if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf. Bitte erneut öffnen.');
     const alteAnzahl = buchungsZahl(a.anzahl, 'Bisherige Anzahl'), anzahl = Math.round(buchungsZahl(v.anzahl, 'Anzahl')), gebindeG = Math.round(buchungsZahl(v.gebindeG, 'Gebindegröße'));
     const bestand = Math.round(buchungsZahl(v.bestand, 'Bestand'));
-    if (gebindeG <= 0 || bestand > anzahl) throw new Error('Gebindegröße muss positiv sein; verfügbarer Bestand darf die abgefüllte Anzahl nicht überschreiten.');
+    if (gebindeG <= 0 || bestand > anzahl) throw feldFehler(gebindeG <= 0 ? 'gebindeG' : 'bestand', 'Gebindegröße muss positiv sein; verfügbarer Bestand darf die abgefüllte Anzahl nicht überschreiten.');
     pruefeAbfuellMenge(d, a.chargeId, [{ anzahl, gebindeG }], a.id);
     const geaendert = new Map(); let gefehlt = 0;
     if (alteAnzahl > 0 && anzahl !== alteAnzahl) {
@@ -7174,7 +7212,7 @@ Views.wanderungen = {
         values: w ? { ...w, volkIds: w.volkIds || [], grund: wanderungGrund(w, trachten), ...vorbelegt } : {},
         async onSave(v) {
           const fehler = wanderungPruefen(v);
-          if (fehler) throw new Error(fehler);
+          if (fehler) throw feldFehler(!v.vonStandId ? 'vonStandId' : !(v.volkIds && v.volkIds.length) ? 'volkIds' : 'nachStandId', fehler);
           const vonName = namen(v.vonStandId), nachName = namen(v.nachStandId);
           const zielVorher = w?.nachStandId;
           const alteIds = w?.volkIds || [];
@@ -7452,10 +7490,10 @@ function buchungsZahl(wert, label) {
 async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
   anzahl = Math.round(buchungsZahl(anzahl, 'Anzahl'));
   preisJeGlas = buchungsZahl(preisJeGlas, 'Preis');
-  if (!(anzahl > 0)) throw new Error('Anzahl muss größer als 0 sein.');
+  if (!(anzahl > 0)) throw feldFehler('anzahl', 'Anzahl muss größer als 0 sein.');
   return DB.aendereAtomar(['abfuellungen', 'chargen', 'kassenbuch', 'verkaeufe'], (d) => {
     const a = d.abfuellungen.find((x) => x.id === abfuellungId);
-    if (!a) throw new Error('Bitte eine vorhandene Abfüllung auswählen.');
+    if (!a) throw feldFehler('abfuellungId', 'Bitte eine vorhandene Abfüllung auswählen.');
     const bestand = buchungsZahl(a.bestand, 'Bestand');
     if (anzahl > bestand) throw new Error(`Nur ${bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`);
     const c = d.chargen.find((x) => x.id === a.chargeId);
@@ -10590,7 +10628,7 @@ Views.bio = {
       values: k ? { ...k } : {},
       async onSave(v) {
         const rec = { id: k ? k.id : U.uuid(), bereichName: String(v.bereichName || '').trim(), mittel: String(v.mittel || '').trim(), art: v.art || '', verantwortlich: String(v.verantwortlich || '').trim() };
-        if (!rec.bereichName) throw new Error('Bitte einen Namen eingeben.');
+        if (!rec.bereichName) throw feldFehler('bereichName', 'Bitte einen Namen eingeben.');
         const neu = Views.bio.hygieneKurzwahlen();
         const i = k ? neu.findIndex((x) => x.id === k.id) : -1;
         if (i >= 0) neu[i] = rec; else neu.push(rec);
@@ -11456,7 +11494,7 @@ Views.honig = {
       },
       async onSave(v) {
         const neu = String(v.name || '').trim();
-        if (!neu) throw new Error('Bitte einen Namen für die Sorte angeben.');
+        if (!neu) throw feldFehler('neu', 'Bitte einen Namen für die Sorte angeben.');
         const zahl = (roh) => {
           if (roh === '' || roh == null) return null;
           const n = U.zahl(roh, NaN);
@@ -11511,15 +11549,15 @@ Views.honig = {
            sich nie eintragen oder ändern. Deshalb zusätzlich „ohne Nummer"
            und „alle", jeweils mit der Anzahl, damit man sieht, wo die Ernten
            liegen. */
-        { key: 'schleuderung', label: '1. Welche Schleuderung?', type: 'select', required: true, keepOrder: true,
+        { key: 'schleuderung', label: 'Welche Schleuderung?', type: 'select', required: true, keepOrder: true,
           options: [
             ...[1, 2, 3].map((n) => ({ v: String(n), l: `${n}. Schleuderung (${anzahlJe(n)})` })),
             { v: 'ohne', l: `ohne Nummer (${anzahlJe(0)})` },
             { v: 'alle', l: `alle Ernten (${alle.length})` },
           ] },
-        { key: 'auswahl', label: '2. Betroffene Ernten (Datum · Volk · Menge)', type: 'multicheck', required: true, options: alle.map((e) => ({ v: e.id, l: label(e) })) },
-        { key: 'sorte', label: '3. Honigsorte (Laborergebnis)', type: 'suggest', required: true, options: sortenOpts, placeholder: 'z. B. Raps' },
-        { key: 'wassergehalt', label: '4. Wassergehalt in % (Laborergebnis)', type: 'number', required: true, placeholder: 'z. B. 17,2' },
+        { key: 'auswahl', label: 'Betroffene Ernten (Datum · Volk · Menge)', type: 'multicheck', required: true, options: alle.map((e) => ({ v: e.id, l: label(e) })) },
+        { key: 'sorte', label: 'Honigsorte (Laborergebnis)', type: 'suggest', required: true, options: sortenOpts, placeholder: 'z. B. Raps' },
+        { key: 'wassergehalt', label: 'Wassergehalt in % (Laborergebnis)', type: 'number', required: true, placeholder: 'z. B. 17,2' },
       ],
       values: {},
       async onSave(v) {
@@ -11737,7 +11775,7 @@ Views.honig = {
         const ohneLager = v.quelle === 'ernte';
         const ernteIds = nurLager ? [] : (v.ernteIds || []);
         const lagerKg = ohneLager ? 0 : Math.max(0, Number(v.lagerKg) || 0);
-        if (!ernteIds.length && lagerKg <= 0) throw new Error('Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
+        if (!ernteIds.length && lagerKg <= 0) throw feldFehler('ernteIds', 'Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
         const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
         const rec = Object.assign(c || {}, { losnummer: v.losnummer, datum: v.datum, ernteIds, lagerKg,
@@ -12882,13 +12920,13 @@ Views.rechnung = {
         let text = v.text, abfuellungId = null;
         if (v.quelle === 'charge') {
           const a = verf.find((x) => x.id === v.abfuellungId);
-          if (!a) throw new Error('Bitte eine Abfüllung wählen.');
+          if (!a) throw feldFehler('abfuellungId', 'Bitte eine Abfüllung wählen.');
           if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser stehen noch zum Verkauf.`);
           const c = chargenM.get(a.chargeId);
           text = `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
           abfuellungId = a.id;
         }
-        if (!text) throw new Error('Bitte eine Bezeichnung angeben.');
+        if (!text) throw feldFehler('text', 'Bitte eine Bezeichnung angeben.');
         r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
         await rechnungEntwurfSpeichern(r, gespeichert); renderRoute();
       },
@@ -12913,8 +12951,8 @@ Views.rechnung = {
   async festschreiben(r, abf) {
     const vorab = await DB.get('rechnungen', r.id);
     if (!vorab || vorab.status !== 'entwurf' || vorab.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben oder nicht mehr vorhanden.', 'err');
-    if (!r.kundeId) return UI.toast('Bitte zuerst einen Kunden wählen', 'err');
-    if (!r.positionen.length) return UI.toast('Die Rechnung hat keine Positionen', 'err');
+    if (!r.kundeId) { springeZuElement($('#r-kunde')); return UI.toast('Bitte zuerst einen Kunden wählen', 'err'); }
+    if (!r.positionen.length) { springeZuElement($('#addPos')); return UI.toast('Die Rechnung hat keine Positionen', 'err'); }
     const vorBestand = await DB.getAll('abfuellungen'), vorMengen = new Map();
     for (const p of r.positionen) if (p.abfuellungId) vorMengen.set(p.abfuellungId, (vorMengen.get(p.abfuellungId) || 0) + Number(p.menge));
     for (const [id, menge] of vorMengen) {
@@ -14877,7 +14915,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
            wird die INNERE Menge (kg, Stück), denn an ihr hängen alle Abzüge
            (Fütterung in kg, Abfüllen in Stück). */
         const name = (v.bezeichnung || '').trim();
-        if (!name) throw new Error('Bitte eine Bezeichnung eingeben.');
+        if (!name) throw feldFehler('bezeichnung', 'Bitte eine Bezeichnung eingeben.');
         const aussen = (v.packEinheit || 'Stück').trim() || 'Stück';
         const innen = (v.einheit || '').trim() || aussen;
         const inhalt = Math.max(0, Number(v.inhaltMenge) || 0);
@@ -14915,9 +14953,9 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
           return;
         }
       } else {
-        if (!pos) throw new Error('Bitte eine Position wählen.');
+        if (!pos) throw feldFehler('inventarId', 'Bitte eine Position wählen.');
         menge = Math.max(0, Number(v.menge) || 0);
-        if (menge <= 0) throw new Error('Bitte eine Menge größer als null eintragen.');
+        if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
         if (lohnArt) v.preis = Math.round((lohnKosten / menge) * 10000) / 10000;
       }
       if (rec) await zugangZurueckbuchen(rec);
@@ -15124,9 +15162,9 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     values: rec || { art: vorArt || 'Verkauf' },
     async onSave(v) {
       const pos = posten.find((i) => i.id === v.inventarId);
-      if (!pos) throw new Error('Bitte eine Position wählen.');
+      if (!pos) throw feldFehler('inventarId', 'Bitte eine Position wählen.');
       const menge = Math.max(0, Number(v.menge) || 0);
-      if (menge <= 0) throw new Error('Bitte eine Menge größer als null eintragen.');
+      if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
       /* Beim Bearbeiten erst die alte Buchung zurücknehmen, dann neu buchen –
          so muss keine Differenz gerechnet werden und der Bestand stimmt auch,
          wenn Position oder Menge gewechselt haben. */
@@ -15404,9 +15442,9 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
     values: {},
     async onSave(v) {
       const pos = posten.find((i) => i.id === v.inventarId);
-      if (!pos) throw new Error('Bitte ein Gebinde wählen.');
+      if (!pos) throw feldFehler('inventarId', 'Bitte ein Gebinde wählen.');
       const anzahl = Math.max(0, Math.round(Number(v.anzahl) || 0));
-      if (anzahl <= 0) throw new Error('Bitte eine Anzahl größer als null eintragen.');
+      if (anzahl <= 0) throw feldFehler('anzahl', 'Bitte eine Anzahl größer als null eintragen.');
       const pfand = Math.max(0, Number(pos.pfand) || 0);
       const betrag = Math.round(anzahl * pfand * 100) / 100;
       const buchung = await verbrauchZugang(pos.id, anzahl, { pruefen: false });
@@ -15564,7 +15602,7 @@ function glasPostenAnlegen(gebindeG, fertig) {
     values: {},
     async onSave(v) {
       const name = (v.bezeichnung || '').trim();
-      if (!name) throw new Error('Bitte eine Bezeichnung eingeben.');
+      if (!name) throw feldFehler('bezeichnung', 'Bitte eine Bezeichnung eingeben.');
       const rec = await DB.put('inventar', {
         typ: 'verbrauch', bezeichnung: name, kategorie: v.kategorie || 'Gläser/Deckel', einheit: 'Stück',
         stueckzahl: Math.max(0, Math.round(Number(v.stueckzahl) || 0)),
@@ -16323,13 +16361,13 @@ Views.fahrten = {
         const nm = (id) => staende.find((s) => s.id === id)?.name || '';
         let standId = null, freiZiel = '', autoName = '';
         if (v.typ === 'zwischen') {
-          if (!v.vonStandId || !v.nachStandId) throw new Error('Bitte Von- und Nach-Stand wählen.');
+          if (!v.vonStandId || !v.nachStandId) throw feldFehler(!v.vonStandId ? 'vonStandId' : 'nachStandId', 'Bitte Von- und Nach-Stand wählen.');
           freiZiel = `${nm(v.vonStandId)} → ${nm(v.nachStandId)}`; autoName = freiZiel;
         } else if (v.typ === 'stand') {
-          if (!v.standId) throw new Error('Bitte einen Stand wählen.');
+          if (!v.standId) throw feldFehler('standId', 'Bitte einen Stand wählen.');
           standId = v.standId; autoName = nm(v.standId);
         } else {
-          if (!(v.freiZiel || '').trim()) throw new Error('Bitte eine Beschreibung angeben.');
+          if (!(v.freiZiel || '').trim()) throw feldFehler('freiZiel', 'Bitte eine Beschreibung angeben.');
           freiZiel = v.freiZiel.trim(); autoName = freiZiel;
         }
         const rec = { id: vl ? vl.id : U.uuid(), name: (v.name || '').trim() || autoName, km: v.km, zweck: v.zweck || '', standId, freiZiel };

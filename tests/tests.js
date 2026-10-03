@@ -9828,3 +9828,34 @@ test('Zugang löschen im Bereich: fragt, ob die Kassenbuch-Buchung mitgelöscht 
     assertEq(w.chargeVerarbeitetKg(d.ch.id), 0, 'der Honig ist zurück bei der Charge');
   } finally { dialogeSchliessen(w); await loeschAufraeumen(w, d); }
 });
+
+
+test('Formulare springen beim Speichern zum fehlenden Feld – bei Pflichtfeldern und bei Fehlern aus dem Speichern', async (w) => {
+  dialogeSchliessen(w);
+  try {
+    // 1. Pflichtfeld leer: Kassenbuch-Maske ohne Betrag
+    w.Views.kassenbuch.form(null, { typ: 'ausgabe' }); await new Promise((r) => setTimeout(r, 500));
+    let m = [...w.document.querySelectorAll('.modal-back')].pop();
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 600));
+    const betrag = m.querySelector('[data-field="betrag"]');
+    assert(betrag.classList.contains('invalid'), 'der Betrag ist rot markiert');
+    assertEq(w.document.activeElement && w.document.activeElement.id, 'f-betrag', 'und der Cursor steht im Betragsfeld');
+    // Markierung verschwindet beim Ausfüllen
+    const eing = m.querySelector('#f-betrag'); eing.value = '5'; eing.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assert(!betrag.classList.contains('invalid'), 'beim Eintippen ist die Markierung weg');
+    dialogeSchliessen(w);
+    // 2. Fehler erst beim Speichern: Abgang mit Menge 0
+    const pos = (await w.DB.getAll('inventar')).find((i) => w.inventarTyp(i) === 'verbrauch');
+    if (pos) {
+      w.materialAbgangForm(w.bereichCfg('verbrauch'), pos.id); await new Promise((r) => setTimeout(r, 500));
+      m = [...w.document.querySelectorAll('.modal-back')].pop();
+      const me = m.querySelector('#f-menge'); me.value = '0'; me.dispatchEvent(new w.Event('input', { bubbles: true }));
+      m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 700));
+      assert(m.querySelector('[data-field="menge"]').classList.contains('invalid'), 'Menge 0: das Feld „Menge“ ist markiert');
+      assertEq(w.document.activeElement && w.document.activeElement.id, 'f-menge', 'und der Cursor steht dort');
+      assert(/größer als null/.test(m.querySelector('[data-field="menge"] .err').textContent), 'mit der Erklärung unter dem Feld');
+      dialogeSchliessen(w);
+    }
+    assert(w.feldFehler('x', 'y').feld === 'x', 'feldFehler trägt das Feld');
+  } finally { dialogeSchliessen(w); }
+});
