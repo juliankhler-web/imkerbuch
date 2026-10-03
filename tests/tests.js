@@ -9696,3 +9696,50 @@ test('Masken Behandlung, Fütterung und Ernte: Datum und Menge nebeneinander, �
     host.remove();
   } finally { dialogeSchliessen(w); }
 });
+
+
+test('Weitere Produkte: Lohnverarbeitung (Honig lose abgeben) und Verkauf buchen Bestand, Kassenbuch und Charge', async (w) => {
+  dialogeSchliessen(w);
+  const neu = [];
+  try {
+    const ch = await w.DB.put('chargen', { losnummer: 'LOHN-T1', datum: w.U.todayIso(), ernteIds: [], mengeKg: 60 }); neu.push(['chargen', ch.id]);
+    w.materialZugangForm(w.bereichCfg('produkt')); await new Promise((r) => setTimeout(r, 400));
+    let m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    assert([...m.querySelector('#f-art').options].some((o) => o.value === 'Lohnverarbeitung'), 'Art „Lohnverarbeitung“ steht bei Weitere Produkte zur Wahl');
+    setz('inventarId', '__neu'); await new Promise((r) => setTimeout(r, 150));
+    setz('bezeichnung', 'TEST Honigessig 250 ml'); setz('kategorie', 'Honigessig');
+    setz('art', 'Lohnverarbeitung'); await new Promise((r) => setTimeout(r, 150));
+    const sicht = (k) => { const e = m.querySelector(`[data-field="${k}"]`); return !!e && !e.classList.contains('hidden'); };
+    assert(sicht('kostenGesamt') && sicht('verarbeiterId') && sicht('honigKg') && sicht('chargeId') && !sicht('preis'), 'Lohnverarbeitung zeigt Kosten, Verarbeiter, Honig und Charge – nicht den Einzelpreis');
+    setz('_bestand', '80'); setz('kostenGesamt', '120'); setz('honigKg', '20'); setz('chargeId', ch.id); setz('datum', w.U.todayIso());
+    await new Promise((r) => setTimeout(r, 200));
+    assert(/Lohnverarbeitung/.test(m.querySelector('[data-zugang-info]').textContent), 'die Info nennt die Kassenbuch-Kategorie');
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 900));
+    const pos = (await w.DB.getAll('inventar')).find((x) => x.bezeichnung === 'TEST Honigessig 250 ml'); neu.push(['inventar', pos.id]);
+    assertEq([pos.typ, pos.stueckzahl], ['produkt', 80], 'Position im Bereich „Weitere Produkte“ mit 80 Stück');
+    const zug = (await w.DB.getAll('materialzugaenge')).find((z) => z.inventarId === pos.id); neu.push(['materialzugaenge', zug.id]);
+    assertEq([zug.lohn, zug.art, zug.kostenGesamt, zug.honigKg, zug.chargeId, zug.preis], [true, 'Einkauf', 120, 20, ch.id, 1.5], 'Zugang trägt Kosten, Honig, Charge; Preis je Einheit 1,50 €');
+    const kb = await w.DB.get('kassenbuch', zug.kassenbuchId); neu.push(['kassenbuch', kb.id]);
+    assertEq([kb.typ, kb.kategorie, kb.betrag], ['ausgabe', 'Lohnverarbeitung', 120], 'Ausgabe „Lohnverarbeitung“ im Kassenbuch');
+    assertEq([w.chargeVerarbeitetKg(ch.id), w.chargeRestKg(await w.DB.get('chargen', ch.id), [])], [20, 40], 'Charge: 20 kg zur Verarbeitung abgegeben, 40 kg noch offen');
+    const map = await w.kassenBereiche();
+    assertEq(w.kassenBereich(kb, map), 'produkt', 'Kassenbuch ordnet die Buchung dem Bereich „Weitere Produkte“ zu');
+    // Verkauf
+    w.materialAbgangForm(w.bereichCfg('produkt'), pos.id); await new Promise((r) => setTimeout(r, 400));
+    m = [...w.document.querySelectorAll('.modal-back')].pop();
+    setz('menge', '18'); setz('preis', '6'); setz('datum', w.U.todayIso()); await new Promise((r) => setTimeout(r, 100));
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 900));
+    const ab = (await w.DB.getAll('materialabgaenge')).find((a) => a.inventarId === pos.id); neu.push(['materialabgaenge', ab.id]);
+    const kb2 = await w.DB.get('kassenbuch', ab.kassenbuchId); neu.push(['kassenbuch', kb2.id]);
+    assertEq([ab.typ, kb2.typ, kb2.kategorie, kb2.betrag], ['produkt', 'einnahme', 'Weitere Produkte', 108], 'Verkauf: Einnahme 108 € unter „Weitere Produkte“');
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 62, 'Bestand 80 − 18 = 62');
+    // Zugang zurücknehmen: der Honig gilt bei der Charge wieder als offen
+    await w.zugangZurueckbuchen(zug); await w.DB.softDel('materialzugaenge', zug.id); neu.splice(neu.findIndex((x) => x[1] === zug.id), 1);
+    assertEq(w.chargeVerarbeitetKg(ch.id), 0, 'nach dem Zurücknehmen sind die 20 kg wieder offen');
+  } finally {
+    dialogeSchliessen(w);
+    for (const [st, id] of neu.reverse()) { try { await w.DB.del(st, id); } catch (e) { /* schon weg */ } }
+    await w.lohnIndexNeu();
+  }
+});
