@@ -271,6 +271,9 @@ button.row:hover,.row.clickable:hover{background:var(--card2);cursor:pointer}
 .row .r-ic svg{width:19px;height:19px}
 .row .r-main,.ischule-row .r-main{flex:1;min-width:0}
 .row .r-title,.ischule-row .r-title{display:block;font-weight:650;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Steht ein Kennzeichen („MHD“, „immer“, „Bio“ …) im Titel, darf der Titel umbrechen – sonst wird das Kennzeichen bei langen Titeln abgeschnitten. */
+.row .r-title:has(.badge),.ischule-row .r-title:has(.badge){white-space:normal;overflow:visible;text-overflow:clip}
+.row .r-title .badge{white-space:nowrap;vertical-align:1px}
 .row .r-sub,.ischule-row .r-sub{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .row .r-side{text-align:right;font-size:13px;flex-shrink:0}
 /* Zeilen mit Warnhinweis (abgelaufen / MHD / Bestand niedrig) dürfen zweizeilig
@@ -1061,8 +1064,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.09';
+const APP_VERSION = '2.10';
 const CHANGELOG = [
+  { version: '2.10', datum: '2026-10-03', punkte: [
+    '<b>Gesamtprüfung:</b> Alle 43 Seiten und Reiter, rund 280 Knöpfe, alle PDFs und der Excel-Export wurden durchgegangen – im Browser (Handy- und Tabletbreite) und in der iPhone-App.',
+    'Behoben: In der <b>iPhone- und Android-App</b> fehlte das Tagesbiene-Bild im Dashboard (leeres Bild mit Fragezeichen) – die 24 Bilder werden jetzt mit eingepackt, und die Web-App legt sie für den Offline-Betrieb vorab ab.',
+    'Behoben: Steht ein Kennzeichen („MHD“, „Zucht“, „immer“ …) in einem langen Listentitel, wurde es abgeschnitten – jetzt bricht der Titel um.',
+    'Neu im <b>Excel-Export</b>: Einkäufe & Zugänge, Verkäufe & Abgänge, Pfand sowie Hygiene & Bio als eigene Tabellenblätter.',
+    'Das Menü zeigt „Abnehmer & Lieferanten“ jetzt mit vollem Namen statt „Kontakte“.',
+  ] },
   { version: '2.09', datum: '2026-10-03', punkte: [
     '<b>Neuer Bereich „Abnehmer & Lieferanten“</b> im Menü (unter Rechnungen): alle Kontakte an einem Ort – Kunden, Lieferanten, beides und Öko-Partner – mit Filter, Suche und Bio-Kennzeichnung. Tippst du einen Kontakt an, siehst du, <b>wo er überall vorkommt</b>: Buchungen im Kassenbuch (mit Summen und Sprung dorthin), Einkäufe, Verkäufe, Rechnungen, Pfand und seine Zertifikate. Dieselbe Liste steht im Kassenbuch (Reiter „Kunden & Lieferanten“) und bei Bio; ein Kontakt, den du irgendwo anlegst, ist überall da.',
     '<b>Hygiene ist jetzt ein eigener Bereich</b> im Menü – wer nichts mit Bio zu tun hat, findet ihn so. Der Reiter „Hygiene“ unter Bio zeigt dasselbe und verweist auf den eigenen Bereich.',
@@ -3607,7 +3617,7 @@ const BEREICH_KURZ = {
   voelker: 'Völker', koeniginnen: 'Königinnen', zucht: 'Zucht', behandlungen: 'Behandlungen',
   fuetterung: 'Fütterung', wanderungen: 'Wanderungen', trachten: 'Trachten', honig: 'Ernte',
   kassenbuch: 'Kassenbuch', rechnungen: 'Rechnungen', fahrten: 'Fahrtenbuch', inventar: 'Inventar',
-  material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', hygiene: 'Hygiene', kontakte: 'Kontakte', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
+  material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', hygiene: 'Hygiene', kontakte: 'Abnehmer & Lieferanten', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
   meldungen: 'Meldungen', einstellungen: 'Einstellungen', papierkorb: 'Papierkorb',
 };
 /** {route: {label, ic}} aus der NAV – Grundlage für Verknüpfungskacheln & untere Leiste */
@@ -17218,6 +17228,11 @@ const Xlsx = {
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
       wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
+      /* Lager, Hygiene und Pfand: bisher nur in der Komplett-Sicherung, jetzt auch als Tabellenblatt */
+      materialzugaenge: { blatt: 'Einkäufe & Zugänge', rows: async () => (await DB.getAll('materialzugaenge')).map((z) => ({ Datum: d(z.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(z.typ)) || [])[1] || '', Position: z.bezeichnung, Art: z.lohn ? 'Lohnverarbeitung' : z.art, Menge: z.menge, Einheit: z.einheit, 'Preis je Einheit (€)': z.preis, 'Kosten (€)': zugangKosten(z), 'Lieferant/Verarbeiter': kontakte.get(z.kontaktId)?.name || '', Beleg: z.belegNr, 'Honig abgegeben (kg)': z.honigKg || '', Notiz: z.notiz })) },
+      materialabgaenge: { blatt: 'Verkäufe & Abgänge', rows: async () => (await DB.getAll('materialabgaenge')).map((a) => ({ Datum: d(a.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(a.typ)) || [])[1] || '', Position: a.bezeichnung, Grund: a.art, Menge: a.menge, Einheit: a.einheit, 'Preis je Einheit (€)': a.preis, 'Erlös (€)': abgangErloes(a), 'Käufer': a.kaeufer || kontakte.get(a.kontaktId)?.name || '', Beleg: a.belegNr, Notiz: a.notiz })) },
+      pfandbewegungen: { blatt: 'Pfand', rows: async () => (await DB.getAll('pfandbewegungen')).map((b) => ({ Datum: d(b.datum), Gebinde: b.bezeichnung, Anzahl: b.anzahl, 'Erstattet (€)': b.betrag, Von: b.wer || kontakte.get(b.kontaktId)?.name || '', Notiz: b.notiz })) },
+      bioeintraege: { blatt: 'Hygiene & Bio', rows: async () => (await DB.getAll('bioeintraege')).filter((e) => BIO_BEREICHE[e.bereich]).map((e) => { const def = BIO_BEREICHE[e.bereich]; const z = def.zeile(e); return { Bereich: def.titel, Datum: d(e.datum || e.frist || ''), Eintrag: z.titel, Einzelheiten: z.sub, Notiz: e.notiz || '' }; }) },
     };
   },
   /* Zellen härten, bevor sie in die Tabelle gehen. Zwei verschiedene Wege:
