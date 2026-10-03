@@ -9859,3 +9859,28 @@ test('Formulare springen beim Speichern zum fehlenden Feld – bei Pflichtfelder
     assert(w.feldFehler('x', 'y').feld === 'x', 'feldFehler trägt das Feld');
   } finally { dialogeSchliessen(w); }
 });
+
+
+test('Kontakte erscheinen überall: auch „beides“ steht in Einkauf, Verarbeiter, Verkauf, Pfand und Honig-Verkauf zur Wahl', async (w) => {
+  dialogeSchliessen(w);
+  const k = await w.DB.put('kontakte', { name: 'ALLES-TEST Verarbeiter', typ: 'beides' });
+  const l = await w.DB.put('kontakte', { name: 'ALLES-TEST Lieferant', typ: 'lieferant' });
+  try {
+    const inListe = (m, id) => { const sel = m.querySelector('#f-' + id); return !!sel && [...sel.options].some((o) => /ALLES-TEST/.test(o.textContent)); };
+    for (const typ of ['verbrauch', 'inventar', 'produkt']) {
+      w.materialZugangForm(w.bereichCfg(typ)); await new Promise((r) => setTimeout(r, 450));
+      const m = [...w.document.querySelectorAll('.modal-back')].pop();
+      const opts = [...m.querySelector('#f-kontaktId').options].map((o) => o.textContent).join('|');
+      assert(/ALLES-TEST Verarbeiter/.test(opts) && /ALLES-TEST Lieferant/.test(opts), typ + ': Einkauf zeigt Lieferant und „beides“');
+      if (typ === 'produkt') assert([...m.querySelector('#f-verarbeiterId').options].some((o) => /ALLES-TEST Verarbeiter/.test(o.textContent)), 'Weitere Produkte: Verarbeiter-Auswahl zeigt den Kontakt');
+      dialogeSchliessen(w);
+      const pos = (await w.DB.getAll('inventar')).find((i) => w.inventarTyp(i) === typ);
+      if (pos) {
+        w.materialAbgangForm(w.bereichCfg(typ), pos.id); await new Promise((r) => setTimeout(r, 450));
+        const a = [...w.document.querySelectorAll('.modal-back')].pop();
+        assert(inListe(a, 'kontaktId'), typ + ': Verkauf zeigt den Kontakt');
+        dialogeSchliessen(w);
+      }
+    }
+  } finally { dialogeSchliessen(w); await w.DB.del('kontakte', k.id); await w.DB.del('kontakte', l.id); }
+});

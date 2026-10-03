@@ -1055,8 +1055,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.07';
+const APP_VERSION = '2.08';
 const CHANGELOG = [
+  { version: '2.08', datum: '2026-10-03', punkte: [
+    'Behoben: Kontakte, die als <b>„beides“</b> (Kunde und Lieferant) angelegt waren – etwa Partner aus dem Bio-Bereich –, fehlten in den Auswahllisten von Einkauf, Verkauf, Lohnverarbeitung und Pfand-Rücknahme. Jetzt erscheint ein Kontakt <b>überall</b>, egal wo und als was er angelegt wurde. Beim Honig-Verkauf und bei der Rechnung stehen Kunden und „beides“ zur Wahl.',
+  ] },
   { version: '2.07', datum: '2026-10-03', punkte: [
     'Das Springen zum Fehlenden gilt jetzt auch für die <b>Rechnung</b> (fehlender Kunde oder fehlende Positionen: die App scrollt dorthin und lässt die Stelle kurz aufleuchten) und für die <b>Abfüllung</b> (keine oder falsche Gebindeangabe, Bestand größer als die abgefüllte Anzahl).',
   ] },
@@ -7548,7 +7551,7 @@ async function verkaufForm(vorAbfuellungId = '') {
   const abf = (await DB.getAll('abfuellungen')).filter((a) => a.bestand > 0);
   if (!abf.length) return UI.toast('Kein abgefüllter Bestand vorhanden – fülle zuerst eine Charge ab (Tab „Abfüllung“)', 'err');
   const chargen = await idMap('chargen'), ernten = await idMap('ernten');
-  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
+  const kunden = (await DB.getAll('kontakte')).filter(kontaktIstKunde);
   const m = UI.formModal({
     title: 'Verkauf · Honig',
     fields: [
@@ -12766,7 +12769,7 @@ Views.rechnung = {
   async render(main, id) {
     const r = await DB.get('rechnungen', id);
     if (!r) { main.innerHTML = emptyState('warn', 'Rechnung nicht gefunden.'); return; }
-    const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde');
+    const kunden = (await DB.getAll('kontakte')).filter(kontaktIstKunde);
     const abfAlle = await DB.getAll('abfuellungen');
     const chargenM = await idMap('chargen');
     const entwurf = r.status === 'entwurf';
@@ -14795,7 +14798,7 @@ async function zugangZurueckbuchen(rec, { kasse = true } = {}) {
 async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
   const NEU = '__neu';
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
-  const lieferanten = (await DB.getAll('kontakte')).filter((k) => k.typ === 'lieferant' || k.typ === 'kunde');
+  const lieferanten = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – egal, wo und als was angelegt (Kunde, Lieferant, beides)
   /* Für den Live-Lagerwert: alle bisherigen Einkäufe, den gerade bearbeiteten
      ausgenommen – sonst würde er doppelt zählen. */
   const bekannteZugaenge = (await DB.getAll('materialzugaenge')).filter((z) => !rec || z.id !== rec.id);
@@ -15139,7 +15142,7 @@ async function abgangZurueckbuchen(rec, { kasse = true } = {}) {
 async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = '') {
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
-  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
+  const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – auch „beides“
   const m = UI.formModal({
     title: rec ? `Abgang bearbeiten · ${cfg.titel}` : `${(vorArt && vorArt !== 'Verkauf') ? 'Eigenverbrauch / Verlust' : 'Verkauf'} · ${cfg.titel}`, wide: true,
     fields: [
@@ -15420,7 +15423,7 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
   if (!posten.length) {
     return UI.toast('Noch keine Position mit Pfand. Trage bei einem Gebinde „Pfand je Gebinde" ein, dann geht die Rücknahme.', 'err');
   }
-  const kunden = (await DB.getAll('kontakte')).filter((k) => k.typ === 'kunde' || k.typ === 'lieferant');
+  const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – auch „beides“
   const abfuellungen = await DB.getAll('abfuellungen');
   const bewegungen = await DB.getAll('pfandbewegungen');
   const m = UI.formModal({

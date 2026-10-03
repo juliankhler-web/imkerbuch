@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-03 (v2.08)**: Kontakt-Auswahllisten: Zugang/Verarbeiter, Abgang und Pfand-Rücknahme zeigen ALLE Kontakte (vorher fehlte Typ „beides“); Honig-Verkauf und Rechnung `kontaktIstKunde` (Kunde + beides).
 - **2026-10-03 (v2.07)**: `springeZuElement(el)` (+ CSS `.aufleuchten`) für Stellen außerhalb von `formModal` (Rechnung: Kunde/Positionen); Abfüllung (`g_…`, `gebindeG`, `bestand`) meldet das Feld per `feldFehler`. Bewusst ohne Sprung: Fehler, die kein einzelnes Feld betreffen (Papierkorb-Konflikte, geänderte Datensätze, zu wenig Material).
 - **2026-10-03 (v2.06)**: `UI.formModal` springt bei fehlenden Pflichtfeldern zum ersten ungültigen Feld (`springeZu`: scrollIntoView + Fokus); Fehler aus `onSave` mit `feldFehler(feld, text)` (Eigenschaft `.feld`) markieren und fokussieren das benannte Feld. Alle Sammel-/Schritt-Formulare ohne Nummerierung.
 - **2026-10-03 (v2.05)**: Löschen in beide Richtungen mit Rückfrage: `frageJaNein`, `kassenbuchLoeschen`/`kassenbuchVerknuepft` (Kassenbuch → Zugang/Abgang/Honig-Verkauf/Pfand), Zugang/Abgang/Verkauf/Pfand-Rücknahme fragen vor dem Mitlöschen der Kassenbuch-Buchung (`{ kasse }`-Option an `zugangZurueckbuchen`, `abgangZurueckbuchen`, `verkaufStornieren`, `pfandRuecknahmeZurueck`); `verkaufsPapierkorbWiederherstellen` kommt auch ohne Einnahme im Papierkorb klar.
