@@ -6621,7 +6621,7 @@ test('Bio-Partner: eine Liste für Kassenbuch, Wareneingang und Öko-Kontrolle',
   try {
     const lief = await w.DB.put('kontakte', { typ: 'lieferant', name: 'Öko-Zucker Meier', oekoWas: 'Öko-Zucker',
       oekoNummer: 'DE-ÖKO-006', oekoGueltigBis: w.U.addDays(w.U.todayIso(), 14), oekoUrl: 'https://example.org/zert.pdf' });
-    await w.DB.put('kontakte', { typ: 'lieferant', name: 'Wachs ohne Nummer' });
+    await w.DB.put('kontakte', { typ: 'lieferant', name: 'Wachs ohne Nummer', bio: 'ja' });
     await w.DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Schmidt' });
 
     w.Views.bio._pfilter = '';
@@ -9954,4 +9954,20 @@ test('Menü & untere Leiste: per Gedrückthalten verschiebbar, Reihenfolge wird 
     assertEq(w.document.querySelector('#bottomnav button[data-route]').dataset.route, 'dashboard', 'fehlt Start, kommt er nach vorn');
     assert(typeof w.langDruckSortieren === 'function', 'Sortier-Helfer ist da');
   } finally { await w.S.set('menuOrder', altMenu); await w.S.set('bottomNav', altNav); w.renderBottomNav(); }
+});
+
+test('Kontakt: Bio-Partner ist eine Auswahl – ältere Kontakte bleiben, „Nein“ schaltet Bio-Pflichten ab', async (w) => {
+  const bio = (c) => w.kontaktIstBio(c);
+  assertEq(bio({ typ: 'lieferant', name: 'Glas' }), false, 'ohne Öko-Angaben kein Bio');
+  assertEq(bio({ typ: 'lieferant', oekoNummer: 'DE-ÖKO-006' }), true, 'alter Kontakt mit Öko-Nummer gilt weiter als Bio');
+  assertEq(bio({ typ: 'lieferant', bio: 'nein', oekoNummer: 'DE-ÖKO-006' }), false, 'ausdrückliches „Nein“ gewinnt');
+  assertEq(bio({ typ: 'lieferant', bio: 'ja' }), true, 'ausdrückliches „Ja“ gilt auch ohne Nummer');
+  const k = await w.DB.put('kontakte', { typ: 'lieferant', name: 'BIOTEST-GLAS', bio: 'nein', oekoNummer: 'X' });
+  const m = await w.kontaktForm(k, { oeko: true });
+  try {
+    const sel = m.el.querySelector('#f-bio'); assert(sel && sel.value === 'nein', 'Auswahl zeigt „Nein“');
+    assert(m.el.querySelector('[data-field="oekoNummer"]').classList.contains('hidden'), 'Öko-Felder sind bei „Nein“ verborgen');
+    sel.value = 'ja'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert(!m.el.querySelector('[data-field="oekoNummer"]').classList.contains('hidden'), 'bei „Ja“ erscheinen sie');
+  } finally { m.close && m.close(true); await w.DB.del('kontakte', k.id); }
 });

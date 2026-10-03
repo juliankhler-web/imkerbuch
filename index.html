@@ -483,6 +483,11 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 /* Gedrückt halten zum Verschieben (Menü „Mehr“ und untere Leiste) */
 .lp-sort button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .lp-ph{opacity:.28}
+/* Beim Ziehen aus „Alle Bereiche“ wird das Menü blass und die untere Leiste hebt sich als Ziel ab */
+body.lp-bar-hebt .modal-back{background:rgba(20,15,5,.12);backdrop-filter:none;-webkit-backdrop-filter:none}
+body.lp-bar-hebt .modal{opacity:.4}
+body.lp-bar-hebt .bottomnav{z-index:150;outline:2px dashed var(--honey);outline-offset:3px}
+.bottomnav button.lp-ziel{background:var(--honey-soft);border-radius:14px;transform:scale(1.08)}
 .lp-fly{position:fixed;z-index:3000;pointer-events:none;margin:0;opacity:.96;transform:scale(1.1);box-shadow:0 10px 28px rgba(0,0,0,.35);background:var(--card);border-radius:16px;transition:none}
 .sheet-hint{font-size:12px;color:var(--muted);text-align:center;margin:6px 0 2px}
 .sheet-hint a{cursor:pointer;text-decoration:underline}
@@ -1071,8 +1076,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.12';
+const APP_VERSION = '2.13';
 const CHANGELOG = [
+  { version: '2.13', datum: '2026-10-03', punkte: [
+    '<b>Lieferant oder Bio-Partner:</b> Im Kontakt gibt es jetzt die Auswahl „Bio-Partner? Ja / Nein“. Nur bei „Ja“ erscheinen die Öko-Angaben, das Kennzeichen „Bio“, der Hinweis „keine Kontrollnummer“ und der Eintrag in den Öko-Unterlagen. Ein normaler Lieferant (z. B. für Gläser) bleibt dadurch frei von Bio-Pflichten.',
+    '<b>Aus „Alle Bereiche“ in die untere Leiste:</b> Kachel gedrückt halten und auf die Leiste ziehen – sie ersetzt dort den Eintrag, auf den du sie fallen lässt (auf „Mehr“ gezogen: hängt sich an, wenn noch Platz ist).',
+    'Ältere Kontakte: Wer schon Öko-Angaben hatte, gilt weiter als Bio-Partner; alle anderen sind „Nein“. Ändern geht jederzeit über „Bearbeiten“.',
+  ] },
   { version: '2.12', datum: '2026-10-03', punkte: [
     '<b>Verschieben per Gedrückthalten:</b> Im Menü „Mehr“ lässt sich jede Kachel ~0,4 Sekunden gedrückt halten und an eine andere Stelle ziehen. Das Gleiche geht in der unteren Leiste – auch „Start“ darf überall stehen. Die Reihenfolge wird gemerkt; unter den Kacheln gibt es „Reihenfolge zurücksetzen“.',
   ] },
@@ -2986,9 +2996,11 @@ function renderBottomNav() {
 /** Gedrückt halten (~0,4 s) und ziehen: sortiert die Kinder von `host` um. Funktioniert mit Finger und Maus.
     `sel` = verschiebbare Elemente, `fertig(elemente)` bekommt die neue Reihenfolge. Das anschließende
     Klick-Ereignis wird verschluckt, damit nach dem Loslassen nichts geöffnet wird. */
-function langDruckSortieren(host, sel, fertig) {
+function langDruckSortieren(host, sel, fertig, opt = {}) {
   let st = null;
-  const aufraeumen = () => { if (!st) return; clearTimeout(st.timer); if (st.fly) st.fly.remove(); if (st.el) st.el.classList.remove('lp-ph'); st = null; };
+  const zielWeg = () => { document.body.classList.remove('lp-bar-hebt'); document.querySelectorAll('.lp-ziel').forEach((z) => z.classList.remove('lp-ziel')); };
+  const zielUnter = (x, y) => opt.ziele ? [...document.querySelectorAll(opt.ziele)].find((z) => { const r = z.getBoundingClientRect(); return x >= r.left && x <= r.right && y >= r.top - 12 && y <= r.bottom + 12; }) || null : null;
+  const aufraeumen = () => { if (!st) return; zielWeg(); clearTimeout(st.timer); if (st.fly) st.fly.remove(); if (st.el) st.el.classList.remove('lp-ph'); st = null; };
   host.classList.add('lp-sort');
   host.addEventListener('pointerdown', (e) => {
     if (e.button > 0 || st) return;
@@ -3002,6 +3014,7 @@ function langDruckSortieren(host, sel, fertig) {
       const fly = el.cloneNode(true); fly.classList.add('lp-fly'); fly.style.width = r.width + 'px'; fly.style.height = r.height + 'px';
       fly.style.left = r.left + 'px'; fly.style.top = r.top + 'px';
       document.body.appendChild(fly); st.fly = fly; el.classList.add('lp-ph');
+      if (opt.ziele) document.body.classList.add('lp-bar-hebt');
       try { host.setPointerCapture(st.id); } catch (x) {}
       if (navigator.vibrate) navigator.vibrate(15);
     }, 400);
@@ -3011,6 +3024,10 @@ function langDruckSortieren(host, sel, fertig) {
     if (!st.aktiv) { if (Math.hypot(e.clientX - st.x0, e.clientY - st.y0) > 10) aufraeumen(); return; }
     e.preventDefault();
     st.fly.style.left = (e.clientX - st.dx) + 'px'; st.fly.style.top = (e.clientY - st.dy) + 'px';
+    const zt = zielUnter(e.clientX, e.clientY);
+    document.querySelectorAll('.lp-ziel').forEach((z) => { if (z !== zt) z.classList.remove('lp-ziel'); });
+    if (zt) { zt.classList.add('lp-ziel'); st.zt = zt; return; }
+    st.zt = null;
     const items = [...host.querySelectorAll(sel)];
     const ziel = items.find((it) => { if (it === st.el) return false; const r = it.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
     if (ziel) {
@@ -3023,11 +3040,11 @@ function langDruckSortieren(host, sel, fertig) {
   host.addEventListener('contextmenu', (e) => { if (st) e.preventDefault(); });
   const ende = (e) => {
     if (!st || (e && e.pointerId !== st.id)) return;
-    const war = st.aktiv;
+    const war = st.aktiv, el = st.el, zt = st.zt;
     aufraeumen();
     if (war) {
       host.dataset.lpStop = String(Date.now());
-      fertig([...host.querySelectorAll(sel)]);
+      if (zt && opt.onZiel) opt.onZiel(el, zt); else fertig([...host.querySelectorAll(sel)]);
     }
   };
   host.addEventListener('pointerup', ende);
@@ -3046,9 +3063,26 @@ function openMoreSheet() {
   const m = UI.modal({
     title: 'Alle Bereiche',
     body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${U.esc(n.route)}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>
-      <div class="sheet-hint">Zum Verschieben eine Kachel gedrückt halten und ziehen${(S.get('menuOrder') || []).length ? ' · <a data-reset>Reihenfolge zurücksetzen</a>' : ''}</div>`,
+      <div class="sheet-hint">Zum Verschieben eine Kachel gedrückt halten und ziehen – auf die untere Leiste gezogen, ersetzt sie dort einen Eintrag${(S.get('menuOrder') || []).length ? ' · <a data-reset>Reihenfolge zurücksetzen</a>' : ''}</div>`,
   });
-  langDruckSortieren($('.sheet-grid', m.el), 'button[data-route]', (els) => S.set('menuOrder', els.map((b) => b.dataset.route)));
+  langDruckSortieren($('.sheet-grid', m.el), 'button[data-route]', (els) => S.set('menuOrder', els.map((b) => b.dataset.route)), {
+    ziele: '#bottomnav button',
+    onZiel: async (el, ziel) => {
+      const neu = el.dataset.route;
+      let bar = (S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
+      if (!bar.includes('dashboard')) bar = ['dashboard', ...bar];
+      bar = bar.slice(0, 4);
+      if (ziel.hasAttribute('data-more')) { if (bar.includes(neu) || bar.length >= 4) return UI.toast(bar.includes(neu) ? 'Ist schon in der Leiste' : 'Die Leiste ist voll – auf einen Eintrag ziehen, um ihn zu ersetzen', 'err'); bar.push(neu); }
+      else {
+        const stelle = bar.indexOf(ziel.dataset.route);
+        if (stelle < 0 || ziel.dataset.route === neu) return;
+        const alt = bar.indexOf(neu);
+        if (alt >= 0) { bar[alt] = bar[stelle]; bar[stelle] = neu; } else bar[stelle] = neu;
+      }
+      await S.set('bottomNav', bar); renderBottomNav();
+      UI.toast(`„${bereichKurz(neu)}“ ist jetzt in der unteren Leiste`);
+    },
+  });
   const rs = $('[data-reset]', m.el);
   if (rs) rs.onclick = async () => { await S.set('menuOrder', []); m.close(true); openMoreSheet(); };
   $('.sheet-grid', m.el).addEventListener('click', (e) => {
@@ -6738,6 +6772,9 @@ async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
 const KONTAKT_ARTEN = [{ v: 'kunde', l: 'Kunde / Abnehmer' }, { v: 'lieferant', l: 'Lieferant' }, { v: 'beides', l: 'beides' }];
 const kontaktIstKunde = (c) => c && (c.typ === 'kunde' || c.typ === 'beides');
 const kontaktIstLieferant = (c) => c && (c.typ === 'lieferant' || c.typ === 'beides');
+/** Bio-Partner: ausdrücklich gewählt („Ja“/„Nein“). Ältere Kontakte ohne Auswahl gelten als Bio,
+    sobald irgendeine Öko-Angabe drinsteht – so ändert sich an alten Einträgen nichts, bis man sie bearbeitet. */
+function kontaktIstBio(c) { return !!c && (c.bio === 'ja' ? true : c.bio === 'nein' ? false : !!(c.oekoNummer || c.oekoWas || c.oekoGueltigBis || c.oekoUrl)); }
 /** Suche in der EU-Datenbank der Öko-Bescheinigungen (TRACES NT). Es gibt keinen
     offenen Direktdownload – deshalb führt der Knopf zur Suche, und die gefundene
     Bescheinigung legt man als Anhang am Kontakt ab. */
@@ -6755,17 +6792,19 @@ async function kontaktForm(c, { typ, onSaved, oeko = false } = {}) {
       { key: 'strasse', label: 'Straße & Nr.' }, { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort', type: 'suggest', options: await gelernteWerte([], 'kontakte', 'ort') },
       { key: 'email', label: 'E-Mail' }, { key: 'telefon', label: 'Telefon' },
       ...(zeigeOeko ? [
-        { key: '_oekoKopf', type: 'static', html: '<div class="small muted mt8 mb4" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Öko-Kontrolle</div>' },
-        { key: 'oekoWas', label: 'Was wird bezogen bzw. geliefert?', placeholder: 'z. B. Öko-Zucker, Mittelwände, Honig' },
-        { key: 'oekoNummer', label: 'Öko-Kontrollnummer', placeholder: 'z. B. DE-ÖKO-006', halb: true },
-        { key: 'oekoGueltigBis', label: 'Zertifikat gültig bis', type: 'date', halb: true, hint: 'Die App warnt, wenn das Datum näher rückt oder vorbei ist.' },
-        { key: 'oekoUrl', label: 'Link zum Zertifikat', placeholder: 'https://…', hint: 'Viele Kontrollstellen stellen die Bescheinigung online bereit. Den Link hier ablegen – und das PDF unten anhängen.' },
-        { key: '_oekoSuche', type: 'static', html: `<div class="flex-wrap mb4"><button type="button" class="btn btn-ghost btn-sm" data-oeko-open>${icon('doc')} Zertifikat öffnen</button><button type="button" class="btn btn-ghost btn-sm" data-oeko-suche>${icon('search')} In der EU-Datenbank suchen</button></div>` },
+        { key: 'bio', label: 'Bio-Partner?', type: 'select', options: [{ v: 'nein', l: 'Nein – normaler Lieferant / Kunde' }, { v: 'ja', l: 'Ja – Öko-Ware, mit Kontrollnummer' }], keepOrder: true,
+          hint: 'Nur bei „Ja“ erscheinen die Öko-Angaben, der Hinweis „Bio“ und die Aufnahme in die Öko-Unterlagen.' },
+        { key: '_oekoKopf', type: 'static', showIf: (f) => f.bio === 'ja', html: '<div class="small muted mt8 mb4" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">Öko-Kontrolle</div>' },
+        { key: 'oekoWas', showIf: (f) => f.bio === 'ja', label: 'Was wird bezogen bzw. geliefert?', placeholder: 'z. B. Öko-Zucker, Mittelwände, Honig' },
+        { key: 'oekoNummer', showIf: (f) => f.bio === 'ja', label: 'Öko-Kontrollnummer', placeholder: 'z. B. DE-ÖKO-006', halb: true },
+        { key: 'oekoGueltigBis', showIf: (f) => f.bio === 'ja', label: 'Zertifikat gültig bis', type: 'date', halb: true, hint: 'Die App warnt, wenn das Datum näher rückt oder vorbei ist.' },
+        { key: 'oekoUrl', showIf: (f) => f.bio === 'ja', label: 'Link zum Zertifikat', placeholder: 'https://…', hint: 'Viele Kontrollstellen stellen die Bescheinigung online bereit. Den Link hier ablegen – und das PDF unten anhängen.' },
+        { key: '_oekoSuche', type: 'static', showIf: (f) => f.bio === 'ja', html: `<div class="flex-wrap mb4"><button type="button" class="btn btn-ghost btn-sm" data-oeko-open>${icon('doc')} Zertifikat öffnen</button><button type="button" class="btn btn-ghost btn-sm" data-oeko-suche>${icon('search')} In der EU-Datenbank suchen</button></div>` },
       ] : []),
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ...(c ? [{ key: '_anhaenge', type: 'static', html: '<div data-kontakt-anhang></div>' }] : []),
     ],
-    values: c || (typ ? { typ } : {}),
+    values: c ? { ...c, bio: kontaktIstBio(c) ? 'ja' : 'nein' } : { ...(typ ? { typ } : {}), bio: oeko ? 'ja' : 'nein' },
     async onSave(v) {
       const gespeichert = await DB.put('kontakte', Object.assign(c || {}, v));
       UI.toast('Kontakt gespeichert');
@@ -8661,7 +8700,7 @@ async function vorsorgeKontext(stand) {
     futterarten: eindeutig(fuetterungen.filter((f) => (f.datum || '') >= vor12).map((f) => f.futterart)),
     zukaufJahr: koeniginnen.filter((k) => /zukauf/i.test(k.herkunft || '') && String(k.jahrgang) === jahr).length,
     chargen: chargen.length,
-    lieferantenMitZert: kontakte.filter((k) => (k.typ === 'lieferant' || k.typ === 'beides') && String(k.oekoNummer || '').trim()).length,
+    lieferantenMitZert: kontakte.filter((k) => (k.typ === 'lieferant' || k.typ === 'beides') && kontaktIstBio(k) && String(k.oekoNummer || '').trim()).length,
     hygieneplan: bio.filter((e) => e.bereich === 'hygieneplan').length,
     kontrollcode: code,
     kontrollstelle: String(imk.bioKontrollstelle || '').trim(),
@@ -9720,7 +9759,7 @@ Views.kontakte = {
     const [alle, anhaenge, buchungen, rechnungen] = await Promise.all(['kontakte', 'anhaenge', 'kassenbuch', 'rechnungen'].map((st) => DB.getAll(st)));
     const filter = Views.kontakte._filter || '';
     const suche = (Views.kontakte._suche || '').trim().toLowerCase();
-    const istBio = (c) => !!(c.oekoNummer || c.oekoWas || c.oekoGueltigBis || c.oekoUrl);
+    const istBio = kontaktIstBio;
     const passt = (c) => (filter === 'lieferant' ? kontaktIstLieferant(c) : filter === 'kunde' ? kontaktIstKunde(c) : filter === 'bio' ? istBio(c) : true)
       && (!suche || [c.name, c.ort, c.oekoWas, c.oekoNummer].some((x) => String(x || '').toLowerCase().includes(suche)));
     const list = U.sortBy(alle.filter(passt), (c) => (c.name || '').toLowerCase());
@@ -9732,7 +9771,7 @@ Views.kontakte = {
       return ` <span class="badge ${st === 'vorbei' ? 'b-danger' : 'b-warn'}">Zertifikat gültig bis ${U.fmtDate(c.oekoGueltigBis)}${st === 'vorbei' ? ' – vorbei' : ''}</span>`;
     };
     const chip = (v, l) => `<button class="chip ${filter === v ? 'active' : ''}" data-pfilter="${U.esc(v)}">${l}</button>`;
-    const ohneNummer = alle.filter((c) => kontaktIstLieferant(c) && !c.oekoNummer).length;
+    const ohneNummer = alle.filter((c) => kontaktIstLieferant(c) && kontaktIstBio(c) && !c.oekoNummer).length;
     const buchungenVon = (c) => buchungen.filter((k) => k.kontaktId === c.id);
     box.innerHTML = `<div class="card">
       ${opt.ohneKopf ? '' : `<div class="card-title">${icon('kontakte')}<h2>Abnehmer und Lieferanten</h2>
@@ -9791,8 +9830,7 @@ Views.kontakte = {
           ${zeile('Art', U.esc(rolle))}
           ${zeile('Adresse', U.esc([c.strasse, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')))}
           ${zeile('Telefon', U.esc(c.telefon))}${zeile('E-Mail', U.esc(c.email))}
-          ${zeile('Ware', U.esc(c.oekoWas))}${zeile('Öko-Kontrollnummer', U.esc(c.oekoNummer))}
-          ${zeile('Zertifikat gültig bis', c.oekoGueltigBis ? U.fmtDate(c.oekoGueltigBis) : '')}
+          ${kontaktIstBio(c) ? `${zeile('Bio-Partner', 'Ja')}${zeile('Ware', U.esc(c.oekoWas))}${zeile('Öko-Kontrollnummer', U.esc(c.oekoNummer))}${zeile('Zertifikat gültig bis', c.oekoGueltigBis ? U.fmtDate(c.oekoGueltigBis) : '')}` : ''}
           ${zeile('Notiz', U.esc(c.notiz))}
         </div>
         <h3 class="mt8 mb4">Wo dieser Kontakt vorkommt</h3>
@@ -18563,7 +18601,7 @@ const Pdf = {
         `${bbAbschnitte().filter((a) => (bb[a.key] || '').trim()).length} von ${bbAbschnitte().length} Abschnitten der Betriebsbeschreibung · `
         + `${mitDaten.length} von ${staende.length} Standorten mit Landbedeckung · `
         + `${(await DB.getAll('bioeintraege')).length} Einträge (Hygiene, Förderung) · `
-        + `${(await DB.getAll('kontakte')).filter((c) => c.oekoNummer || c.oekoWas).length} Öko-Partner`);
+        + `${(await DB.getAll('kontakte')).filter(kontaktIstBio).length} Öko-Partner`);
       let yy = y;
       const H = doc.internal.pageSize.getHeight();
       const platz = (n) => { if (yy + n > H - 20) { doc.addPage(); yy = 20; } };
@@ -18612,7 +18650,7 @@ const Pdf = {
          das PDF nennt, dass und wie viele es gibt, nicht die Dateien selbst. */
       const kontakteAlle = await DB.getAll('kontakte');
       const anhaengeAlle = await DB.getAll('anhaenge');
-      const partner = U.sortBy(kontakteAlle.filter((c) => c.oekoNummer || c.oekoWas || c.oekoGueltigBis), (c) => (c.name || '').toLowerCase());
+      const partner = U.sortBy(kontakteAlle.filter(kontaktIstBio), (c) => (c.name || '').toLowerCase());
       if (partner.length) {
         platz(34);
         doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
@@ -20062,7 +20100,7 @@ async function migriereBioPartner() {
     if (!e.name) continue;
     const vorhanden = finde(e.name);
     const daten = {
-      oekoWas: e.was || '', oekoNummer: e.kontrollnummer || '', oekoGueltigBis: e.gueltigBis || '',
+      bio: 'ja', oekoWas: e.was || '', oekoNummer: e.kontrollnummer || '', oekoGueltigBis: e.gueltigBis || '',
       notiz: [vorhanden && vorhanden.notiz, e.notiz].filter(Boolean).join('\n'),
     };
     if (vorhanden) {
@@ -20096,7 +20134,7 @@ async function migriereBioPartner() {
     } else if (ziel) {
       const notiz = [ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`].filter(Boolean).join('\n');
       kontaktSpeichern( Object.assign(ziel, {
-        notiz,
+        notiz, bio: 'ja',
         oekoGueltigBis: ziel.oekoGueltigBis || z.gueltigBis || '',
         oekoNummer: ziel.oekoNummer || z.nummer || '',
       }));
