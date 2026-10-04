@@ -9991,7 +9991,7 @@ test('Assistent Imme: Wissen deckt alle Menübereiche ab, Suche findet die richt
   assertEq(erst('Wie heißt du?'), 'imme');
   assert(/Biene/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort) && /Imker/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort), 'Erklärung nennt Biene und Imker');
   assertEq(erst('Wie stelle ich die Umsatzsteuer ein?'), 'steuer');
-  assertEq(erst('Wie drucke ich Etiketten mit Losnummer?'), 'etikett');
+  assertEq(erst('Wie drucke ich Etiketten mit Losnummer?'), 'abfuellen');
   assertEq(erst('blablub xyz'), 'nichts');
   // Menü: Imkerschule ausgeblendet, Assistent da
   assert(!w.NAV.some((n) => n.route === 'imkerschule') && w.NAV.some((n) => n.route === 'assistent'), 'Assistent ersetzt die Imkerschule im Menü');
