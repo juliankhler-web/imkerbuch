@@ -9999,15 +9999,16 @@ test('Assistent Imme: Wissen deckt alle Menübereiche ab, Suche findet die richt
 test('Imme führt: alle Touren sind sauber aufgebaut, jede endet mit Speichern/Abschluss', async (w) => {
   const touren = w.APP_WISSEN.filter((e) => e.tour);
   assert(touren.length >= 20, `mindestens 20 geführte Aufgaben (jetzt ${touren.length})`);
+  assert(touren.length >= 25, 'auch Durchsicht, Sicherung, Export und Marktkasse sind geführt');
   for (const e of touren) {
     assert(w.Views[e.route], `Route von „${e.id}“ existiert`);
     const erst = e.tour[0];
-    assert(erst.knopf || erst.reiter, `„${e.id}“ beginnt mit einem Knopf oder Reiter`);
+    assert(erst.knopf || erst.reiter || erst.abschnitt, `„${e.id}“ beginnt mit einem Knopf, Reiter oder Abschnitt`);
     const letzt = e.tour[e.tour.length - 1];
     assert(letzt.speichern || letzt.abschluss, `„${e.id}“ endet mit Speichern oder Abschluss`);
     for (const st of e.tour) {
       assert(st.text && st.text.length > 8, `„${e.id}“: jeder Schritt hat einen Hinweistext`);
-      assert(['knopf', 'reiter', 'feld', 'speichern', 'abschluss'].some((k) => st[k]), `„${e.id}“: bekannter Schritt-Typ`);
+      assert(['knopf', 'reiter', 'feld', 'speichern', 'abschluss', 'abschnitt'].some((k) => st[k]), `„${e.id}“: bekannter Schritt-Typ`);
     }
   }
   // Abbrechen: ✕, Tipp auf Imme und Esc beenden die Hilfe
