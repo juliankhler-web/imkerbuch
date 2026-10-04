@@ -510,6 +510,10 @@ body[data-route="assistent"] .bini-fab{display:none}
 @keyframes biniPuls{0%,100%{box-shadow:0 0 0 0 rgba(233,162,28,.85)}50%{box-shadow:0 0 0 12px rgba(233,162,28,0)}}
 .bini-ziel{outline:3px solid var(--honey)!important;outline-offset:3px;border-radius:12px;animation:biniPuls 1.1s ease-in-out infinite;position:relative;z-index:30}
 .bini-tip{position:fixed;z-index:3500;max-width:270px;display:flex;gap:8px;align-items:flex-start;background:var(--card);border:2px solid var(--honey);border-radius:16px;padding:8px 10px;box-shadow:0 12px 30px -8px rgba(0,0,0,.4);font-size:13px;line-height:1.4}
+.bini-anrede{font-weight:700;color:var(--honey-d,#B9770E);margin-bottom:4px}
+.bini-hinweis{margin-top:6px;padding:5px 8px;background:var(--honey-soft);border-radius:8px;font-size:12px;color:var(--text)}
+.bini-weiter{margin-top:8px}
+body.bini-fuehrt .bini-fab::after{content:'Hilfe beenden';position:absolute;right:50%;bottom:100%;transform:translate(50%,-4px);white-space:nowrap;background:var(--honey);color:#3a2a10;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;box-shadow:0 4px 10px -3px rgba(0,0,0,.4)}
 .bini-tip-av{width:38px;height:42px;object-fit:contain;flex:0 0 auto}
 .bini-tip button{background:none;border:0;padding:2px;color:var(--muted);cursor:pointer}.bini-tip button svg{width:16px;height:16px}
 /* Beim Ziehen aus „Alle Bereiche“ wird das Menü blass und die untere Leiste hebt sich als Ziel ab */
@@ -1109,8 +1113,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.17';
+const APP_VERSION = '2.19';
 const CHANGELOG = [
+  { version: '2.19', datum: '2026-10-04', punkte: [
+    'Imme winkt nur noch ein paar Mal (zweimal bis dreimal) und steht dann ruhig da, statt dauernd zu winken. Im Chat hebt sie den Arm nur kurz, wenn sie dir antwortet.',
+    'Imme begrüßt dich mit „Hallo, ich bin Imme, dein persönlicher Assistent“ – im Chat und am Anfang jeder Schritt-für-Schritt-Hilfe.',
+  ] },
+  { version: '2.18', datum: '2026-10-04', punkte: [
+    '<b>Imme begleitet dich Schritt für Schritt:</b> Bei den häufigsten Aufgaben (Volk, Stand, Behandlung, Fütterung, Kontakt, Königin, Aufgabe, Wanderung) markiert sie erst den Knopf, öffnet dann – sobald du ihn antippst – die Eingabemaske und zeigt dir Feld für Feld, was einzutragen ist. Zum Schluss markiert sie „Speichern“.',
+    'Mit einem <b>Tipp auf Imme</b> beendest du die Hilfe jederzeit; während der Hilfe steht dort „Hilfe beenden“. Schließt du die Maske, endet die Hilfe von selbst.',
+  ] },
   { version: '2.17', datum: '2026-10-04', punkte: [
     '<b>Imme springt:</b> Scrollst du weg, hüpft sie in einem Bogen nach unten rechts und landet auf der Schnellzugriff-Leiste; beim Hochscrollen springt sie zurück neben deinen Namen.',
     'Unten <b>steht und sitzt</b> Imme abwechselnd auf der Leiste (beim Sitzen baumeln die Beine). Sie steht jetzt davor statt dahinter und ist nicht mehr von der Leiste verdeckt.',
@@ -3024,7 +3036,7 @@ function renderChrome() {
     const fab = document.createElement('button');
     fab.id = 'bini-fab'; fab.className = 'bini-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Assistent Imme öffnen');
     fab.innerHTML = `<img src="./assets/bini/idle.webp" alt="" onerror="this.onerror=null;this.dataset.fallback=1;this.src='./assets/bienen/biene-12.webp'">`;
-    fab.onclick = () => navTo('assistent');
+    fab.onclick = () => { if (Assistent.tour) Assistent.beendeTour(); else navTo('assistent'); };
     document.body.appendChild(fab);
     let rafId = 0;
     const lauf = () => { if (rafId) return; rafId = requestAnimationFrame(() => { rafId = 0; Assistent.layout(false); }); };
@@ -3032,6 +3044,7 @@ function renderChrome() {
     window.addEventListener('resize', () => Assistent.layout(true));
     Assistent.layout(true);
     Assistent.ladeMeta();
+    setTimeout(() => { const f = document.getElementById('bini-fab'); if (f && f.classList.contains('bini-frei')) { Assistent._naechsteWelle = Date.now() + 30000; Assistent.geste('wave', 6000); } }, 1200);
     setInterval(() => Assistent.wechselPose(), 3000);
   }
   $('#btn-theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon');
@@ -19332,11 +19345,20 @@ const APP_WISSEN = [
   { id: 'volk-neu', titel: 'Neues Volk anlegen', route: 'voelker', zeige: 'Volk',
     stichw: ['volk anlegen', 'neues volk', 'volk hinzufuegen', 'bienenvolk', 'voelker', 'ableger anlegen', 'schwarm eintragen', 'kolonie'],
     antwort: 'Völker legst du im Bereich „Völker“ an. Jedes Volk gehört zu einem Bienenstand und hat eine Königin.',
-    schritte: ['Menü ▸ Völker', 'Oben auf „+ Volk“ tippen', 'Name, Stand und Königin wählen, speichern'] },
+    schritte: ['Menü ▸ Völker', 'Oben auf „+ Volk“ tippen', 'Name, Stand und Königin wählen, speichern'],
+    tour: [{ knopf: 'Volk', text: 'Tippe auf „+ Volk“.' },
+      { feld: 'Bezeichnung', text: 'Gib dem Volk einen Namen, zum Beispiel „Volk 1“ oder den Namen der Königin.' },
+      { feld: 'Bienenstand', text: 'Wähle, wo das Volk steht. Fehlt der Stand noch, lege ihn vorher unter „Bienenstände“ an.' },
+      { feld: 'Königin', text: 'Hier kannst du die Königin zuordnen – das geht auch später.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Fertig!' }] },
   { id: 'stand-neu', titel: 'Bienenstand anlegen', route: 'staende', zeige: 'Stand',
     stichw: ['stand anlegen', 'bienenstand', 'standort', 'staende', 'neuer stand', 'standplatz', 'ort der voelker'],
     antwort: 'Ein Bienenstand ist der Ort, an dem deine Völker stehen. Er wird zuerst angelegt, dann ordnest du die Völker zu.',
-    schritte: ['Menü ▸ Bienenstände', '„+ Neuer Stand“ tippen', 'Name und Ort eintragen, speichern'] },
+    schritte: ['Menü ▸ Bienenstände', '„+ Neuer Stand“ tippen', 'Name und Ort eintragen, speichern'],
+    tour: [{ knopf: 'Stand', text: 'Tippe auf „+ Neuer Stand“.' },
+      { feld: 'Name des Stands', text: 'Gib dem Stand einen Namen, zum Beispiel den Ort oder „Obstwiese“.' },
+      { feld: 'Breitengrad', text: 'Die Koordinaten brauchst du nur für Wetter und Karte. Du kannst sie leer lassen.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'durchsicht', titel: 'Durchsicht / Stockkarte eintragen', route: 'voelker', zeige: '',
     stichw: ['durchsicht', 'stockkarte', 'kontrolle', 'voelkerkontrolle', 'brutbild eintragen', 'sanftmut', 'stockkarte schreiben', 'nachschau'],
     antwort: 'Die Durchsicht trägst du im jeweiligen Volk ein: Brut, Futter, Sanftmut, Weiselzellen und Notizen.',
@@ -19344,7 +19366,12 @@ const APP_WISSEN = [
   { id: 'koenigin', titel: 'Königinnen verwalten', route: 'koeniginnen', zeige: 'Königin',
     stichw: ['koenigin', 'weisel', 'koenigin anlegen', 'zeichnen', 'koeniginnenfarbe', 'umweiseln', 'herkunft', 'stockmutter'],
     antwort: 'Im Bereich „Königinnen“ stehen alle Königinnen mit Herkunft, Jahrgang und Zeichnungsfarbe. Von dort lässt sich auch umweiseln.',
-    schritte: ['Menü ▸ Königinnen', '„+ Neue Königin“ tippen', 'Herkunft, Jahrgang, Farbe eintragen'] },
+    schritte: ['Menü ▸ Königinnen', '„+ Neue Königin“ tippen', 'Herkunft, Jahrgang, Farbe eintragen'],
+    tour: [{ knopf: 'Königin', text: 'Tippe auf „+ Neue Königin“.' },
+      { feld: 'Jahrgang', text: 'In welchem Jahr ist die Königin geschlüpft?' },
+      { feld: 'Herkunft', text: 'Woher kommt sie? Zucht, Zukauf, eigene Nachzucht …' },
+      { feld: 'Status', text: 'Wie ist ihr Stand heute, zum Beispiel „aktiv“?' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'zucht', titel: 'Königinnen züchten', route: 'zucht', zeige: 'Serie',
     stichw: ['zucht', 'zuechten', 'umlarven', 'zuchtserie', 'zuchtkalender', 'stammbaum', 'beleg', 'belegstelle', 'begattung', 'toechter'],
     antwort: 'Unter „Zucht“ planst du Zuchtserien mit Zuchtkalender (Umlarven, Verdeckelung, Schlupf) und führst Stammbaum und Bewertung.',
@@ -19352,11 +19379,22 @@ const APP_WISSEN = [
   { id: 'behandlung', titel: 'Varroa-Behandlung eintragen', route: 'behandlungen', zeige: 'Behandlung',
     stichw: ['behandlung', 'varroa', 'milben', 'ameisensaeure', 'oxalsaeure', 'tierarzneimittel', 'bestandsbuch', 'arzneimittel', 'behandeln', 'milbenfall', 'wartezeit'],
     antwort: 'Jede Behandlung muss dokumentiert werden (Bestandsbuch). Die App speichert Mittel, Datum, Menge und die Wartezeit.',
-    schritte: ['Menü ▸ Behandlungen', '„+ Behandlung“ tippen', 'Volk oder Stand, Mittel und Datum wählen, speichern'] },
+    schritte: ['Menü ▸ Behandlungen', '„+ Behandlung“ tippen', 'Volk oder Stand, Mittel und Datum wählen, speichern'],
+    tour: [{ knopf: 'Behandlung', text: 'Tippe auf „+ Behandlung“.' },
+      { feld: 'Völker', text: 'Wähle die behandelten Völker. Wählst du oben erst den Stand, sind seine Völker schnell markiert.' },
+      { feld: 'Arzneimittel', text: 'Welches Mittel hast du benutzt? Gegen Varroa zum Beispiel Ameisensäure oder Oxalsäure.' },
+      { feld: 'Datum', text: 'An welchem Tag hast du behandelt?' },
+      { feld: 'Menge je Volk', text: 'Wie viel hat jedes Volk bekommen? Die Einheit steht daneben.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Die Wartezeit rechnet die App für dich mit.' }] },
   { id: 'fuetterung', titel: 'Fütterung eintragen', route: 'fuetterung', zeige: 'Fütterung',
     stichw: ['fuetterung', 'futter', 'sirup', 'zucker', 'fuettern', 'auffuettern', 'winterfutter', 'futterteig', 'futterrechner', 'zuckerloesung'],
     antwort: 'Fütterungen trägst du pro Volk oder für mehrere Völker auf einmal ein. Der Futter-Rechner sagt dir, wie viel Sirup du ansetzen musst; das Material wird vom Lager abgezogen.',
-    schritte: ['Menü ▸ Fütterung', '„+ Fütterung“ oder „Fütterung mit Futter-Rechner“ tippen', 'Futterart, Menge und Völker wählen, speichern'] },
+    schritte: ['Menü ▸ Fütterung', '„+ Fütterung“ oder „Fütterung mit Futter-Rechner“ tippen', 'Futterart, Menge und Völker wählen, speichern'],
+    tour: [{ knopf: 'Fütterung', text: 'Tippe auf „+ Fütterung“.' },
+      { feld: 'Völker', text: 'Wähle die gefütterten Völker.' },
+      { feld: 'Futterart', text: 'Was hast du gefüttert? Sirup, Futterteig …' },
+      { feld: 'Menge je Volk', text: 'Wie viel pro Volk? Der Futter-Rechner in der Fütterung hilft dir beim Umrechnen.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Das Material wird vom Lager abgezogen.' }] },
   { id: 'ernte', titel: 'Honig ernten (Charge anlegen)', route: 'honig', zeige: 'Ernte',
     stichw: ['ernte', 'ernten', 'honig ernten', 'schleudern', 'charge', 'honigernte', 'wassergehalt', 'sorte', 'schleuderung', 'kg honig'],
     antwort: 'Die Ernte legst du als Charge an: Sorte, Datum, Menge und Wassergehalt. Aus der Charge werden später die Abfüllungen.',
@@ -19388,7 +19426,12 @@ const APP_WISSEN = [
   { id: 'kontakte', titel: 'Kunden und Lieferanten verwalten', route: 'kontakte', zeige: 'Kontakt',
     stichw: ['kontakt', 'kontakte', 'kunde', 'kunden', 'lieferant', 'lieferanten', 'abnehmer', 'adresse', 'telefon', 'neuer kunde', 'neuer lieferant', 'bio partner'],
     antwort: 'Kunden und Lieferanten pflegst du im Bereich „Abnehmer & Lieferanten“. Die Kontakte erscheinen automatisch in allen Auswahllisten (Rechnung, Verkauf, Einkauf …).',
-    schritte: ['Menü ▸ Abnehmer & Lieferanten', '„+ Kontakt“ tippen', 'Art (Kunde / Lieferant), Name und Adresse eintragen'] },
+    schritte: ['Menü ▸ Abnehmer & Lieferanten', '„+ Kontakt“ tippen', 'Art (Kunde / Lieferant), Name und Adresse eintragen'],
+    tour: [{ knopf: 'Kontakt', text: 'Tippe auf „+ Kontakt“.' },
+      { feld: 'Art', text: 'Kunde, Lieferant oder beides?' },
+      { feld: 'Name', text: 'Name oder Firma eintragen.' },
+      { feld: 'Bio-Partner', text: 'Nur „Ja“, wenn der Kontakt Öko-Ware liefert, zum Beispiel Bio-Zucker. Sonst bleibt es bei „Nein“.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'bio', titel: 'Bio-Kontrolle vorbereiten', route: 'bio', zeige: '',
     stichw: ['bio', 'oeko', 'oekokontrolle', 'kontrollstelle', 'bio zertifikat', 'betriebsbeschreibung', 'vorsorgekonzept', 'landbedeckung', 'oeko kontrollnummer', 'biozertifikat'],
     antwort: 'Im Bereich „Bio“ steht alles für die Öko-Kontrolle: Betriebsbeschreibung, Vorsorgekonzept, Landbedeckung der Stände und Partner mit Kontrollnummer. Als Paket kannst du die Unterlagen als PDF erzeugen.',
@@ -19400,7 +19443,13 @@ const APP_WISSEN = [
   { id: 'wanderung', titel: 'Wanderung zur Tracht', route: 'wanderungen', zeige: 'Wanderung',
     stichw: ['wanderung', 'wandern', 'umstellen', 'tracht', 'rapsbluete', 'standwechsel', 'wanderimkerei'],
     antwort: 'Wenn du Völker zu einer Tracht fährst, trägst du eine Wanderung ein: Von, Nach, Datum und Grund.',
-    schritte: ['Menü ▸ Wanderungen', '„+ Wanderung“ tippen', 'Völker, Ziel-Stand und Datum wählen'] },
+    schritte: ['Menü ▸ Wanderungen', '„+ Wanderung“ tippen', 'Völker, Ziel-Stand und Datum wählen'],
+    tour: [{ knopf: 'Wanderung', text: 'Tippe auf „+ Wanderung“.' },
+      { feld: 'Von welchem Stand', text: 'Von wo fahren die Völker los?' },
+      { feld: 'Welche Völker', text: 'Wähle die Völker, die mitfahren.' },
+      { feld: 'Zu welchem Stand', text: 'Wohin geht es?' },
+      { feld: 'Datum', text: 'An welchem Tag?' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'tracht', titel: 'Trachten pflegen', route: 'trachten', zeige: 'Tracht',
     stichw: ['trachten', 'trachtpflanze', 'bluete', 'blueten', 'trachtkalender', 'pollen', 'nektar'],
     antwort: 'Unter „Trachten“ legst du die Pflanzen an, die deine Bienen anfliegen, mit Blütezeit und Notizen.',
@@ -19452,7 +19501,11 @@ const APP_WISSEN = [
   { id: 'aufgaben', titel: 'Aufgaben und Kalender', route: 'aufgaben', zeige: 'Neue Aufgabe',
     stichw: ['aufgabe', 'aufgaben', 'kalender', 'termin', 'erinnerung', 'to do', 'todo', 'faellig', 'wiederkehrend'],
     antwort: 'Aufgaben und Termine siehst du im Kalender. Zuchtschritte und Behandlungen erzeugen Aufgaben automatisch.',
-    schritte: ['Menü ▸ Aufgaben', '„Neue Aufgabe“ tippen', 'Titel und Datum wählen'] },
+    schritte: ['Menü ▸ Aufgaben', '„Neue Aufgabe“ tippen', 'Titel und Datum wählen'],
+    tour: [{ knopf: 'Neue Aufgabe', text: 'Tippe auf „Neue Aufgabe“.' },
+      { feld: 'Aufgabe', text: 'Schreib kurz auf, was zu tun ist.' },
+      { feld: 'Fällig', text: 'Bis wann? Dann erinnert dich die App.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'dashboard', titel: 'Dashboard anpassen', route: 'dashboard', zeige: 'Widgets',
     stichw: ['dashboard', 'startseite', 'widgets', 'anpassen', 'kacheln', 'startbildschirm', 'uebersicht'],
     antwort: 'Das Dashboard zeigt Kacheln wie Völker, Aufgaben, Wetter und Ertrag. Mit „Widgets“ blendest du ein, was du brauchst, und stellst die Reihenfolge ein.',
@@ -19572,6 +19625,14 @@ const Assistent = {
   },
   /** Imme sitzt im Dashboard-Kopf neben der Begrüßung und springt nach unten rechts auf die Schnellzugriff-Leiste,
       sobald man wegscrollt. Dort steht oder sitzt sie abwechselnd; beim Hochscrollen springt sie zurück. */
+  _gesteBis: 0, _gesteName: 'wave', _naechsteWelle: 0,
+  /** Kurze Geste (Winken, Freuen …) für ein paar Sekunden, danach wieder ruhig. Eine Schleife dauert 2 s. */
+  geste(name, ms) {
+    Assistent._gesteName = name; Assistent._gesteBis = Date.now() + ms;
+    Assistent.layout(true);
+    clearTimeout(Assistent._gesteT);
+    Assistent._gesteT = setTimeout(() => Assistent.layout(true), ms + 60);
+  },
   meta: { idle: { ratio: 1.0 } },
   dockPose: 'idle', _naechster: 0, _letzt: null,
   async ladeMeta() {
@@ -19598,12 +19659,14 @@ const Assistent = {
     }
     const war = fab.classList.contains('bini-frei'), bereit = fab.classList.contains('bini-bereit');
     const alt = Assistent._letzt;
-    const bild = Assistent.bild(frei ? 'wave' : pose); const img = fab.querySelector('img');
+    const geste = Date.now() < Assistent._gesteBis;
+    const bild = Assistent.bild(geste ? Assistent._gesteName : (frei ? 'idle' : pose)); const img = fab.querySelector('img');
     if (img && !img.src.endsWith(bild.slice(1)) && !img.dataset.fallback) img.src = bild;
+    if (frei && !war && bereit && !Assistent._gesteBis) { /* erste Landung oben */ }
     fab.classList.toggle('bini-frei', frei);
     Object.assign(fab.style, { left: ziel.left + 'px', top: ziel.top + 'px', width: ziel.w + 'px', height: ziel.h + 'px' });
     fab.classList.add('bini-bereit');
-    if (!springe && bereit && alt && (frei !== war)) Assistent.hupf(alt, ziel, !frei);
+    if (!springe && bereit && alt && (frei !== war)) { Assistent.hupf(alt, ziel, !frei); if (frei) setTimeout(() => Assistent.geste('wave', 6000), 700); }
     else if (!springe && bereit && alt && !frei && Assistent._pose0 && Assistent._pose0 !== pose) Assistent.hupf(alt, ziel, false, 0.35);
     Assistent._pose0 = pose;
     Assistent._letzt = ziel;
@@ -19625,11 +19688,99 @@ const Assistent = {
   /** Alle paar Sekunden zwischen Stehen und Sitzen wechseln (nur unten, nur wenn es ein Sitzbild gibt). */
   wechselPose() {
     const fab = document.getElementById('bini-fab');
+    if (fab && fab.classList.contains('bini-frei') && !document.hidden && Date.now() > Assistent._naechsteWelle) {
+      Assistent._naechsteWelle = Date.now() + 25000 + Math.random() * 20000;
+      if (Date.now() > Assistent._gesteBis + 1000) Assistent.geste('wave', 4200);   // zweimal winken, dann wieder ruhig
+      return;
+    }
     if (!fab || fab.classList.contains('bini-frei') || !Assistent.meta.sit || document.hidden) return;
     if (Date.now() < Assistent._naechster) return;
     Assistent._naechster = Date.now() + 12000 + Math.random() * 12000;
     Assistent.dockPose = Assistent.dockPose === 'sit' ? 'idle' : 'sit';
     Assistent.layout(false);
+  },
+  /* ---------- Geführte Schritt-für-Schritt-Hilfe ----------
+     Eine Tour besteht aus Schritten: { knopf } (Knopf auf der Seite antippen), { feld } (Feld im Formular, wartet
+     auf Eingabe oder „Weiter“) und { speichern }. Ein Tipp auf Imme beendet die Hilfe jederzeit. */
+  tour: null, _tourId: 0,
+  starte(e) { return e.tour ? Assistent.starteTour(e) : Assistent.zeige(e); },
+  async starteTour(e) {
+    Assistent.beendeTour(true);
+    const id = ++Assistent._tourId;
+    Assistent.tour = { e, i: 0, id };
+    document.body.classList.add('bini-fuehrt');
+    const ziel = e.route;
+    if (currentRoute().route !== ziel || currentRoute().param) navTo(ziel); else await renderRoute();
+    await new Promise((r) => setTimeout(r, 350));
+    Assistent.schritt(id);
+  },
+  beendeTour(still) {
+    const war = !!Assistent.tour;
+    Assistent.tour = null; Assistent._tourId++;
+    document.body.classList.remove('bini-fuehrt');
+    Assistent.markeWeg();
+    if (war && !still) UI.toast('Hilfe beendet. Tippe auf Imme, wenn du mich wieder brauchst.');
+  },
+  async warteAuf(suche, ms = 4000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) { const el = suche(); if (el) return el; await new Promise((r) => setTimeout(r, 120)); }
+    return null;
+  },
+  tipp(el, kopf, text, optionen = {}) {
+    Assistent.markeWeg();
+    el.classList.add('bini-ziel');
+    try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (x) { /* alt */ }
+    const tip = document.createElement('div'); tip.className = 'bini-tip';
+    tip.innerHTML = `${Assistent.img('point', 'bini-tip-av')}<div>${optionen.anrede ? `<div class="bini-anrede">${U.esc(optionen.anrede)}</div>` : ''}<b>${U.esc(kopf)}</b><br>${U.esc(text)}${optionen.extra ? `<div class="bini-hinweis">${U.esc(optionen.extra)}</div>` : ''}${optionen.weiter ? `<div class="bini-weiter"><button type="button" class="btn btn-primary btn-sm" data-weiter>Weiter</button></div>` : ''}</div>`;
+    document.body.appendChild(tip);
+    const platz = () => { const r = el.getBoundingClientRect(); const oben = r.top > 190; tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.left + r.width / 2 - tip.offsetWidth / 2)) + 'px'; tip.style.top = (oben ? Math.max(8, r.top - tip.offsetHeight - 12) : Math.min(innerHeight - tip.offsetHeight - 90, r.bottom + 12)) + 'px'; };
+    setTimeout(platz, 380); setTimeout(platz, 900);
+    return tip;
+  },
+  async schritt(id) {
+    const T = Assistent.tour; if (!T || T.id !== id) return;
+    const e = T.e, st = e.tour[T.i], von = e.tour.length;
+    const kopf = `${e.titel} · Schritt ${T.i + 1} von ${von}`;
+    const extra = T.i === 0 ? 'Tipp: Tippe auf mich (Imme), wenn du die Hilfe nicht mehr brauchst.' : '';
+    const anrede = T.i === 0 ? 'Hallo, ich bin Imme, dein persönlicher Assistent!' : '';
+    const weiter = () => { if (Assistent.tour && Assistent.tour.id === id) { Assistent.tour.i++; Assistent.schritt(id); } };
+    const modal = () => { const m = [...document.querySelectorAll('.modal-back')].pop(); return m && !m.querySelector('.sheet-grid') ? m : null; };
+    if (st.knopf) {
+      const el = await Assistent.warteAuf(() => Assistent.finde(st.knopf), 4000);
+      if (!Assistent.tour || Assistent.tour.id !== id) return;
+      if (!el) { UI.toast(`Such den Knopf „${st.knopf}“ auf dieser Seite.`); return Assistent.beendeTour(true); }
+      Assistent.tipp(el, kopf, st.text, { extra, anrede });
+      el.addEventListener('click', () => setTimeout(weiter, 450), { once: true });
+    } else if (st.feld) {
+      const m = await Assistent.warteAuf(modal, 4000);
+      if (!Assistent.tour || Assistent.tour.id !== id) return;
+      if (!m) return Assistent.beendeTour(true);
+      const l = assistentNorm(st.feld);
+      const feld = [...m.querySelectorAll('.field')].find((f) => f.offsetParent !== null && assistentNorm((f.querySelector('label') || {}).textContent).includes(l));
+      if (!feld) return weiter();   // gibt es in dieser Maske nicht: nächster Schritt
+      const tip = Assistent.tipp(feld, kopf, st.text, { weiter: true, extra });
+      tip.querySelector('[data-weiter]').onclick = weiter;
+      const eingabe = (ev) => { if (ev.type === 'change' || (ev.target && ev.target.tagName === 'INPUT' && ev.target.type !== 'checkbox')) { /* erst bei Fokus-Verlust/Auswahl weiter */ } };
+      feld.addEventListener('change', () => setTimeout(weiter, 350), { once: true });
+      // Maske zu (Abbrechen)? Dann endet die Hilfe leise.
+      const wache = setInterval(() => { if (!Assistent.tour || Assistent.tour.id !== id) return clearInterval(wache); if (!document.body.contains(m)) { clearInterval(wache); Assistent.beendeTour(true); } }, 400);
+    } else if (st.speichern) {
+      const m = await Assistent.warteAuf(modal, 4000);
+      if (!Assistent.tour || Assistent.tour.id !== id) return;
+      const knopf = m && m.querySelector('[data-save]');
+      if (!knopf) return Assistent.beendeTour(true);
+      Assistent.tipp(knopf, kopf, st.text, { extra });
+      const wache = setInterval(() => {
+        if (!Assistent.tour || Assistent.tour.id !== id) return clearInterval(wache);
+        if (!document.body.contains(m)) { clearInterval(wache); Assistent.fertig(e); }
+      }, 400);
+    }
+  },
+  fertig(e) {
+    Assistent.beendeTour(true);
+    UI.toast('Geschafft! Gut gemacht.');
+    const fab = document.getElementById('bini-fab'), img = fab && fab.querySelector('img');
+    if (img && !img.dataset.fallback) { const alt = img.src; img.src = Assistent.bild('happy'); setTimeout(() => Assistent.layout(true), 2800); }
   },
   markeWeg() {
     clearTimeout(Assistent._timer);
@@ -19659,12 +19810,12 @@ Views.assistent = {
     const bubble = (m) => {
       if (m.von === 'du') return `<div class="bini-msg du">${U.esc(m.text)}</div>`;
       let h = '';
-      if (m.art === 'gruss') h = `<p>Hallo! Ich bin Imme – das alte Wort für Biene. Schreib mir, was du tun möchtest, zum Beispiel <i>„Wie buche ich einen Honigverkauf?“</i> oder <i>„Wo trage ich eine Varroa-Behandlung ein?“</i>.</p>`;
+      if (m.art === 'gruss') h = `<p>Hallo, ich bin Imme, dein persönlicher Assistent – und das alte Wort für Biene. Schreib mir, was du tun möchtest, zum Beispiel <i>„Wie buche ich einen Honigverkauf?“</i> oder <i>„Wo trage ich eine Varroa-Behandlung ein?“</i>.</p>`;
       else if (m.art === 'app') {
         const e = m.haupt;
         h = `<p><b>${U.esc(e.titel)}</b></p><p>${U.esc(e.antwort)}</p>`;
         if (e.schritte.length) h += `<ol class="bini-schritte">${e.schritte.map((s) => `<li>${U.esc(s)}</li>`).join('')}</ol>
-          <div class="bini-aktion"><button class="btn btn-primary btn-sm" data-zeige="${U.esc(e.id)}">${icon('pointer')} Zeig’s mir</button></div>`;
+          <div class="bini-aktion"><button class="btn btn-primary btn-sm" data-zeige="${U.esc(e.id)}">${icon('pointer')} ${e.tour ? 'Schritt für Schritt zeigen' : 'Zeig’s mir'}</button>${e.tour ? '<div class="small muted mt8">Ich begleite dich durch die Eingabe. Mit einem Tipp auf mich beendest du die Hilfe jederzeit.</div>' : ''}</div>`;
         if (m.weitere.length) h += `<p class="small muted mt8">Meintest du auch:</p><div class="bini-chips">${m.weitere.map((w) => `<button class="chip" data-wissen="${U.esc(w.id)}">${U.esc(w.titel)}</button>`).join('')}</div>`;
         if (m.faq.length) h += `<p class="small muted mt8">Dazu aus der Imker-Praxis:</p>${m.faq.map((f) => `<details class="bini-faq"><summary>${U.esc(f.f)}</summary><p>${U.esc(f.a)}</p></details>`).join('')}`;
       } else if (m.art === 'faq') {
@@ -19677,7 +19828,11 @@ Views.assistent = {
       chat.innerHTML = L.map(bubble).join('');
       const letzte = [...L].reverse().find((m) => m.von === 'bini');
       const kopf = $('.bini-gross', main); const neu = Assistent.bild(ZUSTAND[letzte && letzte.art] || 'idle');
-      if (kopf && !kopf.src.endsWith(neu.slice(1))) kopf.src = neu;
+      if (kopf && !kopf.src.endsWith(neu.slice(1))) {
+        kopf.src = neu;
+        clearTimeout(Assistent._kopfT);   // nach zwei Schleifen wieder die Arme runter
+        if (!neu.endsWith('/idle.webp')) Assistent._kopfT = setTimeout(() => { if (kopf.isConnected) kopf.src = Assistent.bild('idle'); }, 4200);
+      }
       chat.scrollTop = chat.scrollHeight; window.scrollTo({ top: document.body.scrollHeight });
     };
     const frage = async (text) => {
@@ -19691,7 +19846,7 @@ Views.assistent = {
     $('#bini-form', main).onsubmit = (ev) => { ev.preventDefault(); const i = $('#bini-in', main); const t = i.value; i.value = ''; frage(t); };
     main.addEventListener('click', (ev) => {
       const c = ev.target.closest('[data-frage]'); if (c) return frage(c.dataset.frage);
-      const z = ev.target.closest('[data-zeige]'); if (z) return Assistent.zeige(APP_WISSEN.find((x) => x.id === z.dataset.zeige));
+      const z = ev.target.closest('[data-zeige]'); if (z) return Assistent.starte(APP_WISSEN.find((x) => x.id === z.dataset.zeige));
       const w = ev.target.closest('[data-wissen]'); if (w) { const e = APP_WISSEN.find((x) => x.id === w.dataset.wissen); L.push({ von: 'bini', art: 'app', haupt: e, weitere: [], faq: [] }); zeichne(); }
     });
   },
