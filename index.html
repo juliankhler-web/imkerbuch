@@ -515,7 +515,7 @@ body[data-route="assistent"] .bini-fab{display:none}
 .bini-weiter{margin-top:8px}
 body.bini-fuehrt .bini-fab::after{content:'Hilfe beenden';position:absolute;right:50%;bottom:100%;transform:translate(50%,-4px);white-space:nowrap;background:var(--honey);color:#3a2a10;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;box-shadow:0 4px 10px -3px rgba(0,0,0,.4)}
 .bini-tip-av{width:38px;height:42px;object-fit:contain;flex:0 0 auto}
-.bini-tip button{background:none;border:0;padding:2px;color:var(--muted);cursor:pointer}.bini-tip button svg{width:16px;height:16px}
+.bini-tip .bini-x{position:absolute;top:4px;right:4px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:var(--card2);border:0;border-radius:50%;padding:0;color:var(--text);cursor:pointer}.bini-tip .bini-x svg{width:16px;height:16px}.bini-tip{padding-right:40px}.bini-tip>button:not(.bini-x){background:none;border:0;padding:2px;color:var(--muted);cursor:pointer}
 /* Beim Ziehen aus „Alle Bereiche“ wird das Menü blass und die untere Leiste hebt sich als Ziel ab */
 body.lp-bar-hebt .modal-back{background:rgba(20,15,5,.12);backdrop-filter:none;-webkit-backdrop-filter:none}
 body.lp-bar-hebt .modal{opacity:.4}
@@ -1113,8 +1113,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.19';
+const APP_VERSION = '2.20';
 const CHANGELOG = [
+  { version: '2.20', datum: '2026-10-04', punkte: [
+    '<b>Weißer Streifen oben auf dem iPhone behoben:</b> Die App reicht jetzt bis ganz nach oben unter die Statusleiste, und die Uhr-/Akku-Schrift passt sich dem hellen oder dunklen Design an. (Gilt für die iPhone- und Android-App, nicht für den Browser.)',
+    '<b>Imme führt jetzt durch fast alle Eingaben:</b> zusätzlich Ernte, Charge, Abfüllung, Honigverkauf, Rechnung, Fahrt, Zuchtserie, Tracht, Zeiterfassung, Reinigung sowie An- und Verkauf von Material. In jedem Schritt beendet das <b>✕ im Hinweis</b> (oder ein Tipp auf Imme, oder die Esc-Taste) die Hilfe.',
+  ] },
   { version: '2.19', datum: '2026-10-04', punkte: [
     'Imme winkt nur noch ein paar Mal (zweimal bis dreimal) und steht dann ruhig da, statt dauernd zu winken. Im Chat hebt sie den Arm nur kurz, wenn sie dir antwortet.',
     'Imme begrüßt dich mit „Hallo, ich bin Imme, dein persönlicher Assistent“ – im Chat und am Anfang jeder Schritt-für-Schritt-Hilfe.',
@@ -3173,6 +3177,11 @@ function applyTheme() {
   const mode = S.get('darkMode');
   const dark = mode === 'dunkel' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  /* Native App (Capacitor): Statusleiste passend zur App-Farbe – sonst steht auf dunklem Grund dunkle Schrift bzw. ein heller Streifen. */
+  try {
+    const SB = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar;
+    if (SB) { SB.setStyle({ style: dark ? 'DARK' : 'LIGHT' }); if (SB.setBackgroundColor) SB.setBackgroundColor({ color: dark ? '#161619' : '#FAF6EF' }).catch(() => {}); }
+  } catch (e) { /* im Browser gibt es keine Statusleiste */ }
   const meta = $('meta[name="theme-color"]');
   if (meta) meta.content = dark ? '#161619' : '#FAF6EF';
   // Spiegel für das Kopf-Skript: beim nächsten Start sofort das richtige Design (kein Aufblitzen)
@@ -19375,7 +19384,13 @@ const APP_WISSEN = [
   { id: 'zucht', titel: 'Königinnen züchten', route: 'zucht', zeige: 'Serie',
     stichw: ['zucht', 'zuechten', 'umlarven', 'zuchtserie', 'zuchtkalender', 'stammbaum', 'beleg', 'belegstelle', 'begattung', 'toechter'],
     antwort: 'Unter „Zucht“ planst du Zuchtserien mit Zuchtkalender (Umlarven, Verdeckelung, Schlupf) und führst Stammbaum und Bewertung.',
-    schritte: ['Menü ▸ Zucht', '„+ Neue Serie“ tippen', 'Datum des Umlarvens eingeben – der Kalender rechnet die Termine aus'] },
+    schritte: ['Menü ▸ Zucht', '„+ Neue Serie“ tippen', 'Datum des Umlarvens eingeben – der Kalender rechnet die Termine aus'],
+    tour: [{ knopf: 'Neue Serie', text: 'Tippe auf „Neue Serie“.' },
+      { feld: 'Bezeichnung', text: 'Gib der Serie einen Namen, zum Beispiel „Serie A“.' },
+      { feld: 'Startdatum', text: 'Der Umlarvtag. Daraus rechnet der Zuchtkalender alle Termine aus.' },
+      { feld: 'Umgelarvte Zellen', text: 'Wie viele Zellen hast du umgelarvt?' },
+      { feld: 'Zuchtmutter', text: 'Von welcher Königin stammen die Larven?' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Die Aufgaben für die nächsten Schritte entstehen von selbst.' }] },
   { id: 'behandlung', titel: 'Varroa-Behandlung eintragen', route: 'behandlungen', zeige: 'Behandlung',
     stichw: ['behandlung', 'varroa', 'milben', 'ameisensaeure', 'oxalsaeure', 'tierarzneimittel', 'bestandsbuch', 'arzneimittel', 'behandeln', 'milbenfall', 'wartezeit'],
     antwort: 'Jede Behandlung muss dokumentiert werden (Bestandsbuch). Die App speichert Mittel, Datum, Menge und die Wartezeit.',
@@ -19398,15 +19413,36 @@ const APP_WISSEN = [
   { id: 'ernte', titel: 'Honig ernten (Charge anlegen)', route: 'honig', zeige: 'Ernte',
     stichw: ['ernte', 'ernten', 'honig ernten', 'schleudern', 'charge', 'honigernte', 'wassergehalt', 'sorte', 'schleuderung', 'kg honig'],
     antwort: 'Die Ernte legst du als Charge an: Sorte, Datum, Menge und Wassergehalt. Aus der Charge werden später die Abfüllungen.',
-    schritte: ['Menü ▸ Ernte', 'Reiter „Ernte“ ▸ Neue Ernte', 'Sorte, Datum, Menge (kg) und Wassergehalt eintragen'] },
+    schritte: ['Menü ▸ Ernte', 'Reiter „Ernte“ ▸ Neue Ernte', 'Sorte, Datum, Menge (kg) und Wassergehalt eintragen'],
+    tour: [{ reiter: 'Ernte', text: 'Öffne den Reiter „Ernte“.' },
+      { knopf: '#add', text: 'Tippe auf „+ Ernte“.' },
+      { feld: 'Geerntet wurde', text: 'Was wurde geerntet: Honig, Wachs …?' },
+      { feld: 'Datum', text: 'An welchem Tag?' },
+      { feld: 'Menge (kg)', text: 'Wie viel Kilogramm?' },
+      { feld: 'Wassergehalt', text: 'Der Wassergehalt (Refraktometer). Bis 18 % ist normal.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Aus Ernten entstehen später Chargen.' }] },
   { id: 'abfuellen', titel: 'Honig abfüllen und Etiketten drucken', route: 'honig', zeige: 'Abfüllen',
     stichw: ['abfuellen', 'abfuellung', 'glaeser', 'glas', 'etikett', 'etiketten', 'mhd', 'losnummer', 'honigglas', 'gebinde', 'abfuellen von honig'],
     antwort: 'Beim Abfüllen wählst du die Charge, das Glas und die Anzahl. Die App zieht Gläser und Deckel vom Lager ab, vergibt die Losnummer und druckt das Etikett.',
-    schritte: ['Menü ▸ Ernte', 'Reiter „Abfüllung“ ▸ „Abfüllen“', 'Charge, Gläser und Anzahl wählen, Etikett als PDF öffnen'] },
+    schritte: ['Menü ▸ Ernte', 'Reiter „Abfüllung“ ▸ „Abfüllen“', 'Charge, Gläser und Anzahl wählen, Etikett als PDF öffnen'],
+    tour: [{ reiter: 'Abfüllung', text: 'Öffne den Reiter „Abfüllung“.' },
+      { knopf: '#add', text: 'Tippe auf „+ Abfüllen“.' },
+      { feld: 'Aus welcher Charge', text: 'Welche Charge füllst du ab?' },
+      { feld: 'Abfülldatum', text: 'An welchem Tag?' },
+      { feld: 'Mindestens haltbar', text: 'Das Mindesthaltbarkeitsdatum. Die App schlägt eines vor.' },
+      { feld: '500 g', text: 'Trage ein, wie viele Gläser du je Größe abgefüllt hast. Gläser und Deckel zieht die App vom Lager ab.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Danach kannst du die Etiketten drucken.' }] },
   { id: 'honig-verkauf', titel: 'Honig verkaufen', route: 'honig', zeige: 'Verkauf',
     stichw: ['honig verkaufen', 'verkauf', 'verkaufen', 'verkauf erfassen', 'kunde kauft', 'glas verkauft', 'honigverkauf', 'abgeben', 'einnahme'],
     antwort: 'Verkäufe erfasst du im Reiter „Verkauf“. Der Bestand sinkt automatisch, und die Einnahme landet im Kassenbuch.',
-    schritte: ['Menü ▸ Ernte', 'Reiter „Verkauf“ ▸ „Verkauf erfassen“', 'Abfüllung, Anzahl, Preis und Kunde wählen'] },
+    schritte: ['Menü ▸ Ernte', 'Reiter „Verkauf“ ▸ „Verkauf erfassen“', 'Abfüllung, Anzahl, Preis und Kunde wählen'],
+    tour: [{ reiter: 'Verkauf', text: 'Öffne den Reiter „Verkauf“.' },
+      { knopf: 'Verkauf erfassen', text: 'Tippe auf „+ Verkauf erfassen“.' },
+      { feld: 'Welche Abfüllung', text: 'Welche Abfüllung hast du verkauft? Der Bestand sinkt automatisch.' },
+      { feld: 'Anzahl Gebinde', text: 'Wie viele Gläser?' },
+      { feld: 'Preis je Gebinde', text: 'Preis pro Glas in Euro.' },
+      { feld: 'An wen verkauft', text: 'Optional: der Kunde. Ohne Kunden gilt es als Barverkauf.' },
+      { speichern: true, text: 'Tippe auf „Speichern“. Die Einnahme landet im Kassenbuch.' }] },
   { id: 'markt', titel: 'Marktkasse / Verkauf am Stand', route: 'honig', zeige: 'Markt',
     stichw: ['markt', 'marktkasse', 'wochenmarkt', 'kasse', 'bar kassieren', 'wechselgeld', 'hofladen', 'schnellverkauf'],
     antwort: 'Für den Verkauf am Marktstand gibt es die Marktkasse: Gläser antippen, Wechselgeld sehen, kassieren.',
@@ -19418,11 +19454,21 @@ const APP_WISSEN = [
   { id: 'an-verkauf', titel: 'An- und Verkauf von Material buchen', route: 'material', zeige: 'An- und Verkauf buchen',
     stichw: ['anverkauf', 'an und verkauf', 'material einkaufen', 'material verkaufen', 'einkauf', 'eigenverbrauch', 'verlust buchen', 'zukauf', 'materialverkauf'],
     antwort: 'In den Bereichen Verbrauchsmaterial, Inventar und Weitere Produkte gibt es den Knopf „An- und Verkauf buchen“. Dort wählst du Einkauf, Verkauf, Eigenverbrauch oder Verlust – die Buchung ins Kassenbuch läuft automatisch.',
-    schritte: ['Menü ▸ Verbrauchsmaterial (oder Inventar / Weitere Produkte)', '„An- und Verkauf buchen“ tippen', 'Art, Position, Menge und Preis eingeben'] },
+    schritte: ['Menü ▸ Verbrauchsmaterial (oder Inventar / Weitere Produkte)', '„An- und Verkauf buchen“ tippen', 'Art, Position, Menge und Preis eingeben'],
+    tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
+      { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
+      { knopf: 'Verbrauchsmaterial', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
+      { speichern: true, text: 'Trage Position, Menge und Preis ein und tippe dann auf „Speichern“. Das Kassenbuch bucht die App automatisch mit.' }] },
   { id: 'rechnung', titel: 'Rechnung schreiben', route: 'rechnungen', zeige: 'Neue Rechnung',
     stichw: ['rechnung', 'rechnungen', 'rechnung schreiben', 'rechnungsnummer', 'faktura', 'zahlungsziel', 'kunde rechnung', 'quittung', 'lieferschein'],
     antwort: 'Rechnungen schreibst du im Bereich „Rechnungen“. Kunde, Positionen und Zahlungsziel eintragen, dann als PDF öffnen oder teilen.',
-    schritte: ['Menü ▸ Rechnungen', '„+ Neue Rechnung“ tippen', 'Kunde und Positionen eintragen, als PDF öffnen'] },
+    schritte: ['Menü ▸ Rechnungen', '„+ Neue Rechnung“ tippen', 'Kunde und Positionen eintragen, als PDF öffnen'],    seite: true,
+    tour: [{ knopf: 'Neue Rechnung', text: 'Tippe auf „Neue Rechnung“.' },
+      { feld: 'Kunde', text: 'Wähle den Kunden. Fehlt er, legst du ihn gleich dort neu an.' },
+      { feld: 'Rechnungsdatum', text: 'Das Datum der Rechnung.' },
+      { feld: 'Zahlungsziel', text: 'Nach wie vielen Tagen soll bezahlt werden?' },
+      { abschluss: 'Position', text: 'Weiter unten fügst du die Positionen hinzu. Danach kannst du die Rechnung als PDF öffnen.' }] },
   { id: 'kontakte', titel: 'Kunden und Lieferanten verwalten', route: 'kontakte', zeige: 'Kontakt',
     stichw: ['kontakt', 'kontakte', 'kunde', 'kunden', 'lieferant', 'lieferanten', 'abnehmer', 'adresse', 'telefon', 'neuer kunde', 'neuer lieferant', 'bio partner'],
     antwort: 'Kunden und Lieferanten pflegst du im Bereich „Abnehmer & Lieferanten“. Die Kontakte erscheinen automatisch in allen Auswahllisten (Rechnung, Verkauf, Einkauf …).',
@@ -19439,7 +19485,13 @@ const APP_WISSEN = [
   { id: 'hygiene', titel: 'Hygieneplan und Reinigungen', route: 'hygiene', zeige: 'Eintrag',
     stichw: ['hygiene', 'reinigung', 'reinigen', 'hygieneplan', 'schleuderraum', 'honiglager', 'eigenkontrolle', 'schaedlinge', 'waage', 'checkliste', 'lebensmittelhygiene'],
     antwort: 'Der Bereich „Hygiene“ hat Hygieneplan, Reinigungsnachweise und Eigenkontrollen (Ernte, Abfüllung, Honiglager, Schädlinge, Waage). Mit „Vorschläge übernehmen“ legst du die Standardpunkte an.',
-    schritte: ['Menü ▸ Hygiene', 'Reiter „Reinigungen“ ▸ Kurzwahl antippen oder „+ Eintrag“', 'Datum prüfen, speichern'] },
+    schritte: ['Menü ▸ Hygiene', 'Reiter „Reinigungen“ ▸ Kurzwahl antippen oder „+ Eintrag“', 'Datum prüfen, speichern'],
+    tour: [{ reiter: 'Reinigungen', text: 'Öffne den Reiter „Reinigungen“.' },
+      { knopf: 'Eintrag', text: 'Tippe auf „+ Eintrag“. Schneller geht es mit einer Kurzwahl darunter.' },
+      { feld: 'Bereich / Gegenstand', text: 'Was wurde gereinigt?' },
+      { feld: 'Mittel und Verfahren', text: 'Womit und wie?' },
+      { feld: 'Häufigkeit', text: 'Wie oft ist die Reinigung vorgesehen?' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'wanderung', titel: 'Wanderung zur Tracht', route: 'wanderungen', zeige: 'Wanderung',
     stichw: ['wanderung', 'wandern', 'umstellen', 'tracht', 'rapsbluete', 'standwechsel', 'wanderimkerei'],
     antwort: 'Wenn du Völker zu einer Tracht fährst, trägst du eine Wanderung ein: Von, Nach, Datum und Grund.',
@@ -19453,27 +19505,60 @@ const APP_WISSEN = [
   { id: 'tracht', titel: 'Trachten pflegen', route: 'trachten', zeige: 'Tracht',
     stichw: ['trachten', 'trachtpflanze', 'bluete', 'blueten', 'trachtkalender', 'pollen', 'nektar'],
     antwort: 'Unter „Trachten“ legst du die Pflanzen an, die deine Bienen anfliegen, mit Blütezeit und Notizen.',
-    schritte: ['Menü ▸ Trachten', '„+ Neue Tracht“ tippen', 'Name und Blütezeit eintragen'] },
+    schritte: ['Menü ▸ Trachten', '„+ Neue Tracht“ tippen', 'Name und Blütezeit eintragen'],
+    tour: [{ knopf: 'Neue Tracht', text: 'Tippe auf „Neue Tracht“.' },
+      { feld: 'Bezeichnung', text: 'Name der Tracht, zum Beispiel „Raps 2026“.' },
+      { feld: 'Trachtpflanze', text: 'Welche Pflanze blüht?' },
+      { feld: 'Beginn', text: 'Wann beginnt die Blüte?' },
+      { feld: 'Ende', text: 'Wann endet sie?' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'fahrten', titel: 'Fahrtenbuch führen', route: 'fahrten', zeige: 'Fahrt',
     stichw: ['fahrt', 'fahrten', 'fahrtenbuch', 'kilometer', 'km', 'auto', 'kurzwahl fahrt', 'strecke', 'fahrtkosten'],
     antwort: 'Im Fahrtenbuch hältst du Kilometer und Zweck fest. Häufige Strecken legst du als Kurzwahl an und tippst sie nur noch an.',
-    schritte: ['Menü ▸ Fahrtenbuch', '„+ Fahrt“ oder eine Kurzwahl antippen', 'Datum und Kilometer prüfen, speichern'] },
+    schritte: ['Menü ▸ Fahrtenbuch', '„+ Fahrt“ oder eine Kurzwahl antippen', 'Datum und Kilometer prüfen, speichern'],
+    tour: [{ knopf: '#add', text: 'Tippe auf „+ Fahrt“. Häufige Strecken sparst du dir mit einer Kurzwahl.' },
+      { feld: 'Ziel', text: 'Wohin bist du gefahren?' },
+      { feld: 'Datum', text: 'An welchem Tag?' },
+      { feld: 'Kilometer', text: 'Die gesamte Strecke, hin und zurück.' },
+      { feld: 'Zweck der Fahrt', text: 'Wofür war die Fahrt? Das braucht das Finanzamt.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'zeiten', titel: 'Arbeitszeit erfassen', route: 'zeiten', zeige: 'Zeit',
     stichw: ['zeit', 'zeiten', 'zeiterfassung', 'arbeitszeit', 'stunden', 'stoppuhr', 'arbeitsstunden'],
     antwort: 'In der Zeiterfassung startest du eine Stoppuhr oder trägst Zeit nachträglich ein.',
-    schritte: ['Menü ▸ Zeiterfassung', 'Stoppuhr starten oder „Zeit nachtragen“', 'Tätigkeit und Dauer wählen'] },
-  { id: 'material', titel: 'Verbrauchsmaterial und Bestand', route: 'material', zeige: 'Position',
+    schritte: ['Menü ▸ Zeiterfassung', 'Stoppuhr starten oder „Zeit nachtragen“', 'Tätigkeit und Dauer wählen'],
+    tour: [{ knopf: 'Zeit nachtragen', text: 'Tippe auf „Zeit nachtragen“. Oder starte oben die Stoppuhr.' },
+      { feld: 'Was hast du gemacht', text: 'Kurz beschreiben, was du gemacht hast.' },
+      { feld: 'Datum', text: 'An welchem Tag?' },
+      { feld: 'Tätigkeit', text: 'Wähle die Art der Arbeit.' },
+      { feld: 'Dauer', text: 'Wie viele Minuten hat es gedauert?' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
+  { id: 'material', titel: 'Verbrauchsmaterial und Bestand', route: 'material', zeige: 'An- und Verkauf buchen',
     stichw: ['material', 'verbrauchsmaterial', 'bestand', 'lager', 'glaeser lager', 'deckel', 'mittelwaende', 'zucker lager', 'mindestbestand', 'zugang', 'einkaufen'],
     antwort: 'Im Verbrauchsmaterial steht, was du auf Lager hast (Gläser, Zucker, Mittelwände …). Beim Abfüllen oder Füttern wird automatisch abgezogen; unter dem Mindestbestand warnt dich das Dashboard.',
-    schritte: ['Menü ▸ Verbrauchsmaterial', '„+ Position“ tippen', 'Name, Einheit, Bestand und Mindestbestand eintragen'] },
-  { id: 'inventar', titel: 'Inventar (Geräte und Beuten)', route: 'inventar', zeige: 'Position',
+    schritte: ['Menü ▸ Verbrauchsmaterial', '„+ Position“ tippen', 'Name, Einheit, Bestand und Mindestbestand eintragen'],
+    tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
+      { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
+      { knopf: 'Verbrauchsmaterial', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
+      { speichern: true, text: 'Trage Position, Menge und Preis ein und tippe dann auf „Speichern“. Das Kassenbuch bucht die App automatisch mit.' }] },
+  { id: 'inventar', titel: 'Inventar (Geräte und Beuten)', route: 'inventar', zeige: 'An- und Verkauf buchen',
     stichw: ['inventar', 'geraete', 'beuten', 'schleuder', 'ausruestung', 'werkzeug', 'anschaffung', 'abschreibung'],
     antwort: 'Das Inventar listet deine Geräte und Beuten. Ein Kauf wird auf Wunsch ins Kassenbuch gebucht.',
-    schritte: ['Menü ▸ Inventar', '„+ Position“ tippen', 'Bezeichnung, Anzahl und Kaufpreis eintragen'] },
-  { id: 'produkte', titel: 'Weitere Produkte (Essig, Met, Lohnverarbeitung)', route: 'produkte', zeige: 'Position',
+    schritte: ['Menü ▸ Inventar', '„+ Position“ tippen', 'Bezeichnung, Anzahl und Kaufpreis eintragen'],
+    tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
+      { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
+      { knopf: 'Inventar', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
+      { speichern: true, text: 'Trage Position, Menge und Preis ein und tippe dann auf „Speichern“. Das Kassenbuch bucht die App automatisch mit.' }] },
+  { id: 'produkte', titel: 'Weitere Produkte (Essig, Met, Lohnverarbeitung)', route: 'produkte', zeige: 'An- und Verkauf buchen',
     stichw: ['weitere produkte', 'essig', 'met', 'honigwein', 'kerzen', 'wachs', 'propolis', 'lohnverarbeitung', 'lohnverarbeiter', 'honig lose'],
     antwort: 'Alles, was nicht Honigglas ist (Essig, Met, Kerzen …), führst du unter „Weitere Produkte“. Auch Lohnverarbeitung: Honig geht an den Verarbeiter, die Kosten buchen sich ins Kassenbuch.',
-    schritte: ['Menü ▸ Weitere Produkte', '„+ Position“ tippen', 'Name, Einheit und Bestand eintragen'] },
+    schritte: ['Menü ▸ Weitere Produkte', '„+ Position“ tippen', 'Name, Einheit und Bestand eintragen'],
+    tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
+      { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
+      { knopf: 'Weitere Produkte', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
+      { speichern: true, text: 'Trage Position, Menge und Preis ein und tippe dann auf „Speichern“. Das Kassenbuch bucht die App automatisch mit.' }] },
   { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'material', zeige: '',
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
     antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position, Pfand-Buchungen laufen ohne Umsatzsteuer.',
@@ -19703,6 +19788,7 @@ const Assistent = {
      Eine Tour besteht aus Schritten: { knopf } (Knopf auf der Seite antippen), { feld } (Feld im Formular, wartet
      auf Eingabe oder „Weiter“) und { speichern }. Ein Tipp auf Imme beendet die Hilfe jederzeit. */
   tour: null, _tourId: 0,
+  _escHoeren: (() => { document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && Assistent.tour) Assistent.beendeTour(); }); return true; })(),
   starte(e) { return e.tour ? Assistent.starteTour(e) : Assistent.zeige(e); },
   async starteTour(e) {
     Assistent.beendeTour(true);
@@ -19721,6 +19807,18 @@ const Assistent = {
     Assistent.markeWeg();
     if (war && !still) UI.toast('Hilfe beendet. Tippe auf Imme, wenn du mich wieder brauchst.');
   },
+  /** Sucht den Knopf eines Schritts: erst in der offenen Maske, sonst auf der Seite. „#add“ = CSS-Selektor, `exakt` = ganzer Text. */
+  findeSchritt(label, exakt) {
+    const sicht = (el) => el.offsetParent !== null;
+    if (/^[#\[.]/.test(label)) return [...document.querySelectorAll(label)].find(sicht) || null;
+    const m = [...document.querySelectorAll('.modal-back')].pop();
+    const scope = m && !m.querySelector('.sheet-grid') ? m : document.querySelector('#main');
+    if (!scope) return null;
+    const kand = [...scope.querySelectorAll('button, a.btn, .chip, [role="tab"]')].filter(sicht);
+    const l = assistentNorm(label);
+    if (exakt) return kand.find((el) => assistentNorm(el.textContent) === l) || null;
+    return kand.find((el) => assistentNorm(el.textContent).includes(l)) || null;
+  },
   async warteAuf(suche, ms = 4000) {
     const t0 = Date.now();
     while (Date.now() - t0 < ms) { const el = suche(); if (el) return el; await new Promise((r) => setTimeout(r, 120)); }
@@ -19731,8 +19829,9 @@ const Assistent = {
     el.classList.add('bini-ziel');
     try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (x) { /* alt */ }
     const tip = document.createElement('div'); tip.className = 'bini-tip';
-    tip.innerHTML = `${Assistent.img('point', 'bini-tip-av')}<div>${optionen.anrede ? `<div class="bini-anrede">${U.esc(optionen.anrede)}</div>` : ''}<b>${U.esc(kopf)}</b><br>${U.esc(text)}${optionen.extra ? `<div class="bini-hinweis">${U.esc(optionen.extra)}</div>` : ''}${optionen.weiter ? `<div class="bini-weiter"><button type="button" class="btn btn-primary btn-sm" data-weiter>Weiter</button></div>` : ''}</div>`;
+    tip.innerHTML = `<button type="button" class="bini-x" data-x aria-label="Hilfe beenden" title="Hilfe beenden">${icon('x')}</button>${Assistent.img('point', 'bini-tip-av')}<div>${optionen.anrede ? `<div class="bini-anrede">${U.esc(optionen.anrede)}</div>` : ''}<b>${U.esc(kopf)}</b><br>${U.esc(text)}${optionen.extra ? `<div class="bini-hinweis">${U.esc(optionen.extra)}</div>` : ''}${optionen.weiter ? `<div class="bini-weiter"><button type="button" class="btn btn-primary btn-sm" data-weiter>Weiter</button></div>` : ''}</div>`;
     document.body.appendChild(tip);
+    tip.querySelector('[data-x]').onclick = () => Assistent.beendeTour();
     const platz = () => { const r = el.getBoundingClientRect(); const oben = r.top > 190; tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.left + r.width / 2 - tip.offsetWidth / 2)) + 'px'; tip.style.top = (oben ? Math.max(8, r.top - tip.offsetHeight - 12) : Math.min(innerHeight - tip.offsetHeight - 90, r.bottom + 12)) + 'px'; };
     setTimeout(platz, 380); setTimeout(platz, 900);
     return tip;
@@ -19745,25 +19844,41 @@ const Assistent = {
     const anrede = T.i === 0 ? 'Hallo, ich bin Imme, dein persönlicher Assistent!' : '';
     const weiter = () => { if (Assistent.tour && Assistent.tour.id === id) { Assistent.tour.i++; Assistent.schritt(id); } };
     const modal = () => { const m = [...document.querySelectorAll('.modal-back')].pop(); return m && !m.querySelector('.sheet-grid') ? m : null; };
-    if (st.knopf) {
-      const el = await Assistent.warteAuf(() => Assistent.finde(st.knopf), 4000);
+    const ort = () => modal() || (e.seite ? document.querySelector('#main') : null);
+    if (st.knopf || st.reiter) {
+      const label = st.knopf || st.reiter;
+      const el = await Assistent.warteAuf(() => Assistent.findeSchritt(label, !!st.reiter || !!st.exakt), 4000);
       if (!Assistent.tour || Assistent.tour.id !== id) return;
-      if (!el) { UI.toast(`Such den Knopf „${st.knopf}“ auf dieser Seite.`); return Assistent.beendeTour(true); }
-      Assistent.tipp(el, kopf, st.text, { extra, anrede });
-      el.addEventListener('click', () => setTimeout(weiter, 450), { once: true });
+      if (!el) { UI.toast(`Such den Knopf „${label}“ auf dieser Seite.`); return Assistent.beendeTour(true); }
+      const tip = Assistent.tipp(el, kopf, st.text, { extra, anrede, weiter: !!st.weiter || !!st.reiter });
+      const go = () => { el.removeEventListener('click', klick); setTimeout(weiter, 450); };
+      const klick = () => go();
+      el.addEventListener('click', klick, { once: true });
+      const wb = tip.querySelector('[data-weiter]'); if (wb) wb.onclick = () => { el.removeEventListener('click', klick); weiter(); };
+    } else if (st.abschluss) {
+      const l = assistentNorm(st.abschluss);
+      const el = await Assistent.warteAuf(() => [...document.querySelectorAll('#main h2, #main h3, #main .card-title, #main button')].filter((x) => x.offsetParent !== null).find((x) => assistentNorm(x.textContent).includes(l)), 3000);
+      if (!Assistent.tour || Assistent.tour.id !== id) return;
+      if (!el) return Assistent.fertig(e);
+      const tip = Assistent.tipp(el.closest('.card') || el, kopf, st.text, { extra });
+      const b = document.createElement('div'); b.className = 'bini-weiter'; b.innerHTML = '<button type="button" class="btn btn-primary btn-sm">Fertig</button>';
+      tip.querySelector('div:not(.bini-anrede)').appendChild(b);
+      b.querySelector('button').onclick = () => Assistent.fertig(e);
     } else if (st.feld) {
-      const m = await Assistent.warteAuf(modal, 4000);
+      const m = await Assistent.warteAuf(ort, 4000);
       if (!Assistent.tour || Assistent.tour.id !== id) return;
       if (!m) return Assistent.beendeTour(true);
       const l = assistentNorm(st.feld);
-      const feld = [...m.querySelectorAll('.field')].find((f) => f.offsetParent !== null && assistentNorm((f.querySelector('label') || {}).textContent).includes(l));
+      const feld = await Assistent.warteAuf(() => { const o = ort(); return o && [...o.querySelectorAll('.field')].find((f) => f.offsetParent !== null && assistentNorm((f.querySelector('label') || {}).textContent).includes(l)); }, e.seite ? 3500 : 700);
+      if (!Assistent.tour || Assistent.tour.id !== id) return;
       if (!feld) return weiter();   // gibt es in dieser Maske nicht: nächster Schritt
       const tip = Assistent.tipp(feld, kopf, st.text, { weiter: true, extra });
       tip.querySelector('[data-weiter]').onclick = weiter;
       const eingabe = (ev) => { if (ev.type === 'change' || (ev.target && ev.target.tagName === 'INPUT' && ev.target.type !== 'checkbox')) { /* erst bei Fokus-Verlust/Auswahl weiter */ } };
       feld.addEventListener('change', () => setTimeout(weiter, 350), { once: true });
       // Maske zu (Abbrechen)? Dann endet die Hilfe leise.
-      const wache = setInterval(() => { if (!Assistent.tour || Assistent.tour.id !== id) return clearInterval(wache); if (!document.body.contains(m)) { clearInterval(wache); Assistent.beendeTour(true); } }, 400);
+      const route0 = currentRoute().route + "/" + (currentRoute().param || "");
+      const wache = setInterval(() => { if (!Assistent.tour || Assistent.tour.id !== id) return clearInterval(wache); if ((!e.seite && !document.body.contains(m)) || (e.seite && currentRoute().route + '/' + (currentRoute().param || '') !== route0)) { clearInterval(wache); Assistent.beendeTour(true); } }, 400);
     } else if (st.speichern) {
       const m = await Assistent.warteAuf(modal, 4000);
       if (!Assistent.tour || Assistent.tour.id !== id) return;

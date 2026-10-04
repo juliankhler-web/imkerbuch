@@ -9995,3 +9995,28 @@ test('Assistent Imme: Wissen deckt alle Menübereiche ab, Suche findet die richt
   assert(!w.NAV.some((n) => n.route === 'imkerschule') && w.NAV.some((n) => n.route === 'assistent'), 'Assistent ersetzt die Imkerschule im Menü');
   assert(typeof w.Views.imkerschule.render === 'function', 'Imkerschule-Inhalte bleiben erhalten');
 });
+
+test('Imme führt: alle Touren sind sauber aufgebaut, jede endet mit Speichern/Abschluss', async (w) => {
+  const touren = w.APP_WISSEN.filter((e) => e.tour);
+  assert(touren.length >= 20, `mindestens 20 geführte Aufgaben (jetzt ${touren.length})`);
+  for (const e of touren) {
+    assert(w.Views[e.route], `Route von „${e.id}“ existiert`);
+    const erst = e.tour[0];
+    assert(erst.knopf || erst.reiter, `„${e.id}“ beginnt mit einem Knopf oder Reiter`);
+    const letzt = e.tour[e.tour.length - 1];
+    assert(letzt.speichern || letzt.abschluss, `„${e.id}“ endet mit Speichern oder Abschluss`);
+    for (const st of e.tour) {
+      assert(st.text && st.text.length > 8, `„${e.id}“: jeder Schritt hat einen Hinweistext`);
+      assert(['knopf', 'reiter', 'feld', 'speichern', 'abschluss'].some((k) => st[k]), `„${e.id}“: bekannter Schritt-Typ`);
+    }
+  }
+  // Abbrechen: ✕, Tipp auf Imme und Esc beenden die Hilfe
+  w.Assistent.tour = { e: touren[0], i: 0, id: 1 };
+  w.document.body.classList.add('bini-fuehrt');
+  w.Assistent.tipp(w.document.body, 'Test', 'Testhinweis zum Abbrechen');
+  const x = w.document.querySelector('.bini-tip .bini-x');
+  assert(x, 'jeder Hinweis hat ein ✕');
+  x.click();
+  assert(!w.Assistent.tour && !w.document.querySelector('.bini-tip') && !w.document.body.classList.contains('bini-fuehrt'), '✕ beendet die Hilfe sofort');
+  w.document.body.classList.remove('bini-ziel');
+});
