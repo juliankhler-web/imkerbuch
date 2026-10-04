@@ -484,10 +484,18 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 .lp-sort button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .lp-ph{opacity:.28}
 /* Assistent „Bini“ */
-.bini-fab{position:fixed;z-index:44;right:14px;bottom:calc(var(--nav-h) + 26px + env(safe-area-inset-bottom));width:62px;height:62px;border-radius:50%;padding:0;border:0;background:var(--card);box-shadow:0 8px 22px -6px rgba(60,45,10,.45),0 0 0 2px var(--honey);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.bini-fab img{width:60px;height:60px;object-fit:contain;transform:translateY(3px)}
+.bini-slot{display:block;width:96px;height:100px;flex:0 0 auto;margin-right:auto}
+@media(max-width:700px){.bini-slot{width:86px;height:92px}}
+@media print{.bini-slot,.bini-fab{display:none!important}}
+.bini-fab{position:fixed;z-index:44;left:0;top:0;width:62px;height:62px;border-radius:50%;padding:0;border:0;background:var(--card);box-shadow:0 8px 22px -6px rgba(60,45,10,.45),0 0 0 2px var(--honey);cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;visibility:hidden}
+.bini-fab.bini-bereit{visibility:visible}
+.bini-fab img{width:100%;height:100%;object-fit:contain;transform:translateY(3px)}
+.bini-fab.bini-fliegt{transition:left .6s cubic-bezier(.3,1.35,.5,1),top .6s cubic-bezier(.3,1.35,.5,1),width .5s ease,height .5s ease,background .35s,box-shadow .35s,border-radius .5s}
+.bini-fab.bini-frei{background:transparent;box-shadow:none;border-radius:0;overflow:visible}
+.bini-fab.bini-frei img{transform:none;filter:drop-shadow(0 3px 6px rgba(0,0,0,.18))}
+@keyframes biniHupf{0%{transform:translateY(-16px)}35%{transform:translateY(5px)}65%{transform:translateY(-5px)}100%{transform:translateY(3px)}}
+.bini-fab img.bini-hupf{animation:biniHupf .6s ease-out}
 body[data-route="assistent"] .bini-fab{display:none}
-@media(min-width:900px){.bini-fab{bottom:22px;right:22px}}
 .bini-seite{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
 .bini-kopf{display:flex;align-items:center;gap:14px}
 .bini-kopf h1{margin:0}
@@ -1106,8 +1114,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.14';
+const APP_VERSION = '2.15';
 const CHANGELOG = [
+  { version: '2.15', datum: '2026-10-04', punkte: [
+    '<b>Bini im Dashboard-Kopf:</b> Neben deinem Namen winkt jetzt Bini statt der Tagesbiene. Scrollst du weg, rutscht und hüpft er nach unten rechts und bleibt dort als Knopf für den Assistenten. Scrollst du wieder nach oben, fliegt er zurück an seinen Platz.',
+    'Die fünf Bewegungen von Bini (Ruhe, Winken, Zeigen, Nachdenken, Freuen) sind in der fertigen Qualität eingebaut.',
+  ] },
   { version: '2.14', datum: '2026-10-04', punkte: [
     '<b>Neu: Assistent „Bini“.</b> Frag in eigenen Worten, wie etwas in der App geht („Wie buche ich einen Honigverkauf?“). Bini antwortet kurz mit den Schritten, und mit <b>„Zeig’s mir“</b> öffnet die App den Bereich und markiert den passenden Knopf. Dazu kommen die Antworten der Imker-Praxis. Alles läuft lokal auf dem Gerät, ohne Internet.',
     'Bini sitzt als runder Knopf unten rechts auf jeder Seite und hat im Menü den Platz der Imkerschule. Die Imkerschule ist ausgeblendet (nicht gelöscht) und ihr Lerntipp-Widget ist nicht mehr Standard.',
@@ -2983,6 +2995,7 @@ async function renderRoute() {
   }
   if (ueberholt()) return;     // nicht die inzwischen geöffnete Seite nach oben reißen
   window.scrollTo({ top: 0 });
+  Assistent.layout(true); setTimeout(() => Assistent.layout(true), 120); setTimeout(() => Assistent.layout(true), 600);
 }
 
 function renderChrome() {
@@ -3007,9 +3020,14 @@ function renderChrome() {
   if (!$('#bini-fab')) {
     const fab = document.createElement('button');
     fab.id = 'bini-fab'; fab.className = 'bini-fab'; fab.type = 'button'; fab.setAttribute('aria-label', 'Assistent Bini öffnen');
-    fab.innerHTML = `<img src="./assets/bini/idle.webp" alt="" onerror="this.onerror=null;this.src='./assets/bienen/biene-12.webp'">`;
+    fab.innerHTML = `<img src="./assets/bini/idle.webp" alt="" onerror="this.onerror=null;this.dataset.fallback=1;this.src='./assets/bienen/biene-12.webp'">`;
     fab.onclick = () => navTo('assistent');
     document.body.appendChild(fab);
+    let rafId = 0;
+    const lauf = () => { if (rafId) return; rafId = requestAnimationFrame(() => { rafId = 0; Assistent.layout(false); }); };
+    window.addEventListener('scroll', lauf, { passive: true });
+    window.addEventListener('resize', () => Assistent.layout(true));
+    Assistent.layout(true);
   }
   $('#btn-theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon');
   $('#btn-theme').onclick = async () => {
@@ -3822,7 +3840,7 @@ Views.dashboard = {
        Tagesbiene, zwei Bienen wären eine zu viel. */
     main.innerHTML = pageHead(`${gruss}${vorname ? ', ' + vorname : ''}!`, new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
       /* Ohne Symbol: das Zahnrad wirkte neben der Tagesbiene wie eine zweite Sonne. */
-      `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">Widgets</button>`, tagesbieneHtml()) +
+      `<button class="btn btn-ghost btn-sm no-print" id="dash-cfg">Widgets</button>`, '<span class="bini-slot" id="bini-slot" aria-hidden="true"></span>') +
       `<div class="grid2">${blocks.map((b) => `<div class="dash-klick" data-ziel="${U.esc(b.ziel || '')}" role="link">${b.html}</div>`).join('')}</div>`;
     $('#dash-cfg').onclick = Views.dashboard.configure;
     // Kachel-Klick führt in den passenden Bereich – Buttons/Links in der Kachel behalten Vorrang
@@ -19540,6 +19558,29 @@ const Assistent = {
     el.addEventListener('click', weg, { once: true });
     window.addEventListener('hashchange', weg, { once: true });
     Assistent._timer = setTimeout(weg, 12000);
+  },
+  /** Bini sitzt im Dashboard-Kopf neben der Begrüßung und rutscht nach unten rechts, sobald man wegscrollt. */
+  layout(springe) {
+    const fab = document.getElementById('bini-fab'); if (!fab) return;
+    const slot = document.getElementById('bini-slot');
+    const bn = document.getElementById('bottomnav'); const bnSicht = !!(bn && bn.offsetParent !== null);
+    const D = 62, rand = bnSicht ? 14 : 22;
+    let ziel = { left: innerWidth - D - rand, top: bnSicht ? bn.getBoundingClientRect().top - D - 14 : innerHeight - D - 22, w: D, h: D }, frei = false;
+    if (slot) {
+      const r = slot.getBoundingClientRect();
+      if (r.width > 0 && r.bottom > 70 && r.top < innerHeight) { ziel = { left: r.left, top: r.top, w: r.width, h: r.height }; frei = true; }
+    }
+    const war = fab.classList.contains('bini-frei');
+    if (!springe && frei !== war && fab.classList.contains('bini-bereit')) {
+      fab.classList.add('bini-fliegt'); clearTimeout(Assistent._flug);
+      Assistent._flug = setTimeout(() => fab.classList.remove('bini-fliegt'), 700);
+      if (!frei) { const im = fab.querySelector('img'); im.classList.remove('bini-hupf'); void im.offsetWidth; im.classList.add('bini-hupf'); setTimeout(() => im.classList.remove('bini-hupf'), 800); }
+    } else if (springe) { clearTimeout(Assistent._flug); fab.classList.remove('bini-fliegt'); }
+    fab.classList.toggle('bini-frei', frei);
+    Object.assign(fab.style, { left: ziel.left + 'px', top: ziel.top + 'px', width: ziel.w + 'px', height: ziel.h + 'px' });
+    const bild = Assistent.bild(frei ? 'wave' : 'idle'); const img = fab.querySelector('img');
+    if (img && !img.src.endsWith(bild.slice(1)) && !img.dataset.fallback) img.src = bild;
+    fab.classList.add('bini-bereit');
   },
   markeWeg() {
     clearTimeout(Assistent._timer);

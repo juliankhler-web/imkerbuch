@@ -4899,10 +4899,8 @@ test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nich
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   try {
     await w.Views.dashboard.render(host);
-    const img = host.querySelector('.tages-biene');
-    assert(img, 'die Biene steht im Dashboard-Kopf');
-    const jetzt = w.tagesbiene().stunde;
-    assertEq(Number(img.dataset.tagesbiene), jetzt, 'zeigt die aktuelle Stunde');
+    const img = host.querySelector('#bini-slot');
+    assert(img, 'Bini hat im Dashboard-Kopf seinen Platz (ersetzt die Tagesbiene)');
     // Kopf-Aufbau: Biene neben dem Text, Widgets-Knopf im eigenen Bereich
     assert(img.closest('.ph-haupt'), 'die Biene sitzt im Textbereich, nicht bei den Knöpfen');
     const knopf = host.querySelector('#dash-cfg');
@@ -4910,13 +4908,15 @@ test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nich
     assert(!knopf.closest('.ph-haupt'), 'der Knopf bleibt außerhalb – so kommt die Biene ihm nicht in den Weg');
     assertEq(knopf.innerText.trim(), 'Widgets', 'ohne Symbol');
     assert(!host.querySelector('.ph-text h1').innerText.includes('🐝'), 'kein Bienen-Emoji mehr im Titel – die echte Biene steht daneben');
-    // Stundenwechsel vortäuschen: der Prüfer muss das Bild tauschen
-    img.dataset.tagesbiene = String((jetzt + 5) % 24);
-    const vorher = img.getAttribute('src');
-    img.src = w.tagesbiene((jetzt + 5) % 24).datei;
+    // Tagesbiene bleibt als Baustein erhalten (eigener Test-Container): der Prüfer muss das Bild bei Stundenwechsel tauschen
+    const jetzt = w.tagesbiene().stunde;
+    const box = w.document.createElement('div'); box.innerHTML = w.tagesbieneHtml(); host.appendChild(box);
+    const img2 = box.querySelector('.tages-biene');
+    img2.dataset.tagesbiene = String((jetzt + 5) % 24);
+    img2.src = w.tagesbiene((jetzt + 5) % 24).datei;
     w.tagesbieneAktualisieren();
-    assertEq(Number(img.dataset.tagesbiene), jetzt, 'nach dem Wechsel steht wieder die richtige Stunde');
-    assert(img.getAttribute('src').includes(String(jetzt).padStart(2, '0')), `Bild getauscht: ${img.getAttribute('src')}`);
+    assertEq(Number(img2.dataset.tagesbiene), jetzt, 'nach dem Wechsel steht wieder die richtige Stunde');
+    assert(img2.getAttribute('src').includes(String(jetzt).padStart(2, '0')), `Bild getauscht: ${img2.getAttribute('src')}`);
   } finally { host.remove(); }
 });
 
