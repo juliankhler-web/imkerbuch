@@ -9971,3 +9971,24 @@ test('Kontakt: Bio-Partner ist eine Auswahl – ältere Kontakte bleiben, „Nei
     assert(!m.el.querySelector('[data-field="oekoNummer"]').classList.contains('hidden'), 'bei „Ja“ erscheinen sie');
   } finally { m.close && m.close(true); await w.DB.del('kontakte', k.id); }
 });
+
+test('Assistent Bini: Wissen deckt alle Menübereiche ab, Suche findet die richtigen Antworten', async (w) => {
+  const routen = new Set(w.APP_WISSEN.map((e) => e.route));
+  const fehlend = w.NAV.filter((n) => n.route && !['dashboard', 'assistent', 'imkerschule', 'papierkorb'].includes(n.route) && !routen.has(n.route)).map((n) => n.route);
+  assertEq(fehlend, [], 'jeder Menübereich hat mindestens einen Wissens-Eintrag');
+  for (const e of w.APP_WISSEN) {
+    assert(w.Views[e.route], `Route „${e.route}“ von „${e.id}“ existiert`);
+    assert(e.schritte.length >= 1 && e.antwort.length > 20 && e.stichw.length >= 3, `Eintrag „${e.id}“ ist vollständig`);
+  }
+  const erst = (q) => { const a = w.Assistent.antwort(q); return a.art === 'app' ? a.haupt.id : a.art; };
+  assertEq(erst('Wie buche ich einen Honigverkauf?'), 'honig-verkauf');
+  assertEq(erst('neues Volk anlegen'), 'volk-neu');
+  assertEq(erst('Wo trage ich eine Varroa-Behandlung ein?'), 'behandlung');
+  assertEq(erst('Wie sichere ich meine Daten?'), 'sicherung');
+  assertEq(erst('Rechnung schreiben'), 'rechnung');
+  assertEq(erst('Woran erkenne ich Schwarmstimmung'), 'faq', 'Imker-Fragen kommen aus der FAQ');
+  assertEq(erst('blablub xyz'), 'nichts');
+  // Menü: Imkerschule ausgeblendet, Assistent da
+  assert(!w.NAV.some((n) => n.route === 'imkerschule') && w.NAV.some((n) => n.route === 'assistent'), 'Assistent ersetzt die Imkerschule im Menü');
+  assert(typeof w.Views.imkerschule.render === 'function', 'Imkerschule-Inhalte bleiben erhalten');
+});
