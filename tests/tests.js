@@ -4900,7 +4900,7 @@ test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nich
   try {
     await w.Views.dashboard.render(host);
     const img = host.querySelector('#bini-slot');
-    assert(img, 'Bini hat im Dashboard-Kopf seinen Platz (ersetzt die Tagesbiene)');
+    assert(img, 'Imme hat im Dashboard-Kopf seinen Platz (ersetzt die Tagesbiene)');
     // Kopf-Aufbau: Biene neben dem Text, Widgets-Knopf im eigenen Bereich
     assert(img.closest('.ph-haupt'), 'die Biene sitzt im Textbereich, nicht bei den Knöpfen');
     const knopf = host.querySelector('#dash-cfg');
@@ -9972,13 +9972,13 @@ test('Kontakt: Bio-Partner ist eine Auswahl – ältere Kontakte bleiben, „Nei
   } finally { m.close && m.close(true); await w.DB.del('kontakte', k.id); }
 });
 
-test('Assistent Bini: Wissen deckt alle Menübereiche ab, Suche findet die richtigen Antworten', async (w) => {
+test('Assistent Imme: Wissen deckt alle Menübereiche ab, Suche findet die richtigen Antworten', async (w) => {
   const routen = new Set(w.APP_WISSEN.map((e) => e.route));
   const fehlend = w.NAV.filter((n) => n.route && !['dashboard', 'assistent', 'imkerschule', 'papierkorb'].includes(n.route) && !routen.has(n.route)).map((n) => n.route);
   assertEq(fehlend, [], 'jeder Menübereich hat mindestens einen Wissens-Eintrag');
   for (const e of w.APP_WISSEN) {
-    assert(w.Views[e.route], `Route „${e.route}“ von „${e.id}“ existiert`);
-    assert(e.schritte.length >= 1 && e.antwort.length > 20 && e.stichw.length >= 3, `Eintrag „${e.id}“ ist vollständig`);
+    if (!e.persona) assert(w.Views[e.route], `Route „${e.route}“ von „${e.id}“ existiert`);
+    assert((e.persona || e.schritte.length >= 1) && e.antwort.length > 20 && e.stichw.length >= 3, `Eintrag „${e.id}“ ist vollständig`);
   }
   const erst = (q) => { const a = w.Assistent.antwort(q); return a.art === 'app' ? a.haupt.id : a.art; };
   assertEq(erst('Wie buche ich einen Honigverkauf?'), 'honig-verkauf');
@@ -9987,6 +9987,9 @@ test('Assistent Bini: Wissen deckt alle Menübereiche ab, Suche findet die richt
   assertEq(erst('Wie sichere ich meine Daten?'), 'sicherung');
   assertEq(erst('Rechnung schreiben'), 'rechnung');
   assertEq(erst('Woran erkenne ich Schwarmstimmung'), 'faq', 'Imker-Fragen kommen aus der FAQ');
+  assertEq(erst('Warum heißt du Imme?'), 'imme', 'der Name wird erklärt');
+  assertEq(erst('Wie heißt du?'), 'imme');
+  assert(/Biene/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort) && /Imker/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort), 'Erklärung nennt Biene und Imker');
   assertEq(erst('blablub xyz'), 'nichts');
   // Menü: Imkerschule ausgeblendet, Assistent da
   assert(!w.NAV.some((n) => n.route === 'imkerschule') && w.NAV.some((n) => n.route === 'assistent'), 'Assistent ersetzt die Imkerschule im Menü');
