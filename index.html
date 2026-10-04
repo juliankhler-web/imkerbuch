@@ -489,6 +489,8 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 @media print{.bini-slot,.bini-fab{display:none!important}}
 .bini-fab{position:fixed;z-index:46;left:0;top:0;width:78px;height:96px;padding:0;border:0;background:transparent;cursor:pointer;overflow:visible;display:block;visibility:hidden;-webkit-tap-highlight-color:transparent}
 .bini-fab.bini-bereit{visibility:visible}
+.bini-fab.bini-unten{left:auto;top:auto;right:12px;bottom:calc(8px + env(safe-area-inset-bottom))}
+@media(max-width:900px){.bini-fab.bini-unten{bottom:calc(var(--nav-h) + 10px + env(safe-area-inset-bottom) - 6px)}}
 .bini-fab img{display:block;width:100%;height:100%;object-fit:contain;object-position:50% 100%;pointer-events:none}
 body[data-route="assistent"] .bini-fab{display:none}
 .bini-seite{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
@@ -1113,8 +1115,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.24';
+const APP_VERSION = '2.25';
 const CHANGELOG = [
+  { version: '2.25', datum: '2026-10-05', punkte: [
+    'Behoben: Wenn du auf dem iPhone ganz unten warst und weiter hochgezogen hast (das federnde „Gummiband“), schwebte Imme mit in die Luft. Sie sitzt unten jetzt fest an der Leiste und bleibt dort, egal wie du scrollst.',
+  ] },
   { version: '2.24', datum: '2026-10-05', punkte: [
     'Imme setzt sich unten nicht mehr hin – sie steht auf der Leiste und verdeckt dadurch weniger vom Menü.',
   ] },
@@ -20222,25 +20227,35 @@ const Assistent = {
   layout(springe) {
     const fab = document.getElementById('bini-fab'); if (!fab) return;
     const slot = document.getElementById('bini-slot');
-    let pose = Assistent.dockPose; if (!Assistent.meta[pose]) pose = 'idle';
-    let ziel = Assistent.dockRect(pose), frei = false;
+    const pose = 'idle';
+    const dock = Assistent.dockRect(pose);   // nur die Größe: unten ist Imme per CSS verankert (Messwerte bleiben beim iPhone-Gummiband-Scrollen nicht stabil)
+    let slotR = null;
     if (slot) {
       const r = slot.getBoundingClientRect();
-      if (r.width > 0 && r.bottom > 70 && r.top < innerHeight) { ziel = { left: r.left, top: r.top, w: r.width, h: r.height }; frei = true; }
+      if (r.width > 0 && r.bottom > 70 && r.top < innerHeight) slotR = { left: r.left, top: r.top, w: r.width, h: r.height };
     }
+    const frei = !!slotR;
     const war = fab.classList.contains('bini-frei'), bereit = fab.classList.contains('bini-bereit');
-    const alt = Assistent._letzt;
     const geste = Date.now() < Assistent._gesteBis;
-    const bild = Assistent.bild(geste ? Assistent._gesteName : (frei ? 'idle' : pose)); const img = fab.querySelector('img');
+    const bild = Assistent.bild(geste ? Assistent._gesteName : 'idle'); const img = fab.querySelector('img');
     if (img && !img.src.endsWith(bild.slice(1)) && !img.dataset.fallback) img.src = bild;
-    if (frei && !war && bereit && !Assistent._gesteBis) { /* erste Landung oben */ }
-    fab.classList.toggle('bini-frei', frei);
-    Object.assign(fab.style, { left: ziel.left + 'px', top: ziel.top + 'px', width: ziel.w + 'px', height: ziel.h + 'px' });
+    const von = bereit ? fab.getBoundingClientRect() : null;
+    if (frei) {
+      fab.classList.remove('bini-unten'); fab.classList.add('bini-frei');
+      Object.assign(fab.style, { left: slotR.left + 'px', top: slotR.top + 'px', width: slotR.w + 'px', height: slotR.h + 'px' });
+    } else {
+      const neuUnten = war || !bereit || springe || !fab.classList.contains('bini-unten');
+      if (neuUnten) {
+        fab.classList.remove('bini-frei'); fab.classList.add('bini-unten');
+        Object.assign(fab.style, { left: '', top: '', width: dock.w + 'px', height: dock.h + 'px' });
+      }
+    }
     fab.classList.add('bini-bereit');
-    if (!springe && bereit && alt && (frei !== war)) { Assistent.hupf(alt, ziel, !frei); if (frei) setTimeout(() => Assistent.geste('wave', 6000), 700); }
-    else if (!springe && bereit && alt && !frei && Assistent._pose0 && Assistent._pose0 !== pose) Assistent.hupf(alt, ziel, false, 0.35);
-    Assistent._pose0 = pose;
-    Assistent._letzt = ziel;
+    if (!springe && bereit && von && frei !== war) {
+      const nach = fab.getBoundingClientRect();
+      Assistent.hupf({ left: von.left, top: von.top, w: von.width, h: von.height }, { left: nach.left, top: nach.top, w: nach.width, h: nach.height }, !frei);
+      if (frei) setTimeout(() => Assistent.geste('wave', 6000), 700);
+    }
   },
   /** Sprung: Parabel von der alten zur neuen Stelle, am Ende kurz platt gedrückt (Landung). */
   hupf(von, nach, landung, faktor = 1) {
