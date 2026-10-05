@@ -834,6 +834,7 @@ const ICONS = {
   trash:'<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l.9 13.5h9.2L17.5 7M10 11v6M14 11v6"/>',
   plus:'<path d="M12 5v14M5 12h14"/>',
   mehr:'<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
+  themeauto:'<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor"/>',
   moon:'<path d="M20 13.8A8.3 8.3 0 1 1 10.2 4 6.6 6.6 0 0 0 20 13.8Z"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2.8v2M12 19.2v2M2.8 12h2M19.2 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4"/>',
   share:'<path d="M12 14.5V3.8M8.2 7.3 12 3.5l3.8 3.8"/><path d="M5 11.5V20h14v-8.5"/>',
@@ -1115,8 +1116,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.28';
+const APP_VERSION = '2.29';
 const CHANGELOG = [
+  { version: '2.29', datum: '2026-10-05', punkte: [
+    'Der Knopf oben rechts schaltet jetzt durch alle drei Darstellungen: System (folgt dem Handy), Hell und Dunkel. Das Symbol zeigt, was gerade gilt. Dieselbe Auswahl gibt es weiter unter Einstellungen.',
+  ] },
   { version: '2.28', datum: '2026-10-05', punkte: [
     'Der Drucker-Knopf oben ist entfernt (er druckte nur die Bildschirmansicht und funktionierte nicht zuverlässig). Drucken geht weiter über die PDF-Knöpfe in den Bereichen.',
   ] },
@@ -3083,11 +3087,14 @@ function renderChrome() {
     setTimeout(() => { const f = document.getElementById('bini-fab'); if (f && f.classList.contains('bini-frei')) { Assistent._naechsteWelle = Date.now() + 30000; Assistent.geste('wave', 6000); } }, 1200);
     setInterval(() => Assistent.wechselPose(), 3000);
   }
-  $('#btn-theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon');
+  aktualisiereThemeKnopf();
+  /* Drei Stufen im Kreis: System → Hell → Dunkel → System. */
   $('#btn-theme').onclick = async () => {
-    const cur = document.documentElement.dataset.theme === 'dark' ? 'hell' : 'dunkel';
-    await S.set('darkMode', cur); applyTheme();
-    $('#btn-theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon');
+    const ordnung = ['auto', 'hell', 'dunkel'];
+    const jetzt = ordnung.includes(S.get('darkMode')) ? S.get('darkMode') : 'auto';
+    const neu = ordnung[(ordnung.indexOf(jetzt) + 1) % ordnung.length];
+    await S.set('darkMode', neu); applyTheme();
+    UI.toast('Darstellung: ' + THEME_NAMEN[neu]);
   };
 }
 /** Nur die untere Leiste neu zeichnen (Inhalt); der Klick-Listener bleibt an #bottomnav.
@@ -3203,6 +3210,15 @@ function openMoreSheet() {
   });
 }
 
+const THEME_NAMEN = { auto: 'System', hell: 'Hell', dunkel: 'Dunkel' };
+function aktualisiereThemeKnopf() {
+  const b = document.getElementById('btn-theme');
+  if (!b) return;
+  const m = THEME_NAMEN[S.get('darkMode')] ? S.get('darkMode') : 'auto';
+  b.innerHTML = icon(m === 'auto' ? 'themeauto' : m === 'hell' ? 'sun' : 'moon');
+  b.title = `Darstellung: ${THEME_NAMEN[m]} – tippen zum Wechseln`;
+  b.setAttribute('aria-label', b.title);
+}
 function applyTheme() {
   const mode = S.get('darkMode');
   const dark = mode === 'dunkel' || (mode === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
@@ -3216,6 +3232,7 @@ function applyTheme() {
   if (meta) meta.content = dark ? '#161619' : '#FAF6EF';
   // Spiegel für das Kopf-Skript: beim nächsten Start sofort das richtige Design (kein Aufblitzen)
   try { localStorage.setItem('ib.darkMode', mode || 'auto'); } catch (e) {}
+  aktualisiereThemeKnopf();
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (S.get('darkMode') === 'auto') applyTheme(); });
 

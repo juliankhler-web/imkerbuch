@@ -1347,6 +1347,22 @@ test('Inventar: Zeile der Gesamtübersicht filtert die Liste auf diese Art', asy
     assertEq(view._springeListe, true, 'danach wird zur Liste gesprungen');
   } finally { view._art = ''; view._springeListe = false; host.remove(); await w.DB.del('inventar', 'test-zeile-ohnekat'); }
 });
+test('Darstellung: Knopf oben schaltet System → Hell → Dunkel durch', async (w) => {
+  const alt = w.S.get('darkMode');
+  try {
+    await w.S.set('darkMode', 'auto'); w.applyTheme();
+    const knopf = w.document.getElementById('btn-theme');
+    assert(knopf, 'Knopf vorhanden');
+    assert(/System/.test(knopf.title), 'zeigt System an');
+    knopf.click(); await new Promise((r) => setTimeout(r, 80));
+    assertEq(w.S.get('darkMode'), 'hell', 'System → Hell');
+    knopf.click(); await new Promise((r) => setTimeout(r, 80));
+    assertEq(w.S.get('darkMode'), 'dunkel', 'Hell → Dunkel');
+    assertEq(w.document.documentElement.dataset.theme, 'dark');
+    knopf.click(); await new Promise((r) => setTimeout(r, 80));
+    assertEq(w.S.get('darkMode'), 'auto', 'Dunkel → System');
+  } finally { await w.S.set('darkMode', alt || 'auto'); w.applyTheme(); }
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
