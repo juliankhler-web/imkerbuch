@@ -1319,6 +1319,34 @@ test('Inventar: Liste als kompakte Zeilen statt Tabelle', async (w) => {
   } finally { host.remove(); }
 });
 
+test('Inventar: Zeile der Gesamtübersicht filtert die Liste auf diese Art', async (w) => {
+  await w.DB.put('inventar', { id: 'test-zeile-inventar', typ: 'inventar', bezeichnung: 'Zeilen-Test-Beute', kategorie: 'Beuten', stueckzahl: 2, preis: 100 });
+  await w.DB.put('inventar', { id: 'test-zeile-ohnekat', typ: 'inventar', bezeichnung: 'Zeilen-Test-OhneArt', stueckzahl: 1, preis: 5 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const view = w.Views.inventar;
+  try {
+    view._art = ''; view._jahr = ''; view._suche = '';
+    await view.render(host);
+    const zeilen = [...host.querySelectorAll('tr[data-art-zeile]')];
+    assert(zeilen.length >= 2, 'jede Art in der Übersicht ist eine klickbare Zeile');
+    assert(zeilen.some((z) => z.dataset.artZeile === 'Beuten'), 'Zeile „Beuten“');
+    assert(zeilen.some((z) => z.dataset.artZeile === '__ohne'), 'Zeile für Positionen ohne Kategorie');
+    assert(host.querySelector('#pos-liste'), 'Ziel zum Hinspringen vorhanden');
+    // Filter „ohne Kategorie“ zeigt nur Positionen ohne Kategorie
+    view._art = '__ohne';
+    host.innerHTML = ''; await view.render(host);
+    const titel = [...host.querySelectorAll('.rows .row .r-title')].map((t) => t.textContent);
+    assert(titel.includes('Zeilen-Test-OhneArt'), 'Position ohne Kategorie ist drin');
+    assert(!titel.includes('Zeilen-Test-Beute'), 'Position mit Kategorie ist draußen');
+    assert(host.querySelector('.chip.active[data-art="__ohne"]'), 'Chip „ohne Kategorie“ ist aktiv');
+    // Klick auf die Zeile setzt den Filter, nochmal Klick hebt ihn auf
+    view._art = '';
+    host.innerHTML = ''; await view.render(host);
+    host.querySelector('tr[data-art-zeile="Beuten"]').click();
+    assertEq(view._art, 'Beuten', 'Klick setzt den Filter');
+    assertEq(view._springeListe, true, 'danach wird zur Liste gesprungen');
+  } finally { view._art = ''; view._springeListe = false; host.remove(); await w.DB.del('inventar', 'test-zeile-ohnekat'); }
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test

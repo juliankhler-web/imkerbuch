@@ -337,6 +337,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .tbl td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--card2)}
+.tbl tr.art-zeile{cursor:pointer}.tbl tr.art-zeile.aktiv td{background:var(--card2)}.tbl tr.art-zeile:focus-visible{outline:2px solid var(--honey,#e0a100);outline-offset:-2px}
 /* Antippbare Tabellenzeile – zeigt, dass man etwas öffnen kann. */
 .tbl tr.tr-klick{cursor:pointer}
 .tbl tr.tr-klick .tr-stift{opacity:.45;width:13px;height:13px;vertical-align:-1px}
@@ -1115,8 +1116,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.25';
+const APP_VERSION = '2.26';
 const CHANGELOG = [
+  { version: '2.26', datum: '2026-10-05', punkte: [
+    'In der Gesamtübersicht (Inventar, Verbrauchsmaterial, Weitere Produkte) kannst du jetzt eine Zeile antippen, zum Beispiel „Beuten“: Die Liste zeigt dann nur diese Art und springt direkt dorthin. Nochmal antippen hebt den Filter auf. Neu: Filter „ohne Kategorie“.',
+    'In der Auswertung führt ein Tipp auf ein Volk oder einen Stand (Honigertrag, Futter je Volk) direkt zum Volk bzw. Stand.',
+  ] },
   { version: '2.25', datum: '2026-10-05', punkte: [
     'Behoben: Wenn du auf dem iPhone ganz unten warst und weiter hochgezogen hast (das federnde „Gummiband“), schwebte Imme mit in die Luft. Sie sitzt unten jetzt fest an der Leiste und bleibt dort, egal wie du scrollst.',
   ] },
@@ -5101,7 +5106,7 @@ Views.volk = {
         const zSumme = U.sum(zucker.filter(Boolean), (z) => z.kg);
         const lSumme = U.sum(liter.filter((l) => l != null), (l) => l);
         return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num stark">Menge (kg)</th>${zeigtZucker ? '<th class="num">davon Zucker (kg)</th>' : ''}${zeigtLiter ? '<th class="num stark">Sirup (L)</th>' : ''}<th>Winterfutter</th><th></th></tr></thead>
-        <tbody>${list.map((f, i) => `<tr><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td>
+        <tbody>${list.map((f, i) => `<tr class="tr-klick" data-fe="${U.esc(f.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td>
           <td class="num stark">${U.fmtNum(f.mengeKg)}</td>
           ${zeigtZucker ? `<td class="num">${zucker[i] ? (zucker[i].geschaetzt ? '≈ ' : '') + U.fmtNum(zucker[i].kg, 1) : '–'}</td>` : ''}
           ${zeigtLiter ? `<td class="num stark">${liter[i] != null ? U.fmtNum(liter[i], 1) : '–'}</td>` : ''}
@@ -5152,7 +5157,7 @@ Views.volk = {
       ${list.length ? UI.chart({ type: 'line', labels: list.map((x) => U.fmtDate(x.datum).slice(0, 6)), series: [{ name: 'Milben', values: list.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Milben</th><th class="num">Kennzahl</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
         <tbody>${[...list].reverse().map((x) => { const m = varroaMetrik(x);
-          return `<tr><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
+          return `<tr class="tr-klick" data-ve="${U.esc(x.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${U.esc(x.id)}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
         <div class="hint mt8">Zwei Kennzahlen je nach Methode: <b>Milben/Tag</b> (Bodenschieber/Gemüll, saisonale Schwelle) und <b>Milben je 100 Bienen</b> (Auswaschen/Puderzucker, Richtwert ~3 %). Ohne Gewähr. Behandlung dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
       : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (Bodenschieber, Auswaschen oder Puderzucker) zeigt früh, wann behandelt werden muss.')}
@@ -10972,7 +10977,7 @@ Views.bio = {
     const m = UI.modal({
       title: 'Kurzwahlen verwalten', wide: true,
       body: `<p class="small muted mb12">Deine häufigsten Reinigungen. Im Reiter tippst du sie nur noch an.</p>
-        <div class="rows">${kws.map((k) => `<div class="row"><span class="r-ic">${icon('check')}</span>
+        <div class="rows">${kws.map((k) => `<div class="row" data-ed="${U.esc(k.id)}" style="cursor:pointer" title="Antippen zum Bearbeiten"><span class="r-ic">${icon('check')}</span>
           <span class="r-main"><span class="r-title">${U.esc(k.bereichName)}</span><span class="r-sub">${U.esc([k.mittel, k.verantwortlich].filter(Boolean).join(' · '))}</span></span>
           <button class="btn btn-xs btn-ghost" data-ed="${U.esc(k.id)}" aria-label="Bearbeiten">${icon('pencil')}</button>
           <button class="btn btn-xs btn-danger" data-del="${U.esc(k.id)}" aria-label="Löschen">${icon('trash')}</button></div>`).join('') || '<span class="muted small">Noch keine Kurzwahlen.</span>'}</div>
@@ -10984,7 +10989,7 @@ Views.bio = {
     $('[data-neu]', m.el).onclick = () => { m.close(true); Views.bio.kurzwahlForm(null); };
     $('[data-plan]', m.el).onclick = async () => { m.close(true); await Views.bio.kurzwahlenAusPlan(); };
     m.el.addEventListener('click', async (ev) => {
-      const ed = ev.target.closest('[data-ed]'); if (ed) { m.close(true); return Views.bio.kurzwahlForm(kws.find((x) => x.id === ed.dataset.ed)); }
+      const ed = ev.target.closest('[data-ed]'); if (ed && !ev.target.closest('[data-del]')) { m.close(true); return Views.bio.kurzwahlForm(kws.find((x) => x.id === ed.dataset.ed)); }
       const del = ev.target.closest('[data-del]');
       if (del && (await UI.confirm({ title: 'Kurzwahl löschen?', text: 'Bereits gebuchte Reinigungen bleiben bestehen.', confirmText: 'Löschen' }))) {
         await S.set('hygieneKurzwahlen', Views.bio.hygieneKurzwahlen().filter((x) => x.id !== del.dataset.del));
@@ -13342,9 +13347,10 @@ async function renderInventarBereich(main, cfg) {
   const alle = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => i.bezeichnung.toLowerCase());
   const jahre = [...new Set(alle.map((i) => (i.anschaffung || '').slice(0, 4)).filter(Boolean))].sort().reverse();
   const hatOhneJahr = alle.some((i) => !i.anschaffung);
+  const hatOhneArt = alle.some((i) => !i.kategorie);
   const arten = [...new Set(alle.map((i) => i.kategorie).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
   const jahr = view._jahr || '', art = view._art || '';
-  const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
+  const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || (art === '__ohne' ? !i.kategorie : i.kategorie === art));
   /* Suche: mehrere Wörter werden UND-verknüpft, gesucht wird über Bezeichnung,
      Kategorie, Notiz und Zuordnung. Sie wirkt wie die Jahr/Art-Auswahl auf die
      ganze Ansicht – Kennzahlen und Übersicht folgen mit, damit die Zahlen zur
@@ -13362,7 +13368,7 @@ async function renderInventarBereich(main, cfg) {
   const bewertung = (i) => lagerBewertung(i, zugaengeAlle);
   const wertVon = (i) => bewertung(i).wert;
   const wert = U.sum(list, wertVon);
-  const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
+  const proArt = [...U.groupBy(list, (i) => i.kategorie || '').entries()]
     .map(([k, items]) => ({ k, n: items.length, bestand: bestandText(items), wert: U.sum(items, wertVon) }))
     .sort((a, b) => b.wert - a.wert);
   /* Eine Position = eine Zeile, wie in den Völker- und Königinnen-Listen.
@@ -13409,13 +13415,13 @@ async function renderInventarBereich(main, cfg) {
       <a class="btn btn-primary btn-sm btn-zwei" id="kasse-buchen" href="#/kassenbuch/buchen-${cfg.typ}"><span>${icon('euro')} An- und Verkauf buchen</span><small>Eigenverbrauch / Verlust</small></a></span>`) +
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
-    <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}</div>
+    <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}${hatOhneArt ? chip('ohne Kategorie', '__ohne', art, 'art') : ''}</div>
     <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
       ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Bestand</th><th class="num">Wert</th></tr></thead>
-        <tbody>${proArt.map((r) => `<tr><td><b>${U.esc(r.k)}</b></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
+        <tbody>${proArt.map((r) => `<tr class="art-zeile${art === (r.k || '__ohne') ? ' aktiv' : ''}" data-art-zeile="${U.esc(r.k || '__ohne')}" tabindex="0" role="button" title="Antippen: nur diese Art anzeigen" style="cursor:pointer"><td><b>${U.esc(r.k || 'Ohne Kategorie')}</b> <span class="small muted">›</span></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
         <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt${jahr || art || suchtext ? ' (Auswahl)' : ''}</td><td class="num">${list.length}</td><td class="num"></td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
     </div>` : '') +
-    `<div class="card">`
+    `<div class="card" id="pos-liste">`
       /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
          es erst ab neun – dadurch war die Suche unsichtbar und unfindbar. Ein Feld,
          das man bei wenigen Einträgen nicht braucht, stört weniger als eine
@@ -13648,8 +13654,22 @@ async function renderInventarBereich(main, cfg) {
   main.addEventListener('click', (e) => {
     const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
     const a = e.target.closest('[data-art]'); if (a) { view._art = a.dataset.art; return renderRoute(); }
+    /* Zeile der Gesamtübersicht: filtert die Liste auf diese Art und springt
+       dorthin; nochmal auf dieselbe Zeile hebt den Filter wieder auf. */
+    const az = e.target.closest('[data-art-zeile]');
+    if (az) { view._art = view._art === az.dataset.artZeile ? '' : az.dataset.artZeile; view._springeListe = !!view._art; return renderRoute(); }
     const b = e.target.closest('[data-edit]'); if (b) form(alle.find((x) => x.id === b.dataset.edit));
   });
+  main.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const az = e.target.closest && e.target.closest('[data-art-zeile]');
+    if (az) { e.preventDefault(); az.click(); }
+  });
+  if (view._springeListe) {
+    view._springeListe = false;
+    const ziel = $('#pos-liste', main);
+    if (ziel) ziel.scrollIntoView({ block: 'start' });
+  }
   /* Suche: Tastendrücke kurz sammeln, dann neu zeichnen – sonst liest die App bei
      jedem Buchstaben die Datenbank. Danach Fokus und Schreibmarke zurücksetzen,
      sonst schließt sich auf dem Handy die Tastatur mitten im Wort. */
@@ -16397,7 +16417,13 @@ const Reporting = {
       return e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name || 'gelöscht' : `Stand: ${staende.get(e.zielId)?.name || 'gelöscht'}`;
     };
     const g = U.groupBy(ernten, key);
-    const rows = [...g.entries()].map(([k, items]) => ({ k, kg: U.sum(items, (e) => e.mengeKg), n: items.length })).sort((a, b) => b.kg - a.kg);
+    /* href: wohin ein Klick auf die Zeile führt (Volk bzw. Stand), sonst leer. */
+    const ziel = (e) => {
+      if (gruppe === 'volk') return e.zielTyp === 'volk' ? (voelker.has(e.zielId) ? '#/volk/' + e.zielId : '') : (staende.has(e.zielId) ? '#/stand/' + e.zielId : '');
+      if (gruppe === 'stand') { const sid = e.zielTyp === 'stand' ? e.zielId : voelker.get(e.zielId)?.standId; return staende.has(sid) ? '#/stand/' + sid : ''; }
+      return '';
+    };
+    const rows = [...g.entries()].map(([k, items]) => ({ k, kg: U.sum(items, (e) => e.mengeKg), n: items.length, href: ziel(items[0]) })).sort((a, b) => b.kg - a.kg);
     return rows;
   },
   async behandlungsUebersicht() {
@@ -16496,12 +16522,13 @@ Views.reporting = {
         <div class="seg mb12 no-print">${[['volk', 'Volk'], ['stand', 'Stand'], ['sorte', 'Sorte'], ['jahr', 'Jahr']].map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${U.esc(id)}">${l}</button>`).join('')}</div>
         ${rows.length ? UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.k), series: [{ name: 'kg', values: rows.slice(0, 12).map((r) => r.kg) }], height: 210, unit: 'kg' }) +
         `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>${({ volk: 'Volk', stand: 'Stand', sorte: 'Sorte', jahr: 'Jahr' })[gruppe]}</th><th class="num">Ernten</th><th class="num">Menge (kg)</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${U.esc(r.k)}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('honig', 'Noch keine Ernten erfasst.')}</div>`;
+        <tbody>${rows.map((r) => `<tr${r.href ? ` class="art-zeile" data-href="${U.esc(r.href)}" tabindex="0" role="link" title="Antippen: öffnen"` : ''}><td>${U.esc(r.k)}${r.href ? ' <span class="small muted">›</span>' : ''}</td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('honig', 'Noch keine Ernten erfasst.')}</div>`;
     } else if (typ === 'futter') {
       const alleF = await DB.getAll('fuetterungen');
       const jahre = [...new Set(alleF.map((f) => (f.datum || '').slice(0, 4)).filter(Boolean))].sort().reverse();
       const jahr = Views.reporting._futterJahr !== undefined ? Views.reporting._futterJahr : (jahre[0] || '');
       const rows = await Reporting.futterJeVolk(jahr);
+      const voelkerIds = new Set((await DB.getAll('voelker')).map((v) => v.id));
       const gesamt = U.sum(rows, (r) => r.zucker);
       const schnitt = rows.length ? gesamt / rows.length : 0;
       const winter = U.sum(rows, (r) => r.winter);
@@ -16522,7 +16549,8 @@ Views.reporting = {
           <tbody>${rows.map((r) => {
             const ab = schnitt > 0 ? (r.zucker - schnitt) / schnitt * 100 : 0;
             const farbe = Math.abs(ab) < 15 ? 'muted' : (ab > 0 ? 'zahl-warn' : 'zahl-warn');
-            return `<tr><td>${U.esc(r.name)}</td><td class="num">${r.n}</td>
+            const href = voelkerIds.has(r.id) ? '#/volk/' + r.id : '';
+            return `<tr${href ? ` class="art-zeile" data-href="${U.esc(href)}" tabindex="0" role="link" title="Antippen: Volk öffnen"` : ''}><td>${U.esc(r.name)}${href ? ' <span class="small muted">›</span>' : ''}</td><td class="num">${r.n}</td>
               <td class="num"><b>${U.fmtNum(r.zucker, 1)} kg</b>${r.geschaetzt ? ' <span class="muted small">≈</span>' : ''}</td>
               <td class="num">${U.fmtNum(r.winter, 1)} kg</td>
               <td class="num">${r.liter > 0 ? U.fmtNum(r.liter, 1) + ' L' : '–'}</td>
@@ -16578,8 +16606,13 @@ Views.reporting = {
         `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Einnahmen</th><th class="num">Ausgaben</th><th class="num">Saldo</th></tr></thead>
         <tbody>${rows.map((r) => `<tr><td>${r.jahr}</td><td class="num">${U.fmtEur(r.ein)}</td><td class="num">${U.fmtEur(r.aus)}</td><td class="num"><b>${U.fmtEur(r.ein - r.aus)}</b></td></tr>`).join('')}</tbody></table></div>` : emptyState('euro', 'Noch keine Buchungen erfasst.')}</div>`;
     }
+    main.addEventListener('keydown', (e) => {
+      const hz = (e.key === 'Enter' || e.key === ' ') && e.target.closest && e.target.closest('[data-href]');
+      if (hz) { e.preventDefault(); hz.click(); }
+    });
     main.addEventListener('click', (e) => {
       const t = e.target.closest('[data-typ]'); if (t) { Views.reporting._typ = t.dataset.typ; return renderRoute(); }
+      const hz = e.target.closest('[data-href]'); if (hz) { location.hash = hz.dataset.href; return; }
       const fj = e.target.closest('[data-fjahr]'); if (fj) { Views.reporting._futterJahr = fj.dataset.fjahr; return renderRoute(); }
       const vj = e.target.closest('[data-vjahr]'); if (vj) { Views.reporting._volkJahr = vj.dataset.vjahr; return renderRoute(); }
       const g = e.target.closest('[data-grp]'); if (g) { Views.reporting._gruppe = g.dataset.grp; renderRoute(); }
@@ -16641,7 +16674,7 @@ Views.fahrten = {
     const m = UI.modal({
       title: 'Häufige Fahrten verwalten', wide: true,
       body: `<p class="small muted mb12">Vorlagen für wiederkehrende Fahrten – zwischen zwei Ständen oder freie Strecken. Im Fahrtenbuch tippst du sie dann nur noch an.</p>
-        <div class="rows" id="vl-list">${vorlagen.length ? vorlagen.map((vl) => `<div class="row"><span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
+        <div class="rows" id="vl-list">${vorlagen.length ? vorlagen.map((vl) => `<div class="row" data-vl-edit="${U.esc(vl.id)}" style="cursor:pointer" title="Antippen zum Bearbeiten"><span class="r-ic" style="background:var(--blue-bg);color:var(--blue)">${icon('truck')}</span>
           <span class="r-main"><span class="r-title">${U.esc(vl.name)}</span><span class="r-sub">${U.fmtNum(vl.km)} km${vl.zweck ? ' · ' + U.esc(vl.zweck) : ''}</span></span>
           <button class="btn btn-xs btn-ghost no-print" data-vl-edit="${U.esc(vl.id)}">${icon('pencil')}</button>
           <button class="btn btn-xs btn-danger no-print" data-vl-del="${U.esc(vl.id)}">${icon('trash')}</button></div>`).join('') : '<span class="muted small">Noch keine Vorlagen.</span>'}</div>
@@ -16651,7 +16684,7 @@ Views.fahrten = {
     $('[data-close2]', m.el).onclick = () => m.close();
     $('#vl-add', m.el).onclick = () => { m.close(true); Views.fahrten.vorlageForm(null); };
     m.el.addEventListener('click', async (e) => {
-      const ed = e.target.closest('[data-vl-edit]'); if (ed) { m.close(true); return Views.fahrten.vorlageForm(vorlagen.find((x) => x.id === ed.dataset.vlEdit)); }
+      const ed = e.target.closest('[data-vl-edit]'); if (ed && !e.target.closest('[data-vl-del]')) { m.close(true); return Views.fahrten.vorlageForm(vorlagen.find((x) => x.id === ed.dataset.vlEdit)); }
       const del = e.target.closest('[data-vl-del]');
       if (del && (await UI.confirm({ title: 'Vorlage löschen?', text: '', confirmText: 'Löschen' }))) {
         await S.set('fahrtvorlagen', (S.get('fahrtvorlagen') || []).filter((x) => x.id !== del.dataset.vlDel));
@@ -18000,12 +18033,12 @@ const Pdf = {
       const staende = await idMap('staende'), voelker = await idMap('voelker');
       let alle = U.sortBy(await DB.getAll('inventar'), (i) => `${i.kategorie || 'zzz'}·${i.bezeichnung.toLowerCase()}`);
       if (typ) alle = alle.filter((i) => inventarTyp(i) === typ);
-      const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || i.kategorie === art);
+      const passt = (i) => (!jahr || (jahr === '__ohne' ? !i.anschaffung : (i.anschaffung || '').startsWith(jahr))) && (!art || (art === '__ohne' ? !i.kategorie : i.kategorie === art));
       const list = alle.filter(passt);
       const zugaengeAlle = await DB.getAll('materialzugaenge');
       const wertVon = (i) => lagerBewertung(i, zugaengeAlle).wert;
       const wert = U.sum(list, wertVon);
-      const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + art : ''].filter(Boolean).join(' · ');
+      const filterTxt = [jahr ? (jahr === '__ohne' ? 'ohne Datum' : 'Jahr ' + jahr) : '', art ? 'Art: ' + (art === '__ohne' ? 'ohne Kategorie' : art) : ''].filter(Boolean).join(' · ');
       const { doc, y } = await this.newDoc(titel || 'Inventar', `${list.length} Positionen · Gesamtwert ${U.fmtEur(wert)}${filterTxt ? ' · ' + filterTxt : ''}`);
       // Übersicht nach Art – Bestand je Einheit, eine Gesamtzahl darüber wäre sinnlos
       const proArt = [...U.groupBy(list, (i) => i.kategorie || 'Ohne Kategorie').entries()]
