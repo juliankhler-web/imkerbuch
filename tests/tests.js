@@ -4013,7 +4013,19 @@ test('jitEmpfehlungen: saisonale Tipps', async (w) => {
   tipps.forEach((t) => {
     assert(t.titel && t.text, 'Tipp hat titel + text');
     assert(t.kapId || t.typ, 'Tipp hat kapId oder typ');
+    assert(t.ziel && t.zielText, `Tipp „${t.titel}“ führt in einen App-Bereich`);
+    assert(!/imkerschule/.test(t.ziel), 'nicht in die pausierte Imkerschule');
   });
+  for (const e of w.SAISON_EMPFEHLUNGEN) assert(w.Views[e.ziel], `Saison-Tipp „${e.titel}“: Bereich „${e.ziel}“ existiert`);
+});
+test('Dashboard: kein sichtbarer Link mehr in die pausierte Imkerschule', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const html = await w.DASH_WIDGETS.lerntipp.html();
+    host.innerHTML = html;
+    assert(!/imkerschule/i.test(host.innerHTML), 'Tipp-Kachel verlinkt nicht in die Imkerschule');
+    assert(!w.NAV.some((n) => n.route === 'imkerschule'), 'kein Menüpunkt Imkerschule');
+  } finally { host.remove(); }
 });
 
 /* ---------- Volk-Stammdaten: Funktion im Betrieb + Beutentyp ersetzt Rähmchenmaß ---------- */

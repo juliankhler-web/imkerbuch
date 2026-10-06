@@ -29,7 +29,7 @@ const ANSICHTEN = [
   ['09-aufgaben', 'aufgaben', 'Aufgaben & Kalender'],
   ['10-material', 'material', 'Verbrauchsmaterial'],
   ['11-bio', 'bio', 'Öko-Kontrolle'],
-  ['12-imkerschule', 'imkerschule', 'Imkerschule'],
+  ['12-assistent', 'assistent', 'Assistent Imme'],
   ['13-fahrten', 'fahrten', 'Fahrtenbuch'],
   ['14-reporting', 'reporting', 'Auswertungen'],
   ['15-markt', 'markt', 'Marktverkauf'],
