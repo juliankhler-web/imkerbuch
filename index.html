@@ -500,8 +500,8 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 @media(max-width:900px){.bini-fab.bini-unten{bottom:calc(var(--nav-h) + 10px + env(safe-area-inset-bottom) - 6px)}}
 .bini-fab img{display:block;width:100%;height:100%;object-fit:contain;object-position:50% 100%;pointer-events:none}
 .bini-fab.bini-weg{display:none}
-.bini-fab{transition:opacity .25s ease}
-.bini-fab.bini-scrollt{opacity:.28}
+.bini-fab{transition:opacity .12s ease-out}   /* wieder sichtbar: schnell */
+.bini-fab.bini-scrollt{opacity:.28;transition:opacity .18s ease-in}
 .bini-fab.bini-schlaf img{filter:grayscale(.6) brightness(.92);opacity:.78}
 .bini-fab.bini-schlaf::before{content:'z Z';position:absolute;right:2px;top:2px;font-size:13px;font-weight:700;letter-spacing:1px;color:var(--honey-dark,#b8860b);animation:binizz 2.6s ease-in-out infinite;pointer-events:none}
 @keyframes binizz{0%,100%{opacity:.35;transform:translateY(2px)}50%{opacity:1;transform:translateY(-3px)}}
@@ -1148,8 +1148,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.33';
+const APP_VERSION = '2.34';
 const CHANGELOG = [
+  { version: '2.34', datum: '2026-10-06', punkte: [
+    'PDFs sind jetzt bis zu 16-mal kleiner (komprimiert) – z. B. ein Bestandsbuch mit 115 Seiten 0,5 statt 7,7 MB. Inhalt und Aussehen bleiben gleich; lässt sich viel leichter mailen.',
+    'iPhone: Imme schwebte beim Hochscrollen kurz über Kopfleiste und Uhrzeit (Geräte mit Dynamic Island). Sie springt jetzt rechtzeitig nach unten.',
+    'Imme ist nach dem Scrollen schneller wieder voll sichtbar.',
+    'Assistent: Beim Öffnen bleiben Überschrift und Regler sichtbar (die Seite sprang sonst nach unten).',
+  ] },
   { version: '2.33', datum: '2026-10-06', punkte: [
     'Schneller bei großen Imkereien: Lange Listen (Völker, Königinnen, Behandlungen, Fütterung, Aufgaben, Kassenbuch, Inventar mit Zugängen/Abgängen, Ernten, Verkäufe, Kontakte, Fahrten, Auswertung …) zeigen zuerst 100 Einträge, darunter „Weitere anzeigen“ und „Alle anzeigen“. Summen rechnen weiter mit allem.',
     'Völker: neues Suchfeld (Name, Beute, Stand, Königin – mehrere Wörter möglich). Ab 8 Ständen wählst du den Stand aus einer Liste statt aus vielen Knöpfen.',
@@ -3171,7 +3177,7 @@ function renderChrome() {
       const f = document.getElementById('bini-fab');
       if (!f || !f.classList.contains('bini-unten')) return;
       f.classList.add('bini-scrollt');
-      clearTimeout(scrollT); scrollT = setTimeout(() => f.classList.remove('bini-scrollt'), 550);
+      clearTimeout(scrollT); scrollT = setTimeout(() => f.classList.remove('bini-scrollt'), 180);   // kurz nach dem Anhalten wieder sichtbar
     }, { passive: true });
     window.addEventListener('resize', () => Assistent.layout(true));
     Assistent.layout(true);
@@ -17801,7 +17807,7 @@ const Pdf = {
   /** neues A4-Dokument mit Kopfbereich; gibt {doc, y} zurück */
   async newDoc(titel, untertitel = '') {
     const jsPDF = await this.lib();
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     const y = await this.header(doc, titel, untertitel);
     return { doc, y };
   },
@@ -18411,7 +18417,7 @@ const Pdf = {
           confirmText: 'Als Zusatzetikett erzeugen', danger: false });
         if (!ergaenzt) return;
       }
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
       const los = abfLos(a, c), mhd = abfMhd(a, c);
       // Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite
@@ -18526,7 +18532,7 @@ const Pdf = {
       const kunde = r.kundeId ? await DB.get('kontakte', r.kundeId) : null;
       const imk = S.get('imkerei');
       const jsPDF = await this.lib();
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       // Falz- und Lochmarken (DIN 676) fürs Fensterkuvert – Falten bei 105/210 mm, Lochung bei 148,5 mm
       doc.setDrawColor(180).setLineWidth(0.2);
       doc.line(2, 105, 6, 105); doc.line(2, 210, 6, 210); doc.line(2, 148.5, 7, 148.5);
@@ -19140,7 +19146,7 @@ const Pdf = {
       const jsPDF = await this.lib();
       const imk = S.get('imkerei');
       // Querformat: viele Module (z. B. Königinnen mit 18 Spalten) sind sonst zu gequetscht
-      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
       const cx = doc.internal.pageSize.getWidth() / 2;
       // Deckblatt
       try { doc.addImage(await this.logoDataUrl(), 'PNG', cx - 22, 40, 44, 44); } catch (e) {}
@@ -20474,7 +20480,11 @@ const Assistent = {
     let slotR = null;
     if (slot) {
       const r = slot.getBoundingClientRect();
-      if (r.width > 0 && r.bottom > 70 && r.top < innerHeight) slotR = { left: r.left, top: r.top, w: r.width, h: r.height };
+      /* Oben bleiben, solange der Platz unter der Kopfleiste liegt. Die Kopfleiste ist auf iPhones mit
+         Dynamic Island deutlich höher (Statusleiste + Leiste ≈ 120 px) – mit einer festen Grenze schwebte
+         Imme beim Hochscrollen kurz über Leiste und Uhrzeit. */
+      const kb = document.querySelector('.topbar'); const kopfUnten = kb && getComputedStyle(kb).display !== 'none' ? kb.getBoundingClientRect().bottom : 0;
+      if (r.width > 0 && r.top >= kopfUnten - 4 && r.top < innerHeight) slotR = { left: r.left, top: r.top, w: r.width, h: r.height };
     }
     const frei = !!slotR;
     const an = Assistent.an();
@@ -20723,7 +20733,10 @@ Views.assistent = {
         clearTimeout(Assistent._kopfT);   // nach zwei Schleifen wieder die Arme runter
         if (!neu.endsWith('_idle.webp')) Assistent._kopfT = setTimeout(() => { if (kopf.isConnected) kopf.src = Assistent.bild('idle'); }, 4200);
       }
-      chat.scrollTop = chat.scrollHeight; window.scrollTo({ top: document.body.scrollHeight });
+      chat.scrollTop = chat.scrollHeight;
+      /* Nur nach unten scrollen, wenn schon gefragt wurde – beim Öffnen mit nur der Begrüßung bleiben
+         Überschrift und Regler sichtbar (auf dem iPhone verschwanden sie sonst unter der Kopfleiste). */
+      if (L.length > 1) window.scrollTo({ top: document.body.scrollHeight });
     };
     const frage = async (text) => {
       text = (text || '').trim(); if (!text) return;
