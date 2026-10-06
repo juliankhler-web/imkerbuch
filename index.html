@@ -524,6 +524,7 @@ html[data-theme="dark"] .ios-switch:not(:checked){background:#39393D}
 .bini-seite.bini-aus .bini-gross{filter:grayscale(.6) brightness(.92);opacity:.8}
 .bini-aus-hinweis{margin-top:10px}
 .voelker-filter{display:flex;gap:8px;flex-wrap:wrap}.voelker-filter #v-suche{flex:1 1 220px;min-width:0}.voelker-filter #v-stand{flex:0 1 220px;min-width:0}
+.ka-bereiche{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 12px}.ka-bereiche .check-line{padding:6px 0;font-size:14px}
 .mehr-zeile{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:12px 4px 4px}
 .mehr-zeile .small{flex-basis:100%;text-align:center}
 .bini-seite [hidden]{display:none!important}
@@ -1148,8 +1149,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.34';
+const APP_VERSION = '2.35';
 const CHANGELOG = [
+  { version: '2.35', datum: '2026-10-06', punkte: [
+    'Komplettausdruck mit Auswahl: Vorher wählst du das Jahr (oder „Alle Jahre“) und welche Bereiche hinein sollen. Die App schätzt Einträge und Seiten und rät bei sehr großen Mengen zum Excel-Export. Stammdaten (Stände, Völker, Königinnen, Kontakte, Inventar) kommen immer vollständig mit.',
+    'Neu im Komplettausdruck: Fütterungen und Abfüllungen.',
+    'Behoben: Im Komplettausdruck stand jedes Datum einen Tag zu früh (z. B. 05.10. statt 06.10.).',
+  ] },
   { version: '2.34', datum: '2026-10-06', punkte: [
     'PDFs sind jetzt bis zu 16-mal kleiner (komprimiert) – z. B. ein Bestandsbuch mit 115 Seiten 0,5 statt 7,7 MB. Inhalt und Aussehen bleiben gleich; lässt sich viel leichter mailen.',
     'iPhone: Imme schwebte beim Hochscrollen kurz über Kopfleiste und Uhrzeit (Geräte mit Dynamic Island). Sie springt jetzt rechtzeitig nach unten.',
@@ -16341,7 +16347,7 @@ Views.meldungen = {
         <p class="small muted mb12">Alle Daten aus der App herausholen – als Excel-Arbeitsmappe (je Modul ein Blatt), einzelne Module als Excel/CSV oder als druckfertiges Gesamt-PDF.</p>
         <div class="flex-wrap no-print mb12">
           <button class="btn btn-primary" onclick="Xlsx.exportAll()">${icon('excel')} Alle Daten als Excel</button>
-          <button class="btn btn-ghost" onclick="Pdf.komplett()">${icon('print')} Komplettausdruck (PDF)</button>
+          <button class="btn btn-ghost" onclick="Pdf.komplettAuswahl()">${icon('print')} Komplettausdruck (PDF)</button>
         </div>
         <div class="flex-wrap no-print">
           <select class="inp" id="exp-store" style="width:auto;min-width:180px">${DB.DATA_STORES.filter((s) => !['settings', 'papierkorb', 'anhaenge', 'wetter', 'gewichte', 'fuetterungen'].includes(s)).map((s) => `<option value="${s}">${STORE_LABELS[s] || s}</option>`).join('')}</select>
@@ -19140,7 +19146,55 @@ const Pdf = {
   },
 
   /* ---------- Komplettausdruck (Deckblatt, Inhaltsverzeichnis, alle Module) ---------- */
-  async komplett() {
+  /* Was in den Komplettausdruck gehört. Stammdaten (ohne Jahr) kommen immer ganz mit, alles mit Datum folgt dem Zeitraum. */
+  KOMPLETT_KAPITEL: ['staende', 'voelker', 'stockkarten', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'fuetterungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'],
+  KOMPLETT_STAMM: ['staende', 'voelker', 'koeniginnen', 'kontakte', 'inventar'],
+  KOMPLETT_DATUM: { zuchtserien: 'startdatum', trachten: 'von', aufgaben: 'faellig' },   // sonst „datum“
+  KOMPLETT_ZEILEN_JE_SEITE: 15,   // im Stresstest gemessen (Querformat, umbrechende Spalten)
+  /** Auswahl vor dem Komplettausdruck: Zeitraum + Bereiche, mit Seitenschätzung. Große Mengen → Hinweis auf Excel. */
+  async komplettAuswahl() {
+    const defs = await Xlsx.defs();
+    const K = this.KOMPLETT_KAPITEL.filter((k) => defs[k]);
+    const roh = {};
+    for (const k of K) roh[k] = await DB.getAll(k);
+    const datumVon = (k, r) => String(r[this.KOMPLETT_DATUM[k] || 'datum'] || '').slice(0, 4);
+    const jahre = [...new Set(K.filter((k) => !this.KOMPLETT_STAMM.includes(k)).flatMap((k) => roh[k].map((r) => datumVon(k, r)).filter((j) => /^\d{4}$/.test(j))))].sort().reverse();
+    const anzahl = (k, jahr) => (!jahr || this.KOMPLETT_STAMM.includes(k)) ? roh[k].length : roh[k].filter((r) => { const j = datumVon(k, r); return !j || j === jahr; }).length;
+    const seiten = (kap, jahr) => 2 + kap.reduce((s, k) => s + 1 + Math.max(0, Math.ceil(anzahl(k, jahr) / this.KOMPLETT_ZEILEN_JE_SEITE) - 1), 0);
+    const GRENZE = 400;
+    const diesJahr = U.todayIso().slice(0, 4);
+    // Kleine Imkerei: wie bisher alles; große: erst einmal nur das aktuelle (oder letzte) Jahr
+    let jahr = seiten(K, '') <= 150 ? '' : (jahre.includes(diesJahr) ? diesJahr : (jahre[0] || ''));
+    const gewaehlt = new Set(K);
+    const m = UI.modal({
+      title: 'Komplettausdruck',
+      body: `<div class="small muted mb8">Zeitraum</div><div class="chip-row mb12" id="ka-jahre"></div>
+        <div class="flex-wrap mb8" style="justify-content:space-between"><span class="small muted">Bereiche</span>
+          <span><button type="button" class="btn btn-ghost btn-xs" id="ka-alle">Alle</button> <button type="button" class="btn btn-ghost btn-xs" id="ka-keine">Keine</button></span></div>
+        <div class="ka-bereiche mb12">${K.map((k) => `<label class="check-line"><input type="checkbox" data-ka="${U.esc(k)}" checked> <span>${U.esc(defs[k].blatt)}</span></label>`).join('')}</div>
+        <div class="banner info mb8" id="ka-info"></div><div id="ka-warn"></div>`,
+      footer: `<button class="btn btn-ghost" id="ka-excel">${icon('excel')} Excel-Export</button><button class="btn btn-primary" id="ka-pdf">${icon('print')} PDF erstellen</button>`,
+    });
+    const zeichne = () => {
+      $('#ka-jahre', m.el).innerHTML = [...jahre.map((j) => [j, j]), ['', 'Alle Jahre']].map(([v, l]) => `<button type="button" class="chip ${jahr === v ? 'active' : ''}" data-kj="${U.esc(v)}">${U.esc(l)}</button>`).join('');
+      const kap = K.filter((k) => gewaehlt.has(k));
+      const n = kap.reduce((s, k) => s + anzahl(k, jahr), 0), sz = kap.length ? seiten(kap, jahr) : 0;
+      $('#ka-info', m.el).innerHTML = `${icon('info')} <span class="b-msg">Etwa <b>${U.fmtNum(n)} Einträge · ca. ${U.fmtNum(sz)} Seiten</b>${jahr ? `<br><span class="small">Stammdaten (Stände, Völker, Königinnen, Kontakte, Inventar) kommen immer vollständig mit.</span>` : ''}</span>`;
+      $('#ka-warn', m.el).innerHTML = sz > GRENZE ? `<div class="banner warn">${icon('info')} <span class="b-msg">Das wird sehr umfangreich und kann auf dem Handy länger dauern. Wähle ein Jahr oder weniger Bereiche – für so viele Daten ist der <b>Excel-Export</b> meist besser.</span></div>` : '';
+      $('#ka-pdf', m.el).disabled = !kap.length;
+    };
+    m.el.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-kj]'); if (c) { jahr = c.dataset.kj; zeichne(); return; }
+      if (e.target.closest('#ka-alle')) { K.forEach((k) => gewaehlt.add(k)); $$('[data-ka]', m.el).forEach((x) => { x.checked = true; }); zeichne(); }
+      if (e.target.closest('#ka-keine')) { gewaehlt.clear(); $$('[data-ka]', m.el).forEach((x) => { x.checked = false; }); zeichne(); }
+    });
+    m.el.addEventListener('change', (e) => { const x = e.target.closest('[data-ka]'); if (!x) return; if (x.checked) gewaehlt.add(x.dataset.ka); else gewaehlt.delete(x.dataset.ka); zeichne(); });
+    $('#ka-excel', m.el).onclick = () => { m.close(true); Xlsx.exportAll(); };
+    $('#ka-pdf', m.el).onclick = () => { const kap = K.filter((k) => gewaehlt.has(k)); if (!kap.length) return; m.close(true); this.komplett({ jahr, kapitel: kap }); };
+    zeichne();
+    return m;
+  },
+  async komplett(opt = {}) {
     try {
       UI.toast('Komplettausdruck wird erstellt …');
       const jsPDF = await this.lib();
@@ -19154,22 +19208,26 @@ const Pdf = {
       doc.text(imk.name || 'Meine Imkerei', cx, 100, { align: 'center' });
       doc.setFont('helvetica', 'normal').setFontSize(12).setTextColor(110);
       doc.text('Komplettausdruck der Imkerei-Verwaltung', cx, 110, { align: 'center' });
-      doc.text(`Stand: ${U.fmtDate(U.todayIso())}`, cx, 118, { align: 'center' });
+      doc.text(`Stand: ${U.fmtDate(U.todayIso())}${opt.jahr ? ` · Zeitraum ${opt.jahr}` : ''}`, cx, 118, { align: 'center' });
       doc.setFontSize(9).setTextColor(150);
       doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · '), cx, 130, { align: 'center' });
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
       const defs = await Xlsx.defs();
-      const kapitel = ['staende', 'voelker', 'stockkarten', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'];
+      const kapitel = (opt.kapitel && opt.kapitel.length ? opt.kapitel : this.KOMPLETT_KAPITEL).filter((k) => defs[k]);
       for (const key of kapitel) {
         const def = defs[key];
-        const rows = await def.rows();
+        let rows = await def.rows();
+        /* Zeitraum: Zeilen mit Datum nur aus dem gewählten Jahr; Stammdaten und Zeilen ohne Datum bleiben */
+        if (opt.jahr && !this.KOMPLETT_STAMM.includes(key)) rows = rows.filter((r) => { const d = Object.values(r).find((v) => v instanceof Date); return !d || String(d.getFullYear()) === opt.jahr; });
         doc.addPage();
         toc.push({ titel: def.blatt, seite: doc.getNumberOfPages() });
-        const y = await this.header(doc, def.blatt, `${rows.length} Einträge`);
+        const y = await this.header(doc, def.blatt, `${rows.length} Einträge${opt.jahr && !this.KOMPLETT_STAMM.includes(key) ? ` · ${opt.jahr}` : ''}`);
         if (rows.length) {
           const head = Object.keys(rows[0]);
-          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(v.toISOString()) : (v ?? ''); }));
+          // Datum aus den lokalen Teilen bilden: toISOString() rechnet in UTC und machte in Deutschland aus jedem Datum den Vortag
+          const tag = (v) => `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(tag(v)) : (v ?? ''); }));
           this.table(doc, { head, body, startY: y });
         } else {
           doc.setFont('helvetica', 'italic').setFontSize(10).setTextColor(150);
@@ -19190,7 +19248,7 @@ const Pdf = {
         doc.setDrawColor(230, 222, 205).setLineWidth(0.2).line(18 + doc.getTextWidth(t.titel) + 3, ty - 1, 185, ty - 1);
         ty += 8;
       }
-      this.finish(doc, `imkerbuch-komplett-${U.todayIso()}.pdf`);
+      this.finish(doc, `imkerbuch-komplett-${opt.jahr || 'alle'}-${U.todayIso()}.pdf`);
     } catch (e) { console.error(e); UI.toast('Komplettausdruck fehlgeschlagen: ' + e.message, 'err'); }
   },
 };
@@ -19847,7 +19905,7 @@ const APP_WISSEN = [
     antwort: 'Unter „Meldungen & Export“ findest du Excel-Export, Sammelberichte und die Meldungen für Veterinäramt und Tierseuchenkasse.',
     schritte: ['Menü ▸ Meldungen', 'Gewünschten Export wählen', 'Datei öffnen oder teilen'],
     tour: [{ knopf: 'Alle Daten als Excel', weiter: true, text: 'Alle Daten als Excel-Tabelle, mit einem Blatt je Bereich.' },
-      { abschluss: 'Komplettausdruck', text: 'Der Komplettausdruck erzeugt ein PDF mit allen Bereichen. Für Behörden gibt es oben die Meldungen als PDF.' }] },
+      { abschluss: 'Komplettausdruck', text: 'Der Komplettausdruck erzeugt ein PDF – vorher wählst du Jahr und Bereiche, die App schätzt die Seitenzahl. Für Behörden gibt es oben die Meldungen als PDF.' }] },
   { id: 'sicherung', titel: 'Datensicherung', route: 'einstellungen', zeige: 'Sicherung',
     stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',

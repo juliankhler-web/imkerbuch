@@ -1459,6 +1459,43 @@ test('Völker: Suchfeld und Stand-Auswahl als Liste ab 8 Ständen', async (w) =>
 test('Imme unten: kleiner als oben (78 px hoch)', (w) => {
   assertEq(w.Assistent.dockRect('idle').h, 78);
 });
+test('Komplettausdruck: Datum ohne Tagesversatz, Jahr filtert, Stammdaten bleiben ganz', async (w) => {
+  const P = w.Pdf; const altTable = P.table; const tabellen = [];
+  await w.DB.put('voelker', { id: 'test-ka-v', name: 'KA-Testvolk', status: 'aktiv', historie: [] });
+  await w.DB.put('stockkarten', { id: 'test-ka-s1', volkId: 'test-ka-v', datum: '2025-03-10', notiz: 'KA-eins' });
+  await w.DB.put('stockkarten', { id: 'test-ka-s2', volkId: 'test-ka-v', datum: '2024-05-01', notiz: 'KA-zwei' });
+  P.table = function (doc, o) { tabellen.push(o); return altTable.call(this, doc, o); };
+  P.noDownloadForTest = true;
+  try {
+    await P.komplett({ jahr: '2025', kapitel: ['voelker', 'stockkarten'] });
+    const text = (o) => o.body.map((r) => r.join(' | ')).join('\n');
+    const stock = tabellen.find((o) => o.head.includes('Volksstärke') || o.head.includes('Brutbild'));
+    assert(stock, 'Stockkarten-Tabelle gedruckt');
+    assert(/10\.03\.2025/.test(text(stock)), `Datum stimmt (kein Vortag): ${text(stock).slice(0, 200)}`);
+    assert(!/09\.03\.2025/.test(text(stock)), 'nicht der Vortag');
+    assert(!/KA-zwei/.test(text(stock)), '2024 ist ausgefiltert');
+    const voelker = tabellen.find((o) => text(o).includes('KA-Testvolk'));
+    assert(voelker, 'Stammdaten (Völker) sind trotz Jahr dabei');
+  } finally {
+    P.table = altTable; P.noDownloadForTest = false;
+    for (const id of ['test-ka-s1', 'test-ka-s2']) await w.DB.del('stockkarten', id);
+    await w.DB.del('voelker', 'test-ka-v');
+  }
+});
+test('Komplettausdruck: Auswahlfenster mit Jahren, Bereichen und Seitenschätzung', async (w) => {
+  const m = await w.Pdf.komplettAuswahl();
+  try {
+    const el = m.el;
+    assert(el.querySelector('[data-kj=""]'), 'Chip „Alle Jahre“');
+    assert(el.querySelectorAll('[data-ka]').length >= 18, 'alle Bereiche wählbar');
+    assert(el.querySelector('[data-ka="fuetterungen"]'), 'Fütterungen sind jetzt dabei');
+    assert(/Seiten/.test(el.querySelector('#ka-info').textContent), 'Schätzung sichtbar');
+    el.querySelector('#ka-keine').click();
+    assert(el.querySelector('#ka-pdf').disabled, 'ohne Bereich kein PDF');
+    el.querySelector('#ka-alle').click();
+    assert(!el.querySelector('#ka-pdf').disabled, 'mit Bereichen wieder möglich');
+  } finally { m.close(true); }
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
