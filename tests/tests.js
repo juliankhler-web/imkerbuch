@@ -1420,6 +1420,45 @@ test('lagerBewertung: Index über die Einkäufe liefert dasselbe wie vorher, auc
 test('Honiglager: Maßnahme-Vorschlag versteht Komma-Werte („16,5“ °C)', (w) => {
   assert(w.U.parseNum('16,5') > 15, 'parseNum liest Komma');
 });
+test('Seitenweise: lange Listen zeigen 100 Einträge, dann „Weitere“ und „Alle“', (w) => {
+  const items = Array.from({ length: 250 }, (_, i) => i);
+  w.Seitenweise.seite = ''; w.Seitenweise.anzahl = {};
+  let r = w.seitenweise('t', items);
+  assertEq(r.sichtbar.length, 100, 'erst 100');
+  assert(/100 von 250/.test(r.knopf) && /Weitere 100 anzeigen/.test(r.knopf) && /Alle anzeigen/.test(r.knopf), 'Knopf mit Zählung');
+  w.Seitenweise.anzahl.t = 200; r = w.seitenweise('t', items);
+  assertEq(r.sichtbar.length, 200); assert(/Weitere 50 anzeigen/.test(r.knopf), 'Rest 50');
+  w.Seitenweise.anzahl.t = Infinity; r = w.seitenweise('t', items);
+  assertEq(r.sichtbar.length, 250); assertEq(r.knopf, '', 'alles da → kein Knopf');
+  assertEq(w.seitenweise('kurz', [1, 2, 3]).knopf, '', 'kurze Liste ohne Knopf');
+  w.Seitenweise.seite = 'andere/seite'; assertEq(w.seitenweise('t', items).sichtbar.length, 100, 'neue Seite → wieder 100');
+});
+test('Völker: Suchfeld und Stand-Auswahl als Liste ab 8 Ständen', async (w) => {
+  const st = Array.from({ length: 9 }, (_, i) => ({ id: 'test-such-st-' + i, name: 'Teststand ' + i }));
+  for (const x of st) await w.DB.put('staende', x);
+  await w.DB.put('voelker', { id: 'test-such-v', name: 'Zzsuchvolk', standId: st[3].id, status: 'aktiv', beutenkennung: 'B-777', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.voelker; const alt = { s: V._suche, st: V._stand, a: V._alte };
+  try {
+    V._suche = ''; V._stand = ''; V._alte = false;
+    await V.render(host);
+    assert(host.querySelector('#v-suche'), 'Suchfeld da');
+    assert(host.querySelector('#v-stand'), 'Stand-Auswahl als Liste (mehr als 8 Stände)');
+    assert(!host.querySelector('.chip[data-f]'), 'keine Wand aus Stand-Knöpfen');
+    V._suche = 'b-777'; host.innerHTML = ''; await V.render(host);
+    const titel = [...host.querySelectorAll('.row .r-title')].map((x) => x.textContent.trim());
+    assertEq(titel.length, 1, 'Suche nach Beutennummer findet genau ein Volk');
+    assert(/Zzsuchvolk/.test(titel[0]), 'das richtige');
+    V._suche = 'teststand 3 zzsuch'; host.innerHTML = ''; await V.render(host);
+    assertEq(host.querySelectorAll('.row').length, 1, 'mehrere Wörter: Stand + Name');
+  } finally {
+    V._suche = alt.s; V._stand = alt.st; V._alte = alt.a; host.remove();
+    await w.DB.del('voelker', 'test-such-v'); for (const x of st) await w.DB.del('staende', x.id);
+  }
+});
+test('Imme unten: kleiner als oben (78 px hoch)', (w) => {
+  assertEq(w.Assistent.dockRect('idle').h, 78);
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
