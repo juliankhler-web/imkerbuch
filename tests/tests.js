@@ -20,6 +20,14 @@ test('U.parseNum: deutsches Zahlenformat', (w) => {
   assertEq(w.U.parseNum('1.234,56'), 1234.56, 'Tausenderpunkt + Komma');
   assertEq(w.U.parseNum('12,5'), 12.5, 'Dezimalkomma');
   assertEq(w.U.parseNum('1234.56'), 1234.56, 'Punkt als Dezimaltrenner');
+  assertEq(w.U.parseNum('1.200'), 1200, 'Tausenderpunkt ohne Komma (1.200 € = 1200)');
+  assertEq(w.U.parseNum('2.000'), 2000, '„2.000“ wie U.fmtNum es schreibt');
+  assertEq(w.U.parseNum('1.234.567'), 1234567, 'mehrere Tausenderpunkte');
+  assertEq(w.U.parseNum('-1.500'), -1500, 'negativ mit Tausenderpunkt');
+  assertEq(w.U.parseNum('1.5'), 1.5, 'Punkt mit einer Stelle bleibt Dezimalpunkt');
+  assertEq(w.U.parseNum('0.250'), 0.25, 'führende Null: Dezimalpunkt');
+  assertEq(w.U.parseNum('12.50'), 12.5, 'zwei Nachkommastellen: Dezimalpunkt');
+  for (const n of [2000, 1500, 1234567, 12.5, 0.75, 1234.5]) assertEq(w.U.parseNum(w.U.fmtNum(n)), n, `fmtNum → parseNum hin und zurück (${n})`);
   assertEq(w.U.parseNum(7), 7, 'Zahl bleibt Zahl');
   assert(isNaN(w.U.parseNum('abc')), 'Unsinn → NaN');
   assert(isNaN(w.U.parseNum('')), 'leer → NaN');
@@ -1385,13 +1393,32 @@ test('Imme: ausgeschaltet schläft sie, springt nicht und ist unten unsichtbar',
     await w.S.set('assistentAktiv', false); w.Assistent.layout(true);
     const fab = w.document.getElementById('bini-fab');
     assert(fab.classList.contains('bini-schlaf'), 'schläft (gedimmt)');
+    assert(!w.document.body.classList.contains('bini-platz'), 'aus: unten kein Extra-Platz nötig');
     assertEq(w.Assistent.an(), false);
     const vor = w.Assistent._gesteBis; w.Assistent.geste('wave', 3000);
     assert(!/wave/.test(fab.querySelector('img').src), 'winkt nicht, auch nicht auf Befehl');
     w.Assistent._gesteBis = vor;
     await w.S.set('assistentAktiv', true); w.Assistent.layout(true);
     assert(!fab.classList.contains('bini-schlaf') && !fab.classList.contains('bini-weg'), 'wieder wach');
+    assert(w.document.body.classList.contains('bini-platz'), 'an: Seite lässt unten Platz, damit Imme nichts verdeckt');
   } finally { await w.S.set('assistentAktiv', alt === undefined ? true : alt); w.Assistent.layout(true); }
+});
+test('lagerBewertung: Index über die Einkäufe liefert dasselbe wie vorher, auch nach Ergänzen der Liste', (w) => {
+  const pos = { id: 'p1', stueckzahl: 5, preis: 4 };
+  const zug = [
+    { inventarId: 'p1', art: 'Einkauf', menge: 3, preis: 2, datum: '2026-01-01' },
+    { inventarId: 'p1', art: 'Einkauf', menge: 3, preis: 3, datum: '2026-03-01' },
+    { inventarId: 'p2', art: 'Einkauf', menge: 9, preis: 9, datum: '2026-02-01' },
+    { inventarId: 'p1', art: 'Korrektur', menge: 9, preis: 0, datum: '2026-04-01' },
+  ];
+  const a = w.lagerBewertung(pos, zug);
+  assertEq(a.wert, 3 * 3 + 2 * 2, 'neueste Einkäufe zuerst (FIFO rückwärts)');
+  zug.push({ inventarId: 'p1', art: 'Einkauf', menge: 5, preis: 1, datum: '2026-05-01' });
+  assertEq(w.lagerBewertung(pos, zug).wert, 5, 'nach push: neuer Einkauf zählt (Index neu aufgebaut)');
+  assertEq(w.lagerBewertung({ id: 'leer', stueckzahl: 2, preis: 7 }, zug).wert, 14, 'ohne Einkauf: letzter Preis');
+});
+test('Honiglager: Maßnahme-Vorschlag versteht Komma-Werte („16,5“ °C)', (w) => {
+  assert(w.U.parseNum('16,5') > 15, 'parseNum liest Komma');
 });
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war

@@ -195,7 +195,10 @@ html[data-theme="dark"] .bottomnav{box-shadow:0 12px 30px -10px rgba(0,0,0,.6)}
   .bottomnav{display:flex}
   .topbar .tb-brand{display:flex}
   main{padding-bottom:calc(var(--nav-h) + 44px + env(safe-area-inset-bottom))}
+  /* Imme steht unten rechts auf der Leiste: Platz lassen, sonst verdeckt sie ganz unten den letzten Eintrag */
+  body.bini-platz main{padding-bottom:calc(var(--nav-h) + 110px + env(safe-area-inset-bottom))}
 }
+@media(min-width:901px){ body.bini-platz main{padding-bottom:118px} }
 
 /* =====================================================================
    KOMPONENTEN: Karten, Buttons, Badges, Listen, Tabellen
@@ -508,11 +511,10 @@ body[data-route="assistent"] .bini-fab{display:none}
 /* Schieberegler wie bei iOS: ein echtes Kontrollkästchen (role=switch), nur anders gezeichnet */
 .ios-switch{-webkit-appearance:none;appearance:none;position:relative;flex:0 0 auto;width:51px;height:31px;margin:0;border-radius:31px;background:#E9E9EA;cursor:pointer;transition:background .25s}
 .ios-switch::before{content:'';position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:transform .25s cubic-bezier(.3,.7,.4,1.2)}
-.ios-switch:checked{background:#34C759}
+.ios-switch:checked{background:var(--honey)}   /* an = Honig-Orange wie der Senden-Knopf, aus = Grau */
 .ios-switch:checked::before{transform:translateX(20px)}
 .ios-switch:focus-visible{outline:2px solid var(--honey);outline-offset:2px}
-html[data-theme="dark"] .ios-switch{background:#39393D}
-html[data-theme="dark"] .ios-switch:checked{background:#30D158}
+html[data-theme="dark"] .ios-switch:not(:checked){background:#39393D}
 @media(prefers-reduced-motion:reduce){.ios-switch,.ios-switch::before{transition:none}}
 .bini-seite.bini-aus .bini-gross{filter:grayscale(.6) brightness(.92);opacity:.8}
 .bini-aus-hinweis{margin-top:10px}
@@ -998,6 +1000,9 @@ const U = {
     s = String(s ?? '').trim().replace(/\s/g, '');
     if (!s) return NaN;
     if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    /* Deutsches Tausender-Trennzeichen ohne Komma: „1.200“ / „2.000“ = 1200 / 2000 (so schreibt es auch U.fmtNum).
+       Ein Punkt vor nicht genau drei Ziffern bleibt Dezimalpunkt („1.5“, „0.250“, „1234.56“). */
+    else if (/^[-+]?[1-9]\d{0,2}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
     return parseFloat(s);
   },
   addDays(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
@@ -1135,8 +1140,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.31';
+const APP_VERSION = '2.32';
 const CHANGELOG = [
+  { version: '2.32', datum: '2026-10-06', punkte: [
+    'Der Regler „Imme ist aktiv“ ist eingeschaltet jetzt honig-orange (wie der Senden-Knopf), ausgeschaltet grau.',
+    'Behoben: Ganz unten verdeckte Imme den letzten Eintrag einer Liste. Die Seiten lassen jetzt unten Platz für sie.',
+    'Behoben: „1.200“ ohne Komma wurde als 1,20 gelesen. Ein Punkt vor drei Ziffern gilt jetzt als Tausender-Punkt (1.200 = 1200); „12,50“ und „1.5“ funktionieren wie bisher.',
+    'Behoben: Im Honiglager kam bei Werten mit Komma (z. B. „16,5“ °C) keine Maßnahme-Empfehlung.',
+    'Marktverkauf: Wie viele Gläser noch übrig sind, steht jetzt vorne und wird auf dem Handy nicht mehr abgeschnitten.',
+    'Schneller bei großen Datenmengen: Kontaktliste und Lagerwert-Berechnung (Inventar/Verbrauchsmaterial) rechnen nicht mehr jede Position gegen alle Buchungen.',
+  ] },
   { version: '2.31', datum: '2026-10-06', punkte: [
     'Aufgeräumt: Die Kachel „Saisonaler Tipp“ im Dashboard führt jetzt direkt in den passenden Bereich (z. B. „Zu den Völkern“, „Zur Fütterung“, bei hohem Varroa-Befall direkt zum Volk) statt in die pausierte Imkerschule.',
   ] },
@@ -9925,7 +9938,12 @@ Views.kontakte = {
     const passt = (c) => (filter === 'lieferant' ? kontaktIstLieferant(c) : filter === 'kunde' ? kontaktIstKunde(c) : filter === 'bio' ? istBio(c) : true)
       && (!suche || [c.name, c.ort, c.oekoWas, c.oekoNummer].some((x) => String(x || '').toLowerCase().includes(suche)));
     const list = U.sortBy(alle.filter(passt), (c) => (c.name || '').toLowerCase());
-    const zertZahl = (c) => anhaenge.filter((a) => a.parentTyp === 'kontakt' && a.parentId === c.id).length;
+    /* Einmal zählen statt je Kontakt alles durchsuchen: bei 1.500 Kontakten × 15.000 Buchungen
+       wären das sonst über 20 Mio. Vergleiche pro Aufbau (auf dem Handy mehrere Sekunden). */
+    const zertJe = new Map(), buchJe = new Map();
+    for (const a of anhaenge) if (a.parentTyp === 'kontakt') zertJe.set(a.parentId, (zertJe.get(a.parentId) || 0) + 1);
+    for (const k of buchungen) if (k.kontaktId) buchJe.set(k.kontaktId, (buchJe.get(k.kontaktId) || 0) + 1);
+    const zertZahl = (c) => zertJe.get(c.id) || 0;
     const rolle = (c) => (KONTAKT_ARTEN.find((k) => k.v === c.typ) || KONTAKT_ARTEN[0]).l;
     const marke = (c) => {
       const st = bioFristStatus(c.oekoGueltigBis);
@@ -9934,7 +9952,7 @@ Views.kontakte = {
     };
     const chip = (v, l) => `<button class="chip ${filter === v ? 'active' : ''}" data-pfilter="${U.esc(v)}">${l}</button>`;
     const ohneNummer = alle.filter((c) => kontaktIstLieferant(c) && kontaktIstBio(c) && !c.oekoNummer).length;
-    const buchungenVon = (c) => buchungen.filter((k) => k.kontaktId === c.id);
+    const buchungenZahl = (c) => buchJe.get(c.id) || 0;
     box.innerHTML = `<div class="card">
       ${opt.ohneKopf ? '' : `<div class="card-title">${icon('kontakte')}<h2>Abnehmer und Lieferanten</h2>
         <button class="btn btn-primary btn-sm no-print" data-neu>${icon('plus')} Kontakt</button></div>`}
@@ -9943,7 +9961,7 @@ Views.kontakte = {
       <div class="field mb12 no-print" style="margin-bottom:12px"><input class="inp" data-ksuche placeholder="Name, Ort oder Ware suchen …" value="${U.esc(Views.kontakte._suche || '')}"></div>
       ${opt.bio && ohneNummer ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">${ohneNummer} ${ohneNummer === 1 ? 'Lieferant hat' : 'Lieferanten haben'} noch keine Öko-Kontrollnummer. Bei Öko-Ware gehört sie dazu.</span></div>` : ''}
       ${list.length ? `<div class="rows">${list.map((c) => {
-        const n = zertZahl(c), b = buchungenVon(c);
+        const n = zertZahl(c), b = { length: buchungenZahl(c) };
         const sub = [rolle(c), c.oekoWas, c.oekoNummer, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
         const kontakt = [c.telefon, c.email].filter(Boolean).join(' · ');
         const links = [b.length ? `${b.length} ${b.length === 1 ? 'Buchung' : 'Buchungen'} im Kassenbuch` : '', n ? `${n} ${n === 1 ? 'Zertifikat/Papier' : 'Zertifikate/Papiere'}` : (istBio(c) || opt.bio ? 'noch kein Zertifikat hinterlegt' : ''), c.oekoUrl ? 'Link vorhanden' : ''].filter(Boolean).join(' · ');
@@ -10887,8 +10905,8 @@ Views.bio = {
     const pruefen = () => {
       const so = hygieneSoll();
       const vor = [];
-      if (Number(f.value) > so.feuchteMax) vor.push('Raumtrocknung');
-      if (Number(t.value) > so.tempMax) vor.push('Temperatur regulieren');
+      if (U.parseNum(f.value) > so.feuchteMax) vor.push('Raumtrocknung');   // parseNum: „16,5“ mit Komma
+      if (U.parseNum(t.value) > so.tempMax) vor.push('Temperatur regulieren');
       const text = vor.join(', ');
       if (!ma.value.trim() || ma.value === zuletzt) { ma.value = text; zuletzt = text; }
     };
@@ -12507,7 +12525,7 @@ Views.markt = {
         const imKorb = korb[a.id] || 0;
         return `<button class="markt-tile" data-tile="${U.esc(a.id)}" ${imKorb >= a.bestand ? 'disabled' : ''}>
           <span class="mt-name">${U.esc(name)}${imKorb ? ` <span class="badge b-honey">${imKorb}×</span>` : ''}</span>
-          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))} · ${Math.max(0, a.bestand - imKorb)} übrig</span>
+          <span class="mt-rest">${gebindeLabel(a.gebindeG)} · <b>${Math.max(0, a.bestand - imKorb)} übrig</b> · Charge ${U.esc(chargeUndLos(a, c))}</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
         </button>`;
       }).join('')}</div>`
@@ -15097,13 +15115,31 @@ function kasseKategorieFuer(materialKategorie) {
     Reine Funktion ohne Datenbank: sie lässt sich prüfen, und weil sie jedes Mal
     aus den Datensätzen rechnet, stimmt sie auch nach dem Ändern oder Löschen
     eines Einkaufs von selbst wieder. */
+/* Einkäufe je Position einmal vorsortieren (je Zugangs-Liste zwischengespeichert): die Liste ruft
+   lagerBewertung für jede Position mehrfach auf – ohne Index wären das bei 3.000 Positionen und
+   6.000 Einkäufen zig Millionen Vergleiche pro Aufbau. Die Funktion bleibt rein: gleiche Eingabe,
+   gleiches Ergebnis; eine neue Liste (nach dem Speichern neu geladen) bekommt einen neuen Index. */
+const _einkaufIndex = new WeakMap();
+function einkaeufeVon(zugaenge, id) {
+  if (!Array.isArray(zugaenge)) return [];
+  let idx = _einkaufIndex.get(zugaenge);
+  if (!idx || idx.n !== zugaenge.length) {   // Länge geändert (Liste ergänzt) → neu aufbauen
+    idx = new Map();
+    for (const z of zugaenge) {
+      if (z.art !== 'Einkauf' || !((Number(z.menge) || 0) > 0) || !((Number(z.preis) || 0) > 0)) continue;
+      if (!idx.has(z.inventarId)) idx.set(z.inventarId, []);
+      idx.get(z.inventarId).push(z);
+    }
+    for (const [k, arr] of idx) idx.set(k, U.sortBy(arr, (z) => z.datum || ''));
+    idx.n = zugaenge.length;
+    _einkaufIndex.set(zugaenge, idx);
+  }
+  return idx.get(id) || [];
+}
 function lagerBewertung(pos, zugaenge) {
   const menge = verbrauchBestand(pos);
   const letzterPreis = Math.max(0, Number(pos && pos.preis) || 0);
-  const kaeufe = U.sortBy(
-    (zugaenge || []).filter((z) => z.inventarId === (pos || {}).id && z.art === 'Einkauf'
-      && (Number(z.menge) || 0) > 0 && (Number(z.preis) || 0) > 0),
-    (z) => z.datum || '');
+  const kaeufe = einkaeufeVon(zugaenge, (pos || {}).id);
   let offen = menge, kosten = 0, gedeckt = 0, anzahl = 0;
   for (let i = kaeufe.length - 1; i >= 0 && offen > 0.0000001; i--) {
     const nimm = Math.min(offen, Number(kaeufe[i].menge) || 0);
@@ -20355,6 +20391,7 @@ const Assistent = {
     /* Aus: Imme schläft (gedimmt, „z Z“), steht nur oben im Seitenkopf und springt nicht. Unten ist sie dann nicht zu sehen. */
     fab.classList.toggle('bini-schlaf', !an);
     fab.classList.toggle('bini-weg', !an && !frei);
+    document.body.classList.toggle('bini-platz', an);
     const titel = an ? 'Assistent Imme öffnen' : 'Imme schläft – Assistent öffnen und einschalten';
     if (fab.getAttribute('aria-label') !== titel) { fab.setAttribute('aria-label', titel); fab.title = an ? '' : 'Imme schläft'; }
     const war = fab.classList.contains('bini-frei'), bereit = fab.classList.contains('bini-bereit');
