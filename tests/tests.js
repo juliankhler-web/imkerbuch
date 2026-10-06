@@ -1363,6 +1363,36 @@ test('Darstellung: Knopf oben schaltet System → Hell → Dunkel durch', async 
     assertEq(w.S.get('darkMode'), 'auto', 'Dunkel → System');
   } finally { await w.S.set('darkMode', alt || 'auto'); w.applyTheme(); }
 });
+test('Imme: erkennt „ich brauche dich nicht mehr“ und Verwandte als Ausschalten, Fragen nicht', (w) => {
+  for (const t of ['ich brauche dich nicht mehr', 'Beende dich', 'schalte dich aus', 'Imme ausschalten', 'sei still', 'beenden', 'deaktiviere dich', 'ich brauche keine Hilfe mehr', 'mach dich bitte aus', 'lass mich in Ruhe', 'brauch dich nicht', 'Tschüss Imme'])
+    assertEq(w.Assistent.willAus(t), t === 'Imme ausschalten' ? false : true, `„${t}“`);
+  for (const t of ['Wie schalte ich dich aus?', 'Wo kann ich Imme ausschalten', 'Behandlung beenden', 'Wie beende ich eine Behandlung', 'Volk anlegen', 'Kann ich den Assistenten abschalten?', 'was ist ein Brutableger', ''])
+    assertEq(w.Assistent.willAus(t), false, `„${t}“ ist keine Abschaltung`);
+});
+test('Imme: Tageszeit wählt Kaffee / Strohhut / Honigglas / Schlafmütze', (w) => {
+  const z = (h) => w.Assistent.zeit(new Date(2026, 9, 6, h, 0));
+  assertEq([4, 5, 10].map(z), ['abend', 'morgen', 'morgen']);
+  assertEq([11, 14].map(z), ['mittag', 'mittag']);
+  assertEq([15, 18].map(z), ['nachmittag', 'nachmittag']);
+  assertEq([19, 23, 0, 3].map(z), ['abend', 'abend', 'abend', 'abend']);
+  assert(/\/(morgen|mittag|nachmittag|abend)_idle\.webp$/.test(w.Assistent.bild('idle')), 'Stehen je Tageszeit');
+  assert(/\/(morgen|mittag|nachmittag|abend)_wave\.webp$/.test(w.Assistent.bild('wave')), 'Winken je Tageszeit');
+  assert(/\/point\.webp$/.test(w.Assistent.bild('point')), 'Zeigen gibt es einmal');
+});
+test('Imme: ausgeschaltet schläft sie, springt nicht und ist unten unsichtbar', async (w) => {
+  const alt = w.S.get('assistentAktiv');
+  try {
+    await w.S.set('assistentAktiv', false); w.Assistent.layout(true);
+    const fab = w.document.getElementById('bini-fab');
+    assert(fab.classList.contains('bini-schlaf'), 'schläft (gedimmt)');
+    assertEq(w.Assistent.an(), false);
+    const vor = w.Assistent._gesteBis; w.Assistent.geste('wave', 3000);
+    assert(!/wave/.test(fab.querySelector('img').src), 'winkt nicht, auch nicht auf Befehl');
+    w.Assistent._gesteBis = vor;
+    await w.S.set('assistentAktiv', true); w.Assistent.layout(true);
+    assert(!fab.classList.contains('bini-schlaf') && !fab.classList.contains('bini-weg'), 'wieder wach');
+  } finally { await w.S.set('assistentAktiv', alt === undefined ? true : alt); w.Assistent.layout(true); }
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
@@ -10071,6 +10101,16 @@ test('Imme führt: alle Touren sind sauber aufgebaut, jede endet mit Speichern/A
 /* Imme: Wie locker versteht sie Fragen? ~841 Alltagsfragen in vielen Formulierungen (Synonyme, Tippfehler, Satzbau).
    [Frage, erwartete Antwort(en)] – 'faq' = Imker-Praxis, 'none' = soll nichts Falsches behaupten. */
 const IMME_FRAGEN = [
+  ["Wie schalte ich Imme aus?","imme-aus"],
+  ["wie schalte ich dich aus?","imme-aus"],
+  ["Kann ich dich abschalten","imme-aus"],
+  ["wie werde ich die biene los","imme-aus"],
+  ["Assistent einschalten","imme-aus"],
+  ["Wie kann ich den Assistenten deaktivieren?","imme-aus"],
+  ["Imme nervt, wie werde ich sie los","imme-aus"],
+  ["Kann ich die Biene ausblenden?","imme-aus"],
+  ["wie schalte ich den assistenten wieder ein","imme-aus"],
+  ["Die Biene springt dauernd, kann man das abstellen?","imme-aus"],
   ["Wie lege ich ein neues Volk an?","volk-neu"],
   ["Ich habe ein neues Bienenvolk, wo trage ich das ein?","volk-neu"],
   ["volk hinzufügen","volk-neu"],
