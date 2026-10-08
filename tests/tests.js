@@ -320,6 +320,7 @@ async function vollesGeraet(w) {
   await w.migriereChargenAbfuellung(); await w.migriereChargeDatumUndMhd();
   await w.Demo.create();
   await w.migriereInventarTyp(); // läuft auf jedem echten Gerät bei jedem Start
+  try { await w.Views.dashboard.render(w.document.createElement('div')); } catch (e) { /* Startseite einmal geöffnet (Merker) */ }
   // Bereiche, für die die Beispieldaten nichts mitbringen
   const pos = (await w.DB.getAll('inventar'))[0];
   const heute = w.U.todayIso();
@@ -386,6 +387,83 @@ test('Sicherung: jeder Bereich kommt vollständig auf dem neuen Gerät an (Zusam
   // Die Beispieldaten decken (fast) alles ab – leere Bereiche hier sichtbar machen statt still durchwinken
   const erlaubtLeer = ['wetter', 'papierkorb'];
   assertEq(r.leer.filter((x) => !erlaubtLeer.includes(x)), [], 'Bereiche ohne Testdaten');
+}));
+async function warteBis(fn, ms = 8000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { if (await fn()) return true; await new Promise((r) => setTimeout(r, 40)); }
+  return false;
+}
+test('Neues Gerät: erkennt Einrichtung, Beispieldaten und eigene Daten', async (w) => isolierteDaten(w, async () => {
+  assertEq(await w.Backup.geraetNeu(), { leer: true, demo: false, namen: [] }, 'leeres Gerät');
+  await w.Wizard.einrichten({ vorname: 'Julian', imkerei: '', standName: 'Heimstand', volkName: 'Volk 1', beutentyp: 'Zander' });
+  assertEq(await w.Backup.geraetNeu(), { leer: false, demo: false, namen: [{ art: 'Stand', name: 'Heimstand' }, { art: 'Volk', name: 'Volk 1' }] }, 'nur Einrichtung');
+  // Volk aus der Einrichtung gelöscht: liegt im Papierkorb, Gerät bleibt neu
+  const v = (await w.DB.getAll('voelker'))[0];
+  await w.DB.schreibeAlles(w.papierkorbOps ? w.papierkorbOps('voelker', v) : [{ store: 'papierkorb', obj: { id: w.U.uuid(), store: 'voelker', daten: v, geloeschtAm: w.U.nowIso() } }, { op: 'del', store: 'voelker', id: v.id }]);
+  assert(await w.Backup.geraetNeu(), 'gelöschte Einrichtung zählt nicht als eigene Daten');
+  await w.DB.put('kontakte', { typ: 'kunde', name: 'Erste Kundin' });
+  assertEq(await w.Backup.geraetNeu(), null, 'ein eigener Eintrag → nicht mehr neu');
+  // Beispieldaten
+  await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.set('startDaten', null, { auto: true });
+  await w.Wizard.einrichten({ vorname: 'Julian', imkerei: '', standName: 'Heimstand', volkName: 'Volk 1', beutentyp: 'Zander' }, true);
+  const demo = await w.Backup.geraetNeu();
+  assert(demo && demo.demo && !demo.leer, 'nur Beispieldaten: ' + JSON.stringify(demo));
+  await w.DB.put('stockkarten', { volkId: (await w.DB.getAll('voelker'))[0].id, datum: w.U.todayIso(), notizen: 'eigene Durchsicht' });
+  assertEq(await w.Backup.geraetNeu(), null, 'eigene Durchsicht zwischen Beispieldaten → nicht neu');
+  // ältere Fassung ohne Liste: höchstens ein Stand und ein Volk
+  await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.set('startDaten', null, { auto: true });
+  const st = await w.DB.put('staende', { name: 'Alt-Stand' });
+  await w.DB.put('voelker', { name: 'Alt-Volk', standId: st.id, status: 'aktiv' });
+  assertEq((await w.Backup.geraetNeu()).namen.length, 2, 'alte Einrichtung erkannt');
+  await w.DB.put('voelker', { name: 'Zweites Volk', standId: st.id, status: 'aktiv' });
+  assertEq(await w.Backup.geraetNeu(), null, 'zwei Völker → eigene Daten');
+  // die Liste ist gerätebezogen und reist nicht in der Sicherung mit
+  assert(w.S.GERAET.has('startDaten'));
+}));
+test('Neues Gerät: „Alles übernehmen“ macht eine genaue Kopie ohne Einrichtungs-Reste', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const { quelle } = await vollesGeraet(w);
+  const datei = new w.File([await w.Backup.buildBlob()], 'sicherung.json', { type: 'application/json' });
+  await neuerPc(w);
+  await w.Backup.snapshotInternal('test-davor');
+  const confirm = w.UI.confirm; let frage = null;
+  w.UI.confirm = async (o) => { frage = o; return true; };
+  try {
+    await w.Backup.importFile(datei);
+    const m = [...w.document.querySelectorAll('.modal')].pop();
+    assert(/noch neu/.test(m.textContent) && /„Heimstand“/.test(m.textContent), 'Fenster nennt die Einrichtung: ' + m.textContent.slice(0, 200));
+    assert(m.querySelector('[data-alles]') && !m.querySelector('[data-replace]'), 'Alles übernehmen statt Ersetzen');
+    m.querySelector('[data-alles]').click();
+    assert(await warteBis(() => w.S.get('startDaten') === null), 'Übernahme abgeschlossen');
+    assert(frage && !frage.requirePhrase, 'nur eine Rückfrage, nichts eintippen');
+    const r = await vergleicheAlles(w, quelle, { extraErlaubt: false });
+    assertEq(r.fehler, [], 'genaue Kopie');
+    assert(!(await w.DB.getAll('staende')).some((x) => x.name === 'Heimstand'), 'Heimstand aus der Einrichtung ist weg');
+    assert((await w.DB.getAll('snapshots')).some((x) => x.grund === 'vor-import'), 'vorher interne Kopie');
+    assertEq(await w.Backup.geraetNeu(), null, 'danach gilt das Gerät nicht mehr als neu');
+  } finally { w.UI.confirm = confirm; dialogeSchliessen(w); }
+}));
+test('Gerät mit eigenen Daten: Import-Fenster wie bisher (Zusammenführen / Ersetzen)', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  await w.DB.put('kontakte', { typ: 'kunde', name: 'Eigene Daten' });
+  const datei = new w.File([JSON.stringify({ app: 'ImkerBuch', formatVersion: 1, exportiert: w.U.nowIso(), stores: { kontakte: [] } })], 's.json');
+  try {
+    await w.Backup.importFile(datei);
+    const m = [...w.document.querySelectorAll('.modal')].pop();
+    assert(m.querySelector('[data-merge]') && m.querySelector('[data-replace]') && !m.querySelector('[data-alles]'), 'bisherige Knöpfe');
+    assert(/Zusammenführen \(empfohlen\)/.test(m.textContent));
+  } finally { dialogeSchliessen(w); }
+}));
+test('Beispieldaten laden behält die internen Sicherungskopien und legt vorher eine an', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('kontakte', { typ: 'kunde', name: 'Vor der Demo' });
+  await w.Backup.snapshotInternal('test-alt');
+  await w.Demo.reset();
+  const snaps = await w.DB.getAll('snapshots');
+  assert(snaps.some((x) => x.grund === 'test-alt'), 'ältere Kopie bleibt');
+  const vor = snaps.find((x) => x.grund === 'vor-beispieldaten');
+  assert(vor && /Vor der Demo/.test(vor.daten), 'Kopie mit den Daten von vorher');
+  const neu = await w.Backup.geraetNeu();
+  assert(neu && neu.demo, 'nach dem Laden gilt das Gerät als „nur Beispieldaten“');
 }));
 test('Sicherung: alle Seiten nur öffnen löst keinen Sicherungshinweis aus', async (w) => {
   dialogeSchliessen(w);

@@ -1169,8 +1169,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.40';
+const APP_VERSION = '2.41';
 const CHANGELOG = [
+  { version: '2.41', datum: '2026-10-08', punkte: [
+    'Sicherung auf ein neues Gerät: Liegt dort nur, was die Einrichtung angelegt hat (z. B. „Heimstand“, „Volk 1“) oder nur die Beispieldaten, bietet das Import-Fenster „Alles übernehmen“ an. Die Sicherung wird 1:1 übernommen – nichts doppelt, keine Beispiel-Völker zwischen den echten Daten, nur eine Rückfrage.',
+    'Auf Geräten mit eigenen Daten bleibt das Fenster wie bisher (Zusammenführen / Ersetzen).',
+    '„Beispieldaten laden“ löscht die internen Sicherungskopien nicht mehr und legt vorher selbst eine an.',
+    'Nach dem Einspielen erscheint ein eigenes Logo sofort oben in der Kopfzeile, nicht erst nach einem Neustart.',
+  ] },
   { version: '2.40', datum: '2026-10-08', punkte: [
     'Sicherung auf ein anderes Gerät (z. B. Handy → PC): Bio- und Imkerei-Angaben kommen jetzt vollständig an. Vorher gewann beim „Zusammenführen“ die Ersteinrichtung des neuen Geräts (Bio: nein, leere Anschrift), weil sie jünger war. Jetzt wird jedes Feld einzeln verglichen, und was die App selbst eingetragen hat, zählt nie als neuer.',
     'Schon betroffen? Die Sicherung einfach noch einmal einspielen und „Zusammenführen“ wählen – die fehlenden Angaben werden ergänzt, nichts wird doppelt.',
@@ -2651,7 +2657,7 @@ const S = {
      kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
      wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
      lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
-  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif']),
+  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -4361,19 +4367,53 @@ const Wizard = {
   async einrichten(state, withDemo = false) {
     await S.set('profil', { vorname: state.vorname }, { auto: true });
     const imk = S.get('imkerei'); imk.name = state.imkerei || imk.name; await S.set('imkerei', imk, { auto: true });
+    const vorher = await startIdsJetzt();
     let standId = null;
     if (state.standName) { const st = await DB.put('staende', { name: state.standName, lat: null, lng: null, notizen: '' }); standId = st.id; }
     if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: state.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
+    await startDatenMerken(vorher);
     if (withDemo) await Demo.create();
     await S.set('wizardDone', true, { auto: true });
   },
 };
 
+/* Was die App beim Einrichten selbst anlegt – Stand und Volk aus dem
+   Einrichtungs-Fenster, die Beispieldaten –, merkt sie sich, nur auf diesem
+   Gerät. Steht sonst nichts darauf, gilt das Gerät als „neu“: Eine Sicherung
+   kann dann 1:1 übernommen werden, statt dass „Heimstand“, „Volk 1“ oder
+   Beispiel-Völker zwischen den echten Daten stehen bleiben. */
+const START_OHNE = ['settings', 'wetter'];
+async function startIdsJetzt() {
+  const d = await DB.leseAlles(DB.DATA_STORES.filter((s) => !START_OHNE.includes(s)));
+  return Object.fromEntries(Object.entries(d).filter(([s]) => !START_OHNE.includes(s)).map(([s, rows]) => [s, new Set(rows.map((r) => r.id))]));
+}
+async function startDatenMerken(vorher, demo = false) {
+  const jetzt = await startIdsJetzt();
+  const merk = structuredClone(S.get('startDaten') || {});
+  merk.ids = merk.ids || {};
+  for (const [store, ids] of Object.entries(jetzt)) {
+    const neu = [...ids].filter((id) => !(vorher[store] && vorher[store].has(id)));
+    if (neu.length) merk.ids[store] = [...(merk.ids[store] || []), ...neu];
+  }
+  if (demo) merk.demo = true;
+  await S.set('startDaten', merk, { auto: true });
+}
+
 const Demo = {
-  /** Alle Datenspeicher leeren (Einstellungen bleiben) und volle Beispieldaten laden. */
-  async reset() { for (const s of DB.STORES) if (s !== 'settings') await DB.clear(s); await this.create(); },
+  /** Alle Datenspeicher leeren (Einstellungen und interne Sicherungskopien bleiben) und volle Beispieldaten laden. */
+  async reset() {
+    await Backup.snapshotInternal('vor-beispieldaten'); // zurückholbar über „Interne Snapshots“
+    for (const s of DB.STORES) if (s !== 'settings' && s !== 'snapshots') await DB.clear(s);
+    await S.set('startDaten', null, { auto: true });
+    await this.create();
+  },
   /** Umfangreiche Beispieldaten für Rundgang & Screenshots (deckt alle Module ab). */
   async create() {
+    const vorher = await startIdsJetzt();
+    await this._erzeugen();
+    await startDatenMerken(vorher, true);
+  },
+  async _erzeugen() {
     const heute = U.todayIso(), Y = +heute.slice(0, 4);
     const d = (n) => U.addDays(heute, n);
     const ymd = (y, m, dd) => `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
@@ -17623,7 +17663,40 @@ const Backup = {
     await this.applyReplace(data, { blobsBehalten: true });
     await this.nachImport(data);
     UI.toast('Snapshot wiederhergestellt');
-    await S.load(); applyTheme(); renderRoute(); this.updateBanners();
+    await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
+  },
+
+  /* Ist dieses Gerät noch „neu“? Ja, wenn darauf nur liegt, was die App beim
+     Einrichten selbst angelegt hat (siehe startDatenMerken). Geräte aus älteren
+     Fassungen kennen diese Liste nicht – dort zählen höchstens ein Stand und
+     ein Volk als Einrichtung, und sonst nichts.
+     Gibt null zurück, wenn eigene Daten da sind, sonst { leer, demo, namen }. */
+  async geraetNeu() {
+    const stores = DB.DATA_STORES.filter((st) => !START_OHNE.includes(st));
+    const d = await DB.leseAlles(stores);
+    const start = S.get('startDaten');
+    const liste = start && start.ids ? start.ids : null;
+    const bekannt = (store, id) => !!(liste && Array.isArray(liste[store]) && liste[store].includes(id));
+    const uebrig = [];
+    let anzahl = 0;
+    for (const store of stores) for (const r of d[store]) {
+      anzahl++;
+      if (bekannt(store, r.id)) continue;
+      if (store === 'papierkorb' && r.daten && bekannt(r.store, r.daten.id)) continue; // gelöschte Einrichtung/Beispieldaten
+      uebrig.push({ store, r });
+    }
+    if (uebrig.length) {
+      if (liste) return null;
+      const n = (st) => uebrig.filter((x) => x.store === st).length;
+      if (n('staende') > 1 || n('voelker') > 1 || uebrig.some((x) => x.store !== 'staende' && x.store !== 'voelker')) return null;
+    }
+    const demo = !!(start && start.demo) && anzahl > 0;
+    // Bei Beispieldaten keine Namensliste (das wären Dutzende) – sonst Stand und Volk aus der Einrichtung
+    const namen = demo ? [] : [
+      ...d.staende.map((r) => ({ art: 'Stand', name: String(r.name || '').trim() || 'ohne Namen' })),
+      ...d.voelker.map((r) => ({ art: 'Volk', name: String(r.name || '').trim() || 'ohne Namen' })),
+    ];
+    return { leer: anzahl === 0, demo, namen };
   },
 
   /* ---------- Import (Datei): Ersetzen / Zusammenführen ---------- */
@@ -17640,18 +17713,55 @@ const Backup = {
     const counts = alleTeile.slice(0, 8).map((t) => `${t.n} × ${U.esc(t.label)}`).join(', ')
       + (alleTeile.length > 8 ? ` und ${alleTeile.length - 8} weitere Bereiche` : '')
       + (fremd ? ` · ${fremd} unbekannte${fremd === 1 ? 'r Bereich wird' : ' Bereiche werden'} übersprungen` : '');
-    const m = UI.modal({
-      title: 'Sicherung importieren',
-      body: `<p class="small">Sicherung vom <b>${U.fmtDateTime(data.exportiert)}</b></p><p class="small muted mt8">${counts || 'leer'}</p>
+    /* Auf einem neuen Gerät (nur Einrichtung oder Beispieldaten) ist „alles
+       übernehmen“ das, was man will: eine genaue Kopie, ohne „Heimstand“ und
+       „Volk 1“ aus der Einrichtung oder Beispiel-Völker zwischen den echten Daten. */
+    const neu = await this.geraetNeu();
+    const kopf = `<p class="small">Sicherung vom <b>${U.fmtDateTime(data.exportiert)}</b></p><p class="small muted mt8">${counts || 'leer'}</p>`;
+    let body;
+    if (neu) {
+      const namen = neu.namen.slice(0, 4);
+      const nameText = namen.map((x) => `„${U.esc(x.name)}“`);
+      const liste = nameText.length > 1 ? `${nameText.slice(0, -1).join(', ')} und ${nameText[nameText.length - 1]}` : (nameText[0] || '');
+      const lage = neu.leer ? 'Dieses Gerät ist noch leer.'
+        : neu.demo ? 'Dieses Gerät ist noch neu. Hier stehen nur die Beispieldaten.'
+        : `Dieses Gerät ist noch neu. Hier steht nur, was bei der Einrichtung angelegt wurde (${namen.map((x) => `${x.art} „${U.esc(x.name)}“`).join(', ')}${neu.namen.length > 4 ? ' …' : ''}).`;
+      const ersetzt = neu.leer ? '' : neu.demo ? ' Die Beispieldaten werden dabei ersetzt, nichts wird vermischt.' : ` ${liste} aus der Einrichtung ${namen.length === 1 ? 'wird' : 'werden'} dabei ersetzt, nichts wird doppelt.`;
+      const behaelt = neu.leer ? 'Ergibt auf einem leeren Gerät dasselbe.' : neu.demo ? 'Behält die Beispieldaten zusätzlich.' : `Behält ${liste} zusätzlich.`;
+      body = `${kopf}
+        <div class="banner info" style="flex-wrap:nowrap;align-items:flex-start">${icon('info')} <span style="flex:1 1 0;min-width:0">${lage}</span></div>
+        <div class="mt16">
+          <button class="btn btn-primary btn-block" data-alles>${icon('download')} Alles übernehmen (empfohlen)</button>
+          <div class="hint mb12 mt8">Die Sicherung wird 1:1 übernommen.${ersetzt}</div>
+          <button class="btn btn-ghost btn-block" data-merge>${icon('merge')} Zusammenführen</button>
+          <div class="hint mt8">${behaelt}</div>
+        </div>`;
+    } else {
+      body = `${kopf}
         <div class="mt16">
           <button class="btn btn-primary btn-block" data-merge>${icon('merge')} Zusammenführen (empfohlen)</button>
           <div class="hint mb12 mt8">Neue Einträge werden ergänzt, bei Konflikten gewinnt der neuere Stand – bei Imkerei- und Bio-Angaben Feld für Feld (keine Duplikate dank UUIDs).</div>
           <button class="btn btn-danger btn-block" data-replace>${icon('warn')} Ersetzen (kompletter Restore)</button>
           <div class="hint mt8">Alle aktuellen Daten werden überschrieben. Vorher wird automatisch ein interner Snapshot angelegt.</div>
-        </div>`,
-      footer: `<button class="btn btn-ghost" data-cancel>Abbrechen</button>`,
-    });
+        </div>`;
+    }
+    const m = UI.modal({ title: 'Sicherung importieren', body, footer: `<button class="btn btn-ghost" data-cancel>Abbrechen</button>` });
     $('[data-cancel]', m.el).onclick = () => m.close();
+    const alles = $('[data-alles]', m.el);
+    if (alles) alles.onclick = async () => {
+      m.close(true);
+      const ok = await UI.confirm({ title: 'Alles übernehmen?',
+        text: `Die Sicherung vom ${U.fmtDateTime(data.exportiert)} wird 1:1 auf dieses Gerät übernommen. Vorher wird automatisch eine interne Kopie angelegt.`,
+        confirmText: 'Übernehmen', danger: false });             // hier geht nichts Eigenes verloren
+      if (!ok) return;
+      await this.snapshotInternal('vor-import');
+      try { await this.applyReplace(data, { blobsBehalten: false }); }
+      catch (e) { return UI.toast(e.message, 'err'); }                // Bestand ist unangetastet
+      await this.nachImport(data);
+      await S.set('startDaten', null, { auto: true });                // ab jetzt echte Daten
+      UI.toast('Sicherung übernommen');
+      await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
+    };
     $('[data-merge]', m.el).onclick = async () => {
       m.close(true);
       let erg;
@@ -17671,9 +17781,10 @@ const Backup = {
         footer: '<button class="btn btn-primary" data-fertig>Fertig</button>',
       });
       $$('[data-fertig]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
-      await S.load(); applyTheme(); renderRoute(); this.updateBanners();
+      await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
     };
-    $('[data-replace]', m.el).onclick = async () => {
+    const ersetzen = $('[data-replace]', m.el);   // gibt es nur auf Geräten mit eigenen Daten
+    if (ersetzen) ersetzen.onclick = async () => {
       m.close(true);
       /* Ehrlich benennen, was der Snapshot NICHT retten kann: Er enthält keine
          Foto- und Tondateien. Wer das vorher weiß, sichert zuerst extern. */
@@ -17693,7 +17804,7 @@ const Backup = {
       }
       await this.nachImport(data);
       UI.toast('Sicherung wiederhergestellt');
-      await S.load(); applyTheme(); renderRoute(); this.updateBanners();
+      await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
     };
   },
   /* Eine Sicherung kommt von außen. Sie kann von einem zweiten Gerät stammen –
@@ -17780,7 +17891,8 @@ const Backup = {
       for (const store of DB.DATA_STORES) {
         let rows = vorbereitet.get(store);
         if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => r.blob ? r : { ...r, blob: alteBlobs.get(r.id) }).filter((r) => r.blob);
-        if (store === 'settings') rows = [...rows, ...d.settings.filter((r) => S.GERAET.has(r.key))]; // Backup-Ordner usw. gehören zu diesem Gerät
+        // Backup-Ordner usw. gehören zu diesem Gerät. Die Liste der Einrichtungs-Daten nicht: Die sind jetzt ersetzt.
+        if (store === 'settings') rows = [...rows, ...d.settings.filter((r) => S.GERAET.has(r.key) && r.key !== 'startDaten')];
         ops.push({ op: 'clear', store });
         for (const r of rows) ops.push({ store, obj: r, keepStamp: true });
       }
@@ -22006,7 +22118,7 @@ Views.einstellungen = {
     };
     $('#theme-sel').onchange = async (e) => { await S.set('darkMode', e.target.value); applyTheme(); };
     $('#demo-load').onclick = async () => {
-      if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher ggf. eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
+      if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher wird eine interne Kopie angelegt („Interne Snapshots“) – für eine Kopie außerhalb der App vorher eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
       await Demo.reset(); navTo('dashboard');
     };
 
