@@ -542,6 +542,8 @@ html[data-theme="dark"] .ios-switch:not(:checked){background:#39393D}
 .zf-tag{display:inline-block;font-size:11px;color:var(--honey-deep);background:var(--honey-soft);border-radius:6px;padding:1px 6px;margin-left:6px;white-space:nowrap;font-weight:600}
 .zf-tag.zf-frei{color:var(--muted);background:var(--card2)}
 .zf-eintraege{margin:-2px 0 6px 14px}
+.zs-chips .chip svg{width:13px;height:13px;vertical-align:-2px}.zs-neu{border-style:dashed}
+.zs-eigen{display:flex;gap:8px;margin-top:8px}.zs-eigen .inp{flex:1;min-width:0}
 .voelker-filter{display:flex;gap:8px;flex-wrap:wrap}.voelker-filter #v-suche{flex:1 1 220px;min-width:0}.voelker-filter #v-stand{flex:0 1 220px;min-width:0}
 .ka-bereiche{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 12px}.ka-bereiche .check-line{padding:6px 0;font-size:14px}
 .mehr-zeile{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;padding:12px 4px 4px}
@@ -1168,8 +1170,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.37';
+const APP_VERSION = '2.38';
 const CHANGELOG = [
+  { version: '2.38', datum: '2026-10-08', punkte: [
+    'Mehrere Arbeitsschritte in einem Eintrag: „Gläser abgefüllt & etikettiert“ zählt jetzt für „Abfüllen“ UND „Etiketten kleben“ – die Zeit wird gleichmäßig aufgeteilt. Erkannt wird an „und“, „&“, Komma oder „/“; mehrere Wörter für eine Tätigkeit („Fütterung prüfen“) bleiben ein Schritt.',
+    'Beim Erfassen sind die Arbeitsschritte jetzt Knöpfe zum Antippen – mehrere möglich, plus „eigener“. Die App zeigt, wie die Zeit geteilt wird.',
+    'Im aufgeklappten Diagramm steht bei geteilten Einträgen „geteilt mit …“ und der Anteil (z. B. „48 min von 1,6 h“).',
+  ] },
   { version: '2.37', datum: '2026-10-08', punkte: [
     'Zeiterfassung zum Aufklappen: Tippe im Kreisdiagramm (oder in der Liste darunter) auf einen Bereich – er fächert sich in seine Arbeitsschritte auf, z. B. „Abfüllen & Etikettieren“ → Etiketten kleben, Abfüllen, Gläser spülen … Ein Tipp auf einen Schritt zeigt die Einträge dazu, „‹ Alle Bereiche“ faltet zurück.',
     'Neues Feld „Arbeitsschritt“ beim Erfassen einer Zeit (auch beim Abhaken von Aufgaben): mit Vorauswahl je Tätigkeit und aus deinem Text vorbelegt („Etiketten geklebt“ → Etiketten kleben). Eigene Schritte merkt sich die App; anpassen unter Einstellungen → Arbeitsschritte je Tätigkeit.',
@@ -14120,7 +14127,7 @@ Views.aufgaben = {
           { key: 'funktion', label: 'Funktion (nur Filter)', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionenAlle.map((f) => ({ v: f, l: f }))] },
           { key: 'volkId', label: 'Volk', type: 'select', options: [{ v: '', l: 'kein einzelnes Volk' }, ...voelkerAktiv.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') }))], hint: 'Wandert das Volk, zeigt die Aufgabe von selbst den neuen Stand.' },
           { key: 'kategorie', label: 'Tätigkeit (Zeiterfassung)', type: 'select', options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
-          { key: 'schritt', label: 'Arbeitsschritt (Zeiterfassung)', type: 'suggest', options: [], placeholder: 'auswählen oder eintippen …' },
+          SCHRITTE_FELD,
           { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
           { key: 'notiz', label: 'Notiz', type: 'textarea' },
         ],
@@ -14128,11 +14135,13 @@ Views.aufgaben = {
         async onSave(v) {
           v.zeitMinuten = v.zeitMinuten ? Math.round(v.zeitMinuten) : null;
           delete v.funktion;                                     // reiner Filter, nichts zum Merken
-          v.schritt = String(v.schritt || '').trim();
+          v.schritte = m.schritteWerte ? m.schritteWerte() : [];
+          delete v._schritte;
           const rec = Object.assign(a || { erledigt: false, quelle: 'manuell', refId: null }, v);
           delete rec.kontext;                                    // Bezug neu bestimmen lassen
+          delete rec.schritt;                                    // altes Einzelfeld → Liste „schritte“
           await DB.put('aufgaben', rec);
-          await schrittMerken(rec.kategorie, rec.schritt);
+          for (const x of rec.schritte) await schrittMerken(rec.kategorie, x);
           await aufgabenAbgleich();                              // Zustand sofort festhalten
           UI.toast('Aufgabe gespeichert'); renderRoute();
         },
@@ -14145,7 +14154,7 @@ Views.aufgaben = {
         if (volk && volk.standId && sel) sel.value = volk.standId;
       }
       verdrahteVolkAuswahl(m, voelkerAktiv);
-      verdrahteSchrittFeld(m);
+      verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
       return m;
     };
     const add = () => form(null);
@@ -14353,28 +14362,56 @@ function schrittAusTitel(titel) {
   const t = String(titel || '').split(':')[0].replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Ohne Angabe';
 }
-/** Schritt eines Zeiteintrags: gewählt (fest), aus dem Text erkannt, oder Freitext (frei). */
+/**
+ * Mehrere Tätigkeiten in einem Text: „Gläser abgefüllt & etikettiert“, „Honigräume abgenommen, entdeckelt und
+ * geschleudert“. Getrennt wird an „und“, „&“, Komma, „/“, „+“, „sowie“, „danach“, „dann“ – jeder Teil wird für sich
+ * erkannt. Mehrere Wörter für EINE Tätigkeit („Fütterung prüfen“) bleiben ein Schritt. Reihenfolge = wie im Text.
+ * @returns {string[]} erkannte Schritt-Namen (ohne Dubletten), leer wenn nichts passt
+ */
+function schritteErkennen(text, bereich) {
+  const roh = String(text || '').split(':')[0].replace(/\([^)]*\)/g, ' ');
+  const teile = roh.split(/\s*(?:,|;|\/|\+|&|\bund\b|\bsowie\b|\bdanach\b|\bdann\b|\banschlie(?:ß|ss)end\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+  const namen = [];
+  for (const t of teile) { const r = schrittErkennen(t, bereich); if (r && !namen.includes(r.n)) namen.push(r.n); }
+  if (!namen.length) { const r = schrittErkennen(text, bereich); if (r) namen.push(r.n); }
+  return namen;
+}
+/** Gewählte Schritte eines Eintrags (neu: Liste `schritte`, alt: Text `schritt`). */
+function schritteGewaehlt(a) {
+  const l = Array.isArray(a.schritte) ? a.schritte : (a.schritt ? [a.schritt] : []);
+  return [...new Set(l.map((x) => String(x || '').trim()).filter(Boolean))];
+}
+/** Schritte eines Zeiteintrags: gewählt (fest), aus dem Text erkannt, oder Freitext (frei). */
 function schrittVon(a) {
-  if (a.schritt && String(a.schritt).trim()) return { n: String(a.schritt).trim(), art: 'fest' };
-  const r = schrittErkennen(a.titel, a.kategorie || 'Sonstiges');
-  return r ? { n: r.n, art: 'erkannt' } : { n: schrittAusTitel(a.titel), art: 'frei' };
+  const fest = schritteGewaehlt(a);
+  if (fest.length) return { liste: fest, n: fest[0], art: 'fest' };
+  const erkannt = schritteErkennen(a.titel, a.kategorie || 'Sonstiges');
+  if (erkannt.length) return { liste: erkannt, n: erkannt[0], art: 'erkannt' };
+  const frei = schrittAusTitel(a.titel);
+  return { liste: [frei], n: frei, art: 'frei' };
 }
 /**
- * Zeiteinträge eines Bereichs nach Arbeitsschritt bündeln (Minuten absteigend). Mehr als 6 Gruppen:
- * die 5 größten + „Weitere“ (mit den übrigen als `kinder`), damit der Kreis nicht in Krümel zerfällt.
+ * Zeiteinträge eines Bereichs nach Arbeitsschritt bündeln (Minuten absteigend). Hat ein Eintrag mehrere Schritte,
+ * wird seine Zeit gleichmäßig aufgeteilt (`teile`: id → { n, min, andere }). Mehr als 6 Gruppen: die 5 größten +
+ * „Weitere“ (mit den übrigen als `kinder`), damit der Kreis nicht in Krümel zerfällt.
  */
 function zeitSchritte(eintraege, max = 6) {
   const g = new Map();
   for (const a of eintraege) {
-    const s = schrittVon(a); const key = assistentNorm(s.n);
-    if (!g.has(key)) g.set(key, { label: s.n, min: 0, eintraege: [], arten: new Set() });
-    const x = g.get(key); x.min += a.zeitMinuten || 0; x.eintraege.push(a); x.arten.add(s.art);
+    const s = schrittVon(a), n = s.liste.length, teil = (a.zeitMinuten || 0) / n;
+    for (const name of s.liste) {
+      const key = assistentNorm(name);
+      if (!g.has(key)) g.set(key, { label: name, min: 0, eintraege: [], teile: new Map(), arten: new Set() });
+      const x = g.get(key); x.min += teil; x.eintraege.push(a); x.arten.add(s.art);
+      if (n > 1) x.teile.set(a.id, { n, min: teil, andere: s.liste.filter((y) => y !== name) });
+    }
   }
-  const liste = [...g.values()].map((x) => ({ label: x.label, min: x.min, eintraege: x.eintraege,
+  const liste = [...g.values()].map((x) => ({ label: x.label, min: x.min, eintraege: x.eintraege, teile: x.teile,
     art: x.arten.size === 1 ? [...x.arten][0] : (x.arten.has('fest') ? 'fest' : 'erkannt') })).sort((a, b) => b.min - a.min);
   if (liste.length <= max) return liste;
   const rest = liste.slice(max - 1);
-  return [...liste.slice(0, max - 1), { label: 'Weitere', min: U.sum(rest, (x) => x.min), eintraege: rest.flatMap((x) => x.eintraege), art: 'weitere', kinder: rest }];
+  const teile = new Map(); rest.forEach((x) => x.teile.forEach((v, k) => teile.set(k, v)));
+  return [...liste.slice(0, max - 1), { label: 'Weitere', min: U.sum(rest, (x) => x.min), eintraege: rest.flatMap((x) => x.eintraege), teile, art: 'weitere', kinder: rest }];
 }
 /** Neuen Schritt in die Auswahl des Bereichs übernehmen (die App lernt eigene Schritte). */
 async function schrittMerken(bereich, schritt) {
@@ -14385,18 +14422,59 @@ async function schrittMerken(bereich, schritt) {
   alle[bereich] = [...liste, s];
   await S.set('arbeitsschritte', alle);
 }
-/** Formular: Feld „Arbeitsschritt“ folgt der Tätigkeit (Vorauswahl) und wird aus dem Text vorbelegt, solange man es nicht selbst wählt. */
-function verdrahteSchrittFeld(m, { titel = 'titel', kat = 'kategorie', feld = 'schritt' } = {}) {
-  const ti = $('#f-' + titel, m.el), ka = $('#f-' + kat, m.el), sc = $('#f-' + feld, m.el);
-  if (!sc) return;
-  const liste = $('.combo-list', sc.closest('.combo'));
-  let vonHand = !!sc.value.trim();
-  const fuelle = () => { if (liste) liste.innerHTML = schritteFuer(ka ? ka.value : '').map((s) => `<div class="combo-opt" data-v="${U.esc(s.n)}">${U.esc(s.n)}</div>`).join(''); };
-  const erkenne = () => { if (vonHand) return; const r = ti ? schrittErkennen(ti.value, ka ? ka.value : '') : null; sc.value = r ? r.n : ''; sc.dataset.auto = r ? '1' : ''; };
-  sc.addEventListener('input', () => { vonHand = !!sc.value.trim(); sc.dataset.auto = ''; });
-  if (ka) ka.addEventListener('change', () => { fuelle(); erkenne(); });
-  if (ti) ti.addEventListener('input', erkenne);
-  fuelle(); if (!sc.value) erkenne();
+/**
+ * Auswahl der Arbeitsschritte als Knöpfe (mehrere möglich) + „eigener“. Solange man nichts antippt, folgt die
+ * Auswahl dem Text (automatisch erkannt). Gibt { werte() } zurück.
+ * @param {HTMLElement} box   Container
+ * @param {{kat:()=>string, text:()=>string, vorher?:string[], minuten?:()=>number}} o
+ */
+function schrittKnoepfe(box, o) {
+  let gewaehlt = [...(o.vorher || [])], vonHand = gewaehlt.length > 0, eigenOffen = false;
+  const auto = () => { if (!vonHand) gewaehlt = schritteErkennen(o.text(), o.kat()); };
+  const zeichne = () => {
+    const namen = schritteFuer(o.kat()).map((x) => x.n);
+    for (const g of gewaehlt) if (!namen.includes(g)) namen.push(g);
+    const n = gewaehlt.length, min = o.minuten ? Math.round(o.minuten() || 0) : 0;
+    const hinweis = !n ? 'Nichts gewählt – die App ordnet den Eintrag über den Text zu.'
+      : n === 1 ? (vonHand ? 'Die ganze Zeit zählt für diesen Schritt.' : 'Aus deinem Text erkannt – antippen zum Ändern.')
+      : `${vonHand ? '' : 'Aus deinem Text erkannt. '}${n} gewählt: die Zeit wird gleichmäßig aufgeteilt${min ? ` (je ${Math.round(min / n)} min)` : ''}.`;
+    box.innerHTML = `<div class="chip-row zs-chips">${namen.map((x) => `<button type="button" class="chip ${gewaehlt.includes(x) ? 'active' : ''}" data-zs="${U.esc(x)}">${U.esc(x)}</button>`).join('')}
+        <button type="button" class="chip zs-neu" data-zs-neu>${icon('plus')} eigener</button></div>
+      ${eigenOffen ? `<div class="zs-eigen"><input class="inp" data-zs-text placeholder="z. B. Futterzarge bauen" autocomplete="off"><button type="button" class="btn btn-ghost btn-sm" data-zs-ok>Übernehmen</button></div>` : ''}
+      <div class="hint mt8 zs-hinweis">${U.esc(hinweis)}</div>`;
+    if (eigenOffen) { const i = box.querySelector('[data-zs-text]'); if (i) i.focus(); }
+  };
+  const eigenUebernehmen = () => {
+    const i = box.querySelector('[data-zs-text]'); const v = i ? i.value.trim() : '';
+    eigenOffen = false;
+    if (v && !gewaehlt.some((x) => assistentNorm(x) === assistentNorm(v))) { gewaehlt.push(v); vonHand = true; }
+    zeichne();
+  };
+  box.addEventListener('click', (e) => {
+    const c = e.target.closest('[data-zs]');
+    if (c) { const x = c.dataset.zs; gewaehlt = gewaehlt.includes(x) ? gewaehlt.filter((y) => y !== x) : [...gewaehlt, x]; vonHand = true; FormGuard.dirty = true; return zeichne(); }
+    if (e.target.closest('[data-zs-neu]')) { eigenOffen = !eigenOffen; return zeichne(); }
+    if (e.target.closest('[data-zs-ok]')) return eigenUebernehmen();
+  });
+  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.matches('[data-zs-text]')) { e.preventDefault(); eigenUebernehmen(); } });
+  auto(); zeichne();
+  return {
+    werte: () => [...gewaehlt],
+    neu: () => { auto(); zeichne(); },            // Text oder Tätigkeit geändert
+    vonHand: () => vonHand,
+  };
+}
+/** Feld für formModal: Platz für die Knöpfe (wird von verdrahteSchrittFeld gefüllt). */
+const SCHRITTE_FELD = { key: '_schritte', type: 'static', html: '<label>Arbeitsschritte <span class="muted" style="font-weight:400">(mehrere möglich)</span></label><div class="zs-box"></div>' };
+/** Formular: Arbeitsschritte folgen Tätigkeit und Text; Ergebnis über m.schritteWerte(). */
+function verdrahteSchrittFeld(m, { titel = 'titel', kat = 'kategorie', minuten = 'zeitMinuten', vorher = [] } = {}) {
+  const box = $('.zs-box', m.el); if (!box) return;
+  const ti = $('#f-' + titel, m.el), ka = $('#f-' + kat, m.el), mi = $('#f-' + minuten, m.el);
+  const api = schrittKnoepfe(box, { kat: () => (ka ? ka.value : ''), text: () => (ti ? ti.value : ''), vorher, minuten: () => (mi ? U.parseNum(mi.value) : 0) });
+  if (ti) ti.addEventListener('input', api.neu);
+  if (ka) ka.addEventListener('change', api.neu);
+  if (mi) mi.addEventListener('input', api.neu);
+  m.schritteWerte = api.werte;
 }
 
 /* ---------- Kreisdiagramm, das sich auffächert ----------
@@ -14480,7 +14558,7 @@ function zeitFaecher(box, bereiche, zustand, eintragZeile) {
     $b('.zf-liste').innerHTML = zeilen.map((z, k) => `<button type="button" class="zf-reihe${o && aufgeklappt === k ? ' offen' : ''}" data-zf-reihe="${k}">
         <span class="zf-farbe" style="background:${z.farbe}"></span><span class="zf-name">${U.esc(z.label)}${o ? tag(z.art) : ''}</span>
         <b>${zfMin(z.min)}</b><span class="zf-proz">${Math.round(z.min / summe * 100)} %</span>${icon('chevR', 'chev')}</button>
-      ${o && aufgeklappt === k ? `<div class="rows zf-eintraege">${(z.kinder ? z.kinder.flatMap((c) => c.eintraege) : z.eintraege).map(eintragZeile).join('')}</div>` : ''}`).join('');
+      ${o && aufgeklappt === k ? `<div class="rows zf-eintraege">${[...new Set(z.eintraege)].map((a) => eintragZeile(a, z.teile && z.teile.get(a.id))).join('')}</div>` : ''}`).join('');
   };
   const oeffne = (i) => { if (laeuft || offen != null) return; offen = i; zustand.offen = daten[i].label; aufgeklappt = null; text(); animiere(820, (t) => rahmen(i, t)); };
   const schliesse = () => { if (laeuft || offen == null) return; const i = offen; offen = null; zustand.offen = null; aufgeklappt = null; text(); animiere(650, (t) => rahmen(i, 1 - (1 - Math.pow(1 - t, 3))), () => zeichne(grund())); };
@@ -14503,21 +14581,14 @@ function zeitDialog(a) {
       <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${U.esc(n)}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
       <div class="field"><label>Oder Minuten eingeben</label><input class="inp" id="zt-min" inputmode="numeric" placeholder="z. B. 25"></div>
       <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${optionenSortiert(taetigkeiten, true).map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>
-      <div class="field"><label>Arbeitsschritt</label><select class="inp" id="zt-schritt"></select></div>`,
+      <div class="field"><label>Arbeitsschritte <span class="muted" style="font-weight:400">(mehrere möglich)</span></label><div class="zs-box" id="zt-schritte"></div></div>`,
     footer: `<button class="btn btn-ghost" data-skip>Ohne Zeit</button><button class="btn btn-primary" data-ok>Speichern</button>`,
   });
-  /* Arbeitsschritt: Liste folgt der Tätigkeit, vorbelegt mit dem, was der Aufgabentext erkennen lässt */
-  const schrittWahl = () => {
-    const kat = $('#zt-kat', m.el).value, r = schrittErkennen(a.titel, kat), sel = $('#zt-schritt', m.el);
-    const namen = schritteFuer(kat).map((x) => x.n);
-    if (a.schritt && !namen.includes(a.schritt)) namen.push(a.schritt);
-    const gewaehlt = a.schritt || (r ? r.n : '');
-    sel.innerHTML = `<option value="">– keiner –</option>` + namen.map((n) => `<option ${n === gewaehlt ? 'selected' : ''}>${U.esc(n)}</option>`).join('');
-  };
-  $('#zt-kat', m.el).addEventListener('change', schrittWahl);
-  schrittWahl();
+  /* Arbeitsschritte: Knöpfe folgen der Tätigkeit, vorbelegt mit dem, was der Aufgabentext erkennen lässt */
+  const schritteApi = schrittKnoepfe($('#zt-schritte', m.el), { kat: () => $('#zt-kat', m.el).value, text: () => a.titel, vorher: schritteGewaehlt(a), minuten: () => U.parseNum($('#zt-min', m.el).value) || 0 });
+  $('#zt-kat', m.el).addEventListener('change', schritteApi.neu);
   const speichern = async (min) => {
-    if (min > 0) { a.zeitMinuten = min; a.kategorie = $('#zt-kat', m.el).value; a.schritt = $('#zt-schritt', m.el).value; await DB.put('aufgaben', a); UI.toast('Zeit erfasst'); }
+    if (min > 0) { a.zeitMinuten = min; a.kategorie = $('#zt-kat', m.el).value; a.schritte = schritteApi.werte(); delete a.schritt; await DB.put('aufgaben', a); UI.toast('Zeit erfasst'); }
     m.close(true); renderRoute();
   };
   $('#zt-chips', m.el).addEventListener('click', (e) => { const b = e.target.closest('[data-min]'); if (b) speichern(+b.dataset.min); });
@@ -14540,9 +14611,15 @@ Views.zeiten = {
     /* Bereiche für das Fächer-Diagramm: Minuten je Tätigkeit, größte zuerst (Farben wie bisher) */
     const bereiche = [...U.groupBy(list, (a) => a.kategorie || 'Sonstiges').entries()]
       .map(([label, eintraege]) => ({ label, min: U.sum(eintraege, (a) => a.zeitMinuten), eintraege })).sort((a, b) => b.min - a.min);
-    const eintragZeile = (a) => `<button class="row" data-id="${U.esc(a.id)}" style="min-height:46px">
-          <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}${a.schritt ? ' · ' + U.esc(a.schritt) : ''}${a.quelle && a.quelle !== 'manuell' ? ' · aus Aufgabe' : ''}</span></span>
-          <span class="badge b-honey">${a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min'}</span>${icon('chevR', 'chev')}</button>`;
+    /* teil: Anteil, wenn der Eintrag mehrere Arbeitsschritte hat (die Zeit wird gleichmäßig geteilt) */
+    const eintragZeile = (a, teil) => {
+      if (!(teil && Array.isArray(teil.andere))) teil = null;   // map() reicht sonst den Index als 2. Wert durch
+      const gew = schritteGewaehlt(a);
+      const sub = teil ? ` · geteilt mit ${U.esc(teil.andere.join(', '))}` : (gew.length ? ' · ' + U.esc(gew.join(', ')) : '');
+      return `<button class="row" data-id="${U.esc(a.id)}" style="min-height:46px">
+          <span class="r-main"><span class="r-title">${U.esc(a.titel)}</span><span class="r-sub">${U.fmtDate(datumVon(a))} · ${U.esc(a.kategorie || 'Sonstiges')}${sub}${a.quelle && a.quelle !== 'manuell' ? ' · aus Aufgabe' : ''}</span></span>
+          <span class="badge b-honey">${teil ? `${zfMin(teil.min)} von ${zfMin(a.zeitMinuten)}` : (a.zeitMinuten >= 60 ? U.fmtNum(a.zeitMinuten / 60, 1) + ' h' : a.zeitMinuten + ' min')}</span>${icon('chevR', 'chev')}</button>`;
+    };
     main.innerHTML = pageHead('Zeiterfassung', 'Wie viel Zeit steckt in welcher Tätigkeit? Zeiten entstehen beim Abhaken von Aufgaben.',
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Zeit nachtragen</button>`) +
       (jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : '') + `
@@ -14555,7 +14632,7 @@ Views.zeiten = {
         <div id="zeit-faecher"></div>
       </div>
       <div class="card"><div class="card-title">${icon('buch')}<h2>Letzte Einträge</h2></div>
-        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 60).map(eintragZeile).join('')}</div>
+        ${list.length ? `<div class="rows">${U.sortBy(list, datumVon, true).slice(0, 60).map((a) => eintragZeile(a)).join('')}</div>
           <p class="hint mt8">Tippe einen Eintrag an, um Dauer, Tätigkeit oder Datum zu ändern.</p>`
         : emptyState('uhr', 'Noch keine Zeiten erfasst. Hake eine Aufgabe ab (die App fragt dann nach der Dauer) oder trage hier eine Zeit nach.')}
       </div>`;
@@ -14569,20 +14646,22 @@ Views.zeiten = {
           { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
           { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
           { key: 'kategorie', label: 'Tätigkeit', type: 'select', required: true, options: kats.map((t) => ({ v: t, l: t })) },
-          { key: 'schritt', label: 'Arbeitsschritt', type: 'suggest', options: [], placeholder: 'auswählen oder eintippen …', hint: 'Wird aus deinem Text erkannt – du kannst ihn ändern oder einen eigenen eintragen.' },
+          SCHRITTE_FELD,
           { key: 'zeitMinuten', label: 'Dauer (Minuten)', type: 'number', required: true },
         ],
-        values: a ? { titel: a.titel, datum: datumVon(a), kategorie: a.kategorie || 'Sonstiges', schritt: a.schritt || '', zeitMinuten: a.zeitMinuten } : {},
+        values: a ? { titel: a.titel, datum: datumVon(a), kategorie: a.kategorie || 'Sonstiges', zeitMinuten: a.zeitMinuten } : {},
         async onSave(v) {
-          const schritt = String(v.schritt || '').trim();
-          await DB.put('aufgaben', Object.assign(a || { quelle: 'manuell', refId: null, notiz: '' }, { titel: v.titel, faellig: v.datum, erledigt: true, kategorie: v.kategorie, schritt, zeitMinuten: Math.round(v.zeitMinuten) }));
-          await schrittMerken(v.kategorie, schritt);
+          const schritte = m.schritteWerte ? m.schritteWerte() : [];
+          const rec = Object.assign(a || { quelle: 'manuell', refId: null, notiz: '' }, { titel: v.titel, faellig: v.datum, erledigt: true, kategorie: v.kategorie, schritte, zeitMinuten: Math.round(v.zeitMinuten) });
+          delete rec.schritt;
+          await DB.put('aufgaben', rec);
+          for (const x of schritte) await schrittMerken(v.kategorie, x);
           UI.toast(a ? 'Zeiteintrag aktualisiert' : 'Zeit erfasst'); renderRoute();
         },
         onDelete: a ? papierkorbDelete('aufgaben', a, 'Zeiteintrag löschen?', 'Wandert in den Papierkorb.') : undefined,
       });
       listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neue Tätigkeit anlegen', titel: 'Neue Tätigkeit', platzhalter: 'z. B. Rähmchen drahten' });
-      verdrahteSchrittFeld(m);
+      verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
     };
     bindAdd(() => form(null));
     zeitFaecher($('#zeit-faecher', main), bereiche, Views.zeiten._faecher || (Views.zeiten._faecher = { offen: null }), eintragZeile);
@@ -18004,7 +18083,7 @@ const Xlsx = {
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
       inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
-      aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).n : (a.schritt || ''), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
+      aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
@@ -20177,7 +20256,7 @@ const APP_WISSEN = [
       { feld: 'Was hast du gemacht', text: 'Kurz beschreiben, was du gemacht hast.' },
       { feld: 'Datum', text: 'An welchem Tag?' },
       { feld: 'Tätigkeit', text: 'Wähle die Art der Arbeit.' },
-      { feld: 'Arbeitsschritt', text: 'Den Arbeitsschritt erkennt die App aus deinem Text – du kannst ihn ändern oder einen eigenen eintippen.' },
+      { feld: 'Arbeitsschritte', text: 'Die Arbeitsschritte erkennt die App aus deinem Text – antippen zum Ändern, mehrere sind möglich (die Zeit wird dann geteilt).', weiter: true },
       { feld: 'Dauer', text: 'Wie viele Minuten hat es gedauert?' },
       { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'material', titel: 'Verbrauchsmaterial und Bestand', route: 'material', zeige: 'An- und Verkauf buchen',
@@ -22220,7 +22299,7 @@ Object.assign(window, {
   gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   Seitenweise, seitenweise, LISTE_SCHRITT,
-  ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, zeitFaecher, zeitDialog,
+  ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
   APP_WISSEN, Assistent, NAV, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,

@@ -1582,23 +1582,62 @@ test('Zeiterfassung: Antippen fächert den Bereich in Arbeitsschritte auf, „Al
     assert(host.querySelector('.zf-zurueck').hidden, 'Zurück-Knopf weg');
   } finally { host.remove(); }
 });
-test('Zeiterfassung: Formular hat Arbeitsschritt, erkennt ihn aus dem Text und folgt der Tätigkeit', async (w) => {
+test('Arbeitsschritte: mehrere Tätigkeiten in einem Text werden alle erkannt', (w) => {
+  const F = [
+    ['Gläser abgefüllt & etikettiert', 'Abfüllen & Etikettieren', ['Abfüllen', 'Etiketten kleben']],
+    ['Honigräume abgenommen, entdeckelt und geschleudert', 'Ernte & Schleudern', ['Honigräume abnehmen', 'Entdeckeln', 'Schleudern']],
+    ['Rähmchen gedrahtet und Mittelwände eingelötet', 'Bau & Reparatur', ['Rähmchen drahten', 'Mittelwände einlöten']],
+    ['Gläser gespült, danach abgefüllt', 'Abfüllen & Etikettieren', ['Gläser spülen', 'Abfüllen']],
+    ['Varroa gezählt / Oxalsäure geträufelt', 'Behandlung', ['Varroa zählen', 'Oxalsäure']],
+    ['Fütterung prüfen: Volk Anna und Berta', 'Fütterung', ['Futterkontrolle']],
+    ['Honig gesiebt und geklärt', 'Ernte & Schleudern', ['Sieben & Klären']],
+    ['Völker auf- und abgeladen', 'Wanderung & Transport', ['Auf- & Abladen']],
+    ['Etiketten und Gläser', 'Abfüllen & Etikettieren', ['Etiketten kleben']],
+    ['Honig geschleudert (Raps und Linde)', 'Ernte & Schleudern', ['Schleudern']],
+    ['Kaffee und Kuchen', 'Abfüllen & Etikettieren', []],
+  ];
+  const fehl = [];
+  for (const [t, b, soll] of F) { const ist = w.schritteErkennen(t, b); if (JSON.stringify(ist) !== JSON.stringify(soll)) fehl.push(`${t} → ${JSON.stringify(ist)} (soll ${JSON.stringify(soll)})`); }
+  assert(!fehl.length, fehl.join('\n'));
+});
+test('Arbeitsschritte: Zeit wird bei mehreren Schritten gleichmäßig geteilt', (w) => {
+  const a = { id: 'teil-1', titel: 'Gläser abgefüllt & etikettiert', zeitMinuten: 90, kategorie: 'Abfüllen & Etikettieren' };
+  const b = { id: 'teil-2', titel: 'x', zeitMinuten: 30, kategorie: 'Abfüllen & Etikettieren', schritte: ['Abfüllen'] };
+  const g = w.zeitSchritte([a, b]);
+  const abf = g.find((x) => x.label === 'Abfüllen'), eti = g.find((x) => x.label === 'Etiketten kleben');
+  assertEq(abf.min, 75, '45 + 30'); assertEq(eti.min, 45);
+  assertEq(abf.teile.get('teil-1').n, 2); assertEq(abf.teile.get('teil-1').andere[0], 'Etiketten kleben');
+  assert(!abf.teile.has('teil-2'), 'ungeteilter Eintrag ohne Anteil');
+  assertEq(w.U.sum(g, (x) => x.min), 120, 'Summe bleibt gleich');
+  const fest = w.zeitSchritte([{ id: 'teil-3', titel: 'egal', zeitMinuten: 60, kategorie: 'Bau & Reparatur', schritte: ['Reparatur', 'Wachs schmelzen', 'Rähmchen drahten'] }]);
+  assert(fest.every((x) => Math.abs(x.min - 20) < 1e-9), 'drei gewählte Schritte je 20 min');
+});
+test('Zeiterfassung: Formular – Arbeitsschritte als Knöpfe, mehrere erkannt, antippen ändert', async (w) => {
   w.location.hash = '#/zeiten'; await w.renderRoute(); await new Promise((r) => setTimeout(r, 300));
   w.document.querySelector('#main #add').click(); await new Promise((r) => setTimeout(r, 300));
   const m = [...w.document.querySelectorAll('.modal-back')].pop();
   try {
-    const ti = m.querySelector('#f-titel'), ka = m.querySelector('#f-kategorie'), sc = m.querySelector('#f-schritt');
-    assert(sc, 'Feld Arbeitsschritt vorhanden');
+    const ti = m.querySelector('#f-titel'), ka = m.querySelector('#f-kategorie');
+    assert(m.querySelector('.zs-box'), 'Knopf-Feld vorhanden');
     ka.value = 'Abfüllen & Etikettieren'; ka.dispatchEvent(new w.Event('change', { bubbles: true }));
-    ti.value = 'Etiketten geklebt'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
-    assertEq(sc.value, 'Etiketten kleben', 'aus dem Text vorbelegt');
-    const opts = [...m.querySelectorAll('[data-field="schritt"] .combo-opt')].map((o) => o.dataset.v);
-    assert(opts.includes('Gläser spülen') && !opts.includes('Schleudern'), 'Vorauswahl passt zur Tätigkeit');
-    sc.value = 'Verpacken'; sc.dispatchEvent(new w.Event('input', { bubbles: true }));
-    ti.value = 'Etiketten und Gläser'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
-    assertEq(sc.value, 'Verpacken', 'von Hand gewählt wird nicht überschrieben');
+    ti.value = 'Gläser abgefüllt & etikettiert'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    const aktiv = () => [...m.querySelectorAll('.zs-box .chip.active')].map((c) => c.dataset.zs);
+    assertEq(JSON.stringify(aktiv()), JSON.stringify(['Abfüllen', 'Etiketten kleben']), 'beide aus dem Text erkannt');
+    assert(/aufgeteilt/.test(m.querySelector('.zs-hinweis').textContent), 'Hinweis auf geteilte Zeit');
+    assert(!m.querySelector('[data-zs="Schleudern"]'), 'nur Schritte der gewählten Tätigkeit');
+    m.querySelector('[data-zs="Abfüllen"]').click();
+    assertEq(JSON.stringify(aktiv()), JSON.stringify(['Etiketten kleben']), 'Antippen nimmt einen raus');
+    ti.value = 'Gläser gespült'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq(JSON.stringify(aktiv()), JSON.stringify(['Etiketten kleben']), 'von Hand gewählt bleibt');
+    m.querySelector('[data-zs-neu]').click();
+    const ein = m.querySelector('[data-zs-text]'); ein.value = 'Honig verkostet';
+    m.querySelector('[data-zs-ok]').click();
+    assert(aktiv().includes('Honig verkostet'), 'eigener Schritt dazu');
+    const box = m.closest('.modal-back') || m;
+    assert(typeof w.document.querySelector('.modal-back') !== 'undefined');
   } finally { m.remove(); w.FormGuard.dirty = false; }
 });
+
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
