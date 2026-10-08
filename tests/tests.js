@@ -1496,6 +1496,109 @@ test('Komplettausdruck: Auswahlfenster mit Jahren, Bereichen und Seitenschätzun
     assert(!el.querySelector('#ka-pdf').disabled, 'mit Bereichen wieder möglich');
   } finally { m.close(true); }
 });
+/* ---------- Zeiterfassung: Arbeitsschritte (Erkennung aus Text, Fächer-Diagramm) ---------- */
+const ZEIT_SCHRITT_FAELLE = [
+ ['Etiketten geklebt','Abfüllen & Etikettieren','Etiketten kleben'],['Gläser etikettiert','Abfüllen & Etikettieren','Etiketten kleben'],['Etiketen aufgeklebt','Abfüllen & Etikettieren','Etiketten kleben'],['Aufkleber drauf gemacht','Abfüllen & Etikettieren','Etiketten kleben'],
+ ['Gläser abgefüllt & etikettiert','Abfüllen & Etikettieren','Abfüllen'],['Honig abgefüllt','Abfüllen & Etikettieren','Abfüllen'],['Gläser gespült','Abfüllen & Etikettieren','Gläser spülen'],['Gläser gewaschen','Abfüllen & Etikettieren','Gläser spülen'],['Kartons gepackt','Abfüllen & Etikettieren','Verpacken'],['Deckel draufgeschraubt','Abfüllen & Etikettieren','Deckel & Siegel'],
+ ['Honig geschleudert (Raps)','Ernte & Schleudern','Schleudern'],['Schleudern Linde','Ernte & Schleudern','Schleudern'],['Waben entdeckelt','Ernte & Schleudern','Entdeckeln'],['Honigräume abgenommen','Ernte & Schleudern','Honigräume abnehmen'],['Bienenflucht eingelegt','Ernte & Schleudern','Honigräume abnehmen'],['Honig gesiebt','Ernte & Schleudern','Sieben & Klären'],['Honig gerührt','Ernte & Schleudern','Rühren'],['Wassergehalt gemessen','Ernte & Schleudern','Wassergehalt messen'],
+ ['Frühjahrsdurchsicht alle Völker','Durchsicht & Völkerpflege','Durchsicht'],['Durchsicht Stand Rapsfeld','Durchsicht & Völkerpflege','Durchsicht'],['Weiselzellen gebrochen','Durchsicht & Völkerpflege','Schwarmkontrolle'],['Honigraum aufgesetzt','Durchsicht & Völkerpflege','Erweitern & Honigraum'],['Ableger gebildet','Durchsicht & Völkerpflege','Ableger bilden'],['Drohnenrahmen ausgeschnitten','Durchsicht & Völkerpflege','Drohnenrahmen schneiden'],['Mäusegitter rein','Durchsicht & Völkerpflege','Einwintern'],
+ ['Gefüttert','Fütterung','Füttern'],['Fütterung Stand 1','Fütterung','Füttern'],['Fütterung prüfen: Volk Anna','Fütterung','Futterkontrolle'],['Zuckerwasser angerührt','Fütterung','Futter ansetzen'],['Futtervorrat kontrolliert','Fütterung','Futterkontrolle'],
+ ['AS-Behandlung Stand 1','Behandlung','Ameisensäure'],['Ameisensäure eingesetzt','Behandlung','Ameisensäure'],['Oxalsäure geträufelt','Behandlung','Oxalsäure'],['Varroa gezählt','Behandlung','Varroa zählen'],['Windel ausgewertet','Behandlung','Varroa zählen'],
+ ['Rähmchen gedrahtet','Bau & Reparatur','Rähmchen drahten'],['Mittelwände eingelötet','Bau & Reparatur','Mittelwände einlöten'],['Beuten gestrichen','Bau & Reparatur','Beuten bauen & streichen'],['Wachs eingeschmolzen','Bau & Reparatur','Wachs schmelzen'],['Deckel repariert','Bau & Reparatur','Reparatur'],
+ ['Wanderung zur Linde','Wanderung & Transport',null],['Völker aufgeladen','Wanderung & Transport','Auf- & Abladen'],['Zum Rapsfeld gefahren','Wanderung & Transport','Fahrt'],
+ ['Marktverkauf vorbereitet','Verkauf & Vermarktung','Markt'],['Honig ausgeliefert','Verkauf & Vermarktung','Ausliefern'],['Flyer gedruckt','Verkauf & Vermarktung','Werbung'],
+ ['Umlarven Zuchtserie A','Zucht','Umlarven'],['Königinnen gezeichnet','Zucht','Zeichnen'],
+ ['Rechnung Hofladen geschrieben','Verwaltung & Büro','Rechnungen'],['Kassenbuch gemacht','Verwaltung & Büro','Buchführung'],['Gläser bestellt','Verwaltung & Büro','Einkauf & Bestellung'],['Tierseuchenkasse gemeldet','Verwaltung & Büro','Meldungen & Anträge'],
+ ['Etiketten geklebt','Sonstiges','Etiketten kleben'],['Rasen gemäht','Sonstiges',null],['Kaffee getrunken','Abfüllen & Etikettieren',null],
+ ['Etikettierung der Gläser','Abfüllen & Etikettieren','Etiketten kleben'],['Labels aufgeklebt','Abfüllen & Etikettieren','Etiketten kleben'],['Abfüllung 500g','Abfüllen & Etikettieren','Abfüllen'],['Glaser gespuelt','Abfüllen & Etikettieren','Gläser spülen'],['Honig in Eimer gefüllt','Abfüllen & Etikettieren','Abfüllen'],['Gewährverschluss aufgeklebt','Abfüllen & Etikettieren','Deckel & Siegel'],
+ ['geschleudert','Ernte & Schleudern','Schleudern'],['Schleuderraum, schleudern Waldhonig','Ernte & Schleudern','Schleudern'],['Entdeckelung','Ernte & Schleudern','Entdeckeln'],['Honig abgeschäumt','Ernte & Schleudern','Sieben & Klären'],['Refraktometer','Ernte & Schleudern','Wassergehalt messen'],['Ernte abgenommen Stand 2','Ernte & Schleudern','Honigräume abnehmen'],
+ ['Nachschau','Durchsicht & Völkerpflege','Durchsicht'],['Völker kontrolliert','Durchsicht & Völkerpflege','Durchsicht'],['Schwarmkontrolle Stand Heide','Durchsicht & Völkerpflege','Schwarmkontrolle'],['Zarge gegeben','Durchsicht & Völkerpflege','Erweitern & Honigraum'],['Kunstschwarm gemacht','Durchsicht & Völkerpflege','Ableger bilden'],['eingewintert','Durchsicht & Völkerpflege','Einwintern'],['Drohnenbrut geschnitten','Durchsicht & Völkerpflege','Drohnenrahmen schneiden'],
+ ['Sirup gegeben','Fütterung','Füttern'],['Futter angesetzt 3:2','Fütterung','Futter ansetzen'],['Völker gewogen','Fütterung','Futterkontrolle'],['Futterteig aufgelegt','Fütterung','Füttern'],
+ ['OS träufeln Dezember','Behandlung','Oxalsäure'],['Nassenheider aufgefüllt','Behandlung','Ameisensäure'],['Gemüll kontrolliert','Behandlung','Varroa zählen'],['Puderzuckermethode','Behandlung','Varroa zählen'],['Apiguard eingelegt','Behandlung','Thymol'],
+ ['Rähmchen drahten','Bau & Reparatur','Rähmchen drahten'],['Mittelwand eingeloetet','Bau & Reparatur','Mittelwände einlöten'],['Zargen lasiert','Bau & Reparatur','Beuten bauen & streichen'],['Sonnenwachsschmelzer','Bau & Reparatur','Wachs schmelzen'],['Boden ausgebessert','Bau & Reparatur','Reparatur'],
+ ['Beuten verladen','Wanderung & Transport','Auf- & Abladen'],['Transport zur Heide','Wanderung & Transport','Fahrt'],['Neuen Standplatz aufgestellt','Wanderung & Transport','Standplatz einrichten'],
+ ['Wochenmarkt Samstag','Verkauf & Vermarktung','Markt'],['Lieferung an Hofladen Müller','Verkauf & Vermarktung','Ausliefern'],['Instagram Post','Verkauf & Vermarktung','Werbung'],
+ ['Larven umgelarvt','Zucht','Umlarven'],['Begattungskästchen befüllt','Zucht','Begattung'],['Königin markiert','Zucht','Zeichnen'],['Schlupf kontrolliert','Zucht','Zuchtkontrolle'],
+ ['Rechnungen geschrieben','Verwaltung & Büro','Rechnungen'],['Belege sortiert','Verwaltung & Büro','Buchführung'],['Förderantrag gestellt','Verwaltung & Büro','Meldungen & Anträge'],['Zucker eingekauft','Verwaltung & Büro','Einkauf & Bestellung'],
+ ['Rähmchen gedrahtet','Sonstiges','Rähmchen drahten'],['Werkstatt aufgeräumt','Sonstiges',null],
+];
+test('Arbeitsschritte: Erkennung aus freiem Text (Wortstamm, Synonyme, Tippfehler) – alle Fälle', (w) => {
+  const fehl = [];
+  for (const [t, b, soll] of ZEIT_SCHRITT_FAELLE) { const r = w.schrittErkennen(t, b); const ist = r ? r.n : null; if (ist !== soll) fehl.push(`${t} [${b}] → ${ist} (soll ${soll})`); }
+  assert(!fehl.length, `${fehl.length} von ${ZEIT_SCHRITT_FAELLE.length} falsch:\n` + fehl.join('\n'));
+});
+test('Arbeitsschritte: gewählter Schritt gewinnt, Freitext wird sauber gebündelt', (w) => {
+  assertEq(w.schrittVon({ titel: 'Etiketten geklebt', kategorie: 'Abfüllen & Etikettieren', schritt: 'Verpacken' }).n, 'Verpacken', 'gewählt schlägt erkannt');
+  assertEq(w.schrittVon({ titel: 'Etiketten geklebt', kategorie: 'Abfüllen & Etikettieren' }).art, 'erkannt');
+  assertEq(w.schrittAusTitel('Fütterung prüfen: Volk Anna'), 'Fütterung prüfen');
+  assertEq(w.schrittAusTitel('honig verkostet (Raps)'), 'Honig verkostet');
+  const f = w.schrittVon({ titel: 'Werkstatt aufgeräumt', kategorie: 'Sonstiges' });
+  assertEq(f.art, 'frei'); assertEq(f.n, 'Werkstatt aufgeräumt');
+});
+test('Arbeitsschritte: Bündeln, größte zuerst, ab 7 Gruppen „Weitere“', (w) => {
+  const e = (titel, min, schritt) => ({ titel, zeitMinuten: min, kategorie: 'Abfüllen & Etikettieren', schritt });
+  const g = w.zeitSchritte([e('Etiketten geklebt', 60), e('Etiketten aufgeklebt', 30), e('Abgefüllt', 45), e('x', 10, 'Verpacken')]);
+  assertEq(g[0].label, 'Etiketten kleben'); assertEq(g[0].min, 90); assertEq(g[0].eintraege.length, 2); assertEq(g[0].art, 'erkannt');
+  assertEq(g[2].art, 'fest');
+  const viele = w.zeitSchritte(Array.from({ length: 9 }, (_, i) => e('Eigenes ' + 'abcdefghi'[i], 10 + i, 'Schritt ' + i)));
+  assertEq(viele.length, 6, '5 + Weitere'); assertEq(viele[5].label, 'Weitere'); assertEq(viele[5].kinder.length, 4);
+  assertEq(w.U.sum(viele, (x) => x.min), w.U.sum(Array.from({ length: 9 }, (_, i) => 10 + i), (x) => x), 'nichts geht verloren');
+});
+test('Arbeitsschritte: eigener Schritt wird gelernt, Vorgabe bleibt', async (w) => {
+  const alt = w.S.get('arbeitsschritte');
+  try {
+    await w.S.set('arbeitsschritte', {});
+    await w.schrittMerken('Bau & Reparatur', 'Futterzarge bauen');
+    const namen = w.schritteFuer('Bau & Reparatur').map((x) => x.n);
+    assert(namen.includes('Futterzarge bauen') && namen.includes('Rähmchen drahten'), 'gelernt + Vorgabe');
+    await w.schrittMerken('Bau & Reparatur', 'futterzarge  bauen'); assertEq(w.schritteFuer('Bau & Reparatur').filter((x) => /futterzarge/i.test(x.n)).length, 1, 'keine Dublette');
+    assertEq(w.schrittErkennen('Futterzarge gebaut', 'Bau & Reparatur').n, 'Futterzarge bauen', 'eigener Schritt wird auch erkannt');
+  } finally { await w.S.set('arbeitsschritte', alt || {}); }
+});
+test('Zeiterfassung: Antippen fächert den Bereich in Arbeitsschritte auf, „Alle Bereiche“ faltet zurück', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const e = (titel, min, kat) => ({ id: 'zf-' + titel, titel, zeitMinuten: min, kategorie: kat, erledigt: true });
+  const bereiche = [
+    { label: 'Abfüllen & Etikettieren', min: 165, eintraege: [e('Etiketten geklebt', 90, 'Abfüllen & Etikettieren'), e('Abgefüllt', 75, 'Abfüllen & Etikettieren')] },
+    { label: 'Fütterung', min: 60, eintraege: [e('Gefüttert', 60, 'Fütterung')] },
+  ];
+  const zustand = { offen: null };
+  try {
+    w.zeitFaecher(host, bereiche, zustand, (a) => `<div class="row" data-id="${a.id}">${a.titel}</div>`);
+    assertEq(host.querySelectorAll('path[data-zf="h"]').length, 2, 'zwei Bereiche im Kreis');
+    assert(/3,8 h/.test(host.querySelector('.zf-zahl').textContent), `Gesamtstunden in der Mitte (225 min): ${host.querySelector('.zf-zahl').textContent}`);
+    host.querySelector('path[data-zf="h"][data-i="0"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 1100));
+    assertEq(zustand.offen, 'Abfüllen & Etikettieren', 'Zustand merkt den offenen Bereich');
+    assertEq(host.querySelectorAll('path[data-zf="s"]').length, 2, 'zwei Arbeitsschritte aufgefächert');
+    const zeilen = [...host.querySelectorAll('.zf-reihe .zf-name')].map((x) => x.textContent);
+    assert(zeilen.some((z) => /Etiketten kleben/.test(z) && /aus Text erkannt/.test(z)), 'Schritt mit Hinweis „aus Text erkannt“');
+    host.querySelector('[data-zf-reihe="0"]').click();
+    assert(host.querySelector('.zf-eintraege .row[data-id]'), 'Antippen eines Schritts zeigt die Einträge');
+    assert(!host.querySelector('.zf-zurueck').hidden, 'Zurück-Knopf sichtbar');
+    host.querySelector('.zf-zurueck').click();
+    await new Promise((r) => setTimeout(r, 900));
+    assertEq(zustand.offen, null); assertEq(host.querySelectorAll('path[data-zf="h"]').length, 2, 'wieder alle Bereiche');
+    assert(host.querySelector('.zf-zurueck').hidden, 'Zurück-Knopf weg');
+  } finally { host.remove(); }
+});
+test('Zeiterfassung: Formular hat Arbeitsschritt, erkennt ihn aus dem Text und folgt der Tätigkeit', async (w) => {
+  w.location.hash = '#/zeiten'; await w.renderRoute(); await new Promise((r) => setTimeout(r, 300));
+  w.document.querySelector('#main #add').click(); await new Promise((r) => setTimeout(r, 300));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const ti = m.querySelector('#f-titel'), ka = m.querySelector('#f-kategorie'), sc = m.querySelector('#f-schritt');
+    assert(sc, 'Feld Arbeitsschritt vorhanden');
+    ka.value = 'Abfüllen & Etikettieren'; ka.dispatchEvent(new w.Event('change', { bubbles: true }));
+    ti.value = 'Etiketten geklebt'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq(sc.value, 'Etiketten kleben', 'aus dem Text vorbelegt');
+    const opts = [...m.querySelectorAll('[data-field="schritt"] .combo-opt')].map((o) => o.dataset.v);
+    assert(opts.includes('Gläser spülen') && !opts.includes('Schleudern'), 'Vorauswahl passt zur Tätigkeit');
+    sc.value = 'Verpacken'; sc.dispatchEvent(new w.Event('input', { bubbles: true }));
+    ti.value = 'Etiketten und Gläser'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq(sc.value, 'Verpacken', 'von Hand gewählt wird nicht überschrieben');
+  } finally { m.remove(); w.FormGuard.dirty = false; }
+});
 test('Verbrauchsmaterial: Suchfeld ist auch bei wenigen Positionen da', async (w) => {
   /* Der Fehler war eine Schwelle: das Feld erschien erst ab neun Positionen und war
      damit bei kleinen Listen unsichtbar – Julian hat es nicht gefunden. Dieser Test
