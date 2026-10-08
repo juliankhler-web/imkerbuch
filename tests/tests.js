@@ -157,6 +157,267 @@ test('Backup.buildData + applyReplace: Roundtrip erhält Daten', async (w) => {
 test('Backup: Dateiname imkerbuch-backup-JJJJ-MM-TT-HHMM.json', (w) => {
   assert(/^imkerbuch-backup-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(w.Backup.dateiname()), w.Backup.dateiname());
 });
+
+/* ---------- Sicherung auf ein anderes Gerät (z. B. Handy → PC) ----------
+   Gemeldet: „Sicherung auf den PC gespielt – die Bio-Daten fehlen." Ursache:
+   Die Ersteinrichtung des PCs schrieb „Imkerei" (Vorgaben, also Bio: nein)
+   jünger als die Sicherung; beim Zusammenführen gewann der ganze Block. */
+const EIN_PIXEL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+async function bioGeraetA(w) {
+  await w.migriereRaehmchenmass(); await w.migriereDokTypZertifikat(); await w.migriereBioPartner(); await w.migriereBelegstellen();
+  await w.migriereChargenAbfuellung(); await w.migriereChargeDatumUndMhd();
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), name: 'Bio-Imkerei Test', ort: 'Kassel', telefon: '0561 1', bio: 'ja', bioKontrollstelle: 'DE-ÖKO-006', bioVerbandJN: 'ja', bioVerband: ['Bioland'], bioLogos: [EIN_PIXEL], oekoZertNummer: 'Z-1' });
+  await w.S.set('profil', { vorname: 'Julian' });
+  await w.S.set('bioBetrieb', { reinigung: 'Heißwasser und Bürste' });
+  await w.S.set('bioVorsorge', { bereiche: { standort: { status: 'ja', text: 'geprüft', antworten: {} } } });
+  await w.S.set('bioBetriebEigen', [{ key: 'eigen1', titel: 'Wachskreislauf' }]);
+  await w.S.set('dokumentTypen', ['Rechnung', 'Bio-Papier']);
+  await w.S.set('dashboardWidgets', ['sicherung', 'voelker']);
+  const hyg = await w.DB.put('bioeintraege', { bereich: 'hygieneplan', bereichName: 'Schleuder', mittel: 'Wasser', haeufigkeit: 'nach Gebrauch' });
+  const st = await w.DB.put('staende', { name: 'Bio-Stand', lat: null, lng: null, notizen: '', bio: { erhebung: '2026-05-01', quelle: 'GeoBox', anteile: [{ name: 'Wald', prozent: 60, art: 'tracht' }] } });
+  const k = await w.DB.put('kontakte', { typ: 'lieferant', name: 'Öko-Zucker GmbH', bio: 'ja', oekoNummer: 'DE-ÖKO-001' });
+  const sicherung = JSON.parse(JSON.stringify(await w.Backup.buildData(true)));
+  // Die Sicherung entstand eine Stunde bevor der PC eingerichtet wurde.
+  const frueher = new Date(Date.now() - 3600e3).toISOString();
+  for (const rows of Object.values(sicherung.stores)) for (const r of rows) {
+    r.lastModified = frueher;
+    if (r.felder) for (const f of Object.keys(r.felder)) if (r.felder[f]) r.felder[f] = frueher;
+  }
+  return { sicherung, hyg, st, k };
+}
+async function neuerPc(w) {
+  await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load();
+  await w.Wizard.einrichten({ vorname: 'Julian', imkerei: 'Imkerei J.', standName: 'Heimstand', volkName: 'Volk 1', beutentyp: 'Zander' });
+  // was beim Start und beim ersten Öffnen der Startseite von selbst läuft
+  await w.migriereRaehmchenmass(); await w.migriereDokTypZertifikat(); await w.migriereBioPartner(); await w.migriereBelegstellen();
+  const host = w.document.createElement('div');
+  try { await w.Views.dashboard.render(host); } catch (e) { /* nur die Merker zählen */ }
+}
+async function bioPruefen(w, { hyg, st, k }, was = '') {
+  const i = w.S.get('imkerei');
+  assertEq(i.bio, 'ja', was + 'Bio-Imkerei bleibt Bio');
+  assertEq(i.bioKontrollstelle, 'DE-ÖKO-006', was + 'Kontrollstelle');
+  assertEq(i.bioVerband, ['Bioland'], was + 'Verband');
+  assertEq(i.bioLogos.length, 1, was + 'Bio-Logo');
+  assertEq(i.ort, 'Kassel', was + 'Anschrift');
+  assertEq(i.oekoZertNummer, 'Z-1', was + 'eigenes Öko-Zertifikat');
+  assertEq(w.S.get('bioBetrieb').reinigung, 'Heißwasser und Bürste', was + 'Betriebsbeschreibung');
+  assertEq(w.S.get('bioVorsorge').bereiche.standort.text, 'geprüft', was + 'Vorsorgekonzept');
+  assertEq(w.S.get('bioBetriebEigen'), [{ key: 'eigen1', titel: 'Wachskreislauf' }], was + 'eigene Abschnitte');
+  assertEq(w.S.get('dokumentTypen'), ['Rechnung', 'Bio-Papier'], was + 'eigene Dokumententypen');
+  assertEq(w.S.get('dashboardWidgets'), ['sicherung', 'voelker'], was + 'eigene Startseite');
+  assert(await w.DB.get('bioeintraege', hyg.id), was + 'Hygieneplan');
+  assertEq((await w.DB.get('staende', st.id)).bio.anteile[0].prozent, 60, was + 'Landbedeckung am Stand');
+  assertEq((await w.DB.get('kontakte', k.id)).oekoNummer, 'DE-ÖKO-001', was + 'Bio-Lieferant');
+}
+test('Sicherung auf neuem PC: Einrichtung + Zusammenführen bringt alle Bio- und Imkerei-Angaben', async (w) => isolierteDaten(w, async () => {
+  const a = await bioGeraetA(w);
+  await neuerPc(w);
+  assertEq(w.S.get('imkerei').bio, 'nein', 'Ausgangslage: der neue PC ist noch keine Bio-Imkerei');
+  await w.Backup.applyMerge(a.sicherung); await w.Backup.nachImport(a.sicherung);
+  await bioPruefen(w, a);
+  assertEq(w.S.get('profil').vorname, 'Julian');
+}));
+test('Sicherung auf neuem PC: Ersetzen bringt ebenfalls alles', async (w) => isolierteDaten(w, async () => {
+  const a = await bioGeraetA(w);
+  await neuerPc(w);
+  await w.Backup.applyReplace(a.sicherung, { blobsBehalten: false }); await w.Backup.nachImport(a.sicherung);
+  await bioPruefen(w, a);
+}));
+test('Sicherung: PC aus älterer Fassung (Imkerei ohne Feld-Stempel) bekommt Bio beim erneuten Zusammenführen', async (w) => isolierteDaten(w, async () => {
+  const a = await bioGeraetA(w);
+  await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load();
+  // So hat die alte Einrichtung geschrieben: ganzer Block, frischer Zeitstempel, keine Feld-Stempel
+  await w.DB.put('settings', { key: 'imkerei', value: { ...w.S.defaults.imkerei, name: 'Imkerei J.' } });
+  await w.S.load();
+  await w.Backup.applyMerge(a.sicherung); await w.Backup.nachImport(a.sicherung);
+  const i = w.S.get('imkerei');
+  assertEq(i.bio, 'ja', 'Bio kommt an'); assertEq(i.bioKontrollstelle, 'DE-ÖKO-006'); assertEq(i.ort, 'Kassel'); assertEq(i.bioLogos.length, 1);
+  assertEq(i.name, 'Imkerei J.', 'am PC von Hand eingetragener Name ist jünger und bleibt');
+  assertEq(w.S.get('dokumentTypen'), ['Rechnung', 'Bio-Papier'], 'eigene Liste aus der Sicherung');
+}));
+test('Sicherung: Einstellungen werden Feld für Feld zusammengeführt', async (w) => isolierteDaten(w, async () => {
+  const a = await bioGeraetA(w);
+  await neuerPc(w);
+  await w.Backup.applyMerge(a.sicherung); await w.Backup.nachImport(a.sicherung);
+  // Danach am PC von Hand geändert: Telefon neu, Bio bewusst abgeschaltet, Bürste aus dem Text genommen …
+  const imk = w.S.get('imkerei'); imk.telefon = '0561 99'; imk.bio = 'nein'; await w.S.set('imkerei', imk);
+  await w.S.set('bioBetrieb', { reinigung: 'Nur Heißwasser', lager: 'trocken' });
+  // … und dieselbe (ältere) Sicherung noch einmal zusammengeführt
+  await w.Backup.applyMerge(a.sicherung); await w.Backup.nachImport(a.sicherung);
+  const i = w.S.get('imkerei');
+  assertEq(i.telefon, '0561 99', 'jüngeres Telefon vom PC bleibt');
+  assertEq(i.bio, 'nein', 'bewusst geändertes Feld bleibt');
+  assertEq(i.ort, 'Kassel', 'unberührtes Feld kommt aus der Sicherung');
+  assertEq(i.bioKontrollstelle, 'DE-ÖKO-006');
+  assertEq(w.S.get('bioBetrieb'), { reinigung: 'Nur Heißwasser', lager: 'trocken' }, 'jüngerer Text bleibt, nichts doppelt');
+  // und zurück: die PC-Sicherung aufs Handy – dort gewinnen jetzt die jüngeren PC-Felder
+  const pc = JSON.parse(JSON.stringify(await w.Backup.buildData(true)));
+  await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load();
+  await w.Backup.applyReplace(a.sicherung, { blobsBehalten: false }); await w.Backup.nachImport(a.sicherung);
+  await w.Backup.applyMerge(pc); await w.Backup.nachImport(pc);
+  assertEq(w.S.get('imkerei').telefon, '0561 99'); assertEq(w.S.get('imkerei').bio, 'nein'); assertEq(w.S.get('imkerei').ort, 'Kassel');
+  assertEq(w.S.get('bioBetrieb').reinigung, 'Nur Heißwasser');
+}));
+test('Sicherung: entferntes Feld bleibt entfernt, unbekanntes Feld kommt dazu', (w) => {
+  const T1 = '2026-01-01T00:00:00.000Z', T2 = '2026-02-01T00:00:00.000Z';
+  const lokal = { key: 'bioBetrieb', value: { a: 'x' }, felder: { a: T1, b: T2 }, lastModified: T2 };   // b hier am 1.2. gelöscht
+  const fremd = { key: 'bioBetrieb', value: { a: 'x', b: 'alt', c: 'neu' }, lastModified: T1 };          // ältere Sicherung ohne Feld-Stempel
+  const z = w.Backup.einstellungZusammen(lokal, fremd);
+  assertEq(z.value, { a: 'x', c: 'neu' }, 'b bleibt gelöscht, c ist neu');
+  assertEq(w.Backup.einstellungZusammen(lokal, { ...lokal }), null, 'gleicher Stand: nichts zu tun');
+  // ältere Fassung kennt ein Feld noch nicht → es wird nicht gelöscht
+  const neuF = { key: 'imkerei', value: { name: 'A', oekoZertNummer: 'Z' }, felder: { name: T1, oekoZertNummer: T1 }, lastModified: T1 };
+  const altF = { key: 'imkerei', value: { name: 'B' }, lastModified: T2 };
+  assertEq(w.Backup.einstellungZusammen(neuF, altF).value, { name: 'B', oekoZertNummer: 'Z' });
+});
+test('Sicherung: Backup-Ordner und Sicherungstermine bleiben auf ihrem Gerät', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('backupDirName', 'Handy-Ordner'); await w.S.set('letzteAutoSicherung', '2026-01-01T00:00:00.000Z');
+  await w.S.set('backupDirHandle', { kind: 'directory', name: 'Handy-Ordner' });
+  const daten = await w.Backup.buildData(true);
+  const keys = daten.stores.settings.map((r) => r.key);
+  for (const k of ['backupDirHandle', 'backupDirName', 'letzteAutoSicherung', '_datenRevision', '_gesicherteRevision']) assert(!keys.includes(k), k + ' steht nicht in der Sicherung');
+  // Eine fremde (ältere) Sicherung, die solche Schlüssel doch enthält, überschreibt sie nicht
+  await w.S.set('backupDirName', 'PC-Ordner');
+  const fremd = { stores: { settings: [{ key: 'backupDirName', value: 'Handy-Ordner', lastModified: '2099-01-01T00:00:00.000Z' }, { key: 'backupDirHandle', value: {}, lastModified: '2099-01-01T00:00:00.000Z' }] } };
+  await w.Backup.applyMerge(fremd); await w.S.load();
+  assertEq(w.S.get('backupDirName'), 'PC-Ordner', 'Zusammenführen');
+  await w.Backup.applyReplace(fremd, { blobsBehalten: false }); await w.S.load();
+  assertEq(w.S.get('backupDirName'), 'PC-Ordner', 'Ersetzen behält den Ordner dieses Geräts');
+  assertEq(w.S.get('backupDirHandle').name, 'Handy-Ordner', 'Griff dieses Geräts unverändert (nicht „{}")');
+}));
+test('Sicherung: geänderte Bio-/Imkerei-Angaben gelten als ungesichert, Darstellung nicht', async (w) => isolierteDaten(w, async () => {
+  const gesichert = async () => { const st = (await w.DB.get('settings', '_datenRevision'))?.value || null; await w.DB.schreibeAlles([{ store: 'settings', obj: { key: '_gesicherteRevision', value: st } }]); return !(await w.Backup.leseAenderungsstand()); };
+  assert(await gesichert(), 'Ausgangslage gesichert');
+  await w.S.set('darkMode', 'dark'); await w.S.set('bottomNav', ['dashboard', 'voelker']); await w.S.set('letzteExterneSicherung', w.U.nowIso());
+  assertEq(await w.Backup.leseAenderungsstand(), false, 'Darstellung und Sicherungstermin zählen nicht');
+  for (const [key, wert] of [['bioBetrieb', { reinigung: 'neu' }], ['bioVorsorge', { bereiche: {} }], ['imkerei', { ...w.S.get('imkerei'), telefon: '1' }], ['honigsorten', ['Raps']]]) {
+    assert(await gesichert(), 'zurückgesetzt');
+    await w.S.set(key, wert);
+    assertEq(await w.Backup.leseAenderungsstand(), true, key + ' gehört in die nächste Sicherung');
+  }
+  assert(await gesichert());
+  await w.migriereInventarTyp(); await w.S.set('wizardDone', true, { auto: true });
+  assertEq(await w.Backup.leseAenderungsstand(), false, 'Merker der App zählen nicht');
+}));
+test('Sicherung aus älterer App-Fassung: Bio-Partner werden auch beim Zusammenführen umgestellt', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('bioPartnerMigriert', true, { auto: true }); // dieses Gerät ist längst umgestellt
+  const alt = { app: 'ImkerBuch', stores: {
+    bioeintraege: [{ id: 'alt-partner-1', bereich: 'partner', name: 'Wachs-Lieferant Alt', rolle: 'Lieferant', kontrollnummer: 'DE-ÖKO-039', lastModified: '2025-05-01T00:00:00.000Z' }],
+    settings: [{ key: 'imkerei', value: { ...w.S.defaults.imkerei, bio: 'ja' }, lastModified: '2025-05-01T00:00:00.000Z' }],
+  } };
+  await w.Backup.applyMerge(alt); await w.Backup.nachImport(alt);
+  const k = (await w.DB.getAll('kontakte')).find((x) => x.name === 'Wachs-Lieferant Alt');
+  assert(k && k.oekoNummer === 'DE-ÖKO-039', 'Partner ist jetzt ein Bio-Kontakt');
+  assertEq((await w.DB.getAll('bioeintraege')).filter((e) => e.bereich === 'partner').length, 0, 'keine unsichtbaren Alt-Einträge');
+  assertEq(w.S.get('imkerei').bio, 'ja');
+}));
+/* Jeder Bereich, jeder Eintrag: Gerät A mit vollen Beispieldaten + Bio +
+   Dateien → echte Sicherungsdatei (Text, wie beim Einspielen gelesen) →
+   frisch eingerichteter PC → Vergleich Datensatz für Datensatz. */
+async function vollesGeraet(w) {
+  await w.migriereRaehmchenmass(); await w.migriereDokTypZertifikat(); await w.migriereBioPartner(); await w.migriereBelegstellen();
+  await w.migriereChargenAbfuellung(); await w.migriereChargeDatumUndMhd();
+  await w.Demo.create();
+  await w.migriereInventarTyp(); // läuft auf jedem echten Gerät bei jedem Start
+  // Bereiche, für die die Beispieldaten nichts mitbringen
+  const pos = (await w.DB.getAll('inventar'))[0];
+  const heute = w.U.todayIso();
+  await w.DB.put('materialzugaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch', kategorie: pos.kategorie || '', einheit: 'kg', datum: heute, menge: 25, art: 'Einkauf', preis: 31.5, kontaktId: null, belegNr: 'B-7', lohn: false, kostenGesamt: null, honigKg: 0, chargeId: null, bestandVorher: 3, bestandNachher: 28 });
+  await w.DB.put('materialabgaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch', einheit: 'kg', datum: heute, menge: 2, art: 'Verkauf', preis: 6, kontaktId: null, kaeufer: 'Nachbar', belegNr: '', bestandVorher: 28, bestandNachher: 26 });
+  await w.DB.put('pfandbewegungen', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch', datum: heute, anzahl: 12, pfand: 0.5, betrag: 6, kontaktId: null, wer: 'Kundin', notiz: 'Gläser zurück', bestandVorher: 26, bestandNachher: 38 });
+  const a = await bioGeraetA(w);
+  const st = (await w.DB.getAll('staende'))[0];
+  await w.DB.put('anhaenge', { parentTyp: 'stand', parentId: st.id, art: 'dokument', name: 'oeko-zertifikat.pdf', mime: 'application/pdf', blob: new w.Blob(['%PDF-1.4 Zertifikat'], { type: 'application/pdf' }), groesse: 19, datum: w.U.nowIso(), dokumentTyp: 'Zertifikat' });
+  await w.DB.put('anhaenge', { parentTyp: 'stand', parentId: st.id, art: 'audio', name: 'notiz.webm', mime: 'audio/webm', blob: new w.Blob([new Uint8Array([1, 2, 3, 4])], { type: 'audio/webm' }), groesse: 4, datum: w.U.nowIso(), transkript: 'Volk ruhig' });
+  const datei = await w.Backup.buildBlob();
+  const text = await datei.text();
+  const quelle = {};
+  for (const st2 of w.DB.DATA_STORES) quelle[st2] = await w.DB.getAll(st2);
+  return { a, sicherung: JSON.parse(text), quelle };
+}
+async function vergleicheAlles(w, quelle, { extraErlaubt }) {
+  const fehler = [], leer = [];
+  for (const store of w.DB.DATA_STORES) {
+    if (store === 'papierkorb') continue;
+    const ziel = await w.DB.getAll(store);
+    if (store === 'settings') {
+      const z = new Map(ziel.map((r) => [r.key, r]));
+      for (const r of quelle.settings) {
+        if (w.S.GERAET.has(r.key)) continue;
+        if (!z.has(r.key)) fehler.push(`Einstellung ${r.key} fehlt`);
+        else if (JSON.stringify(z.get(r.key).value) !== JSON.stringify(r.value)) fehler.push(`Einstellung ${r.key} weicht ab`);
+      }
+      continue;
+    }
+    if (!quelle[store].length) leer.push(store);
+    const z = new Map(ziel.map((r) => [r.id, r]));
+    for (const r of quelle[store]) {
+      const b = z.get(r.id);
+      if (!b) { fehler.push(`${store}: ${r.id} fehlt`); continue; }
+      if (store === 'anhaenge') {
+        const { blob: b1, ...m1 } = r, { blob: b2, ...m2 } = b;
+        if (JSON.stringify(m1) !== JSON.stringify(m2)) fehler.push(`anhaenge: ${r.id} Angaben weichen ab`);
+        if (!b2 || b2.size !== b1.size || b2.type !== b1.type || (await b2.text()) !== (await b1.text())) fehler.push(`anhaenge: ${r.id} Datei weicht ab`);
+      } else if (JSON.stringify(b) !== JSON.stringify(r)) {
+        const felder = [...new Set([...Object.keys(r), ...Object.keys(b)])].filter((k) => JSON.stringify(r[k]) !== JSON.stringify(b[k]));
+        fehler.push(`${store}: ${r.id} weicht ab (${felder.map((k) => `${k}: ${JSON.stringify(r[k])} → ${JSON.stringify(b[k])}`).join(', ')})`);
+      }
+    }
+    if (!extraErlaubt && ziel.length !== quelle[store].length) fehler.push(`${store}: ${ziel.length} statt ${quelle[store].length}`);
+  }
+  return { fehler, leer };
+}
+test('Sicherung: jeder Bereich kommt vollständig auf dem neuen Gerät an (Zusammenführen und Ersetzen)', async (w) => isolierteDaten(w, async () => {
+  const { sicherung, quelle } = await vollesGeraet(w);
+  // Zusammenführen auf frisch eingerichtetem PC
+  await neuerPc(w);
+  await w.Backup.applyMerge(sicherung); await w.Backup.nachImport(sicherung);
+  const m = await vergleicheAlles(w, quelle, { extraErlaubt: true });
+  assertEq(m.fehler, [], 'Zusammenführen');
+  // nur Stand und Volk aus der Einrichtung kommen dazu
+  assertEq((await w.DB.getAll('staende')).length, quelle.staende.length + 1, 'Stand aus der Einrichtung bleibt zusätzlich');
+  assertEq((await w.DB.getAll('voelker')).length, quelle.voelker.length + 1, 'Volk aus der Einrichtung bleibt zusätzlich');
+  // Ersetzen: exakt gleich
+  await neuerPc(w);
+  await w.Backup.applyReplace(sicherung, { blobsBehalten: false }); await w.Backup.nachImport(sicherung);
+  const r = await vergleicheAlles(w, quelle, { extraErlaubt: false });
+  assertEq(r.fehler, [], 'Ersetzen');
+  // Die Beispieldaten decken (fast) alles ab – leere Bereiche hier sichtbar machen statt still durchwinken
+  const erlaubtLeer = ['wetter', 'papierkorb'];
+  assertEq(r.leer.filter((x) => !erlaubtLeer.includes(x)), [], 'Bereiche ohne Testdaten');
+}));
+test('Sicherung: alle Seiten nur öffnen löst keinen Sicherungshinweis aus', async (w) => {
+  dialogeSchliessen(w);
+  const rev = async () => (await w.DB.get('settings', '_datenRevision'))?.value || null;
+  // erst einmal alles öffnen (einmalige Merker, Umstellungen), dann zählt es
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const routen = w.NAV.filter((n) => n.route && w.Views[n.route]).map((n) => n.route);
+  const alle = async () => { for (const r of routen) { try { await w.Views[r].render(host); } catch (e) { /* hier zählt nur das Schreiben */ } } };
+  try {
+    const vorher = await rev();
+    const geschrieben = [];
+    const orig = w.DB.schreibeAlles.bind(w.DB);
+    w.DB.schreibeAlles = (ops) => { if (w.DB._betriebsdaten((ops || []).filter(Boolean))) geschrieben.push(...(ops || []).filter(Boolean).map((o) => `${o.store}:${o.obj ? (o.obj.key || o.obj.id) : o.op}`)); return orig(ops); };
+    try { await alle(); await alle(); } finally { w.DB.schreibeAlles = orig; }
+    assertEq(geschrieben, [], 'beim Öffnen geschrieben');
+    assertEq(await rev(), vorher, 'Öffnen der Seiten ist keine Datenänderung');
+  } finally { host.remove(); dialogeSchliessen(w); }
+});
+test('Sicherung: Einrichtung + Merker ändern den Zeitstempel echter Angaben nicht', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('dashboardWidgets', ['voelker'], { auto: true });
+  assertEq((await w.DB.get('settings', 'dashboardWidgets')).lastModified, '', 'von der App gesetzt: kein Stempel');
+  await w.S.set('dashboardWidgets', ['voelker', 'wetter']);
+  const t = (await w.DB.get('settings', 'dashboardWidgets')).lastModified;
+  assert(t, 'von Hand gesetzt: Stempel');
+  await w.S.set('dashboardWidgets', ['voelker', 'wetter', 'fahrt'], { auto: true });
+  assertEq((await w.DB.get('settings', 'dashboardWidgets')).lastModified, t, 'automatische Ergänzung behält den Stempel');
+  // An Ort und Stelle geändertes Objekt (get → ändern → set) bekommt trotzdem einen Feld-Stempel
+  const imk = w.S.get('imkerei'); imk.plz = '34117'; await w.S.set('imkerei', imk);
+  const rec = await w.DB.get('settings', 'imkerei');
+  assert(rec.felder && rec.felder.plz, 'geändertes Feld hat Stempel');
+  assertEq(rec.felder.bio, '', 'unverändertes Vorgabe-Feld bleibt ohne Stempel');
+}));
 test('Backup.snapshotInternal: rollierend, ohne Anhang-Blobs', async (w) => {
   for (let i = 0; i < 12; i++) await w.Backup.snapshotInternal('test');
   const snaps = await w.DB.getAll('snapshots');
@@ -8594,11 +8855,12 @@ test('DB.schreibeAlles: synchroner Fehler erzeugt keine unbehandelte Ablehnung',
 test('DB.schreibeAlles: erfolgreiche Datenänderung aktiviert Sicherungshinweis', async (w) => {
   const flag = w._changedSinceBackup; w._changedSinceBackup = false;
   try {
-    await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'commit-test', value: true } }]);
-    assertEq(w._changedSinceBackup, false, 'reine Einstellung bleibt ausgenommen');
+    // Merker der App zählen nicht (Angaben des Imkers in den Einstellungen schon – siehe „Sicherung: geänderte Bio-…")
+    await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'commitTestMigriert', value: true } }]);
+    assertEq(w._changedSinceBackup, false, 'Merker der App bleibt ausgenommen');
     await w.DB.schreibeAlles([{ store: 'kontakte', obj: { id: 'commit-test', name: 'Gespeichert' } }]);
     assertEq(w._changedSinceBackup, true, 'erfolgreiche Datenbuchung ist sicherungsbedürftig');
-  } finally { w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); await w.DB.del('settings', 'commit-test'); }
+  } finally { w._changedSinceBackup = flag; await w.DB.del('kontakte', 'commit-test'); await w.DB.del('settings', 'commitTestMigriert'); }
 });
 
 /* F04: Rückgabe darf nur tatsächlich entnommenes Material umfassen. */
@@ -8898,8 +9160,15 @@ test('F16: Bio-Etikett ohne druckbares Logo verlangt Ergänzung, Abbrechen erzeu
 
 async function isolierteDaten(w, fn) {
   const vorher = await w.Backup.buildData(true);
+  // Geräte-Einstellungen (Backup-Ordner …) stehen nicht in der Sicherung – eigens merken und zurücklegen
+  const geraet = (await w.DB.getAll('settings')).filter((r) => w.S.GERAET.has(r.key));
   try { await w.Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await w.S.load(); await fn(); }
-  finally { await w.Backup.applyReplace(vorher, { blobsBehalten: false }); await w.S.load(); }
+  finally {
+    await w.Backup.applyReplace(vorher, { blobsBehalten: false });
+    const ops = (await w.DB.getAll('settings')).filter((r) => w.S.GERAET.has(r.key)).map((r) => ({ op: 'del', store: 'settings', id: r.key }));
+    await w.DB.schreibeAlles([...ops, ...geraet.map((obj) => ({ store: 'settings', obj, keepStamp: true }))]);
+    await w.S.load();
+  }
 }
 test('Bio-Migration: Abbruch, Wiederholung und paralleler Start erhalten genau einen Partner', async (w) => isolierteDaten(w, async () => {
   await w.DB.put('bioeintraege', { id: 'bio-atom-partner', bereich: 'partner', name: 'Test-Partner', notiz: 'Einmalige Notiz', rolle: 'Lieferant' });

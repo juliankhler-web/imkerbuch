@@ -1169,8 +1169,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.39';
+const APP_VERSION = '2.40';
 const CHANGELOG = [
+  { version: '2.40', datum: '2026-10-08', punkte: [
+    'Sicherung auf ein anderes Gerät (z. B. Handy → PC): Bio- und Imkerei-Angaben kommen jetzt vollständig an. Vorher gewann beim „Zusammenführen“ die Ersteinrichtung des neuen Geräts (Bio: nein, leere Anschrift), weil sie jünger war. Jetzt wird jedes Feld einzeln verglichen, und was die App selbst eingetragen hat, zählt nie als neuer.',
+    'Schon betroffen? Die Sicherung einfach noch einmal einspielen und „Zusammenführen“ wählen – die fehlenden Angaben werden ergänzt, nichts wird doppelt.',
+    'Der gewählte Backup-Ordner und die Sicherungstermine bleiben auf ihrem Gerät. Vorher kam der Ordner kaputt mit und die automatische Sicherung auf dem anderen Gerät schlug fehl.',
+    'Geänderte Bio-Texte (Betriebsbeschreibung, Vorsorgekonzept) und Imkerei-Angaben zählen jetzt als ungesicherte Änderung – die Sicherung beim Schließen und der Sicherungshinweis greifen auch dafür.',
+    'Sicherungen aus einer älteren App-Fassung werden nach dem Einspielen sofort umgestellt (z. B. alte Bio-Lieferanten → Kontakte), auch beim Zusammenführen.',
+  ] },
   { version: '2.39', datum: '2026-10-08', punkte: [
     'Bereiche in die Schnellleiste ziehen: Das Fenster „Alle Bereiche“ wird dabei nicht mehr durchsichtig. Nur die Schnellleiste unten kommt nach vorn und ist gestrichelt markiert.',
   ] },
@@ -2187,7 +2194,7 @@ async function zeigeUpdateFenster() {
   const idx = gesehen ? CHANGELOG.findIndex((c) => c.version === gesehen) : -1;
   // unbekannte/keine gesehene Version (Installation vor Einführung der Versionierung) → alles zeigen
   const neue = idx >= 0 ? CHANGELOG.slice(0, idx) : CHANGELOG;
-  await S.set('letzteGeseheneVersion', APP_VERSION);
+  await S.set('letzteGeseheneVersion', APP_VERSION, { auto: true });
   if (neue.length) changelogModal(neue);
 }
 
@@ -2387,7 +2394,19 @@ const DB = {
   },
   async del(store, id) { return this.schreibeAlles([{ op: 'del', store, id }]); },
   async clear(store) { return this.schreibeAlles([{ op: 'clear', store }]); },
-  _betriebsdaten(ops) { return ops.some((o) => o.store !== 'settings' && o.store !== 'snapshots'); },
+  /* Zählt der Schreibvorgang als Änderung, die in die nächste Sicherung gehört?
+     Einstellungen zählen mit, sofern es Angaben des Imkers sind (Imkerei,
+     Bio-Betriebsbeschreibung, Vorsorgekonzept …) – vorher blieben die außen
+     vor, und „Sicherung beim Schließen" übersprang geänderte Bio-Texte. */
+  _betriebsdaten(ops) {
+    return ops.some((o) => {
+      if (o.store === 'snapshots') return false;
+      if (o.store !== 'settings') return true;
+      if (o.auto) return false;
+      if (o.op === 'clear') return true;
+      return S.zaehltAlsDaten(o.op === 'del' ? o.id : o.obj && o.obj.key);
+    });
+  },
   _revisionSchreiben(tx) {
     tx.objectStore('settings').put({ key: '_datenRevision', value: U.uuid() });
   },
@@ -2628,9 +2647,79 @@ const S = {
     chargeDatumMigriert: false,
     darkMode: 'auto', assistentAktiv: true, wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
-  async load() { this.data = {}; for (const r of await DB.getAll('settings')) this.data[r.key] = r.value; window._changedSinceBackup = (this.data._datenRevision || null) !== (this.data._gesicherteRevision || null); },
+  /* Gehört zu DIESEM Gerät und reist deshalb weder in der Sicherung mit noch
+     kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
+     wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
+     lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
+  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif']),
+  /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
+     geändert": Merker der App und reine Darstellung. Alles andere in den
+     Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
+     Listen. Die gehören in die nächste Sicherung, auch wenn sonst nichts neu ist. */
+  NUR_DARSTELLUNG: new Set(['wizardDone', 'letzteGeseheneVersion', 'dokTypZertifikat', 'darkMode', 'bottomNav', 'menuOrder', 'dashboardWidgets', 'fahrtWidgetAuswahl', 'assistentAktiv', 'logoImHeader', 'features', 'backupErinnerung', 'aufgabenHinweise', 'imkerschule']),
+  zaehltAlsDaten(key) {
+    return typeof key === 'string' && !this.GERAET.has(key) && !this.NUR_DARSTELLUNG.has(key) && !/(Migriert|WidgetSeen)$/.test(key);
+  },
+  istObjekt: (v) => Object.prototype.toString.call(v) === '[object Object]',
+  leer: (v) => v == null || v === '' || (Array.isArray(v) && !v.length) || (S.istObjekt(v) && !Object.keys(v).length),
+  /* Wann wurde ein Feld zuletzt von Hand geändert? Steht es in `felder`, ist
+     das genau bekannt. Ältere Datensätze haben das noch nicht: Dort zählt ein
+     leeres oder der Vorgabe entsprechendes Feld als „nie gesetzt" (leerer
+     Stempel). Sonst gewann etwa „Bio: nein" aus der Ersteinrichtung eines
+     neuen PCs gegen „Bio: ja" aus der Sicherung, nur weil es jünger war. */
+  stempel(rec, k) {
+    if (!rec) return '';
+    if (rec.felder && Object.prototype.hasOwnProperty.call(rec.felder, k)) return String(rec.felder[k] || '');
+    /* Ganze Werte (Logo, Listen) tragen nur ihren Datensatz-Stempel: ein
+       ausdrücklich entferntes Logo (null) muss gegen ein älteres gewinnen. */
+    if (k !== undefined && !rec.felder && this.istObjekt(rec.value)) {
+      const wert = rec.value[k];
+      const vorgabe = this.istObjekt(this.defaults[rec.key]) ? this.defaults[rec.key][k] : undefined;
+      if (this.leer(wert) || (vorgabe !== undefined && JSON.stringify(wert) === JSON.stringify(vorgabe))) return '';
+    }
+    return String(rec.lastModified || '');
+  },
+  /* Baut den zu speichernden Datensatz. Bei Objekten (Imkerei, Bio-Texte …)
+     bekommt jedes Feld seinen eigenen Zeitstempel, damit beim Zusammenführen
+     zweier Geräte nicht ein ganzer Block den anderen verdrängt.
+     auto = von der App selbst geschrieben (Einrichtung, Merker, Umstellungen):
+     dann bleiben die alten Stempel stehen – so eine Änderung ist nie „neuer"
+     als echte Angaben aus einer Sicherung. */
+  satz(vorher, key, value, auto = false) {
+    const jetzt = U.nowIso();
+    const rec = { key, value, lastModified: auto ? String((vorher && vorher.lastModified) || '') : jetzt };
+    if (this.istObjekt(value)) {
+      // Ohne gespeicherten Stand zeigte get() die Vorgaben – Felder, die so geblieben sind, gelten als nie gesetzt
+      const alt = vorher ? (this.istObjekt(vorher.value) ? vorher.value : {}) : (this.istObjekt(this.defaults[key]) ? this.defaults[key] : {});
+      const felder = {};
+      for (const k of new Set([...Object.keys(alt), ...Object.keys(value), ...Object.keys((vorher && vorher.felder) || {})])) {
+        const bisher = vorher ? this.stempel(vorher, k) : '';
+        felder[k] = (auto || JSON.stringify(alt[k]) === JSON.stringify(value[k])) ? bisher : jetzt;
+      }
+      rec.felder = felder;
+    }
+    return rec;
+  },
+  _saetze: {},
+  _merke(r) { this._saetze[r.key] = { key: r.key, lastModified: r.lastModified || '', felder: r.felder || null, json: this.istObjekt(r.value) ? JSON.stringify(r.value) : null }; },
+  /* Der zuletzt GESPEICHERTE Stand. this.data taugt dafür nicht: viele Stellen
+     holen sich das Objekt mit get(), ändern es an Ort und Stelle und rufen dann
+     set() – der Vergleich „vorher/nachher" sähe sonst keinen Unterschied. */
+  gespeichert(key) {
+    const m = this._saetze[key];
+    return m ? { key, lastModified: m.lastModified, felder: m.felder, value: m.json ? JSON.parse(m.json) : null } : null;
+  },
+  async load() {
+    this.data = {}; this._saetze = {};
+    for (const r of await DB.getAll('settings')) { this.data[r.key] = r.value; this._merke(r); }
+    window._changedSinceBackup = (this.data._datenRevision || null) !== (this.data._gesicherteRevision || null);
+  },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
-  async set(key, value) { await DB.put('settings', { key, value }); this.data[key] = value; },
+  async set(key, value, { auto = false } = {}) {
+    const rec = this.satz(this.gespeichert(key), key, value, auto);
+    await DB.schreibeAlles([{ store: 'settings', obj: rec, keepStamp: true, auto }]);
+    this.data[key] = value; this._merke(rec);
+  },
 };
 
 /* =====================================================================
@@ -4040,8 +4129,8 @@ Views.dashboard = {
     for (const [id, flag, pos] of [['fahrt', 'fahrtWidgetSeen', 2], ['zeiten', 'zeitenWidgetSeen', 3]]) {
       if (S.get(flag)) continue;
       const dw = [...S.get('dashboardWidgets')];
-      if (!dw.includes(id)) { dw.splice(Math.min(pos, dw.length), 0, id); await S.set('dashboardWidgets', dw); }
-      await S.set(flag, true);
+      if (!dw.includes(id)) { dw.splice(Math.min(pos, dw.length), 0, id); await S.set('dashboardWidgets', dw, { auto: true }); }
+      await S.set(flag, true, { auto: true });
     }
     const vorname = S.get('profil').vorname || '';
     const h = new Date().getHours();
@@ -4256,13 +4345,7 @@ const Wizard = {
       const bb = $('#wz-back', bodyEl); if (bb) bb.onclick = () => { save(); state.step--; renderStep(); };
       const finish = async (withDemo) => {
         save();
-        await S.set('profil', { vorname: state.vorname });
-        const imk = S.get('imkerei'); imk.name = state.imkerei || imk.name; await S.set('imkerei', imk);
-        let standId = null;
-        if (state.standName) { const st = await DB.put('staende', { name: state.standName, lat: null, lng: null, notizen: '' }); standId = st.id; }
-        if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: state.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
-        if (withDemo) await Demo.create();
-        await S.set('wizardDone', true);
+        await Wizard.einrichten(state, withDemo);
         back.remove();
         UI.toast(`Los geht's, ${state.vorname}!`);
         renderRoute(); Backup.updateBanners();
@@ -4271,6 +4354,18 @@ const Wizard = {
       const wd = $('#wz-demo', bodyEl); if (wd) wd.onclick = () => finish(true);
     };
     renderStep();
+  },
+  /** Speichert, was im Einrichtungs-Fenster eingegeben wurde. */
+  /* Ohne neuen Zeitstempel: Wer danach eine Sicherung zusammenführt, soll
+     seine echten Angaben bekommen – nicht die Vorgaben aus diesem Fenster. */
+  async einrichten(state, withDemo = false) {
+    await S.set('profil', { vorname: state.vorname }, { auto: true });
+    const imk = S.get('imkerei'); imk.name = state.imkerei || imk.name; await S.set('imkerei', imk, { auto: true });
+    let standId = null;
+    if (state.standName) { const st = await DB.put('staende', { name: state.standName, lat: null, lng: null, notizen: '' }); standId = st.id; }
+    if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: state.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
+    if (withDemo) await Demo.create();
+    await S.set('wizardDone', true, { auto: true });
   },
 };
 
@@ -10263,10 +10358,11 @@ Views.bio = {
         await DB.aendereAtomar(['bioeintraege', 'settings'], (d) => {
           const ops = rows.map((obj) => ({ store: 'bioeintraege', obj }));
           if (beschreibung) {
-            const bb = structuredClone(d.settings.find((x) => x.key === 'bioBetrieb')?.value || {});
+            const vorher = d.settings.find((x) => x.key === 'bioBetrieb') || null;
+            const bb = structuredClone((vorher && vorher.value) || {});
             const kopf = `Vorhandener Hygieneplan${quelle ? ` (${quelle})` : ''}, übernommen am ${U.fmtDate(U.todayIso())}:`;
             bb.reinigung = [bb.reinigung, kopf, volltext.trim()].filter(Boolean).join('\n\n');
-            ops.push({ store: 'settings', obj: { key: 'bioBetrieb', value: bb } });
+            ops.push({ store: 'settings', obj: S.satz(vorher, 'bioBetrieb', bb), keepStamp: true });
           }
           return { ops };
         });
@@ -13515,17 +13611,20 @@ Views.rechnung = {
           if (menge > bestand) throw new Error(`Bestand reicht nicht: ${U.fmtNum(menge, 0)} verlangt, ${bestand} verfügbar.`);
           a.bestand = bestand - menge; ops.push({ store: 'abfuellungen', obj: a });
         }
-        const kreis = structuredClone(d.settings.find((x) => x.key === 'rechnungskreis')?.value || S.defaults.rechnungskreis);
+        const kreisVorher = d.settings.find((x) => x.key === 'rechnungskreis') || null;
+        const kreis = structuredClone((kreisVorher && kreisVorher.value) || S.defaults.rechnungskreis);
         const nr = naechsteRechnungsnummer(kreis, d.rechnungen);
         aktuell.berechnungVersion = 2;
         const { brutto } = rechnungSummen(aktuell);
         if (!Number.isFinite(brutto)) throw new Error('Der Rechnungsbetrag ist ungültig.');
         aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
         ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } },
-          { store: 'rechnungen', obj: aktuell }, { store: 'settings', obj: { key: 'rechnungskreis', value: kreis } });
-        return { ops, wert: { rechnung: aktuell, kreis } };
+          { store: 'rechnungen', obj: aktuell });
+        const kreisSatz = S.satz(kreisVorher, 'rechnungskreis', kreis);
+        ops.push({ store: 'settings', obj: kreisSatz, keepStamp: true });
+        return { ops, wert: { rechnung: aktuell, kreis, kreisSatz } };
       });
-      Object.assign(r, gespeichert.rechnung); S.data.rechnungskreis = gespeichert.kreis;
+      Object.assign(r, gespeichert.rechnung); S.data.rechnungskreis = gespeichert.kreis; S._merke(gespeichert.kreisSatz);
       UI.toast(`Rechnung ${r.nummer} festgeschrieben`); renderRoute();
     } catch (e) { UI.toast('Festschreiben fehlgeschlagen – es wurde nichts gebucht: ' + e.message, 'err'); }
 
@@ -16696,7 +16795,7 @@ function abzugAnteil(buchung, n) {
   return buchung.abzug.map((a) => ({ ...a, menge: Math.round((a.menge / n) * 1000) / 1000 }));
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', settings: 'Einstellung' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -17348,7 +17447,7 @@ const Backup = {
     const out = { app: 'ImkerBuch', formatVersion: 1, exportiert: U.nowIso(), stores: {} };
     const daten = await DB.leseAlles(DB.DATA_STORES);
     Object.defineProperty(out, '_stand', { value: daten.settings.find((r) => r.key === '_datenRevision')?.value || null });
-    daten.settings = daten.settings.filter((r) => !['_datenRevision', '_gesicherteRevision'].includes(r.key));
+    daten.settings = daten.settings.filter((r) => !S.GERAET.has(r.key)); // Backup-Ordner, Sicherungstermine … bleiben auf dem Gerät
     for (const store of DB.DATA_STORES) {
       const rows = daten[store];
       if (store === 'anhaenge') {
@@ -17522,6 +17621,7 @@ const Backup = {
     await this.snapshotInternal('vor-wiederherstellung');
     const data = JSON.parse(snap.daten);
     await this.applyReplace(data, { blobsBehalten: true });
+    await this.nachImport(data);
     UI.toast('Snapshot wiederhergestellt');
     await S.load(); applyTheme(); renderRoute(); this.updateBanners();
   },
@@ -17545,7 +17645,7 @@ const Backup = {
       body: `<p class="small">Sicherung vom <b>${U.fmtDateTime(data.exportiert)}</b></p><p class="small muted mt8">${counts || 'leer'}</p>
         <div class="mt16">
           <button class="btn btn-primary btn-block" data-merge>${icon('merge')} Zusammenführen (empfohlen)</button>
-          <div class="hint mb12 mt8">Neue Einträge werden ergänzt, bei Konflikten gewinnt der neuere Stand (keine Duplikate dank UUIDs).</div>
+          <div class="hint mb12 mt8">Neue Einträge werden ergänzt, bei Konflikten gewinnt der neuere Stand – bei Imkerei- und Bio-Angaben Feld für Feld (keine Duplikate dank UUIDs).</div>
           <button class="btn btn-danger btn-block" data-replace>${icon('warn')} Ersetzen (kompletter Restore)</button>
           <div class="hint mt8">Alle aktuellen Daten werden überschrieben. Vorher wird automatisch ein interner Snapshot angelegt.</div>
         </div>`,
@@ -17557,6 +17657,7 @@ const Backup = {
       let erg;
       try { erg = await this.applyMerge(data); }
       catch (e) { UI.toast('Zusammenführen fehlgeschlagen – nichts wurde übernommen: ' + e.message, 'err'); return; }
+      await this.nachImport(data);
       const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
@@ -17590,6 +17691,7 @@ const Backup = {
       } catch (e) {
         return UI.toast(e.message, 'err');                // Bestand ist unangetastet
       }
+      await this.nachImport(data);
       UI.toast('Sicherung wiederhergestellt');
       await S.load(); applyTheme(); renderRoute(); this.updateBanners();
     };
@@ -17613,7 +17715,8 @@ const Backup = {
          Backup-Ordner). Sie werden nur von Code gelesen, der ihren Namen kennt –
          ein erfundener Schlüssel wird also nie angefasst. Gefährlich sind
          allein die Werte, die als Bildadresse enden. */
-      if (typeof r.key !== 'string' || ['_datenRevision', '_gesicherteRevision'].includes(r.key)) return null;
+      if (typeof r.key !== 'string' || S.GERAET.has(r.key)) return null;
+      if (r.felder !== undefined && !S.istObjekt(r.felder)) { const { felder, ...rest } = r; r = rest; }
       if (this.BILD_SCHLUESSEL.includes(r.key)) {
         if (r.value === null) return r; // ausdrücklich entferntes Bild; Zeitstempel entscheidet beim Merge
         const quelle = U.bildQuelle(r.value);
@@ -17677,11 +17780,60 @@ const Backup = {
       for (const store of DB.DATA_STORES) {
         let rows = vorbereitet.get(store);
         if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => r.blob ? r : { ...r, blob: alteBlobs.get(r.id) }).filter((r) => r.blob);
+        if (store === 'settings') rows = [...rows, ...d.settings.filter((r) => S.GERAET.has(r.key))]; // Backup-Ordner usw. gehören zu diesem Gerät
         ops.push({ op: 'clear', store });
         for (const r of rows) ops.push({ store, obj: r, keepStamp: true });
       }
       return { ops };
     });
+  },
+  /* Eine Einstellung aus der Sicherung mit der vorhandenen zusammenführen.
+     Früher gewann der jüngere Datensatz als GANZES. Auf einem neuen PC hatte
+     die Ersteinrichtung aber gerade „Imkerei" geschrieben (nur der Name, sonst
+     Vorgaben, also auch „Bio: nein") – jünger als jede Sicherung. Beim
+     Zusammenführen verlor dadurch die Sicherung: Bio-Angaben, Kontrollstelle,
+     Logos, Anschrift kamen nicht an. Jetzt entscheidet bei Objekten jedes Feld
+     für sich, und von der App selbst gesetzte Felder zählen nicht als neuer.
+     Gibt den neuen Datensatz zurück – oder null, wenn sich nichts ändert. */
+  einstellungZusammen(lokal, fremd) {
+    if (!lokal) return fremd;
+    const lmL = String(lokal.lastModified || ''), lmF = String(fremd.lastModified || '');
+    if (!S.istObjekt(lokal.value) || !S.istObjekt(fremd.value)) {
+      return lmF > lmL && JSON.stringify(fremd.value) !== JSON.stringify(lokal.value) ? fremd : null;
+    }
+    const hat = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+    const wert = { ...lokal.value }, felder = {};
+    for (const k of new Set([...Object.keys(lokal.value), ...Object.keys(fremd.value), ...Object.keys(lokal.felder || {}), ...Object.keys(fremd.felder || {})])) {
+      const sL = S.stempel(lokal, k), sF = S.stempel(fremd, k);
+      let nimm = sF > sL;
+      if (nimm && !hat(fremd.value, k) && !hat(fremd.felder, k)) nimm = false;            // fehlt dort nur, weil die ältere Fassung das Feld nicht kannte
+      if (!nimm && !hat(lokal.value, k) && hat(fremd.value, k) && !hat(lokal.felder, k)) nimm = true; // hier nie gesetzt
+      if (nimm) {
+        if (hat(fremd.value, k)) wert[k] = fremd.value[k]; else delete wert[k];         // dort ausdrücklich entfernt
+        felder[k] = sF;
+      } else felder[k] = sL;
+    }
+    if (JSON.stringify(wert) === JSON.stringify(lokal.value)) return null;
+    return { key: lokal.key, value: wert, felder, lastModified: lmF > lmL ? lmF : lmL };
+  },
+  /* Nach dem Einspielen: Stammt die Sicherung aus einer älteren App-Fassung,
+     liegen manche Daten noch im alten Format (z. B. Bio-Partner als eigene
+     Liste, alte Chargen). Die Umstellungen liefen bisher nur beim App-Start –
+     und beim Zusammenführen nie, weil dieses Gerät sie längst als erledigt
+     vermerkt hatte. Jetzt laufen sie gleich nach dem Import für alles, was
+     die Sicherung noch nicht umgestellt hatte. */
+  async nachImport(data) {
+    const erledigt = new Map(((data && data.stores && data.stores.settings) || []).filter((r) => r && typeof r.key === 'string').map((r) => [r.key, r.value]));
+    const offen = (flag) => !erledigt.get(flag);
+    await S.load();
+    if (offen('raehmchenmassMigriert')) await migriereRaehmchenmass(true);
+    if (offen('dokTypZertifikat')) await migriereDokTypZertifikat(true);
+    if (offen('abfuellungMigriert')) await migriereChargenAbfuellung(true);
+    await migriereInventarTyp();
+    if (offen('bioPartnerMigriert')) await migriereBioPartner(true);
+    if (offen('belegstellenMigriert')) await migriereBelegstellen(true);
+    if (offen('chargeDatumMigriert')) await migriereChargeDatumUndMhd(true);
+    await S.load();
   },
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
   async applyMerge(data) {
@@ -17696,6 +17848,11 @@ const Backup = {
         for (const r of vorbereitet.get(store)) {
           if (store === 'anhaenge' && !r.blob) continue;
           const alt = map.get(key(r));
+          if (store === 'settings') {
+            const zusammen = this.einstellungZusammen(alt, r);
+            if (zusammen) { map.set(r.key, zusammen); neu.set(r.key, zusammen); }
+            continue;
+          }
           if (!alt || (r.lastModified || '') > (alt.lastModified || '')) { map.set(key(r), r); neu.set(key(r), r); }
         }
         for (const r of neu.values()) ops.push({ store, obj: r, keepStamp: true });
@@ -22004,34 +22161,34 @@ function warmupBibliotheken() {
 }
 
 /** Einmalig: „Zertifikat“ kommt in die Liste der Dokumententypen (vor „Sonstiges“). Wer es später löscht, behält es gelöscht. */
-async function migriereDokTypZertifikat() {
-  if (S.get('dokTypZertifikat')) return;
+async function migriereDokTypZertifikat(erzwingen = false) {
+  if (!erzwingen && S.get('dokTypZertifikat')) return;
   const t = Array.isArray(S.get('dokumentTypen')) ? S.get('dokumentTypen').slice() : [];
   if (!t.some((x) => String(x).toLowerCase() === 'zertifikat')) {
     const i = t.indexOf('Sonstiges');
     if (i >= 0) t.splice(i, 0, 'Zertifikat'); else t.push('Zertifikat');
-    await S.set('dokumentTypen', t);
+    await S.set('dokumentTypen', t, { auto: true });
   }
-  await S.set('dokTypZertifikat', true);
+  await S.set('dokTypZertifikat', true, { auto: true });
 }
 /** Einmalige Migration: „Rähmchenmaß“ ist abgeschafft und geht im Beutentyp auf.
     Völker ohne Beutentyp erben den alten Wert, damit keine Info verloren geht. */
-async function migriereRaehmchenmass() {
-  if (S.get('raehmchenmassMigriert')) return;
+async function migriereRaehmchenmass(erzwingen = false) {
+  if (!erzwingen && S.get('raehmchenmassMigriert')) return;
   for (const v of await DB.getAll('voelker')) {
     if (!('raehmchenmass' in v)) continue;
     if (!v.beutentyp && v.raehmchenmass) v.beutentyp = v.raehmchenmass;
     delete v.raehmchenmass;
     await DB.put('voelker', v);
   }
-  await S.set('raehmchenmassMigriert', true);
+  await S.set('raehmchenmassMigriert', true, { auto: true });
 }
 
 /** Einmalige Migration: alte Charge (Glasgröße + Anzahl + Bestand + Abfülldatum) wird
     aufgeteilt in eine reine Los-Charge (Gesamtmenge kg) + eine Abfüllung. Verkäufe und
     Rechnungs-Positionen wandern von chargeId auf abfuellungId. Keine Daten gehen verloren. */
-async function migriereChargenAbfuellung() {
-  if (S.get('abfuellungMigriert')) return;
+async function migriereChargenAbfuellung(erzwingen = false) {
+  if (!erzwingen && S.get('abfuellungMigriert')) return;
   /* Die Zuordnung alte Charge → neue Abfüllung muss einen Abbruch überleben
      (Tab geschlossen, Akku leer). Vorher stand sie nur im Arbeitsspeicher: Beim
      zweiten Anlauf waren die Chargen schon umgestellt, die Tabelle aber leer –
@@ -22072,7 +22229,7 @@ async function migriereChargenAbfuellung() {
     for (const p of (r.positionen || [])) if (p.chargeId && !p.abfuellungId && map[p.chargeId]) { p.abfuellungId = map[p.chargeId]; delete p.chargeId; changed = true; }
     if (changed) await DB.put('rechnungen', r);
   }
-  await S.set('abfuellungMigriert', true);
+  await S.set('abfuellungMigriert', true, { auto: true });
 }
 
 /** Einmalige Migration: Inventar-Datensätze bekommen ein `typ` (inventar | verbrauch),
@@ -22091,7 +22248,7 @@ async function migriereInventarTyp() {
     if (neu) { await DB.put('inventar', i, true); geaendert++; }
   }
   if (geaendert) console.info(`Inventar: ${geaendert} Position(en) um Typ/Einheit ergänzt`);
-  await S.set('inventarTypMigriert', true);
+  await S.set('inventarTypMigriert', true, { auto: true });
 }
 
 /* Das Öko-Verzeichnis „Abnehmer und Lieferanten" lag früher als eigene Liste in
@@ -22100,12 +22257,14 @@ async function migriereInventarTyp() {
    zusammen: bestehende Partner werden zu Kontakten (nach Namen abgeglichen, damit
    keine Dubletten entstehen), Zertifikate wandern an den passenden Partner und das
    eigene Öko-Zertifikat in die Imkerei-Angaben. Nichts geht verloren. */
-async function migriereBioPartner() {
+async function migriereBioPartner(erzwingen = false) {
   await DB.aendereAtomar(['bioeintraege', 'kontakte', 'settings'], (d) => {
-    if (d.settings.find((r) => r.key === 'bioPartnerMigriert')?.value) return { ops: [] };
-    const ops = [], settings = new Map(d.settings.map((r) => [r.key, r.value]));
-    const lesen = (key) => structuredClone(settings.has(key) ? settings.get(key) : S.defaults[key]);
-    const setzen = (key, value) => { settings.set(key, value); ops.push({ store: 'settings', obj: { key, value } }); };
+    if (!erzwingen && d.settings.find((r) => r.key === 'bioPartnerMigriert')?.value) return { ops: [] };
+    const ops = [], saetze = new Map(d.settings.map((r) => [r.key, r]));
+    const lesen = (key) => structuredClone(saetze.has(key) ? saetze.get(key).value : S.defaults[key]);
+    /* Umgezogene Angaben stammen aus dem Bestand – die App hat sie nur
+       verschoben, nicht neu eingegeben. Darum ohne neuen Zeitstempel. */
+    const setzen = (key, value) => { const rec = S.satz(saetze.get(key) || null, key, value, true); saetze.set(key, rec); ops.push({ store: 'settings', obj: rec, keepStamp: true, auto: true }); };
     const kontaktSpeichern = (obj) => { if (!obj.id) obj.id = U.uuid(); ops.push({ store: 'kontakte', obj }); return obj; };
   const eintraege = d.bioeintraege;
   const partner = eintraege.filter((e) => e.bereich === 'partner');
@@ -22183,8 +22342,8 @@ async function migriereBioPartner() {
    Rückfall für noch nicht abgefüllte Reste stehen.
    Zugleich bekommen Chargen ohne Anlegedatum eines – aus der jüngsten
    enthaltenen Ernte, sonst aus dem Anlegezeitpunkt des Datensatzes. */
-async function migriereChargeDatumUndMhd() {
-  if (S.get('chargeDatumMigriert')) return;
+async function migriereChargeDatumUndMhd(erzwingen = false) {
+  if (!erzwingen && S.get('chargeDatumMigriert')) return;
   const chargen = await DB.getAll('chargen');
   const ernten = await idMap('ernten');
   let abfGesetzt = 0, datumGesetzt = 0;
@@ -22203,12 +22362,12 @@ async function migriereChargeDatumUndMhd() {
     await DB.put('chargen', c, true);
     datumGesetzt++;
   }
-  await S.set('chargeDatumMigriert', true);
+  await S.set('chargeDatumMigriert', true, { auto: true });
   if (abfGesetzt || datumGesetzt) console.info(`Chargen umgestellt: ${datumGesetzt} Anlegedaten, ${abfGesetzt} MHD an Abfüllungen`);
 }
 
-async function migriereBelegstellen() {
-  if (S.get('belegstellenMigriert')) return;
+async function migriereBelegstellen(erzwingen = false) {
+  if (!erzwingen && S.get('belegstellenMigriert')) return;
   const nachName = new Map(); // name (klein, getrimmt) -> id
   for (const b of await DB.getAll('belegstellen')) if (b.name) nachName.set(b.name.trim().toLowerCase(), b.id);
   const sorgeFuer = async (name) => {
@@ -22225,7 +22384,7 @@ async function migriereBelegstellen() {
       await DB.put(store, rec);
     }
   }
-  await S.set('belegstellenMigriert', true);
+  await S.set('belegstellenMigriert', true, { auto: true });
 }
 
 async function boot() {
@@ -22279,7 +22438,7 @@ async function boot() {
   }
   if (!S.get('wizardDone') && !TEST_MODE) {
     Wizard.run();
-    S.set('letzteGeseheneVersion', APP_VERSION); // Neuinstallation: kein „Was ist neu?“-Fenster
+    S.set('letzteGeseheneVersion', APP_VERSION, { auto: true }); // Neuinstallation: kein „Was ist neu?“-Fenster
   }
   await renderRoute();
   Splash.weg(); // App ist gezeichnet – Startbildschirm ausblenden

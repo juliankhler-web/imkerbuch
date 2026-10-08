@@ -5,7 +5,7 @@
    Beendet sich mit Code 1, sobald ein Test rot ist – dadurch taugt der
    Aufruf für die CI.
 
-   Aufruf:  node tools/test-run.mjs [--coverage] [--port=8931] [--sichtbar]
+   Aufruf:  node tools/test-run.mjs [--coverage] [--port=8931] [--sichtbar] [--nur=Textstück]
    Coverage: schreibt tools/coverage/report.json und nennt ungetestete Funktionen.
 */
 import { createServer } from 'node:http';
@@ -19,6 +19,7 @@ const ARG = process.argv.slice(2);
 const COVERAGE = ARG.includes('--coverage');
 const SICHTBAR = ARG.includes('--sichtbar');
 const PORT = +((ARG.find((a) => a.startsWith('--port=')) || '').split('=')[1] || 8941);
+const NUR = (ARG.find((a) => a.startsWith('--nur=')) || '').slice(6); // nur Tests, deren Name das enthält
 const CDP_PORT = PORT + 400;
 const CHROME = process.env.CHROME_BIN
   || ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -151,7 +152,7 @@ async function main() {
   }
 
   console.log(`→ Testseite wird geladen (Port ${PORT}) …`);
-  await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/tests/test.html` });
+  await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/tests/test.html${NUR ? '?nur=' + encodeURIComponent(NUR) : ''}` });
 
   let erg = null;
   for (let i = 0; i < 900; i++) {           // bis zu 3 Minuten
