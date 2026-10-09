@@ -11569,3 +11569,118 @@ test('Imme versteht Alltagsfragen locker (Synonyme, Tippfehler, lange Sätze)', 
   const quote = ok / IMME_FRAGEN.length;
   assert(quote >= 0.95, 'Trefferquote ' + Math.round(quote * 1000) / 10 + ' % – daneben: ' + fehl.slice(0, 8).join(' | '));
 });
+
+/* ---------- Schnell-Durchsicht („Handschuh-Modus“) ---------- */
+async function sdOeffnen(w, volkId, start = true) {
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+  if (start) w.Views.durchsicht.starten(volkId); else w.location.hash = '#/durchsicht/' + volkId;
+  assert(await warteBis(() => w.document.body.dataset.route === 'durchsicht' && w.document.querySelector('main .sd')), 'Schnell-Durchsicht offen');
+}
+const sdMain = (w) => w.document.querySelector('main');
+async function sdTippe(w, text) {
+  const vorher = sdMain(w).querySelector('.sd-frage')?.textContent;
+  const b = [...sdMain(w).querySelectorAll('button')].find((x) => x.textContent.replace(/\s+/g, ' ').trim().includes(text));
+  assert(b, `Knopf „${text}“ fehlt – da: ${[...sdMain(w).querySelectorAll('button')].map((x) => x.textContent.trim()).join(' | ')}`);
+  b.click();
+  await warteBis(() => sdMain(w).querySelector('.sd-frage')?.textContent !== vorher || !sdMain(w).querySelector('.sd'), 1500);
+  await new Promise((r) => setTimeout(r, 30));
+}
+test('Schnell-Durchsicht: antippen, überspringen, speichern, weiter zum nächsten Volk des Standes', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Waldrand' });
+  const v10 = await w.DB.put('voelker', { name: 'Volk 10', standId: st.id, status: 'aktiv', historie: [] });
+  const v2 = await w.DB.put('voelker', { name: 'Volk 2', standId: st.id, status: 'aktiv', historie: [] });
+  const v1 = await w.DB.put('voelker', { name: 'Volk 1', standId: st.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'Volk alt', standId: st.id, status: 'aufgeloest', historie: [] });
+  await w.DB.put('stockkarten', { volkId: v1.id, datum: '2026-09-01', volksstaerke: 3, futter: 'ausreichend', weiselzellen: false });
+  try {
+    await sdOeffnen(w, v1.id);
+    assert(/Volk 1 von 3/.test(sdMain(w).textContent), 'Reihenfolge natürlich sortiert, aufgelöste nicht dabei: ' + sdMain(w).querySelector('.sd-volk').textContent);
+    assertEq(getComputedStyle(w.document.querySelector('.bottomnav')).display, 'none', 'untere Leiste ist weg (kein Fehltipp mit Handschuh)');
+    assert(/Letzte Durchsicht: 01\.09\.2026/.test(sdMain(w).textContent), 'zeigt die letzte Durchsicht');
+    assert(sdMain(w).querySelectorAll('.sd-opt').length === 5 && [...sdMain(w).querySelectorAll('.sd-opt')].every((b) => b.getBoundingClientRect().height >= 72), 'fünf große Knöpfe (≥ 72 px)');
+    assert(/mittel\s*zuletzt/.test(sdMain(w).textContent.replace(/\s+/g, ' ')), 'letzte Antwort ist markiert');
+    await sdTippe(w, 'stark');            // erster Treffer ist „4 stark“ („sehr schwach“ enthält es nicht)
+    assertEq(w.Views.durchsicht.entwurf(v1.id).antworten.volksstaerke, 4, 'Volksstärke 4');
+    await sdTippe(w, 'geschlossen');
+    await sdTippe(w, 'Überspringen');     // Sanftmut übersprungen
+    await sdTippe(w, 'reichlich');
+    await sdTippe(w, 'Ja');               // Weiselzellen
+    const txt = sdMain(w).textContent.replace(/\s+/g, ' ');
+    assert(/Fertig/.test(txt) && /Sanftmut\s*–/.test(txt) && /Weiselzellen\s*Ja/.test(txt), 'Zusammenfassung: ' + txt.slice(0, 300));
+    await sdTippe(w, 'Speichern · nächstes Volk');
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v2.id), 'weiter zu Volk 2');
+    const sk = (await w.DB.getAll('stockkarten')).filter((x) => x.volkId === v1.id && x.erfasst === 'schnell');
+    assertEq(sk.length, 1, 'eine neue Durchsicht');
+    assertEq([sk[0].volksstaerke, sk[0].brutbild, sk[0].sanftmut, sk[0].futter, sk[0].weiselzellen, sk[0].datum], [4, 5, null, 'reichlich', true, w.U.todayIso()]);
+    // Volk wechseln mit › und zurück: angefangene Antworten bleiben
+    const name = () => sdMain(w)?.querySelector('.sd-volk b')?.textContent;
+    assert(await warteBis(() => name() === 'Volk 2'), 'Volk 2');
+    sdMain(w).querySelector('[data-sd-volk="1"]').click();
+    assert(await warteBis(() => name() === 'Volk 10' && /Volk 3 von 3/.test(sdMain(w).textContent)), 'Volk 10');
+    await sdTippe(w, 'mittel');
+    sdMain(w).querySelector('[data-sd-volk="-1"]').click();
+    assert(await warteBis(() => name() === 'Volk 2'), 'zurück zu Volk 2');
+    sdMain(w).querySelector('[data-sd-volk="1"]').click();
+    assert(await warteBis(() => name() === 'Volk 10' && /Brutbild/.test(sdMain(w).querySelector('.sd-frage').textContent)), 'Volk 10 geht bei Brutbild weiter');
+    for (let i = 0; i < 4; i++) await sdTippe(w, 'Überspringen');
+    await sdTippe(w, 'Speichern · nächstes Volk');   // Volk 2 ist noch offen
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v2.id), 'zurück zum offenen Volk 2');
+    for (let i = 0; i < 5; i++) await sdTippe(w, 'Überspringen');
+    assert(/Ohne Eintrag beenden/.test(sdMain(w).textContent), 'nichts erfasst → ohne Eintrag');
+    await sdTippe(w, 'Ohne Eintrag beenden');
+    assert(await warteBis(() => /Durchgang beendet/.test(sdMain(w).textContent)), 'Schluss-Übersicht');
+    assert(/2 von 3 gespeichert/.test(sdMain(w).textContent) && /Volk 2\s*offen/.test(sdMain(w).textContent.replace(/\s+/g, ' ')), 'fehlendes Volk wird genannt');
+    assertEq((await w.DB.getAll('stockkarten')).filter((x) => x.volkId === v2.id).length, 0, 'leere Durchsicht wird nicht gespeichert');
+    await sdTippe(w, 'Zum Stand');
+    assert(await warteBis(() => w.location.hash === '#/stand/' + st.id), 'zurück zum Stand');
+  } finally { w.Views.durchsicht._entwuerfe.clear(); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));
+test('Schnell-Durchsicht: eigene Zusatzfelder (Bewertung, Ja/Nein) und Sprachnotiz werden mitgespeichert', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('stockkartenFelder', [{ name: 'Honigraum', typ: 'rating' }, { name: 'Drohnenbrut geschnitten', typ: 'check' }, { name: 'Waben', typ: 'zahl' }]);
+  const fragen = w.sdFragen();
+  assertEq(fragen.map((f) => f.titel), ['Volksstärke', 'Brutbild', 'Sanftmut', 'Futter', 'Weiselzellen?', 'Honigraum', 'Drohnenbrut geschnitten?'], 'Zahl-Felder bleiben fürs normale Formular');
+  const v = await w.DB.put('voelker', { name: 'Zusatz', status: 'aktiv', historie: [] });
+  const e = w.Views.durchsicht.entwurf(v.id);
+  assertEq(await w.Views.durchsicht.speichern(v, e), false, 'nichts erfasst → nichts gespeichert');
+  e.antworten = { brutbild: 3, 'z:Honigraum': 4, 'z:Drohnenbrut geschnitten': true };
+  e.audio = [{ blob: new w.Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' }), transkript: 'Königin gesehen' }];
+  const rec = await w.Views.durchsicht.speichern(v, e);
+  const sk = await w.DB.get('stockkarten', rec.id);
+  assertEq(sk.zusatz, { Honigraum: 4, 'Drohnenbrut geschnitten': true });
+  assertEq([sk.brutbild, sk.volksstaerke, sk.weiselzellen, sk.notiz], [3, null, null, 'Königin gesehen']);
+  const audio = (await w.DB.getAll('anhaenge')).filter((a) => a.parentTyp === 'stockkarte' && a.parentId === rec.id);
+  assert(audio.length === 1 && audio[0].art === 'audio' && audio[0].transkript === 'Königin gesehen', 'Sprachnotiz hängt an der Durchsicht');
+  assert(!w.Views.durchsicht._entwuerfe.has(v.id), 'Entwurf ist danach weg');
+  // Detail zeigt übersprungene Weiselzellen nicht als „nein“
+  w.Views.volk.stockkarteDetail(v, sk);
+  const m = [...w.document.querySelectorAll('.modal')].pop();
+  assert(/Weiselzellen\s*–/.test(m.textContent.replace(/\s+/g, ' ')), 'übersprungen = –');
+  dialogeSchliessen(w);
+}));
+test('Schnell-Durchsicht: Einstiege an Stand, Volk und QR-Aufkleber; Imme kennt sie', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Heide' });
+  const v = await w.DB.put('voelker', { name: 'Erika', standId: st.id, status: 'aktiv', historie: [] });
+  const alt = await w.DB.put('voelker', { name: 'Weg', standId: st.id, status: 'aufgeloest', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const qr = w.makeQr; let qrText = null;
+  try {
+    await w.Views.stand.render(host, st.id);
+    assert(host.querySelector('#sdStand'), 'Stand: „Durchsicht am Stand“');
+    await w.Views.volk.render(host, v.id);
+    assert(host.querySelector('#sdVolk'), 'Volk: „Schnell-Durchsicht“');
+    await w.Views.volk.render(host, alt.id);
+    assert(!host.querySelector('#sdVolk'), 'aufgelöstes Volk: kein Knopf');
+    w.makeQr = async (t) => { qrText = t; return 'data:image/png;base64,AA=='; };
+    await w.volkQrAnzeigen(v);
+    assert(qrText && qrText.endsWith('#/durchsicht/' + v.id), 'QR führt direkt in die Schnell-Durchsicht: ' + qrText);
+    dialogeSchliessen(w);
+    await w.Views.durchsicht.render(host, alt.id);
+    assert(/nicht mehr aktiv/.test(host.textContent), 'aufgelöstes Volk per altem Aufkleber: freundlicher Hinweis');
+    await w.Views.durchsicht.render(host, 'gibt-es-nicht');
+    assert(/gibt es nicht/.test(host.textContent));
+    const erst = (q) => { const a = w.Assistent.antwort(q); return a.art === 'app' ? a.haupt.id : a.art; };
+    assertEq(erst('Wie mache ich die Durchsicht mit Handschuhen?'), 'schnell-durchsicht');
+    assertEq(erst('Durchsicht am Stand'), 'schnell-durchsicht');
+    assertEq(erst('Durchsicht eintragen'), 'durchsicht', 'normale Durchsicht bleibt erste Antwort');
+  } finally { w.makeQr = qr; host.remove(); dialogeSchliessen(w); }
+}));
