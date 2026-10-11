@@ -1430,58 +1430,88 @@ test('kennungJahr: zweistellige Jahre sinnvoll auflösen', (w) => {
   assertEq(w.kennungJahr('2024'), 2024);
 });
 
-/* ---------- Königinnen-Stammbaum ---------- */
-test('koeniginStammbaumHtml: Ahnenlinie aufwärts + Töchter', async (w) => {
-  const oma = await w.DB.put('koeniginnen', { jahrgang: 2023, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: null });
-  const mutter = await w.DB.put('koeniginnen', { jahrgang: 2024, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: oma.id });
-  const q = await w.DB.put('koeniginnen', { jahrgang: 2025, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: mutter.id });
-  const tochter = await w.DB.put('koeniginnen', { jahrgang: 2026, linie: 'Carnica', status: 'aktiv', historie: [], mutterId: q.id });
+/* ---------- Königinnen-Stammbaum (v2.50: Daten mit Herkunft je Angabe) ---------- */
+test('koeniginAhnen: Mutterlinie aufwärts, Drohnenseite, Herkunft jeder Angabe', async (w) => isolierteDaten(w, async () => {
+  const dm = await w.DB.put('koeniginnen', { kennung: 'AH-DM', jahrgang: 2022, status: 'aktiv', historie: [] });
+  const oma = await w.DB.put('koeniginnen', { kennung: 'AH-OMA', jahrgang: 2023, status: 'aktiv', historie: [], anpaarung: 'belegstelle', belegstelle: 'Norderney' });
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'AH-MUT', jahrgang: 2024, status: 'aktiv', historie: [], mutterId: oma.id });
+  const q = await w.DB.put('koeniginnen', { kennung: 'AH-Q', jahrgang: 2025, status: 'aktiv', historie: [], mutterId: mutter.id, anpaarung: 'besamung', vatervolkId: dm.id });
   const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
-  const html = w.koeniginStammbaumHtml(q, qm);
-  assert(html.includes('Abstammung'), 'Ahnenlinie angezeigt');
-  assert(html.includes('2024') && html.includes('2023'), 'Mutter + Großmutter in der Linie');
-  assert(html.includes('2026'), 'Tochter als Nachkomme');
-  assert(html.includes('diese'), 'aktuelle Königin markiert');
-});
-test('koeniginStammbaumHtml: Mutterlinie als Rückgrat, Drohnenvolk als klappbarer Zweig', async (w) => {
-  const dm = await w.DB.put('koeniginnen', { kennung: 'SB-DM', jahrgang: 2022, status: 'aktiv', historie: [], mutterId: null });
-  const oma = await w.DB.put('koeniginnen', { kennung: 'SB-OMA', jahrgang: 2023, status: 'aktiv', historie: [], mutterId: null });
-  const mutter = await w.DB.put('koeniginnen', { kennung: 'SB-MUT', jahrgang: 2024, status: 'aktiv', historie: [], mutterId: oma.id });
-  const q = await w.DB.put('koeniginnen', { kennung: 'SB-Q', jahrgang: 2025, status: 'aktiv', historie: [], mutterId: mutter.id, anpaarung: 'besamung', vatervolkId: dm.id });
+  const a = w.koeniginAhnen(q, qm, 9);
+  assertEq(a.length, 3, 'drei Generationen: zuletzt nur noch die Belegstelle der Großmutter');
+  assertEq(a[2].mutter.quelle, 'fehlt'); assertEq(a[2].drohnen.quelle, 'beleg'); assertEq(a[2].drohnen.name, 'Norderney');
+  assertEq(a[0].mutter.rec.kennung, 'AH-MUT'); assertEq(a[0].mutter.quelle, 'eigen');
+  assertEq(a[0].drohnen.quelle, 'eigen'); assertEq(a[0].drohnen.art, 'besamung');
+  assertEq(a[1].mutter.rec.kennung, 'AH-OMA');
+  assertEq(a[1].drohnen.quelle, 'fehlt', 'bei der Mutter ist keine Drohnenseite erfasst');
+  assertEq(a[0].kind.id, q.id, 'jede Generation weiß, bei wem nachzutragen ist');
+  const b = w.koeniginAhnen(mutter, qm, 9);
+  assertEq(b[0].drohnen.quelle, 'fehlt'); assertEq(w.koeniginAhnen(oma, qm, 9)[0]?.drohnen.quelle, 'beleg', 'Belegstelle als Drohnenseite');
+}));
+test('koeniginAhnen: hinter der letzten eigenen Königin geht es mit der Pedigree-Zeile weiter', async (w) => isolierteDaten(w, async () => {
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'B66(TR)', jahrgang: 2024, status: 'aktiv', historie: [],
+    pedigree: 'B66(TR)=.96-B173(TR)xB169(TR): .94-B2(TR)xB224(PJ)' });
+  const q = await w.DB.put('koeniginnen', { kennung: 'PZ-Q', jahrgang: 2025, status: 'aktiv', historie: [], mutterId: mutter.id });
   const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
-
-  const zu = w.koeniginStammbaumHtml(q, qm, 5, new Set());
-  assert(zu.includes('SB-MUT') && zu.includes('SB-OMA'), 'Mutterlinie läuft durch: Mutter + Großmutter sichtbar');
-  assert(zu.includes('Drohnenvolk') && zu.includes('SB-DM'), 'Drohnenvolk als eigene Zeile');
-  assert(zu.includes('data-sbz='), 'Drohnenzweig hat einen Aufklapp-Knopf');
-  assertEq(zu.includes('sb-zweig'), false, 'Zweig ist zunächst zugeklappt');
-
-  const key = (zu.match(/data-sbz="([^"]+)"/) || [])[1];
-  assert(key, 'Zweig-Schlüssel gefunden');
-  const auf = w.koeniginStammbaumHtml(q, qm, 5, new Set([key]));
-  assert(auf.includes('sb-zweig'), 'aufgeklappter Zweig wird gerendert');
-  assert(auf.length > zu.length, 'aufgeklappt zeigt mehr als zugeklappt');
-});
-test('koeniginStammbaumHtml: Tiefe begrenzt die Generationen', async (w) => {
+  const a = w.koeniginAhnen(q, qm, 9);
+  assertEq(a.length, 3, 'eine eigene Generation + zwei aus der Pedigree-Zeile');
+  assertEq(a[1].mutter.quelle, 'pedigree'); assertEq(a[1].mutter.code, 'B173(TR)');
+  assertEq(a[1].drohnen.code, 'B169(TR)');
+  assertEq(a[2].mutter.code, 'B2(TR)');
+}));
+test('koeniginAhnen: Tiefe begrenzt, Zyklen brechen ab', async (w) => isolierteDaten(w, async () => {
   let vorherId = null;
-  for (let jg = 2018; jg <= 2026; jg++) vorherId = (await w.DB.put('koeniginnen', { kennung: 'TIEF-' + jg, jahrgang: jg, status: 'aktiv', historie: [], mutterId: vorherId })).id;
+  for (let jg = 2016; jg <= 2026; jg++) vorherId = (await w.DB.put('koeniginnen', { kennung: 'T-' + jg, jahrgang: jg, status: 'aktiv', historie: [], mutterId: vorherId })).id;
   const q = await w.DB.get('koeniginnen', vorherId);
-  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
-  const zaehl = (html) => (html.match(/class="badge b-honey">Mutter</g) || []).length;
-  assertEq(zaehl(w.koeniginStammbaumHtml(q, qm, 2, new Set())), 2, 'Tiefe 2 → 2 Mutter-Zeilen');
-  assertEq(zaehl(w.koeniginStammbaumHtml(q, qm, 5, new Set())), 5, 'Tiefe 5 → 5 Mutter-Zeilen');
-  const tief = w.koeniginStammbaumHtml(q, qm, 9, new Set());
-  assert(zaehl(tief) >= 8, 'Tiefe 9 zeigt die ganze erfasste Linie: ' + zaehl(tief));
-  assert(w.koeniginStammbaumHtml(q, qm, 2, new Set()).includes('Anzeigegrenze erreicht'), 'Hinweis, wenn die Anzeige begrenzt ist');
-});
-test('koeniginStammbaumHtml: Zyklen brechen ab (kein Endlos)', async (w) => {
-  const a = await w.DB.put('koeniginnen', { jahrgang: 2020, status: 'aktiv', historie: [], mutterId: null });
+  let qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  assertEq(w.koeniginAhnen(q, qm, 9).length, 9, 'höchstens neun Generationen');
+  const a = await w.DB.put('koeniginnen', { jahrgang: 2020, status: 'aktiv', historie: [] });
   const b = await w.DB.put('koeniginnen', { jahrgang: 2021, status: 'aktiv', historie: [], mutterId: a.id });
-  a.mutterId = b.id; await w.DB.put('koeniginnen', a); // künstlicher Zyklus
-  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
-  const html = w.koeniginStammbaumHtml(a, qm); // darf nicht hängen
-  assert(typeof html === 'string' && html.length > 0, 'terminiert trotz Zyklus');
-});
+  a.mutterId = b.id; await w.DB.put('koeniginnen', a);
+  qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  assert(w.koeniginAhnen(a, qm, 9).length <= 2, 'Zyklus: kein Endlos');
+}));
+test('Königin-Seite: Kopf, fünf Reiter, Regler zeigt sofort, was erfasst ist; Bearbeiten lässt die Seite offen', async (w) => isolierteDaten(w, async () => {
+  let vorherId = null;
+  for (let jg = 2020; jg <= 2025; jg++) vorherId = (await w.DB.put('koeniginnen', { kennung: 'S-' + jg, jahrgang: jg, linie: 'Buckfast', status: 'aktiv', historie: [], mutterId: vorherId })).id;
+  const q = await w.DB.get('koeniginnen', vorherId);
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = { t: w.Views.koenigin._teil, ti: w.Views.koenigin._tiefe };
+  try {
+    w.Views.koenigin._teil = 'kg-sb'; w.Views.koenigin._tiefe = 2;
+    await w.Views.koenigin.render(host, q.id);
+    assertEq(host.querySelector('.kg-kopf h1').textContent, 'S-2025');
+    assertEq([...host.querySelectorAll('.tabs [role="tab"]')].map((b) => b.textContent), ['Übersicht', 'Stammbaum', 'Bewertung', 'Verlauf', 'Dateien']);
+    const regler = host.querySelector('#kg-tiefe');
+    assertEq(regler.max, '5', 'der Regler reicht genau so weit, wie Daten da sind');
+    assertEq(host.querySelectorAll('.kg-gen').length, 2);
+    assert(/2 Generationen · 2 von 4 Vorfahren bekannt/.test(host.querySelector('#kg-bekannt').textContent), 'Zähler: ' + host.querySelector('#kg-bekannt').textContent);
+    regler.value = 5; regler.dispatchEvent(new w.Event('input'));
+    assertEq(host.querySelectorAll('.kg-gen').length, 5, 'neue Generationen erscheinen sofort');
+    assertEq(host.querySelectorAll('.kg-gen.kg-neu').length, 3, 'die drei neuen gleiten herein');
+    assert(/Weiter zurück ist nichts erfasst/.test(host.querySelector('#kg-ende').textContent), 'am Ende klar gesagt');
+    assert(/Woher kommen die Daten/.test(host.textContent) && /Kehrle/.test(host.textContent), 'Herkunft der Daten steht da');
+    assert(host.querySelector('.kg-ahn[data-koenigin]'), 'eigene Ahninnen sind antippbar');
+    // Bearbeiten: Formular über der Seite, danach ist die Königin weiter offen
+    dialogeSchliessen(w);
+    host.querySelector('[data-kg-edit]').click();
+    await warteBis(() => [...w.document.querySelectorAll('.modal')].some((m) => /Königin bearbeiten/.test(m.textContent)));
+    dialogeSchliessen(w);
+    assert(host.querySelector('.kg-kopf'), 'nach dem Schließen ist die Königin noch da');
+  } finally { dialogeSchliessen(w); w.Views.koenigin._teil = alt.t; w.Views.koenigin._tiefe = alt.ti; host.remove(); }
+}));
+test('Königin: aus der Liste wird die Seite geöffnet; gelöschte Königin zeigt einen Weg zurück', async (w) => isolierteDaten(w, async () => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'NAV-Q', jahrgang: 2025, status: 'aktiv', historie: [] });
+  const altHash = w.location.hash;
+  try {
+    w.Views.koeniginnen.detail(q);
+    await warteBis(() => w.location.hash === '#/koenigin/' + q.id);
+    await warteBis(() => w.document.querySelector('#main .kg-kopf'));
+    const host = w.document.createElement('div');
+    await w.Views.koenigin.render(host, 'gibt-es-nicht');
+    assert(/gibt es nicht mehr/.test(host.textContent) && /Zu den Königinnen/.test(host.textContent), 'freundlicher Hinweis mit Rückweg');
+  } finally { w.location.hash = altHash; await w.renderRoute(); }
+}));
 
 /* ---------- Universal-Import ---------- */
 test('Importer.parseDate: erkennt gängige Datumsformate → ISO', (w) => {
@@ -12194,6 +12224,9 @@ test('Mulde: Ruhe, Abtauchen, Welle, Aufsteigen – Bild für Bild wie im Vorbil
   assert(M.szene(von, nach, 0.7).icAlpha === 0 && M.szene(von, nach, 1).icAlpha === 1, 'das Symbol erscheint erst ganz am Ende');
   const weg = M.szene(von, { c: 0, sicht: false, icon: '' }, 1);
   assertEq(weg.tief, 0, 'Bereich nicht in der Leiste: Leiste wird glatt');
+  const nie = { c: 0, sicht: false, icon: '' };
+  assertEq(M.szene(nie, nie, 1).tief, 0, 'auch direkt nach dem Start (z. B. auf einer Königin): keine Mulde');
+  assert(!/ A /.test(M.umriss(375, 0, 0, M.szene(nie, nie, 1).tief)), 'gerade Oberkante');
 });
 test('Mulde: Leiste hat Grund, Kreis-Symbol und benannte Knöpfe; Beschriftung bleibt für Vorlese-Programme', (w) => {
   const bn = w.document.querySelector('#bottomnav');
