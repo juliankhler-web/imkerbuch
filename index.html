@@ -195,6 +195,31 @@ html[data-theme="dark"] .bottomnav{box-shadow:0 12px 30px -10px rgba(0,0,0,.6)}
 .bottomnav button.active{color:var(--honey-deep)}
 .bottomnav button.active .bn-pill{background:var(--honey-soft);}
 .bn-pill{display:flex;align-items:center;justify-content:center;width:52px;height:28px;border-radius:10px;transition:background .2s}
+/* Hochkant: Leiste mit Mulde wie im Pinterest-Pin (Logik: Mulde). Randlos bis an die Geräteränder, ohne
+   Beschriftung; der gewählte Bereich sitzt als weißer Kreis in der Mulde. Quer bleibt die Leiste wie bisher. */
+.bn-grund,.bn-blase-ic{display:none}
+@media(max-width:900px) and (orientation:portrait){
+  /* Abstände darüber (Imme, Hinweise, Seitenende) rechnen mit --nav-h: so sitzen sie wie vorher knapp über der Leiste */
+  :root{--nav-h:calc(56px + max(env(safe-area-inset-bottom), 8px) - env(safe-area-inset-bottom))}
+  .bottomnav{left:0;right:0;bottom:0;height:calc(66px + max(env(safe-area-inset-bottom), 8px));padding:0 8px max(env(safe-area-inset-bottom), 8px);
+    align-items:stretch;border:0;border-radius:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+  html[data-theme="dark"] .bottomnav{box-shadow:none}
+  .bn-grund{display:block;position:absolute;left:0;top:0;overflow:visible;pointer-events:none;filter:drop-shadow(0 -2px 9px rgba(60,45,10,.14))}
+  html[data-theme="dark"] .bn-grund{filter:drop-shadow(0 -2px 12px rgba(0,0,0,.55))}
+  .bn-flaeche,.bn-kreis{fill:var(--card)}
+  .bottomnav button{position:relative;z-index:1;min-height:0;padding:0;gap:0;border-radius:0;-webkit-tap-highlight-color:transparent}
+  .bottomnav .bn-text{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .bottomnav .bn-pill,.bottomnav button.active .bn-pill{width:auto;height:auto;background:none}
+  /* Erscheinen verzögert (erst wenn der Kreis weg ist), Verschwinden sofort */
+  .bottomnav button svg{width:26px;height:26px;transition:opacity .22s .2s,transform .22s .2s}
+  .bottomnav button:not(.active) svg.ci{opacity:.9}
+  .bottomnav button.active svg{opacity:0;transform:scale(.5);transition:opacity .1s,transform .1s}
+  .bn-blase-ic{display:block;position:absolute;left:0;top:0;width:26px;height:26px;z-index:2;pointer-events:none;transform-origin:13px 13px;will-change:transform,opacity}
+  .bn-blase-ic svg{width:26px;height:26px;display:block}
+  .bottomnav button.lp-ziel{background:transparent;transform:scale(1.15)}
+}
+/* „Alle Bereiche“ wächst aus dem Kreis: die üblichen Einblend-Bewegungen würden sich überlagern */
+.modal-back.kreis-auf,.modal-back.kreis-auf .modal{animation:none}
 @media(max-width:900px){
   .sidebar{display:none}
   .bottomnav{display:flex}
@@ -1258,8 +1283,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.48';
+const APP_VERSION = '2.49';
 const CHANGELOG = [
+  { version: '2.49', datum: '2026-10-11', punkte: [
+    'Neue untere Leiste im Hochformat: randlos bis an den Geräterand, der gewählte Bereich sitzt als weißer Kreis in einer Mulde. Beim Wechsel taucht der Kreis ab, die Mulde fließt als Welle zum neuen Bereich und der Kreis steigt dort wieder auf.',
+    '„Mehr“ öffnet „Alle Bereiche“ jetzt aus dem Kreis heraus – und schließt sich wieder in ihn hinein. Quer bleibt die Leiste wie bisher.',
+  ] },
   { version: '2.48', datum: '2026-10-11', punkte: [
     'Reiter jetzt überall, wo es sinnvoll ist: Völker (Stände und Archiv), Königinnen (Aktiv / Archiv), Fütterung, Behandlungen, Wanderungen, Fahrten und Zeiterfassung (je Jahr), Abnehmer & Lieferanten, Statistiken, Aufgaben (Liste / Kalender), Meldungen & Export sowie Inventar, Verbrauchsmaterial und Weitere Produkte (Bestand / Zugänge / Abgänge).',
     'Bio → Hygiene hat dieselben Reiter wie der Hygiene-Bereich – als Unterreiter unter der Bio-Leiste, statt der seitlich scrollenden Knopfreihe.',
@@ -2891,7 +2920,7 @@ const UI = {
   },
 
   /** Basis-Modal. body kann Element oder HTML-String sein. */
-  modal({ title, body, footer, wide, onClose, guardDirty = false }) {
+  modal({ title, body, footer, wide, onClose, guardDirty = false, vorSchliessen = null }) {
     const back = document.createElement('div');
     back.className = 'modal-back';
     back.innerHTML = `<div class="modal${wide ? ' wide' : ''}" role="dialog" aria-modal="true">
@@ -2912,7 +2941,11 @@ const UI = {
            verwerfen?" selbst. Wer dort abbrach, stand danach ohne Schutz da:
            der nächste Klick auf ✕ warf die Eingaben kommentarlos weg. */
         if (guardDirty) FormGuard.dirty = false;
-        back.remove(); document.removeEventListener('keydown', esc);
+        if (m._weg) return true;
+        m._weg = true;
+        document.removeEventListener('keydown', esc);
+        if (vorSchliessen) { try { await vorSchliessen(back); } catch (e) { /* Abschluss-Bewegung ist Kür */ } }
+        back.remove();
         if (onClose) onClose();
         return true;
       },
@@ -3622,6 +3655,7 @@ async function renderRoute(opt = {}) {
   const navRoute = ROUTE_PARENT[route] || route;
   $$('.nav-item', $('#sidebar')).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
   $$('button', $('#bottomnav')).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
+  if (!Mulde.mehrOffen) Mulde.folgen();
   main.innerHTML = '<div class="skel" style="height:120px"></div>';
   document.documentElement.style.setProperty('--reiter-h', '0px');
   const tbAkt = $('#tb-aktionen'); if (tbAkt) tbAkt.innerHTML = '';   // Knöpfe der vorigen Seite weg
@@ -3657,7 +3691,16 @@ function renderChrome() {
   });
   bn.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.hasAttribute('data-more')) return openMoreSheet();
+    if (b.hasAttribute('data-more')) {
+      if (!Mulde.an()) return openMoreSheet();
+      // Hochkant: erst fließt der Kreis zu „Mehr“, dann wächst er zu „Alle Bereiche“
+      if (Mulde.mehrOffen) return;
+      Mulde.mehrOffen = true;
+      const auftrag = Mulde._mehrAuftrag = {};
+      return Mulde.folgen().then(() => { if (Mulde._mehrAuftrag === auftrag) openMoreSheet({ ausKreis: true }); });
+    }
+    // Während der Kreis noch zu „Mehr“ fließt, ein anderer Bereich: „Alle Bereiche“ fällt aus
+    if (Mulde.mehrOffen && !$('.modal-back.kreis-auf')) { Mulde.mehrOffen = false; Mulde._mehrAuftrag = null; }
     navTo(b.dataset.route);
   });
   if (!$('#bini-fab')) {
@@ -3701,12 +3744,144 @@ function renderBottomNav() {
   if (!routes.includes('dashboard')) routes = ['dashboard', ...routes];
   routes = routes.slice(0, 4);
   const bnLabel = (r) => (r === 'dashboard' ? 'Start' : bereichKurz(r));
-  bn.innerHTML = routes.map((r) => `<button data-route="${U.esc(r)}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span>${U.esc(bnLabel(r))}</button>`).join('') +
-    `<button data-more><span class="bn-pill">${iconBunt('mehr')}</span>Mehr</button>`;
+  bn.innerHTML = Mulde.grundHtml() + routes.map((r) => `<button data-route="${U.esc(r)}" aria-label="${U.esc(bnLabel(r))}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span><span class="bn-text">${U.esc(bnLabel(r))}</span></button>`).join('') +
+    `<button data-more aria-label="Mehr – alle Bereiche"><span class="bn-pill">${iconBunt('mehr')}</span><span class="bn-text">Mehr</span></button>` +
+    '<span class="bn-blase-ic" aria-hidden="true"></span>';
   const { route } = currentRoute();
   const navRoute = ROUTE_PARENT[route] || route;
   $$('button', bn).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
+  Mulde.folgen({ sofort: true });
 }
+
+/* =====================================================================
+   UNTERE LEISTE HOCHKANT – „Mulde“ (Julian-Wunsch, Vorbild: Pinterest-Pin
+   „Tab bar animation“). Randlos bis an die Geräteränder, ohne Beschriftung.
+   Der gewählte Bereich sitzt als weißer Kreis halb über der Leiste in einer
+   Mulde, ringsum ein gleichmäßiger Spalt. Beim Wechsel (aus dem Pin Bild für
+   Bild abgelesen): Kreis taucht ab → die Mulde wird eine breite, flache Welle
+   und fließt zum neuen Bereich → wird dort wieder tief, der Kreis steigt wie
+   ein Tropfen heraus (flüssiger Hals über einen Goo-Filter), schwingt kurz
+   über, erst dann erscheint das Symbol. Quer bleibt die bisherige Leiste.
+   ===================================================================== */
+const Mulde = {
+  mq: matchMedia('(max-width:900px) and (orientation:portrait)'),
+  R: 24, SPALT: 6, Y: 4, DAUER: 640,
+  zustand: null,          // { c, sicht, icon } – wo die Mulde gerade steht
+  mehrOffen: false,
+  _lauf: 0,
+  grundHtml() {
+    return `<svg class="bn-grund" aria-hidden="true"><defs><filter id="bn-goo" x="-60" y="-80" width="3000" height="400" filterUnits="userSpaceOnUse">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0" result="b"/><feColorMatrix in="b" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -11"/></filter></defs>
+      <g class="bn-form"><path class="bn-flaeche"/><circle class="bn-kreis" r="0"/></g></svg>`;
+  },
+  an() { return Mulde.mq.matches && !!$('#bottomnav .bn-grund'); },
+  weich: (x) => x * x * (3 - 2 * x),
+  inOut: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
+  zurueck: (x) => { const k = 1.55; return 1 + (k + 1) * Math.pow(x - 1, 3) + k * Math.pow(x - 1, 2); },   // easeOutBack: kurz über das Ziel
+  klemm: (x) => Math.max(0, Math.min(1, x)),
+  /** Umriss der Leiste: gerade Oberkante mit Mulde. v = 0 Ruhe (dicht um den Kreis), 1 = flache Welle; tief 0 = keine Mulde. */
+  umriss(W, c, v, tief) {
+    const r2 = Mulde.R + Mulde.SPALT;
+    const R2 = r2 + (66 - r2) * v;
+    const dep = ((Mulde.Y + r2) + (21 - (Mulde.Y + r2)) * v) * tief;
+    const f = 15 + 9 * v;
+    let kerbe = '';
+    if (dep > 0.6) {
+      const by = dep - R2, dy = f - by;
+      const xf = Math.sqrt(Math.max(0, (R2 + f) ** 2 - dy ** 2));
+      const k = R2 / (R2 + f);
+      const px = xf * k, py = by + dy * k;
+      const gross = py < by ? 1 : 0;
+      const z = (n) => n.toFixed(2);
+      kerbe = `L ${z(c - xf)} 0 A ${z(f)} ${z(f)} 0 0 1 ${z(c - px)} ${z(py)} A ${z(R2)} ${z(R2)} 0 ${gross} 0 ${z(c + px)} ${z(py)} A ${z(f)} ${z(f)} 0 0 1 ${z(c + xf)} 0`;
+    }
+    return `M -120 0 ${kerbe} L ${W + 120} 0 L ${W + 120} 260 L -120 260 Z`;
+  },
+  /** Bild zum Zeitpunkt p (0…1) zwischen zwei Zuständen – rein rechnerisch, damit es sich Bild für Bild prüfen lässt. */
+  szene(von, nach, p) {
+    const M = Mulde, k = M.klemm;
+    const tiefLage = 44;                                   // Kreis ganz in der Leiste: unsichtbar (weiß auf weiß)
+    const reise = von.sicht && nach.sicht ? M.inOut(k((p - 0.1) / 0.55)) : 1;
+    const c = !von.sicht ? nach.c : !nach.sicht ? von.c : von.c + (nach.c - von.c) * reise;
+    // Welle: wird flach und breit, fließt, wird am Ziel wieder tief
+    const v = Math.min(M.weich(k(p / 0.24)), 1 - M.weich(k((p - 0.6) / 0.3)));
+    const tief = von.sicht && nach.sicht ? 1 : von.sicht ? 1 - M.weich(k((p - 0.5) / 0.4)) : M.weich(k(p / 0.35));
+    // Kreis: abtauchen, unsichtbar mitreisen, am Ziel aufsteigen (mit Überschwingen)
+    let y, s;
+    if (p < 0.55 || !nach.sicht) {
+      // schnell weg wie im Pin (dort nach einem Bild): sonst schneiden sich Kreis und schmaler werdende Mulde zu „Hörnern“
+      const a = von.sicht ? M.weich(k(p / 0.13)) : 1;
+      y = M.Y + (tiefLage - M.Y) * a; s = 1 - 0.55 * a;
+    } else {
+      const e = M.zurueck(k((p - 0.55) / 0.45));
+      y = tiefLage + (M.Y - tiefLage) * e; s = 0.5 + 0.5 * Math.min(1, e);
+    }
+    const icon = p < 0.5 ? von.icon : nach.icon;
+    const icAlpha = p < 0.5 ? (von.sicht ? 1 - k(p / 0.08) : 0) : (nach.sicht ? M.weich(k((p - 0.82) / 0.18)) : 0);
+    const icSkala = p < 0.5 ? 1 : 0.6 + 0.4 * M.weich(k((p - 0.82) / 0.18));
+    const goo = p > 0 && p < 1 ? 5 * Math.sin(Math.PI * p) : 0;
+    return { c, v, tief, y, s, icon, icAlpha, icSkala, goo };
+  },
+  zeichnen(b) {
+    const bn = $('#bottomnav'), svg = bn && $('.bn-grund', bn); if (!svg) return;
+    const W = bn.clientWidth, H = bn.clientHeight;
+    svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    $('.bn-flaeche', svg).setAttribute('d', Mulde.umriss(W, b.c, b.v, b.tief));
+    const kr = $('.bn-kreis', svg);
+    kr.setAttribute('cx', b.c.toFixed(2)); kr.setAttribute('cy', b.y.toFixed(2)); kr.setAttribute('r', (Mulde.R * b.s).toFixed(2));
+    const g = $('.bn-form', svg), blur = $('#bn-goo feGaussianBlur', svg);
+    if (b.goo > 0.05) { blur.setAttribute('stdDeviation', b.goo.toFixed(2)); g.setAttribute('filter', 'url(#bn-goo)'); } else g.removeAttribute('filter');
+    const ic = $('.bn-blase-ic', bn);
+    if (ic.dataset.icon !== (b.icon || '')) { ic.innerHTML = b.icon || ''; ic.dataset.icon = b.icon || ''; }
+    ic.style.transform = `translate(${(b.c - 13).toFixed(2)}px, ${(b.y - 13).toFixed(2)}px) scale(${(b.icSkala * b.s).toFixed(3)})`;
+    ic.style.opacity = b.icAlpha.toFixed(3);
+  },
+  /** Ziel aus dem aktiven Knopf (oder „Mehr“, solange „Alle Bereiche“ offen ist). */
+  ziel() {
+    const bn = $('#bottomnav');
+    const knopf = Mulde.mehrOffen ? $('[data-more]', bn) : $('button.active', bn);
+    if (!knopf) return { c: Mulde.zustand ? Mulde.zustand.c : 0, sicht: false, icon: '' };
+    const rb = bn.getBoundingClientRect(), rk = knopf.getBoundingClientRect();
+    return { c: rk.left + rk.width / 2 - rb.left, sicht: true, icon: $('svg', knopf).outerHTML };
+  },
+  folgen({ sofort = false } = {}) { return Mulde.gehe(Mulde.ziel(), { sofort }); },
+  gehe(nach, { sofort = false } = {}) {
+    cancelAnimationFrame(Mulde._lauf); clearTimeout(Mulde._notbremse);
+    const von = Mulde.zustand;
+    Mulde.zustand = nach;
+    if (!Mulde.an()) return Promise.resolve();
+    const ruhig = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const gleich = von && Math.abs(von.c - nach.c) < 0.5 && von.sicht === nach.sicht;
+    if (sofort || ruhig || !von || gleich || (!von.sicht && !nach.sicht)) { Mulde.zeichnen(Mulde.szene(nach, nach, 1)); return Promise.resolve(); }
+    return new Promise((fertig) => {
+      const t0 = performance.now();
+      let erledigt = false;
+      const ende = () => {
+        if (erledigt) return; erledigt = true;
+        cancelAnimationFrame(Mulde._lauf); clearTimeout(Mulde._notbremse);
+        if (Mulde.zustand === nach) Mulde.zeichnen(Mulde.szene(von, nach, 1));
+        fertig();
+      };
+      const schritt = (jetzt) => {
+        if (erledigt || Mulde.zustand !== nach) return;          // eine neuere Bewegung hat übernommen
+        const p = Math.min(1, (jetzt - t0) / Mulde.DAUER);
+        Mulde.zeichnen(Mulde.szene(von, nach, p));
+        if (p < 1) Mulde._lauf = requestAnimationFrame(schritt); else ende();
+      };
+      Mulde._lauf = requestAnimationFrame(schritt);
+      /* Notbremse: drosselt das Gerät die Bildwiederholung (Stromsparen, Hintergrund), steht trotzdem alles am Ziel */
+      clearTimeout(Mulde._notbremse);
+      Mulde._notbremse = setTimeout(ende, Mulde.DAUER + 250);
+    });
+  },
+  /** Mittelpunkt des Kreises auf dem Bildschirm – dort wächst „Alle Bereiche“ heraus. */
+  kreisMitte() {
+    const bn = $('#bottomnav'), rb = bn.getBoundingClientRect();
+    return { x: rb.left + (Mulde.zustand ? Mulde.zustand.c : rb.width - 40), y: rb.top + Mulde.Y };
+  },
+};
+Mulde.mq.addEventListener('change', () => Mulde.folgen({ sofort: true }));
+window.addEventListener('resize', () => requestAnimationFrame(() => Mulde.folgen({ sofort: true })));
 
 /** Gedrückt halten (~0,4 s) und ziehen: sortiert die Kinder von `host` um. Funktioniert mit Finger und Maus.
     `sel` = verschiebbare Elemente, `fertig(elemente)` bekommt die neue Reihenfolge. Das anschließende
@@ -3773,10 +3948,18 @@ function menuReihenfolge() {
   return [...gesp.map((r) => alle.find((n) => n.route === r)), ...alle.filter((n) => !gesp.includes(n.route))];
 }
 
-function openMoreSheet() {
+function openMoreSheet({ ausKreis = false } = {}) {
   const items = menuReihenfolge();
+  const kreis = (r) => { const { x, y } = Mulde.kreisMitte(); return `circle(${r} at ${x}px ${y}px)`; };
   const m = UI.modal({
     title: 'Alle Bereiche',
+    /* Beim Schließen schrumpft das Fenster zurück in den Kreis, dann fließt die Mulde zum aktuellen Bereich */
+    vorSchliessen: ausKreis ? (back) => new Promise((weiter) => {
+      back.style.transition = 'clip-path .34s cubic-bezier(.55,0,.75,.2)';
+      back.style.clipPath = kreis(Mulde.R + 'px');
+      setTimeout(weiter, 340);
+    }) : null,
+    onClose: ausKreis ? () => { Mulde.mehrOffen = false; Mulde.folgen(); } : null,
     body: `<div class="sheet-grid">${items.map((n) => `<button data-route="${U.esc(n.route)}">${iconKachel(n.ic, 'sg-ic')}${U.esc(bereichKurz(n.route))}</button>`).join('')}</div>
       <div class="sheet-hint">Zum Verschieben eine Kachel gedrückt halten und ziehen – auf die untere Leiste gezogen, ersetzt sie dort einen Eintrag${(S.get('menuOrder') || []).length ? ' · <a data-reset>Reihenfolge zurücksetzen</a>' : ''}</div>`,
   });
@@ -3798,8 +3981,16 @@ function openMoreSheet() {
       UI.toast(`„${bereichKurz(neu)}“ ist jetzt in der unteren Leiste`);
     },
   });
+  if (ausKreis) {
+    // Der Kreis wächst über den ganzen Bildschirm und wird zu „Alle Bereiche“
+    m.el.classList.add('kreis-auf');
+    m.el.style.clipPath = kreis(Mulde.R + 'px');
+    void m.el.offsetWidth;
+    m.el.style.transition = 'clip-path .46s cubic-bezier(.3,.7,.2,1)';
+    m.el.style.clipPath = kreis('150vmax');
+  }
   const rs = $('[data-reset]', m.el);
-  if (rs) rs.onclick = async () => { await S.set('menuOrder', []); m.close(true); openMoreSheet(); };
+  if (rs) rs.onclick = async () => { await S.set('menuOrder', []); m.close(true); openMoreSheet({ ausKreis }); };
   $('.sheet-grid', m.el).addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     m.close(true); navTo(b.dataset.route);
@@ -23452,7 +23643,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
