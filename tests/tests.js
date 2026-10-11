@@ -5574,10 +5574,12 @@ test('Tagesbiene: wechselt beim Stundenwechsel und stört den Widgets-Knopf nich
     assert(img, 'Imme hat im Dashboard-Kopf seinen Platz (ersetzt die Tagesbiene)');
     // Kopf-Aufbau: Biene neben dem Text, Widgets-Knopf im eigenen Bereich
     assert(img.closest('.ph-haupt'), 'die Biene sitzt im Textbereich, nicht bei den Knöpfen');
-    const knopf = host.querySelector('#dash-cfg');
-    assert(knopf, 'der Widgets-Knopf ist da');
-    assert(!knopf.closest('.ph-haupt'), 'der Knopf bleibt außerhalb – so kommt die Biene ihm nicht in den Weg');
-    assertEq(knopf.innerText.trim(), 'Widgets', 'ohne Symbol');
+    // Widgets-Knopf steht seit v2.48 oben neben Hell/Dunkel – die eigene Zeile unter der Begrüßung entfällt
+    assert(!host.querySelector('#dash-cfg'), 'nicht mehr im Seitenkopf');
+    const knopf = w.document.querySelector('#tb-aktionen #dash-cfg');
+    assert(knopf, 'der Widgets-Knopf steht in der Kopfzeile');
+    assertEq(knopf.getAttribute('aria-label'), 'Widgets anpassen', 'für Vorlese-Programme benannt');
+    assert(knopf.parentElement.nextElementSibling.id === 'btn-theme', 'direkt neben Hell/Dunkel');
     assert(!host.querySelector('.ph-text h1').innerText.includes('🐝'), 'kein Bienen-Emoji mehr im Titel – die echte Biene steht daneben');
     // Tagesbiene bleibt als Baustein erhalten (eigener Test-Container): der Prüfer muss das Bild bei Stundenwechsel tauschen
     const jetzt = w.tagesbiene().stunde;
@@ -10087,7 +10089,8 @@ test('Hygiene-Reiter: alle Bereiche, Kurzwahlen und Checkliste öffnen ohne Fehl
     assert(box.querySelector('[data-hk-check]'), 'Knopf „Checkliste abhaken“');
     assert(box.querySelector('[data-hk-neu]'), 'Kachel „Neue Kurzwahl“');
     assert(box.querySelector('[data-ohne]'), 'Knopf „kein Befund“');
-    assert(box.querySelectorAll('[data-sprung]').length === 10, 'Sprungleiste');
+    // Im Bio-Bereich dieselben zehn Teile als Unterreiter (v2.48) statt einer Sprungleiste
+    assert(box.querySelectorAll('.unter-reiter [role="tab"]').length === 10, 'zehn Unterreiter');
     w.Views.bio.reinigungCheckliste(); await new Promise((r) => setTimeout(r, 500));
     assert(w.document.querySelector('.modal-back'), 'Checkliste (oder der Hinweis auf den fehlenden Plan) öffnet');
   } finally { dialogeSchliessen(w); box.remove(); }
@@ -11867,21 +11870,24 @@ test('Hygiene: echte Reiter, angeheftet – nur der gewählte Teil ist sichtbar,
     w.Views.hygiene._teil = 'bio-plan';
     await w.Views.hygiene.render(host);
     const leiste = host.querySelector('.hyg-reiter');
-    assert(leiste && leiste.querySelectorAll('[data-teil]').length === 10, 'zehn Reiter');
+    assert(leiste && leiste.querySelectorAll('[data-id]').length === 10, 'zehn Reiter');
     assertEq(getComputedStyle(leiste).position, 'sticky', 'Leiste klebt beim Scrollen');
     const sichtbar = () => ['bio-plan', 'bio-nachweis', 'bio-verarbeitung', 'bio-abfuellung', 'bio-lager', 'bio-schaedlinge', 'bio-waage', 'bio-massnahmen', 'hyg-grenzwerte', 'hyg-dateien']
       .filter((id) => getComputedStyle(host.querySelector('#' + id)).display !== 'none');
     assertEq(sichtbar(), ['bio-plan'], 'nur der Hygieneplan');
     assertEq(leiste.querySelector('.active').textContent, 'Hygieneplan');
-    [...leiste.querySelectorAll('[data-teil]')].find((b) => b.textContent === 'Reinigungen').click();
+    [...leiste.querySelectorAll('[data-id]')].find((b) => b.textContent === 'Reinigungen').click();
     assertEq(sichtbar(), ['bio-nachweis'], 'nach dem Tippen nur die Reinigungen');
     assertEq(leiste.querySelector('[aria-selected="true"]').textContent, 'Reinigungen');
     host.innerHTML = ''; await w.Views.hygiene.render(host);
     assertEq(sichtbar(), ['bio-nachweis'], 'Wahl bleibt nach neuem Zeichnen (z. B. nach dem Speichern)');
-    // im Bio-Bereich bleibt es (vorerst) bei der langen Seite mit Sprung-Knöpfen
+    // im Bio-Bereich dieselben Teile als Unterreiter: klebt nicht (die Bio-Leiste klebt schon), Wahl gilt gemeinsam
     host.innerHTML = ''; await w.Views.bio.tabHygiene(host, {});
-    assert(host.querySelector('.hyg-nav') && !host.querySelector('.hyg-reiter'), 'Bio: Sprung-Knöpfe');
-    assert(!host.querySelector('.hyg-aus'), 'Bio: alles sichtbar');
+    const unter = host.querySelector('.hyg-reiter');
+    assert(unter && unter.classList.contains('unter-reiter') && !unter.classList.contains('kleb-reiter'), 'Bio: Unterreiter');
+    assert(getComputedStyle(unter).position !== 'sticky', 'Unterreiter klebt nicht');
+    assertEq(sichtbar(), ['bio-nachweis'], 'Bio zeigt denselben gewählten Teil');
+    assert(!host.querySelector('.hyg-nav'), 'keine seitlich scrollende Sprungleiste mehr');
   } finally { w.Views.hygiene._teil = alt; host.remove(); dialogeSchliessen(w); }
 });
 
@@ -11894,9 +11900,9 @@ function reiterAufBreite(w, labels, breite, { vielPlatz = false } = {}) {
   w.document.body.appendChild(host);
   const el = w.UI.tabs(labels.map((l, i) => ({ id: 'r' + i, label: l })), 'r0', () => {}, { kleben: true });
   host.appendChild(el);
-  const alt = w.Reiter.vielPlatz;
-  w.Reiter.vielPlatz = () => vielPlatz;
-  try { w.Reiter.ordnen(el, { neu: true }); } finally { w.Reiter.vielPlatz = alt; }
+  const alt = w.Reiter.zeileMehrErlaubt;
+  w.Reiter.zeileMehrErlaubt = () => vielPlatz;
+  try { w.Reiter.ordnen(el, { neu: true }); } finally { w.Reiter.zeileMehrErlaubt = alt; }
   const zeilen = () => [...el.querySelectorAll('.reiter-zeile')].map((z) => [...z.querySelectorAll('button')]);
   return { host, el, zeilen };
 }
@@ -11967,10 +11973,13 @@ test('Reiter: neu verteilt, wenn sich die Breite ändert (Drehen, Fenster)', (w)
   try {
     assertEq(zeilen().map((z) => z.length), [3, 3]);
     host.style.width = '1000px';
-    w.Reiter.ordnen(el);
-    assertEq(zeilen().map((z) => z.length), [6], 'breiter: eine Reihe');
-    host.style.width = '339px';
-    w.Reiter.ordnen(el);
+    const alt = w.Reiter.zeileMehrErlaubt; w.Reiter.zeileMehrErlaubt = () => false;
+    try {
+      w.Reiter.ordnen(el);
+      assertEq(zeilen().map((z) => z.length), [6], 'breiter: eine Reihe');
+      host.style.width = '339px';
+      w.Reiter.ordnen(el);
+    } finally { w.Reiter.zeileMehrErlaubt = alt; }
     assertEq(zeilen().map((z) => z.length), [3, 3], 'wieder schmal: zwei Reihen');
     assert(!el.querySelector(':scope > button'), 'kein Reiter bleibt außerhalb der Reihen');
     assert(w.Reiter._beobachter, 'Breitenänderungen werden beobachtet');
@@ -12040,6 +12049,131 @@ test('Reiter: wer weiter unten umschaltet, landet am Anfang des neuen Reiters �
     w.Views.honig._tab = altTab; w.location.hash = altHash; await w.renderRoute();
   }
 });
+/* ---------- Reiter in allen Bereichen (v2.48) ---------- */
+const reiterVon = (host) => [...host.querySelectorAll('.tabs [role="tab"]')].map((b) => b.textContent);
+const aktiverReiter = (host) => host.querySelector('.tabs [aria-selected="true"]')?.textContent;
+test('Völker: Stände als angeheftete Reiter, natürlich sortiert, Archiv am Ende', async (w) => isolierteDaten(w, async () => {
+  const s10 = await w.DB.put('staende', { name: 'Stand 10' });
+  const s2 = await w.DB.put('staende', { name: 'Stand 2' });
+  await w.DB.put('voelker', { name: 'R-Aktiv', standId: s2.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'R-Weg', standId: s10.id, status: 'aufgeloest', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = { st: w.Views.voelker._stand, a: w.Views.voelker._alte };
+  try {
+    w.Views.voelker._stand = ''; w.Views.voelker._alte = false;
+    await w.Views.voelker.render(host);
+    assertEq(reiterVon(host), ['Alle aktiven', 'Stand 2', 'Stand 10', 'Archiv'], 'Stand 2 vor Stand 10, Archiv zuletzt');
+    assert(host.querySelector('.kleb-reiter'), 'angeheftet');
+    assert(!host.querySelector('.chip-row [data-f]'), 'keine alten Knöpfe mehr');
+    w.Views.voelker._alte = true; host.innerHTML = ''; await w.Views.voelker.render(host);
+    assertEq(aktiverReiter(host), 'Archiv');
+    assert(/R-Weg/.test(host.textContent) && !/R-Aktiv/.test(host.textContent), 'Archiv zeigt nur Aufgelöste');
+    for (let i = 0; i < 8; i++) await w.DB.put('staende', { name: 'Viel ' + i });
+    host.innerHTML = ''; await w.Views.voelker.render(host);
+    assert(!host.querySelector('.kleb-reiter') && host.querySelector('#v-stand'), 'ab neun Ständen die Auswahlliste statt einer Reiter-Wand');
+  } finally { w.Views.voelker._stand = alt.st; w.Views.voelker._alte = alt.a; host.remove(); }
+}));
+test('Königinnen: Aktiv | Archiv nur, wenn es Archiv-Königinnen gibt', async (w) => isolierteDaten(w, async () => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = w.Views.koeniginnen._archiv;
+  try {
+    await w.DB.put('koeniginnen', { kennung: 'Q-AKTIV', jahrgang: 2026, status: 'aktiv', historie: [] });
+    w.Views.koeniginnen._archiv = false;
+    await w.Views.koeniginnen.render(host);
+    assert(!host.querySelector('.kleb-reiter'), 'ohne Archiv keine Reiter');
+    await w.DB.put('koeniginnen', { kennung: 'Q-WEG', jahrgang: 2024, status: 'verloren', historie: [] });
+    host.innerHTML = ''; await w.Views.koeniginnen.render(host);
+    assertEq(reiterVon(host), ['Aktiv', 'Archiv']);
+    assert(/Q-AKTIV/.test(host.textContent) && !/Q-WEG/.test(host.textContent), 'Aktiv zeigt nur aktive');
+    w.Views.koeniginnen._archiv = true; host.innerHTML = ''; await w.Views.koeniginnen.render(host);
+    assert(/Q-WEG/.test(host.textContent) && !/Q-AKTIV/.test(host.textContent), 'Archiv zeigt verlorene und umgeweiselte');
+  } finally { w.Views.koeniginnen._archiv = alt; host.remove(); }
+}));
+test('Jahre als Reiter: Fütterung, Behandlungen, Wanderungen, Fahrten – nur ab zwei Jahren, neuestes zuerst', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'J-A' }), st2 = await w.DB.put('staende', { name: 'J-B' });
+  const v = await w.DB.put('voelker', { name: 'J-Volk', standId: st.id, status: 'aktiv', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const faelle = [
+    ['Fütterung', 'fuetterungen', (d) => ({ volkId: v.id, datum: d, mengeKg: 2, futterart: 'Sirup' }), w.Views.fuetterung],
+    ['Behandlungen', 'behandlungen', (d) => ({ zielTyp: 'volk', zielId: v.id, datum: d, mittel: 'J-Mittel ' + d.slice(0, 4), menge: 1 }), w.Views.behandlungen],
+    ['Wanderungen', 'wanderungen', (d) => ({ datum: d, vonStandId: st.id, nachStandId: st2.id, volkIds: [v.id], grund: 'J-Grund ' + d.slice(0, 4) }), w.Views.wanderungen],
+    ['Fahrten', 'fahrten', (d) => ({ datum: d, km: 5, zweck: 'J-Zweck ' + d.slice(0, 4), standId: st.id }), w.Views.fahrten],
+  ];
+  try {
+    for (const [name, store, satz, view] of faelle) {
+      const altJahr = view._jahr; view._jahr = undefined;
+      await w.DB.put(store, satz('2025-05-01'));
+      host.innerHTML = ''; await view.render(host);
+      assert(!host.querySelector('.kleb-reiter'), name + ': ein Jahr – keine Reiter');
+      await w.DB.put(store, satz('2026-05-01'));
+      host.innerHTML = ''; await view.render(host);
+      assertEq(reiterVon(host), ['2026', '2025'], name + ': Jahre als Reiter');
+      assertEq(aktiverReiter(host), '2026', name + ': neuestes Jahr gewählt');
+      if (name !== 'Fütterung') assert(!/2025/.test(host.querySelector('.card .rows')?.textContent || ''), name + ': Liste zeigt nur 2026');
+      view._jahr = altJahr;
+    }
+  } finally { host.remove(); }
+}));
+test('Abnehmer & Lieferanten: eigene Seite angeheftet, im Kassenbuch Unterreiter; Kontakt öffnet nach der Suche nur einmal', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('kontakte', { typ: 'kunde', name: 'Reiter-Kundin' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = { f: w.Views.kontakte._filter, s: w.Views.kontakte._suche };
+  try {
+    w.Views.kontakte._filter = ''; w.Views.kontakte._suche = '';
+    await w.Views.kontakte.render(host);
+    assertEq(reiterVon(host), ['Alle (1)', 'Kunden', 'Lieferanten', 'Bio-Partner']);
+    assert(host.querySelector('.kleb-reiter'), 'eigene Seite: angeheftet');
+    host.innerHTML = ''; await w.Views.kontakte.liste(host, {});
+    assert(host.querySelector('.unter-reiter') && !host.querySelector('.kleb-reiter'), 'im Kassenbuch: Unterreiter, klebt nicht');
+    // Suche zeichnet die Liste neu – vorher hing dann ein zweiter Klick-Fänger dran
+    await w.Views.kontakte.liste(host, {});
+    dialogeSchliessen(w);
+    host.querySelector('[data-kontakt]').click();
+    await warteBis(() => w.document.querySelector('.modal-back'));
+    await new Promise((r) => setTimeout(r, 300));
+    assertEq(w.document.querySelectorAll('.modal-back').length, 1, 'genau ein Fenster');
+  } finally { dialogeSchliessen(w); w.Views.kontakte._filter = alt.f; w.Views.kontakte._suche = alt.s; host.remove(); }
+}));
+test('Statistiken, Aufgaben, Meldungen, Inventar: Reiter mit kurzen Namen, nur ein Teil sichtbar', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const sichtbar = (ids) => ids.filter((id) => getComputedStyle(host.querySelector('#' + id)).display !== 'none');
+  const alt = { r: w.Views.reporting._typ, a: w.Views.aufgaben._teil, m: w.Views.meldungen._teil, i: w.Views.inventar._teil };
+  try {
+    w.Views.reporting._typ = 'voelker';
+    await w.Views.reporting.render(host);
+    assertEq(reiterVon(host), ['Völker', 'Honig', 'Futter', 'Behandlungen', 'Finanzen'], 'Statistiken');
+    host.innerHTML = ''; w.Views.aufgaben._teil = undefined;
+    await w.Views.aufgaben.render(host);
+    assertEq(reiterVon(host), ['Aufgaben', 'Kalender'], 'Aufgaben');
+    assertEq(sichtbar(['auf-liste', 'cal-card']), ['auf-liste'], 'erst die Liste');
+    host.querySelector('.tabs [data-id="cal-card"]').click();
+    assertEq(sichtbar(['auf-liste', 'cal-card']), ['cal-card'], 'dann der Kalender');
+    host.innerHTML = ''; w.Views.meldungen._teil = undefined;
+    await w.Views.meldungen.render(host);
+    assertEq(reiterVon(host), ['Meldungen', 'Export', 'Import', 'PDF auslesen'], 'Meldungen');
+    assertEq(sichtbar(['me-meldung', 'me-export', 'me-import', 'me-pdf']), ['me-meldung']);
+    host.innerHTML = ''; w.Views.inventar._teil = undefined;
+    await w.Views.inventar.render(host);
+    assertEq(reiterVon(host).slice(0, 3), ['Bestand', 'Zugänge', 'Abgänge'], 'Inventar');
+    assertEq(sichtbar(['inv-bestand', 'inv-zugaenge', 'inv-abgaenge']), ['inv-bestand']);
+  } finally {
+    w.Views.reporting._typ = alt.r; w.Views.aufgaben._teil = alt.a; w.Views.meldungen._teil = alt.m; w.Views.inventar._teil = alt.i;
+    host.remove();
+  }
+});
+test('Imme findet Knöpfe auch in einem gerade versteckten Reiter und öffnet ihn', async (w) => {
+  const altHash = w.location.hash, altTeil = w.Views.meldungen._teil;
+  try {
+    w.Views.meldungen._teil = 'me-meldung';
+    w.location.hash = '#/meldungen'; await w.renderRoute();
+    // der hashchange zeichnet ein zweites Mal – auf die fertige Seite warten
+    await warteBis(() => w.document.querySelector('#main [data-teile] [data-id="me-export"]'));
+    const el = w.Assistent.finde('Excel');
+    assert(el && el.closest('#me-export'), 'Excel-Knopf im Export gefunden');
+    assertEq(w.document.querySelector('#main .tabs [aria-selected="true"]').textContent, 'Export', 'Reiter Export ist jetzt offen');
+    assert(el.offsetParent !== null, 'und der Knopf ist sichtbar');
+  } finally { w.Views.meldungen._teil = altTeil; w.location.hash = altHash; await w.renderRoute(); }
+});
 test('Hygiene: „Eigenes hochladen“ öffnet den Reiter Dateien (sprang seit den Reitern ins Leere)', async (w) => {
   dialogeSchliessen(w);
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
@@ -12064,6 +12198,7 @@ test('Imme: Wege zu den umbenannten Reitern stimmen (Bio „Förderung“, Kasse
   try {
     w.Views.bio._tab = 'betrieb';
     w.location.hash = '#/bio'; await w.renderRoute();
+    await warteBis(() => w.document.querySelector('#main .kleb-reiter [data-id="foerderung"]'));
     const ziel = w.Assistent.finde('Förderung');
     assert(ziel && ziel.getAttribute('role') === 'tab', 'Imme zeigt auf den Reiter');
   } finally { w.Views.bio._tab = altTab; w.location.hash = altHash; await w.renderRoute(); }
