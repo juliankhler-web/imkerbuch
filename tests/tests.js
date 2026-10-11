@@ -3230,7 +3230,8 @@ test('Bio: sechs Bereiche im Reiter – Zertifikate hängen am Partner', async (
   try {
     await w.Views.bio.render(host);
     const reiter = [...host.querySelectorAll('#tabbar button')].map((b) => b.textContent.trim());
-    assertEq(reiter, ['Betriebsbeschreibung', 'Standorte', 'Hygiene', 'Vorsorgekonzept', 'Abnehmer & Lieferanten', 'Förderverfahren'],
+    // Kurze Namen (v2.47): so passen die sechs Reiter auf dem Handy in zwei Zeilen
+    assertEq(reiter, ['Betrieb', 'Standorte', 'Hygiene', 'Vorsorge', 'Partner', 'Förderung'],
       'kein eigener Zertifikate-Reiter mehr – Zertifikate gehören zum jeweiligen Partner');
     assert(!reiter.some((t) => /^\d/.test(t)), 'keine Ziffern vor den Namen');
     assert(/Öko-Kontrolle/.test(host.textContent), 'Überschrift nennt die Kontrolle');
@@ -11882,4 +11883,188 @@ test('Hygiene: echte Reiter, angeheftet – nur der gewählte Teil ist sichtbar,
     assert(host.querySelector('.hyg-nav') && !host.querySelector('.hyg-reiter'), 'Bio: Sprung-Knöpfe');
     assert(!host.querySelector('.hyg-aus'), 'Bio: alles sichtbar');
   } finally { w.Views.hygiene._teil = alt; host.remove(); dialogeSchliessen(w); }
+});
+
+/* ---------- Angeheftete Reiter in allen Bereichen (v2.47) ---------- */
+/* Eine angeheftete Leiste in fester Breite bauen und ordnen lassen.
+   vielPlatz=false: wie auf dem Handy so wenige Zeilen wie möglich. */
+function reiterAufBreite(w, labels, breite, { vielPlatz = false } = {}) {
+  const host = w.document.createElement('div');
+  host.style.cssText = `width:${breite}px;position:absolute;left:-9999px;top:0`;
+  w.document.body.appendChild(host);
+  const el = w.UI.tabs(labels.map((l, i) => ({ id: 'r' + i, label: l })), 'r0', () => {}, { kleben: true });
+  host.appendChild(el);
+  const alt = w.Reiter.vielPlatz;
+  w.Reiter.vielPlatz = () => vielPlatz;
+  try { w.Reiter.ordnen(el, { neu: true }); } finally { w.Reiter.vielPlatz = alt; }
+  const zeilen = () => [...el.querySelectorAll('.reiter-zeile')].map((z) => [...z.querySelectorAll('button')]);
+  return { host, el, zeilen };
+}
+const reiterBreiten = (knoepfe) => knoepfe.map((k) => k.getBoundingClientRect().width);
+const reiterGleich = (knoepfe) => { const b = reiterBreiten(knoepfe); return Math.max(...b) - Math.min(...b) <= 4.5; };
+/** Erster Reiter beginnt am linken, letzter endet am rechten Innenrand der Leiste. */
+function reiterBuendig(w, el, knoepfe) {
+  const cs = w.getComputedStyle(el), r = el.getBoundingClientRect();
+  const links = r.left + parseFloat(cs.paddingLeft), rechts = r.right - parseFloat(cs.paddingRight);
+  return Math.abs(knoepfe[0].getBoundingClientRect().left - links) < 1.5
+    && Math.abs(knoepfe[knoepfe.length - 1].getBoundingClientRect().right - rechts) < 1.5;
+}
+const HONIG_REITER = ['Ernte', 'Sorte', 'Charge', 'Abfüllung', 'Verkauf', 'Bestand'];
+const VOLK_REITER = ['Stockkarte', 'Fütterung', 'Varroa', 'Gewicht', 'Notizen & Anhänge'];
+const HYGIENE_REITER = ['Hygieneplan', 'Reinigungen', 'Ernte', 'Abfüllung', 'Honiglager', 'Schädlinge', 'Waage', 'Maßnahmen', 'Grenzwerte', 'Dateien'];
+
+test('Reiter: Handy – sechs Reiter in zwei gleich breiten Reihen, jede bündig bis zum Rand', (w) => {
+  const { host, el, zeilen } = reiterAufBreite(w, HONIG_REITER, 339);
+  try {
+    assertEq(zeilen().map((z) => z.length), [3, 3], 'zwei Reihen zu je drei');
+    for (const z of zeilen()) {
+      assert(reiterGleich(z), 'gleich breit: ' + reiterBreiten(z).map(Math.round).join('/'));
+      assert(reiterBuendig(w, el, z), 'Reihe füllt die Breite');
+    }
+    assertEq(w.getComputedStyle(el).position, 'sticky', 'angeheftet');
+    assertEq(el.getAttribute('role'), 'tablist');
+    assertEq(el.querySelector('[aria-selected="true"]').textContent, 'Ernte', 'gewählter Reiter für Vorlese-Programme');
+    assert(el.scrollWidth <= el.clientWidth + 1, 'nichts ragt seitlich heraus');
+  } finally { host.remove(); }
+});
+test('Reiter: fünf Reiter (Volk) – drei oben, zwei unten, jede Reihe gleich breit', (w) => {
+  const { host, el, zeilen } = reiterAufBreite(w, VOLK_REITER, 339);
+  try {
+    assertEq(zeilen().map((z) => z.length), [3, 2], '3 + 2 statt 4 + 1');
+    for (const z of zeilen()) { assert(reiterGleich(z), 'gleich breit'); assert(reiterBuendig(w, el, z), 'bündig'); }
+  } finally { host.remove(); }
+});
+test('Reiter: zehn Hygiene-Reiter auf dem Handy – Zeilen fast gleich voll, nichts ragt heraus', (w) => {
+  const { host, el, zeilen } = reiterAufBreite(w, HYGIENE_REITER, 339);
+  try {
+    const n = zeilen().map((z) => z.length);
+    assertEq(n.reduce((a, b) => a + b, 0), 10, 'alle zehn da, Reihenfolge bleibt');
+    assertEq(zeilen().flat().map((b) => b.textContent), HYGIENE_REITER, 'Reihenfolge wie vorher');
+    assert(Math.max(...n) - Math.min(...n) <= 1, 'keine einsame letzte Zeile: ' + n.join('+'));
+    assert(n.length <= 4, 'höchstens vier Zeilen: ' + n.join('+'));
+    for (const z of zeilen()) assert(reiterBuendig(w, el, z), 'jede Zeile bündig');
+    assert(el.scrollWidth <= el.clientWidth + 1, 'nichts ragt heraus');
+  } finally { host.remove(); }
+});
+test('Reiter: PC – sechs Reiter in einer Reihe, alle gleich breit', (w) => {
+  const { host, el, zeilen } = reiterAufBreite(w, HONIG_REITER, 1000);
+  try {
+    assertEq(zeilen().map((z) => z.length), [6]);
+    assert(reiterGleich(zeilen()[0]) && reiterBuendig(w, el, zeilen()[0]), 'gleich breit und bündig');
+  } finally { host.remove(); }
+});
+test('Reiter: Tablet – lieber eine Zeile mehr als ungleich breite Reiter, auf dem Handy nicht', (w) => {
+  const tablet = reiterAufBreite(w, VOLK_REITER, 560, { vielPlatz: true });
+  const handy = reiterAufBreite(w, VOLK_REITER, 560, { vielPlatz: false });
+  try {
+    assertEq(tablet.zeilen().map((z) => z.length), [3, 2], 'Tablet: 3 + 2, dafür gleich breit');
+    for (const z of tablet.zeilen()) assert(reiterGleich(z), 'Tablet: gleich breit');
+    assertEq(handy.zeilen().map((z) => z.length), [5], 'wenig Platz in der Höhe: eine Reihe');
+  } finally { tablet.host.remove(); handy.host.remove(); }
+});
+test('Reiter: neu verteilt, wenn sich die Breite ändert (Drehen, Fenster)', (w) => {
+  const { host, el, zeilen } = reiterAufBreite(w, HONIG_REITER, 339);
+  try {
+    assertEq(zeilen().map((z) => z.length), [3, 3]);
+    host.style.width = '1000px';
+    w.Reiter.ordnen(el);
+    assertEq(zeilen().map((z) => z.length), [6], 'breiter: eine Reihe');
+    host.style.width = '339px';
+    w.Reiter.ordnen(el);
+    assertEq(zeilen().map((z) => z.length), [3, 3], 'wieder schmal: zwei Reihen');
+    assert(!el.querySelector(':scope > button'), 'kein Reiter bleibt außerhalb der Reihen');
+    assert(w.Reiter._beobachter, 'Breitenänderungen werden beobachtet');
+  } finally { host.remove(); }
+});
+test('Reiter: schmaler als der längste Name – er bricht in sich um statt herauszuragen', (w) => {
+  const { host, el } = reiterAufBreite(w, ['Allgemeine Geschäftskosten', 'Kurz'], 110);
+  try {
+    const lang = el.querySelector('button');
+    assert(lang.classList.contains('reiter-lang'), 'als zu lang markiert');
+    assert(lang.getBoundingClientRect().width <= 111, 'bleibt in der Breite');
+    assert(!el.querySelectorAll('button')[1].classList.contains('reiter-lang'), 'kurzer Name bleibt einzeilig');
+  } finally { host.remove(); }
+});
+test('Bereiche: Volk, Bio, Ernte und Abfüllung, Kassenbuch haben die angeheftete Reiterleiste', async (w) => isolierteDaten(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'Reiter-Volk', status: 'aktiv', historie: [] });
+  const host = w.document.createElement('div'); host.style.width = '360px'; w.document.body.appendChild(host);
+  const alt = { volk: w.Views.volk._tab, bio: w.Views.bio._tab, honig: w.Views.honig._tab, kb: w.Views.kassenbuch._tab };
+  try {
+    const faelle = [
+      ['Volk', () => w.Views.volk.render(host, v.id), ['Stockkarte', 'Fütterung', 'Varroa', 'Gewicht', 'Notizen & Anhänge']],
+      ['Bio', () => w.Views.bio.render(host), ['Betrieb', 'Standorte', 'Hygiene', 'Vorsorge', 'Partner', 'Förderung']],
+      ['Ernte und Abfüllung', () => w.Views.honig.render(host), HONIG_REITER],
+      ['Kassenbuch', () => w.Views.kassenbuch.render(host), ['Buchungen', 'Kunden & Lieferanten', 'Geschäftskosten', 'Auswertung']],
+    ];
+    for (const [name, zeichnen, namen] of faelle) {
+      host.innerHTML = '';
+      await zeichnen();
+      const el = host.querySelector('#tabbar');
+      assert(el && el.classList.contains('kleb-reiter'), name + ': angeheftete Leiste');
+      assertEq(w.getComputedStyle(el).position, 'sticky', name + ': klebt beim Scrollen');
+      assert(el.previousElementSibling && el.previousElementSibling.classList.contains('reiter-anker'), name + ': Anker für den Sprung');
+      assertEq([...el.querySelectorAll('button')].map((b) => b.textContent), namen, name + ': Reiter');
+      assert(el.querySelectorAll('.reiter-zeile').length >= 1, name + ': Reiter in Reihen geordnet');
+      assertEq(el.querySelectorAll('[aria-selected="true"]').length, 1, name + ': genau ein Reiter gewählt');
+      assert(el.scrollWidth <= el.clientWidth + 1, name + ': nichts ragt heraus');
+    }
+  } finally {
+    host.remove();
+    w.Views.volk._tab = alt.volk; w.Views.bio._tab = alt.bio; w.Views.honig._tab = alt.honig; w.Views.kassenbuch._tab = alt.kb;
+  }
+}));
+test('Reiter: wer weiter unten umschaltet, landet am Anfang des neuen Reiters – oben bleibt oben', async (w) => {
+  const altHash = w.location.hash, altTab = w.Views.honig._tab;
+  const platz = w.document.createElement('div'); platz.style.height = '4000px'; w.document.body.appendChild(platz);
+  const sofort = (y) => w.Reiter.sofortScrollen(y);
+  try {
+    w.Views.honig._tab = 'ernten';
+    w.location.hash = '#/honig'; await w.renderRoute();
+    const anker = () => w.document.querySelector('#main .reiter-anker');
+    sofort(w.Reiter.oben(anker()) + 600);
+    assert(w.Reiter.klebt(w.document.querySelector('#main .kleb-reiter')), 'Leiste klebt oben');
+    w.document.querySelector('#main .kleb-reiter [data-id="chargen"]').click();
+    await warteBis(() => w.document.querySelector('#main .kleb-reiter .active')?.textContent === 'Charge');
+    await new Promise((r) => setTimeout(r, 50));
+    const soll = w.Reiter.oben(anker()) - w.Reiter.kopf();
+    assert(Math.abs(w.scrollY - soll) <= 2, `Leiste oben, darunter der neue Inhalt (scrollY ${Math.round(w.scrollY)}, soll ${Math.round(soll)})`);
+    // Ganz oben: kein Sprung nach unten
+    sofort(0);
+    assertEq(w.scrollY, 0, 'sofort oben, ohne Gleiten');
+    w.document.querySelector('#main .kleb-reiter [data-id="sorten"]').click();
+    await warteBis(() => w.document.querySelector('#main .kleb-reiter .active')?.textContent === 'Sorte');
+    await new Promise((r) => setTimeout(r, 50));
+    assert(w.scrollY < 5, 'wer oben war, bleibt oben: ' + w.scrollY);
+  } finally {
+    platz.remove(); sofort(0);
+    w.Views.honig._tab = altTab; w.location.hash = altHash; await w.renderRoute();
+  }
+});
+test('Hygiene: „Eigenes hochladen“ öffnet den Reiter Dateien (sprang seit den Reitern ins Leere)', async (w) => {
+  dialogeSchliessen(w);
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = w.Views.hygiene._teil;
+  try {
+    w.Views.hygiene._teil = 'bio-plan';
+    await w.Views.hygiene.render(host);
+    const knopf = [...host.querySelectorAll('#bio-plan button')].find((b) => /Eigenes hochladen/.test(b.textContent));
+    assert(knopf, 'Knopf im Hygieneplan');
+    knopf.click();
+    assertEq(host.querySelector('.hyg-reiter .active').textContent, 'Dateien', 'Reiter Dateien ist gewählt');
+    assert(w.getComputedStyle(host.querySelector('#hyg-dateien')).display !== 'none', 'Dateien sind sichtbar');
+  } finally { w.Views.hygiene._teil = alt; host.remove(); }
+});
+test('Imme: Wege zu den umbenannten Reitern stimmen (Bio „Förderung“, Kassenbuch „Geschäftskosten“)', async (w) => {
+  const e = w.APP_WISSEN.find((x) => x.id === 'bio-foerderung');
+  assertEq(e.zeige, 'Förderung');
+  assert(!/Reiter[^.]*Kontrollstelle & Verband“ öffnen/.test(e.schritte.join(' ')) && /Reiter „Betrieb“/.test(e.antwort), 'Kontrollstelle steht im Reiter Betrieb, nicht in einem eigenen Reiter');
+  const g = w.APP_WISSEN.find((x) => x.id === 'geschaeftskosten');
+  assert(g.schritte.some((t) => /Reiter „Geschäftskosten“/.test(t)), 'Kassenbuch-Reiter heißt jetzt Geschäftskosten');
+  const altHash = w.location.hash, altTab = w.Views.bio._tab;
+  try {
+    w.Views.bio._tab = 'betrieb';
+    w.location.hash = '#/bio'; await w.renderRoute();
+    const ziel = w.Assistent.finde('Förderung');
+    assert(ziel && ziel.getAttribute('role') === 'tab', 'Imme zeigt auf den Reiter');
+  } finally { w.Views.bio._tab = altTab; w.location.hash = altHash; await w.renderRoute(); }
 });

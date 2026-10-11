@@ -70,7 +70,9 @@ html[data-theme="dark"]{
   --shadow-lg:0 4px 12px rgba(0,0,0,.4),0 24px 60px -20px rgba(0,0,0,.7);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;
+  /* Sprünge (scrollIntoView) landen unter Kopfzeile und angehefteter Reiterleiste, nicht dahinter */
+  scroll-padding-top:calc(var(--kopf-h,0px) + var(--reiter-h,0px) + 8px)}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   background:var(--bg);color:var(--text);font-size:15.5px;line-height:1.55;
@@ -725,21 +727,27 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .kw-tile.kw-neu{background:transparent;border-color:var(--line2);color:var(--muted)}
 .hyg-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;margin-bottom:12px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 .hyg-nav .btn{flex:none}
-/* Hygiene: angeheftete Reiterleiste – bleibt beim Scrollen unter der Kopfzeile */
-/* Reiter brechen um, statt seitlich zu scrollen (Julian-Wunsch) – kompakter, damit die Leiste auf dem Handy nicht zu hoch wird */
-.tabs.hyg-reiter{position:sticky;top:var(--kopf-h,0px);z-index:30;flex-wrap:wrap;gap:5px;margin:0 -18px 12px;padding:7px 18px;
+/* Angeheftete Reiterleiste (Hygiene, Volk, Bio, Ernte und Abfüllung, Kassenbuch): bleibt beim Scrollen unter
+   der Kopfzeile. Reiter brechen um statt seitlich zu scrollen (Julian-Wunsch). Die Zeilen legt Reiter.ordnen fest:
+   so wenige wie möglich, gleich viele Reiter je Zeile, jede Zeile bündig bis zum Rand, Schrift mittig. */
+.tabs.kleb-reiter{position:sticky;top:var(--kopf-h,0px);z-index:30;display:flex;flex-wrap:wrap;gap:5px;margin:0 -18px 12px;padding:7px 18px;
   background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
-.tabs.hyg-reiter button{min-height:34px;padding:5px 11px;font-size:13px;border-width:1.5px;flex:1 1 auto;text-align:center}
-@media(max-width:430px){.tabs.hyg-reiter button{padding:5px 9px;font-size:12.5px}}
-/* Jede Zeile bis zum Rand gefüllt (Julian: „sauber ausfüllen, Schrift mittig“). Ab Tablet-/Querbreite
-   und am PC zwei gleich lange Reihen zu je fünf gleich breiten Reitern. */
-@media(min-width:600px){.tabs.hyg-reiter{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}}
+.kleb-reiter .reiter-zeile{display:flex;gap:5px;flex:1 1 100%;min-width:0}
+/* Merkt die eigentliche Lage der Leiste. flow-root: der Abstand der Überschrift davor rutscht nicht durch den leeren Anker hindurch */
+.reiter-anker{display:flow-root}
+.tabs.kleb-reiter button{min-height:34px;padding:5px 11px;font-size:13px;border-width:1.5px;flex:1 1 0;text-align:center;
+  /* nur Farben weich überblenden – Breite und Schriftstärke sofort, sonst misst Reiter.ordnen mitten in der Animation */
+  transition:background-color .15s,border-color .15s,color .15s,box-shadow .15s}
+/* Zum Messen: jeder Reiter in natürlicher Breite und fett wie der gewählte – so passt es auch nach dem Umschalten */
+.tabs.kleb-reiter.reiter-messen button{flex:none;font-weight:700}
+.tabs.kleb-reiter button.reiter-lang{white-space:normal;min-width:0;line-height:1.2}
+@media(max-width:430px){.tabs.kleb-reiter button{padding:5px 9px;font-size:12.5px}}
 .hyg-aus{display:none!important}
 /* Handy quer (wenig Höhe): die Kopfzeile scrollt mit weg, nur die schmale Reiterleiste bleibt oben */
 @media(max-height:500px){
-  body[data-route="hygiene"] .topbar{position:relative}
-  .tabs.hyg-reiter{top:0;padding-top:5px;padding-bottom:5px}
-  .tabs.hyg-reiter button{min-height:30px;padding-top:3px;padding-bottom:3px}
+  body:has(main .kleb-reiter) .topbar{position:relative}
+  .tabs.kleb-reiter{top:0;padding-top:5px;padding-bottom:5px}
+  .tabs.kleb-reiter button{min-height:30px;padding-top:3px;padding-bottom:3px}
 }
 @media print{.hyg-aus{display:block!important}}
 .hyg-gruppe{font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 2px;display:flex;justify-content:space-between;align-items:center}
@@ -1236,8 +1244,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.46';
+const APP_VERSION = '2.47';
 const CHANGELOG = [
+  { version: '2.47', datum: '2026-10-11', punkte: [
+    'Angeheftete Reiter jetzt überall, wo es Reiter gibt: Volk (Stockkarte, Fütterung …), Bio, Ernte und Abfüllung und Kassenbuch. Die Leiste bleibt beim Scrollen oben stehen, du kannst jederzeit umschalten – wer weiter unten umschaltet, landet direkt am Anfang des neuen Reiters.',
+    'Die Reiter verteilen sich selbst auf gleich volle Zeilen und füllen jede Zeile bis zum Rand, auch auf Tablet und PC. Quer passt meist alles in eine Reihe, die Kopfzeile scrollt dann mit weg.',
+    'Kürzere Reiter-Namen: Bio „Betrieb“, „Vorsorge“, „Partner“, „Förderung“; Kassenbuch „Geschäftskosten“.',
+    'Behoben: „Eigenes hochladen“ im Hygieneplan öffnet wieder den Reiter „Dateien“. Sprünge innerhalb einer Seite landen nicht mehr hinter der Kopfzeile.',
+  ] },
   { version: '2.46', datum: '2026-10-11', punkte: [
     'Hygiene: Die Reiter füllen jede Zeile sauber bis zum Rand, die Schrift steht mittig. Quer und am PC stehen sie in zwei gleich langen Reihen zu je fünf gleich breiten Reitern.',
   ] },
@@ -3086,11 +3100,17 @@ const UI = {
   },
 
   /** Tab-Leiste: rendert Buttons, ruft onChange(id) */
-  tabs(tabs, activeId, onChange) {
+  tabs(tabs, activeId, onChange, { kleben = false } = {}) {
     const el = document.createElement('div');
-    el.className = 'tabs no-print';
-    el.innerHTML = tabs.map((t) => `<button data-id="${U.esc(t.id)}" class="${t.id === activeId ? 'active' : ''}">${U.esc(t.label)}</button>`).join('');
-    el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) onChange(b.dataset.id); });
+    el.className = 'tabs no-print' + (kleben ? ' kleb-reiter' : '');
+    if (kleben) el.setAttribute('role', 'tablist');
+    el.innerHTML = tabs.map((t) => `<button data-id="${U.esc(t.id)}" class="${t.id === activeId ? 'active' : ''}"${kleben ? ` role="tab" aria-selected="${t.id === activeId}"` : ''}>${U.esc(t.label)}</button>`).join('');
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      // Angeheftet und schon weiter unten: nach dem Umschalten am Anfang des neuen Reiters weiter
+      const warUnten = kleben && Reiter.klebt(el);
+      Promise.resolve(onChange(b.dataset.id)).then(() => { if (warUnten) Reiter.zumAnfang(); });
+    });
     return el;
   },
 
@@ -3376,6 +3396,136 @@ function kopfHoeheMerken() {
 }
 window.addEventListener('resize', () => kopfHoeheMerken());
 
+/* Angeheftete Reiterleisten (Hygiene, Volk, Bio, Ernte und Abfüllung, Kassenbuch).
+   Julian: Reiter sollen umbrechen statt seitlich zu scrollen, und jede Zeile soll sauber
+   ausgefüllt sein. Reiter.ordnen verteilt die Reiter deshalb selbst auf Zeilen: so wenige
+   wie möglich, gleich viele Reiter je Zeile (5 → 3 + 2, 6 → 3 + 3), und innerhalb einer
+   Zeile gleich breit, wo die Namen das zulassen. Bei jeder Breitenänderung (Drehen,
+   Fenster, Seitenleiste) wird neu verteilt. */
+const Reiter = {
+  _beobachter: typeof ResizeObserver === 'function'
+    ? new ResizeObserver((eintraege) => { for (const e of eintraege) Reiter.ordnen(e.target); }) : null,
+  beobachten(leiste) {
+    kopfHoeheMerken();
+    Reiter.ordnen(leiste);
+    if (Reiter._beobachter) Reiter._beobachter.observe(leiste);
+  },
+  vielPlatz() { return window.innerWidth >= 600 && window.innerHeight >= 700; },
+  /** Zeilengrößen, bei denen sich die Anzahl je Zeile um höchstens eins unterscheidet – volle Zeilen zuerst probiert. */
+  verteilungen(r, n) {
+    const klein = Math.floor(n / r), extra = n % r, aus = [];
+    const lauf = (start, rest, wahl) => {
+      if (!rest) { aus.push(Array.from({ length: r }, (_, i) => klein + (wahl.includes(i) ? 1 : 0))); return; }
+      for (let i = start; i <= r - rest; i++) lauf(i + 1, rest - 1, [...wahl, i]);
+    };
+    lauf(0, extra, []);
+    return aus;
+  },
+  ordnen(leiste, { neu = false } = {}) {
+    if (!leiste || !leiste.isConnected) return;
+    const cs = getComputedStyle(leiste);
+    const breite = leiste.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (!(breite > 0)) return;     // gerade unsichtbar – der Beobachter meldet sich, sobald Platz da ist
+    if (!neu && Math.abs((leiste._reiterBreite || 0) - breite) < 0.5) { Reiter.hoeheMerken(leiste); return; }
+    leiste._reiterBreite = breite;
+    const knoepfe = [...leiste.querySelectorAll('button')];
+    const n = knoepfe.length; if (!n) return;
+    const luecke = parseFloat(cs.columnGap) || 0;
+    leiste.classList.add('reiter-messen');
+    const w = knoepfe.map((b) => b.getBoundingClientRect().width);
+    leiste.classList.remove('reiter-messen');
+    const bewerte = (groessen) => {
+      let i = 0, gleich = true, voll = 0;
+      for (const k of groessen) {
+        const teil = w.slice(i, i + k); i += k;
+        const summe = teil.reduce((a, b) => a + b, 0) + luecke * (k - 1);
+        if (summe > breite + 0.5) return null;
+        // gleich breit = der längste Name braucht höchstens 4 px mehr als sein gleicher Anteil (mit bloßem Auge nicht zu sehen)
+        if (Math.max(...teil) - (breite - luecke * (k - 1)) / k > 4) gleich = false;
+        voll = Math.max(voll, summe / breite);
+      }
+      // Erst: alle Zeilen gleich breit. Dann: die vollste Zeile so locker wie möglich.
+      return { groessen, gleich, wert: (gleich ? 0 : 10) + voll };
+    };
+    const bestFuer = (r) => {
+      let beste = null;
+      for (const groessen of Reiter.verteilungen(r, n)) {
+        const b = bewerte(groessen);
+        if (b && (!beste || b.wert < beste.wert - 1e-6)) beste = b;
+      }
+      return beste;
+    };
+    let beste = null, r = 1;
+    for (; r <= n && !beste; r++) beste = bestFuer(r);
+    /* Tablet und PC haben Platz in der Höhe: lieber eine Zeile mehr und dafür gleich breite Reiter.
+       Auf dem Handy zählt jede Zeile – dort bleibt es bei möglichst wenigen. */
+    if (beste && !beste.gleich && r <= n && Reiter.vielPlatz()) {
+      const mehr = bestFuer(r);
+      if (mehr && mehr.gleich) beste = mehr;
+    }
+    // Schmaler als der längste Name: ein Reiter je Zeile, der lange bricht in sich um
+    const groessen = beste ? beste.groessen : Array(n).fill(1);
+    knoepfe.forEach((b, i) => b.classList.toggle('reiter-lang', w[i] > breite + 0.5));
+    const zeichen = groessen.join('+');
+    if (leiste.dataset.zeilen !== zeichen || leiste.querySelector(':scope > button')) {
+      const alt = [...leiste.querySelectorAll(':scope > .reiter-zeile')];
+      const frag = document.createDocumentFragment();
+      let i = 0;
+      for (const k of groessen) {
+        const z = document.createElement('div');
+        z.className = 'reiter-zeile'; z.setAttribute('role', 'presentation');
+        for (let j = 0; j < k; j++) z.appendChild(knoepfe[i++]);
+        frag.appendChild(z);
+      }
+      alt.forEach((z) => z.remove());
+      leiste.appendChild(frag);
+      leiste.dataset.zeilen = zeichen;
+    }
+    Reiter.hoeheMerken(leiste);
+  },
+  /** Höhe der Leiste als --reiter-h: Sprünge innerhalb der Seite landen darunter (scroll-padding). */
+  hoeheMerken(leiste) {
+    if (leiste.closest('#main')) document.documentElement.style.setProperty('--reiter-h', leiste.offsetHeight + 'px');
+  },
+  /* Lage im Dokument ohne Verschiebungen: Seiten gleiten beim Öffnen 7 px herein (viewIn),
+     getBoundingClientRect läge in dieser Zeit daneben. */
+  oben(el) { let y = 0; for (let e = el; e; e = e.offsetParent) y += e.offsetTop; return y; },
+  kopf() { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kopf-h')) || 0; },
+  /** Ist die Seite schon unter den Anfang der Leiste gescrollt (die Leiste klebt oben)? */
+  klebt(leiste) {
+    const anker = leiste.previousElementSibling;
+    if (!anker || !anker.classList.contains('reiter-anker')) return false;
+    return Reiter.oben(anker) - window.scrollY < Reiter.kopf() - 0.5;
+  },
+  /** Zum Anfang des Reiter-Inhalts: Leiste oben, darunter der neue Inhalt – nicht ganz oben auf der Seite. */
+  zumAnfang() {
+    const leiste = $('#main .kleb-reiter'); if (!leiste) return;
+    const anker = leiste.previousElementSibling;
+    if (!anker || !anker.classList.contains('reiter-anker')) return;
+    Reiter.sofortScrollen(Reiter.oben(anker) - Reiter.kopf());
+  },
+  /** Ohne Gleiten scrollen (html hat scroll-behavior:smooth). Erst das Lesen des Stils lässt
+      Chrome die Umstellung wirklich übernehmen – sonst gleitet es trotzdem. */
+  sofortScrollen(y) {
+    const h = document.documentElement, vorher = h.style.scrollBehavior;
+    h.style.scrollBehavior = 'auto';
+    void getComputedStyle(h).scrollBehavior;
+    window.scrollTo(0, Math.max(0, y));
+    h.style.scrollBehavior = vorher;
+  },
+};
+
+/** Reiterleiste eines Bereichs anstelle des Platzhalters #tabbar: angeheftet, Zeilen sauber verteilt. */
+function bereichsReiter(main, tabs, aktiv, onChange) {
+  const leiste = UI.tabs(tabs, aktiv, onChange, { kleben: true });
+  leiste.id = 'tabbar';
+  const anker = document.createElement('div');
+  anker.className = 'reiter-anker'; anker.setAttribute('aria-hidden', 'true');
+  $('#tabbar', main).replaceWith(anker, leiste);
+  Reiter.beobachten(leiste);
+  return leiste;
+}
+
 async function renderRoute(opt = {}) {
   const lauf = ++renderLauf;
   const scrollY = opt.scrollBehalten ? window.scrollY : 0;
@@ -3392,6 +3542,7 @@ async function renderRoute(opt = {}) {
   $$('.nav-item', $('#sidebar')).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
   $$('button', $('#bottomnav')).forEach((b) => b.classList.toggle('active', b.dataset.route === navRoute));
   main.innerHTML = '<div class="skel" style="height:120px"></div>';
+  document.documentElement.style.setProperty('--reiter-h', '0px');
   try {
     const title = typeof view.title === 'function' ? view.title() : view.title;
     $('#tb-title').textContent = title || '';
@@ -3403,6 +3554,7 @@ async function renderRoute(opt = {}) {
     main.innerHTML = `<div class="card"><div class="card-title">${icon('warn')}<h2>Da ist etwas schiefgelaufen</h2></div><p class="muted small">${U.esc(e.message)}</p><button class="btn btn-ghost mt12" onclick="renderRoute()">Neu laden</button></div>`;
   }
   if (ueberholt()) return;     // nicht die inzwischen geöffnete Seite nach oben reißen
+  kopfHoeheMerken();           // quer klebt die Kopfzeile auf Seiten mit Reiterleiste nicht (CSS)
   window.scrollTo({ top: scrollY });
   Assistent.layout(true); setTimeout(() => Assistent.layout(true), 120); setTimeout(() => Assistent.layout(true), 600);
 }
@@ -5609,10 +5761,10 @@ Views.volk = {
       <div class="card" style="margin-top:14px"><div class="card-title">${icon('buch')}<h2>Historie</h2></div>
         <div class="rows">${U.sortBy(v.historie || [], (h) => h.datum, true).map((h) => `<div class="row" style="min-height:40px;padding:7px 4px;align-items:flex-start"><span class="small muted nowrap">${U.fmtDate(h.datum)}</span><span class="small" style="flex:1;min-width:0;word-break:break-word">${U.esc(h.text)}</span></div>`).join('') || '<span class="muted small">–</span>'}</div>
       </div>`;
-    $('#tabbar').appendChild(UI.tabs([
+    bereichsReiter(main, [
       { id: 'stockkarte', label: 'Stockkarte' }, { id: 'futter', label: 'Fütterung' },
       { id: 'varroa', label: 'Varroa' }, { id: 'gewicht', label: 'Gewicht' }, { id: 'notizen', label: 'Notizen & Anhänge' },
-    ], tab, (t) => { Views.volk._tab = t; renderRoute(); }));
+    ], tab, (t) => { Views.volk._tab = t; return renderRoute(); });
     const box = $('#tab-content');
     if (tab === 'stockkarte') await Views.volk.tabStockkarte(box, v);
     else if (tab === 'futter') await Views.volk.tabFutter(box, v);
@@ -10873,11 +11025,11 @@ Views.hygiene = {
   /* Echte Reiter statt einer langen Seite (Julian: „man scrollt sich zu Tode“).
      Alle Teile werden wie bisher gezeichnet, gezeigt wird nur der gewählte –
      so bleibt alles verdrahtet, und der Wechsel ist sofort da. Die Leiste
-     klebt beim Scrollen unter der Kopfzeile (CSS: .hyg-reiter). */
+     klebt beim Scrollen unter der Kopfzeile (CSS: .kleb-reiter, Zeilen: Reiter.ordnen). */
   reiter(box, ids) {
     const leiste = $('.hyg-reiter', box); if (!leiste) return;
     if (!ids.includes(this._teil)) this._teil = ids[0];
-    kopfHoeheMerken();
+    Reiter.beobachten(leiste);
     const zeige = (teil, { springen = false } = {}) => {
       this._teil = teil;
       for (const id of ids) { const el = $('#' + id, box); if (el) { el.classList.toggle('hyg-aus', id !== teil); el.style.marginTop = '0'; } }
@@ -10887,8 +11039,7 @@ Views.hygiene = {
       }
       /* Wer weiter unten war, landet am Anfang des neuen Teils – nicht ganz oben auf der Seite */
       if (springen) {
-        const anker = $('.hyg-anker', box);
-        const ziel = anker.getBoundingClientRect().top + window.scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kopf-h')) || 0);
+        const ziel = Reiter.oben($('.hyg-anker', box)) - Reiter.kopf();
         if (window.scrollY > ziel) window.scrollTo({ top: ziel });
       }
     };
@@ -10910,11 +11061,12 @@ Views.bio = {
     main.innerHTML = pageHead('Bio / Öko-Kontrolle', 'Unterlagen für die Kontrollstelle: Betriebsbeschreibung und die Landbedeckung deiner Standorte',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.bioUnterlagen()">${icon('doc')} Unterlagen (PDF)</button></span>`)
       + `<div id="tabbar"></div><div id="tab-content"></div>`;
-    $('#tabbar', main).appendChild(UI.tabs([
-      { id: 'betrieb', label: 'Betriebsbeschreibung' }, { id: 'standorte', label: 'Standorte' },
-      { id: 'hygiene', label: 'Hygiene' }, { id: 'vorsorge', label: 'Vorsorgekonzept' }, { id: 'partner', label: 'Abnehmer & Lieferanten' },
-      { id: 'foerderung', label: 'Förderverfahren' },
-    ], tab, (t) => { Views.bio._tab = t; renderRoute(); }));
+    /* Kurze Namen: so passen die sechs Reiter auf dem Handy in zwei Zeilen und quer in eine */
+    bereichsReiter(main, [
+      { id: 'betrieb', label: 'Betrieb' }, { id: 'standorte', label: 'Standorte' },
+      { id: 'hygiene', label: 'Hygiene' }, { id: 'vorsorge', label: 'Vorsorge' }, { id: 'partner', label: 'Partner' },
+      { id: 'foerderung', label: 'Förderung' },
+    ], tab, (t) => { Views.bio._tab = t; return renderRoute(); });
     const box = $('#tab-content', main);
     if (tab === 'standorte') await Views.bio.tabStandorte(box);
     else if (tab === 'hygiene') await Views.bio.tabHygiene(box);
@@ -11476,7 +11628,7 @@ Views.bio = {
        hier deshalb NICHT: die Karten berührten sich ohne Abstand. */
     const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Ernte'], ['bio-abfuellung', 'Abfüllung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmen'], ['hyg-grenzwerte', 'Grenzwerte'], ['hyg-dateien', 'Dateien']];
     box.innerHTML = `${opt.eigen ? '' : '<p class="small muted mb8 no-print">Hygiene gibt es auch als eigenen Bereich im Menü – <a href="#/hygiene">dort</a> findest du sie auch ohne Bio.</p>'}${opt.eigen
-      ? `<div class="hyg-anker" aria-hidden="true"></div><div class="tabs hyg-reiter no-print" role="tablist">${teile.map(([id, l]) => `<button role="tab" data-teil="${id}">${l}</button>`).join('')}</div>`
+      ? `<div class="hyg-anker reiter-anker" aria-hidden="true"></div><div class="tabs kleb-reiter hyg-reiter no-print" role="tablist">${teile.map(([id, l]) => `<button role="tab" data-teil="${id}">${l}</button>`).join('')}</div>`
       : `<div class="hyg-nav no-print">${teile.map(([id, l]) => `<button class="btn btn-ghost btn-xs" data-sprung="${id}">${l}</button>`).join('')}</div>`}
       <div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>
       <div id="bio-verarbeitung" style="margin-top:14px"></div><div id="bio-abfuellung" style="margin-top:14px"></div><div id="bio-lager" style="margin-top:14px"></div>
@@ -11527,7 +11679,12 @@ Views.bio = {
       const hochKnopf = document.createElement('button');
       hochKnopf.className = 'btn btn-ghost btn-sm no-print';
       hochKnopf.innerHTML = `${icon('upload')} Eigenes hochladen`;
-      hochKnopf.onclick = () => { const z = $('#hyg-dateien', box); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+      hochKnopf.onclick = () => {
+        // Auf der Hygiene-Seite sind die Dateien ein eigener Reiter – der Sprung allein fände nur einen versteckten Teil
+        const reiterKnopf = $('.hyg-reiter [data-teil="hyg-dateien"]', box);
+        if (reiterKnopf) return reiterKnopf.click();
+        const z = $('#hyg-dateien', box); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      };
       kopf.appendChild(hochKnopf);
     }
   },
@@ -12556,9 +12713,9 @@ Views.honig = {
   async render(main) {
     const tab = Views.honig._tab || 'ernten';
     main.innerHTML = pageHead('Ernte und Abfüllung', 'Von der Ernte über Chargen und Abfüllung bis zum Bestand und Verkauf') + `<div id="tabbar"></div><div id="tab-content"></div>`;
-    $('#tabbar').appendChild(UI.tabs([
+    bereichsReiter(main, [
       { id: 'ernten', label: 'Ernte' }, { id: 'sorten', label: 'Sorte' }, { id: 'chargen', label: 'Charge' }, { id: 'abfuellung', label: 'Abfüllung' }, { id: 'verkaeufe', label: 'Verkauf' }, { id: 'bestand', label: 'Bestand' },
-    ], tab, (t) => { Views.honig._tab = t; renderRoute(); }));
+    ], tab, (t) => { Views.honig._tab = t; return renderRoute(); });
     const box = $('#tab-content');
     if (tab === 'ernten') await Views.honig.tabErnten(box);
     else if (tab === 'chargen') await Views.honig.tabChargen(box);
@@ -13549,10 +13706,10 @@ Views.kassenbuch = {
     }
     const tab = Views.kassenbuch._tab || 'buchungen';
     main.innerHTML = pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei') + `<div id="tabbar"></div><div id="tab-content"></div>`;
-    $('#tabbar').appendChild(UI.tabs([
+    bereichsReiter(main, [
       { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' },
-      { id: 'geschaeftskosten', label: 'Allgemeine Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
-    ], tab, (t) => { Views.kassenbuch._tab = t; renderRoute(); }));
+      { id: 'geschaeftskosten', label: 'Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
+    ], tab, (t) => { Views.kassenbuch._tab = t; return renderRoute(); });
     const box = $('#tab-content');
     if (tab === 'buchungen') await Views.kassenbuch.tabBuchungen(box);
     else if (tab === 'kontakte') await Views.kassenbuch.tabKontakte(box);
@@ -21372,7 +21529,7 @@ APP_WISSEN.push(
   { id: 'geschaeftskosten', titel: 'Allgemeine Geschäftskosten buchen', route: 'kassenbuch', zeige: 'Geschäftskosten',
     stichw: ['geschaeftskosten', 'allgemeine kosten', 'versicherung', 'beitrag', 'vereinsbeitrag', 'porto', 'telefon kosten', 'buerokosten', 'kosten ohne bestand', 'betriebskosten', 'gebuehren buchen', 'pacht', 'miete', 'strom', 'haftpflicht', 'haftpflichtversicherung', 'versicherung gebucht', 'mitgliedsbeitrag', 'kosten buero', 'kosten allgemein'],
     antwort: 'Kosten, die keinem Lager zugehören – etwa Versicherung, Vereinsbeitrag oder Porto – buchst du im Kassenbuch unter „Allgemeine Geschäftskosten“.',
-    schritte: ['Menü ▸ Kassenbuch', 'Reiter „Allgemeine Geschäftskosten“ öffnen', '„Buchung“ antippen'] },
+    schritte: ['Menü ▸ Kassenbuch', 'Reiter „Geschäftskosten“ öffnen', '„Buchung“ antippen'] },
   { id: 'fahrtenbuch-pdf', titel: 'Fahrtenbuch als PDF', route: 'fahrten', zeige: 'PDF',
     stichw: ['fahrtenbuch pdf', 'fahrtenbuch drucken', 'fahrtenbuch finanzamt', 'fahrtenbuch export', 'kilometer nachweis', 'fahrten auswerten', 'km pauschale', 'fahrtkosten abrechnen', 'fahrtenbuch jahr', 'kilometernachweis'],
     antwort: 'Oben im Fahrtenbuch gibt es „Fahrtenbuch (PDF)“ für das gewählte Jahr – fertig zum Drucken oder für das Finanzamt.',
@@ -21397,10 +21554,10 @@ APP_WISSEN.push(
     stichw: ['landbedeckung', 'standorte bio', 'umkreis', 'drei komma fuenf kilometer', 'flugradius', 'flaechen', 'acker', 'gruenland', 'wald', 'oeko standort', 'standortpruefung', 'umgebung des stands', 'was waechst um', 'waechst um den stand', 'umgebung', 'was ist um meinen stand'],
     antwort: 'Im Bereich „Bio“ zeigt der Reiter „Standorte“ die Landbedeckung im Umkreis jedes Stands (3,5 km). Daraus entsteht der Nachweis für die Öko-Kontrolle.',
     schritte: ['Menü ▸ Bio', 'Reiter „Standorte“ öffnen', 'Stand wählen und Landbedeckung abrufen'] },
-  { id: 'bio-foerderung', titel: 'Förderverfahren und Kontrollstelle', route: 'bio', zeige: 'Förderverfahren',
+  { id: 'bio-foerderung', titel: 'Förderverfahren und Kontrollstelle', route: 'bio', zeige: 'Förderung',
     stichw: ['foerderverfahren', 'foerderung', 'foerderantrag', 'zuschuss', 'kontrollstelle waehlen', 'verband', 'oeko verband', 'bioland', 'naturland', 'demeter', 'anerkennung', 'kontrollstelle auswaehlen', 'kontrollstelle aussuchen', 'kontrollstelle'],
-    antwort: 'Im Bereich „Bio“ gibt es die Reiter „Förderverfahren“ und „Kontrollstelle & Verband“. Dort hinterlegst du Kontrollstelle, Verband und Unterlagen für Förderanträge.',
-    schritte: ['Menü ▸ Bio', 'Reiter „Förderverfahren“ oder „Kontrollstelle & Verband“ öffnen', 'Angaben eintragen'] },
+    antwort: 'Im Bereich „Bio“ sammelt der Reiter „Förderung“ die Unterlagen für Förderanträge. Kontrollstelle und Verband trägst du im Reiter „Betrieb“ über den Knopf „Kontrollstelle & Verband“ ein.',
+    schritte: ['Menü ▸ Bio', 'Reiter „Förderung“ öffnen oder im Reiter „Betrieb“ „Kontrollstelle & Verband“ antippen', 'Angaben eintragen'] },
   { id: 'hygiene-check', titel: 'Hygiene-Checkliste abhaken', route: 'hygiene', zeige: 'Checkliste',
     stichw: ['checkliste', 'checkliste abhaken', 'hygiene kontrolle', 'schaedlingskontrolle', 'honiglager kontrolle', 'waage pruefen', 'eigenkontrolle', 'kontrolle heute', 'taegliche kontrolle', 'schleuderraum kontrolle', 'temperatur kontrolliert', 'honiglager temperatur', 'lager temperatur', 'temperatur honiglager', 'abhaken', 'kontrollen abhaken', 'kontrollen', 'hake ab', 'haken setzen'],
     antwort: 'In den Reitern „Honiglager“, „Schädlinge“ und „Waage“ des Bereichs „Hygiene“ hakst du die Kontrollpunkte ab. Mit „Checkliste abhaken“ geht es schnell, das Datum setzt die App.',
@@ -23192,7 +23349,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash, Wisch,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
