@@ -12243,13 +12243,16 @@ test('Mulde: „Mehr“ fließt hin, der Kreis bläht sich auf, „Alle Bereiche
     w.document.querySelector('#bottomnav [data-more]').click();
     assertEq(w.Mulde.mehrOffen, true, 'Kreis ist auf dem Weg zu „Mehr“');
     assert(w.document.querySelector('#bottomnav').classList.contains('mehr-offen'), 'Symbol des aktuellen Bereichs bleibt sichtbar');
-    await warteBis(() => w.document.querySelector('.modal-back.kreis-auf'), 4000);
-    assert(w.document.querySelector('.bn-ballon'), 'der aufgeblähte Kreis liegt darunter');
-    w.document.querySelector('.modal-back.kreis-auf [data-close]').click();
+    assert(w.document.querySelector('.modal-back.kreis-auf'), '„Alle Bereiche“ wird sofort gebaut (gegen das Ruckeln) …');
+    assertEq(w.getComputedStyle(w.document.querySelector('.modal-back.kreis-auf')).visibility, 'hidden', '… aber erst gezeigt, wenn der Kreis aufgebläht ist');
+    await warteBis(() => w.document.querySelector('.modal-back.kreis-da'), 4000);
+    const ballon = w.document.querySelector('.bn-ballon');
+    assert(ballon && ballon.offsetWidth <= 600, 'der aufgeblähte Kreis liegt darunter – als handliche Ebene, hochskaliert');
+    w.document.querySelector('.modal-back.kreis-da [data-close]').click();
     await warteBis(() => !w.document.querySelector('.modal-back.kreis-auf') && !w.document.querySelector('.bn-ballon'), 4000);
     assertEq(w.Mulde.mehrOffen, false, 'wieder zu');
     assert(!w.document.querySelector('#bottomnav').classList.contains('mehr-offen'));
-  } finally { w.Mulde.an = alt; dialogeSchliessen(w); w.document.querySelectorAll('.bn-ballon').forEach((b) => b.remove()); w.location.hash = altHash; await w.renderRoute(); }
+  } finally { w.Mulde.an = alt; dialogeSchliessen(w); w.document.querySelectorAll('.bn-ballon, .bn-ballon-dunkel').forEach((b) => b.remove()); w.location.hash = altHash; await w.renderRoute(); }
 });
 test('Hygiene: „Eigenes hochladen“ öffnet den Reiter Dateien (sprang seit den Reitern ins Leere)', async (w) => {
   dialogeSchliessen(w);
