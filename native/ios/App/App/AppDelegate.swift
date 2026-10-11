@@ -47,3 +47,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
 }
+
+/// Ab iOS 27 startet eine App nur noch mit dem Szenen-Lebenszyklus – ohne ihn bricht
+/// UIKit sofort ab („UIScene life cycle is required for apps built with this SDK“).
+/// Das Fenster kommt weiter aus Main.storyboard (UISceneStoryboardFile in der Info.plist),
+/// Links und Aktivitäten reichen wir wie bisher an Capacitor weiter.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // Kaltstart über einen Link oder Universal Link: wie früher application(_:open:) bzw. (_:continue:)
+        if let url = connectionOptions.urlContexts.first?.url {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: url, options: [:])
+        }
+        if let activity = connectionOptions.userActivities.first {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: activity, restorationHandler: { _ in })
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: [:])
+        }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
+    }
+}

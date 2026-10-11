@@ -12204,38 +12204,37 @@ test('Imme findet Knöpfe auch in einem gerade versteckten Reiter und öffnet ih
     assert(el.offsetParent !== null, 'und der Knopf ist sichtbar');
   } finally { w.Views.meldungen._teil = altTeil; w.location.hash = altHash; await w.renderRoute(); }
 });
-/* ---------- Untere Leiste hochkant: Mulde wie im Pin (v2.49) ---------- */
-test('Mulde: Ruhe, Abtauchen, Welle, Aufsteigen – Bild für Bild wie im Vorbild', (w) => {
+/* ---------- Untere Leiste hochkant: Mulde wie im Pin (v2.49, ab v2.51 nur noch Verschieben/Skalieren) ---------- */
+test('Mulde: Schlüsselbilder wie im Vorbild – abtauchen, Welle fließt, aufsteigen mit Überschwingen, Symbol zuletzt', (w) => {
   const M = w.Mulde;
   const von = { c: 44, sicht: true, icon: 'A' }, nach = { c: 188, sicht: true, icon: 'B' };
-  const ruhe = M.szene(nach, nach, 1);
-  assertEq(Math.round(ruhe.y), M.Y, 'in Ruhe sitzt der Kreis halb über der Leiste');
-  assertEq(ruhe.v, 0, 'keine Welle'); assertEq(ruhe.tief, 1, 'volle Mulde');
-  assert(/ A /.test(M.umriss(375, ruhe.c, ruhe.v, ruhe.tief)), 'Mulde aus Bögen (Rundungen an den Schultern)');
-  const kurz = M.szene(von, nach, 0.14);
-  assert(kurz.y > 30 && kurz.icAlpha === 0, 'nach einem Bild (wie im Pin) ist der Kreis abgetaucht, das Symbol weg');
-  const mitte = M.szene(von, nach, 0.4);
-  assert(mitte.v > 0.9 && mitte.c > von.c && mitte.c < nach.c, 'unterwegs: flache, breite Welle zwischen den Bereichen');
-  const auf = M.szene(von, nach, 0.8);
-  assertEq(Math.round(auf.c), 188, 'die Welle ist am Ziel angekommen');
-  assert(auf.y < 20 && auf.goo > 0, 'der Kreis steigt als Tropfen auf (flüssiger Übergang)');
-  const ueber = Math.min(...[0.84, 0.88, 0.92, 0.96].map((p) => M.szene(von, nach, p).y));
-  assert(ueber < M.Y, 'schwingt kurz über das Ziel hinaus');
-  assert(M.szene(von, nach, 0.7).icAlpha === 0 && M.szene(von, nach, 1).icAlpha === 1, 'das Symbol erscheint erst ganz am Ende');
-  const weg = M.szene(von, { c: 0, sicht: false, icon: '' }, 1);
-  assertEq(weg.tief, 0, 'Bereich nicht in der Leiste: Leiste wird glatt');
-  const nie = { c: 0, sicht: false, icon: '' };
-  assertEq(M.szene(nie, nie, 1).tief, 0, 'auch direkt nach dem Start (z. B. auf einer Königin): keine Mulde');
-  assert(!/ A /.test(M.umriss(375, 0, 0, M.szene(nie, nie, 1).tief)), 'gerade Oberkante');
+  const b = M.bahn(von, nach);
+  const bei = (liste, o) => liste.find((k) => Math.abs(k.offset - o) < 0.001);
+  assert(bei(b.blase, 0.14).transform.includes(`, ${M.tief().toFixed(2)}px)`), 'nach einem Bild (wie im Pin) ist der Kreis abgetaucht');
+  assert(/scale\(1\.75, 0\.58\)/.test(bei(b.kerbe, 0.2).transform), 'die Mulde wird eine flache, breite Welle');
+  assert(bei(b.kerbe, 0.66).transform.includes('translateX(188.00px)'), 'die Welle ist am Ziel angekommen');
+  assert(bei(b.blase, 0.8).transform.includes(`${(M.Y - 5).toFixed(2)}px`), 'der Kreis schwingt beim Aufsteigen kurz über');
+  assertEq(b.kerbe.at(-1).transform, M.T(188), 'Mulde endet in Ruhe am Ziel');
+  assertEq(b.blase.at(-1).transform, M.B(188, M.Y, 1), 'Kreis endet in Ruhe am Ziel');
+  assertEq(bei(b.ic, 0.82).opacity, 0); assertEq(b.ic.at(-1).opacity, 1, 'das Symbol erscheint erst ganz am Ende');
+  for (const liste of [b.kerbe, b.blase, b.schatten, b.ic]) for (const k of liste) assert(!('d' in k) && !('filter' in k), 'nur transform/opacity – läuft auf der Grafikkarte');
+  const weg = M.bahn(von, { c: 0, sicht: false, icon: '' });
+  assert(/scale\(1\.75, 0\)/.test(weg.kerbe.at(-1).transform), 'Bereich nicht in der Leiste: Leiste wird glatt');
 });
-test('Mulde: Leiste hat Grund, Kreis-Symbol und benannte Knöpfe; Beschriftung bleibt für Vorlese-Programme', (w) => {
+test('Mulde: Leiste hat Mulde, Kreis und benannte Knöpfe; ohne aktiven Bereich keine Mulde', (w) => {
   const bn = w.document.querySelector('#bottomnav');
-  assert(bn.querySelector('.bn-grund .bn-flaeche') && bn.querySelector('.bn-grund .bn-kreis') && bn.querySelector('.bn-blase-ic'), 'Grund und Kreis');
+  assert(bn.querySelector('.bn-kerbe svg path') && bn.querySelector('.bn-blase .bn-blase-ic'), 'Mulde und Kreis');
   const knoepfe = [...bn.querySelectorAll('button')];
   assert(knoepfe.every((b) => b.getAttribute('aria-label')), 'jeder Knopf hat einen Namen');
-  assert(knoepfe.every((b) => b.querySelector('.bn-text')?.textContent), 'Beschriftung steckt im Knopf (quer sichtbar, hochkant nur für Vorlese-Programme)');
+  assert(knoepfe.every((b) => b.querySelector('.bn-text')?.textContent), 'Beschriftung steckt im Knopf (quer sichtbar, hochkant für Vorlese-Programme)');
+  const alt = w.Mulde.zustand;
+  try {
+    w.Mulde.setze({ c: 50, sicht: false, icon: '' });
+    assert(/scale\(1, 0\)/.test(bn.querySelector('.bn-kerbe').style.transform), 'keine Mulde, gerade Oberkante');
+    assertEq(bn.querySelector('.bn-blase-ic').style.opacity, '0');
+  } finally { if (alt) w.Mulde.setze(alt); }
 });
-test('Mulde: „Mehr“ fließt erst hin, dann wächst „Alle Bereiche“ aus dem Kreis; Schließen bringt die Mulde zurück', async (w) => {
+test('Mulde: „Mehr“ fließt hin, der Kreis bläht sich auf, „Alle Bereiche“ liegt darauf; Schließen lässt ihn zusammenfallen', async (w) => {
   const altHash = w.location.hash;
   const alt = w.Mulde.an; w.Mulde.an = () => true;   // Testfenster ist evtl. nicht hochkant
   try {
@@ -12243,14 +12242,14 @@ test('Mulde: „Mehr“ fließt erst hin, dann wächst „Alle Bereiche“ aus d
     dialogeSchliessen(w);
     w.document.querySelector('#bottomnav [data-more]').click();
     assertEq(w.Mulde.mehrOffen, true, 'Kreis ist auf dem Weg zu „Mehr“');
-    await warteBis(() => w.document.querySelector('.modal-back.kreis-auf'), 3000);
-    const back = w.document.querySelector('.modal-back.kreis-auf');
-    assert(/circle\(/.test(back.style.clipPath), 'wächst als Kreis auf');
-    back.querySelector('[data-close]').click();
-    await warteBis(() => !w.document.querySelector('.modal-back.kreis-auf'), 3000);
+    assert(w.document.querySelector('#bottomnav').classList.contains('mehr-offen'), 'Symbol des aktuellen Bereichs bleibt sichtbar');
+    await warteBis(() => w.document.querySelector('.modal-back.kreis-auf'), 4000);
+    assert(w.document.querySelector('.bn-ballon'), 'der aufgeblähte Kreis liegt darunter');
+    w.document.querySelector('.modal-back.kreis-auf [data-close]').click();
+    await warteBis(() => !w.document.querySelector('.modal-back.kreis-auf') && !w.document.querySelector('.bn-ballon'), 4000);
     assertEq(w.Mulde.mehrOffen, false, 'wieder zu');
-    await warteBis(() => w.Mulde.zustand && w.Mulde.zustand.sicht, 3000);
-  } finally { w.Mulde.an = alt; dialogeSchliessen(w); w.location.hash = altHash; await w.renderRoute(); }
+    assert(!w.document.querySelector('#bottomnav').classList.contains('mehr-offen'));
+  } finally { w.Mulde.an = alt; dialogeSchliessen(w); w.document.querySelectorAll('.bn-ballon').forEach((b) => b.remove()); w.location.hash = altHash; await w.renderRoute(); }
 });
 test('Hygiene: „Eigenes hochladen“ öffnet den Reiter Dateien (sprang seit den Reitern ins Leere)', async (w) => {
   dialogeSchliessen(w);
