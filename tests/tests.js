@@ -11858,3 +11858,28 @@ test('Königin bearbeiten: Formular öffnet für eine bestehende Königin (Absta
     assert(m && /Königin bearbeiten/.test(m.textContent), 'Formular ist offen');
   } finally { dialogeSchliessen(w); }
 }));
+test('Hygiene: echte Reiter, angeheftet – nur der gewählte Teil ist sichtbar, Wahl bleibt; Bio-Reiter unverändert', async (w) => {
+  dialogeSchliessen(w);
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = w.Views.hygiene._teil;
+  try {
+    w.Views.hygiene._teil = 'bio-plan';
+    await w.Views.hygiene.render(host);
+    const leiste = host.querySelector('.hyg-reiter');
+    assert(leiste && leiste.querySelectorAll('[data-teil]').length === 10, 'zehn Reiter');
+    assertEq(getComputedStyle(leiste).position, 'sticky', 'Leiste klebt beim Scrollen');
+    const sichtbar = () => ['bio-plan', 'bio-nachweis', 'bio-verarbeitung', 'bio-abfuellung', 'bio-lager', 'bio-schaedlinge', 'bio-waage', 'bio-massnahmen', 'hyg-grenzwerte', 'hyg-dateien']
+      .filter((id) => getComputedStyle(host.querySelector('#' + id)).display !== 'none');
+    assertEq(sichtbar(), ['bio-plan'], 'nur der Hygieneplan');
+    assertEq(leiste.querySelector('.active').textContent, 'Hygieneplan');
+    [...leiste.querySelectorAll('[data-teil]')].find((b) => b.textContent === 'Reinigungen').click();
+    assertEq(sichtbar(), ['bio-nachweis'], 'nach dem Tippen nur die Reinigungen');
+    assertEq(leiste.querySelector('[aria-selected="true"]').textContent, 'Reinigungen');
+    host.innerHTML = ''; await w.Views.hygiene.render(host);
+    assertEq(sichtbar(), ['bio-nachweis'], 'Wahl bleibt nach neuem Zeichnen (z. B. nach dem Speichern)');
+    // im Bio-Bereich bleibt es (vorerst) bei der langen Seite mit Sprung-Knöpfen
+    host.innerHTML = ''; await w.Views.bio.tabHygiene(host, {});
+    assert(host.querySelector('.hyg-nav') && !host.querySelector('.hyg-reiter'), 'Bio: Sprung-Knöpfe');
+    assert(!host.querySelector('.hyg-aus'), 'Bio: alles sichtbar');
+  } finally { w.Views.hygiene._teil = alt; host.remove(); dialogeSchliessen(w); }
+});

@@ -127,6 +127,12 @@ async function coverageAuswerten(cdp, htmlQuelle) {
 
 /* ---------- Hauptlauf ---------- */
 async function main() {
+  /* Erst den Code lesen lassen: undefinierte Namen fallen sonst nur auf,
+     wenn ein Test genau diese Zeile ausführt (so blieb das Königinnen-Formular
+     von v1.67 bis v2.42 kaputt). Fehler hier = Lauf rot. */
+  const { codePruefung } = await import('./code-pruefung.mjs');
+  const code = await codePruefung();
+  if (code.fehler) process.exitCode = 1;
   if (!CHROME) { console.error('Kein Chrome gefunden. CHROME_BIN setzen.'); process.exit(2); }
   const srv = await serverStarten();
   const profil = join(WURZEL, 'tools', '.chromeprofil-tests');
@@ -182,7 +188,8 @@ async function main() {
   }
 
   aufraeumen();
-  process.exit(erg.fail ? 1 : 0);
+  if (code.fehler) console.log(`❌ Code-Prüfung: ${code.fehler} Fehler (siehe oben)`);
+  process.exit(erg.fail || code.fehler ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); process.exit(2); });

@@ -725,6 +725,19 @@ html[data-theme="dark"] .toast{background:#F0EBE0;color:#1B1B1F}
 .kw-tile.kw-neu{background:transparent;border-color:var(--line2);color:var(--muted)}
 .hyg-nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;margin-bottom:12px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
 .hyg-nav .btn{flex:none}
+/* Hygiene: angeheftete Reiterleiste – bleibt beim Scrollen unter der Kopfzeile, seitlich wischbar */
+.tabs.hyg-reiter{position:sticky;top:var(--kopf-h,0px);z-index:30;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -18px 12px;padding:8px 18px;
+  background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.tabs.hyg-reiter::-webkit-scrollbar{display:none}
+.tabs.hyg-reiter button{min-height:38px}
+.hyg-aus{display:none!important}
+/* Handy quer (wenig Höhe): die Kopfzeile scrollt mit weg, nur die schmale Reiterleiste bleibt oben */
+@media(max-height:500px){
+  body[data-route="hygiene"] .topbar{position:relative}
+  .tabs.hyg-reiter{top:0;padding-top:5px;padding-bottom:5px}
+  .tabs.hyg-reiter button{min-height:32px;padding-top:4px;padding-bottom:4px}
+}
+@media print{.hyg-aus{display:block!important}}
 .hyg-gruppe{font-size:12px;font-weight:700;color:var(--muted);margin:12px 0 2px;display:flex;justify-content:space-between;align-items:center}
 .hyg-check{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:14px;cursor:pointer}
 .hyg-check input{width:26px;height:26px;flex-shrink:0;margin:0;accent-color:var(--honey)}
@@ -1219,8 +1232,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.43';
+const APP_VERSION = '2.44';
 const CHANGELOG = [
+  { version: '2.44', datum: '2026-10-11', punkte: [
+    'Hygiene mit echten Reitern: Hygieneplan, Reinigungen, Verarbeitung, Honiglager, Schädlinge, Waage, Maßnahmen, Grenzwerte und Dateien stehen nicht mehr alle untereinander – jeder Reiter zeigt nur seinen Teil. Die Reiterleiste bleibt beim Scrollen oben stehen, der gewählte Reiter bleibt gemerkt.',
+    'Handy quer: Die Kopfzeile scrollt mit weg, nur die schmale Reiterleiste bleibt oben – so bleibt mehr Platz für die Einträge.',
+    'Neue Sicherheitsprüfung beim Entwickeln: Der ganze Programmcode wird vor jedem Test auf Fehler wie den beim Bearbeiten von Königinnen untersucht.',
+  ] },
   { version: '2.43', datum: '2026-10-11', punkte: [
     'Neu: Wischen in Listen. Eine Zeile nach links wischen zeigt „Bearbeiten“ und „Löschen“ – in Ständen, Völkern (dort „Auflösen“), Durchsichten, Königinnen, Zucht, Behandlungen, Fütterung, Trachten, Wanderungen, Kontakten, Bio, Ernte, Chargen, Abfüllungen, Kassenbuch, Inventar, Zeiten, Aufgaben und Fahrten. Löschen fragt wie gewohnt nach und legt in den Papierkorb.',
     'Neu auf der Startseite: Widget „Durchsicht am Stand“. Je Stand ein Start-Knopf, der am längsten nicht durchgesehene Stand steht oben. Hast du einen Durchgang unterbrochen, geht es mit „Weiter bei …“ genau dort weiter.',
@@ -3340,6 +3358,13 @@ document.addEventListener('click', (e) => {
   Seitenweise.anzahl[key] = b.hasAttribute('data-mehr-alle') ? Infinity : (Seitenweise.anzahl[key] || LISTE_SCHRITT) + LISTE_SCHRITT;
   renderRoute({ scrollBehalten: true });
 }, true);
+
+/** Höhe der Kopfzeile als CSS-Variable --kopf-h: darunter kleben angeheftete Leisten. */
+function kopfHoeheMerken() {
+  const tb = $('.topbar');
+  document.documentElement.style.setProperty('--kopf-h', (tb && getComputedStyle(tb).position === 'sticky' ? tb.offsetHeight : 0) + 'px');
+}
+window.addEventListener('resize', () => kopfHoeheMerken());
 
 async function renderRoute(opt = {}) {
   const lauf = ++renderLauf;
@@ -10834,6 +10859,33 @@ Views.kontakte = {
 /* HYGIENE als eigener Bereich im Menü – für alle, auch ohne Bio. Es ist dieselbe Ansicht wie der Reiter „Hygiene“ unter Bio. */
 Views.hygiene = {
   title: 'Hygiene',
+  _teil: 'bio-plan',
+  /* Echte Reiter statt einer langen Seite (Julian: „man scrollt sich zu Tode“).
+     Alle Teile werden wie bisher gezeichnet, gezeigt wird nur der gewählte –
+     so bleibt alles verdrahtet, und der Wechsel ist sofort da. Die Leiste
+     klebt beim Scrollen unter der Kopfzeile (CSS: .hyg-reiter). */
+  reiter(box, ids) {
+    const leiste = $('.hyg-reiter', box); if (!leiste) return;
+    if (!ids.includes(this._teil)) this._teil = ids[0];
+    kopfHoeheMerken();
+    const zeige = (teil, { springen = false } = {}) => {
+      this._teil = teil;
+      for (const id of ids) { const el = $('#' + id, box); if (el) { el.classList.toggle('hyg-aus', id !== teil); el.style.marginTop = '0'; } }
+      for (const b of $$('[data-teil]', leiste)) {
+        const an = b.dataset.teil === teil;
+        b.classList.toggle('active', an); b.setAttribute('aria-selected', an ? 'true' : 'false');
+        if (an) leiste.scrollTo({ left: b.offsetLeft - (leiste.clientWidth - b.offsetWidth) / 2, behavior: springen ? 'smooth' : 'auto' });
+      }
+      /* Wer weiter unten war, landet am Anfang des neuen Teils – nicht ganz oben auf der Seite */
+      if (springen) {
+        const anker = $('.hyg-anker', box);
+        const ziel = anker.getBoundingClientRect().top + window.scrollY - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kopf-h')) || 0);
+        if (window.scrollY > ziel) window.scrollTo({ top: ziel });
+      }
+    };
+    leiste.addEventListener('click', (e) => { const b = e.target.closest('[data-teil]'); if (b) zeige(b.dataset.teil, { springen: true }); });
+    zeige(this._teil);
+  },
   async render(main) {
     main.innerHTML = pageHead('Hygiene', 'Hygieneplan, Reinigungen und Eigenkontrollen rund um Schleuderraum, Honiglager und Abfüllung – nützlich mit und ohne Bio.') + '<div id="hyg-box"></div>';
     await Views.bio.tabHygiene($('#hyg-box', main), { eigen: true });
@@ -11414,7 +11466,9 @@ Views.bio = {
        „.card + .card" wirkt nur zwischen direkten Geschwistern und greift
        hier deshalb NICHT: die Karten berührten sich ohne Abstand. */
     const teile = [['bio-plan', 'Hygieneplan'], ['bio-nachweis', 'Reinigungen'], ['bio-verarbeitung', 'Verarb. Ernte'], ['bio-abfuellung', 'Verarb. Abfüllung'], ['bio-lager', 'Honiglager'], ['bio-schaedlinge', 'Schädlinge'], ['bio-waage', 'Waage'], ['bio-massnahmen', 'Maßnahmenplan'], ['hyg-grenzwerte', 'Grenzwerte'], ['hyg-dateien', 'Dateien']];
-    box.innerHTML = `${opt.eigen ? '' : '<p class="small muted mb8 no-print">Hygiene gibt es auch als eigenen Bereich im Menü – <a href="#/hygiene">dort</a> findest du sie auch ohne Bio.</p>'}<div class="hyg-nav no-print">${teile.map(([id, l]) => `<button class="btn btn-ghost btn-xs" data-sprung="${id}">${l}</button>`).join('')}</div>
+    box.innerHTML = `${opt.eigen ? '' : '<p class="small muted mb8 no-print">Hygiene gibt es auch als eigenen Bereich im Menü – <a href="#/hygiene">dort</a> findest du sie auch ohne Bio.</p>'}${opt.eigen
+      ? `<div class="hyg-anker" aria-hidden="true"></div><div class="tabs hyg-reiter no-print" role="tablist">${teile.map(([id, l]) => `<button role="tab" data-teil="${id}">${l}</button>`).join('')}</div>`
+      : `<div class="hyg-nav no-print">${teile.map(([id, l]) => `<button class="btn btn-ghost btn-xs" data-sprung="${id}">${l}</button>`).join('')}</div>`}
       <div id="bio-plan"></div><div id="bio-nachweis" style="margin-top:14px"></div>
       <div id="bio-verarbeitung" style="margin-top:14px"></div><div id="bio-abfuellung" style="margin-top:14px"></div><div id="bio-lager" style="margin-top:14px"></div>
       <div id="bio-schaedlinge" style="margin-top:14px"></div><div id="bio-waage" style="margin-top:14px"></div><div id="bio-massnahmen" style="margin-top:14px"></div>
@@ -11434,6 +11488,7 @@ Views.bio = {
     await Views.bio.tabListe($('#bio-massnahmen', box), 'massnahmen');
     $('#hyg-grenzwerte', box).innerHTML = Views.bio.grenzwerteKarte();
     $$('[data-sprung]', box).forEach((b) => { b.onclick = () => { const z = $('#' + b.dataset.sprung, box); if (z) z.scrollIntoView({ behavior: 'smooth', block: 'start' }); }; });
+    if (opt.eigen) Views.hygiene.reiter(box, teile.map(([id]) => id));
     $('#hyg-dateien-zone', box).appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'hygiene', titel: 'Hochgeladene Dateien' }));
     /* Der Knopf sitzt IM Plan-Kasten, neben „Eintrag" – dort sucht man ihn,
        wenn man den Plan gerade in der Hand hält. */
@@ -21340,7 +21395,9 @@ APP_WISSEN.push(
   { id: 'hygiene-check', titel: 'Hygiene-Checkliste abhaken', route: 'hygiene', zeige: 'Checkliste',
     stichw: ['checkliste', 'checkliste abhaken', 'hygiene kontrolle', 'schaedlingskontrolle', 'honiglager kontrolle', 'waage pruefen', 'eigenkontrolle', 'kontrolle heute', 'taegliche kontrolle', 'schleuderraum kontrolle', 'temperatur kontrolliert', 'honiglager temperatur', 'lager temperatur', 'temperatur honiglager', 'abhaken', 'kontrollen abhaken', 'kontrollen', 'hake ab', 'haken setzen'],
     antwort: 'In den Reitern „Honiglager“, „Schädlinge“ und „Waage“ des Bereichs „Hygiene“ hakst du die Kontrollpunkte ab. Mit „Checkliste abhaken“ geht es schnell, das Datum setzt die App.',
-    schritte: ['Menü ▸ Hygiene', 'Reiter wählen, zum Beispiel „Honiglager“', '„Checkliste abhaken“ antippen'] },
+    schritte: ['Menü ▸ Hygiene', 'Reiter wählen, zum Beispiel „Honiglager“', '„Checkliste abhaken“ antippen'],
+    tour: [{ reiter: 'Reinigungen', text: 'Öffne oben den Reiter „Reinigungen“ – dort steht die Checkliste aus deinem Hygieneplan.' },
+      { abschluss: 'Checkliste', text: 'Mit „Checkliste abhaken“ setzt du die Haken und buchst einmal – das Datum setzt die App.' }] },
   { id: 'logo', titel: 'Eigenes Logo hochladen', route: 'einstellungen', zeige: 'Logo',
     stichw: ['logo', 'eigenes logo', 'firmenlogo', 'logo hochladen', 'bild kopf', 'briefkopf', 'logo rechnung', 'logo etikett', 'emblem', 'wappen', 'mein logo', 'logo einfuegen', 'logo einbinden'],
     antwort: 'In den Einstellungen unter „Eigenes Logo“ lädst du dein Logo hoch. Es erscheint im Kopf der App, auf Rechnungen und Etiketten.',
@@ -23132,11 +23189,11 @@ Object.assign(window, {
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginStammbaumHtml, koeniginLabel,
-  gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, pageHead, DASH_WIDGETS, fahrtSchnellBuchen,
+  gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   Seitenweise, seitenweise, LISTE_SCHRITT,
   ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
-  APP_WISSEN, Assistent, NAV, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
+  APP_WISSEN, Assistent, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,
   BEREICHE, bereichKurz, bereichIcon, dashAlleEintraege, dashBlock, dashLabel, dashIcon, dashIstLink, dashCfgListe, renderBottomNav,
@@ -23147,7 +23204,7 @@ Object.assign(window, {
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
   verbrauchAbziehenKette, verbrauchZurueckbuchen, abzugAnteil,
-  preisJeEinheit, MATERIAL_KATEGORIEN, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
+  preisJeEinheit, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,
   ZUGANG_ARTEN, MATERIAL_ZU_KASSE, kasseKategorieFuer, zugangKosten, zugangZurueckbuchen, materialZugangForm, lagerBewertung,
@@ -23155,7 +23212,7 @@ Object.assign(window, {
   inPackungen, bestandInPackungen, packungText,
   glasVorschlag, zubehoerVorschlag, besterPosten, GEBINDE_WOERTER, ZUBEHOER_WOERTER, DECKEL_WOERTER, ETIKETT_WOERTER,
   GEBINDE_PRESETS, gebindeLabel, gebindeGrammAus, glasOptionText, glasFeldKeys,
-  ABGANG_ARTEN, abgangErloes, materialAbgangForm,
+  ABGANG_ARTEN, abgangErloes, 
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
   VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, bioImArchiv, archivGrenze, kassenBereich, KASSE_BEREICHE, lagerBereichVon, PRODUKT_KATEGORIEN, chargeVerarbeitetKg, lohnIndexNeu, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
   bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
@@ -23165,7 +23222,7 @@ Object.assign(window, {
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,
-  selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungSummen, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, kontaktForm,
+  selbstkostenGlas, SELBSTKOSTEN_VORGABE, rechnungRabatt, ZAHLUNGSZIEL_VORGABE, 
   aufgabeVolkId, aufgabeBezug, aufgabeHinweisText, aufgabeHinweisKey, aufgabenAbgleich, aufgabeHinweisWeg,
   verdrahteVolkAuswahl, passtZuFilter,
   staendeNachBesuchen, wanderungPruefen, wanderungVoelkerUmziehen, altdatenVorbelegung, wanderungGrund, laborErgebnisUebernehmen,
