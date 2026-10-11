@@ -6947,7 +6947,7 @@ test('Anzeige-Dialoge öffnen und schließen, ohne etwas zu verändern', async (
 
     // Fahrten-Kachel aufklappen: nur Anzeige, keine Buchung
     const host = w.document.createElement('div');
-    host.innerHTML = '<div class="card"><button id="ft"></button><div class="fahrt-row" data-mehr></div></div>';
+    host.innerHTML = '<div class="card"><button id="ft"></button><div class="fahrt-row" data-fw-mehr></div></div>';
     w.document.body.appendChild(host);
     try { w.fahrtWidgetToggle(host.querySelector('#ft')); } finally { host.remove(); }
 
@@ -10247,7 +10247,7 @@ test('Archiv: Einträge älter als 2 Jahre wandern aus der Liste ins Archiv, off
     await w.DB.put('bioeintraege', { bereich: 'honiglager', datum: neu, temperatur: 12, feuchte: 51 });
     const box = w.document.createElement('div');
     await w.Views.bio.tabListe(box, 'honiglager');
-    assertEq(box.querySelectorAll('.rows > .row').length, 2, 'ein aktueller Eintrag in der Liste plus einer im Archiv');
+    assertEq(box.querySelectorAll('.rows > .row, .rows > .wisch > .row').length, 2, 'ein aktueller Eintrag in der Liste plus einer im Archiv');
     assert(box.querySelector('details[data-archiv]') && /Archiv – älter als 2 Jahre \(1\)/.test(box.querySelector('details[data-archiv] summary').textContent), 'Archiv mit Zähler');
     assertEq(box.querySelectorAll('details[data-archiv] .row').length, 1, 'genau ein Eintrag im Archiv');
     w.Pdf.lastDocForTest = null; await w.Pdf.bioArchiv('honiglager');
@@ -11683,4 +11683,178 @@ test('Schnell-Durchsicht: Einstiege an Stand, Volk und QR-Aufkleber; Imme kennt 
     assertEq(erst('Durchsicht am Stand'), 'schnell-durchsicht');
     assertEq(erst('Durchsicht eintragen'), 'durchsicht', 'normale Durchsicht bleibt erste Antwort');
   } finally { w.makeQr = qr; host.remove(); dialogeSchliessen(w); }
+}));
+
+/* ---------- Wischen in Listen: Bearbeiten / Löschen ---------- */
+function zeiger(w, el, typ, x, y) {
+  el.dispatchEvent(new w.PointerEvent(typ, { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 7, pointerType: 'touch', isPrimary: true, button: 0 }));
+}
+function wische(w, row, dx, dy = 0) {
+  const r = row.getBoundingClientRect(), x = r.left + r.width - 30, y = r.top + r.height / 2;
+  zeiger(w, row, 'pointerdown', x, y);
+  for (let i = 1; i <= 5; i++) zeiger(w, row, 'pointermove', x + dx * i / 5, y + dy * i / 5);
+  zeiger(w, row, 'pointerup', x + dx, y + dy);
+}
+test('Wischen: Zeile öffnet nach links, Tippen schließt, senkrecht bleibt Scrollen, Knöpfe rufen die Aktion', async (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = 'width:360px;position:relative';
+  host.innerHTML = `<div class="card"><div class="rows">${['a', 'b'].map((id) => `<button class="row" data-id="${id}"><span class="r-main"><span class="r-title">Zeile ${id}</span></span></button>`).join('')}</div></div>`;
+  w.document.body.appendChild(host);
+  const geklickt = [], aktion = [];
+  host.addEventListener('click', (e) => { const r = e.target.closest('.row[data-id]'); if (r) geklickt.push(r.dataset.id); });
+  try {
+    w.Wisch.liste(host, '.row[data-id]', { bearbeiten: (r) => aktion.push('b:' + r.dataset.id), loeschen: (r) => aktion.push('l:' + r.dataset.id) });
+    const [a, b] = host.querySelectorAll('.row');
+    assert(a.parentElement.classList.contains('wisch') && a.parentElement.querySelector('[data-wisch="bearbeiten"]') && a.parentElement.querySelector('[data-wisch="loeschen"]'), 'Hülle mit beiden Knöpfen');
+    w.Wisch.liste(host, '.row[data-id]', { bearbeiten: () => {} });
+    assertEq(host.querySelectorAll('.wisch').length, 2, 'zweimal anhängen verdoppelt nichts');
+    a.click(); assertEq(geklickt, ['a'], 'Antippen öffnet wie bisher');
+    wische(w, a, 0, 120);
+    assert(!a.parentElement.classList.contains('auf'), 'senkrecht: keine Öffnung (Scrollen)');
+    wische(w, a, -150);
+    assert(a.parentElement.classList.contains('auf') && /translateX\(-/.test(a.style.transform), 'nach links gewischt: offen');
+    a.click(); assertEq(geklickt, ['a'], 'Klick direkt nach dem Wischen öffnet nichts');
+    await new Promise((r) => setTimeout(r, 450));
+    wische(w, b, -150);
+    assert(b.parentElement.classList.contains('auf') && !a.parentElement.classList.contains('auf'), 'nur eine Zeile ist offen');
+    await new Promise((r) => setTimeout(r, 450));
+    b.click(); assertEq(geklickt, ['a'], 'Tippen auf die offene Zeile schließt sie nur');
+    assert(!b.parentElement.classList.contains('auf'), 'wieder zu');
+    wische(w, b, -40);
+    assert(!b.parentElement.classList.contains('auf'), 'kurzer Wisch schnappt zurück');
+    wische(w, a, -150);
+    a.parentElement.querySelector('[data-wisch="loeschen"]').click();
+    await new Promise((r) => setTimeout(r, 20));
+    a.parentElement.querySelector('[data-wisch="bearbeiten"]').click();
+    await new Promise((r) => setTimeout(r, 20));
+    assertEq(aktion, ['l:a', 'b:a'], 'Knöpfe rufen ihre Aktion mit der Zeile');
+    assertEq(geklickt, ['a'], 'Knopf-Klick öffnet nicht zusätzlich die Zeile');
+  } finally { host.remove(); w.Wisch.offen = null; }
+});
+test('Wischen: „Löschen“ nimmt in jeder Liste den Weg des Formulars (Rückfrage → Papierkorb)', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const heute = w.U.todayIso();
+  const st = await w.DB.put('staende', { name: 'W-Stand', lat: null, lng: null, notizen: '' });
+  const st2 = await w.DB.put('staende', { name: 'W-Ziel', lat: null, lng: null, notizen: '' });
+  const v = await w.DB.put('voelker', { name: 'W-Volk', standId: st.id, status: 'aktiv', historie: [], beutentyp: 'Zander', funktion: 'Wirtschaftsvolk' });
+  const conf = w.UI.confirm, jn = w.frageJaNein;
+  w.UI.confirm = async () => true; w.frageJaNein = async () => 'nein';
+  const fehler = [];
+  const host = w.document.createElement('div'); host.style.width = '380px'; w.document.body.appendChild(host);
+  async function fall(name, store, rec, zeichne, { pruef } = {}) {
+    try {
+      const r = await w.DB.put(store, rec);
+      host.innerHTML = '';
+      await zeichne(host);
+      const zeile = [...host.querySelectorAll('.wisch')].find((x) => x.lastElementChild && Object.values(x.lastElementChild.dataset).includes(r.id));
+      if (!zeile) { fehler.push(`${name}: keine Wisch-Zeile`); return; }
+      const knopf = zeile.querySelector('[data-wisch="loeschen"]');
+      if (!knopf) { fehler.push(`${name}: kein Löschen-Knopf`); return; }
+      knopf.click();
+      const ok = await warteBis(async () => (pruef ? await pruef(r) : !(await w.DB.get(store, r.id))), 3000);
+      if (!ok) fehler.push(`${name}: nicht gelöscht`);
+      await new Promise((res) => setTimeout(res, 60));
+      if ([...w.document.querySelectorAll('.modal-back')].length) { fehler.push(`${name}: Fenster bleibt offen`); dialogeSchliessen(w); }
+    } catch (e) { fehler.push(`${name}: ${e.message}`); }
+  }
+  try {
+    await fall('Durchsicht', 'stockkarten', { volkId: v.id, datum: heute, volksstaerke: 3 }, (h) => w.Views.volk.tabStockkarte(h, v));
+    await fall('Fütterung', 'fuetterungen', { volkId: v.id, datum: heute, mengeKg: 5, art: 'Sirup 3:2', futterart: 'Sirup' }, (h) => w.Views.fuetterung.render(h));
+    await fall('Tracht', 'trachten', { name: 'W-Raps', art: 'Raps' }, (h) => w.Views.trachten.render(h));
+    await fall('Wanderung', 'wanderungen', { datum: heute, vonStandId: st.id, nachStandId: st2.id, volkIds: [], notiz: '' }, (h) => w.Views.wanderungen.render(h));
+    await fall('Kontakt', 'kontakte', { typ: 'kunde', name: 'W-Kundin' }, (h) => w.Views.kontakte.render(h));
+    await fall('Bio-Eintrag', 'bioeintraege', { bereich: 'foerderung', programm: 'W-Förderung', datum: heute, status: 'geplant' }, (h) => w.Views.bio.tabListe(h, 'foerderung'));
+    await fall('Ernte', 'ernten', { datum: heute, mengeKg: 12, sorte: 'Raps', volkIds: [v.id] }, (h) => w.Views.honig.tabErnten(h));
+    await fall('Charge', 'chargen', { losnummer: 'W-L1', ernteIds: [], mengeKg: 0, datum: heute }, (h) => w.Views.honig.tabChargen(h));
+    await fall('Buchung', 'kassenbuch', { datum: heute, typ: 'ausgabe', kategorie: 'Sonstiges', betrag: 5, steuersatz: 0, beschreibung: 'W-Buchung' }, (h) => w.Views.kassenbuch.tabBuchungen(h));
+    await fall('Inventar', 'inventar', { typ: 'inventar', bezeichnung: 'W-Beute', kategorie: 'Beuten', stueckzahl: 1 }, (h) => w.Views.inventar.render(h));
+    await fall('Zeiteintrag', 'aufgaben', { titel: 'W-Zeit', erledigt: true, zeitMinuten: 30, kategorie: 'Sonstiges', faellig: heute, quelle: 'manuell' }, (h) => w.Views.zeiten.render(h));
+    await fall('Aufgabe', 'aufgaben', { titel: 'W-Aufgabe', erledigt: false, faellig: heute, quelle: 'manuell' }, (h) => w.Views.aufgaben.render(h));
+    await fall('Fahrt', 'fahrten', { datum: heute, km: 12, zweck: 'Durchsicht', standId: st.id }, (h) => w.Views.fahrten.render(h));
+    await fall('Königin', 'koeniginnen', { kennung: 'W-Q', jahrgang: +heute.slice(0, 4), status: 'aktiv', historie: [] }, (h) => w.Views.koeniginnen.render(h));
+    await fall('Volk (Auflösen)', 'voelker', { name: 'W-Volk2', standId: st.id, status: 'aktiv', historie: [] }, (h) => w.Views.voelker.render(h),
+      { pruef: async (r) => (await w.DB.get('voelker', r.id)).status === 'aufgeloest' });
+    await fall('Stand', 'staende', { name: 'W-Stand-weg', lat: null, lng: null, notizen: '' }, (h) => w.Views.staende.render(h));
+    await fall('Zuchtserie', 'zuchtserien', { name: 'W-Serie', startdatum: heute, anzahl: 10, termine: w.zuchtTermine ? w.zuchtTermine(heute) : [], linie: '' }, (h) => w.Views.zucht.render(h));
+    await fall('Behandlung', 'behandlungen', { volkId: v.id, datum: heute, mittel: 'Oxalsäure', wirkstoff: 'Oxalsäure', menge: '', einheit: 'ml', wartezeitTage: 0, volkIds: [v.id] }, (h) => w.Views.behandlungen.render(h));
+    const ch = await w.DB.put('chargen', { losnummer: 'W-L2', ernteIds: [], mengeKg: 10, datum: heute });
+    await fall('Abfüllung', 'abfuellungen', { chargeId: ch.id, datum: heute, gebindeG: 500, anzahl: 4, bestand: 4 }, (h) => w.Views.honig.tabAbfuellung(h));
+    await fall('Geschäftskosten', 'kassenbuch', { datum: heute, typ: 'ausgabe', kategorie: 'Allgemeine Geschäftskosten', betrag: 30, steuersatz: 0, beschreibung: 'W-Versicherung' }, (h) => w.Views.kassenbuch.tabGeschaeftskosten(h));
+    await fall('Volk am Stand (Auflösen)', 'voelker', { name: 'W-Volk3', standId: st.id, status: 'aktiv', historie: [] }, (h) => w.Views.stand.render(h, st.id),
+      { pruef: async (r) => (await w.DB.get('voelker', r.id)).status === 'aufgeloest' });
+    assertEq(fehler, [], 'jede Liste löscht per Wischen');
+    const pk = await w.DB.getAll('papierkorb');
+    assert(pk.some((p) => p.store === 'trachten') && pk.some((p) => p.store === 'staende'), 'gelöschtes liegt im Papierkorb');
+  } finally { w.UI.confirm = conf; w.frageJaNein = jn; host.remove(); dialogeSchliessen(w); }
+}));
+test('Wischen: Abbrechen der Rückfrage löscht nichts und lässt kein unsichtbares Fenster zurück', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const t = await w.DB.put('trachten', { name: 'Bleibt', art: 'Linde' });
+  const conf = w.UI.confirm; w.UI.confirm = async () => false;
+  try {
+    let erg;
+    erg = await w.UI.nurLoeschen(() => w.Views.trachten.render(w.document.createElement('div')));
+    assertEq(erg, null, 'ohne Formular: null');
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    await w.Views.trachten.render(host);
+    const knopf = host.querySelector('.wisch [data-wisch="loeschen"]');
+    knopf.click();
+    await new Promise((r) => setTimeout(r, 150));
+    assert(await w.DB.get('trachten', t.id), 'noch da');
+    assertEq(w.document.querySelectorAll('.modal-back').length, 0, 'kein Fenster bleibt hängen');
+    host.remove();
+  } finally { w.UI.confirm = conf; dialogeSchliessen(w); }
+}));
+test('Startseite: Widget „Durchsicht am Stand“ – am längsten nicht durchgesehen oben, Weiter bei laufendem Durchgang', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso();
+  const a = await w.DB.put('staende', { name: 'Alt-Stand' });
+  const b = await w.DB.put('staende', { name: 'Frisch-Stand' });
+  await w.DB.put('staende', { name: 'Leer-Stand' });
+  const va = await w.DB.put('voelker', { name: 'A1', standId: a.id, status: 'aktiv', historie: [] });
+  const vb = await w.DB.put('voelker', { name: 'B1', standId: b.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'Ohne', standId: 'geloeschter-stand', status: 'aktiv', historie: [] });
+  await w.DB.put('stockkarten', { volkId: va.id, datum: w.U.addDays(heute, -16) });
+  await w.DB.put('stockkarten', { volkId: vb.id, datum: w.U.addDays(heute, -2) });
+  const sd = w.Views.durchsicht; sd._erledigt = new Set(); sd._entwuerfe.clear(); sd._ende = false; sd._zuletzt = null;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    host.innerHTML = await w.DASH_WIDGETS.durchsicht.html();
+    const zeilen = [...host.querySelectorAll('.sd-wrow')].map((r) => r.textContent.replace(/\s+/g, ' ').trim());
+    assertEq(zeilen.length, 3, 'Stände mit Völkern + „ohne Stand“ (gelöschter Stand zählt dazu), leerer Stand fehlt');
+    assert(/Völker ohne Stand.*noch keine Durchsicht/.test(zeilen[0]) && /Alt-Stand.*vor 16 Tagen/.test(zeilen[1]) && /Frisch-Stand.*vor 2 Tagen/.test(zeilen[2]), 'Reihenfolge: ' + zeilen.join(' | '));
+    assert(host.querySelectorAll('.sd-wrow .btn-primary').length === 2 && host.querySelector('.sd-wrow:last-child .btn-ghost'), 'fällige Stände hervorgehoben');
+    assert(!host.querySelector('.sd-weiter'), 'kein Durchgang → kein „Weiter“');
+    sd._zuletzt = vb.id; sd.entwurf(vb.id).antworten.volksstaerke = 4;
+    host.innerHTML = await w.DASH_WIDGETS.durchsicht.html();
+    assert(/Weiter bei B1.*Frisch-Stand · 0 von 1 gespeichert/.test(host.querySelector('.sd-weiter').textContent.replace(/\s+/g, ' ')), 'Weiter-Zeile');
+    await w.Views.durchsicht.standStarten(a.id);
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + va.id), 'Starten öffnet das erste Volk des Stands');
+    await w.Views.durchsicht.standStarten('');
+    assert(await warteBis(() => /#\/durchsicht\//.test(w.location.hash) && w.location.hash !== '#/durchsicht/' + va.id), 'auch „ohne Stand“ startet');
+    assert(w.S.defaults.dashboardWidgets.includes('durchsicht'), 'neue Installationen haben das Widget');
+  } finally { host.remove(); sd._entwuerfe.clear(); sd._zuletzt = null; w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));
+test('Fahrten-Widget: „Fahrt buchen“ ab dem sechsten Stand wird nicht vom „Weitere anzeigen“ verschluckt', async (w) => isolierteDaten(w, async () => {
+  for (let i = 1; i <= 7; i++) await w.DB.put('staende', { name: 'Stand ' + i, kmEntfernung: i });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const orig = w.fahrtSchnellBuchen; let gebucht = null;
+  w.fahrtSchnellBuchen = (id) => { gebucht = id; };
+  try {
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    const versteckt = host.querySelector('.fahrt-row[data-fw-mehr]');
+    assert(versteckt && !host.querySelector('.fahrt-row[data-mehr]'), 'eigene Markierung');
+    w.fahrtWidgetToggle(host.querySelector('.fahrt-toggle'));
+    versteckt.querySelector('button').click();
+    assert(gebucht, 'Buchen-Knopf reagiert');
+  } finally { w.fahrtSchnellBuchen = orig; host.remove(); }
+}));
+test('Königin bearbeiten: Formular öffnet für eine bestehende Königin (Abstammung braucht die Nachschlage-Tabelle)', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'M-1', jahrgang: 2024, status: 'aktiv', historie: [] });
+  const q = await w.DB.put('koeniginnen', { kennung: 'T-1', jahrgang: 2026, status: 'aktiv', mutterId: mutter.id, historie: [] });
+  try {
+    await w.Views.koeniginnen.form(q);
+    const m = [...w.document.querySelectorAll('.modal')].pop();
+    assert(m && /Königin bearbeiten/.test(m.textContent), 'Formular ist offen');
+  } finally { dialogeSchliessen(w); }
 }));
