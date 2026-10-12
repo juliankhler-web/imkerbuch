@@ -12243,8 +12243,10 @@ test('Mulde: „Mehr“ fließt hin, der Kreis bläht sich auf, „Alle Bereiche
     w.document.querySelector('#bottomnav [data-more]').click();
     assertEq(w.Mulde.mehrOffen, true, 'Kreis ist auf dem Weg zu „Mehr“');
     assert(w.document.querySelector('#bottomnav').classList.contains('mehr-offen'), 'Symbol des aktuellen Bereichs bleibt sichtbar');
-    assert(w.document.querySelector('.modal-back.kreis-auf'), '„Alle Bereiche“ wird sofort gebaut (gegen das Ruckeln) …');
-    assertEq(w.getComputedStyle(w.document.querySelector('.modal-back.kreis-auf')).visibility, 'hidden', '… aber erst gezeigt, wenn der Kreis aufgebläht ist');
+    // erst die Bewegung, dann (im nächsten Bild) das Blatt – noch unsichtbar, bis der Kreis groß genug ist
+    await warteBis(() => w.document.querySelector('.modal-back.kreis-auf'), 2000);
+    const blatt = w.document.querySelector('.modal-back.kreis-auf');
+    assert(blatt.classList.contains('kreis-da') || w.getComputedStyle(blatt).visibility === 'hidden', 'erst gezeigt, wenn der Kreis aufgebläht ist');
     await warteBis(() => w.document.querySelector('.modal-back.kreis-da'), 4000);
     const ballon = w.document.querySelector('.bn-ballon');
     assert(ballon && ballon.offsetWidth <= 600, 'der aufgeblähte Kreis liegt darunter – als handliche Ebene, hochskaliert');

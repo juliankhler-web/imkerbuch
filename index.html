@@ -244,7 +244,7 @@ html[data-theme="dark"] .modal-back.kreis-auf .sheet-grid button{box-shadow:0 6p
 .modal-back.kreis-auf{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;padding:0;align-items:stretch;animation:none;visibility:hidden}
 .modal-back.kreis-auf.kreis-da{visibility:visible}
 .modal-back.kreis-auf .modal{max-width:none;width:100%;max-height:none;height:100%;border-radius:0;box-shadow:none;background:transparent;opacity:0;animation:none}
-.modal-back.kreis-auf.kreis-da .modal{opacity:1;animation:kreisInhalt .24s cubic-bezier(.2,.8,.3,1) both}
+.modal-back.kreis-auf.kreis-da .modal{opacity:1;animation:kreisInhalt .18s cubic-bezier(.2,.8,.3,1) both}
 .modal-back.kreis-auf .modal-head{padding-top:calc(16px + env(safe-area-inset-top));border-bottom-color:transparent}
 .modal-back.kreis-auf .modal-body{padding-bottom:calc(20px + env(safe-area-inset-bottom))}
 @keyframes kreisInhalt{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
@@ -1354,8 +1354,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.52';
+const APP_VERSION = '2.53';
 const CHANGELOG = [
+  { version: '2.53', datum: '2026-10-12', punkte: [
+    'Untere Leiste spürbar flotter: der Wechsel zwischen Bereichen dauert rund 0,4 statt 0,6 Sekunden.',
+    '„Mehr“ reagiert sofort: Der Kreis bläht sich nach etwa einer Zehntelsekunde auf, nach rund einer Drittelsekunde steht „Alle Bereiche“. Das Menü wird erst gebaut, wenn die Bewegung schon läuft – so hält nichts mehr ihren Start auf. Schließen geht ebenfalls schneller.',
+  ] },
   { version: '2.52', datum: '2026-10-11', punkte: [
     '„Mehr“ ohne Ruckeln: „Alle Bereiche“ wird schon beim Antippen vorbereitet, und der Kreis bläht sich auf, während er auftaucht – eine durchgehende Bewegung. Die Seite dunkelt dabei leicht ab, damit man den Kreis wachsen sieht.',
     '„Alle Bereiche“: Kacheln als weiße Karten auf der Seitenfarbe – klar zu erkennen.',
@@ -3786,17 +3790,24 @@ function renderChrome() {
       Mulde.mehrOffen = true;
       bn.classList.add('mehr-offen');      // der Kreis geht zu „Mehr“: das Symbol des aktuellen Bereichs bleibt sichtbar
       const auftrag = Mulde._mehrAuftrag = {};
-      /* Gegen das Ruckeln: „Alle Bereiche“ wird SOFORT gebaut (noch unsichtbar) – nicht erst am Ende, wo das
-         Aufbauen der Kacheln einen Hänger machte. Der Kreis bläht sich schon auf, während er bei „Mehr“
-         auftaucht, statt erst zur Ruhe zu kommen: eine durchgehende Bewegung. */
-      Mulde._mehrBlatt = openMoreSheet({ ausKreis: true });
-      const dauer = 520;
+      /* Flott und ohne Hänger (Julian: „wirkt als würde es laggen, dauert zu lange“):
+         1. ZUERST startet die Bewegung – sie läuft auf der Grafikkarte weiter, egal was der Hauptfaden tut.
+         2. „Alle Bereiche“ wird erst gebaut, wenn das erste Bild der Bewegung steht. Vorher baute es direkt
+            beim Antippen und hielt so den Start der Bewegung auf – genau das fühlte sich wie Laggen an.
+         3. Der Kreis bläht sich schon auf, während er bei „Mehr“ auftaucht; der Inhalt erscheint, bevor er
+            ganz gewachsen ist. Nach rund einer Drittelsekunde steht „Alle Bereiche“. */
+      const dauer = Mulde.DAUER_MEHR;
       Mulde.gehe(Mulde.ziel(), { dauer });
-      setTimeout(async () => {
+      requestAnimationFrame(() => setTimeout(() => {
+        if (Mulde._mehrAuftrag === auftrag) Mulde._mehrBlatt = openMoreSheet({ ausKreis: true });
+      }, 0));
+      setTimeout(() => {
         if (Mulde._mehrAuftrag !== auftrag) return;
-        await Mulde.aufblaehen();
-        if (Mulde._mehrAuftrag === auftrag && Mulde._mehrBlatt) Mulde._mehrBlatt.el.classList.add('kreis-da');
-      }, dauer * 0.74);
+        Mulde.aufblaehen();
+        setTimeout(() => {
+          if (Mulde._mehrAuftrag === auftrag && Mulde._mehrBlatt) Mulde._mehrBlatt.el.classList.add('kreis-da');
+        }, Mulde.DAUER_AUF * 0.6);
+      }, dauer * 0.3);
       return;
     }
     // Während der Kreis noch zu „Mehr“ fließt, ein anderer Bereich: „Alle Bereiche“ fällt aus
@@ -3868,7 +3879,7 @@ function renderBottomNav() {
    ===================================================================== */
 const Mulde = {
   mq: matchMedia('(max-width:900px) and (orientation:portrait)'),
-  R: 25, SPALT: 5, Y: 3, F: 14, BAND: 0, DAUER: 620, DAUER_AUF: 460, DAUER_ZU: 360,
+  R: 25, SPALT: 5, Y: 3, F: 14, BAND: 0, DAUER: 440, DAUER_AUF: 340, DAUER_ZU: 260, DAUER_MEHR: 340,
   zustand: null,          // { c, sicht, icon } – wo die Mulde gerade steht
   mehrOffen: false,
   _anim: [],
@@ -4103,7 +4114,7 @@ function openMoreSheet({ ausKreis = false } = {}) {
     /* Beim Schließen: Inhalt blendet aus, der Ballon fällt in den Kreis zusammen, dann fließt die Mulde zurück */
     vorSchliessen: ausKreis ? async (back) => {
       const modal = $('.modal', back);
-      if (modal && modal.animate) await Promise.race([modal.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' }).finished.catch(() => {}), new Promise((r) => setTimeout(r, 300))]);
+      if (modal && modal.animate) await Promise.race([modal.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, fill: 'forwards' }).finished.catch(() => {}), new Promise((r) => setTimeout(r, 200))]);
       back.style.visibility = 'hidden';
       await Mulde.zusammenfallen();
     } : null,
