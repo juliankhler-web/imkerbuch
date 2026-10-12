@@ -215,7 +215,9 @@ html[data-theme="dark"] .bottomnav{box-shadow:0 12px 30px -10px rgba(0,0,0,.6)}
   .bn-kerbe svg{position:absolute;display:block;overflow:visible}
   .bn-kerbe path:first-child{fill:var(--bg)}
   /* Kreis mit Symbol */
-  .bn-blase{display:block;position:absolute;left:-25px;top:-25px;width:50px;height:50px;border-radius:50%;background:var(--card);z-index:2;pointer-events:none;will-change:transform}
+  /* z-index 0 = HINTER den Symbolen: abgetaucht liegt der weiße Kreis unsichtbar in der weißen Leiste – läge er
+     darüber, verdeckte er dort ein Symbol (Julians Foto: „Mehr“ nur halb zu sehen, nachdem er auf „Aufgaben“ war) */
+  .bn-blase{display:block;position:absolute;left:-25px;top:-25px;width:50px;height:50px;border-radius:50%;background:var(--card);z-index:0;pointer-events:none;will-change:transform}
   /* nur ein Hauch – im Vorbild ist der Spalt um den Kreis sauber in Seitenfarbe */
   .bn-blase-schatten{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 1px rgba(60,45,10,.10),0 4px 10px -4px rgba(60,45,10,.35);will-change:opacity}
   html[data-theme="dark"] .bn-blase-schatten{box-shadow:0 0 0 1px rgba(255,255,255,.08),0 4px 12px -4px rgba(0,0,0,.7)}
@@ -1354,8 +1356,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.53';
+const APP_VERSION = '2.54';
 const CHANGELOG = [
+  { version: '2.54', datum: '2026-10-12', punkte: [
+    'Behoben: Nach „Mehr“ und einem Bereich, der nicht in der unteren Leiste steht, war das „Mehr“-Symbol nur halb zu sehen. Der abgetauchte Kreis lag unsichtbar darüber – jetzt liegt er hinter den Symbolen und verdeckt keins mehr, auch nicht während des Wechsels.',
+  ] },
   { version: '2.53', datum: '2026-10-12', punkte: [
     'Untere Leiste spürbar flotter: der Wechsel zwischen Bereichen dauert rund 0,4 statt 0,6 Sekunden.',
     '„Mehr“ reagiert sofort: Der Kreis bläht sich nach etwa einer Zehntelsekunde auf, nach rund einer Drittelsekunde steht „Alle Bereiche“. Das Menü wird erst gebaut, wenn die Bewegung schon läuft – so hält nichts mehr ihren Start auf. Schließen geht ebenfalls schneller.',
@@ -3915,7 +3920,7 @@ const Mulde = {
     const bn = $('#bottomnav'); if (!bn || !$('.bn-kerbe', bn)) return;
     const M = Mulde;
     $('.bn-kerbe', bn).style.transform = M.T(z.c, 1, z.sicht ? 1 : 0);
-    $('.bn-blase', bn).style.transform = z.sicht ? M.B(z.c, M.Y, 1) : M.B(z.c, M.tief(), 0.45);
+    $('.bn-blase', bn).style.transform = z.sicht ? M.B(z.c, M.Y, 1) : M.B(z.c, M.tief(), 0.2);
     $('.bn-blase-schatten', bn).style.opacity = z.sicht ? '1' : '0';
     const ic = $('.bn-blase-ic', bn);
     ic.style.opacity = z.sicht ? '1' : '0';
@@ -3930,7 +3935,7 @@ const Mulde = {
     const SX = 1.75, SY = 0.58;
     const symbolWeg = [{ offset: 0, opacity: 1, transform: 'scale(1)' }, { offset: 0.07, opacity: 0, transform: 'scale(.6)' }, { offset: 1, opacity: 0, transform: 'scale(.6)' }];
     const aufsteigen = (c, ab) => [
-      { offset: ab, transform: B(c, tief, 0.45), easing: raus },
+      { offset: ab, transform: B(c, tief, 0.2), easing: raus },
       { offset: 0.8, transform: B(c, M.Y - 5, 1.05), easing: 'ease-in-out' },
       { offset: 0.91, transform: B(c, M.Y + 1, 0.99), easing: 'ease-out' },
       { offset: 1, transform: B(c, M.Y, 1) },
@@ -3946,7 +3951,7 @@ const Mulde = {
         ],
         blase: [
           { offset: 0, transform: B(von.c, M.Y, 1), easing: rein },
-          { offset: 0.14, transform: B(von.c, tief, 0.45), easing: weich },
+          { offset: 0.14, transform: B(von.c, tief, 0.2), easing: weich },
           ...aufsteigen(nach.c, 0.56),
         ],
         schatten: [{ offset: 0, opacity: 1 }, { offset: 0.1, opacity: 0 }, { offset: 0.72, opacity: 0 }, { offset: 1, opacity: 1 }],
@@ -3957,14 +3962,14 @@ const Mulde = {
     if (von.sicht) {     // Bereich steht nicht in der Leiste: abtauchen, Leiste wird glatt
       return {
         kerbe: [{ offset: 0, transform: T(von.c), easing: rein }, { offset: 0.25, transform: T(von.c, SX, SY), easing: weich }, { offset: 1, transform: T(von.c, SX, 0) }],
-        blase: [{ offset: 0, transform: B(von.c, M.Y, 1), easing: rein }, { offset: 0.14, transform: B(von.c, tief, 0.45) }, { offset: 1, transform: B(von.c, tief, 0.45) }],
+        blase: [{ offset: 0, transform: B(von.c, M.Y, 1), easing: rein }, { offset: 0.14, transform: B(von.c, tief, 0.2) }, { offset: 1, transform: B(von.c, tief, 0.2) }],
         schatten: [{ offset: 0, opacity: 1 }, { offset: 0.1, opacity: 0 }, { offset: 1, opacity: 0 }],
         ic: symbolWeg,
       };
     }
     return {            // aus glatter Leiste heraus: Welle entsteht am Ziel, Kreis steigt auf
       kerbe: [{ offset: 0, transform: T(nach.c, SX, 0), easing: weich }, { offset: 0.35, transform: T(nach.c, SX, SY), easing: raus }, { offset: 0.66, transform: T(nach.c, SX, SY), easing: raus }, { offset: 1, transform: T(nach.c) }],
-      blase: [{ offset: 0, transform: B(nach.c, tief, 0.45) }, ...aufsteigen(nach.c, 0.5)],
+      blase: [{ offset: 0, transform: B(nach.c, tief, 0.2) }, ...aufsteigen(nach.c, 0.5)],
       schatten: [{ offset: 0, opacity: 0 }, { offset: 0.72, opacity: 0 }, { offset: 1, opacity: 1 }],
       ic: [{ offset: 0, opacity: 0, transform: 'scale(.6)' }, { offset: 0.82, opacity: 0, transform: 'scale(.6)' }, { offset: 1, opacity: 1, transform: 'scale(1)' }],
     };

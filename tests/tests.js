@@ -12234,6 +12234,25 @@ test('Mulde: Leiste hat Mulde, Kreis und benannte Knöpfe; ohne aktiven Bereich 
     assertEq(bn.querySelector('.bn-blase-ic').style.opacity, '0');
   } finally { if (alt) w.Mulde.setze(alt); }
 });
+test('Mulde: abgetauchter Kreis verdeckt kein Symbol (Julians Foto: „Mehr“ nur halb zu sehen)', (w) => {
+  const bn = w.document.querySelector('#bottomnav');
+  const blase = bn.querySelector('.bn-blase'), mehr = bn.querySelector('[data-more]');
+  const alt = w.Mulde.zustand;
+  try {
+    // So war es auf dem iPhone: zuletzt bei „Mehr“, dann ein Bereich, der nicht in der Leiste steht
+    const rb = bn.getBoundingClientRect(), rm = mehr.getBoundingClientRect();
+    w.Mulde.setze({ c: rm.left + rm.width / 2 - rb.left, sicht: false, icon: '' });
+    assert(+w.getComputedStyle(blase).zIndex < +w.getComputedStyle(mehr).zIndex, 'der Kreis liegt hinter den Symbolen');
+    assert(/scale\(0\.2\)/.test(blase.style.transform), 'abgetaucht ist er nur noch ein Punkt');
+    if (w.getComputedStyle(blase).display !== 'none') {
+      const ic = mehr.querySelector('svg').getBoundingClientRect();
+      for (const y of [ic.top + ic.height * 0.6, ic.top + ic.height * 0.85]) {
+        const oben = w.document.elementFromPoint(ic.left + ic.width / 2, y);
+        assert(oben && !oben.closest('.bn-blase'), 'untere Hälfte des „Mehr“-Symbols ist frei');
+      }
+    }
+  } finally { if (alt) w.Mulde.setze(alt); }
+});
 test('Mulde: „Mehr“ fließt hin, der Kreis bläht sich auf, „Alle Bereiche“ liegt darauf; Schließen lässt ihn zusammenfallen', async (w) => {
   const altHash = w.location.hash;
   const alt = w.Mulde.an; w.Mulde.an = () => true;   // Testfenster ist evtl. nicht hochkant
