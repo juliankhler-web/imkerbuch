@@ -12401,3 +12401,14 @@ test('Etikett-Druck ist in der Store-Version ausgeblendet (nur Testmodus)', asyn
   assert(!w.APP_WISSEN.some((e) => /Etiketten drucken/.test(e.titel)), 'Imme verspricht keinen Etikettendruck');
   assert(quelle);
 });
+
+test('Königin ohne Bewertung: Weiter-Pfeil bleibt klein (kein Riesenpfeil)', async (w) => isolierteDaten(w, async () => {
+  const q = await w.DB.put('koeniginnen', { kennung: 'PF-1', jahrgang: 2026, status: 'aktiv', historie: [], bewertung: {} });
+  const host = w.document.createElement('main'); host.id = 'main-probe'; w.document.body.appendChild(host);
+  try {
+    await w.Views.koenigin.render(host, q.id);
+    const pfeile = [...host.querySelectorAll('svg.chev, .kpill svg')];
+    assert(pfeile.length, 'Pfeile vorhanden');
+    for (const p of pfeile) { const r = p.getBoundingClientRect(); assert(r.width <= 20 && r.height <= 20, `Pfeil ${Math.round(r.width)}×${Math.round(r.height)} px`); }
+  } finally { host.remove(); }
+}));
