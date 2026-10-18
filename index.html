@@ -1319,6 +1319,24 @@ const U = {
   },
 };
 const TEST_MODE = new URLSearchParams(location.search).has('testdb'); // Testseite nutzt eigene DB
+/* Beispieldaten gibt es nur für Julians Tests, nicht in der Store-Version.
+   Web: einmal mit ?testmodus=1 öffnen (das Gerät merkt es sich, ?testmodus=0
+   schaltet ab). App: nur mit `./native/sync-app.sh --testmodus` – das Skript
+   setzt die nächste Zeile in der App-Kopie auf true. */
+const TESTMODUS_APP = false;
+const Testmodus = {
+  an() {
+    if (TESTMODUS_APP) return true;
+    if (TEST_MODE) return !window.__ohneTestmodus;   // Testseite: an, außer ein Test schaltet ab
+    if (IST_NATIVE_APP) return false;
+    try {
+      const q = new URLSearchParams(location.search).get('testmodus');
+      if (q === '1') localStorage.setItem('imkerbuch.testmodus', '1');
+      if (q === '0') localStorage.removeItem('imkerbuch.testmodus');
+      return localStorage.getItem('imkerbuch.testmodus') === '1';
+    } catch (_) { return false; }
+  },
+};
 // Läuft die App als native Hülle (Capacitor, App Store / Play Store)? Dort entfallen
 // Browser-Themen wie Web-Updates und PWA-Speicher-Hinweise.
 const IST_NATIVE_APP = !!window.Capacitor || location.protocol === 'capacitor:';
@@ -5190,7 +5208,7 @@ const Wizard = {
       () => `
         <div class="steps"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i></div>
         <h2>Fast fertig!</h2>
-        <p class="muted small mt8">Möchtest du Beispieldaten laden, um dich umzusehen? Du kannst sie jederzeit wieder löschen (Einstellungen → Papierkorb bzw. Daten).</p>`,
+        <p class="muted small mt8">${Testmodus.an() ? 'Möchtest du Beispieldaten laden, um dich umzusehen? Du kannst sie jederzeit wieder löschen (Einstellungen → Papierkorb bzw. Daten).' : 'Deine Imkerei ist eingerichtet. Alles Weitere legst du an, wann du willst.'}</p>`,
     ];
     const renderStep = () => {
       bodyEl.innerHTML = steps[state.step]() + `
@@ -5198,7 +5216,7 @@ const Wizard = {
           ${state.step > 0 ? `<button class="btn btn-ghost" id="wz-back">Zurück</button>` : ''}
           <span class="spacer"></span>
           ${state.step === 3
-            ? `<button class="btn btn-ghost" id="wz-nodemo">Ohne Demo starten</button><button class="btn btn-primary" id="wz-demo">Demo-Daten laden</button>`
+            ? (Testmodus.an() ? `<button class="btn btn-ghost" id="wz-nodemo">Ohne Demo starten</button><button class="btn btn-primary" id="wz-demo">Demo-Daten laden</button>` : `<button class="btn btn-primary" id="wz-nodemo">Los geht’s</button>`)
             : `<button class="btn btn-ghost" id="wz-skip" title="Den Rest später einrichten">Überspringen</button><button class="btn btn-primary" id="wz-next">Weiter</button>`}
         </div>`;
       const save = () => {
@@ -22052,6 +22070,8 @@ const IMME_NAME = { id: 'imme', persona: true, titel: 'Warum heiße ich Imme?',
   antwort: '„Imme“ ist ein altes deutsches Wort für Biene (aus dem Althochdeutschen, mittelhochdeutsch „imme“). Das Wort steckt bis heute im „Imker“: Das kommt von Imme (Biene) und Kar (Korb) – ursprünglich war das der Mensch, der Bienenkörbe hält. In Gedichten und alten Imkerliedern lebt die „Imme“ weiter. Ich bin also einfach die Biene, die dir in der Imkerei hilft.',
   schritte: [] };
 APP_WISSEN.push(IMME_NAME);
+// Ohne Testmodus kennt Imme keine Beispieldaten (gibt es in der Store-Version nicht)
+if (!Testmodus.an()) { const i = APP_WISSEN.findIndex((e) => e.id === 'beispieldaten'); if (i >= 0) APP_WISSEN.splice(i, 1); }
 APP_WISSEN.push({ id: 'imme-aus', persona: true, titel: 'Imme ausschalten oder wieder einschalten', route: 'assistent', zeige: '',
   stichw: ['imme ausschalten', 'imme abschalten', 'imme deaktivieren', 'imme aus', 'imme an', 'imme einschalten', 'imme wieder einschalten', 'imme wieder an', 'imme weg', 'imme stoppen', 'imme verstecken', 'imme ausblenden', 'imme nervt', 'imme stoert', 'imme nicht mehr', 'assistent ausschalten', 'assistent abschalten', 'assistent deaktivieren', 'assistent aus', 'assistent einschalten', 'assistent beenden', 'assistent stoert', 'biene ausschalten', 'biene weg', 'biene ausblenden', 'hilfe ausschalten', 'hilfe abschalten', 'hilfe deaktivieren', 'huepft', 'springt', 'winkt', 'ohne imme', 'brauche imme nicht', 'brauche den assistenten nicht', 'nicht mehr brauchen'],
   antwort: 'Du kannst mich ausschalten: Öffne im Menü „Assistent“ und schieb den Regler „Imme ist aktiv“ nach links. Oder schreib mir einfach „ich brauche dich nicht mehr“. Dann schlafe ich oben im Dashboard (gedimmt, mit „z Z“), springe nicht mehr herunter und winke nicht. Wieder einschalten geht mit demselben Regler – oder tipp oben auf mich, dann kommst du direkt dorthin.',
@@ -23314,10 +23334,10 @@ Views.einstellungen = {
           </select></div>
       </div>
 
-      <div class="card"><div class="card-title">${icon('box')}<h2>Beispieldaten</h2></div>
+      ${Testmodus.an() ? `<div class="card"><div class="card-title">${icon('box')}<h2>Beispieldaten <span class="badge">Testmodus</span></h2></div>
         <div class="hint mb8">Füllt die App mit umfangreichen Demo-Daten (Stände, Völker, Königinnen, Honig, Rechnungen, Reporting, Zeiterfassung …) – ideal zum Ausprobieren oder für Screenshots. <b>Ersetzt alle aktuell vorhandenen Daten.</b></div>
         <button class="btn btn-ghost no-print" id="demo-load">${icon('box')} Beispieldaten laden</button>
-      </div>
+      </div>` : ''}
 
       <div class="card"><div class="card-title">${icon('doc')}<h2>Dokumententypen</h2></div>
         <p class="small muted mb12">Eigene Typen für Anhänge (z. B. „Kaufbeleg“, „Gesundheitszeugnis“) – zuweisbar und filterbar an jedem Dokument.</p>
@@ -23527,7 +23547,7 @@ Views.einstellungen = {
       reg.showNotification('🐝 ImkerBuch', { body: 'Probe-Benachrichtigung – so melden sich fällige Aufgaben.', tag: 'imkerbuch-test', icon: 'icon-192.png' });
     };
     $('#theme-sel').onchange = async (e) => { await S.set('darkMode', e.target.value); applyTheme(); };
-    $('#demo-load').onclick = async () => {
+    if ($('#demo-load')) $('#demo-load').onclick = async () => {
       if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher wird eine interne Kopie angelegt („Interne Snapshots“) – für eine Kopie außerhalb der App vorher eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
       await Demo.reset(); navTo('dashboard');
     };
@@ -23973,7 +23993,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,

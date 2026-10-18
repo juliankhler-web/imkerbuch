@@ -12370,3 +12370,27 @@ test('Etikett: ohne „Honig“ in der Bezeichnung fragt die App nach und bleibt
     assertEq(gefragt, '', 'keine Rückfrage');
   } finally { w.Pdf.honigEtikett = echt; w.UI.confirm = echtConfirm; w.document.querySelectorAll('#modal-root .modal-back').forEach((x) => x.remove()); }
 }));
+
+test('Beispieldaten nur im Testmodus (Store-Version ohne)', async (w) => isolierteDaten(w, async () => {
+  const host = w.document.createElement('main'); w.document.body.appendChild(host);
+  const zeigen = async () => { host.innerHTML = ''; await w.Views.einstellungen.render(host); return !!host.querySelector('#demo-load'); };
+  const wizard = () => {
+    w.Wizard.run();
+    const back = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    back.querySelector('#wz-vorname').value = 'Julian';
+    for (let i = 0; i < 3; i++) back.querySelector('#wz-next').click();
+    const demo = !!back.querySelector('#wz-demo'), los = back.querySelector('#wz-nodemo').textContent.trim();
+    back.remove(); return { demo, los };
+  };
+  try {
+    assert(w.Testmodus.an(), 'Testseite = Testmodus');
+    assert(await zeigen(), 'Testmodus: Knopf „Beispieldaten laden“ in den Einstellungen');
+    assert(wizard().demo, 'Testmodus: Willkommen bietet Demo-Daten an');
+    w.__ohneTestmodus = true;
+    assert(!w.Testmodus.an(), 'ohne Testmodus aus');
+    assert(!(await zeigen()), 'Store-Version: kein Beispieldaten-Knopf');
+    const wz = wizard();
+    assert(!wz.demo, 'Store-Version: Willkommen ohne Demo-Daten');
+    assertEq(wz.los, 'Los geht’s', 'nur „Los geht’s“');
+  } finally { w.__ohneTestmodus = false; host.remove(); }
+}));
