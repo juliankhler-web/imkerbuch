@@ -963,6 +963,7 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .einf-start{text-align:center;padding:4px 4px 0}
 .einf-start .einf-av{width:110px;height:110px;object-fit:contain;display:block;margin:0 auto 6px}
 .einf-start h2{margin:4px 0 8px}
+.lizenz-links{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
 /* Einführung: „Ja, zeig es mir“ groß oben, die beiden anderen darunter nebeneinander */
 .modal-foot .btn[data-ja]{flex:1 1 100%;order:-1}
 .detail-kv{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:13.5px}
@@ -2762,6 +2763,7 @@ const DB = {
   async schreibeAlles(ops) {
     const liste = (ops || []).filter(Boolean);
     if (!liste.length) return true;
+    Lizenz.pruefeSchreiben(liste.map((o) => o.store));
     const stores = [...new Set([...liste.map((o) => o.store), 'settings'])];
     const db = await this.open();
     const tx = db.transaction(stores, 'readwrite');
@@ -2803,6 +2805,7 @@ const DB = {
   /* Liest, prüft und schreibt unter EINER IndexedDB-Schreibsperre.
      berechne ist synchron und liefert { ops, wert }; keine UI oder awaits darin. */
   async aendereAtomar(stores, berechne) {
+    Lizenz.pruefeSchreiben(stores);
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const namen = [...new Set([...stores, 'settings'])];
@@ -2849,6 +2852,7 @@ const DB = {
     });
   },
   async trashRestore(trashId) {
+    Lizenz.pruefeSchreiben(['papierkorb']);
     // Vorab nur den Transaktionsumfang bestimmen; maßgeblich ist der erneute
     // Lesezugriff INNERHALB der Schreibtransaktion.
     const vorab = await this.get('papierkorb', trashId);
@@ -19815,6 +19819,123 @@ async function erinnerungAnbieten(aufgabe) {
 }
 
 /* =====================================================================
+   LIZENZ: 30 Tage kostenlos testen, dann Einmalkauf (Apple-Regel 3.1.1).
+   Die Testphase ist – wie Apple es verlangt – ein kostenloser Einmalkauf
+   („30-Tage-Testphase“, 0 €). Sein Kaufdatum ist der Start; er hängt an der
+   Apple-ID und lässt sich durch Neuinstallieren nicht neu starten.
+   Vollversion = Einmalkauf. Gratis-Zugänge über Apple-Angebotscodes.
+   Nach Ablauf: Daten bleiben lesbar und sicherbar, nur Neues/Ändern ist
+   gesperrt (Sperre zentral in DB.schreibeAlles/aendereAtomar/trashRestore).
+   Gilt nur in der Store-App; Web-Version und Testmodus: immer frei.
+   ===================================================================== */
+const LIZENZ_PRODUKTE = { test: 'de.imkerbuch.app.testphase30', voll: 'de.imkerbuch.app.vollversion' };
+const Lizenz = {
+  TAGE: 30,
+  plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativePurchases) || null; },
+  aktiv() { return !!this.plugin() && !Testmodus.an(); },   // Lizenzprüfung überhaupt nötig?
+  speicher() { return Object.assign({ voll: false, testStart: null, geprueft: null }, S.get('lizenz') || {}); },
+  /** 'voll' | 'test' | 'ohneTest' | 'abgelaufen' – rein rechnerisch (testbar). */
+  status(l = this.speicher(), jetzt = Date.now()) {
+    if (l.voll) return 'voll';
+    if (!l.testStart) return 'ohneTest';
+    return jetzt < Date.parse(l.testStart) + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
+  },
+  restTage(l = this.speicher(), jetzt = Date.now()) {
+    return l.testStart ? Math.max(0, Math.ceil((Date.parse(l.testStart) + this.TAGE * 864e5 - jetzt) / 864e5)) : this.TAGE;
+  },
+  gesperrt() {
+    if (!this.aktiv()) return false;
+    const st = this.status();
+    if (st === 'voll' || st === 'test') return false;
+    return st === 'abgelaufen' || !!S.get('wizardDone');   // Einrichten vor dem Teststart ist erlaubt
+  },
+  /** Zentrale Schreibsperre: Einstellungen und interne Sicherungen bleiben immer erlaubt. */
+  pruefeSchreiben(stores) {
+    if (!this.gesperrt()) return;
+    if ((stores || []).every((st) => st === 'settings' || st === 'snapshots')) return;
+    setTimeout(() => this.fenster(), 0);
+    const e = new Error(this.status() === 'abgelaufen' ? 'Die Testphase ist vorbei – Neues eintragen geht mit der Vollversion. Deine Daten bleiben lesbar und sicherbar.' : 'Starte zuerst die kostenlose Testphase.');
+    e.lizenz = true;
+    throw e;
+  },
+  /** Käufe beim App Store abfragen und den Stand merken (offline: letzter bekannter Stand). */
+  async abgleichen() {
+    const P = this.plugin(); if (!P) return this.speicher();
+    try {
+      // Ohne Netz kann die Abfrage hängen – nach 6 s mit dem letzten Stand weiter
+      const { purchases } = await Promise.race([P.getPurchases({ productType: 'inapp' }), new Promise((_, rej) => setTimeout(() => rej(new Error('Zeitüberschreitung')), 6000))]);
+      const gueltig = (purchases || []).filter((t) => !t.revocationDate);
+      const voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll);
+      const test = gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
+      await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso() }, { auto: true });
+    } catch (e) { console.warn('Käufe nicht abrufbar', e); }
+    return this.speicher();
+  },
+  _preise: null,
+  async preise() {
+    if (this._preise) return this._preise;
+    const P = this.plugin(); const p = { test: '0,00 €', voll: '14,99 €' };
+    if (P) try {
+      const { products } = await P.getProducts({ productIdentifiers: Object.values(LIZENZ_PRODUKTE), productType: 'inapp' });
+      for (const x of products || []) { if (x.identifier === LIZENZ_PRODUKTE.voll) p.voll = x.priceString; if (x.identifier === LIZENZ_PRODUKTE.test) p.test = x.priceString; }
+      this._preise = p;
+    } catch (e) { console.warn('Preise nicht abrufbar', e); }
+    return p;
+  },
+  async kaufen(art) {
+    const P = this.plugin(); if (!P) return false;
+    try {
+      await P.purchaseProduct({ productIdentifier: LIZENZ_PRODUKTE[art], productType: 'inapp' });
+    } catch (e) {
+      if (!/cancel/i.test(String(e && (e.message || e)))) UI.toast('Kauf nicht möglich: ' + (e.message || e) + ' – bist du online?', 'err');
+      return false;
+    }
+    await this.abgleichen();
+    UI.toast(art === 'voll' ? 'Danke! Die Vollversion ist freigeschaltet.' : `Testphase gestartet – ${this.TAGE} Tage alles frei.`);
+    return true;
+  },
+  async wiederherstellen() {
+    const P = this.plugin(); if (!P) return;
+    try { await P.restorePurchases(); } catch (e) { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }
+    const st = this.status(await this.abgleichen());
+    UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : 'Kein Kauf zu dieser Apple-ID gefunden.');
+  },
+  async codeEinloesen() {
+    const P = this.plugin(); if (!P) return;
+    try { await P.presentOfferCodeRedeemSheet(); } catch (e) { UI.toast('Code einlösen nicht möglich – bist du online?', 'err'); }
+  },
+  _offen: false,
+  /** Kauf-Fenster: vor dem Teststart, nach Ablauf und bei gesperrtem Schreiben. */
+  async fenster() {
+    if (this._offen || !this.aktiv()) return;
+    this._offen = true;
+    const pr = await this.preise();
+    const st = this.status();
+    const kopf = st === 'abgelaufen' ? 'Deine Testphase ist vorbei' : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
+    const text = st === 'abgelaufen'
+      ? `Danke fürs Ausprobieren! Deine Daten bleiben erhalten, lesbar und sicherbar. Neues eintragen und ändern geht mit der Vollversion – einmalig ${U.esc(pr.voll)}, kein Abo.`
+      : `Alle Funktionen, ohne Einschränkung. Danach einmalig ${U.esc(pr.voll)} für die Vollversion – kein Abo, keine automatische Abbuchung.`;
+    const m = UI.modal({ title: '', onClose: () => { this._offen = false; },
+      body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neue Einträge gehen dann mit der Vollversion. Die Testphase ist ein kostenloser Kauf (${U.esc(pr.test)}) im App Store – so geht sie bei einer Neuinstallation nicht verloren.</p>` : ''}
+        <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
+        <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen</a></p></div>`,
+      footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen · ${U.esc(pr.voll)}</button>` });
+    const fertig = (ok) => { if (ok) { m.close(); renderRoute(); } };
+    const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => fertig(await this.kaufen('test'));
+    m.el.querySelector('[data-voll]').onclick = async () => fertig(await this.kaufen('voll'));
+    m.el.querySelector('[data-wieder]').onclick = async () => { await this.wiederherstellen(); if (['voll', 'test'].includes(this.status())) fertig(true); };
+    m.el.querySelector('[data-code]').onclick = () => this.codeEinloesen();
+  },
+  async init() {
+    const P = this.plugin(); if (!P || !this.aktiv()) return;
+    // Eingelöste Codes und Käufe, die außerhalb der App abgeschlossen wurden, kommen hier an
+    try { P.addListener('transactionUpdated', () => this.abgleichen().then(() => renderRoute())); } catch (_) {}
+    await this.abgleichen();
+  },
+};
+
+/* =====================================================================
    BEWERTUNGS-NACHFRAGE (App) – Apples eigenes Bewertungsfenster nach einem
    guten Moment: frühestens nach 10 gespeicherten Durchsichten und 14 Tagen
    Nutzung, höchstens alle 120 Tage, insgesamt höchstens 3×. Nie beim Start,
@@ -22320,6 +22441,10 @@ const IMME_NAME = { id: 'imme', persona: true, titel: 'Warum heiße ich Imme?',
   antwort: '„Imme“ ist ein altes deutsches Wort für Biene (aus dem Althochdeutschen, mittelhochdeutsch „imme“). Das Wort steckt bis heute im „Imker“: Das kommt von Imme (Biene) und Kar (Korb) – ursprünglich war das der Mensch, der Bienenkörbe hält. In Gedichten und alten Imkerliedern lebt die „Imme“ weiter. Ich bin also einfach die Biene, die dir in der Imkerei hilft.',
   schritte: [] };
 APP_WISSEN.push(IMME_NAME);
+APP_WISSEN.push({ id: 'kauf', titel: 'Vollversion kaufen, Käufe wiederherstellen, Code einlösen', route: 'einstellungen', zeige: 'Vollversion',
+  stichw: ['kaufen', 'kauf', 'vollversion', 'testphase', 'test', 'abgelaufen', 'freischalten', 'wiederherstellen', 'kauf wiederherstellen', 'neues handy kauf', 'code', 'gutschein', 'coupon', 'angebotscode', 'preis', 'kosten', 'was kostet', 'bezahlen'],
+  antwort: 'ImkerBuch kannst du 30 Tage kostenlos testen, danach gibt es die Vollversion als Einmalkauf – kein Abo. Unter Einstellungen → „ImkerBuch Vollversion“ kaufst du, stellst Käufe auf einem neuen Gerät wieder her oder löst einen Code ein. Deine Daten bleiben auch nach der Testphase lesbar.',
+  schritte: ['Menü ▸ Einstellungen', 'Bereich „ImkerBuch Vollversion“', 'Kaufen, Wiederherstellen oder Code einlösen'] });
 APP_WISSEN.push({ id: 'einfuehrung', einfuehrung: true, titel: 'Einführung für Neulinge (Imme zeigt dir das Wichtigste)', route: 'dashboard', zeige: '',
   stichw: ['einfuehrung', 'rundgang', 'tour', 'neu hier', 'erste schritte', 'anfangen', 'wie fange ich an', 'wie geht das', 'zeig mir', 'erklaer mir die app', 'tutorial', 'anleitung', 'einstieg', 'loslegen'],
   antwort: 'Ich zeige dir in 5 kurzen Schritten das Wichtigste: Stand anlegen, Volk anlegen, erste Durchsicht, wo du alles findest und wie du deine Daten sicherst.',
@@ -23726,6 +23851,15 @@ Views.einstellungen = {
         <button class="btn btn-ghost btn-sm" onclick="navTo('papierkorb')">${icon('trash')} Papierkorb öffnen</button>
       </div>
 
+      ${Lizenz.aktiv() ? `<div class="card"><div class="card-title">${icon('check')}<h2>ImkerBuch Vollversion</h2></div>
+        <p class="small mb12">${{ voll: 'Vollversion freigeschaltet ✓ – danke!', test: `Testphase: noch <b>${Lizenz.restTage()} Tage</b>.`, ohneTest: 'Die kostenlose Testphase ist noch nicht gestartet.', abgelaufen: 'Die Testphase ist vorbei. Deine Daten bleiben lesbar und sicherbar; Neues eintragen geht mit der Vollversion.' }[Lizenz.status()]}</p>
+        <div class="flex-wrap no-print">
+          ${Lizenz.status() === 'voll' ? '' : `<button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">${icon('euro')} Vollversion kaufen</button>`}
+          <button class="btn btn-ghost btn-sm" type="button" onclick="Lizenz.wiederherstellen()">${icon('restore')} Käufe wiederherstellen</button>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="Lizenz.codeEinloesen()">${icon('qr')} Code einlösen</button>
+        </div>
+      </div>` : ''}
+
       <div class="card"><div class="card-title">${icon('doc')}<h2>Rechtliches</h2></div>
         <p class="small muted mb12">Impressum, Datenschutz und AGB – öffnen in einem neuen Tab.</p>
         <div class="flex-wrap no-print">
@@ -24308,6 +24442,8 @@ async function boot() {
   Notif.init();
   Erinnerung.init();
   Bewertung.init();
+  // Nicht auf Apple warten: Start mit dem letzten bekannten Stand, Abgleich im Hintergrund
+  Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); });
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -24334,11 +24470,13 @@ async function boot() {
     }).catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }
   if (!S.get('wizardDone') && !TEST_MODE) {
+    if (Lizenz.status() === 'ohneTest') setTimeout(() => Lizenz.fenster(), 400);   // vor dem Einrichten: Testphase anbieten
     Wizard.run();
     S.set('letzteGeseheneVersion', APP_VERSION, { auto: true }); // Neuinstallation: kein „Was ist neu?“-Fenster
   }
   await renderRoute();
   Splash.weg(); // App ist gezeichnet – Startbildschirm ausblenden
+  if (S.get('wizardDone') && Lizenz.gesperrt()) setTimeout(() => Lizenz.fenster(), 1200);
   Backup.updateBanners();
   zeigeUpdateFenster();
   setInterval(tagesbieneAktualisieren, 60000);   // Stundenwechsel bei offener App
@@ -24348,7 +24486,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, Lizenz, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,

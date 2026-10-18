@@ -12495,3 +12495,27 @@ test('Bewertungs-Nachfrage: nur nach gutem Moment, selten, höchstens 3×', (w) 
   assert(B.sollFragen(z({ zuletztGefragt: new Date(t0 + 15 * tag).toISOString(), mal: 1 }), t0 + 140 * tag), 'nach 120 Tagen wieder');
   assert(!B.sollFragen(z({ mal: 3 }), t0 + 400 * tag), 'höchstens 3×');
 });
+
+test('Lizenz: Testphase 30 Tage, danach nur lesen; Einstellungen bleiben schreibbar', async (w) => {
+  const L = w.Lizenz, tag = 864e5, t0 = Date.parse('2026-11-01T10:00:00Z');
+  assertEq(L.status({ voll: false, testStart: null }, t0), 'ohneTest');
+  assertEq(L.status({ voll: false, testStart: new Date(t0).toISOString() }, t0 + 29 * tag), 'test');
+  assertEq(L.restTage({ testStart: new Date(t0).toISOString() }, t0 + 29.5 * tag), 1, 'Rest aufgerundet');
+  assertEq(L.status({ voll: false, testStart: new Date(t0).toISOString() }, t0 + 30 * tag + 1000), 'abgelaufen');
+  assertEq(L.status({ voll: true, testStart: new Date(t0).toISOString() }, t0 + 400 * tag), 'voll');
+  // Sperre greift nur, wenn die Lizenzprüfung aktiv ist (Store-App) – hier gezielt nachgestellt
+  const echtAktiv = L.aktiv, echtFenster = L.fenster, echtSpeicher = L.speicher;
+  L.aktiv = () => true; L.fenster = () => {};
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+  try {
+    let fehler = null;
+    try { await w.DB.put('kontakte', { name: 'gesperrt' }); } catch (e) { fehler = e; }
+    assert(fehler && fehler.lizenz, 'Neues eintragen nach Ablauf gesperrt');
+    await w.S.set('probeEinstellung', 1, { auto: true });   // Einstellungen gehen weiter
+    assert((await w.DB.getAll('voelker')).length >= 0, 'Lesen geht');
+    L.speicher = () => ({ voll: true });
+    const k = await w.DB.put('kontakte', { name: 'mit Vollversion' });
+    await w.DB.del('kontakte', k.id);
+  } finally { L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
+  assert(!L.gesperrt(), 'Web/Testseite: nie gesperrt');
+});
