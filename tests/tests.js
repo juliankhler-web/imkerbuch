@@ -12561,3 +12561,18 @@ test('Wetter: Deutscher Wetterdienst – Messstation, sonst Vorhersage (z. B. Wi
     assert(fehler, 'Dienst weg → Fehler (Kachel zeigt „nicht abrufbar“)');
   } finally { w.fetch = echt; }
 });
+
+test('Lizenz Android: Testphase startet auf dem Gerät (kein 0-€-Kauf), Datum bleibt gerätebezogen', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, echtAndroid = L.android, echtPlugin = L.plugin;
+  L.android = () => true;
+  L.plugin = () => ({ getPurchases: async () => ({ purchases: [] }) });
+  try {
+    await w.S.set('testStartGeraet', null, { auto: true }); await w.S.set('lizenz', null, { auto: true });
+    assertEq(L.status(await L.abgleichen()), 'ohneTest', 'vor dem Start');
+    assert(await L.kaufen('test'), 'Testphase startet ohne Store-Kauf');
+    assertEq(L.status(), 'test'); assert(w.S.get('testStartGeraet'), 'Startdatum gemerkt');
+    assert(w.S.GERAET.has('testStartGeraet'), 'reist nicht in Sicherungen mit');
+    const vorher = w.S.get('testStartGeraet');
+    await L.kaufen('test'); assertEq(w.S.get('testStartGeraet'), vorher, 'zweites Tippen startet nicht neu');
+  } finally { L.android = echtAndroid; L.plugin = echtPlugin; await w.S.set('testStartGeraet', null, { auto: true }); await w.S.set('lizenz', null, { auto: true }); }
+}));

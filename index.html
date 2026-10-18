@@ -3014,7 +3014,7 @@ const S = {
   GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
-    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm']),
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -19922,7 +19922,7 @@ async function erinnerungAnbieten(aufgabe) {
   const ja = await UI.confirm({ title: 'An Aufgaben erinnern?', text: 'Soll ImkerBuch dir am Fälligkeitstag eine Mitteilung schicken – auch wenn die App geschlossen ist? Das kannst du jederzeit in den Einstellungen ändern.', confirmText: 'Ja, erinnern', danger: false });
   if (!ja) return;
   const f = S.get('features'); f.benachrichtigungen = true; await S.set('features', f);
-  if ((await Notif.anfordern()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den iPhone-Einstellungen bei ImkerBuch einschaltbar.', 'err');
+  if ((await Notif.anfordern()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.', 'err');
   else UI.toast('Erinnerungen sind an');
 }
 
@@ -19939,6 +19939,11 @@ async function erinnerungAnbieten(aufgabe) {
 const LIZENZ_PRODUKTE = { test: 'de.imkerbuch.app.testphase30', voll: 'de.imkerbuch.app.vollversion' };
 const Lizenz = {
   TAGE: 30,
+  /* Android: Google Play kennt keinen 0-€-Einmalkauf. Dort startet die
+     Testphase auf dem Gerät (Datum in den Geräte-Einstellungen, reist nicht in
+     Sicherungen mit); nach einer Neuinstallation beginnt sie neu – vertretbar.
+     Die Vollversion ist auf beiden Systemen ein echter Store-Kauf. */
+  android() { return IST_NATIVE_APP && window.Capacitor && typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() === 'android'; },
   plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativePurchases) || null; },
   aktiv() { return !!this.plugin() && !Testmodus.an(); },   // Lizenzprüfung überhaupt nötig?
   speicher() { return Object.assign({ voll: false, testStart: null, geprueft: null }, S.get('lizenz') || {}); },
@@ -19976,7 +19981,8 @@ const Lizenz = {
       const { purchases } = await Promise.race([P.getPurchases({ productType: 'inapp' }), new Promise((_, rej) => setTimeout(() => rej(new Error('Zeitüberschreitung')), 6000))]);
       const gueltig = (purchases || []).filter((t) => !t.revocationDate);
       const voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll);
-      const test = gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
+      const test = this.android() ? (S.get('testStartGeraet') || null)
+        : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
       await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso() }, { auto: true });
     } catch (e) { console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
@@ -19997,6 +20003,12 @@ const Lizenz = {
   },
   async kaufen(art) {
     const P = this.plugin(); if (!P) return false;
+    if (art === 'test' && this.android()) {
+      if (!S.get('testStartGeraet')) await S.set('testStartGeraet', U.nowIso(), { auto: true });
+      await this.abgleichen();
+      UI.toast(this.status() === 'test' ? `Testphase läuft – noch ${this.restTage()} Tage alles frei.` : 'Die Testphase auf diesem Gerät ist schon abgelaufen.');
+      return this.status() === 'test';
+    }
     try {
       await P.purchaseProduct({ productIdentifier: LIZENZ_PRODUKTE[art], productType: 'inapp' });
     } catch (e) {
@@ -20018,6 +20030,12 @@ const Lizenz = {
   },
   async codeEinloesen() {
     const P = this.plugin(); if (!P) return;
+    if (this.android()) {
+      // Google: Codes werden im Play Store eingelöst; danach hier „Käufe wiederherstellen“
+      window.open('https://play.google.com/redeem', '_blank');
+      UI.toast('Löse den Code im Play Store ein und tippe danach hier auf „Käufe wiederherstellen“.');
+      return;
+    }
     try { await P.presentOfferCodeRedeemSheet(); } catch (e) { UI.toast('Code einlösen nicht möglich – bist du online?', 'err'); }
   },
   _offen: false,
@@ -20036,8 +20054,8 @@ const Lizenz = {
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
     const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neues eintragen, ändern und löschen geht dann mit der Vollversion. Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.</p>` : ''}
-        ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom App Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neues eintragen, ändern und löschen geht dann mit der Vollversion. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
+        ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen</a></p></div>`,
       footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>` });
@@ -23786,7 +23804,7 @@ Views.einstellungen = {
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
 
       <div class="card"><div class="card-title">${icon('share')}<h2>Sicherung & Datensicherheit</h2></div>
-        <p class="small muted mb12">${Backup.nativTeilenMoeglich() ? 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig: „Sicherung speichern“ legt eine Datei an – in iCloud Drive („In Dateien sichern“), Google Drive, per Mail oder AirDrop. Wird die App gelöscht, sind die Daten sonst weg.' : 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.'}</p>
+        <p class="small muted mb12">${Backup.nativTeilenMoeglich() ? 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig: „Sicherung speichern“ legt eine Datei an – ' + (Lizenz.android() ? 'in Google Drive, „Dateien“, per Mail oder an ein anderes Gerät' : 'in iCloud Drive („In Dateien sichern“), Google Drive, per Mail oder AirDrop') + '. Wird die App gelöscht, sind die Daten sonst weg.' : 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.'}</p>
         <div class="flex-wrap mb12 no-print">
           <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button>
           ${Backup.nativTeilenMoeglich() ? '' : `<button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>`}
@@ -24161,7 +24179,7 @@ Views.einstellungen = {
     if (erZeit) erZeit.onchange = erSpeichern;
     if (erVor) erVor.onchange = erSpeichern;
     $('#notif-test').onclick = async () => {
-      if (Erinnerung.plugin()) return UI.toast((await Erinnerung.probe()) ? 'Probe-Mitteilung kommt in 5 Sekunden – App ruhig schließen' : 'Mitteilungen sind nicht erlaubt (iPhone-Einstellungen → ImkerBuch)', 'ok');
+      if (Erinnerung.plugin()) return UI.toast((await Erinnerung.probe()) ? 'Probe-Mitteilung kommt in 5 Sekunden – App ruhig schließen' : 'Mitteilungen sind nicht erlaubt (Telefon-Einstellungen → ImkerBuch)', 'ok');
       if (Notif.status() !== 'granted' && (await Notif.anfordern()) !== 'granted') return UI.toast('Berechtigung nicht erteilt', 'err');
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return UI.toast('Service Worker nicht aktiv (HTTPS bzw. localhost nötig)', 'err');
