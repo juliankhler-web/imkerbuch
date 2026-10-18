@@ -76,3 +76,10 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Mehrere Geräte: Abgleich je Feld mit Zeitstempel (die App führt schon heute je Feld `lastModified`/`felder` fürs Zusammenführen von Sicherungen – darauf aufbauen).
 - Anmeldung mit E-Mail und Passwort; „Konto und Cloud-Daten löschen“ in der App (Apple-Pflicht); Abo kündigen ⇒ Daten bleiben lokal, Cloud-Kopie nach Frist gelöscht.
 - Server in Deutschland, Daten verschlüsselt, Vertrag zur Auftragsverarbeitung, Datenschutzerklärung erweitern.
+
+## 10. Einführung für Neulinge durch Imme (Julians Vorgabe 2026-10-18)
+
+- Nach dem Willkommen-Fenster (auch nach „Überspringen“) fragt Imme: „Bist du neu? Ich zeig dir in 2 Minuten das Wichtigste.“ – Ja / Später / Kenne ich schon.
+- 5 Schritte, Imme zeigt auf den echten Knopf und der Nutzer tippt selbst (vorhandene Imme-Touren nutzen):
+  1 Stand anlegen · 2 Volk anlegen · 3 erste Durchsicht · 4 untere Leiste und „Mehr“ · 5 Sichern.
+- Abbrechen jederzeit; „Einführung wiederholen“ bei Imme und in den Einstellungen.
