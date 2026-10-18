@@ -117,3 +117,17 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 ## 14. Später (nach 1.00)
 
 - **Etiketten-Gestalter** (Einstellungen → Etiketten): Logo, Farben, Vorlagen, Live-Vorschau, Etikettenbögen (Herma/Avery/rund/eigene Maße), Vorder-/Deckel-/Gewährstreifen-Etikett. Pflichtangaben-Prüfung ist schon gebaut (v. a. 4-mm-Füllmenge). Bis dahin bleibt der Etikettendruck nur im Testmodus.
+
+## 15. Bau-Liste für 1.00 (Julian 2026-10-18: „lege mit allen los“) – Stand
+
+- [x] Riesenpfeil bei unbewerteter Königin
+- [x] Zucht in der Store-Version ausgeblendet (Testmodus: nutzbar)
+- [x] Sicherungs-Hinweis nur auf dem Dashboard · Willkommen „Überspringen“ · Knöpfe gleich groß · Etikett + Beispieldaten nur Testmodus
+- [ ] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt)
+- [ ] Erinnerungen Aufgaben/Kalender als lokale Mitteilungen (Abschnitt 11)
+- [ ] Imme-Einführung für Neulinge (Abschnitt 10)
+- [ ] Sichern-Fenster mit iCloud/Google-Drive-Datei (Abschnitt 9)
+- [ ] Bewertungs-Nachfrage
+- [ ] Kauf: 30 Tage Test, Einmalkauf, Käufe wiederherstellen (Abschnitt 3)
+- [ ] Apple-Angaben: Standort-Text, Privacy Manifest, Verschlüsselungs-Schlüssel, Datenschutzerklärung, Support-Seite (Abschnitt 2/5)
+- [ ] Danach: Gesamtprüfung als App (Abschnitt 7) → Store-Bilder und Video (Abschnitt 8) → Version 1.00 (Abschnitt 13)
