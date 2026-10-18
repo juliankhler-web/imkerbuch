@@ -5193,7 +5193,7 @@ const Wizard = {
           <span class="spacer"></span>
           ${state.step === 3
             ? `<button class="btn btn-ghost" id="wz-nodemo">Ohne Demo starten</button><button class="btn btn-primary" id="wz-demo">Demo-Daten laden</button>`
-            : `<button class="btn btn-primary" id="wz-next">Weiter</button>`}
+            : `<button class="btn btn-ghost" id="wz-skip" title="Den Rest später einrichten">Überspringen</button><button class="btn btn-primary" id="wz-next">Weiter</button>`}
         </div>`;
       const save = () => {
         const g = (id) => { const e = $('#' + id, bodyEl); return e ? e.value.trim() : undefined; };
@@ -5203,10 +5203,17 @@ const Wizard = {
         if (g('wz-volk') !== undefined) state.volkName = g('wz-volk');
         if (g('wz-beute') !== undefined) state.beutentyp = g('wz-beute');
       };
+      /* Nur der Vorname ist Pflicht – Stand, Volk und Beispieldaten lassen
+         sich später anlegen. Julian-Wunsch: nach Name/Imkerei überspringen. */
+      const nameFehlt = () => {
+        if (state.step !== 0 || state.vorname) return false;
+        const f = $('#wz-vorname', bodyEl).closest('.field'); f.classList.add('invalid'); $('.err', f).textContent = 'Bitte gib deinen Vornamen an.';
+        return true;
+      };
       const nb = $('#wz-next', bodyEl);
       if (nb) nb.onclick = () => {
         save();
-        if (state.step === 0 && !state.vorname) { const f = $('#wz-vorname', bodyEl).closest('.field'); f.classList.add('invalid'); $('.err', f).textContent = 'Bitte gib deinen Vornamen an.'; return; }
+        if (nameFehlt()) return;
         state.step++; renderStep();
       };
       const bb = $('#wz-back', bodyEl); if (bb) bb.onclick = () => { save(); state.step--; renderStep(); };
@@ -5217,6 +5224,7 @@ const Wizard = {
         UI.toast(`Los geht's, ${state.vorname}!`);
         renderRoute(); Backup.updateBanners();
       };
+      const sk = $('#wz-skip', bodyEl); if (sk) sk.onclick = () => { save(); if (!nameFehlt()) finish(false); };
       const nd = $('#wz-nodemo', bodyEl); if (nd) nd.onclick = () => finish(false);
       const wd = $('#wz-demo', bodyEl); if (wd) wd.onclick = () => finish(true);
     };

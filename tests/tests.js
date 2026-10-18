@@ -12304,3 +12304,20 @@ test('Imme: Wege zu den umbenannten Reitern stimmen (Bio „Förderung“, Kasse
     assert(ziel && ziel.getAttribute('role') === 'tab', 'Imme zeigt auf den Reiter');
   } finally { w.Views.bio._tab = altTab; w.location.hash = altHash; await w.renderRoute(); }
 });
+
+test('Willkommen: nach dem Namen überspringen (nur Vorname Pflicht, nichts angelegt)', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('wizardDone', false, { auto: true });
+  w.Wizard.run();
+  const back = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+  const q = (s) => back.querySelector(s);
+  assert(q('#wz-skip'), 'Überspringen-Knopf auf der ersten Seite');
+  q('#wz-skip').click();
+  assert(back.isConnected && q('.field.invalid'), 'ohne Vorname geht es nicht weiter');
+  q('#wz-vorname').value = 'Julian'; q('#wz-imkerei').value = 'Imkerei Test';
+  q('#wz-skip').click();
+  assert(await warteBis(() => w.S.get('wizardDone') === true && !back.isConnected), 'Fenster zu, Einrichtung fertig');
+  assertEq(w.S.get('profil').vorname, 'Julian', 'Vorname gespeichert');
+  assertEq(w.S.get('imkerei').name, 'Imkerei Test', 'Imkerei gespeichert');
+  assertEq((await w.DB.getAll('staende')).length, 0, 'kein Stand angelegt');
+  assertEq((await w.DB.getAll('voelker')).length, 0, 'kein Volk angelegt');
+}));
