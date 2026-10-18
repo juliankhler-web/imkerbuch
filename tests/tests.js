@@ -12470,3 +12470,17 @@ test('Start nach einer neueren Test-Fassung: höhere Datenbank-Stufe blockiert d
     db.close();
   } finally { w.indexedDB.deleteDatabase(NAME); }
 });
+
+test('Einführung: 5 Kapitel, überspringt Vorhandenes, Fortschritt wird gemerkt', async (w) => isolierteDaten(w, async () => {
+  const E = w.Einfuehrung;
+  assertEq(E.KAPITEL.length, 5, 'fünf Schritte');
+  for (const k of E.KAPITEL) assert(k.eintrag || w.APP_WISSEN.some((e) => e.id === k.tour && e.tour && e.tour.length), 'Tour vorhanden: ' + (k.tour || k.titel));
+  assert(!(await E.KAPITEL[0].ueberspringen()), 'leeres Gerät: Stand-Schritt wird gezeigt');
+  await w.DB.put('staende', { name: 'S1' });
+  assert(await E.KAPITEL[0].ueberspringen(), 'Stand vorhanden: übersprungen');
+  assert(await E.KAPITEL[2].ueberspringen(), 'ohne Volk keine Durchsicht');
+  await E.merken({ schritt: 2 });
+  assertEq(E.stand().schritt, 2, 'Fortschritt gemerkt');
+  assert(w.APP_WISSEN.some((e) => e.id === 'einfuehrung' && e.einfuehrung), 'Imme kennt die Einführung');
+  await w.S.set('einfuehrung', null, { auto: true });
+}));

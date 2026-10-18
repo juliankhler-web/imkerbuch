@@ -960,6 +960,11 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .hilfe-ic{display:inline-flex;width:38px;height:38px;border-radius:10px;align-items:center;justify-content:center;background:var(--honey-soft);color:var(--honey-dark);flex:0 0 auto}
 .hilfe-ic svg{width:20px;height:20px}
 .hilfe-imme{margin-top:12px}
+.einf-start{text-align:center;padding:4px 4px 0}
+.einf-start .einf-av{width:110px;height:110px;object-fit:contain;display:block;margin:0 auto 6px}
+.einf-start h2{margin:4px 0 8px}
+/* Einführung: „Ja, zeig es mir“ groß oben, die beiden anderen darunter nebeneinander */
+.modal-foot .btn[data-ja]{flex:1 1 100%;order:-1}
 .detail-kv{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:13.5px}
 .detail-kv dt{color:var(--muted);font-weight:550}
 .detail-kv dd{font-weight:600;word-break:break-word}
@@ -5350,6 +5355,7 @@ const Wizard = {
         back.remove();
         UI.toast(`Los geht's, ${state.vorname}!`);
         renderRoute(); Backup.updateBanners();
+        setTimeout(() => Einfuehrung.anbieten(state.vorname), 900);
       };
       const sk = $('#wz-skip', bodyEl); if (sk) sk.onclick = () => { save(); if (!nameFehlt()) finish(false); };
       const nd = $('#wz-nodemo', bodyEl); if (nd) nd.onclick = () => finish(false);
@@ -22202,7 +22208,7 @@ const APP_WISSEN = [
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Sicherung“', 'Sicherung erstellen, Datei an sicherem Ort ablegen'],
     tour: [{ abschnitt: 'Sicherung & Daten', text: 'Tippe auf „Sicherung & Datensicherheit“, damit sich der Bereich öffnet.' },
       { knopf: 'Backup herunterladen', weiter: true, text: 'Mit „Backup herunterladen“ erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in der Cloud oder auf einem Stick.' },
-      { abschluss: 'Wiederherstellen', text: 'Mit „Wiederherstellen“ holst du eine Sicherung zurück, zum Beispiel auf einem neuen Handy.' }] },
+      { abschluss: 'Backup importieren', text: 'Mit „Backup importieren“ holst du eine Sicherung zurück, zum Beispiel auf einem neuen Handy.' }] },
   { id: 'einstellungen', titel: 'Betriebsdaten, Logo und Einstellungen', route: 'einstellungen', zeige: '',
     stichw: ['einstellungen', 'logo', 'betriebsdaten', 'imkerei name', 'adresse imkerei', 'steuernummer', 'dunkel', 'dark mode', 'darstellung', 'design', 'schrift'],
     antwort: 'In den Einstellungen trägst du Betriebsdaten, Steuerangaben und Logo ein und stellst das Aussehen ein (hell, dunkel, automatisch).',
@@ -22257,6 +22263,10 @@ const IMME_NAME = { id: 'imme', persona: true, titel: 'Warum heiße ich Imme?',
   antwort: '„Imme“ ist ein altes deutsches Wort für Biene (aus dem Althochdeutschen, mittelhochdeutsch „imme“). Das Wort steckt bis heute im „Imker“: Das kommt von Imme (Biene) und Kar (Korb) – ursprünglich war das der Mensch, der Bienenkörbe hält. In Gedichten und alten Imkerliedern lebt die „Imme“ weiter. Ich bin also einfach die Biene, die dir in der Imkerei hilft.',
   schritte: [] };
 APP_WISSEN.push(IMME_NAME);
+APP_WISSEN.push({ id: 'einfuehrung', einfuehrung: true, titel: 'Einführung für Neulinge (Imme zeigt dir das Wichtigste)', route: 'dashboard', zeige: '',
+  stichw: ['einfuehrung', 'rundgang', 'tour', 'neu hier', 'erste schritte', 'anfangen', 'wie fange ich an', 'wie geht das', 'zeig mir', 'erklaer mir die app', 'tutorial', 'anleitung', 'einstieg', 'loslegen'],
+  antwort: 'Ich zeige dir in 5 kurzen Schritten das Wichtigste: Stand anlegen, Volk anlegen, erste Durchsicht, wo du alles findest und wie du deine Daten sicherst.',
+  schritte: ['Imme antippen', '„Einführung starten“', 'den Hinweisen folgen und selbst tippen'] });
 APP_WISSEN.push({ id: 'kontakt', titel: 'Fehler melden oder Hilfe bekommen', route: 'hilfe', zeige: 'Fehler melden',
   stichw: ['fehler', 'fehler melden', 'bug', 'problem', 'funktioniert nicht', 'geht nicht', 'kaputt', 'absturz', 'support', 'kontakt', 'hilfe', 'email', 'e-mail', 'mail', 'schreiben', 'entwickler', 'idee', 'vorschlag', 'wunsch', 'frage stellen', 'komme nicht weiter'],
   antwort: 'Unter „Hilfe & Kontakt“ schreibst du dem Entwickler direkt eine E-Mail – für Fehler, Fragen oder Ideen. App-Version und Gerät stehen schon drin.',
@@ -22909,7 +22919,7 @@ const Assistent = {
      auf Eingabe oder „Weiter“) und { speichern }. Ein Tipp auf Imme beendet die Hilfe jederzeit. */
   tour: null, _tourId: 0,
   _escHoeren: (() => { document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && Assistent.tour) Assistent.beendeTour(); }); return true; })(),
-  starte(e) { return e.tour ? Assistent.starteTour(e) : Assistent.zeige(e); },
+  starte(e) { if (e.einfuehrung) return Einfuehrung.start(); return e.tour ? Assistent.starteTour(e) : Assistent.zeige(e); },
   async starteTour(e) {
     Assistent.beendeTour(true);
     const id = ++Assistent._tourId;
@@ -22925,6 +22935,7 @@ const Assistent = {
     Assistent.tour = null; Assistent._tourId++;
     document.body.classList.remove('bini-fuehrt');
     Assistent.markeWeg();
+    if (war && !still && Einfuehrung.aktiv) { Einfuehrung.pause(); return; }
     if (war && !still) UI.toast('Hilfe beendet. Tippe auf Imme, wenn du mich wieder brauchst.');
   },
   /** Sucht den Knopf eines Schritts: erst in der offenen Maske, sonst auf der Seite. „#add“ = CSS-Selektor, `exakt` = ganzer Text. */
@@ -22966,7 +22977,7 @@ const Assistent = {
     const e = T.e, st = e.tour[T.i], von = e.tour.length;
     const kopf = `${e.titel} · Schritt ${T.i + 1} von ${von}`;
     const extra = T.i === 0 ? 'Tipp: Tippe auf mich (Imme), wenn du die Hilfe nicht mehr brauchst.' : '';
-    const anrede = T.i === 0 ? 'Hallo, ich bin Imme, dein persönlicher Assistent!' : '';
+    const anrede = T.i === 0 && !e.ohneAnrede ? 'Hallo, ich bin Imme, dein persönlicher Assistent!' : '';
     let schon = false;   // jeder Schritt zählt nur einmal weiter, egal ob Klick, Seitenwechsel oder „Weiter“ zuerst kamen
     const weiter = () => { if (schon) return; schon = true; if (Assistent.tour && Assistent.tour.id === id) { Assistent.tour.i++; Assistent.schritt(id); } };
     const modal = () => { const m = [...document.querySelectorAll('.modal-back')].pop(); return m && !m.querySelector('.sheet-grid') ? m : null; };
@@ -22990,11 +23001,18 @@ const Assistent = {
       if (!Assistent.tour || Assistent.tour.id !== id) return;
       if (!el) return weiter();
       const tip = Assistent.tipp(el, kopf, st.text, { extra, weiter: true });
-      tip.querySelector('[data-weiter]').onclick = weiter;
+      /* „Weiter“ öffnet den Abschnitt mit – sonst findet der nächste Schritt
+         seinen Knopf im zugeklappten Bereich nicht und die Hilfe bricht ab. */
+      const oeffnen = () => {
+        const kopfEl = el.closest('.set-head'), body = kopfEl && kopfEl.parentElement.querySelector(':scope > .set-body');
+        if (body && body.style.display === 'none') kopfEl.click();
+        const det = el.closest('details'); if (det && !det.open) det.open = true;
+      };
+      tip.querySelector('[data-weiter]').onclick = () => { oeffnen(); weiter(); };
       el.addEventListener('click', () => setTimeout(weiter, 500), { once: true });
     } else if (st.abschluss) {
       const l = assistentNorm(st.abschluss);
-      const el = await Assistent.warteAuf(() => /^[#\[.]/.test(st.abschluss) ? ([...document.querySelectorAll(st.abschluss)].find((x) => x.offsetParent !== null) || null) : [...document.querySelectorAll('#main h2, #main h3, #main .card-title, #main button')].filter((x) => x.offsetParent !== null).find((x) => assistentNorm(x.textContent).includes(l)), 3000);
+      const el = await Assistent.warteAuf(() => /^[#\[.]/.test(st.abschluss) ? ([...document.querySelectorAll(st.abschluss)].find((x) => x.offsetParent !== null) || null) : [...document.querySelectorAll('#main h2, #main h3, #main .card-title, #main button, #main label.btn')].filter((x) => x.offsetParent !== null).find((x) => assistentNorm(x.textContent).includes(l)), 3000);
       if (!Assistent.tour || Assistent.tour.id !== id) return;
       if (!el) return Assistent.fertig(e);
       const tip = Assistent.tipp(el.closest('.card') || el, kopf, st.text, { extra });
@@ -23030,6 +23048,7 @@ const Assistent = {
   },
   fertig(e) {
     Assistent.beendeTour(true);
+    if (Einfuehrung.aktiv) return Einfuehrung.weiter();
     UI.toast('Geschafft! Gut gemacht.');
     const fab = document.getElementById('bini-fab'), img = fab && fab.querySelector('img');
     if (img && !img.dataset.fallback) { const alt = img.src; img.src = Assistent.bild('happy'); setTimeout(() => Assistent.layout(true), 2800); }
@@ -23053,6 +23072,74 @@ const Assistent = {
   },
 };
 
+/* =====================================================================
+   EINFÜHRUNG FÜR NEULINGE – Imme führt in 5 Schritten durch das Wichtigste.
+   Baut auf den vorhandenen Imme-Touren auf (Stand, Volk, Durchsicht,
+   Sicherung) und reiht sie aneinander; der Nutzer tippt dabei selbst auf die
+   echten Knöpfe. Abbrechen pausiert nur – bei Imme und in den Einstellungen
+   geht es weiter („Einführung starten“). Stand gemerkt in S 'einfuehrung'.
+   ===================================================================== */
+const Einfuehrung = {
+  aktiv: false, _gezeigt: 0,
+  KAPITEL: [
+    { titel: 'Bienenstand anlegen', tour: 'stand-neu', ueberspringen: async () => (await DB.count('staende')) > 0 },
+    { titel: 'Volk anlegen', tour: 'volk-neu', ueberspringen: async () => (await DB.count('voelker')) > 0 },
+    { titel: 'Erste Durchsicht', tour: 'durchsicht', ueberspringen: async () => (await DB.count('voelker')) === 0 },
+    { titel: 'Alles finden', eintrag: { id: 'einf-leiste', titel: 'Alles finden', route: 'dashboard',
+      tour: [{ abschluss: '#bottomnav, #sidebar', text: 'Hier findest du deine wichtigsten Bereiche. Über „Mehr“ kommst du zu allen anderen – dort kannst du Kacheln gedrückt halten und in die Leiste ziehen.' }] } },
+    { titel: 'Daten sichern', tour: 'sicherung' },
+  ],
+  stand() { return Object.assign({ schritt: 0, erledigt: false, abgelehnt: false }, S.get('einfuehrung') || {}); },
+  async merken(x) { await S.set('einfuehrung', Object.assign(this.stand(), x), { auto: true }); },
+  /** Nach dem Willkommen-Fenster einmal fragen. */
+  async anbieten(vorname) {
+    if (TEST_MODE && !window.__einfTest) return;
+    const st = this.stand(); if (st.erledigt || st.abgelehnt) return;
+    const m = UI.modal({ title: '', body: `<div class="einf-start">${Assistent.img('wave', 'einf-av')}
+        <h2>Hallo${vorname ? ' ' + U.esc(vorname) : ''}, ich bin Imme</h2>
+        <p class="muted">Bist du neu hier? Ich zeig dir in 2 Minuten das Wichtigste: Stand, Volk und die erste Durchsicht – du tippst dabei selbst.</p></div>`,
+      footer: `<button class="btn btn-ghost" data-spaeter>Später</button><button class="btn btn-ghost" data-nein>Kenne ich schon</button><button class="btn btn-primary" data-ja>Ja, zeig es mir</button>` });
+    m.el.querySelector('[data-ja]').onclick = () => { m.close(); this.start(); };
+    m.el.querySelector('[data-spaeter]').onclick = () => { m.close(); UI.toast('Kein Problem – bei Imme kannst du die Einführung jederzeit starten.'); };
+    m.el.querySelector('[data-nein]').onclick = async () => { m.close(); await this.merken({ abgelehnt: true }); };
+  },
+  async start(abSchritt) {
+    const st = this.stand();
+    const i = abSchritt != null ? abSchritt : (st.erledigt ? 0 : st.schritt || 0);
+    await this.merken({ schritt: i, erledigt: false, abgelehnt: false });
+    this.aktiv = true; this._gezeigt = 0;
+    this.zeigeKapitel(i);
+  },
+  async zeigeKapitel(i) {
+    if (i >= this.KAPITEL.length) return this.abschluss();
+    const k = this.KAPITEL[i];
+    if (k.ueberspringen && (await k.ueberspringen())) { await this.merken({ schritt: i + 1 }); return this.zeigeKapitel(i + 1); }
+    const basis = k.eintrag || APP_WISSEN.find((e) => e.id === k.tour);
+    if (!basis) { await this.merken({ schritt: i + 1 }); return this.zeigeKapitel(i + 1); }
+    // Kopf zeigt „Einführung 2/5 · Volk anlegen · Schritt 1 von 4“
+    Assistent.starteTour(Object.assign({}, basis, { titel: `Einführung ${i + 1}/${this.KAPITEL.length} · ${k.titel}`, ohneAnrede: this._gezeigt++ > 0 }));
+  },
+  async weiter() {
+    const i = this.stand().schritt + 1;
+    await this.merken({ schritt: i });
+    if (i < this.KAPITEL.length) UI.toast(`Super! Weiter mit: ${this.KAPITEL[i].titel}`);
+    setTimeout(() => this.zeigeKapitel(i), 700);
+  },
+  pause() {
+    this.aktiv = false;
+    UI.toast('Einführung pausiert – tippe auf Imme und „Einführung fortsetzen“, wenn du weitermachen willst.');
+  },
+  async abschluss() {
+    this.aktiv = false;
+    await this.merken({ erledigt: true, schritt: 0 });
+    const m = UI.modal({ title: '', body: `<div class="einf-start">${Assistent.img('happy', 'einf-av')}
+        <h2>Geschafft!</h2>
+        <p class="muted">Du kennst jetzt das Wichtigste. Wenn du etwas suchst, frag mich einfach – unten rechts.</p></div>`,
+      footer: `<button class="btn btn-primary" data-ok>Los geht’s</button>` });
+    m.el.querySelector('[data-ok]').onclick = () => m.close();
+  },
+};
+
 Views.assistent = {
   title: 'Assistent',
   async render(main) {
@@ -23064,7 +23151,7 @@ Views.assistent = {
       <label class="bini-schalter"><span><b>Imme ist aktiv</b><small>Winkt und springt im Dashboard. Aus: schläft oben und stört nicht.</small></span><input type="checkbox" role="switch" class="ios-switch" id="bini-an" ${an ? 'checked' : ''}></label>
       ${an ? '' : '<div class="card bini-aus-hinweis"><p>Imme ist ausgeschaltet. Sie bleibt oben im Dashboard stehen und schläft. Schieb den Regler oben an, wenn du Hilfe brauchst.</p></div>'}
       <div class="bini-chat" id="bini-chat"${an ? '' : ' hidden'}></div>
-      <div class="bini-chips" id="bini-chips"${an ? '' : ' hidden'}>${ASSISTENT_VORSCHLAEGE.map((s) => `<button class="chip" data-frage="${U.esc(s)}">${U.esc(s)}</button>`).join('')}</div>
+      <div class="bini-chips" id="bini-chips"${an ? '' : ' hidden'}><button class="chip active" data-einf>${Einfuehrung.stand().schritt > 0 && !Einfuehrung.stand().erledigt ? 'Einführung fortsetzen' : 'Einführung starten'}</button>${ASSISTENT_VORSCHLAEGE.map((s) => `<button class="chip" data-frage="${U.esc(s)}">${U.esc(s)}</button>`).join('')}</div>
       <form class="bini-form" id="bini-form" autocomplete="off"${an ? '' : ' hidden'}><input class="inp" id="bini-in" placeholder="Frag mich etwas …" enterkeyhint="send"><button class="btn btn-primary" type="submit" aria-label="Senden">${icon('send')}</button></form>
     </div>`;
     const chat = $('#bini-chat', main);
@@ -23126,6 +23213,7 @@ Views.assistent = {
     };
     main.addEventListener('click', async (ev) => {
       if (ev.target.closest('[data-imme-ein]')) { await Assistent.setzeAn(true); Assistent.log.length = 0; UI.toast('Imme ist wieder da'); return renderRoute(); }
+      if (ev.target.closest('[data-einf]')) return Einfuehrung.start();
       const c = ev.target.closest('[data-frage]'); if (c) return frage(c.dataset.frage);
       const z = ev.target.closest('[data-zeige]'); if (z) return Assistent.starte(APP_WISSEN.find((x) => x.id === z.dataset.zeige));
       const w = ev.target.closest('[data-wissen]'); if (w) { const e = APP_WISSEN.find((x) => x.id === w.dataset.wissen); L.push({ von: 'bini', art: 'app', haupt: e, weitere: [], faq: [] }); zeichne(); }
@@ -23588,6 +23676,7 @@ Views.einstellungen = {
           <a class="btn btn-ghost btn-sm" href="datenschutz.html" target="_blank" rel="noopener">${icon('info')} Datenschutz</a>
           <a class="btn btn-ghost btn-sm" href="agb.html" target="_blank" rel="noopener">${icon('doc')} AGB &amp; Widerruf</a>
           <a class="btn btn-ghost btn-sm" href="#/hilfe">${icon('mail')} Hilfe &amp; Kontakt</a>
+          <button class="btn btn-ghost btn-sm" type="button" onclick="Einfuehrung.start(0)">${icon('assistent')} Einführung wiederholen</button>
         </div>
       </div>
 
@@ -24201,7 +24290,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
