@@ -83,3 +83,12 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - 5 Schritte, Imme zeigt auf den echten Knopf und der Nutzer tippt selbst (vorhandene Imme-Touren nutzen):
   1 Stand anlegen · 2 Volk anlegen · 3 erste Durchsicht · 4 untere Leiste und „Mehr“ · 5 Sichern.
 - Abbrechen jederzeit; „Einführung wiederholen“ bei Imme und in den Einstellungen.
+
+## 11. Erinnerungen / Mitteilungen für Aufgaben und Kalender (Julians Vorgabe 2026-10-18)
+
+- Heute: Hinweise laufen über den Service Worker und nur, wenn die App geöffnet wird. In der iOS-App (WebView) gibt es keinen Service Worker ⇒ dort kommen **keine** Mitteilungen.
+- Lösung: **lokale Mitteilungen** über `@capacitor/local-notifications` – das Gerät plant sie selbst, kommen auch bei geschlossener App. Kein Server, kein Push-Zertifikat nötig.
+- Einstellungen: an/aus · Aufgaben am Fälligkeitstag um (7:00) · Termine vorher (1 h) · Ende Wartezeit Behandlung · Ruhezeit · Probe-Mitteilung.
+- Tippen auf die Mitteilung öffnet die Aufgabe/den Termin. Neu planen bei jeder Änderung; iOS erlaubt max. 64 geplante ⇒ immer die nächsten 64.
+- Apple: Erlaubnis erst fragen, wenn sinnvoll (erste Aufgabe mit Erinnerung oder Imme-Einführung), App funktioniert auch ohne (5.1.2); keine Werbung per Mitteilung (4.5.4).
+- Android: dieselbe Erweiterung, zusätzlich Erlaubnis für exakte Uhrzeit.
