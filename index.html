@@ -954,6 +954,7 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .kpill{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600}
 .kpill svg{width:15px;height:15px;flex:0 0 auto}
 .hilfe-liste{display:grid;gap:10px}
+.seite-in-app{width:100%;height:70vh;border:0;border-radius:10px;background:#fff}
 .hilfe-knopf{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;color:inherit;text-decoration:none;background:var(--card)}
 .hilfe-knopf:active{transform:scale(.99)}
 .hilfe-knopf .chev{margin-left:auto;color:var(--muted)}
@@ -5252,6 +5253,22 @@ function zeilenSortieren(listEl, onFertig) {
    schon in der Mail, Imkerei-Daten bewusst NICHT (Datenschutz).
    ===================================================================== */
 const SUPPORT_MAIL = 'juliankhler+imkerbuch@googlemail.com';
+/* In der App öffnen Links „in neuem Tab“ gar nichts – es gibt keine Tabs.
+   Eigene Seiten (Datenschutz, Impressum, AGB, Support) zeigen wir dort in
+   einem Fenster innerhalb der App; Apple verlangt, dass die Datenschutz-
+   erklärung in der App erreichbar ist (Regel 5.1.1). */
+function seiteInApp(href, titel) {
+  UI.modal({ title: titel || 'ImkerBuch', wide: true,
+    body: `<iframe class="seite-in-app" src="${U.esc(href)}" title="${U.esc(titel || '')}"></iframe>` });
+}
+if (IST_NATIVE_APP) document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[target="_blank"]');
+  if (!a) return;
+  const href = a.getAttribute('href') || '';
+  if (/^[a-z]+:/i.test(href)) return;   // fremde Seiten (https:, mailto:) regelt das System
+  e.preventDefault();
+  seiteInApp(href, a.textContent.trim());
+}, true);
 function geraetInfo() {
   const ua = navigator.userAgent || '';
   const ios = ua.match(/OS (\d+)[_.](\d+)/), android = ua.match(/Android ([\d.]+)/);
@@ -23870,7 +23887,7 @@ Views.einstellungen = {
       </div>` : ''}
 
       <div class="card"><div class="card-title">${icon('doc')}<h2>Rechtliches</h2></div>
-        <p class="small muted mb12">Impressum, Datenschutz und AGB – öffnen in einem neuen Tab.</p>
+        <p class="small muted mb12">Impressum, Datenschutz und AGB${IST_NATIVE_APP ? '' : ' – öffnen in einem neuen Tab'}.</p>
         <div class="flex-wrap no-print">
           <a class="btn btn-ghost btn-sm" href="impressum.html" target="_blank" rel="noopener">${icon('info')} Impressum</a>
           <a class="btn btn-ghost btn-sm" href="datenschutz.html" target="_blank" rel="noopener">${icon('info')} Datenschutz</a>
