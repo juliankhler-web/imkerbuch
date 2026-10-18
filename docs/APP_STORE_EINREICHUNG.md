@@ -155,6 +155,6 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
 ## 19. Behörden und Apple-Konto (Julian 2026-10-18, Plan aus ChatGPT übernommen)
 
-- Gewerbe angemeldet (laut Julian). Als Nächstes: ELSTER-Fragebogen zur steuerlichen Erfassung (Pflicht **innerhalb 1 Monat** nach Beginn der Tätigkeit), USt-IdNr. mitbeantragen.
+- Gewerbe angemeldet, **Beginn der Tätigkeit 19.10.2026** → Frist ELSTER-Fragebogen **19.11.2026** (Kalender „Familie & Fristen“, Second Brain). Als Nächstes: ELSTER-Fragebogen zur steuerlichen Erfassung (Pflicht **innerhalb 1 Monat** nach Beginn der Tätigkeit), USt-IdNr. mitbeantragen.
 - Parallel: **Apple-Entwicklerkonto (99 €/Jahr) jetzt beantragen** – die Prüfung durch Apple kann Tage dauern; erst danach Verträge, Bank, Steuerformular (W-8BEN), Kaufprodukte, Sandbox-Test.
 - Abweichungen vom ChatGPT-Plan: Preis 14,99 € (später 24,99 €), nicht 9,99 €; Familienfreigabe vorerst nicht.
