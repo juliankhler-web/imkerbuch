@@ -169,6 +169,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsageDescription`, arm64, iOS 16 (Angebotscodes), alle Datei-Ausgaben übers Teilen-Menü, kein nachgeladener Code in der App (OCR/Whisper aus), app-taugliche Imme-Antworten, Preise nur aus dem Store, Kaufstand gerätebezogen, Kauf-Fenster nach dem Willkommen, „Alle Daten löschen“, Papierkorb-Aufräumen nach Ablauf, Vorname freiwillig, Zucht-Erwähnungen, Datenschutz ergänzt, Store-Texte. Simulator: Erst-Start Willkommen → Kauf-Fenster → Imme geprüft.
 
 **Offen – gemeinsam mit Julian:**
+
 - Version **1.00** + Kunden-CHANGELOG direkt vor dem Upload (Abschnitt 13).
 - Kaufprodukte in App Store Connect anlegen und **mit Version 1.0 zusammen einreichen**; Sandbox-Test (auch Testphase-Neuinstallation, Wiederherstellen, Code einlösen).
 - **iPad:** gründlich testen + iPad-Bilder ODER nur iPhone (`TARGETED_DEVICE_FAMILY = 1`). Entscheidung Julian.

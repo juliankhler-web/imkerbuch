@@ -23,7 +23,7 @@ Stand 2026-10-18. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 ## Store-Eintrag
 
 - **App-Name (max. 30):** `ImkerBuch – Stockkarte & Honig`
-- **Kurzbeschreibung (max. 80):** `Dein digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
+- **Kurzbeschreibung (max. 80):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
 - **Vollständige Beschreibung:** wie `APP_STORE_TEXTE.md` → „Beschreibung“ (Play erlaubt bis 4000 Zeichen).
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
 - **Kontakt:** juliankhler+imkerbuch@googlemail.com · Website: `https://juliankhler-web.github.io/imkerbuch/landing.html`
