@@ -91,7 +91,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Einstellungen: an/aus · Aufgaben am Fälligkeitstag um (7:00) · Termine vorher (1 h) · Ende Wartezeit Behandlung · Ruhezeit · Probe-Mitteilung.
 - Tippen auf die Mitteilung öffnet die Aufgabe/den Termin. Neu planen bei jeder Änderung; iOS erlaubt max. 64 geplante ⇒ immer die nächsten 64.
 - Apple: Erlaubnis erst fragen, wenn sinnvoll (erste Aufgabe mit Erinnerung oder Imme-Einführung), App funktioniert auch ohne (5.1.2); keine Werbung per Mitteilung (4.5.4).
-- Android: dieselbe Erweiterung, zusätzlich Erlaubnis für exakte Uhrzeit.
+- Android: dieselbe Erweiterung, **ohne** exakten Wecker (`isExactNotification: false`, Berechtigung entfernt) – Erinnerungen dürfen ein paar Minuten später kommen.
 
 ## 12. Julians Entscheidungen (2026-10-18)
 

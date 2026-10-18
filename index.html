@@ -1406,8 +1406,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.58';
+const APP_VERSION = '2.59';
 const CHANGELOG = [
+  { version: '2.59', datum: '2026-10-18', punkte: [
+    'Android: Die <b>Zurück-Taste</b> schließt zuerst offene Fenster und geht dann eine Seite zurück.',
+    'Android: Erinnerungen mit eigenem Waben-Symbol; Käufe und Gutscheine werden zuverlässig bestätigt.',
+    'Kleinere Text-Korrekturen für iPhone und Android.',
+  ] },
   { version: '2.58', datum: '2026-10-18', punkte: [
     'Das <b>Wetter</b> kommt jetzt vom <b>Deutschen Wetterdienst</b> – von der nächsten Messstation, und wo keine in der Nähe ist (z. B. in Österreich), aus seiner Vorhersage. Die Quelle steht dabei.',
     'Neu eingerichtet: In der ersten Woche erinnert die App noch nicht ans Sichern.',
@@ -5299,7 +5304,7 @@ function zeilenSortieren(listEl, onFertig) {
     der Testphase). Bleiben nur gerätebezogene Merker wie der Kaufstand. */
 async function alleDatenLoeschen() {
   if (!(await UI.confirm({ title: 'Wirklich alle Daten löschen?', text: 'Alle Stände, Völker, Durchsichten, Fotos, Buchungen und Einstellungen auf diesem Gerät werden endgültig gelöscht. Das lässt sich nicht rückgängig machen – außer mit einer vorher gespeicherten Sicherung.', confirmText: 'Endgültig löschen', danger: true, requirePhrase: 'LÖSCHEN' }))) return;
-  const behalten = ['lizenz', 'bewertung'];
+  const behalten = ['lizenz', 'bewertung', 'testStartGeraet'];   // Testphase startet durchs Löschen nicht neu
   const alt = Object.fromEntries(behalten.map((k) => [k, S.get(k)]));
   Lizenz._loeschenErlaubt = true;
   try {
@@ -5323,6 +5328,18 @@ const SUPPORT_MAIL = 'juliankhler+imkerbuch@googlemail.com';
 function seiteInApp(href, titel) {
   UI.modal({ title: titel || 'ImkerBuch', wide: true,
     body: `<iframe class="seite-in-app" src="${U.esc(href)}" title="${U.esc(titel || '')}"></iframe>` });
+}
+/* Android: Zurück-Taste / Zurück-Wischen wie erwartet – erst Fenster schließen
+   (mit der üblichen Warnung bei ungespeicherten Eingaben), dann Hilfe-Tour
+   beenden, dann eine Seite zurück; auf der Startseite die App nur verkleinern. */
+if (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+  window.Capacitor.Plugins.App.addListener('backButton', () => {
+    const m = [...document.querySelectorAll('#modal-root .modal-back')].pop();
+    if (m) { const x = m.querySelector('[data-close]'); if (x) x.click(); else m.remove(); return; }
+    if (typeof Assistent !== 'undefined' && Assistent.tour) { Assistent.beendeTour(); return; }
+    if (currentRoute().route !== 'dashboard') { if (history.length > 1) history.back(); else navTo('dashboard'); return; }
+    window.Capacitor.Plugins.App.minimizeApp();
+  });
 }
 if (IST_NATIVE_APP) document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[target="_blank"]');
@@ -19895,13 +19912,13 @@ const Erinnerung = {
     const namen = {};
     for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
     const liste = this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen);
-    if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, extra: t.extra })) });
+    if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, isExactNotification: false, extra: t.extra })) });
     return liste.length;
   },
   async probe() {
     const LN = this.plugin(); if (!LN) return false;
     if (!(await this.erlaubt()) && (await this.erlaubnisHolen()) !== 'granted') return false;
-    await LN.schedule({ notifications: [{ id: 1, title: 'ImkerBuch', body: 'Probe-Mitteilung – so erinnert dich die App an fällige Aufgaben.', schedule: { at: new Date(Date.now() + 5000) } }] });
+    await LN.schedule({ notifications: [{ id: 1, title: 'ImkerBuch', body: 'Probe-Mitteilung – so erinnert dich die App an fällige Aufgaben.', schedule: { at: new Date(Date.now() + 5000) }, isExactNotification: false }] });
     return true;
   },
   init() {
@@ -19946,7 +19963,12 @@ const Lizenz = {
   android() { return IST_NATIVE_APP && window.Capacitor && typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() === 'android'; },
   plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativePurchases) || null; },
   aktiv() { return !!this.plugin() && !Testmodus.an(); },   // Lizenzprüfung überhaupt nötig?
-  speicher() { return Object.assign({ voll: false, testStart: null, geprueft: null }, S.get('lizenz') || {}); },
+  speicher() {
+    const l = Object.assign({ voll: false, testStart: null, geprueft: null }, S.get('lizenz') || {});
+    // Android: Teststart steht auf dem Gerät – gilt sofort, auch ohne Netz/Abgleich
+    if (this.android()) l.testStart = S.get('testStartGeraet') || null;
+    return l;
+  },
   /** 'voll' | 'test' | 'ohneTest' | 'abgelaufen' – rein rechnerisch (testbar). */
   status(l = this.speicher(), jetzt = Date.now()) {
     if (l.voll) return 'voll';
@@ -19978,8 +20000,13 @@ const Lizenz = {
     const P = this.plugin(); if (!P) return this.speicher();
     try {
       // Ohne Netz kann die Abfrage hängen – nach 6 s mit dem letzten Stand weiter
+      // Android: Käufe von außerhalb des Kauf-Fensters (Gutschein im Play Store, später bezahlt)
+      // müssen binnen 3 Tagen bestätigt werden – restorePurchases bestätigt offene Käufe.
+      if (this.android()) { try { await Promise.race([P.restorePurchases(), new Promise((r) => setTimeout(r, 6000))]); } catch (_) { /* offline */ } }
       const { purchases } = await Promise.race([P.getPurchases({ productType: 'inapp' }), new Promise((_, rej) => setTimeout(() => rej(new Error('Zeitüberschreitung')), 6000))]);
-      const gueltig = (purchases || []).filter((t) => !t.revocationDate);
+      // Nur wirklich bezahlte Käufe zählen (Android: purchaseState „1“; „2“ = noch ausstehend)
+      const gueltig = (purchases || []).filter((t) => !t.revocationDate && (t.purchaseState == null || String(t.purchaseState) === '1'));
+      this._ausstehend = (purchases || []).some((t) => String(t.purchaseState) === '2');
       const voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll);
       const test = this.android() ? (S.get('testStartGeraet') || null)
         : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
@@ -20012,21 +20039,24 @@ const Lizenz = {
     try {
       await P.purchaseProduct({ productIdentifier: LIZENZ_PRODUKTE[art], productType: 'inapp' });
     } catch (e) {
-      if (!/cancel/i.test(String(e && (e.message || e)))) UI.toast('Kauf nicht möglich: ' + (e.message || e) + ' – bist du online?', 'err');
+      const code = String(e && e.code || '');
+      if (code === 'ITEM_ALREADY_OWNED') { await this.wiederherstellen(); return this.status() === 'voll'; }
+      if (code === 'USER_CANCELED' || /cancel/i.test(String(e && (e.message || e)))) return false;   // abgebrochen: still
+      UI.toast('Kauf nicht möglich: ' + (e.message || e) + ' – bist du online?', 'err');
       return false;
     }
     const st = this.status(await this.abgleichen());
     if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
     else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.restTage()} Tage alles frei.`);
-    else if (st === 'abgelaufen') UI.toast('Zu dieser Apple-ID lief die Testphase schon. Neues eintragen geht mit der Vollversion.', 'err');
-    else { UI.toast('Der Kauf ist noch nicht bestätigt – bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
+    else if (st === 'abgelaufen') UI.toast(`Zu ${this.android() ? 'diesem Gerät' : 'dieser Apple-ID'} lief die Testphase schon. Neues eintragen geht mit der Vollversion.`, 'err');
+    else { UI.toast(this._ausstehend ? 'Der Kauf wird noch bestätigt – sobald die Zahlung durch ist, wird die Vollversion freigeschaltet.' : 'Der Kauf ist noch nicht bestätigt – bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
     return st === 'voll' || st === 'test';
   },
   async wiederherstellen() {
     const P = this.plugin(); if (!P) return;
     try { await P.restorePurchases(); } catch (e) { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }
     const st = this.status(await this.abgleichen());
-    UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : 'Kein Kauf zu dieser Apple-ID gefunden.');
+    UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
   },
   async codeEinloesen() {
     const P = this.plugin(); if (!P) return;
@@ -20048,7 +20078,7 @@ const Lizenz = {
     const pr = await this.preise();
     const st = this.status();
     const kopf = st === 'abgelaufen' ? 'Deine Testphase ist vorbei' : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
-    const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : 'als Einmalkauf (Preis siehe App Store)';
+    const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : `als Einmalkauf (Preis siehe ${this.android() ? 'Google Play' : 'App Store'})`;
     const text = st === 'abgelaufen'
       ? `Danke fürs Ausprobieren! Deine Daten bleiben erhalten, lesbar und sicherbar. Neues eintragen, ändern und löschen geht mit der Vollversion – ${preis}, kein Abo.`
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
@@ -22529,7 +22559,7 @@ const APP_WISSEN = [
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Sicherung“', 'Sicherung erstellen, Datei an sicherem Ort ablegen'],
     tour: [{ abschnitt: 'Sicherung & Daten', text: 'Tippe auf „Sicherung & Datensicherheit“, damit sich der Bereich öffnet.' },
-      { knopf: 'Sicherung s', weiter: true, text: 'Mit diesem Knopf erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in iCloud Drive, Google Drive oder per Mail an dich selbst.' },
+      { knopf: 'Sicherung s', weiter: true, text: 'Mit diesem Knopf erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in deinem Cloud-Speicher oder per Mail an dich selbst.' },
       { abschluss: 'Backup importieren', text: 'Mit „Backup importieren“ holst du eine Sicherung zurück, zum Beispiel auf einem neuen Handy.' }] },
   { id: 'einstellungen', titel: 'Betriebsdaten, Logo und Einstellungen', route: 'einstellungen', zeige: '',
     stichw: ['einstellungen', 'logo', 'betriebsdaten', 'imkerei name', 'adresse imkerei', 'steuernummer', 'dunkel', 'dark mode', 'darstellung', 'design', 'schrift'],
@@ -24598,7 +24628,7 @@ async function boot() {
   Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); });
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  if ('serviceWorker' in navigator && location.protocol !== 'file:' && !IST_NATIVE_APP) {   // App: Dateien liegen im Paket, kein Offline-Cache nötig
     // Automatisches Update: Übernimmt ein neuer Service-Worker die Kontrolle (nach einem Upload),
     // lädt die App EINMAL von selbst neu → neueste Version ohne Neuinstallieren, ohne Cache-Ärger.
     const hatteController = !!navigator.serviceWorker.controller; // beim allerersten Install false → kein Reload

@@ -12576,3 +12576,17 @@ test('Lizenz Android: Testphase startet auf dem Gerät (kein 0-€-Kauf), Datum 
     await L.kaufen('test'); assertEq(w.S.get('testStartGeraet'), vorher, 'zweites Tippen startet nicht neu');
   } finally { L.android = echtAndroid; L.plugin = echtPlugin; await w.S.set('testStartGeraet', null, { auto: true }); await w.S.set('lizenz', null, { auto: true }); }
 }));
+
+test('Play-Prüfung: keine exakten Wecker, ausstehende Käufe zählen nicht, Abbrechen ist still', async (w) => {
+  const quelle = await (await w.fetch('../index.html')).text();
+  assertEq((quelle.match(/isExactNotification: false/g) || []).length, 2, 'Erinnerung + Probe ohne exakten Wecker');
+  const L = w.Lizenz, echt = { android: L.android, plugin: L.plugin, aktiv: L.aktiv };
+  let toasts = 0; const echtToast = w.UI.toast; w.UI.toast = () => { toasts++; };
+  try {
+    L.android = () => true; L.aktiv = () => true;
+    L.plugin = () => ({ restorePurchases: async () => {}, getPurchases: async () => ({ purchases: [{ productIdentifier: 'de.imkerbuch.app.vollversion', purchaseState: '2' }] }) });
+    assertEq((await L.abgleichen()).voll, false, 'ausstehender Kauf schaltet nicht frei');
+    L.plugin = () => ({ purchaseProduct: async () => { throw Object.assign(new Error('Purchase is not purchased'), { code: 'USER_CANCELED' }); } });
+    toasts = 0; assertEq(await L.kaufen('voll'), false); assertEq(toasts, 0, 'Abbrechen ohne Fehlermeldung');
+  } finally { Object.assign(L, echt); w.UI.toast = echtToast; await w.S.set('lizenz', null, { auto: true }); }
+});
