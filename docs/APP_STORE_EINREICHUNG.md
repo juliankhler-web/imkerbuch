@@ -125,7 +125,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - [x] Sicherungs-Hinweis nur auf dem Dashboard · Willkommen „Überspringen“ · Knöpfe gleich groß · Etikett + Beispieldaten nur Testmodus
 - [x] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt) – Adresse in `SUPPORT_MAIL`; offen: eigene Support-Adresse (siehe 16)
 - [x] Erinnerungen Aufgaben/Kalender als lokale Mitteilungen (Abschnitt 11) – v2.55, im Simulator geprüft; Android: Erlaubnis exakte Uhrzeit noch prüfen
-- [ ] Imme-Einführung für Neulinge (Abschnitt 10)
+- [x] Imme-Einführung für Neulinge (Abschnitt 10) – `Einfuehrung`, Angebot nach Willkommen, Chip bei Imme, „Einführung wiederholen“ in Einstellungen → Rechtliches
 - [ ] Sichern-Fenster mit iCloud/Google-Drive-Datei (Abschnitt 9)
 - [ ] Bewertungs-Nachfrage
 - [ ] Kauf: 30 Tage Test, Einmalkauf, Käufe wiederherstellen (Abschnitt 3)
