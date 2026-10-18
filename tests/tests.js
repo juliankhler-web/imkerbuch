@@ -12309,14 +12309,12 @@ test('Imme: Wege zu den umbenannten Reitern stimmen (Bio „Förderung“, Kasse
   } finally { w.Views.bio._tab = altTab; w.location.hash = altHash; await w.renderRoute(); }
 });
 
-test('Willkommen: nach dem Namen überspringen (nur Vorname Pflicht, nichts angelegt)', async (w) => isolierteDaten(w, async () => {
+test('Willkommen: nach dem Namen überspringen (nichts Pflicht, nichts angelegt)', async (w) => isolierteDaten(w, async () => {
   await w.S.set('wizardDone', false, { auto: true });
   w.Wizard.run();
   const back = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
   const q = (s) => back.querySelector(s);
   assert(q('#wz-skip'), 'Überspringen-Knopf auf der ersten Seite');
-  q('#wz-skip').click();
-  assert(back.isConnected && q('.field.invalid'), 'ohne Vorname geht es nicht weiter');
   q('#wz-vorname').value = 'Julian'; q('#wz-imkerei').value = 'Imkerei Test';
   q('#wz-skip').click();
   assert(await warteBis(() => w.S.get('wizardDone') === true && !back.isConnected), 'Fenster zu, Einrichtung fertig');
@@ -12518,4 +12516,29 @@ test('Lizenz: Testphase 30 Tage, danach nur lesen; Einstellungen bleiben schreib
     await w.DB.del('kontakte', k.id);
   } finally { L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
   assert(!L.gesperrt(), 'Web/Testseite: nie gesperrt');
+});
+
+test('Lizenz: nach Ablauf darf der Papierkorb aufräumen und „Alle Daten löschen“ gehen; Kaufstand reist nicht in Sicherungen', async (w) => {
+  const L = w.Lizenz, tag = 864e5;
+  const echtAktiv = L.aktiv, echtFenster = L.fenster, echtSpeicher = L.speicher;
+  L.aktiv = () => true; L.fenster = () => {};
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 40 * tag).toISOString() });
+  try {
+    assert(L.gesperrt(), 'abgelaufen = gesperrt');
+    L.pruefeSchreiben(['papierkorb'], [{ op: 'del', store: 'papierkorb', id: 'x' }]);   // wirft nicht
+    let fehler = null;
+    try { L.pruefeSchreiben(['papierkorb'], [{ store: 'papierkorb', obj: { id: 'y' } }]); } catch (e) { fehler = e; }
+    assert(fehler && fehler.lizenz, 'Neues in den Papierkorb legen bleibt gesperrt');
+    L._loeschenErlaubt = true;
+    L.pruefeSchreiben(['voelker'], [{ op: 'clear', store: 'voelker' }]);   // „Alle Daten löschen“
+  } finally { L._loeschenErlaubt = false; L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
+  for (const k of ['lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung']) assert(w.S.GERAET.has(k), k + ' bleibt auf dem Gerät');
+});
+
+test('App: Datei-Ausgaben laufen über das Teilen-Menü, kein nachgeladener Code', async (w) => {
+  assertEq(typeof w.nativDateiTeilen, 'function'); assertEq(typeof w.xlsxSpeichern, 'function');
+  const quelle = await (await w.fetch('../index.html')).text();
+  assert(/if \(nativTeilenBereit\(\)\) \{ nativDateiTeilen\(blob, filename\)/.test(quelle), 'U.download nutzt in der App das Teilen-Menü');
+  assert(/if \(IST_NATIVE_APP\) urls = urls\.filter\(\(u\) => !\/\^https\?:\/i\.test\(u\)\)/.test(quelle), 'loadScript lädt in der App nichts aus dem Internet');
+  assert(!/XLSX\.writeFile\(wb, `imkerbuch/.test(quelle), 'Excel nur noch über xlsxSpeichern');
 });

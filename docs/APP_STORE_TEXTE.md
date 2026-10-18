@@ -17,7 +17,7 @@ Stand 2026-10-18. Alles hier ist zum Kopieren in App Store Connect gedacht. Juli
 
 ## Stichwörter (max. 100 Zeichen, Komma ohne Leerzeichen)
 
-`Imker,Imkerei,Bienen,Stockkarte,Varroa,Honig,Bestandsbuch,Durchsicht,Bienenvolk,Königin,Kassenbuch`
+`Imker,Imkerei,Bienen,Varroa,Bestandsbuch,Durchsicht,Bienenvolk,Königin,Kassenbuch,Bio,Wanderung`
 
 ## Werbetext (max. 170, jederzeit änderbar)
 
@@ -34,7 +34,7 @@ DURCHSICHT AM STAND
 
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum und Bewertung
-• Bienenstände mit Wetter und Karte
+• Bienenstände mit Wetter und Kartenlink
 • Behandlungen mit Wartezeiten, Fütterung mit Futter-Rechner
 
 HONIG UND GESCHÄFT
@@ -71,7 +71,7 @@ Familienfreigabe: aus. Prüfungs-Screenshot: Kauf-Fenster der App.
 
 ImkerBuch is an offline record-keeping app for beekeepers. No account or login is required; all data is stored locally on the device.
 
-- On first launch the app shows the purchase screen: tap "30 Tage kostenlos starten" to start the free 30-day trial (a free non-consumable IAP, as described in guideline 3.1.1). The full version is the non-consumable "de.imkerbuch.app.vollversion".
+- On first launch a short welcome form appears (all fields optional, "Überspringen" possible); right after it the purchase screen opens: tap "30 Tage kostenlos starten" to start the free 30-day trial (a free non-consumable IAP, as described in guideline 3.1.1). The full version is the non-consumable "de.imkerbuch.app.vollversion".
 - "Käufe wiederherstellen" (Restore Purchases) and "Code einlösen" (offer codes) are on the purchase screen and under Einstellungen → "ImkerBuch Vollversion".
 - After the trial, existing data stays readable and can be backed up; only creating/editing entries requires the full version.
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Volk"), or follow the built-in tour by the assistant "Imme".

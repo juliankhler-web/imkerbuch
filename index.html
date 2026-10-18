@@ -1296,6 +1296,10 @@ const U = {
       Promise löst mit der URL auf, die funktioniert hat. */
   loadScript(...urls) {
     const key = urls[0];
+    /* App: niemals Programmcode aus dem Internet nachladen (Apple-Regel 2.5.2) –
+       nur die mitgelieferten Dateien unter ./libs/ sind erlaubt. */
+    if (IST_NATIVE_APP) urls = urls.filter((u) => !/^https?:/i.test(u));
+    if (!urls.length) return Promise.reject(new Error('Diese Funktion gibt es in der App noch nicht.'));
     if (!U._scripts[key]) U._scripts[key] = (async () => {
       for (const url of urls) {
         try { await U._injectScript(url); return url; } catch (e) { /* nächstes CDN */ }
@@ -1314,6 +1318,8 @@ const U = {
     });
   },
   download(blob, filename) {
+    // App: es gibt keinen Download-Ordner – Datei übers Teilen-Menü ausgeben
+    if (nativTeilenBereit()) { nativDateiTeilen(blob, filename).catch((e) => UI.toast('Datei konnte nicht geteilt werden: ' + (e.message || e), 'err')); return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.appendChild(a); a.click();
@@ -1400,8 +1406,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.56';
+const APP_VERSION = '2.57';
 const CHANGELOG = [
+  { version: '2.57', datum: '2026-10-18', punkte: [
+    'In der App gehen jetzt <b>alle Dateien</b> – PDFs, Excel, CSV und Kalender – über das Teilen-Menü raus (Dateien, iCloud Drive, Mail, Drucken …).',
+    'Neu in den Einstellungen: <b>Alle Daten löschen</b> – zum Beispiel vor dem Verkauf des Geräts.',
+    'Im Willkommen-Fenster ist jetzt <b>nichts mehr Pflicht</b>, auch der Vorname nicht.',
+    'Imme antwortet in der App passend zur App (Installieren, Updates, Preis, Mehrere Geräte).',
+  ] },
   { version: '2.56', datum: '2026-10-18', punkte: [
     '<b>Imme zeigt Neulingen das Wichtigste:</b> eine Einführung in 5 kurzen Schritten (Stand, Volk, erste Durchsicht, wo du alles findest, Sicherung). Startbar bei Imme und in den Einstellungen.',
     'In der App speicherst du deine Sicherung jetzt über das <b>Teilen-Menü</b> – direkt in iCloud Drive, Google Drive, per Mail oder AirDrop.',
@@ -2770,7 +2782,7 @@ const DB = {
   async schreibeAlles(ops) {
     const liste = (ops || []).filter(Boolean);
     if (!liste.length) return true;
-    Lizenz.pruefeSchreiben(liste.map((o) => o.store));
+    Lizenz.pruefeSchreiben(liste.map((o) => o.store), liste);
     const stores = [...new Set([...liste.map((o) => o.store), 'settings'])];
     const db = await this.open();
     const tx = db.transaction(stores, 'readwrite');
@@ -2995,7 +3007,10 @@ const S = {
      kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
      wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
      lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
-  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten']),
+  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
+    // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
+    // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -4515,8 +4530,36 @@ document.addEventListener('pointerdown', (e) => { if (Wisch.offen && !Wisch.offe
    Teilen-Menü („In Word öffnen", „In Dateien sichern", Acrobat …) – ein
    einfacher Download-Link tut dort oft gar nichts. Am Rechner in einem neuen
    Tab; was der Browser nicht anzeigen kann (Word), lädt er herunter. */
+/* In der App gibt es weder Downloads noch neue Tabs, und das Teilen von
+   Dateien aus der WebView ist nicht verlässlich. Darum gehen dort ALLE
+   Datei-Ausgaben (PDF, Excel, CSV, Kalender, Anhänge) diesen Weg: Datei in
+   den App-Cache schreiben, dann das System-Teilen-Menü (Dateien, iCloud
+   Drive, Google Drive, Mail, AirDrop, Drucken …). */
+function nativTeilenBereit() { const P = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins; return !!(P && P.Filesystem && P.Share); }
+async function nativDateiTeilen(blob, name, titel) {
+  if (!nativTeilenBereit()) return false;
+  const P = window.Capacitor.Plugins;
+  const durl = await U.blobToDataURL(blob);
+  const pfad = String(name || 'datei').replace(/[\\/:*?"<>|]/g, '_');
+  const r = await P.Filesystem.writeFile({ path: pfad, data: durl.slice(durl.indexOf(',') + 1), directory: 'CACHE' });   // ohne encoding = base64
+  try {
+    await P.Share.share({ title: titel || pfad, files: [r.uri], dialogTitle: titel || pfad });
+  } catch (e) {
+    if (!/cancel/i.test(String(e && (e.message || e)))) throw e;   // abgebrochen ist kein Fehler
+  } finally { setTimeout(() => P.Filesystem.deleteFile({ path: pfad, directory: 'CACHE' }).catch(() => {}), 60000); }
+  return true;
+}
+/** Excel-Arbeitsmappe speichern – im Browser als Download, in der App übers Teilen-Menü. */
+function xlsxSpeichern(wb, name) {
+  if (nativTeilenBereit()) {
+    const daten = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true });
+    return U.download(new Blob([daten], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name);
+  }
+  XLSX.writeFile(wb, name, { cellDates: true });
+}
 async function dateiOeffnen(blob, name, mime) {
   const typ = mime || blob.type || 'application/octet-stream';
+  if (nativTeilenBereit()) { await nativDateiTeilen(blob, name || 'dokument'); return 'geteilt'; }
   const mobil = IST_NATIVE_APP || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
   if (mobil && navigator.share) {
     try {
@@ -4594,7 +4637,7 @@ const Anhang = {
   viewer(a, { onNotiz, onChange } = {}) {
     const url = URL.createObjectURL(a.blob);
     const typen = S.get('dokumentTypen');
-    const ocrOn = S.get('features').ocr && a.art === 'foto';
+    const ocrOn = S.get('features').ocr && a.art === 'foto' && !IST_NATIVE_APP;   // App: kein nachgeladener Code
     const m = UI.modal({
       title: a.art === 'foto' ? 'Foto' : a.name, wide: true, onClose: () => URL.revokeObjectURL(url),
       body: `
@@ -4702,6 +4745,7 @@ const Voice = {
   },
   /** Offline-Transkription mit Whisper (whisper-small, deutsch) über transformers.js */
   async whisper(blob, onProgress = () => {}) {
+    if (IST_NATIVE_APP) throw new Error('Offline-Transkription gibt es in der App noch nicht.');   // kein nachgeladener Code (Apple 2.5.2)
     if (!Voice._asr) {
       onProgress({ label: 'Whisper-Modell wird geladen (einmalig, danach im Cache) …', pct: 2 });
       let tf;
@@ -4768,14 +4812,14 @@ const Sprachnotiz = {
     const render = async () => {
       blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls = [];
       const items = await Anhang.list(parentTyp, parentId, ['audio']);
-      const whisperOn = S.get('features').whisper;
+      const whisperOn = S.get('features').whisper && !IST_NATIVE_APP;   // App: kein nachgeladener Code
       el.innerHTML = `
         <div class="flex-wrap mb8">
           <h3 style="flex:1">Sprachnotizen</h3>
           <button class="btn btn-sm ${recorder ? 'btn-danger' : 'btn-ghost'}" data-rec>${recorder ? `<span class="rec-pulse"></span> Aufnahme stoppen` : `${icon('mic')} Aufnehmen`}</button>
         </div>
         ${recorder ? `<div class="banner info" data-live>${icon('mic')} <span>Aufnahme läuft … ${Voice.webSpeechAvailable() ? 'Live-Diktat aktiv.' : ''}</span></div>` : ''}
-        ${!Voice.webSpeechAvailable() && !whisperOn ? `<div class="hint small muted mb8">Live-Diktat (Web Speech) funktioniert nur in Chrome/Edge mit Internet. Alternativ in den Einstellungen die Offline-Transkription (Whisper) aktivieren.</div>` : ''}
+        ${!Voice.webSpeechAvailable() && !whisperOn && !IST_NATIVE_APP ? `<div class="hint small muted mb8">Live-Diktat (Web Speech) funktioniert nur in Chrome/Edge mit Internet. Alternativ in den Einstellungen die Offline-Transkription (Whisper) aktivieren.</div>` : ''}
         <div class="rows" data-list>
           ${items.map((a) => `<div class="audio-row" data-id="${U.esc(a.id)}">
             <audio controls preload="metadata"></audio>
@@ -5247,6 +5291,21 @@ function zeilenSortieren(listEl, onFertig) {
   listEl.addEventListener('pointercancel', ende);
 }
 
+/** Alle Daten dieses Geräts löschen (Datenschutz: jederzeit möglich, auch nach
+    der Testphase). Bleiben nur gerätebezogene Merker wie der Kaufstand. */
+async function alleDatenLoeschen() {
+  if (!(await UI.confirm({ title: 'Wirklich alle Daten löschen?', text: 'Alle Stände, Völker, Durchsichten, Fotos, Buchungen und Einstellungen auf diesem Gerät werden endgültig gelöscht. Das lässt sich nicht rückgängig machen – außer mit einer vorher gespeicherten Sicherung.', confirmText: 'Endgültig löschen', danger: true, requirePhrase: 'LÖSCHEN' }))) return;
+  const behalten = ['lizenz', 'bewertung'];
+  const alt = Object.fromEntries(behalten.map((k) => [k, S.get(k)]));
+  Lizenz._loeschenErlaubt = true;
+  try {
+    for (const st of DB.STORES) await DB.clear(st);
+    for (const [k, v] of Object.entries(alt)) if (v != null) await S.set(k, v, { auto: true });
+  } finally { Lizenz._loeschenErlaubt = false; }
+  UI.toast('Alle Daten gelöscht');
+  setTimeout(() => location.reload(), 600);
+}
+
 /* =====================================================================
    HILFE & KONTAKT – Nutzer schreiben Julian per E-Mail (Apple-Regel 1.5:
    einfacher Weg, den Entwickler zu erreichen). App-Version und Gerät stehen
@@ -5328,7 +5387,7 @@ const Wizard = {
         <div class="wizard-hex">${logoSvg(76)}</div>
         <h1 style="text-align:center">Willkommen bei ImkerBuch</h1>
         <p class="muted small mt8" style="text-align:center">Deine Imkerei – komplett offline auf diesem Gerät.<br>Lass uns kurz das Wichtigste einrichten.</p>
-        <div class="field mt16"><label>Dein Vorname <span class="req">*</span></label><input class="inp" id="wz-vorname" value="${U.esc(state.vorname)}" placeholder="z. B. Julian"><div class="err"></div></div>
+        <div class="field mt16"><label>Dein Vorname <span class="muted small">(freiwillig, für die Begrüßung)</span></label><input class="inp" id="wz-vorname" value="${U.esc(state.vorname)}" placeholder="z. B. Julian"><div class="err"></div></div>
         <div class="field"><label>Name deiner Imkerei</label><input class="inp" id="wz-imkerei" value="${U.esc(state.imkerei)}" placeholder="z. B. Imkerei Sonnenwabe (optional)"></div>`,
       () => `
         <div class="steps"><i class="done"></i><i class="done"></i><i></i><i></i></div>
@@ -5362,13 +5421,10 @@ const Wizard = {
         if (g('wz-volk') !== undefined) state.volkName = g('wz-volk');
         if (g('wz-beute') !== undefined) state.beutentyp = g('wz-beute');
       };
-      /* Nur der Vorname ist Pflicht – Stand, Volk und Beispieldaten lassen
-         sich später anlegen. Julian-Wunsch: nach Name/Imkerei überspringen. */
-      const nameFehlt = () => {
-        if (state.step !== 0 || state.vorname) return false;
-        const f = $('#wz-vorname', bodyEl).closest('.field'); f.classList.add('invalid'); $('.err', f).textContent = 'Bitte gib deinen Vornamen an.';
-        return true;
-      };
+      /* Nichts ist Pflicht – auch der Vorname nicht (Apple-Regel 5.1.1: keine
+         persönlichen Angaben verlangen, die die App nicht braucht; er dient nur
+         der Begrüßung). Julian-Wunsch: nach Name/Imkerei überspringen. */
+      const nameFehlt = () => false;
       const nb = $('#wz-next', bodyEl);
       if (nb) nb.onclick = () => {
         save();
@@ -5380,9 +5436,13 @@ const Wizard = {
         save();
         await Wizard.einrichten(state, withDemo);
         back.remove();
-        UI.toast(`Los geht's, ${state.vorname}!`);
+        UI.toast(state.vorname ? `Los geht's, ${state.vorname}!` : 'Los geht\'s!');
         renderRoute(); Backup.updateBanners();
-        setTimeout(() => Einfuehrung.anbieten(state.vorname), 900);
+        setTimeout(async () => {
+          // Erst die Testphase (Store-App), dann Immes Einführung – nie zwei Fenster gleichzeitig
+          if (Lizenz.aktiv() && Lizenz.status() === 'ohneTest') await Lizenz.fenster();
+          Einfuehrung.anbieten(state.vorname);
+        }, 700);
       };
       const sk = $('#wz-skip', bodyEl); if (sk) sk.onclick = () => { save(); if (!nameFehlt()) finish(false); };
       const nd = $('#wz-nodemo', bodyEl); if (nd) nd.onclick = () => finish(false);
@@ -7161,7 +7221,7 @@ Views.koeniginnen = {
     // verfügbare Königinnen: aktiv und keinem aktiven Volk zugeordnet (inkl. frisch erzeugter Töchter)
     const belegt = new Set(alleVoelker.filter((v) => v.status === 'aktiv' && v.koeniginId).map((v) => v.koeniginId));
     const frei = U.sortBy((await DB.getAll('koeniginnen')).filter((q) => q.status === 'aktiv' && !belegt.has(q.id)), (q) => q.jahrgang, true);
-    if (!frei.length) return UI.toast('Keine freie Königin vorhanden. Erzeuge z. B. Töchter aus einer Zuchtserie.', 'err');
+    if (!frei.length) return UI.toast((ZUCHT_AN ? 'Keine freie Königin vorhanden. Erzeuge z. B. Töchter aus einer Zuchtserie.' : 'Keine freie Königin vorhanden. Lege zuerst unter „Königinnen“ eine an.'), 'err');
     const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelker.map((v) => v.funktion).filter(Boolean)])];
     const m = UI.formModal({
       title: 'Sammel-Umweiseln', wide: true, saveText: 'Weiter',
@@ -12016,6 +12076,7 @@ Views.bio = {
         datei = bild.blob; quelle = bild.seiten > 1 ? 'Scan · erste Seite' : 'Scan';
       } catch (e) { kreis.close(); UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
     }
+    if (IST_NATIVE_APP) { UI.toast('Text aus Fotos oder Scans lesen gibt es in der App noch nicht – bitte ein PDF mit Text wählen.', 'err'); return null; }
     if (!S.get('features').ocr) {
       if (!(await UI.confirm({ title: 'Texterkennung einschalten?',
         text: 'Zum Lesen wird die Texterkennung gebraucht. Sie lädt beim ersten Mal einmalig rund 15 MB und arbeitet danach auf dem Gerät – die Fotos verlassen es nicht.',
@@ -15727,7 +15788,7 @@ Views.aufgaben = {
             ${sec('Diese Woche', grp.woche, 'b-warn')}
             ${sec('Später', grp.spaeter, 'b-muted')}
             ${sec('Erledigt (letzte 15)', erledigt, 'b-ok')}`
-          : emptyState('task', 'Keine Aufgaben. Zuchtserien und Behandlungen mit Wartezeit erzeugen hier automatisch Termine.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Aufgabe</button>`)}
+          : emptyState('task', (ZUCHT_AN ? 'Keine Aufgaben. Zuchtserien und Behandlungen mit Wartezeit erzeugen hier automatisch Termine.' : 'Keine Aufgaben. Behandlungen mit Wartezeit erzeugen hier automatisch Termine.'), `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Aufgabe</button>`)}
         </div>
       </div>`;
     /* Liste und Kalender als Reiter: untereinander waren es auf dem Handy fast drei Bildschirme */
@@ -19874,9 +19935,11 @@ const Lizenz = {
     return st === 'abgelaufen' || !!S.get('wizardDone');   // Einrichten vor dem Teststart ist erlaubt
   },
   /** Zentrale Schreibsperre: Einstellungen und interne Sicherungen bleiben immer erlaubt. */
-  pruefeSchreiben(stores) {
-    if (!this.gesperrt()) return;
+  pruefeSchreiben(stores, ops) {
+    if (!this.gesperrt() || this._loeschenErlaubt) return;
     if ((stores || []).every((st) => st === 'settings' || st === 'snapshots')) return;
+    // Alte Papierkorb-Einträge endgültig entfernen bleibt erlaubt (Aufräumen beim Start)
+    if (ops && ops.length && ops.every((o) => o.op === 'del' && o.store === 'papierkorb')) return;
     setTimeout(() => this.fenster(), 0);
     const e = new Error(this.status() === 'abgelaufen' ? 'Die Testphase ist vorbei – Neues eintragen geht mit der Vollversion. Deine Daten bleiben lesbar und sicherbar.' : 'Starte zuerst die kostenlose Testphase.');
     e.lizenz = true;
@@ -19896,13 +19959,16 @@ const Lizenz = {
     return this.speicher();
   },
   _preise: null,
+  /** Preise kommen IMMER aus dem App Store (Landeswährung, z. B. CHF) – nie fest
+      eingetragen. Gespeichert wird nur, wenn wirklich Produkte zurückkamen. */
   async preise() {
     if (this._preise) return this._preise;
-    const P = this.plugin(); const p = { test: '0,00 €', voll: '14,99 €' };
+    const P = this.plugin(); const p = { test: null, voll: null, geladen: false };
     if (P) try {
       const { products } = await P.getProducts({ productIdentifiers: Object.values(LIZENZ_PRODUKTE), productType: 'inapp' });
       for (const x of products || []) { if (x.identifier === LIZENZ_PRODUKTE.voll) p.voll = x.priceString; if (x.identifier === LIZENZ_PRODUKTE.test) p.test = x.priceString; }
-      this._preise = p;
+      p.geladen = !!p.voll;
+      if (p.geladen) this._preise = p;
     } catch (e) { console.warn('Preise nicht abrufbar', e); }
     return p;
   },
@@ -19914,9 +19980,12 @@ const Lizenz = {
       if (!/cancel/i.test(String(e && (e.message || e)))) UI.toast('Kauf nicht möglich: ' + (e.message || e) + ' – bist du online?', 'err');
       return false;
     }
-    await this.abgleichen();
-    UI.toast(art === 'voll' ? 'Danke! Die Vollversion ist freigeschaltet.' : `Testphase gestartet – ${this.TAGE} Tage alles frei.`);
-    return true;
+    const st = this.status(await this.abgleichen());
+    if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
+    else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.restTage()} Tage alles frei.`);
+    else if (st === 'abgelaufen') UI.toast('Zu dieser Apple-ID lief die Testphase schon. Neues eintragen geht mit der Vollversion.', 'err');
+    else { UI.toast('Der Kauf ist noch nicht bestätigt – bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
+    return st === 'voll' || st === 'test';
   },
   async wiederherstellen() {
     const P = this.plugin(); if (!P) return;
@@ -19930,26 +19999,32 @@ const Lizenz = {
   },
   _offen: false,
   /** Kauf-Fenster: vor dem Teststart, nach Ablauf und bei gesperrtem Schreiben. */
+  /** Öffnet das Kauf-Fenster; das Versprechen erfüllt sich, wenn es wieder zu ist. */
   async fenster() {
     if (this._offen || !this.aktiv()) return;
     this._offen = true;
+    let zu; const geschlossen = new Promise((r) => { zu = r; });
     const pr = await this.preise();
     const st = this.status();
     const kopf = st === 'abgelaufen' ? 'Deine Testphase ist vorbei' : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
+    const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : 'als Einmalkauf (Preis siehe App Store)';
     const text = st === 'abgelaufen'
-      ? `Danke fürs Ausprobieren! Deine Daten bleiben erhalten, lesbar und sicherbar. Neues eintragen und ändern geht mit der Vollversion – einmalig ${U.esc(pr.voll)}, kein Abo.`
-      : `Alle Funktionen, ohne Einschränkung. Danach einmalig ${U.esc(pr.voll)} für die Vollversion – kein Abo, keine automatische Abbuchung.`;
-    const m = UI.modal({ title: '', onClose: () => { this._offen = false; },
+      ? `Danke fürs Ausprobieren! Deine Daten bleiben erhalten, lesbar und sicherbar. Neues eintragen, ändern und löschen geht mit der Vollversion – ${preis}, kein Abo.`
+      : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
+    const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neue Einträge gehen dann mit der Vollversion. Die Testphase ist ein kostenloser Kauf (${U.esc(pr.test)}) im App Store – so geht sie bei einer Neuinstallation nicht verloren.</p>` : ''}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neues eintragen, ändern und löschen geht dann mit der Vollversion. Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.</p>` : ''}
+        ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom App Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen</a></p></div>`,
-      footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen · ${U.esc(pr.voll)}</button>` });
+      footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>` });
     const fertig = (ok) => { if (ok) { m.close(); renderRoute(); } };
     const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => fertig(await this.kaufen('test'));
     m.el.querySelector('[data-voll]').onclick = async () => fertig(await this.kaufen('voll'));
     m.el.querySelector('[data-wieder]').onclick = async () => { await this.wiederherstellen(); if (['voll', 'test'].includes(this.status())) fertig(true); };
     m.el.querySelector('[data-code]').onclick = () => this.codeEinloesen();
+    const nl = m.el.querySelector('[data-neu-laden]'); if (nl) nl.onclick = () => { m.close(); this._offen = false; setTimeout(() => this.fenster(), 300); };
+    return geschlossen;
   },
   async init() {
     const P = this.plugin(); if (!P || !this.aktiv()) return;
@@ -20174,7 +20249,7 @@ const Xlsx = {
         const rows = this.zeilenSicher(await defs[key].rows());
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{}]), defs[key].blatt.slice(0, 31));
       }
-      XLSX.writeFile(wb, `imkerbuch-export-${U.todayIso()}.xlsx`, { cellDates: true });
+      xlsxSpeichern(wb, `imkerbuch-export-${U.todayIso()}.xlsx`);
       UI.toast('Excel-Export erstellt');
     } catch (e) { UI.toast('Excel-Export fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -20190,7 +20265,7 @@ const Xlsx = {
       } else {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, def.blatt.slice(0, 31));
-        XLSX.writeFile(wb, `imkerbuch-${store}-${U.todayIso()}.xlsx`, { cellDates: true });
+        xlsxSpeichern(wb, `imkerbuch-${store}-${U.todayIso()}.xlsx`);
       }
       UI.toast('Export erstellt');
     } catch (e) { UI.toast('Export fehlgeschlagen: ' + e.message, 'err'); }
@@ -20478,6 +20553,10 @@ const Pdf = {
       Mobil/App: System-Teilen (Öffnen/Sichern/Teilen). Desktop: im neuen Tab ansehen ODER dort speichern. */
   async ausgeben(doc, dateiname) {
     const blob = doc.output('blob');
+    if (nativTeilenBereit()) {
+      try { await nativDateiTeilen(blob, dateiname); } catch (e) { UI.toast('PDF konnte nicht geteilt werden: ' + (e.message || e), 'err'); }
+      return;
+    }
     const mobil = IST_NATIVE_APP || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
     if (mobil && navigator.share) {
       try {
@@ -22663,25 +22742,25 @@ APP_WISSEN.push(
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Es gibt kein Konto und keine Cloud, deshalb sieht sie niemand außer dir. Dafür bist du für die Sicherung selbst zuständig – sichere regelmäßig in den Einstellungen.', schritte: [] },
   { id: 'mehrere-geraete', persona: true, titel: 'Mehrere Geräte benutzen',
     stichw: ['mehrere geraete', 'zwei handys', 'tablet und handy', 'synchronisieren', 'sync', 'auf anderem geraet', 'neues handy', 'handy gewechselt', 'computer und handy', 'abgleichen', 'gemeinsam nutzen', 'zu zweit', 'partner', 'familie', 'mitarbeiten', 'mitarbeiter', 'gemeinsam arbeiten', 'zusammen nutzen', 'mein partner', 'meine frau', 'mein mann', 'helfer', 'kann meine frau', 'app auch benutzen', 'mit meiner frau', 'mit meinem mann', 'familie nutzt', 'gemeinsames konto'],
-    antwort: 'Weil die Daten nur auf dem Gerät liegen, gibt es keine automatische Synchronisation. Zum Wechseln oder Übertragen erstellst du eine Sicherung („Backup herunterladen“) und spielst sie auf dem anderen Gerät mit „Wiederherstellen“ ein.', schritte: [] },
+    antwort: 'Weil die Daten nur auf dem Gerät liegen, gibt es keine automatische Synchronisation. Zum Wechseln oder Übertragen erstellst du in den Einstellungen unter „Sicherung & Datensicherheit“ eine Sicherung und spielst sie auf dem anderen Gerät mit „Backup importieren“ ein.', schritte: [] },
   { id: 'installieren', persona: true, titel: 'App auf dem Handy installieren',
     stichw: ['installieren', 'installation', 'app installieren', 'startbildschirm', 'homebildschirm', 'zum home bildschirm', 'app store', 'play store', 'herunterladen', 'download', 'als app', 'symbol auf handy', 'icon', 'aufs handy', 'auf das handy', 'app aufs handy', 'handy installieren', 'auf dem handy', 'fuers handy', 'app laden', 'app aufs handy laden', 'app herunterladen', 'app holen', 'installiere'],
-    antwort: 'Im Browser öffnest du das Teilen-Menü und wählst „Zum Home-Bildschirm“ (iPhone) oder „App installieren“ (Android). Danach startet ImkerBuch wie eine normale App – auch offline.', schritte: [] },
+    antwort: IST_NATIVE_APP ? 'ImkerBuch ist auf diesem Gerät schon installiert. Auf einem weiteren Gerät lädst du es aus dem App Store bzw. von Google Play – deine Daten nimmst du mit einer Sicherung mit, die Vollversion mit „Käufe wiederherstellen“.' : 'Im Browser öffnest du das Teilen-Menü und wählst „Zum Home-Bildschirm“ (iPhone) oder „App installieren“ (Android). Danach startet ImkerBuch wie eine normale App – auch offline.', schritte: [] },
   { id: 'preis', persona: true, titel: 'Was kostet die App?',
     stichw: ['preis app', 'was kostet', 'kosten app', 'abo', 'abonnement', 'einmalkauf', 'gratis', 'kostenlos', 'bezahlen app', 'kaufen app', 'lizenz', 'testen', 'testversion', 'ist das kostenlos', 'ist die app kostenlos', 'umsonst', 'geld kosten'],
-    antwort: 'Dazu kann ich dir hier nichts Verbindliches sagen. Aktuelle Preise und Bedingungen stehen im Store beziehungsweise bei deinem Anbieter.', schritte: [] },
+    antwort: 'ImkerBuch kannst du 30 Tage kostenlos mit allen Funktionen testen. Danach gibt es die Vollversion als Einmalkauf – kein Abo, keine automatische Abbuchung. Den Preis siehst du in den Einstellungen unter „ImkerBuch Vollversion“.', schritte: [] },
   { id: 'update', persona: true, titel: 'Die App aktualisieren',
     stichw: ['update', 'aktualisieren', 'neue version', 'version', 'was ist neu', 'neuerungen', 'aktuell', 'alte version', 'neu laden', 'seite neu laden', 'aktualisierung', 'neueste version', 'aktuelle version'],
-    antwort: 'Die Web-App holt Neuerungen beim Öffnen von selbst. Wenn du etwas Neues vermisst, schließe die App ganz und öffne sie neu. In den Einstellungen unter „Version“ siehst du, welcher Stand läuft, und die Neuerungen stehen unter „Was ist neu?“.', schritte: [] },
+    antwort: IST_NATIVE_APP ? 'Neue Versionen kommen als Update über den App Store bzw. Google Play. In den Einstellungen unter „Version“ siehst du, welcher Stand läuft, und die Neuerungen stehen unter „Was ist neu?“.' : 'Die Web-App holt Neuerungen beim Öffnen von selbst. Wenn du etwas Neues vermisst, schließe die App ganz und öffne sie neu. In den Einstellungen unter „Version“ siehst du, welcher Stand läuft, und die Neuerungen stehen unter „Was ist neu?“.', schritte: [] },
   { id: 'ueberblick', persona: true, titel: 'Was kann ImkerBuch?',
     stichw: ['was kann die app', 'was kann ich hier', 'ueberblick', 'wofuer ist die app', 'was gibt es', 'hilfe', 'ich brauche hilfe', 'ich verstehe nichts', 'wo fange ich an', 'anfangen', 'start', 'erste schritte', 'einstieg', 'anleitung', 'wie funktioniert das', 'neu hier', 'ich bin neu', 'alles', 'uebersicht der app', 'was kann ich mit der app', 'was kann man mit der app', 'keine ahnung', 'weiss nicht weiter', 'ich weiss nicht wie', 'erklaer mir die app', 'erklaer mal', 'gib mir einen ueberblick', 'was die app alles kann', 'alles kann', 'zeig mir was die app kann', 'was alles'],
-    antwort: 'ImkerBuch ist dein digitales Betriebsbuch: Bienenstände, Völker, Königinnen und Zucht, Durchsicht, Behandlungen und Fütterung, Ernte, Abfüllung, Verkauf und Rechnungen, Kassenbuch, Fahrtenbuch, Zeiterfassung, Lager, Bio- und Hygiene-Unterlagen sowie Exporte für Ämter. Fang am besten mit „Bienenstand anlegen“ und „Volk anlegen“ an – frag mich einfach, ich führe dich Schritt für Schritt.', schritte: [] },
+    antwort: 'ImkerBuch ist dein digitales Betriebsbuch: Bienenstände, Völker, ' + (ZUCHT_AN ? 'Königinnen und Zucht' : 'Königinnen') + ', Durchsicht, Behandlungen und Fütterung, Ernte, Abfüllung, Verkauf und Rechnungen, Kassenbuch, Fahrtenbuch, Zeiterfassung, Lager, Bio- und Hygiene-Unterlagen sowie Exporte für Ämter. Fang am besten mit „Bienenstand anlegen“ und „Volk anlegen“ an – frag mich einfach, ich führe dich Schritt für Schritt.', schritte: [] },
   { id: 'smalltalk', persona: true, titel: 'Hallo!',
     stichw: ['hallo', 'hi', 'hey', 'guten tag', 'guten morgen', 'guten abend', 'moin', 'servus', 'gruess dich', 'danke', 'dankeschoen', 'vielen dank', 'super', 'toll', 'prima', 'tschuess', 'bis spaeter', 'ciao', 'wie geht es dir', 'bist du ein mensch', 'bist du eine ki', 'hallo imme'],
     antwort: 'Hallo! Schön, dass du da bist. Frag mich, was du in der App tun möchtest – zum Beispiel „Wie verkaufe ich Honig?“ oder „Wo trage ich eine Behandlung ein?“. Ich bin keine Künstliche Intelligenz im Netz, sondern ein Helfer in der App und weiß, wie sie funktioniert.', schritte: [] },
   { id: 'problem', persona: true, titel: 'Etwas funktioniert nicht',
     stichw: ['funktioniert nicht', 'fehler', 'bug', 'haengt', 'stuerzt ab', 'geht nicht', 'kaputt', 'problem', 'nichts passiert', 'leere seite', 'weisser bildschirm', 'laedt nicht', 'langsam', 'komisch', 'seltsam', 'tut nicht', 'laeuft nicht', 'spinnt'],
-    antwort: 'Das tut mir leid. Probier zuerst: App ganz schließen und neu öffnen. Wenn es bleibt, erstelle sicherheitshalber eine Sicherung in den Einstellungen („Backup herunterladen“), bevor du weiterarbeitest. Beschreibe das Problem dann mit dem Namen der Seite und dem Schritt, bei dem es hakt.', schritte: [] }
+    antwort: 'Das tut mir leid. Probier zuerst: App ganz schließen und neu öffnen. Wenn es bleibt, erstelle sicherheitshalber eine Sicherung in den Einstellungen („Sicherung & Datensicherheit“), bevor du weiterarbeitest. Dann schreib mir über „Hilfe & Kontakt“ → „Fehler melden“, mit dem Namen der Seite und dem Schritt, bei dem es hakt.', schritte: [] }
 );
 
 
@@ -23716,6 +23795,9 @@ Views.einstellungen = {
           <span class="r-sub">${U.esc(s.grund)} · ${U.fmtBytes(s.groesse)} (ohne Foto-/Audiodateien)</span></span>
           <button class="btn btn-sm btn-ghost no-print" data-snap="${U.esc(s.id)}">${icon('restore')} Wiederherstellen</button></div>`).join('') || '<span class="muted small">Noch keine Snapshots – sie entstehen automatisch bei Auto-Sicherung und vor jedem Import.</span>'}</div>
         <button class="btn btn-ghost btn-sm mt12" id="snap-now">${icon('plus')} Snapshot jetzt anlegen</button>
+        <h3 class="mb8 mt16">Alle Daten löschen</h3>
+        <p class="small muted mb8">Löscht alle deine Einträge, Fotos und Einstellungen von diesem Gerät – zum Beispiel vor dem Verkauf des Geräts. Sichere vorher, wenn du sie behalten willst. Geht auch nach der Testphase.</p>
+        <button class="btn btn-danger btn-sm no-print" id="alles-loeschen">${icon('trash')} Alle Daten löschen</button>
       </div>
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Profil & Imkerei</h2></div>
@@ -23754,7 +23836,7 @@ Views.einstellungen = {
           </div>
         </div>
         <label class="check-line"><input type="checkbox" id="logo-header" ${S.get('logoImHeader') ? 'checked' : ''} ${logo ? '' : 'disabled'}> <span>Logo auch im App-Header anzeigen</span></label>
-        <div class="hint">Das Logo erscheint auf allen erzeugten PDFs (Rechnungen, Bestandsbuch, Wanderbuch, Zuchtbuch, Meldungen, Reports, Komplettausdruck). Ohne eigenes Logo wird das ImkerBuch-Waben-Logo verwendet.</div>
+        <div class="hint">Das Logo erscheint auf allen erzeugten PDFs (Rechnungen, Bestandsbuch, Wanderbuch${ZUCHT_AN ? ', Zuchtbuch' : ''}, Meldungen, Reports, Komplettausdruck). Ohne eigenes Logo wird das ImkerBuch-Waben-Logo verwendet.</div>
       </div>
 
       <div class="card"><div class="card-title">${icon('euro')}<h2>Steuer & Rechnungen</h2></div>
@@ -23801,8 +23883,8 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
         <label class="check-line"><input type="checkbox" data-feat="wetter" ${f.wetter ? 'checked' : ''}> <span>Wetter-Abruf über Open-Meteo (kostenlos, ohne Schlüssel)</span></label>
-        <label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
-        <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>
+        ${IST_NATIVE_APP ? '' : `<label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
+        <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>`}
         <h3 class="mt16 mb8">Erinnerungen</h3>
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>
         ${f.benachrichtigungen ? `<div class="mt8">
@@ -23858,7 +23940,7 @@ Views.einstellungen = {
       </div>
 
       <div class="card"><div class="card-title">${icon('crown')}<h2>Belegstellen</h2></div>
-        <p class="small muted mb12">Bienenbelegstellen zur kontrollierten Anpaarung. Einmal angelegt, kannst du sie in der Zucht (bei Königin und Zuchtserie unter „Belegstelle“) direkt auswählen – dort auch neu anlegen.</p>
+        <p class="small muted mb12">Bienenbelegstellen zur kontrollierten Anpaarung. Einmal angelegt, kannst du sie ${ZUCHT_AN ? 'in der Zucht (bei Königin und Zuchtserie unter „Belegstelle“)' : 'bei der Königin unter „Belegstelle“'} direkt auswählen – dort auch neu anlegen.</p>
         <div class="rows mb12" id="beleg-list">${belegstellen.map((b) => `<button class="row" data-belegedit="${U.esc(b.id)}" style="min-height:48px"><span class="r-main"><span class="r-title">${U.esc(b.name)}</span><span class="r-sub">${[b.drohnenlinie || b.rasse, b.ort, b.leiterName ? 'Leiter: ' + b.leiterName : b.betreiber].filter(Boolean).map((t) => U.esc(t)).join(' · ') || 'keine weiteren Angaben'}</span></span><span class="r-ic no-print">${icon('pencil')}</span></button>`).join('') || '<span class="muted small">Noch keine Belegstellen angelegt.</span>'}</div>
         <button class="btn btn-ghost btn-sm no-print" id="beleg-add">${icon('plus')} Belegstelle hinzufügen</button>
       </div>
@@ -23913,6 +23995,7 @@ Views.einstellungen = {
     $('#imp-file').onchange = (e) => { if (e.target.files[0]) Backup.importFile(e.target.files[0]); e.target.value = ''; };
     main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap); });
     $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Snapshot angelegt'); renderRoute(); };
+    $('#alles-loeschen').onclick = () => alleDatenLoeschen();
 
     /* Belegstellen */
     $('#beleg-add').onclick = () => openBelegstelleForm(null, renderRoute);
@@ -24463,7 +24546,7 @@ async function boot() {
   renderChrome();
   applyHeaderLogo();
   nachRenderBeobachten(); // Diagramm-Bedienung + Tabellen-Beschriftung, auch für Nachgeladenes
-  DB.purgeTrash();
+  DB.purgeTrash().catch(() => {});
   window.addEventListener('hashchange', renderRoute);
   Backup.initAuto();
   Backup.requestPersist();
@@ -24498,8 +24581,7 @@ async function boot() {
     }).catch((e) => console.warn('Service Worker nicht registriert:', e.message));
   }
   if (!S.get('wizardDone') && !TEST_MODE) {
-    if (Lizenz.status() === 'ohneTest') setTimeout(() => Lizenz.fenster(), 400);   // vor dem Einrichten: Testphase anbieten
-    Wizard.run();
+    Wizard.run();   // Testphase wird nach dem Einrichten angeboten (Wizard → Lizenz.fenster → Einführung)
     S.set('letzteGeseheneVersion', APP_VERSION, { auto: true }); // Neuinstallation: kein „Was ist neu?“-Fenster
   }
   await renderRoute();
@@ -24514,7 +24596,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, Lizenz, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, Lizenz, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
