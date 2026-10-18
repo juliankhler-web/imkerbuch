@@ -176,3 +176,17 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - Support-/Datenschutz-Seiten müssen dauerhaft online bleiben, auch wenn die Web-Version/das Repo geändert wird (Abschnitt 18).
 - AGB § 4 (Kleinunternehmer-Satz) je nach ELSTER-Entscheidung anpassen.
 - Bei der Gesamtprüfung auf dem iPhone ansehen: doppelte Erlaubnis-Abfrage (Standort/Mikrofon), Mail-Link auf der Support-Seite im Fenster, Startzeit der App.
+
+## 22. Entscheidungen + Recherche (Julian 2026-10-18, Abend)
+
+- **iPad: JA.** App bleibt iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`) → iPad gründlich testen (hoch/quer, Kauf-Fenster, Einführung, Teilen-Menü) und iPad-Bilder 13″ für den Store.
+- **Wetter:** Open-Meteo gratis nur nicht-kommerziell („Apps mit Abo oder Werbung“ = kommerziell; Kauf-App sehr wahrscheinlich auch) → ersetzen. Optionen:
+  - **Apple WeatherKit:** 500.000 Abrufe/Monat im Entwicklerkonto inklusive, aber nur iOS direkt; Android/Web bräuchten einen eigenen Server (Schlüssel darf nicht in die App).
+  - **Bright Sky (Daten vom Deutschen Wetterdienst):** kostenlos, ohne Schlüssel, „free-to-use for all purposes“; es gelten die DWD-Nutzungsbedingungen (Quellenangabe „Deutscher Wetterdienst“). Funktioniert in iOS, Android und Web gleich. **Empfehlung**, Abdeckung AT/CH beim Umbau prüfen.
+  - „Vom Handy abgreifen“: Das Handy selbst stellt Apps keine Wetterdaten bereit (außer WeatherKit auf iOS).
+- **Google Play (Recherche):**
+  - Neue Apps müssen **Android 16 / API 36** als Ziel haben (seit 31.08.2026) – ImkerBuch hat `targetSdk 36` ✅.
+  - **Neue private Entwicklerkonten:** geschlossener Test mit **12 Testern über 14 Tage am Stück** vor der Freigabe (Google prüft auch, ob sie die App wirklich nutzen). Julians Imker-Testgruppe dafür nutzen.
+  - **Kein 0-€-Einmalkauf** wie bei Apple → Testphase auf Android anders lösen (z. B. ab erstem Start auf dem Gerät; Neuinstallation setzt zurück – vertretbar) oder Vollversion direkt + Gutscheine.
+  - **Gutscheine:** Play-Promo-Codes gehen auch für Einmalkäufe – aber nur Einmal-Codes (je Code einmal); eigene Sammel-Codes wie `IMKERVEREIN26` gibt es bei Google **nur für Abos**.
+  - ⚠️ Android-Manifest hat bisher nur INTERNET – **Kamera, Mikrofon und Standort fehlen** (sonst gehen Fotos/Sprachnotizen/Standort in der Android-App nicht).
