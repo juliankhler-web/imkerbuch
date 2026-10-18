@@ -12542,3 +12542,22 @@ test('App: Datei-Ausgaben laufen über das Teilen-Menü, kein nachgeladener Code
   assert(/if \(IST_NATIVE_APP\) urls = urls\.filter\(\(u\) => !\/\^https\?:\/i\.test\(u\)\)/.test(quelle), 'loadScript lädt in der App nichts aus dem Internet');
   assert(!/XLSX\.writeFile\(wb, `imkerbuch/.test(quelle), 'Excel nur noch über xlsxSpeichern');
 });
+
+test('Wetter: Deutscher Wetterdienst – Messstation, sonst Vorhersage (z. B. Wien)', async (w) => {
+  const echt = w.fetch, urls = [];
+  const antwort = (status, daten) => Promise.resolve({ ok: status === 200, status, json: async () => daten });
+  try {
+    w.fetch = (u) => { urls.push(u); return /current_weather/.test(u) ? antwort(200, { weather: { temperature: 12.5, wind_speed_10: 9, precipitation_60: 0.4 } }) : antwort(500, {}); };
+    let x = await w.Wetter.fetchCurrent({ lat: 51.3, lng: 9.5 });
+    assertEq([x.tempC, x.windKmh, x.niederschlagMm, x.quelle], [12.5, 9, 0.4, 'Deutscher Wetterdienst']);
+    assert(/^https:\/\/api\.brightsky\.dev\/current_weather\?lat=51\.3&lon=9\.5$/.test(urls[0]), 'richtige Adresse: ' + urls[0]);
+    urls.length = 0;
+    w.fetch = (u) => { urls.push(u); return /current_weather/.test(u) ? antwort(404, {}) : antwort(200, { weather: [{ temperature: 15, wind_speed: 11, precipitation: 0 }] }); };
+    x = await w.Wetter.fetchCurrent({ lat: 48.21, lng: 16.37 });
+    assertEq([x.tempC, x.quelle], [15, 'Deutscher Wetterdienst (Vorhersage)'], 'keine Station in der Nähe → Vorhersage');
+    assert(/\/weather\?lat=48\.21&lon=16\.37&date=/.test(urls[1]), 'Vorhersage-Abruf: ' + urls[1]);
+    w.fetch = () => antwort(503, {});
+    let fehler = null; try { await w.Wetter.fetchCurrent({ lat: 1, lng: 1 }); } catch (e) { fehler = e; }
+    assert(fehler, 'Dienst weg → Fehler (Kachel zeigt „nicht abrufbar“)');
+  } finally { w.fetch = echt; }
+});

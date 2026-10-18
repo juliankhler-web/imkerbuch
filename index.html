@@ -1406,8 +1406,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.57';
+const APP_VERSION = '2.58';
 const CHANGELOG = [
+  { version: '2.58', datum: '2026-10-18', punkte: [
+    'Das <b>Wetter</b> kommt jetzt vom <b>Deutschen Wetterdienst</b> – von der nächsten Messstation, und wo keine in der Nähe ist (z. B. in Österreich), aus seiner Vorhersage. Die Quelle steht dabei.',
+    'Neu eingerichtet: In der ersten Woche erinnert die App noch nicht ans Sichern.',
+  ] },
   { version: '2.57', datum: '2026-10-18', punkte: [
     'In der App gehen jetzt <b>alle Dateien</b> – PDFs, Excel, CSV und Kalender – über das Teilen-Menü raus (Dateien, iCloud Drive, Mail, Drucken …).',
     'Neu in den Einstellungen: <b>Alle Daten löschen</b> – zum Beispiel vor dem Verkauf des Geräts.',
@@ -5020,7 +5024,7 @@ const DASH_WIDGETS = {
       const box = $('#dash-wetter'); if (!box) return;
       try {
         const w = await Wetter.fetchCurrent(stand);
-        box.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${U.fmtNum(w.windKmh, 0)} km/h · Regen ${U.fmtNum(w.niederschlagMm, 1)} mm</div>`;
+        box.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${U.fmtNum(w.windKmh, 0)} km/h · Regen ${U.fmtNum(w.niederschlagMm, 1)} mm</div><div class="small muted">Quelle: ${U.esc(w.quelle)}</div>`;
       } catch (e) { box.innerHTML = `<div class="muted small">Wetter nicht abrufbar (offline?).</div>`; }
     }, 50);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2><a href="#/stand/${stand.id}" class="small">${U.esc(stand.name)}</a></div><div id="dash-wetter">${inner}</div></div>`;
@@ -5692,7 +5696,7 @@ const Demo = {
 
     await DB.put('wetter', { standId: st1.id, datum: d(-1), tempC: 19.5, windKmh: 8, niederschlagMm: 0, bemerkung: 'Sonnig', quelle: 'manuell' });
     await DB.put('wetter', { standId: st1.id, datum: d(-2), tempC: 16, windKmh: 14, niederschlagMm: 2.5, bemerkung: 'Wechselhaft', quelle: 'manuell' });
-    await DB.put('wetter', { standId: st1.id, datum: d(-3), tempC: 22, windKmh: 6, niederschlagMm: 0, bemerkung: '', quelle: 'open-meteo' });
+    await DB.put('wetter', { standId: st1.id, datum: d(-3), tempC: 22, windKmh: 6, niederschlagMm: 0, bemerkung: '', quelle: 'dwd' });
 
     UI.toast('Beispieldaten geladen');
   },
@@ -5701,14 +5705,27 @@ const Demo = {
 /* =====================================================================
    MODUL: BIENENSTÄNDE (Standort/Geolocation, Kartenlinks, Wetter)
    ===================================================================== */
+/* Wetter vom Deutschen Wetterdienst (DWD) über Bright Sky (api.brightsky.dev):
+   kostenlos, ohne Schlüssel, auch für kommerzielle Apps; es gelten die
+   DWD-Nutzungsbedingungen → Quellenangabe „Deutscher Wetterdienst“ zeigen.
+   Vorher Open-Meteo – dessen Gratis-Zugang ist nur nicht-kommerziell.
+   Erst die nächste Messstation (bis 50 km); ist keine nah genug (z. B. in
+   Wien), die DWD-Vorhersage (MOSMIX, deckt auch AT/CH ab) für die Stunde. */
+const WETTER_QUELLE = 'Deutscher Wetterdienst';
 const Wetter = {
-  /** Aktuelles Wetter über Open-Meteo (kostenlos, ohne API-Key) */
   async fetchCurrent(stand) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${stand.lat}&longitude=${stand.lng}&current=temperature_2m,wind_speed_10m,precipitation&timezone=auto`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('Open-Meteo nicht erreichbar');
-    const j = await r.json();
-    return { tempC: j.current.temperature_2m, windKmh: j.current.wind_speed_10m, niederschlagMm: j.current.precipitation };
+    const ort = `lat=${encodeURIComponent(stand.lat)}&lon=${encodeURIComponent(stand.lng)}`;
+    const r = await fetch(`https://api.brightsky.dev/current_weather?${ort}`);
+    if (r.ok) {
+      const w = (await r.json()).weather || {};
+      if (w.temperature != null) return { tempC: w.temperature, windKmh: w.wind_speed_10 ?? w.wind_speed_30 ?? null, niederschlagMm: w.precipitation_60 ?? w.precipitation_30 ?? w.precipitation_10 ?? 0, quelle: WETTER_QUELLE };
+    } else if (r.status !== 404) throw new Error('Wetterdienst nicht erreichbar');
+    const stunde = new Date(); stunde.setUTCMinutes(0, 0, 0);
+    const r2 = await fetch(`https://api.brightsky.dev/weather?${ort}&date=${encodeURIComponent(stunde.toISOString())}`);
+    if (!r2.ok) throw new Error('Wetterdienst nicht erreichbar');
+    const v = ((await r2.json()).weather || [])[0];
+    if (!v || v.temperature == null) throw new Error('Für diesen Ort gibt es keine Wetterdaten');
+    return { tempC: v.temperature, windKmh: v.wind_speed ?? null, niederschlagMm: v.precipitation ?? 0, quelle: WETTER_QUELLE + ' (Vorhersage)' };
   },
 };
 
@@ -6090,7 +6107,7 @@ Views.stand = {
           </span></div>
         <div id="wetter-chart">${wetterAll.length > 1 ? UI.chart({ type: 'line', labels: [...wetterAll].reverse().map((w) => U.fmtDate(w.datum).slice(0, 6)), series: [{ name: '°C', values: [...wetterAll].reverse().map((w) => w.tempC) }], height: 160, unit: '°C' }) : ''}</div>
         ${wetterAll.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th class="num">Temp.</th><th class="num">Wind</th><th class="num">Regen</th><th>Bemerkung</th><th></th></tr></thead>
-          <tbody>${wetterAll.slice(0, 30).map((w) => `<tr><td>${U.fmtDate(w.datum)}</td><td class="num">${U.fmtNum(w.tempC, 1)} °C</td><td class="num">${U.fmtNum(w.windKmh, 0)} km/h</td><td class="num">${U.fmtNum(w.niederschlagMm, 1)} mm</td><td>${U.esc(w.bemerkung || '')}${w.quelle === 'open-meteo' ? ' <span class="badge b-blue">auto</span>' : ''}</td>
+          <tbody>${wetterAll.slice(0, 30).map((w) => `<tr><td>${U.fmtDate(w.datum)}</td><td class="num">${U.fmtNum(w.tempC, 1)} °C</td><td class="num">${U.fmtNum(w.windKmh, 0)} km/h</td><td class="num">${U.fmtNum(w.niederschlagMm, 1)} mm</td><td>${U.esc(w.bemerkung || '')}${w.quelle === 'open-meteo' || w.quelle === 'dwd' ? ` <span class="badge b-blue" title="${w.quelle === 'dwd' ? 'Quelle: Deutscher Wetterdienst' : 'Quelle: Open-Meteo'}">auto</span>` : ''}</td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-wdel="${U.esc(w.id)}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="muted small">Noch keine Wetterdaten erfasst.</div>'}
       </div>
       <div class="card" id="anhang-card"></div>`;
@@ -6116,7 +6133,7 @@ Views.stand = {
       wAuto.disabled = true;
       try {
         const w = await Wetter.fetchCurrent(s);
-        await DB.put('wetter', { standId: id, datum: U.todayIso(), tempC: w.tempC, windKmh: w.windKmh, niederschlagMm: w.niederschlagMm, bemerkung: '', quelle: 'open-meteo' });
+        await DB.put('wetter', { standId: id, datum: U.todayIso(), tempC: w.tempC, windKmh: w.windKmh, niederschlagMm: w.niederschlagMm, bemerkung: '', quelle: 'dwd' });
         UI.toast('Wetter abgerufen'); renderRoute();
       } catch (err) { UI.toast('Wetterabruf fehlgeschlagen: ' + err.message, 'err'); wAuto.disabled = false; }
     };
@@ -20213,7 +20230,7 @@ const Xlsx = {
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
-      wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle })) },
+      wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
       /* Lager, Hygiene und Pfand: bisher nur in der Komplett-Sicherung, jetzt auch als Tabellenblatt */
       materialzugaenge: { blatt: 'Einkäufe & Zugänge', rows: async () => (await DB.getAll('materialzugaenge')).map((z) => ({ Datum: d(z.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(z.typ)) || [])[1] || '', Position: z.bezeichnung, Art: z.lohn ? 'Lohnverarbeitung' : z.art, Menge: z.menge, Einheit: z.einheit, 'Preis je Einheit (€)': z.preis, 'Kosten (€)': zugangKosten(z), 'Lieferant/Verarbeiter': kontakte.get(z.kontaktId)?.name || '', Beleg: z.belegNr, 'Honig abgegeben (kg)': z.honigKg || '', Notiz: z.notiz })) },
       materialabgaenge: { blatt: 'Verkäufe & Abgänge', rows: async () => (await DB.getAll('materialabgaenge')).map((a) => ({ Datum: d(a.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(a.typ)) || [])[1] || '', Position: a.bezeichnung, Grund: a.art, Menge: a.menge, Einheit: a.einheit, 'Preis je Einheit (€)': a.preis, 'Erlös (€)': abgangErloes(a), 'Käufer': a.kaeufer || kontakte.get(a.kontaktId)?.name || '', Beleg: a.belegNr, Notiz: a.notiz })) },
@@ -23888,7 +23905,7 @@ Views.einstellungen = {
       </div>
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
-        <label class="check-line"><input type="checkbox" data-feat="wetter" ${f.wetter ? 'checked' : ''}> <span>Wetter-Abruf über Open-Meteo (kostenlos, ohne Schlüssel)</span></label>
+        <label class="check-line"><input type="checkbox" data-feat="wetter" ${f.wetter ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
         ${IST_NATIVE_APP ? '' : `<label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
         <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>`}
         <h3 class="mt16 mb8">Erinnerungen</h3>

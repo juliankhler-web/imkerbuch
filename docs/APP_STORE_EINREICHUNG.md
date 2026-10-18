@@ -172,7 +172,7 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - Version **1.00** + Kunden-CHANGELOG direkt vor dem Upload (Abschnitt 13).
 - Kaufprodukte in App Store Connect anlegen und **mit Version 1.0 zusammen einreichen**; Sandbox-Test (auch Testphase-Neuinstallation, Wiederherstellen, Code einlösen).
 - **iPad:** gründlich testen + iPad-Bilder ODER nur iPhone (`TARGETED_DEVICE_FAMILY = 1`). Entscheidung Julian.
-- **Open-Meteo:** kostenlose API nur nicht-kommerziell → bei einer Kauf-App kostenpflichtigen Zugang oder anderen Dienst wählen. Entscheidung Julian.
+- ~~Open-Meteo~~ → erledigt: Deutscher Wetterdienst (v2.58).
 - Support-/Datenschutz-Seiten müssen dauerhaft online bleiben, auch wenn die Web-Version/das Repo geändert wird (Abschnitt 18).
 - AGB § 4 (Kleinunternehmer-Satz) je nach ELSTER-Entscheidung anpassen.
 - Bei der Gesamtprüfung auf dem iPhone ansehen: doppelte Erlaubnis-Abfrage (Standort/Mikrofon), Mail-Link auf der Support-Seite im Fenster, Startzeit der App.
@@ -182,7 +182,7 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - **iPad: JA.** App bleibt iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`) → iPad gründlich testen (hoch/quer, Kauf-Fenster, Einführung, Teilen-Menü) und iPad-Bilder 13″ für den Store.
 - **Wetter:** Open-Meteo gratis nur nicht-kommerziell („Apps mit Abo oder Werbung“ = kommerziell; Kauf-App sehr wahrscheinlich auch) → ersetzen. Optionen:
   - **Apple WeatherKit:** 500.000 Abrufe/Monat im Entwicklerkonto inklusive, aber nur iOS direkt; Android/Web bräuchten einen eigenen Server (Schlüssel darf nicht in die App).
-  - **Bright Sky (Daten vom Deutschen Wetterdienst):** kostenlos, ohne Schlüssel, „free-to-use for all purposes“; es gelten die DWD-Nutzungsbedingungen (Quellenangabe „Deutscher Wetterdienst“). Funktioniert in iOS, Android und Web gleich. **Empfehlung**, Abdeckung AT/CH beim Umbau prüfen.
+  - **Bright Sky (Daten vom Deutschen Wetterdienst):** kostenlos, ohne Schlüssel, „free-to-use for all purposes“; es gelten die DWD-Nutzungsbedingungen (Quellenangabe „Deutscher Wetterdienst“). Funktioniert in iOS, Android und Web gleich. **Umgesetzt v2.58** (Julian: „stell auf den deutschen Wetterdienst um“) – DE/CH über Messstationen, AT (z. B. Wien) über DWD-Vorhersage geprüft.
   - „Vom Handy abgreifen“: Das Handy selbst stellt Apps keine Wetterdaten bereit (außer WeatherKit auf iOS).
 - **Google Play (Recherche):**
   - Neue Apps müssen **Android 16 / API 36** als Ziel haben (seit 31.08.2026) – ImkerBuch hat `targetSdk 36` ✅.
