@@ -106,3 +106,10 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - **Impressum:** Julians echte Adresse. Widerruf regelt Apple.
 - **Sicherung in iCloud/Google Drive** (eigene Datei des Nutzers, ohne Server): ja, für Version 1.
 - **Updates:** Fehler sammeln und gebündelt als Update herausgeben.
+
+## 13. Versionsnummer zum Start: 1.00 (Julian 2026-10-18)
+
+- Beim Release: `APP_VERSION = '1.00'`, `package.json` `1.0.0`, iOS `MARKETING_VERSION = 1.0` (Build-Nummer `CURRENT_PROJECT_VERSION` bei jedem Upload +1), Android `versionName "1.0"` (`versionCode` +1 je Upload).
+- `CHANGELOG` für Kunden neu beginnen: ein Eintrag 1.00 („Willkommen“) statt der Entwicklungs-Geschichte; die alte Liste bleibt in Git und `PROJEKT.md`.
+- Geprüft: Die App vergleicht Versionen nur auf Gleichheit (Update-Hinweis, „Was ist neu?“) – der Sprung 2.54 → 1.00 bricht nichts; Testgeräte sehen einmal den 1.00-Eintrag. Sicherungsdateien hängen nicht an der Versionsnummer.
+- Danach: 1.01, 1.02 … für Fehlerbehebungen, 1.10 für neue Funktionen, 2.00 z. B. mit Cloud.
