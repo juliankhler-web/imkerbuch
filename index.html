@@ -1406,8 +1406,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.59';
+const APP_VERSION = '2.60';
 const CHANGELOG = [
+  { version: '2.60', datum: '2026-10-19', punkte: [
+    'Behoben: In der App konnte der Start hängen bleiben, wenn die Testphase noch nicht gestartet oder schon vorbei war.',
+  ] },
   { version: '2.59', datum: '2026-10-18', punkte: [
     'Android: Die <b>Zurück-Taste</b> schließt zuerst offene Fenster und geht dann eine Seite zurück.',
     'Android: Erinnerungen mit eigenem Waben-Symbol; Käufe und Gutscheine werden zuverlässig bestätigt.',
@@ -2791,7 +2794,6 @@ const DB = {
   async schreibeAlles(ops) {
     const liste = (ops || []).filter(Boolean);
     if (!liste.length) return true;
-    Lizenz.pruefeSchreiben(liste.map((o) => o.store), liste);
     const stores = [...new Set([...liste.map((o) => o.store), 'settings'])];
     const db = await this.open();
     const tx = db.transaction(stores, 'readwrite');
@@ -2833,7 +2835,6 @@ const DB = {
   /* Liest, prüft und schreibt unter EINER IndexedDB-Schreibsperre.
      berechne ist synchron und liefert { ops, wert }; keine UI oder awaits darin. */
   async aendereAtomar(stores, berechne) {
-    Lizenz.pruefeSchreiben(stores);
     const db = await this.open();
     return new Promise((resolve, reject) => {
       const namen = [...new Set([...stores, 'settings'])];
@@ -2880,7 +2881,6 @@ const DB = {
     });
   },
   async trashRestore(trashId) {
-    Lizenz.pruefeSchreiben(['papierkorb']);
     // Vorab nur den Transaktionsumfang bestimmen; maßgeblich ist der erneute
     // Lesezugriff INNERHALB der Schreibtransaktion.
     const vorab = await this.get('papierkorb', trashId);
@@ -3321,6 +3321,10 @@ const UI = {
       const v = collect(); if (!v) return;
       // dirty erst NACH erfolgreichem Speichern zurücksetzen – wirft onSave, bleibt der
       // Ungespeichert-Schutz scharf und das Formular offen (kein stiller Datenverlust).
+      /* Nach der Testphase: Eintragen/Ändern über Formulare gesperrt (Nur-Lesen).
+         Bewusst HIER und nicht in der Datenbank: dort hätte die Sperre auch die
+         internen Umstellungen beim Start blockiert – die App blieb dann hängen. */
+      try { Lizenz.pruefeSchreiben(['formular']); } catch (e) { UI.toast(e.message, 'err'); return; }
       try { await onSave(v); FormGuard.dirty = false; m.close(true); }
       catch (e) {
         console.error(e);
@@ -6813,6 +6817,7 @@ Views.durchsicht = {
   },
   /** Speichert die Durchsicht samt Sprachnotizen in EINEM Schreibvorgang. Gibt false zurück, wenn nichts erfasst war. */
   async speichern(volk, e) {
+    Lizenz.pruefeSchreiben(['stockkarten']);   // Durchsicht am Stand: nach der Testphase gesperrt
     const fragen = sdFragen();
     const hat = (f) => e.antworten[f.key] !== undefined;
     if (!fragen.some(hat) && !e.audio.length) return false;
@@ -19984,7 +19989,8 @@ const Lizenz = {
     if (st === 'voll' || st === 'test') return false;
     return st === 'abgelaufen' || !!S.get('wizardDone');   // Einrichten vor dem Teststart ist erlaubt
   },
-  /** Zentrale Schreibsperre: Einstellungen und interne Sicherungen bleiben immer erlaubt. */
+  /** Schreibsperre für Eingaben des Nutzers (Formulare, Durchsicht am Stand).
+      Einstellungen und interne Sicherungen bleiben immer erlaubt. */
   pruefeSchreiben(stores, ops) {
     if (!this.gesperrt() || this._loeschenErlaubt) return;
     if ((stores || []).every((st) => st === 'settings' || st === 'snapshots')) return;

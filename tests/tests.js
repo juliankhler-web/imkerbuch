@@ -12494,7 +12494,7 @@ test('Bewertungs-Nachfrage: nur nach gutem Moment, selten, höchstens 3×', (w) 
   assert(!B.sollFragen(z({ mal: 3 }), t0 + 400 * tag), 'höchstens 3×');
 });
 
-test('Lizenz: Testphase 30 Tage, danach nur lesen; Einstellungen bleiben schreibbar', async (w) => {
+test('Lizenz: Testphase 30 Tage, danach nur lesen (Formulare gesperrt, Start-Umstellungen laufen)', async (w) => {
   const L = w.Lizenz, tag = 864e5, t0 = Date.parse('2026-11-01T10:00:00Z');
   assertEq(L.status({ voll: false, testStart: null }, t0), 'ohneTest');
   assertEq(L.status({ voll: false, testStart: new Date(t0).toISOString() }, t0 + 29 * tag), 'test');
@@ -12506,14 +12506,22 @@ test('Lizenz: Testphase 30 Tage, danach nur lesen; Einstellungen bleiben schreib
   L.aktiv = () => true; L.fenster = () => {};
   L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
   try {
-    let fehler = null;
-    try { await w.DB.put('kontakte', { name: 'gesperrt' }); } catch (e) { fehler = e; }
-    assert(fehler && fehler.lizenz, 'Neues eintragen nach Ablauf gesperrt');
-    await w.S.set('probeEinstellung', 1, { auto: true });   // Einstellungen gehen weiter
-    assert((await w.DB.getAll('voelker')).length >= 0, 'Lesen geht');
+    // Interne Schreibvorgänge (Umstellungen beim Start) laufen IMMER – sonst hing die App auf dem Startbild
+    const intern = await w.DB.put('kontakte', { name: 'intern' }); await w.DB.del('kontakte', intern.id);
+    await w.migriereBioPartner(true);
+    // Eingaben des Nutzers über ein Formular sind nach Ablauf gesperrt, das Formular bleibt offen
+    let gespeichert = 0;
+    w.UI.formModal({ title: 'Probe', fields: [{ key: 'name', label: 'Name' }], async onSave() { gespeichert++; } });
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    assertEq(gespeichert, 0, 'Formular speichert nach Ablauf nicht');
+    assert(m.isConnected, 'Formular bleibt offen');
     L.speicher = () => ({ voll: true });
-    const k = await w.DB.put('kontakte', { name: 'mit Vollversion' });
-    await w.DB.del('kontakte', k.id);
+    m.querySelector('[data-save]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    assertEq(gespeichert, 1, 'mit Vollversion wird gespeichert');
+    await w.S.set('probeEinstellung', 1, { auto: true });   // Einstellungen gehen weiter
   } finally { L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
   assert(!L.gesperrt(), 'Web/Testseite: nie gesperrt');
 });
