@@ -3010,7 +3010,7 @@ const S = {
   GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
-    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung']),
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -5462,6 +5462,7 @@ const Wizard = {
     if (state.volkName) await DB.put('voelker', { name: state.volkName, standId, koeniginId: null, funktion: 'Wirtschaftsvolk', beutentyp: state.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }], notizen: '' });
     await startDatenMerken(vorher);
     if (withDemo) await Demo.create();
+    await S.set('eingerichtetAm', U.nowIso(), { auto: true });
     await S.set('wizardDone', true, { auto: true });
   },
 };
@@ -19206,7 +19207,12 @@ const Backup = {
   /* ---------- Reminder ---------- */
   reminderInfo() {
     const t = S.get('letzteExterneSicherung');
-    if (!t) return { tage: null, stufe: S.get('wizardDone') ? 'gelb' : 'ok' };
+    if (!t) {
+      // Ganz neu eingerichtet: in der ersten Woche noch nicht ans Sichern mahnen
+      const seit = S.get('eingerichtetAm');
+      if (seit && U.daysBetween(seit, U.nowIso()) < 7) return { tage: null, stufe: 'ok' };
+      return { tage: null, stufe: S.get('wizardDone') ? 'gelb' : 'ok' };
+    }
     const tage = U.daysBetween(t, U.nowIso());
     return { tage, stufe: tage >= 14 ? 'rot' : tage >= 7 ? 'gelb' : 'ok' };
   },
