@@ -113,3 +113,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - `CHANGELOG` für Kunden neu beginnen: ein Eintrag 1.00 („Willkommen“) statt der Entwicklungs-Geschichte; die alte Liste bleibt in Git und `PROJEKT.md`.
 - Geprüft: Die App vergleicht Versionen nur auf Gleichheit (Update-Hinweis, „Was ist neu?“) – der Sprung 2.54 → 1.00 bricht nichts; Testgeräte sehen einmal den 1.00-Eintrag. Sicherungsdateien hängen nicht an der Versionsnummer.
 - Danach: 1.01, 1.02 … für Fehlerbehebungen, 1.10 für neue Funktionen, 2.00 z. B. mit Cloud.
+
+## 14. Später (nach 1.00)
+
+- **Etiketten-Gestalter** (Einstellungen → Etiketten): Logo, Farben, Vorlagen, Live-Vorschau, Etikettenbögen (Herma/Avery/rund/eigene Maße), Vorder-/Deckel-/Gewährstreifen-Etikett. Pflichtangaben-Prüfung ist schon gebaut (v. a. 4-mm-Füllmenge). Bis dahin bleibt der Etikettendruck nur im Testmodus.
