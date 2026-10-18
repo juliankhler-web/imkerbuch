@@ -12432,3 +12432,41 @@ test('Hilfe & Kontakt: drei Mail-Knöpfe an den Support, mit Version und Gerät,
     for (const p of host.querySelectorAll('svg.chev, .hilfe-ic svg')) assert(p.getBoundingClientRect().width <= 24, 'Symbole klein');
   } finally { host.remove(); }
 }));
+
+test('Erinnerungen: richtige Zeitpunkte für Aufgaben mit und ohne Uhrzeit', (w) => {
+  const E = w.Erinnerung, jetzt = new Date(2026, 9, 18, 12, 0);
+  const auf = [
+    { id: 'a1', titel: 'Futterkontrolle', faellig: '2026-10-19', volkId: 'v1' },               // morgen 07:00
+    { id: 'a2', titel: 'Vereinsabend', faellig: '2026-10-20', uhrzeit: '19:30' },               // 1 h vorher
+    { id: 'a3', titel: 'Erledigt', faellig: '2026-10-19', erledigt: true },
+    { id: 'a4', titel: 'Vorbei', faellig: '2026-10-17' },
+    { id: 'a5', titel: 'Heute früh', faellig: '2026-10-18' },                                  // 07:00 schon vorbei
+    { id: 'a6', titel: 'Ohne Datum' },
+  ];
+  const t = E.termine(auf, jetzt, { uhrzeit: '07:00', vorlaufMin: 60 }, { v1: 'Volk 3' });
+  assertEq(t.map((x) => x.extra.aufgabeId), ['a1', 'a2'], 'nur offene, künftige');
+  assertEq([t[0].at.getDate(), t[0].at.getHours(), t[0].at.getMinutes()], [19, 7, 0], 'ohne Uhrzeit: morgens um 7');
+  assertEq([t[1].at.getDate(), t[1].at.getHours(), t[1].at.getMinutes()], [20, 18, 30], 'mit Uhrzeit: 1 h vorher');
+  assertEq(t[0].title, 'Heute fällig: Futterkontrolle'); assertEq(t[0].body, 'Volk 3');
+  assertEq(t[1].title, 'In 1 Stunde: Vereinsabend'); assert(/19:30/.test(t[1].body), 'Uhrzeit im Text');
+  assertEq(E.nummer('a1'), E.nummer('a1'), 'stabile Nummer'); assert(E.nummer('a1') !== E.nummer('a2'), 'verschiedene Nummern');
+  const viele = Array.from({ length: 80 }, (_, i) => ({ id: 'x' + i, titel: 'T', faellig: '2026-11-' + String(1 + (i % 28)).padStart(2, '0') }));
+  assertEq(E.termine(viele, jetzt).length, 60, 'höchstens 60 (iOS-Grenze 64)');
+});
+
+test('Start nach einer neueren Test-Fassung: höhere Datenbank-Stufe blockiert die App nicht', async (w) => {
+  const NAME = 'imkerbuch-versionstest-' + Date.now();
+  // Eine „neuere Fassung“ hat die Datenbank schon auf Stufe 50 gehoben (mit allen Bereichen + einem Extra)
+  await new Promise((res, rej) => {
+    const rq = w.indexedDB.open(NAME, 50);
+    rq.onupgradeneeded = () => { for (const st of [...w.DB.STORES, 'waagenmessungen']) rq.result.createObjectStore(st, { keyPath: st === 'settings' ? 'key' : 'id' }); };
+    rq.onsuccess = () => { rq.result.close(); res(); }; rq.onerror = () => rej(rq.error);
+  });
+  const D = Object.assign(Object.create(w.DB), { NAME, _db: null });
+  try {
+    const db = await D.open();
+    assert(db && db.objectStoreNames.contains('voelker'), 'Datenbank offen, Bereiche da');
+    assertEq(db.version, 50, 'keine Daten weg, Stufe bleibt');
+    db.close();
+  } finally { w.indexedDB.deleteDatabase(NAME); }
+});

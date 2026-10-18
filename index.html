@@ -1393,8 +1393,18 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.54';
+const APP_VERSION = '2.55';
 const CHANGELOG = [
+  { version: '2.55', datum: '2026-10-18', punkte: [
+    '<b>Erinnerungen in der App:</b> ImkerBuch erinnert dich jetzt per Mitteilung an fällige Aufgaben – auch wenn die App geschlossen ist. Aufgaben können eine <b>Uhrzeit</b> bekommen; einstellbar unter Einstellungen → Funktionen → Erinnerungen (Uhrzeit am Fälligkeitstag, wie lange vorher).',
+    'Neu: <b>Hilfe & Kontakt</b> im Menü – Fehler melden, Frage stellen oder Idee vorschlagen per E-Mail. App-Version und Gerät stehen schon drin, deine Imkerei-Daten nicht.',
+    'Im Willkommen-Fenster kannst du nach Name und Imkerei <b>überspringen</b>.',
+    'Die Erinnerung an die Sicherung steht nur noch auf der <b>Startseite</b>.',
+    'Behoben: Bei einer noch nicht bewerteten Königin war ein <b>riesiger Pfeil</b> zu sehen.',
+    'Behoben: Die Knöpfe über Verbrauchsmaterial, Inventar und Weitere Produkte sind jetzt <b>gleich groß</b>.',
+    'Die App startet jetzt auch, wenn vorher eine neuere Test-Fassung auf dem Gerät lief.',
+    '<b>Zucht</b> und der <b>Etikettendruck</b> sind vorerst ausgeblendet und kommen mit einem späteren Update zurück – deine Zucht-Daten bleiben erhalten.',
+  ] },
   { version: '2.54', datum: '2026-10-12', punkte: [
     'Behoben: Nach „Mehr“ und einem Bereich, der nicht in der unteren Leiste steht, war das „Mehr“-Symbol nur halb zu sehen. Der abgetauchte Kreis lag unsichtbar darüber – jetzt liegt er hinter den Symbolen und verdeckt keins mehr, auch nicht während des Wechsels.',
   ] },
@@ -2660,7 +2670,30 @@ const DB = {
         for (const s of this.STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: s === 'settings' ? 'key' : 'id' });
       };
       rq.onsuccess = () => { this._db = rq.result; res(this._db); };
-      rq.onerror = () => rej(rq.error);
+      rq.onerror = (ev) => {
+        /* Auf dem Gerät lief schon eine NEUERE Fassung (höhere Datenbank-Stufe,
+           z. B. ein Test-Build mit zusätzlichem Bereich). Dann ohne Stufe öffnen:
+           alle Bereiche dieser Fassung sind dort vorhanden, nichts geht verloren –
+           statt dass die App gar nicht mehr startet. */
+        if (rq.error && rq.error.name === 'VersionError') {
+          ev.preventDefault();
+          const rq2 = indexedDB.open(this.NAME);
+          rq2.onsuccess = () => {
+            const db = rq2.result;
+            const fehlt = this.STORES.filter((st) => !db.objectStoreNames.contains(st));
+            if (!fehlt.length) { this._db = db; res(db); return; }
+            // Sehr unwahrscheinlich: ein Bereich fehlt – eine Stufe höher anlegen
+            const ver = db.version + 1; db.close();
+            const rq3 = indexedDB.open(this.NAME, ver);
+            rq3.onupgradeneeded = () => { for (const st of fehlt) rq3.result.createObjectStore(st, { keyPath: st === 'settings' ? 'key' : 'id' }); };
+            rq3.onsuccess = () => { this._db = rq3.result; res(this._db); };
+            rq3.onerror = () => rej(rq3.error);
+          };
+          rq2.onerror = () => rej(rq2.error);
+          return;
+        }
+        rej(rq.error);
+      };
     });
   },
   _req: (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
@@ -2706,6 +2739,7 @@ const DB = {
   },
   _aenderungMelden() {
     window._changedSinceBackup = true;
+    if (typeof Erinnerung !== 'undefined') Erinnerung.spaeterPlanen();
     window._sicherungKanal?.postMessage('aktualisieren');
   },
   /* Mehrere Speicher in EINER Transaktion: entweder alles oder nichts.
@@ -3145,7 +3179,7 @@ const UI = {
       } else if (f.type === 'number') {
         inner = `<input class="inp" id="${fid(f.key)}" inputmode="decimal" placeholder="${U.esc(f.placeholder || 'z. B. 12,5')}" value="${v === '' ? '' : U.esc(String(v).replace('.', ','))}">`;
       } else {
-        inner = `<input class="inp" id="${fid(f.key)}" type="${f.type === 'date' ? 'date' : 'text'}" placeholder="${U.esc(f.placeholder || '')}" value="${U.esc(v)}">`;
+        inner = `<input class="inp" id="${fid(f.key)}" type="${f.type === 'date' || f.type === 'time' ? f.type : 'text'}" placeholder="${U.esc(f.placeholder || '')}" value="${U.esc(v)}">`;
       }
       return `<div class="field${f.halb ? ' halb' : ''}${f.halbBreit ? ' halb halb-breit' : ''}" data-field="${U.esc(f.key)}"><label>${U.esc(f.label)}${f.required ? ' <span class="req">*</span>' : ''}</label>${inner}${f.hint ? `<div class="hint">${f.hint}</div>` : ''}<div class="err"></div></div>`;
     };
@@ -15705,6 +15739,7 @@ Views.aufgaben = {
         fields: [
           { key: 'titel', label: 'Aufgabe', required: true, placeholder: 'z. B. Futterkontrolle' },
           { key: 'faellig', label: 'Fällig am', type: 'date' },
+          { key: 'uhrzeit', label: 'Uhrzeit (optional)', type: 'time', hint: 'Mit Uhrzeit erinnert die App vorher (Einstellungen → Erinnerungen), sonst morgens am Fälligkeitstag.' },
           { key: 'standId', label: 'Bienenstand', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staendeAlle.map((st) => ({ v: st.id, l: st.name }))], hint: 'Filtert die Völker unten – und ist der Bezug, wenn du kein einzelnes Volk wählst.' },
           { key: 'funktion', label: 'Funktion (nur Filter)', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionenAlle.map((f) => ({ v: f, l: f }))] },
           { key: 'volkId', label: 'Volk', type: 'select', options: [{ v: '', l: 'kein einzelnes Volk' }, ...voelkerAktiv.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') }))], hint: 'Wandert das Volk, zeigt die Aufgabe von selbst den neuen Stand.' },
@@ -15726,6 +15761,7 @@ Views.aufgaben = {
           for (const x of rec.schritte) await schrittMerken(rec.kategorie, x);
           await aufgabenAbgleich();                              // Zustand sofort festhalten
           UI.toast('Aufgabe gespeichert'); renderRoute();
+          erinnerungAnbieten(rec);
         },
         onDelete: papierkorbDelete('aufgaben', a, 'Aufgabe löschen?', 'Wandert in den Papierkorb.'),
       });
@@ -19672,13 +19708,92 @@ window.addEventListener('focus', () => Backup.leseAenderungsstand().catch(consol
    Plattform-Grenze: ohne Push-Server kann das Web bei komplett
    geschlossener App nichts zustellen – dafür ist der ICS-Weg da.
    ===================================================================== */
+/* =====================================================================
+   ERINNERUNGEN IN DER APP (iOS/Android) – lokale Mitteilungen.
+   Das Gerät plant sie selbst; sie kommen auch, wenn die App geschlossen ist.
+   Kein Server, kein Push-Zertifikat. Die Web-Version nutzt weiter „Notif“
+   (Service Worker, nur solange die App offen ist).
+   Neu geplant wird nach jeder Datenänderung (DB._aenderungMelden), beim
+   Start und beim Zurückkehren in die App; iOS erlaubt höchstens 64 geplante
+   Mitteilungen – wir planen die nächsten 60.
+   ===================================================================== */
+const Erinnerung = {
+  MAX: 60,
+  plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications) || null; },
+  einstellung() { return Object.assign({ uhrzeit: '07:00', vorlaufMin: 60 }, S.get('erinnerung') || {}); },
+  /** Stabile Zahl aus der Aufgaben-ID (Mitteilungen brauchen ganze Zahlen). */
+  nummer(id) { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) | 0; return Math.abs(h) % 2000000000 + 1; },
+  /** Welche Mitteilungen wann? Rein rechnerisch (testbar), ohne Gerät. */
+  termine(aufgaben, jetzt = new Date(), e = this.einstellung(), namen = {}) {
+    const liste = [];
+    for (const a of aufgaben) {
+      if (a.erledigt || !a.faellig || !/^\d{4}-\d{2}-\d{2}$/.test(a.faellig)) continue;
+      const mitZeit = /^\d{2}:\d{2}$/.test(a.uhrzeit || '');
+      const [h, m] = (mitZeit ? a.uhrzeit : e.uhrzeit).split(':').map(Number);
+      const [Y, M, D] = a.faellig.split('-').map(Number);
+      const um = new Date(Y, M - 1, D, h, m, 0, 0);
+      const at = mitZeit ? new Date(um.getTime() - (Number(e.vorlaufMin) || 0) * 60000) : um;
+      if (at <= jetzt) continue;
+      const wo = [namen[a.volkId], namen[a.standId]].filter(Boolean).join(' · ');
+      const vorlauf = Number(e.vorlaufMin) || 0;
+      const wann = !mitZeit ? 'Heute fällig' : vorlauf === 0 ? 'Jetzt' : vorlauf < 60 ? `In ${vorlauf} Minuten` : vorlauf === 60 ? 'In 1 Stunde' : vorlauf % 1440 === 0 ? (vorlauf === 1440 ? 'Morgen' : `In ${vorlauf / 1440} Tagen`) : `In ${Math.round(vorlauf / 60)} Stunden`;
+      liste.push({ id: this.nummer(a.id), at, title: `${wann}: ${a.titel || 'Aufgabe'}`, body: [mitZeit ? `um ${a.uhrzeit} Uhr` : '', wo].filter(Boolean).join(' · ') || 'ImkerBuch', extra: { aufgabeId: a.id } });
+    }
+    return liste.sort((x, y) => x.at - y.at).slice(0, this.MAX);
+  },
+  _t: null,
+  spaeterPlanen() { if (!this.plugin()) return; clearTimeout(this._t); this._t = setTimeout(() => this.planen().catch((e) => console.warn('Erinnerungen planen', e)), 1200); },
+  async erlaubt() { const LN = this.plugin(); if (!LN) return false; try { return (await LN.checkPermissions()).display === 'granted'; } catch (_) { return false; } },
+  async erlaubnisHolen() { const LN = this.plugin(); if (!LN) return 'unsupported'; try { return (await LN.requestPermissions()).display; } catch (_) { return 'denied'; } },
+  async planen() {
+    const LN = this.plugin(); if (!LN) return 0;
+    const offen = await LN.getPending();
+    if (offen.notifications && offen.notifications.length) await LN.cancel({ notifications: offen.notifications.map((n) => ({ id: n.id })) });
+    if (!S.get('features').benachrichtigungen || !(await this.erlaubt())) return 0;
+    const namen = {};
+    for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
+    const liste = this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen);
+    if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, extra: t.extra })) });
+    return liste.length;
+  },
+  async probe() {
+    const LN = this.plugin(); if (!LN) return false;
+    if (!(await this.erlaubt()) && (await this.erlaubnisHolen()) !== 'granted') return false;
+    await LN.schedule({ notifications: [{ id: 1, title: 'ImkerBuch', body: 'Probe-Mitteilung – so erinnert dich die App an fällige Aufgaben.', schedule: { at: new Date(Date.now() + 5000) } }] });
+    return true;
+  },
+  init() {
+    const LN = this.plugin(); if (!LN) return;
+    // Tippen auf eine Mitteilung öffnet „Aufgaben & Kalender“
+    LN.addListener('localNotificationActionPerformed', () => { navTo('aufgaben'); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.spaeterPlanen(); });
+    this.spaeterPlanen();
+  },
+};
+
+/* Apple: Erlaubnis erst fragen, wenn sie Sinn ergibt – bei der ersten Aufgabe
+   mit Datum, einmalig. Wer ablehnt, wird nicht wieder gefragt (Einstellungen). */
+async function erinnerungAnbieten(aufgabe) {
+  if (!aufgabe || !aufgabe.faellig || S.get('features').benachrichtigungen || S.get('erinnerungGefragt')) return;
+  if (!Notif.unterstuetzt() || (TEST_MODE && !window.__erinnerungTest)) return;
+  await S.set('erinnerungGefragt', true, { auto: true });
+  const ja = await UI.confirm({ title: 'An Aufgaben erinnern?', text: 'Soll ImkerBuch dir am Fälligkeitstag eine Mitteilung schicken – auch wenn die App geschlossen ist? Das kannst du jederzeit in den Einstellungen ändern.', confirmText: 'Ja, erinnern', danger: false });
+  if (!ja) return;
+  const f = S.get('features'); f.benachrichtigungen = true; await S.set('features', f);
+  if ((await Notif.anfordern()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den iPhone-Einstellungen bei ImkerBuch einschaltbar.', 'err');
+  else UI.toast('Erinnerungen sind an');
+}
+
 const Notif = {
-  unterstuetzt: () => 'Notification' in window && 'serviceWorker' in navigator,
+  _nativ: 'default',   // Erlaubnis in der App (wird beim Start abgefragt)
+  unterstuetzt: () => !!Erinnerung.plugin() || ('Notification' in window && 'serviceWorker' in navigator),
   status() {
+    if (Erinnerung.plugin()) return this._nativ === 'prompt' || this._nativ === 'prompt-with-rationale' ? 'default' : this._nativ;
     if (!this.unterstuetzt()) return 'unsupported';
     return Notification.permission; // 'default' | 'granted' | 'denied'
   },
   async anfordern() {
+    if (Erinnerung.plugin()) { this._nativ = await Erinnerung.erlaubnisHolen(); Erinnerung.spaeterPlanen(); return this.status(); }
     if (!this.unterstuetzt()) return 'unsupported';
     try { return await Notification.requestPermission(); } catch (e) { return 'denied'; }
   },
@@ -19702,6 +19817,7 @@ const Notif = {
     if (!f.benachrichtigungen) { this.badge(0); return 0; }
     const faellig = this.faellige(await DB.getAll('aufgaben'));
     this.badge(faellig.length);
+    if (Erinnerung.plugin()) { Erinnerung.spaeterPlanen(); return faellig.length; }   // App: Gerät plant selbst
     if (!faellig.length) return 0;
     const heute = U.todayIso();
     const letzte = S.get('letzteNotif') || {};
@@ -19723,6 +19839,7 @@ const Notif = {
     try { if ('setAppBadge' in navigator) (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()); } catch (e) {}
   },
   init() {
+    if (Erinnerung.plugin()) Erinnerung.plugin().checkPermissions().then((p) => { this._nativ = p.display; }, () => {});
     setTimeout(() => this.check(), 2500);
     setInterval(() => this.check(), 30 * 60 * 1000);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.check(); });
@@ -23391,13 +23508,17 @@ Views.einstellungen = {
         <label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
         <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>
         <h3 class="mt16 mb8">Erinnerungen</h3>
-        <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)</span></label>
+        <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>
+        ${f.benachrichtigungen ? `<div class="mt8">
+          <div class="field"><label>Aufgaben ohne Uhrzeit: am Fälligkeitstag um</label><input class="inp" type="time" id="er-uhrzeit" value="${U.esc(Erinnerung.einstellung().uhrzeit)}" style="max-width:140px"></div>
+          <div class="field"><label>Aufgaben mit Uhrzeit: vorher erinnern</label><select class="inp" id="er-vorlauf" style="max-width:200px">${[[0, 'zur Uhrzeit'], [15, '15 Minuten vorher'], [30, '30 Minuten vorher'], [60, '1 Stunde vorher'], [120, '2 Stunden vorher'], [1440, '1 Tag vorher']].map(([v, l]) => `<option value="${v}" ${Number(Erinnerung.einstellung().vorlaufMin) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        </div>` : ''}
         <div class="hint" id="notif-status">${
           Notif.status() === 'unsupported' ? 'Dieser Browser unterstützt keine Benachrichtigungen.'
           : Notif.status() === 'denied' ? '⚠️ Berechtigung abgelehnt – bitte in den Browser-/iOS-Einstellungen für ImkerBuch erlauben.'
-          : Notif.status() === 'granted' ? 'Berechtigung erteilt ✓ – geprüft wird beim Öffnen der App und alle 30 Minuten, solange sie läuft.'
+          : Notif.status() === 'granted' ? (Erinnerung.plugin() ? 'Erlaubt ✓ – das Gerät erinnert dich zur eingestellten Zeit, auch wenn die App geschlossen ist.' : 'Berechtigung erteilt ✓ – geprüft wird beim Öffnen der App und alle 30 Minuten, solange sie läuft.')
           : 'Die Berechtigung wird beim Aktivieren abgefragt.'
-        }<br>iPhone/iPad: funktioniert nur als installierte Home-Screen-App (iOS 16.4+). Bei komplett geschlossener App kann keine Web-App von selbst melden – dafür gibt es den Kalender-Export.</div>
+        }${Erinnerung.plugin() ? '' : '<br>iPhone/iPad: funktioniert nur als installierte Home-Screen-App (iOS 16.4+). Bei komplett geschlossener App kann keine Web-App von selbst melden – dafür gibt es den Kalender-Export.'}</div>
         <div class="flex-wrap mt8 no-print">
           <button class="btn btn-ghost btn-sm" id="notif-test">${icon('task')} Probe-Benachrichtigung</button>
           <button class="btn btn-ghost btn-sm" onclick="Notif.icsExport()">${icon('kalender')} Aufgaben als Kalender (.ics)</button>
@@ -23615,9 +23736,18 @@ Views.einstellungen = {
         if (p !== 'granted') UI.toast('Keine Berechtigung – der App-Icon-Zähler und der Kalender-Export funktionieren trotzdem', 'err');
         await Notif.check(true);
       } else Notif.badge(0);
+      Erinnerung.spaeterPlanen();
       renderRoute();
     };
+    const erZeit = $('#er-uhrzeit'), erVor = $('#er-vorlauf');
+    const erSpeichern = async () => {
+      await S.set('erinnerung', { uhrzeit: (erZeit && erZeit.value) || '07:00', vorlaufMin: Number(erVor && erVor.value) || 0 }, { auto: true });
+      Erinnerung.spaeterPlanen();
+    };
+    if (erZeit) erZeit.onchange = erSpeichern;
+    if (erVor) erVor.onchange = erSpeichern;
     $('#notif-test').onclick = async () => {
+      if (Erinnerung.plugin()) return UI.toast((await Erinnerung.probe()) ? 'Probe-Mitteilung kommt in 5 Sekunden – App ruhig schließen' : 'Mitteilungen sind nicht erlaubt (iPhone-Einstellungen → ImkerBuch)', 'ok');
       if (Notif.status() !== 'granted' && (await Notif.anfordern()) !== 'granted') return UI.toast('Berechtigung nicht erteilt', 'err');
       const reg = await navigator.serviceWorker.getRegistration();
       if (!reg) return UI.toast('Service Worker nicht aktiv (HTTPS bzw. localhost nötig)', 'err');
@@ -24030,6 +24160,7 @@ async function boot() {
   Backup.initAuto();
   Backup.requestPersist();
   Notif.init();
+  Erinnerung.init();
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -24070,7 +24201,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
