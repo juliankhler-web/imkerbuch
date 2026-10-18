@@ -54,3 +54,16 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 ## 6. Datenverlust vermeiden
 
 - Daten liegen nur auf dem Gerät: App löschen = Daten weg. Beim ersten Start und in der Sicherung deutlich sagen; Sicherung erinnern (vorhanden).
+
+## 7. Vor dem Einreichen: Gesamtprüfung (Julian-Wunsch)
+
+- Jede Funktion einmal **als App im iOS-Simulator und auf Julians iPhone** durchgehen: jeder Bereich, jedes Formular, jede PDF, Fotos, Sprachnotiz, Standort, Sicherung/Import, Kauf/Testphase/Wiederherstellen.
+- Je Bereich: leer, mit Beispieldaten, hell/dunkel, hochkant/quer, kleines und großes iPhone.
+- Ergebnis als Protokoll (Bereich · geprüft · Fehler · behoben) in `docs/PRUEFUNG-APPSTORE.md`.
+
+## 8. Store-Präsentation (hochwertig)
+
+- **Bildschirmfotos:** 6–8 Stück, echte App-Bilder mit Beispieldaten, im Gerät-Rahmen, kurze Überschrift je Bild, einheitliche Honig-Farbwelt, hell und eines dunkel.
+  Reihenfolge nach Nutzen: Start · Durchsicht am Stand · Volk · Ernte/Abfüllung · Kassenbuch · PDF/Bestandsbuch · Offline/Datenschutz.
+- **Vorschau-Video:** 15–30 Sekunden, nur echte Aufnahmen aus der App (Apple-Regel), ohne Ton verständlich, 886 × 1920 bzw. 1080 × 1920.
+- Vorhandenes nutzen: `website-assets/`, `website-video/`, Store-Grafiken für Google Play.
