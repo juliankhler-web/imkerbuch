@@ -19062,6 +19062,7 @@ const Backup = {
   },
   /** „Sicherung senden“: Web Share API Level 2 mit Datei, sonst Download + mailto */
   async share() {
+    if (this.nativTeilenMoeglich()) UI.toast('Sicherung wird vorbereitet …');   // bei vielen Fotos dauert das ein paar Sekunden
     const blob = await this.buildBlob();
     if (this.nativTeilenMoeglich()) {
       try { await this.nativTeilen(blob, this.dateiname()); } catch (e) { UI.toast('Sicherung konnte nicht geteilt werden: ' + (e.message || e), 'err'); }
@@ -23675,6 +23676,7 @@ Views.einstellungen = {
         <div class="detail-kv mb12">
           <dt>Letzte externe Sicherung</dt><dd data-backup-stand>${S.get('letzteExterneSicherung') ? U.fmtDateTime(S.get('letzteExterneSicherung')) : '<span class="badge b-danger">noch nie</span>'}</dd>
         </div>
+        ${Backup.nativTeilenMoeglich() ? '' : `
         <h3 class="mb8 mt16">Automatische Sicherung</h3>
         <label class="check-line"><input type="checkbox" id="ab-aktiv" ${f.autoBackup.aktiv ? 'checked' : ''}> <span>Automatische Sicherung aktivieren</span></label>
         <div class="flex-wrap mt8 ${f.autoBackup.aktiv ? '' : 'hidden'}" id="ab-opts">
@@ -23689,6 +23691,7 @@ Views.einstellungen = {
         ${backupRingHtml()}
         <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich werden intern die letzten 10 Snapshots behalten.</div>
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
+        `}
         <label class="check-line mt8"><input type="checkbox" id="ab-erinnerung" ${S.get('backupErinnerung') === false ? '' : 'checked'}> <span>Oben an eine fällige Sicherung erinnern</span></label>
         <h3 class="mb8 mt16">Interne Snapshots (${snaps.length}/10)</h3>
         <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
@@ -23898,16 +23901,17 @@ Views.einstellungen = {
     $('#beleg-add').onclick = () => openBelegstelleForm(null, renderRoute);
     main.addEventListener('click', async (e) => { const b = e.target.closest('[data-belegedit]'); if (b) { const rec = await DB.get('belegstellen', b.dataset.belegedit); if (rec) openBelegstelleForm(rec, renderRoute); } });
     const saveFeatures = async () => { await S.set('features', f); };
-    $('#ab-aktiv').onchange = async (e) => {
+    // In der App gibt es keine automatische Sicherung (kein Download-Ordner) – der Block fehlt dort
+    if ($('#ab-aktiv')) $('#ab-aktiv').onchange = async (e) => {
       f.autoBackup.aktiv = e.target.checked;
       await saveFeatures();
       // Beim Aktivieren sofort eine erste Sicherung erstellen, damit der Timer einen Startpunkt hat
       if (e.target.checked && f.autoBackup.intervall !== 'schliessen') { try { await Backup.runAuto('aktivierung'); } catch (err) { UI.toast('Sicherung fehlgeschlagen: ' + err.message, 'err'); } }
       renderRoute();
     };
-    $('#ab-intervall').onchange = async (e) => { f.autoBackup.intervall = e.target.value; await saveFeatures(); renderRoute(); };
-    $('#ab-dir').onclick = async () => { if (await Backup.chooseDir()) renderRoute(); };
-    $('#ab-frage').onchange = async (e) => { f.backupBeimSchliessen = e.target.checked; await saveFeatures(); };
+    if ($('#ab-intervall')) $('#ab-intervall').onchange = async (e) => { f.autoBackup.intervall = e.target.value; await saveFeatures(); renderRoute(); };
+    if ($('#ab-dir')) $('#ab-dir').onclick = async () => { if (await Backup.chooseDir()) renderRoute(); };
+    if ($('#ab-frage')) $('#ab-frage').onchange = async (e) => { f.backupBeimSchliessen = e.target.checked; await saveFeatures(); };
     $('#ab-erinnerung').onchange = async (e) => { await S.set('backupErinnerung', e.target.checked); Backup.updateBanners(); };
     backupRingStart(); // Countdown-Ring live halten
 
