@@ -126,10 +126,10 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - [x] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt) – Adresse in `SUPPORT_MAIL`; offen: eigene Support-Adresse (siehe 16)
 - [x] Erinnerungen Aufgaben/Kalender als lokale Mitteilungen (Abschnitt 11) – v2.55, im Simulator geprüft; Android: Erlaubnis exakte Uhrzeit noch prüfen
 - [x] Imme-Einführung für Neulinge (Abschnitt 10) – `Einfuehrung`, Angebot nach Willkommen, Chip bei Imme, „Einführung wiederholen“ in Einstellungen → Rechtliches
-- [ ] Sichern-Fenster mit iCloud/Google-Drive-Datei (Abschnitt 9)
-- [ ] Bewertungs-Nachfrage
-- [ ] Kauf: 30 Tage Test, Einmalkauf, Käufe wiederherstellen (Abschnitt 3)
-- [~] Apple-Angaben: ✅ Standort-Text, ✅ Spracherkennungs-Text, ✅ Privacy Manifest, ✅ Verschlüsselungs-Schlüssel (alle im iOS-Build geprüft) · offen: Datenschutzerklärung (alle Dienste), Support-Seite (Abschnitt 2/5)
+- [x] Sichern über das Teilen-Menü (iCloud Drive, Google Drive, Mail, AirDrop) – im Simulator geprüft; automatische Sicherung in der App ausgeblendet
+- [x] Bewertungs-Nachfrage (`Bewertung`)
+- [x] Kauf im Code: 30-Tage-Testphase (0-€-Kauf), Vollversion, Wiederherstellen, Code einlösen, Nur-Lesen nach Ablauf; `ImkerBuch.storekit` für Xcode-Test. **Offen (zusammen):** Produkte in App Store Connect anlegen, Sandbox-Test
+- [x] Apple-Angaben: Standort-/Sprach-Text, Privacy Manifest, Verschlüsselungs-Schlüssel, Datenschutzerklärung (alle Dienste, Apple, Kontakt), `support.html`, Rechtstexte in der App als Fenster; Store-Texte in `docs/APP_STORE_TEXTE.md`
 - [ ] Danach: Gesamtprüfung als App (Abschnitt 7) → Store-Bilder und Video (Abschnitt 8) → Version 1.00 (Abschnitt 13)
 
 ## 16. Eigene Support-Adresse, die Claude mitlesen kann (Julian 2026-10-18)
