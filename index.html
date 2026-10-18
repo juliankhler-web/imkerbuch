@@ -9242,7 +9242,21 @@ async function honigEtikettForm(a, c) {
       { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${U.esc(abfLos(a, c))}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
     ],
     saveText: 'Etiketten-PDF erzeugen',
-    async onSave(v) { await Pdf.honigEtikett(a, c, v); },
+    async onSave(v) {
+      /* Pflichtangaben prüfen, bevor 100 Etiketten gedruckt sind:
+         Das Wort „Honig“ muss in der Bezeichnung stehen (Honigverordnung),
+         und Name samt Anschrift müssen drauf, damit man schreiben kann. */
+      const fehlt = [];
+      if (!/honig/i.test(v.bezeichnung || '')) fehlt.push('Das Wort „Honig“ fehlt in der Bezeichnung (z. B. „Rapshonig“ statt „Raps“) – es ist Pflicht.');
+      const i = S.get('imkerei');
+      if (!i.name || !i.ort || !i.plz) fehlt.push('Name und vollständige Anschrift deiner Imkerei fehlen (Einstellungen → Imkerei) – sie sind Pflicht.');
+      if (!abfMhd(a, c)) fehlt.push('Das Mindesthaltbarkeitsdatum fehlt an der Abfüllung – auf dem Etikett bleibt dafür eine leere Linie zum Ausfüllen.');
+      // Abbrechen lässt das Formular offen (Fehler mit Feld → springt dorthin)
+      if (fehlt.length && !(await UI.confirm({ title: 'Pflichtangaben fehlen', text: fehlt.join(' '), confirmText: 'Trotzdem erzeugen', danger: false }))) {
+        throw Object.assign(new Error('Etiketten nicht erzeugt – bitte Pflichtangaben ergänzen'), /honig/i.test(v.bezeichnung || '') ? {} : { feld: 'bezeichnung' });
+      }
+      await Pdf.honigEtikett(a, c, v);
+    },
   });
 }
 
@@ -9253,6 +9267,12 @@ async function honigEtikettForm(a, c) {
 /* --- Gebinde-Helfer: Charge = Los-Bestand (kg), Abfüllung = Gläser eines Gebindes --- */
 const GEBINDE_PRESETS = [20000, 10000, 1000, 500, 250, 125, 50]; // Gramm; 20 kg = Hobbock
 /** Gebindegröße lesbar: „500 g“, „20 kg“. */
+/** Mindesthöhe der Ziffern der Füllmengen-Angabe (Fertigpackungsrecht):
+    bis 50 g → 2 mm, bis 200 g → 3 mm, bis 1000 g → 4 mm, darüber 6 mm. */
+function fuellmengeMm(g) { g = Number(g) || 0; return g <= 50 ? 2 : g <= 200 ? 3 : g <= 1000 ? 4 : 6; }
+/** Schriftgröße (pt) in Helvetica, bei der Ziffern mindestens so hoch sind
+    (Ziffernhöhe ≈ 0,717 der Schriftgröße; 1 pt = 0,3528 mm), aufgerundet. */
+function fuellmengePunkt(g) { return Math.ceil(fuellmengeMm(g) / (0.717 * 0.3528) * 2) / 2; }
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
 /** Welche Völker gab es an einem bestimmten Tag? Anfang und Ende stehen in der
@@ -20463,6 +20483,17 @@ const Pdf = {
         `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`,
         imk.name ? `${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : '',
       ].filter(Boolean).join('\n')).catch(() => null) : null;
+      /* Passen Name und Anschrift auch in zwei Zeilen nicht aufs Etikett,
+         würden sie gekürzt – vorher fragen statt still Pflichtangaben abzuschneiden. */
+      {
+        const plzOrt = [imk.plz, imk.ort].filter(Boolean).join(' ');
+        doc.setFont('helvetica', 'bold').setFontSize(8);
+        const nameOben = doc.getTextWidth(imk.name || 'Imkerei') <= Math.max(24, LW - 20 - bioBilder.length * 10);
+        const adr = [nameOben ? '' : imk.name, imk.strasse, plzOrt].filter(Boolean).join(', ');
+        doc.setFont('helvetica', 'normal').setFontSize(6.5);
+        if (doc.splitTextToSize(adr, LW - 12 - (qr ? 18 : 0)).length > 2
+          && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz) oder lass den QR-Code weg.', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
+      }
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);
         if (i > 0 && posOnPage === 0) doc.addPage();
@@ -20501,7 +20532,13 @@ const Pdf = {
            Angaben darunter rücken entsprechend nach. */
         const innen = LW - 12;
         doc.setFont('helvetica', 'bold').setTextColor(120, 80, 0);
-        doc.text(this.einzeilig(doc, imk.name || 'Imkerei', Math.max(24, LW - 20 - bioBreite), 13, 8), x + 16, yy + 10);
+        const nameText = imk.name || 'Imkerei';
+        const nameZeile = this.einzeilig(doc, nameText, Math.max(24, LW - 20 - bioBreite), 13, 8);
+        doc.text(nameZeile, x + 16, yy + 10);
+        /* Name und Anschrift sind Pflicht und dürfen nicht abgeschnitten sein.
+           Passt der Name oben nicht ganz, steht er unten vollständig vor der
+           Anschrift; die Anschrift darf dafür zwei Zeilen nutzen. */
+        const nameGekuerzt = nameZeile !== nameText;
         doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
         let bs = 15;
         doc.setFontSize(bs);
@@ -20512,19 +20549,32 @@ const Pdf = {
         let cy = yy + (eng ? 19 : 22);
         doc.text(bZeilen, x + 6, cy);
         cy += (bZeilen.length - 1) * bs * 0.3528 * 1.15;
-        doc.setFont('helvetica', 'normal').setTextColor(40);
-        const netto = this.einzeilig(doc, `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`, innen, eng ? 10 : 11, 8);
-        cy += eng ? 6 : 8;
-        doc.text(netto, x + 6, cy);
+        /* Füllmenge in der vorgeschriebenen Mindesthöhe der Ziffern
+           (Fertigpackungsrecht: 200–1000 g → 4 mm). Vorher stand sie in 11 pt
+           = knapp 3 mm hoch – zu klein. Das Wort „Nettofüllmenge“ ist keine
+           Pflicht und bleibt klein davor, nur die Zahl wird groß. */
+        cy += eng ? 6.5 : 8.5;
+        doc.setFont('helvetica', 'normal').setTextColor(40).setFontSize(eng ? 8.5 : 9);
+        doc.text('Nettofüllmenge', x + 6, cy);
+        const vorW = doc.getTextWidth('Nettofüllmenge') + 2;
+        doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43).setFontSize(fuellmengePunkt(a.gebindeG));
+        doc.text(gebindeLabel(a.gebindeG), x + 6 + vorW, cy);
+        doc.setFont('helvetica', 'normal');
         doc.setTextColor(90);
         /* Mit Bio kommen zwei Zeilen dazu (Kontrollstelle + Herkunft). Der Block
            rückt dann etwas höher und enger zusammen, sonst rutscht die letzte
            Zeile unter den Rahmen. */
         const bioEtikett = imk.bio === 'ja';
         let ly = cy + (eng ? (bioEtikett ? 3.8 : 5.5) : (bioEtikett ? 4 : 7));
-        const zh = eng ? 3.3 : (bioEtikett ? 3.6 : 3.8);
+        let zh = eng ? 3.3 : (bioEtikett ? 3.6 : 3.8);
         const fs = eng ? 8 : 8.5;
-        const zeile = (tx) => { doc.text(this.einzeilig(doc, tx, LW - 12 - (qr ? 18 : 0), fs, 6.5), x + 6, ly); ly += zh; };
+        const zeilenBreite = LW - 12 - (qr ? 18 : 0);
+        const anschrift = [nameGekuerzt ? nameText : '', imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen';
+        // 6,5 pt = kleinste Größe mit 1,2 mm x-Höhe (Lebensmittel-Informationsverordnung)
+        doc.setFont('helvetica', 'normal').setFontSize(6.5);
+        const adrZeilen = doc.getTextWidth(anschrift) > zeilenBreite ? this.zeilen(doc, anschrift, zeilenBreite, 2) : null;
+        if (adrZeilen && bioEtikett) zh = Math.min(zh, 3.0);   // 7 Zeilen müssen in den Rahmen passen
+        const zeile = (tx) => { doc.text(this.einzeilig(doc, tx, zeilenBreite, fs, 6.5), x + 6, ly); ly += zh; };
         zeile(`Ursprungsland: ${opts.ursprung}`);
         /* Chargennummer als EIGENE Zeile, fett und mit vorangestelltem „L".
            Vorher hing sie hinten an der MHD-Zeile in 8,5 pt und ging dort unter.
@@ -20536,7 +20586,8 @@ const Pdf = {
         // rechtlich zählt das Los, für die eigene Rückverfolgung die Charge.
         zeile(`L ${los}${eigenesLos(a, c) && c ? `   ·   Charge ${c.losnummer}` : ''}`);
         doc.setFont('helvetica', 'normal').setTextColor(90);
-        zeile([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen');
+        if (adrZeilen) { doc.setFontSize(6.5); for (const z of adrZeilen) { doc.text(z, x + 6, ly); ly += zh; } }
+        else zeile(anschrift);
         // Bio-Zertifizierung: Kontrollstellen-Code (Pflichtangabe) + EU-Bio/Verband
         if (bioEtikett) {
           const bioCode = (imk.bioKontrollstelle || '').split('–')[0].trim();

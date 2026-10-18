@@ -6853,6 +6853,9 @@ test('honigEtikettForm: Pflichtangaben vorbelegt, PDF wird mit den Werten gebaut
   const echt = w.Pdf.honigEtikett;
   let uebergeben = null;
   w.Pdf.honigEtikett = async (a, c, opts) => { uebergeben = { a, c, opts }; };
+  // Name und Anschrift sind Pflicht – ohne sie fragt das Formular erst nach
+  const imkVorher = structuredClone(w.S.get('imkerei'));
+  await w.S.set('imkerei', { ...imkVorher, name: 'Imkerei Test', strasse: 'Weg 1', plz: '12345', ort: 'Ort' }, { auto: true });
   try {
     await w.honigEtikettForm(abf, charge);
     await new Promise((r) => setTimeout(r, 300));
@@ -6871,6 +6874,7 @@ test('honigEtikettForm: Pflichtangaben vorbelegt, PDF wird mit den Werten gebaut
     assertEq(uebergeben.opts.anzahl, 12);
   } finally {
     w.Pdf.honigEtikett = echt;
+    await w.S.set('imkerei', imkVorher, { auto: true });
     dialogeSchliessen(w);
     await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
   }
@@ -12333,4 +12337,36 @@ test('Sicherungs-Hinweis steht nur auf der Startseite', async (w) => isolierteDa
   w.document.body.dataset.route = 'voelker';
   assertEq(w.getComputedStyle(b).display, 'none', 'auf anderen Seiten ausgeblendet');
   w.document.body.dataset.route = 'dashboard';
+}));
+
+test('Etikett: Füllmenge in gesetzlicher Mindesthöhe (Ziffern 2/3/4/6 mm)', (w) => {
+  const mm = (g) => w.fuellmengePunkt(g) * 0.717 * 0.3528;
+  assertEq([50, 125, 250, 500, 1000, 2000].map(w.fuellmengeMm), [2, 3, 4, 4, 4, 6], 'Stufen nach Füllmenge');
+  for (const g of [30, 50, 125, 200, 250, 500, 1000, 2500]) assert(mm(g) >= w.fuellmengeMm(g), `${g} g: ${mm(g).toFixed(2)} mm ≥ ${w.fuellmengeMm(g)} mm`);
+  assert(w.fuellmengePunkt(500) <= 16.5, 'nicht unnötig riesig');
+});
+
+test('Etikett: ohne „Honig“ in der Bezeichnung fragt die App nach und bleibt offen', async (w) => isolierteDaten(w, async () => {
+  const imk = w.S.get('imkerei'); imk.name = 'Imkerei Test'; imk.strasse = 'Weg 1'; imk.plz = '12345'; imk.ort = 'Ort'; await w.S.set('imkerei', imk, { auto: true });
+  const c = await w.DB.put('chargen', { losnummer: 'ET-1', ernteIds: [], mengeKg: 5, mhd: '2028-01-01' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, anzahl: 10, bestand: 10, gebindeG: 500, datum: '2026-09-01', mhd: '2028-01-01' });
+  const echt = w.Pdf.honigEtikett, echtConfirm = w.UI.confirm;
+  let gebaut = 0, gefragt = '';
+  w.Pdf.honigEtikett = async () => { gebaut++; };
+  w.UI.confirm = async (o) => { gefragt = o.text; return false; };
+  try {
+    await w.honigEtikettForm(a, c);
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    const bez = m.querySelector('[name="bezeichnung"], #f-bezeichnung');
+    bez.value = 'Raps'; bez.dispatchEvent(new w.Event('input', { bubbles: true }));
+    m.querySelector('[data-save]').click();
+    assert(await warteBis(() => gefragt), 'Rückfrage kommt');
+    assert(/Honig/.test(gefragt), 'nennt das fehlende Wort: ' + gefragt);
+    assertEq(gebaut, 0, 'abgebrochen → kein PDF');
+    assert(m.isConnected, 'Formular bleibt offen');
+    bez.value = 'Rapshonig'; bez.dispatchEvent(new w.Event('input', { bubbles: true })); gefragt = '';
+    m.querySelector('[data-save]').click();
+    assert(await warteBis(() => gebaut === 1), 'mit „Rapshonig“ wird ohne Rückfrage gebaut');
+    assertEq(gefragt, '', 'keine Rückfrage');
+  } finally { w.Pdf.honigEtikett = echt; w.UI.confirm = echtConfirm; w.document.querySelectorAll('#modal-root .modal-back').forEach((x) => x.remove()); }
 }));
