@@ -129,7 +129,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - [ ] Sichern-Fenster mit iCloud/Google-Drive-Datei (Abschnitt 9)
 - [ ] Bewertungs-Nachfrage
 - [ ] Kauf: 30 Tage Test, Einmalkauf, Käufe wiederherstellen (Abschnitt 3)
-- [ ] Apple-Angaben: Standort-Text, Privacy Manifest, Verschlüsselungs-Schlüssel, Datenschutzerklärung, Support-Seite (Abschnitt 2/5)
+- [~] Apple-Angaben: ✅ Standort-Text, ✅ Spracherkennungs-Text, ✅ Privacy Manifest, ✅ Verschlüsselungs-Schlüssel (alle im iOS-Build geprüft) · offen: Datenschutzerklärung (alle Dienste), Support-Seite (Abschnitt 2/5)
 - [ ] Danach: Gesamtprüfung als App (Abschnitt 7) → Store-Bilder und Video (Abschnitt 8) → Version 1.00 (Abschnitt 13)
 
 ## 16. Eigene Support-Adresse, die Claude mitlesen kann (Julian 2026-10-18)
