@@ -12394,3 +12394,10 @@ test('Beispieldaten nur im Testmodus (Store-Version ohne)', async (w) => isolier
     assertEq(wz.los, 'Los geht’s', 'nur „Los geht’s“');
   } finally { w.__ohneTestmodus = false; host.remove(); }
 }));
+
+test('Etikett-Druck ist in der Store-Version ausgeblendet (nur Testmodus)', async (w) => {
+  const quelle = w.document.documentElement.outerHTML;
+  assert(/Testmodus\.an\(\) \? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf/.test(await (await w.fetch('../index.html')).text()), 'Etikett-Knopf hängt am Testmodus');
+  assert(!w.APP_WISSEN.some((e) => /Etiketten drucken/.test(e.titel)), 'Imme verspricht keinen Etikettendruck');
+  assert(quelle);
+});
