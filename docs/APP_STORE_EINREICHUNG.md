@@ -123,7 +123,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - [x] Riesenpfeil bei unbewerteter Königin
 - [x] Zucht in der Store-Version ausgeblendet (Testmodus: nutzbar)
 - [x] Sicherungs-Hinweis nur auf dem Dashboard · Willkommen „Überspringen“ · Knöpfe gleich groß · Etikett + Beispieldaten nur Testmodus
-- [ ] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt)
+- [x] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt) – Adresse in `SUPPORT_MAIL`; offen: eigene Support-Adresse (siehe 16)
 - [ ] Erinnerungen Aufgaben/Kalender als lokale Mitteilungen (Abschnitt 11)
 - [ ] Imme-Einführung für Neulinge (Abschnitt 10)
 - [ ] Sichern-Fenster mit iCloud/Google-Drive-Datei (Abschnitt 9)
@@ -131,3 +131,11 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - [ ] Kauf: 30 Tage Test, Einmalkauf, Käufe wiederherstellen (Abschnitt 3)
 - [ ] Apple-Angaben: Standort-Text, Privacy Manifest, Verschlüsselungs-Schlüssel, Datenschutzerklärung, Support-Seite (Abschnitt 2/5)
 - [ ] Danach: Gesamtprüfung als App (Abschnitt 7) → Store-Bilder und Video (Abschnitt 8) → Version 1.00 (Abschnitt 13)
+
+## 16. Eigene Support-Adresse, die Claude mitlesen kann (Julian 2026-10-18)
+
+- Wunsch: Support-Anfragen sollen teils von Claude beantwortet werden.
+- Weg: Julian legt selbst eine eigene Adresse an (z. B. neues Gmail-Konto für ImkerBuch, später `support@<eigene-domain>`). Claude darf keine Konten anlegen und keine Passwörter eingeben.
+- Danach entweder (a) die Adresse als Gmail-Verbindung in Claude freigeben oder (b) im neuen Konto Weiterleitung an Julians Gmail + Label „ImkerBuch Support“.
+- Claude liest, sortiert und schreibt **Entwürfe**; senden nur nach Julians Ja (je Mail) bzw. Julian sendet selbst.
+- Dann `SUPPORT_MAIL` in `index.html` und Impressum/Support-Seite umstellen.
