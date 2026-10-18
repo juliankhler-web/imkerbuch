@@ -12321,3 +12321,16 @@ test('Willkommen: nach dem Namen überspringen (nur Vorname Pflicht, nichts ange
   assertEq((await w.DB.getAll('staende')).length, 0, 'kein Stand angelegt');
   assertEq((await w.DB.getAll('voelker')).length, 0, 'kein Volk angelegt');
 }));
+
+test('Sicherungs-Hinweis steht nur auf der Startseite', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('wizardDone', true, { auto: true }); await w.S.set('backupErinnerung', true, { auto: true });
+  await w.S.set('letzteExterneSicherung', null, { auto: true });
+  w.Backup.updateBanners();
+  const b = w.document.querySelector('#banners .b-sicherung');
+  assert(b, 'Hinweis ist da (noch nie gesichert)');
+  w.document.body.dataset.route = 'dashboard';
+  assert(w.getComputedStyle(b).display !== 'none', 'auf der Startseite sichtbar');
+  w.document.body.dataset.route = 'voelker';
+  assertEq(w.getComputedStyle(b).display, 'none', 'auf anderen Seiten ausgeblendet');
+  w.document.body.dataset.route = 'dashboard';
+}));
