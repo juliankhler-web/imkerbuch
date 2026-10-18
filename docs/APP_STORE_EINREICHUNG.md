@@ -158,3 +158,8 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Gewerbe angemeldet, **Beginn der Tätigkeit 19.10.2026** → Frist ELSTER-Fragebogen **19.11.2026** (Kalender „Familie & Fristen“, Second Brain). Als Nächstes: ELSTER-Fragebogen zur steuerlichen Erfassung (Pflicht **innerhalb 1 Monat** nach Beginn der Tätigkeit), USt-IdNr. mitbeantragen.
 - Parallel: **Apple-Entwicklerkonto (99 €/Jahr) jetzt beantragen** – die Prüfung durch Apple kann Tage dauern; erst danach Verträge, Bank, Steuerformular (W-8BEN), Kaufprodukte, Sandbox-Test.
 - Abweichungen vom ChatGPT-Plan: Preis 14,99 € (später 24,99 €), nicht 9,99 €; Familienfreigabe vorerst nicht.
+
+## 20. Abschluss-Prüfung durch zweiten Agenten (Julian 2026-10-18)
+
+- Wenn iOS komplett vorbereitet ist („wirklich an alles denken“): einen **neuen, unabhängigen Agenten** alles gegen Apples Regeln und diese Checkliste nachprüfen lassen, Funde beheben.
+- Danach dasselbe für den **Google Play Store** (eigene Checkliste: Data-Safety-Formular, Zielgruppe, Kontolöschung-Regel, 12 Tester × 14 Tage, Play Billing für Kauf/Codes, App-Bundle, Zielplattform-API).

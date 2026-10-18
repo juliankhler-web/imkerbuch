@@ -12484,3 +12484,14 @@ test('Einführung: 5 Kapitel, überspringt Vorhandenes, Fortschritt wird gemerkt
   assert(w.APP_WISSEN.some((e) => e.id === 'einfuehrung' && e.einfuehrung), 'Imme kennt die Einführung');
   await w.S.set('einfuehrung', null, { auto: true });
 }));
+
+test('Bewertungs-Nachfrage: nur nach gutem Moment, selten, höchstens 3×', (w) => {
+  const B = w.Bewertung, tag = 864e5, t0 = Date.parse('2026-01-01T10:00:00Z');
+  const z = (o) => Object.assign({ durchsichten: 10, ersterStart: new Date(t0).toISOString(), zuletztGefragt: null, mal: 0 }, o);
+  assert(!B.sollFragen(z({ durchsichten: 9 }), t0 + 30 * tag), 'unter 10 Durchsichten nicht');
+  assert(!B.sollFragen(z(), t0 + 10 * tag), 'in den ersten 14 Tagen nicht');
+  assert(B.sollFragen(z(), t0 + 15 * tag), '10 Durchsichten + 14 Tage → fragen');
+  assert(!B.sollFragen(z({ zuletztGefragt: new Date(t0 + 15 * tag).toISOString(), mal: 1 }), t0 + 60 * tag), 'nicht wieder vor 120 Tagen');
+  assert(B.sollFragen(z({ zuletztGefragt: new Date(t0 + 15 * tag).toISOString(), mal: 1 }), t0 + 140 * tag), 'nach 120 Tagen wieder');
+  assert(!B.sollFragen(z({ mal: 3 }), t0 + 400 * tag), 'höchstens 3×');
+});

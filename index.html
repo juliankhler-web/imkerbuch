@@ -4985,7 +4985,7 @@ const DASH_WIDGETS = {
   sicherung: { label: 'Letzte Sicherung', ic: 'share', ziel: 'einstellungen', async html() {
     const info = Backup.reminderInfo();
     return `<div class="card" style="margin:0"><div class="card-title">${icon('share')}<h2>Letzte externe Sicherung</h2></div>
-      <div class="flex-wrap"><span data-backup-badge>${backupBadgeHtml()}</span><span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} Sicherung senden</button></div>
+      <div class="flex-wrap"><span data-backup-badge>${backupBadgeHtml()}</span><span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button></div>
       <span data-backup-hinweis>${info.stufe !== 'ok' ? `<div class="hint mt8">Bitte regelmäßig sichern – die Daten liegen nur auf diesem Gerät.</div>` : ''}</span></div>`;
   }},
   koeniginnen: { label: 'Königinnen', ic: 'crown', ziel: 'koeniginnen', async html() {
@@ -6280,7 +6280,7 @@ async function sammelFormular(art, volkIds, voelker) {
         { key: 'weiselzellen', label: 'Weiselzellen vorhanden', type: 'check' }, { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       saveText: `Für ${volkIds.length} Völker speichern`,
-      async onSave(val) { for (const id of volkIds) await DB.put('stockkarten', { volkId: id, ...val }); UI.toast(`Durchsicht für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+      async onSave(val) { for (const id of volkIds) await DB.put('stockkarten', { volkId: id, ...val }); UI.toast(`Durchsicht für ${volkIds.length} Völker gespeichert`); renderRoute(); Bewertung.nachErfolg(); },
     });
   } else if (art === 'fuetterung') {
     verdrahteSirupLiter(UI.formModal({
@@ -6450,6 +6450,7 @@ Views.volk = {
         }
         await DB.put('stockkarten', Object.assign(s || { volkId: v.id }, val));
         UI.toast(vorlageName ? 'Durchsicht + Vorlage gespeichert' : 'Durchsicht gespeichert'); renderRoute();
+        if (!s) Bewertung.nachErfolg();
       },
       onDelete: papierkorbDelete('stockkarten', s, 'Durchsicht löschen?', 'Wandert in den Papierkorb (30 Tage).'),
     });
@@ -6702,6 +6703,7 @@ Views.durchsicht = {
     await DB.schreibeAlles([{ store: 'stockkarten', obj: rec }, ...e.audio.map((a) => ({ store: 'anhaenge', obj: Sprachnotiz.anhang('stockkarte', rec.id, a) }))]);
     this._entwuerfe.delete(volk.id);
     this._erledigt.add(volk.id);
+    Bewertung.nachErfolg();
     return rec;
   },
   async render(main, volkId) {
@@ -19008,6 +19010,7 @@ const Backup = {
   /* ---------- Export: Download & Teilen ---------- */
   async exportDownload() {
     const name = this.dateiname();
+    if (this.nativTeilenMoeglich()) return this.share();   // App: kein Download-Ordner – Teilen-Menü („In Dateien sichern“)
     // Chrome/Edge (Desktop): echten „Speichern unter“-Dialog zeigen, damit der Ordner frei wählbar ist.
     // Wichtig: den Datei-Dialog ZUERST öffnen (solange der Klick noch „frisch“ ist), dann erst die Datei bauen.
     let handle = null;
@@ -19030,9 +19033,30 @@ const Backup = {
     U.download(blob, name);
     await this.markExternal(blob); UI.toast('Backup heruntergeladen (Ordner „Downloads“)');
   },
+  /* In der iPhone/Android-App gibt es weder Downloads noch (verlässlich) das
+     Teilen von Dateien aus der WebView. Darum dort: Datei in den App-Cache
+     schreiben und das System-Teilen-Menü öffnen – mit „In Dateien sichern“
+     (iCloud Drive), Google Drive, Dropbox, AirDrop, Mail … */
+  nativTeilenMoeglich() { const P = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins; return !!(P && P.Filesystem && P.Share); },
+  async nativTeilen(blob, name) {
+    const P = window.Capacitor.Plugins;
+    const r = await P.Filesystem.writeFile({ path: name, data: await blob.text(), directory: 'CACHE', encoding: 'utf8' });
+    try {
+      await P.Share.share({ title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}`, files: [r.uri], dialogTitle: 'Sicherung speichern' });
+    } catch (e) {
+      if (/cancel/i.test(String(e && (e.message || e)))) return false;   // im Teilen-Menü abgebrochen
+      throw e;
+    } finally { P.Filesystem.deleteFile({ path: name, directory: 'CACHE' }).catch(() => {}); }
+    await this.markExternal(blob); UI.toast('Sicherung gespeichert');
+    return true;
+  },
   /** „Sicherung senden“: Web Share API Level 2 mit Datei, sonst Download + mailto */
   async share() {
     const blob = await this.buildBlob();
+    if (this.nativTeilenMoeglich()) {
+      try { await this.nativTeilen(blob, this.dateiname()); } catch (e) { UI.toast('Sicherung konnte nicht geteilt werden: ' + (e.message || e), 'err'); }
+      return;
+    }
     const file = new File([blob], this.dateiname(), { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -19789,6 +19813,39 @@ async function erinnerungAnbieten(aufgabe) {
   if ((await Notif.anfordern()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den iPhone-Einstellungen bei ImkerBuch einschaltbar.', 'err');
   else UI.toast('Erinnerungen sind an');
 }
+
+/* =====================================================================
+   BEWERTUNGS-NACHFRAGE (App) – Apples eigenes Bewertungsfenster nach einem
+   guten Moment: frühestens nach 10 gespeicherten Durchsichten und 14 Tagen
+   Nutzung, höchstens alle 120 Tage, insgesamt höchstens 3×. Nie beim Start,
+   nie nach einem Fehler, keine Belohnung (Apple-Regeln 1.1.7 / 5.6.1).
+   ===================================================================== */
+const Bewertung = {
+  plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.InAppReview) || null; },
+  zustand() { return Object.assign({ durchsichten: 0, ersterStart: null, zuletztGefragt: null, mal: 0 }, S.get('bewertung') || {}); },
+  /** Rein rechnerisch (testbar): Soll jetzt gefragt werden? */
+  sollFragen(z, jetzt = Date.now()) {
+    if (z.durchsichten < 10 || (z.mal || 0) >= 3) return false;
+    if (!z.ersterStart || jetzt - Date.parse(z.ersterStart) < 14 * 864e5) return false;
+    if (z.zuletztGefragt && jetzt - Date.parse(z.zuletztGefragt) < 120 * 864e5) return false;
+    return true;
+  },
+  async init() {
+    if (!this.plugin()) return;
+    const z = this.zustand(); if (!z.ersterStart) { z.ersterStart = U.nowIso(); await S.set('bewertung', z, { auto: true }); }
+  },
+  /** Nach einer erfolgreich gespeicherten Durchsicht aufrufen. */
+  async nachErfolg() {
+    if (!this.plugin()) return;
+    const z = this.zustand();
+    z.durchsichten++;
+    if (!z.ersterStart) z.ersterStart = U.nowIso();
+    const fragen = this.sollFragen(z);
+    if (fragen) { z.zuletztGefragt = U.nowIso(); z.mal = (z.mal || 0) + 1; }
+    await S.set('bewertung', z, { auto: true });
+    if (fragen) setTimeout(() => { this.plugin().requestReview().catch(() => {}); }, 1500);
+  },
+};
 
 const Notif = {
   _nativ: 'default',   // Erlaubnis in der App (wird beim Start abgefragt)
@@ -22207,7 +22264,7 @@ const APP_WISSEN = [
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Sicherung“', 'Sicherung erstellen, Datei an sicherem Ort ablegen'],
     tour: [{ abschnitt: 'Sicherung & Daten', text: 'Tippe auf „Sicherung & Datensicherheit“, damit sich der Bereich öffnet.' },
-      { knopf: 'Backup herunterladen', weiter: true, text: 'Mit „Backup herunterladen“ erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in der Cloud oder auf einem Stick.' },
+      { knopf: 'Sicherung s', weiter: true, text: 'Mit diesem Knopf erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in iCloud Drive, Google Drive oder per Mail an dich selbst.' },
       { abschluss: 'Backup importieren', text: 'Mit „Backup importieren“ holst du eine Sicherung zurück, zum Beispiel auf einem neuen Handy.' }] },
   { id: 'einstellungen', titel: 'Betriebsdaten, Logo und Einstellungen', route: 'einstellungen', zeige: '',
     stichw: ['einstellungen', 'logo', 'betriebsdaten', 'imkerei name', 'adresse imkerei', 'steuernummer', 'dunkel', 'dark mode', 'darstellung', 'design', 'schrift'],
@@ -23478,10 +23535,10 @@ Views.einstellungen = {
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
 
       <div class="card"><div class="card-title">${icon('share')}<h2>Sicherung & Datensicherheit</h2></div>
-        <p class="small muted mb12">Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.</p>
+        <p class="small muted mb12">${Backup.nativTeilenMoeglich() ? 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig: „Sicherung speichern“ legt eine Datei an – in iCloud Drive („In Dateien sichern“), Google Drive, per Mail oder AirDrop. Wird die App gelöscht, sind die Daten sonst weg.' : 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.'}</p>
         <div class="flex-wrap mb12 no-print">
-          <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} Sicherung senden</button>
-          <button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>
+          <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button>
+          ${Backup.nativTeilenMoeglich() ? '' : `<button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>`}
           <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept=".json,application/json" class="hidden" id="imp-file"></label>
         </div>
         <div class="detail-kv mb12">
@@ -24250,6 +24307,7 @@ async function boot() {
   Backup.requestPersist();
   Notif.init();
   Erinnerung.init();
+  Bewertung.init();
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -24290,7 +24348,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
