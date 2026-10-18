@@ -163,3 +163,16 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
 - Wenn iOS komplett vorbereitet ist („wirklich an alles denken“): einen **neuen, unabhängigen Agenten** alles gegen Apples Regeln und diese Checkliste nachprüfen lassen, Funde beheben.
 - Danach dasselbe für den **Google Play Store** (eigene Checkliste: Data-Safety-Formular, Zielgruppe, Kontolöschung-Regel, 12 Tester × 14 Tage, Play Billing für Kauf/Codes, App-Bundle, Zielplattform-API).
+
+## 21. Ergebnis Prüf-Agent iOS (2026-10-18) – Stand
+
+Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsageDescription`, arm64, iOS 16 (Angebotscodes), alle Datei-Ausgaben übers Teilen-Menü, kein nachgeladener Code in der App (OCR/Whisper aus), app-taugliche Imme-Antworten, Preise nur aus dem Store, Kaufstand gerätebezogen, Kauf-Fenster nach dem Willkommen, „Alle Daten löschen“, Papierkorb-Aufräumen nach Ablauf, Vorname freiwillig, Zucht-Erwähnungen, Datenschutz ergänzt, Store-Texte. Simulator: Erst-Start Willkommen → Kauf-Fenster → Imme geprüft.
+
+**Offen – gemeinsam mit Julian:**
+- Version **1.00** + Kunden-CHANGELOG direkt vor dem Upload (Abschnitt 13).
+- Kaufprodukte in App Store Connect anlegen und **mit Version 1.0 zusammen einreichen**; Sandbox-Test (auch Testphase-Neuinstallation, Wiederherstellen, Code einlösen).
+- **iPad:** gründlich testen + iPad-Bilder ODER nur iPhone (`TARGETED_DEVICE_FAMILY = 1`). Entscheidung Julian.
+- **Open-Meteo:** kostenlose API nur nicht-kommerziell → bei einer Kauf-App kostenpflichtigen Zugang oder anderen Dienst wählen. Entscheidung Julian.
+- Support-/Datenschutz-Seiten müssen dauerhaft online bleiben, auch wenn die Web-Version/das Repo geändert wird (Abschnitt 18).
+- AGB § 4 (Kleinunternehmer-Satz) je nach ELSTER-Entscheidung anpassen.
+- Bei der Gesamtprüfung auf dem iPhone ansehen: doppelte Erlaubnis-Abfrage (Standort/Mikrofon), Mail-Link auf der Support-Seite im Fenster, Startzeit der App.
