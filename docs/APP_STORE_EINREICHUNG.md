@@ -139,3 +139,4 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Danach entweder (a) die Adresse als Gmail-Verbindung in Claude freigeben oder (b) im neuen Konto Weiterleitung an Julians Gmail + Label „ImkerBuch Support“.
 - Claude liest, sortiert und schreibt **Entwürfe**; senden nur nach Julians Ja (je Mail) bzw. Julian sendet selbst.
 - Dann `SUPPORT_MAIL` in `index.html` und Impressum/Support-Seite umstellen.
+- **Stand 2026-10-18:** Neues Gmail-Konto ging nicht (Telefonnummer schon vergeben). Übergangslösung: **juliankhler+imkerbuch@googlemail.com** (landet im normalen Gmail) – in der App eingetragen; Gmail-Etikett „ImkerBuch Support“ von Claude angelegt. Filter (to: …+imkerbuch → Etikett) muss Julian in Gmail selbst anlegen (Claude hat dafür kein Werkzeug). Claude findet die Mails auch ohne Filter über `to:juliankhler+imkerbuch@googlemail.com`. Vor dem Release: eigene Domain mit support@… (IONOS/Strato).

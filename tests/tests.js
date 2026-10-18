@@ -12422,7 +12422,7 @@ test('Hilfe & Kontakt: drei Mail-Knöpfe an den Support, mit Version und Gerät,
     assertEq(links.length, 3, 'Fehler, Frage, Idee');
     for (const a of links) {
       const u = decodeURIComponent(a.getAttribute('href'));
-      assert(u.startsWith('mailto:juliankhler@googlemail.com?'), 'an die Support-Adresse');
+      assert(u.startsWith('mailto:juliankhler+imkerbuch@googlemail.com?'), 'an die Support-Adresse');
       assert(u.includes('v' + w.APP_VERSION), 'App-Version drin');
       assert(!u.includes('Geheime Imkerei'), 'keine Imkerei-Daten');
     }
