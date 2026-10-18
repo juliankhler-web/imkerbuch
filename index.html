@@ -953,6 +953,13 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .steps i.done{background:var(--honey)}
 .kpill{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600}
 .kpill svg{width:15px;height:15px;flex:0 0 auto}
+.hilfe-liste{display:grid;gap:10px}
+.hilfe-knopf{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;color:inherit;text-decoration:none;background:var(--card)}
+.hilfe-knopf:active{transform:scale(.99)}
+.hilfe-knopf .chev{margin-left:auto;color:var(--muted)}
+.hilfe-ic{display:inline-flex;width:38px;height:38px;border-radius:10px;align-items:center;justify-content:center;background:var(--honey-soft);color:var(--honey-dark);flex:0 0 auto}
+.hilfe-ic svg{width:20px;height:20px}
+.hilfe-imme{margin-top:12px}
 .detail-kv{display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:13.5px}
 .detail-kv dt{color:var(--muted);font-weight:550}
 .detail-kv dd{font-weight:600;word-break:break-word}
@@ -1093,6 +1100,7 @@ const ICONS = {
   mic:'<rect x="9.3" y="3.3" width="5.4" height="10.4" rx="2.7"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21M9 21h6"/>',
   pin:'<path d="M12 21s-6.5-5.7-6.5-10.5a6.5 6.5 0 0 1 13 0C18.5 15.3 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.3"/>',
   pencil:'<path d="m4 20 1-4L16.5 4.5a2.12 2.12 0 0 1 3 3L8 19l-4 1Z"/><path d="m14.5 6.5 3 3"/>',
+  mail:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/>',
   copy:'<rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 5.5v-2h-12v12h2"/>',
   x:'<path d="M6 6l12 12M18 6 6 18"/>',
   chevR:'<path d="m9 5.5 6.5 6.5L9 18.5"/>',
@@ -1133,6 +1141,7 @@ function icon(name, cls) {
      mit 18 px (Listen) und 14 px (Statistik-Zeilen).
    ===================================================================== */
 const ICONS_BUNT = {
+  mail:'<rect class="a" x="2.5" y="5" width="19" height="14" rx="2.4"/><path class="ad" d="M3.4 6.5 12 12.9l8.6-6.4a2.4 2.4 0 0 0-1.7-.7H5.1a2.4 2.4 0 0 0-1.7.7Z"/>',
   home:'<path class="ad" d="M11.3 2.7a1 1 0 0 1 1.4 0l9.4 8.6a1 1 0 0 1-.68 1.74H2.58a1 1 0 0 1-.68-1.74Z"/><path class="a" d="M4.9 11.9h14.2v7.7a1.8 1.8 0 0 1-1.8 1.8H6.7a1.8 1.8 0 0 1-1.8-1.8Z"/><path class="pn" d="M12 14.4a2.2 2.2 0 0 1 2.2 2.2v4.8H9.8v-4.8A2.2 2.2 0 0 1 12 14.4Z"/>',
   task:'<rect class="p" x="4.3" y="4.3" width="15.4" height="17" rx="2.5"/><path class="ad" d="M9.2 2.4h5.6a1.7 1.7 0 0 1 1.7 1.7v1.4a1 1 0 0 1-1 1H8.5a1 1 0 0 1-1-1V4.1a1.7 1.7 0 0 1 1.7-1.7Z"/><path class="g" d="m10.5 15.2 4.7-5 1.85 1.75-6.55 6.95-4.05-4.05 1.75-1.75Z"/>',
   buch:'<rect class="ad" x="3.6" y="2.6" width="16.8" height="18.8" rx="2.2"/><rect class="a" x="4.4" y="2.6" width="3.1" height="18.8"/><rect class="p" x="8.6" y="3.9" width="10.2" height="16.2" rx="1"/><path class="g" d="M14.9 3.9h3.4v7l-1.7-1.6-1.7 1.6Z"/>',
@@ -3388,6 +3397,7 @@ const NAV = [
   { route: 'aufgaben', label: 'Aufgaben & Kalender', ic: 'task' },
   { sec: 'Hilfe' },
   { route: 'assistent', label: 'Assistent', ic: 'assistent' },
+  { route: 'hilfe', label: 'Hilfe & Kontakt', ic: 'mail' },
   { sec: 'Imkerei' },
   { route: 'staende', label: 'Bienenstände', ic: 'hive' },
   { route: 'voelker', label: 'Völker', ic: 'volk' },
@@ -5186,6 +5196,55 @@ function zeilenSortieren(listEl, onFertig) {
   listEl.addEventListener('pointerup', ende);
   listEl.addEventListener('pointercancel', ende);
 }
+
+/* =====================================================================
+   HILFE & KONTAKT – Nutzer schreiben Julian per E-Mail (Apple-Regel 1.5:
+   einfacher Weg, den Entwickler zu erreichen). App-Version und Gerät stehen
+   schon in der Mail, Imkerei-Daten bewusst NICHT (Datenschutz).
+   ===================================================================== */
+const SUPPORT_MAIL = 'juliankhler@googlemail.com';
+function geraetInfo() {
+  const ua = navigator.userAgent || '';
+  const ios = ua.match(/OS (\d+)[_.](\d+)/), android = ua.match(/Android ([\d.]+)/);
+  const geraet = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /iPhone/.test(ua) ? 'iPhone' : android ? 'Android' : /Mac/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : 'Gerät';
+  const system = ios && /iPhone|iPad|Macintosh/.test(ua) && geraet !== 'Mac' ? `iOS ${ios[1]}.${ios[2]}` : android ? `Android ${android[1]}` : '';
+  return [geraet, system, IST_NATIVE_APP ? 'App' : 'Web'].filter(Boolean).join(' · ');
+}
+function supportMailLink(art) {
+  const ARTEN = {
+    fehler: { betreff: 'Fehler gefunden', text: 'Was ist passiert?\n\n\nWas hast du davor gemacht (Bereich, Knopf)?\n\n\n' },
+    frage: { betreff: 'Ich komme nicht weiter', text: 'Wobei brauchst du Hilfe?\n\n\n' },
+    idee: { betreff: 'Idee', text: 'Was fehlt dir oder was würde dir helfen?\n\n\n' },
+  };
+  const a = ARTEN[art] || ARTEN.frage;
+  const body = `${a.text}---\nImkerBuch v${APP_VERSION} · ${geraetInfo()}\n(Bitte keine Passwörter oder Kontodaten schicken.)`;
+  return `mailto:${SUPPORT_MAIL}?subject=${encodeURIComponent('ImkerBuch: ' + a.betreff)}&body=${encodeURIComponent(body)}`;
+}
+Views.hilfe = {
+  title: 'Hilfe & Kontakt',
+  async render(main) {
+    const knopf = (art, ic, titel, unter) => `<a class="hilfe-knopf" href="${supportMailLink(art)}" data-art="${art}">
+      <span class="hilfe-ic">${icon(ic)}</span><span><b>${titel}</b><br><span class="small muted">${unter}</span></span>${icon('chevR', 'chev')}</a>`;
+    main.innerHTML = pageHead('Hilfe & Kontakt', 'Schreib mir direkt – ich antworte persönlich.') + `
+      <div class="card">
+        <div class="hilfe-liste">
+          ${knopf('fehler', 'warn', 'Fehler melden', 'Etwas funktioniert nicht')}
+          ${knopf('frage', 'info', 'Ich komme nicht weiter', 'Frage zur Bedienung')}
+          ${knopf('idee', 'pencil', 'Idee vorschlagen', 'Was fehlt dir?')}
+        </div>
+        <p class="small muted mt12">Öffnet dein E-Mail-Programm. App-Version und Gerät stehen schon drin – deine Imkerei-Daten nicht.</p>
+        <div class="flex-wrap mt8"><span class="small"><b>${SUPPORT_MAIL}</b></span>
+          <button class="btn btn-ghost btn-sm no-print" id="mail-kopieren">${icon('copy')} Adresse kopieren</button></div>
+      </div>
+      <a class="card hilfe-knopf hilfe-imme" href="#/assistent"><span class="hilfe-ic">${icon('assistent')}</span>
+        <span><b>Erst Imme fragen</b><br><span class="small muted">Antwort sofort, auch ohne Internet</span></span>${icon('chevR', 'chev')}</a>`;
+    $('#mail-kopieren', main).onclick = async () => {
+      try { await navigator.clipboard.writeText(SUPPORT_MAIL); UI.toast('E-Mail-Adresse kopiert'); }
+      catch (_) { UI.toast(SUPPORT_MAIL); }
+    };
+  },
+};
 
 /* =====================================================================
    EINRICHTUNGSASSISTENT (erster Start) + DEMO-DATEN
@@ -22081,6 +22140,10 @@ const IMME_NAME = { id: 'imme', persona: true, titel: 'Warum heiße ich Imme?',
   antwort: '„Imme“ ist ein altes deutsches Wort für Biene (aus dem Althochdeutschen, mittelhochdeutsch „imme“). Das Wort steckt bis heute im „Imker“: Das kommt von Imme (Biene) und Kar (Korb) – ursprünglich war das der Mensch, der Bienenkörbe hält. In Gedichten und alten Imkerliedern lebt die „Imme“ weiter. Ich bin also einfach die Biene, die dir in der Imkerei hilft.',
   schritte: [] };
 APP_WISSEN.push(IMME_NAME);
+APP_WISSEN.push({ id: 'kontakt', titel: 'Fehler melden oder Hilfe bekommen', route: 'hilfe', zeige: 'Fehler melden',
+  stichw: ['fehler', 'fehler melden', 'bug', 'problem', 'funktioniert nicht', 'geht nicht', 'kaputt', 'absturz', 'support', 'kontakt', 'hilfe', 'email', 'e-mail', 'mail', 'schreiben', 'entwickler', 'idee', 'vorschlag', 'wunsch', 'frage stellen', 'komme nicht weiter'],
+  antwort: 'Unter „Hilfe & Kontakt“ schreibst du dem Entwickler direkt eine E-Mail – für Fehler, Fragen oder Ideen. App-Version und Gerät stehen schon drin.',
+  schritte: ['Menü ▸ Hilfe & Kontakt', '„Fehler melden“, „Ich komme nicht weiter“ oder „Idee vorschlagen“ tippen', 'E-Mail schreiben und senden'] });
 // Ohne Zucht (Store-Version) erklärt Imme keine Zuchtserien
 if (!ZUCHT_AN) for (let i = APP_WISSEN.length - 1; i >= 0; i--) if (APP_WISSEN[i].route === 'zucht') APP_WISSEN.splice(i, 1);
 // Ohne Testmodus kennt Imme keine Beispieldaten (gibt es in der Store-Version nicht)
@@ -23403,6 +23466,7 @@ Views.einstellungen = {
           <a class="btn btn-ghost btn-sm" href="impressum.html" target="_blank" rel="noopener">${icon('info')} Impressum</a>
           <a class="btn btn-ghost btn-sm" href="datenschutz.html" target="_blank" rel="noopener">${icon('info')} Datenschutz</a>
           <a class="btn btn-ghost btn-sm" href="agb.html" target="_blank" rel="noopener">${icon('doc')} AGB &amp; Widerruf</a>
+          <a class="btn btn-ghost btn-sm" href="#/hilfe">${icon('mail')} Hilfe &amp; Kontakt</a>
         </div>
       </div>
 

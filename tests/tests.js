@@ -12412,3 +12412,23 @@ test('Königin ohne Bewertung: Weiter-Pfeil bleibt klein (kein Riesenpfeil)', as
     for (const p of pfeile) { const r = p.getBoundingClientRect(); assert(r.width <= 20 && r.height <= 20, `Pfeil ${Math.round(r.width)}×${Math.round(r.height)} px`); }
   } finally { host.remove(); }
 }));
+
+test('Hilfe & Kontakt: drei Mail-Knöpfe an den Support, mit Version und Gerät, ohne Imkerei-Daten', async (w) => isolierteDaten(w, async () => {
+  const imk = w.S.get('imkerei'); imk.name = 'Geheime Imkerei Probe'; await w.S.set('imkerei', imk, { auto: true });
+  const host = w.document.createElement('main'); w.document.body.appendChild(host);
+  try {
+    await w.Views.hilfe.render(host);
+    const links = [...host.querySelectorAll('a[href^="mailto:"]')];
+    assertEq(links.length, 3, 'Fehler, Frage, Idee');
+    for (const a of links) {
+      const u = decodeURIComponent(a.getAttribute('href'));
+      assert(u.startsWith('mailto:juliankhler@googlemail.com?'), 'an die Support-Adresse');
+      assert(u.includes('v' + w.APP_VERSION), 'App-Version drin');
+      assert(!u.includes('Geheime Imkerei'), 'keine Imkerei-Daten');
+    }
+    assert(/ImkerBuch: Fehler gefunden/.test(decodeURIComponent(links[0].href)), 'Betreff Fehler');
+    assert(w.NAV.some((n) => n.route === 'hilfe'), 'im Menü');
+    assert(w.APP_WISSEN.some((e) => e.route === 'hilfe'), 'Imme kennt es');
+    for (const p of host.querySelectorAll('svg.chev, .hilfe-ic svg')) assert(p.getBoundingClientRect().width <= 24, 'Symbole klein');
+  } finally { host.remove(); }
+}));
