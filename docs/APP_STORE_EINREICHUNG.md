@@ -140,3 +140,21 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Claude liest, sortiert und schreibt **Entwürfe**; senden nur nach Julians Ja (je Mail) bzw. Julian sendet selbst.
 - Dann `SUPPORT_MAIL` in `index.html` und Impressum/Support-Seite umstellen.
 - **Stand 2026-10-18:** Neues Gmail-Konto ging nicht (Telefonnummer schon vergeben). Übergangslösung: **juliankhler+imkerbuch@googlemail.com** (landet im normalen Gmail) – in der App eingetragen; Gmail-Etikett „ImkerBuch Support“ von Claude angelegt. Gmail-Filter (to: …+imkerbuch → Etikett „ImkerBuch Support“) von Claude über die Chrome-Erweiterung angelegt und geprüft. Claude findet die Mails auch ohne Filter über `to:juliankhler+imkerbuch@googlemail.com`. Vor dem Release: eigene Domain mit support@… (IONOS/Strato).
+
+## 17. Gratis-Zugänge (Coupons) – Julian 2026-10-18
+
+- Wunsch: kostenlose Zugänge, die Julian vergeben kann.
+- Weg: **Apple-Angebotscodes (Offer Codes)** für den Einmalkauf „Vollversion“ – seit Ende 2025 auch für Einmalkäufe; gratis oder rabattiert, Einmal-Codes oder ein eigener Code (z. B. `IMKERVEREIN26`). Einlösen im App Store oder direkt in der App (StoreKit-Einlösefenster, Knopf „Code einlösen“ beim Kauf).
+- **Eigene Freischalt-Codes außerhalb von Apple sind verboten** (Regel 3.1.1: keine eigenen Lizenzschlüssel/QR-Codes zum Freischalten).
+- Apples alte IAP-Promo-Codes gibt es seit 26.03.2026 nicht mehr; Promo-Codes für den App-Download weiter möglich (bei Gratis-Download nutzlos).
+
+## 18. Großer Sicherheitstest am Ende (Julian 2026-10-18)
+
+- Wenn alles gebaut ist: gründliche Sicherheitsprüfung. Mindestens: eingeschleuster Text/HTML in allen Eingabefeldern und beim Import (Sicherung, CSV/Excel, PDF), manipulierte Sicherungsdateien, externe Dienste und Bibliotheken (nur lokal gebündelt, feste Versionen), Content-Security-Policy, Mail-/Link-Aufrufe, Kauf-Freischaltung nicht per Speicher-Trick umgehbar, Datenschutz (nichts verlässt ungefragt das Gerät), iOS-Einstellungen (ATS, Berechtigungen).
+- ⚠️ **Code-Schutz / Web-Version:** Das GitHub-Repo `juliankhler-web/imkerbuch` ist **öffentlich** und die volle App läuft kostenlos auf GitHub Pages. Für eine Kauf-App heißt das: jeder kann den Code lesen und die Web-Version gratis nutzen. Vor dem Release entscheiden: Repo privat machen (GitHub Pages aus privatem Repo braucht GitHub Pro) und/oder Web-Version durch reine Landingpage ersetzen.
+
+## 19. Behörden und Apple-Konto (Julian 2026-10-18, Plan aus ChatGPT übernommen)
+
+- Gewerbe angemeldet (laut Julian). Als Nächstes: ELSTER-Fragebogen zur steuerlichen Erfassung (Pflicht **innerhalb 1 Monat** nach Beginn der Tätigkeit), USt-IdNr. mitbeantragen.
+- Parallel: **Apple-Entwicklerkonto (99 €/Jahr) jetzt beantragen** – die Prüfung durch Apple kann Tage dauern; erst danach Verträge, Bank, Steuerformular (W-8BEN), Kaufprodukte, Sandbox-Test.
+- Abweichungen vom ChatGPT-Plan: Preis 14,99 € (später 24,99 €), nicht 9,99 €; Familienfreigabe vorerst nicht.
