@@ -191,3 +191,15 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
   - **Kein 0-€-Einmalkauf** wie bei Apple → Testphase auf Android anders lösen (z. B. ab erstem Start auf dem Gerät; Neuinstallation setzt zurück – vertretbar) oder Vollversion direkt + Gutscheine.
   - **Gutscheine:** Play-Promo-Codes gehen auch für Einmalkäufe – aber nur Einmal-Codes (je Code einmal); eigene Sammel-Codes wie `IMKERVEREIN26` gibt es bei Google **nur für Abos**.
   - ⚠️ Android-Manifest hat bisher nur INTERNET – **Kamera, Mikrofon und Standort fehlen** (sonst gehen Fotos/Sprachnotizen/Standort in der Android-App nicht).
+
+## 23. Stand 2026-10-19 – was ich allein fertig habe, was wir zusammen machen
+
+**Fertig (v2.60, 643 Tests grün, iOS im Simulator geprüft):** alle Punkte aus Abschnitt 15, beide Prüf-Agenten (iOS + Play) abgearbeitet, Wetter auf DWD, Android-Code vorbereitet (`docs/PLAY_STORE.md`). Beim Startzeit-Test einen schweren Fehler gefunden und behoben (Schreibsperre blockierte den Start).
+
+**Zusammen mit Julian:**
+
+1. Apple-Entwicklerkonto (99 €/Jahr) + Verträge, Bank, Steuerformular, Händlerangaben (Telefonnummer).
+2. Kaufprodukte + Angebotscodes in App Store Connect anlegen, Sandbox-Test, Version **1.00** setzen, Store-Texte einfügen.
+3. Gesamtprüfung auf deinem iPhone **und iPad** (jede Funktion), dann Store-Bilder (iPhone 6,9″, iPad 13″) und Video.
+4. Android: Java + Android Studio installieren (großer Download), Android-Test im Emulator/auf einem Handy, Google-Play-Konto (25 $), 12 Tester × 14 Tage, Kaufprodukt + Codes, Bilder.
+5. Entscheidungen: Web-Version/öffentliches GitHub (Seiten müssen online bleiben), AGB § 4 nach ELSTER, ELSTER-Fragebogen bis 19.11.2026.
