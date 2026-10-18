@@ -92,3 +92,17 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Tippen auf die Mitteilung öffnet die Aufgabe/den Termin. Neu planen bei jeder Änderung; iOS erlaubt max. 64 geplante ⇒ immer die nächsten 64.
 - Apple: Erlaubnis erst fragen, wenn sinnvoll (erste Aufgabe mit Erinnerung oder Imme-Einführung), App funktioniert auch ohne (5.1.2); keine Werbung per Mitteilung (4.5.4).
 - Android: dieselbe Erweiterung, zusätzlich Erlaubnis für exakte Uhrzeit.
+
+## 12. Julians Entscheidungen (2026-10-18)
+
+- **Preis:** 1 Monat kostenlos, dann Einmalkauf **14,99 € (Einführungspreis)**, später **24,99 €**. Familienfreigabe vorerst nicht.
+- **Cloud-Abo** 0,99 €/Monat kommt in einer späteren Version, zusammen mit der **Waage** (Codex-Entwurf liegt im Zweig `codex/waage-entwurf`).
+- **Zucht:** in der Store-Version „Kommt bald“.
+- **Honig-Etikettendruck:** vorerst ganz raus (nur im Testmodus sichtbar); auch kein Haftungshinweis dazu.
+- **Beispieldaten:** nur im Testmodus (Web `?testmodus=1`, App `./native/sync-app.sh --testmodus`).
+- **Länder:** zuerst nur Deutschland, Österreich, Schweiz.
+- **Bewertungs-Nachfrage:** ja (Apple-Fenster, max. 3×/Jahr). Hilfe/Erklärvideos erst bei Bedarf.
+- **Testphase:** läuft bereits durch Julian mit Imkern; TestFlight optional.
+- **Impressum:** Julians echte Adresse. Widerruf regelt Apple.
+- **Sicherung in iCloud/Google Drive** (eigene Datei des Nutzers, ohne Server): ja, für Version 1.
+- **Updates:** Fehler sammeln und gebündelt als Update herausgeben.
