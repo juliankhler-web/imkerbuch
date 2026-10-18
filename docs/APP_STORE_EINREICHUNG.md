@@ -67,3 +67,12 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
   Reihenfolge nach Nutzen: Start · Durchsicht am Stand · Volk · Ernte/Abfüllung · Kassenbuch · PDF/Bestandsbuch · Offline/Datenschutz.
 - **Vorschau-Video:** 15–30 Sekunden, nur echte Aufnahmen aus der App (Apple-Regel), ohne Ton verständlich, 886 × 1920 bzw. 1080 × 1920.
 - Vorhandenes nutzen: `website-assets/`, `website-video/`, Store-Grafiken für Google Play.
+
+## 9. Cloud-Sicherung (Julians Vorgabe 2026-10-18)
+
+- Im Bereich **„Sichern“** zwei Wege: **Cloud-Sicherung aktivieren** (0,99 €/Monat, öffnet Apples Kauf-Fenster) oder **nur auf diesem Gerät** (selbst sichern, kostenlos).
+- Cloud aktiv ⇒ **jede kleinste Änderung** geht automatisch hoch: Einträge, Einstellungen, Fotos, Sprachnotizen, Anhänge, auch Löschen.
+  Wenige Sekunden nach der Änderung; ohne Netz in einer Warteschlange, die beim nächsten Netz von selbst hochgeht. Anzeige „Alles gesichert · vor x Sekunden“.
+- Mehrere Geräte: Abgleich je Feld mit Zeitstempel (die App führt schon heute je Feld `lastModified`/`felder` fürs Zusammenführen von Sicherungen – darauf aufbauen).
+- Anmeldung mit E-Mail und Passwort; „Konto und Cloud-Daten löschen“ in der App (Apple-Pflicht); Abo kündigen ⇒ Daten bleiben lokal, Cloud-Kopie nach Frist gelöscht.
+- Server in Deutschland, Daten verschlüsselt, Vertrag zur Auftragsverarbeitung, Datenschutzerklärung erweitern.
