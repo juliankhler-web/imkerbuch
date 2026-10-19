@@ -2170,7 +2170,7 @@ test('Fütterung: Rechner-Knopf und Zucker-Kachel sind da', async (w) => {
     assert(host.querySelector('#frech'), 'Futter-Rechner im Reiter erreichbar');
     const kacheln = [...host.querySelectorAll('.stat .s-label')].map((e) => e.textContent.trim());
     assert(kacheln.some((t) => /^Zucker \d{4}$/.test(t)), `Zucker-Kachel fehlt: ${kacheln.join(' | ')}`);
-    assert(kacheln.some((t) => /Sirup angesetzt/.test(t)), `Sirup-Kachel fehlt: ${kacheln.join(' | ')}`);
+    assert(kacheln.some((t) => /^Sirup\b/.test(t)), `Sirup-Kachel fehlt: ${kacheln.join(' | ')}`);
     assert(!kacheln.some((t) => /^Futter \d{4}$/.test(t)), 'die doppelte Futter-Kachel ist entfallen');
   } finally { host.remove(); }
 });
@@ -12566,6 +12566,39 @@ test('Sprachnotiz: verständliche deutsche Meldung, wenn das Mikrofon nicht star
   assert(/anderen App/.test(f('NotReadableError')), 'besetzt');
   assert(/Kein Mikrofon/.test(f('NotFoundError')), 'keins da');
 });
+
+test('Tester-Wünsche: Fertigsirup in Litern (Herstellerangabe), Rabatt beim Verkauf', async (w) => {
+  assert(w.istFertigsirup('Futtersirup (z. B. ApiInvert)') && w.istFertigsirup('Apiinvert') && !w.istFertigsirup('Zuckerwasser 3:2') && !w.istFertigsirup('Futterteig'), 'Fertigsirup erkannt');
+  assertEq(w.FERTIGSIRUP_KG_JE_L, 1.36, '1 L Apiinvert wiegt ≈ 1,36 kg');
+  const l = w.sirupLiterAusFuetterung({ futterart: 'Apiinvert', mengeKg: 13.6 });
+  assert(Math.abs(l - 10) < 0.01, '13,6 kg = 10 L: ' + l);
+  // Futterwert: 10 L ≈ 10 kg Zucker (Südzucker: 1 L = 1 kg Kristallzucker)
+  const z = w.zuckerAusFuetterung({ futterart: 'Apiinvert', mengeKg: 13.6 });
+  assert(Math.abs(z.kg - 10) < 0.15 && z.geschaetzt, 'Zucker ≈ 10 kg: ' + z.kg);
+  assertEq(w.verkaufRabattEuro(180, 'prozent', 10), 18);
+  assertEq(w.verkaufRabattEuro(180, 'betrag', 200), 180, 'nie mehr als der Warenwert');
+  assertEq(w.verkaufRabattEuro(180, 'prozent', 0), 0);
+});
+
+test('Tester-Wünsche: Verkauf ohne (genug) Bestand – nie ins Minus, Storno gibt nur das Gelagerte zurück', async (w) => isolierteDaten(w, async () => {
+  const a = await w.DB.put('abfuellungen', { datum: '2026-07-01', gebindeG: 500, anzahl: 2, bestand: 2, chargeId: null });
+  let f = null; try { await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 5, preisJeGlas: 6 }); } catch (e) { f = e; }
+  assertEq(f && f.zuWenigBestand, 2, 'ohne Zustimmung: Rückfrage-Fehler mit Bestand');
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 5, preisJeGlas: 6, ohneBestand: true, rabattTyp: 'prozent', rabattWert: 10, rabattGrund: 'Markt' });
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 0, 'Bestand geht auf 0, nicht ins Minus');
+  assertEq([v.ausBestand, v.betrag], [2, 27], '2 aus dem Lager, 30 € – 10 % = 27 €');
+  const kb = await w.DB.get('kassenbuch', v.kassenbuchId);
+  assert(kb.betrag === 27 && /Rabatt 10 % \(Markt\)/.test(kb.beschreibung), 'Kassenbuch mit Rabatt: ' + kb.beschreibung);
+  await w.verkaufStornieren(v.id);
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 2, 'Storno gibt genau die 2 zurück');
+  // ganz ohne Abfüllung
+  const frei = await w.verkaufErfassen({ abfuellungId: '', anzahl: 30, preisJeGlas: 5, ohneBestand: true, sorte: 'Linde', gebindeG: 500 });
+  assert(!frei.abfuellungId && frei.sorte === 'Linde' && frei.gebindeG === 500 && frei.ausBestand === 0, 'freier Verkauf');
+  assertEq(w.verkaufHonigText(frei, null, null, new Map()), '500 g · Linde (ohne Bestand)');
+  assert(/ohne Bestand/.test((await w.DB.get('kassenbuch', frei.kassenbuchId)).beschreibung));
+  await w.verkaufStornieren(frei.id);
+  assertEq(await w.DB.get('verkaeufe', frei.id), undefined, 'freier Verkauf stornierbar');
+}));
 
 test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Speicherstand erschleichen', async (w) => isolierteDaten(w, async () => {
   // 0) PDF-Leser: präparierte PDFs dürfen keinen Code ausführen (CVE-2024-4367) – jeder Aufruf mit isEvalSupported:false

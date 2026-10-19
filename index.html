@@ -315,6 +315,9 @@ html[data-theme="dark"] .btn-dark{color:#1B1B1F}
 .btn-xs svg{width:14px;height:14px}
 .btn[disabled]{opacity:.5;pointer-events:none}
 .btn-block{width:100%}
+.karte-klapp>summary{list-style:none;cursor:pointer;margin:0}.karte-klapp>summary::-webkit-details-marker{display:none}
+.karte-klapp .klapp-pfeil{margin-left:auto;transition:transform .2s}.karte-klapp[open] .klapp-pfeil{transform:rotate(180deg)}.karte-klapp[open]>summary{margin-bottom:10px}
+.link-knopf{background:none;border:0;padding:0;color:var(--honey-dark);font:inherit;font-weight:600;cursor:pointer;text-align:left}
 .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:7px;font-size:12px;font-weight:700;max-width:100%;min-width:0;overflow:hidden}
 .badge svg{width:12px;height:12px}
 .b-honey{background:var(--honey-soft);color:var(--honey-deep)}
@@ -717,7 +720,7 @@ body.lp-bar-hebt .bottomnav{z-index:150;outline:2px dashed var(--honey);outline-
 .kg-kopf-text .sub{color:var(--muted);font-size:13px;margin-top:2px}
 .kg-aktionen{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .kg-aktionen .btn{flex:1 1 auto}
-a.kpill{color:inherit;text-decoration:none}
+a.kpill,a.row{color:inherit;text-decoration:none}
 .kg-hinweis{display:flex;gap:10px;align-items:flex-start;background:var(--card2);border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.5}
 .kg-hinweis > svg{width:18px;height:18px;flex:none;margin-top:2px;color:var(--honey-dark)}
 .kg-ped{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:var(--card2);border-radius:10px;padding:9px 11px;word-break:break-all;margin-bottom:4px}
@@ -1407,8 +1410,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.62';
+const APP_VERSION = '2.63';
 const CHANGELOG = [
+  { version: '2.63', datum: '2026-10-19', punkte: [
+    '<b>Fütterung je Volk:</b> Im Bereich Fütterung zeigt „Je Volk“, was jedes Volk im Jahr bekommen hat (Zucker, Liter, Anzahl Gaben). Beim Volk selbst stehen die Summen jetzt oben.',
+    '<b>Fertigsirup in Litern:</b> Bei Apiinvert und Co. einfach Liter eintragen – die App rechnet das Gewicht (1 L ≈ 1,36 kg) und den Futterwert (1 L = 1 kg Zucker, Herstellerangabe) selbst.',
+    '<b>Auswertung im Kassenbuch:</b> Kategorien antippen zeigt die Buchungen dahinter; bei Honigverkauf welcher Honig wie oft an wen ging – mit Sprung zum Abnehmer. Die Ernteprognose steht unten zum Aufklappen. Beim Jahreswechsel springt keine Seite mehr nach oben.',
+    '<b>Verkauf ohne Bestand:</b> Nach Rückfrage trotzdem buchen – auch für Honig, der noch nicht erfasst ist. Neu: <b>Rabatt</b> beim schnellen Verkauf (in % oder €).',
+    '<b>Abfüllen direkt aus der Ernte:</b> Ohne vorher eine Charge anzulegen – die App legt sie mit Losnummer selbst an. Bei Königinnen kann man jetzt die <b>Generation</b> angeben.',
+  ] },
   { version: '2.62', datum: '2026-10-19', punkte: [
     'Startet das Mikrofon für eine Sprachnotiz nicht, steht jetzt auf Deutsch da, warum – und wo man es einschaltet.',
   ] },
@@ -3336,6 +3346,7 @@ const UI = {
       try { Lizenz.pruefeSchreiben(['formular']); } catch (e) { UI.toast(e.message, 'err'); return; }
       try { await onSave(v); FormGuard.dirty = false; m.close(true); }
       catch (e) {
+        if (e && e.leise) return;        // z. B. Rückfrage mit „Abbrechen“ beantwortet – Formular bleibt offen
         console.error(e);
         UI.toast(e.message || 'Speichern fehlgeschlagen', 'err');
         // Meldet der Speichervorgang, WELCHES Feld fehlt, springt das Formular dorthin
@@ -3840,7 +3851,7 @@ function bereichsReiter(main, tabs, aktiv, onChange, { platz = '#tabbar', unter 
 /** Jahre als Reiter (Fütterung, Behandlungen, Wanderungen, Fahrten, Zeiten) – nur wenn es mehr als ein Jahr gibt. */
 function jahresReiter(main, jahre, jahr, setzen) {
   if (jahre.length < 2 || !$('#tabbar', main)) return null;
-  return bereichsReiter(main, jahre.map((j) => ({ id: j, label: j })), jahr, (j) => { setzen(j); return renderRoute(); }, { name: 'jahre' });
+  return bereichsReiter(main, jahre.map((j) => ({ id: j, label: j })), jahr, (j) => { setzen(j); return renderRoute({ scrollBehalten: true }); }, { name: 'jahre' });
 }
 
 /** Reiter über Teilen EINER Seite (Hygiene, Aufgaben, Meldungen, Inventar …): alles ist gezeichnet und
@@ -6453,9 +6464,9 @@ async function sammelFormular(art, volkIds, voelker) {
       fields: [hinweis,
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker. Bei Fertigsirup: das Gewicht – oder unten einfach Liter eintragen.' },
         { key: '_trennFue', type: 'static', html: '' },
-        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen: bei Zuckerwasser über das Mischverhältnis, bei Fertigsirup (z. B. Apiinvert) mit 1 L ≈ 1,36 kg. Bei Futterteig gibt es keine Liter.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
       ],
@@ -6656,7 +6667,17 @@ Views.volk = {
         const zeigtLiter = liter.some((l) => l != null);
         const zSumme = U.sum(zucker.filter(Boolean), (z) => z.kg);
         const lSumme = U.sum(liter.filter((l) => l != null), (l) => l);
-        return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num stark">Menge (kg)</th>${zeigtZucker ? '<th class="num">davon Zucker (kg)</th>' : ''}${zeigtLiter ? '<th class="num stark">Sirup (L)</th>' : ''}<th>Winterfutter</th><th></th></tr></thead>
+        /* Tester-Wunsch: auf einen Blick, was das Volk bisher bekommen hat – dieses Jahr und insgesamt */
+        const jahrJetzt = U.todayIso().slice(0, 4);
+        const imJahr = list.map((f, i) => i).filter((i) => (list[i].datum || '').startsWith(jahrJetzt));
+        const zJahr = U.sum(imJahr.map((i) => zucker[i]).filter(Boolean), (z) => z.kg);
+        const lJahr = U.sum(imJahr.map((i) => liter[i]).filter((l) => l != null), (l) => l);
+        const kacheln = `<div class="stat-grid mb12">
+          <div class="stat"><div class="s-label">${icon('flask')} Zucker ${jahrJetzt}</div><div class="s-value">${U.fmtNum(zJahr, 1)} kg</div><div class="s-sub">${imJahr.length} ${imJahr.length === 1 ? 'Gabe' : 'Gaben'}</div></div>
+          <div class="stat"><div class="s-label">${icon('futter')} Sirup ${jahrJetzt}</div><div class="s-value">${lJahr > 0 ? U.fmtNum(lJahr, 1) + ' L' : '–'}</div><div class="s-sub">${lJahr > 0 ? 'Zuckerwasser und Fertigsirup' : 'kein Sirup erfasst'}</div></div>
+          <div class="stat"><div class="s-label">Bisher insgesamt</div><div class="s-value">${U.fmtNum(zSumme, 1)} kg</div><div class="s-sub">Zucker in ${list.length} ${list.length === 1 ? 'Gabe' : 'Gaben'}${lSumme > 0 ? ` · ${U.fmtNum(lSumme, 1)} L Sirup` : ''}</div></div>
+        </div>`;
+        return kacheln + `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num stark">Menge (kg)</th>${zeigtZucker ? '<th class="num">davon Zucker (kg)</th>' : ''}${zeigtLiter ? '<th class="num stark">Sirup (L)</th>' : ''}<th>Winterfutter</th><th></th></tr></thead>
         <tbody>${list.map((f, i) => `<tr class="tr-klick" data-fe="${U.esc(f.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td>
           <td class="num stark">${U.fmtNum(f.mengeKg)}</td>
           ${zeigtZucker ? `<td class="num">${zucker[i] ? (zucker[i].geschaetzt ? '≈ ' : '') + U.fmtNum(zucker[i].kg, 1) : '–'}</td>` : ''}
@@ -6672,9 +6693,9 @@ Views.volk = {
       fields: [
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker. Bei Fertigsirup: das Gewicht – oder unten einfach Liter eintragen.' },
         { key: '_trennFue', type: 'static', html: '' },
-        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen: bei Zuckerwasser über das Mischverhältnis, bei Fertigsirup (z. B. Apiinvert) mit 1 L ≈ 1,36 kg. Bei Futterteig gibt es keine Liter.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern automatisch eine Aufgabe an (nur bei neuer Fütterung).' },
@@ -7073,7 +7094,9 @@ Views.koeniginnen = {
       title: q ? 'Königin bearbeiten' : 'Neue Königin', wide: true, // breiter, damit lange Einträge (Belegstelle/Vatervolk unter „Drohnenlinie“) komplett sichtbar sind
       fields: [
         { key: 'kennung', label: 'Kennung', placeholder: 'z. B. JK-26-014', hint: 'Eindeutige Zuchtbuch-Kennung – Vorschlag automatisch, frei änderbar.' },
-        { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, hint: `Zeichenfarbe automatisch (${jahr} = ${queenColor(jahr)[0]}).` },
+        { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, halb: true, hint: `Zeichenfarbe automatisch (${jahr} = ${queenColor(jahr)[0]}).` },
+        { key: 'generation', label: 'Generation', type: 'suggest', halb: true, options: ['F0', 'F1', 'F2', 'F3', 'F4', 'F5'], placeholder: 'z. B. F1', hint: 'Freiwillig. Tester-Wunsch: welche Generation der Linie.' },
+        { key: '_trennJahr', type: 'static', html: '' },
         { key: 'linie', label: 'Herkunft / Linie', type: 'suggest', options: rasseOpts },
         { key: 'herkunft', label: 'Anpaarung', type: 'suggest', options: herkunftOpts },
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
@@ -7096,7 +7119,7 @@ Views.koeniginnen = {
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
         const rec = Object.assign(q || { historie: [] }, {
-          kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
+          kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, generation: (v.generation || '').trim(), linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
           // Leer lassen heißt: aus dem Stammbaum bilden. Nur was getippt wurde, wird gespeichert.
           pedigree: (v.pedigree || '').trim(),
           mutterId: v.mutterId || null, anpaarung: v.anpaarung || '',
@@ -7798,6 +7821,7 @@ Views.koenigin = {
       <dl class="detail-kv">
         <dt>Kennung</dt><dd>${q.kennung ? `<b>${U.esc(q.kennung)}</b>` : '<span class="muted">keine</span>'}</dd>
         <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${U.zahl(q.jahrgang)} (${U.esc(farbe)})</dd>
+        ${q.generation ? `<dt>Generation</dt><dd>${U.esc(q.generation)}</dd>` : ''}
         <dt>Herkunft / Linie</dt><dd>${U.esc(q.linie) || '–'}</dd>
         <dt>Anpaarung</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
         <dt>Mutter (2a)</dt><dd>${link(mutter)}</dd>
@@ -8559,22 +8583,25 @@ function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
   const feld = lit.closest('.field');
   let stille = false;
   const verh = () => verhaeltnisAusFutterart(art ? art.value : null) || (art && art.value ? null : vorgabe);
+  const fertig = () => !!(art && istFertigsirup(art.value));
+  /* kg → Liter: Zuckerwasser über Zucker und Mischverhältnis, Fertigsirup über sein Gewicht je Liter */
   const literAusFeld = () => {
-    const v = verh();
-    const z = U.parseNum(kg.value);
-    lit.value = v && z > 0 ? U.fmtNum(literAusZucker(z, v), 1) : '';
+    const v = verh(), z = U.parseNum(kg.value);
+    if (fertig()) lit.value = z > 0 ? U.fmtNum(z / FERTIGSIRUP_KG_JE_L, 1) : '';
+    else lit.value = v && z > 0 ? U.fmtNum(literAusZucker(z, v), 1) : '';
   };
   const zustand = () => {
-    const v = verh();
-    lit.disabled = !v;
-    if (feld) feld.style.opacity = v ? '' : '0.5';
+    const an = !!verh() || fertig();
+    lit.disabled = !an;
+    if (feld) feld.style.opacity = an ? '' : '0.5';
     if (!stille) literAusFeld();
   };
   lit.addEventListener('input', () => {
-    const v = verh();
-    if (stille || !v) return;
+    const v = verh(), l = U.parseNum(lit.value);
+    if (stille || (!v && !fertig())) return;
     stille = true;
-    kg.value = U.fmtNum(zuckerAusSirupLiter(U.parseNum(lit.value), v), 1);
+    kg.value = fertig() ? (l > 0 ? U.fmtNum(l * FERTIGSIRUP_KG_JE_L, 1) : '') : U.fmtNum(zuckerAusSirupLiter(l, v), 1);
+    kg.dispatchEvent(new Event('input', { bubbles: true }));
     stille = false;
   });
   kg.addEventListener('input', () => { if (stille) return; stille = true; literAusFeld(); stille = false; });
@@ -8616,6 +8643,7 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   const zucker = Math.max(0, Number(v.zuckerKg) || Number(v.mengeKg) || 0);
   if (verbrauchEinheit(pos) === 'L') {
     let liter = Math.max(0, Number(v._sirupLiter) || 0);
+    if (!liter && istFertigsirup(v.futterart)) liter = Math.max(0, Number(v.mengeKg) || 0) / FERTIGSIRUP_KG_JE_L;
     if (!liter) { const verh = verhaeltnisAusFutterart(v.futterart); liter = verh ? literAusZucker(zucker, verh) : 0; }
     return Math.round(liter * n * 1000) / 1000;
   }
@@ -9001,6 +9029,23 @@ Views.fuetterung = {
     const lSumme = U.sum(lList.filter((l) => l != null), (l) => l);
     const lAnzahl = lList.filter((l) => l != null).length;
     const mengeAbweichend = Math.abs(kg - zKg) > 0.05;
+    /* Tester-Wunsch: je Volk zusammengefasst, was im Jahr gefüttert wurde – vorher nur in der PDF */
+    const ansicht = Views.fuetterung._ansicht || 'gaben';
+    const jeVolk = [...U.groupBy(list.map((f, i) => ({ f, z: zList[i], l: lList[i] })), (x) => x.f.volkId).entries()].map(([id, xs]) => ({
+      id, name: voelker.get(id)?.name || 'gelöschtes Volk', da: voelker.has(id), n: xs.length,
+      zucker: U.sum(xs.filter((x) => x.z), (x) => x.z.kg), geschaetzt: xs.some((x) => x.z && x.z.geschaetzt),
+      liter: U.sum(xs.filter((x) => x.l != null), (x) => x.l), winter: U.sum(xs.filter((x) => x.f.winterfutter && x.z), (x) => x.z.kg),
+      letzte: xs.map((x) => x.f.datum).sort().pop() }));
+    jeVolk.sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
+    const jeVolkHtml = `<div class="card"><div class="card-title">${icon('volk')}<h2>Je Volk ${jahr}</h2></div>` + (jeVolk.length ? `<div class="rows">${jeVolk.map((r) => `
+        <${r.da ? `a class="row" href="#/volk/${U.esc(r.id)}"` : 'div class="row"'}>
+          <span class="r-ic">${icon('futter')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(r.name)}</span>
+          <span class="r-sub">${r.n} ${r.n === 1 ? 'Gabe' : 'Gaben'} · zuletzt ${U.fmtDate(r.letzte)}${r.winter > 0 ? ` · ${U.fmtNum(r.winter, 1)} kg Winterfutter` : ''}</span></span>
+          <span class="r-side"><b>${r.geschaetzt ? '≈ ' : ''}${U.fmtNum(r.zucker, 1)} kg Zucker</b>${r.liter > 0 ? `<br><span class="small muted">${U.fmtNum(r.liter, 1)} L Sirup</span>` : ''}</span>${r.da ? icon('chevR', 'chev') : ''}</${r.da ? 'a' : 'div'}>`).join('')}
+        <div class="row" style="min-height:44px"><span class="r-main"><span class="r-title">Gesamt · ${jeVolk.length} ${jeVolk.length === 1 ? 'Volk' : 'Völker'}</span></span>
+          <span class="r-side"><b>${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg Zucker</b>${lSumme > 0 ? `<br><span class="small muted">${U.fmtNum(lSumme, 1)} L Sirup</span>` : ''}</span></div></div>`
+      : emptyState('futter', `Keine Fütterung in ${jahr} erfasst.`)) + `</div>`;
     main.innerHTML = pageHead('Fütterung', 'Viele Völker auf einmal füttern – nach Stand und Funktion gefiltert. Jede Fütterung landet automatisch beim Volk.',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fuetterungsliste('${jahr}')">${icon('doc')} Liste ${jahr} (PDF)</button>
        <button class="btn btn-primary btn-sm" id="add">${icon('plus')} Fütterung</button>
@@ -9008,10 +9053,12 @@ Views.fuetterung = {
       (jahre.length > 1 ? '<div id="tabbar"></div>' : '') + `
       <div class="stat-grid mb16">
         <div class="stat"><div class="s-label">${icon('flask')} Zucker ${jahr}</div><div class="s-value">${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg</div><div class="s-sub">${list.length} ${list.length === 1 ? 'Fütterung' : 'Fütterungen'}${mengeAbweichend ? ` · aus ${U.fmtNum(kg)} kg erfasster Menge` : ''}${zOffen ? ` · ${zOffen} ohne Angabe` : ''}</div></div>
-        <div class="stat"><div class="s-label">${icon('futter')} Sirup angesetzt</div><div class="s-value">${U.fmtNum(lSumme, 1)} L</div><div class="s-sub">${lAnzahl === list.length ? 'alle Einträge' : `bei ${lAnzahl} von ${list.length} Einträgen`} mit Mischverhältnis</div></div>
+        <div class="stat"><div class="s-label">${icon('futter')} Sirup</div><div class="s-value">${U.fmtNum(lSumme, 1)} L</div><div class="s-sub">${lAnzahl === list.length ? 'alle Einträge' : `bei ${lAnzahl} von ${list.length} Einträgen`} (Zuckerwasser und Fertigsirup)</div></div>
         <div class="stat"><div class="s-label">${icon('wetter')} davon Winterfutter</div><div class="s-value">${U.fmtNum(wZucker, 1)} kg</div><div class="s-sub">Zucker in den Winterfutter-Gaben</div></div>
       </div>
-      <div class="card">` + (list.length ? `<div class="rows">` + seitenweise('fuetterung', list).sichtbar.map((f) => `
+      <div class="chip-row mb12 no-print" id="fue-ansicht">${['gaben', 'volk'].map((x) => `<button class="chip ${ansicht === x ? 'active' : ''}" data-ansicht="${x}">${x === 'gaben' ? 'Alle Gaben' : 'Je Volk'}</button>`).join('')}</div>
+      ${ansicht === 'volk' ? jeVolkHtml : ''}
+      <div class="card"${ansicht === 'volk' ? ' hidden' : ''}>` + (list.length ? `<div class="rows">` + seitenweise('fuetterung', list).sichtbar.map((f) => `
         <button class="row" data-id="${U.esc(f.id)}">
           <span class="r-ic">${icon('futter')}</span>
           <span class="r-main"><span class="r-title">${U.esc(voelker.get(f.volkId)?.name || 'gelöschtes Volk')}${f.winterfutter ? ' <span class="badge b-blue">Winterfutter</span>' : ''}</span>
@@ -9019,6 +9066,7 @@ Views.fuetterung = {
           <span class="r-side"><b>${U.fmtNum(f.mengeKg)} kg</b>${sirupLiterAusFuetterung(f) != null ? `<br><span class="small muted">${U.fmtNum(sirupLiterAusFuetterung(f), 1)} L Sirup</span>` : ''}</span>${icon('chevR', 'chev')}</button>`).join('') + `</div>` + seitenweise('fuetterung', list).knopf
       : emptyState('futter', 'Noch keine Fütterung erfasst. Mit einem Eintrag fütterst du gleich einen ganzen Stand – oder gefiltert nur z. B. die Wirtschaftsvölker.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Fütterung</button>`)) + `</div>`;
     jahresReiter(main, jahre, jahr, (j) => { Views.fuetterung._jahr = j; });
+    $$('[data-ansicht]', main).forEach((c) => { c.onclick = () => { Views.fuetterung._ansicht = c.dataset.ansicht; renderRoute({ scrollBehalten: true }); }; });
     bindAdd(() => Views.fuetterung.sammelForm());
     const fr = $('#frech', main); if (fr) fr.onclick = () => Views.fuetterung.rechnerBlatt();
     main.addEventListener('click', (e) => {
@@ -9084,9 +9132,9 @@ Views.fuetterung = {
       fields: [
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'datum', label: 'Datum', type: 'date', required: true, halb: true },
-        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker. Bei Fertigsirup: das Gewicht – oder unten einfach Liter eintragen.' },
         { key: '_trennFue', type: 'static', html: '' },
-        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
+        { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen: bei Zuckerwasser über das Mischverhältnis, bei Fertigsirup (z. B. Apiinvert) mit 1 L ≈ 1,36 kg. Bei Futterteig gibt es keine Liter.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
         ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
@@ -9132,9 +9180,9 @@ Views.fuetterung = {
         { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker, nicht Liter Sirup.' },
+        { key: 'mengeKg', label: 'Menge je Volk (kg)', type: 'number', required: true, halb: true, hint: 'Bei Zuckerwasser: reiner Zucker. Bei Fertigsirup: das Gewicht – oder unten einfach Liter eintragen.' },
         { key: '_trennFue', type: 'static', html: '' },
-        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen. Nur bei Zuckerwasser mit Mischverhältnis – bei Teig oder Fertigsirup gibt es keine Ansatzmenge.' },
+        { key: '_sirupLiter', label: 'Sirup je Volk (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen: bei Zuckerwasser über das Mischverhältnis, bei Fertigsirup (z. B. Apiinvert) mit 1 L ≈ 1,36 kg. Bei Futterteig gibt es keine Liter.' },
         { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
@@ -9569,6 +9617,12 @@ function fuellmengeMm(g) { g = Number(g) || 0; return g <= 50 ? 2 : g <= 200 ? 3
 /** Schriftgröße (pt) in Helvetica, bei der Ziffern mindestens so hoch sind
     (Ziffernhöhe ≈ 0,717 der Schriftgröße; 1 pt = 0,3528 mm), aufgerundet. */
 function fuellmengePunkt(g) { return Math.ceil(fuellmengeMm(g) / (0.717 * 0.3528) * 2) / 2; }
+/** Gebindegröße und Text eines Verkaufs – auch ohne Abfüllung („trotzdem gebucht“, Sorte steht im Verkauf). */
+function verkaufGebindeG(v, a) { return a ? (Number(a.gebindeG) || 0) : (Number(v && v.gebindeG) || 0); }
+function verkaufHonigText(v, a, c, ernten) {
+  if (a) return `${gebindeLabel(a.gebindeG)} · ${honigName(c, ernten)}`;
+  return v && v.gebindeG ? `${gebindeLabel(v.gebindeG)} · ${v.sorte || 'Honig'} (ohne Bestand)` : 'Gebinde';
+}
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
 /** Welche Völker gab es an einem bestimmten Tag? Anfang und Ende stehen in der
@@ -9685,22 +9739,41 @@ function buchungsZahl(wert, label) {
   return n;
 }
 /** Verkauf: aktueller Bestand, Verkaufsbeleg und Einnahme in einer Transaktion. */
-async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '' }) {
+/* Verkauf auch ohne (genug) Bestand – Tester-Wunsch: Wer Honig verkauft, den er noch
+   nicht abgefüllt/erfasst hat, entscheidet selbst („Kein Bestand – trotzdem buchen?“).
+   ohneBestand: Bestand geht höchstens auf 0 (nie ins Minus); der Verkauf merkt sich
+   in ausBestand, wie viel wirklich aus dem Lager kam – genau das gibt ein Storno zurück.
+   Ohne Abfüllung (abfuellungId leer) stehen Sorte und Gebindegröße im Verkauf selbst. */
+/** Rabatt beim schnellen Verkauf in Euro: Prozent vom Warenwert oder fester Betrag, nie mehr als der Warenwert. */
+function verkaufRabattEuro(waren, typ, wert) {
+  const w = Math.max(0, Number(wert) || 0), basis = Math.max(0, Number(waren) || 0);
+  const r = typ === 'betrag' ? w : basis * Math.min(100, w) / 100;
+  return Math.round(Math.min(r, basis) * 100) / 100;
+}
+async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = null, datum = U.todayIso(), notiz = '', ohneBestand = false, sorte = '', gebindeG = null, rabattTyp = 'prozent', rabattWert = 0, rabattGrund = '' }) {
   anzahl = Math.round(buchungsZahl(anzahl, 'Anzahl'));
   preisJeGlas = buchungsZahl(preisJeGlas, 'Preis');
   if (!(anzahl > 0)) throw feldFehler('anzahl', 'Anzahl muss größer als 0 sein.');
   return DB.aendereAtomar(['abfuellungen', 'chargen', 'kassenbuch', 'verkaeufe'], (d) => {
-    const a = d.abfuellungen.find((x) => x.id === abfuellungId);
-    if (!a) throw feldFehler('abfuellungId', 'Bitte eine vorhandene Abfüllung auswählen.');
-    const bestand = buchungsZahl(a.bestand, 'Bestand');
-    if (anzahl > bestand) throw new Error(`Nur ${bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`);
-    const c = d.chargen.find((x) => x.id === a.chargeId);
-    const betrag = Math.round(anzahl * preisJeGlas * 100) / 100;
+    const frei = !abfuellungId;
+    const a = frei ? null : d.abfuellungen.find((x) => x.id === abfuellungId);
+    if (!frei && !a) throw feldFehler('abfuellungId', 'Bitte eine vorhandene Abfüllung auswählen.');
+    if (frei && !(Number(gebindeG) > 0)) throw feldFehler('gebindeG', 'Bitte die Gebindegröße wählen.');
+    const bestand = a ? buchungsZahl(a.bestand, 'Bestand') : 0;
+    if (a && anzahl > bestand && !ohneBestand) { const e = new Error(`Nur ${bestand} Gebinde dieser Abfüllung stehen noch zum Verkauf.`); e.zuWenigBestand = bestand; throw e; }
+    const c = a ? d.chargen.find((x) => x.id === a.chargeId) : null;
+    const waren = Math.round(anzahl * preisJeGlas * 100) / 100;
+    const rabatt = verkaufRabattEuro(waren, rabattTyp, rabattWert);
+    const betrag = Math.round((waren - rabatt) * 100) / 100;
     if (!Number.isFinite(betrag)) throw new Error('Verkaufsbetrag ist zu groß.');
-    a.bestand = bestand - anzahl;
-    const kb = { id: U.uuid(), datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Charge ${c ? c.losnummer : '?'})`, rechnungId: null };
-    const v = { id: U.uuid(), datum, abfuellungId, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id };
-    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'kassenbuch', obj: kb }, { store: 'verkaeufe', obj: v }], wert: v };
+    const rabattText = rabatt > 0 ? ` – Rabatt ${rabattTyp === 'betrag' ? U.fmtEur(rabatt) : U.fmtNum(Math.min(100, Number(rabattWert) || 0), 1) + ' %'}${String(rabattGrund || '').trim() ? ' (' + String(rabattGrund).trim() + ')' : ''}` : '';
+    const ausBestand = a ? Math.min(anzahl, bestand) : 0;
+    if (a) a.bestand = bestand - ausBestand;
+    const kb = { id: U.uuid(), datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId, beschreibung: (a ? `Verkauf: ${anzahl} × ${gebindeLabel(a.gebindeG)} (Charge ${c ? c.losnummer : '?'})` : `Verkauf: ${anzahl} × ${gebindeLabel(Number(gebindeG))} ${String(sorte || 'Honig').trim()} (ohne Bestand)`) + rabattText, rechnungId: null };
+    const v = { id: U.uuid(), datum, abfuellungId: a ? a.id : null, anzahl, preisJeGlas, betrag, kontaktId, notiz, kassenbuchId: kb.id, ausBestand,
+      ...(rabatt > 0 ? { rabatt, rabattText: rabattText.replace(/^ – /, '') } : {}),
+      ...(a ? {} : { sorte: String(sorte || '').trim(), gebindeG: Number(gebindeG) }) };
+    return { ops: [...(a ? [{ store: 'abfuellungen', obj: a }] : []), { store: 'kassenbuch', obj: kb }, { store: 'verkaeufe', obj: v }], wert: v };
   });
 }
 /** Archiviert zusammengehörige Zeilen innerhalb eines bereits berechneten Plans. */
@@ -9711,11 +9784,12 @@ async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
   return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
     const v = d.verkaeufe.find((x) => x.id === verkaufId);
     if (!v) return { ops: [] }; // ein anderer Aufruf hat bereits storniert
-    const a = d.abfuellungen.find((x) => x.id === v.abfuellungId);
-    if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen; der Verkauf wurde nicht verändert.');
-    a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.anzahl, 'Verkaufsmenge');
+    const a = v.abfuellungId ? d.abfuellungen.find((x) => x.id === v.abfuellungId) : null;
+    if (v.abfuellungId && !a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen; der Verkauf wurde nicht verändert.');
+    // Zurück ins Lager kommt nur, was auch aus dem Lager kam (bei „trotzdem buchen“ evtl. weniger)
+    if (a) a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge');
     const kb = d.kassenbuch.find((x) => x.id === v.kassenbuchId);
-    const ops = [{ store: 'abfuellungen', obj: a }, ...papierkorbAuftraege('verkaeufe', v)];
+    const ops = [...(a ? [{ store: 'abfuellungen', obj: a }] : []), ...papierkorbAuftraege('verkaeufe', v)];
     if (kb && kasse) ops.push(...papierkorbAuftraege('kassenbuch', kb));
     return { ops };
   });
@@ -9732,38 +9806,82 @@ async function verkaufsPapierkorbWiederherstellen(trashId) {
     const einnahmeNochDa = d.kassenbuch.some((x) => x.id === v.kassenbuchId);
     if (!k && !einnahmeNochDa) throw new Error('Der zugehörige Kassenbucheintrag fehlt im Papierkorb. Der Verkauf wurde nicht wiederhergestellt.');
     if (d.verkaeufe.some((x) => x.id === v.id) || (k && einnahmeNochDa)) throw new Error('Verkauf oder Einnahme ist bereits vorhanden. Bitte die Buchungen prüfen.');
-    const a = d.abfuellungen.find((x) => x.id === v.abfuellungId);
-    if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen.');
-    const menge = buchungsZahl(v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
-    if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
-    a.bestand = bestand - menge;
-    return { ops: [{ store: 'abfuellungen', obj: a }, { store: 'verkaeufe', obj: v }, ...(k ? [{ store: 'kassenbuch', obj: k.daten }] : []),
+    const a = v.abfuellungId ? d.abfuellungen.find((x) => x.id === v.abfuellungId) : null;
+    if (v.abfuellungId && !a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen.');
+    if (a) {
+      const menge = buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
+      if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
+      a.bestand = bestand - menge;
+    }
+    return { ops: [...(a ? [{ store: 'abfuellungen', obj: a }] : []), { store: 'verkaeufe', obj: v }, ...(k ? [{ store: 'kassenbuch', obj: k.daten }] : []),
       { op: 'del', store: 'papierkorb', id: t.id }, ...(k ? [{ op: 'del', store: 'papierkorb', id: k.id }] : [])], wert: t };
   });
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
 async function verkaufForm(vorAbfuellungId = '') {
-  const abf = (await DB.getAll('abfuellungen')).filter((a) => a.bestand > 0);
-  if (!abf.length) return UI.toast('Kein abgefüllter Bestand vorhanden – fülle zuerst eine Charge ab (Tab „Abfüllung“)', 'err');
+  /* Alle Abfüllungen – auch leere: Tester-Wunsch „kein Bestand – trotzdem buchen?“.
+     Dazu „Anderer Honig“ für Honig, der noch gar nicht erfasst ist. */
+  const alleAbf = await DB.getAll('abfuellungen');
+  const abf = U.sortBy(alleAbf, (a) => `${a.bestand > 0 ? 0 : 1}${a.datum || ''}`).sort((x, y) => (y.bestand > 0) - (x.bestand > 0));
   const chargen = await idMap('chargen'), ernten = await idMap('ernten');
   const kunden = (await DB.getAll('kontakte')).filter(kontaktIstKunde);
+  const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
+  const FREI = '__frei';
   const m = UI.formModal({
     title: 'Verkauf · Honig',
     fields: [
-      { key: 'abfuellungId', label: 'Welche Abfüllung (Gebinde)?', type: 'select', required: true, default: vorAbfuellungId, options: abf.map((a) => ({ v: a.id, l: `${gebindeLabel(a.gebindeG)} · ${honigName(chargen.get(a.chargeId), ernten)} · ${a.bestand} verfügbar` })) },
+      { key: 'abfuellungId', label: 'Welcher Honig (Gebinde)?', type: 'select', required: true, keepOrder: true,
+        default: vorAbfuellungId || (abf.some((a) => a.bestand > 0) ? '' : FREI),
+        options: [...abf.map((a) => ({ v: a.id, l: `${gebindeLabel(a.gebindeG)} · ${honigName(chargen.get(a.chargeId), ernten)} · ${a.bestand > 0 ? `${a.bestand} auf Lager` : 'kein Bestand'}` })),
+          { v: FREI, l: 'Anderer Honig – noch nicht im Bestand' }] },
+      { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, placeholder: 'z. B. Linde', showIf: (f) => f.abfuellungId === FREI, halb: true },
+      { key: 'gebindeG', label: 'Gebinde', type: 'select', keepOrder: true, default: '500', showIf: (f) => f.abfuellungId === FREI, halb: true,
+        options: GEBINDE_PRESETS.map((g) => ({ v: String(g), l: gebindeLabel(g) })) },
+      { key: '_trennSorte', type: 'static', html: '' },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
       { key: 'anzahl', label: 'Anzahl Gebinde', type: 'number', required: true, default: 1, halb: true },
       { key: '_trennVerkauf', type: 'static', html: '' },
       { key: 'preisJeGlas', label: 'Preis je Gebinde (€)', type: 'number', required: true },
+      { key: 'rabattWert', label: 'Rabatt (freiwillig)', type: 'number', halb: true, placeholder: 'z. B. 10' },
+      { key: 'rabattTyp', label: 'in', type: 'select', keepOrder: true, default: 'prozent', halb: true, options: [{ v: 'prozent', l: '%' }, { v: 'betrag', l: '€ (Betrag)' }] },
+      { key: '_trennRabatt', type: 'static', html: '' },
+      { key: 'rabattGrund', label: 'Grund für den Rabatt', placeholder: 'z. B. Mengenrabatt, Stammkunde', showIf: (f) => Number(String(f.rabattWert || '').replace(',', '.')) > 0 },
+      { key: '_summe', type: 'static', html: '<div class="hint" data-vk-summe></div>' },
       { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: k.name })), hint: 'Optional.' },
       { key: '_kundeNeu', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" id="vk-kunde-neu">${icon('plus')} Neuen Kunden anlegen</button>` },
       { key: 'notiz', label: 'Notiz', placeholder: 'z. B. Haustürverkauf, Wochenmarkt' },
     ],
     async onSave(v) {
-      await verkaufErfassen({ abfuellungId: v.abfuellungId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz });
+      const frei = v.abfuellungId === FREI;
+      const daten = { abfuellungId: frei ? '' : v.abfuellungId, anzahl: v.anzahl, preisJeGlas: v.preisJeGlas, kontaktId: v.kontaktId || null, datum: v.datum, notiz: v.notiz,
+        sorte: frei ? (v.sorte || '').trim() : '', gebindeG: frei ? Number(v.gebindeG) : null,
+        rabattTyp: v.rabattTyp || 'prozent', rabattWert: Number(v.rabattWert) || 0, rabattGrund: v.rabattGrund || '' };
+      const nachfragen = async (text) => {
+        if (await UI.confirm({ title: 'Kein Bestand vorhanden', text, confirmText: 'Trotzdem buchen', danger: false })) return true;
+        const e = new Error('abgebrochen'); e.leise = true; throw e;
+      };
+      if (frei) await nachfragen(`${U.zahl(Math.round(Number(v.anzahl) || 0))} × ${gebindeLabel(Number(v.gebindeG))} ${daten.sorte || 'Honig'} sind nicht im Bestand erfasst. Trotzdem als Verkauf buchen? Die Einnahme kommt ins Kassenbuch, der Lagerbestand bleibt unverändert.`);
+      try { await verkaufErfassen({ ...daten, ohneBestand: frei }); }
+      catch (e) {
+        if (e.zuWenigBestand === undefined) throw e;
+        await nachfragen(e.zuWenigBestand > 0
+          ? `Im Lager sind nur ${e.zuWenigBestand} Gebinde dieser Abfüllung. Trotzdem ${U.zahl(Math.round(Number(v.anzahl)))} verkaufen? Der Bestand geht auf 0, die Einnahme kommt ins Kassenbuch.`
+          : 'Von dieser Abfüllung ist nichts mehr auf Lager. Trotzdem als Verkauf buchen? Der Bestand bleibt bei 0, die Einnahme kommt ins Kassenbuch.');
+        await verkaufErfassen({ ...daten, ohneBestand: true });
+      }
       UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute();
     },
   });
+  /* Live-Summe: Warenwert, Rabatt, Gesamt (das, was ins Kassenbuch geht) */
+  const summeZeigen = () => {
+    const box = $('[data-vk-summe]', m.el); if (!box) return;
+    const wert = (k) => U.parseNum(($('#f-' + k, m.el) || {}).value) || 0;
+    const n = Math.round(wert('anzahl')), preis = wert('preisJeGlas');
+    const typ = ($('#f-rabattTyp', m.el) || {}).value || 'prozent';
+    const waren = Math.round(n * preis * 100) / 100, rab = verkaufRabattEuro(waren, typ, wert('rabattWert'));
+    box.innerHTML = n > 0 && preis > 0 ? `${U.zahl(n)} × ${U.fmtEur(preis)} = ${U.fmtEur(waren)}${rab > 0 ? `<br>– Rabatt ${typ === 'betrag' ? '' : U.fmtNum(Math.min(100, wert('rabattWert')), 1) + ' % '}= – ${U.fmtEur(rab)}` : ''}<br><b>Gesamt: ${U.fmtEur(waren - rab)}</b> (ins Kassenbuch)` : '';
+  };
+  m.el.addEventListener('input', summeZeigen); m.el.addEventListener('change', summeZeigen); summeZeigen();
   /* Neuen Kunden mitten im Verkauf anlegen: der Eintrag wird der Auswahlliste
      hinzugefügt und gleich gesetzt, das halb gefüllte Formular bleibt stehen. */
   const neuKnopf = $('#vk-kunde-neu', m.el);
@@ -13607,8 +13725,8 @@ Views.honig = {
         const a = abf.get(v.abfuellungId); const c = a ? chargen.get(a.chargeId) : null;
         return `<div class="row">
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(v.anzahl)} × ${a ? U.esc(gebindeLabel(a.gebindeG)) + ' · ' + U.esc(honigName(c, ernten)) : 'Gebinde'} · ${U.fmtEur(v.betrag)}</span>
-          <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
+          <span class="r-main"><span class="r-title">${U.esc(v.anzahl)} × ${U.esc(verkaufHonigText(v, a, c, ernten))} · ${U.fmtEur(v.betrag)}</span>
+          <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.rabatt ? ' · ' + U.esc(v.rabattText || 'Rabatt ' + U.fmtEur(v.rabatt)) : ''}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
           <button class="btn btn-xs btn-danger no-print" data-storno="${U.esc(v.id)}">Stornieren</button>
         </div>`;
       }).join('') + `</div>` + seitenweise('verkaeufe', list).knopf
@@ -13991,7 +14109,7 @@ Views.honig = {
     }
     box.addEventListener('click', (ev) => {
       const j = ev.target.closest('[data-cjahr]');
-      if (j) { Views.honig._chargenJahr = j.dataset.cjahr; renderRoute(); return; }
+      if (j) { Views.honig._chargenJahr = j.dataset.cjahr; renderRoute({ scrollBehalten: true }); return; }
       const so = ev.target.closest('[data-csort]');
       if (so) { Views.honig._chargenSort = so.dataset.csort; renderRoute(); return; }
       const r = ev.target.closest('.row[data-id]');
@@ -14250,7 +14368,12 @@ Views.honig = {
     const abfAlle = await DB.getAll('abfuellungen');
     const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
     const frei = chargen.filter((c) => chargeRestKg(c, abfAlle) > 0.0001);
-    if (!frei.length) return UI.toast('Keine Charge mit freier Restmenge. Lege zuerst eine Charge an (Tab „Chargen“).', 'err');
+    /* Tester-Wunsch: auch ohne Charge direkt aus einer Ernte abfüllen. Angeboten
+       werden Ernten, die noch in keiner Charge stecken; beim Speichern legt die App
+       die Charge (mit Losnummer – Pflicht fürs Etikett) nach Rückfrage selbst an. */
+    const inCharge = new Set(chargen.flatMap((c) => c.ernteIds || []));
+    const freieErnten = U.sortBy((await DB.getAll('ernten')).filter((e) => !inCharge.has(e.id) && (Number(e.mengeKg) || 0) > 0), (e) => e.datum, true);
+    if (!frei.length && !freieErnten.length) return UI.toast('Nichts zum Abfüllen: Erfasse zuerst eine Ernte (Tab „Ernte“) oder lege eine Charge an.', 'err');
     const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl' }));
     /* Gläser, Deckel und Etiketten liegen als Verbrauchsmaterial mit der Einheit
        „Stück" im Lager. Je Gebindegröße eine eigene Auswahl – sie erscheint erst,
@@ -14282,7 +14405,7 @@ Views.honig = {
     const m = UI.formModal({
       title: 'Abfüllen', wide: true,
       fields: [
-        { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', required: true, default: vorChargeId, options: frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` })) },
+        { key: 'chargeId', label: 'Woraus abfüllen?', type: 'select', required: true, keepOrder: true, default: vorChargeId, options: [...freieErnten.map((e) => ({ v: 'ernte:' + e.id, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })), ...frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` }))] },
         { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true, default: U.todayIso() },
         { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', required: true, halb: true, default: mhdVorschlag(U.todayIso()),
           hint: 'Vorschlag: zwei Jahre ab Abfülldatum. Steht so auf dem Etikett.' },
@@ -14297,7 +14420,24 @@ Views.honig = {
       ],
       values: {},
       async onSave(v) {
-        const erg = await abfuellungenAnlegen(v);
+        let neueCharge = null;
+        if (String(v.chargeId || '').startsWith('ernte:')) {
+          const ernte = freieErnten.find((e) => 'ernte:' + e.id === v.chargeId);
+          if (!ernte) throw feldFehler('chargeId', 'Diese Ernte gibt es nicht mehr.');
+          const vergeben = new Set(chargen.map((c) => String(c.losnummer)));
+          const jahr = (v.datum || U.todayIso()).slice(0, 4);
+          let nr = chargen.length + 1, losnummer;
+          do { losnummer = `${jahr}-${String(nr++).padStart(2, '0')}`; } while (vergeben.has(losnummer));
+          if (!(await UI.confirm({ title: 'Keine Charge angelegt',
+            text: `Direkt aus der Ernte ${ernte.sorte || ''} vom ${U.fmtDate(ernte.datum)} abfüllen? Die App legt dafür die Charge ${losnummer} selbst an – die Losnummer steht auf dem Etikett und dient der Rückverfolgung.`,
+            confirmText: 'Direkt abfüllen', danger: false }))) { const e = new Error('abgebrochen'); e.leise = true; throw e; }
+          neueCharge = await DB.put('chargen', { losnummer, datum: v.datum || U.todayIso(), ernteIds: [ernte.id], lagerKg: 0, lagerHerkunft: '',
+            mengeKg: Number(ernte.mengeKg) || 0, sorte: '', wassergehalt: null, laborDatum: null, etikettNotiz: '', automatisch: true });
+          v.chargeId = neueCharge.id;
+        }
+        let erg;
+        try { erg = await abfuellungenAnlegen(v); }
+        catch (e) { if (neueCharge) await DB.del('chargen', neueCharge.id); if (neueCharge) v.chargeId = 'ernte:' + neueCharge.ernteIds[0]; throw e; }
         UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}`);
         if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten – nur der vorhandene Bestand wurde abgezogen`, 'err');
         await pruefeMhd(); renderRoute();
@@ -14678,7 +14818,7 @@ Views.kassenbuch = {
     box.addEventListener('click', (e) => {
       if (e.target.closest('[data-kontaktweg]')) { Views.kassenbuch._kontakt = ''; return renderRoute(); }
       const bf = e.target.closest('[data-bereich]'); if (bf) { Views.kassenbuch._bereich = bf.dataset.bereich; return renderRoute(); }
-      const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._jahr = c.dataset.jahr; return renderRoute(); }
+      const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._jahr = c.dataset.jahr; return renderRoute({ scrollBehalten: true }); }
       const ab = e.target.closest('.row[data-abgang]'); if (ab) { const a = weg.find((x) => x.id === ab.dataset.abgang); if (a) materialAbgangForm(bereichCfg(lagerBereichVon(a.typ)), a.inventarId, a); return; }
       const r = e.target.closest('.row[data-id]'); if (r) Views.kassenbuch.detail(all.find((x) => x.id === r.dataset.id), kontakte);
     });
@@ -14715,7 +14855,7 @@ Views.kassenbuch = {
       </div>`;
     bindAdd(() => Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: KAT, datum: U.todayIso() }), box);
     box.addEventListener('click', (e) => {
-      const c = e.target.closest('[data-jahr-gk]'); if (c) { Views.kassenbuch._jahrGk = c.dataset.jahrGk; return renderRoute(); }
+      const c = e.target.closest('[data-jahr-gk]'); if (c) { Views.kassenbuch._jahrGk = c.dataset.jahrGk; return renderRoute({ scrollBehalten: true }); }
       const r = e.target.closest('.row[data-id]'); if (r) Views.kassenbuch.detail(all.find((x) => x.id === r.dataset.id), kontakte);
     });
     const buchungVon = (r) => all.find((x) => x.id === r.dataset.id);
@@ -14767,6 +14907,56 @@ Views.kassenbuch = {
 
   async tabKontakte(box) { return Views.kontakte.liste(box, {}); },
 
+  /** Tester-Wunsch: Kategorie in der Auswertung antippen → Buchungen dahinter.
+      Bei „Honigverkauf“ aufgeschlüsselt: welcher Honig, wie viel, an wen – aus
+      direkten Verkäufen und aus festgeschriebenen Rechnungen; Abnehmer antippbar. */
+  async kategorieDetail(typ, kat, jahr, items) {
+    const summe = U.sum(items, (k) => k.betrag);
+    const kontakte = await idMap('kontakte');
+    const kName = (id) => (id && kontakte.get(id) ? kontakte.get(id).name : '');
+    const kLink = (id) => kName(id) ? `<button type="button" class="link-knopf" data-kontakt="${U.esc(id)}">${U.esc(kName(id))} ›</button>` : '<span class="muted">ohne Abnehmer</span>';
+    let html = '';
+    if (kat === 'Honigverkauf') {
+      const [vk, abf, chargen, ernten, rechnungen] = await Promise.all([DB.getAll('verkaeufe'), idMap('abfuellungen'), idMap('chargen'), idMap('ernten'), idMap('rechnungen')]);
+      const vkNachKb = new Map(vk.map((v) => [v.kassenbuchId, v]));
+      const posten = [], sonst = [];
+      for (const k of items) {
+        const v = vkNachKb.get(k.id);
+        if (v) { const a = abf.get(v.abfuellungId); posten.push({ honig: verkaufHonigText(v, a, a ? chargen.get(a.chargeId) : null, ernten), n: Number(v.anzahl) || 0, euro: Number(v.betrag) || 0, kontaktId: v.kontaktId }); continue; }
+        const r = k.rechnungId ? rechnungen.get(k.rechnungId) : null;
+        if (r && (r.positionen || []).length) {
+          for (const p of r.positionen) {
+            const a = p.abfuellungId ? abf.get(p.abfuellungId) : null;
+            posten.push({ honig: a ? verkaufHonigText({}, a, chargen.get(a.chargeId), ernten) : (p.text || 'Position'), n: Number(p.menge) || 0, euro: (Number(p.menge) || 0) * (Number(p.einzelpreis) || 0), kontaktId: r.kundeId, rechnung: r.nummer });
+          }
+          continue;
+        }
+        sonst.push(k);
+      }
+      const gruppen = [...U.groupBy(posten, (p) => p.honig).entries()].sort((x, y) => U.sum(y[1], (p) => p.euro) - U.sum(x[1], (p) => p.euro));
+      html = gruppen.length ? gruppen.map(([honig, ps]) => {
+        const jeKunde = [...U.groupBy(ps, (p) => p.kontaktId || '').entries()].sort((x, y) => U.sum(y[1], (p) => p.n) - U.sum(x[1], (p) => p.n));
+        return `<div class="card" style="margin:0 0 10px"><div class="flex-wrap" style="justify-content:space-between;align-items:baseline"><b>${U.esc(honig)}</b>
+            <span><b>${U.zahl(U.sum(ps, (p) => p.n))} Stück</b> · ${U.fmtEur(U.sum(ps, (p) => p.euro))}</span></div>
+          <div class="rows mt8">${jeKunde.map(([kid, kp]) => `<div class="row" style="min-height:40px;padding:6px 2px"><span class="r-main"><span class="r-title" style="font-weight:500">${kLink(kid)}</span></span>
+            <span class="r-side">${U.zahl(U.sum(kp, (p) => p.n))} Stück · ${U.fmtEur(U.sum(kp, (p) => p.euro))}</span></div>`).join('')}</div></div>`;
+      }).join('') : '';
+      if (sonst.length) html += `<h3 class="mt12 mb8">Weitere Buchungen</h3>`;
+      items = sonst;
+    }
+    html += items.length ? `<div class="rows">${U.sortBy(items, (k) => k.datum, true).map((k) => `<div class="row" style="min-height:44px;padding:6px 2px">
+        <span class="r-main"><span class="r-title" style="font-weight:500">${U.esc(k.beschreibung || kat)}</span><span class="r-sub">${U.fmtDate(k.datum)}${k.kontaktId ? ' · ' : ''}${k.kontaktId ? kLink(k.kontaktId) : ''}</span></span>
+        <span class="r-side"><b>${U.fmtEur(k.betrag)}</b></span></div>`).join('')}</div>` : '';
+    const m = UI.modal({ title: `${kat} ${jahr}`, wide: true,
+      body: `<div class="flex-wrap mb12" style="justify-content:space-between"><span class="badge ${typ === 'einnahme' ? 'b-ok' : 'b-danger'}">${typ === 'einnahme' ? 'Einnahme' : 'Ausgabe'}</span>
+        <b>${U.fmtEur(summe)}</b></div>${html || '<div class="muted">Keine Buchungen.</div>'}` });
+    m.el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-kontakt]'); if (!b) return;
+      const c = await DB.get('kontakte', b.dataset.kontakt); if (!c) return;
+      m.close(true); Views.kontakte.detail(c);
+    });
+  },
+
   async tabAuswertung(box) {
     const all = await DB.getAll('kassenbuch');
     const ep = await ernteprognoseBasis();
@@ -14783,8 +14973,20 @@ Views.kassenbuch = {
     const ausM = monate.map((_, i) => U.sum(list.filter((k) => k.typ === 'ausgabe' && +k.datum.slice(5, 7) === i + 1), (k) => k.betrag));
     const byKat = U.groupBy(list, (k) => `${k.typ}|${k.kategorie}`);
     box.innerHTML = `
-      <div class="card"><div class="card-title">${icon('rechner')}<h2>Ernteprognose ${ep.jahr}</h2>
-        <a href="#/rechner" class="small no-print">Selbstkosten rechnen</a></div>
+      ${jahre.length > 1 ? `<div class="chip-row mb16 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : ''}
+      <div class="card"><div class="card-title">${icon('chart')}<h2>Jahresverlauf ${jahr}</h2>
+        <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.kassenbuchJahr('${jahr}')">${icon('doc')} Jahresbericht (PDF)</button></div>
+        ${UI.chart({ type: 'bars', labels: monate, series: [{ name: 'Einnahmen', values: einM, color: '#4C8A2E' }, { name: 'Ausgaben', values: ausM, color: '#B3362B' }], height: 200, unit: '€' })}
+      </div>
+      <div class="card"><div class="card-title">${icon('kasse')}<h2>Nach Kategorien</h2></div>
+        ${list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kategorie</th><th>Art</th><th class="num">Buchungen</th><th class="num">Summe</th></tr></thead>
+        <tbody>${[...byKat.entries()].sort((a, b) => U.sum(b[1], (k) => k.betrag) - U.sum(a[1], (k) => k.betrag)).map(([key, items]) => {
+          const [typ, kat] = key.split('|');
+          return `<tr class="art-zeile" data-kat="${U.esc(key)}" tabindex="0" role="link" title="Antippen: Buchungen dieser Kategorie"><td>${U.esc(kat)} <span class="small muted">›</span></td><td>${typ === 'einnahme' ? '<span class="badge b-ok">Einnahme</span>' : '<span class="badge b-danger">Ausgabe</span>'}</td><td class="num">${items.length}</td><td class="num"><b>${U.fmtEur(U.sum(items, (k) => k.betrag))}</b></td></tr>`;
+        }).join('')}</tbody></table></div>` : emptyState('chart', `Keine Buchungen in ${jahr}.`)}
+      </div>
+      <details class="card karte-klapp" id="ep-klapp"${Views.kassenbuch._prognoseOffen ? ' open' : ''}><summary class="card-title">${icon('rechner')}<h2>Ernteprognose ${ep.jahr}</h2><span class="klapp-pfeil" aria-hidden="true">▾</span></summary>
+        <p class="small mb8 no-print"><a href="#/rechner">Selbstkosten rechnen</a></p>
         <p class="small muted mb12">Was das Jahr voraussichtlich bringt – geschätzt aus deinen eigenen Ernten und Verkäufen. Jede Zahl ist überschreibbar.</p>
         <div class="grid2">
           <div class="field"><label>Wirtschaftsvölker</label><input class="inp ep" data-ep="voelker" inputmode="numeric" value="${ep.voelker || 1}">
@@ -14803,20 +15005,13 @@ Views.kassenbuch = {
             <div class="r-main"><div class="r-title" style="font-weight:400">${h.jahr}</div></div>
             <div class="r-side"><b>${U.fmtNum(h.kg, 1)} kg</b>${h.voelker ? `<span class="small muted"> · ${h.voelker} ${h.voelker === 1 ? 'Volk' : 'Völker'} · ${U.fmtNum(h.jeVolk, 1)} kg/Volk</span>` : `<span class="small muted"> · auf den Stand gebucht</span>`}</div></div>`).join('')}</div>` : ''}
         <div class="hint mt12">Die Spanne kommt aus dem schwächsten und dem besten der herangezogenen Jahre. Wetter und Tracht entscheiden mehr als jede Rechnung – nimm die Zahl als Richtwert für Gläserbestellung und Planung, nicht als Zusage.</div>
-      </div>
-      ${jahre.length > 1 ? `<div class="chip-row mb12 no-print">${jahre.map((j) => `<button class="chip ${j === jahr ? 'active' : ''}" data-jahr="${U.esc(j)}">${j}</button>`).join('')}</div>` : ''}
-      <div class="card"><div class="card-title">${icon('chart')}<h2>Jahresverlauf ${jahr}</h2>
-        <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.kassenbuchJahr('${jahr}')">${icon('doc')} Jahresbericht (PDF)</button></div>
-        ${UI.chart({ type: 'bars', labels: monate, series: [{ name: 'Einnahmen', values: einM, color: '#4C8A2E' }, { name: 'Ausgaben', values: ausM, color: '#B3362B' }], height: 200, unit: '€' })}
-      </div>
-      <div class="card"><div class="card-title">${icon('kasse')}<h2>Nach Kategorien</h2></div>
-        ${list.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kategorie</th><th>Art</th><th class="num">Buchungen</th><th class="num">Summe</th></tr></thead>
-        <tbody>${[...byKat.entries()].sort((a, b) => U.sum(b[1], (k) => k.betrag) - U.sum(a[1], (k) => k.betrag)).map(([key, items]) => {
-          const [typ, kat] = key.split('|');
-          return `<tr><td>${U.esc(kat)}</td><td>${typ === 'einnahme' ? '<span class="badge b-ok">Einnahme</span>' : '<span class="badge b-danger">Ausgabe</span>'}</td><td class="num">${items.length}</td><td class="num"><b>${U.fmtEur(U.sum(items, (k) => k.betrag))}</b></td></tr>`;
-        }).join('')}</tbody></table></div>` : emptyState('chart', `Keine Buchungen in ${jahr}.`)}
-      </div>`;
-    box.addEventListener('click', (e) => { const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._ajahr = c.dataset.jahr; renderRoute(); } });
+      </details>
+`;
+    box.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._ajahr = c.dataset.jahr; renderRoute({ scrollBehalten: true }); return; }
+      const z = e.target.closest('[data-kat]'); if (z) { const items = byKat.get(z.dataset.kat) || []; const [typ, kat] = z.dataset.kat.split('|'); Views.kassenbuch.kategorieDetail(typ, kat, jahr, items); }
+    });
+    const klapp = $('#ep-klapp', box); if (klapp) klapp.addEventListener('toggle', () => { Views.kassenbuch._prognoseOffen = klapp.open; });
     ernteprognoseRechnen(box, ep);
     box.addEventListener('input', (e) => { if (e.target.closest('[data-ep]')) ernteprognoseRechnen(box, ep); });
   },
@@ -16537,7 +16732,18 @@ function sirupAnteilProzent(verhaeltnis) {
 }
 /** Liter Sirup einer erfassten Fütterung – null, wenn die Futterart kein
     Mischverhältnis nennt (bei Teig oder Fertigsirup gibt es keine Ansatzmenge). */
+/* Fertigsirup (Apiinvert, Ambrosia …) wird in Litern gefüttert, im Handel aber nach
+   Gewicht verkauft. Hersteller Südzucker: „Der Futterwert von 1 Liter APIINVERT®
+   entspricht 1 kg Kristallzucker“; 1 kg Sirup = 0,73 kg Zucker. Das Gewicht je Liter
+   folgt aus der Dichte bei 72,7 % Zucker (≈ 1,36 kg) – damit stimmen beide Angaben
+   überein (1,36 × 0,73 ≈ 1 kg Zucker je Liter). Tester-Wunsch: Liter statt kg. */
+const FERTIGSIRUP_KG_JE_L = Math.round(sirupDichte(72.7) * 100) / 100;
+function istFertigsirup(futterart) {
+  const t = String(futterart || '');
+  return !verhaeltnisAusFutterart(t) && /invert|sirup|ambrosia/i.test(t);
+}
 function sirupLiterAusFuetterung(f) {
+  if (f && istFertigsirup(f.futterart)) { const kg = Number(f.mengeKg) || 0; return kg > 0 ? kg / FERTIGSIRUP_KG_JE_L : null; }
   const verh = verhaeltnisAusFutterart(f && f.futterart);
   const z = zuckerAusFuetterung(f);
   return verh && z ? literAusZucker(z.kg, verh) : null;
@@ -16774,8 +16980,8 @@ async function ernteprognoseBasis() {
   const abf = await idMap('abfuellungen');
   const posten = [];
   for (const v of await DB.getAll('verkaeufe')) {
-    const a = abf.get(v.abfuellungId); if (!a || !a.gebindeG) continue;
-    posten.push({ datum: v.datum || '', kg: (v.anzahl || 0) * a.gebindeG / 1000, euro: Number(v.betrag) || 0 });
+    const g = verkaufGebindeG(v, abf.get(v.abfuellungId)); if (!g) continue;
+    posten.push({ datum: v.datum || '', kg: (v.anzahl || 0) * g / 1000, euro: Number(v.betrag) || 0 });
   }
   for (const r of await DB.getAll('rechnungen')) {
     if (r.status !== 'festgeschrieben') continue;
@@ -19009,8 +19215,8 @@ Views.reporting = {
     });
     main.addEventListener('click', (e) => {
       const hz = e.target.closest('[data-href]'); if (hz) { location.hash = hz.dataset.href; return; }
-      const fj = e.target.closest('[data-fjahr]'); if (fj) { Views.reporting._futterJahr = fj.dataset.fjahr; return renderRoute(); }
-      const vj = e.target.closest('[data-vjahr]'); if (vj) { Views.reporting._volkJahr = vj.dataset.vjahr; return renderRoute(); }
+      const fj = e.target.closest('[data-fjahr]'); if (fj) { Views.reporting._futterJahr = fj.dataset.fjahr; return renderRoute({ scrollBehalten: true }); }
+      const vj = e.target.closest('[data-vjahr]'); if (vj) { Views.reporting._volkJahr = vj.dataset.vjahr; return renderRoute({ scrollBehalten: true }); }
       const g = e.target.closest('[data-grp]'); if (g) { Views.reporting._gruppe = g.dataset.grp; renderRoute(); }
     });
   },
@@ -20312,7 +20518,7 @@ const Xlsx = {
       ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
       abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand })) },
-      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: a ? gebindeLabel(a.gebindeG) : '', 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
+      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: verkaufGebindeG(v, a) ? gebindeLabel(verkaufGebindeG(v, a)) : '', Sorte: a ? '' : (v.sorte || ''), 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
@@ -20853,7 +21059,7 @@ const Pdf = {
       const { doc, y } = await this.newDoc(`Verkäufe${jahr ? ' ' + jahr : ' – Übersicht'}`, `${list.length} ${list.length === 1 ? 'Verkauf' : 'Verkäufe'} · ${stueck} Gebinde · Umsatz ${U.fmtEur(umsatz)}`);
       const body = list.map((v) => {
         const a = abf.get(v.abfuellungId), c = a ? chargen.get(a.chargeId) : null;
-        return [U.fmtDate(v.datum), a ? `${gebindeLabel(a.gebindeG)} · ${honigName(c, ernten)}` : 'Gebinde', c ? 'Los ' + c.losnummer : '–', String(v.anzahl), U.fmtEur(v.preisJeGlas), U.fmtEur(v.betrag), kontakte.get(v.kontaktId)?.name || ''];
+        return [U.fmtDate(v.datum), verkaufHonigText(v, a, c, ernten), c ? 'Los ' + c.losnummer : '–', String(v.anzahl), U.fmtEur(v.preisJeGlas), U.fmtEur(v.betrag), kontakte.get(v.kontaktId)?.name || ''];
       });
       body.push([
         { content: 'Summe', styles: { fontStyle: 'bold' } }, '', '',
@@ -20950,7 +21156,7 @@ const Pdf = {
 
       const kgErnte = U.sum(ernteJ, (e) => Number(e.mengeKg) || 0);
       const kgAbgefuellt = U.sum(abfJ, (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000);
-      const kgVerkauft = U.sum(vkJ, (v) => { const a = abf.find((x) => x.id === v.abfuellungId); return a ? (v.anzahl || 0) * (a.gebindeG || 0) / 1000 : 0; });
+      const kgVerkauft = U.sum(vkJ, (v) => (v.anzahl || 0) * verkaufGebindeG(v, abf.find((x) => x.id === v.abfuellungId)) / 1000);
       const umsatzHonig = U.sum(vkJ, (v) => Number(v.betrag) || 0)
         + U.sum(rechnungen.filter((r) => r.status === 'festgeschrieben' && imJahr(r.datum)), (r) => U.sum((r.positionen || []).filter((p) => p.abfuellungId), (p) => (p.menge || 0) * (p.einzelpreis || 0)));
       const ein = U.sum(kasse.filter((k) => k.typ === 'einnahme' && imJahr(k.datum)), (k) => k.betrag);
@@ -24711,7 +24917,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
