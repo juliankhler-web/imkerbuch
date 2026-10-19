@@ -1410,8 +1410,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.63';
+const APP_VERSION = '2.64';
 const CHANGELOG = [
+  { version: '2.64', datum: '2026-10-19', punkte: [
+    'Fertigsirup (z. B. Apiinvert): Liter eintragen genügt – darunter steht sofort, was das wiegt und wie viel Zucker beim Volk ankommt (1 L = 1 kg Zucker laut Hersteller). „Davon reiner Zucker“ füllt sich selbst.',
+  ] },
   { version: '2.63', datum: '2026-10-19', punkte: [
     '<b>Fütterung je Volk:</b> Im Bereich Fütterung zeigt „Je Volk“, was jedes Volk im Jahr bekommen hat (Zucker, Liter, Anzahl Gaben). Beim Volk selbst stehen die Summen jetzt oben.',
     '<b>Fertigsirup in Litern:</b> Bei Apiinvert und Co. einfach Liter eintragen – die App rechnet das Gewicht (1 L ≈ 1,36 kg) und den Futterwert (1 L = 1 kg Zucker, Herstellerangabe) selbst.',
@@ -2653,7 +2656,7 @@ const VORSCHLAEGE = {
   volksfunktion: ['Wirtschaftsvolk', 'Wirtschaftsvolk Zuchtstoff', 'Ableger', 'Schwarm', 'Kunstschwarm', 'Pflegevolk Königin', 'Pflegevolk Bienenmasse', 'Begattungsvolk', 'Drohnenvolk', 'Reservevolk'],
   // Grund einer Wanderung: Trachten zuerst (häufigster Fall), dann betriebliche Gründe
   wanderungsgrund: ['Rapsblüte', 'Obstblüte', 'Löwenzahn', 'Robinie (Akazie)', 'Linde', 'Edelkastanie', 'Sonnenblume', 'Phacelia', 'Waldtracht', 'Tannentracht', 'Heide', 'Belegstelle', 'Bestäubungseinsatz', 'Rückkehr zum Heimstand', 'Einwinterung', 'Standplatzwechsel'],
-  futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. ApiInvert)', 'Futterteig', 'Eigener Honig'],
+  futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. Apiinvert)', 'Futterteig', 'Eigener Honig'],
   mittel: ['Ameisensäure 60 % ad us. vet.', 'Ameisensäure 85 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
   anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
   pflanze: ['Raps', 'Linde', 'Robinie', 'Obstblüte', 'Löwenzahn', 'Wald/Honigtau', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Phacelia'],
@@ -8596,6 +8599,21 @@ function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
     if (feld) feld.style.opacity = an ? '' : '0.5';
     if (!stille) literAusFeld();
   };
+  /* Fertigsirup: der Zucker, der beim Volk ankommt, steht nach Herstellerangabe fest
+     (Südzucker: 1 L Apiinvert = Futterwert von 1 kg Kristallzucker). Das Feld
+     „Davon reiner Zucker“ füllt sich deshalb selbst – außer man hat es von Hand
+     geändert. Unter den Litern steht live, was das bedeutet (Julian-Rückmeldung). */
+  const zk = $('#f-zuckerKg', m.el);
+  let zkVonHand = !!(zk && zk.value);
+  if (zk) zk.addEventListener('input', () => { if (!stille) zkVonHand = !!zk.value; });
+  let info = feld && feld.querySelector('[data-sirup-info]');
+  if (feld && !info) { info = document.createElement('div'); info.className = 'hint'; info.dataset.sirupInfo = ''; info.style.fontWeight = '600'; feld.appendChild(info); }
+  const fertigFolgen = () => {
+    const l = U.parseNum(lit.value);
+    if (info) info.textContent = fertig() && l > 0
+      ? `${U.fmtNum(l, 1)} L = ${U.fmtNum(l * FERTIGSIRUP_KG_JE_L, 1)} kg Sirup · ${U.fmtNum(l, 1)} kg Zucker kommen beim Volk an (Herstellerangabe)` : '';
+    if (zk && !zkVonHand && (fertig() || zk.value)) { stille = true; zk.value = fertig() && l > 0 ? U.fmtNum(l, 1) : ''; stille = false; }
+  };
   lit.addEventListener('input', () => {
     const v = verh(), l = U.parseNum(lit.value);
     if (stille || (!v && !fertig())) return;
@@ -8603,10 +8621,11 @@ function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
     kg.value = fertig() ? (l > 0 ? U.fmtNum(l * FERTIGSIRUP_KG_JE_L, 1) : '') : U.fmtNum(zuckerAusSirupLiter(l, v), 1);
     kg.dispatchEvent(new Event('input', { bubbles: true }));
     stille = false;
+    fertigFolgen();
   });
-  kg.addEventListener('input', () => { if (stille) return; stille = true; literAusFeld(); stille = false; });
-  if (art) { art.addEventListener('change', zustand); art.addEventListener('input', zustand); }
-  zustand();
+  kg.addEventListener('input', () => { if (stille) return; stille = true; literAusFeld(); stille = false; fertigFolgen(); });
+  if (art) { art.addEventListener('change', zustand); art.addEventListener('input', zustand); art.addEventListener('change', fertigFolgen); art.addEventListener('input', fertigFolgen); }
+  zustand(); fertigFolgen();
   return m;
 }
 
