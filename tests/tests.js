@@ -12560,6 +12560,13 @@ test('Standort: in der App über die Erweiterung (eine Frage statt zwei), verst�
   assertEq(echtNativ, w.IST_NATIVE_APP);
 });
 
+test('Sprachnotiz: verständliche deutsche Meldung, wenn das Mikrofon nicht startet', async (w) => {
+  const f = (name) => w.mikrofonFehlerText({ name, message: 'The request is not allowed by the user agent' });
+  assert(/nicht erlaubt/.test(f('NotAllowedError')) && !/user agent/.test(f('NotAllowedError')), 'Verweigert → Hinweis auf Einstellungen');
+  assert(/anderen App/.test(f('NotReadableError')), 'besetzt');
+  assert(/Kein Mikrofon/.test(f('NotFoundError')), 'keins da');
+});
+
 test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Speicherstand erschleichen', async (w) => isolierteDaten(w, async () => {
   // 0) PDF-Leser: präparierte PDFs dürfen keinen Code ausführen (CVE-2024-4367) – jeder Aufruf mit isEvalSupported:false
   const quelle = await (await w.fetch('../index.html')).text();

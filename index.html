@@ -1407,8 +1407,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.61';
+const APP_VERSION = '2.62';
 const CHANGELOG = [
+  { version: '2.62', datum: '2026-10-19', punkte: [
+    'Startet das Mikrofon für eine Sprachnotiz nicht, steht jetzt auf Deutsch da, warum – und wo man es einschaltet.',
+  ] },
   { version: '2.61', datum: '2026-10-19', punkte: [
     'In der App fragt das Handy nur noch <b>einmal</b> nach dem Standort (vorher kam eine zweite Frage „localhost möchte …“).',
     'Mehr Sicherheit: Die App verbindet sich nur noch mit Wetterdienst, Adresssuche und Geodiensten; geöffnete PDFs können keinen Code ausführen; die App-Hülle ist auf dem neuesten, abgesicherten Stand.',
@@ -4795,6 +4798,17 @@ const Voice = {
   },
 };
 
+/** Verständlicher Text, wenn das Mikrofon nicht startet (statt der englischen Browser-Meldung). */
+function mikrofonFehlerText(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError') return IST_NATIVE_APP
+    ? 'Mikrofon ist für ImkerBuch nicht erlaubt. Einschalten: iPhone-Einstellungen → Apps → ImkerBuch → Mikrofon.'
+    : 'Mikrofon ist für diese Seite nicht erlaubt. In den Browser-Einstellungen für diese Seite das Mikrofon erlauben und neu laden.';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kein Mikrofon gefunden.';
+  if (n === 'NotReadableError' || n === 'AbortError') return 'Das Mikrofon wird gerade von einer anderen App benutzt (z. B. Telefonat). Bitte kurz warten und erneut versuchen.';
+  if (!navigator.mediaDevices || !window.MediaRecorder) return 'Dieses Gerät kann hier keine Sprachnotizen aufnehmen.';
+  return 'Mikrofon nicht verfügbar' + (e && e.message ? ': ' + e.message : '.');
+}
 const Sprachnotiz = {
   /* Eine Aufnahme starten – ohne sie schon zu speichern. stop() liefert
      { blob, transkript }; wohin die Notiz gehört, entscheidet der Aufrufer.
@@ -4873,7 +4887,7 @@ const Sprachnotiz = {
       try {
         recorder = await Sprachnotiz.aufnehmen({ onLive: (t) => { const lv = $('[data-live] span', el); if (lv) lv.textContent = t || 'Aufnahme läuft …'; } });
         render();
-      } catch (e) { recorder = null; UI.toast('Mikrofon nicht verfügbar: ' + e.message, 'err'); }
+      } catch (e) { recorder = null; UI.toast(mikrofonFehlerText(e), 'err'); }
     };
     const stopRec = async () => {
       const r = recorder; if (!r) return;
@@ -6949,7 +6963,7 @@ Views.durchsicht = {
         try {
           const r = await Sprachnotiz.aufnehmen({ onLive: (txt) => { const l = $('[data-sd-live]', main); if (l) l.textContent = txt || 'Aufnahme läuft …'; } });
           this._aufnahme = { volkId: volk.id, stop: r.stop };
-        } catch (err) { UI.toast('Mikrofon nicht verfügbar: ' + err.message, 'err'); }
+        } catch (err) { UI.toast(mikrofonFehlerText(err), 'err'); }
         return renderRoute();
       }
       if (t.hasAttribute('data-sd-speichern')) {
@@ -24697,7 +24711,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
