@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>ImkerBuch – Store-Bilder iPhone</title>
+<!-- Bühne für die App-Store-Bilder: EIN durchgehendes Panorama (3 × 1320 px breit),
+     das tools/store-bilder.mjs in Einzelbilder 1320×2868 schneidet.
+     ?app=dunkel → App-Bildschirme im dunklen Design. -->
+<style>
+  :root { --honig: #E9A21C; --honig-hell: #FFD27A; --creme: #FFF6E6; --nacht: #0F0C09; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 3960px; height: 2868px; overflow: hidden; background: var(--nacht); }
+  body { font-family: -apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif; -webkit-font-smoothing: antialiased; }
+  .buehne { position: relative; width: 3960px; height: 2868px; overflow: hidden;
+    background:
+      radial-gradient(1500px 1100px at 420px 2500px, rgba(233,162,28,.38), transparent 70%),
+      radial-gradient(1400px 1000px at 2000px 1350px, rgba(233,162,28,.22), transparent 70%),
+      radial-gradient(1500px 1200px at 3500px 2600px, rgba(233,162,28,.30), transparent 70%),
+      radial-gradient(1200px 800px at 2900px 200px, rgba(255,210,122,.10), transparent 70%),
+      linear-gradient(180deg, #17120D 0%, #0F0C09 55%, #120D08 100%); }
+  /* Wabenmuster, nach oben ausgeblendet */
+  .waben { position: absolute; inset: 0; opacity: .55;
+    -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%); }
+  /* durchlaufendes Honig-Band */
+  .band { position: absolute; inset: 0; }
+  .feld { position: absolute; top: 0; width: 1320px; height: 2868px; }
+  .feld:nth-of-type(1) { left: 0; } .feld:nth-of-type(2) { left: 1320px; } .feld:nth-of-type(3) { left: 2640px; }
+  .marke { position: absolute; left: 110px; top: 150px; display: flex; align-items: center; gap: 22px;
+    font-size: 44px; font-weight: 700; color: var(--creme); letter-spacing: -.5px; }
+  .marke svg { width: 64px; height: 64px; }
+  .titel { position: absolute; left: 110px; right: 110px; top: 300px; }
+  .titel h1 { font-size: 142px; line-height: 1.0; font-weight: 800; letter-spacing: -4.5px; color: var(--creme); }
+  .titel h1 em { font-style: normal; background: linear-gradient(100deg, #FFE3A3 0%, #E9A21C 55%, #C77D0A 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .titel p { margin-top: 38px; font-size: 52px; line-height: 1.3; color: rgba(255,246,230,.68); font-weight: 500; letter-spacing: -.5px; }
+  /* iPhone */
+  .phone { position: absolute; width: 900px; height: 1956px; border-radius: 150px; padding: 26px;
+    background: linear-gradient(145deg, #4A4038 0%, #1B1714 30%, #0B0907 70%, #3A322B 100%);
+    box-shadow: 0 0 0 3px #57493C inset, 0 120px 200px rgba(0,0,0,.65), 0 40px 80px rgba(0,0,0,.5), 0 0 180px rgba(233,162,28,.18); }
+  .screen { position: relative; width: 100%; height: 100%; border-radius: 124px; overflow: hidden; background: #FAF6EF; }
+  .dunkel .screen { background: #161619; }
+  .status { height: 140px; display: flex; align-items: center; justify-content: space-between; padding: 22px 64px 0 104px;
+    font-size: 46px; font-weight: 600; color: #1A1612; letter-spacing: -.5px; }
+  .dunkel .status { color: #F4EEE4; }
+  .insel { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); width: 250px; height: 76px; border-radius: 38px; background: #000; }
+  .status .rechts { display: flex; gap: 14px; align-items: center; }
+  .status svg { height: 28px; }
+  .status .rechts { gap: 10px; }
+  .screen img { display: block; width: 100%; }
+  /* schwebende Karten */
+  .glas { position: absolute; z-index: 3; display: flex; align-items: center; gap: 30px; padding: 40px 52px; border-radius: 44px;
+    background: rgba(34,27,20,.88); border: 2px solid rgba(255,210,122,.28); backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
+    color: var(--creme); font-size: 50px; font-weight: 650; letter-spacing: -.5px; box-shadow: 0 40px 90px rgba(0,0,0,.45); }
+  .glas .ic { width: 92px; height: 92px; border-radius: 26px; background: linear-gradient(145deg, #FFD27A, #E9A21C); display: grid; place-items: center; flex: none; }
+  .glas .ic svg { width: 52px; height: 52px; stroke: #3A2604; }
+  .glas small { display: block; font-size: 34px; font-weight: 500; color: rgba(255,246,230,.62); margin-top: 6px; }
+  .pop { position: absolute; display: flex; align-items: center; gap: 34px; padding: 34px 54px 34px 34px; border-radius: 40px;
+    background: #FFFFFF; color: #2B2620; font-size: 66px; font-weight: 700; letter-spacing: -1px;
+    box-shadow: 0 0 0 6px var(--honig), 0 50px 110px rgba(0,0,0,.55), 0 0 120px rgba(233,162,28,.45); }
+  .pop .zahl { width: 104px; height: 104px; border-radius: 26px; background: #FCE7BE; color: #8A5A06; display: grid; place-items: center; font-size: 58px; }
+  .biene { position: absolute; filter: drop-shadow(0 40px 60px rgba(0,0,0,.5)); }
+</style>
+</head>
+<body>
+<div class="buehne" id="buehne">
+  <svg class="waben" width="3960" height="2868" aria-hidden="true">
+    <defs><pattern id="hex" width="120" height="208" patternUnits="userSpaceOnUse" patternTransform="scale(1.6)">
+      <path d="M60 0 L120 34.6 L120 104 L60 138.6 L0 104 L0 34.6 Z M60 138.6 L60 208 M0 104 L-60 138.6 M120 104 L180 138.6" fill="none" stroke="rgba(233,162,28,.10)" stroke-width="2.2"/>
+    </pattern></defs>
+    <rect width="3960" height="2868" fill="url(#hex)"/>
+  </svg>
+  <svg class="band" width="3960" height="2868" aria-hidden="true">
+    <defs>
+      <linearGradient id="bg1" x1="0" x2="1"><stop offset="0" stop-color="#FFD27A" stop-opacity="0"/><stop offset=".15" stop-color="#FFD27A" stop-opacity=".9"/><stop offset=".5" stop-color="#E9A21C"/><stop offset=".85" stop-color="#FFD27A" stop-opacity=".9"/><stop offset="1" stop-color="#FFD27A" stop-opacity="0"/></linearGradient>
+      <filter id="glow" x="-10%" y="-50%" width="120%" height="200%"><feGaussianBlur stdDeviation="26"/></filter>
+    </defs>
+    <path id="welle" d="M-100 2350 C 500 2050, 900 2650, 1500 2250 S 2400 1700, 2900 2100 S 3700 2500, 4100 1900" fill="none"/>
+    <use href="#welle" stroke="#E9A21C" stroke-width="70" stroke-opacity=".35" filter="url(#glow)"/>
+    <use href="#welle" stroke="url(#bg1)" stroke-width="10"/>
+    <path d="M-100 2470 C 520 2200, 950 2760, 1520 2380 S 2420 1840, 2920 2240 S 3720 2620, 4100 2050" fill="none" stroke="url(#bg1)" stroke-width="3" stroke-opacity=".55"/>
+  </svg>
+
+  <!-- 1 · Ergebnis + Hauptvorteil -->
+  <section class="feld">
+    <div class="marke"><svg viewBox="0 0 64 64"><path d="M20 6l12 7v14l-12 7-12-7V13z M44 6l12 7v14l-12 7-12-7V13z M32 30l12 7v14l-12 7-12-7V37z" fill="#E9A21C"/></svg>ImkerBuch</div>
+    <div class="titel"><h1>Dein Stockbuch.<br><em>Offline.<br>Ohne Abo.</em></h1><p>Alle Völker, Stände und Aufgaben –<br>immer dabei, auch ohne Netz.</p></div>
+    <div class="phone" style="left:300px; top:1260px; transform: rotate(-3deg);"><div class="screen">
+      <div class="status"><span></span><div class="insel"></div><span class="rechts">%STATUS%</span></div>
+      <img src="roh/dashboard%SUFFIX%.png" alt="">
+    </div></div>
+    <div class="pop" style="left:70px; top:1980px; transform: rotate(-3deg);"><span class="zahl">13</span>Völker im Blick</div>
+  </section>
+
+  <!-- 2 · Kernhandlung -->
+  <section class="feld">
+    <div class="titel"><h1>Durchsicht<br>am Stand.</h1><p>Eine Frage pro Bildschirm,<br>große Knöpfe – <em style="font-style:normal;color:#FFD27A">auch mit Handschuhen.</em></p></div>
+    <div class="phone" style="left:210px; top:1120px;"><div class="screen">
+      <div class="status"><span></span><div class="insel"></div><span class="rechts">%STATUS%</span></div>
+      <img src="roh/durchsicht%SUFFIX%.png" alt="">
+    </div></div>
+    <div class="pop" style="left:700px; top:2262px; transform: rotate(2deg);"><span class="zahl">4</span>gut</div>
+    <img class="biene" src="../assets/bini/happy.webp" style="left:930px; top:850px; width:340px; transform: rotate(8deg);" alt="">
+  </section>
+
+  <!-- 3 · Vertrauen -->
+  <section class="feld">
+    <div class="titel"><h1>Kein Konto.<br>Keine Cloud.<br><em>Deine Daten.</em></h1></div>
+    <div class="phone" style="left:610px; top:1380px; transform: rotate(3deg);"><div class="screen">
+      <div class="status"><span></span><div class="insel"></div><span class="rechts">%STATUS_FLUG%</span></div>
+      <img src="roh/voelker%SUFFIX%.png" alt="">
+    </div></div>
+    <div class="glas" style="left:90px; top:1120px;"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><span>Nur auf deinem Gerät<small>Kein Login, kein Tracking</small></span></div>
+    <div class="glas" style="left:90px; top:1500px;"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M16.7 11.6A6 6 0 0 1 18 12M8.5 16.4a5 5 0 0 1 7 0M5 12.8a10 10 0 0 1 4.2-2.5M12 20h.01"/></svg></span><span>Läuft ohne Netz<small>Auch am Waldrand</small></span></div>
+    <div class="glas" style="left:90px; top:1880px;"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v8H4v-8M2 7h20v5H2zM12 22V7M12 7H8a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg></span><span>Einmal kaufen<small>Kein Abo · 30 Tage gratis</small></span></div>
+  </section>
+</div>
+<script>
+  // Theme + Statusleiste einsetzen (vor dem Fotografieren)
+  const dunkel = new URLSearchParams(location.search).get('app') === 'dunkel';
+  if (dunkel) document.body.classList.add('dunkel');
+  const farbe = dunkel ? '#F4EEE4' : '#1A1612';
+  const balken = `<svg viewBox="0 0 36 24"><rect x="0" y="16" width="6" height="8" rx="1.5" fill="${farbe}"/><rect x="10" y="11" width="6" height="13" rx="1.5" fill="${farbe}"/><rect x="20" y="6" width="6" height="18" rx="1.5" fill="${farbe}"/><rect x="30" y="0" width="6" height="24" rx="1.5" fill="${farbe}"/></svg>`;
+  const wlan = `<svg viewBox="0 0 32 24"><path d="M16 22l4.5-5a6.4 6.4 0 0 0-9 0zM6.5 11.5a13.4 13.4 0 0 1 19 0l-3 3.3a9 9 0 0 0-13 0zM1 5.8a21 21 0 0 1 30 0l-3 3.3a16.6 16.6 0 0 0-24 0z" fill="${farbe}"/></svg>`;
+  const akku = `<svg viewBox="0 0 52 24"><rect x="1" y="1" width="44" height="22" rx="7" fill="none" stroke="${farbe}" stroke-opacity=".4" stroke-width="2"/><rect x="4" y="4" width="34" height="16" rx="4" fill="${farbe}"/><rect x="47" y="8" width="4" height="8" rx="2" fill="${farbe}" fill-opacity=".4"/></svg>`;
+  const flug = `<svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z" fill="${farbe}"/></svg>`;
+  document.body.innerHTML = document.body.innerHTML
+    .replaceAll('%STATUS_FLUG%', '').replaceAll('%STATUS%', '')   // Julian: keine Uhrzeit/Empfang/Akku
+    .replaceAll('%SUFFIX%', dunkel ? '-dunkel' : '');
+</script>
+</body>
+</html>
