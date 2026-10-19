@@ -113,6 +113,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - `CHANGELOG` für Kunden neu beginnen: ein Eintrag 1.00 („Willkommen“) statt der Entwicklungs-Geschichte; die alte Liste bleibt in Git und `PROJEKT.md`.
 - Geprüft: Die App vergleicht Versionen nur auf Gleichheit (Update-Hinweis, „Was ist neu?“) – der Sprung 2.54 → 1.00 bricht nichts; Testgeräte sehen einmal den 1.00-Eintrag. Sicherungsdateien hängen nicht an der Versionsnummer.
 - Danach: 1.01, 1.02 … für Fehlerbehebungen, 1.10 für neue Funktionen, 2.00 z. B. mit Cloud.
+- **Fertiger Schalter (2026-10-19):** `node tools/release-100.mjs --probe` zeigt nur an; `node tools/release-100.mjs` stellt um (Version, Willkommens-Eintrag, alte Geschichte → `docs/CHANGELOG-ENTWICKLUNG.md`, `package.json`, Service-Worker-Cache). Danach `npm test`, `./native/sync-app.sh` (OHNE `--testmodus`), committen. An einer Kopie geprüft: läuft, Ergebnis ist gültig, zweiter Aufruf ändert nichts. iOS/Android stehen schon auf 1.0 / Build 1.
 
 ## 14. Später (nach 1.00)
 
@@ -203,3 +204,11 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 3. Gesamtprüfung auf deinem iPhone **und iPad** (jede Funktion), dann Store-Bilder (iPhone 6,9″, iPad 13″) und Video.
 4. Android: Java + Android Studio installieren (großer Download), Android-Test im Emulator/auf einem Handy, Google-Play-Konto (25 $), 12 Tester × 14 Tage, Kaufprodukt + Codes, Bilder.
 5. Entscheidungen: Web-Version/öffentliches GitHub (Seiten müssen online bleiben), AGB § 4 nach ELSTER, ELSTER-Fragebogen bis 19.11.2026.
+
+## 24. Stand 2026-10-19 (v2.61) – Gesamtprüfung, Sicherheitstest, Schalter 1.00
+
+- **Gesamtprüfung (automatisch, `tools/gesamtpruefung.mjs`):** iPhone klein/groß/dunkel, iPad hoch/quer – jede Seite, jeder Reiter, jedes „Neu“-Formular: keine Fehlermeldungen, nichts ragt über den Rand, keine Riesen-Symbole, kein „undefined/NaN“. Das Werkzeug prüft sich selbst (eingebaute Probe-Fehler müssen gefunden werden) und leert vorher den Offline-Speicher.
+- **Im iOS-Simulator geprüft:** Start mit Schutzregel, Hilfe & Kontakt, Standort-Frage (war doppelt → behoben, jetzt eine Frage). Der Simulator hat **keine Mail-App** → Mail-Knöpfe (Hilfe & Kontakt + Support-Seite im App-Fenster) auf Julians iPhone prüfen.
+- **Sicherheitstest:** Bericht `docs/SICHERHEITSPRUEFUNG.md` – keine offene Lücke; Capacitor-Lücke + pdf.js-Lücke behoben, Schutzregel (CSP) im App-Build neu. Nach 1.00: jsPDF aktualisieren.
+- **Schalter 1.00:** `tools/release-100.mjs` (Abschnitt 13), erst direkt vor dem Hochladen.
+- Fürs Gerät (Punkt 3 oben) zusätzlich: Mail-Knöpfe, Standort-Frage nur einmal, Mikrofon-Frage nur einmal (Sprachnotiz), iPad quer/hoch.

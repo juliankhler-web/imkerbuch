@@ -12543,6 +12543,47 @@ test('Lizenz: nach Ablauf darf der Papierkorb aufräumen und „Alle Daten lösc
   for (const k of ['lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung']) assert(w.S.GERAET.has(k), k + ' bleibt auf dem Gerät');
 });
 
+test('Standort: in der App über die Erweiterung (eine Frage statt zwei), verständliche Fehler', async (w) => {
+  const echtNativ = w.IST_NATIVE_APP;
+  const quelle = await (await w.fetch('../index.html')).text();
+  assertEq((quelle.match(/navigator\.geolocation\.getCurrentPosition/g) || []).length, 1, 'nur noch im Helfer (Browser-Weg)');
+  assertEq((quelle.match(/standortHolen\(\)\.then/g) || []).length, 2, 'Stand-Formular und Bio-Prüfung nutzen den Helfer');
+  // Browser-Weg mit Verweigerung
+  const echtGeo = Object.getOwnPropertyDescriptor(w.navigator, 'geolocation');
+  Object.defineProperty(w.navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: (ok, fehl) => fehl({ code: 1, message: 'User denied' }) } });
+  try {
+    let f = null; try { await w.standortHolen(); } catch (e) { f = e; }
+    assert(f && /nicht erlaubt/.test(f.message), 'Verweigerung verständlich: ' + (f && f.message));
+    w.navigator.geolocation.getCurrentPosition = (ok) => ok({ coords: { latitude: 48.25, longitude: 11.43 } });
+    assertEq(await w.standortHolen(), { lat: 48.25, lng: 11.43 });
+  } finally { if (echtGeo) Object.defineProperty(w.navigator, 'geolocation', echtGeo); else delete w.navigator.geolocation; }
+  assertEq(echtNativ, w.IST_NATIVE_APP);
+});
+
+test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Speicherstand erschleichen', async (w) => isolierteDaten(w, async () => {
+  // 0) PDF-Leser: präparierte PDFs dürfen keinen Code ausführen (CVE-2024-4367) – jeder Aufruf mit isEvalSupported:false
+  const quelle = await (await w.fetch('../index.html')).text();
+  const aufrufe = quelle.match(/pdfjsLib\.getDocument\(\{[^}]*\}\)/g) || [];
+  assert(aufrufe.length >= 4 && aufrufe.every((x) => /isEvalSupported: false/.test(x)), 'alle PDF-Öffnungen gehärtet: ' + aufrufe.length);
+  // 1) Manipulierte Sicherung mit „Vollversion gekauft“ und Teststart → Zeilen werden verworfen
+  for (const key of ['lizenz', 'testStartGeraet', 'bewertung']) {
+    assertEq(w.Backup._saeubereZeile('settings', { key, value: { voll: true, testStart: '2099-01-01' } }), null, key + ' kommt nicht aus einer Datei');
+  }
+  // 2) Gespeichert steht „voll“, der Store meldet den Kauf aber als erstattet → wieder gesperrt
+  const L = w.Lizenz, echt = { plugin: L.plugin, android: L.android };
+  await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null }, { auto: true });
+  L.android = () => false;
+  L.plugin = () => ({ getPurchases: async () => ({ purchases: [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseDate: '2026-10-01T00:00:00Z', revocationDate: '2026-10-05T00:00:00Z' }] }) });
+  try {
+    const l = await L.abgleichen();
+    assertEq(l.voll, false, 'erstatteter Kauf zählt nicht mehr');
+    // offline: letzter bekannter Stand bleibt (kein Aussperren ohne Netz)
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null }, { auto: true });
+    L.plugin = () => ({ getPurchases: () => Promise.reject(new Error('offline')) });
+    assertEq((await L.abgleichen()).voll, true, 'ohne Netz kein Aussperren');
+  } finally { L.plugin = echt.plugin; L.android = echt.android; }
+}));
+
 test('App: Datei-Ausgaben laufen über das Teilen-Menü, kein nachgeladener Code', async (w) => {
   assertEq(typeof w.nativDateiTeilen, 'function'); assertEq(typeof w.xlsxSpeichern, 'function');
   const quelle = await (await w.fetch('../index.html')).text();

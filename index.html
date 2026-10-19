@@ -83,7 +83,8 @@ h1{font-size:24px;font-weight:750;letter-spacing:-.015em;line-height:1.2}
 h2{font-size:17.5px;font-weight:700;letter-spacing:-.01em}
 h3{font-size:15px;font-weight:650}
 a{color:var(--honey-dark);text-decoration:none}
-a:hover{text-decoration:underline}
+@media (hover:hover){a:hover{text-decoration:underline}}  /* Touch: kein hängenbleibender Unterstrich nach dem Tippen */
+.hilfe-knopf,.hilfe-knopf:hover{text-decoration:none}
 button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer;background:none;border:none;-webkit-tap-highlight-color:transparent}
 input,select,textarea{font-family:inherit;font-size:16px;color:var(--text)}
 ::selection{background:var(--honey-soft2)}
@@ -314,7 +315,7 @@ html[data-theme="dark"] .btn-dark{color:#1B1B1F}
 .btn-xs svg{width:14px;height:14px}
 .btn[disabled]{opacity:.5;pointer-events:none}
 .btn-block{width:100%}
-.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:7px;font-size:12px;font-weight:700}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:7px;font-size:12px;font-weight:700;max-width:100%;min-width:0;overflow:hidden}
 .badge svg{width:12px;height:12px}
 .b-honey{background:var(--honey-soft);color:var(--honey-deep)}
 .b-ok{background:var(--ok-bg);color:var(--ok)}
@@ -951,7 +952,7 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .steps{display:flex;gap:6px;justify-content:center;margin-bottom:14px}
 .steps i{width:26px;height:5px;border-radius:99px;background:var(--line)}
 .steps i.done{background:var(--honey)}
-.kpill{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600}
+.kpill{display:inline-flex;align-items:center;gap:6px;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600;max-width:100%;min-width:0;overflow:hidden}
 .kpill svg{width:15px;height:15px;flex:0 0 auto}
 .hilfe-liste{display:grid;gap:10px}
 .seite-in-app{width:100%;height:70vh;border:0;border-radius:10px;background:#fff}
@@ -1406,8 +1407,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.60';
+const APP_VERSION = '2.61';
 const CHANGELOG = [
+  { version: '2.61', datum: '2026-10-19', punkte: [
+    'In der App fragt das Handy nur noch <b>einmal</b> nach dem Standort (vorher kam eine zweite Frage „localhost möchte …“).',
+    'Mehr Sicherheit: Die App verbindet sich nur noch mit Wetterdienst, Adresssuche und Geodiensten; geöffnete PDFs können keinen Code ausführen; die App-Hülle ist auf dem neuesten, abgesicherten Stand.',
+    'Sehr lange Namen (z. B. Beute, Produktart) ragen nicht mehr über den Bildschirmrand. Kein hängenbleibender Unterstrich mehr nach dem Antippen.',
+  ] },
   { version: '2.60', datum: '2026-10-19', punkte: [
     'Behoben: In der App konnte der Start hängen bleiben, wenn die Testphase noch nicht gestartet oder schon vorbei war.',
   ] },
@@ -5886,21 +5892,40 @@ function standFormFields() {
     { key: 'notizen', label: 'Notiz', type: 'textarea' },
   ];
 }
+/** Standort vom Gerät. In der App über die Capacitor-Erweiterung – sonst fragt iOS
+    zweimal (erst die App, dann „localhost möchte deinen Ort verwenden“). Im Browser
+    wie gehabt über navigator.geolocation. Liefert { lat, lng } oder wirft einen
+    verständlichen Fehler. */
+function standortHolen() {
+  const G = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation;
+  const opt = { enableHighAccuracy: true, timeout: 12000 };
+  if (G) {
+    return G.getCurrentPosition(opt).then((pos) => ({ lat: pos.coords.latitude, lng: pos.coords.longitude }), (e) => {
+      const t = String(e && (e.message || e) || '');
+      throw new Error(/denied|permission|verweigert/i.test(t)
+        ? 'Standort nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.'
+        : /disabled|services/i.test(t) ? 'Ortungsdienste sind ausgeschaltet.' : 'Standort nicht ermittelbar – bitte draußen erneut versuchen.');
+    });
+  }
+  if (!navigator.geolocation) return Promise.reject(new Error('Das Gerät gibt keinen Standort her.'));
+  return new Promise((ok, fehl) => navigator.geolocation.getCurrentPosition(
+    (pos) => ok({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+    (err) => fehl(new Error(err && err.code === 1 ? 'Standort nicht erlaubt – in den Einstellungen freigeben.' : 'Standort nicht ermittelbar' + (err && err.message ? ': ' + err.message : '.'))),
+    opt));
+}
 function bindGeoButton(m) {
   $('[data-geo]', m.el).onclick = () => {
     const status = $('[data-geo-status]', m.el);
-    if (!navigator.geolocation) { status.textContent = 'Geolocation nicht verfügbar.'; return; }
     status.textContent = 'Ermittle Position …';
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        $('#f-lat', m.el).value = String(pos.coords.latitude.toFixed(5)).replace('.', ',');
-        $('#f-lng', m.el).value = String(pos.coords.longitude.toFixed(5)).replace('.', ',');
+    standortHolen().then(
+      ({ lat, lng }) => {
+        $('#f-lat', m.el).value = String(lat.toFixed(5)).replace('.', ',');
+        $('#f-lng', m.el).value = String(lng.toFixed(5)).replace('.', ',');
         // Input-Event, damit abhängige Anzeigen (z. B. Belegstellen-Kartenlinks) sich aktualisieren
         $('#f-lat', m.el).dispatchEvent(new Event('input')); $('#f-lng', m.el).dispatchEvent(new Event('input'));
         status.textContent = 'Standort übernommen ✓'; FormGuard.dirty = true;
       },
-      (err) => { status.textContent = 'Fehlgeschlagen: ' + err.message; },
-      { enableHighAccuracy: true, timeout: 12000 }
+      (err) => { status.textContent = err.message; }
     );
   };
 }
@@ -9983,7 +10008,7 @@ function ladeKreis(titel, text) {
 async function pdfTextMitLayout(datei, maxSeiten = 5, beiSeite = null) {
   const gewinner = await U.loadScript(...CDN.pdfjs);
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
-  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer(), isEvalSupported: false }).promise;
   try {
   const seiten = Math.min(pdf.numPages, maxSeiten);
   const alles = [];
@@ -10025,7 +10050,7 @@ async function pdfTextMitLayout(datei, maxSeiten = 5, beiSeite = null) {
 async function pdfSeiteAlsBild(datei, seite = 1, breitePx = 1600) {
   const gewinner = await U.loadScript(...CDN.pdfjs);
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
-  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer(), isEvalSupported: false }).promise;
   try {
   const page = await pdf.getPage(Math.min(seite, pdf.numPages));
   const roh = page.getViewport({ scale: 1 });
@@ -10056,7 +10081,7 @@ async function blobZuJpeg(blob, maxPx = 1600) {
 async function pdfSeitenAlsJpeg(datei, maxSeiten, breitePx, fn) {
   const gewinner = await U.loadScript(...CDN.pdfjs);
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
-  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer(), isEvalSupported: false }).promise;
   try {
     const n = Math.min(pdf.numPages, maxSeiten);
     for (let i = 1; i <= n; i++) {
@@ -13490,17 +13515,15 @@ Views.bio = {
     /* Standort vom Gerät – der übliche Fall am Stand selbst. */
     $('#bio-geo', m.el).onclick = () => {
       const gstatus = $('#bio-geo-status', m.el);
-      if (!navigator.geolocation) { gstatus.textContent = 'Das Gerät gibt keinen Standort her.'; return; }
       gstatus.textContent = 'Ermittle Position …';
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          koordinatenSetzen(pos.coords.latitude, pos.coords.longitude);
+      standortHolen().then(
+        ({ lat, lng }) => {
+          koordinatenSetzen(lat, lng);
           koord = null;                       // wird beim Rechnen aus den Feldern gelesen
           gstatus.textContent = 'Standort übernommen ✓';
           melde('Koordinaten vom Gerät übernommen – „Amtlich berechnen" drücken.');
         },
-        (err) => { gstatus.textContent = 'Fehlgeschlagen: ' + err.message; },
-        { enableHighAccuracy: true, timeout: 12000 }
+        (err) => { gstatus.textContent = err.message; }
       );
     };
     $('#bio-plus', m.el).onclick = () => { zeilen.push({ name: '', prozent: 0, art: 'tracht' }); zeichneZeilen(); };
@@ -19955,7 +19978,8 @@ async function erinnerungAnbieten(aufgabe) {
    Apple-ID und lässt sich durch Neuinstallieren nicht neu starten.
    Vollversion = Einmalkauf. Gratis-Zugänge über Apple-Angebotscodes.
    Nach Ablauf: Daten bleiben lesbar und sicherbar, nur Neues/Ändern ist
-   gesperrt (Sperre zentral in DB.schreibeAlles/aendereAtomar/trashRestore).
+   gesperrt (Sperre an den Eingabe-Stellen: UI.formModal-Speichern und
+   Durchsicht am Stand – nicht in der DB, sonst hängen Start-Umstellungen).
    Gilt nur in der Store-App; Web-Version und Testmodus: immer frei.
    ===================================================================== */
 const LIZENZ_PRODUKTE = { test: 'de.imkerbuch.app.testphase30', voll: 'de.imkerbuch.app.vollversion' };
@@ -21908,7 +21932,7 @@ const PdfImport = {
       const gewinner = await U.loadScript(...CDN.pdfjs);
       // Worker vom selben CDN beziehen, das für die Hauptbibliothek funktioniert hat
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
-      const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      const pdf = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
       let text = '';
       for (let i = 1; i <= pdf.numPages; i++) {
         const content = await (await pdf.getPage(i)).getTextContent();
@@ -24673,7 +24697,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
-  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, Lizenz, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
+  Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
