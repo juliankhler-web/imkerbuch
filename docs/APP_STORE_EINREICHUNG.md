@@ -218,3 +218,8 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - **Zum Start 1.00:** Webseite = nur Vorstellungsseite + Links (App Store, Datenschutz, Impressum, Support). Die volle Web-App soll dann nicht mehr frei nutzbar sein (sonst gratis statt Kauf). Endgültiges Ja von Julian noch offen.
 - **Später mit der Cloud (0,99 €/Monat):** Browser-Zugang mit **Konto**: in der App freiwillig anmelden (am einfachsten „Mit Apple anmelden“; wenn zusätzlich Google, dann Apple Pflicht), auf der Webseite mit demselben Konto anmelden → dieselben Daten. Server prüft Kauf/Cloud-Abo. Server DSGVO-konform in Deutschland. Apple erlaubt Web-Nutzung bereits gekaufter Inhalte (Regel 3.1.3(b), Multiplattform).
 - Werbeversprechen „Kein Konto“ bleibt wahr: Konto ist freiwillig, nur für Cloud/Web. Store-Text dann „Konto nur, wenn du willst“.
+
+## 26. GitHub (Julian 2026-10-19)
+
+- Repo bleibt **öffentlich bis zum Start**; erst dann privat. Kein GitHub Pro jetzt (bei öffentlichen Repos bringt Pro praktisch nichts).
+- Zum Start (kostenlos): App-Code-Repo privat, zweites kleines öffentliches Repo nur für Vorstellungsseite + Datenschutz/Impressum/AGB/Support (Pages kostenlos). URLs in den Store-Texten dann anpassen oder gleich halten. Pro (4 $/Monat) nur nötig, wenn Pages aus dem privaten Repo kommen soll.
