@@ -212,3 +212,9 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - **Sicherheitstest:** Bericht `docs/SICHERHEITSPRUEFUNG.md` – keine offene Lücke; Capacitor-Lücke + pdf.js-Lücke behoben, Schutzregel (CSP) im App-Build neu. Nach 1.00: jsPDF aktualisieren.
 - **Schalter 1.00:** `tools/release-100.mjs` (Abschnitt 13), erst direkt vor dem Hochladen.
 - Fürs Gerät (Punkt 3 oben) zusätzlich: Mail-Knöpfe, Standort-Frage nur einmal, Mikrofon-Frage nur einmal (Sprachnotiz), iPad quer/hoch.
+
+## 25. Web-Version (Julian 2026-10-19)
+
+- **Zum Start 1.00:** Webseite = nur Vorstellungsseite + Links (App Store, Datenschutz, Impressum, Support). Die volle Web-App soll dann nicht mehr frei nutzbar sein (sonst gratis statt Kauf). Endgültiges Ja von Julian noch offen.
+- **Später mit der Cloud (0,99 €/Monat):** Browser-Zugang mit **Konto**: in der App freiwillig anmelden (am einfachsten „Mit Apple anmelden“; wenn zusätzlich Google, dann Apple Pflicht), auf der Webseite mit demselben Konto anmelden → dieselben Daten. Server prüft Kauf/Cloud-Abo. Server DSGVO-konform in Deutschland. Apple erlaubt Web-Nutzung bereits gekaufter Inhalte (Regel 3.1.3(b), Multiplattform).
+- Werbeversprechen „Kein Konto“ bleibt wahr: Konto ist freiwillig, nur für Cloud/Web. Store-Text dann „Konto nur, wenn du willst“.
