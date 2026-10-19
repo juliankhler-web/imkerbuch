@@ -12580,6 +12580,22 @@ test('Tester-Wünsche: Fertigsirup in Litern (Herstellerangabe), Rabatt beim Ver
   assertEq(w.verkaufRabattEuro(180, 'prozent', 0), 0);
 });
 
+test('Fütterung: bei Fertigsirup sind die Liter die Hauptmenge (Julian), Zucker füllt sich 1:1', async (w) => isolierteDaten(w, async () => {
+  if (!(await w.DB.getAll('voelker')).some((v) => v.status === 'aktiv')) await w.DB.put('voelker', { name: 'Testvolk', status: 'aktiv' });
+  await w.Views.fuetterung.sammelForm(); await new Promise((r) => setTimeout(r, 400));
+  const q = (id) => w.document.querySelector('#f-' + id);
+  const box = (k) => w.document.querySelector(`[data-field="${k}"]`);
+  const setz = (el, val) => { el.value = val; el.dispatchEvent(new w.Event('input', { bubbles: true })); el.dispatchEvent(new w.Event('change', { bubbles: true })); };
+  try {
+    setz(q('futterart'), 'Futtersirup (z. B. Apiinvert)');
+    assert(box('mengeKg').style.display === 'none' && /Menge je Volk \(Liter\)/.test(box('_sirupLiter').textContent), 'Liter-Feld steht an der Stelle der kg');
+    setz(q('_sirupLiter'), '8');
+    assertEq([q('mengeKg').value, q('zuckerKg').value], ['10,88', '8'], 'Gewicht genau, Zucker = Liter');
+    setz(q('futterart'), 'Zuckerwasser 3:2');
+    assert(box('mengeKg').style.display !== 'none' && q('zuckerKg').value === '', 'zurück bei Zuckerwasser');
+  } finally { w.document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove()); w.FormGuard.dirty = false; }
+}));
+
 test('Tester-Wünsche: Verkauf ohne (genug) Bestand – nie ins Minus, Storno gibt nur das Gelagerte zurück', async (w) => isolierteDaten(w, async () => {
   const a = await w.DB.put('abfuellungen', { datum: '2026-07-01', gebindeG: 500, anzahl: 2, bestand: 2, chargeId: null });
   let f = null; try { await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 5, preisJeGlas: 6 }); } catch (e) { f = e; }

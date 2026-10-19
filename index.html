@@ -1413,7 +1413,7 @@ const CDN = {
 const APP_VERSION = '2.64';
 const CHANGELOG = [
   { version: '2.64', datum: '2026-10-19', punkte: [
-    'Fertigsirup (z. B. Apiinvert): Liter eintragen genügt – darunter steht sofort, was das wiegt und wie viel Zucker beim Volk ankommt (1 L = 1 kg Zucker laut Hersteller). „Davon reiner Zucker“ füllt sich selbst.',
+    'Fertigsirup (z. B. Apiinvert): Die Menge wird jetzt in <b>Litern</b> eingetragen – das Liter-Feld steht an der Stelle von kg. Darunter steht sofort, was das wiegt und wie viel Zucker beim Volk ankommt (1 L = 1 kg Zucker laut Hersteller). „Davon reiner Zucker“ füllt sich selbst.',
   ] },
   { version: '2.63', datum: '2026-10-19', punkte: [
     '<b>Fütterung je Volk:</b> Im Bereich Fütterung zeigt „Je Volk“, was jedes Volk im Jahr bekommen hat (Zucker, Liter, Anzahl Gaben). Beim Volk selbst stehen die Summen jetzt oben.',
@@ -8593,10 +8593,42 @@ function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
     if (fertig()) lit.value = z > 0 ? U.fmtNum(z / FERTIGSIRUP_KG_JE_L, 1) : '';
     else lit.value = v && z > 0 ? U.fmtNum(literAusZucker(z, v), 1) : '';
   };
+  /* Julian: Bei Sirup zählt, wie viele LITER ins Volk gehen. Bei Fertigsirup tritt das
+     Liter-Feld deshalb an die Stelle von „Menge (kg)“ (gleicher Platz, gleicher Name,
+     Pflichtfeld); kg und Zucker rechnet die App im Hintergrund und zeigt sie darunter. */
+  const kgFeld = kg.closest('.field'), litLabel = feld && feld.querySelector('label'), kgLabel = kgFeld && kgFeld.querySelector('label');
+  const litLabelHtml = litLabel ? litLabel.innerHTML : '';
+  const platzhalter = document.createComment('liter-feld');
+  if (feld) feld.parentNode.insertBefore(platzhalter, feld);
+  const litHint = feld && [...feld.children].find((c) => c.classList.contains('hint') && !('sirupInfo' in c.dataset));
+  let litVorne = false;
+  const umstellen = (vorne) => {
+    if (!feld || !kgFeld || vorne === litVorne) return;
+    litVorne = vorne;
+    if (vorne) {
+      kgFeld.after(feld); feld.classList.add('halb'); kgFeld.style.display = 'none';
+      if (litLabel && kgLabel) litLabel.innerHTML = kgLabel.innerHTML.replace('(kg)', '(Liter)');
+      if (litHint) litHint.style.display = 'none';
+    } else {
+      platzhalter.after(feld); feld.classList.remove('halb'); kgFeld.style.display = '';
+      if (litLabel) litLabel.innerHTML = litLabelHtml;
+      if (litHint) litHint.style.display = '';
+    }
+  };
+  // Pflichtfeld: Bei Fertigsirup müssen die Liter da sein (das kg-Feld ist dann versteckt)
+  const speichern = m.el.querySelector('.modal-foot .btn-primary');
+  if (speichern) speichern.addEventListener('click', (e) => {
+    if (litVorne && !(U.parseNum(lit.value) > 0)) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      feld.classList.add('invalid'); const err = feld.querySelector('.err'); if (err) err.textContent = 'Pflichtfeld.';
+      UI.toast('Bitte die Liter eintragen.', 'err'); lit.focus();
+    }
+  }, true);
   const zustand = () => {
     const an = !!verh() || fertig();
     lit.disabled = !an;
     if (feld) feld.style.opacity = an ? '' : '0.5';
+    umstellen(fertig());
     if (!stille) literAusFeld();
   };
   /* Fertigsirup: der Zucker, der beim Volk ankommt, steht nach Herstellerangabe fest
@@ -8618,7 +8650,7 @@ function verdrahteSirupLiter(m, { vorgabe = null } = {}) {
     const v = verh(), l = U.parseNum(lit.value);
     if (stille || (!v && !fertig())) return;
     stille = true;
-    kg.value = fertig() ? (l > 0 ? U.fmtNum(l * FERTIGSIRUP_KG_JE_L, 1) : '') : U.fmtNum(zuckerAusSirupLiter(l, v), 1);
+    kg.value = fertig() ? (l > 0 ? U.fmtNum(l * FERTIGSIRUP_KG_JE_L, 2) : '') : U.fmtNum(zuckerAusSirupLiter(l, v), 1);
     kg.dispatchEvent(new Event('input', { bubbles: true }));
     stille = false;
     fertigFolgen();
