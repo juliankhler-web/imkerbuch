@@ -223,3 +223,4 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 
 - Repo bleibt **öffentlich bis zum Start**; erst dann privat. Kein GitHub Pro jetzt (bei öffentlichen Repos bringt Pro praktisch nichts).
 - Zum Start (kostenlos): App-Code-Repo privat, zweites kleines öffentliches Repo nur für Vorstellungsseite + Datenschutz/Impressum/AGB/Support (Pages kostenlos). URLs in den Store-Texten dann anpassen oder gleich halten. Pro (4 $/Monat) nur nötig, wenn Pages aus dem privaten Repo kommen soll.
+- 2026-10-19: GitHub Pages auf **„GitHub Actions“** umgestellt (Julians Ja). `.github/workflows/pages.yml` veröffentlicht nur App + Webseite (11 MB statt 176 MB; keine iOS-/Android-Projekte, Videos, Store-Fotos mehr öffentlich). Neue Dateien, die die Webseite braucht, dort in die Kopierliste eintragen.
