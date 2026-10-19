@@ -1,0 +1,41 @@
+name: Webseite veröffentlichen
+
+# Veröffentlicht NUR die App und die Webseite (rund 10 MB) – nicht das ganze
+# Projekt. Vorher gingen bei jedem Hochladen 176 MB online (iOS-/Android-Projekte,
+# Videos, Store-Fotos): langsam und unnötig öffentlich (Julian, 2026-10-19).
+# Voraussetzung: Settings → Pages → Source = „GitHub Actions“.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  veroeffentlichen:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Nur App und Webseite zusammenstellen
+        run: |
+          mkdir _site
+          cp index.html service-worker.js manifest.json icon-180.png icon-192.png icon-512.png \
+             landing.html impressum.html datenschutz.html agb.html support.html .nojekyll _site/
+          cp -r libs assets _site/
+          du -sh _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
