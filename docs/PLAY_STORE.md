@@ -24,7 +24,13 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 1. ✅ **Werkzeuge (20.10.2026):** ohne Homebrew/Android Studio in `~/Android/`: JDK 21 (Eclipse Temurin, Prüfsumme geprüft), Android-SDK (Plattform 36, Build-Tools 36/35, Platform-Tools), Emulator mit Pixel-8-Gerät „ImkerBuch_Pixel“ (Android 16, Google-Play-Image). Bauen: `cd native/android && JAVA_HOME=$(ls -d ~/Android/jdk-21*/Contents/Home) ANDROID_HOME=~/Android/sdk ./gradlew assembleDebug`. Emulator: `~/Android/sdk/emulator/emulator -avd ImkerBuch_Pixel -gpu swiftshader_indirect -no-audio` (Host-GPU zeichnet Artefakte; Mikrofon lässt den Emulator hängen). Seitenbilder sauber über die WebView-Fernsteuerung (`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`).
    - Im Emulator geprüft (v2.73/2.74): Start + Waben-Startbild, Willkommen, Kauf-Fenster mit Google-Text, Testphase auf dem Gerät, Imme, Standort (eine Abfrage, Koordinaten kommen an), Mikrofon-Abfrage (eine), Zurück-Taste (Fenster → „Änderungen verwerfen?“ → Seite → Startseite → App verkleinern). Fund behoben: QR-Etiketten drucken ging in den Apps nicht → PDF.
 2. **Google-Play-Entwicklerkonto** (einmalig 25 $), Identitätsprüfung, Händlerangaben (Adresse, Telefon werden öffentlich, wie bei Apple), Zahlungsprofil + Bank + Steuer.
-3. **App-Signatur:** „Play App Signing“ aktivieren; Upload-Schlüssel erzeugen und **sicher aufbewahren** (Verlust = keine Updates mehr ohne Google-Support).
+3. **App-Signatur (vorbereitet 20.10.2026):** „Play App Signing“ aktivieren (Google verwahrt den eigentlichen App-Schlüssel). Den **Upload-Schlüssel legt Julian einmalig selbst an:**
+   1. Terminal: `cd ~/ImkerApp/native && ./android-schluessel-anlegen.sh` → zweimal ein Passwort eingeben (wird nirgends gespeichert → in den Passwort-Manager).
+   2. Die Datei `~/Android/schluessel/imkerbuch-upload.jks` zusätzlich sichern (z. B. USB-Stick im Schrank). Verlust = neuer Upload-Schlüssel nur über den Google-Support.
+   3. Bauen für Google: `./sync-app.sh` (ohne `--testmodus`), dann `./android-hochladen.sh` → Passwort eingeben → Datei liegt auf dem Schreibtisch (`ImkerBuch-<Version>-<Bau-Nummer>.aab`) → in der Play Console hochladen.
+   - Technik: `android/app/build.gradle` → `signingConfigs.release` liest Schlüsselpfad und Passwort nur aus Umgebungsvariablen; ohne sie entsteht eine unsignierte Datei, die das Skript ablehnt. Mit Wegwerf-Schlüssel getestet.
+   - **Bau-Nummern:** nach 1.00 setzt `sync-app.sh` sie automatisch (1.00 → 100, 1.01 → 101 …). **Nie einen Entwicklungsstand (2.x) zu Google hochladen** – dessen Nummer wäre höher als die von 1.00.
+   - **Mindest-WebView 98** (`capacitor.config.json`): ältere „Android System WebView“ → Hinweisseite `webview-veraltet.html` mit Link zum Play Store.
 4. **Geschlossener Test:** 12 Tester, **14 Tage am Stück** (Julians Imker). Erst danach Freigabe für alle.
 5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 € Einführung, später 24,99 €), Länder DE/AT/CH.
 6. Android-Test: Fotos, Sprachnotiz, Standort, Erinnerungen, Teilen-Menü (PDF/Sicherung), Kauf/Wiederherstellen, Zurück-Taste, Tablet.
@@ -32,9 +38,49 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 ## Store-Eintrag
 
 - **App-Name (max. 30):** `ImkerBuch` (wie im App Store, Julian 20.10.2026)
-- **Kurzbeschreibung (max. 80):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
-- **Vollständige Beschreibung:** wie `APP_STORE_TEXTE.md` → „Beschreibung“, aber im Abschnitt „Deine Daten gehören dir“: „Sicherung per Teilen-Menü in Google Drive, „Dateien“ oder per Mail“ (kein iCloud/AirDrop). Testphase-Satz: „30 Tage kostenlos testen (ab dem ersten Start auf dem Gerät) …“.
+- **Kurzbeschreibung (max. 80, 77 Zeichen):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
+- **Vollständige Beschreibung (1711 von 4000 Zeichen) – zum Einfügen:**
+
+```text
+ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Handy.
+
+DURCHSICHT AM STAND
+• Eine Frage pro Bildschirm, große Knöpfe – auch mit Handschuhen
+• Stockkarte mit Volksstärke, Brut, Sanftmut, Futter, Weiselzellen
+• Sprachnotizen direkt am Bienenstand
+
+VÖLKER, KÖNIGINNEN, STÄNDE
+• Alle Völker mit Verlauf, Königinnen mit Stammbaum, Generation und Bewertung
+• Bienenstände mit Wetter und Kartenlink
+• Behandlungen mit Wartezeiten, Fütterung mit Futter-Rechner (auch Sirup in Litern)
+
+HONIG UND GESCHÄFT
+• Ernte, Chargen, Abfüllung und Bestand – Etiketten-QR als PDF
+• Kassenbuch, Rechnungen, Abnehmer, Verkauf mit Rabatt
+• Bestandsbuch und Meldungen als PDF
+
+FÜR BIO-IMKEREIEN
+• Bio-Unterlagen, Hygieneplan, Umgebungsprüfung der Stände
+
+DEINE STARTSEITE, DEIN AUFBAU
+• Kacheln und Schnellzugriffe selbst zusammenstellen – für den Hobby-Stand genauso wie für den Imkereibetrieb
+
+IMME, DEIN ASSISTENT
+• Beantwortet Fragen zur App und zeigt dir Schritt für Schritt, wie es geht – auch ohne Internet
+
+DEINE DATEN GEHÖREN DIR
+• Kein Konto, keine Werbung, kein Tracking
+• Sicherung über das Teilen-Menü in Google Drive, „Dateien“ oder per Mail
+• Keine automatische Übertragung in fremde Clouds
+
+30 Tage alle Funktionen kostenlos testen – die Testphase beginnt beim ersten Start auf deinem Gerät. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
+
+Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“.
+```
+
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
+- **Kaufprodukt:** `de.imkerbuch.app.vollversion` (Einmalkauf, „Verwaltetes Produkt“), Name „ImkerBuch Vollversion“, Beschreibung „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“, 14,99 € (DE/AT), Schweiz 14,00 CHF wie bei Apple. Kein Testphase-Produkt (Google kennt keinen 0-€-Kauf; Testphase läuft auf dem Gerät).
+- **Länder:** Deutschland, Österreich, Schweiz.
 - **Kontakt:** juliankhler+imkerbuch@googlemail.com · Website: `https://juliankhler-web.github.io/imkerbuch/landing.html`
 - **Datenschutz-URL:** `https://juliankhler-web.github.io/imkerbuch/datenschutz.html`
 - **Grafiken:** App-Symbol 512×512, Vorzeige-Grafik 1024×500: **`store-bilder/play/titelgrafik.png`** (dunkel, Android-Handy; `node tools/store-bilder.mjs --play-titel`), **Handy-Bilder: `store-bilder/play/01–07-dunkel.png` (1080×1920 = 9:16, Android-Handy mit Kamera-Loch)** – erzeugt mit `node tools/store-bilder.mjs --play` aus denselben Bühnen wie die Apple-Bilder (Google erlaubt höchstens 2:1, die Apple-Bilder 1320×2868 sind zu lang). 7″-/10″-Tablet-Bilder optional.

@@ -1,9 +1,20 @@
 # App Store – Einreichung (Checkliste)
 
-Stand 2026-10-18 · Quelle: [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/),
+Stand 2026-10-20 (Abschnitte 1–5 am 20.10. gegen den echten Stand geprüft) · Quelle: [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/),
 [DSA-Händlerangaben](https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-compliance-information)
 
 Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
+
+## Was wirklich noch offen ist (Stand 20.10.2026, v2.75)
+
+**Julian:**
+
+1. Gerätetest am iPhone (und iPad) nach `docs/GERAETETEST.md` / `docs/pdf/ImkerBuch-Test-am-iPhone.pdf`.
+2. App Store Connect → Geschäftliches: Vertrag kostenpflichtige Apps, Steuerformular, Bankkonto, EU-Händlerangaben.
+3. Schlussfreigabe: Inhaltsrechte bestätigen, App-Datenschutz „Veröffentlichen“, zur Prüfung einreichen.
+4. Google Play: D-U-N-S-Nummer abwarten (Kalender 19.11.2026), dann Konto (25 $) – Organisation oder privat + 12 Tester. Upload-Schlüssel selbst anlegen (`docs/PLAY_STORE.md`).
+
+**Claude, wenn es so weit ist:** Funde aus dem Gerätetest beheben → Store-Bilder mit der finalen Version neu erzeugen (`node tools/store-bilder.mjs`, `--play`, `--play-titel`) → `node tools/release-100.mjs` → Store-Bau (`./native/sync-app.sh`) → Upload (Xcode Archive / Android `bundleRelease`) → TestFlight + geschlossener Test → nach 1.00 jsPDF aktualisieren. Vor dem Einreichen `/code-review ultra` empfehlen.
 
 ## 1. Konto und Recht
 
@@ -12,21 +23,19 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
   - 20.10.2026: Anmeldung läuft (als **Einzelperson**, über die App „Apple Developer“). Als Ausweis bietet Apple nur den **Führerschein** an. Der Name im Apple-Account muss **genau** wie im Führerschein stehen (beide Vornamen, Nachname mit „ö“) – vorher stand dort „julian Koehler“. Bei Einzelpersonen erscheint dieser Name später als **Verkäufer** im App Store.
   - 20.10.2026, 09:46: Ausweis-Prüfung in der App gescheitert („Unable to Verify Your Identity … Please contact support“) → Weg über den Apple-Developer-Support (developer.apple.com/contact → Mitgliedschaft und Account → Programm-Anmeldung).
   - Apple fragt bei der Anmeldung nach der **USt-IdNr.** Es gibt noch keine: Die Steuernummer fürs Gewerbe steht noch aus, danach beim BZSt beantragen. Laut Kasse (99 €, Apple-Webshop) ist das Feld **freiwillig**, also leer lassen. **Stand 20.10.2026, 10 Uhr: Kauf vorerst zurückgestellt (Julian).** Erst das bezahlte Konto ermöglicht TestFlight, App-Store-Connect-Produkte, Sandbox-Käufe und das Einreichen. Gerätetest per Xcode geht auch ohne. Als Kleinunternehmer würde eine angegebene USt-IdNr. die Umkehr der Steuerschuld (§ 13b UStG) auslösen; ohne sie berechnet Apple die Steuer selbst. Im Zweifel Steuerberater fragen.
-- ⚠️ **EU-Händlerangaben (DSA)**: Wer Geld verlangt, ist „Händler“. Apple zeigt dann **Adresse, Telefon und E-Mail öffentlich** im App Store (EU). Ohne Angabe keine Verbreitung in der EU.
-- ❓ Gewerbe anmelden, Steuer (Kleinunternehmer?), Bankkonto und Steuerformulare in App Store Connect. Apple führt die Umsatzsteuer selbst ab.
-- ❓ Name „ImkerBuch“: Marke (DPMA) und Name im App Store frei?
+- ⚠️ **Julian:** **EU-Händlerangaben (DSA)** in App Store Connect → Geschäftliches: Wer Geld verlangt, ist „Händler“. Apple zeigt dann **Adresse, Telefon und E-Mail öffentlich** im App Store (EU). Ohne Angabe keine Verbreitung in der EU.
+- ✅ Gewerbe angemeldet (ab 19.10.2026), Kleinunternehmer (§ 19 UStG) im ELSTER-Fragebogen gewählt. ⚠️ **Julian:** Vertrag kostenpflichtige Apps, Bankkonto und Steuerformular in App Store Connect. Apple führt die Umsatzsteuer selbst ab.
+- ✅ Name „ImkerBuch“ im App Store angenommen (also frei). ❓ Marke: Websuche (20.10.2026) fand keinen Eintrag „ImkerBuch“; das amtliche Register (DPMAregister/TMview) hat Claude nicht geprüft. Hinweis: „Imkerbuch“ ist ein beschreibendes Wort – als Marke schwer zu schützen, aber auch für andere.
 
 ## 2. Datenschutz (Regel 5.1)
 
-- ⚠️ Link zur Datenschutzerklärung **in App Store Connect und in der App** (5.1.1 i). Seite gibt es (`datenschutz.html`), muss alle Dienste nennen:
-  Open-Meteo (Wetter, Standort), geoservice.rlp.de / BKG / OpenStreetMap / Nominatim / Overpass (Karten, Standort),
-  Hugging Face (Download Sprachmodell Whisper), Kehrle-Pedigree, CDN-Bibliotheken, Wolf-Waagen (falls Waage-Anbindung).
-- ⚠️ **App-Datenschutz-Angaben** („Nährwerttabelle“) in App Store Connect ausfüllen. Ohne Cloud: wir selbst erfassen nichts.
-- ⚠️ **Privacy Manifest** (`PrivacyInfo.xcprivacy`) fehlt im App-Ziel → anlegen (benutzte Schnittstellen, z. B. UserDefaults, Dateizeitstempel).
-- ⚠️ **Standort-Hinweistext** `NSLocationWhenInUseUsageDescription` fehlt in `Info.plist`, obwohl die App den Standort nutzt.
+- ✅ Datenschutzerklärung in App Store Connect (Datenschutz-URL) und in der App (Einstellungen → Rechtliches). `datenschutz.html` nennt die heute genutzten Dienste: Bright Sky/DWD (Wetter), Nominatim, Overpass, BKG, geoservice.rlp.de, Kehrle-Pedigree; CDN-Bibliotheken nur für die Web-Version (App lädt nichts nach). Whisper/Hugging Face und Wolf-Waagen gibt es nicht (mehr).
+- ✅ App-Datenschutz-Angaben in App Store Connect: „Keine Daten erfasst“ (20.10.2026). ⚠️ „Veröffentlichen“ erst mit Julians Schlussfreigabe.
+- ✅ Privacy Manifest `native/ios/App/App/PrivacyInfo.xcprivacy` vorhanden.
+- ✅ Standort-Hinweistext `NSLocationWhenInUseUsageDescription` in `Info.plist`.
 - ✅ Kamera- und Mikrofon-Hinweistexte vorhanden.
-- ⚠️ Verschlüsselung: `ITSAppUsesNonExemptEncryption = NO` in `Info.plist` (nur HTTPS) – spart die Exportfrage bei jedem Upload.
-- ⚠️ „Alle meine Daten löschen“ gut sichtbar in den Einstellungen.
+- ✅ `ITSAppUsesNonExemptEncryption = NO` in `Info.plist`.
+- ✅ „Alle Daten löschen“ in den Einstellungen.
 - Sobald es Konten gibt (Cloud): **Konto löschen in der App** Pflicht (5.1.1 v), Daten wirklich löschen, Datenexport.
 
 ## 3. Kaufen (Regel 3.1)
@@ -34,26 +43,26 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - Digitale Freischaltung **nur über Apples In-App-Kauf** (kein PayPal, kein Link nach außen).
 - 30 Tage gratis bei Einmalkauf erlaubt: entweder kostenloser Artikel „30-Tage-Testphase“ oder Datum des ersten Downloads.
   Vor dem Start klar anzeigen: Dauer, was danach gesperrt ist, Preis (3.1.1).
-- ⚠️ Knopf **„Käufe wiederherstellen“** Pflicht.
+- ✅ „Käufe wiederherstellen“ im Kauf-Fenster und unter Einstellungen → ImkerBuch Vollversion.
 - Abo (Cloud): vor dem Kauf Leistung, Preis, Laufzeit, automatische Verlängerung, Kündigung zeigen; Links zu Nutzungsbedingungen und Datenschutz (3.1.2).
   Abo muss auf allen Geräten des Nutzers gelten. Kauf auf Android/Web darf auf iPhone gelten, wenn es auch als In-App-Kauf angeboten wird (3.1.3 b).
 - Login für die Cloud mit eigener E-Mail/Passwort → „Mit Apple anmelden“ nicht Pflicht. Mit Google-Login → gleichwertige Alternative Pflicht (4.8).
 
 ## 4. Inhalt und Prüfung
 
-- ⚠️ **Keine „Beta“, „Test“, „Demo“-Funktionen** in der Store-Version (2.2). Unfertiges (Zucht) ausblenden oder als „Kommt bald“ ohne Funktion zeigen.
+- ✅ Keine Beta-/Test-/Demo-Funktionen in der Store-Version: Zucht, Etiketten-Designer und Beispieldaten nur im Testmodus (`ZUCHT_AN`, `Testmodus.an()`); `sync-app.sh` ohne `--testmodus` = Store-Bau.
 - 4.2 „mehr als eine verpackte Website“: ImkerBuch ist offline, mit Kamera, Mikrofon, PDF – gut; trotzdem in den Prüfer-Notizen erklären.
 - Prüfer-Notiz: „Offline-App, kein Konto nötig; Beispieldaten über den Startassistenten.“ Mit Cloud: **Demo-Konto** mitgeben, Server muss laufen.
 - Altersfreigabe-Fragebogen ausfüllen (voraussichtlich ab 4).
-- Hinweis bei Varroa-Behandlung: keine tierärztliche Beratung.
-- ⚠️ App läuft auch auf dem **iPad** (`TARGETED_DEVICE_FAMILY = 1,2`) → iPad-Bildschirmfotos nötig und iPad wird mitgeprüft. Sonst nur iPhone einstellen.
+- ✅ Dosierungsrechner: „Richtwerte ohne Gewähr – maßgeblich sind Gebrauchsinformation und Tierarzt/Bienengesundheitsdienst“ (v2.75).
+- ✅ iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`); 3 iPad-Bilder 13″ hochgeladen. iPad-Test am echten Gerät: Teil J im Testplan.
 
 ## 5. Store-Eintrag
 
 - Name (30 Zeichen), Untertitel (30), Beschreibung, Stichwörter (100), Kategorie (Produktivität / Lifestyle).
-- Bildschirmfotos iPhone 6,9″ (1320 × 2868), ggf. iPad 13″.
-- ⚠️ **Support-URL** (Pflicht, 1.5) und **Datenschutz-URL** (Pflicht). Website = vorhandene GitHub-Pages-Seiten reichen; eigene Domain optional.
-- Kontakt in der App: Bereich „Hilfe & Kontakt“ mit E-Mail an juliankhler@googlemail.com, App-Version und Gerät vorausgefüllt.
+- ✅ Bildschirmfotos: Apple verlangt 2026 iPhone 6,1/6,3″ (1206 × 2622, `store-bilder/iphone-63/`) und iPad 13″ (2752 × 2064) – hochgeladen. Mit der finalen Version neu erzeugen.
+- ✅ Support-URL und Datenschutz-URL eingetragen (GitHub Pages; Repo bleibt öffentlich).
+- ✅ Kontakt in der App: „Hilfe & Kontakt“ an juliankhler+imkerbuch@googlemail.com, App-Version und Gerät vorausgefüllt.
 
 ## 6. Datenverlust vermeiden
 
@@ -195,7 +204,7 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
   - **Neue private Entwicklerkonten:** geschlossener Test mit **12 Testern über 14 Tage am Stück** vor der Freigabe (Google prüft auch, ob sie die App wirklich nutzen). Julians Imker-Testgruppe dafür nutzen.
   - **Kein 0-€-Einmalkauf** wie bei Apple → Testphase auf Android anders lösen (z. B. ab erstem Start auf dem Gerät; Neuinstallation setzt zurück – vertretbar) oder Vollversion direkt + Gutscheine.
   - **Gutscheine:** Play-Promo-Codes gehen auch für Einmalkäufe – aber nur Einmal-Codes (je Code einmal); eigene Sammel-Codes wie `IMKERVEREIN26` gibt es bei Google **nur für Abos**.
-  - ⚠️ Android-Manifest hat bisher nur INTERNET – **Kamera, Mikrofon und Standort fehlen** (sonst gehen Fotos/Sprachnotizen/Standort in der Android-App nicht).
+  - ✅ Android-Manifest: Kamera, Mikrofon, Standort eingetragen (im Emulator 20.10.2026 geprüft).
 
 ## 23. Stand 2026-10-19 – was ich allein fertig habe, was wir zusammen machen
 

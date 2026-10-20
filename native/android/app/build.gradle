@@ -16,10 +16,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /* Upload-Schlüssel für Google Play – liegt AUSSERHALB des Projekts (~/Android/schluessel/),
+       das Passwort steht nirgends in Dateien: native/android-hochladen.sh fragt es beim Bauen ab
+       und reicht es nur für diesen einen Bau weiter. Ohne Schlüssel entsteht eine unsignierte Datei. */
+    signingConfigs {
+        release {
+            def schluessel = System.getenv('IMKERBUCH_UPLOAD_KEYSTORE') ?: "${System.getProperty('user.home')}/Android/schluessel/imkerbuch-upload.jks"
+            def passwort = System.getenv('IMKERBUCH_UPLOAD_PASSWORT')
+            if (file(schluessel).exists() && passwort) {
+                storeFile file(schluessel)
+                storePassword passwort
+                keyAlias 'upload'
+                keyPassword passwort
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (signingConfigs.release.storeFile) signingConfig signingConfigs.release
         }
     }
 }

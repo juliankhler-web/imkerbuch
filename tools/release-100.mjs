@@ -6,7 +6,8 @@
    2. In index.html: APP_VERSION = '1.00' und „Was ist neu?“ bekommt genau einen
       Eintrag für Kunden („Willkommen bei ImkerBuch 1.0“).
    3. package.json → 1.0.0, Service-Worker-Cache +1.
-   4. iOS: MARKETING_VERSION 1.0 und Build-Nummer 1; Android: versionName "1.0", versionCode 1.
+   4. iOS: MARKETING_VERSION 1.0 und Build-Nummer 100; Android: versionName "1.0", versionCode 100
+      (ab dann zählt native/sync-app.sh beides aus APP_VERSION weiter: 1.01 → 101 …).
 
    Aufruf:
      node tools/release-100.mjs --probe   → zeigt nur, was sich ändern würde (ändert nichts)
@@ -64,10 +65,10 @@ setze('service-worker.js', sw, sw.replace(/imkerbuch-v(\d+)/, (_, n) => 'imkerbu
 // 4: iOS + Android
 const pbx = 'native/ios/App/App.xcodeproj/project.pbxproj';
 const pb = lies(pbx);
-setze(pbx, pb, pb.replace(/MARKETING_VERSION = [^;]+;/g, 'MARKETING_VERSION = 1.0;').replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, 'CURRENT_PROJECT_VERSION = 1;'));
+setze(pbx, pb, pb.replace(/MARKETING_VERSION = [^;]+;/g, 'MARKETING_VERSION = 1.0;').replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, 'CURRENT_PROJECT_VERSION = 100;'));
 const grd = 'native/android/app/build.gradle';
 const gr = lies(grd);
-setze(grd, gr, gr.replace(/versionCode \d+/, 'versionCode 1').replace(/versionName "[^"]+"/, 'versionName "1.0"'));
+setze(grd, gr, gr.replace(/versionCode \d+/, 'versionCode 100').replace(/versionName "[^"]+"/, 'versionName "1.0"'));
 
 console.log((PROBE ? 'PROBE – würde ändern:\n  ' : 'Umgestellt auf 1.00:\n  ') + aenderungen.join('\n  '));
 console.log(`\nAlte Version: ${vMatch[1]} → neu: 1.00. Danach: npm test · ./native/sync-app.sh · committen.`);
