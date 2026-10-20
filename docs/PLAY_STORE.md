@@ -7,6 +7,7 @@ Stand 2026-10-18. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 - Paket `de.imkerbuch.app`, `targetSdk 36` (Pflicht seit 31.08.2026), `minSdk 24`, `versionCode 1` / `versionName "1.0"` (je Upload `versionCode` +1).
 - Berechtigungen im Manifest: Internet, Kamera, Mikrofon, Standort (alle erst bei Benutzung gefragt), Mitteilungen (Erweiterung). **Kein „exakter Wecker“** (`SCHEDULE_EXACT_ALARM` entfernt – sonst Begründungspflicht bei Google). Kamera/Mikrofon/GPS als „nicht erforderlich“, damit Tablets ohne Kamera die App sehen.
 - Kauf: Google Play Billing über dieselbe Erweiterung wie iOS. Produkt `de.imkerbuch.app.vollversion` (Einmalkauf). Käufe werden automatisch bestätigt (sonst erstattet Google nach 3 Tagen).
+- **Light (seit v2.67):** nach den 30 Tagen kostenlos weiter mit 2 Völkern + Grundfunktionen (siehe `APP_STORE_EINREICHUNG.md` §27); in der Play-Beschreibung den Testphase-Satz entsprechend: „30 Tage alles testen, danach kostenlos als Light weiter – oder einmalig die Vollversion“.
 - **Testphase:** Google kennt keinen 0-€-Einmalkauf → 30 Tage ab Start auf dem Gerät (`testStartGeraet`, gerätebezogen). Neuinstallation startet neu – bewusst in Kauf genommen.
 - **Gutscheine:** Play-Promo-Codes für Einmalkäufe = Einzel-Codes (je Code einmal). Sammel-Codes nur für Abos. Einlösen im Play Store (`play.google.com/redeem`), danach in der App „Käufe wiederherstellen“.
 - Datei-Ausgaben, Sicherung, Rechtstexte, Erinnerungen: wie iOS (Teilen-Menü, Fenster in der App, lokale Mitteilungen).

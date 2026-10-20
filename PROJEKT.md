@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-20 (v2.70)**: Light überall nachgezogen: Imme-Antwort „kauf“ (+ Stichwörter light/kostenlos/gratis/gesperrt), support.html, agb.html §4, landing.html Preisliste, PLAY_STORE.md, Store-Bild 3 („Light bleibt gratis“).
 - **2026-10-20 (v2.69)**: Julian: Imme-Sprechblase ohne gelben Rahmen, auf dem Handy volle Breite (≤ 700 px: links 12 px, Breite 100vw − 24). Hinweis: blasser Hintergrund auf Vorschau-Bildern kommt vom pausierten Einblenden im Vorschau-Browser, nicht von der App (in WebKit-Aufnahme scharf).
 - **2026-10-20 (v2.68)**: Julian: beim ersten Start kurz erklären, wo was ist, und das Anpassen hervorheben → Einführungs-Kapitel 1 „Kurz umschauen“ (5 Schritte: Startseite, #dash-cfg, Schnellzugriffe, Mehr/ziehen, Imme; ersetzt „Alles finden“). Achtung: Imme-Tour findet `position:fixed`-Elemente nicht (offsetParent null) → auf Knöpfe darin zeigen. Store-Bild 7 „Deine App. Dein Betrieb.“ (studio-3.html, Aufnahme dash-anpassen).
 - **2026-10-20 (v2.67)**: ImkerBuch Light (Details Checkliste §27): nach 30 Tagen kostenlos weiter mit 2 Völkern + Grundfunktionen, Rest Vollversion (lesbar, Speichern → Kauf-Fenster), „Voll“-Kennzeichen, Startseiten-Hinweis, Start-Erinnerung alle 3 Tage. Tests angepasst + neuer Light-Test.
