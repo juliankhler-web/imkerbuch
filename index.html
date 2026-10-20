@@ -1419,8 +1419,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.73';
+const APP_VERSION = '2.74';
 const CHANGELOG = [
+  { version: '2.74', datum: '2026-10-20', punkte: [
+    'In der App (iPhone und Android): „Etikett drucken“ beim Volk und „Etiketten-QR“ bei der Charge erzeugen jetzt einen PDF-Bogen mit den Etiketten – über das Teilen-Menü druckst oder speicherst du ihn. Vorher tat der Knopf in der App nichts.',
+  ] },
   { version: '2.73', datum: '2026-10-20', punkte: [
     'Einführung auf dem iPhone: Immes Sprechblase rutscht nicht mehr unter Uhrzeit und Kamera-Aussparung – die erste Zeile und das ✕ sind immer zu sehen. Passt sie über dem gezeigten Knopf nicht ganz hin, steht sie darunter.',
     'Auf dem Handy bleibt nach dem Antippen kein oranger Rand mehr an Kacheln, Listen und Knöpfen hängen.',
@@ -6365,7 +6368,7 @@ async function volkQrAnzeigen(v) {
     title: `QR-Code · ${v.name}`,
     body: `<p class="small muted mb12">Drucken, laminieren und ans Beutendach kleben. Mit der Handy-Kamera scannen öffnet direkt die Durchsicht am Stand für dieses Volk – große Knöpfe, auch mit Handschuhen bedienbar.</p>
       <div id="vqr-zone" style="text-align:center"><span class="muted small">QR-Code wird erzeugt …</span></div>`,
-    footer: `<button class="btn btn-ghost" data-close2>Schließen</button><button class="btn btn-primary" data-print id="vqr-print" disabled>${icon('print')} Etikett drucken</button>`,
+    footer: `<button class="btn btn-ghost" data-close2>Schließen</button><button class="btn btn-primary" data-print id="vqr-print" disabled>${icon('print')} ${IST_NATIVE_APP ? 'Etiketten als PDF' : 'Etikett drucken'}</button>`,
   });
   $('[data-close2]', m.el).onclick = () => m.close(true);
   try {
@@ -6381,6 +6384,10 @@ async function volkQrAnzeigen(v) {
     stehen – ein Volk-Etikett fürs Beutendach darf größer sein als ein
     Chargen-Aufkleber fürs Glas. */
 function qrEtikettDruck(titel, dataUrl, anzahl = 6, { spalten = 3, mm = 40, schrift = 9 } = {}) {
+  /* In der App (iPhone/Android) gibt es keinen Druckdialog des Browsers – window.print() tut dort
+     nichts. Darum dort ein PDF-Bogen in denselben Maßen, der wie jedes andere PDF geteilt bzw.
+     über das Teilen-Menü gedruckt wird. */
+  if (IST_NATIVE_APP) return qrEtikettPdf(titel, dataUrl, anzahl, { spalten, mm, schrift });
   const div = document.createElement('div');
   div.className = 'qr-print print-only';
   div.innerHTML = `<h2 style="margin-bottom:8px">${U.esc(titel)} – QR-Etiketten</h2>
@@ -6397,6 +6404,30 @@ function qrEtikettDruck(titel, dataUrl, anzahl = 6, { spalten = 3, mm = 40, schr
   const cleanup = () => { div.remove(); document.body.classList.remove('qr-printing'); window.removeEventListener('afterprint', cleanup); };
   window.addEventListener('afterprint', cleanup);
   window.print();
+}
+
+/** QR-Etiketten als PDF-Bogen (A4) – gleiche Spalten, Größen und Beschriftung wie die Druckansicht. */
+async function qrEtikettPdf(titel, dataUrl, anzahl = 6, { spalten = 3, mm = 40, schrift = 9 } = {}) {
+  try {
+    const jsPDF = await Pdf.lib();
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const rand = 14, breite = 210 - 2 * rand, luecke = Math.max(6, 14 - spalten);
+    const zelle = (breite - luecke * (spalten - 1)) / spalten;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+    doc.text(`${titel} – QR-Etiketten`, rand, rand + 4);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(schrift);
+    const zeileH = mm + 2 + schrift * 0.45 + luecke;
+    let y = rand + 14;
+    for (let i = 0; i < anzahl; i++) {
+      const sp = i % spalten;
+      if (i > 0 && sp === 0) { y += zeileH; if (y + mm + 8 > 297 - rand) { doc.addPage(); y = rand; } }
+      const x = rand + sp * (zelle + luecke) + (zelle - mm) / 2;
+      doc.addImage(dataUrl, 'PNG', x, y, mm, mm);
+      const zeilen = doc.splitTextToSize(String(titel), zelle);
+      doc.text(zeilen.slice(0, 2), rand + sp * (zelle + luecke) + zelle / 2, y + mm + 2 + schrift * 0.35, { align: 'center' });
+    }
+    Pdf.finish(doc, `qr-etiketten-${String(titel).replace(/[^\wäöüß.-]+/gi, '_')}.pdf`);
+  } catch (e) { UI.toast('Etiketten-PDF nicht möglich: ' + (e.message || e), 'err'); }
 }
 
 Views.voelker = {
@@ -14440,7 +14471,7 @@ Views.honig = {
       try {
         const dataUrl = await Views.honig.qrDataUrl(c, ernten);
         zone.innerHTML = `<img src="${dataUrl}" alt="QR-Code Charge ${U.esc(c.losnummer)}" style="width:180px;height:180px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px">
-          <div class="mt8"><button class="btn btn-ghost btn-sm" id="qr-print">${icon('print')} Etiketten-QR drucken</button></div>`;
+          <div class="mt8"><button class="btn btn-ghost btn-sm" id="qr-print">${icon('print')} ${IST_NATIVE_APP ? 'Etiketten-QR als PDF' : 'Etiketten-QR drucken'}</button></div>`;
         $('#qr-print', zone).onclick = () => Views.honig.qrPrint(c, dataUrl);
       } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
       /* Der Code erscheint am Ende eines langen Fensters – ohne das hier

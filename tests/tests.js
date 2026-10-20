@@ -10767,6 +10767,25 @@ test('Imme-Sprechblase: nie unter der Statusleiste, weicht nach unten aus, verde
   } finally { w.Assistent.sicherRand = alt; ziel.remove(); tip.remove(); }
 });
 
+/* Android-Emulator 20.10.2026: In den Apps (iPhone/Android) tut window.print() nichts – „Etikett drucken“
+   war dort ein toter Knopf. Jetzt entsteht ein PDF-Bogen mit denselben Maßen. */
+test('QR-Etiketten als PDF: richtige Anzahl, Seitenumbruch, Beschriftung', async (w) => {
+  const qr = await w.makeQr('Charge 2026-07');
+  const alt = w.Pdf.noDownloadForTest; w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try {
+    await w.qrEtikettPdf('Charge 2026-07', qr, 12, { spalten: 4, mm: 30, schrift: 8 });
+    const doc = w.Pdf.lastDocForTest;
+    assert(doc, 'PDF wurde erzeugt');
+    assertEq(doc.getNumberOfPages(), 1, '12 kleine Etiketten passen auf eine Seite');
+    const text = doc.output();
+    assert(/Charge 2026-07 \\u2013 QR-Etiketten|QR-Etiketten/.test(text), 'Überschrift steht im PDF');
+    assertEq((text.match(/\/Subtype \/Image/g) || []).length >= 1, true, 'QR-Bild eingebettet');
+    w.Pdf.lastDocForTest = null;
+    await w.qrEtikettPdf('Volk Anna', qr, 30, { spalten: 3, mm: 40, schrift: 9 });
+    assert(w.Pdf.lastDocForTest.getNumberOfPages() >= 2, 'viele große Etiketten gehen auf eine zweite Seite');
+  } finally { w.Pdf.noDownloadForTest = alt; }
+});
+
 /* iPhone-Simulator 20.10.2026: „Los geht's!“ lag beim ersten Start auf „30 Tage kostenlos starten“. */
 test('Meldungen liegen nicht auf den Knöpfen eines offenen Fensters', (w) => {
   const root = w.document.getElementById('toast-root');
