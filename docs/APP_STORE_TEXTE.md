@@ -52,7 +52,7 @@ DEINE DATEN GEHÖREN DIR
 • Kein Konto, keine Werbung, kein Tracking
 • Sicherung per Teilen-Menü in iCloud Drive, Google Drive oder per Mail
 
-30 Tage kostenlos testen, danach einmalig die Vollversion kaufen – kein Abo, keine automatische Abbuchung. Nach der Testphase bleiben deine Daten lesbar und sicherbar.
+30 Tage alle Funktionen kostenlos testen. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
 
 Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“.
 
@@ -73,7 +73,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 
 - On first launch a short welcome form appears (all fields optional, "Überspringen" possible); right after it the purchase screen opens: tap "30 Tage kostenlos starten" to start the free 30-day trial (a free non-consumable IAP, as described in guideline 3.1.1). The full version is the non-consumable "de.imkerbuch.app.vollversion".
 - "Käufe wiederherstellen" (Restore Purchases) and "Code einlösen" (offer codes) are on the purchase screen and under Einstellungen → "ImkerBuch Vollversion".
-- After the trial, existing data stays readable and can be backed up; only creating/editing entries requires the full version.
+- After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time.
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Volk"), or follow the built-in tour by the assistant "Imme".
 - Permissions are only requested when used: camera (photos), microphone (voice notes), location (stand position), notifications (task reminders, local only).
 - Support and privacy pages are reachable in the app under Einstellungen → Rechtliches and "Hilfe & Kontakt".

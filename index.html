@@ -1410,8 +1410,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.66';
+const APP_VERSION = '2.67';
 const CHANGELOG = [
+  { version: '2.67', datum: '2026-10-20', punkte: [
+    '<b>ImkerBuch Light:</b> Nach den 30 Testtagen sperrt die App nicht mehr – sie läuft kostenlos weiter mit bis zu 2 Völkern, Durchsicht, Stockkarte, Varroa und Königinnen. Alles andere gibt es mit der Vollversion; deine Daten bleiben sichtbar.',
+  ] },
   { version: '2.66', datum: '2026-10-20', punkte: [
     'Zeiterfassung: Das Auffächern der Bereiche bleibt nicht mehr hängen, wenn das iPhone die Animation drosselt (z. B. Energiesparmodus).',
     'Bestandsbuch-PDF: kein doppeltes „Volk Volk Anna“ mehr.',
@@ -3048,7 +3051,7 @@ const S = {
   GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
-    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet']),
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -3214,7 +3217,7 @@ const UI = {
 
   /** Generisches Formular-Modal mit Validierung, Dezimalkomma und Dirty-Guard.
       Feld: {key,label,type:text|number|date|textarea|select|check|rating|multicheck|static,required,options:[{v,l}],hint,placeholder,showIf} */
-  formModal({ title, fields, values = {}, onSave, onDelete, saveText = 'Speichern', wide = false }) {
+  formModal({ title, fields, values = {}, onSave, onDelete, saveText = 'Speichern', wide = false, lizenzFrei = false }) {
     const nurLoeschen = UI._nurLoeschen; UI._nurLoeschen = null;   // siehe UI.nurLoeschen
     if (nurLoeschen) nurLoeschen.genutzt = true;
     const fid = (k) => `f-${k}`;
@@ -3353,7 +3356,7 @@ const UI = {
       /* Nach der Testphase: Eintragen/Ändern über Formulare gesperrt (Nur-Lesen).
          Bewusst HIER und nicht in der Datenbank: dort hätte die Sperre auch die
          internen Umstellungen beim Start blockiert – die App blieb dann hängen. */
-      try { Lizenz.pruefeSchreiben(['formular']); } catch (e) { UI.toast(e.message, 'err'); return; }
+      try { Lizenz.pruefeSchreiben(['formular']); await Lizenz.pruefeLight({ frei: lizenzFrei }); } catch (e) { if (!e.leise) UI.toast(e.message, 'err'); return; }
       try { await onSave(v); FormGuard.dirty = false; m.close(true); }
       catch (e) {
         if (e && e.leise) return;        // z. B. Rückfrage mit „Abbrechen“ beantwortet – Formular bleibt offen
@@ -3918,6 +3921,10 @@ async function renderRoute(opt = {}) {
     main.innerHTML = `<div class="card"><div class="card-title">${icon('warn')}<h2>Da ist etwas schiefgelaufen</h2></div><p class="muted small">${U.esc(e.message)}</p><button class="btn btn-ghost mt12" onclick="renderRoute()">Neu laden</button></div>`;
   }
   if (ueberholt()) return;     // nicht die inzwischen geöffnete Seite nach oben reißen
+  Lizenz.kennzeichnen();
+  const sperre = Lizenz.sperrBereich(route);
+  if (!sperre && route === 'dashboard' && Lizenz.light()) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>Du nutzt ImkerBuch Light</b> – bis ${Lizenz.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte. Kassenbuch, Behandlungen, Fütterung, Ernte, Aufgaben, Fotos und mehr gibt es mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion holen</button></div>`);
+  if (sperre) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>${U.esc(sperre)} ${/^(Rechnungen|Wanderungen|Trachten|Statistiken|Meldungen|Fotos)/.test(sperre) ? 'sind' : 'ist'} Teil der Vollversion.</b> Alles bleibt sichtbar – Neues eintragen geht mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`);
   kopfHoeheMerken();           // quer klebt die Kopfzeile auf Seiten mit Reiterleiste nicht (CSS)
   window.scrollTo({ top: scrollY });
   Assistent.layout(true); setTimeout(() => Assistent.layout(true), 120); setTimeout(() => Assistent.layout(true), 600);
@@ -4652,6 +4659,8 @@ const Anhang = {
       // Thumbnails über Blob-URLs; nach dem Laden freigeben, sonst leckt jeder Re-Render Speicher
       for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${U.esc(a.id)}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
       const ff = $('[data-filter]', el); if (ff) ff.onchange = () => { filter = ff.value; render(); };
+      // Light: Fotos und Dokumente sind Vollversion – schon das Auswahlfenster nicht öffnen
+      ['[data-add-foto]', '[data-add-doc]'].forEach((sel) => { const inp = $(sel, el); if (inp) inp.addEventListener('click', (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) e.preventDefault(); }); });
       $('[data-add-foto]', el).onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;
         try {
@@ -4884,7 +4893,7 @@ const Sprachnotiz = {
         </div>
         <div data-progress></div>`;
       for (const a of items) { const row = $(`[data-id="${U.esc(a.id)}"] audio`, el); if (row) { const u = URL.createObjectURL(a.blob); blobUrls.push(u); row.src = u; } }
-      $('[data-rec]', el).onclick = () => (recorder ? stopRec() : startRec());
+      $('[data-rec]', el).onclick = () => (recorder ? stopRec() : (Lizenz.nurVoll('Sprachnotizen') ? null : startRec()));
       $('[data-list]', el).addEventListener('click', async (e) => {
         const take = e.target.closest('[data-take]');
         if (take && onText) { const a = items.find((x) => x.id === take.dataset.take); await onText(a.transkript); UI.toast('In Notiz übernommen'); return; }
@@ -5067,6 +5076,7 @@ const DASH_WIDGETS = {
   }},
   wetter: { label: 'Wetter am Stand', ic: 'wetter', ziel: 'staende', async html() {
     if (!S.get('features').wetter) return '';
+    if (Lizenz.light()) return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter am Stand</h2></div><div class="muted small">Wetter am Stand gibt es in der Vollversion.</div><button class="btn btn-primary btn-sm mt8" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`;
     const stand = (await DB.getAll('staende')).find((s) => s.lat && s.lng);
     if (!stand) return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2></div><div class="muted small">Lege einen Stand mit Koordinaten an, um Wetter zu sehen.</div></div>`;
     let inner = '<div class="muted small">Wetter wird geladen …</div>';
@@ -5796,6 +5806,7 @@ const Wetter = {
     oder eine Stand-ID als Vorauswahl (Neuanlage). Unterstützt Fahrten zu einem Stand UND
     freie Fahrten (Einkauf, Schulung, Besorgung …) ohne Stand. */
 async function fahrtForm(arg = '', onDone, prefill = null) {
+  if (Lizenz.nurVoll('Das Fahrtenbuch')) return;
   const bearbeiten = arg && typeof arg === 'object' ? arg : null;
   const vorStandId = bearbeiten ? '' : (arg || '');
   const staende = await DB.getAll('staende');
@@ -6211,6 +6222,7 @@ Views.stand = {
     });
     const wAuto = $('#wAuto');
     if (wAuto) wAuto.onclick = async () => {
+      if (Lizenz.nurVoll('Das Wetter am Stand')) return;
       wAuto.disabled = true;
       try {
         const w = await Wetter.fetchCurrent(s);
@@ -6242,6 +6254,7 @@ async function koeniginOptions() {
 }
 /** Volk anlegen/bearbeiten inkl. Pflege der Königinnen-Zuordnungshistorie */
 async function openVolkForm(volk, defaults = {}, onDone) {
+  if (!volk && !(await Lizenz.neuesVolkErlaubt())) return;
   const staende = await DB.getAll('staende');
   const qOpts = await koeniginOptions();
   const beutenOpts = await gelernteWerte(VORSCHLAEGE.beutentyp, 'voelker', 'beutentyp');
@@ -6541,6 +6554,7 @@ Views.volk = {
     const sdVolk = $('#sdVolk'); if (sdVolk) sdVolk.onclick = () => Views.durchsicht.starten(v.id);
     $('#edit').onclick = () => openVolkForm(v, {}, renderRoute);
     $('#dup').onclick = async () => {
+      if (!(await Lizenz.neuesVolkErlaubt())) return;
       if (!(await UI.confirm({ title: 'Volk duplizieren?', text: 'Es wird eine Kopie der Stammdaten angelegt (ohne Stockkarte und ohne Königin).', confirmText: 'Duplizieren', danger: false }))) return;
       const copy = { name: v.name + ' (Kopie)', standId: v.standId, koeniginId: null, funktion: v.funktion || '', beutentyp: v.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: `Als Kopie von „${v.name}“ angelegt` }], notizen: '' };
       const nv = await DB.put('voelker', copy); UI.toast('Kopie angelegt'); navTo('volk/' + nv.id);
@@ -6552,7 +6566,7 @@ Views.volk = {
       const others = (await DB.getAll('voelker')).filter((x) => x.status === 'aktiv' && x.id !== v.id);
       if (!others.length) return UI.toast('Kein anderes aktives Volk vorhanden', 'err');
       UI.formModal({
-        title: 'Volk vereinigen',
+        title: 'Volk vereinigen', lizenzFrei: true,   // senkt die Völkerzahl – in Light immer erlaubt
         fields: [
           { key: 'ziel', label: `„${v.name}“ vereinigen mit`, type: 'select', required: true, options: others.map((o) => ({ v: o.id, l: o.name })) },
           { key: 'hinweis', type: 'static', html: '<div class="hint">Dieses Volk wird als „vereinigt“ archiviert, das Zielvolk bleibt bestehen. Die Königin dieses Volks wird abgemeldet.</div>' },
@@ -6887,7 +6901,8 @@ Views.durchsicht = {
   },
   /** Speichert die Durchsicht samt Sprachnotizen in EINEM Schreibvorgang. Gibt false zurück, wenn nichts erfasst war. */
   async speichern(volk, e) {
-    Lizenz.pruefeSchreiben(['stockkarten']);   // Durchsicht am Stand: nach der Testphase gesperrt
+    Lizenz.pruefeSchreiben(['stockkarten']);   // Durchsicht am Stand: vor dem Teststart gesperrt
+    await Lizenz.pruefeLight();                // Light: nur bis 2 aktive Völker
     const fragen = sdFragen();
     const hat = (f) => e.antworten[f.key] !== undefined;
     if (!fragen.some(hat) && !e.audio.length) return false;
@@ -6991,6 +7006,7 @@ Views.durchsicht = {
       if (t.hasAttribute('data-sd-karte')) { await this.aufnahmeBeenden(); return navTo('volk/' + volk.id); }
       if (t.hasAttribute('data-sd-mic')) {
         if (this._aufnahme) { await this.aufnahmeBeenden(); return renderRoute(); }
+        if (Lizenz.nurVoll('Sprachnotizen')) return;
         try {
           const r = await Sprachnotiz.aufnehmen({ onLive: (txt) => { const l = $('[data-sd-live]', main); if (l) l.textContent = txt || 'Aufnahme läuft …'; } });
           this._aufnahme = { volkId: volk.id, stop: r.stop };
@@ -9877,6 +9893,7 @@ async function verkaufsPapierkorbWiederherstellen(trashId) {
 }
 /** Verkaufs-Formular (optional mit vorgewählter Charge) */
 async function verkaufForm(vorAbfuellungId = '') {
+  if (Lizenz.nurVoll('Der Honigverkauf')) return;
   /* Alle Abfüllungen – auch leere: Tester-Wunsch „kein Bestand – trotzdem buchen?“.
      Dazu „Anderer Honig“ für Honig, der noch gar nicht erfasst ist. */
   const alleAbf = await DB.getAll('abfuellungen');
@@ -14197,6 +14214,7 @@ Views.honig = {
   },
 
   async chargeForm(c) {
+  if (Lizenz.nurVoll('Chargen')) return;
     const ernten = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
     const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
     const jahr = U.todayIso().slice(0, 4);
@@ -14423,6 +14441,7 @@ Views.honig = {
   },
   /** Abfüllen: eine Charge in ein oder mehrere Gebinde abfüllen (zieht kg intelligent ab). */
   async abfuellForm(vorChargeId = '') {
+  if (Lizenz.nurVoll('Die Abfüllung')) return;
     const abfAlle = await DB.getAll('abfuellungen');
     const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer, true);
     const frei = chargen.filter((c) => chargeRestKg(c, abfAlle) > 0.0001);
@@ -14920,6 +14939,7 @@ Views.kassenbuch = {
     Wisch.liste(box, '.row[data-id]', { bearbeiten: (r) => Views.kassenbuch.form(buchungVon(r)), loeschen: (r) => kassenbuchLoeschen(buchungVon(r)) });
   },
   async form(k, vorgabe) {
+  if (Lizenz.nurVoll('Das Kassenbuch')) return;
     const kontakte = await DB.getAll('kontakte');
     const beschrOpts = await gelernteWerte([], 'kassenbuch', 'beschreibung');
     // Bestehende Kategorie erhalten, auch wenn sie nicht (mehr) in der Standardliste steht –
@@ -15311,6 +15331,7 @@ Views.rechnungen = {
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('rechnungen', list).knopf : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
     const add = async () => {
+      if (Lizenz.nurVoll('Rechnungen')) return;
       const stg = S.get('steuer');
       const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
       const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, pfandSteuersatz: U.zahl(stg.pfandSteuersatz, 0), status: 'entwurf', qrAufDruck: false });
@@ -15401,6 +15422,7 @@ Views.rechnung = {
     let gespeichert = structuredClone(r);
     let wartend = Promise.resolve();
     const saveField = (fn) => {
+      if (Lizenz.nurVoll('Rechnungen')) return Promise.resolve(false);   // Light: Rechnungen sind Vollversion
       wartend = wartend.then(async () => {
         fn();
         try {
@@ -16624,6 +16646,7 @@ function zeitFaecher(box, bereiche, zustand, eintragZeile) {
 }
 
 function zeitDialog(a) {
+  if (Lizenz.light()) return;   // Zeiterfassung ist Vollversion – nach dem Abhaken nicht nach der Dauer fragen
   const taetigkeiten = S.get('taetigkeiten');
   const vorschlag = { zucht: 'Zucht', behandlung: 'Behandlung', fuetterung: 'Fütterung' }[a.quelle] || a.kategorie || '';
   const m = UI.modal({
@@ -17797,6 +17820,7 @@ async function zugangZurueckbuchen(rec, { kasse = true } = {}) {
     Mit `rec` wird ein gebuchter Zugang bearbeitet; dann gibt es nichts anzulegen
     und der Eintrag „Neue Position" fehlt. */
 async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
+  if (Lizenz.nurVoll('Lager und Material')) return;
   const NEU = '__neu';
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   const lieferanten = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – egal, wo und als was angelegt (Kunde, Lieferant, beides)
@@ -18141,6 +18165,7 @@ async function abgangZurueckbuchen(rec, { kasse = true } = {}) {
     Mit `rec` wird ein vorhandener Abgang bearbeitet: die alte Buchung wird beim
     Speichern zuerst zurückgenommen, dann neu gebucht. */
 async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = '') {
+  if (Lizenz.nurVoll('Lager und Material')) return;
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   /* Statt Sackgasse: gleich zum Anlegen führen (Prüfung „was blockiert unnötig“, 2026-10-20) */
   if (!posten.length) {
@@ -20223,6 +20248,7 @@ const Erinnerung = {
     const LN = this.plugin(); if (!LN) return 0;
     const offen = await LN.getPending();
     if (offen.notifications && offen.notifications.length) await LN.cancel({ notifications: offen.notifications.map((n) => ({ id: n.id })) });
+    if (Lizenz.light()) return 0;   // Aufgaben-Erinnerungen sind Vollversion
     if (!S.get('features').benachrichtigungen || !(await this.erlaubt())) return 0;
     const namen = {};
     for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
@@ -20285,7 +20311,68 @@ const Lizenz = {
     if (this.android()) l.testStart = S.get('testStartGeraet') || null;
     return l;
   },
-  /** 'voll' | 'test' | 'ohneTest' | 'abgelaufen' – rein rechnerisch (testbar). */
+  /* ImkerBuch LIGHT (Julian 2026-10-20): Nach den 30 Testtagen sperrt die App nicht mehr,
+     sondern läuft dauerhaft kostenlos als „Light“ weiter – bis 2 aktive Völker mit Ständen,
+     Durchsicht, Stockkarte, Varroa, Königinnen, Imme, Imkerschule, Hilfe, Sicherung/Export.
+     Alles andere ist Vollversion: sichtbar und lesbar (zeigt, was man verpasst), aber neues
+     Speichern öffnet das Kauf-Fenster. Sicherung/Export bleiben immer frei (Daten gehören dem Nutzer). */
+  LIGHT_VOELKER: 2,
+  NUR_VOLL: { kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
+    inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
+    behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen', meldungen: 'Meldungen',
+    bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
+    trachten: 'Trachten', reporting: 'Statistiken', rechner: 'Der Imker-Rechner', zucht: 'Die Zucht' },
+  VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
+  light() { return this.aktiv() && this.status() === 'abgelaufen'; },
+  /** Name des Bereichs, wenn die aktuelle Seite in Light nur zum Ansehen ist – sonst null. */
+  sperrBereich(route = currentRoute().route) {
+    if (!this.light()) return null;
+    if (route === 'volk') return this.VOLK_TAB_VOLL[Views.volk._tab] || null;
+    return this.NUR_VOLL[route] || null;
+  },
+  _sperre(text) {
+    setTimeout(() => this.fenster({ grund: text }), 0);
+    const e = new Error(text); e.lizenz = true; e.leise = true; throw e;
+  },
+  /** Light-Grenzen beim Speichern (Formulare, Durchsicht am Stand). frei = immer erlaubt (z. B. Völker vereinigen). */
+  async pruefeLight({ frei = false } = {}) {
+    if (!this.light() || frei) return;
+    const b = this.sperrBereich();
+    if (b) this._sperre(`${b} ist Teil der Vollversion.`);
+    const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    if (n > this.LIGHT_VOELKER) this._sperre(`ImkerBuch Light gilt für bis zu ${this.LIGHT_VOELKER} Völker – du hast ${n} aktive. Löse überzählige Völker auf oder hol dir die Vollversion.`);
+  },
+  /** Für Einstiege, die nicht auf einer gesperrten Seite liegen (Fahrt vom Dashboard, Verkauf …). true = gesperrt. */
+  /** Light: gesperrte Bereiche überall mit „Voll“ kennzeichnen (Menü, „Alle Bereiche“, untere Leiste). */
+  kennzeichnen() {
+    const an = this.light();
+    document.body.classList.toggle('ist-light', an);
+    if (!an || document.getElementById('light-css')) return;
+    const sel = (z) => Object.keys(this.NUR_VOLL).map((r) => `body.ist-light ${z}[data-route="${r}"]`).join(',');
+    const st = document.createElement('style'); st.id = 'light-css';
+    st.textContent = `${sel('.nav-item')},${sel('.sheet-grid button')},${sel('#bottomnav button')}{position:relative}
+      ${sel('.nav-item')}::after{content:"Voll";margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.3px;color:#3A2604;background:#E9A21C;border-radius:6px;padding:2px 6px}
+      ${sel('.sheet-grid button')}::after,${sel('#bottomnav button')}::after{content:"Voll";position:absolute;top:6px;right:6px;font-size:9.5px;font-weight:800;color:#3A2604;background:#E9A21C;border-radius:6px;padding:1px 5px}`;
+    document.head.appendChild(st);
+  },
+  /** Light: beim Start höchstens alle 3 Tage an die Vollversion erinnern (immer wegklickbar – Apple-Regel). */
+  async lightErinnerung(jetzt = Date.now()) {
+    if (!this.light() || !S.get('wizardDone')) return false;
+    const zuletzt = S.get('lightErinnert');
+    if (zuletzt && jetzt - Date.parse(zuletzt) < 3 * 864e5) return false;
+    await S.set('lightErinnert', new Date(jetzt).toISOString(), { auto: true });
+    setTimeout(() => this.fenster(), 1500);
+    return true;
+  },
+  nurVoll(bereich) { if (!this.light()) return false; this.fenster({ grund: `${bereich} ist Teil der Vollversion.` }); return true; },
+  async neuesVolkErlaubt() {
+    if (!this.light()) return true;
+    const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    if (n < this.LIGHT_VOELKER) return true;
+    this.fenster({ grund: `ImkerBuch Light gilt für bis zu ${this.LIGHT_VOELKER} Völker. Mehr Völker gibt es mit der Vollversion.` });
+    return false;
+  },
+  /** 'voll' | 'test' | 'ohneTest' | 'abgelaufen' – rein rechnerisch (testbar). „abgelaufen“ = Light. */
   status(l = this.speicher(), jetzt = Date.now()) {
     if (l.voll) return 'voll';
     if (!l.testStart) return 'ohneTest';
@@ -20298,7 +20385,8 @@ const Lizenz = {
     if (!this.aktiv()) return false;
     const st = this.status();
     if (st === 'voll' || st === 'test') return false;
-    return st === 'abgelaufen' || !!S.get('wizardDone');   // Einrichten vor dem Teststart ist erlaubt
+    if (st === 'abgelaufen') return false;                  // nach der Testphase: Light statt Sperre
+    return !!S.get('wizardDone');                           // Einrichten vor dem Teststart ist erlaubt
   },
   /** Schreibsperre für Eingaben des Nutzers (Formulare, Durchsicht am Stand).
       Einstellungen und interne Sicherungen bleiben immer erlaubt. */
@@ -20388,26 +20476,27 @@ const Lizenz = {
   _offen: false,
   /** Kauf-Fenster: vor dem Teststart, nach Ablauf und bei gesperrtem Schreiben. */
   /** Öffnet das Kauf-Fenster; das Versprechen erfüllt sich, wenn es wieder zu ist. */
-  async fenster() {
+  async fenster({ grund = '' } = {}) {
     if (this._offen || !this.aktiv()) return;
     this._offen = true;
     let zu; const geschlossen = new Promise((r) => { zu = r; });
     const pr = await this.preise();
     const st = this.status();
-    const kopf = st === 'abgelaufen' ? 'Deine Testphase ist vorbei' : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
+    const kopf = st === 'abgelaufen' ? (grund ? 'Das gibt es in der Vollversion' : 'ImkerBuch Light läuft weiter') : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
     const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : `als Einmalkauf (Preis siehe ${this.android() ? 'Google Play' : 'App Store'})`;
     const text = st === 'abgelaufen'
-      ? `Danke fürs Ausprobieren! Deine Daten bleiben erhalten, lesbar und sicherbar. Neues eintragen, ändern und löschen geht mit der Vollversion – ${preis}, kein Abo.`
+      ? `${grund ? U.esc(grund) + ' ' : 'Deine Testphase ist vorbei – ImkerBuch läuft kostenlos als <b>Light</b> weiter: bis zu ' + this.LIGHT_VOELKER + ' Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. '}Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und beliebig viele Völker gibt es mit der Vollversion – ${preis}, kein Abo. Alles, was du eingetragen hast, bleibt sichtbar.`
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
     const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen bleiben deine Daten lesbar und du kannst sie jederzeit sichern. Neues eintragen, ändern und löschen geht dann mit der Vollversion. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte). Alles andere geht dann mit der Vollversion – deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen</a></p></div>`,
-      footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>` });
+      footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>${st === 'abgelaufen' ? '<button class="btn btn-ghost" data-light>Weiter mit Light</button>' : ''}` });
     const fertig = (ok) => { if (ok) { m.close(); renderRoute(); } };
     const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => fertig(await this.kaufen('test'));
+    const li = m.el.querySelector('[data-light]'); if (li) li.onclick = () => m.close();
     m.el.querySelector('[data-voll]').onclick = async () => fertig(await this.kaufen('voll'));
     m.el.querySelector('[data-wieder]').onclick = async () => { await this.wiederherstellen(); if (['voll', 'test'].includes(this.status())) fertig(true); };
     m.el.querySelector('[data-code]').onclick = () => this.codeEinloesen();
@@ -24350,7 +24439,7 @@ Views.einstellungen = {
       </div>
 
       ${Lizenz.aktiv() ? `<div class="card"><div class="card-title">${icon('check')}<h2>ImkerBuch Vollversion</h2></div>
-        <p class="small mb12">${{ voll: 'Vollversion freigeschaltet ✓ – danke!', test: `Testphase: noch <b>${Lizenz.restTage()} Tage</b>.`, ohneTest: 'Die kostenlose Testphase ist noch nicht gestartet.', abgelaufen: 'Die Testphase ist vorbei. Deine Daten bleiben lesbar und sicherbar; Neues eintragen geht mit der Vollversion.' }[Lizenz.status()]}</p>
+        <p class="small mb12">${{ voll: 'Vollversion freigeschaltet ✓ – danke!', test: `Testphase: noch <b>${Lizenz.restTage()} Tage</b>.`, ohneTest: 'Die kostenlose Testphase ist noch nicht gestartet.', abgelaufen: `Du nutzt <b>ImkerBuch Light</b> (kostenlos): bis ${Lizenz.LIGHT_VOELKER} Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. Kassenbuch, Rechnungen, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos, Sprachnotizen, Bio und mehr gibt es mit der Vollversion.` }[Lizenz.status()]}</p>
         <div class="flex-wrap no-print">
           ${Lizenz.status() === 'voll' ? '' : `<button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">${icon('euro')} Vollversion kaufen</button>`}
           <button class="btn btn-ghost btn-sm" type="button" onclick="Lizenz.wiederherstellen()">${icon('restore')} Käufe wiederherstellen</button>
@@ -24944,7 +25033,7 @@ async function boot() {
   Erinnerung.init();
   Bewertung.init();
   // Nicht auf Apple warten: Start mit dem letzten bekannten Stand, Abgleich im Hintergrund
-  Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); });
+  Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); else Lizenz.lightErinnerung(); });
   warmupBibliotheken();
   pruefeMhd().then(() => Notif.check());
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && !IST_NATIVE_APP) {   // App: Dateien liegen im Paket, kein Offline-Cache nötig

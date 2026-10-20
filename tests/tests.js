@@ -12504,7 +12504,7 @@ test('Bewertungs-Nachfrage: nur nach gutem Moment, selten, höchstens 3×', (w) 
   assert(!B.sollFragen(z({ mal: 3 }), t0 + 400 * tag), 'höchstens 3×');
 });
 
-test('Lizenz: Testphase 30 Tage, danach nur lesen (Formulare gesperrt, Start-Umstellungen laufen)', async (w) => {
+test('Lizenz: Testphase 30 Tage; vor dem Teststart sind Formulare gesperrt, Start-Umstellungen laufen', async (w) => {
   const L = w.Lizenz, tag = 864e5, t0 = Date.parse('2026-11-01T10:00:00Z');
   assertEq(L.status({ voll: false, testStart: null }, t0), 'ohneTest');
   assertEq(L.status({ voll: false, testStart: new Date(t0).toISOString() }, t0 + 29 * tag), 'test');
@@ -12514,7 +12514,8 @@ test('Lizenz: Testphase 30 Tage, danach nur lesen (Formulare gesperrt, Start-Ums
   // Sperre greift nur, wenn die Lizenzprüfung aktiv ist (Store-App) – hier gezielt nachgestellt
   const echtAktiv = L.aktiv, echtFenster = L.fenster, echtSpeicher = L.speicher;
   L.aktiv = () => true; L.fenster = () => {};
-  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+  L.speicher = () => ({ voll: false, testStart: null });   // eingerichtet, Testphase noch nicht gestartet
+  const wizVorher = w.S.get('wizardDone'); await w.S.set('wizardDone', true, { auto: true });
   try {
     // Interne Schreibvorgänge (Umstellungen beim Start) laufen IMMER – sonst hing die App auf dem Startbild
     const intern = await w.DB.put('kontakte', { name: 'intern' }); await w.DB.del('kontakte', intern.id);
@@ -12525,14 +12526,14 @@ test('Lizenz: Testphase 30 Tage, danach nur lesen (Formulare gesperrt, Start-Ums
     const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
     m.querySelector('[data-save]').click();
     await new Promise((r) => setTimeout(r, 150));
-    assertEq(gespeichert, 0, 'Formular speichert nach Ablauf nicht');
+    assertEq(gespeichert, 0, 'Formular speichert vor dem Teststart nicht');
     assert(m.isConnected, 'Formular bleibt offen');
     L.speicher = () => ({ voll: true });
     m.querySelector('[data-save]').click();
     await new Promise((r) => setTimeout(r, 150));
     assertEq(gespeichert, 1, 'mit Vollversion wird gespeichert');
     await w.S.set('probeEinstellung', 1, { auto: true });   // Einstellungen gehen weiter
-  } finally { L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
+  } finally { L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; await w.S.set('wizardDone', wizVorher, { auto: true }); }
   assert(!L.gesperrt(), 'Web/Testseite: nie gesperrt');
 });
 
@@ -12540,18 +12541,66 @@ test('Lizenz: nach Ablauf darf der Papierkorb aufräumen und „Alle Daten lösc
   const L = w.Lizenz, tag = 864e5;
   const echtAktiv = L.aktiv, echtFenster = L.fenster, echtSpeicher = L.speicher;
   L.aktiv = () => true; L.fenster = () => {};
-  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 40 * tag).toISOString() });
+  L.speicher = () => ({ voll: false, testStart: null });
+  const wizVorher = w.S.get('wizardDone'); await w.S.set('wizardDone', true, { auto: true });
   try {
-    assert(L.gesperrt(), 'abgelaufen = gesperrt');
+    assert(L.gesperrt(), 'vor dem Teststart = gesperrt');
+    assert(!L.gesperrt.call({ ...L, aktiv: () => true, status: () => 'abgelaufen' }), 'nach der Testphase: Light statt Sperre');
     L.pruefeSchreiben(['papierkorb'], [{ op: 'del', store: 'papierkorb', id: 'x' }]);   // wirft nicht
     let fehler = null;
     try { L.pruefeSchreiben(['papierkorb'], [{ store: 'papierkorb', obj: { id: 'y' } }]); } catch (e) { fehler = e; }
     assert(fehler && fehler.lizenz, 'Neues in den Papierkorb legen bleibt gesperrt');
     L._loeschenErlaubt = true;
     L.pruefeSchreiben(['voelker'], [{ op: 'clear', store: 'voelker' }]);   // „Alle Daten löschen“
-  } finally { L._loeschenErlaubt = false; L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; }
-  for (const k of ['lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung']) assert(w.S.GERAET.has(k), k + ' bleibt auf dem Gerät');
+  } finally { L._loeschenErlaubt = false; L.aktiv = echtAktiv; L.fenster = echtFenster; L.speicher = echtSpeicher; await w.S.set('wizardDone', wizVorher, { auto: true }); }
+  for (const k of ['lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'lightErinnert']) assert(w.S.GERAET.has(k), k + ' bleibt auf dem Gerät');
 });
+
+test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen, Kauf-Fenster statt Speichern', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, tag = 864e5;
+  const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };
+  const fenster = []; L.aktiv = () => true; L.fenster = (o) => { fenster.push((o && o.grund) || 'start'); };
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+  const hashVorher = w.location.hash;
+  const probeForm = async () => {
+    let n = 0;
+    w.UI.formModal({ title: 'Probe', fields: [{ key: 'name', label: 'Name' }], async onSave() { n++; } });
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 200));
+    if (m.isConnected) m.remove();
+    return n;
+  };
+  try {
+    assert(L.light() && !L.gesperrt(), 'Light: nicht gesperrt');
+    for (const v of await w.DB.getAll('voelker')) await w.DB.del('voelker', v.id);
+    await w.DB.put('voelker', { name: 'A', status: 'aktiv' }); await w.DB.put('voelker', { name: 'B', status: 'aktiv' });
+    w.history.replaceState(null, '', '#/dashboard');
+    assertEq(await probeForm(), 1, 'Dashboard, 2 Völker: Speichern geht');
+    assertEq(await L.neuesVolkErlaubt(), false, 'drittes Volk nicht erlaubt');
+    w.history.replaceState(null, '', '#/kassenbuch');
+    assertEq(L.sperrBereich(), 'Das Kassenbuch'); assertEq(await probeForm(), 0, 'Kassenbuch: Speichern gesperrt');
+    w.history.replaceState(null, '', '#/behandlungen'); assertEq(await probeForm(), 0, 'Behandlungen gesperrt (Julian)');
+    w.history.replaceState(null, '', '#/volk/x'); w.Views.volk._tab = 'futter'; assertEq(L.sperrBereich(), 'Die Fütterung');
+    w.Views.volk._tab = 'stockkarte'; assertEq(L.sperrBereich(), null, 'Stockkarte frei');
+    w.history.replaceState(null, '', '#/dashboard');
+    await w.DB.put('voelker', { name: 'C', status: 'aktiv' });
+    assertEq(await probeForm(), 0, 'mehr als 2 aktive Völker: gesperrt');
+    let n = 0;
+    w.UI.formModal({ title: 'Vereinigen', lizenzFrei: true, fields: [{ key: 'x', label: 'x' }], async onSave() { n++; } });
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop(); m.querySelector('[data-save]').click(); await new Promise((r) => setTimeout(r, 200)); if (m.isConnected) m.remove();
+    assertEq(n, 1, 'Völker vereinigen bleibt erlaubt (senkt die Zahl)');
+    assert(L.nurVoll('Das Fahrtenbuch') && fenster.some((f) => /Fahrtenbuch/.test(f)), 'Einstieg von außen öffnet das Kauf-Fenster');
+    // Erinnerung höchstens alle 3 Tage
+    await w.S.set('lightErinnert', null, { auto: true }); const wiz = w.S.get('wizardDone'); await w.S.set('wizardDone', true, { auto: true });
+    assert(await L.lightErinnerung(Date.now()), 'erste Erinnerung');
+    assert(!(await L.lightErinnerung(Date.now() + 2 * tag)), 'nach 2 Tagen nicht erneut');
+    assert(await L.lightErinnerung(Date.now() + 4 * tag), 'nach 4 Tagen wieder');
+    await w.S.set('wizardDone', wiz, { auto: true });
+    // In der Testphase ist alles offen (Julian: man soll sehen, wie gut es ist)
+    L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 5 * tag).toISOString() });
+    w.history.replaceState(null, '', '#/kassenbuch'); assertEq(L.sperrBereich(), null, 'Testphase: nichts gesperrt');
+  } finally { Object.assign(L, echt); w.history.replaceState(null, '', hashVorher || '#/dashboard'); w.Views.volk._tab = undefined; }
+}));
 
 test('Standort: in der App über die Erweiterung (eine Frage statt zwei), verständliche Fehler', async (w) => {
   const echtNativ = w.IST_NATIVE_APP;

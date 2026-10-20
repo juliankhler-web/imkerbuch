@@ -224,3 +224,11 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - Repo bleibt **öffentlich bis zum Start**; erst dann privat. Kein GitHub Pro jetzt (bei öffentlichen Repos bringt Pro praktisch nichts).
 - Zum Start (kostenlos): App-Code-Repo privat, zweites kleines öffentliches Repo nur für Vorstellungsseite + Datenschutz/Impressum/AGB/Support (Pages kostenlos). URLs in den Store-Texten dann anpassen oder gleich halten. Pro (4 $/Monat) nur nötig, wenn Pages aus dem privaten Repo kommen soll.
 - 2026-10-19: GitHub Pages auf **„GitHub Actions“** umgestellt (Julians Ja). `.github/workflows/pages.yml` veröffentlicht nur App + Webseite (11 MB statt 176 MB; keine iOS-/Android-Projekte, Videos, Store-Fotos mehr öffentlich). Neue Dateien, die die Webseite braucht, dort in die Kopierliste eintragen.
+
+## 27. ImkerBuch Light (Julian 2026-10-20)
+
+- 30 Tage **alles** offen (Testphase, „man soll sehen, wie gut es ist“). Danach **kein Sperren**, sondern dauerhaft kostenlos „Light“: bis **2 aktive Völker**, Stände, Durchsicht (auch am Stand), Stockkarte, Varroa, Königinnen, Imme/Imkerschule/Hilfe, Sicherung/Export.
+- **Nur Vollversion (14,99 €, später 24,99 €):** Kassenbuch, Rechnungen, Verkauf, Chargen/Abfüllung/Lager, Abnehmer, weitere Produkte, **Behandlungen + Bestandsbuch, Meldungen, Fütterung + Futterrechner, Ernte, Aufgaben + Erinnerungen, Wetter, Fotos/Dokumente, Sprachnotizen** (Julians Entscheidung, Hinweis auf Bestandsbuch-Pflicht wurde gegeben), Bio, Hygiene, Fahrtenbuch, Zeiterfassung, Wanderungen, Trachten, Statistiken, Rechner, mehr als 2 Völker.
+- „Muss richtig nerven“ (Julian), aber Apple-konform immer wegklickbar: „Voll“-Kennzeichen im Menü/„Alle Bereiche“/untere Leiste, Hinweis-Leiste auf jeder Vollversions-Seite und auf der Startseite, Kauf-Fenster bei jedem gesperrten Speichern, beim Start höchstens alle 3 Tage.
+- Gesperrte Bereiche bleiben **lesbar** (Daten aus der Testphase sichtbar). Mehr als 2 aktive Völker: Ansehen ja, Neues erst bei ≤ 2 (Auflösen/Vereinigen bleibt erlaubt) oder mit Vollversion.
+- Technik: `Lizenz.light()`, `NUR_VOLL`, `VOLK_TAB_VOLL`, `pruefeLight` (formModal + Durchsicht am Stand), `nurVoll()` an Einstiegen außerhalb gesperrter Seiten, `neuesVolkErlaubt()`, `lightErinnerung()`, `kennzeichnen()`. Store-Texte + Prüferhinweise angepasst.
