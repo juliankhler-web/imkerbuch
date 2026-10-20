@@ -31,6 +31,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
    - Technik: `android/app/build.gradle` → `signingConfigs.release` liest Schlüsselpfad und Passwort nur aus Umgebungsvariablen; ohne sie entsteht eine unsignierte Datei, die das Skript ablehnt. Mit Wegwerf-Schlüssel getestet.
    - **Bau-Nummern:** nach 1.00 setzt `sync-app.sh` sie automatisch (1.00 → 100, 1.01 → 101 …). **Nie einen Entwicklungsstand (2.x) zu Google hochladen** – dessen Nummer wäre höher als die von 1.00.
    - **Mindest-WebView 98** (`capacitor.config.json`): ältere „Android System WebView“ → Hinweisseite `webview-veraltet.html` mit Link zum Play Store.
+   - Geprüft 20.10.2026 im Emulator „ImkerBuch_Alt“ (Android 10, WebView 91): Hinweisseite erscheint statt leerer App, der Knopf öffnet den Play Store. Die App selbst auf Android 10 mit aktueller WebView ließe sich nur mit Google-Anmeldung im Emulator prüfen (nicht gemacht) – Android-Version ist für die App zweitrangig, entscheidend ist die WebView (≥ 98; auf Geräten mit Play Store aktualisiert sie sich selbst).
 4. **Geschlossener Test:** 12 Tester, **14 Tage am Stück** (Julians Imker). Erst danach Freigabe für alle.
 5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 € Einführung, später 24,99 €), Länder DE/AT/CH.
 6. Android-Test: Fotos, Sprachnotiz, Standort, Erinnerungen, Teilen-Menü (PDF/Sicherung), Kauf/Wiederherstellen, Zurück-Taste, Tablet.
