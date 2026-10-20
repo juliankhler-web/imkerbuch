@@ -1,6 +1,6 @@
 # Google Play – Vorbereitung (Entwurf zum Einfügen)
 
-Stand 2026-10-18. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.md`. Julian prüft und gibt frei.
+Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.md`. Julian prüft und gibt frei.
 
 ## Technik (im Projekt erledigt)
 
@@ -11,6 +11,13 @@ Stand 2026-10-18. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 - **Testphase:** Google kennt keinen 0-€-Einmalkauf → 30 Tage ab Start auf dem Gerät (`testStartGeraet`, gerätebezogen). Neuinstallation startet neu – bewusst in Kauf genommen.
 - **Gutscheine:** Play-Promo-Codes für Einmalkäufe = Einzel-Codes (je Code einmal). Sammel-Codes nur für Abos. Einlösen im Play Store (`play.google.com/redeem`), danach in der App „Käufe wiederherstellen“.
 - Datei-Ausgaben, Sicherung, Rechtstexte, Erinnerungen: wie iOS (Teilen-Menü, Fenster in der App, lokale Mitteilungen).
+
+## Kontotyp: privat oder Organisation (Julian 2026-10-20)
+
+- **Testpflicht 12 Tester × 14 Tage gilt laut Google nur für private Konten**, die nach dem 13.11.2023 angelegt wurden ([Google-Hilfe](https://support.google.com/googleplay/android-developer/answer/14151465?hl=de)). Firmen wie Abacus.AI nutzen Organisationskonten.
+- Organisationskonto braucht eine **D-U-N-S-Nummer** ([Google-Hilfe](https://support.google.com/googleplay/android-developer/answer/13628312?hl=de)). Dun & Bradstreet vergibt sie laut eigenem Datenblatt auch an **Einzelunternehmen**; ob Google ein Einzelunternehmen als Organisation annimmt, ist nicht belegt (keine Erfahrungsberichte gefunden).
+- **20.10.2026:** D-U-N-S kostenlos über Apples D-U-N-S-Suche beantragt (developer.apple.com/enroll/duns-lookup → leitet an D&B weiter). Name dort: „ImkerBuch Julian Konstantin Koehler“ (Formular nimmt kein „ö“), Reichenberger Str. 15, 85221 Dachau. Dauer laut Berichten bis ~30 Tage. Telefon und Sicherheitscode gibt Julian selbst ein.
+- Plan: Nummer da → Play-Konto als **Organisation** (Name exakt wie bei D&B). Abgelehnt → privates Konto + 12 Imker als Tester.
 
 ## Offen – gemeinsam mit Julian
 
@@ -23,13 +30,13 @@ Stand 2026-10-18. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 
 ## Store-Eintrag
 
-- **App-Name (max. 30):** `ImkerBuch – Stockkarte & Honig`
+- **App-Name (max. 30):** `ImkerBuch` (wie im App Store, Julian 20.10.2026)
 - **Kurzbeschreibung (max. 80):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
 - **Vollständige Beschreibung:** wie `APP_STORE_TEXTE.md` → „Beschreibung“, aber im Abschnitt „Deine Daten gehören dir“: „Sicherung per Teilen-Menü in Google Drive, „Dateien“ oder per Mail“ (kein iCloud/AirDrop). Testphase-Satz: „30 Tage kostenlos testen (ab dem ersten Start auf dem Gerät) …“.
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
 - **Kontakt:** juliankhler+imkerbuch@googlemail.com · Website: `https://juliankhler-web.github.io/imkerbuch/landing.html`
 - **Datenschutz-URL:** `https://juliankhler-web.github.io/imkerbuch/datenschutz.html`
-- **Grafiken:** App-Symbol 512×512, Vorzeige-Grafik 1024×500 (vorhanden, siehe Store-Assets), Handy-Bilder (2–8, Galaxy-Rahmen), 7″- und 10″-Tablet-Bilder.
+- **Grafiken:** App-Symbol 512×512, Vorzeige-Grafik 1024×500 (alte helle Fassung in `Fotos Playstore/Play Store Upload/` – dunkle neu machen), **Handy-Bilder: `store-bilder/play/01–07-dunkel.png` (1080×1920 = 9:16, Android-Handy mit Kamera-Loch)** – erzeugt mit `node tools/store-bilder.mjs --play` aus denselben Bühnen wie die Apple-Bilder (Google erlaubt höchstens 2:1, die Apple-Bilder 1320×2868 sind zu lang). 7″-/10″-Tablet-Bilder optional.
 
 ## Datensicherheit („Data safety“-Formular)
 

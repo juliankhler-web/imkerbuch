@@ -1,6 +1,7 @@
 // Theme + Statusleiste einsetzen (vor dem Fotografieren)
   const dunkel = new URLSearchParams(location.search).get('app') === 'dunkel';
   if (dunkel) document.body.classList.add('dunkel');
+  if (new URLSearchParams(location.search).get('play') === '1') document.body.classList.add('play');   // Google Play: 9:16 + Android-Handy
   const farbe = dunkel ? '#F4EEE4' : '#1A1612';
   const balken = `<svg viewBox="0 0 36 24"><rect x="0" y="16" width="6" height="8" rx="1.5" fill="${farbe}"/><rect x="10" y="11" width="6" height="13" rx="1.5" fill="${farbe}"/><rect x="20" y="6" width="6" height="18" rx="1.5" fill="${farbe}"/><rect x="30" y="0" width="6" height="24" rx="1.5" fill="${farbe}"/></svg>`;
   const wlan = `<svg viewBox="0 0 32 24"><path d="M16 22l4.5-5a6.4 6.4 0 0 0-9 0zM6.5 11.5a13.4 13.4 0 0 1 19 0l-3 3.3a9 9 0 0 0-13 0zM1 5.8a21 21 0 0 1 30 0l-3 3.3a16.6 16.6 0 0 0-24 0z" fill="${farbe}"/></svg>`;

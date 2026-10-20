@@ -12,7 +12,7 @@
    Aufruf: node tools/gesamtpruefung.mjs <zielordner> [--nur=iphone-se,ipad-quer]
 */
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 
 const ZIEL = process.argv[2];
 const NUR = ((process.argv.find((a) => a.startsWith('--nur=')) || '').split('=')[1] || '').split(',').filter(Boolean);
@@ -131,18 +131,24 @@ async function main() {
   const ziel = new URL('../store-bilder/iphone/', import.meta.url).pathname;
   mkdirSync(ziel, { recursive: true });
   // Sätze: Bilder 1–3 (studio.html) und 4–6 (studio-2.html); NUR=… schränkt ein
-  const SAETZE = [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }, { datei: 'studio-ipad.html', start: 1, ipad: true, w: 2752, h: 2064 }];
-  for (const satz of SAETZE) for (const thema of (satz.ipad ? ['dunkel'] : ['hell', 'dunkel'])) {
-    const W = satz.w || 1320, H = satz.h || 2868, zielDir = satz.ipad ? ziel.replace(/iphone\/$/, 'ipad/') : ziel;
+  // --play: Google-Play-Fassung (9:16, Android-Handy) → store-bilder/play/0N-dunkel.png in 1080 × 1920
+  const PLAY = process.argv.includes('--play');
+  const SAETZE = PLAY ? [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }].map((x) => ({ ...x, h: 2347, play: true }))
+    : [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }, { datei: 'studio-ipad.html', start: 1, ipad: true, w: 2752, h: 2064 }];
+  for (const satz of SAETZE) for (const thema of (satz.ipad || satz.play ? ['dunkel'] : ['hell', 'dunkel'])) {
+    const W = satz.w || 1320, H = satz.h || 2868, zielDir = satz.ipad ? ziel.replace(/iphone\/$/, 'ipad/') : satz.play ? ziel.replace(/iphone\/$/, 'play/') : ziel;
     mkdirSync(zielDir, { recursive: true });
     const N = satz.n || 3;
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: W * N, height: H, deviceScaleFactor: 1, mobile: false });
-    await cdp.send('Page.navigate', { url: `http://localhost:8931/store-bilder/${satz.datei}${thema === 'dunkel' ? '?app=dunkel' : ''}` });
+    const query = [thema === 'dunkel' ? 'app=dunkel' : '', satz.play ? 'play=1' : ''].filter(Boolean).join('&');
+    await cdp.send('Page.navigate', { url: `http://localhost:8931/store-bilder/${satz.datei}${query ? '?' + query : ''}` });
     for (let i = 0; i < 100; i++) { try { if (await cdp.js(`return document.readyState === 'complete' && [...document.images].every((b) => b.complete && b.naturalWidth)`)) break; } catch (e) {} await schlaf(150); }
     await schlaf(800);
     for (let n = 0; n < N; n++) {
       const bild = await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: n * W, y: 0, width: W, height: H, scale: 1 } });
       writeFileSync(`${zielDir}0${n + satz.start}${thema === 'dunkel' ? '-dunkel' : ''}.png`, Buffer.from(bild.data, 'base64'));
+      // Google will für die Hervorhebung genau 9:16 → auf 1080 × 1920 bringen
+      if (satz.play) spawnSync('sips', ['-z', '1920', '1080', `${zielDir}0${n + satz.start}-dunkel.png`], { stdio: 'ignore' });
     }
     const pano = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 85 });
     writeFileSync(`${zielDir}panorama${satz.start > 1 ? '-' + satz.start : ''}${thema === 'dunkel' ? '-dunkel' : ''}.jpg`, Buffer.from(pano.data, 'base64'));
