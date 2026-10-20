@@ -6,7 +6,9 @@ import { createRequire } from 'node:module';
 const require = createRequire('/Users/juliankoehler/ImkerApp/package.json');
 const MarkdownIt = require('markdown-it');
 const md = new MarkdownIt({ html: false, linkify: true, typographer: false });
-const [quelle, ziel, untertitel] = process.argv.slice(2);
+import path from 'node:path';
+const [quelleRoh, zielRoh, untertitel] = process.argv.slice(2);
+const quelle = path.resolve(quelleRoh), ziel = path.resolve(zielRoh);   // Chrome braucht absolute Pfade (file://…)
 let html = md.render(fs.readFileSync(quelle, 'utf8'));
 html = html.replace(/<li>\[ \] /g, '<li class="task"><span class="box"></span>').replace(/<li>\[x\] /gi, '<li class="task"><span class="box an">✓</span>');
 html = html.replace(/<li>(<p>)?\[ \] /g, '<li class="task">$1<span class="box"></span>');
