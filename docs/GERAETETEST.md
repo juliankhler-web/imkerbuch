@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 20.10.2026, Version 2.74 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 20.10.2026, Version 2.75 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
