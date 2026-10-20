@@ -12955,6 +12955,34 @@ test('Erinnerungen: richtige Zeitpunkte für Aufgaben mit und ohne Uhrzeit', (w)
   assertEq(E.termine(viele, jetzt).length, 60, 'höchstens 60 (iOS-Grenze 64)');
 });
 
+test('Erinnerungen minutengenau: exakt planen nur mit Erlaubnis, sonst ungefähr ohne ungefragtes Einstellungs-Fenster', async (w) => {
+  const E = w.Erinnerung, altPlugin = E.plugin, altAndroid = E.android, altF = { ...w.S.get('features') };
+  let genau = false, geplant = null, geoeffnet = 0;
+  const LN = {
+    getPending: async () => ({ notifications: [] }), cancel: async () => {},
+    checkPermissions: async () => ({ display: 'granted' }),
+    checkExactNotificationSetting: async () => ({ exact_alarm: genau ? 'granted' : 'denied' }),
+    changeExactNotificationSetting: async () => { geoeffnet++; genau = true; return { exact_alarm: 'granted' }; },
+    schedule: async (x) => { geplant = x; },
+  };
+  const a = await w.DB.put('aufgaben', { titel: 'GENAU-TEST', faellig: w.U.addDays(w.U.todayIso(), 2), uhrzeit: '10:15', erledigt: false });
+  E.plugin = () => LN; E.android = () => true;
+  try {
+    await w.S.set('features', { ...altF, benachrichtigungen: true }, { auto: true });
+    await E.planen();
+    assert(geplant && geplant.notifications.every((n) => n.isExactNotification === false), 'ohne Erlaubnis: ungefähr (sonst öffnet das Plugin ungefragt die Einstellung)');
+    assertEq(geoeffnet, 0, 'Planen öffnet nie die Android-Einstellung');
+    assertEq(await E.genauEinschalten({ erklaeren: false }), true, 'Einschalten über die Android-Einstellung');
+    assertEq(geoeffnet, 1);
+    geplant = null; await E.planen();
+    assert(geplant && geplant.notifications.length && geplant.notifications.every((n) => n.isExactNotification === true), 'mit Erlaubnis: minutengenau');
+    E.android = () => false; genau = false;
+    assertEq(await E.genau(), true, 'iPhone: immer genau, keine Abfrage');
+  } finally {
+    E.plugin = altPlugin; E.android = altAndroid; await w.S.set('features', altF, { auto: true }); await w.DB.del('aufgaben', a.id);
+  }
+});
+
 test('Erinnerungen aus: beim Speichern einer Aufgabe mit Datum kommt einmal ein Hinweis statt Stille', async (w) => {
   const altF = { ...w.S.get('features') }, altG = w.S.get('erinnerungGefragt'), altU = w.Notif.unterstuetzt, altT = w.UI.toast;
   const meldungen = [];

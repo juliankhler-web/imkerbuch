@@ -1460,8 +1460,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.79';
+const APP_VERSION = '2.80';
 const CHANGELOG = [
+  { version: '2.80', datum: '2026-10-20', punkte: [
+    '<b>Android: Erinnerungen minutengenau.</b> Beim Einschalten der Erinnerungen fragt die App nach der Android-Erlaubnis „Wecker & Erinnerungen“ – damit kommt jede Erinnerung genau zur eingestellten Zeit (vorher durfte Android bis zu einer Stunde später zustellen). Status und Knopf „Minutengenau einschalten“ unter Einstellungen → Funktionen → Erinnerungen. Auf dem iPhone war es schon immer pünktlich.',
+  ] },
   { version: '2.79', datum: '2026-10-20', punkte: [
     '<b>Neu: „Unterlagen“</b> (vorher „Meldungen & Export“) – alles, was die App ausdrucken oder herausgeben kann, an einer Stelle: Meldungen fürs Amt, Bestandsbuch, Bio-Unterlagen, Volksakte, Fütterungsliste, Wanderbuch, Chargen, Verkäufe, Rechnungen, Kassenbuch, Fahrtenbuch, Inventar, Statistiken, Jahresbericht, Komplettausdruck und Datensicherung. Oben das Jahr (gilt für alles darunter) und eine Suche, darunter die Kategorien als Reiter.',
     'Jahr-Auswahl jetzt auch für Bestandsbuch, Wanderbuch, Chargenübersicht und die Statistik-PDFs.',
@@ -20929,6 +20932,25 @@ const Erinnerung = {
   spaeterPlanen() { if (!this.plugin()) return; clearTimeout(this._t); this._t = setTimeout(() => this.planen().catch((e) => console.warn('Erinnerungen planen', e)), 1200); },
   async erlaubt() { const LN = this.plugin(); if (!LN) return false; try { return (await LN.checkPermissions()).display === 'granted'; } catch (_) { return false; } },
   async erlaubnisHolen() { const LN = this.plugin(); if (!LN) return 'unsupported'; try { return (await LN.requestPermissions()).display; } catch (_) { return 'denied'; } },
+  /* Minutengenau (Julian, v2.80): Android stellt ohne die Erlaubnis „Wecker & Erinnerungen“ nur ungefähr zu –
+     bei Erinnerungen Stunden im Voraus bis zu 1 Stunde später. Das iPhone ist immer pünktlich. */
+  android() { return !!(window.Capacitor && typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() === 'android'); },
+  async genau() {
+    const LN = this.plugin(); if (!LN) return false;
+    if (!this.android()) return true;
+    try { return (await LN.checkExactNotificationSetting()).exact_alarm === 'granted'; } catch (_) { return false; }
+  },
+  /** Öffnet die Android-Einstellung „Wecker & Erinnerungen“ (nach einer kurzen Erklärung). true = jetzt erlaubt. */
+  async genauEinschalten({ erklaeren = true } = {}) {
+    const LN = this.plugin(); if (!LN || !this.android()) return true;
+    if (await this.genau()) return true;
+    if (erklaeren && !(await UI.confirm({ title: 'Minutengenau erinnern?', text: 'Damit Android Erinnerungen genau zur eingestellten Zeit schickt, braucht ImkerBuch die Erlaubnis „Wecker & Erinnerungen“. Gleich öffnet sich die Einstellung – dort ImkerBuch einschalten und mit „Zurück“ in die App kommen. Ohne die Erlaubnis kann Android Erinnerungen bis zu einer Stunde später schicken.', confirmText: 'Einstellung öffnen', danger: false }))) return false;
+    let ok = false;
+    try { ok = (await LN.changeExactNotificationSetting()).exact_alarm === 'granted'; } catch (_) { ok = await this.genau(); }
+    UI.toast(ok ? 'Erinnerungen kommen jetzt minutengenau' : 'Ohne die Erlaubnis kommen Erinnerungen auf Android nur ungefähr pünktlich', ok ? undefined : 'err');
+    this.spaeterPlanen();
+    return ok;
+  },
   async planen() {
     const LN = this.plugin(); if (!LN) return 0;
     const offen = await LN.getPending();
@@ -20938,13 +20960,15 @@ const Erinnerung = {
     const namen = {};
     for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
     const liste = this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen);
-    if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, isExactNotification: false, extra: t.extra })) });
+    /* exakt nur, wenn erlaubt – sonst würde das Plugin bei jedem Planen ungefragt die Android-Einstellung öffnen */
+    const genau = await this.genau();
+    if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, isExactNotification: genau, extra: t.extra })) });
     return liste.length;
   },
   async probe() {
     const LN = this.plugin(); if (!LN) return false;
     if (!(await this.erlaubt()) && (await this.erlaubnisHolen()) !== 'granted') return false;
-    await LN.schedule({ notifications: [{ id: 1, title: 'ImkerBuch', body: 'Probe-Mitteilung – so erinnert dich die App an fällige Aufgaben.', schedule: { at: new Date(Date.now() + 5000) }, isExactNotification: false }] });
+    await LN.schedule({ notifications: [{ id: 1, title: 'ImkerBuch', body: 'Probe-Mitteilung – so erinnert dich die App an fällige Aufgaben.', schedule: { at: new Date(Date.now() + 5000) }, isExactNotification: await this.genau() }] });
     return true;
   },
   init() {
@@ -20966,6 +20990,7 @@ async function erinnerungAnbieten(aufgabe) {
   const sagen = (t, art) => { if (erinnerungAnbieten._gesagt) return; erinnerungAnbieten._gesagt = true; UI.toast(t, art); };
   if (S.get('features').benachrichtigungen) {
     if (Erinnerung.plugin() && !(await Erinnerung.erlaubt())) sagen('Erinnerungen sind an, aber das Telefon erlaubt ImkerBuch keine Mitteilungen – in den Telefon-Einstellungen bei ImkerBuch einschalten.', 'err');
+    else if (Erinnerung.plugin() && aufgabe.uhrzeit && !(await Erinnerung.genau())) sagen('Android erinnert gerade nur ungefähr pünktlich – für minutengenau unter Einstellungen → Funktionen → Erinnerungen „Minutengenau“ einschalten.');
     return;
   }
   if (S.get('erinnerungGefragt')) { sagen('Hinweis: Erinnerungen an Aufgaben sind ausgeschaltet – einschalten unter Einstellungen → Funktionen → Erinnerungen.'); return; }
@@ -20974,6 +20999,7 @@ async function erinnerungAnbieten(aufgabe) {
   if (!ja) return;
   const f = S.get('features'); f.benachrichtigungen = true; await S.set('features', f);
   if ((await Notif.anfordern()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.', 'err');
+  else if (!(await Erinnerung.genauEinschalten())) { /* Hinweis kommt aus genauEinschalten bzw. „Später“ */ }
   else UI.toast('Erinnerungen sind an');
 }
 
@@ -25210,6 +25236,7 @@ Views.einstellungen = {
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>
         ${f.benachrichtigungen ? `<div class="mt8">
           <div class="field"><label>Aufgaben ohne Uhrzeit: am Fälligkeitstag um</label><input class="inp" type="time" id="er-uhrzeit" value="${U.esc(Erinnerung.einstellung().uhrzeit)}" style="max-width:140px"></div>
+          ${Erinnerung.plugin() && Erinnerung.android() ? '<div class="field" id="er-genau"></div>' : ''}
           <div class="field"><label>Aufgaben mit Uhrzeit: vorher erinnern</label><select class="inp" id="er-vorlauf" style="max-width:200px">${[[0, 'zur Uhrzeit'], [15, '15 Minuten vorher'], [30, '30 Minuten vorher'], [60, '1 Stunde vorher'], [120, '2 Stunden vorher'], [1440, '1 Tag vorher']].map(([v, l]) => `<option value="${v}" ${Number(Erinnerung.einstellung().vorlaufMin) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         </div>` : ''}
         <div class="hint" id="notif-status">${
@@ -25450,11 +25477,19 @@ Views.einstellungen = {
       if (e.target.checked) {
         const p = await Notif.anfordern();
         if (p !== 'granted') UI.toast('Keine Berechtigung – der App-Icon-Zähler und der Kalender-Export funktionieren trotzdem', 'err');
+        else await Erinnerung.genauEinschalten();
         await Notif.check(true);
       } else Notif.badge(0);
       Erinnerung.spaeterPlanen();
       renderRoute();
     };
+    /* Android: zeigen, ob minutengenau erinnert wird – und es mit einem Tipp einschalten */
+    const erGenau = $('#er-genau');
+    if (erGenau) Erinnerung.genau().then((ok) => {
+      erGenau.innerHTML = ok ? `<div class="small">${icon('check2')} <b>Minutengenau:</b> an – Erinnerungen kommen genau zur eingestellten Zeit.</div>`
+        : `<div class="small"><b>Minutengenau:</b> aus – Android kann Erinnerungen bis zu einer Stunde später schicken.</div><button type="button" class="btn btn-ghost btn-sm mt4" id="er-genau-an">${icon('uhr')} Minutengenau einschalten</button>`;
+      const b = $('#er-genau-an', erGenau); if (b) b.onclick = async () => { await Erinnerung.genauEinschalten({ erklaeren: false }); renderRoute({ scrollBehalten: true }); };
+    });
     const erZeit = $('#er-uhrzeit'), erVor = $('#er-vorlauf');
     const erSpeichern = async () => {
       await S.set('erinnerung', { uhrzeit: (erZeit && erZeit.value) || '07:00', vorlaufMin: Number(erVor && erVor.value) || 0 }, { auto: true });
