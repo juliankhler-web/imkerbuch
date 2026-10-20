@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 20.10.2026, Version 2.77 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 20.10.2026, Version 2.78 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -72,6 +72,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **F2** Einstellungen → Rechtliches → Datenschutz / Impressum / Support öffnen. → Öffnet sich **in der App**, Schließen-Knopf führt zurück; auf der Support-Seite den Mail-Link antippen → Mail-App.
 - [ ] **F3** Einstellungen → Sicherung → „Sicherung speichern“ → „In Dateien sichern“. → Datei liegt in der Dateien-App.
 - [ ] **F4** „Backup importieren“ → dieselbe Datei wählen → **„Zusammenführen“**. → Meldung, nichts doppelt.
+- [ ] **F4b** Menü → Meldungen & Export → Reiter „Export“ → Bereich „Völker“, ein Volk wählen, Jahr antippen. → Liste der Teile mit Anzahl; „Alles als PDF“ öffnet die Volksakte; bei „Durchsichten“ „CSV“ → Datei in Excel/Numbers öffnen: Datum als TT.MM.JJJJ, Kommazahlen mit Komma, Umlaute richtig.
+- [ ] **F4c** Einen Stand mit Koordinaten öffnen. → Wetter steht ohne Antippen da (Uhrzeit von heute), darunter die Grafik; „Letzte Werte“ aufklappen → höchstens 5 Zeilen.
 - [ ] **F5** (Ganz am Ende, löscht alles!) Einstellungen → „Alle Daten löschen“ → `LÖSCHEN` eintippen → „Endgültig löschen“. → App lädt neu und steht auf der **Startseite** mit „Willkommen bei ImkerBuch“ (nicht in den Einstellungen); die Testphase bzw. der Kauf bleibt erhalten.
 
 ## G · Belastungsprobe

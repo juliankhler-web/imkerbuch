@@ -574,6 +574,16 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 /* Gedrückt halten zum Verschieben (Menü „Mehr“ und untere Leiste) */
 .lp-sort button{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .lp-ph{opacity:.28}
+/* Wetter am Stand (v2.78): aktuelles Wetter groß, Wind/Regen als kleine Kacheln, letzte Werte zum Aufklappen */
+.w-jetzt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 0 10px}
+.w-jetzt b{font-size:34px;line-height:1.1;letter-spacing:-.5px}
+.w-werte-kurz{grid-template-columns:1fr 1fr}
+.ex-teile{border:1px solid var(--line);border-radius:12px;padding:2px 12px}
+.ex-teil{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.ex-teil:last-child{border-bottom:0}
+.ex-teil .ex-name{flex:1;min-width:0}
+.w-zeile{min-height:48px;padding:7px 2px;gap:10px}
+.w-letzte>summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--honey-dark);padding:6px 0;list-style-position:inside}
 /* Startseite (v2.76): die Lücke zeigt gestrichelt in Honig, wo die Kachel landet; die angehobene Kachel bekommt einen Honig-Rand */
 .dash-raster .dash-klick{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .dash-raster>.dash-klick.lp-ph{opacity:1;outline:2px dashed var(--honey);outline-offset:-2px;background:var(--honey-soft);border-radius:var(--r);transform:none}
@@ -1439,8 +1449,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.77';
+const APP_VERSION = '2.78';
 const CHANGELOG = [
+  { version: '2.78', datum: '2026-10-20', punkte: [
+    '<b>Wetter am Stand kommt von selbst:</b> Beim App-Start (und beim Öffnen eines Standes) holt die App das aktuelle Wetter aller Stände mit Koordinaten – höchstens alle 30 Minuten, nur mit Internet. Abschaltbar unter Einstellungen → Funktionen.',
+    'Die Wetter-Karte zeigt oben nur das aktuelle Wetter (Temperatur, Wind, Regen, Uhrzeit), darunter den Verlauf als Grafik (30 Tage, dieses Jahr oder alles). Pro Tag wird nur noch ein Wert gespeichert – die Liste wächst nicht mehr endlos; aufgeklappt stehen die letzten 5 Werte, alle übrigen über „Alle Werte exportieren“.',
+    '<b>Export je Bereich mit Volk und Jahr:</b> Unter „Export“ wählst du Bereich, ein einzelnes Volk (oder einen Stand) und das Jahr. Beim Volk entsteht die komplette <b>Volksakte</b> – Stammdaten, Königin, Durchsichten, Behandlungen, Fütterungen, Varroa, Gewichte, Ernten, Wanderungen, Aufgaben, Verlauf und Anhänge –, jeder Teil auch einzeln als PDF oder CSV, alles zusammen als PDF oder Excel.',
+    '<b>Excel und CSV sauber für deutsches Excel:</b> Datum als TT.MM.JJJJ, Kommazahlen mit Komma, Umlaute korrekt, Spaltenbreite nach Inhalt und Filterknöpfe in der Kopfzeile. Vorher stand in der CSV das Datum amerikanisch und die Kommazahl mit Punkt.',
+    'Komplettausdruck: Auch der Excel-Knopf nimmt jetzt das gewählte Jahr und die gewählten Bereiche.',
+  ] },
   { version: '2.77', datum: '2026-10-20', punkte: [
     'Nach „Alle Daten löschen“ beginnt die App wieder auf der Startseite mit der Begrüßung – vorher stand man danach erneut in den Einstellungen.',
     'Kein ungewolltes Vergrößern mehr: Doppeltippen zoomt nirgends hinein; in der App lässt sich die Ansicht gar nicht mehr verzoomen.',
@@ -2885,8 +2902,10 @@ const DB = {
   _betriebsdaten(ops) {
     return ops.some((o) => {
       if (o.store === 'snapshots') return false;
-      if (o.store !== 'settings') return true;
+      /* App-eigene Schreibvorgänge (Einstellungen, automatischer Wetter-Abruf) sind keine Arbeit des Imkers:
+         sonst meldete jeder App-Start „seit der letzten Sicherung geändert“. */
       if (o.auto) return false;
+      if (o.store !== 'settings') return true;
       if (o.op === 'clear') return true;
       return S.zaehltAlsDaten(o.op === 'del' ? o.id : o.obj && o.obj.key);
     });
@@ -3096,7 +3115,7 @@ const S = {
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
     rechnungskreis: { prefix: 'RE-', next: 1 },
-    features: { ocr: false, whisper: false, wetter: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
+    features: { ocr: false, whisper: false, wetter: true, wetterStart: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Zertifikat', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
@@ -5272,10 +5291,17 @@ const DASH_WIDGETS = {
     let inner = '<div class="muted small">Wetter wird geladen …</div>';
     setTimeout(async () => {
       const box = $('#dash-wetter'); if (!box) return;
-      try {
-        const w = await Wetter.fetchCurrent(stand);
-        box.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${U.fmtNum(w.windKmh, 0)} km/h · Regen ${U.fmtNum(w.niederschlagMm, 1)} mm</div><div class="small muted">Quelle: ${U.esc(w.quelle)}</div>`;
-      } catch (e) { box.innerHTML = `<div class="muted small">Wetter nicht abrufbar (offline?).</div>`; }
+      /* Derselbe gespeicherte Wert wie am Stand – höchstens alle 30 Minuten neu geholt (v2.78) */
+      const zeigen = (w, zusatz = '') => {
+        const b = $('#dash-wetter'); if (!b) return;
+        const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+        b.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${w.windKmh != null ? U.fmtNum(w.windKmh, 0) : '–'} km/h · Regen ${w.niederschlagMm != null ? U.fmtNum(w.niederschlagMm, 1) : '–'} mm</div><div class="small muted">${w.datum === U.todayIso() ? 'heute' : U.fmtDate(w.datum)}${uhr ? ' ' + uhr : ''} · ${U.esc(WETTER_QUELLE)}${zusatz}</div>`;
+      };
+      try { zeigen((await Wetter.aktuell(stand)).rec); }
+      catch (e) {
+        const alt = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((x, y) => Wetter.zeitpunkt(y) - Wetter.zeitpunkt(x))[0];
+        if (alt) zeigen(alt, ' · gerade offline'); else box.innerHTML = `<div class="muted small">Wetter nicht abrufbar (offline?).</div>`;
+      }
     }, 50);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2><a href="#/stand/${stand.id}" class="small">${U.esc(stand.name)}</a></div><div id="dash-wetter">${inner}</div></div>`;
   }},
@@ -6009,6 +6035,61 @@ const Wetter = {
     if (!v || v.temperature == null) throw new Error('Für diesen Ort gibt es keine Wetterdaten');
     return { tempC: v.temperature, windKmh: v.wind_speed ?? null, niederschlagMm: v.precipitation ?? 0, quelle: WETTER_QUELLE + ' (Vorhersage)' };
   },
+  /* Julian (v2.78): Das Wetter soll von selbst kommen und die Liste nicht endlos wachsen.
+     Deshalb: höchstens alle 30 Minuten neu holen, und pro Stand und Tag nur EIN abgerufener Wert –
+     der neueste ersetzt den von vorhin. Von Hand erfasste Werte bleiben unberührt. */
+  FRISCH_MIN: 30,
+  hatOrt(stand) { return !!stand && stand.lat != null && stand.lng != null && stand.lat !== '' && stand.lng !== ''; },
+  zeitpunkt(w) { return Date.parse(w.abgerufen || w.lastModified || w.createdAt || w.datum) || 0; },
+  async speichern(stand, w) {
+    const heute = U.todayIso();
+    const heutige = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.datum === heute && x.quelle !== 'manuell')
+      .sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a));
+    const rec = heutige[0] || { standId: stand.id, datum: heute, bemerkung: '' };
+    Object.assign(rec, { tempC: w.tempC, windKmh: w.windKmh, niederschlagMm: w.niederschlagMm, quelle: 'dwd', abgerufen: new Date().toISOString() });
+    await DB.schreibeAlles([{ store: 'wetter', obj: rec, auto: true }]);   // kein „seit der Sicherung geändert“
+    return rec;
+  },
+  /** Neuester abgerufener Wert des Stands – ist er jünger als 30 Minuten, wird nicht neu geholt (außer erzwingen). */
+  async aktuell(stand, { erzwingen = false } = {}) {
+    if (!erzwingen) {
+      const letzter = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a))[0];
+      if (letzter && Date.now() - this.zeitpunkt(letzter) < this.FRISCH_MIN * 60000) return { rec: letzter, neu: false };
+    }
+    return { rec: await this.speichern(stand, await this.fetchCurrent(stand)), neu: true };
+  },
+  /** Darf die App von selbst abrufen? Schalter „Wetter beim App-Start“, Vollversion, online – und nie im Testlauf. */
+  darfAuto() {
+    const f = S.get('features') || {};
+    return !!f.wetter && f.wetterStart !== false && !TEST_MODE && !Lizenz.light() && !Lizenz.gesperrt() && navigator.onLine !== false;
+  },
+  _laeuft: null,
+  /** Alle Stände mit Koordinaten nacheinander (still: offline oder Dienst gestört → einfach nichts). */
+  alleAbrufen() {
+    if (this._laeuft || !this.darfAuto()) return this._laeuft || Promise.resolve(0);
+    this._laeuft = (async () => {
+      let neu = 0;
+      for (const st of (await DB.getAll('staende')).filter((x) => this.hatOrt(x))) {
+        try { if ((await this.aktuell(st)).neu) neu++; } catch (e) { /* nächster Stand */ }
+      }
+      if (neu) window.dispatchEvent(new CustomEvent('wetter-neu'));
+      return neu;
+    })().finally(() => { this._laeuft = null; });
+    return this._laeuft;
+  },
+  init() {
+    setTimeout(() => this.alleAbrufen(), 2000);   // nach dem Start, ohne ihn zu bremsen
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.alleAbrufen(); });
+    window.addEventListener('online', () => this.alleAbrufen());
+    /* Neue Werte sofort zeigen, ohne die ganze Seite neu zu zeichnen (Formulare, Scrollstand bleiben) */
+    window.addEventListener('wetter-neu', () => { if ($('#wetter-box')) Views.stand.wetterZeichnen(); });
+  },
+  /** Ein Wert pro Tag für die Grafik: der späteste des Tages. */
+  jeTag(liste) {
+    const tage = new Map();
+    for (const w of liste) { const alt = tage.get(w.datum); if (!alt || this.zeitpunkt(w) >= this.zeitpunkt(alt)) tage.set(w.datum, w); }
+    return [...tage.values()].sort((a, b) => String(a.datum).localeCompare(String(b.datum)));
+  },
 };
 
 /** Fahrt erfassen (Fahrtenbuch): km vorbelegt mit 2 × Stand-Entfernung */
@@ -6372,7 +6453,6 @@ Views.stand = {
     const s = await DB.get('staende', id);
     if (!s) { main.innerHTML = emptyState('warn', 'Stand nicht gefunden.'); return; }
     const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === id && v.status === 'aktiv');
-    const wetterAll = U.sortBy((await DB.getAll('wetter')).filter((w) => w.standId === id), (w) => w.datum, true);
     const fahrten = U.sortBy((await DB.getAll('fahrten')).filter((f) => f.standId === id), (f) => f.datum, true);
     const jahrAktuell = U.todayIso().slice(0, 4);
     const links = s.lat && s.lng ? U.mapsLinks(s.lat, s.lng) : null;
@@ -6401,16 +6481,13 @@ Views.stand = {
         ${voelker.length ? `<button class="btn btn-primary btn-block mb12 no-print" id="sdStand" style="min-height:52px">${icon('check2')} Durchsicht am Stand · ${voelker.length} ${voelker.length === 1 ? 'Volk' : 'Völker'}</button>` : ''}
         ${voelker.length ? `<div class="rows">${seitenweise('stand-voelker', voelker).sichtbar.map((v) => `<button class="row" data-volk="${U.esc(v.id)}"><span class="r-ic">${icon('volk')}</span><span class="r-main"><span class="r-title">${U.esc(v.name)}</span><span class="r-sub">${U.esc(v.funktion || '')} ${v.beutenkennung ? (v.funktion ? '· ' : '') + U.esc(v.beutenkennung) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>${seitenweise('stand-voelker', voelker).knopf}` : '<div class="muted small">Keine aktiven Völker an diesem Stand.</div>'}
       </div>
-      <div class="card">
+      <div class="card" id="wetter-karte">
         <div class="card-title">${icon('wetter')}<h2>Wetter</h2>
           <span class="no-print flex" style="gap:8px">
-            ${s.lat && S.get('features').wetter ? `<button class="btn btn-ghost btn-sm" id="wAuto">${icon('wetter')} Jetzt abrufen</button>` : ''}
+            ${Wetter.hatOrt(s) && S.get('features').wetter ? `<button class="btn btn-ghost btn-sm" id="wAuto">${icon('wetter')} Aktualisieren</button>` : ''}
             <button class="btn btn-ghost btn-sm" id="wMan">${icon('plus')} Manuell</button>
           </span></div>
-        <div id="wetter-chart">${wetterAll.length > 1 ? UI.chart({ type: 'line', labels: [...wetterAll].reverse().map((w) => U.fmtDate(w.datum).slice(0, 6)), series: [{ name: '°C', values: [...wetterAll].reverse().map((w) => w.tempC) }], height: 160, unit: '°C' }) : ''}</div>
-        ${wetterAll.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th class="num">Temp.</th><th class="num">Wind</th><th class="num">Regen</th><th>Bemerkung</th><th></th></tr></thead>
-          <tbody>${wetterAll.slice(0, 30).map((w) => `<tr><td>${U.fmtDate(w.datum)}</td><td class="num">${U.fmtNum(w.tempC, 1)} °C</td><td class="num">${U.fmtNum(w.windKmh, 0)} km/h</td><td class="num">${U.fmtNum(w.niederschlagMm, 1)} mm</td><td>${U.esc(w.bemerkung || '')}${w.quelle === 'open-meteo' || w.quelle === 'dwd' ? ` <span class="badge b-blue" title="${w.quelle === 'dwd' ? 'Quelle: Deutscher Wetterdienst' : 'Quelle: Open-Meteo'}">auto</span>` : ''}</td>
-          <td class="no-print"><button class="btn btn-xs btn-ghost" data-wdel="${U.esc(w.id)}">${icon('trash')}</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="muted small">Noch keine Wetterdaten erfasst.</div>'}
+        <div id="wetter-box" data-stand="${U.esc(id)}"></div>
       </div>
       <div class="card" id="anhang-card"></div>`;
     $('#anhang-card').appendChild(Anhang.section({ parentTyp: 'stand', parentId: id, onNotiz: async (t) => { s.notizen = (s.notizen ? s.notizen + '\n' : '') + t; await DB.put('staende', s); renderRoute(); } }));
@@ -6423,23 +6500,30 @@ Views.stand = {
     main.addEventListener('click', async (e) => {
       const v = e.target.closest('[data-volk]'); if (v) return navTo('volk/' + v.dataset.volk);
       const wd = e.target.closest('[data-wdel]');
-      if (wd && (await UI.confirm({ title: 'Wettereintrag löschen?', text: 'Wandert in den Papierkorb.' }))) { await DB.softDel('wetter', wd.dataset.wdel); renderRoute(); }
+      if (wd && (await UI.confirm({ title: 'Wettereintrag löschen?', text: 'Wandert in den Papierkorb.' }))) { await DB.softDel('wetter', wd.dataset.wdel); Views.stand._wetterOffen = true; Views.stand.wetterZeichnen(); }
     });
     const volkVon = (r) => voelker.find((x) => x.id === r.dataset.volk);
     Wisch.liste(main, '.row[data-volk]', {
       bearbeiten: (r) => openVolkForm(volkVon(r), {}, renderRoute),
       loeschen: async (r) => { if (await volkAufloesen(volkVon(r))) renderRoute(); }, loeschenText: 'Auflösen',
     });
+    await Views.stand.wetterZeichnen();
+    /* Beim Öffnen von selbst aktualisieren, wenn der letzte Wert älter als 30 Minuten ist (Schalter „Wetter beim App-Start“) */
+    if (Wetter.hatOrt(s) && Wetter.darfAuto()) Wetter.aktuell(s).then((r) => { if (r.neu) Views.stand.wetterZeichnen(); }).catch(() => {});
     const wAuto = $('#wAuto');
     if (wAuto) wAuto.onclick = async () => {
       if (Lizenz.nurVoll('Das Wetter am Stand')) return;
       wAuto.disabled = true;
       try {
-        const w = await Wetter.fetchCurrent(s);
-        await DB.put('wetter', { standId: id, datum: U.todayIso(), tempC: w.tempC, windKmh: w.windKmh, niederschlagMm: w.niederschlagMm, bemerkung: '', quelle: 'dwd' });
-        UI.toast('Wetter abgerufen'); renderRoute();
-      } catch (err) { UI.toast('Wetterabruf fehlgeschlagen: ' + err.message, 'err'); wAuto.disabled = false; }
+        await Wetter.aktuell(s, { erzwingen: true });
+        UI.toast('Wetter aktualisiert'); await Views.stand.wetterZeichnen();
+      } catch (err) { UI.toast('Wetterabruf fehlgeschlagen: ' + err.message, 'err'); }
+      wAuto.disabled = false;
     };
+    $('#wetter-karte').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-wber]'); if (b) { Views.stand._wetterBereich = b.dataset.wber; Views.stand.wetterZeichnen(); return; }
+      if (e.target.closest('[data-wexport]')) Export.oeffnen({ bereich: 'wetter', stand: id });
+    });
     $('#wMan').onclick = () => UI.formModal({
       title: 'Wetter erfassen',
       fields: [
@@ -6449,8 +6533,59 @@ Views.stand = {
         { key: 'niederschlagMm', label: 'Niederschlag (mm)', type: 'number' },
         { key: 'bemerkung', label: 'Bemerkung', placeholder: 'z. B. Flugwetter, starker Pollen­eintrag' },
       ],
-      async onSave(v) { await DB.put('wetter', { standId: id, quelle: 'manuell', ...v }); UI.toast('Wetter gespeichert'); renderRoute(); },
+      async onSave(v) { await DB.put('wetter', { standId: id, quelle: 'manuell', ...v }); UI.toast('Wetter gespeichert'); Views.stand.wetterZeichnen(); },
     });
+  },
+  /* Wetter-Karte (Julian, v2.78): oben nur das aktuelle Wetter, darunter der Verlauf als Grafik,
+     aufklappbar höchstens die letzten 5 Werte – alles Weitere über „Alle Werte exportieren“ (mit Jahr). */
+  _wetterBereich: '30',
+  async wetterZeichnen() {
+    const box = $('#wetter-box'); if (!box) return;
+    const id = box.dataset.stand;
+    const s = await DB.get('staende', id); if (!s) return;
+    const liste = (await DB.getAll('wetter')).filter((w) => w.standId === id);
+    if (!$('#wetter-box') || $('#wetter-box').dataset.stand !== id) return;   // inzwischen weg-navigiert
+    const neueste = [...liste].sort((a, b) => String(b.datum).localeCompare(String(a.datum)) || Wetter.zeitpunkt(b) - Wetter.zeitpunkt(a));
+    const akt = neueste[0];
+    const an = S.get('features').wetter;
+    const heute = U.todayIso();
+    const wann = (w) => {
+      const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+      const tag = w.datum === heute ? 'heute' : (w.datum === U.addDays(heute, -1) ? 'gestern' : U.fmtDate(w.datum));
+      return `${tag}${uhr ? ' ' + uhr : ''} · ${w.quelle === 'manuell' ? 'von Hand erfasst' : 'Deutscher Wetterdienst'}`;
+    };
+    const ohneOrt = !Wetter.hatOrt(s) ? `<div class="muted small">${an ? 'Trage beim Stand unter „Bearbeiten“ die Koordinaten ein – dann holt die App das Wetter von selbst.' : 'Der Wetter-Abruf ist ausgeschaltet (Einstellungen → Funktionen).'}</div>` : '';
+    let html = akt ? `<div class="w-jetzt"><b>${U.fmtNum(akt.tempC, 1)} °C</b><span class="small muted">${U.esc(wann(akt))}</span></div>
+      <div class="stat-grid w-werte-kurz mb12">
+        <div class="stat"><div class="s-label">Wind</div><div class="s-value">${akt.windKmh != null && akt.windKmh !== '' ? U.fmtNum(akt.windKmh, 0) + ' km/h' : '–'}</div></div>
+        <div class="stat"><div class="s-label">Regen</div><div class="s-value">${akt.niederschlagMm != null && akt.niederschlagMm !== '' ? U.fmtNum(akt.niederschlagMm, 1) + ' mm' : '–'}</div></div>
+      </div>${akt.bemerkung ? `<div class="small mb12">${U.esc(akt.bemerkung)}</div>` : ''}`
+      : (ohneOrt || `<div class="muted small mb12">${an ? 'Wetter wird geholt, sobald Internet da ist …' : 'Noch keine Wetterdaten erfasst.'}</div>`);
+    if (akt && ohneOrt) html += ohneOrt;
+    const tage = Wetter.jeTag(liste);
+    if (tage.length > 1) {
+      const ber = Views.stand._wetterBereich;
+      const ab = ber === '30' ? U.addDays(heute, -29) : ber === 'jahr' ? heute.slice(0, 4) + '-01-01' : '';
+      const zeig = tage.filter((w) => !ab || w.datum >= ab);
+      const chip = (v, l) => `<button type="button" class="chip ${ber === v ? 'active' : ''}" data-wber="${v}">${l}</button>`;
+      html += `<div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Verlauf:</span>${chip('30', '30 Tage')}${chip('jahr', 'Dieses Jahr')}${chip('alle', 'Alles')}</div>
+        ${zeig.length > 1 ? UI.chart({ type: 'line', labels: zeig.map((w) => U.fmtDate(w.datum).slice(0, 6)), series: [{ name: '°C', values: zeig.map((w) => w.tempC) }], height: 160, unit: '°C' })
+          : '<div class="muted small mb8">In diesem Zeitraum gibt es noch zu wenige Tage für eine Grafik.</div>'}
+        <div class="small muted mt4">Ein Wert pro Tag (der späteste).</div>`;
+    }
+    if (neueste.length) {
+      html += `<details class="w-letzte mt12"${Views.stand._wetterOffen ? ' open' : ''}><summary>Letzte Werte (${Math.min(5, neueste.length)} von ${neueste.length})</summary>
+        <div class="rows mt4">${neueste.slice(0, 5).map((w) => {
+          const uhr = w.abgerufen ? ' ' + new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+          const teile = [w.windKmh != null && w.windKmh !== '' ? 'Wind ' + U.fmtNum(w.windKmh, 0) + ' km/h' : '', w.niederschlagMm != null && w.niederschlagMm !== '' ? 'Regen ' + U.fmtNum(w.niederschlagMm, 1) + ' mm' : '', w.quelle === 'manuell' ? 'von Hand' : '', w.bemerkung || ''].filter(Boolean);
+          return `<div class="row w-zeile"><span class="r-main"><span class="r-title">${U.fmtDate(w.datum)}<span class="muted small">${uhr}</span></span><span class="r-sub">${U.esc(teile.join(' · '))}</span></span>
+            <b class="nowrap">${U.fmtNum(w.tempC, 1)} °C</b><button class="btn btn-xs btn-ghost no-print" data-wdel="${U.esc(w.id)}" aria-label="Wert löschen">${icon('trash')}</button></div>`;
+        }).join('')}</div>
+        <button type="button" class="btn btn-ghost btn-sm mt8 no-print" data-wexport>${icon('download')} Alle Werte exportieren (PDF, Excel, CSV)</button>
+      </details>`;
+    }
+    box.innerHTML = html;
+    Views.stand._wetterOffen = false;
   },
 };
 
@@ -19067,6 +19202,169 @@ Views.papierkorb = {
    MODUL: MELDUNGEN & EXPORT (Veterinäramt, TSK, Excel, Komplett-PDF,
    PDF auslesen mit Übernahme-Vorschlägen)
    ===================================================================== */
+/* =====================================================================
+   EXPORT JE BEREICH (Julian, v2.78): Bereich, einzelnes Volk oder Stand und
+   das Jahr wählen. Jedes Feld kommt mit – als PDF, Excel oder CSV. Beim Volk
+   entsteht die ganze Volksakte, und jeder Teil lässt sich einzeln ausgeben.
+   ===================================================================== */
+const Export = {
+  STAMM: ['staende', 'voelker', 'koeniginnen', 'kontakte', 'inventar'],   // ohne Jahr: immer der aktuelle Stand
+  DATUM: { zuchtserien: 'startdatum', trachten: 'von', aufgaben: 'faellig' }, // sonst „datum“
+  datumVon(store, r) { return String(r[this.DATUM[store] || 'datum'] || '').slice(0, 10); },
+  /* Was gehört zu einem Volk? Behandlungen/Ernten für den ganzen Stand zählen beim Volk mit (aktueller Standort). */
+  VOLK: {
+    voelker: (r, v) => r.id === v.id,
+    koeniginnen: (r, v) => r.id === v.koeniginId || (r.historie || []).some((h) => h.volkId === v.id),
+    stockkarten: (r, v) => r.volkId === v.id,
+    fuetterungen: (r, v) => r.volkId === v.id,
+    gewichte: (r, v) => r.volkId === v.id,
+    varroa: (r, v) => r.volkId === v.id,
+    behandlungen: (r, v) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!v.standId && r.zielId === v.standId),
+    ernten: (r, v) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!v.standId && r.zielId === v.standId),
+    wanderungen: (r, v) => (r.volkIds || []).includes(v.id),
+    aufgaben: (r, v) => r.volkId === v.id,
+  },
+  STAND: {
+    staende: (r, s) => r.id === s.id,
+    voelker: (r, s) => r.standId === s.id,
+    wetter: (r, s) => r.standId === s.id,
+    fahrten: (r, s) => r.standId === s.id,
+  },
+  filter({ volk = null, stand = null, jahr = '' } = {}) {
+    return (store, r) => {
+      if (volk && this.VOLK[store] && !this.VOLK[store](r, volk)) return false;
+      if (stand && this.STAND[store] && !this.STAND[store](r, stand)) return false;
+      if (jahr && !this.STAMM.includes(store)) { const d = this.datumVon(store, r); if (d && d.slice(0, 4) !== jahr) return false; }
+      return true;
+    };
+  },
+  /* Teile der Volksakte – Reihenfolge wie auf der Volk-Seite */
+  TEILE: [['voelker', 'Stammdaten'], ['koeniginnen', 'Königin'], ['stockkarten', 'Durchsichten'], ['behandlungen', 'Behandlungen'],
+    ['fuetterungen', 'Fütterungen'], ['varroa', 'Varroa-Kontrollen'], ['gewichte', 'Gewichte'], ['ernten', 'Ernten'],
+    ['wanderungen', 'Wanderungen'], ['aufgaben', 'Aufgaben'], ['_verlauf', 'Verlauf'], ['_anhaenge', 'Notizen & Anhänge']],
+  async volkTeile(volk, jahr = '') {
+    const defs = await Xlsx.defs({ filter: this.filter({ volk, jahr }) });
+    const stand = volk.standId ? await DB.get('staende', volk.standId) : null;
+    const imJahr = (iso) => !jahr || !iso || String(iso).startsWith(jahr);
+    const teile = [];
+    for (const [k, titel] of this.TEILE) {
+      let rows = [], hinweis = '';
+      if (k === '_verlauf') {
+        rows = U.sortBy((volk.historie || []).filter((h) => imJahr(h.datum)), (h) => h.datum || '').map((h) => ({ Datum: Xlsx._d(h.datum), Eintrag: h.text || '' }));
+      } else if (k === '_anhaenge') {
+        const ART = { foto: 'Foto', dokument: 'Dokument', audio: 'Sprachnotiz', sprache: 'Sprachnotiz' };
+        rows = U.sortBy((await DB.getAll('anhaenge')).filter((a) => a.parentTyp === 'volk' && a.parentId === volk.id && imJahr(a.datum)), (a) => a.datum || '')
+          .map((a) => ({ Datum: Xlsx._d(a.datum), Art: ART[a.art] || a.art || '', Name: a.name || '', Dokumenttyp: a.dokumentTyp || '', 'Größe (KB)': a.groesse ? Math.round(a.groesse / 1024) : '', Text: a.text || a.notiz || '' }));
+        if (rows.some((r) => r.Art === 'Foto' || r.Art === 'Dokument')) hinweis = 'Fotos und Dokumente selbst stehen nicht im PDF – sie liegen in der App und in der Sicherung.';
+      } else if (defs[k]) {
+        rows = await defs[k].rows();
+        if ((k === 'behandlungen' || k === 'ernten') && stand) hinweis = `Mit aufgeführt: Einträge für den ganzen Stand „${stand.name}“ (aktueller Standort des Volks).`;
+      }
+      teile.push({ k, titel, rows, hinweis });
+    }
+    return teile;
+  },
+  /** Jahre, in denen es Einträge gibt (neueste zuerst) */
+  async jahre(st) {
+    const j = new Set();
+    const nimm = (iso) => { const y = String(iso || '').slice(0, 4); if (/^\d{4}$/.test(y)) j.add(y); };
+    const stores = st.akte ? Object.keys(this.VOLK) : [st.bereich];
+    for (const store of stores) {
+      if (this.STAMM.includes(store)) continue;
+      for (const r of await DB.getAll(store)) {
+        if (st.volk && this.VOLK[store] && !this.VOLK[store](r, st.volk)) continue;
+        if (st.stand && this.STAND[store] && !this.STAND[store](r, st.stand)) continue;
+        nimm(this.datumVon(store, r));
+      }
+    }
+    if (st.akte) { (st.volk.historie || []).forEach((h) => nimm(h.datum)); }
+    return [...j].sort().reverse();
+  },
+  _datei(teile) { return teile.filter(Boolean).join('-').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, ''); },
+  /** Als Fenster öffnen (z. B. „Alle Werte exportieren“ beim Wetter am Stand) */
+  oeffnen(vor = {}) {
+    /* Eigene Daten herausholen geht immer – auch in der Light-Version (Datenhoheit) */
+    const m = UI.modal({ title: 'Bereich exportieren', wide: true, body: '<div id="ex-fenster"></div>' });
+    this.zeichnen($('#ex-fenster', m.el), vor);
+    return m;
+  },
+  /** Bedienfeld in host zeichnen (Export-Reiter oder Fenster). vor = { bereich, volk (id), stand (id), jahr } */
+  async zeichnen(host, vor = {}) {
+    const defs = await Xlsx.defs();
+    const bereiche = Object.keys(defs).filter((k) => ZUCHT_AN || k !== 'zuchtserien');
+    const voelker = U.sortBy(await DB.getAll('voelker'), (v) => (v.status === 'aktiv' ? '0' : '1') + (v.name || '').toLowerCase());
+    const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
+    const st = { bereich: bereiche.includes(vor.bereich) ? vor.bereich : 'voelker', volkId: vor.volk || '', standId: vor.stand || '', jahr: vor.jahr ?? null };
+    const male = async () => {
+      st.volk = this.VOLK[st.bereich] ? voelker.find((v) => v.id === st.volkId) || null : null;
+      st.stand = this.STAND[st.bereich] ? staende.find((x) => x.id === st.standId) || null : null;
+      st.akte = st.bereich === 'voelker' && !!st.volk;
+      const ohneJahr = this.STAMM.includes(st.bereich) && !st.akte;
+      const jahre = ohneJahr ? [] : await this.jahre(st);
+      const diesJahr = U.todayIso().slice(0, 4);
+      if (st.jahr === null || (st.jahr && !jahre.includes(st.jahr))) st.jahr = jahre.includes(diesJahr) ? diesJahr : (jahre[0] || '');
+      if (ohneJahr) st.jahr = '';
+      let teile = null, anzahl = 0;
+      if (st.akte) teile = await this.volkTeile(st.volk, st.jahr);
+      else anzahl = (await (await Xlsx.defs({ filter: this.filter(st) }))[st.bereich].rows()).length;
+      const chip = (v, l) => `<button type="button" class="chip ${st.jahr === v ? 'active' : ''}" data-exjahr="${U.esc(v)}">${U.esc(l)}</button>`;
+      host.innerHTML = `
+        <div class="field"><label>Bereich</label><select class="inp" data-ex="bereich">${bereiche.map((k) => `<option value="${k}" ${k === st.bereich ? 'selected' : ''}>${U.esc(defs[k].blatt)}</option>`).join('')}</select></div>
+        ${this.VOLK[st.bereich] ? `<div class="field"><label>Volk</label><select class="inp" data-ex="volk"><option value="">${st.bereich === 'voelker' ? 'Alle Völker (Liste)' : 'Alle Völker'}</option>${voelker.map((v) => `<option value="${U.esc(v.id)}" ${v.id === st.volkId ? 'selected' : ''}>${U.esc(v.name)}${v.status !== 'aktiv' ? ' (aufgelöst)' : ''}</option>`).join('')}</select></div>` : ''}
+        ${this.STAND[st.bereich] && !this.VOLK[st.bereich] ? `<div class="field"><label>Stand</label><select class="inp" data-ex="stand"><option value="">Alle Stände</option>${staende.map((x) => `<option value="${U.esc(x.id)}" ${x.id === st.standId ? 'selected' : ''}>${U.esc(x.name)}</option>`).join('')}</select></div>` : ''}
+        ${ohneJahr ? '<div class="small muted mb12">Stammdaten – ohne Jahr, immer der aktuelle Stand.</div>'
+          : jahre.length ? `<div class="small muted mb4">Jahr</div><div class="chip-row mb12">${jahre.map((j) => chip(j, j)).join('')}${chip('', 'Alle Jahre')}</div>`
+          : '<div class="small muted mb12">Noch keine Einträge mit Datum.</div>'}
+        ${st.akte ? `<div class="small muted mb4">Inhalt der Volksakte – jeder Teil auch einzeln</div>
+          <div class="ex-teile">${teile.map((t, i) => `<div class="ex-teil"><span class="ex-name">${U.esc(t.titel)} <span class="muted small">· ${t.rows.length}</span></span>
+            <button type="button" class="btn btn-ghost btn-xs" data-expdf="${i}" ${t.rows.length ? '' : 'disabled'}>${icon('doc')} PDF</button>
+            <button type="button" class="btn btn-ghost btn-xs" data-excsv="${i}" ${t.rows.length ? '' : 'disabled'}>CSV</button></div>`).join('')}</div>`
+          : `<div class="banner info mb8">${icon('info')} <span class="b-msg"><b>${U.fmtNum(anzahl)} ${anzahl === 1 ? 'Eintrag' : 'Einträge'}</b>${st.jahr ? ' aus ' + st.jahr : ''}${st.volk ? ' · ' + U.esc(st.volk.name) : ''}${st.stand ? ' · ' + U.esc(st.stand.name) : ''} – mit allen Spalten.</span></div>`}
+        <div class="flex-wrap mt12 no-print" style="gap:8px">
+          <button type="button" class="btn btn-primary" data-exaus="pdf">${icon('doc')} ${st.akte ? 'Alles als PDF' : 'PDF'}</button>
+          <button type="button" class="btn btn-ghost" data-exaus="xlsx">${icon('excel')} Excel</button>
+          ${st.akte ? '' : `<button type="button" class="btn btn-ghost" data-exaus="csv">${icon('download')} CSV</button>`}
+        </div>`;
+      host._teile = teile;
+    };
+    const titelTeile = () => {
+      const b = st.akte ? `${st.volk.name} – Volksakte` : `${defs[st.bereich].blatt}${st.volk ? ' – ' + st.volk.name : ''}${st.stand ? ' – ' + st.stand.name : ''}`;
+      return { titel: `${b}${st.jahr ? ' ' + st.jahr : ''}`, datei: this._datei(['imkerbuch', st.akte ? 'volksakte' : st.bereich, st.volk && st.volk.name, st.stand && st.stand.name, st.jahr || 'alle-jahre', U.todayIso()]) };
+    };
+    const unter = () => [st.akte && st.volk.standId ? 'Stand: ' + (staende.find((x) => x.id === st.volk.standId) || {}).name : '', st.jahr ? 'Jahr ' + st.jahr : 'alle Jahre', 'Datenstand ' + U.fmtDate(U.todayIso())].filter(Boolean).join(' · ');
+    host.onchange = async (e) => {
+      const f = e.target.closest('[data-ex]'); if (!f) return;
+      if (f.dataset.ex === 'bereich') { st.bereich = f.value; st.jahr = null; }
+      if (f.dataset.ex === 'volk') { st.volkId = f.value; st.jahr = null; }
+      if (f.dataset.ex === 'stand') { st.standId = f.value; st.jahr = null; }
+      await male();
+    };
+    host.onclick = async (e) => {
+      const j = e.target.closest('[data-exjahr]'); if (j) { st.jahr = j.dataset.exjahr; await male(); return; }
+      const tp = e.target.closest('[data-expdf]'), tc = e.target.closest('[data-excsv]'), aus = e.target.closest('[data-exaus]');
+      if (!tp && !tc && !aus) return;
+      const { titel, datei } = titelTeile();
+      if (tp || tc) {
+        const t = host._teile[Number((tp || tc).dataset.expdf ?? (tp || tc).dataset.excsv)];
+        const name = this._datei([datei, t.titel]);
+        if (tp) return Pdf.abschnitte({ titel: `${st.volk.name} – ${t.titel}${st.jahr ? ' ' + st.jahr : ''}`, untertitel: unter(), teile: [t], datei: name + '.pdf' });
+        await Xlsx.lib(); Xlsx.csvSpeichern(t.rows, name + '.csv'); return UI.toast('CSV erstellt');
+      }
+      if (st.akte) {
+        const teile = host._teile;
+        if (aus.dataset.exaus === 'pdf') return Pdf.abschnitte({ titel, untertitel: unter(), teile, datei: datei + '.pdf' });
+        await Xlsx.lib(); xlsxSpeichern(Xlsx.mappe(teile.map((t) => ({ name: t.titel, rows: t.rows }))), datei + '.xlsx'); return UI.toast('Excel-Datei erstellt');
+      }
+      if (aus.dataset.exaus === 'pdf') {
+        const rows = await (await Xlsx.defs({ filter: this.filter(st) }))[st.bereich].rows();
+        return Pdf.abschnitte({ titel, untertitel: unter(), teile: [{ titel: defs[st.bereich].blatt, rows }], datei: datei + '.pdf' });
+      }
+      return Xlsx.exportModule(st.bereich, aus.dataset.exaus, { filter: this.filter(st), name: datei.replace(/^imkerbuch-/, '').replace(/-\d{4}-\d{2}-\d{2}$/, '') });
+    };
+    await male();
+  },
+};
+
 Views.meldungen = {
   title: 'Meldungen & Export',
   async render(main) {
@@ -19094,11 +19392,9 @@ Views.meldungen = {
           <button class="btn btn-primary" onclick="Xlsx.exportAll()">${icon('excel')} Alle Daten als Excel</button>
           <button class="btn btn-ghost" onclick="Pdf.komplettAuswahl()">${icon('print')} Komplettausdruck (PDF)</button>
         </div>
-        <div class="flex-wrap no-print">
-          <select class="inp" id="exp-store" style="width:auto;min-width:180px">${DB.DATA_STORES.filter((s) => !['settings', 'papierkorb', 'anhaenge', 'wetter', 'gewichte', 'fuetterungen'].includes(s)).map((s) => `<option value="${s}">${STORE_LABELS[s] || s}</option>`).join('')}</select>
-          <button class="btn btn-ghost btn-sm" id="exp-x">${icon('excel')} Excel</button>
-          <button class="btn btn-ghost btn-sm" id="exp-c">${icon('download')} CSV</button>
-        </div>
+        <h3 class="mt16 mb8">Bereich exportieren</h3>
+        <p class="small muted mb12">Einen Bereich, ein einzelnes Volk (komplette Volksakte) oder einen Stand – mit Jahr-Auswahl, mit allen Spalten, als PDF, Excel oder CSV.</p>
+        <div id="exp-bereich" class="no-print"></div>
       </div>
       <div class="card" id="me-import"><div class="card-title">${icon('merge')}<h2>Aus anderer App importieren</h2></div>
         <p class="small muted mb12">Wechselst du von einer anderen Imker-App (BeeManager, iBeekeeper, BeeInTouch …)? Exportiere dort deine Daten als <b>CSV oder Excel</b> und lade die Datei hier hoch. Du ordnest die Spalten einmal zu (die App rät sie meist selbst) – Völker, Stände usw. werden übernommen, kein Neu-Eintippen.</p>
@@ -19116,8 +19412,7 @@ Views.meldungen = {
       </div>`;
     /* Vier verschiedene Aufgaben – als Reiter statt vier Karten untereinander */
     teileReiter(main, $('#me-reiter', main), [['me-meldung', 'Meldungen'], ['me-export', 'Export'], ['me-import', 'Import'], ['me-pdf', 'PDF auslesen']], { obj: Views.meldungen, key: '_teil' });
-    $('#exp-x').onclick = () => Xlsx.exportModule($('#exp-store').value, 'xlsx');
-    $('#exp-c').onclick = () => Xlsx.exportModule($('#exp-store').value, 'csv');
+    Export.zeichnen($('#exp-bereich', main), Views.meldungen._export || {});
     $('#pdf-in').onchange = (e) => { if (e.target.files[0]) PdfImport.read(e.target.files[0], $('#pdf-out')); };
     $('#imp-file').onchange = (e) => { if (e.target.files[0]) Importer.start($('#imp-entity').value, e.target.files[0], $('#imp-zone')); e.target.value = ''; };
   },
@@ -20904,42 +21199,45 @@ const Xlsx = {
   async lib() { await U.loadScript(...CDN.xlsx); return window.XLSX; },
   _d: (iso) => (iso ? new Date(String(iso).slice(0, 10) + 'T00:00:00') : ''),
   /** je Modul: Blattname + lesbare Zeilen (Fremdschlüssel aufgelöst) */
-  async defs() {
+  /** Tabellen je Bereich. opt.filter(store, datensatz) grenzt die Zeilen ein (Volk, Stand, Jahr – v2.78);
+      Nachschlage-Listen (Namen von Völkern, Ständen …) bleiben immer vollständig. */
+  async defs(opt = {}) {
+    const alle = async (st) => { const l = await DB.getAll(st); return opt.filter ? l.filter((r) => opt.filter(st, r)) : l; };
     const voelker = await idMap('voelker'), staende = await idMap('staende'), queens = await idMap('koeniginnen'),
       trachten = await idMap('trachten'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten'),
       chargenM = await idMap('chargen');
     const ziel = (r) => (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : staende.get(r.zielId)?.name) || '';
     const d = this._d;
     return {
-      staende: { blatt: 'Stände', rows: async () => (await DB.getAll('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
-      voelker: { blatt: 'Völker', rows: async () => (await DB.getAll('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: v.status, Notizen: v.notizen })) },
-      stockkarten: { blatt: 'Stockkarten', rows: async () => (await DB.getAll('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
-      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await DB.getAll('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
+      staende: { blatt: 'Stände', rows: async () => (await alle('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
+      voelker: { blatt: 'Völker', rows: async () => (await alle('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[v.status] || v.status, 'Angelegt am': d(U.sortBy(v.historie || [], (h) => h.datum || '')[0]?.datum || String(v.createdAt || '').slice(0, 10)), Notizen: v.notizen })) },
+      stockkarten: { blatt: 'Stockkarten', rows: async () => (await alle('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
+      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
         ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
         'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
-      zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await DB.getAll('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
-      behandlungen: { blatt: 'Behandlungen', rows: async () => (await DB.getAll('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
-      wanderungen: { blatt: 'Wanderungen', rows: async () => (await DB.getAll('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
-      trachten: { blatt: 'Trachten', rows: async () => (await DB.getAll('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
-      ernten: { blatt: 'Ernten', rows: async () => (await DB.getAll('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
-      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await DB.getAll('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
-      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await DB.getAll('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand })) },
-      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await DB.getAll('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: verkaufGebindeG(v, a) ? gebindeLabel(verkaufGebindeG(v, a)) : '', Sorte: a ? '' : (v.sorte || ''), 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
-      fahrten: { blatt: 'Fahrten', rows: async () => (await DB.getAll('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
-      kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await DB.getAll('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
-      kontakte: { blatt: 'Kontakte', rows: async () => (await DB.getAll('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
-      rechnungen: { blatt: 'Rechnungen', rows: async () => (await DB.getAll('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
-      inventar: { blatt: 'Inventar', rows: async () => (await DB.getAll('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
-      aufgaben: { blatt: 'Aufgaben', rows: async () => (await DB.getAll('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
-      fuetterungen: { blatt: 'Fütterungen', rows: async () => (await DB.getAll('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
-      gewichte: { blatt: 'Gewichte', rows: async () => (await DB.getAll('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
-      varroa: { blatt: 'Varroa', rows: async () => (await DB.getAll('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
-      wetter: { blatt: 'Wetter', rows: async () => (await DB.getAll('wetter')).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
+      zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
+      behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
+      wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
+      trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: t.bezeichnung, Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', ') })) },
+      ernten: { blatt: 'Ernten', rows: async () => (await alle('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
+      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await alle('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
+      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await alle('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand })) },
+      verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await alle('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: verkaufGebindeG(v, a) ? gebindeLabel(verkaufGebindeG(v, a)) : '', Sorte: a ? '' : (v.sorte || ''), 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
+      fahrten: { blatt: 'Fahrten', rows: async () => (await alle('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
+      kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
+      kontakte: { blatt: 'Kontakte', rows: async () => (await alle('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
+      rechnungen: { blatt: 'Rechnungen', rows: async () => (await alle('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
+      inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
+      aufgaben: { blatt: 'Aufgaben', rows: async () => (await alle('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
+      fuetterungen: { blatt: 'Fütterungen', rows: async () => (await alle('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
+      gewichte: { blatt: 'Gewichte', rows: async () => (await alle('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
+      varroa: { blatt: 'Varroa', rows: async () => (await alle('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
+      wetter: { blatt: 'Wetter', rows: async () => U.sortBy(await alle('wetter'), (w) => (w.datum || '') + (w.abgerufen || ''), true).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), Uhrzeit: w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '', 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
       /* Lager, Hygiene und Pfand: bisher nur in der Komplett-Sicherung, jetzt auch als Tabellenblatt */
-      materialzugaenge: { blatt: 'Einkäufe & Zugänge', rows: async () => (await DB.getAll('materialzugaenge')).map((z) => ({ Datum: d(z.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(z.typ)) || [])[1] || '', Position: z.bezeichnung, Art: z.lohn ? 'Lohnverarbeitung' : z.art, Menge: z.menge, Einheit: z.einheit, 'Preis je Einheit (€)': z.preis, 'Kosten (€)': zugangKosten(z), 'Lieferant/Verarbeiter': kontakte.get(z.kontaktId)?.name || '', Beleg: z.belegNr, 'Honig abgegeben (kg)': z.honigKg || '', Notiz: z.notiz })) },
-      materialabgaenge: { blatt: 'Verkäufe & Abgänge', rows: async () => (await DB.getAll('materialabgaenge')).map((a) => ({ Datum: d(a.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(a.typ)) || [])[1] || '', Position: a.bezeichnung, Grund: a.art, Menge: a.menge, Einheit: a.einheit, 'Preis je Einheit (€)': a.preis, 'Erlös (€)': abgangErloes(a), 'Käufer': a.kaeufer || kontakte.get(a.kontaktId)?.name || '', Beleg: a.belegNr, Notiz: a.notiz })) },
-      pfandbewegungen: { blatt: 'Pfand', rows: async () => (await DB.getAll('pfandbewegungen')).map((b) => ({ Datum: d(b.datum), Gebinde: b.bezeichnung, Anzahl: b.anzahl, 'Erstattet (€)': b.betrag, Von: b.wer || kontakte.get(b.kontaktId)?.name || '', Notiz: b.notiz })) },
-      bioeintraege: { blatt: 'Hygiene & Bio', rows: async () => (await DB.getAll('bioeintraege')).filter((e) => BIO_BEREICHE[e.bereich]).map((e) => { const def = BIO_BEREICHE[e.bereich]; const z = def.zeile(e); return { Bereich: def.titel, Datum: d(e.datum || e.frist || ''), Eintrag: z.titel, Einzelheiten: z.sub, Notiz: e.notiz || '' }; }) },
+      materialzugaenge: { blatt: 'Einkäufe & Zugänge', rows: async () => (await alle('materialzugaenge')).map((z) => ({ Datum: d(z.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(z.typ)) || [])[1] || '', Position: z.bezeichnung, Art: z.lohn ? 'Lohnverarbeitung' : z.art, Menge: z.menge, Einheit: z.einheit, 'Preis je Einheit (€)': z.preis, 'Kosten (€)': zugangKosten(z), 'Lieferant/Verarbeiter': kontakte.get(z.kontaktId)?.name || '', Beleg: z.belegNr, 'Honig abgegeben (kg)': z.honigKg || '', Notiz: z.notiz })) },
+      materialabgaenge: { blatt: 'Verkäufe & Abgänge', rows: async () => (await alle('materialabgaenge')).map((a) => ({ Datum: d(a.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(a.typ)) || [])[1] || '', Position: a.bezeichnung, Grund: a.art, Menge: a.menge, Einheit: a.einheit, 'Preis je Einheit (€)': a.preis, 'Erlös (€)': abgangErloes(a), 'Käufer': a.kaeufer || kontakte.get(a.kontaktId)?.name || '', Beleg: a.belegNr, Notiz: a.notiz })) },
+      pfandbewegungen: { blatt: 'Pfand', rows: async () => (await alle('pfandbewegungen')).map((b) => ({ Datum: d(b.datum), Gebinde: b.bezeichnung, Anzahl: b.anzahl, 'Erstattet (€)': b.betrag, Von: b.wer || kontakte.get(b.kontaktId)?.name || '', Notiz: b.notiz })) },
+      bioeintraege: { blatt: 'Hygiene & Bio', rows: async () => (await alle('bioeintraege')).filter((e) => BIO_BEREICHE[e.bereich]).map((e) => { const def = BIO_BEREICHE[e.bereich]; const z = def.zeile(e); return { Bereich: def.titel, Datum: d(e.datum || e.frist || ''), Eintrag: z.titel, Einzelheiten: z.sub, Notiz: e.notiz || '' }; }) },
     };
   },
   /* Zellen härten, bevor sie in die Tabelle gehen. Zwei verschiedene Wege:
@@ -20967,33 +21265,71 @@ const Xlsx = {
     });
   },
 
-  async exportAll() {
+  /* Sauber in deutschem Excel, Numbers und LibreOffice (Julian, v2.78: „alles doppelt testen, ob die
+     Excel-Datei alles sauber anzeigt und die CSV“). Vorher stand in der CSV das Datum amerikanisch
+     („10/20/26“) und die Dezimalzahl mit Punkt („12.5“ – deutsches Excel macht daraus den 12. Mai). */
+  _kopf(rows) { const k = []; for (const r of rows) for (const x of Object.keys(r)) if (!k.includes(x)) k.push(x); return k; },
+  _istDatum: (v) => Object.prototype.toString.call(v) === '[object Date]',
+  _tag(v) { return `${String(v.getDate()).padStart(2, '0')}.${String(v.getMonth() + 1).padStart(2, '0')}.${v.getFullYear()}`; },
+  /** Tabellenblatt: Datum als TT.MM.JJJJ, Spaltenbreite nach Inhalt, Filterknöpfe in der Kopfzeile. */
+  blatt(rows) {
+    const sicher = this.zeilenSicher(rows);
+    if (!sicher.length) return XLSX.utils.aoa_to_sheet([['Keine Einträge']]);
+    const kopf = this._kopf(sicher);
+    const ws = XLSX.utils.json_to_sheet(sicher, { header: kopf, dateNF: 'dd.mm.yyyy' });
+    const laenge = (v) => v == null ? 0 : this._istDatum(v) ? 10 : Math.max(...String(v).split('\n').map((z) => z.length));
+    ws['!cols'] = kopf.map((k) => ({ wch: Math.min(60, Math.max(laenge(k), ...sicher.map((r) => laenge(r[k]))) + 2) }));
+    if (ws['!ref']) ws['!autofilter'] = { ref: ws['!ref'] };
+    return ws;
+  },
+  /** CSV für deutsches Excel: Semikolon, Dezimalkomma, Datum TT.MM.JJJJ, UTF-8 mit BOM (Umlaute),
+      Anführungszeichen/Zeilenumbrüche/Semikolon im Text korrekt maskiert. */
+  csv(rows) {
+    const sicher = this.zeilenSicher(rows);
+    const kopf = this._kopf(sicher);
+    const feld = (v) => {
+      let t;
+      if (v == null || v === '') t = '';
+      else if (this._istDatum(v)) t = isNaN(v) ? '' : this._tag(v);
+      else if (typeof v === 'number') t = Number.isFinite(v) ? String(v).replace('.', ',') : '';
+      else if (typeof v === 'boolean') t = v ? 'ja' : 'nein';
+      else t = String(v);
+      return /[;"\r\n]/.test(t) || /^\s|\s$/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    return '\uFEFF' + [kopf.map(feld), ...sicher.map((r) => kopf.map((k) => feld(r[k])))].map((z) => z.join(';')).join('\r\n');
+  },
+  csvSpeichern(rows, name) { return U.download(new Blob([this.csv(rows)], { type: 'text/csv;charset=utf-8' }), name); },
+  /** Mappe aus mehreren Blättern; Blattnamen gekürzt (31 Zeichen) und eindeutig. */
+  mappe(blaetter) {
+    const wb = XLSX.utils.book_new(); const vergeben = new Set();
+    for (const b of blaetter) {
+      let n = String(b.name).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Blatt'; let i = 2;
+      while (vergeben.has(n)) n = `${String(b.name).slice(0, 28)} ${i++}`;
+      vergeben.add(n); XLSX.utils.book_append_sheet(wb, this.blatt(b.rows), n);
+    }
+    return wb;
+  },
+  /** Alle Bereiche (oder eine Auswahl) als Excel – opt.jahr grenzt alles mit Datum auf das Jahr ein. */
+  async exportAll(opt = {}) {
     try {
-      const XLSX = await this.lib();
-      const defs = await this.defs();
-      const wb = XLSX.utils.book_new();
-      for (const key of Object.keys(defs)) {
-        const rows = this.zeilenSicher(await defs[key].rows());
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{}]), defs[key].blatt.slice(0, 31));
-      }
-      xlsxSpeichern(wb, `imkerbuch-export-${U.todayIso()}.xlsx`);
+      await this.lib();
+      const defs = await this.defs(opt.jahr ? { filter: Export.filter({ jahr: opt.jahr }) } : {});
+      const keys = (opt.kapitel && opt.kapitel.length ? opt.kapitel : Object.keys(defs)).filter((k) => defs[k]);
+      const blaetter = [];
+      for (const key of keys) blaetter.push({ name: defs[key].blatt, rows: await defs[key].rows() });
+      xlsxSpeichern(this.mappe(blaetter), `imkerbuch-export-${opt.jahr || 'alle-jahre'}-${U.todayIso()}.xlsx`);
       UI.toast('Excel-Export erstellt');
     } catch (e) { UI.toast('Excel-Export fehlgeschlagen: ' + e.message, 'err'); }
   },
-  async exportModule(store, fmt = 'xlsx') {
+  async exportModule(store, fmt = 'xlsx', opt = {}) {
     try {
-      const XLSX = await this.lib();
-      const defs = await this.defs();
+      await this.lib();
+      const defs = await this.defs(opt.filter ? { filter: opt.filter } : {});
       const def = defs[store]; if (!def) return UI.toast('Modul nicht exportierbar', 'err');
-      const rows = this.zeilenSicher(await def.rows());
-      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
-      if (fmt === 'csv') {
-        U.download(new Blob(['﻿' + XLSX.utils.sheet_to_csv(ws, { FS: ';' })], { type: 'text/csv;charset=utf-8' }), `imkerbuch-${store}-${U.todayIso()}.csv`);
-      } else {
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, def.blatt.slice(0, 31));
-        xlsxSpeichern(wb, `imkerbuch-${store}-${U.todayIso()}.xlsx`);
-      }
+      const rows = await def.rows();
+      const name = `imkerbuch-${opt.name || store}-${U.todayIso()}`;
+      if (fmt === 'csv') this.csvSpeichern(rows, name + '.csv');
+      else xlsxSpeichern(this.mappe([{ name: def.blatt, rows }]), name + '.xlsx');
       UI.toast('Export erstellt');
     } catch (e) { UI.toast('Export fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -21139,6 +21475,49 @@ const Pdf = {
       didParseCell: (d) => { if (d.section === 'head') { const cs = (widths || {})[d.column.index]; if (cs && cs.halign) d.cell.styles.halign = cs.halign; } },
     });
     return doc.lastAutoTable.finalY;
+  },
+  /** Mehrere Tabellen in einem PDF (Querformat) – Export je Bereich und Volksakte (v2.78). Jeder Teil mit
+      allen Spalten; ein einzelner Datensatz mit vielen Feldern (Stammdaten, Königin) erscheint als
+      „Feld | Wert“-Liste, damit nichts abgeschnitten wird. */
+  async abschnitte({ titel, untertitel = '', teile, datei }) {
+    try {
+      UI.toast('PDF wird erstellt …');
+      const jsPDF = await this.lib();
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
+      const H = doc.internal.pageSize.getHeight();
+      let y = await this.header(doc, titel, untertitel);
+      const zelle = (v) => {
+        if (v == null || v === '') return '';
+        if (Xlsx._istDatum(v)) return isNaN(v) ? '' : Xlsx._tag(v);
+        if (typeof v === 'number') return Number.isFinite(v) ? String(v).replace('.', ',') : '';
+        if (typeof v === 'boolean') return v ? 'ja' : 'nein';
+        if (typeof v === 'object') return JSON.stringify(v);
+        return String(v);
+      };
+      for (const [i, t] of teile.entries()) {
+        if (i > 0) y += 6;
+        if (y > H - 35) { doc.addPage(); y = 18; }
+        doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(122, 80, 0);
+        doc.text(`${t.titel} (${t.rows.length})`, 14, y + 4);
+        y += 7;
+        if (t.hinweis) {
+          doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(120);
+          const z = doc.splitTextToSize(t.hinweis, doc.internal.pageSize.getWidth() - 28);
+          doc.text(z, 14, y + 2); y += z.length * 4 + 1;
+        }
+        if (!t.rows.length) {
+          doc.setFont('helvetica', 'italic').setFontSize(9.5).setTextColor(150);
+          doc.text('Keine Einträge.', 14, y + 3); y += 6; continue;
+        }
+        const kopf = Xlsx._kopf(t.rows);
+        if (t.rows.length === 1 && kopf.length > 5) {
+          y = this.table(doc, { head: ['Feld', 'Wert'], body: kopf.map((k) => [k, zelle(t.rows[0][k]) || '–']), startY: y, widths: { 0: { cellWidth: 70, fontStyle: 'bold' } } });
+        } else {
+          y = this.table(doc, { head: kopf, body: t.rows.map((r) => kopf.map((k) => zelle(r[k]))), startY: y });
+        }
+      }
+      this.finish(doc, datei);
+    } catch (e) { console.error(e); UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
   /** Archiv eines Bereichs (Einträge älter als 2 Jahre) als PDF. */
   async bioArchiv(bereich) {
@@ -22486,7 +22865,7 @@ const Pdf = {
       if (e.target.closest('#ka-keine')) { gewaehlt.clear(); $$('[data-ka]', m.el).forEach((x) => { x.checked = false; }); zeichne(); }
     });
     m.el.addEventListener('change', (e) => { const x = e.target.closest('[data-ka]'); if (!x) return; if (x.checked) gewaehlt.add(x.dataset.ka); else gewaehlt.delete(x.dataset.ka); zeichne(); });
-    $('#ka-excel', m.el).onclick = () => { m.close(true); Xlsx.exportAll(); };
+    $('#ka-excel', m.el).onclick = () => { const kap = K.filter((k) => gewaehlt.has(k)); if (!kap.length) return; m.close(true); Xlsx.exportAll({ jahr, kapitel: kap }); };
     $('#ka-pdf', m.el).onclick = () => { const kap = K.filter((k) => gewaehlt.has(k)); if (!kap.length) return; m.close(true); this.komplett({ jahr, kapitel: kap }); };
     zeichne();
     return m;
@@ -22510,13 +22889,12 @@ const Pdf = {
       doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · '), cx, 130, { align: 'center' });
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
-      const defs = await Xlsx.defs();
+      /* Zeitraum über dasselbe Datumsfeld wie die Seitenschätzung und der Export je Bereich (v2.78) */
+      const defs = await Xlsx.defs(opt.jahr ? { filter: Export.filter({ jahr: opt.jahr }) } : {});
       const kapitel = (opt.kapitel && opt.kapitel.length ? opt.kapitel : this.KOMPLETT_KAPITEL).filter((k) => defs[k]);
       for (const key of kapitel) {
         const def = defs[key];
-        let rows = await def.rows();
-        /* Zeitraum: Zeilen mit Datum nur aus dem gewählten Jahr; Stammdaten und Zeilen ohne Datum bleiben */
-        if (opt.jahr && !this.KOMPLETT_STAMM.includes(key)) rows = rows.filter((r) => { const d = Object.values(r).find((v) => v instanceof Date); return !d || String(d.getFullYear()) === opt.jahr; });
+        const rows = await def.rows();
         doc.addPage();
         toc.push({ titel: def.blatt, seite: doc.getNumberOfPages() });
         const y = await this.header(doc, def.blatt, `${rows.length} Einträge${opt.jahr && !this.KOMPLETT_STAMM.includes(key) ? ` · ${opt.jahr}` : ''}`);
@@ -22524,7 +22902,7 @@ const Pdf = {
           const head = Object.keys(rows[0]);
           // Datum aus den lokalen Teilen bilden: toISOString() rechnet in UTC und machte in Deutschland aus jedem Datum den Vortag
           const tag = (v) => `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(tag(v)) : (v ?? ''); }));
+          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(tag(v)) : typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : (v ?? ''); }));   // Dezimalkomma wie überall
           this.table(doc, { head, body, startY: y });
         } else {
           doc.setFont('helvetica', 'italic').setFontSize(10).setTextColor(150);
@@ -23211,7 +23589,7 @@ const APP_WISSEN = [
     antwort: 'Unter „Meldungen & Export“ findest du Excel-Export, Sammelberichte und die Meldungen für Veterinäramt und Tierseuchenkasse.',
     schritte: ['Menü ▸ Meldungen', 'Gewünschten Export wählen', 'Datei öffnen oder teilen'],
     tour: [{ knopf: 'Alle Daten als Excel', weiter: true, text: 'Alle Daten als Excel-Tabelle, mit einem Blatt je Bereich.' },
-      { abschluss: 'Komplettausdruck', text: 'Der Komplettausdruck erzeugt ein PDF – vorher wählst du Jahr und Bereiche, die App schätzt die Seitenzahl. Für Behörden gibt es oben die Meldungen als PDF.' }] },
+      { abschluss: 'Komplettausdruck', text: 'Der Komplettausdruck erzeugt ein PDF – vorher wählst du Jahr und Bereiche, die App schätzt die Seitenzahl. Darunter exportierst du einzelne Bereiche oder ein Volk komplett (Volksakte) – mit Jahr, als PDF, Excel oder CSV.' }] },
   { id: 'sicherung', titel: 'Datensicherung', route: 'einstellungen', zeige: 'Sicherung',
     stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',
@@ -23439,8 +23817,8 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Statistiken', 'Reiter und Jahr wählen', 'Oben „Jahresbericht (PDF)“ antippen'] },
   { id: 'stand-wetter', titel: 'Wetter und Lage eines Standes', route: 'staende', zeige: '',
     stichw: ['wetter stand', 'wetter abrufen', 'standort wetter', 'temperatur stand', 'regen stand', 'koordinaten', 'karte', 'lage stand', 'wo steht', 'gps', 'standort eintragen', 'breitengrad', 'wetter am stand', 'wetter fuer stand', 'stand wetter'],
-    antwort: 'Auf der Seite eines Standes gibt es den Bereich „Wetter“ mit „Jetzt abrufen“ (nach Koordinaten) oder „Manuell“. Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein.',
-    schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“ ▸ „Jetzt abrufen“'] },
+    antwort: 'Hat ein Stand Koordinaten, holt die App das Wetter von selbst – beim Start und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein, den automatischen Abruf schaltest du unter Einstellungen → Funktionen.',
+    schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“: aktuelles Wetter und Verlauf ansehen', '„Aktualisieren“ holt sofort neu, „Manuell“ trägt einen eigenen Wert ein'] },
   { id: 'bestandsbuch', titel: 'Bestandsbuch für Arzneimittel (PDF)', route: 'behandlungen', zeige: 'Bestandsbuch',
     stichw: ['bestandsbuch', 'arzneimittelbuch', 'bestandsbuch pdf', 'dokumentation behandlung', 'tierarzt nachweis', 'behandlungsnachweis', 'kontrolle veterinaer', 'behandlungsliste', 'nachweis arzneimittel', 'kontrolle amt', 'arzneimittelbuch', 'tierarzneimittelbuch', 'nachweis behandlungen', 'nachweis ueber behandlungen', 'behandlungen drucken', 'behandlungen als pdf', 'pdf behandlungen'],
     antwort: 'Oben im Bereich „Behandlungen“ gibt es „Bestandsbuch (PDF)“. Es listet alle Behandlungen und ist die Dokumentation, die das Veterinäramt sehen will.',
@@ -24662,6 +25040,7 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
         <label class="check-line"><input type="checkbox" data-feat="wetter" ${f.wetter ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
+        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${f.wetterStart !== false ? 'checked' : ''}> <span>Wetter beim App-Start für alle Stände abrufen (höchstens alle 30 Minuten, nur mit Internet)</span></label>
         ${IST_NATIVE_APP ? '' : `<label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
         <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>`}
         <h3 class="mt16 mb8">Erinnerungen</h3>
@@ -25341,6 +25720,7 @@ async function boot() {
   Notif.init();
   Erinnerung.init();
   Bewertung.init();
+  Wetter.init();
   // Nicht auf Apple warten: Start mit dem letzten bekannten Stand, Abgleich im Hintergrund
   Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); else Lizenz.lightErinnerung(); });
   warmupBibliotheken();
@@ -25383,7 +25763,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Pdf, PdfImport,
+  U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,

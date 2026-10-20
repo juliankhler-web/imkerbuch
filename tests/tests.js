@@ -10934,6 +10934,196 @@ test('Kein Zoom durch Doppeltippen; in der App ist Zoomen ganz aus', async (w) =
   assert(/user-scalable=no/.test(skript) && /maximum-scale=1/.test(skript), 'App-Kopie bekommt maximum-scale=1 und user-scalable=no');
 });
 
+/* ---------- v2.78: Wetter am Stand – ein Wert pro Tag, aktuelles Wetter, Grafik, nur die letzten 5 Werte ---------- */
+test('Wetter: pro Stand und Tag nur ein abgerufener Wert, von Hand erfasste bleiben, keine Sicherungs-Mahnung', async (w) => {
+  const st = await w.DB.put('staende', { name: 'WETTERTEST-Stand', lat: 49.4, lng: 11.1 });
+  const altFetch = w.Wetter.fetchCurrent, altGeaendert = w._changedSinceBackup;
+  let abrufe = 0;
+  w.Wetter.fetchCurrent = async () => { abrufe++; return { tempC: 10 + abrufe, windKmh: 5, niederschlagMm: 0.4 }; };
+  try {
+    await w.DB.put('wetter', { standId: st.id, datum: w.U.todayIso(), tempC: 3, quelle: 'manuell', bemerkung: 'von Hand' });
+    w._changedSinceBackup = false;
+    const a = await w.Wetter.aktuell(st, { erzwingen: true });
+    const b = await w.Wetter.aktuell(st, { erzwingen: true });
+    const heute = (await w.DB.getAll('wetter')).filter((x) => x.standId === st.id);
+    assertEq(heute.length, 2, 'ein abgerufener + ein von Hand erfasster Wert – kein dritter Eintrag');
+    assertEq(a.rec.id, b.rec.id, 'der zweite Abruf ersetzt den ersten');
+    assertEq(b.rec.tempC, 12, 'mit den neuesten Werten');
+    assert(heute.some((x) => x.quelle === 'manuell' && x.tempC === 3), 'Handeintrag unverändert');
+    assertEq(w._changedSinceBackup, false, 'automatischer Abruf meldet keine Änderung für die Sicherung');
+    const c = await w.Wetter.aktuell(st);
+    assert(!c.neu && abrufe === 2, 'jünger als 30 Minuten: kein neuer Abruf');
+    assertEq(w.Wetter.darfAuto(), false, 'im Testlauf ruft die App nie von selbst ab');
+    const tage = w.Wetter.jeTag([{ datum: '2026-10-01', tempC: 1, abgerufen: '2026-10-01T08:00:00Z' }, { datum: '2026-10-01', tempC: 5, abgerufen: '2026-10-01T15:00:00Z' }, { datum: '2026-10-02', tempC: 7 }]);
+    assertEq(tage.map((t) => t.tempC), [5, 7], 'Grafik: ein Wert pro Tag, der späteste');
+  } finally {
+    w.Wetter.fetchCurrent = altFetch; w._changedSinceBackup = altGeaendert;
+    for (const x of (await w.DB.getAll('wetter')).filter((x) => x.standId === st.id)) await w.DB.del('wetter', x.id);
+    await w.DB.del('staende', st.id);
+  }
+});
+
+test('Wetter am Stand: aktuelles Wetter oben, Grafik, aufgeklappt höchstens 5 Werte, Rest über Export', async (w) => {
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const st = await w.DB.put('staende', { name: 'WETTERTEST-Karte', lat: 49.4, lng: 11.1 });
+  const altHash = w.location.hash;
+  try {
+    for (let i = 0; i < 9; i++) await w.DB.put('wetter', { standId: st.id, datum: w.U.addDays(w.U.todayIso(), -i), tempC: 10 + i, windKmh: 4, niederschlagMm: 0, quelle: 'dwd', abgerufen: new Date(Date.now() - i * 86400000).toISOString() });
+    w.location.hash = '#/stand/' + st.id; await w.renderRoute(); await warte(200);
+    const box = w.document.querySelector('#wetter-box');
+    assert(box && /(^|\D)10(,0)?\s*°C/.test(box.querySelector('.w-jetzt').textContent), `oben steht der neueste Wert von heute (${box && box.querySelector('.w-jetzt') && box.querySelector('.w-jetzt').textContent})`);
+    assert(/heute/.test(box.querySelector('.w-jetzt').textContent), 'mit „heute“ und Uhrzeit');
+    assert(box.querySelector('svg, canvas, .chart-box'), 'Verlauf als Grafik');
+    const det = box.querySelector('details.w-letzte');
+    assert(det && !det.open, 'Einzelwerte sind eingeklappt');
+    assert(/5 von 9/.test(det.querySelector('summary').textContent), 'Überschrift nennt „5 von 9“');
+    assertEq(det.querySelectorAll('.w-zeile').length, 5, 'aufgeklappt stehen höchstens 5 Werte (kompakte Zeilen)');
+    det.querySelector('[data-wexport]').click(); await warte(400);
+    const sel = w.document.querySelector('#ex-fenster [data-ex="bereich"]');
+    assert(sel && sel.value === 'wetter', 'Export öffnet sich mit Bereich Wetter');
+    assertEq(w.document.querySelector('#ex-fenster [data-ex="stand"]').value, st.id, '… und diesem Stand vorgewählt');
+  } finally {
+    w.document.querySelectorAll('.modal-back').forEach((m) => m.remove());
+    for (const x of (await w.DB.getAll('wetter')).filter((x) => x.standId === st.id)) await w.DB.del('wetter', x.id);
+    await w.DB.del('staende', st.id);
+    w.location.hash = altHash; await w.renderRoute();
+  }
+});
+
+/* ---------- v2.78: Excel und CSV sauber für deutsches Excel ---------- */
+test('CSV: Datum TT.MM.JJJJ, Dezimalkomma, Semikolon, Umlaute, Maskierung, Formel-Schutz', async (w) => {
+  await w.Xlsx.lib();
+  const csv = w.Xlsx.csv([
+    { Datum: w.Xlsx._d('2026-10-20'), 'Menge (kg)': 12.5, Anzahl: 3, Sorte: 'Frühtracht; „Linde“', Notiz: 'Zeile 1\nZeile 2', Formel: '=1+1', Leer: null },
+    { Datum: '', 'Menge (kg)': -0.25, Anzahl: 0, Sorte: 'Wald "dunkel"', Notiz: '', Formel: 'normal', Leer: '' },
+  ]);
+  assert(csv.charCodeAt(0) === 0xFEFF, 'UTF-8-Kennung vorn (Umlaute in Excel)');
+  const z = csv.slice(1).split('\r\n');
+  assertEq(z[0], 'Datum;Menge (kg);Anzahl;Sorte;Notiz;Formel;Leer', 'Kopfzeile mit Semikolon');
+  assert(z[1].startsWith('20.10.2026;12,5;3;"Frühtracht; „Linde“";"Zeile 1'), `deutsches Datum, Dezimalkomma, Semikolon im Text maskiert (${z[1]})`);
+  assert(csv.includes('"Zeile 1\nZeile 2"'), 'Zeilenumbruch bleibt in einer Zelle');
+  assert(csv.includes(";'=1+1;"), 'Formeln werden nicht ausgeführt');
+  assert(csv.includes(';-0,25;0;"Wald ""dunkel""";'), 'negative Kommazahl, Null, Anführungszeichen verdoppelt');
+  assert(!/\d\/\d/.test(csv), 'kein US-Datum');
+});
+
+test('Excel: Blatt mit deutschem Datumsformat, Zahlen als Zahlen, Spaltenbreite und Filter – wieder eingelesen geprüft', async (w) => {
+  const X = await w.Xlsx.lib();
+  const wb = w.Xlsx.mappe([{ name: 'Ernten', rows: [{ Datum: w.Xlsx._d('2026-07-03'), Sorte: 'Sommertracht', 'Menge (kg)': 23.4, Notiz: 'sehr lange Bemerkung zur Ernte am Waldrand' }] }, { name: 'Ernten', rows: [] }]);
+  assertEq(wb.SheetNames, ['Ernten', 'Ernten 2'], 'Blattnamen eindeutig');
+  const zurueck = X.read(X.write(wb, { bookType: 'xlsx', type: 'array', cellDates: true }), { type: 'array', cellDates: true, cellNF: true });
+  const ws = zurueck.Sheets.Ernten;
+  assertEq(ws.A1.v, 'Datum'); assertEq(ws.C1.v, 'Menge (kg)', 'Kopfzeile mit Einheit');
+  assert(Object.prototype.toString.call(ws.A2.v) === '[object Date]', 'Datum ist ein echtes Datum (sortier-/filterbar)');
+  assertEq(ws.A2.z, 'dd.mm.yyyy', 'Datumsformat TT.MM.JJJJ');
+  assertEq(ws.A2.v.getDate(), 3, 'Tag stimmt (kein Versatz durch Zeitzone)');
+  assertEq(ws.C2.t, 'n', 'Menge ist eine Zahl'); assertEq(ws.C2.v, 23.4);
+  assertEq(ws.B2.v, 'Sommertracht');
+  const cols = wb.Sheets.Ernten['!cols'];
+  assert(cols && cols[3].wch > cols[1].wch && cols[3].wch <= 62, 'Spaltenbreite richtet sich nach dem Inhalt');
+  assert(wb.Sheets.Ernten['!autofilter'], 'Filterknöpfe in der Kopfzeile');
+  assertEq(zurueck.Sheets['Ernten 2'].A1.v, 'Keine Einträge', 'leeres Blatt sagt es');
+});
+
+/* ---------- v2.78: Export je Bereich – Volk, Stand, Jahr; Volksakte ---------- */
+test('Export: Filter nach Volk, Stand und Jahr – Stammdaten ohne Jahr, Stand-Behandlungen gehören zum Volk', async (w) => {
+  const E = w.Export;
+  const v = { id: 'V1', standId: 'S1', koeniginId: 'Q1', historie: [] };
+  const f26 = E.filter({ volk: v, jahr: '2026' });
+  assert(f26('stockkarten', { volkId: 'V1', datum: '2026-05-01' }), 'Durchsicht des Volks im Jahr');
+  assert(!f26('stockkarten', { volkId: 'V1', datum: '2025-05-01' }), 'anderes Jahr fällt weg');
+  assert(!f26('stockkarten', { volkId: 'V2', datum: '2026-05-01' }), 'anderes Volk fällt weg');
+  assert(f26('behandlungen', { zielTyp: 'stand', zielId: 'S1', datum: '2026-08-01' }), 'Behandlung für den ganzen Stand zählt mit');
+  assert(!f26('behandlungen', { zielTyp: 'stand', zielId: 'S2', datum: '2026-08-01' }), 'anderer Stand nicht');
+  assert(f26('voelker', { id: 'V1', datum: '2019-01-01' }), 'Stammdaten unabhängig vom Jahr');
+  assert(f26('koeniginnen', { id: 'Q9', historie: [{ volkId: 'V1' }] }), 'frühere Königin des Volks gehört dazu');
+  assert(f26('aufgaben', { volkId: 'V1', faellig: '2026-03-01' }) && !f26('aufgaben', { volkId: 'V1', faellig: '2025-03-01' }), 'Aufgaben nach Fälligkeit');
+  const fs = E.filter({ stand: { id: 'S1' }, jahr: '' });
+  assert(fs('wetter', { standId: 'S1' }) && !fs('wetter', { standId: 'S2' }), 'Wetter nach Stand');
+  assert(fs('kassenbuch', { datum: '2020-01-01' }), 'Bereiche ohne Stand bleiben ungefiltert');
+});
+
+test('Export: Volksakte enthält alles zum Volk, jeder Teil einzeln, PDF/Excel/CSV mit allen Spalten', async (w) => {
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const st = await w.DB.put('staende', { name: 'EXPTEST-Stand' });
+  const q = await w.DB.put('koeniginnen', { jahrgang: 2025, linie: 'Carnica', status: 'aktiv', historie: [] });
+  const v = await w.DB.put('voelker', { name: 'EXPTEST-Volk', standId: st.id, koeniginId: q.id, status: 'aktiv', funktion: 'Wirtschaftsvolk', beutentyp: 'Zander', historie: [{ datum: '2026-04-01', text: 'Angelegt' }, { datum: '2025-04-01', text: 'Alt' }] });
+  q.historie = [{ volkId: v.id, von: '2026-04-01' }]; await w.DB.put('koeniginnen', q);
+  const ids = [];
+  const put = async (store, o) => { const r = await w.DB.put(store, o); ids.push([store, r.id]); return r; };
+  await put('stockkarten', { volkId: v.id, datum: '2026-05-02', volksstaerke: 4, brutbild: 3, sanftmut: 4, futter: 'gut', notiz: 'Schwarmstimmung prüfen' });
+  await put('stockkarten', { volkId: v.id, datum: '2025-06-02', volksstaerke: 2 });
+  await put('behandlungen', { zielTyp: 'stand', zielId: st.id, datum: '2026-08-01', mittel: 'Ameisensäure 60 %', menge: 2.5, einheit: 'ml' });
+  await put('fuetterungen', { volkId: v.id, datum: '2026-09-01', futterart: 'Sirup', mengeKg: 10 });
+  await put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2026-07-01', sorte: 'Linde', mengeKg: 12.5, produktart: 'Honig' });
+  const altX = w.xlsxSpeichern, altDl = w.U.download, altPdf = w.Pdf.noDownloadForTest;
+  let mappe = null, csvText = null, csvBom = false;
+  w.xlsxSpeichern = (wb, name) => { mappe = { wb, name }; };
+  // Bytes prüfen: blob.text() würde die UTF-8-Kennung (BOM) stillschweigend entfernen
+  w.U.download = async (blob) => { const b = new Uint8Array(await blob.arrayBuffer()); csvBom = b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF; csvText = new TextDecoder().decode(b); };
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const teile = await w.Export.volkTeile(v, '2026');
+    const n = Object.fromEntries(teile.map((t) => [t.titel, t.rows.length]));
+    assertEq(n.Stammdaten, 1); assertEq(n['Königin'], 1);
+    assertEq(n.Durchsichten, 1, 'nur Durchsichten aus 2026');
+    assertEq(n.Behandlungen, 1, 'Stand-Behandlung ist dabei');
+    assert(/ganzen Stand/.test(teile.find((t) => t.titel === 'Behandlungen').hinweis), '… und als solche gekennzeichnet');
+    assertEq(n['Fütterungen'], 1); assertEq(n.Ernten, 1); assertEq(n.Verlauf, 1, 'Verlauf nach Jahr');
+    const dk = Object.keys(teile.find((t) => t.titel === 'Durchsichten').rows[0]);
+    for (const spalte of ['Datum', 'Volksstärke', 'Brutbild', 'Sanftmut', 'Futter']) assert(dk.includes(spalte), `Durchsicht hat Spalte „${spalte}“`);
+    assertEq((await w.Export.volkTeile(v, '')).find((t) => t.titel === 'Durchsichten').rows.length, 2, '„Alle Jahre“ zeigt beide');
+    // Bedienfeld
+    await w.Export.zeichnen(host, { bereich: 'voelker', volk: v.id });
+    assert(host.querySelectorAll('.ex-teil').length >= 10, 'alle Teile der Volksakte aufgelistet');
+    assert(host.querySelector('[data-exjahr="2026"].active') && host.querySelector('[data-exjahr="2025"]') && host.querySelector('[data-exjahr=""]'), 'Jahre 2026/2025 und „Alle Jahre“ wählbar');
+    host.querySelector('[data-exaus="pdf"]').click(); await warte(1500);
+    const doc = w.Pdf.lastDocForTest; assert(doc, 'Volksakte als PDF');
+    const pdfText = (d) => d.internal.pages.map((p) => (p || []).join('\n')).join('\n').replace(/\\([()\\])/g, '$1');   // Seiteninhalt vor dem Komprimieren, Klammern entmaskiert
+    const text = pdfText(doc);
+    for (const t of ['Volksakte 2026', 'Stammdaten (1)', 'Durchsichten (1)', 'Behandlungen (1)', 'Varroa-Kontrollen (0)', 'Ernten (1)', 'Schwarmstimmung', '12,5', 'Feld', 'Wert']) assert(text.includes(t), `PDF enthält „${t}“`);
+    assert(!text.includes('12.5'), 'Kommazahl mit Komma');
+    host.querySelector('[data-exaus="xlsx"]').click(); await warte(400);
+    assert(mappe && /volksakte-exptest-volk-2026/.test(mappe.name), `Excel-Datei mit Volk und Jahr im Namen (${mappe && mappe.name})`);
+    assert(mappe.wb.SheetNames.includes('Durchsichten') && mappe.wb.SheetNames.includes('Stammdaten'), 'ein Blatt je Teil');
+    const idx = [...host.querySelectorAll('.ex-teil')].findIndex((x) => /Durchsichten/.test(x.textContent));
+    host.querySelectorAll('[data-excsv]')[idx].click(); await warte(300);
+    assert(csvBom, 'CSV beginnt mit der UTF-8-Kennung (Umlaute in Excel)');
+    assert(csvText && /02\.05\.2026/.test(csvText) && /Schwarmstimmung prüfen/.test(csvText), 'CSV eines Teils mit deutschem Datum und Inhalt (inkl. Umlaut)');
+    assert(!/02\.06\.2025/.test(csvText), 'CSV nur aus dem gewählten Jahr');
+    w.Pdf.lastDocForTest = null;
+    host.querySelectorAll('[data-expdf]')[idx].click(); await warte(1200);
+    const einzel = w.Pdf.lastDocForTest && pdfText(w.Pdf.lastDocForTest);
+    assert(einzel && /Durchsichten 2026/.test(einzel) && /Durchsichten \(1\)/.test(einzel) && !/Varroa-Kontrollen \(/.test(einzel) && !/Stammdaten \(/.test(einzel), 'ein Teil einzeln als PDF – nur dieser Teil');
+    // anderer Bereich: Ernten nach Volk + Jahr, CSV
+    const sel = host.querySelector('[data-ex="bereich"]'); sel.value = 'ernten'; sel.dispatchEvent(new w.Event('change', { bubbles: true })); await warte(500);
+    const vs = host.querySelector('[data-ex="volk"]'); vs.value = v.id; vs.dispatchEvent(new w.Event('change', { bubbles: true })); await warte(500);
+    assert(/1 Eintrag/.test(host.querySelector('.banner').textContent), 'Ernten des Volks gezählt');
+    csvText = null; host.querySelector('[data-exaus="csv"]').click(); await warte(500);
+    assert(csvText && /01\.07\.2026/.test(csvText) && /;12,5;/.test(csvText), 'Ernte-CSV mit deutschem Datum und Komma');
+  } finally {
+    w.xlsxSpeichern = altX; w.U.download = altDl; w.Pdf.noDownloadForTest = altPdf; host.remove();
+    for (const [store, id] of ids) await w.DB.del(store, id);
+    await w.DB.del('voelker', v.id); await w.DB.del('koeniginnen', q.id); await w.DB.del('staende', st.id);
+  }
+});
+
+test('Komplettausdruck: Excel-Knopf nimmt das gewählte Jahr und die gewählten Bereiche', async (w) => {
+  const altX = w.xlsxSpeichern; let mappe = null;
+  w.xlsxSpeichern = (wb, name) => { mappe = { wb, name }; };
+  const k1 = await w.DB.put('kassenbuch', { datum: '2026-03-01', typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 10, beschreibung: 'KOMPLETTTEST-26' });
+  const k2 = await w.DB.put('kassenbuch', { datum: '2024-03-01', typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 10, beschreibung: 'KOMPLETTTEST-24' });
+  try {
+    await w.Xlsx.exportAll({ jahr: '2026', kapitel: ['kassenbuch'] });
+    assert(mappe && /2026/.test(mappe.name), 'Dateiname nennt das Jahr');
+    assertEq(mappe.wb.SheetNames, ['Kassenbuch'], 'nur der gewählte Bereich');
+    const X = await w.Xlsx.lib();
+    const zeilen = X.utils.sheet_to_json(mappe.wb.Sheets.Kassenbuch);
+    assert(zeilen.some((z) => z.Beschreibung === 'KOMPLETTTEST-26') && !zeilen.some((z) => z.Beschreibung === 'KOMPLETTTEST-24'), 'nur Buchungen aus 2026');
+  } finally { w.xlsxSpeichern = altX; await w.DB.del('kassenbuch', k1.id); await w.DB.del('kassenbuch', k2.id); }
+});
+
 /* Hilfe-Texte kennen das Verschieben auf der Startseite */
 test('Imme weiß, wie man Startseiten-Kacheln verschiebt', (w) => {
   const a = w.Assistent.antwort('Wie verschiebe ich die Kacheln auf der Startseite?');
