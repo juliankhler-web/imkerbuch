@@ -8,6 +8,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 ## 1. Konto und Recht
 
 - ⚠️ **Apple Developer Program** (99 €/Jahr). Julians Team ist bisher das kostenlose – damit kann man nicht einreichen.
+  - 20.10.2026: Anmeldung läuft (als **Einzelperson**, über die App „Apple Developer“). Als Ausweis bietet Apple nur den **Führerschein** an. Der Name im Apple-Account muss **genau** wie im Führerschein stehen (beide Vornamen, Nachname mit „ö“) – vorher stand dort „julian Koehler“. Bei Einzelpersonen erscheint dieser Name später als **Verkäufer** im App Store.
 - ⚠️ **EU-Händlerangaben (DSA)**: Wer Geld verlangt, ist „Händler“. Apple zeigt dann **Adresse, Telefon und E-Mail öffentlich** im App Store (EU). Ohne Angabe keine Verbreitung in der EU.
 - ❓ Gewerbe anmelden, Steuer (Kleinunternehmer?), Bankkonto und Steuerformulare in App Store Connect. Apple führt die Umsatzsteuer selbst ab.
 - ❓ Name „ImkerBuch“: Marke (DPMA) und Name im App Store frei?
