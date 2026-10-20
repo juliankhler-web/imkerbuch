@@ -4,7 +4,7 @@ Stand 2026-10-18. Alles hier ist zum Kopieren in App Store Connect gedacht. Juli
 
 ## App-Informationen
 
-- **Name (max. 30):** `ImkerBuch – Stockkarte & Honig`
+- **Name (max. 30):** `ImkerBuch` (Julian 20.10.2026: „der Name wird nur ImkerBuch“; vorher Entwurf „ImkerBuch – Stockkarte & Honig“)
 - **Untertitel (max. 30):** `Bienenvölker offline verwalten`
 - **Kategorie:** Produktivität (Haupt), Lifestyle (Neben)
 - **Bundle-ID:** `de.imkerbuch.app`
@@ -17,11 +17,13 @@ Stand 2026-10-18. Alles hier ist zum Kopieren in App Store Connect gedacht. Juli
 
 ## Stichwörter (max. 100 Zeichen, Komma ohne Leerzeichen)
 
-`Imker,Imkerei,Bienen,Varroa,Bestandsbuch,Durchsicht,Bienenvolk,Königin,Kassenbuch,Bio,Wanderung`
+`Imker,Imkerei,Stockkarte,Honig,Bienen,Varroa,Bestandsbuch,Bienenvolk,Königin,Kassenbuch,Bio` (91 Zeichen; „Stockkarte“ und „Honig“ aufgenommen, weil sie nicht mehr im Namen stehen)
 
 ## Werbetext (max. 170, jederzeit änderbar)
 
-Neu: Imme führt dich in 5 Schritten durch die App. Erinnerungen an fällige Aufgaben – auch wenn die App geschlossen ist.
+Das digitale Stockbuch für Imker: Durchsicht am Stand auch mit Handschuhen, Bestandsbuch als PDF, Kassenbuch und Honigverkauf – offline, ohne Konto, ohne Abo.
+
+(Zur 1.0 kein „Neu:“-Text – der passt erst zu Updates.)
 
 ## Beschreibung
 
@@ -45,6 +47,9 @@ HONIG UND GESCHÄFT
 FÜR BIO-IMKEREIEN
 • Bio-Unterlagen, Hygieneplan, Umgebungsprüfung der Stände
 
+DEINE STARTSEITE, DEIN AUFBAU
+• Kacheln und Schnellzugriffe selbst zusammenstellen – für den Hobby-Stand genauso wie für den Imkereibetrieb
+
 IMME, DEIN ASSISTENT
 • Beantwortet Fragen zur App und zeigt dir Schritt für Schritt, wie es geht – auch ohne Internet
 
@@ -63,7 +68,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 | `de.imkerbuch.app.testphase30` | Nicht verbrauchbar | 30-day Trial | 30-Tage-Testphase | 0,00 € |
 | `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € (Einführung), später 24,99 € |
 
-Beschreibung Testphase: „30 Tage alle Funktionen kostenlos – keine automatische Abbuchung.“
+Beschreibung Testphase: „30 Tage alle Funktionen gratis – keine Abbuchung.“ (Apple erlaubt nur 55 Zeichen)
 Beschreibung Vollversion: „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“
 Familienfreigabe: aus. Prüfungs-Screenshot: Kauf-Fenster der App.
 

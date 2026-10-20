@@ -243,3 +243,17 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - **Behoben:** Sprechblase unter Uhrzeit/Kamera-Aussparung (5 Stellen in 4 Führungen), „Los geht's!“ auf dem Startknopf, hängender oranger Rand nach dem Antippen, „Hilfe beenden“ halb aus dem Bild, abgeschnittene Markierung an der unteren Leiste.
 - Alle 28 Führungen (156 Sprechblasen) automatisch im iPhone-Format geprüft: 0 Befunde.
 - Grenzen des Simulators: Texteingabe nur über Einsetzen (unzuverlässig), keine Kamera, keine Mail-App, keine Testkäufe ohne Xcode → Rest prüft Julian am echten iPhone (`docs/GERAETETEST.md`).
+
+## 29. App Store Connect eingerichtet (2026-10-20, Claude über Chrome, Julian angemeldet)
+
+App-ID **6824860228**, Bundle-ID `de.imkerbuch.app`, SKU `imkerbuch-ios`. **Nichts eingereicht** – Julian gibt die Freigabe ganz am Schluss („wir reichen noch nichts ein“).
+
+- ✅ App-Informationen: Name **ImkerBuch**, Untertitel „Bienenvölker offline verwalten“, Kategorie Produktivität / Lifestyle, Altersfreigabe **4+** (alles „Nein/Keine“).
+- ✅ In-App-Käufe (beide nicht verbrauchbar, DE/AT/CH, Prüfungsbild 1320×2868 + englischer Prüferhinweis): `de.imkerbuch.app.vollversion` (ID 6824861152) **14,99 €** (Schweiz von Apple umgerechnet: 10,00 CHF – ggf. anpassen); `de.imkerbuch.app.testphase30` (ID 6824862447) **0,00 €**.
+- ✅ Version 1.0: Werbetext, Beschreibung, Stichwörter, Support-/Marketing-URL, Copyright „2026 Julian Köhler“, **manuell veröffentlichen**, 7 iPhone-Bilder (Apple will seit 2026 **6,1/6,3″ = 1206×2622** → `store-bilder/iphone-63/`, aus den 1320×2868-Bildern skaliert), 3 iPad-Bilder 13″ (2752×2064).
+- ✅ App: kostenlos (0 €), nur DE/AT/CH. App-Datenschutz: Datenschutz-URL + „Keine Daten erfasst“.
+- ⚠️ **Julian:** Telefonnummer unter „Informationen zur App-Prüfung“ (Pflicht; Name, Mail, Hinweise sind eingetragen, Anmeldung erforderlich = aus) → „Sichern“.
+- ⚠️ **Julian entscheidet:** Inhaltsrechte (App-Informationen → „Inhaltsrechte“: Wetter DWD/Bright Sky, Karten OSM/BKG – Daten Dritter, frei nutzbar); Mac-/Vision-Pro-Verfügbarkeit ist von Apple **an** (ungetestet – ausschalten?); App-Datenschutz „Veröffentlichen“ erst mit der Schlussfreigabe.
+- ⚠️ **Julian (Geschäftliches):** Vertrag kostenpflichtige Apps, Steuerformular, Bank, DSA-Händlerangaben – ohne aktiven Vertrag laden Käufe in TestFlight/Sandbox meist nicht.
+- Offen: Build hochladen (Xcode → Archive), TestFlight für Tester; Bilder „iPhone Duo“ ab April 2027 Pflicht.
+- GitHub bleibt **öffentlich** (Julian 20.10.2026) – Web-Version und Seiten bleiben erreichbar; Tester wechseln über TestFlight in die App (vorher Sicherung in der Web-Version, in der App einlesen).
