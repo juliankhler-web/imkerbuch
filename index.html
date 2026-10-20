@@ -1412,8 +1412,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.70';
+const APP_VERSION = '2.71';
 const CHANGELOG = [
+  { version: '2.71', datum: '2026-10-20', punkte: [
+    'Stabiler auf dem iPhone: Schließt das System die Datenbank im Hintergrund, verbindet sich ImkerBuch beim nächsten Tippen selbst neu – vorher konnte Speichern bis zum Neustart fehlschlagen.',
+  ] },
   { version: '2.70', datum: '2026-10-20', punkte: [
     'Imme erklärt jetzt auch die kostenlose Light-Version (Frag sie z. B. „Was ist kostenlos?“).',
   ] },
@@ -2749,7 +2752,7 @@ const DB = {
         const db = rq.result;
         for (const s of this.STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: s === 'settings' ? 'key' : 'id' });
       };
-      rq.onsuccess = () => { this._db = rq.result; res(this._db); };
+      rq.onsuccess = () => { this._db = this._ueberwachen(rq.result); res(this._db); };
       rq.onerror = (ev) => {
         /* Auf dem Gerät lief schon eine NEUERE Fassung (höhere Datenbank-Stufe,
            z. B. ein Test-Build mit zusätzlichem Bereich). Dann ohne Stufe öffnen:
@@ -2761,12 +2764,12 @@ const DB = {
           rq2.onsuccess = () => {
             const db = rq2.result;
             const fehlt = this.STORES.filter((st) => !db.objectStoreNames.contains(st));
-            if (!fehlt.length) { this._db = db; res(db); return; }
+            if (!fehlt.length) { this._db = this._ueberwachen(db); res(db); return; }
             // Sehr unwahrscheinlich: ein Bereich fehlt – eine Stufe höher anlegen
             const ver = db.version + 1; db.close();
             const rq3 = indexedDB.open(this.NAME, ver);
             rq3.onupgradeneeded = () => { for (const st of fehlt) rq3.result.createObjectStore(st, { keyPath: st === 'settings' ? 'key' : 'id' }); };
-            rq3.onsuccess = () => { this._db = rq3.result; res(this._db); };
+            rq3.onsuccess = () => { this._db = this._ueberwachen(rq3.result); res(this._db); };
             rq3.onerror = () => rej(rq3.error);
           };
           rq2.onerror = () => rej(rq2.error);
@@ -2776,15 +2779,33 @@ const DB = {
       };
     });
   },
+  /* Safari/iOS schließt die Datenbank-Verbindung manchmal von sich aus (lange im Hintergrund,
+     Speicherdruck, bekannter WebKit-Fehler „Connection to Indexed Database server lost“).
+     Vorher blieb die tote Verbindung gemerkt und JEDES Speichern schlug fehl, bis die App neu
+     startete. Jetzt: Verbindung vergessen und beim nächsten Zugriff einmal neu öffnen. */
+  _ueberwachen(db) {
+    db.onclose = () => this._verbindungWeg(db);
+    db.onversionchange = () => this._verbindungWeg(db);   // neuere Fassung in anderem Fenster will umbauen
+    return db;
+  },
+  _verbindungWeg(db) { if (this._db === db) this._db = null; try { db.close(); } catch (_) { /* schon zu */ } },
+  _tot(e) { return !!e && (e.name === 'InvalidStateError' || e.name === 'UnknownError'); },
+  async _tx(stores, mode) {
+    for (let versuch = 0; ; versuch++) {
+      const db = await this.open();
+      try { return db.transaction(stores, mode); }
+      catch (e) { if (versuch === 0 && this._tot(e)) { this._verbindungWeg(db); continue; } throw e; }
+    }
+  },
   _req: (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
-  async _store(name, mode) { const db = await this.open(); return db.transaction(name, mode).objectStore(name); },
+  async _store(name, mode) { return (await this._tx(name, mode)).objectStore(name); },
   async get(store, id) { return this._req((await this._store(store, 'readonly')).get(id)); },
   async getAll(store) { return this._req((await this._store(store, 'readonly')).getAll()); },
   async count(store) { return this._req((await this._store(store, 'readonly')).count()); },
   async leseAlles(stores) {
-    const db = await this.open();
+    const tx = await this._tx(stores, 'readonly');
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(stores, 'readonly'), daten = Object.create(null);
+      const daten = Object.create(null);
       tx.oncomplete = () => resolve(daten);
       tx.onabort = () => reject(tx.error || new Error('Sicherung konnte nicht vollständig gelesen werden.'));
       tx.onerror = () => reject(tx.error || new Error('Lesefehler'));
@@ -2838,8 +2859,8 @@ const DB = {
     const liste = (ops || []).filter(Boolean);
     if (!liste.length) return true;
     const stores = [...new Set([...liste.map((o) => o.store), 'settings'])];
-    const db = await this.open();
-    const tx = db.transaction(stores, 'readwrite');
+    const tx = await this._tx(stores, 'readwrite');
+    const db = tx.db;
     const fertig = new Promise((res, rej) => {
       tx.oncomplete = () => {
         if (this._betriebsdaten(liste)) this._aenderungMelden();
@@ -2847,8 +2868,8 @@ const DB = {
         if (liste.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.op === 'clear' || o.store === 'papierkorb')) lohnIndexNeu().then(() => res(true), () => res(true));
         else res(true);
       };
-      tx.onerror = () => rej(tx.error || new Error('Schreibvorgang fehlgeschlagen'));
-      tx.onabort = () => rej(tx.error || new Error('Schreibvorgang abgebrochen'));
+      tx.onerror = () => { if (this._tot(tx.error)) this._verbindungWeg(db); rej(tx.error || new Error('Schreibvorgang fehlgeschlagen')); };
+      tx.onabort = () => { if (this._tot(tx.error)) this._verbindungWeg(db); rej(tx.error || new Error('Schreibvorgang abgebrochen')); };
     });
     try {
       this._auftraege(tx, liste);
@@ -2878,10 +2899,9 @@ const DB = {
   /* Liest, prüft und schreibt unter EINER IndexedDB-Schreibsperre.
      berechne ist synchron und liefert { ops, wert }; keine UI oder awaits darin. */
   async aendereAtomar(stores, berechne) {
-    const db = await this.open();
+    const namen = [...new Set([...stores, 'settings'])];
+    const tx = await this._tx(namen, 'readwrite');
     return new Promise((resolve, reject) => {
-      const namen = [...new Set([...stores, 'settings'])];
-      const tx = db.transaction(namen, 'readwrite');
       const daten = Object.create(null);
       let offen = namen.length, wert, ops = [], ursache;
       tx.oncomplete = () => {
@@ -2935,9 +2955,8 @@ const DB = {
     if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
       throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
-    const db = await this.open();
+    const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store])], 'readwrite');
     return new Promise((resolve, reject) => {
-      const tx = db.transaction([...new Set(['papierkorb', 'inventar', 'settings', vorab.store])], 'readwrite');
       let ergebnis = null, ursache = null;
       tx.oncomplete = () => {
         if (ergebnis) this._aenderungMelden();

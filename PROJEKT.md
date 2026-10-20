@@ -76,6 +76,7 @@ python3 -m http.server 8931 -d ~/ImkerApp   # dann http://localhost:8931
 
 ## Historie
 
+- **2026-10-20 (v2.71)**: CI (WebKit/Linux) zeigte „database connection is closing“ → echte iOS-Schwäche: `DB._db` blieb nach Safari-Abriss tot. Jetzt `DB._tx()` öffnet bei InvalidState/UnknownError einmal neu, `_ueberwachen` (onclose/onversionchange) vergisst tote Verbindungen, alle Transaktionen laufen über `_tx`. Test „geschlossene Verbindung“. WebKit-Suite 653/653, Update-Prüfung grün.
 - **2026-10-20 (v2.70)**: Light überall nachgezogen: Imme-Antwort „kauf“ (+ Stichwörter light/kostenlos/gratis/gesperrt), support.html, agb.html §4, landing.html Preisliste, PLAY_STORE.md, Store-Bild 3 („Light bleibt gratis“).
 - **2026-10-20 (v2.69)**: Julian: Imme-Sprechblase ohne gelben Rahmen, auf dem Handy volle Breite (≤ 700 px: links 12 px, Breite 100vw − 24). Hinweis: blasser Hintergrund auf Vorschau-Bildern kommt vom pausierten Einblenden im Vorschau-Browser, nicht von der App (in WebKit-Aufnahme scharf).
 - **2026-10-20 (v2.68)**: Julian: beim ersten Start kurz erklären, wo was ist, und das Anpassen hervorheben → Einführungs-Kapitel 1 „Kurz umschauen“ (5 Schritte: Startseite, #dash-cfg, Schnellzugriffe, Mehr/ziehen, Imme; ersetzt „Alles finden“). Achtung: Imme-Tour findet `position:fixed`-Elemente nicht (offsetParent null) → auf Knöpfe darin zeigen. Store-Bild 7 „Deine App. Dein Betrieb.“ (studio-3.html, Aufnahme dash-anpassen).

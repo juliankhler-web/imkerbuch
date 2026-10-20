@@ -12570,6 +12570,22 @@ test('Einführung beginnt mit „Kurz umschauen“: Startseite, Anpassen, Schnel
   assert(!w.Einfuehrung.KAPITEL.some((x) => x.titel === 'Alles finden'), 'altes Kapitel ersetzt');
 });
 
+test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {
+  const DB = w.DB;
+  await DB.open();
+  DB._db.close();                                   // so, als hätte Safari die Verbindung gekappt
+  assert(Array.isArray(await DB.getAll('voelker')), 'Lesen klappt danach');
+  DB._db.close();
+  const v = await DB.put('voelker', { name: 'Nach Abriss', status: 'aktiv' });
+  assertEq((await DB.get('voelker', v.id)).name, 'Nach Abriss', 'Schreiben klappt danach');
+  DB._db.close();
+  await DB.aendereAtomar(['voelker'], (d) => ({ ops: [{ store: 'voelker', obj: { ...d.voelker.find((x) => x.id === v.id), name: 'Atomar' } }] }));
+  assertEq((await DB.get('voelker', v.id)).name, 'Atomar', 'atomare Buchung klappt danach');
+  const db = DB._db; db.onclose();                  // unerwartetes Schließen wird bemerkt
+  assert(DB._db === null, 'tote Verbindung vergessen');
+  assert(Array.isArray(await DB.getAll('voelker')), 'und wieder geöffnet');
+}));
+
 test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen, Kauf-Fenster statt Speichern', async (w) => isolierteDaten(w, async () => {
   const L = w.Lizenz, tag = 864e5;
   const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };
