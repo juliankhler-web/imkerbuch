@@ -249,7 +249,7 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 App-ID **6824860228**, Bundle-ID `de.imkerbuch.app`, SKU `imkerbuch-ios`. **Nichts eingereicht** – Julian gibt die Freigabe ganz am Schluss („wir reichen noch nichts ein“).
 
 - ✅ App-Informationen: Name **ImkerBuch**, Untertitel „Bienenvölker offline verwalten“, Kategorie Produktivität / Lifestyle, Altersfreigabe **4+** (alles „Nein/Keine“).
-- ✅ In-App-Käufe (beide nicht verbrauchbar, DE/AT/CH, Prüfungsbild 1320×2868 + englischer Prüferhinweis): `de.imkerbuch.app.vollversion` (ID 6824861152) **14,99 €** (Schweiz von Apple umgerechnet: 10,00 CHF – ggf. anpassen); `de.imkerbuch.app.testphase30` (ID 6824862447) **0,00 €**.
+- ✅ In-App-Käufe (beide nicht verbrauchbar, DE/AT/CH, Prüfungsbild 1320×2868 + englischer Prüferhinweis): `de.imkerbuch.app.vollversion` (ID 6824861152) **14,99 €** (Schweiz fest **14,00 CHF**, manuell – Julian 20.10.2026; Apple hatte 10,00 CHF vorgeschlagen; wird bei Wechselkursen nicht mehr automatisch angepasst); `de.imkerbuch.app.testphase30` (ID 6824862447) **0,00 €**.
 - ✅ Version 1.0: Werbetext, Beschreibung, Stichwörter, Support-/Marketing-URL, Copyright „2026 Julian Köhler“, **manuell veröffentlichen**, 7 iPhone-Bilder (Apple will seit 2026 **6,1/6,3″ = 1206×2622** → `store-bilder/iphone-63/`, aus den 1320×2868-Bildern skaliert), 3 iPad-Bilder 13″ (2752×2064).
 - ✅ App: kostenlos (0 €), nur DE/AT/CH. App-Datenschutz: Datenschutz-URL + „Keine Daten erfasst“.
 - ⚠️ **Julian:** Telefonnummer unter „Informationen zur App-Prüfung“ (Pflicht; Name, Mail, Hinweise sind eingetragen, Anmeldung erforderlich = aus) → „Sichern“.
