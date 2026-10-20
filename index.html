@@ -20536,7 +20536,14 @@ const Lizenz = {
       const code = String(e && e.code || '');
       if (code === 'ITEM_ALREADY_OWNED') { await this.wiederherstellen(); return this.status() === 'voll'; }
       if (code === 'USER_CANCELED' || /cancel/i.test(String(e && (e.message || e)))) return false;   // abgebrochen: still
-      UI.toast('Kauf nicht möglich: ' + (e.message || e) + ' – bist du online?', 'err');
+      /* Keine englischen Technik-Meldungen zeigen („Cannot find product for id …“): Das Angebot kam nicht vom Store
+         (offline, Store gestört oder – beim Entwickeln – App nicht über Xcode gestartet). */
+      const store = this.android() ? 'Google Play' : 'Apple';
+      const nichtGefunden = /cannot find product|product.*not found|no product|unknown product/i.test(String(e && (e.message || e)));
+      UI.toast(nichtGefunden
+        ? `Das Angebot konnte gerade nicht von ${store} geladen werden. Bist du online? Bitte gleich noch einmal versuchen.`
+        : `Kauf nicht möglich – ${store} ist gerade nicht erreichbar. Bist du online?`, 'err');
+      console.warn('Kauf fehlgeschlagen', e);
       return false;
     }
     const st = this.status(await this.abgleichen());
