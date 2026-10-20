@@ -11211,6 +11211,100 @@ test('Unterlagen: jede Unterlage lässt sich wirklich erzeugen (PDF, Excel, CSV)
   }
 });
 
+/* ---------- v2.81: Statistik mit Mehrwert – Kennzahlen mit Vorjahr, Auffälliges mit Link ---------- */
+test('Statistik: Vergleich zum Vorjahr – Richtung, Prozent, Einheit, „kein Vorjahr“', (w) => {
+  const S = w.Statistik;
+  const a = S.vergleich(312, 264, { einheit: 'kg', dez: 1 });
+  assertEq(a.text, '▲ 18 %', 'Zuwachs in Prozent'); assertEq(a.richtung, 'gut'); assert(/264/.test(a.alt), 'Vorjahreswert dabei');
+  assertEq(S.vergleich(80, 100, { gut: 'runter' }).richtung, 'gut', 'weniger Ausgaben ist gut');
+  assertEq(S.vergleich(120, 100, { gut: 'runter' }).richtung, 'schlecht');
+  assertEq(S.vergleich(5, 3, { prozent: false }).text, '▲ 2', 'Stückzahlen als Differenz');
+  assertEq(S.vergleich(5, 5).richtung, 'gleich');
+  assertEq(S.vergleich(5, null).text, 'kein Vorjahr');
+  assertEq(S.vergleich(10, 8, { gut: '' }).richtung, 'neutral', 'Futter: weder gut noch schlecht');
+});
+
+test('Statistik: Honig, Futter, Gesundheit, Finanzen – Zahlen und Auffälligkeiten aus festen Testdaten', async (w) => {
+  const S = w.Statistik, J = '2025', V = '2024';
+  const v = (id, name, extra = {}) => ({ id, name, status: 'aktiv', funktion: 'Wirtschaftsvolk', standId: 'S1', koeniginId: null, historie: [{ datum: '2023-04-01', text: 'angelegt' }], ...extra });
+  const d = {
+    voelker: [v('A', 'Anna'), v('B', 'Berta'), v('C', 'Clara'), v('D', 'Dora'), v('E', 'Emma', { status: 'aufgeloest', historie: [{ datum: '2023-04-01' }, { datum: '2025-02-10', text: 'aufgelöst' }] })],
+    staende: [{ id: 'S1', name: 'Heim' }], koeniginnen: [], stockkarten: [], abfuellungen: [{ id: 'AB', gebindeG: 500 }], aufgaben: [], fahrten: [],
+    ernten: [
+      { zielTyp: 'volk', zielId: 'A', datum: '2025-06-10', mengeKg: 40, sorte: 'Linde', wassergehalt: 17 },
+      { zielTyp: 'volk', zielId: 'B', datum: '2025-06-10', mengeKg: 20, sorte: 'Linde', wassergehalt: 18.6 },
+      { zielTyp: 'volk', zielId: 'C', datum: '2025-06-10', mengeKg: 18, sorte: 'Raps' },
+      { zielTyp: 'volk', zielId: 'D', datum: '2025-06-10', mengeKg: 6, sorte: 'Raps' },
+      { zielTyp: 'volk', zielId: 'A', datum: '2024-06-10', mengeKg: 50 },
+    ],
+    fuetterungen: [
+      { volkId: 'A', datum: '2025-08-20', zuckerKg: 10, winterfutter: true }, { volkId: 'B', datum: '2025-08-20', zuckerKg: 10 },
+      { volkId: 'C', datum: '2025-08-20', zuckerKg: 10 }, { volkId: 'A', datum: '2024-08-20', zuckerKg: 12 },
+    ],
+    behandlungen: [{ zielTyp: 'stand', zielId: 'S1', datum: '2025-08-01', mittel: 'Ameisensäure 60 %' }],
+    varroa: [{ volkId: 'B', datum: '2025-08-10', methode: 'Gemüll (Windel)', tageZaehl: 2, milben: 40 }],
+    kassenbuch: [
+      { typ: 'einnahme', datum: '2025-07-01', betrag: 500, kategorie: 'Honigverkauf' }, { typ: 'ausgabe', datum: '2025-03-01', betrag: 300, kategorie: 'Gläser' },
+      { typ: 'einnahme', datum: '2024-07-01', betrag: 400, kategorie: 'Honigverkauf' }, { typ: 'ausgabe', datum: '2024-03-01', betrag: 100, kategorie: 'Gläser' },
+    ],
+    verkaeufe: [{ datum: '2025-07-01', anzahl: 20, abfuellungId: 'AB', betrag: 140 }],
+  };
+  d.volkMap = new Map(d.voelker.map((x) => [x.id, x]));
+  const kachel = (erg, label) => erg.kacheln.find((k) => k.label === label);
+  // Honig
+  const h = await S.auswerten('ertrag', J, d);
+  assertEq(kachel(h, 'Honig geerntet').wert, '84 kg'); assertEq(kachel(h, 'Honig geerntet').vergleich.text, '▲ 68 %', '84 statt 50 kg');
+  assertEq(kachel(h, 'Ø je Volk mit Ernte').wert, '21 kg');
+  assertEq(kachel(h, 'Stärkste Sorte').wert, 'Linde');
+  assert(h.auffaellig.some((a) => a.art === 'o' && /Anna/.test(a.titel) && a.href === '#/volk/A'), 'starkes Volk mit Link');
+  assert(h.auffaellig.some((a) => a.art === 'x' && /Dora/.test(a.titel)), 'schwaches Volk');
+  assert(h.auffaellig.some((a) => /über 18 %/.test(a.titel)), 'zu feuchte Ernte');
+  // Futter
+  const f = await S.auswerten('futter', J, d);
+  assertEq(kachel(f, 'Zucker verfüttert').wert, '30 kg'); assertEq(kachel(f, 'Ø Zucker je Volk').wert, '10 kg');
+  assertEq(kachel(f, 'davon Winterfutter').sub, '33 % der Menge');
+  assert(f.auffaellig.some((a) => a.art === 'x' && /Herbst/.test(a.titel) && /Dora/.test(a.text)), 'Volk ohne Herbstfütterung');
+  // Gesundheit
+  const g = await S.auswerten('behandlungen', J, d);
+  assertEq(kachel(g, 'Behandlungen').wert, '1');
+  assert(g.auffaellig.some((a) => a.art === 'x' && /Berta/.test(a.titel) && /Tag/.test(a.titel)), 'hoher Befall (20 Milben/Tag im August)');
+  assert(!g.auffaellig.some((a) => /ohne eingetragene Behandlung/.test(a.titel)), 'Stand-Behandlung zählt für alle Völker am Stand');
+  assert(g.auffaellig.some((a) => /ohne Varroa-Kontrolle/.test(a.titel)), 'Völker ohne Kontrolle');
+  // Finanzen
+  const fi = await S.auswerten('finanzen', J, d);
+  assertEq(kachel(fi, 'Gewinn').wert, w.U.fmtEur(200)); assertEq(kachel(fi, 'Gewinn').vergleich.richtung, 'schlecht', '200 statt 300 €');
+  assertEq(kachel(fi, 'Erlös je kg Honig').wert, w.U.fmtEur(14), '140 € für 10 kg');
+  assertEq(kachel(fi, 'Ausgaben').vergleich.richtung, 'schlecht', 'mehr Ausgaben');
+  assert(fi.auffaellig.some((a) => /Gläser/.test(a.titel) && /200 %/.test(a.text)), 'Kostenblock stark gestiegen');
+  // Völker: Winterverluste (Emma ist im Februar eingegangen)
+  const vk = await S.auswerten('voelker', J, d);
+  assertEq(kachel(vk, 'Winterverluste').wert, '20 %', '1 von 5 Völkern');
+});
+
+test('Statistik-Seite: ein Jahr für alle Reiter, „Auf einen Blick“ und PDF mit Kennzahlen', async (w) => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.reporting, alt = { t: V._typ, j: V._jahr };
+  const altPdf = w.Pdf.noDownloadForTest; w.Pdf.noDownloadForTest = true;
+  try {
+    const jahr = w.U.todayIso().slice(0, 4);
+    for (const typ of ['voelker', 'ertrag', 'futter', 'behandlungen', 'finanzen', 'arbeit']) {
+      V._typ = typ; V._jahr = jahr; host.innerHTML = '';
+      await V.render(host);
+      assert(host.querySelector('.st-blick') && /Auf einen Blick/.test(host.querySelector('.st-blick').textContent), `${typ}: „Auf einen Blick“ da`);
+      assert(host.querySelectorAll('.st-k').length >= 1, `${typ}: Kennzahlen da`);
+      assert(host.querySelector(`[data-stjahr="${jahr}"].active`), `${typ}: Jahr oben gewählt`);
+      w.Pdf.lastDocForTest = null;
+      await w.Pdf.report(typ === 'ertrag' ? 'ertrag' : typ, jahr);
+      const doc = w.Pdf.lastDocForTest; assert(doc, `${typ}: PDF entsteht`);
+      const text = doc.internal.pages.map((p) => (p || []).join('\n')).join('\n');
+      assert(/Auf einen Blick/.test(text) && text.includes(jahr), `${typ}: PDF enthält „Auf einen Blick“ ${jahr}`);
+      assert(!/[▲▼]/.test(text), `${typ}: keine Zeichen, die die PDF-Schrift nicht kennt`);
+    }
+    V._jahr = ''; host.innerHTML = ''; V._typ = 'voelker'; await V.render(host);
+    assert(!host.querySelector('.st-blick') && /ein Jahr wählen/.test(host.textContent), '„Alle Jahre“: Hinweis statt Vergleich');
+  } finally { V._typ = alt.t; V._jahr = alt.j; w.Pdf.noDownloadForTest = altPdf; host.remove(); }
+});
+
 /* Hilfe-Texte kennen das Verschieben auf der Startseite */
 test('Imme weiß, wie man Startseiten-Kacheln verschiebt', (w) => {
   const a = w.Assistent.antwort('Wie verschiebe ich die Kacheln auf der Startseite?');
@@ -12669,7 +12763,7 @@ test('Statistiken, Aufgaben, Unterlagen, Inventar: Reiter mit kurzen Namen, nur 
   try {
     w.Views.reporting._typ = 'voelker';
     await w.Views.reporting.render(host);
-    assertEq(reiterVon(host), ['Völker', 'Honig', 'Futter', 'Behandlungen', 'Finanzen'], 'Statistiken');
+    assertEq(reiterVon(host), ['Völker', 'Honig', 'Futter', 'Gesundheit', 'Finanzen', 'Arbeit'], 'Statistiken');
     host.innerHTML = ''; w.Views.aufgaben._teil = undefined;
     await w.Views.aufgaben.render(host);
     assertEq(reiterVon(host), ['Aufgaben', 'Kalender'], 'Aufgaben');
