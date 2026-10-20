@@ -70,6 +70,9 @@ html[data-theme="dark"]{
   --shadow-lg:0 4px 12px rgba(0,0,0,.4),0 24px 60px -20px rgba(0,0,0,.7);
 }
 *{box-sizing:border-box;margin:0;padding:0}
+/* Doppeltippen vergrößert nie (Julian, 20.10.2026: Doppeltipp aufs Dashboard zoomte stark hinein). Zwei-Finger-Zoom
+   bleibt im Browser erlaubt; in der App schaltet sync-app.sh das Zoomen über die viewport-Angabe ganz ab. */
+html{touch-action:manipulation}
 html{scroll-behavior:smooth;
   /* Sprünge (scrollIntoView) landen unter Kopfzeile und angehefteter Reiterleiste, nicht dahinter */
   scroll-padding-top:calc(var(--kopf-h,0px) + var(--reiter-h,0px) + 8px)}
@@ -689,6 +692,9 @@ html[data-theme="dark"] .ios-switch:not(:checked){background:#39393D}
 @keyframes biniPuls{0%,100%{box-shadow:0 0 0 0 rgba(233,162,28,.85)}50%{box-shadow:0 0 0 12px rgba(233,162,28,0)}}
 .bini-ziel{outline:3px solid var(--honey)!important;outline-offset:3px;border-radius:12px;animation:biniPuls 1.1s ease-in-out infinite;position:relative;z-index:30}
 #bottomnav .bini-ziel{outline-offset:-3px}  /* am Bildschirmrand nicht abschneiden */
+/* Ziel in einem abschneidenden Behälter (Wisch-Zeile, Fenster): Rahmen und Pulsieren nach innen */
+.bini-ziel.bini-innen{outline-offset:-3px;animation-name:biniPulsInnen}
+@keyframes biniPulsInnen{0%,100%{box-shadow:inset 0 0 0 0 rgba(233,162,28,.55)}50%{box-shadow:inset 0 0 0 9px rgba(233,162,28,0)}}
 /* Julian: ohne gelbe Umrandung, auf dem Handy über die ganze Breite.
    „Umgedreht“ (Julian, v2.76): im hellen Modus eine dunkle Blase, im dunklen Modus eine helle –
    so hebt sie sich immer klar von den Kacheln ab (vorher hatte sie genau die Kachelfarbe).
@@ -1433,8 +1439,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.76';
+const APP_VERSION = '2.77';
 const CHANGELOG = [
+  { version: '2.77', datum: '2026-10-20', punkte: [
+    'Nach „Alle Daten löschen“ beginnt die App wieder auf der Startseite mit der Begrüßung – vorher stand man danach erneut in den Einstellungen.',
+    'Kein ungewolltes Vergrößern mehr: Doppeltippen zoomt nirgends hinein; in der App lässt sich die Ansicht gar nicht mehr verzoomen.',
+    'Imme zeigt mit einem vollständigen Honig-Rahmen auf ihr Ziel – bei Listenzeilen (z. B. Volk in „Erste Durchsicht“) waren vorher nur die Ecken zu sehen.',
+  ] },
   { version: '2.76', datum: '2026-10-20', punkte: [
     '<b>Startseite selbst sortieren:</b> Eine Kachel etwa eine halbe Sekunde gedrückt halten – sie hebt sich an und das Handy vibriert kurz. Jetzt an den neuen Platz ziehen; die anderen Kacheln rutschen zur Seite, die gestrichelte Lücke zeigt, wo sie landet. Loslassen – fertig, die Reihenfolge ist gespeichert. Am oberen oder unteren Rand rollt die Seite mit. Kurzes Antippen öffnet wie bisher den Bereich.',
     '<b>Imme besser zu sehen:</b> Ihre Sprechblase ist jetzt im hellen Modus dunkel und im dunklen Modus hell – so hebt sie sich immer klar von den Kacheln ab.',
@@ -5562,8 +5573,12 @@ async function alleDatenLoeschen() {
     for (const [k, v] of Object.entries(alt)) if (v != null) await S.set(k, v, { auto: true });
   } finally { Lizenz._loeschenErlaubt = false; }
   UI.toast('Alle Daten gelöscht');
-  setTimeout(() => location.reload(), 600);
+  /* Neu anfangen heißt: auf der Startseite. Vorher lud die App die zuletzt offene Seite (#/einstellungen)
+     neu, und man stand nach dem Löschen wieder in den Einstellungen (Julian, 20.10.2026). */
+  setTimeout(() => { try { history.replaceState(null, '', startAdresse()); } catch (e) { /* dann eben mit Bereich */ } location.reload(); }, 600);
 }
+/** Adresse der App ohne Bereich (#/…) – lädt man sie neu, beginnt die App auf der Startseite. */
+function startAdresse() { return location.pathname + location.search; }
 
 /* =====================================================================
    HILFE & KONTAKT – Nutzer schreiben Julian per E-Mail (Apple-Regel 1.5:
@@ -23805,7 +23820,7 @@ const Assistent = {
     for (let i = 0; i < 40 && !el; i++) { await new Promise((r) => setTimeout(r, 100)); if (currentRoute().route === e.route) el = Assistent.finde(e.zeige); }
     if (!el) return UI.toast(`Ich habe „${e.titel}“ geöffnet – such dort nach: ${e.schritte[e.schritte.length - 1]}`);
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.classList.add('bini-ziel');
+    Assistent.markieren(el);
     const tip = document.createElement('div'); tip.className = 'bini-tip';
     tip.innerHTML = `${Assistent.img('point', 'bini-tip-av')}<div><b>${U.esc(e.titel)}</b><br>${U.esc(e.schritte[e.schritte.length - 1])}</div><button type="button" aria-label="Schließen">${icon('x')}</button>`;
     document.body.appendChild(tip);
@@ -23961,7 +23976,7 @@ const Assistent = {
   },
   tipp(el, kopf, text, optionen = {}) {
     Assistent.markeWeg();
-    el.classList.add('bini-ziel');
+    Assistent.markieren(el);
     try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (x) { /* alt */ }
     const tip = document.createElement('div'); tip.className = 'bini-tip';
     tip.innerHTML = `<button type="button" class="bini-x" data-x aria-label="Hilfe beenden" title="Hilfe beenden">${icon('x')}</button>${Assistent.img('point', 'bini-tip-av')}<div>${optionen.anrede ? `<div class="bini-anrede">${U.esc(optionen.anrede)}</div>` : ''}<b>${U.esc(kopf)}</b><br>${U.esc(text)}${optionen.extra ? `<div class="bini-hinweis">${U.esc(optionen.extra)}</div>` : ''}${optionen.weiter ? `<div class="bini-weiter"><button type="button" class="btn btn-primary btn-sm" data-weiter>Weiter</button></div>` : ''}</div>`;
@@ -23972,6 +23987,23 @@ const Assistent = {
     return tip;
   },
   /** Freier Rand des Geräts (Uhrzeit/Kamera-Aussparung oben, Wischleiste unten, Aussparung seitlich im Querformat). */
+  /** Honig-Rahmen um das Ziel. Liegt es in einem Behälter, der Überstehendes abschneidet (Wisch-Zeilen,
+      Fenster, Leisten), kommt der Rahmen nach innen – außen blieben sonst nur die runden Ecken stehen
+      (Julians iPhone, 20.10.2026: Volk-Zeile in „Erste Durchsicht“). */
+  markieren(el) {
+    el.classList.add('bini-ziel');
+    el.classList.toggle('bini-innen', Assistent.rahmenGeschnitten(el));
+  },
+  rahmenGeschnitten(el) {
+    const r = el.getBoundingClientRect(), ueber = 7;   // Rahmen ragt 3 px Abstand + 3 px Breite hinaus
+    for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      const cs = getComputedStyle(p);
+      if (!/(hidden|clip|auto|scroll)/.test(cs.overflowX + ' ' + cs.overflowY)) continue;
+      const q = p.getBoundingClientRect();
+      if (r.left - q.left < ueber || q.right - r.right < ueber || r.top - q.top < ueber || q.bottom - r.bottom < ueber) return true;
+    }
+    return false;
+  },
   sicherRand() {
     let p = Assistent._randProbe;
     if (!p || !p.isConnected) {
@@ -24079,7 +24111,7 @@ const Assistent = {
   },
   markeWeg() {
     clearTimeout(Assistent._timer);
-    document.querySelectorAll('.bini-ziel').forEach((x) => x.classList.remove('bini-ziel'));
+    document.querySelectorAll('.bini-ziel').forEach((x) => x.classList.remove('bini-ziel', 'bini-innen'));
     document.querySelectorAll('.bini-tip').forEach((x) => x.remove());
   },
   antwort(frage) {

@@ -45,7 +45,9 @@ for (const id of [...extra, ...touren]) {
       const typ = st ? Object.keys(st).find((k) => ['knopf', 'reiter', 'feld', 'speichern', 'abschluss', 'abschnitt'].includes(k)) : '?';
       const bn = document.getElementById('bottomnav'); const leiste = bn && getComputedStyle(bn).display !== 'none' ? bn.getBoundingClientRect().top : innerHeight;
       const ueber = z ? Math.max(0, Math.min(t.bottom, z.bottom) - Math.max(t.top, z.top)) * (Math.min(t.right, z.right) > Math.max(t.left, z.left) ? 1 : 0) : 0;
-      return { typ, i: T ? T.i : -1, t: { top: t.top, bottom: t.bottom, left: t.left, right: t.right, h: t.height }, z: z && { top: z.top, bottom: z.bottom, h: z.height }, H: innerHeight, W: innerWidth, leiste, ueber, scrollH: tip.scrollHeight, clientH: tip.clientHeight };
+      return { typ, i: T ? T.i : -1, t: { top: t.top, bottom: t.bottom, left: t.left, right: t.right, h: t.height }, z: z && { top: z.top, bottom: z.bottom, h: z.height }, H: innerHeight, W: innerWidth, leiste, ueber, scrollH: tip.scrollHeight, clientH: tip.clientHeight,
+        // Honig-Rahmen außen, obwohl ein Behälter ihn abschneidet? (dann blieben nur die Ecken sichtbar)
+        rahmenWeg: !!ziel && getComputedStyle(ziel).outlineOffset !== '-3px' && Assistent.rahmenGeschnitten(ziel) };
     });
     geprueft++;
     const probleme = [];
@@ -58,6 +60,7 @@ for (const id of [...extra, ...touren]) {
       if (m.z.bottom < 59 || m.z.top > m.H) probleme.push('Ziel nicht im Bild');
     }
     if (m.scrollH > m.clientH + 1) probleme.push('Sprechblase muss scrollen');
+    if (m.rahmenWeg) probleme.push('Honig-Rahmen wird abgeschnitten (nur Ecken sichtbar)');
     if (probleme.length) befunde.push(`${id} · Schritt ${m.i + 1} (${m.typ}): ${probleme.join('; ')}`);
     // weiter: „Weiter“ falls da, sonst Ziel antippen; bei Speichern/Abschluss Ende
     if (m.typ === 'speichern' || m.typ === 'abschluss') break;

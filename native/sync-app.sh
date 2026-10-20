@@ -22,6 +22,11 @@ sed -i '' "s|^<meta charset=\"UTF-8\">|<meta charset=\"UTF-8\">\\
 <meta http-equiv=\"Content-Security-Policy\" content=\"${CSP}\">|" www/index.html
 grep -q 'http-equiv="Content-Security-Policy"' www/index.html && echo "→ Schutzregel (CSP) gesetzt" || { echo "✗ Schutzregel fehlt"; exit 1; }
 
+# In der App wird nie gezoomt (Doppeltipp/Zwei-Finger-Zoom ließ die Ansicht vergrößert hängen – Julian, 20.10.2026).
+# Nur die App-Kopie; die Web-Version behält den Zwei-Finger-Zoom (Barrierefreiheit im Browser).
+sed -i '' 's|^<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">|<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">|' www/index.html
+grep -q 'user-scalable=no' www/index.html && echo "→ Zoomen in der App aus" || { echo "✗ viewport-Zeile nicht gefunden – Zoom-Sperre fehlt"; exit 1; }
+
 # Testmodus (Beispieldaten) nur für Julians Test-Builds – Store-Builds ohne Schalter
 if [ "$1" = "--testmodus" ]; then
   sed -i '' "s/^const TESTMODUS_APP = false;/const TESTMODUS_APP = true;/" www/index.html

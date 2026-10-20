@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 20.10.2026, Version 2.76 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 20.10.2026, Version 2.77 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -29,7 +29,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **A3b** Die Meldung „Los geht’s!“ steht **oben**, nicht auf den Knöpfen.
 - [ ] **A4** „30 Tage kostenlos starten“ tippen. → Apple-Kauffenster (mit Hinweis „Xcode“), bestätigen. Danach ist das Fenster weg.
 - [ ] **A5** Imme fragt: „Bist du neu hier?“ → „Ja, zeig es mir“.
-- [ ] **A6** Kapitel 1 „Kurz umschauen“: 5 Hinweise (Startseite, Regler-Knopf oben, Schnellzugriffe unten, „Mehr“, Imme). → Sprechblase **ohne gelben Rahmen**, **über die ganze Breite**, im hellen Modus **dunkel**, im dunklen Modus **hell** (hebt sich klar von den Kacheln ab), nichts davon verschwindet unter Uhrzeit oder Kamera-Aussparung (das ✕ oben rechts ist zu sehen), „Weiter“ geht jeweils zum nächsten Hinweis.
+- [ ] **A6** Kapitel 1 „Kurz umschauen“: 5 Hinweise (Startseite, Regler-Knopf oben, Schnellzugriffe unten, „Mehr“, Imme). → Sprechblase **ohne gelben Rahmen**, **über die ganze Breite**, im hellen Modus **dunkel**, im dunklen Modus **hell** (hebt sich klar von den Kacheln ab), nichts davon verschwindet unter Uhrzeit oder Kamera-Aussparung (das ✕ oben rechts ist zu sehen), „Weiter“ geht jeweils zum nächsten Hinweis. Der Honig-Rahmen um das Ziel ist **rundum vollständig** (auch um die Volk-Zeile in „Erste Durchsicht“).
 - [ ] **A7** Imme führt weiter: Stand anlegen, Volk anlegen, erste Durchsicht. Folge ihr einfach. → Jeder Schritt zeigt auf den richtigen Knopf.
 
 ## B · Grundfunktionen
@@ -63,6 +63,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 - [ ] **E1** Startseite → Regler-Knopf oben rechts → Kacheln aus-/einschalten, Reihenfolge ziehen. → Startseite ändert sich sofort.
 - [ ] **E1b** Auf der Startseite eine Kachel ca. ½ Sekunde gedrückt halten. → Sie hebt sich mit Honig-Rand an, das iPhone vibriert kurz. Nach unten ziehen (bis an den unteren Rand – die Seite rollt mit) und loslassen. → Gestrichelte Lücke zeigte den Platz, danach „Reihenfolge gespeichert“, es öffnet sich **kein** Bereich. Kurz antippen öffnet den Bereich weiter wie gewohnt; normales Wischen blättert nur.
+- [ ] **E1c** Doppelt auf die Startseite tippen und mit zwei Fingern auseinanderziehen. → Nichts wird vergrößert.
 - [ ] **E2** Unten „Mehr“ → Kachel ca. ½ Sekunde gedrückt halten und nach unten in die Leiste ziehen. → Sie ersetzt dort einen Eintrag.
 
 ## F · Hilfe, Recht, Sicherung
@@ -71,6 +72,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **F2** Einstellungen → Rechtliches → Datenschutz / Impressum / Support öffnen. → Öffnet sich **in der App**, Schließen-Knopf führt zurück; auf der Support-Seite den Mail-Link antippen → Mail-App.
 - [ ] **F3** Einstellungen → Sicherung → „Sicherung speichern“ → „In Dateien sichern“. → Datei liegt in der Dateien-App.
 - [ ] **F4** „Backup importieren“ → dieselbe Datei wählen → **„Zusammenführen“**. → Meldung, nichts doppelt.
+- [ ] **F5** (Ganz am Ende, löscht alles!) Einstellungen → „Alle Daten löschen“ → `LÖSCHEN` eintippen → „Endgültig löschen“. → App lädt neu und steht auf der **Startseite** mit „Willkommen bei ImkerBuch“ (nicht in den Einstellungen); die Testphase bzw. der Kauf bleibt erhalten.
 
 ## G · Belastungsprobe
 

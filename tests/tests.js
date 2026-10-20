@@ -10896,6 +10896,44 @@ test('Startseite: Kachel gedrückt halten und ziehen ändert die gespeicherte Re
   }
 });
 
+/* Julian 20.10.2026: nach „Alle Daten löschen“ stand man wieder in den Einstellungen statt auf der Startseite */
+test('Alle Daten löschen: danach beginnt die App auf der Startseite', (w) => {
+  const adr = w.startAdresse();
+  assert(!adr.includes('#'), 'Neustart-Adresse enthält keinen Bereich');
+  assert(adr.startsWith(w.location.pathname), 'gleiche App-Seite');
+  assertEq(adr.endsWith(w.location.search), true, 'Zusätze wie ?testdb bleiben erhalten');
+  const quelle = String(w.alleDatenLoeschen);
+  assert(quelle.indexOf('replaceState') > -1 && quelle.indexOf('replaceState') < quelle.lastIndexOf('location.reload'), 'erst Bereich entfernen, dann neu laden');
+});
+
+/* Julians iPhone 20.10.2026: In „Erste Durchsicht“ zeigte der Honig-Rahmen um die Volk-Zeile nur noch die Ecken –
+   die Wisch-Zeile schneidet alles ab, was über ihren Rand hinausragt. Dann muss der Rahmen nach innen. */
+test('Imme-Rahmen: in abschneidenden Behältern liegt er innen, sonst außen', (w) => {
+  const d = w.document;
+  const liste = d.createElement('div'); liste.style.cssText = 'position:fixed;left:20px;top:200px;width:320px;padding:20px';
+  liste.innerHTML = '<div class="wisch"><button class="row">Volk 3</button></div><div style="padding:16px"><button class="btn" data-frei>Frei</button></div>';
+  d.body.appendChild(liste);
+  try {
+    const zeile = liste.querySelector('.row'), frei = liste.querySelector('[data-frei]');
+    w.Assistent.markieren(zeile);
+    assert(zeile.classList.contains('bini-ziel') && zeile.classList.contains('bini-innen'), 'Zeile in der Wisch-Hülle bekommt den Rahmen innen');
+    assertEq(w.getComputedStyle(zeile).outlineOffset, '-3px', 'Rahmen liegt innerhalb der Zeile');
+    w.Assistent.markieren(frei);
+    assert(frei.classList.contains('bini-ziel') && !frei.classList.contains('bini-innen'), 'freistehender Knopf behält den Rahmen außen');
+    w.Assistent.markeWeg();
+    assert(!zeile.classList.contains('bini-innen') && !zeile.classList.contains('bini-ziel'), 'Aufräumen entfernt beide Merkmale');
+  } finally { liste.remove(); }
+});
+
+/* Julian 20.10.2026: Doppeltipp aufs Dashboard zoomte stark hinein und ließ sich nicht mehr zurücknehmen */
+test('Kein Zoom durch Doppeltippen; in der App ist Zoomen ganz aus', async (w) => {
+  assertEq(w.getComputedStyle(w.document.documentElement).touchAction, 'manipulation', 'Doppeltipp-Zoom ist abgeschaltet');
+  const meta = w.document.querySelector('meta[name="viewport"]').getAttribute('content');
+  const skript = await (await fetch('../native/sync-app.sh', { cache: 'no-store' })).text();
+  assert(skript.includes(`<meta name="viewport" content="${meta}">`), 'sync-app.sh findet die viewport-Zeile der App wieder (sonst bricht die Zoom-Sperre)');
+  assert(/user-scalable=no/.test(skript) && /maximum-scale=1/.test(skript), 'App-Kopie bekommt maximum-scale=1 und user-scalable=no');
+});
+
 /* Hilfe-Texte kennen das Verschieben auf der Startseite */
 test('Imme weiß, wie man Startseiten-Kacheln verschiebt', (w) => {
   const a = w.Assistent.antwort('Wie verschiebe ich die Kacheln auf der Startseite?');
