@@ -16,7 +16,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 
 - **Testpflicht 12 Tester × 14 Tage gilt laut Google nur für private Konten**, die nach dem 13.11.2023 angelegt wurden ([Google-Hilfe](https://support.google.com/googleplay/android-developer/answer/14151465?hl=de)). Firmen wie Abacus.AI nutzen Organisationskonten.
 - Organisationskonto braucht eine **D-U-N-S-Nummer** ([Google-Hilfe](https://support.google.com/googleplay/android-developer/answer/13628312?hl=de)). Dun & Bradstreet vergibt sie laut eigenem Datenblatt auch an **Einzelunternehmen**; ob Google ein Einzelunternehmen als Organisation annimmt, ist nicht belegt (keine Erfahrungsberichte gefunden).
-- **20.10.2026:** D-U-N-S kostenlos über Apples D-U-N-S-Suche beantragt (developer.apple.com/enroll/duns-lookup → leitet an D&B weiter). Name dort: „ImkerBuch Julian Konstantin Koehler“ (Formular nimmt kein „ö“), Reichenberger Str. 15, 85221 Dachau. Dauer laut Berichten bis ~30 Tage. Telefon und Sicherheitscode gibt Julian selbst ein.
+- **20.10.2026:** D-U-N-S kostenlos über Apples D-U-N-S-Suche beantragt (developer.apple.com/enroll/duns-lookup → leitet an D&B weiter). Name dort: „ImkerBuch Julian Konstantin Koehler“ (Formular nimmt kein „ö“), Reichenberger Str. 15, 85221 Dachau. Dauer laut Berichten bis ~30 Tage. Telefon und Sicherheitscode hat Julian selbst eingegeben; Apple meldet „Your information is being processed“ – Bestätigungs-Mail von D&B folgt. Kalender „Familie & Fristen“ 19.11.2026: Nummer da?
 - Plan: Nummer da → Play-Konto als **Organisation** (Name exakt wie bei D&B). Abgelehnt → privates Konto + 12 Imker als Tester.
 
 ## Offen – gemeinsam mit Julian
