@@ -1936,8 +1936,12 @@ test('Zeiterfassung: Antippen fächert den Bereich in Arbeitsschritte auf, „Al
     w.zeitFaecher(host, bereiche, zustand, (a) => `<div class="row" data-id="${a.id}">${a.titel}</div>`);
     assertEq(host.querySelectorAll('path[data-zf="h"]').length, 2, 'zwei Bereiche im Kreis');
     assert(/3,8 h/.test(host.querySelector('.zf-zahl').textContent), `Gesamtstunden in der Mitte (225 min): ${host.querySelector('.zf-zahl').textContent}`);
+    // sichtbar machen: Safari/WebKit pausiert Animationen außerhalb des sichtbaren Bereichs
+    host.style.cssText = 'position:fixed;top:0;left:0;width:360px;z-index:9999;background:#fff';
     host.querySelector('path[data-zf="h"][data-i="0"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 1100));
+    // Auf das Auffächern warten statt fester Zeit – Safari/WebKit animiert im Testfenster langsamer
+    await warteBis(() => host.querySelectorAll('path[data-zf="s"]').length === 2, 4000);
+    await new Promise((r) => setTimeout(r, 1100));   // Animation zu Ende laufen lassen, sonst greift „Zurück“ nicht
     assertEq(zustand.offen, 'Abfüllen & Etikettieren', 'Zustand merkt den offenen Bereich');
     assertEq(host.querySelectorAll('path[data-zf="s"]').length, 2, 'zwei Arbeitsschritte aufgefächert');
     const zeilen = [...host.querySelectorAll('.zf-reihe .zf-name')].map((x) => x.textContent);
@@ -1946,7 +1950,8 @@ test('Zeiterfassung: Antippen fächert den Bereich in Arbeitsschritte auf, „Al
     assert(host.querySelector('.zf-eintraege .row[data-id]'), 'Antippen eines Schritts zeigt die Einträge');
     assert(!host.querySelector('.zf-zurueck').hidden, 'Zurück-Knopf sichtbar');
     host.querySelector('.zf-zurueck').click();
-    await new Promise((r) => setTimeout(r, 900));
+    await warteBis(() => zustand.offen === null && host.querySelectorAll('path[data-zf="h"]').length === 2, 4000);
+    await new Promise((r) => setTimeout(r, 300));
     assertEq(zustand.offen, null); assertEq(host.querySelectorAll('path[data-zf="h"]').length, 2, 'wieder alle Bereiche');
     assert(host.querySelector('.zf-zurueck').hidden, 'Zurück-Knopf weg');
   } finally { host.remove(); }
@@ -11635,7 +11640,9 @@ test('Schnell-Durchsicht: antippen, überspringen, speichern, weiter zum nächst
     assert(/Volk 1 von 3/.test(sdMain(w).textContent), 'Reihenfolge natürlich sortiert, aufgelöste nicht dabei: ' + sdMain(w).querySelector('.sd-volk').textContent);
     assertEq(getComputedStyle(w.document.querySelector('.bottomnav')).display, 'none', 'untere Leiste ist weg (kein Fehltipp mit Handschuh)');
     assert(/Letzte Durchsicht: 01\.09\.2026/.test(sdMain(w).textContent), 'zeigt die letzte Durchsicht');
-    assert(sdMain(w).querySelectorAll('.sd-opt').length === 5 && [...sdMain(w).querySelectorAll('.sd-opt')].every((b) => b.getBoundingClientRect().height >= 72), 'fünf große Knöpfe (≥ 72 px)');
+    // erst nach der Einblende-Animation messen (WebKit maß sonst mitten im Aufziehen)
+    const grossGenug = () => sdMain(w).querySelectorAll('.sd-opt').length === 5 && [...sdMain(w).querySelectorAll('.sd-opt')].every((b) => b.getBoundingClientRect().height >= 72);
+    assert(await warteBis(grossGenug, 3000), 'fünf große Knöpfe (≥ 72 px)');
     assert(/mittel\s*zuletzt/.test(sdMain(w).textContent.replace(/\s+/g, ' ')), 'letzte Antwort ist markiert');
     await sdTippe(w, 'stark');            // erster Treffer ist „4 stark“ („sehr schwach“ enthält es nicht)
     assertEq(w.Views.durchsicht.entwurf(v1.id).antworten.volksstaerke, 4, 'Volksstärke 4');
@@ -12246,7 +12253,10 @@ test('Mulde: abgetauchter Kreis verdeckt kein Symbol (Julians Foto: „Mehr“ n
     // So war es auf dem iPhone: zuletzt bei „Mehr“, dann ein Bereich, der nicht in der Leiste steht
     const rb = bn.getBoundingClientRect(), rm = mehr.getBoundingClientRect();
     w.Mulde.setze({ c: rm.left + rm.width / 2 - rb.left, sicht: false, icon: '' });
-    assert(+w.getComputedStyle(blase).zIndex < +w.getComputedStyle(mehr).zIndex, 'der Kreis liegt hinter den Symbolen');
+    // Zahlenvergleich nur, wo der Browser Zahlen liefert (WebKit meldet im Testfenster teils „auto“);
+    // entscheidend ist die Prüfung per elementFromPoint darunter
+    const zb = +w.getComputedStyle(blase).zIndex, zm = +w.getComputedStyle(mehr).zIndex;
+    if (Number.isFinite(zb) && Number.isFinite(zm)) assert(zb < zm, 'der Kreis liegt hinter den Symbolen');
     assert(/scale\(0\.2\)/.test(blase.style.transform), 'abgetaucht ist er nur noch ein Punkt');
     if (w.getComputedStyle(blase).display !== 'none') {
       const ic = mehr.querySelector('svg').getBoundingClientRect();
@@ -12395,7 +12405,7 @@ test('Beispieldaten nur im Testmodus (Store-Version ohne)', async (w) => isolier
 
 test('Etikett-Druck ist in der Store-Version ausgeblendet (nur Testmodus)', async (w) => {
   const quelle = w.document.documentElement.outerHTML;
-  assert(/Testmodus\.an\(\) \? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf/.test(await (await w.fetch('../index.html')).text()), 'Etikett-Knopf hängt am Testmodus');
+  assert(/Testmodus\.an\(\) \? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf/.test(await (await w.fetch('index.html')).text()), 'Etikett-Knopf hängt am Testmodus');
   assert(!w.APP_WISSEN.some((e) => /Etiketten drucken/.test(e.titel)), 'Imme verspricht keinen Etikettendruck');
   assert(quelle);
 });
@@ -12545,7 +12555,7 @@ test('Lizenz: nach Ablauf darf der Papierkorb aufräumen und „Alle Daten lösc
 
 test('Standort: in der App über die Erweiterung (eine Frage statt zwei), verständliche Fehler', async (w) => {
   const echtNativ = w.IST_NATIVE_APP;
-  const quelle = await (await w.fetch('../index.html')).text();
+  const quelle = await (await w.fetch('index.html')).text();
   assertEq((quelle.match(/navigator\.geolocation\.getCurrentPosition/g) || []).length, 1, 'nur noch im Helfer (Browser-Weg)');
   assertEq((quelle.match(/standortHolen\(\)\.then/g) || []).length, 2, 'Stand-Formular und Bio-Prüfung nutzen den Helfer');
   // Browser-Weg mit Verweigerung
@@ -12565,6 +12575,10 @@ test('Sprachnotiz: verständliche deutsche Meldung, wenn das Mikrofon nicht star
   assert(/nicht erlaubt/.test(f('NotAllowedError')) && !/user agent/.test(f('NotAllowedError')), 'Verweigert → Hinweis auf Einstellungen');
   assert(/anderen App/.test(f('NotReadableError')), 'besetzt');
   assert(/Kein Mikrofon/.test(f('NotFoundError')), 'keins da');
+});
+
+test('Bestandsbuch-PDF: kein doppeltes „Volk Volk“', async (w) => {
+  assertEq([w.Pdf._ziel('Volk', 'Volk Anna'), w.Pdf._ziel('Volk', 'Anna'), w.Pdf._ziel('Stand', 'Heimstand'), w.Pdf._ziel('Volk', '')], ['Volk Anna', 'Volk Anna', 'Stand Heimstand', 'Volk ?']);
 });
 
 test('Tester-Wünsche: Fertigsirup in Litern (Herstellerangabe), Rabatt beim Verkauf', async (w) => {
@@ -12618,7 +12632,7 @@ test('Tester-Wünsche: Verkauf ohne (genug) Bestand – nie ins Minus, Storno gi
 
 test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Speicherstand erschleichen', async (w) => isolierteDaten(w, async () => {
   // 0) PDF-Leser: präparierte PDFs dürfen keinen Code ausführen (CVE-2024-4367) – jeder Aufruf mit isEvalSupported:false
-  const quelle = await (await w.fetch('../index.html')).text();
+  const quelle = await (await w.fetch('index.html')).text();
   const aufrufe = quelle.match(/pdfjsLib\.getDocument\(\{[^}]*\}\)/g) || [];
   assert(aufrufe.length >= 4 && aufrufe.every((x) => /isEvalSupported: false/.test(x)), 'alle PDF-Öffnungen gehärtet: ' + aufrufe.length);
   // 1) Manipulierte Sicherung mit „Vollversion gekauft“ und Teststart → Zeilen werden verworfen
@@ -12642,7 +12656,7 @@ test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Spei
 
 test('App: Datei-Ausgaben laufen über das Teilen-Menü, kein nachgeladener Code', async (w) => {
   assertEq(typeof w.nativDateiTeilen, 'function'); assertEq(typeof w.xlsxSpeichern, 'function');
-  const quelle = await (await w.fetch('../index.html')).text();
+  const quelle = await (await w.fetch('index.html')).text();
   assert(/if \(nativTeilenBereit\(\)\) \{ nativDateiTeilen\(blob, filename\)/.test(quelle), 'U.download nutzt in der App das Teilen-Menü');
   assert(/if \(IST_NATIVE_APP\) urls = urls\.filter\(\(u\) => !\/\^https\?:\/i\.test\(u\)\)/.test(quelle), 'loadScript lädt in der App nichts aus dem Internet');
   assert(!/XLSX\.writeFile\(wb, `imkerbuch/.test(quelle), 'Excel nur noch über xlsxSpeichern');
@@ -12683,7 +12697,7 @@ test('Lizenz Android: Testphase startet auf dem Gerät (kein 0-€-Kauf), Datum 
 }));
 
 test('Play-Prüfung: keine exakten Wecker, ausstehende Käufe zählen nicht, Abbrechen ist still', async (w) => {
-  const quelle = await (await w.fetch('../index.html')).text();
+  const quelle = await (await w.fetch('index.html')).text();
   assertEq((quelle.match(/isExactNotification: false/g) || []).length, 2, 'Erinnerung + Probe ohne exakten Wecker');
   const L = w.Lizenz, echt = { android: L.android, plugin: L.plugin, aktiv: L.aktiv };
   let toasts = 0; const echtToast = w.UI.toast; w.UI.toast = () => { toasts++; };

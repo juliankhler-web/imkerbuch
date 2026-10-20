@@ -1410,8 +1410,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.65';
+const APP_VERSION = '2.66';
 const CHANGELOG = [
+  { version: '2.66', datum: '2026-10-20', punkte: [
+    'Zeiterfassung: Das Auffächern der Bereiche bleibt nicht mehr hängen, wenn das iPhone die Animation drosselt (z. B. Energiesparmodus).',
+    'Bestandsbuch-PDF: kein doppeltes „Volk Volk Anna“ mehr.',
+  ] },
   { version: '2.65', datum: '2026-10-20', punkte: [
     'Verbrauchsmaterial und weitere Produkte: Gibt es noch keine Position, führt die App jetzt direkt zum Anlegen – statt mit einer Fehlermeldung abzubrechen.',
   ] },
@@ -16582,7 +16586,12 @@ function zeitFaecher(box, bereiche, zustand, eintragZeile) {
   const animiere = (ms, schritt, fertig) => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches || !window.requestAnimationFrame) { schritt(1); if (fertig) fertig(); return; }
     laeuft = true; const t0 = performance.now();
-    const f = (jetzt) => { const t = Math.min(1, (jetzt - t0) / ms); schritt(t); if (t < 1) requestAnimationFrame(f); else { laeuft = false; if (fertig) fertig(); } };
+    let ende = false;
+    const abschluss = () => { if (ende) return; ende = true; clearTimeout(netz); schritt(1); laeuft = false; if (fertig) fertig(); };
+    /* Sicherheitsnetz: Safari drosselt den Bildtakt (Hintergrund, Energiesparen, Rahmen außer Sicht) –
+       dann käme die Animation nie ans Ende und der Kreis bliebe gesperrt. Spätestens kurz nach ms ist sie fertig. */
+    const netz = setTimeout(abschluss, ms + 250);
+    const f = (jetzt) => { if (ende) return; const t = Math.min(1, (jetzt - t0) / ms); if (t < 1) { schritt(t); requestAnimationFrame(f); } else abschluss(); };
     requestAnimationFrame(f);
   };
   const text = () => {
@@ -20953,13 +20962,15 @@ const Pdf = {
   },
 
   /* ---------- Bestandsbuch (TAMG) ---------- */
+  /** „Volk Anna“ statt „Volk Volk Anna“: das Wort nur voranstellen, wenn der Name es nicht schon hat. */
+  _ziel(art, name) { const n = String(name || '?'); return new RegExp('^' + art + '\\b', 'i').test(n.trim()) ? n : art + ' ' + n; },
   async bestandsbuch() {
     try {
       const list = U.sortBy(await DB.getAll('behandlungen'), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
       const { doc, y } = await this.newDoc('Bestandsbuch – Anwendung von Arzneimitteln', `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
-      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? 'Volk ' + (voelker.get(b.zielId)?.name || '?') : 'Stand ' + (staende.get(b.zielId)?.name || '?')), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
+      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -20973,7 +20984,7 @@ const Pdf = {
       const { doc, y } = await this.newDoc('Wanderbuch', 'Alle Wanderbewegungen der Imkerei');
       const wVoelker = (w) => Array.isArray(w.volkIds)
         ? `${w.volkIds.length}: ${w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ')}`
-        : (w.zielTyp === 'volk' ? 'Volk ' + (voelker.get(w.zielId)?.name || '?') : 'Stand ' + (staende.get(w.zielId)?.name || '?')); // Altdaten
+        : (w.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(w.zielId)?.name) : Pdf._ziel('Stand', staende.get(w.zielId)?.name)); // Altdaten
       const body = list.map((w) => [U.fmtDate(w.datum), staende.get(w.vonStandId)?.name || w.vonOrt || '–', staende.get(w.nachStandId)?.name || w.nachOrt || '–', wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
       this.table(doc, { head: ['Datum', 'Von', 'Nach', 'Völker', 'Grund', 'Notiz'], body, startY: y });
       this.finish(doc, `wanderbuch-${U.todayIso()}.pdf`);

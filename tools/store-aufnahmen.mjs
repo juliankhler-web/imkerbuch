@@ -127,7 +127,14 @@ const AUFNAHMEN = [
   { name: 'honig', route: 'honig' },
   { name: 'assistent', route: 'assistent' },
   { name: 'behandlungen', route: 'behandlungen' },
+  { name: 'kassenbuch', route: 'kassenbuch', schritt: `
+      const t = [...document.querySelectorAll('#main button')].find((b) => /^Auswertung$/.test(b.textContent.trim())); if (t) t.click(); await new Promise((r) => setTimeout(r, 900));` },
+  { name: 'rechnung', route: 'rechnung/{rechnung}' },
+  // Echte PDFs der App: erste Seite als Bild (für die Store-Bilder „fertig als PDF“)
+  { name: 'pdf-bestandsbuch', pdf: 'Pdf.bestandsbuch()' },
+  { name: 'pdf-rechnung', pdf: 'Pdf.rechnung("{rechnung}")' },
 ];
+const IPAD = process.argv.includes('--ipad');
 async function main() {
   mkdirSync(ZIEL, { recursive: true });
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFIL}`,
@@ -143,12 +150,15 @@ async function main() {
   await cdp.send('Network.clearBrowserCache').catch(() => {});
   await cdp.send('Storage.clearDataForOrigin', { origin: 'http://localhost:8931', storageTypes: 'cache_storage,service_workers' }).catch(() => {});
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {});
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 440, height: 902, deviceScaleFactor: 3, mobile: true });
+  // iPad 13″ quer: 1376×1032 pt, minus 24 pt Statusleiste, 2-fach = 2752×2016 px
+  await cdp.send('Emulation.setDeviceMetricsOverride', IPAD ? { width: 1376, height: 1008, deviceScaleFactor: 2, mobile: true } : { width: 440, height: 902, deviceScaleFactor: 3, mobile: true });
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: DUNKEL ? 'dark' : 'light' }] });
   await cdp.send('Page.navigate', { url: BASIS + '#/dashboard' });
   for (let i = 0; i < 200; i++) { try { if (await cdp.js('return !!window.appReady')) break; } catch (e) {} await schlaf(150); }
   await cdp.js('await Demo.reset(); return 1;');
   await cdp.js(`await S.set('darkMode', '${DUNKEL ? 'dunkel' : 'hell'}'); applyTheme(); await S.set('wizardDone', true, { auto: true }); await S.set('letzteExterneSicherung', new Date().toISOString(), { auto: true }); document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove()); return 1;`);
+  // Erfundene Beispiel-Imkerei für Briefkopf und Bestandsbuch (keine echten Personendaten)
+  await cdp.js(`const i = S.get('imkerei'); Object.assign(i, { name: 'Imkerei Sonnenhang', strasse: 'Lindenweg 3', plz: '34123', ort: 'Kassel', registriernummer: '06 611 000 0001' }); await S.set('imkerei', i); return 1;`);
   // Aufgaben passend zur Jahreszeit (die Beispieldaten enthalten Zucht-Aufgaben, die im Store ausgeblendet sind)
   await cdp.js(`const alle = await DB.getAll('aufgaben'); for (const x of alle) await DB.del('aufgaben', x.id);
     const tag = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -156,14 +166,29 @@ async function main() {
     for (const [titel, n] of neu) await DB.put('aufgaben', { id: crypto.randomUUID(), titel, faellig: tag(n), erledigt: false });
     return 1;`);
   const volk = await cdp.js(`return (await DB.getAll('voelker')).find((v) => v.status === 'aktiv').id`);
-  for (const a of AUFNAHMEN.filter((x) => !NUR.length || NUR.includes(x.name))) {
-    await cdp.js(`document.querySelectorAll('#modal-root .modal-back, .toast').forEach((m) => m.remove()); location.hash = '#/${a.route.replace('{volk}', volk)}'; await new Promise((r) => setTimeout(r, 300)); renderRoute(); return 1;`);
+  const rechnung = await cdp.js(`const r = (await DB.getAll('rechnungen')).find((x) => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0]; return r ? r.id : ''`);
+  const endung = `${DUNKEL ? '-dunkel' : ''}${IPAD ? '-ipad' : ''}`;
+  for (const a of AUFNAHMEN.filter((x) => !NUR.length || NUR.includes(x.name)).filter((x) => !(IPAD && x.pdf))) {
+    if (a.pdf) {
+      // PDF erzeugen, abfangen und Seite 1 mit dem eingebauten PDF-Leser in ein Bild verwandeln
+      const bild = await cdp.js(`window.__pdf = null; const alt = Pdf.ausgeben; Pdf.ausgeben = async (doc) => { window.__pdf = doc.output('arraybuffer'); };
+        try { await ${a.pdf.replace('{rechnung}', rechnung)}; } finally { Pdf.ausgeben = alt; }
+        await U.loadScript(...CDN.pdfjs);
+        const pdf = await pdfjsLib.getDocument({ data: window.__pdf, isEvalSupported: false }).promise;
+        const seite = await pdf.getPage(1), vp = seite.getViewport({ scale: 4 });
+        const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+        await seite.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+        return c.toDataURL('image/png').split(',')[1];`);
+      writeFileSync(`${ZIEL}/${a.name}.png`, Buffer.from(bild, 'base64'));
+      console.log('✓', a.name); continue;
+    }
+    await cdp.js(`document.querySelectorAll('#modal-root .modal-back, .toast').forEach((m) => m.remove()); location.hash = '#/${a.route.replace('{volk}', volk).replace('{rechnung}', rechnung)}'; await new Promise((r) => setTimeout(r, 300)); renderRoute(); return 1;`);
     await schlaf(1500);
     if (a.schritt) { await cdp.js(a.schritt + '; return 1;'); await schlaf(800); }
     await cdp.js(`document.querySelectorAll('.toast, #modal-root .modal-back').forEach((m) => m.remove()); scrollTo(0, 0); return 1;`);
     await schlaf(400);
     const bild = await cdp.send('Page.captureScreenshot', { format: 'png' });
-    writeFileSync(`${ZIEL}/${a.name}${DUNKEL ? '-dunkel' : ''}.png`, Buffer.from(bild.data, 'base64'));
+    writeFileSync(`${ZIEL}/${a.name}${endung}.png`, Buffer.from(bild.data, 'base64'));
     console.log('✓', a.name);
   }
   console.log('FERTIG');
