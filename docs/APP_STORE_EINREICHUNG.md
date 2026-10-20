@@ -8,6 +8,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 ## 1. Konto und Recht
 
 - ⚠️ **Apple Developer Program** (99 €/Jahr). Julians Team ist bisher das kostenlose – damit kann man nicht einreichen.
+  - **Klick-für-Klick-Anleitung für danach:** `docs/APP_STORE_CONNECT_ANLEITUNG.md` (Team umstellen, Verträge/Steuer/Bank/DSA, App + 2 Käufe anlegen, Hochladen, Sandbox/TestFlight, Einreichen). Prüfungs-Bildschirmfoto des Kauf-Fensters: `store-bilder/pruefung-kauffenster.png`.
   - 20.10.2026: Anmeldung läuft (als **Einzelperson**, über die App „Apple Developer“). Als Ausweis bietet Apple nur den **Führerschein** an. Der Name im Apple-Account muss **genau** wie im Führerschein stehen (beide Vornamen, Nachname mit „ö“) – vorher stand dort „julian Koehler“. Bei Einzelpersonen erscheint dieser Name später als **Verkäufer** im App Store.
   - 20.10.2026, 09:46: Ausweis-Prüfung in der App gescheitert („Unable to Verify Your Identity … Please contact support“) → Weg über den Apple-Developer-Support (developer.apple.com/contact → Mitgliedschaft und Account → Programm-Anmeldung).
   - Apple fragt bei der Anmeldung nach der **USt-IdNr.** Es gibt noch keine: Die Steuernummer fürs Gewerbe steht noch aus, danach beim BZSt beantragen. Laut Kasse (99 €, Apple-Webshop) ist das Feld **freiwillig**, also leer lassen. **Stand 20.10.2026, 10 Uhr: Kauf vorerst zurückgestellt (Julian).** Erst das bezahlte Konto ermöglicht TestFlight, App-Store-Connect-Produkte, Sandbox-Käufe und das Einreichen. Gerätetest per Xcode geht auch ohne. Als Kleinunternehmer würde eine angegebene USt-IdNr. die Umkehr der Steuerschuld (§ 13b UStG) auslösen; ohne sie berechnet Apple die Steuer selbst. Im Zweifel Steuerberater fragen.
@@ -235,3 +236,10 @@ Behoben in v2.57: Privacy Manifest (FileTimestamp C617.1), `NSPhotoLibraryAddUsa
 - „Muss richtig nerven“ (Julian), aber Apple-konform immer wegklickbar: „Voll“-Kennzeichen im Menü/„Alle Bereiche“/untere Leiste, Hinweis-Leiste auf jeder Vollversions-Seite und auf der Startseite, Kauf-Fenster bei jedem gesperrten Speichern, beim Start höchstens alle 3 Tage.
 - Gesperrte Bereiche bleiben **lesbar** (Daten aus der Testphase sichtbar). Mehr als 2 aktive Völker: Ansehen ja, Neues erst bei ≤ 2 (Auflösen/Vereinigen bleibt erlaubt) oder mit Vollversion.
 - Technik: `Lizenz.light()`, `NUR_VOLL`, `VOLK_TAB_VOLL`, `pruefeLight` (formModal + Durchsicht am Stand), `nurVoll()` an Einstiegen außerhalb gesperrter Seiten, `neuesVolkErlaubt()`, `lightErinnerung()`, `kennzeichnen()`. Store-Texte + Prüferhinweise angepasst.
+
+## 28. Simulator-Durchlauf des Gerätetests (2026-10-20, v2.73)
+
+- Erster Start im iOS-Simulator (iPhone 18 Pro, iOS 27) wie ein neuer Kunde: Willkommen → Kauf-Fenster → Imme → Rundgang. Kauf-Fenster ohne Xcode-Start zeigt „Angebote konnten nicht geladen werden“ (normal: Testkäufe gehen nur beim Start aus Xcode bzw. mit Sandbox).
+- **Behoben:** Sprechblase unter Uhrzeit/Kamera-Aussparung (5 Stellen in 4 Führungen), „Los geht's!“ auf dem Startknopf, hängender oranger Rand nach dem Antippen, „Hilfe beenden“ halb aus dem Bild, abgeschnittene Markierung an der unteren Leiste.
+- Alle 28 Führungen (156 Sprechblasen) automatisch im iPhone-Format geprüft: 0 Befunde.
+- Grenzen des Simulators: Texteingabe nur über Einsetzen (unzuverlässig), keine Kamera, keine Mail-App, keine Testkäufe ohne Xcode → Rest prüft Julian am echten iPhone (`docs/GERAETETEST.md`).

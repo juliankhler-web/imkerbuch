@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 20.10.2026, Version 2.72. Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 20.10.2026, Version 2.73 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -26,9 +26,10 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **A1** App öffnen. → Startbild, dann „Willkommen bei ImkerBuch“.
 - [ ] **A2** Namen und Imkerei eintragen **oder** „Überspringen“ tippen. → Beides funktioniert.
 - [ ] **A3** Das Kauf-Fenster erscheint. → Preise werden angezeigt, Knopf „30 Tage kostenlos starten“.
+- [ ] **A3b** Die Meldung „Los geht’s!“ steht **oben**, nicht auf den Knöpfen.
 - [ ] **A4** „30 Tage kostenlos starten“ tippen. → Apple-Kauffenster (mit Hinweis „Xcode“), bestätigen. Danach ist das Fenster weg.
 - [ ] **A5** Imme fragt: „Bist du neu hier?“ → „Ja, zeig es mir“.
-- [ ] **A6** Kapitel 1 „Kurz umschauen“: 5 Hinweise (Startseite, Regler-Knopf oben, Schnellzugriffe unten, „Mehr“, Imme). → Sprechblase **ohne gelben Rahmen**, **über die ganze Breite**, „Weiter“ geht jeweils zum nächsten Hinweis.
+- [ ] **A6** Kapitel 1 „Kurz umschauen“: 5 Hinweise (Startseite, Regler-Knopf oben, Schnellzugriffe unten, „Mehr“, Imme). → Sprechblase **ohne gelben Rahmen**, **über die ganze Breite**, nichts davon verschwindet unter Uhrzeit oder Kamera-Aussparung (das ✕ oben rechts ist zu sehen), „Weiter“ geht jeweils zum nächsten Hinweis.
 - [ ] **A7** Imme führt weiter: Stand anlegen, Volk anlegen, erste Durchsicht. Folge ihr einfach. → Jeder Schritt zeigt auf den richtigen Knopf.
 
 ## B · Grundfunktionen

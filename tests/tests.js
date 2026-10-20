@@ -10745,6 +10745,40 @@ test('Imme führt: alle Touren sind sauber aufgebaut, jede endet mit Speichern/A
   w.document.body.classList.remove('bini-ziel');
 });
 
+/* iPhone-Simulator 20.10.2026: Die Sprechblase zur obersten Startseiten-Kachel rutschte unter Uhrzeit und
+   Kamera-Aussparung – erste Zeile und ✕ waren verdeckt, außerdem lag sie über ihrem Ziel. */
+test('Imme-Sprechblase: nie unter der Statusleiste, weicht nach unten aus, verdeckt ihr Ziel nicht', (w) => {
+  const d = w.document;
+  const ziel = d.createElement('div'); ziel.style.cssText = 'position:fixed;left:20px;top:120px;width:300px;height:100px'; d.body.appendChild(ziel);
+  const tip = d.createElement('div'); tip.className = 'bini-tip'; tip.style.height = '200px'; d.body.appendChild(tip);
+  const alt = w.Assistent.sicherRand;
+  try {
+    w.Assistent.tipSetzen(ziel, tip);
+    assert(tip.getBoundingClientRect().top >= ziel.getBoundingClientRect().bottom, 'oben kein Platz → Sprechblase steht unter dem Ziel');
+    ziel.style.top = '420px'; w.Assistent.tipSetzen(ziel, tip);
+    assert(tip.getBoundingClientRect().bottom <= ziel.getBoundingClientRect().top, 'mit Platz darüber steht sie darüber');
+    // iPhone mit Dynamic Island: 60 px oben belegt
+    w.Assistent.sicherRand = () => ({ oben: 60, rechts: 0, unten: 34, links: 0 });
+    ziel.style.top = '275px'; w.Assistent.tipSetzen(ziel, tip);
+    assert(tip.getBoundingClientRect().top >= 68, 'Sprechblase bleibt unter Uhrzeit und Kamera-Aussparung');
+    assert(tip.getBoundingClientRect().top >= ziel.getBoundingClientRect().bottom, 'passt sie darüber nicht ganz hin, steht sie darunter statt auf dem Ziel');
+    const r = alt();
+    assert(['oben', 'rechts', 'unten', 'links'].every((k) => typeof r[k] === 'number' && r[k] >= 0), 'Gerätrand wird als Zahlen gelesen');
+  } finally { w.Assistent.sicherRand = alt; ziel.remove(); tip.remove(); }
+});
+
+/* iPhone-Simulator 20.10.2026: „Los geht's!“ lag beim ersten Start auf „30 Tage kostenlos starten“. */
+test('Meldungen liegen nicht auf den Knöpfen eines offenen Fensters', (w) => {
+  const root = w.document.getElementById('toast-root');
+  const oben = () => root.getBoundingClientRect().top < w.innerHeight / 2;
+  assert(!oben(), 'ohne Fenster: Meldungen unten');
+  const m = w.UI.modal({ title: 'Test', body: '<p>x</p>', footer: '<button class="btn btn-primary">OK</button>' });
+  try {
+    assert(oben(), 'mit Fenster: Meldungen oben statt auf dem Fußbereich');
+  } finally { m.close(true); }
+  assert(!oben(), 'Fenster zu: Meldungen wieder unten');
+});
+
 /* Imme: Wie locker versteht sie Fragen? ~841 Alltagsfragen in vielen Formulierungen (Synonyme, Tippfehler, Satzbau).
    [Frage, erwartete Antwort(en)] – 'faq' = Imker-Praxis, 'none' = soll nichts Falsches behaupten. */
 const IMME_FRAGEN = [
