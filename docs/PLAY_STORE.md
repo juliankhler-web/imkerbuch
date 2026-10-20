@@ -21,7 +21,8 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 
 ## Offen – gemeinsam mit Julian
 
-1. **Werkzeuge:** Auf dem Mac fehlen Java und Android Studio (großer Download, ~3–5 GB). Ohne sie kein Android-Bau und kein Test im Android-Emulator.
+1. ✅ **Werkzeuge (20.10.2026):** ohne Homebrew/Android Studio in `~/Android/`: JDK 21 (Eclipse Temurin, Prüfsumme geprüft), Android-SDK (Plattform 36, Build-Tools 36/35, Platform-Tools), Emulator mit Pixel-8-Gerät „ImkerBuch_Pixel“ (Android 16, Google-Play-Image). Bauen: `cd native/android && JAVA_HOME=$(ls -d ~/Android/jdk-21*/Contents/Home) ANDROID_HOME=~/Android/sdk ./gradlew assembleDebug`. Emulator: `~/Android/sdk/emulator/emulator -avd ImkerBuch_Pixel -gpu swiftshader_indirect -no-audio` (Host-GPU zeichnet Artefakte; Mikrofon lässt den Emulator hängen). Seitenbilder sauber über die WebView-Fernsteuerung (`adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>`).
+   - Im Emulator geprüft (v2.73/2.74): Start + Waben-Startbild, Willkommen, Kauf-Fenster mit Google-Text, Testphase auf dem Gerät, Imme, Standort (eine Abfrage, Koordinaten kommen an), Mikrofon-Abfrage (eine), Zurück-Taste (Fenster → „Änderungen verwerfen?“ → Seite → Startseite → App verkleinern). Fund behoben: QR-Etiketten drucken ging in den Apps nicht → PDF.
 2. **Google-Play-Entwicklerkonto** (einmalig 25 $), Identitätsprüfung, Händlerangaben (Adresse, Telefon werden öffentlich, wie bei Apple), Zahlungsprofil + Bank + Steuer.
 3. **App-Signatur:** „Play App Signing“ aktivieren; Upload-Schlüssel erzeugen und **sicher aufbewahren** (Verlust = keine Updates mehr ohne Google-Support).
 4. **Geschlossener Test:** 12 Tester, **14 Tage am Stück** (Julians Imker). Erst danach Freigabe für alle.
