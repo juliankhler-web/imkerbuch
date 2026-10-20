@@ -54,15 +54,20 @@ const results=[];
 if(process.env.RELEASE_DEBUG)page.on('console',async m=>{if(m.type()==='error')console.error('BROWSER',await Promise.all(m.args().map(a=>a.evaluate(v=>v instanceof Error?{name:v.name,message:v.message,stack:v.stack}:String(v)).catch(()=>null))));});
 const check=(id,ok,detail)=>{results.push({id,status:ok?'PASS':'FAIL',detail});console.log(id,ok?'PASS':'FAIL');};
 async function ready(p=page,v){await p.waitForFunction(v=>window.appReady&&(!v||window.APP_VERSION===v),v,{timeout:45000});}
+// Reine Anzeige-Einstellungen laut AKTUELLER Version – für alt und neu gleich angewandt
+const nurDarstellung=JSON.parse((html.match(/NUR_DARSTELLUNG: new Set\((\[[^\]]*\])\)/)||[,'[]'])[1].replace(/'/g,'"'));
 async function bestand(p=page) {
- return p.evaluate(async()=>{
+ return p.evaluate(async(nurDarstellung)=>{
   await pruefeMhd();
   const data=await Backup.buildData(true);delete data.exportiert;
   data.stores.settings=data.stores.settings.map(r=>r.key==='inventarTypMigriert'?{key:r.key,value:r.value}:r);
   data.stores.settings=data.stores.settings.filter(r=>!['letzteGeseheneVersion','_datenRevision','_gesicherteRevision'].includes(r.key));
+  // Interne Merker (Umstellungen erledigt, Kachel schon gezeigt, reine Anzeige) sind keine Bestandsdaten –
+  // eine neue Version darf sie setzen. Verglichen werden nur echte Nutzerdaten (wie S.zaehltAlsDaten).
+  data.stores.settings=data.stores.settings.filter(r=>!/(Migriert|WidgetSeen)$/.test(r.key)&&!nurDarstellung.includes(r.key));
   for(const [store,rows] of Object.entries(data.stores))rows.sort((a,b)=>String(store==='settings'?a.key:a.id).localeCompare(String(store==='settings'?b.key:b.id)));
   return {data,sum:rechnungSummen(await DB.get('rechnungen','release-rechnung')),version:APP_VERSION,caches:await caches.keys()};
- });
+ },nurDarstellung);
 }
 try{
  if(mode==='suite'){

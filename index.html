@@ -1410,8 +1410,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.64';
+const APP_VERSION = '2.65';
 const CHANGELOG = [
+  { version: '2.65', datum: '2026-10-20', punkte: [
+    'Verbrauchsmaterial und weitere Produkte: Gibt es noch keine Position, führt die App jetzt direkt zum Anlegen – statt mit einer Fehlermeldung abzubrechen.',
+  ] },
   { version: '2.64', datum: '2026-10-19', punkte: [
     'Fertigsirup (z. B. Apiinvert): Die Menge wird jetzt in <b>Litern</b> eingetragen – das Liter-Feld steht an der Stelle von kg. Darunter steht sofort, was das wiegt und wie viel Zucker beim Volk ankommt (1 L = 1 kg Zucker laut Hersteller). „Davon reiner Zucker“ füllt sich selbst.',
   ] },
@@ -18130,7 +18133,11 @@ async function abgangZurueckbuchen(rec, { kasse = true } = {}) {
     Speichern zuerst zurückgenommen, dann neu gebucht. */
 async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = '') {
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
-  if (!posten.length) return UI.toast(`Noch keine Position unter „${cfg.titel}" – lege sie zuerst an.`, 'err');
+  /* Statt Sackgasse: gleich zum Anlegen führen (Prüfung „was blockiert unnötig“, 2026-10-20) */
+  if (!posten.length) {
+    if (await UI.confirm({ title: `Noch keine Position unter „${cfg.titel}“`, text: 'Was du verkaufst oder verbrauchst, braucht einmal einen Eintrag. Jetzt anlegen? Danach kannst du den Abgang direkt buchen.', confirmText: 'Jetzt anlegen', danger: false })) return materialZugangForm(cfg);
+    return;
+  }
   const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – auch „beides“
   const m = UI.formModal({
     title: rec ? `Abgang bearbeiten · ${cfg.titel}` : `${(vorArt && vorArt !== 'Verkauf') ? 'Eigenverbrauch / Verlust' : 'Verkauf'} · ${cfg.titel}`, wide: true,
