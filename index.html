@@ -1412,8 +1412,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.71';
+const APP_VERSION = '2.72';
 const CHANGELOG = [
+  { version: '2.72', datum: '2026-10-20', punkte: [
+    'Light: Das Schild „Voll“ steht jetzt an jedem Bereich der Vollversion (vorher nur am letzten).',
+    'Nur im Test-Build: Lizenz-Vorschau (Testphase / Light / Vollversion) in den Einstellungen.',
+  ] },
   { version: '2.71', datum: '2026-10-20', punkte: [
     'Stabiler auf dem iPhone: Schließt das System die Datenbank im Hintergrund, verbindet sich ImkerBuch beim nächsten Tippen selbst neu – vorher konnte Speichern bis zum Neustart fehlschlagen.',
   ] },
@@ -3081,7 +3085,7 @@ const S = {
   GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
-    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert']),
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -20334,7 +20338,9 @@ const Lizenz = {
      Die Vollversion ist auf beiden Systemen ein echter Store-Kauf. */
   android() { return IST_NATIVE_APP && window.Capacitor && typeof window.Capacitor.getPlatform === 'function' && window.Capacitor.getPlatform() === 'android'; },
   plugin() { return (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.NativePurchases) || null; },
-  aktiv() { return !!this.plugin() && !Testmodus.an(); },   // Lizenzprüfung überhaupt nötig?
+  aktiv() { return (!!this.plugin() && !Testmodus.an()) || !!this.vorschau(); },   // Lizenzprüfung überhaupt nötig?
+  /** Nur im Testmodus (Julians Test-Build): Testphase/Light/Vollversion vorführen, ohne 30 Tage zu warten. Im Store-Build nie aktiv. */
+  vorschau() { return Testmodus.an() && !TEST_MODE ? (S.get('lizenzVorschau') || '') : ''; },
   speicher() {
     const l = Object.assign({ voll: false, testStart: null, geprueft: null }, S.get('lizenz') || {});
     // Android: Teststart steht auf dem Gerät – gilt sofort, auch ohne Netz/Abgleich
@@ -20378,11 +20384,12 @@ const Lizenz = {
     const an = this.light();
     document.body.classList.toggle('ist-light', an);
     if (!an || document.getElementById('light-css')) return;
-    const sel = (z) => Object.keys(this.NUR_VOLL).map((r) => `body.ist-light ${z}[data-route="${r}"]`).join(',');
+    // jeder einzelne Selektor bekommt sein ::after (sonst trifft es nur den letzten der Liste)
+    const sel = (z, nach = '') => Object.keys(this.NUR_VOLL).map((r) => `body.ist-light ${z}[data-route="${r}"]${nach}`).join(',');
     const st = document.createElement('style'); st.id = 'light-css';
     st.textContent = `${sel('.nav-item')},${sel('.sheet-grid button')},${sel('#bottomnav button')}{position:relative}
-      ${sel('.nav-item')}::after{content:"Voll";margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.3px;color:#3A2604;background:#E9A21C;border-radius:6px;padding:2px 6px}
-      ${sel('.sheet-grid button')}::after,${sel('#bottomnav button')}::after{content:"Voll";position:absolute;top:6px;right:6px;font-size:9.5px;font-weight:800;color:#3A2604;background:#E9A21C;border-radius:6px;padding:1px 5px}`;
+      ${sel('.nav-item', '::after')}{content:"Voll";margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.3px;color:#3A2604;background:#E9A21C;border-radius:6px;padding:2px 6px}
+      ${sel('.sheet-grid button', '::after')},${sel('#bottomnav button', '::after')}{content:"Voll";position:absolute;top:6px;right:6px;font-size:9.5px;font-weight:800;color:#3A2604;background:#E9A21C;border-radius:6px;padding:1px 5px}`;
     document.head.appendChild(st);
   },
   /** Light: beim Start höchstens alle 3 Tage an die Vollversion erinnern (immer wegklickbar – Apple-Regel). */
@@ -20403,7 +20410,8 @@ const Lizenz = {
     return false;
   },
   /** 'voll' | 'test' | 'ohneTest' | 'abgelaufen' – rein rechnerisch (testbar). „abgelaufen“ = Light. */
-  status(l = this.speicher(), jetzt = Date.now()) {
+  status(l, jetzt = Date.now()) {
+    if (l === undefined) { const v = this.vorschau(); if (v) return v; l = this.speicher(); }
     if (l.voll) return 'voll';
     if (!l.testStart) return 'ohneTest';
     return jetzt < Date.parse(l.testStart) + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
@@ -20464,7 +20472,7 @@ const Lizenz = {
     return p;
   },
   async kaufen(art) {
-    const P = this.plugin(); if (!P) return false;
+    const P = this.plugin(); if (!P) { if (this.vorschau()) UI.toast('Vorschau im Testmodus – hier wird nichts gekauft.'); return false; }
     if (art === 'test' && this.android()) {
       if (!S.get('testStartGeraet')) await S.set('testStartGeraet', U.nowIso(), { auto: true });
       await this.abgleichen();
@@ -24426,6 +24434,10 @@ Views.einstellungen = {
           </select></div>
       </div>
 
+      ${Testmodus.an() ? `<div class="card"><div class="card-title">${icon('crown')}<h2>Lizenz-Vorschau <span class="badge">Testmodus</span></h2></div>
+        <div class="hint mb8">Zeigt die App so, wie Kunden sie sehen – ohne 30 Tage zu warten. Nur in deinem Test-Build, nicht im App Store.</div>
+        <select class="inp" id="lizenz-vorschau">${[['', 'Aus (alles frei, wie bisher im Testmodus)'], ['test', 'Testphase (alles offen)'], ['abgelaufen', 'Light (nach 30 Tagen)'], ['voll', 'Vollversion gekauft']].map(([v, l]) => `<option value="${v}"${(S.get('lizenzVorschau') || '') === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      </div>` : ''}
       ${Testmodus.an() ? `<div class="card"><div class="card-title">${icon('box')}<h2>Beispieldaten <span class="badge">Testmodus</span></h2></div>
         <div class="hint mb8">Füllt die App mit umfangreichen Demo-Daten (Stände, Völker, Königinnen, Honig, Rechnungen, Reporting, Zeiterfassung …) – ideal zum Ausprobieren oder für Screenshots. <b>Ersetzt alle aktuell vorhandenen Daten.</b></div>
         <button class="btn btn-ghost no-print" id="demo-load">${icon('box')} Beispieldaten laden</button>
@@ -24662,6 +24674,11 @@ Views.einstellungen = {
       reg.showNotification('🐝 ImkerBuch', { body: 'Probe-Benachrichtigung – so melden sich fällige Aufgaben.', tag: 'imkerbuch-test', icon: 'icon-192.png' });
     };
     $('#theme-sel').onchange = async (e) => { await S.set('darkMode', e.target.value); applyTheme(); };
+    if ($('#lizenz-vorschau')) $('#lizenz-vorschau').onchange = async (e) => {
+      await S.set('lizenzVorschau', e.target.value, { auto: true });
+      UI.toast(e.target.value ? 'Vorschau: ' + e.target.selectedOptions[0].textContent : 'Vorschau aus');
+      renderRoute({ scrollBehalten: true });
+    };
     if ($('#demo-load')) $('#demo-load').onclick = async () => {
       if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher wird eine interne Kopie angelegt („Interne Snapshots“) – für eine Kopie außerhalb der App vorher eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
       await Demo.reset(); navTo('dashboard');
