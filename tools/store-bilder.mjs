@@ -131,15 +131,16 @@ async function main() {
   const ziel = new URL('../store-bilder/iphone/', import.meta.url).pathname;
   mkdirSync(ziel, { recursive: true });
   // Sätze: Bilder 1–3 (studio.html) und 4–6 (studio-2.html); NUR=… schränkt ein
-  const SAETZE = [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-ipad.html', start: 1, ipad: true, w: 2752, h: 2064 }];
+  const SAETZE = [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }, { datei: 'studio-ipad.html', start: 1, ipad: true, w: 2752, h: 2064 }];
   for (const satz of SAETZE) for (const thema of (satz.ipad ? ['dunkel'] : ['hell', 'dunkel'])) {
     const W = satz.w || 1320, H = satz.h || 2868, zielDir = satz.ipad ? ziel.replace(/iphone\/$/, 'ipad/') : ziel;
     mkdirSync(zielDir, { recursive: true });
-    await cdp.send('Emulation.setDeviceMetricsOverride', { width: W * 3, height: H, deviceScaleFactor: 1, mobile: false });
+    const N = satz.n || 3;
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: W * N, height: H, deviceScaleFactor: 1, mobile: false });
     await cdp.send('Page.navigate', { url: `http://localhost:8931/store-bilder/${satz.datei}${thema === 'dunkel' ? '?app=dunkel' : ''}` });
     for (let i = 0; i < 100; i++) { try { if (await cdp.js(`return document.readyState === 'complete' && [...document.images].every((b) => b.complete && b.naturalWidth)`)) break; } catch (e) {} await schlaf(150); }
     await schlaf(800);
-    for (let n = 0; n < 3; n++) {
+    for (let n = 0; n < N; n++) {
       const bild = await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: n * W, y: 0, width: W, height: H, scale: 1 } });
       writeFileSync(`${zielDir}0${n + satz.start}${thema === 'dunkel' ? '-dunkel' : ''}.png`, Buffer.from(bild.data, 'base64'));
     }

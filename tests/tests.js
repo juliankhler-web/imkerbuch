@@ -12556,6 +12556,16 @@ test('Lizenz: nach Ablauf darf der Papierkorb aufräumen und „Alle Daten lösc
   for (const k of ['lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'lightErinnert']) assert(w.S.GERAET.has(k), k + ' bleibt auf dem Gerät');
 });
 
+test('Einführung beginnt mit „Kurz umschauen“: Startseite, Anpassen, Schnellzugriffe, Mehr, Imme', (w) => {
+  const k = w.Einfuehrung.KAPITEL[0];
+  assertEq(k.titel, 'Kurz umschauen');
+  const t = k.eintrag.tour;
+  assertEq(t.length, 5);
+  assert(/dash-cfg/.test(t[1].knopf) && /selbst zusammen/.test(t[1].text), 'Startseite anpassen wird gezeigt');
+  assert(/data-more/.test(t[3].knopf) && /gedrückt/.test(t[3].text), 'Kachel in die Leiste ziehen wird erklärt');
+  assert(!w.Einfuehrung.KAPITEL.some((x) => x.titel === 'Alles finden'), 'altes Kapitel ersetzt');
+});
+
 test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen, Kauf-Fenster statt Speichern', async (w) => isolierteDaten(w, async () => {
   const L = w.Lizenz, tag = 864e5;
   const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };

@@ -127,6 +127,8 @@ const AUFNAHMEN = [
   { name: 'honig', route: 'honig' },
   { name: 'assistent', route: 'assistent' },
   { name: 'behandlungen', route: 'behandlungen' },
+  // Startseite selbst zusammenstellen (Julian: hervorheben) – das Fenster bleibt offen
+  { name: 'dash-anpassen', route: 'dashboard', behalten: true, schritt: `document.querySelector('#dash-cfg').click(); await new Promise((r) => setTimeout(r, 1200));` },
   { name: 'kassenbuch', route: 'kassenbuch', schritt: `
       const t = [...document.querySelectorAll('#main button')].find((b) => /^Auswertung$/.test(b.textContent.trim())); if (t) t.click(); await new Promise((r) => setTimeout(r, 900));` },
   { name: 'rechnung', route: 'rechnung/{rechnung}' },
@@ -185,7 +187,7 @@ async function main() {
     await cdp.js(`document.querySelectorAll('#modal-root .modal-back, .toast').forEach((m) => m.remove()); location.hash = '#/${a.route.replace('{volk}', volk).replace('{rechnung}', rechnung)}'; await new Promise((r) => setTimeout(r, 300)); renderRoute(); return 1;`);
     await schlaf(1500);
     if (a.schritt) { await cdp.js(a.schritt + '; return 1;'); await schlaf(800); }
-    await cdp.js(`document.querySelectorAll('.toast, #modal-root .modal-back').forEach((m) => m.remove()); scrollTo(0, 0); return 1;`);
+    await cdp.js(`document.querySelectorAll('.toast${a.behalten ? '' : ', #modal-root .modal-back'}').forEach((m) => m.remove()); scrollTo(0, 0); return 1;`);
     await schlaf(400);
     const bild = await cdp.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(`${ZIEL}/${a.name}${endung}.png`, Buffer.from(bild.data, 'base64'));
