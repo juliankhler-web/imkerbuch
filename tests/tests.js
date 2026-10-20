@@ -10786,6 +10786,125 @@ test('QR-Etiketten als PDF: richtige Anzahl, Seitenumbruch, Beschriftung', async
   } finally { w.Pdf.noDownloadForTest = alt; }
 });
 
+/* Julian 20.10.2026: „bei der Einführung ist der Kontrast zu wenig“ – die Blase hatte genau die Kachelfarbe.
+   Jetzt „umgedreht“: hell → dunkle Blase, dunkel → helle Blase. Geprüft wird in beiden Modi gegen Kachel und Text. */
+test('Imme-Sprechblase hebt sich in Hell und Dunkel klar von den Kacheln ab', (w) => {
+  const d = w.document, html = d.documentElement, altTheme = html.dataset.theme;
+  const rgb = (c) => (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+  const lum = (c) => { const [r, g, b] = rgb(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const kontrast = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const tip = d.createElement('div'); tip.className = 'bini-tip';
+  tip.innerHTML = '<div><div class="bini-anrede">Hallo</div><b>Kopf</b><br>Text<div class="bini-hinweis">Tipp</div></div><button class="bini-x">x</button>';
+  const kachel = d.createElement('div'); kachel.className = 'stat';
+  d.body.append(tip, kachel);
+  try {
+    for (const modus of ['light', 'dark']) {
+      html.dataset.theme = modus;
+      const cs = w.getComputedStyle(tip), kachelBg = w.getComputedStyle(kachel).backgroundColor;
+      assert(kontrast(cs.backgroundColor, kachelBg) >= 7, `${modus}: Blase (${cs.backgroundColor}) hebt sich deutlich von der Kachel (${kachelBg}) ab`);
+      assert(kontrast(cs.color, cs.backgroundColor) >= 7, `${modus}: Text gut lesbar`);
+      const anrede = w.getComputedStyle(tip.querySelector('.bini-anrede')).color;
+      assert(kontrast(anrede, cs.backgroundColor) >= 4.5, `${modus}: Anrede in Honigfarbe lesbar (${anrede})`);
+      assertEq(w.getComputedStyle(tip.querySelector('.bini-hinweis')).color, cs.color, `${modus}: Hinweis-Text folgt der Blasenfarbe`);
+    }
+    html.dataset.theme = 'light';
+    assert(lum(w.getComputedStyle(tip).backgroundColor) < 0.1, 'hell: Blase ist dunkel');
+    html.dataset.theme = 'dark';
+    assert(lum(w.getComputedStyle(tip).backgroundColor) > 0.7, 'dunkel: Blase ist hell');
+  } finally { tip.remove(); kachel.remove(); if (altTheme) html.dataset.theme = altTheme; else delete html.dataset.theme; }
+});
+
+/* Julian 20.10.2026: Startseiten-Kacheln mit Gedrückthalten verschieben. Ausgeblendete Einträge behalten ihren Platz,
+   nach dem Ziehen öffnet sich nichts, kurzes Tippen öffnet weiter den Bereich. */
+test('Startseite: Kachel gedrückt halten und ziehen ändert die gespeicherte Reihenfolge', async (w) => {
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const altW = [...w.S.get('dashboardWidgets')], altHash = w.location.hash;
+  const pe = (typ, el, x, y) => el.dispatchEvent(new w.PointerEvent(typ, { bubbles: true, cancelable: true, pointerId: 31, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y }));
+  const vorbereiten = async (spalten) => {
+    w.location.hash = '#/dashboard'; await w.renderRoute(); await warte(150);
+    w.scrollTo(0, 0);
+    const raster = w.document.querySelector('#main .dash-raster');
+    raster.style.gridTemplateColumns = spalten;
+    raster.querySelectorAll('.dash-klick').forEach((k) => { k.style.height = '70px'; k.style.overflow = 'hidden'; });
+    raster.scrollIntoView({ block: 'start' }); w.scrollBy(0, -80);
+    return raster;
+  };
+  const ids = () => [...w.document.querySelectorAll('#main .dash-raster>.dash-klick')].map((k) => w.S.get('dashboardWidgets')[k.dataset.slot]);
+  const mitte = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r }; };
+  try {
+    await w.S.set('dashboardWidgets', ['voelker', 'gibtsnicht', 'sicherung', 'aufgaben', 'zeiten']);
+    // 1) eine Spalte (Handy): erste Kachel unter die zweite ziehen
+    let raster = await vorbereiten('1fr');
+    let k = [...raster.querySelectorAll('.dash-klick')];
+    assertEq(k.length, 4, 'unbekannter Eintrag erscheint nicht als Kachel');
+    const a = mitte(k[0]), b = mitte(k[1]);
+    pe('pointerdown', k[0].firstElementChild, a.x, a.y);
+    await warte(470);
+    assert(w.document.querySelector('.lp-fly'), 'nach dem Halten hebt sich die Kachel an');
+    assert(k[0].classList.contains('lp-ph'), 'an ihrem Platz bleibt die Lücke');
+    pe('pointermove', raster, a.x, b.r.top + b.r.height * 0.75); await warte(220);
+    pe('pointermove', raster, a.x, b.r.top + b.r.height * 0.8); await warte(50);
+    pe('pointerup', raster, a.x, b.r.top + b.r.height * 0.8);
+    await warte(150);
+    assert(!w.document.querySelector('.lp-fly') && !w.document.querySelector('.lp-ph'), 'nach dem Loslassen ist alles aufgeräumt');
+    assertEq(w.S.get('dashboardWidgets'), ['sicherung', 'gibtsnicht', 'voelker', 'aufgaben', 'zeiten'], 'Reihenfolge gespeichert, ausgeblendeter Eintrag bleibt an seiner Stelle');
+    assertEq(ids(), ['sicherung', 'voelker', 'aufgaben', 'zeiten'], 'Kacheln und gespeicherte Liste passen zusammen');
+    k[1].click(); await warte(50);
+    assertEq(w.location.hash, '#/dashboard', 'das Loslassen öffnet keinen Bereich');
+    // 2) gleich danach noch einmal ziehen (ohne neues Zeichnen): letzte Kachel ganz nach oben
+    k = [...raster.querySelectorAll('.dash-klick')];
+    const l = mitte(k[3]), o = mitte(k[0]);
+    pe('pointerdown', k[3].firstElementChild, l.x, l.y); await warte(470);
+    for (const y of [mitte(k[2]).y - 5, mitte(k[1]).y - 5, o.r.top + 8]) { pe('pointermove', raster, l.x, y); await warte(220); }
+    pe('pointerup', raster, l.x, o.r.top + 8); await warte(150);
+    assertEq(w.S.get('dashboardWidgets'), ['zeiten', 'gibtsnicht', 'sicherung', 'voelker', 'aufgaben'], 'zweites Ziehen baut auf dem ersten auf');
+    // 2b) schnell weiterziehen und sofort loslassen (während die Kacheln noch gleiten): die letzte Position zählt
+    k = [...raster.querySelectorAll('.dash-klick')];
+    const q = mitte(k[0]), q1 = mitte(k[1]), q3 = mitte(k[3]);
+    pe('pointerdown', k[0].firstElementChild, q.x, q.y); await warte(470);
+    pe('pointermove', raster, q.x, q1.r.top + q1.r.height * 0.75);
+    pe('pointermove', raster, q.x, q3.r.bottom - 4);
+    pe('pointerup', raster, q.x, q3.r.bottom - 4); await warte(150);
+    assertEq(ids(), ['sicherung', 'voelker', 'aufgaben', 'zeiten'], 'schnelles Loslassen landet an der letzten Fingerposition');
+    assertEq(w.S.get('dashboardWidgets'), ['sicherung', 'gibtsnicht', 'voelker', 'aufgaben', 'zeiten'], 'und genau so gespeichert');
+    // 3) nur gedrückt halten, nicht ziehen: nichts ändert sich
+    k = [...raster.querySelectorAll('.dash-klick')];
+    const h = mitte(k[1]);
+    pe('pointerdown', k[1].firstElementChild, h.x, h.y); await warte(470); pe('pointerup', raster, h.x, h.y); await warte(100);
+    assertEq(w.S.get('dashboardWidgets'), ['sicherung', 'gibtsnicht', 'voelker', 'aufgaben', 'zeiten'], 'Anheben ohne Verschieben ändert nichts');
+    // 4) Wischen (Finger bewegt sich sofort) ist Scrollen, kein Ziehen
+    pe('pointerdown', k[1].firstElementChild, h.x, h.y); pe('pointermove', raster, h.x, h.y - 40); await warte(470);
+    assert(!w.document.querySelector('.lp-fly'), 'Scrollen hebt keine Kachel an');
+    pe('pointerup', raster, h.x, h.y - 40);
+    // 5) zwei Spalten (Tablet): Kachel auf eine andere ziehen
+    raster = await vorbereiten('1fr 1fr');
+    k = [...raster.querySelectorAll('.dash-klick')];
+    const s0 = mitte(k[0]), s3 = mitte(k[3]);
+    pe('pointerdown', k[0].firstElementChild, s0.x, s0.y); await warte(470);
+    pe('pointermove', raster, s3.x, s3.y); await warte(220);
+    pe('pointerup', raster, s3.x, s3.y); await warte(150);
+    assertEq(ids(), ['voelker', 'aufgaben', 'zeiten', 'sicherung'], 'im Raster rückt die Kachel an die Stelle der Zielkachel');
+    // 6) kurzes Tippen öffnet weiter den Bereich
+    raster = await vorbereiten('1fr');
+    const t = w.document.querySelector('#main .dash-klick[data-ziel]:not([data-ziel=""])');
+    const ziel = t.dataset.ziel;
+    t.firstElementChild.click(); await warte(80);
+    assertEq(w.location.hash, '#/' + ziel, 'kurzes Tippen führt in den Bereich');
+  } finally {
+    await w.S.set('dashboardWidgets', altW);
+    w.location.hash = altHash; await w.renderRoute();
+  }
+});
+
+/* Hilfe-Texte kennen das Verschieben auf der Startseite */
+test('Imme weiß, wie man Startseiten-Kacheln verschiebt', (w) => {
+  const a = w.Assistent.antwort('Wie verschiebe ich die Kacheln auf der Startseite?');
+  assertEq(a.art === 'app' ? a.haupt.id : a.art, 'dashboard', 'Frage landet beim Startseiten-Eintrag');
+  assert(/gedrückt halten/.test(w.APP_WISSEN.find((e) => e.id === 'dashboard').antwort), 'Antwort nennt das Gedrückthalten');
+  assertEq(typeof w.kurzVibrieren, 'function', 'Spür-Signal vorhanden');
+  w.kurzVibrieren();   // darf im Browser ohne Haptik-Modul nichts kaputt machen
+});
+
 /* iPhone-Simulator 20.10.2026: „Los geht's!“ lag beim ersten Start auf „30 Tage kostenlos starten“. */
 test('Meldungen liegen nicht auf den Knöpfen eines offenen Fensters', (w) => {
   const root = w.document.getElementById('toast-root');
