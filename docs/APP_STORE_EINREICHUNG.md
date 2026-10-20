@@ -253,7 +253,7 @@ App-ID **6824860228**, Bundle-ID `de.imkerbuch.app`, SKU `imkerbuch-ios`. **Nich
 - ✅ Version 1.0: Werbetext, Beschreibung, Stichwörter, Support-/Marketing-URL, Copyright „2026 Julian Köhler“, **manuell veröffentlichen**, 7 iPhone-Bilder (Apple will seit 2026 **6,1/6,3″ = 1206×2622** → `store-bilder/iphone-63/`, aus den 1320×2868-Bildern skaliert), 3 iPad-Bilder 13″ (2752×2064).
 - ✅ App: kostenlos (0 €), nur DE/AT/CH. App-Datenschutz: Datenschutz-URL + „Keine Daten erfasst“.
 - ⚠️ **Julian:** Telefonnummer unter „Informationen zur App-Prüfung“ (Pflicht; Name, Mail, Hinweise sind eingetragen, Anmeldung erforderlich = aus) → „Sichern“.
-- ⚠️ **Julian entscheidet:** Inhaltsrechte (App-Informationen → „Inhaltsrechte“: Wetter DWD/Bright Sky, Karten OSM/BKG – Daten Dritter, frei nutzbar); Mac-/Vision-Pro-Verfügbarkeit ist von Apple **an** (ungetestet – ausschalten?); App-Datenschutz „Veröffentlichen“ erst mit der Schlussfreigabe.
+- ⚠️ **Julian entscheidet:** Inhaltsrechte (App-Informationen → „Inhaltsrechte“: Wetter DWD/Bright Sky, Karten OSM/BKG – Daten Dritter, frei nutzbar); Mac-/Vision-Pro-Verfügbarkeit ✅ **aus** (Julian 20.10.2026); App-Datenschutz „Veröffentlichen“ erst mit der Schlussfreigabe.
 - ⚠️ **Julian (Geschäftliches):** Vertrag kostenpflichtige Apps, Steuerformular, Bank, DSA-Händlerangaben – ohne aktiven Vertrag laden Käufe in TestFlight/Sandbox meist nicht.
-- Offen: Build hochladen (Xcode → Archive), TestFlight für Tester; Bilder „iPhone Duo“ ab April 2027 Pflicht.
+- Offen: Build hochladen (Xcode → Archive) und **TestFlight erst mit der finalen Version** (Julian 20.10.2026) – vorher kein Hochladen, keine Tester-Einladung; Bilder „iPhone Duo“ ab April 2027 Pflicht.
 - GitHub bleibt **öffentlich** (Julian 20.10.2026) – Web-Version und Seiten bleiben erreichbar; Tester wechseln über TestFlight in die App (vorher Sicherung in der Web-Version, in der App einlesen).
