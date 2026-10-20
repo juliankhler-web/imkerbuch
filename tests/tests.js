@@ -13316,9 +13316,14 @@ test('Lizenz Android: Testphase startet auf dem Gerät (kein 0-€-Kauf), Datum 
   } finally { L.android = echtAndroid; L.plugin = echtPlugin; await w.S.set('testStartGeraet', null, { auto: true }); await w.S.set('lizenz', null, { auto: true }); }
 }));
 
-test('Play-Prüfung: keine exakten Wecker, ausstehende Käufe zählen nicht, Abbrechen ist still', async (w) => {
+test('Play-Prüfung: exakter Wecker nur mit Erlaubnis des Nutzers, ausstehende Käufe zählen nicht, Abbrechen ist still', async (w) => {
   const quelle = await (await w.fetch('index.html')).text();
-  assertEq((quelle.match(/isExactNotification: false/g) || []).length, 2, 'Erinnerung + Probe ohne exakten Wecker');
+  /* v2.80 (Julian: „minutengenau“): exakt nur, wenn der Nutzer „Wecker & Erinnerungen“ erlaubt hat – nie fest „true“ */
+  assert(!/isExactNotification: true/.test(quelle), 'nie fest exakt (sonst öffnet das Plugin ungefragt die Einstellung)');
+  assertEq((quelle.match(/isExactNotification: (genau|await this\.genau\(\))/g) || []).length, 2, 'Erinnerung + Probe richten sich nach der Erlaubnis');
+  const manifest = await (await w.fetch('../native/android/app/src/main/AndroidManifest.xml', { cache: 'no-store' })).text();
+  assert(!/<uses-permission[^>]*USE_EXACT_ALARM/.test(manifest.replace(/<!--[\s\S]*?-->/g, '')), 'kein USE_EXACT_ALARM (bei Google nur für Wecker-/Kalender-Apps)');
+  assert(/android\.permission\.SCHEDULE_EXACT_ALARM" \/>/.test(manifest), 'SCHEDULE_EXACT_ALARM ist eingetragen (Nutzer schaltet sie ein)');
   const L = w.Lizenz, echt = { android: L.android, plugin: L.plugin, aktiv: L.aktiv };
   let toasts = 0; const echtToast = w.UI.toast; w.UI.toast = () => { toasts++; };
   try {
