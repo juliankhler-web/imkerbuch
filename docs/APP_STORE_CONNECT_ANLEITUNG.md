@@ -8,13 +8,13 @@ Apple benennt Menüpunkte gelegentlich um – steht etwas anders da, das Bildsch
 
 ---
 
-## 0 · Woran du merkst, dass es losgehen kann
+## 0 · Woran du merkst, dass es losgehen kann (✅ seit 20.10.2026)
 
 - Mail von Apple „Welcome to the Apple Developer Program“ (oder auf Deutsch).
 - Auf **developer.apple.com/account** steht bei „Mitgliedschaft“ ein Ablaufdatum in einem Jahr.
 - Dort steht auch die **Team-ID** (10 Zeichen). Die brauchst du gleich für Schritt 1.
 
-## 1 · Xcode auf das bezahlte Team umstellen **(Claude)**
+## 1 · Xcode auf das bezahlte Team umstellen (✅ nicht nötig: gleiche Team-ID Z3V494U7BB)
 
 1. Sag Claude: „Konto ist aktiv“ (Team-ID dazu – die ist nicht geheim).
 2. Claude trägt die Team-ID im Projekt ein (`DEVELOPMENT_TEAM` in `native/ios/App/App.xcodeproj/project.pbxproj`, heute noch `Z3V494U7BB` = freies Team) und prüft den Gerätebau.

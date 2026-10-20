@@ -7,7 +7,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
 ## 1. Konto und Recht
 
-- ⚠️ **Apple Developer Program** (99 €/Jahr). Julians Team ist bisher das kostenlose – damit kann man nicht einreichen.
+- ✅ **Apple Developer Program** (99 €/Jahr) **aktiv seit 20.10.2026** (Bestellung W1822694485, Support-Fall 103002493010, Mails „Welcome to the Apple Developer Program“ + „Welcome to App Store Connect“). Bezahltes Team „Julian Konstantin Köhler“ hat dieselbe Team-ID **Z3V494U7BB** – steht schon im Projekt, Gerätebau am 20.10. erfolgreich. Quelle: Second Brain „Meine Projekte“. Läuft bis 10/2027.
   - **Klick-für-Klick-Anleitung für danach:** `docs/APP_STORE_CONNECT_ANLEITUNG.md` (Team umstellen, Verträge/Steuer/Bank/DSA, App + 2 Käufe anlegen, Hochladen, Sandbox/TestFlight, Einreichen). Prüfungs-Bildschirmfoto des Kauf-Fensters: `store-bilder/pruefung-kauffenster.png`.
   - 20.10.2026: Anmeldung läuft (als **Einzelperson**, über die App „Apple Developer“). Als Ausweis bietet Apple nur den **Führerschein** an. Der Name im Apple-Account muss **genau** wie im Führerschein stehen (beide Vornamen, Nachname mit „ö“) – vorher stand dort „julian Koehler“. Bei Einzelpersonen erscheint dieser Name später als **Verkäufer** im App Store.
   - 20.10.2026, 09:46: Ausweis-Prüfung in der App gescheitert („Unable to Verify Your Identity … Please contact support“) → Weg über den Apple-Developer-Support (developer.apple.com/contact → Mitgliedschaft und Account → Programm-Anmeldung).
