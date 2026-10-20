@@ -131,6 +131,18 @@ async function main() {
   const ziel = new URL('../store-bilder/iphone/', import.meta.url).pathname;
   mkdirSync(ziel, { recursive: true });
   // Sätze: Bilder 1–3 (studio.html) und 4–6 (studio-2.html); NUR=… schränkt ein
+  // --play-titel: Google-Play-Titelgrafik 1024 × 500 (doppelt gerendert, dann verkleinert)
+  if (process.argv.includes('--play-titel')) {
+    const zielT = new URL('../store-bilder/play/', import.meta.url).pathname; mkdirSync(zielT, { recursive: true });
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 2048, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await cdp.send('Page.navigate', { url: 'http://localhost:8931/store-bilder/play-titel.html' });
+    for (let i = 0; i < 100; i++) { try { if (await cdp.js(`return document.readyState === 'complete' && [...document.images].every((b) => b.complete && b.naturalWidth)`)) break; } catch (e) {} await schlaf(150); }
+    await schlaf(800);
+    const bild = await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 2048, height: 1000, scale: 1 } });
+    writeFileSync(`${zielT}titelgrafik.png`, Buffer.from(bild.data, 'base64'));
+    spawnSync('sips', ['-z', '500', '1024', `${zielT}titelgrafik.png`], { stdio: 'ignore' });
+    console.log('✓ Titelgrafik'); process.exit(0);
+  }
   // --play: Google-Play-Fassung (9:16, Android-Handy) → store-bilder/play/0N-dunkel.png in 1080 × 1920
   const PLAY = process.argv.includes('--play');
   const SAETZE = PLAY ? [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }].map((x) => ({ ...x, h: 2347, play: true }))
