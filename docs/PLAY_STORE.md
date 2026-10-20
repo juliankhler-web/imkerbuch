@@ -40,7 +40,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 
 - **App-Name (max. 30):** `ImkerBuch` (wie im App Store, Julian 20.10.2026)
 - **Kurzbeschreibung (max. 80, 77 Zeichen):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
-- **Vollständige Beschreibung (1711 von 4000 Zeichen) – zum Einfügen:**
+- **Vollständige Beschreibung (2519 von 4000 Zeichen, Stand v2.81) – zum Einfügen:**
 
 ```text
 ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Handy.
@@ -52,19 +52,32 @@ DURCHSICHT AM STAND
 
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum, Generation und Bewertung
-• Bienenstände mit Wetter und Kartenlink
-• Behandlungen mit Wartezeiten, Fütterung mit Futter-Rechner (auch Sirup in Litern)
+• Bienenstände mit aktuellem Wetter – kommt beim Öffnen der App von selbst – und Verlauf als Grafik
+• Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner (auch Sirup in Litern)
 
 HONIG UND GESCHÄFT
 • Ernte, Chargen, Abfüllung und Bestand – Etiketten-QR als PDF
 • Kassenbuch, Rechnungen, Abnehmer, Verkauf mit Rabatt
-• Bestandsbuch und Meldungen als PDF
+• Fahrtenbuch und Zeiterfassung
+
+ALLE UNTERLAGEN AN EINEM ORT
+• Bestandsbuch, Meldungen für Veterinäramt und Tierseuchenkasse, Kassenbuch-Jahresbericht, Fahrtenbuch, Fütterungsliste
+• Volksakte: ein Volk komplett – jeder Teil auch einzeln
+• Jahr wählen und als PDF, Excel oder CSV ausgeben – nach Themen sortiert und mit Suche
+
+STATISTIK, DIE ETWAS SAGT
+• Die wichtigsten Zahlen im Vergleich zum Vorjahr
+• Auffälliges auf einen Blick: starke und schwache Völker, hoher Varroa-Befall, Völker ohne Winterfutter
+• Winterverluste, Erlös je kg Honig, Kosten je Volk
+
+ERINNERUNGEN
+• Aufgaben mit Datum und Uhrzeit – die App erinnert dich pünktlich, auch wenn sie geschlossen ist
 
 FÜR BIO-IMKEREIEN
 • Bio-Unterlagen, Hygieneplan, Umgebungsprüfung der Stände
 
 DEINE STARTSEITE, DEIN AUFBAU
-• Kacheln und Schnellzugriffe selbst zusammenstellen – für den Hobby-Stand genauso wie für den Imkereibetrieb
+• Kacheln auswählen und per Gedrückthalten verschieben – für den Hobby-Stand genauso wie für den Imkereibetrieb
 
 IMME, DEIN ASSISTENT
 • Beantwortet Fragen zur App und zeigt dir Schritt für Schritt, wie es geht – auch ohne Internet
@@ -72,6 +85,7 @@ IMME, DEIN ASSISTENT
 DEINE DATEN GEHÖREN DIR
 • Kein Konto, keine Werbung, kein Tracking
 • Sicherung über das Teilen-Menü in Google Drive, „Dateien“ oder per Mail
+• Alle Daten jederzeit als Excel oder CSV – auch in der kostenlosen Light-Version
 • Keine automatische Übertragung in fremde Clouds
 
 30 Tage alle Funktionen kostenlos testen – die Testphase beginnt beim ersten Start auf deinem Gerät. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
@@ -89,7 +103,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 ## Datensicherheit („Data safety“-Formular)
 
 - **Erfasst oder teilt die App Daten?** Ja, in geringem Umfang:
-  - **Standort (ungefähr und genau):** Koordinaten eines Bienenstands gehen an Wetter- und Geodienste (Deutscher Wetterdienst/Bright Sky, OpenStreetMap, amtliche Geodienste), wenn Wetter oder Bio-Umgebungsprüfung genutzt werden. Zweck: **App-Funktionen**. **Flüchtig verarbeitet** (nicht gespeichert, keine Zuordnung zur Person). Nicht für Werbung, nicht verkauft. Vorsichtshalber auch als **„geteilt“ (mit Wetter-/Kartendiensten, für App-Funktionen)** angeben – das Startseiten-Wetter wird automatisch geladen.
+  - **Standort (ungefähr und genau):** Koordinaten eines Bienenstands gehen an Wetter- und Geodienste (Deutscher Wetterdienst/Bright Sky, OpenStreetMap, amtliche Geodienste), wenn Wetter oder Bio-Umgebungsprüfung genutzt werden. Zweck: **App-Funktionen**. **Flüchtig verarbeitet** (nicht gespeichert, keine Zuordnung zur Person). Nicht für Werbung, nicht verkauft. Vorsichtshalber auch als **„geteilt“ (mit Wetter-/Kartendiensten, für App-Funktionen)** angeben – das Wetter aller Stände mit Koordinaten wird ab v2.78 beim App-Start automatisch geladen (abschaltbar).
   - Adresssuche: Suchbegriff an OpenStreetMap (vom Nutzer ausgelöst).
   - Alles andere (Völker, Fotos, Audio, Buchungen, Kontakte) bleibt **nur auf dem Gerät** → nicht „erfasst“.
 - **Verschlüsselung bei der Übertragung:** Ja (HTTPS).

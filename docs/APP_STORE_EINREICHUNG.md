@@ -5,16 +5,18 @@ Stand 2026-10-20 (Abschnitte 1–5 am 20.10. gegen den echten Stand geprüft) ·
 
 Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
-## Was wirklich noch offen ist (Stand 20.10.2026, v2.75)
+## Was wirklich noch offen ist (Stand 20.10.2026, v2.81)
 
 **Julian:**
 
-1. Gerätetest am iPhone (und iPad) nach `docs/GERAETETEST.md` / `docs/pdf/ImkerBuch-Test-am-iPhone.pdf`.
+1. Gerätetest am iPhone (und iPad) nach `docs/GERAETETEST.md` / `docs/pdf/ImkerBuch-Test-am-iPhone.pdf` (Stand 2.81; neu u. a. E1b/E1c, D0, F3b, F4a–c).
 2. App Store Connect → Geschäftliches: Vertrag kostenpflichtige Apps, Steuerformular, Bankkonto, EU-Händlerangaben.
 3. Schlussfreigabe: Inhaltsrechte bestätigen, App-Datenschutz „Veröffentlichen“, zur Prüfung einreichen.
 4. Google Play: D-U-N-S-Nummer abwarten (Kalender 19.11.2026), dann Konto (25 $) – Organisation oder privat + 12 Tester. Upload-Schlüssel selbst anlegen (`docs/PLAY_STORE.md`).
 
-**Claude, wenn es so weit ist:** Funde aus dem Gerätetest beheben → Store-Bilder mit der finalen Version neu erzeugen (`node tools/store-bilder.mjs`, `--play`, `--play-titel`) → `node tools/release-100.mjs` → Store-Bau (`./native/sync-app.sh`) → Upload (Xcode Archive / Android `bundleRelease`) → TestFlight + geschlossener Test → nach 1.00 jsPDF aktualisieren. Vor dem Einreichen `/code-review ultra` empfehlen.
+**Claude, wenn es so weit ist:** Funde aus dem Gerätetest beheben → Store-Bilder mit der finalen Version neu erzeugen (`node tools/store-bilder.mjs`, `--play`, `--play-titel`; neue Motive: Unterlagen, Statistik „Auf einen Blick“, Wetter am Stand) → **in App Store Connect Werbetext und Beschreibung durch die Fassung v2.81 aus `docs/APP_STORE_TEXTE.md` ersetzen** (dort steht noch der Stand vom 20.10. vormittags) und die Bilder tauschen → `node tools/release-100.mjs` → Store-Bau (`./native/sync-app.sh`) → Upload (Xcode Archive / Android `bundleRelease`) → TestFlight + geschlossener Test → nach 1.00 jsPDF aktualisieren. Vor dem Einreichen `/code-review ultra` bzw. Prüf-Agent (Fable 5.1) empfehlen. Google Play: in der Play Console prüfen, ob für „Wecker & Erinnerungen“ (`SCHEDULE_EXACT_ALARM`, ab v2.80) eine Erklärung verlangt wird.
+
+**Seit v2.75 dazugekommen (für Texte und Bilder):** Kacheln per Gedrückthalten verschieben (2.76), Wetter am Stand von selbst + Volksakte + Export mit Jahr + Excel/CSV deutsch (2.78), Bereich „Unterlagen“ (2.79), Android-Erinnerungen minutengenau (2.80), Statistik mit Vorjahresvergleich und „Auffällig“ (2.81).
 
 ## 1. Konto und Recht
 

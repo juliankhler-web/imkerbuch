@@ -1,6 +1,6 @@
 # App Store Connect – Schritt für Schritt (sobald das Entwicklerkonto aktiv ist)
 
-Stand 20.10.2026. Für Julian zum Abhaken. Alles, was Claude allein kann, ist mit **(Claude)** markiert.
+Stand 20.10.2026, App-Version 2.81. Für Julian zum Abhaken. **Schritte 0, 1, 3, 4 und 5 sind erledigt** (Claude hat sie am 20.10.2026 mit dir eingerichtet) – für dich bleiben **2** (Geschäftliches) und am Schluss **6–8**. Alles, was Claude allein kann, ist mit **(Claude)** markiert.
 Die Texte zum Einfügen stehen in `docs/APP_STORE_TEXTE.md`, die Bilder in `store-bilder/iphone/` und `store-bilder/ipad/`.
 Apple benennt Menüpunkte gelegentlich um – steht etwas anders da, das Bildschirmfoto an Claude schicken.
 
@@ -31,14 +31,14 @@ Auf **appstoreconnect.apple.com** anmelden → **Geschäftlich** (engl. „Busin
 3. **Steuerformulare**: Apple stellt Fragen (Person, Land Deutschland). Für Nicht-US-Personen ist das das US-Formular **W-8BEN** – Apple füllt es aus deinen Antworten. → Danach Status „Aktiv“.
 4. **EU-Händlerangaben (DSA)**: Frage „Bist du Händler?“ → **Ja** (du verkaufst die Vollversion). Adresse, Telefon und E-Mail eingeben – **diese drei werden im App Store öffentlich angezeigt**. Apple schickt Bestätigungscodes an Telefon und E-Mail. Ohne diese Angaben wird die App in der EU nicht angeboten.
 
-## 3 · Die App anlegen
+## 3 · Die App anlegen (✅ erledigt 20.10.2026, App-ID 6824860228)
 
 **Apps** → „+“ → **Neue App**
 
 | Feld | Eintrag |
 |---|---|
 | Plattform | iOS |
-| Name | `ImkerBuch – Stockkarte & Honig` |
+| Name | `ImkerBuch` |
 | Primäre Sprache | Deutsch |
 | Bundle-ID | `de.imkerbuch.app` (erscheint in der Liste, sobald Schritt 1 gebaut wurde; sonst unter developer.apple.com → Identifiers anlegen) |
 | SKU | `imkerbuch-ios` (nur intern, frei wählbar) |
@@ -46,7 +46,7 @@ Auf **appstoreconnect.apple.com** anmelden → **Geschäftlich** (engl. „Busin
 
 → Die App erscheint als „1.0 Bereit zur Einreichung“.
 
-## 4 · Die zwei Käufe anlegen
+## 4 · Die zwei Käufe anlegen (✅ erledigt 20.10.2026)
 
 In der App → **Monetarisierung** → **In-App-Käufe** → „+“. Jeweils Typ **Nicht verbrauchbar**. Die Produkt-IDs müssen **genau** so lauten, sonst findet die App sie nicht.
 
@@ -64,7 +64,7 @@ Bei beiden:
 
 → Status danach „Fehlende Metadaten“ bis alles da ist, dann „Bereit zur Einreichung“. **Wichtig:** Die ersten Käufe werden **zusammen mit der App-Version 1.0** eingereicht (Schritt 8).
 
-## 5 · Store-Eintrag ausfüllen
+## 5 · Store-Eintrag ausfüllen (✅ erledigt 20.10.2026 – vor dem Einreichen Texte und Bilder auf den neuesten Stand bringen, macht Claude)
 
 In der App → Version **1.0**:
 
