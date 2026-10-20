@@ -11124,6 +11124,93 @@ test('Komplettausdruck: Excel-Knopf nimmt das gewählte Jahr und die gewählten 
   } finally { w.xlsxSpeichern = altX; await w.DB.del('kassenbuch', k1.id); await w.DB.del('kassenbuch', k2.id); }
 });
 
+/* ---------- v2.79: Unterlagen – jede Unterlage der App an einer Stelle ---------- */
+test('Unterlagen: jede PDF- und Tabellen-Ausgabe der App ist dort zu finden', async (w) => {
+  const liste = w.unterlagenListe();
+  const quelle = liste.map((e) => [e.pdf, e.xlsx, e.csv, e.los, e.offen, e.wahl && e.wahl.los].filter(Boolean).map(String).join('\n')).join('\n');
+  const pdfs = ['bestandsmeldung', 'tierseuchenkasse', 'bestandsbuch', 'bioBetriebsbeschreibung', 'bioVorsorge', 'bioHygieneplan', 'bioUnterlagen', 'bioArchiv', 'stockkarte',
+    'fuetterungsliste', 'wanderbuch', 'chargenuebersicht', 'verkaeufe', 'rechnung', 'kassenbuchJahr', 'fahrtenbuch', 'inventar', 'materialAbgaenge', 'jahresbericht', 'report', 'komplettAuswahl'];
+  for (const f of pdfs) assert(quelle.includes(`Pdf.${f}(`), `„${f}“ ist unter Unterlagen erreichbar`);
+  assert(quelle.includes('honigEtikettForm(') && quelle.includes('volkQrAnzeigen(') && quelle.includes('Backup.share(') && quelle.includes('Export.oeffnen('), 'Etiketten, QR, Sicherung und freier Export sind dabei');
+  const defs = await w.Xlsx.defs();
+  const T = liste.filter((e) => e.xlsx).map((e) => (String(e.xlsx).match(/exportModule\(store/) ? e : null)).filter(Boolean);
+  assert(T.length > 15, 'viele Bereiche mit Excel/CSV');
+  const ids = new Set(liste.map((e) => e.id));
+  assertEq(ids.size, liste.length, 'jede Unterlage nur einmal');
+  for (const e of liste) {
+    assert(w.UNTERLAGEN_KAT.some(([k]) => k === e.kat), `„${e.titel}“ hat eine gültige Kategorie`);
+    assert(e.pdf || e.xlsx || e.wahl || e.los || e.offen || e.ziel, `„${e.titel}“ hat mindestens einen Knopf`);
+  }
+  assert(Object.keys(defs).filter((k) => w.ZUCHT_AN || k !== 'zuchtserien').length > 20, 'Bereiche vorhanden');
+});
+
+test('Unterlagen: Jahr gilt für alle, Suche über alle Kategorien, Knopf übergibt das Jahr', async (w) => {
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const V = w.Views.meldungen, alt = { k: V._kat, j: V._jahr, s: V._suche };
+  const altBB = w.Pdf.bestandsbuch, altKB = w.Pdf.kassenbuchJahr;
+  const aufrufe = [];
+  w.Pdf.bestandsbuch = async (j) => { aufrufe.push(['bestandsbuch', j]); };
+  w.Pdf.kassenbuchJahr = async (j) => { aufrufe.push(['kassenbuch', j]); };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    V._kat = 'amt'; V._suche = ''; V._jahr = null;
+    await V.render(host); await warte(100);
+    const diesJahr = w.U.todayIso().slice(0, 4);
+    assert(host.querySelector(`[data-uljahr="${diesJahr}"].active`), 'Standard: das laufende Jahr');
+    assert(host.querySelector('[data-uljahr=""]'), '„Alle Jahre“ wählbar');
+    assert(new RegExp(diesJahr).test(host.querySelector('[data-ul="bestandsbuch"] small').textContent), 'Bestandsbuch nennt das Jahr');
+    assert(/aktueller Stand/.test(host.querySelector('[data-ul="bestandsmeldung"] small').textContent), 'Meldung ohne Jahr sagt „aktueller Stand“');
+    host.querySelector('[data-ul="bestandsbuch"] [data-ulakt="pdf"]').click(); await warte(50);
+    assertEq(aufrufe.pop(), ['bestandsbuch', diesJahr], 'PDF bekommt das gewählte Jahr');
+    // Suche über alle Kategorien
+    const s = host.querySelector('#ul-suche'); s.value = 'buch'; s.dispatchEvent(new w.Event('input', { bubbles: true })); await warte(300);
+    const gefunden = [...host.querySelectorAll('[data-ul]')].map((x) => x.dataset.ul);
+    for (const id of ['bestandsbuch', 'fahrtenbuch', 'kassenbuch', 'wanderbuch']) assert(gefunden.includes(id), `Suche „buch“ findet ${id}`);
+    assert(host.querySelector('[data-ul="fahrtenbuch"] .ul-kat'), 'Treffer zeigen ihre Kategorie');
+    assertEq(host.querySelector('#ul-reiter').style.display, 'none', 'beim Suchen sind die Reiter ausgeblendet');
+    s.value = 'fahrtnbuchxyz'; s.dispatchEvent(new w.Event('input', { bubbles: true })); await warte(200);
+    assert(/Nichts gefunden/.test(host.textContent), 'keine Treffer: klare Meldung');
+    s.value = 'Kassenbuch'; s.dispatchEvent(new w.Event('input', { bubbles: true })); await warte(200);
+    // „Alle Jahre“: PDF nur für ein Jahr → Knopf aus, Excel geht
+    V._suche = 'Kassenbuch'; V._jahr = ''; host.innerHTML = ''; await V.render(host); await warte(200);
+    const kb = host.querySelector('[data-ul="kassenbuch"]');
+    assert(kb.querySelector('[data-ulakt="pdf"]').disabled && /nur für ein Jahr/.test(kb.textContent), 'Kassenbuch-PDF braucht ein Jahr');
+    assert(!kb.querySelector('[data-ulakt="xlsx"]').disabled, 'Excel geht auch für alle Jahre');
+  } finally {
+    w.Pdf.bestandsbuch = altBB; w.Pdf.kassenbuchJahr = altKB; host.remove();
+    V._kat = alt.k; V._jahr = alt.j; V._suche = alt.s || '';
+  }
+});
+
+test('Unterlagen: jede Unterlage lässt sich wirklich erzeugen (PDF, Excel, CSV) – ohne Fehler', async (w) => {
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const altPdf = w.Pdf.noDownloadForTest, altX = w.xlsxSpeichern, altDl = w.U.download, altToast = w.UI.toast;
+  const fehler = [], erzeugt = { pdf: 0, xlsx: 0, csv: 0 };
+  let letzte = null;
+  w.Pdf.noDownloadForTest = true;
+  w.xlsxSpeichern = () => { erzeugt.xlsx++; };
+  w.U.download = async (b) => { if (/csv/.test(b.type)) erzeugt.csv++; };
+  w.UI.toast = (t, art) => { if (art === 'err') fehler.push(t); };
+  const jahr = w.U.todayIso().slice(0, 4);
+  try {
+    for (const e of w.unterlagenListe()) {
+      for (const art of ['pdf', 'xlsx', 'csv']) {
+        if (!e[art] || e.id === 'komplett' && art === 'pdf') continue;
+        w.Pdf.lastDocForTest = null;
+        const vor = fehler.length;
+        try { await e[art](e.jahr ? jahr : ''); } catch (x) { fehler.push(`${e.id}/${art}: ${x.message}`); }
+        if (art === 'pdf') { for (let i = 0; i < 40 && !w.Pdf.lastDocForTest && fehler.length === vor; i++) await warte(50); if (w.Pdf.lastDocForTest) erzeugt.pdf++; else if (fehler.length === vor) fehler.push(`${e.id}: kein PDF entstanden`); }
+        if (fehler.length > vor) fehler[fehler.length - 1] = `${e.id}/${art}: ${fehler[fehler.length - 1]}`;
+      }
+    }
+    assertEq(fehler, [], 'keine Fehlermeldung');
+    assert(erzeugt.pdf >= 25 && erzeugt.xlsx >= 25 && erzeugt.csv >= 20, `viele Dateien erzeugt (${JSON.stringify(erzeugt)})`);
+  } finally {
+    w.Pdf.noDownloadForTest = altPdf; w.xlsxSpeichern = altX; w.U.download = altDl; w.UI.toast = altToast;
+    w.document.querySelectorAll('.modal-back').forEach((m) => m.remove());
+  }
+});
+
 /* Hilfe-Texte kennen das Verschieben auf der Startseite */
 test('Imme weiß, wie man Startseiten-Kacheln verschiebt', (w) => {
   const a = w.Assistent.antwort('Wie verschiebe ich die Kacheln auf der Startseite?');
@@ -12575,10 +12662,10 @@ test('Abnehmer & Lieferanten: eigene Seite angeheftet, im Kassenbuch Unterreiter
     assertEq(w.document.querySelectorAll('.modal-back').length, 1, 'genau ein Fenster');
   } finally { dialogeSchliessen(w); w.Views.kontakte._filter = alt.f; w.Views.kontakte._suche = alt.s; host.remove(); }
 }));
-test('Statistiken, Aufgaben, Meldungen, Inventar: Reiter mit kurzen Namen, nur ein Teil sichtbar', async (w) => {
+test('Statistiken, Aufgaben, Unterlagen, Inventar: Reiter mit kurzen Namen, nur ein Teil sichtbar', async (w) => {
   const host = w.document.createElement('div'); w.document.body.appendChild(host);
   const sichtbar = (ids) => ids.filter((id) => getComputedStyle(host.querySelector('#' + id)).display !== 'none');
-  const alt = { r: w.Views.reporting._typ, a: w.Views.aufgaben._teil, m: w.Views.meldungen._teil, i: w.Views.inventar._teil };
+  const alt = { r: w.Views.reporting._typ, a: w.Views.aufgaben._teil, m: w.Views.meldungen._kat, i: w.Views.inventar._teil };
   try {
     w.Views.reporting._typ = 'voelker';
     await w.Views.reporting.render(host);
@@ -12589,31 +12676,31 @@ test('Statistiken, Aufgaben, Meldungen, Inventar: Reiter mit kurzen Namen, nur e
     assertEq(sichtbar(['auf-liste', 'cal-card']), ['auf-liste'], 'erst die Liste');
     host.querySelector('.tabs [data-id="cal-card"]').click();
     assertEq(sichtbar(['auf-liste', 'cal-card']), ['cal-card'], 'dann der Kalender');
-    host.innerHTML = ''; w.Views.meldungen._teil = undefined;
+    host.innerHTML = ''; w.Views.meldungen._kat = 'amt'; w.Views.meldungen._suche = '';
     await w.Views.meldungen.render(host);
-    assertEq(reiterVon(host), ['Meldungen', 'Export', 'Import', 'PDF auslesen'], 'Meldungen');
-    assertEq(sichtbar(['me-meldung', 'me-export', 'me-import', 'me-pdf']), ['me-meldung']);
+    assertEq(reiterVon(host), ['Ämter & Pflicht', 'Völker', 'Honig & Verkauf', 'Geld & Steuer', 'Auswertungen', 'Alles & Daten'], 'Unterlagen');
+    assert(host.querySelector('[data-ul="bestandsbuch"]') && !host.querySelector('[data-ul="fahrtenbuch"]'), 'nur die Unterlagen der gewählten Kategorie');
     host.innerHTML = ''; w.Views.inventar._teil = undefined;
     await w.Views.inventar.render(host);
     assertEq(reiterVon(host).slice(0, 3), ['Bestand', 'Zugänge', 'Abgänge'], 'Inventar');
     assertEq(sichtbar(['inv-bestand', 'inv-zugaenge', 'inv-abgaenge']), ['inv-bestand']);
   } finally {
-    w.Views.reporting._typ = alt.r; w.Views.aufgaben._teil = alt.a; w.Views.meldungen._teil = alt.m; w.Views.inventar._teil = alt.i;
+    w.Views.reporting._typ = alt.r; w.Views.aufgaben._teil = alt.a; w.Views.meldungen._kat = alt.m || 'amt'; w.Views.inventar._teil = alt.i;
     host.remove();
   }
 });
 test('Imme findet Knöpfe auch in einem gerade versteckten Reiter und öffnet ihn', async (w) => {
-  const altHash = w.location.hash, altTeil = w.Views.meldungen._teil;
+  const main = w.document.querySelector('#main');
   try {
-    w.Views.meldungen._teil = 'me-meldung';
-    w.location.hash = '#/meldungen'; await w.renderRoute();
-    // der hashchange zeichnet ein zweites Mal – auf die fertige Seite warten
-    await warteBis(() => w.document.querySelector('#main [data-teile] [data-id="me-export"]'));
-    const el = w.Assistent.finde('Excel');
-    assert(el && el.closest('#me-export'), 'Excel-Knopf im Export gefunden');
-    assertEq(w.document.querySelector('#main .tabs [aria-selected="true"]').textContent, 'Export', 'Reiter Export ist jetzt offen');
+    main.innerHTML = '<div id="t-reiter"></div><div id="t-a" class="card"><button class="btn">Erster Knopf</button></div><div id="t-b" class="card"><button class="btn">Versteckter Knopf</button></div>';
+    const st = { _t: 't-a' };
+    w.teileReiter(main, main.querySelector('#t-reiter'), [['t-a', 'Teil A'], ['t-b', 'Teil B']], { obj: st, key: '_t' });
+    assert(main.querySelector('#t-b').offsetParent === null, 'Teil B ist erst versteckt');
+    const el = w.Assistent.finde('Versteckter Knopf');
+    assert(el && el.closest('#t-b'), 'Knopf im versteckten Teil gefunden');
+    assertEq(main.querySelector('.tabs [aria-selected="true"]').textContent, 'Teil B', 'sein Reiter ist jetzt offen');
     assert(el.offsetParent !== null, 'und der Knopf ist sichtbar');
-  } finally { w.Views.meldungen._teil = altTeil; w.location.hash = altHash; await w.renderRoute(); }
+  } finally { await w.renderRoute(); }
 });
 /* ---------- Untere Leiste hochkant: Mulde wie im Pin (v2.49, ab v2.51 nur noch Verschieben/Skalieren) ---------- */
 test('Mulde: Schlüsselbilder wie im Vorbild – abtauchen, Welle fließt, aufsteigen mit Überschwingen, Symbol zuletzt', (w) => {
@@ -12850,9 +12937,15 @@ test('Erinnerungen: richtige Zeitpunkte für Aufgaben mit und ohne Uhrzeit', (w)
     { id: 'a4', titel: 'Vorbei', faellig: '2026-10-17' },
     { id: 'a5', titel: 'Heute früh', faellig: '2026-10-18' },                                  // 07:00 schon vorbei
     { id: 'a6', titel: 'Ohne Datum' },
+    { id: 'a7', titel: 'Gleich', faellig: '2026-10-18', uhrzeit: '12:30' },                    // 1 h vorher war 11:30 – vorbei
+    { id: 'a8', titel: 'Schon um', faellig: '2026-10-18', uhrzeit: '11:45' },                  // ganz vorbei
   ];
   const t = E.termine(auf, jetzt, { uhrzeit: '07:00', vorlaufMin: 60 }, { v1: 'Volk 3' });
-  assertEq(t.map((x) => x.extra.aufgabeId), ['a1', 'a2'], 'nur offene, künftige');
+  assertEq(t.map((x) => x.extra.aufgabeId), ['a7', 'a1', 'a2'], 'nur offene, künftige');
+  const gleich = t.find((x) => x.extra.aufgabeId === 'a7');
+  assertEq([gleich.at.getHours(), gleich.at.getMinutes()], [12, 30], 'Vorlauf schon vorbei: Erinnerung zur Uhrzeit der Aufgabe');
+  assertEq(gleich.title, 'Jetzt: Gleich');
+  t.splice(t.indexOf(gleich), 1);
   assertEq([t[0].at.getDate(), t[0].at.getHours(), t[0].at.getMinutes()], [19, 7, 0], 'ohne Uhrzeit: morgens um 7');
   assertEq([t[1].at.getDate(), t[1].at.getHours(), t[1].at.getMinutes()], [20, 18, 30], 'mit Uhrzeit: 1 h vorher');
   assertEq(t[0].title, 'Heute fällig: Futterkontrolle'); assertEq(t[0].body, 'Volk 3');
@@ -12860,6 +12953,26 @@ test('Erinnerungen: richtige Zeitpunkte für Aufgaben mit und ohne Uhrzeit', (w)
   assertEq(E.nummer('a1'), E.nummer('a1'), 'stabile Nummer'); assert(E.nummer('a1') !== E.nummer('a2'), 'verschiedene Nummern');
   const viele = Array.from({ length: 80 }, (_, i) => ({ id: 'x' + i, titel: 'T', faellig: '2026-11-' + String(1 + (i % 28)).padStart(2, '0') }));
   assertEq(E.termine(viele, jetzt).length, 60, 'höchstens 60 (iOS-Grenze 64)');
+});
+
+test('Erinnerungen aus: beim Speichern einer Aufgabe mit Datum kommt einmal ein Hinweis statt Stille', async (w) => {
+  const altF = { ...w.S.get('features') }, altG = w.S.get('erinnerungGefragt'), altU = w.Notif.unterstuetzt, altT = w.UI.toast;
+  const meldungen = [];
+  w.__erinnerungTest = true; w.Notif.unterstuetzt = () => true; w.UI.toast = (t) => meldungen.push(t);
+  try {
+    await w.S.set('features', { ...altF, benachrichtigungen: false }, { auto: true });
+    await w.S.set('erinnerungGefragt', true, { auto: true });
+    w.erinnerungAnbieten._gesagt = false;
+    await w.erinnerungAnbieten({ titel: 'Test', faellig: '2026-12-01' });
+    await w.erinnerungAnbieten({ titel: 'Test 2', faellig: '2026-12-02' });
+    assertEq(meldungen.length, 1, 'genau ein Hinweis je App-Start');
+    assert(/ausgeschaltet/.test(meldungen[0]) && /Einstellungen/.test(meldungen[0]), 'sagt, dass sie aus sind und wo man sie einschaltet');
+    await w.erinnerungAnbieten({ titel: 'ohne Datum' });
+    assertEq(meldungen.length, 1, 'Aufgaben ohne Datum: kein Hinweis');
+  } finally {
+    w.__erinnerungTest = false; w.Notif.unterstuetzt = altU; w.UI.toast = altT; w.erinnerungAnbieten._gesagt = false;
+    await w.S.set('features', altF, { auto: true }); await w.S.set('erinnerungGefragt', altG, { auto: true });
+  }
 });
 
 test('Start nach einer neueren Test-Fassung: höhere Datenbank-Stufe blockiert die App nicht', async (w) => {

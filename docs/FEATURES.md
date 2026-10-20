@@ -68,7 +68,7 @@
 
 ## v0.37: Universal-Datenimport (Umstieg von anderer App, 2026-07-04)
 
-- ✅ **CSV/Excel-Import mit Spalten-Zuordnung** (Meldungen & Export → „Aus anderer App importieren“): `Importer`-Modul liest CSV/Excel (SheetJS), rät die Spalten automatisch (Alias-Matching), manuelle Zuordnung + Vorschau, Import für Stände, Völker, Königinnen, Durchsichten, Behandlungen, Ernten, Kontakte, Kassenbuch
+- ✅ **CSV/Excel-Import mit Spalten-Zuordnung** (Unterlagen → Reiter „Alles & Daten“ → „Aus anderer App übernehmen“): `Importer`-Modul liest CSV/Excel (SheetJS), rät die Spalten automatisch (Alias-Matching), manuelle Zuordnung + Vorschau, Import für Stände, Völker, Königinnen, Durchsichten, Behandlungen, Ernten, Kontakte, Kassenbuch
 - ✅ **Referenzauflösung über Namen**: Volk→Stand und Durchsicht/Behandlung/Ernte→Volk werden per Name verknüpft; fehlender Stand wird automatisch angelegt, fehlendes Volk führt zum Überspringen mit Hinweis (erst Völker importieren)
 - ✅ **Flexible Datums-/Zahlenerkennung** (`Importer.parseDate`: TT.MM.JJJJ, JJJJ-MM-TT, T/M/JJ, Excel-Serial; Dezimalkomma) – quellenunabhängig, funktioniert mit Exporten aus BeeManager/iBeekeeper/BeeInTouch u. a.
 

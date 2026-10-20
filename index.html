@@ -578,6 +578,17 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 .w-jetzt{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 0 10px}
 .w-jetzt b{font-size:34px;line-height:1.1;letter-spacing:-.5px}
 .w-werte-kurz{grid-template-columns:1fr 1fr}
+/* Unterlagen (v2.79): je Unterlage Name + Beschreibung, darunter bzw. daneben die Knöpfe */
+.ul-karte{padding:4px 16px}
+.ul-eintrag{padding:12px 0;border-bottom:1px solid var(--line)}
+.ul-eintrag:last-child{border-bottom:0}
+.ul-kopf{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+.ul-name{flex:1 1 220px;min-width:0;font-weight:650;font-size:15px;line-height:1.3}
+.ul-name small{display:block;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:3px}
+.ul-kat{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;color:var(--honey-deep);background:var(--honey-soft);border-radius:8px;padding:1px 7px;vertical-align:2px}
+.ul-knoepfe{display:flex;flex-wrap:wrap;gap:6px}
+.ul-wahl{display:flex;gap:8px;align-items:center;margin-top:8px}
+.ul-wahl .inp{flex:1;min-width:0}
 .ex-teile{border:1px solid var(--line);border-radius:12px;padding:2px 12px}
 .ex-teil{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
 .ex-teil:last-child{border-bottom:0}
@@ -1449,8 +1460,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.78';
+const APP_VERSION = '2.79';
 const CHANGELOG = [
+  { version: '2.79', datum: '2026-10-20', punkte: [
+    '<b>Neu: „Unterlagen“</b> (vorher „Meldungen & Export“) – alles, was die App ausdrucken oder herausgeben kann, an einer Stelle: Meldungen fürs Amt, Bestandsbuch, Bio-Unterlagen, Volksakte, Fütterungsliste, Wanderbuch, Chargen, Verkäufe, Rechnungen, Kassenbuch, Fahrtenbuch, Inventar, Statistiken, Jahresbericht, Komplettausdruck und Datensicherung. Oben das Jahr (gilt für alles darunter) und eine Suche, darunter die Kategorien als Reiter.',
+    'Jahr-Auswahl jetzt auch für Bestandsbuch, Wanderbuch, Chargenübersicht und die Statistik-PDFs.',
+    '<b>Erinnerungen:</b> Ist „1 Stunde vorher“ schon vorbei, erinnert die App jetzt zur Uhrzeit der Aufgabe – vorher kam dann gar keine Mitteilung. Sind Erinnerungen ausgeschaltet oder vom Telefon nicht erlaubt, sagt die App das beim Speichern einer Aufgabe mit Datum.',
+  ] },
   { version: '2.78', datum: '2026-10-20', punkte: [
     '<b>Wetter am Stand kommt von selbst:</b> Beim App-Start (und beim Öffnen eines Standes) holt die App das aktuelle Wetter aller Stände mit Koordinaten – höchstens alle 30 Minuten, nur mit Internet. Abschaltbar unter Einstellungen → Funktionen.',
     'Die Wetter-Karte zeigt oben nur das aktuelle Wetter (Temperatur, Wind, Regen, Uhrzeit), darunter den Verlauf als Grafik (30 Tage, dieses Jahr oder alles). Pro Tag wird nur noch ein Wert gespeichert – die Liste wächst nicht mehr endlos; aufgeklappt stehen die letzten 5 Werte, alle übrigen über „Alle Werte exportieren“.',
@@ -3638,7 +3654,7 @@ const NAV = [
   { route: 'reporting', label: 'Statistiken', ic: 'chart' },
   { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
   { route: 'rechner', label: 'Rechner', ic: 'rechner' },
-  { route: 'meldungen', label: 'Meldungen & Export', ic: 'meldung' },
+  { route: 'meldungen', label: 'Unterlagen', ic: 'meldung' },
   { sec: 'System' },
   { route: 'einstellungen', label: 'Einstellungen', ic: 'gear' },
   { route: 'papierkorb', label: 'Papierkorb', ic: 'trash' },
@@ -5379,7 +5395,7 @@ const BEREICH_KURZ = {
   fuetterung: 'Fütterung', wanderungen: 'Wanderungen', trachten: 'Trachten', honig: 'Ernte',
   kassenbuch: 'Kassenbuch', rechnungen: 'Rechnungen', fahrten: 'Fahrtenbuch', inventar: 'Inventar',
   material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', hygiene: 'Hygiene', kontakte: 'Abnehmer & Lieferanten', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
-  meldungen: 'Meldungen', einstellungen: 'Einstellungen', papierkorb: 'Papierkorb',
+  meldungen: 'Unterlagen', einstellungen: 'Einstellungen', papierkorb: 'Papierkorb',
 };
 /** {route: {label, ic}} aus der NAV – Grundlage für Verknüpfungskacheln & untere Leiste */
 const BEREICHE = Object.fromEntries(NAV.filter((n) => n.route).map((n) => [n.route, { label: BEREICH_KURZ[n.route] || n.label, ic: n.ic }]));
@@ -19365,56 +19381,188 @@ const Export = {
   },
 };
 
+/* =====================================================================
+   UNTERLAGEN (Julian, v2.79): Jede Unterlage, die die App irgendwo erzeugen
+   kann, an EINER Stelle – „so habe ich kein ‚hä, wo finde ich den Ausdruck
+   oder die Statistik‘“. Oben Jahr und Suche, darunter Kategorien als Reiter.
+   Die Knöpfe an den alten Stellen bleiben zusätzlich bestehen.
+   ===================================================================== */
+const UNTERLAGEN_KAT = [['amt', 'Ämter & Pflicht'], ['voelker', 'Völker'], ['honig', 'Honig & Verkauf'], ['geld', 'Geld & Steuer'], ['auswertung', 'Auswertungen'], ['alles', 'Alles & Daten']];
+/** Tabelle eines Bereichs (alle Spalten, Jahr) als PDF – für Unterlagen ohne eigenes Layout */
+async function bereichAlsPdf(store, jahr) {
+  const defs = await Xlsx.defs({ filter: Export.filter({ jahr }) });
+  const def = defs[store]; if (!def) return;
+  const titel = `${def.blatt}${jahr ? ' ' + jahr : ''}`;
+  return Pdf.abschnitte({ titel, untertitel: `${jahr ? 'Jahr ' + jahr : 'alle Jahre'} · Datenstand ${U.fmtDate(U.todayIso())}`, teile: [{ titel: def.blatt, rows: await def.rows() }], datei: Export._datei(['imkerbuch', def.blatt, jahr || 'alle-jahre', U.todayIso()]) + '.pdf' });
+}
+/** Alle Unterlagen der App. jahr: richtet sich nach dem gewählten Jahr · nurJahr: PDF gibt es nur für ein einzelnes Jahr ·
+    tab: Bereich für Excel/CSV (und Tabellen-PDF, wenn kein eigenes) · wahl: vorher etwas auswählen (Volk, Königin …) · ziel: Ort in der App */
+function unterlagenListe() {
+  const X = (store) => ({ xlsx: (j) => Xlsx.exportModule(store, 'xlsx', { filter: Export.filter({ jahr: j }), name: `${store}-${j || 'alle-jahre'}` }), csv: (j) => Xlsx.exportModule(store, 'csv', { filter: Export.filter({ jahr: j }), name: `${store}-${j || 'alle-jahre'}` }) });
+  const T = (store) => ({ pdf: (j) => bereichAlsPdf(store, j), ...X(store) });
+  const opt = (liste, name) => liste.map((x) => ({ v: x.id, l: name(x) }));
+  const L = [
+    /* Ämter & Pflicht */
+    { id: 'bestandsmeldung', kat: 'amt', titel: 'Bestandsmeldung Veterinäramt', text: 'Völker und Standorte', pdf: () => Pdf.bestandsmeldung() },
+    { id: 'tierseuchenkasse', kat: 'amt', titel: 'Meldung an die Tierseuchenkasse', text: 'Völkerzahl zum Stichtag', pdf: () => Pdf.tierseuchenkasse() },
+    { id: 'bestandsbuch', kat: 'amt', titel: 'Bestandsbuch Arzneimittel (TAMG)', text: 'alle Behandlungen mit Mittel, Menge, Wartezeit', jahr: true, pdf: (j) => Pdf.bestandsbuch(j), ...X('behandlungen'), stichw: 'behandlung varroa medikament tierarzneimittel' },
+    { id: 'bio-betrieb', kat: 'amt', titel: 'Bio: Betriebsbeschreibung', text: 'für die Öko-Kontrolle', pdf: () => Pdf.bioBetriebsbeschreibung(), stichw: 'oeko kontrolle' },
+    { id: 'bio-vorsorge', kat: 'amt', titel: 'Bio: Vorsorgekonzept', text: 'Maßnahmen gegen Verunreinigung', pdf: () => Pdf.bioVorsorge(), stichw: 'oeko kontrolle' },
+    { id: 'bio-hygiene', kat: 'amt', titel: 'Hygieneplan', text: 'Reinigung, Desinfektion, Schädlinge', pdf: () => Pdf.bioHygieneplan(), stichw: 'bio reinigung' },
+    { id: 'bio-unterlagen', kat: 'amt', titel: 'Bio: Unterlagen für die Kontrolle', text: 'alle Bio-Nachweise gesammelt', pdf: () => Pdf.bioUnterlagen(), stichw: 'oeko kontrolle nachweis' },
+    { id: 'bio-eintraege', kat: 'amt', titel: 'Hygiene- & Bio-Einträge', text: 'Liste aller Einträge', jahr: true, ...T('bioeintraege'), stichw: 'bio hygiene' },
+    { id: 'bio-archiv', kat: 'amt', titel: 'Bio-Archiv eines Bereichs', text: 'Einträge älter als zwei Jahre', stichw: 'bio archiv aufbewahrung',
+      wahl: { label: 'Bereich', optionen: async () => Object.entries(BIO_BEREICHE).map(([k, d]) => ({ v: k, l: d.titel })), knopf: 'PDF', los: (k) => Pdf.bioArchiv(k) } },
+    /* Völker */
+    { id: 'volksakte', kat: 'voelker', titel: 'Volksakte', text: 'ein Volk komplett – jeder Teil auch einzeln', jahr: true, stichw: 'volk stockkarte durchsicht alles',
+      wahl: { label: 'Volk', optionen: async () => opt(U.sortBy(await DB.getAll('voelker'), (v) => (v.status === 'aktiv' ? '0' : '1') + v.name), (v) => v.name + (v.status !== 'aktiv' ? ' (aufgelöst)' : '')),
+        knopf: 'Öffnen', los: (id, j) => Export.oeffnen({ bereich: 'voelker', volk: id, jahr: j }) } },
+    { id: 'durchsichten', kat: 'voelker', titel: 'Durchsichten aller Völker', text: 'Stockkarten-Einträge mit allen Werten', jahr: true, ...T('stockkarten'), stichw: 'stockkarte durchsicht' },
+    { id: 'stockkarte-koenigin', kat: 'voelker', titel: 'Stockkarte einer Königin (GdeB)', text: 'Merkmale und Bewertungen', stichw: 'koenigin zucht bewertung',
+      wahl: { label: 'Königin', optionen: async () => opt(U.sortBy(await DB.getAll('koeniginnen'), (q) => -(q.jahrgang || 0)), (q) => `${q.kennung ? q.kennung + ' · ' : ''}${q.jahrgang} ${queenColor(q.jahrgang)[0]}${q.linie ? ' · ' + q.linie : ''}${q.status && q.status !== 'aktiv' ? ' (' + q.status + ')' : ''}`), knopf: 'PDF', los: (id) => Pdf.stockkarte(id) } },
+    { id: 'fuetterungsliste', kat: 'voelker', titel: 'Fütterungsliste', text: 'Futtergaben je Volk mit Zuckermenge', jahr: true, nurJahr: true, pdf: (j) => Pdf.fuetterungsliste(j), ...X('fuetterungen'), stichw: 'futter zucker sirup' },
+    { id: 'varroa', kat: 'voelker', titel: 'Varroa-Kontrollen', text: 'Zählungen und Befall', jahr: true, ...T('varroa'), stichw: 'milben befall' },
+    { id: 'gewichte', kat: 'voelker', titel: 'Wiegungen', text: 'Stockwaage und Gewichte', jahr: true, ...T('gewichte'), stichw: 'gewicht waage' },
+    { id: 'wanderbuch', kat: 'voelker', titel: 'Wanderbuch', text: 'alle Wanderungen mit Völkern und Grund', jahr: true, pdf: (j) => Pdf.wanderbuch(j), ...X('wanderungen'), stichw: 'wanderung' },
+    { id: 'voelkerliste', kat: 'voelker', titel: 'Völkerliste', text: 'alle Völker mit Stand, Königin, Beute', ...T('voelker'), stichw: 'voelker liste' },
+    { id: 'koeniginnenliste', kat: 'voelker', titel: 'Königinnen-Liste', text: 'alle Königinnen mit Abstammung und Noten', ...T('koeniginnen'), stichw: 'koenigin' },
+    { id: 'standliste', kat: 'voelker', titel: 'Bienenstände', text: 'Standorte mit Koordinaten', ...T('staende'), stichw: 'stand standort' },
+    { id: 'trachten', kat: 'voelker', titel: 'Trachten', text: 'Trachtpflanzen, Zeiträume, Stände', jahr: true, ...T('trachten'), stichw: 'tracht bluete' },
+    ...(ZUCHT_AN ? [{ id: 'zuchtserien', kat: 'voelker', titel: 'Zuchtserien (Liste)', text: 'alle Serien mit Ergebnis', jahr: true, ...T('zuchtserien'), stichw: 'zucht' }] : []),
+    { id: 'wetter', kat: 'voelker', titel: 'Wetter an den Ständen', text: 'ein Wert pro Tag und Stand', jahr: true, ...T('wetter'), stichw: 'temperatur regen' },
+    { id: 'qr-etiketten', kat: 'voelker', titel: 'QR-Etiketten für Beuten', text: 'Etikettenbogen eines Volks', stichw: 'qr code etikett beute',
+      wahl: { label: 'Volk', optionen: async () => opt(U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name), (v) => v.name), knopf: 'Öffnen', los: async (id) => volkQrAnzeigen(await DB.get('voelker', id)) } },
+    ...(ZUCHT_AN ? [{ id: 'zuchtbuch', kat: 'voelker', titel: 'Zuchtbuch einer Serie', text: 'Umlarven bis Schlupf', stichw: 'zucht serie',
+      wahl: { label: 'Serie', optionen: async () => opt(U.sortBy(await DB.getAll('zuchtserien'), (z) => z.startdatum || '', true), (z) => `${z.name || 'Serie'} · ${U.fmtDate(z.startdatum)}`), knopf: 'PDF', los: (id) => Pdf.zuchtbuch(id) } }] : []),
+    /* Honig & Verkauf */
+    { id: 'ernten', kat: 'honig', titel: 'Ernten', text: 'jede Ernte mit Menge, Sorte, Wassergehalt', jahr: true, ...T('ernten'), stichw: 'honig schleudern ertrag' },
+    { id: 'chargen', kat: 'honig', titel: 'Chargenübersicht', text: 'Charge → Abfüllung → Ernte (Rückverfolgbarkeit)', jahr: true, pdf: (j) => Pdf.chargenuebersicht(j), ...X('chargen'), stichw: 'los losnummer rueckverfolgbarkeit' },
+    { id: 'abfuellungen', kat: 'honig', titel: 'Abfüllungen', text: 'Gebinde, Losnummer, MHD', jahr: true, ...T('abfuellungen'), stichw: 'glas gebinde mhd' },
+    { id: 'verkaeufe', kat: 'honig', titel: 'Verkäufe', text: 'mit Umsatz und Käufern', jahr: true, pdf: (j) => Pdf.verkaeufe(j), ...X('verkaeufe'), stichw: 'umsatz verkauf markt' },
+    { id: 'rechnung', kat: 'honig', titel: 'Einzelne Rechnung', text: 'Rechnung als PDF', jahr: true, stichw: 'rechnung kunde',
+      wahl: { label: 'Rechnung', optionen: async (j) => opt(U.sortBy((await DB.getAll('rechnungen')).filter((r) => !j || String(r.datum || '').startsWith(j)), (r) => r.datum || '', true), (r) => `${r.nummer || 'Entwurf'} · ${U.fmtDate(r.datum)}`), knopf: 'PDF', los: (id) => Pdf.rechnung(id) } },
+    { id: 'rechnungsliste', kat: 'honig', titel: 'Rechnungsliste', text: 'alle Rechnungen mit Beträgen', jahr: true, ...T('rechnungen'), stichw: 'rechnung' },
+    { id: 'honig-etikett', kat: 'honig', titel: 'Honig-Etiketten', text: 'Etiketten einer Abfüllung', stichw: 'etikett glas',
+      wahl: { label: 'Abfüllung', optionen: async () => { const ch = await idMap('chargen'); return U.sortBy(await DB.getAll('abfuellungen'), (a) => a.datum || '', true).map((a) => ({ v: a.id, l: `${abfLos(a, ch.get(a.chargeId)) || 'ohne Los'} · ${gebindeLabel(a.gebindeG)} · ${U.fmtDate(a.datum)}` })); },
+        knopf: 'Öffnen', los: async (id) => { const a = await DB.get('abfuellungen', id); if (a) honigEtikettForm(a, await DB.get('chargen', a.chargeId)); } } },
+    { id: 'kontakte', kat: 'honig', titel: 'Abnehmer & Lieferanten', text: 'Kontaktliste', ...T('kontakte'), stichw: 'kunde lieferant adresse' },
+    /* Geld & Steuer */
+    { id: 'kassenbuch', kat: 'geld', titel: 'Kassenbuch-Jahresbericht', text: 'Einnahmen, Ausgaben, Umsatzsteuer', jahr: true, nurJahr: true, pdf: (j) => Pdf.kassenbuchJahr(j), ...X('kassenbuch'), stichw: 'einnahmen ausgaben steuer finanzamt euer' },
+    { id: 'fahrtenbuch', kat: 'geld', titel: 'Fahrtenbuch', text: 'Kilometer und Pauschale', jahr: true, nurJahr: true, pdf: (j) => Pdf.fahrtenbuch(j), ...X('fahrten'), stichw: 'fahrt kilometer km steuer' },
+    { id: 'inventar', kat: 'geld', titel: 'Inventar', text: 'Bestand und Wert der Gebrauchsgüter', pdf: () => Pdf.inventar('', '', 'inventar', 'Inventar'), ...X('inventar'), stichw: 'beuten geraete wert' },
+    { id: 'verbrauchsmaterial', kat: 'geld', titel: 'Verbrauchsmaterial', text: 'Gläser, Futter, Mittel', pdf: () => Pdf.inventar('', '', 'verbrauch', 'Verbrauchsmaterial'), stichw: 'material lager glaeser' },
+    { id: 'weitere-produkte', kat: 'geld', titel: 'Weitere Produkte', text: 'Met, Kerzen, Propolis …', pdf: () => Pdf.inventar('', '', 'produkt', 'Weitere Produkte'), stichw: 'produkte lager' },
+    { id: 'abgaenge-material', kat: 'geld', titel: 'Abgänge Verbrauchsmaterial', text: 'Verkäufe und Verbrauch', jahr: true, nurJahr: true, pdf: (j) => Pdf.materialAbgaenge(j, 'verbrauch', 'Verbrauchsmaterial'), ...X('materialabgaenge'), stichw: 'material abgang' },
+    { id: 'abgaenge-produkte', kat: 'geld', titel: 'Abgänge weitere Produkte', text: 'Verkäufe und Abgaben', jahr: true, nurJahr: true, pdf: (j) => Pdf.materialAbgaenge(j, 'produkt', 'Weitere Produkte'), stichw: 'produkte abgang' },
+    { id: 'einkaeufe', kat: 'geld', titel: 'Einkäufe & Zugänge', text: 'alles, was ins Lager kam', jahr: true, ...T('materialzugaenge'), stichw: 'einkauf zugang' },
+    { id: 'pfand', kat: 'geld', titel: 'Pfand-Rücknahmen', text: 'Mehrweggläser', jahr: true, ...T('pfandbewegungen'), stichw: 'mehrweg pfand' },
+    { id: 'aufgaben', kat: 'geld', titel: 'Aufgaben & Zeiten', text: 'erledigte Arbeiten mit Zeitaufwand', jahr: true, ...T('aufgaben'), stichw: 'zeit zeiterfassung arbeit' },
+    /* Auswertungen */
+    { id: 'jahresbericht', kat: 'auswertung', titel: 'Jahresbericht', text: 'das Wichtigste des Jahres auf wenigen Seiten', jahr: true, nurJahr: true, pdf: (j) => Pdf.jahresbericht(j), stichw: 'bericht jahr' },
+    { id: 'stat-voelker', kat: 'auswertung', titel: 'Statistik: Völkerentwicklung', text: 'aktive Völker je Monat bzw. Jahr', jahr: true, pdf: (j) => Pdf.report('voelker', j), stichw: 'statistik voelker' },
+    { id: 'stat-ertrag', kat: 'auswertung', titel: 'Statistik: Honigertrag', text: 'je Volk, Stand und Sorte', jahr: true, pdf: (j) => Pdf.report('ertrag', j), stichw: 'statistik honig ertrag' },
+    { id: 'stat-behandlungen', kat: 'auswertung', titel: 'Statistik: Behandlungen', text: 'Anwendungen je Mittel', jahr: true, pdf: (j) => Pdf.report('behandlungen', j), stichw: 'statistik varroa' },
+    { id: 'stat-finanzen', kat: 'auswertung', titel: 'Statistik: Einnahmen & Ausgaben', text: 'Saldo je Jahr', jahr: true, pdf: (j) => Pdf.report('finanzen', j), stichw: 'statistik geld' },
+    { id: 'statistiken', kat: 'auswertung', titel: 'Statistiken ansehen', text: 'Diagramme zu Völkern, Honig, Futter, Behandlungen, Finanzen', ziel: 'reporting', stichw: 'diagramm grafik' },
+    /* Alles & Daten */
+    { id: 'komplett', kat: 'alles', titel: 'Komplettausdruck', text: 'alle Bereiche in einem PDF (Bereiche wählbar)', jahr: true, pdfKnopf: 'PDF …', pdf: (j) => Pdf.komplettAuswahl({ jahr: j }), xlsx: (j) => Xlsx.exportAll({ jahr: j }), stichw: 'alles gesamt ausdruck' },
+    { id: 'bereich-export', kat: 'alles', titel: 'Bereich frei exportieren', text: 'Bereich, Volk oder Stand wählen – PDF, Excel, CSV', jahr: true, offen: (j) => Export.oeffnen({ jahr: j }), stichw: 'export excel csv' },
+    { id: 'sicherung', kat: 'alles', titel: 'Datensicherung', text: 'alle Daten als Datei – zum Wiederherstellen oder für ein neues Gerät', knopf: 'Sichern', los: () => Backup.share(), stichw: 'backup sichern' },
+  ];
+  return L;
+}
+const UNT_NORM = (t) => String(t || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+
 Views.meldungen = {
-  title: 'Meldungen & Export',
+  title: 'Unterlagen',
+  _kat: 'amt', _jahr: null, _suche: '',
+  async jahre() {
+    const j = new Set([U.todayIso().slice(0, 4)]);
+    for (const store of ['stockkarten', 'behandlungen', 'fuetterungen', 'ernten', 'kassenbuch', 'fahrten', 'verkaeufe', 'wanderungen', 'varroa', 'chargen', 'rechnungen', 'materialabgaenge', 'aufgaben']) {
+      for (const r of await DB.getAll(store)) { const y = Export.datumVon(store, r).slice(0, 4); if (/^\d{4}$/.test(y)) j.add(y); }
+    }
+    return [...j].sort().reverse();
+  },
   async render(main) {
-    const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
-    const staende = await DB.getAll('staende');
+    const V = Views.meldungen;
+    const jahre = await V.jahre();
+    if (V._jahr === null || (V._jahr && !jahre.includes(V._jahr))) V._jahr = U.todayIso().slice(0, 4);
     const imk = S.get('imkerei');
     const fehlt = !imk.name || !imk.registriernummer;
-    main.innerHTML = pageHead('Meldungen & Export', 'Behördenmeldungen, Gesamtexport und PDF-Import') + `<div id="me-reiter"></div>
-      <div class="card" id="me-meldung"><div class="card-title">${icon('meldung')}<h2>Behördenmeldungen</h2></div>
-        <div class="detail-kv mb12">
-          <dt>Imkerei</dt><dd>${U.esc(imk.name) || '<span class="muted">nicht hinterlegt</span>'}</dd>
-          <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '<span class="muted">nicht hinterlegt</span>'}</dd>
-          <dt>Völker (aktiv)</dt><dd>${voelker.length}</dd>
-          <dt>Standorte</dt><dd>${staende.length}</dd>
+    main.innerHTML = pageHead('Unterlagen', 'Alles zum Ausdrucken und Herausholen – an einem Ort') + `
+      <div class="chip-row mb8 no-print" id="ul-jahre"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${jahre.map((j) => `<button type="button" class="chip ${V._jahr === j ? 'active' : ''}" data-uljahr="${j}">${j}</button>`).join('')}<button type="button" class="chip ${V._jahr === '' ? 'active' : ''}" data-uljahr="">Alle Jahre</button></div>
+      <div class="field mb12 no-print"><input class="inp" type="search" id="ul-suche" placeholder="Suchen, z. B. „Fahrtenbuch“ …" value="${U.esc(V._suche)}" autocomplete="off" aria-label="Unterlagen durchsuchen"></div>
+      <div id="ul-reiter"></div>
+      <div id="ul-liste"></div>
+      <div id="ul-zusatz"></div>`;
+    bereichsReiter(main, UNTERLAGEN_KAT.map(([id, label]) => ({ id, label })), V._kat, (t) => { V._kat = t; V._suche = ''; return renderRoute(); }, { platz: $('#ul-reiter', main) });
+    const liste = unterlagenListe();
+    const zeichne = async () => {
+      const q = UNT_NORM(V._suche.trim());
+      const treffer = q ? liste.filter((e) => UNT_NORM(`${e.titel} ${e.text} ${e.stichw || ''} ${(UNTERLAGEN_KAT.find(([k]) => k === e.kat) || [])[1]}`).includes(q)) : liste.filter((e) => e.kat === V._kat);
+      $('#ul-reiter', main).style.display = q ? 'none' : '';
+      const box = $('#ul-liste', main);
+      if (!treffer.length) { box.innerHTML = `<div class="card">${emptyState('doc', `Nichts gefunden für „${U.esc(V._suche)}“.`)}</div>`; $('#ul-zusatz', main).innerHTML = ''; return; }
+      const j = V._jahr;
+      const zeile = async (e) => {
+        const katName = q ? `<span class="ul-kat">${U.esc((UNTERLAGEN_KAT.find(([k]) => k === e.kat) || [])[1] || '')}</span>` : '';
+        const jahrText = e.jahr ? (j ? j : 'alle Jahre') : (e.pdf || e.xlsx ? 'aktueller Stand' : '');
+        const pdfAus = e.nurJahr && !j;
+        const knoepfe = [
+          e.pdf ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="pdf" ${pdfAus ? 'disabled title="Bitte oben ein Jahr wählen"' : ''}>${icon('doc')} ${e.pdfKnopf || 'PDF'}</button>` : '',
+          e.xlsx ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="xlsx">${icon('excel')} Excel</button>` : '',
+          e.csv ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="csv">${icon('download')} CSV</button>` : '',
+          e.offen ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="offen">Öffnen ›</button>` : '',
+          e.ziel ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="ziel">Öffnen ›</button>` : '',
+          e.los && !e.wahl ? `<button type="button" class="btn btn-ghost btn-xs" data-ulakt="los">${U.esc(e.knopf || 'Öffnen')}</button>` : '',
+        ].join('');
+        let wahl = '';
+        if (e.wahl) {
+          const o = await e.wahl.optionen(j);
+          wahl = o.length ? `<div class="ul-wahl"><select class="inp" data-ulwahl aria-label="${U.esc(e.wahl.label)} wählen">${o.map((x) => `<option value="${U.esc(x.v)}">${U.esc(x.l)}</option>`).join('')}</select><button type="button" class="btn btn-ghost btn-xs" data-ulakt="wahl">${e.wahl.knopf === 'PDF' ? icon('doc') + ' ' : ''}${U.esc(e.wahl.knopf)}</button></div>`
+            : `<div class="small muted mt4">Noch keine Einträge${e.jahr && j ? ' in ' + j : ''}.</div>`;
+        }
+        return `<div class="ul-eintrag" data-ul="${U.esc(e.id)}"><div class="ul-kopf"><span class="ul-name">${U.esc(e.titel)}${katName}<small>${U.esc(e.text)}${jahrText ? ' · ' + U.esc(jahrText) : ''}${pdfAus ? ' · PDF nur für ein Jahr' : ''}</small></span><span class="ul-knoepfe">${knoepfe}</span></div>${wahl}</div>`;
+      };
+      const teile = []; for (const e of treffer) teile.push(await zeile(e));
+      box.innerHTML = `${!q && V._kat === 'amt' && fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für die Meldungen fehlen Angaben zur Imkerei (Name, Anschrift, Betriebsnummer) – bitte in den <a href="#/einstellungen">Einstellungen</a> ergänzen.</span></div>` : ''}
+        <div class="card ul-karte">${teile.join('')}</div>`;
+      // Kategorie „Alles & Daten“: darunter die Übernahme aus anderen Apps und das PDF-Auslesen
+      $('#ul-zusatz', main).innerHTML = !q && V._kat === 'alles' ? `
+        <div class="card" id="me-import"><div class="card-title">${icon('merge')}<h2>Aus anderer App übernehmen</h2></div>
+          <p class="small muted mb12">Wechselst du von einer anderen Imker-App (BeeManager, iBeekeeper, BeeInTouch …)? Exportiere dort deine Daten als <b>CSV oder Excel</b> und lade die Datei hier hoch. Du ordnest die Spalten einmal zu (die App rät sie meist schon richtig), dann werden die Einträge übernommen.</p>
+          <div class="flex-wrap no-print">
+            <select class="inp" id="imp-entity" style="width:auto;min-width:180px">${Object.entries(Importer.ENTITIES).map(([k, x]) => `<option value="${k}">${x.label}</option>`).join('')}</select>
+            <label class="btn btn-primary">${icon('upload')} Datei wählen<input type="file" accept=".csv,.xlsx,.xls,.tsv,text/csv" class="hidden" id="imp-file"></label>
+          </div>
+          <div class="hint mt8">Tipp: Importiere zuerst die <b>Stände</b>, dann die <b>Völker</b> (damit die Zuordnung klappt), danach Durchsichten/Behandlungen/Ernten.</div>
+          <div id="imp-zone" class="mt12"></div>
         </div>
-        ${fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Imkereidaten unvollständig – bitte in den <a href="#/einstellungen">Einstellungen</a> ergänzen (Name, Anschrift, Betriebsnummer).</span></div>` : ''}
-        <div class="flex-wrap no-print">
-          <button class="btn btn-primary" onclick="Pdf.bestandsmeldung()">${icon('doc')} Bestandsmeldung Veterinäramt (PDF)</button>
-          <button class="btn btn-ghost" onclick="Pdf.tierseuchenkasse()">${icon('doc')} Tierseuchenkasse (PDF)</button>
-        </div>
-      </div>
-      <div class="card" id="me-export"><div class="card-title">${icon('excel')}<h2>Gesamtexport</h2></div>
-        <p class="small muted mb12">Alle Daten aus der App herausholen – als Excel-Arbeitsmappe (je Modul ein Blatt), einzelne Module als Excel/CSV oder als druckfertiges Gesamt-PDF.</p>
-        <div class="flex-wrap no-print mb12">
-          <button class="btn btn-primary" onclick="Xlsx.exportAll()">${icon('excel')} Alle Daten als Excel</button>
-          <button class="btn btn-ghost" onclick="Pdf.komplettAuswahl()">${icon('print')} Komplettausdruck (PDF)</button>
-        </div>
-        <h3 class="mt16 mb8">Bereich exportieren</h3>
-        <p class="small muted mb12">Einen Bereich, ein einzelnes Volk (komplette Volksakte) oder einen Stand – mit Jahr-Auswahl, mit allen Spalten, als PDF, Excel oder CSV.</p>
-        <div id="exp-bereich" class="no-print"></div>
-      </div>
-      <div class="card" id="me-import"><div class="card-title">${icon('merge')}<h2>Aus anderer App importieren</h2></div>
-        <p class="small muted mb12">Wechselst du von einer anderen Imker-App (BeeManager, iBeekeeper, BeeInTouch …)? Exportiere dort deine Daten als <b>CSV oder Excel</b> und lade die Datei hier hoch. Du ordnest die Spalten einmal zu (die App rät sie meist selbst) – Völker, Stände usw. werden übernommen, kein Neu-Eintippen.</p>
-        <div class="flex-wrap no-print">
-          <select class="inp" id="imp-entity" style="width:auto;min-width:180px">${Object.entries(Importer.ENTITIES).map(([k, e]) => `<option value="${k}">${e.label}</option>`).join('')}</select>
-          <label class="btn btn-primary">${icon('upload')} Datei wählen<input type="file" accept=".csv,.xlsx,.xls,.tsv,text/csv" class="hidden" id="imp-file"></label>
-        </div>
-        <div class="hint mt8">Tipp: Importiere zuerst die <b>Stände</b>, dann die <b>Völker</b> (damit die Zuordnung klappt), danach Durchsichten/Behandlungen/Ernten.</div>
-        <div id="imp-zone" class="mt12"></div>
-      </div>
-      <div class="card" id="me-pdf"><div class="card-title">${icon('upload')}<h2>PDF auslesen</h2></div>
-        <p class="small muted mb12">Lade ein PDF hoch (z. B. altes Bestandsbuch oder Erntebericht). Der Text wird extrahiert; erkannte Behandlungs- oder Ernteeinträge kannst du als Vorschlag übernehmen.</p>
-        <label class="btn btn-ghost no-print">${icon('upload')} PDF auswählen<input type="file" accept="application/pdf" class="hidden" id="pdf-in"></label>
-        <div id="pdf-out" class="mt12"></div>
-      </div>`;
-    /* Vier verschiedene Aufgaben – als Reiter statt vier Karten untereinander */
-    teileReiter(main, $('#me-reiter', main), [['me-meldung', 'Meldungen'], ['me-export', 'Export'], ['me-import', 'Import'], ['me-pdf', 'PDF auslesen']], { obj: Views.meldungen, key: '_teil' });
-    Export.zeichnen($('#exp-bereich', main), Views.meldungen._export || {});
-    $('#pdf-in').onchange = (e) => { if (e.target.files[0]) PdfImport.read(e.target.files[0], $('#pdf-out')); };
-    $('#imp-file').onchange = (e) => { if (e.target.files[0]) Importer.start($('#imp-entity').value, e.target.files[0], $('#imp-zone')); e.target.value = ''; };
+        <div class="card" id="me-pdf"><div class="card-title">${icon('upload')}<h2>PDF auslesen</h2></div>
+          <p class="small muted mb12">Lade ein PDF hoch (z. B. altes Bestandsbuch oder Erntebericht). Der Text wird extrahiert; erkannte Behandlungs- oder Ernteeinträge kannst du als Vorschlag übernehmen.</p>
+          <label class="btn btn-ghost no-print">${icon('upload')} PDF auswählen<input type="file" accept="application/pdf" class="hidden" id="pdf-in"></label>
+          <div id="pdf-out" class="mt12"></div>
+        </div>` : '';
+      const pin = $('#pdf-in', main); if (pin) pin.onchange = (ev) => { if (ev.target.files[0]) PdfImport.read(ev.target.files[0], $('#pdf-out', main)); };
+      const imp = $('#imp-file', main); if (imp) imp.onchange = (ev) => { if (Lizenz.nurVoll('Die Übernahme aus anderen Apps')) { ev.target.value = ''; return; } if (ev.target.files[0]) Importer.start($('#imp-entity', main).value, ev.target.files[0], $('#imp-zone', main)); ev.target.value = ''; };
+    };
+    main.addEventListener('click', async (ev) => {
+      const jb = ev.target.closest('[data-uljahr]'); if (jb) { V._jahr = jb.dataset.uljahr; return renderRoute({ scrollBehalten: true }); }
+      const b = ev.target.closest('[data-ulakt]'); if (!b || b.disabled) return;
+      const e = liste.find((x) => x.id === b.closest('[data-ul]').dataset.ul); if (!e) return;
+      const j = e.jahr ? V._jahr : '';
+      const art = b.dataset.ulakt;
+      if (art === 'ziel') return navTo(e.ziel);
+      if (art === 'offen') return e.offen(j);
+      if (art === 'los') return e.los();
+      if (art === 'wahl') { const sel = b.parentElement.querySelector('[data-ulwahl]'); if (sel && sel.value) return e.wahl.los(sel.value, j); return; }
+      if (art === 'pdf' || art === 'xlsx' || art === 'csv') {
+        b.disabled = true; try { await e[art](j); } finally { b.disabled = false; }
+      }
+    });
+    const suche = $('#ul-suche', main);
+    suche.addEventListener('input', () => { V._suche = suche.value; zeichne(); });
+    await zeichne();
   },
 };
 
@@ -19635,8 +19783,8 @@ const Reporting = {
   },
 
   /** Honigertrag gruppiert nach volk|stand|tracht|jahr */
-  async ertrag(gruppe) {
-    const ernten = await DB.getAll('ernten');
+  async ertrag(gruppe, jahr = '') {
+    const ernten = (await DB.getAll('ernten')).filter((e) => !jahr || String(e.datum || '').startsWith(jahr));
     const voelker = await idMap('voelker'), staende = await idMap('staende');
     const key = (e) => {
       if (gruppe === 'jahr') return (e.datum || '').slice(0, 4) || '?';
@@ -19736,7 +19884,7 @@ Views.reporting = {
       box.innerHTML = `
         ${jahre.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Zeitraum:</span>${jahre.map((j) => chip(j, j)).join('')}${chip('Alle Jahre', '')}</div>` : ''}
         <div class="card"><div class="card-title">${icon('volk')}<h2>${U.esc(titel)}</h2>
-        <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('voelker')">${icon('doc')} PDF</button></div>
+        <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('voelker', '${U.esc(jahr)}')">${icon('doc')} PDF</button></div>
         ${daten.labels.length ? UI.chart({ type: 'line', labels: daten.labels, series: [{ name: 'Völker', values: daten.values }], height: 220 })
           + `<div class="stat-grid mt12">
               <div class="stat"><div class="s-label">Stand heute</div><div class="s-value">${daten.values.at(-1)}</div></div>
@@ -20765,10 +20913,13 @@ const Erinnerung = {
       const [h, m] = (mitZeit ? a.uhrzeit : e.uhrzeit).split(':').map(Number);
       const [Y, M, D] = a.faellig.split('-').map(Number);
       const um = new Date(Y, M - 1, D, h, m, 0, 0);
-      const at = mitZeit ? new Date(um.getTime() - (Number(e.vorlaufMin) || 0) * 60000) : um;
-      if (at <= jetzt) continue;
+      let at = mitZeit ? new Date(um.getTime() - (Number(e.vorlaufMin) || 0) * 60000) : um;
+      /* Ist „1 Stunde vorher“ schon vorbei, die Aufgabe selbst aber noch nicht: dann zur Uhrzeit der Aufgabe
+         erinnern statt gar nicht (Julian, 20.10.2026: „es kam keine Pushbenachrichtigung“). */
+      let zurUhrzeit = false;
+      if (at <= jetzt) { if (mitZeit && um > jetzt) { at = um; zurUhrzeit = true; } else continue; }
       const wo = [namen[a.volkId], namen[a.standId]].filter(Boolean).join(' · ');
-      const vorlauf = Number(e.vorlaufMin) || 0;
+      const vorlauf = zurUhrzeit ? 0 : Number(e.vorlaufMin) || 0;
       const wann = !mitZeit ? 'Heute fällig' : vorlauf === 0 ? 'Jetzt' : vorlauf < 60 ? `In ${vorlauf} Minuten` : vorlauf === 60 ? 'In 1 Stunde' : vorlauf % 1440 === 0 ? (vorlauf === 1440 ? 'Morgen' : `In ${vorlauf / 1440} Tagen`) : `In ${Math.round(vorlauf / 60)} Stunden`;
       liste.push({ id: this.nummer(a.id), at, title: `${wann}: ${a.titel || 'Aufgabe'}`, body: [mitZeit ? `um ${a.uhrzeit} Uhr` : '', wo].filter(Boolean).join(' · ') || 'ImkerBuch', extra: { aufgabeId: a.id } });
     }
@@ -20808,8 +20959,16 @@ const Erinnerung = {
 /* Apple: Erlaubnis erst fragen, wenn sie Sinn ergibt – bei der ersten Aufgabe
    mit Datum, einmalig. Wer ablehnt, wird nicht wieder gefragt (Einstellungen). */
 async function erinnerungAnbieten(aufgabe) {
-  if (!aufgabe || !aufgabe.faellig || S.get('features').benachrichtigungen || S.get('erinnerungGefragt')) return;
+  if (!aufgabe || !aufgabe.faellig) return;
   if (!Notif.unterstuetzt() || (TEST_MODE && !window.__erinnerungTest)) return;
+  /* Erinnerungen aus oder vom Telefon nicht erlaubt: einmal je App-Start sagen, statt still nichts zu schicken
+     (Julian, 20.10.2026: „es kam keine Pushbenachrichtigung bei einer Aufgabe“). */
+  const sagen = (t, art) => { if (erinnerungAnbieten._gesagt) return; erinnerungAnbieten._gesagt = true; UI.toast(t, art); };
+  if (S.get('features').benachrichtigungen) {
+    if (Erinnerung.plugin() && !(await Erinnerung.erlaubt())) sagen('Erinnerungen sind an, aber das Telefon erlaubt ImkerBuch keine Mitteilungen – in den Telefon-Einstellungen bei ImkerBuch einschalten.', 'err');
+    return;
+  }
+  if (S.get('erinnerungGefragt')) { sagen('Hinweis: Erinnerungen an Aufgaben sind ausgeschaltet – einschalten unter Einstellungen → Funktionen → Erinnerungen.'); return; }
   await S.set('erinnerungGefragt', true, { auto: true });
   const ja = await UI.confirm({ title: 'An Aufgaben erinnern?', text: 'Soll ImkerBuch dir am Fälligkeitstag eine Mitteilung schicken – auch wenn die App geschlossen ist? Das kannst du jederzeit in den Einstellungen ändern.', confirmText: 'Ja, erinnern', danger: false });
   if (!ja) return;
@@ -20855,7 +21014,7 @@ const Lizenz = {
   LIGHT_VOELKER: 2,
   NUR_VOLL: { kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
     inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
-    behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen', meldungen: 'Meldungen',
+    behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen',
     bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
     trachten: 'Trachten', reporting: 'Statistiken', rechner: 'Der Imker-Rechner', zucht: 'Die Zucht' },
   VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
@@ -21682,30 +21841,30 @@ const Pdf = {
   /* ---------- Bestandsbuch (TAMG) ---------- */
   /** „Volk Anna“ statt „Volk Volk Anna“: das Wort nur voranstellen, wenn der Name es nicht schon hat. */
   _ziel(art, name) { const n = String(name || '?'); return new RegExp('^' + art + '\\b', 'i').test(n.trim()) ? n : art + ' ' + n; },
-  async bestandsbuch() {
+  async bestandsbuch(jahr = '') {
     try {
-      const list = U.sortBy(await DB.getAll('behandlungen'), (b) => b.datum);
+      const list = U.sortBy((await DB.getAll('behandlungen')).filter((b) => !jahr || String(b.datum || '').startsWith(jahr)), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
-      const { doc, y } = await this.newDoc('Bestandsbuch – Anwendung von Arzneimitteln', `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
+      const { doc, y } = await this.newDoc(`Bestandsbuch – Anwendung von Arzneimitteln${jahr ? ' ' + jahr : ''}`, `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
       const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
-      this.finish(doc, `bestandsbuch-${U.todayIso()}.pdf`);
+      this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
   /* ---------- Wanderbuch ---------- */
-  async wanderbuch() {
+  async wanderbuch(jahr = '') {
     try {
-      const list = U.sortBy(await DB.getAll('wanderungen'), (w) => w.datum);
+      const list = U.sortBy((await DB.getAll('wanderungen')).filter((w) => !jahr || String(w.datum || '').startsWith(jahr)), (w) => w.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
-      const { doc, y } = await this.newDoc('Wanderbuch', 'Alle Wanderbewegungen der Imkerei');
+      const { doc, y } = await this.newDoc(`Wanderbuch${jahr ? ' ' + jahr : ''}`, jahr ? `Wanderbewegungen der Imkerei im Jahr ${jahr}` : 'Alle Wanderbewegungen der Imkerei');
       const wVoelker = (w) => Array.isArray(w.volkIds)
         ? `${w.volkIds.length}: ${w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ')}`
         : (w.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(w.zielId)?.name) : Pdf._ziel('Stand', staende.get(w.zielId)?.name)); // Altdaten
       const body = list.map((w) => [U.fmtDate(w.datum), staende.get(w.vonStandId)?.name || w.vonOrt || '–', staende.get(w.nachStandId)?.name || w.nachOrt || '–', wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
       this.table(doc, { head: ['Datum', 'Von', 'Nach', 'Völker', 'Grund', 'Notiz'], body, startY: y });
-      this.finish(doc, `wanderbuch-${U.todayIso()}.pdf`);
+      this.finish(doc, `wanderbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -21808,12 +21967,12 @@ const Pdf = {
   },
 
   /* ---------- Honig-Chargenübersicht ---------- */
-  async chargenuebersicht() {
+  async chargenuebersicht(jahr = '') {
     try {
-      const chargen = U.sortBy(await DB.getAll('chargen'), (c) => c.losnummer);
+      const chargen = U.sortBy((await DB.getAll('chargen')).filter((c) => !jahr || String(c.datum || '').startsWith(jahr)), (c) => c.losnummer);
       const abfAlle = await DB.getAll('abfuellungen');
       const ernten = await idMap('ernten');
-      const { doc, y } = await this.newDoc('Honig-Chargenübersicht', 'Rückverfolgbarkeit: Charge → Abfüllung → Ernte');
+      const { doc, y } = await this.newDoc(`Honig-Chargenübersicht${jahr ? ' ' + jahr : ''}`, `Rückverfolgbarkeit: Charge → Abfüllung → Ernte${jahr ? ` · Chargen angelegt ${jahr}` : ''}`);
       const body = [];
       const kopf = { fontStyle: 'bold', fillColor: [245, 236, 218] };
       for (const c of chargen) {
@@ -21832,7 +21991,7 @@ const Pdf = {
           `${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · MHD ${U.fmtDate(abfMhd(a, c))}` : ''}`, '']);
       }
       this.table(doc, { head: ['Charge / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'Angelegt / Abgefüllt', 'Ernten'], body, startY: y, widths: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 } } });
-      this.finish(doc, `chargen-${U.todayIso()}.pdf`);
+      this.finish(doc, `chargen-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -22788,36 +22947,38 @@ const Pdf = {
   },
 
   /* ---------- Reports ---------- */
-  async report(typ) {
+  /** Statistik als PDF. jahr: nur dieses Jahr (v2.79 – „immer mit Jahr“), leer = alle Jahre. */
+  async report(typ, jahr = '') {
     try {
+      const J = jahr ? ' ' + jahr : '';
       if (typ === 'voelker') {
-        const { labels, values } = await Reporting.voelkerEntwicklung();
-        const { doc, y } = await this.newDoc('Report: Völkerentwicklung', 'aktive Völker zum jeweiligen Jahresende');
-        this.table(doc, { head: ['Jahr', 'Aktive Völker'], body: labels.map((l, i) => [l, String(values[i])]), startY: y });
-        return this.finish(doc, `report-voelker-${U.todayIso()}.pdf`);
+        const { labels, values } = jahr ? await Reporting.voelkerVerlauf(jahr) : await Reporting.voelkerEntwicklung();
+        const { doc, y } = await this.newDoc(`Report: Völkerentwicklung${J}`, jahr ? `aktive Völker am Ende jedes Monats ${jahr}` : 'aktive Völker zum jeweiligen Jahresende');
+        this.table(doc, { head: [jahr ? 'Monat' : 'Jahr', 'Aktive Völker'], body: labels.map((l, i) => [l, String(values[i])]), startY: y });
+        return this.finish(doc, `report-voelker-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
       }
       if (typ === 'ertrag') {
-        const { doc, y } = await this.newDoc('Report: Honigertrag', 'Summen je Volk, Stand, Sorte und Jahr');
+        const { doc, y } = await this.newDoc(`Report: Honigertrag${J}`, jahr ? `Summen je Volk, Stand und Sorte im Jahr ${jahr}` : 'Summen je Volk, Stand, Sorte und Jahr');
         let yy = y;
-        for (const [gruppe, label] of [['volk', 'je Volk'], ['stand', 'je Stand'], ['sorte', 'je Sorte'], ['jahr', 'je Jahr']]) {
-          const rows = await Reporting.ertrag(gruppe);
+        for (const [gruppe, label] of [['volk', 'je Volk'], ['stand', 'je Stand'], ['sorte', 'je Sorte'], ...(jahr ? [] : [['jahr', 'je Jahr']])]) {
+          const rows = await Reporting.ertrag(gruppe, jahr);
           doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
           if (yy > 250) { doc.addPage(); yy = 20; }
           doc.text(`Ertrag ${label}`, 14, yy); yy += 3;
           yy = this.table(doc, { head: [label.replace('je ', ''), 'Ernten', 'Menge (kg)'], body: rows.map((r) => [r.k, String(r.n), U.fmtNum(r.kg)]), startY: yy }) + 10;
         }
-        return this.finish(doc, `report-ertrag-${U.todayIso()}.pdf`);
+        return this.finish(doc, `report-ertrag-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
       }
       if (typ === 'behandlungen') {
-        const rows = await Reporting.behandlungsUebersicht();
-        const { doc, y } = await this.newDoc('Report: Behandlungsübersicht', 'Anwendungen je Mittel und Jahr');
+        const rows = (await Reporting.behandlungsUebersicht()).filter((r) => !jahr || r.jahr === jahr);
+        const { doc, y } = await this.newDoc(`Report: Behandlungsübersicht${J}`, 'Anwendungen je Mittel und Jahr');
         this.table(doc, { head: ['Jahr', 'Mittel', 'Anwendungen', 'Gesamtmenge'], body: rows.map((r) => [r.jahr, r.mittel, String(r.n), `${U.fmtNum(r.menge)} ${r.einheit}`]), startY: y });
-        return this.finish(doc, `report-behandlungen-${U.todayIso()}.pdf`);
+        return this.finish(doc, `report-behandlungen-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
       }
-      const rows = await Reporting.finanzen();
-      const { doc, y } = await this.newDoc('Report: Einnahmen & Ausgaben', 'je Jahr');
+      const rows = (await Reporting.finanzen()).filter((r) => !jahr || r.jahr === jahr);
+      const { doc, y } = await this.newDoc(`Report: Einnahmen & Ausgaben${J}`, 'je Jahr');
       this.table(doc, { head: ['Jahr', 'Einnahmen', 'Ausgaben', 'Saldo'], body: rows.map((r) => [r.jahr, U.fmtEur(r.ein), U.fmtEur(r.aus), U.fmtEur(r.ein - r.aus)]), startY: y });
-      this.finish(doc, `report-finanzen-${U.todayIso()}.pdf`);
+      this.finish(doc, `report-finanzen-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -22828,7 +22989,7 @@ const Pdf = {
   KOMPLETT_DATUM: { zuchtserien: 'startdatum', trachten: 'von', aufgaben: 'faellig' },   // sonst „datum“
   KOMPLETT_ZEILEN_JE_SEITE: 15,   // im Stresstest gemessen (Querformat, umbrechende Spalten)
   /** Auswahl vor dem Komplettausdruck: Zeitraum + Bereiche, mit Seitenschätzung. Große Mengen → Hinweis auf Excel. */
-  async komplettAuswahl() {
+  async komplettAuswahl(vor = {}) {
     const defs = await Xlsx.defs();
     const K = this.KOMPLETT_KAPITEL.filter((k) => defs[k]);
     const roh = {};
@@ -22840,7 +23001,8 @@ const Pdf = {
     const GRENZE = 400;
     const diesJahr = U.todayIso().slice(0, 4);
     // Kleine Imkerei: wie bisher alles; große: erst einmal nur das aktuelle (oder letzte) Jahr
-    let jahr = seiten(K, '') <= 150 ? '' : (jahre.includes(diesJahr) ? diesJahr : (jahre[0] || ''));
+    let jahr = vor.jahr !== undefined && (vor.jahr === '' || jahre.includes(vor.jahr)) ? vor.jahr
+      : seiten(K, '') <= 150 ? '' : (jahre.includes(diesJahr) ? diesJahr : (jahre[0] || ''));
     const gewaehlt = new Set(K);
     const m = UI.modal({
       title: 'Komplettausdruck',
@@ -23584,12 +23746,13 @@ const APP_WISSEN = [
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
     antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position, Pfand-Buchungen laufen ohne Umsatzsteuer.',
     schritte: ['Menü ▸ Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
-  { id: 'export', titel: 'Daten exportieren (Excel, PDF)', route: 'meldungen', zeige: 'Excel',
-    stichw: ['export', 'excel', 'xlsx', 'pdf', 'drucken', 'meldungen', 'veterinaeramt', 'tierseuchenkasse', 'meldung', 'bestandsmeldung', 'meldung an amt', 'bestandsmeldung veterinaeramt', 'alles ausdrucken', 'komplettausdruck', 'meldung veterinaeramt', 'meldung ans veterinaeramt', 'meldung an das veterinaeramt', 'exportieren', 'daten exportieren', 'als excel', 'tabelle', 'ausdrucken', 'meldung tierseuchenkasse', 'tierseuchenkasse meldung'],
-    antwort: 'Unter „Meldungen & Export“ findest du Excel-Export, Sammelberichte und die Meldungen für Veterinäramt und Tierseuchenkasse.',
-    schritte: ['Menü ▸ Meldungen', 'Gewünschten Export wählen', 'Datei öffnen oder teilen'],
-    tour: [{ knopf: 'Alle Daten als Excel', weiter: true, text: 'Alle Daten als Excel-Tabelle, mit einem Blatt je Bereich.' },
-      { abschluss: 'Komplettausdruck', text: 'Der Komplettausdruck erzeugt ein PDF – vorher wählst du Jahr und Bereiche, die App schätzt die Seitenzahl. Darunter exportierst du einzelne Bereiche oder ein Volk komplett (Volksakte) – mit Jahr, als PDF, Excel oder CSV.' }] },
+  { id: 'export', titel: 'Unterlagen: Ausdrucke, Meldungen und Export (PDF, Excel, CSV)', route: 'meldungen', zeige: 'Ämter & Pflicht',
+    stichw: ['export', 'excel', 'xlsx', 'pdf', 'drucken', 'meldungen', 'veterinaeramt', 'tierseuchenkasse', 'meldung', 'bestandsmeldung', 'meldung an amt', 'bestandsmeldung veterinaeramt', 'alles ausdrucken', 'komplettausdruck', 'meldung veterinaeramt', 'meldung ans veterinaeramt', 'meldung an das veterinaeramt', 'exportieren', 'daten exportieren', 'als excel', 'tabelle', 'ausdrucken', 'meldung tierseuchenkasse', 'tierseuchenkasse meldung', 'unterlagen', 'ausdruck', 'wo finde ich', 'statistik pdf', 'jahr export', 'volksakte', 'csv', 'alles herausholen', 'dokumente'],
+    antwort: 'Unter „Unterlagen“ liegt alles, was die App erzeugen kann: Meldungen fürs Amt, Bestandsbuch, Volksakte, Fütterungsliste, Fahrtenbuch, Kassenbuch, Statistiken, Komplettausdruck und Datensicherung. Oben wählst du das Jahr, darunter die Kategorie – oder du suchst einfach nach dem Namen.',
+    schritte: ['Menü ▸ Unterlagen', 'Jahr wählen, dann Kategorie oder Suche', 'PDF, Excel oder CSV antippen'],
+    tour: [{ knopf: '#ul-jahre', weiter: true, text: 'Oben wählst du das Jahr – es gilt für alle Unterlagen darunter.' },
+      { knopf: '#ul-suche', weiter: true, text: 'Mit der Suche findest du jede Unterlage über ihren Namen, egal in welcher Kategorie sie liegt.' },
+      { abschluss: '#ul-reiter', text: 'Oder du gehst über die Kategorien: Ämter & Pflicht, Völker, Honig & Verkauf, Geld & Steuer, Auswertungen sowie Alles & Daten. Jede Unterlage hat ihre Knöpfe für PDF, Excel und CSV.' }] },
   { id: 'sicherung', titel: 'Datensicherung', route: 'einstellungen', zeige: 'Sicherung',
     stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
     antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',
@@ -23803,10 +23966,10 @@ APP_WISSEN.push(
     stichw: ['dunkelmodus', 'dark mode', 'dunkel', 'hell', 'nachtmodus', 'design', 'farbe', 'darstellung', 'augen schonen', 'zu hell', 'zu dunkel', 'schwarzer hintergrund', 'hintergrund aendern', 'thema', 'dunkler hintergrund', 'heller hintergrund', 'helles design', 'dunkles design', 'schwarz'],
     antwort: 'Oben rechts wechselt das Mond- oder Sonnensymbol zwischen hellem und dunklem Design. In den Einstellungen kannst du auch „Automatisch“ wählen, dann folgt die App deinem Gerät.',
     schritte: ['Oben rechts auf das Mond- oder Sonnensymbol tippen'] },
-  { id: 'import', titel: 'Daten aus einer anderen App übernehmen', route: 'meldungen', zeige: 'importieren',
+  { id: 'import', titel: 'Daten aus einer anderen App übernehmen', route: 'meldungen', zeige: 'Alles & Daten',
     stichw: ['import', 'importieren', 'daten uebernehmen', 'aus excel', 'andere app', 'alte daten', 'csv import', 'zettel einlesen', 'pdf auslesen', 'umsteigen', 'von anderer imker app', 'daten rein', 'bestehende daten', 'daten von anderer app', 'von anderer app holen', 'daten holen', 'uebernehmen aus', 'aus anderer app uebernehmen', 'andere imker app', 'imkerei software wechsel'],
-    antwort: 'Unter „Meldungen & Export“ gibt es „Aus anderer App importieren“ (Excel oder CSV) und „PDF auslesen“. Die App erkennt Spalten und zeigt dir vorher, was übernommen wird.',
-    schritte: ['Menü ▸ Meldungen', '„Aus anderer App importieren“ oder „PDF auslesen“ antippen', 'Datei wählen und Vorschau prüfen'] },
+    antwort: 'Unter „Unterlagen“ → Reiter „Alles & Daten“ gibt es „Aus anderer App übernehmen“ (Excel oder CSV) und „PDF auslesen“. Die App erkennt Spalten und zeigt dir vorher, was übernommen wird.',
+    schritte: ['Menü ▸ Unterlagen ▸ Reiter „Alles & Daten“', '„Aus anderer App übernehmen“ oder „PDF auslesen“', 'Datei wählen und Vorschau prüfen'] },
   { id: 'beispieldaten', titel: 'Beispieldaten laden oder entfernen', route: 'einstellungen', zeige: 'Beispieldaten',
     stichw: ['beispieldaten', 'demo', 'demodaten', 'testdaten', 'ausprobieren', 'probieren', 'beispiel', 'alles loeschen', 'neu anfangen', 'zuruecksetzen', 'leer starten', 'daten leeren', 'alles leeren', 'alles loeschen und neu', 'probedaten', 'demo daten', 'muster daten'],
     antwort: 'In den Einstellungen gibt es „Beispieldaten“ zum Ausprobieren. Achtung: Das Laden ersetzt alle vorhandenen Daten – mach vorher eine Sicherung.',
@@ -25763,7 +25926,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, Pdf, PdfImport,
+  U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead,

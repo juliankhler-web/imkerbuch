@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 20.10.2026, Version 2.78 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 20.10.2026, Version 2.79 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -56,6 +56,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 ## D · Erinnerungen
 
+- [ ] **D0** Eine Aufgabe für **heute in 3 Minuten** mit Uhrzeit anlegen, App schließen. → Pünktlich kommt „Jetzt: …“ (vorher kam bei „1 Stunde vorher“ gar nichts, wenn die Stunde schon vorbei war). Android: kann bis zu einige Minuten später kommen.
+
 - [ ] **D1** Aufgaben → „+ Neue Aufgabe“, fällig **heute**, Uhrzeit in **3 Minuten**. → Beim ersten Mal Frage „An Aufgaben erinnern?“ → Ja → Apple fragt nach Mitteilungen → Erlauben.
 - [ ] **D2** App schließen (nach oben wischen), iPhone sperren, 3 Minuten warten. → **Mitteilung** von ImkerBuch erscheint.
 
@@ -72,7 +74,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **F2** Einstellungen → Rechtliches → Datenschutz / Impressum / Support öffnen. → Öffnet sich **in der App**, Schließen-Knopf führt zurück; auf der Support-Seite den Mail-Link antippen → Mail-App.
 - [ ] **F3** Einstellungen → Sicherung → „Sicherung speichern“ → „In Dateien sichern“. → Datei liegt in der Dateien-App.
 - [ ] **F4** „Backup importieren“ → dieselbe Datei wählen → **„Zusammenführen“**. → Meldung, nichts doppelt.
-- [ ] **F4b** Menü → Meldungen & Export → Reiter „Export“ → Bereich „Völker“, ein Volk wählen, Jahr antippen. → Liste der Teile mit Anzahl; „Alles als PDF“ öffnet die Volksakte; bei „Durchsichten“ „CSV“ → Datei in Excel/Numbers öffnen: Datum als TT.MM.JJJJ, Kommazahlen mit Komma, Umlaute richtig.
+- [ ] **F4a** Menü → **Unterlagen**. → Oben Jahr und Suche, darunter 6 Reiter. Im Suchfeld „buch“ tippen → Bestandsbuch, Wanderbuch, Kassenbuch, Fahrtenbuch erscheinen mit ihrer Kategorie. Ein paar PDFs öffnen (z. B. Bestandsbuch, Fahrtenbuch). → Jedes nennt das gewählte Jahr.
+- [ ] **F4b** Unterlagen → Reiter „Völker“ → „Volksakte“, ein Volk wählen, „Öffnen“. → Liste der Teile mit Anzahl; „Alles als PDF“ öffnet die Volksakte; bei „Durchsichten“ „CSV“ → Datei in Excel/Numbers öffnen: Datum als TT.MM.JJJJ, Kommazahlen mit Komma, Umlaute richtig.
 - [ ] **F4c** Einen Stand mit Koordinaten öffnen. → Wetter steht ohne Antippen da (Uhrzeit von heute), darunter die Grafik; „Letzte Werte“ aufklappen → höchstens 5 Zeilen.
 - [ ] **F5** (Ganz am Ende, löscht alles!) Einstellungen → „Alle Daten löschen“ → `LÖSCHEN` eintippen → „Endgültig löschen“. → App lädt neu und steht auf der **Startseite** mit „Willkommen bei ImkerBuch“ (nicht in den Einstellungen); die Testphase bzw. der Kauf bleibt erhalten.
 
