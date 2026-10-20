@@ -12483,10 +12483,14 @@ test('Einführung: 5 Kapitel, überspringt Vorhandenes, Fortschritt wird gemerkt
   const E = w.Einfuehrung;
   assertEq(E.KAPITEL.length, 5, 'fünf Schritte');
   for (const k of E.KAPITEL) assert(k.eintrag || w.APP_WISSEN.some((e) => e.id === k.tour && e.tour && e.tour.length), 'Tour vorhanden: ' + (k.tour || k.titel));
-  assert(!(await E.KAPITEL[0].ueberspringen()), 'leeres Gerät: Stand-Schritt wird gezeigt');
+  // Kapitel 0 ist „Kurz umschauen“ (immer), danach Stand → Volk → Durchsicht → Sicherung
+  assert(!E.KAPITEL[0].ueberspringen, 'Umschauen wird nie übersprungen');
+  for (const st of await w.DB.getAll('staende')) await w.DB.del('staende', st.id);
+  for (const v of await w.DB.getAll('voelker')) await w.DB.del('voelker', v.id);
+  assert(!(await E.KAPITEL[1].ueberspringen()), 'leeres Gerät: Stand-Schritt wird gezeigt');
   await w.DB.put('staende', { name: 'S1' });
-  assert(await E.KAPITEL[0].ueberspringen(), 'Stand vorhanden: übersprungen');
-  assert(await E.KAPITEL[2].ueberspringen(), 'ohne Volk keine Durchsicht');
+  assert(await E.KAPITEL[1].ueberspringen(), 'Stand vorhanden: übersprungen');
+  assert(await E.KAPITEL[3].ueberspringen(), 'ohne Volk keine Durchsicht');
   await E.merken({ schritt: 2 });
   assertEq(E.stand().schritt, 2, 'Fortschritt gemerkt');
   assert(w.APP_WISSEN.some((e) => e.id === 'einfuehrung' && e.einfuehrung), 'Imme kennt die Einführung');
