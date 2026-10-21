@@ -13622,6 +13622,73 @@ test('Dateinamen: überall speicherbar – Umlaute als ae/oe/ue/ss, keine verbot
   assert(/^[\x20-\x7E]+$/.test(d('Ünterlagen „Bio“ – Café ½.pdf')), 'nur einfache Zeichen');
 });
 
+/* Option A (Julian 21.10.2026): an die Sicherung erinnern, auch wenn die App geschlossen ist – ohne eigene Cloud. */
+test('Sicherungs-Mitteilung: 14 Tage nach der letzten Sicherung um 19 Uhr, dann wöchentlich – die nächsten drei', (w) => {
+  const E = w.Erinnerung;
+  let t = E.sicherungTermine(new Date(2026, 9, 21, 12, 0), new Date(2026, 9, 1, 18, 30).toISOString(), null, false);
+  assertEq(t.length, 3);
+  assertEq(t.map((x) => `${x.at.getDate()}.${x.at.getMonth() + 1}. ${x.at.getHours()}:${String(x.at.getMinutes()).padStart(2, '0')}`), ['22.10. 19:00', '29.10. 19:00', '5.11. 19:00'], '15.10. ist schon vorbei → ab 22.10. wöchentlich');
+  assert(/21 Tage her/.test(t[0].body) && /iCloud Drive/.test(t[0].body), 'Text nennt Alter und iCloud Drive');
+  assert(t.every((x) => x.extra && x.extra.sicherung) && new Set(t.map((x) => x.id)).size === 3, 'eigene feste Nummern, als Sicherung erkennbar');
+  t = E.sicherungTermine(new Date(2026, 9, 21, 12, 0), null, new Date(2026, 9, 18).toISOString(), true);
+  assertEq(`${t[0].at.getDate()}.${t[0].at.getMonth() + 1}.`, '1.11.', 'nie gesichert: ab Einrichtung + 14 Tage');
+  assert(/noch nie gesichert/.test(t[0].body) && /Google Drive/.test(t[0].body), 'Android: Google Drive');
+  t = E.sicherungTermine(new Date(2026, 9, 21, 12, 0), new Date(2025, 0, 1).toISOString(), null, false);
+  assert(t.length === 3 && t[0].at > new Date(2026, 9, 21) && t[0].at < new Date(2026, 9, 29), 'sehr alte Sicherung: nächste Woche, nicht rückwirkend');
+  assertEq(E.sicherungTermine(new Date(), null, null, false), [], 'ohne Datum keine Mitteilung');
+});
+
+test('Sicherungs-Mitteilung: wird auch in Light und ohne Aufgaben-Erinnerungen geplant, lässt sich abschalten', async (w) => {
+  const E = w.Erinnerung, L = w.Lizenz, altPlugin = E.plugin, altLight = L.light, altF = { ...w.S.get('features') }, altLetzte = w.S.get('letzteExterneSicherung');
+  let geplant = null;
+  const LN = { getPending: async () => ({ notifications: [] }), cancel: async () => {}, checkPermissions: async () => ({ display: 'granted' }),
+    checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }), schedule: async (x) => { geplant = x; } };
+  E.plugin = () => LN; L.light = () => true;
+  try {
+    await w.S.set('letzteExterneSicherung', w.U.nowIso(), { auto: true });
+    await w.S.set('features', { ...altF, benachrichtigungen: false, sicherungMitteilung: true }, { auto: true });
+    await E.planen();
+    assert(geplant && geplant.notifications.length === 3 && geplant.notifications.every((n) => n.extra && n.extra.sicherung), 'Light, Aufgaben-Erinnerungen aus: trotzdem drei Sicherungs-Mitteilungen');
+    // ältere Installation: weder Sicherung noch Einrichtungsdatum → ab jetzt zählen statt nie erinnern
+    const altE = w.S.get('eingerichtetAm'), altB = w.S.get('sicherungBasis');
+    await w.S.set('letzteExterneSicherung', null, { auto: true }); await w.S.set('eingerichtetAm', null, { auto: true }); await w.S.set('sicherungBasis', null, { auto: true });
+    geplant = null; await E.planen();
+    assert(w.S.get('sicherungBasis') && geplant && geplant.notifications.length === 3 && /noch nie gesichert/.test(geplant.notifications[0].body), 'ohne Einrichtungsdatum: trotzdem erinnern');
+    await w.S.set('eingerichtetAm', altE, { auto: true }); await w.S.set('sicherungBasis', altB, { auto: true });
+    geplant = null;
+    await w.S.set('features', { ...altF, benachrichtigungen: false, sicherungMitteilung: false }, { auto: true });
+    await E.planen();
+    assertEq(geplant, null, 'abgeschaltet: nichts geplant');
+  } finally { E.plugin = altPlugin; L.light = altLight; await w.S.set('features', altF, { auto: true }); await w.S.set('letzteExterneSicherung', altLetzte, { auto: true }); }
+});
+
+test('Sicherungs-Mitteilung: nach der ersten Sicherung einmal fragen; Antippen führt direkt zum Sichern', async (w) => {
+  const E = w.Erinnerung, B = w.Backup, altPlugin = E.plugin, altC = w.UI.confirm, altShare = B.share, altT = w.UI.toast, altF = { ...w.S.get('features') }, altG = w.S.get('sicherungMitteilungGefragt');
+  let erlaubt = false, gefragt = 0, antwort = false, geteilt = 0, textConfirm = '';
+  E.plugin = () => ({ checkPermissions: async () => ({ display: erlaubt ? 'granted' : 'prompt' }), requestPermissions: async () => { erlaubt = true; return { display: 'granted' }; },
+    getPending: async () => ({ notifications: [] }), cancel: async () => {}, schedule: async () => {} });
+  w.UI.confirm = async (o) => { gefragt++; textConfirm = o.title + ' ' + o.text; return antwort; };
+  w.UI.toast = () => {}; B.share = async () => { geteilt++; };
+  try {
+    await w.S.set('features', { ...altF, sicherungMitteilung: true }, { auto: true });
+    await w.S.set('sicherungMitteilungGefragt', false, { auto: true });
+    await B.mitteilungAnbieten();
+    assertEq(gefragt, 1, 'einmal gefragt'); assert(/14 Tage/.test(textConfirm), 'erklärt, wann erinnert wird');
+    assertEq(w.S.get('features').sicherungMitteilung, false, '„Nein danke“: aus');
+    await B.mitteilungAnbieten(); assertEq(gefragt, 1, 'nie ein zweites Mal');
+    await w.S.set('features', { ...altF, sicherungMitteilung: true }, { auto: true }); await w.S.set('sicherungMitteilungGefragt', false, { auto: true });
+    antwort = true; await B.mitteilungAnbieten();
+    assert(erlaubt && w.S.get('features').sicherungMitteilung !== false, '„Ja, erinnern“: Erlaubnis geholt, bleibt an');
+    // Antippen der Mitteilung
+    antwort = true; await B.erinnerungGetippt();
+    assert(/Jetzt sichern\?/.test(textConfirm), 'fragt „Jetzt sichern?“'); assertEq(geteilt, 1, 'öffnet das Sichern');
+    antwort = false; await B.erinnerungGetippt(); assertEq(geteilt, 1, '„Später“: nichts');
+  } finally {
+    E.plugin = altPlugin; w.UI.confirm = altC; B.share = altShare; w.UI.toast = altT;
+    await w.S.set('features', altF, { auto: true }); await w.S.set('sicherungMitteilungGefragt', altG, { auto: true });
+  }
+});
+
 test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {
   const DB = w.DB;
   await DB.open();

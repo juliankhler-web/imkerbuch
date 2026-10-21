@@ -1504,8 +1504,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.83';
+const APP_VERSION = '2.84';
 const CHANGELOG = [
+  { version: '2.84', datum: '2026-10-21', punkte: [
+    '<b>Erinnerung an die Sicherung per Mitteilung:</b> Ist deine letzte Sicherung 14 Tage her, meldet sich ImkerBuch um 19 Uhr – auch wenn die App geschlossen ist, danach wöchentlich. Antippen führt direkt zu „Sicherung speichern“ (iCloud Drive bzw. Google Drive). Ein- und ausschalten unter Einstellungen → Sicherung & Datensicherheit.',
+  ] },
   { version: '2.83', datum: '2026-10-21', punkte: [
     '<b>Trachtkalender:</b> Trag ein, was an deinen Ständen blüht – die Blütezeit für genau deinen Stand rechnet die App aus Beobachtungen des Deutschen Wetterdienstes in der Nähe aus, auch ohne Internet. „Jedes Jahr“ wiederholt sie, oben zeigt ein Jahreskalender alle Trachten.',
     'Neue Startseiten-Kachel „Tracht“: was gerade blüht und was in den nächsten zwei Wochen kommt – mit „Als Aufgabe“ zum Vorbereiten. Am Stand steht „Was hier blüht“, und auf Wunsch erinnert dich eine Aufgabe rechtzeitig vor Blühbeginn.',
@@ -3193,7 +3196,7 @@ const S = {
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
     rechnungskreis: { prefix: 'RE-', next: 1 },
-    features: { ocr: false, whisper: false, wetter: true, wetterStart: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false },
+    features: { ocr: false, whisper: false, wetter: true, wetterStart: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false, sicherungMitteilung: true },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Zertifikat', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
@@ -3234,7 +3237,7 @@ const S = {
   GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
-    'lizenz', 'bewertung', 'erinnerungGefragt', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
+    'lizenz', 'bewertung', 'erinnerungGefragt', 'sicherungMitteilungGefragt', 'sicherungBasis', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
   /* Ändert sich einer dieser Schlüssel, gilt das NICHT als „seit der Sicherung
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
@@ -3382,7 +3385,7 @@ const UI = {
   },
 
   /** Bestätigungs-Dialog; requirePhrase erzwingt Tipp-Bestätigung */
-  confirm({ title = 'Sicher?', text = '', confirmText = 'Löschen', danger = true, requirePhrase = null }) {
+  confirm({ title = 'Sicher?', text = '', confirmText = 'Löschen', danger = true, requirePhrase = null, cancelText = 'Abbrechen' }) {
     return new Promise((res) => {
       const m = UI.modal({
         title, onClose: () => res(false),
@@ -3390,7 +3393,7 @@ const UI = {
            Nutzer eingetippt hat – oder die aus einer importierten fremden
            Sicherung stammen. Kein Aufrufer braucht hier Auszeichnung. */
         body: `<p>${U.esc(text)}</p>${requirePhrase ? `<div class="field mt12"><label>Zur Bestätigung <b>${U.esc(requirePhrase)}</b> eintippen:</label><input class="inp" id="cf-phrase" autocomplete="off"></div>` : ''}`,
-        footer: `<button class="btn btn-ghost" data-no>Abbrechen</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-yes ${requirePhrase ? 'disabled' : ''}>${U.esc(confirmText)}</button>`,
+        footer: `<button class="btn btn-ghost" data-no>${U.esc(cancelText)}</button><button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-yes ${requirePhrase ? 'disabled' : ''}>${U.esc(confirmText)}</button>`,
       });
       if (requirePhrase) $('#cf-phrase', m.el).oninput = (e) => { $('[data-yes]', m.el).disabled = e.target.value.trim() !== requirePhrase; };
       $('[data-no]', m.el).onclick = () => m.close();
@@ -20957,6 +20960,28 @@ const Backup = {
     window._sicherungKanal?.postMessage('aktualisieren');
     this.updateBanners();
     this.updateStand();
+    Erinnerung.spaeterPlanen();             // nächste Sicherungs-Mitteilung vom neuen Datum aus
+    if (blob) this.mitteilungAnbieten();    // nach einer Sicherung von Hand: einmal fragen
+  },
+  /** Nach der ersten Sicherung in der App einmal fragen, ob ImkerBuch per Mitteilung an die nächste erinnern darf. */
+  async mitteilungAnbieten() {
+    if (!Erinnerung.plugin() || S.get('sicherungMitteilungGefragt') || !Erinnerung.sicherungAn()) return;
+    await S.set('sicherungMitteilungGefragt', true, { auto: true });
+    if (await Erinnerung.erlaubt()) return Erinnerung.spaeterPlanen();   // schon erlaubt (z. B. für Aufgaben): einfach erinnern
+    const ja = await UI.confirm({ title: 'An die nächste Sicherung erinnern?', danger: false, confirmText: 'Ja, erinnern', cancelText: 'Nein danke',
+      text: 'Ist deine letzte Sicherung 14 Tage her, schickt dir ImkerBuch eine Mitteilung – auch wenn die App geschlossen ist. Das lässt sich in den Einstellungen jederzeit ändern.' });
+    if (!ja) { const f = S.get('features'); f.sicherungMitteilung = false; await S.set('features', f); return; }
+    if ((await Erinnerung.erlaubnisHolen()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.', 'err');
+    else UI.toast('Erinnerung an die Sicherung ist an');
+    Erinnerung.spaeterPlanen();
+  },
+  /** Mitteilung „Zeit für eine Sicherung“ angetippt: kurz sagen, wie alt die letzte ist, dann direkt sichern. */
+  async erinnerungGetippt() {
+    const t = S.get('letzteExterneSicherung'), tage = t ? U.daysBetween(t, U.nowIso()) : null;
+    const wo = Erinnerung.android() ? 'dort „Drive“ wählen' : 'dort „In Dateien sichern“ → iCloud Drive';
+    const ja = await UI.confirm({ title: 'Jetzt sichern?', danger: false, confirmText: 'Sicherung speichern', cancelText: 'Später',
+      text: `${tage == null ? 'Du hast ImkerBuch noch nie gesichert.' : `Letzte Sicherung vor ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}.`} „Sicherung speichern“ öffnet das Teilen-Menü – ${wo}.` });
+    if (ja) await this.share();
   },
   /* Der Sicherungs-Stand steht auf mehreren Seiten (Einstellungen, Dashboard).
      Ohne das hier bliebe dort nach dem Sichern weiter „noch nie“ stehen, bis
@@ -21642,6 +21667,26 @@ const Erinnerung = {
     }
     return liste.sort((x, y) => x.at - y.at).slice(0, this.MAX);
   },
+  /* Option A (Julian, 21.10.2026): an die Sicherung erinnern, auch wenn die App geschlossen ist – ohne eigene Cloud.
+     14 Tage nach der letzten externen Sicherung um 19 Uhr, danach wöchentlich; geplant werden die nächsten drei.
+     Gilt auch in Light (Sichern ist dort frei) und unabhängig von den Aufgaben-Erinnerungen. */
+  SICHERUNG_IDS: [1999999901, 1999999902, 1999999903],
+  sicherungAn() { return S.get('features').sicherungMitteilung !== false; },
+  sicherungTermine(jetzt = new Date(), letzte = S.get('letzteExterneSicherung'), seit = S.get('eingerichtetAm') || S.get('sicherungBasis'), android = this.android()) {
+    const basis = letzte || seit;
+    if (!basis || isNaN(new Date(basis))) return [];
+    const b = new Date(basis), ziel = android ? 'Google Drive' : 'iCloud Drive', liste = [];
+    // erst ab der nächsten noch kommenden Woche rechnen (bei sehr alter Sicherung nicht hunderte Wochen durchgehen)
+    let tage = 14 + Math.max(0, Math.floor((jetzt - b) / 864e5 / 7) * 7 - 14);
+    for (; liste.length < 3; tage += 7) {
+      const at = new Date(b.getFullYear(), b.getMonth(), b.getDate() + tage, 19, 0, 0, 0);
+      if (at <= jetzt) continue;
+      liste.push({ id: this.SICHERUNG_IDS[liste.length], at, title: 'Zeit für eine Sicherung', extra: { sicherung: true },
+        body: letzte ? `Deine letzte Sicherung ist ${tage} Tage her. Tippe hier und speichere sie in ${ziel} – sonst liegen deine Daten nur auf diesem Handy.`
+          : `Du hast ImkerBuch noch nie gesichert. Tippe hier und speichere eine Sicherung in ${ziel} – sonst liegen deine Daten nur auf diesem Handy.` });
+    }
+    return liste;
+  },
   _t: null,
   spaeterPlanen() { if (!this.plugin()) return; clearTimeout(this._t); this._t = setTimeout(() => this.planen().catch((e) => console.warn('Erinnerungen planen', e)), 1200); },
   async erlaubt() { const LN = this.plugin(); if (!LN) return false; try { return (await LN.checkPermissions()).display === 'granted'; } catch (_) { return false; } },
@@ -21669,11 +21714,18 @@ const Erinnerung = {
     const LN = this.plugin(); if (!LN) return 0;
     const offen = await LN.getPending();
     if (offen.notifications && offen.notifications.length) await LN.cancel({ notifications: offen.notifications.map((n) => ({ id: n.id })) });
-    if (Lizenz.light()) return 0;   // Aufgaben-Erinnerungen sind Vollversion
-    if (!S.get('features').benachrichtigungen || !(await this.erlaubt())) return 0;
-    const namen = {};
-    for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
-    const liste = this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen);
+    if (!(await this.erlaubt())) return 0;
+    const liste = [];
+    if (!Lizenz.light() && S.get('features').benachrichtigungen) {   // Aufgaben-Erinnerungen sind Vollversion
+      const namen = {};
+      for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
+      liste.push(...this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen));
+    }
+    if (this.sicherungAn()) {
+      // Ältere Installationen kennen kein Einrichtungsdatum: dann ab dem ersten Planen zählen (sonst käme nie eine Mitteilung)
+      if (!S.get('letzteExterneSicherung') && !S.get('eingerichtetAm') && !S.get('sicherungBasis')) await S.set('sicherungBasis', U.nowIso(), { auto: true });
+      liste.push(...this.sicherungTermine());   // höchstens 60 + 3 – unter der iOS-Grenze von 64
+    }
     /* exakt nur, wenn erlaubt – sonst würde das Plugin bei jedem Planen ungefragt die Android-Einstellung öffnen */
     const genau = await this.genau();
     if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, isExactNotification: genau, extra: t.extra })) });
@@ -21687,8 +21739,12 @@ const Erinnerung = {
   },
   init() {
     const LN = this.plugin(); if (!LN) return;
-    // Tippen auf eine Mitteilung öffnet „Aufgaben & Kalender“
-    LN.addListener('localNotificationActionPerformed', () => { navTo('aufgaben'); });
+    // Tippen auf eine Mitteilung öffnet „Aufgaben & Kalender“ – bei der Sicherungs-Erinnerung gleich „Jetzt sichern?“
+    LN.addListener('localNotificationActionPerformed', (ev) => {
+      const x = ev && ev.notification && ev.notification.extra;
+      if (x && x.sicherung) setTimeout(() => Backup.erinnerungGetippt(), 600);   // erst die Startseite zeichnen lassen
+      else navTo('aufgaben');
+    });
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.spaeterPlanen(); });
     this.spaeterPlanen();
   },
@@ -25967,6 +26023,7 @@ Views.einstellungen = {
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
         `}
         <label class="check-line mt8"><input type="checkbox" id="ab-erinnerung" ${S.get('backupErinnerung') === false ? '' : 'checked'}> <span>Oben an eine fällige Sicherung erinnern</span></label>
+        ${Erinnerung.plugin() ? `<label class="check-line mt8"><input type="checkbox" id="ab-mitteilung" ${Erinnerung.sicherungAn() ? 'checked' : ''}> <span>Per Mitteilung an die Sicherung erinnern<br><span class="small muted">Wenn die letzte Sicherung 14 Tage her ist – um 19 Uhr, danach wöchentlich, auch wenn die App geschlossen ist.<span id="ab-mitteilung-stand"></span></span></span></label>` : ''}
         <h3 class="mb8 mt16">Interne Snapshots (${snaps.length}/10)</h3>
         <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
           <span class="r-main"><span class="r-title">${U.fmtDateTime(s.datum)}</span>
@@ -26197,6 +26254,23 @@ Views.einstellungen = {
     if ($('#ab-dir')) $('#ab-dir').onclick = async () => { if (await Backup.chooseDir()) renderRoute(); };
     if ($('#ab-frage')) $('#ab-frage').onchange = async (e) => { f.backupBeimSchliessen = e.target.checked; await saveFeatures(); };
     $('#ab-erinnerung').onchange = async (e) => { await S.set('backupErinnerung', e.target.checked); Backup.updateBanners(); };
+    const abM = $('#ab-mitteilung');
+    if (abM) {
+      const stand = async () => {
+        const el = $('#ab-mitteilung-stand'); if (!el) return;
+        if (!Erinnerung.sicherungAn()) { el.textContent = ''; return; }
+        if (!(await Erinnerung.erlaubt())) { el.textContent = ' Das Telefon erlaubt ImkerBuch gerade keine Mitteilungen – in den Telefon-Einstellungen bei ImkerBuch einschalten.'; return; }
+        const n = Erinnerung.sicherungTermine()[0];
+        el.textContent = n ? ` Nächste: ${String(n.at.getDate()).padStart(2, '0')}.${String(n.at.getMonth() + 1).padStart(2, '0')}.${n.at.getFullYear()}, 19 Uhr` : '';
+      };
+      stand();
+      abM.onchange = async (e) => {
+        const f = S.get('features'); f.sicherungMitteilung = e.target.checked; await S.set('features', f);
+        await S.set('sicherungMitteilungGefragt', true, { auto: true });
+        if (e.target.checked && !(await Erinnerung.erlaubt()) && (await Erinnerung.erlaubnisHolen()) !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.', 'err');
+        Erinnerung.spaeterPlanen(); stand();
+      };
+    }
     backupRingStart(); // Countdown-Ring live halten
 
     /* Profil / Imkerei */
