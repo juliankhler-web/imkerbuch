@@ -491,6 +491,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .empty svg{width:44px;height:44px;opacity:.4}
 .empty .e-text{font-size:14px;max-width:340px}
 .chip-row{display:flex;gap:7px;flex-wrap:wrap}
+/* Knopfreihe zum Wischen (Handy): eine Zeile statt drei; ab Tablet-Breite wieder umbrechend */
+.chip-row.quer{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:2px 2px 4px;margin-left:-2px;margin-right:-2px}
+.chip-row.quer::-webkit-scrollbar{display:none}
+.chip-row.quer .chip{flex:0 0 auto;white-space:nowrap}
+@media (min-width:760px){.chip-row.quer{flex-wrap:wrap;overflow:visible}}
+.chip-anz{margin-left:2px;font-weight:600;color:var(--muted)}
+.chip.active .chip-anz{color:#5A3D00}
 .chip{padding:7px 14px;border-radius:var(--r-sm);border:1.5px solid var(--line2);font-size:13px;font-weight:600;background:var(--card);transition:all .15s;min-height:36px}
 .chip svg{width:15px;height:15px;vertical-align:-2px;flex:0 0 auto}
 .chip.active{background:var(--honey);color:#241A05;border-color:var(--honey);box-shadow:0 4px 10px -5px rgba(232,160,19,.55)}
@@ -597,7 +604,12 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 .tk-monate{display:flex}.tk-monate span{flex:1;border-left:1px solid var(--line);padding-left:3px;white-space:nowrap;overflow:hidden}
 .tk-rumpf{position:relative}
 .tk-zeile{display:grid;grid-template-columns:var(--tk-name) 1fr;align-items:center;width:100%;min-height:34px;padding:0;background:none;border:0;color:var(--text);font:inherit;font-size:13.5px;text-align:left;cursor:pointer}
-.tk-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px;font-weight:600}
+.tk-name{display:flex;align-items:center;gap:5px;min-width:0;padding-right:8px;font-weight:600}
+.tk-nt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tk-anz{flex-shrink:0;font-size:11px;font-weight:700;line-height:1;padding:3px 6px;border-radius:8px;background:var(--honey-soft);color:var(--honey-deep)}
+.tk-unter{min-height:30px}.tk-unter .tk-name{padding-left:14px;font-weight:500;font-size:12px;line-height:1.25;color:var(--muted)}
+.tk-unter .tk-nt{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tk-unter .tk-spur{height:9px;background:transparent}.tk-unter .tk-balken{opacity:.75}
 .tk-spur{position:relative;height:16px;border-radius:5px;background:var(--card2)}
 .tk-balken{position:absolute;top:0;bottom:0;border-radius:5px;background:var(--honey)}
 .tk-balken.tk-jetzt{background:var(--ok)}
@@ -1504,8 +1516,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.88';
+const APP_VERSION = '2.89';
 const CHANGELOG = [
+  { version: '2.89', datum: '2026-10-22', punkte: [
+    '<b>Völker nach Funktion filtern:</b> Unter der Suche stehen jetzt Knöpfe wie „Wirtschaftsvolk“, „Ableger“ oder „Pflegevolk Königin“ – nur die Funktionen, die du wirklich hast, jeweils mit Anzahl. Sie wirken zusammen mit der Suche und dem Stand, z. B. alle Ableger mit „Anna“ im Namen. Die Sammel-Erfassung nimmt genau diese Auswahl.',
+    '<b>Trachtkalender übersichtlich:</b> Blüht dieselbe Pflanze an mehreren Ständen, steht sie nur noch einmal da – mit der Zahl der Stände. Antippen klappt die einzelnen Stände mit ihren eigenen Blütezeiten auf. Auch die Startseiten-Kachel „Tracht“ nennt jede Pflanze nur noch einmal.',
+    'Behoben: In Safari im privaten Fenster schlug das Merken des Zwischenstands fehl – und damit auch „Beispieldaten laden“.',
+  ] },
   { version: '2.88', datum: '2026-10-21', punkte: [
     '<b>Suchen ohne Tastatur-Flackern:</b> Beim Tippen in die Suche bei Völkern, Abnehmern & Lieferanten, Verbrauchsmaterial/Produkten/Inventar und in der Imkerschule („Frag ein Thema“) ging die Tastatur nach jedem Buchstaben zu und wieder auf. Jetzt bleibt sie offen, nur die Treffer darunter wechseln.',
   ] },
@@ -5529,7 +5546,14 @@ const DASH_WIDGETS = {
       tipp = `<div class="tr-tipp">${U.esc(Tracht.name(erste.t))}: Honigräume und Wanderung rechtzeitig vorbereiten${n ? ` – ${n} ${n === 1 ? 'Volk' : 'Völker'} an ${U.esc(Tracht.standNamen(erste.t, staende))}` : ''}.</div>
         ${da ? `<div class="small muted">${icon('check')} Aufgabe ist angelegt · <a href="#/aufgaben">Aufgaben</a></div>` : `<button class="btn btn-primary btn-sm no-print" onclick="Tracht.vorbereitenAufgabe('${U.esc(erste.t.id)}')">Als Aufgabe</button>`}`;
     }
-    return `<div class="card tr-kachel" style="margin:0">${kopf}${[...jetzt, ...bald].slice(0, 4).map(zeile).join('')}${tipp}</div>`;
+    /* Gleiche Pflanze an mehreren Ständen = eine Zeile („Phacelia · Moorweg, Waldrand +6“) – bei 50 Ständen stand
+       sonst viermal dieselbe Pflanze in der Kachel (21.10.2026). Blühende und kommende Blüte bleiben getrennt. */
+    const zusammen = (liste) => {
+      const m = new Map();
+      for (const x of liste) { const k = Tracht.schluessel(x.t); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }
+      return [...m].map(([k, g]) => (g.length === 1 ? g[0] : { t: { ...g[0].t, bezeichnung: k, standIds: [...new Set(g.flatMap((x) => x.t.standIds || []))] }, l: g[0].l }));
+    };
+    return `<div class="card tr-kachel" style="margin:0">${kopf}${[...zusammen(jetzt), ...zusammen(bald)].slice(0, 4).map(zeile).join('')}${tipp}</div>`;
   }},
 };
 if (!ZUCHT_AN) delete DASH_WIDGETS.zucht;   // Zucht fehlt in der Store-Version (siehe NAV)
@@ -6919,6 +6943,16 @@ Views.voelker = {
     const aktive = voelker.filter((v) => v.status === 'aktiv');
     /* Ab 8 Ständen eine Auswahlliste statt einer Wand aus Knöpfen (bei 50 Ständen füllten sie den Handybildschirm) */
     const vieleStaende = staende.size > 8;
+    /* Knöpfe nach Funktion im Betrieb (Wirtschaftsvolk, Ableger, Pflegevolk …) – nur, was im gewählten Stand bzw. Archiv
+       vorkommt, mit Anzahl, häufigste zuerst. Wirken zusammen mit Suche und Stand (Julian 21.10.2026). */
+    const basis = voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand));
+    const jeFunktion = new Map();
+    for (const v of basis) { const f = String(v.funktion || '').trim() || '__ohne'; jeFunktion.set(f, (jeFunktion.get(f) || 0) + 1); }
+    const funktionen = [...jeFunktion].sort((a, b) => (a[0] === '__ohne') - (b[0] === '__ohne') || b[1] - a[1] || a[0].localeCompare(b[0], 'de'));
+    if (Views.voelker._funktion && !jeFunktion.has(Views.voelker._funktion)) Views.voelker._funktion = '';
+    const fAktiv = Views.voelker._funktion || '';
+    const fKnopf = (wert, label, n) => `<button type="button" class="chip${fAktiv === wert ? ' active' : ''}" data-vfunk="${U.esc(wert)}">${U.esc(label)} <span class="chip-anz">${U.fmtNum(n)}</span></button>`;
+    const funktionsKnoepfe = funktionen.length > 1 ? `<div class="chip-row quer mb12 no-print" id="v-funktion" role="group" aria-label="Nach Funktion filtern">${fKnopf('', 'Alle', basis.length)}${funktionen.map(([f, n]) => fKnopf(f, f === '__ohne' ? 'ohne Funktion' : f, n)).join('')}</div>` : '';
     main.innerHTML = pageHead('Völker', `${aktive.length} aktiv${voelker.length - aktive.length ? ` · ${voelker.length - aktive.length} aufgelöst/vereinigt` : ''}`,
       `<span class="flex-wrap no-print">${aktive.length ? `<button class="btn btn-ghost btn-sm" id="sammel">${icon('check2')} Sammel-Erfassung</button>` : ''}<button class="btn btn-primary btn-sm" id="add">${icon('plus')} Neues Volk</button></span>`) +
       (voelker.length ? `<div class="voelker-filter mb12 no-print">
@@ -6929,7 +6963,7 @@ Views.voelker = {
           <option value="__archiv" ${showAlte ? 'selected' : ''}>Archiv (aufgelöst/vereinigt)</option>
         </select>` : ''}
       </div>` : '') +
-      (vieleStaende ? '' : '<div id="tabbar"></div>') +
+      (vieleStaende ? '' : '<div id="tabbar"></div>') + funktionsKnoepfe +
       `<div class="card" id="v-liste"></div>`;
     /* Stände als Reiter (bis 8 Stände; darüber die Auswahlliste oben). Natürlich sortiert wie überall. */
     if (!vieleStaende) {
@@ -6948,6 +6982,16 @@ Views.voelker = {
     main.addEventListener('click', (e) => {
       const b = e.target.closest('.row[data-id]'); if (b) navTo('volk/' + b.dataset.id);
     });
+    const fReihe = $('#v-funktion', main);
+    const fAktivKnopf = fReihe && fReihe.querySelector('.chip.active');
+    if (fAktivKnopf && fAktivKnopf.offsetLeft + fAktivKnopf.offsetWidth > fReihe.clientWidth) fReihe.scrollLeft = fAktivKnopf.offsetLeft - 16;   // gewählter Knopf bleibt im Bild
+    if (fReihe) fReihe.onclick = (e) => {
+      const k = e.target.closest('[data-vfunk]'); if (!k) return;
+      Views.voelker._funktion = k.dataset.vfunk;
+      for (const c of fReihe.querySelectorAll('[data-vfunk]')) c.classList.toggle('active', c === k);
+      delete Seitenweise.anzahl.voelker;   // neue Auswahl beginnt wieder mit der ersten Seite
+      Views.voelker.liste(main);
+    };
     const wahl = $('#v-stand', main);
     if (wahl) wahl.onchange = () => {
       if (wahl.value === '__archiv') { Views.voelker._alte = true; Views.voelker._stand = ''; }
@@ -6980,10 +7024,14 @@ Views.voelker = {
       const heu = [v.name, v.beutenkennung, v.funktion, v.beutentyp, staende.get(v.standId)?.name, q && q.kennung, q && q.linie].filter(Boolean).join(' ').toLowerCase();
       return woerter.every((w) => heu.includes(w));
     };
-    const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && trifft(v)), (v) => v.name.toLowerCase());
+    const funktion = Views.voelker._funktion || '';
+    const passtFunktion = (v) => !funktion || (funktion === '__ohne' ? !String(v.funktion || '').trim() : String(v.funktion || '').trim() === funktion);
+    const fName = funktion === '__ohne' ? 'ohne Funktion' : funktion;
+    const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && passtFunktion(v) && trifft(v)), (v) => v.name.toLowerCase());
     Views.voelker._liste = list;
     const seite = seitenweise('voelker', list);
-    box.innerHTML = list.length ? (suchtext ? `<div class="small muted mb8">${list.length} ${list.length === 1 ? 'Volk passt' : 'Völker passen'} zu „${U.esc(Views.voelker._suche.trim())}“</div>` : '') + `<div class="rows">` + seite.sichtbar.map((v) => {
+    const zaehl = suchtext || funktion ? `<div class="small muted mb8">${list.length} ${list.length === 1 ? 'Volk' : 'Völker'}${funktion ? ` · ${U.esc(fName)}` : ''}${suchtext ? ` · passend zu „${U.esc(Views.voelker._suche.trim())}“` : ''}</div>` : '';
+    box.innerHTML = list.length ? zaehl + `<div class="rows">` + seite.sichtbar.map((v) => {
         const q = queens.get(v.koeniginId);
         const qc = q ? queenColor(q.jahrgang) : null;
         return `<button class="row" data-id="${U.esc(v.id)}">
@@ -6992,7 +7040,8 @@ Views.voelker = {
           <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seite.knopf
-      : suchtext ? `<p class="small muted">Kein Volk passt zu „${U.esc(Views.voelker._suche.trim())}“.</p>`
+      : suchtext ? `<p class="small muted">Kein Volk passt zu „${U.esc(Views.voelker._suche.trim())}“${funktion ? ` bei „${U.esc(fName)}“ – oben „Alle“ wählen, um überall zu suchen` : ''}.</p>`
+      : funktion ? `<p class="small muted">Kein Volk mit der Funktion „${U.esc(fName)}“ in dieser Auswahl.</p>`
       : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`);
     const add2 = $('#add2', box);
     if (add2) add2.onclick = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
@@ -10131,7 +10180,7 @@ Views.trachten = {
     const sortiert = U.sortBy(trachten, (t) => (Tracht.zeitraum(t, jahr) || {}).von || `9${String(t.von || '999')}`);
     main.innerHTML = pageHead('Trachten', 'Was wann an deinen Ständen blüht – mit Blütezeit aus Beobachtungen des Wetterdienstes',
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Tracht</button>`)
-      + (trachten.length ? `<div class="card">${Views.trachten.kalender(sortiert, jahr, heute)}</div>` : '')
+      + (trachten.length ? `<div class="card" id="tk-karte">${Views.trachten.kalender(sortiert, jahr, heute, staende)}</div>` : '')
       + `<div class="card">` + (trachten.length ? `<div class="rows">` + sortiert.map((t) => {
         // Ertrag aller Ernten, die dieser Tracht zugeordnet sind (alle Jahre)
         const kg = U.sum(ernten.filter((e) => e.trachtId === t.id), (e) => e.mengeKg);
@@ -10148,12 +10197,21 @@ Views.trachten = {
       + `<div class="small muted mt8">Blütezeiten: Datenbasis Deutscher Wetterdienst (Phänologie, ${U.esc(BLUEHZEITEN.jahre)}), aufbereitet für ImkerBuch.</div>`;
     const oeffnen = (id) => Views.trachten.formular(trachten.find((x) => x.id === id));
     bindAdd(() => Views.trachten.formular(null));
-    main.addEventListener('click', (e) => { const r = e.target.closest('.row[data-id], .tk-zeile[data-id]'); if (r) oeffnen(r.dataset.id); });
+    main.addEventListener('click', (e) => {
+      const g = e.target.closest('.tk-gruppe[data-gruppe]');
+      if (g) {   // Pflanze auf-/zuklappen – nur den Kalender neu zeichnen, die Seite bleibt stehen
+        const offen = Views.trachten._offen || (Views.trachten._offen = new Set()), k = g.dataset.gruppe;
+        if (offen.has(k)) offen.delete(k); else offen.add(k);
+        const karte = $('#tk-karte', main); if (karte) karte.innerHTML = Views.trachten.kalender(sortiert, jahr, heute, staende);
+        return;
+      }
+      const r = e.target.closest('.row[data-id], .tk-zeile[data-id]'); if (r) oeffnen(r.dataset.id);
+    });
     const trachtVon = (r) => trachten.find((x) => x.id === r.dataset.id);
     Wisch.liste(main, '.row[data-id]', { bearbeiten: (r) => Views.trachten.formular(trachtVon(r)), loeschen: (r) => UI.nurLoeschen(() => Views.trachten.formular(trachtVon(r))) });
   },
   /** Jahreskalender: ein Balken je Tracht, rote Linie = heute. Monate von der frühesten bis zur spätesten Blüte (mind. März–September). */
-  kalender(trachten, jahr, heute) {
+  kalender(trachten, jahr, heute, staende = new Map()) {
     const zeilen = trachten.map((t) => ({ t, z: Tracht.zeitraum(t, jahr) })).filter((x) => x.z);
     if (!zeilen.length) return `<div class="card-title">${icon('kalender')}<h2>Trachtkalender ${jahr}</h2></div><div class="small muted">Für ${jahr} ist noch keine Blütezeit eingetragen.</div>`;
     const m1 = Math.min(3, ...zeilen.map((x) => +x.z.von.slice(5, 7))), m2 = Math.max(9, ...zeilen.map((x) => (x.z.bis.slice(0, 4) > String(jahr) ? 12 : +x.z.bis.slice(5, 7))));
@@ -10162,15 +10220,30 @@ Views.trachten = {
     const pos = (iso) => Math.min(100, Math.max(0, U.daysBetween(start, iso) / spanne * 100));
     const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
     const heuteDrin = heute >= start && heute <= ende && heute.slice(0, 4) === String(jahr);
+    /* Gleiche Pflanze an mehreren Ständen = EINE Zeile mit der Zahl der Stände; antippen klappt die Stände mit ihren
+       eigenen Blütezeiten auf. Vorher stand z. B. „Phacelia“ neunmal untereinander, ohne zu sagen wo (Julian 21.10.2026). */
+    const gruppen = new Map();
+    for (const x of zeilen) { const k = Tracht.schluessel(x.t); if (!gruppen.has(k)) gruppen.set(k, []); gruppen.get(k).push(x); }
+    const offen = Views.trachten._offen || (Views.trachten._offen = new Set());
+    const balken = (von, bis, jetzt) => `<span class="tk-spur"><span class="tk-balken${jetzt ? ' tk-jetzt' : ''}" style="left:${pos(von).toFixed(2)}%;width:${Math.max(1.5, pos(U.addDays(bis, 1)) - pos(von)).toFixed(2)}%"></span></span>`;
+    const zeile = ({ t, z }, name, unter = false) => `<button class="tk-zeile${unter ? ' tk-unter' : ''}" data-id="${U.esc(t.id)}" title="${U.esc(`${name}: ${U.fmtDate(z.von)} – ${U.fmtDate(z.bis)}`)}">
+            <span class="tk-name"><span class="tk-nt">${U.esc(name)}</span></span>${balken(z.von, z.bis, z.von <= heute && heute <= z.bis)}</button>`;
     return `<div class="card-title">${icon('kalender')}<h2>Trachtkalender ${jahr}</h2></div>
-      <div class="tk" style="--tk-name:96px">
+      <div class="tk" style="--tk-name:140px">
         <div class="tk-kopf"><span></span><div class="tk-monate">${Array.from({ length: m2 - m1 + 1 }, (_, i) => `<span>${MON[m1 - 1 + i]}</span>`).join('')}</div></div>
         <div class="tk-rumpf">
-          ${zeilen.map(({ t, z }) => { const jetzt = z.von <= heute && heute <= z.bis; return `<button class="tk-zeile" data-id="${U.esc(t.id)}" title="${U.esc(`${Tracht.name(t)}: ${U.fmtDate(z.von)} – ${U.fmtDate(z.bis)}`)}">
-            <span class="tk-name">${U.esc(Tracht.name(t))}</span><span class="tk-spur"><span class="tk-balken${jetzt ? ' tk-jetzt' : ''}" style="left:${pos(z.von).toFixed(2)}%;width:${Math.max(1.5, pos(U.addDays(z.bis, 1)) - pos(z.von)).toFixed(2)}%"></span></span></button>`; }).join('')}
+          ${[...gruppen].map(([key, liste]) => {
+            if (liste.length === 1) return zeile(liste[0], Tracht.name(liste[0].t));
+            const von = liste.reduce((m, x) => (x.z.von < m ? x.z.von : m), liste[0].z.von), bis = liste.reduce((m, x) => (x.z.bis > m ? x.z.bis : m), liste[0].z.bis);
+            const ids = new Set(liste.flatMap((x) => x.t.standIds || [])), n = ids.size + liste.filter((x) => !(x.t.standIds || []).length).length;
+            const auf = offen.has(key), jetzt = liste.some((x) => x.z.von <= heute && heute <= x.z.bis);
+            return `<button class="tk-zeile tk-gruppe" data-gruppe="${U.esc(key)}" aria-expanded="${auf}" title="${U.esc(`${key}: an ${n} ${n === 1 ? 'Stand' : 'Ständen'}, ${U.fmtDate(von)} – ${U.fmtDate(bis)} – antippen zum ${auf ? 'Zuklappen' : 'Aufklappen'}`)}">
+              <span class="tk-name"><span class="tk-nt">${auf ? '▾' : '▸'} ${U.esc(key)}</span><span class="tk-anz">${n}</span></span>${balken(von, bis, jetzt)}</button>`
+              + (auf ? liste.map((x) => zeile(x, [x.t.bezeichnung && Tracht.name(x.t) !== key ? Tracht.name(x.t) : '', Tracht.standNamen(x.t, staende, 2)].filter(Boolean).join(' · ') || Tracht.name(x.t), true)).join('') : '');
+          }).join('')}
           ${heuteDrin ? `<span class="tk-heute" style="left:calc(var(--tk-name) + (100% - var(--tk-name)) * ${(pos(heute) / 100).toFixed(4)})" aria-hidden="true"></span>` : ''}
         </div>
-        <div class="small muted mt8">${heuteDrin ? 'Rote Linie = heute · ' : ''}grün = blüht gerade · antippen = bearbeiten</div>
+        <div class="small muted mt8">${heuteDrin ? 'Rote Linie = heute · ' : ''}grün = blüht gerade · ${[...gruppen.values()].some((l) => l.length > 1) ? 'Zahl = an so vielen Ständen, antippen klappt sie auf · ' : ''}antippen = bearbeiten</div>
       </div>`;
   },
   /** Formular für eine Tracht. vorgabe: z. B. { standIds: [standId] } vom Stand aus. */
@@ -21109,17 +21182,24 @@ const Backup = {
     'vor-wiederherstellung': 'Vor dem Zurückholen eines Zwischenstands', 'vor-beispieldaten': 'Vor dem Laden der Beispieldaten' },
   /* Gepackt wie eine ZIP-Datei (gzip): Großbestand-Probe (21.10.2026) – ein Zwischenstand war 13 MB, zehn wären 130 MB
      auf dem Handy gewesen; gepackt etwa ein Zehntel. Ältere Geräte ohne CompressionStream speichern ungepackt. */
+  /* Gepackt als Bytes (Uint8Array), NICHT als Blob: Safari im privaten Fenster (und WebKit ohne festen Speicher) lehnt
+     Blobs in der Datenbank ab – dann schlug jeder Zwischenstand fehl und damit auch „Beispieldaten laden“ (Fund 22.10.2026).
+     Ältere, als Blob gespeicherte Zwischenstände bleiben lesbar. */
   async packen(text) {
-    try { if (typeof CompressionStream === 'undefined') return null; return await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob(); } catch (e) { return null; }
+    try { if (typeof CompressionStream === 'undefined') return null; return new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); } catch (e) { return null; }
   },
   async snapshotText(snap) {
-    return snap.gz ? new Response(snap.gz.stream().pipeThrough(new DecompressionStream('gzip'))).text() : snap.daten;
+    if (!snap.gz) return snap.daten;
+    const roh = snap.gz instanceof Blob ? snap.gz : new Blob([snap.gz]);
+    return new Response(roh.stream().pipeThrough(new DecompressionStream('gzip'))).text();
   },
   async snapshotInternal(grund) {
     const data = await this.buildData(false);
     const json = JSON.stringify(data);
     const gz = await this.packen(json);
-    await DB.put('snapshots', { datum: U.nowIso(), grund, ...(gz ? { gz, gepackt: gz.size } : { daten: json }), groesse: json.length, rev: data._stand || null });
+    const satz = { datum: U.nowIso(), grund, groesse: json.length, rev: data._stand || null };
+    try { await DB.put('snapshots', gz ? { ...satz, gz, gepackt: gz.byteLength } : { ...satz, daten: json }); }
+    catch (e) { if (!gz) throw e; await DB.put('snapshots', { ...satz, daten: json }); }   // Speicher nimmt keine Bytes → ungepackt
     this._zsRev = data._stand || null; this._zsRevGeladen = true;
     const alle = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
     for (const s of alle.slice(10)) await DB.del('snapshots', s.id);

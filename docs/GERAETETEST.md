@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 21.10.2026, Version 2.88 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 22.10.2026, Version 2.89 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -38,13 +38,14 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B1 Standort:** Bienenstände → „+ Neuer Stand“ → „Aktuellen Standort übernehmen“. → Es kommt **genau eine** Frage nach dem Standort, danach stehen Zahlen in Breiten-/Längengrad.
 - [ ] **B2 Volk:** Völker → „+ Neues Volk“ → speichern. → Volk erscheint in der Liste.
 - [ ] **B2b Suche:** Völker → oben in die Suche mehrere Buchstaben zügig tippen. → Die Tastatur bleibt offen, nur die Liste darunter ändert sich. Gleich bei Abnehmer & Lieferanten und Verbrauchsmaterial.
+- [ ] **B2c Funktion:** Völker → unter der Suche einen Knopf wie „Ableger“ antippen (bei vielen Funktionen seitlich wischen). → Nur diese Völker, die Zahl im Knopf stimmt; zusätzlich etwas in die Suche tippen → beides gilt zusammen. „Alle“ zeigt wieder alle.
 - [ ] **B3 Durchsicht:** Volk öffnen → „+ Durchsicht“ → ausfüllen, speichern. → Eintrag steht in der Stockkarte.
 - [ ] **B4 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe; probier es mal mit **Handschuhen**. Am Ende „Speichern“.
 - [ ] **B5 Sprachnotiz:** In der Durchsicht am Stand „Sprachnotiz“ (oder Volk → „Notizen & Anhänge“ → „Aufnehmen“). → **Eine** Frage nach dem Mikrofon. Aufnahme läuft (roter Punkt), Stoppen, abspielen.
 - [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → **Eine** Frage nach der Kamera, Kamera öffnet sich, Foto erscheint als Bild.
 - [ ] **B7 Königin:** Königinnen → „+“ → Generation z. B. „F1“ eintragen. → Wird in der Königin angezeigt.
 - [ ] **B8 Varroa:** Volk → Reiter „Varroa“ → Zählung eintragen. → Ampel und Kurve erscheinen.
-- [ ] **B9 Trachtkalender:** Menü → Trachten → „+ Neue Tracht“ → Pflanze „Raps“ wählen, deinen Stand anhaken. → Beginn und Ende stehen von selbst drin, darunter: „Bei „Dein Stand“ beginnt Raps im Schnitt um den …“ mit der Zahl der Beobachtungsstellen des Wetterdienstes. „Jedes Jahr wiederkehrend“ ist an. Bei „Erinnern“ „7 Tage vor Blühbeginn“ wählen, speichern. → Meldung „Erinnerung am …“, oben ein Jahreskalender mit Balken.
+- [ ] **B9 Trachtkalender:** Menü → Trachten → „+ Neue Tracht“ → Pflanze „Raps“ wählen, deinen Stand anhaken. → Beginn und Ende stehen von selbst drin, darunter: „Bei „Dein Stand“ beginnt Raps im Schnitt um den …“ mit der Zahl der Beobachtungsstellen des Wetterdienstes. „Jedes Jahr wiederkehrend“ ist an. Bei „Erinnern“ „7 Tage vor Blühbeginn“ wählen, speichern. → Meldung „Erinnerung am …“, oben ein Jahreskalender mit Balken. Dieselbe Pflanze an einem zweiten Stand eintragen → im Kalender bleibt **eine** Zeile „Raps 2“; antippen klappt beide Stände auf.
 - [ ] **B10 Tracht auf Startseite und am Stand:** Startseite → Kachel „Tracht“ (erscheint, sobald eine Tracht eingetragen ist): zeigt, was blüht bzw. „Nächste Tracht …“. Stand öffnen → Abschnitt „Was hier blüht“ mit derselben Tracht.
 - [ ] **B12 Sonderzeichen im PDF:** Im Kassenbuch eine Ausgabe mit der Beschreibung „Gläser für Jörg ≤ 500 g → Markt „Süd“ ✓“ anlegen → Unterlagen → Kassenbuch-PDF. → Im PDF steht die Zeile lesbar („<=“, „->“, „ok“), Umlaute, € und „“ richtig, kein Zeichensalat; „19 %“ in der Spalte USt steht in **einer** Zeile. Der Dateiname beim Sichern hat keine Umlaute (z. B. „kassenbuch-2026.pdf“).
 - [ ] **B11 Ernte mit Tracht:** Ernte → „+ Ernte“ → Volk am Raps-Stand und ein Datum kurz nach der Rapsblüte wählen. → Feld „Tracht“ steht von selbst auf „Raps“, die Honigsorte auch. Statistiken → Honig → Knopf „Tracht“ → Ertrag je Tracht.

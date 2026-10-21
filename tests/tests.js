@@ -1873,6 +1873,81 @@ test('Suche: Tippen tauscht das Suchfeld nicht aus (Völker, Kontakte, Material,
     V._suche = alt.vs; K._suche = alt.ks; K._filter = alt.kf; I._faqQuery = alt.faq; host.remove();
   }
 }));
+/* Julian 21.10.2026: „Kategorien wie Wirtschaftsvolk, Pflegevolk auswählen, aber die Suche auch zusätzlich“ */
+test('Völker: Knöpfe nach Funktion – nur vorhandene, mit Anzahl, zusammen mit Suche und Stand', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('staende', { id: 'fk-a', name: 'Stand A' });
+  await w.DB.put('staende', { id: 'fk-b', name: 'Stand B' });
+  const vk = [['fk1', 'Anna', 'fk-a', 'Wirtschaftsvolk'], ['fk2', 'Berta', 'fk-a', 'Wirtschaftsvolk'], ['fk3', 'Clara', 'fk-b', 'Ableger'], ['fk4', 'Anton', 'fk-b', 'Ableger'], ['fk5', 'Dora', 'fk-a', '']];
+  for (const [id, name, standId, funktion] of vk) await w.DB.put('voelker', { id, name, standId, funktion, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { id: 'fk6', name: 'Emil', standId: 'fk-a', funktion: 'Drohnenvolk', status: 'aufgeloest', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.voelker; const alt = { s: V._suche, st: V._stand, a: V._alte, f: V._funktion };
+  const namen = () => [...host.querySelectorAll('#v-liste .row .r-title')].map((x) => x.textContent.trim());
+  try {
+    V._suche = ''; V._stand = ''; V._alte = false; V._funktion = '';
+    await V.render(host);
+    const knoepfe = [...host.querySelectorAll('#v-funktion [data-vfunk]')].map((b) => b.textContent.replace(/\s+/g, ' ').trim());
+    assertEq(knoepfe, ['Alle 5', 'Ableger 2', 'Wirtschaftsvolk 2', 'ohne Funktion 1'], 'nur vorhandene Funktionen, häufigste zuerst, „ohne“ am Ende');
+    assert(!knoepfe.some((k) => /Drohnenvolk/.test(k)), 'Archiv-Völker zählen in „aktiv“ nicht');
+    const feld = host.querySelector('#v-suche');
+    host.querySelector('[data-vfunk="Ableger"]').click();
+    assertEq(namen(), ['Anton', 'Clara'], 'nur Ableger');
+    assert(host.querySelector('[data-vfunk="Ableger"]').classList.contains('active'), 'Knopf markiert');
+    assert(host.querySelector('#v-suche') === feld, 'Suchfeld bleibt dasselbe');
+    await tippen(w, feld, 'ant');
+    assertEq(namen(), ['Anton'], 'Funktion + Suche zusammen');
+    assert(/1 Volk · Ableger · passend zu „ant“/.test(host.querySelector('#v-liste').textContent), 'Zeile nennt beides');
+    host.querySelector('[data-vfunk="__ohne"]').click();
+    assertEq(namen(), [], '„ohne Funktion“ + „ant“: niemand');
+    assert(/oben „Alle“ wählen/.test(host.querySelector('#v-liste').textContent), 'Hinweis auf „Alle“');
+    await tippen(w, feld, '');
+    assertEq(namen(), ['Dora'], 'ohne Funktion');
+    // Stand-Wechsel: nur Funktionen dieses Stands; eine nicht vorhandene Auswahl fällt auf „Alle“ zurück
+    V._funktion = 'Ableger'; V._stand = 'fk-a'; host.innerHTML = ''; await V.render(host);
+    assertEq(V._funktion, '', 'Ableger gibt es an Stand A nicht → Alle');
+    assertEq(namen(), ['Anna', 'Berta', 'Dora'], 'alle an Stand A');
+    // nur eine Funktion → keine Knopfreihe
+    V._stand = 'fk-b'; host.innerHTML = ''; await V.render(host);
+    assert(!host.querySelector('#v-funktion'), 'bei nur einer Funktion keine Knöpfe');
+    // Sammel-Erfassung nimmt die gefilterte Liste
+    V._stand = ''; V._funktion = 'Wirtschaftsvolk'; host.innerHTML = ''; await V.render(host);
+    assertEq(V._liste.map((v) => v.name), ['Anna', 'Berta'], 'Sammel-Erfassung bekommt nur die Auswahl');
+  } finally {
+    V._suche = alt.s; V._stand = alt.st; V._alte = alt.a; V._funktion = alt.f; host.remove();
+  }
+}));
+/* Julian 21.10.2026: „warum ist alles doppelt und dreifach“ – Phacelia an 9 Ständen stand 9× im Kalender */
+test('Trachtkalender: eine Zeile je Pflanze mit Zahl der Stände, aufklappbar; Kachel fasst zusammen', async (w) => isolierteDaten(w, async () => {
+  const j = w.U.todayIso().slice(0, 4);
+  const st = [];
+  for (let i = 0; i < 3; i++) st.push(await w.DB.put('staende', { name: 'Kalenderstand ' + i }));
+  for (let i = 0; i < 3; i++) await w.DB.put('trachten', { pflanze: 'Phacelia', von: `${j}-06-0${i + 1}`, bis: `${j}-08-1${i}`, jaehrlich: true, standIds: [st[i].id] });
+  await w.DB.put('trachten', { pflanze: 'Raps', von: `${j}-04-18`, bis: `${j}-05-17`, jaehrlich: true, standIds: [st[0].id] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const T = w.Views.trachten, altOffen = T._offen;
+  try {
+    T._offen = new Set();
+    await T.render(host);
+    const g = host.querySelector('.tk-gruppe[data-gruppe="Phacelia"]');
+    assert(g, 'Phacelia als Gruppe');
+    assertEq(g.querySelector('.tk-anz').textContent, '3', 'an 3 Ständen');
+    assertEq(host.querySelectorAll('.tk-zeile[data-id]').length, 1, 'Raps einzeln, Phacelia zugeklappt');
+    assertEq(host.querySelectorAll('.tk-zeile').length, 2, 'zwei Zeilen statt vier');
+    // Balken der Gruppe: frühester Beginn bis spätestes Ende
+    const b = g.querySelector('.tk-balken'), einzeln = parseFloat(b.style.width);
+    g.click();
+    const unter = host.querySelectorAll('.tk-unter[data-id]');
+    assertEq(unter.length, 3, 'aufgeklappt: drei Stände');
+    assert(/Kalenderstand 0/.test(unter[0].textContent), 'Stand-Name in der Unterzeile');
+    assert(Math.max(...[...unter].map((u) => parseFloat(u.querySelector('.tk-balken').style.width))) <= einzeln + 0.01, 'Gruppenbalken umfasst alle');
+    assertEq(host.querySelector('.tk-gruppe').getAttribute('aria-expanded'), 'true');
+    host.querySelector('.tk-gruppe').click();
+    assertEq(host.querySelectorAll('.tk-unter').length, 0, 'wieder zu');
+    // Startseiten-Kachel: Phacelia einmal mit Ständen
+    const html = await w.DASH_WIDGETS.tracht.html();
+    if (/tr-zeile/.test(html)) assert((html.match(/<b>Phacelia<\/b>/g) || []).length <= 2, 'Kachel: Phacelia höchstens einmal je Zustand');
+  } finally { T._offen = altOffen; host.remove(); }
+}));
 test('Imme unten: kleiner als oben (78 px hoch)', (w) => {
   assertEq(w.Assistent.dockRect('idle').h, 78);
 });
@@ -13847,6 +13922,16 @@ test('Großbestand: Zwischenstand gepackt – Zurückholen stellt alles wieder h
     await B.snapshotInternal('manuell');
     const snap = (await w.DB.getAll('snapshots'))[0];
     assert(snap.gz && snap.gepackt < snap.groesse, `gepackt (${snap.gepackt} statt ${snap.groesse} Zeichen)`);
+    assert(!(snap.gz instanceof w.Blob), 'als Bytes gespeichert, nicht als Blob (Safari privat lehnt Blobs ab)');
+    // ältere Zwischenstände (als Blob gespeichert) bleiben lesbar
+    assert(/Zurück-Volk/.test(await B.snapshotText({ gz: new w.Blob([snap.gz]) })), 'alter Blob-Zwischenstand lesbar');
+    // nimmt der Speicher keine Bytes an, wird ungepackt gespeichert statt abzubrechen
+    const altPut = w.DB.put;
+    w.DB.put = function (store, obj, ...r) { if (store === 'snapshots' && obj && obj.gz) return Promise.reject(new Error('Schreibvorgang fehlgeschlagen')); return altPut.call(this, store, obj, ...r); };
+    try { await B.snapshotInternal('manuell'); } finally { w.DB.put = altPut; }
+    const ungepackt = (await w.DB.getAll('snapshots')).find((x) => !x.gz);
+    assert(ungepackt && /Zurück-Volk/.test(ungepackt.daten), 'Rückfall: ungepackt gespeichert');
+    await w.DB.del('snapshots', ungepackt.id);
     await w.DB.del('voelker', v.id);
     w.UI.confirm = async () => true;
     await B.restoreSnapshot(snap.id);
