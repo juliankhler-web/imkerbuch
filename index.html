@@ -1504,8 +1504,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.87';
+const APP_VERSION = '2.88';
 const CHANGELOG = [
+  { version: '2.88', datum: '2026-10-21', punkte: [
+    '<b>Suchen ohne Tastatur-Flackern:</b> Beim Tippen in die Suche bei Völkern, Abnehmern & Lieferanten, Verbrauchsmaterial/Produkten/Inventar und in der Imkerschule („Frag ein Thema“) ging die Tastatur nach jedem Buchstaben zu und wieder auf. Jetzt bleibt sie offen, nur die Treffer darunter wechseln.',
+  ] },
   { version: '2.87', datum: '2026-10-21', punkte: [
     '<b>Rechnungen ohne „Erstellt mit ImkerBuch“:</b> Auf Rechnungen an deine Kunden steht unten nur noch die Seitenzahl. Der Hinweis nannte den Tag, an dem das PDF erstellt wurde – nicht das Rechnungsdatum – und konnte Kunden verwirren. Listen und Berichte für dich behalten ihn.',
   ] },
@@ -6910,22 +6913,12 @@ Views.voelker = {
     const voelker = await DB.getAll('voelker');
     const staende = await idMap('staende');
     const queens = await idMap('koeniginnen');
+    Views.voelker._daten = { voelker, staende, queens };
     const filterStand = Views.voelker._stand || '';
     const showAlte = Views.voelker._alte || false;
-    /* Suche über Name, Beute, Funktion, Stand und Königin – mehrere Wörter müssen alle vorkommen */
-    const suchtext = (Views.voelker._suche || '').trim().toLowerCase();
-    const woerter = suchtext.split(/\s+/).filter(Boolean);
-    const trifft = (v) => {
-      if (!woerter.length) return true;
-      const q = queens.get(v.koeniginId);
-      const heu = [v.name, v.beutenkennung, v.funktion, v.beutentyp, staende.get(v.standId)?.name, q && q.kennung, q && q.linie].filter(Boolean).join(' ').toLowerCase();
-      return woerter.every((w) => heu.includes(w));
-    };
-    const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && trifft(v)), (v) => v.name.toLowerCase());
     const aktive = voelker.filter((v) => v.status === 'aktiv');
     /* Ab 8 Ständen eine Auswahlliste statt einer Wand aus Knöpfen (bei 50 Ständen füllten sie den Handybildschirm) */
     const vieleStaende = staende.size > 8;
-    const seite = seitenweise('voelker', list);
     main.innerHTML = pageHead('Völker', `${aktive.length} aktiv${voelker.length - aktive.length ? ` · ${voelker.length - aktive.length} aufgelöst/vereinigt` : ''}`,
       `<span class="flex-wrap no-print">${aktive.length ? `<button class="btn btn-ghost btn-sm" id="sammel">${icon('check2')} Sammel-Erfassung</button>` : ''}<button class="btn btn-primary btn-sm" id="add">${icon('plus')} Neues Volk</button></span>`) +
       (voelker.length ? `<div class="voelker-filter mb12 no-print">
@@ -6937,15 +6930,7 @@ Views.voelker = {
         </select>` : ''}
       </div>` : '') +
       (vieleStaende ? '' : '<div id="tabbar"></div>') +
-      `<div class="card">` + (list.length ? (suchtext ? `<div class="small muted mb8">${list.length} ${list.length === 1 ? 'Volk passt' : 'Völker passen'} zu „${U.esc(Views.voelker._suche)}“</div>` : '') + `<div class="rows">` + seite.sichtbar.map((v) => {
-        const q = queens.get(v.koeniginId);
-        const qc = q ? queenColor(q.jahrgang) : null;
-        return `<button class="row" data-id="${U.esc(v.id)}">
-          <span class="r-ic">${icon('volk')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
-          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
-          ${icon('chevR', 'chev')}</button>`;
-      }).join('') + `</div>` + seite.knopf : suchtext ? `<p class="small muted">Kein Volk passt zu „${U.esc(Views.voelker._suche)}“.</p>` : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`)) + `</div>`;
+      `<div class="card" id="v-liste"></div>`;
     /* Stände als Reiter (bis 8 Stände; darüber die Auswahlliste oben). Natürlich sortiert wie überall. */
     if (!vieleStaende) {
       const sortiert = [...staende.values()].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'de', { numeric: true, sensitivity: 'base' }));
@@ -6959,15 +6944,9 @@ Views.voelker = {
     const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
     bindAdd(add, main);
     const sammel = $('#sammel', main);
-    if (sammel) sammel.onclick = () => sammelErfassung(list.filter((v) => v.status === 'aktiv'));
+    if (sammel) sammel.onclick = () => sammelErfassung((Views.voelker._liste || []).filter((v) => v.status === 'aktiv'));
     main.addEventListener('click', (e) => {
       const b = e.target.closest('.row[data-id]'); if (b) navTo('volk/' + b.dataset.id);
-    });
-    const volkVon = (r) => list.find((x) => x.id === r.dataset.id);
-    Wisch.liste(main, '.row[data-id]', {
-      bearbeiten: (r) => openVolkForm(volkVon(r), {}, renderRoute),
-      loeschen: async (r) => { if (await volkAufloesen(volkVon(r))) renderRoute(); }, loeschenText: 'Auflösen',
-      darf: (r, art) => art === 'bearbeiten' || (volkVon(r) || {}).status === 'aktiv',   // Archiv: nur bearbeiten
     });
     const wahl = $('#v-stand', main);
     if (wahl) wahl.onchange = () => {
@@ -6975,16 +6954,54 @@ Views.voelker = {
       else { Views.voelker._alte = false; Views.voelker._stand = wahl.value; }
       renderRoute();
     };
-    /* Suche: kurz sammeln, dann neu zeichnen; Fokus und Schreibmarke zurück, sonst klappt auf dem Handy die Tastatur zu */
+    /* Suche: nur die Liste neu zeichnen, NIE das Suchfeld. Vorher baute jeder Buchstabe die ganze Seite neu –
+       das Feld verlor kurz den Fokus und auf dem iPhone klappte die Tastatur zu und wieder auf (Julian 21.10.2026). */
     const sfeld = $('#v-suche', main);
     if (sfeld) sfeld.oninput = () => {
       Views.voelker._suche = sfeld.value;
       clearTimeout(Views.voelker._sucheTimer);
-      Views.voelker._sucheTimer = setTimeout(async () => {
-        await renderRoute({ scrollBehalten: true });
-        const f = $('#v-suche'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
-      }, 220);
+      Views.voelker._sucheTimer = setTimeout(() => Views.voelker.liste(main), 150);
     };
+    Views.voelker.liste(main);
+  },
+  /** Ergebnisliste nach Suche, Stand und Archiv – zeichnet nur `#v-liste` neu. */
+  liste(main) {
+    const box = $('#v-liste', main);
+    if (!box || !Views.voelker._daten) return;
+    const { voelker, staende, queens } = Views.voelker._daten;
+    const filterStand = Views.voelker._stand || '';
+    const showAlte = Views.voelker._alte || false;
+    /* Suche über Name, Beute, Funktion, Stand und Königin – mehrere Wörter müssen alle vorkommen */
+    const suchtext = (Views.voelker._suche || '').trim().toLowerCase();
+    const woerter = suchtext.split(/\s+/).filter(Boolean);
+    const trifft = (v) => {
+      if (!woerter.length) return true;
+      const q = queens.get(v.koeniginId);
+      const heu = [v.name, v.beutenkennung, v.funktion, v.beutentyp, staende.get(v.standId)?.name, q && q.kennung, q && q.linie].filter(Boolean).join(' ').toLowerCase();
+      return woerter.every((w) => heu.includes(w));
+    };
+    const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && trifft(v)), (v) => v.name.toLowerCase());
+    Views.voelker._liste = list;
+    const seite = seitenweise('voelker', list);
+    box.innerHTML = list.length ? (suchtext ? `<div class="small muted mb8">${list.length} ${list.length === 1 ? 'Volk passt' : 'Völker passen'} zu „${U.esc(Views.voelker._suche.trim())}“</div>` : '') + `<div class="rows">` + seite.sichtbar.map((v) => {
+        const q = queens.get(v.koeniginId);
+        const qc = q ? queenColor(q.jahrgang) : null;
+        return `<button class="row" data-id="${U.esc(v.id)}">
+          <span class="r-ic">${icon('volk')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
+          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
+          ${icon('chevR', 'chev')}</button>`;
+      }).join('') + `</div>` + seite.knopf
+      : suchtext ? `<p class="small muted">Kein Volk passt zu „${U.esc(Views.voelker._suche.trim())}“.</p>`
+      : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`);
+    const add2 = $('#add2', box);
+    if (add2) add2.onclick = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
+    const volkVon = (r) => list.find((x) => x.id === r.dataset.id);
+    Wisch.liste(box, '.row[data-id]', {
+      bearbeiten: (r) => openVolkForm(volkVon(r), {}, renderRoute),
+      loeschen: async (r) => { if (await volkAufloesen(volkVon(r))) renderRoute(); }, loeschenText: 'Auflösen',
+      darf: (r, art) => art === 'bearbeiten' || (volkVon(r) || {}).status === 'aktiv',   // Archiv: nur bearbeiten
+    });
   },
 };
 
@@ -12846,11 +12863,11 @@ Views.kontakte = {
   async liste(box, opt = {}) {
     const [alle, anhaenge, buchungen, rechnungen] = await Promise.all(['kontakte', 'anhaenge', 'kassenbuch', 'rechnungen'].map((st) => DB.getAll(st)));
     const filter = Views.kontakte._filter || '';
-    const suche = (Views.kontakte._suche || '').trim().toLowerCase();
+    const sucheJetzt = () => (Views.kontakte._suche || '').trim().toLowerCase();
     const istBio = kontaktIstBio;
-    const passt = (c) => (filter === 'lieferant' ? kontaktIstLieferant(c) : filter === 'kunde' ? kontaktIstKunde(c) : filter === 'bio' ? istBio(c) : true)
+    const passt = (c, suche) => (filter === 'lieferant' ? kontaktIstLieferant(c) : filter === 'kunde' ? kontaktIstKunde(c) : filter === 'bio' ? istBio(c) : true)
       && (!suche || [c.name, c.ort, c.oekoWas, c.oekoNummer].some((x) => String(x || '').toLowerCase().includes(suche)));
-    const list = U.sortBy(alle.filter(passt), (c) => (c.name || '').toLowerCase());
+    const trefferJetzt = () => { const su = sucheJetzt(); return U.sortBy(alle.filter((c) => passt(c, su)), (c) => (c.name || '').toLowerCase()); };
     /* Einmal zählen statt je Kontakt alles durchsuchen: bei 1.500 Kontakten × 15.000 Buchungen
        wären das sonst über 20 Mio. Vergleiche pro Aufbau (auf dem Handy mehrere Sekunden). */
     const zertJe = new Map(), buchJe = new Map();
@@ -12865,16 +12882,8 @@ Views.kontakte = {
     };
     const ohneNummer = alle.filter((c) => kontaktIstLieferant(c) && kontaktIstBio(c) && !c.oekoNummer).length;
     const buchungenZahl = (c) => buchJe.get(c.id) || 0;
-    /* Eigene Seite: angeheftete Reiter über der Karte. Im Kassenbuch und bei Bio klebt schon deren Leiste – dort Unterreiter in der Karte. */
-    const eigen = !!opt.ohneKopf;
-    box.innerHTML = `${eigen ? '<div id="k-reiter"></div>' : ''}<div class="card">
-      ${opt.ohneKopf ? '' : `<div class="card-title">${icon('kontakte')}<h2>Abnehmer und Lieferanten</h2>
-        <button class="btn btn-primary btn-sm no-print" data-neu>${icon('plus')} Kontakt</button></div>`}
-      <p class="small muted mb12">${opt.bio ? 'Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst. Bei Öko-Ware gehört die Kontrollnummer des Partners dazu, dazu das Zertifikat als Datei – tippe einen Kontakt an. ' : ''}Dieselbe Liste erscheint im Einkauf und Verkauf, bei Rechnungen, im Kassenbuch und bei Bio – du trägst nichts zweimal ein. <a href="#/${opt.bio ? 'kontakte' : 'bio'}">${opt.bio ? 'Auch im Menü unter „Abnehmer & Lieferanten“' : 'Öko-Daten stehen im Bio-Bereich'}</a>.</p>
-      ${eigen ? '' : '<div id="k-reiter"></div>'}
-      <div class="field mb12 no-print" style="margin-bottom:12px"><input class="inp" data-ksuche placeholder="Name, Ort oder Ware suchen …" value="${U.esc(Views.kontakte._suche || '')}"></div>
-      ${opt.bio && ohneNummer ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">${ohneNummer} ${ohneNummer === 1 ? 'Lieferant hat' : 'Lieferanten haben'} noch keine Öko-Kontrollnummer. Bei Öko-Ware gehört sie dazu.</span></div>` : ''}
-      ${list.length ? `<div class="rows">${seitenweise('kontakte', list).sichtbar.map((c) => {
+    /** Trefferliste (ohne Suchfeld) – die Suche zeichnet nur diesen Teil neu. */
+    const ergebnis = (list) => { const suche = sucheJetzt(); return list.length ? `<div class="rows">${seitenweise('kontakte', list).sichtbar.map((c) => {
         const n = zertZahl(c), b = { length: buchungenZahl(c) };
         const sub = [rolle(c), c.oekoWas, c.oekoNummer, [c.plz, c.ort].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
         const kontakt = [c.telefon, c.email].filter(Boolean).join(' · ');
@@ -12888,19 +12897,38 @@ Views.kontakte = {
           <span class="r-side"></span>${icon('chevR', 'chev')}</button>`;
       }).join('')}</div>${seitenweise('kontakte', list).knopf}`
       : emptyState('kontakte', (filter || suche) ? 'Kein Kontakt passt zu dieser Auswahl.' : 'Noch kein Kontakt. Kunden brauchst du für Rechnungen, Lieferanten für den Einkauf.',
-        `<button class="btn btn-primary" data-neu>${icon('plus')} Ersten Kontakt anlegen</button>`)}
+        `<button class="btn btn-primary" data-neu>${icon('plus')} Ersten Kontakt anlegen</button>`); };
+    /* Eigene Seite: angeheftete Reiter über der Karte. Im Kassenbuch und bei Bio klebt schon deren Leiste – dort Unterreiter in der Karte. */
+    const eigen = !!opt.ohneKopf;
+    box.innerHTML = `${eigen ? '<div id="k-reiter"></div>' : ''}<div class="card">
+      ${opt.ohneKopf ? '' : `<div class="card-title">${icon('kontakte')}<h2>Abnehmer und Lieferanten</h2>
+        <button class="btn btn-primary btn-sm no-print" data-neu>${icon('plus')} Kontakt</button></div>`}
+      <p class="small muted mb12">${opt.bio ? 'Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst. Bei Öko-Ware gehört die Kontrollnummer des Partners dazu, dazu das Zertifikat als Datei – tippe einen Kontakt an. ' : ''}Dieselbe Liste erscheint im Einkauf und Verkauf, bei Rechnungen, im Kassenbuch und bei Bio – du trägst nichts zweimal ein. <a href="#/${opt.bio ? 'kontakte' : 'bio'}">${opt.bio ? 'Auch im Menü unter „Abnehmer & Lieferanten“' : 'Öko-Daten stehen im Bio-Bereich'}</a>.</p>
+      ${eigen ? '' : '<div id="k-reiter"></div>'}
+      <div class="field mb12 no-print" style="margin-bottom:12px"><input class="inp" data-ksuche placeholder="Name, Ort oder Ware suchen …" value="${U.esc(Views.kontakte._suche || '')}"></div>
+      ${opt.bio && ohneNummer ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">${ohneNummer} ${ohneNummer === 1 ? 'Lieferant hat' : 'Lieferanten haben'} noch keine Öko-Kontrollnummer. Bei Öko-Ware gehört sie dazu.</span></div>` : ''}
+      <div data-kerg>${ergebnis(trefferJetzt())}</div>
       ${opt.bio ? `<div class="hint mt12">Die Bescheinigungen der Kontrollstellen liegen meist online. Im Kontakt-Fenster führt ein Knopf
         zur <b>EU-Datenbank der Öko-Bescheinigungen</b>; das gefundene PDF hängst du dort direkt an. Einen automatischen
         Abruf gibt es nicht – es existiert kein offenes Verzeichnis, das die Papiere zum Download herausgibt.</div>` : ''}
     </div>`;
     bereichsReiter(box, [{ id: '', label: `Alle (${alle.length})` }, { id: 'kunde', label: 'Kunden' }, { id: 'lieferant', label: 'Lieferanten' }, { id: 'bio', label: 'Bio-Partner' }],
       filter, (f) => { Views.kontakte._filter = f; return renderRoute(); }, { platz: $('#k-reiter', box), unter: !eigen, name: 'kontakte' });
-    $$('[data-neu]', box).forEach((b) => b.onclick = () => kontaktForm(null, { typ: opt.bio ? 'lieferant' : undefined, oeko: !!opt.bio, onSaved: () => renderRoute() }));
+    const neuKnoepfe = (wurzel) => $$('[data-neu]', wurzel).forEach((b) => b.onclick = () => kontaktForm(null, { typ: opt.bio ? 'lieferant' : undefined, oeko: !!opt.bio, onSaved: () => renderRoute() }));
+    neuKnoepfe(box);
+    const kontaktOeffnen = async (r) => kontaktForm(await DB.get('kontakte', r.dataset.kontakt), { oeko: !!opt.bio, onSaved: () => renderRoute() });
+    const wischen = () => Wisch.liste($('[data-kerg]', box), '.row[data-kontakt]', { bearbeiten: kontaktOeffnen, loeschen: (r) => UI.nurLoeschen(() => kontaktOeffnen(r)) });
+    /* Suche: nur die Trefferliste neu, NIE das Suchfeld – sonst klappte auf dem iPhone nach jedem Buchstaben die Tastatur zu (21.10.2026) */
     const such = $('[data-ksuche]', box);
     if (such) such.addEventListener('input', () => {
       Views.kontakte._suche = such.value;
       clearTimeout(Views.kontakte._st);
-      Views.kontakte._st = setTimeout(async () => { await Views.kontakte.liste(box, opt); const neu = $('[data-ksuche]', box); if (neu) { neu.focus(); neu.setSelectionRange(neu.value.length, neu.value.length); } }, 250);
+      Views.kontakte._st = setTimeout(() => {
+        const erg = $('[data-kerg]', box);
+        if (!erg) return;
+        erg.innerHTML = ergebnis(trefferJetzt());
+        neuKnoepfe(erg); wischen();
+      }, 150);
     });
     /* onclick statt addEventListener: die Suche zeichnet die Liste in dieselbe box neu – ein
        zweiter Listener öffnete sonst jeden Kontakt doppelt */
@@ -12908,8 +12936,7 @@ Views.kontakte = {
       const r = ev.target.closest('[data-kontakt]');
       if (r) Views.kontakte.detail(await DB.get('kontakte', r.dataset.kontakt), opt);
     };
-    const kontaktOeffnen = async (r) => kontaktForm(await DB.get('kontakte', r.dataset.kontakt), { oeko: !!opt.bio, onSaved: () => renderRoute() });
-    Wisch.liste(box, '.row[data-kontakt]', { bearbeiten: kontaktOeffnen, loeschen: (r) => UI.nurLoeschen(() => kontaktOeffnen(r)) });
+    wischen();
   },
   /** Ein Kontakt mit allem, was an ihm hängt: Buchungen, Rechnungen, Einkäufe, Verkäufe, Papiere. */
   async detail(c, opt = {}) {
@@ -16489,9 +16516,9 @@ async function renderInventarBereich(main, cfg) {
      Kategorie, Notiz und Zuordnung. Sie wirkt wie die Jahr/Art-Auswahl auf die
      ganze Ansicht – Kennzahlen und Übersicht folgen mit, damit die Zahlen zur
      angezeigten Liste passen. */
-  const suchtext = (view._suche || '').trim().toLowerCase();
+  let suchtext = (view._suche || '').trim().toLowerCase();
   const zuordnungVon = (i) => staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '';
-  const list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
+  let list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
   /* Abgänge dieses Bereichs – gefiltert wie die Liste, damit die Jahreswahl oben
      auch für die Abgänge gilt. */
   const abgaengeAlle = U.sortBy((await DB.getAll('materialabgaenge')).filter((a) => a.typ === cfg.typ), (a) => a.datum, true);
@@ -16501,10 +16528,11 @@ async function renderInventarBereich(main, cfg) {
   /* Wert aus den echten Einkäufen, nicht aus dem letzten Preis. */
   const bewertung = (i) => lagerBewertung(i, zugaengeAlle);
   const wertVon = (i) => bewertung(i).wert;
-  const wert = U.sum(list, wertVon);
-  const proArt = [...U.groupBy(list, (i) => i.kategorie || '').entries()]
+  const nachArt = (l) => [...U.groupBy(l, (i) => i.kategorie || '').entries()]
     .map(([k, items]) => ({ k, n: items.length, bestand: bestandText(items), wert: U.sum(items, wertVon) }))
     .sort((a, b) => b.wert - a.wert);
+  let wert = U.sum(list, wertVon);
+  let proArt = nachArt(list);
   /* Eine Position = eine Zeile, wie in den Völker- und Königinnen-Listen.
      Die ganze Zeile trägt data-edit und öffnet damit das Bearbeiten-Fenster –
      der delegierte Klick-Listener unten kennt dieses Muster bereits. */
@@ -16543,6 +16571,17 @@ async function renderInventarBereich(main, cfg) {
     </button>`;
   };
   const chip = (label, val, cur, attr) => `<button class="chip ${String(cur) === String(val) ? 'active' : ''}" data-${attr}="${U.esc(val)}">${U.esc(label)}</button>`;
+  /* Übersicht und Trefferliste als eigene Teile: die Suche zeichnet nur diese beiden neu, NIE das Suchfeld –
+     sonst klappte auf dem iPhone nach jedem Buchstaben die Tastatur zu (Julian 21.10.2026). */
+  const uebersicht = () => `<div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
+      ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Bestand</th><th class="num">Wert</th></tr></thead>
+        <tbody>${proArt.map((r) => `<tr class="art-zeile${art === (r.k || '__ohne') ? ' aktiv' : ''}" data-art-zeile="${U.esc(r.k || '__ohne')}" tabindex="0" role="button" title="Antippen: nur diese Art anzeigen" style="cursor:pointer"><td><b>${U.esc(r.k || 'Ohne Kategorie')}</b> <span class="small muted">›</span></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt${jahr || art || suchtext ? ' (Auswahl)' : ''}</td><td class="num">${list.length}</td><td class="num"></td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}`;
+  const ergebnis = () => (alle.length
+    ? (list.length
+      ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${seitenweise('positionen', list).sichtbar.map(zeile).join('')}</div>${seitenweise('positionen', list).knopf}`
+      : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc((view._suche || '').trim())}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
+    : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position anlegen</button>`));
   main.innerHTML = pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`,
     `<span class="knopf-gruppe no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
       <button class="btn btn-ghost btn-sm" id="abgang-pdf">${icon('doc')} Abgänge ${abgangJahr} (PDF)</button>
@@ -16551,22 +16590,14 @@ async function renderInventarBereich(main, cfg) {
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
     <div id="inv-reiter"></div><div id="inv-bestand">
     <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}${hatOhneArt ? chip('ohne Kategorie', '__ohne', art, 'art') : ''}</div>
-    <div class="card"><div class="card-title">${icon(cfg.ic)}<h2>Gesamtübersicht nach Art</h2></div>
-      ${proArt.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Art</th><th class="num">Positionen</th><th class="num">Bestand</th><th class="num">Wert</th></tr></thead>
-        <tbody>${proArt.map((r) => `<tr class="art-zeile${art === (r.k || '__ohne') ? ' aktiv' : ''}" data-art-zeile="${U.esc(r.k || '__ohne')}" tabindex="0" role="button" title="Antippen: nur diese Art anzeigen" style="cursor:pointer"><td><b>${U.esc(r.k || 'Ohne Kategorie')}</b> <span class="small muted">›</span></td><td class="num">${r.n}</td><td class="num">${U.esc(r.bestand)}</td><td class="num">${U.fmtEur(r.wert)}</td></tr>`).join('')}
-        <tr style="border-top:2px solid var(--line);font-weight:700"><td>Gesamt${jahr || art || suchtext ? ' (Auswahl)' : ''}</td><td class="num">${list.length}</td><td class="num"></td><td class="num">${U.fmtEur(wert)}</td></tr></tbody></table></div>` : '<p class="small muted">Keine Positionen in dieser Auswahl.</p>'}
-    </div>` : '<div id="inv-reiter"></div><div id="inv-bestand">') +
+    <div class="card" id="inv-uebersicht">${uebersicht()}</div>` : '<div id="inv-reiter"></div><div id="inv-bestand">') +
     `<div class="card" id="pos-liste">`
       /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
          es erst ab neun – dadurch war die Suche unsichtbar und unfindbar. Ein Feld,
          das man bei wenigen Einträgen nicht braucht, stört weniger als eine
          Funktion, von der niemand weiß. */
       + (alle.length ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
-      + (alle.length
-        ? (list.length
-          ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${seitenweise('positionen', list).sichtbar.map(zeile).join('')}</div>${seitenweise('positionen', list).knopf}`
-          : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc(view._suche)}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
-        : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position anlegen</button>`)) + `</div></div>`;
+      + `<div id="pos-erg">${ergebnis()}</div></div></div>`;
   /* Zugänge: was gekauft wurde und was es gekostet hat. Steht über den
      Abgängen, weil zuerst gekauft und dann verbraucht wird. */
   const zugaenge = zugaengeAlle.filter((z) => !jahr || jahr === '__ohne' || (z.datum || '').startsWith(jahr));
@@ -16811,19 +16842,21 @@ async function renderInventarBereich(main, cfg) {
     const ziel = $('#pos-liste', main);
     if (ziel) ziel.scrollIntoView({ block: 'start' });
   }
-  /* Suche: Tastendrücke kurz sammeln, dann neu zeichnen – sonst liest die App bei
-     jedem Buchstaben die Datenbank. Danach Fokus und Schreibmarke zurücksetzen,
-     sonst schließt sich auf dem Handy die Tastatur mitten im Wort. */
+  /* Suche: Tastendrücke kurz sammeln, dann nur Übersicht und Trefferliste neu zeichnen – das Suchfeld bleibt
+     stehen und behält den Fokus (vorher baute jeder Buchstabe die Seite neu, die Tastatur klappte zu). */
   const sfeld = $('#suche', main);
   if (sfeld) {
     sfeld.oninput = () => {
       view._suche = sfeld.value;
       clearTimeout(view._sucheTimer);
-      view._sucheTimer = setTimeout(async () => {
-        await renderRoute();
-        const frisch = $('#suche');
-        if (frisch) { frisch.focus(); frisch.setSelectionRange(frisch.value.length, frisch.value.length); }
-      }, 220);
+      view._sucheTimer = setTimeout(() => {
+        suchtext = (view._suche || '').trim().toLowerCase();
+        list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
+        wert = U.sum(list, wertVon); proArt = nachArt(list);
+        const ue = $('#inv-uebersicht', main), erg = $('#pos-erg', main);
+        if (ue) ue.innerHTML = uebersicht();
+        if (erg) { erg.innerHTML = ergebnis(); Wisch.liste(erg, '.row[data-edit]', { bearbeiten: (r) => form(posVon(r)), loeschen: (r) => UI.nurLoeschen(() => form(posVon(r))) }); }
+      }, 150);
     };
   }
 }
@@ -25999,20 +26032,13 @@ Views.imkerschule = {
   },
   renderFaq(main) {
     const V = Views.imkerschule;
-    const results = V._faqQuery ? faqSuche(V._faqQuery) : [];
     const faqAccHtml = (fragen, themaLabel) => fragen.map((fq, i) => `<div class="faq-acc" style="border-bottom:${i < fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
       <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(fq.f)}</span>${themaLabel ? `<span class="small muted" style="flex-shrink:0">${U.esc(themaLabel)}</span>` : ''}<span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
       <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${fq.link ? `<div class="faq-rlink" data-route="${U.esc(fq.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
     </div>`).join('');
-    main.innerHTML = pageHead('Imkerschule · Frag ein Thema', `${FAQ_THEMEN.reduce((s, t) => s + t.fragen.length, 0)} Antworten auf häufige Imker-Fragen`) + `
-      <div style="display:flex;gap:6px;margin-bottom:14px">
-        <button class="btn btn-sm btn-ghost" id="tab-pfad">Lernpfad</button>
-        <button class="btn btn-sm btn-primary" id="tab-faq">Frag ein Thema</button>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;background:var(--bg)">
-        <span style="width:18px;height:18px;flex-shrink:0;color:var(--muted)">${icon('search')}</span><input type="search" id="faq-search" placeholder="Suche z. B. „weisellos", „Schwarm" …" value="${U.esc(V._faqQuery)}" style="border:none;background:transparent;flex:1;outline:none;font-size:14px;color:var(--fg)">
-      </div>
-      ${V._faqQuery && results.length ? `<div class="small muted" style="margin-bottom:6px">${results.length} Treffer</div><div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
+    /* Treffer bzw. Themen als eigener Teil: die Suche zeichnet nur diesen neu, NIE das Suchfeld – sonst klappte auf
+       dem iPhone nach jedem Buchstaben die Tastatur zu (21.10.2026). */
+    const ergebnis = () => { const results = V._faqQuery ? faqSuche(V._faqQuery) : []; return `${V._faqQuery && results.length ? `<div class="small muted" style="margin-bottom:6px">${results.length} Treffer</div><div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
         <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(r.f)}</span><span class="small muted" style="flex-shrink:0">${U.esc(r.thema.label)}</span><span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
         <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${r.link ? `<div class="faq-rlink" data-route="${U.esc(r.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
       </div>`).join('')}</div>` : ''}
@@ -26025,30 +26051,42 @@ Views.imkerschule = {
           <span class="faq-topic-chev" style="color:var(--muted);font-size:12px;transition:transform .2s">▶</span>
         </div>
         <div class="faq-topic-body" style="display:none;border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;overflow:hidden">${faqAccHtml(t.fragen)}</div>
-      </div>`).join('') : ''}`;
+      </div>`).join('') : ''}`; };
+    main.innerHTML = pageHead('Imkerschule · Frag ein Thema', `${FAQ_THEMEN.reduce((s, t) => s + t.fragen.length, 0)} Antworten auf häufige Imker-Fragen`) + `
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <button class="btn btn-sm btn-ghost" id="tab-pfad">Lernpfad</button>
+        <button class="btn btn-sm btn-primary" id="tab-faq">Frag ein Thema</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;background:var(--bg)">
+        <span style="width:18px;height:18px;flex-shrink:0;color:var(--muted)">${icon('search')}</span><input type="search" id="faq-search" placeholder="Suche z. B. „weisellos", „Schwarm" …" value="${U.esc(V._faqQuery)}" style="border:none;background:transparent;flex:1;outline:none;font-size:14px;color:var(--fg)">
+      </div>
+      <div id="faq-erg">${ergebnis()}</div>`;
     $('#tab-pfad').onclick = () => { V._tab = 'pfad'; renderRoute(); };
     $('#tab-faq').onclick = () => { V._tab = 'faq'; renderRoute(); };
+    const binde = (wurzel) => {
+      wurzel.querySelectorAll('.faq-tile-head').forEach((el) => el.onclick = () => {
+        const topic = el.closest('.faq-topic');
+        const body = topic.querySelector('.faq-topic-body');
+        const chev = topic.querySelector('.faq-topic-chev');
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        chev.textContent = open ? '▶' : '▼';
+        el.style.borderRadius = open ? '10px' : '10px 10px 0 0';
+        if (!open) topic.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+      wurzel.querySelectorAll('.faq-acc').forEach((el) => el.onclick = (e) => {
+        e.stopPropagation();
+        const ans = el.querySelector('.faq-ans');
+        const chev = el.querySelector('.faq-chev');
+        const open = ans.style.display !== 'none';
+        ans.style.display = open ? 'none' : '';
+        if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
+      });
+      wurzel.querySelectorAll('.faq-rlink').forEach((el) => el.onclick = (e) => { e.stopPropagation(); location.hash = el.dataset.route; });
+    };
+    binde(main);
     const si = $('#faq-search');
-    if (si) { si.focus(); si.addEventListener('input', U.debounce(() => { V._faqQuery = si.value; renderRoute(); }, 250)); }
-    main.querySelectorAll('.faq-tile-head').forEach((el) => el.onclick = () => {
-      const topic = el.closest('.faq-topic');
-      const body = topic.querySelector('.faq-topic-body');
-      const chev = topic.querySelector('.faq-topic-chev');
-      const open = body.style.display !== 'none';
-      body.style.display = open ? 'none' : '';
-      chev.textContent = open ? '▶' : '▼';
-      el.style.borderRadius = open ? '10px' : '10px 10px 0 0';
-      if (!open) topic.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-    main.querySelectorAll('.faq-acc').forEach((el) => el.onclick = (e) => {
-      e.stopPropagation();
-      const ans = el.querySelector('.faq-ans');
-      const chev = el.querySelector('.faq-chev');
-      const open = ans.style.display !== 'none';
-      ans.style.display = open ? 'none' : '';
-      if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
-    });
-    main.querySelectorAll('.faq-rlink').forEach((el) => el.onclick = (e) => { e.stopPropagation(); location.hash = el.dataset.route; });
+    if (si) { si.focus(); si.addEventListener('input', U.debounce(() => { V._faqQuery = si.value; const erg = $('#faq-erg', main); if (erg) { erg.innerHTML = ergebnis(); binde(erg); } }, 200)); }
   },
   showLevelPicker() {
     const st = ISchule.st();

@@ -1826,6 +1826,53 @@ test('Völker: Suchfeld und Stand-Auswahl als Liste ab 8 Ständen', async (w) =>
     await w.DB.del('voelker', 'test-such-v'); for (const x of st) await w.DB.del('staende', x.id);
   }
 });
+/* Julian 21.10.2026: „bei Völker in der Suche geht die Tastatur nach jedem Buchstaben runter und wieder hoch“ –
+   jeder Buchstabe baute die ganze Seite samt Suchfeld neu. Jetzt bleibt das Feld dasselbe Element, nur die Treffer wechseln. */
+const tippen = async (w, feld, text) => { feld.value = text; feld.dispatchEvent(new w.Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 450)); };
+test('Suche: Tippen tauscht das Suchfeld nicht aus (Völker, Kontakte, Material, Fragen)', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('staende', { id: 'tt-st', name: 'Tippstand' });
+  for (const [id, name] of [['tt-v1', 'Tippvolk Anna'], ['tt-v2', 'Tippvolk Berta'], ['tt-v3', 'Anderes Volk']]) await w.DB.put('voelker', { id, name, standId: 'tt-st', status: 'aktiv', historie: [] });
+  await w.DB.put('kontakte', { id: 'tt-k1', typ: 'kunde', name: 'Tippkunde Meier' });
+  await w.DB.put('kontakte', { id: 'tt-k2', typ: 'kunde', name: 'Ganz anders' });
+  await w.DB.put('inventar', { id: 'tt-i1', typ: 'verbrauch', bezeichnung: 'Tippglas 500 g', kategorie: 'Gläser/Deckel', stueckzahl: 5 });
+  await w.DB.put('inventar', { id: 'tt-i2', typ: 'verbrauch', bezeichnung: 'Futtersirup', kategorie: 'Futter', stueckzahl: 2 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.voelker, K = w.Views.kontakte, I = w.Views.imkerschule;
+  const alt = { vs: V._suche, ks: K._suche, kf: K._filter, faq: I._faqQuery };
+  try {
+    // Völker
+    V._suche = ''; await V.render(host);
+    let feld = host.querySelector('#v-suche');
+    await tippen(w, feld, 'tippvolk');
+    assert(host.querySelector('#v-suche') === feld, 'Völker: dasselbe Suchfeld');
+    assertEq(host.querySelectorAll('#v-liste .row').length, 2, 'Völker: zwei Treffer');
+    await tippen(w, feld, 'tippvolk berta');
+    assertEq(host.querySelectorAll('#v-liste .row').length, 1, 'Völker: ein Treffer');
+    // Kontakte
+    K._suche = ''; K._filter = ''; host.innerHTML = ''; await K.liste(host, { ohneKopf: true });
+    feld = host.querySelector('[data-ksuche]');
+    await tippen(w, feld, 'tippkunde');
+    assert(host.querySelector('[data-ksuche]') === feld, 'Kontakte: dasselbe Suchfeld');
+    assertEq(host.querySelectorAll('[data-kerg] .row[data-kontakt]').length, 1, 'Kontakte: ein Treffer');
+    // Verbrauchsmaterial
+    const cfg = w.bereichCfg('verbrauch'); cfg.view._suche = ''; cfg.view._jahr = ''; cfg.view._art = '';
+    host.innerHTML = ''; await w.renderInventarBereich(host, cfg);
+    feld = host.querySelector('#suche');
+    await tippen(w, feld, 'tippglas');
+    assert(host.querySelector('#suche') === feld, 'Material: dasselbe Suchfeld');
+    assertEq(host.querySelectorAll('#pos-erg .row[data-edit]').length, 1, 'Material: ein Treffer');
+    assert(/Gesamt \(Auswahl\)/.test(host.querySelector('#inv-uebersicht').textContent), 'Übersicht folgt der Suche');
+    cfg.view._suche = '';
+    // Fragen & Antworten
+    I._faqQuery = ''; host.innerHTML = ''; I.renderFaq(host);
+    feld = host.querySelector('#faq-search');
+    await tippen(w, feld, 'schwarm');
+    assert(host.querySelector('#faq-search') === feld, 'Fragen: dasselbe Suchfeld');
+    assert(/Treffer/.test(host.querySelector('#faq-erg').textContent), 'Fragen: Treffer erscheinen');
+  } finally {
+    V._suche = alt.vs; K._suche = alt.ks; K._filter = alt.kf; I._faqQuery = alt.faq; host.remove();
+  }
+}));
 test('Imme unten: kleiner als oben (78 px hoch)', (w) => {
   assertEq(w.Assistent.dockRect('idle').h, 78);
 });
