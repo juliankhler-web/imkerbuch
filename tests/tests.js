@@ -2668,6 +2668,14 @@ test('Rechnungs-PDF baut mit Pfand, Rabatt und Skonto', async (w) => {
     const doc = w.Pdf.lastDocForTest;
     assert(doc, 'PDF wurde gebaut');
     assert(/Pfand/.test(JSON.stringify(doc.lastAutoTable.head || '')), 'Pfand-Spalte in der PDF');
+    // Julian 21.10.2026: auf Rechnungen an Kunden kein „Erstellt mit ImkerBuch am …“, die Seitenzahl bleibt
+    const text = doc.internal.pages.flat().filter(Boolean).join(' ');
+    assert(!/Erstellt mit ImkerBuch/.test(text), 'kein „Erstellt mit ImkerBuch“ auf der Rechnung');
+    assert(/Seite 1 von 1/.test(text), 'Seitenzahl bleibt');
+    // andere PDFs behalten den Hinweis
+    w.Pdf.lastDocForTest = null;
+    await w.Pdf.verkaeufe('');
+    assert(/Erstellt mit ImkerBuch/.test(w.Pdf.lastDocForTest.internal.pages.flat().filter(Boolean).join(' ')), 'Listen-PDFs behalten den Hinweis');
   } finally { w.Pdf.noDownloadForTest = false; await w.DB.del('rechnungen', r.id); }
 });
 

@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 21.10.2026, Version 2.86 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 21.10.2026, Version 2.87 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -56,7 +56,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **C4 Ernte direkt abfüllen:** Ernte und Abfüllung → Ernte erfassen → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ die **Ernte** wählen → Anzahl Gläser → Speichern. → Frage „Keine Charge angelegt – direkt abfüllen?“ → Ja → Gläser stehen im Bestand.
 - [ ] **C5 Verkauf ohne Bestand + Rabatt:** Reiter „Verkauf“ → „+“ → „Anderer Honig – noch nicht im Bestand“, 30 Gläser à 6 €, Rabatt 10 %. → Unten live „Gesamt: 162,00 €“; beim Speichern Frage „Kein Bestand – trotzdem buchen?“.
 - [ ] **C6 Auswertung:** Kassenbuch → „Auswertung“ → Jahr wechseln (Seite springt **nicht** nach oben) → Kategorie „Honigverkauf“ antippen → welcher Honig an wen; auf einen Abnehmer tippen → Abnehmer öffnet sich. Ernteprognose ganz unten aufklappen.
-- [ ] **C7 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Teilen-Menü mit sauberer Rechnung.
+- [ ] **C7 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Teilen-Menü mit sauberer Rechnung; unten steht nur „Seite 1 von 1“, kein „Erstellt mit ImkerBuch“.
 - [ ] **C8 Material:** Weitere Produkte oder Verbrauchsmaterial → Verkauf/Abgang ohne vorhandene Position. → Frage „Jetzt anlegen?“ statt Fehlermeldung.
 
 ## D · Erinnerungen

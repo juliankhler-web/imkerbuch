@@ -1504,8 +1504,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.86';
+const APP_VERSION = '2.87';
 const CHANGELOG = [
+  { version: '2.87', datum: '2026-10-21', punkte: [
+    '<b>Rechnungen ohne „Erstellt mit ImkerBuch“:</b> Auf Rechnungen an deine Kunden steht unten nur noch die Seitenzahl. Der Hinweis nannte den Tag, an dem das PDF erstellt wurde – nicht das Rechnungsdatum – und konnte Kunden verwirren. Listen und Berichte für dich behalten ihn.',
+  ] },
   { version: '2.86', datum: '2026-10-21', punkte: [
     '<b>PDFs auch bei großen Imkereien sauber:</b> Getestet mit 50 Ständen, 325 Völkern und rund 45.000 Einträgen – alle 57 PDFs. Spalten werden nicht mehr auf Buchstabenbreite gedrückt, Wörter nicht mehr mitten getrennt, sehr breite Tabellen (Königinnen) kommen in Teilen, Tabellenköpfe stehen nie allein unten auf einer Seite. Mehrere PDFs sind dadurch deutlich kürzer (Hygiene & Bio: 109 → 10 Seiten).',
     '<b>Honig-Etiketten:</b> Die unterste Etikettenreihe ragte über die Blattkante, und die Fußzeile stand darin. Jetzt liegen alle 10 Etiketten mittig mit Rand auf dem Blatt, ohne Fußzeile.',
@@ -22779,14 +22782,16 @@ const Pdf = {
     return y + lueckeNach;
   },
   /** Fußzeile mit Seitenzahlen auf allen Seiten, dann ausgeben */
-  finish(doc, dateiname, { ohneFuss = false } = {}) {
+  finish(doc, dateiname, { ohneFuss = false, ohneErstellt = false } = {}) {
     const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n && !ohneFuss; i++) {   // Etikettenbögen ohne Fußzeile – sie stünde auf dem Etikett
       doc.setPage(i);
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(150);
       doc.text(`Seite ${i} von ${n}`, W - 14, H - 7, { align: 'right' });
-      doc.text(`Erstellt mit ImkerBuch am ${U.fmtDate(U.todayIso())}`, 14, H - 7);
+      /* Rechnungen an Kunden ohne „Erstellt mit ImkerBuch am …“ – das Datum war der Tag des PDFs, nicht das
+         Rechnungsdatum, und verwirrte (Julian 21.10.2026). Die Seitenzahl bleibt. */
+      if (!ohneErstellt) doc.text(`Erstellt mit ImkerBuch am ${U.fmtDate(U.todayIso())}`, 14, H - 7);
     }
     if (this.noDownloadForTest) { this.lastDocForTest = doc; return; } // Test-Seam: kein Download
     this.ausgeben(doc, dateiname);
@@ -23490,7 +23495,7 @@ const Pdf = {
         doc.setFont('helvetica', 'normal').setFontSize(7).setTextColor(140);
         doc.text(this.zeilen(doc, foot, 171, 2), 110.5, 281.5, { align: 'center' });
       }
-      this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`);
+      this.finish(doc, `rechnung-${r.nummer || 'entwurf'}.pdf`, { ohneErstellt: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
