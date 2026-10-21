@@ -1,6 +1,6 @@
 # App Store – Texte und Angaben (Entwurf zum Einfügen)
 
-Stand 2026-10-20 (v2.81). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
+Stand 2026-10-21 (v2.83). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
 
 ## App-Informationen
 
@@ -27,7 +27,7 @@ Das digitale Stockbuch für Imker: Durchsicht am Stand auch mit Handschuhen, all
 
 ## Beschreibung
 
-(2335 von 4000 Zeichen)
+(2502 von 4000 Zeichen)
 
 ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Gerät.
 
@@ -39,6 +39,7 @@ DURCHSICHT AM STAND
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum und Bewertung
 • Bienenstände mit aktuellem Wetter – kommt beim Öffnen der App von selbst – und Verlauf als Grafik
+• Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner
 
 HONIG UND GESCHÄFT

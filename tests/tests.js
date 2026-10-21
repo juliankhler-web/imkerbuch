@@ -921,7 +921,7 @@ test('Regression: View-Listener leaken nicht über Seitenwechsel', async (w) => 
   const kopf = (text) => () => { const el = w.document.querySelector('main'); return !!el && el.innerText.includes(text); };
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());   // saubere Ausgangslage
   w.location.hash = '#/trachten';
-  await warteAuf(kopf('Trachtquellen verwalten'), 'Trachten-Ansicht');
+  await warteAuf(kopf('Was wann an deinen Ständen blüht'), 'Trachten-Ansicht');
   w.location.hash = '#/zucht';
   await warteAuf(() => kopf('Zuchtserien mit automatischem Kalender')() && w.document.querySelector('main .row[data-id]'), 'Zucht-Liste mit Einträgen');
   w.document.querySelector('main .row[data-id]').click();
@@ -7982,8 +7982,8 @@ test('Jahresbericht-PDF: Kennzahlen, Diagramme und Tabellen', async (w) => {
     const t = gebaut.text;
     // Kennzahlen
     assert(/Jahresbericht/.test(t), 'Titel steht drauf');
-    assert(/24 kg|24,0 kg/.test(t), 'die Erntemenge steht in den Kennzahlen');
-    assert(/20 kg|20,0 kg/.test(t), 'die abgefüllte Menge (40 × 500 g)');
+    assert(/24\skg|24,0\skg/.test(t), 'die Erntemenge steht in den Kennzahlen');   // \s: auch geschütztes Leerzeichen (Zahl+Einheit bleiben zusammen)
+    assert(/20\skg|20,0\skg/.test(t), 'die abgefüllte Menge (40 × 500 g)');
     assert(/Erl/.test(t) && /70/.test(t), 'der Erlös taucht auf');
     // Abschnitte
     assert(/Ernte je Monat/.test(t), 'Diagramm Ernte je Monat');
@@ -11192,6 +11192,14 @@ test('Unterlagen: jede Unterlage lässt sich wirklich erzeugen (PDF, Excel, CSV)
   w.U.download = async (b) => { if (/csv/.test(b.type)) erzeugt.csv++; };
   w.UI.toast = (t, art) => { if (art === 'err') fehler.push(t); };
   const jahr = w.U.todayIso().slice(0, 4);
+  /* v2.83 (Julian: „Sonderzeichen und Umlaute in den PDFs“): Einträge mit Zeichen, die die PDF-Schrift nicht kennt –
+     vorher machte schon EIN solches Zeichen die ganze Zeile zu Zeichensalat (erkennbar an Null-Bytes im Text). */
+  const extra = [
+    await w.DB.put('voelker', { name: 'Prüf-Volk „Jörg“ ≤ 5 ✓ 😀', status: 'aktiv', funktion: 'Wirtschaftsvolk', standId: null, historie: [{ datum: `${jahr}-03-01`, text: 'angelegt → ✓' }] }),
+    await w.DB.put('kassenbuch', { typ: 'ausgabe', datum: `${jahr}-03-02`, betrag: 12.5, kategorie: 'Gläser', beschreibung: 'Gläser ≤ 500 g → Markt ✓ ★ − Rabatt ≈ 5 %' }),
+    await w.DB.put('trachten', { pflanze: 'Raps', bezeichnung: 'Raps → Feld ✓', von: `${jahr}-04-18`, bis: `${jahr}-05-17`, jaehrlich: true, notiz: 'blüht ≥ 3 Wochen 🌼' }),
+  ];
+  const kaputt = [];
   try {
     for (const e of w.unterlagenListe()) {
       for (const art of ['pdf', 'xlsx', 'csv']) {
@@ -11200,12 +11208,15 @@ test('Unterlagen: jede Unterlage lässt sich wirklich erzeugen (PDF, Excel, CSV)
         const vor = fehler.length;
         try { await e[art](e.jahr ? jahr : ''); } catch (x) { fehler.push(`${e.id}/${art}: ${x.message}`); }
         if (art === 'pdf') { for (let i = 0; i < 40 && !w.Pdf.lastDocForTest && fehler.length === vor; i++) await warte(50); if (w.Pdf.lastDocForTest) erzeugt.pdf++; else if (fehler.length === vor) fehler.push(`${e.id}: kein PDF entstanden`); }
+        if (art === 'pdf' && w.Pdf.lastDocForTest && w.Pdf.lastDocForTest.internal.pages.some((pg) => (pg || []).some((z) => /\u0000/.test(z)))) kaputt.push(e.id);
         if (fehler.length > vor) fehler[fehler.length - 1] = `${e.id}/${art}: ${fehler[fehler.length - 1]}`;
       }
     }
     assertEq(fehler, [], 'keine Fehlermeldung');
+    assertEq(kaputt, [], 'kein PDF mit Zeichensalat');
     assert(erzeugt.pdf >= 25 && erzeugt.xlsx >= 25 && erzeugt.csv >= 20, `viele Dateien erzeugt (${JSON.stringify(erzeugt)})`);
   } finally {
+    for (const [i, st] of [['voelker', 0], ['kassenbuch', 1], ['trachten', 2]].map(([st, i]) => [i, st])) await w.DB.del(st, extra[i].id);
     w.Pdf.noDownloadForTest = altPdf; w.xlsxSpeichern = altX; w.U.download = altDl; w.UI.toast = altToast;
     w.document.querySelectorAll('.modal-back').forEach((m) => m.remove());
   }
@@ -13334,6 +13345,281 @@ test('Imme-Führung: Abschluss wartet auf ein offenes Fenster und nimmt den erst
     await warteBis(() => w.document.querySelector('.bini-tip') && w.document.querySelector('.bini-ziel'));
     assertEq(w.document.querySelector('.bini-ziel').id, 'dash-cfg', 'Reihenfolge der Selektoren entscheidet, nicht die Lage im Dokument');
   } finally { if (m) m.close(); A.beendeTour(true); }
+});
+
+/* ---------- v2.83: Trachtkalender – Blütezeit je Stand (DWD), jedes Jahr, Startseite, Stand, Erinnerung, Ernte, Statistik ---------- */
+test('Trachtkalender: Blütezeit aus DWD-Beobachtungen – am Ort, Deutschland-Schnitt, Richtwert', (w) => {
+  const B = w.Bluehzeit, D = w.BLUEHZEITEN;
+  assert(/Deutscher Wetterdienst/.test(D.quelle) && /^\d{4}–\d{4}$/.test(D.jahre), 'Quelle und Jahre stehen dabei');
+  assert(B.orte().length > 1000, 'über 1000 Beobachtungsstellen');
+  for (const k of ['salweide', 'loewenzahn', 'raps', 'robinie', 'sommerlinde', 'heide', 'kirsche', 'apfelEnde']) assert(D.reihen[k] && D.reihen[k].de > 0, `Reihe ${k} vorhanden`);
+  const de = (k) => D.reihen[k].de;
+  assert(de('salweide') < de('loewenzahn') && de('loewenzahn') < de('raps') && de('raps') < de('robinie') && de('robinie') < de('sommerlinde') && de('sommerlinde') < de('heide'), 'Blühfolge im Jahr stimmt');
+  const z = B.zeit('Raps', 48.26, 11.43, 2027);   // Dachau
+  assertEq(z.quelle, 'ort'); assert(z.n >= 1 && z.km <= 60, 'Stellen in der Nähe');
+  assert(z.von >= '2027-04-01' && z.von <= '2027-05-15' && z.bis > z.von, 'Raps-Blüte plausibel: ' + z.von + '–' + z.bis);
+  const sued = B.zeit('Robinie', 47.99, 7.84, 2027), nord = B.zeit('Robinie', 54.32, 10.13, 2027);   // Freiburg, Kiel
+  assert(sued.von < nord.von, `Robinie am Oberrhein früher als an der Ostsee (${sued.von} / ${nord.von})`);
+  assertEq(B.zeit('Raps', null, null, 2027).quelle, 'deutschland', 'ohne Standort: Deutschland-Schnitt');
+  assertEq(B.zeit('Raps', 40.4, -3.7, 2027).quelle, 'deutschland', 'weit weg von jeder Stelle (Madrid): Deutschland-Schnitt');
+  const ph = B.zeit('Phacelia', 48.26, 11.43, 2027);
+  assertEq(ph.quelle, 'richtwert'); assert(/je nach Aussaat/.test(B.text(ph)), 'Hinweis bei Phacelia');
+  const o = B.zeit('Obstblüte', 48.26, 11.43, 2027);
+  assert(!o.endeGeschaetzt && o.bis > o.von, 'Obstblüte: Ende gemessen (Apfel), nicht geschätzt');
+  const t = B.text(z, 'Heimstand');
+  assert(/Heimstand/.test(t) && /Beobachtungsstelle/.test(t) && /Wetterdienst/.test(t), 'Hinweis nennt Stand und Quelle');
+});
+
+test('Trachtkalender: Pflanzennamen erkennen – Schreibweisen, Jahreszahl, keine falschen Treffer', (w) => {
+  const P = (n) => (w.Bluehzeit.pflanze(n) || {}).name || null;
+  assertEq(P('Robinie (Akazie)'), 'Robinie'); assertEq(P('Akazie'), 'Robinie');
+  assertEq(P('Raps 2026'), 'Raps'); assertEq(P('Rapsblüte'), 'Raps');
+  assertEq(P('Sommerlinde'), 'Linde'); assertEq(P('Waldtracht'), 'Wald/Honigtau');
+  assertEq(P('Edelkastanie'), 'Edelkastanie'); assertEq(P('Rosskastanie'), 'Rosskastanie');
+  assertEq(P('Heidelbeere'), null, 'Heidelbeere ist keine Heide');
+  assertEq(P('Löwenzahn'), 'Löwenzahn'); assertEq(P(''), null);
+  for (const p of w.TRACHT_PFLANZEN) {
+    assertEq(P(p.name), p.name, 'findet sich selbst: ' + p.name);
+    if (p.beginn) assert(w.BLUEHZEITEN.reihen[p.beginn], p.name + ': Daten da');
+    if (p.ende) assert(w.BLUEHZEITEN.reihen[p.ende], p.name + ': Ende da');
+    assert(p.typisch && /^\d\d-\d\d$/.test(p.typisch[0]) && p.typisch[0] < p.typisch[1], p.name + ': Richtwert');
+  }
+});
+
+test('Trachtkalender: jedes Jahr wiederkehrend – blüht gerade, bald, später, vorbei', (w) => {
+  const T = w.Tracht;
+  const t = { pflanze: 'Raps', von: '2025-04-18', bis: '2025-05-17', jaehrlich: true };
+  let l = T.lage(t, '2027-04-25');
+  assertEq(l.status, 'jetzt'); assertEq(l.von, '2027-04-18'); assertEq(l.rest, 22); assert(l.anteil > 0.2 && l.anteil < 0.3, 'Fortschritt');
+  l = T.lage(t, '2027-04-10'); assertEq(l.status, 'bald'); assertEq(l.tage, 8); assertEq(T.schild(l).text, 'ab 18.04. · in 8 Tagen');
+  assertEq(T.lage(t, '2027-02-01').status, 'spaeter');
+  l = T.lage(t, '2027-06-01'); assertEq(l.status, 'spaeter', 'nach der Blüte: nächstes Jahr'); assertEq(l.von, '2028-04-18');
+  assertEq(T.schild(T.lage(t, '2027-05-17')).text, 'blüht · letzter Tag');
+  const e = { ...t, jaehrlich: false };
+  assertEq(T.lage(e, '2025-04-20').status, 'jetzt'); assertEq(T.lage(e, '2026-04-20').status, 'vorbei', 'ohne „jedes Jahr“: nur das eigene Jahr');
+  assertEq(T.zeitraum(e, 2026), null); assertEq(T.zeitraum(t, 2026).von, '2026-04-18');
+  assertEq(T.zeitraum({ von: '2024-02-29', bis: '2024-03-20', jaehrlich: true }, 2025).von, '2025-02-28', '29. Februar');
+  assertEq(T.zeitraum({ von: '2025-05-17', bis: '2025-04-18' }, null).von, '2025-04-18', 'vertauschte Daten');
+  assertEq(T.lage({ pflanze: 'Raps' }).status, 'ohne');
+  assertEq(T.schluessel({ bezeichnung: 'Raps 2025', pflanze: 'Raps' }), 'Raps');
+  assertEq(T.schluessel({ bezeichnung: 'Robinie am Bahndamm', pflanze: 'Robinie (Akazie)' }), 'Robinie');
+  assertEq(T.name({ bezeichnung: '', pflanze: 'Linde' }), 'Linde');
+});
+
+test('Trachtkalender: Erinnerung als Aufgabe – anlegen, verschieben, nicht doppelt, nächstes Jahr, abschalten', async (w) => isolierteDaten(w, async () => {
+  const T = w.Tracht;
+  const auf = async () => (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'tracht');
+  const t = await w.DB.put('trachten', { pflanze: 'Robinie', von: '2026-05-22', bis: '2026-06-09', jaehrlich: true, erinnernTage: 7, standIds: ['S1'] });
+  await T.aufgabePflegen(t, { heute: '2027-03-01' });
+  let a = await auf();
+  assertEq(a.length, 1); assertEq(a[0].faellig, '2027-05-15'); assertEq(a[0].trachtJahr, '2027'); assertEq(a[0].standId, 'S1');
+  assert(/Robinie blüht ab 22\.05\./.test(a[0].titel), 'Titel nennt Blühbeginn');
+  await T.aufgabePflegen(t, { heute: '2027-03-02' }); assertEq((await auf()).length, 1, 'nicht doppelt');
+  t.von = '2026-05-26'; t.bis = '2026-06-12'; await T.aufgabePflegen(t, { heute: '2027-03-02' });
+  a = await auf(); assertEq(a.length, 1); assertEq(a[0].faellig, '2027-05-19', 'mit der Blütezeit verschoben');
+  a[0].erledigt = true; await w.DB.put('aufgaben', a[0]);
+  await T.aufgabePflegen(t, { heute: '2027-05-20' }); assertEq((await auf()).length, 1, 'erledigt: kein neuer Eintrag für dieses Jahr');
+  await T.aufgabePflegen(t, { heute: '2027-06-20' });
+  a = await auf(); assertEq(a.length, 2, 'nach der Blüte: Erinnerung fürs nächste Jahr');
+  assert(a.some((x) => x.trachtJahr === '2028' && x.faellig === '2028-05-19' && !x.erledigt), 'nächstes Jahr richtig');
+  t.erinnernTage = 0; await T.aufgabePflegen(t, { heute: '2027-06-20' });
+  a = await auf(); assertEq(a.length, 1, 'abgeschaltet: offene Erinnerung weg'); assert(a[0].erledigt, 'erledigte bleibt');
+  // kurz vor Blühbeginn: Erinnerung heute
+  const k = await w.DB.put('trachten', { pflanze: 'Linde', von: '2026-06-12', bis: '2026-07-08', jaehrlich: true, erinnernTage: 14 });
+  const neu = await T.aufgabePflegen(k, { heute: '2027-06-08' });
+  assertEq(neu.faellig, '2027-06-08', 'Vorlauf schon vorbei: Erinnerung heute');
+  await T.aufgabenEntfernen(k.id);
+  assert(!(await auf()).some((x) => x.refId === k.id), 'gelöschte Tracht: offene Erinnerung weg');
+}));
+
+test('Startseite: Kachel „Tracht“ – unsichtbar ohne Trachten, zeigt Blühendes und Kommendes, „Als Aufgabe“ einmal', async (w) => isolierteDaten(w, async () => {
+  const W = w.DASH_WIDGETS.tracht;
+  assert(W && W.ziel === 'trachten', 'Kachel vorhanden, führt zum Trachtkalender');
+  assertEq(await W.html(), '', 'ohne Trachten unsichtbar');
+  const heute = w.U.todayIso();
+  const st = await w.DB.put('staende', { name: 'Probe-Stand' });
+  await w.DB.put('voelker', { name: 'Probe-Volk', status: 'aktiv', standId: st.id });
+  await w.DB.put('trachten', { pflanze: 'Raps', von: w.U.addDays(heute, -5), bis: w.U.addDays(heute, 10), jaehrlich: true, standIds: [st.id] });
+  const rob = await w.DB.put('trachten', { pflanze: 'Robinie', von: w.U.addDays(heute, 6), bis: w.U.addDays(heute, 20), jaehrlich: true, standIds: [st.id] });
+  const h = await W.html();
+  assert(/Raps/.test(h) && /blüht · noch 10 Tage/.test(h), 'Raps blüht');
+  assert(/Robinie/.test(h) && /in 6 Tagen/.test(h), 'Robinie kommt bald');
+  assert(/1 Volk an Probe-Stand/.test(h) && /Als Aufgabe/.test(h), 'Hinweis mit Völkern und Knopf');
+  const altRender = w.renderRoute; w.renderRoute = () => {};
+  try { await w.Tracht.vorbereitenAufgabe(rob.id); await w.Tracht.vorbereitenAufgabe(rob.id); } finally { w.renderRoute = altRender; }
+  assertEq((await w.DB.getAll('aufgaben')).filter((a) => a.refId === rob.id).length, 1, 'nur eine Aufgabe');
+  assert(/Aufgabe ist angelegt/.test(await W.html()), 'Kachel zeigt die Aufgabe');
+  // nichts blüht, nichts bald: nächste Tracht
+  for (const t of await w.DB.getAll('trachten')) await w.DB.del('trachten', t.id);
+  await w.DB.put('trachten', { pflanze: 'Heide', von: w.U.addDays(heute, 40), bis: w.U.addDays(heute, 70), jaehrlich: true });
+  assert(/Nächste Tracht: <b>Heide<\/b>/.test(await W.html()), 'nächste Tracht genannt');
+}));
+
+test('Ernte: passende Tracht nach Datum und Stand – Honigsorte dazu', (w) => {
+  const T = w.Tracht;
+  const raps = { id: 'r', pflanze: 'Raps', von: '2025-04-18', bis: '2025-05-17', jaehrlich: true, standIds: ['A'] };
+  const linde = { id: 'l', pflanze: 'Linde', von: '2025-06-12', bis: '2025-07-10', jaehrlich: true, standIds: ['B'] };
+  const rob = { id: 'o', pflanze: 'Robinie', von: '2025-05-22', bis: '2025-06-09', jaehrlich: true, standIds: [] };
+  const alle = [raps, linde, rob];
+  assertEq(T.vorschlagErnte(alle, '2027-06-01', 'A').id, 'r', 'am Stand eingetragene Tracht zuerst');
+  assertEq(T.vorschlagErnte(alle, '2027-06-20', 'C').id, 'o', 'anderer Stand: nur Trachten ohne Stand');
+  assertEq(T.vorschlagErnte(alle, '2027-07-15', 'B').id, 'l');
+  assertEq(T.vorschlagErnte(alle, '2027-03-01', 'A'), null, 'vor jeder Blüte nichts');
+  assertEq(T.vorschlagErnte(alle, '2027-09-30', 'B'), null, 'zu lange nach der Blüte nichts');
+  assertEq(T.vorschlagErnte(alle, '', 'A'), null);
+  assertEq(T.sorteZu(rob, ['Frühtracht', 'Robinie (Akazie)']), 'Robinie (Akazie)');
+  assertEq(T.sorteZu({ pflanze: 'Wald/Honigtau' }, ['Waldhonig', 'Tanne']), 'Waldhonig');
+  assertEq(T.sorteZu({ pflanze: 'Phacelia' }, ['Raps']), '');
+});
+
+test('Ernte-Formular: Tracht wird vorgeschlagen, Sorte ergänzt und mit der Ernte gespeichert', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Rapsstand' });
+  const v = await w.DB.put('voelker', { name: 'Rapsvolk', status: 'aktiv', standId: st.id });
+  const tr = await w.DB.put('trachten', { pflanze: 'Raps', von: '2025-04-18', bis: '2025-05-17', jaehrlich: true, standIds: [st.id] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.honig.tabErnten(host);
+    host.querySelector('#add').click();
+    await warteBis(() => w.document.querySelector('.modal-back #f-trachtId'));
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const f = (k) => m.querySelector('#f-' + k);
+    f('zielTyp').value = 'volk'; f('zielTyp').dispatchEvent(new w.Event('change', { bubbles: true }));
+    f('zielVolk').value = v.id; f('zielVolk').dispatchEvent(new w.Event('change', { bubbles: true }));
+    f('datum').value = '2026-06-01'; f('datum').dispatchEvent(new w.Event('change', { bubbles: true }));
+    await warteBis(() => f('trachtId').value === tr.id);
+    assertEq(f('sorte').value, 'Raps', 'Sorte passend ergänzt');
+    f('mengeKg').value = '12,5';
+    m.querySelector('[data-save]').click();
+    await warteBis(async () => (await w.DB.getAll('ernten')).length === 1);
+    const e = (await w.DB.getAll('ernten'))[0];
+    assertEq(e.trachtId, tr.id); assertEq(e.mengeKg, 12.5);
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); }
+}));
+
+test('Statistik: Ertrag je Tracht – gleiche Pflanze über die Jahre, Ø je Volk, Vorjahr, Hinweis ohne Tracht', async (w) => isolierteDaten(w, async () => {
+  const alt = await w.DB.put('trachten', { bezeichnung: 'Raps 2024', pflanze: 'Raps', von: '2024-04-18', bis: '2024-05-17' });
+  const raps = await w.DB.put('trachten', { pflanze: 'Raps', von: '2025-04-18', bis: '2025-05-17', jaehrlich: true });
+  const linde = await w.DB.put('trachten', { pflanze: 'Linde', von: '2025-06-12', bis: '2025-07-10', jaehrlich: true });
+  const e = (zielId, datum, kg, trachtId) => w.DB.put('ernten', { zielTyp: 'volk', zielId, datum, produktart: 'Honig', sorte: '', mengeKg: kg, trachtId });
+  await e('A', '2025-06-01', 30, raps.id); await e('B', '2025-06-02', 20, raps.id); await e('A', '2025-07-20', 10, linde.id);
+  await e('A', '2024-06-01', 40, alt.id); await e('C', '2025-08-01', 5, null);
+  const rows = await w.Reporting.ertragJeTracht('2025');
+  const r = rows.find((x) => x.k === 'Raps');
+  assertEq(r.kg, 50); assertEq(r.n, 2); assertEq(r.voelker, 2); assertEq(r.schnitt, 25); assertEq(r.vorjahr, 40, '„Raps 2024“ zählt als Vorjahr von „Raps“');
+  assertEq(rows.find((x) => x.k === 'Linde').vorjahr, null);
+  assertEq(rows[rows.length - 1].k, 'ohne Tracht', '„ohne Tracht“ steht unten');
+  const erg = await w.Statistik.auswerten('ertrag', '2025');
+  const k = erg.kacheln.find((x) => x.label === 'Stärkste Tracht');
+  assertEq(k.wert, 'Raps'); assertEq(k.vergleich.text, '▲ 25 %');
+  assert(erg.auffaellig.some((a) => /1 Ernte ohne Tracht/.test(a.titel)), 'Hinweis: Ernte ohne Tracht');
+  assert((await w.Reporting.ertrag('tracht', '2025')).some((x) => x.k === 'Raps' && x.kg === 50), 'Gruppe „Tracht“ in der Statistik');
+  // Export: „jedes Jahr“ gehört in jedes Jahr, Einzel-Tracht nur in ihr Jahr
+  const fi = w.Export.filter({ jahr: '2030' });
+  assert(fi('trachten', raps) && !fi('trachten', alt), 'Jahresfilter für Trachten');
+}));
+
+test('Trachten-Seite, Formular und Stand: Kalender, Blütezeit-Vorschlag, Tracht am Stand', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Dachau-Stand', lat: 48.26, lng: 11.43 });
+  const j = w.U.todayIso().slice(0, 4);
+  await w.DB.put('trachten', { pflanze: 'Raps', von: `${j}-04-18`, bis: `${j}-05-17`, jaehrlich: true, standIds: [st.id] });
+  await w.DB.put('trachten', { bezeichnung: 'Waldtracht 2019', pflanze: 'Waldtracht', von: '2019-06-20', bis: '2019-08-01' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.trachten.render(host);
+    assertEq(host.querySelectorAll('.tk-zeile').length, 1, 'Kalender: nur Trachten dieses Jahres');
+    assert(/Trachtkalender/.test(host.textContent) && /Deutscher Wetterdienst/.test(host.textContent), 'Kalender und Quellenangabe');
+    assert(/nur 2019/.test(host.textContent), 'alter Einzeleintrag als „nur 2019“ gekennzeichnet');
+    // Formular: Pflanze wählen → Blütezeit für den Stand
+    const m = await w.Views.trachten.formular(null, { standIds: [st.id] });
+    const f = (k) => m.el.querySelector('#f-' + k);
+    assert(f('jaehrlich').checked, '„Jedes Jahr“ ist vorbelegt');
+    f('pflanze').value = 'Robinie'; f('pflanze').dispatchEvent(new w.Event('input', { bubbles: true }));
+    assert(/^\d{4}-0[5-6]-\d\d$/.test(f('von').value) && f('bis').value > f('von').value, 'Blütezeit eingetragen: ' + f('von').value);
+    assert(/Dachau-Stand/.test(m.el.querySelector('#tr-hinweis').textContent) && /Wetterdienst/.test(m.el.querySelector('#tr-hinweis').textContent), 'Hinweis nennt Stand und Quelle');
+    // von Hand geändert → nicht mehr überschreiben, Knopf zum Übernehmen
+    f('von').value = `${j}-05-01`; f('von').dispatchEvent(new w.Event('input', { bubbles: true }));
+    const vorher = f('von').value;
+    f('pflanze').value = 'Linde'; f('pflanze').dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq(f('von').value, vorher, 'von Hand gesetzter Beginn bleibt');
+    const knopf = m.el.querySelector('[data-tr-uebernehmen]');
+    assert(knopf && /übernehmen/.test(knopf.textContent), 'Knopf bietet die Linden-Zeit an');
+    knopf.click();
+    assert(f('von').value !== vorher && /^\d{4}-0[6-7]-/.test(f('von').value), 'Übernehmen setzt die Linden-Zeit: ' + f('von').value);
+    m.close(true);
+    // Stand: Abschnitt „Tracht an diesem Stand“
+    host.innerHTML = '';
+    await w.Views.stand.render(host, st.id);
+    const k = host.querySelector('#tracht-karte');
+    assert(k && /Raps/.test(k.textContent) && /jedes Jahr/.test(k.textContent), 'Tracht am Stand sichtbar');
+  } finally { host.remove(); w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); }
+}));
+
+/* Julian 21.10.2026: „Völker“ stand oben in der Leiste und darunter noch einmal groß – doppelt, kostet Platz. */
+test('Seitenkopf: Bereichsname nur oben in der Leiste – Druck und Vorleser behalten die Überschrift', async (w) => {
+  const tb = w.document.getElementById('tb-title'), alt = tb.textContent;
+  const h = w.document.createElement('div');
+  try {
+    tb.textContent = 'Völker';
+    h.innerHTML = w.pageHead('Völker', '13 aktiv', '<button class="btn">+ Neues Volk</button>');
+    assert(h.querySelector('.page-head.ph-kompakt') && h.querySelector('h1.ph-titel-druck'), 'gleicher Titel: Überschrift nur für Druck und Vorleser');
+    assertEq(h.querySelector('h1').textContent, 'Völker', 'Überschrift bleibt im Dokument');
+    assert(h.querySelector('.sub') && h.querySelector('.ph-actions'), 'Zahl und Knöpfe bleiben');
+    h.innerHTML = w.pageHead('Volk Anna', 'Heimstand');
+    assert(!h.querySelector('.ph-kompakt') && !h.querySelector('.ph-titel-druck'), 'andere Überschrift (Name eines Volks) bleibt groß');
+    const css = [...w.document.querySelectorAll('style')].map((s) => s.textContent).join('');
+    assert(/@media print\{\.ph-titel-druck\{position:static/.test(css), 'im Ausdruck steht die Überschrift');
+  } finally { tb.textContent = alt; }
+  for (const r of ['voelker', 'trachten', 'bio', 'rechner', 'kontakte', 'meldungen']) {
+    w.location.hash = '#/' + r;
+    await warteBis(() => w.document.body.dataset.route === r && w.document.querySelector('#main .page-head h1'));
+    assert(w.document.querySelector('#main .page-head h1.ph-titel-druck'), `${r}: Titel nicht doppelt`);
+  }
+  // zu langer Name in der Leiste: „ImkerBuch“ fällt weg, der Bereichsname bleibt ganz lesbar
+  const bar = tb.closest('.topbar'), brand = w.document.getElementById('tb-brand');
+  const altBreite = bar.style.width;
+  try {
+    bar.style.width = '300px'; brand.style.display = 'flex';
+    w.leistePlatz();
+    if (tb.scrollWidth > tb.clientWidth + 1 || bar.classList.contains('tb-eng')) assert(bar.classList.contains('tb-eng'), 'eng: Markenwort aus');
+  } finally { bar.style.width = altBreite; brand.style.display = ''; w.leistePlatz(); }
+  w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard');
+});
+
+/* Julian 21.10.2026: „Sonderzeichen beim Abspeichern der PDF und in den PDFs – auch die Umlaute“ */
+test('PDF: Umlaute, € und „“ bleiben, unbekannte Zeichen werden lesbar ersetzt – nie Zeichensalat', async (w) => {
+  const P = w.Pdf;
+  assertEq(P.pdfText('Größe ≤ 5 °C → ✓'), 'Größe <= 5 °C -> ok');
+  assertEq(P.pdfText('äöüÄÖÜß € „Zitat“ ‚x‘ – — … · ½ Ø § é ñ ’ « » •'), 'äöüÄÖÜß € „Zitat“ ‚x‘ – — … · ½ Ø § é ñ ’ « » •', 'westeuropäische Zeichen bleiben');
+  assertEq(P.pdfText('▲ 18 % ▼ 3 kg'), '+ 18\u00A0% - 3\u00A0kg', 'Zahl und Einheit bleiben zusammen');
+  assertEq(P.pdfText('Honig 😀🐝 gut'), 'Honig  gut', 'Emoji fallen weg');
+  assertEq(P.pdfText('ő-ł-Ω'), 'o--', 'Akzent fällt weg, Unbekanntes ebenso');
+  const J = await P.lib();
+  const doc = new J({ unit: 'mm', format: 'a4' });
+  doc.text('Größe ≤ 5 °C ✓', 14, 20);
+  doc.autoTable({ head: [['Spalte Ä', 'Wert']], body: [['Gläser ≤ 500 g → Markt', '12,50 € – „gut“ ✓']], startY: 30 });
+  const seite = doc.internal.pages[1].join('\n');
+  assert(!/\u0000/.test(seite), 'keine Zeile in fremder Kodierung (Zeichensalat)');
+  assert(seite.includes('(Größe <= 5 °C ok)'), 'Text mit Umlauten steht sauber im PDF');
+  // „ “ € stehen im PDF als Zeichen der PDF-Schrift (WinAnsi 0x84, 0x93, 0x80) – ein PDF-Leser zeigt sie richtig an
+  assert(seite.includes('Gläser <= 500 g -> Markt') && seite.includes('12,50\u00A0\u0080 \u0096 \u0084gut\u0093 ok'), 'Tabelle sauber');
+  assert(doc.splitTextToSize('Volk ≤ Jörg', 200)[0] === 'Volk <= Jörg', 'Umbruch misst mit demselben Text');
+  // kurze Werte brechen in schmalen Spalten nicht um (Kassenbuch: „19“ und darunter „%“)
+  const d2 = new J({ unit: 'mm', format: 'a4' });
+  P.table(d2, { head: ['Beschreibung', 'USt', 'Betrag'], body: [['Wort '.repeat(80), '19 %', '-129,00 €']], startY: 20 });
+  const z = d2.lastAutoTable.body[0].cells;
+  assert(z[1].text.length === 1 && z[2].text.length === 1, `„19 %“ und Betrag in einer Zeile (${z[1].text.join('/')} · ${z[2].text.join('/')})`);
+});
+
+test('Dateinamen: überall speicherbar – Umlaute als ae/oe/ue/ss, keine verbotenen Zeichen, Endung bleibt', (w) => {
+  const d = w.dateiname;
+  assertEq(d('Volksakte Jörg/Ärger: 2026?.pdf'), 'Volksakte-Joerg_Aerger-2026.pdf');
+  assertEq(d('rechnung-RE/2026/007.pdf'), 'rechnung-RE_2026_007.pdf');
+  assertEq(d('Stockkarte Königin ♛ 😀.pdf'), 'Stockkarte-Koenigin.pdf');
+  assertEq(d('Straße Größe.XLSX'), 'Strasse-Groesse.xlsx');
+  assertEq(d('  .pdf', 'imkerbuch.pdf'), 'imkerbuch.pdf', 'leerer Name: Ersatz');
+  assertEq(d('', 'datei'), 'datei');
+  assertEq(d('a'.repeat(300) + '.csv').length, 104, 'höchstens 100 Zeichen plus Endung');
+  assert(/^[\x20-\x7E]+$/.test(d('Ünterlagen „Bio“ – Café ½.pdf')), 'nur einfache Zeichen');
 });
 
 test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {

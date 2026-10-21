@@ -40,7 +40,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 
 - **App-Name (max. 30):** `ImkerBuch` (wie im App Store, Julian 20.10.2026)
 - **Kurzbeschreibung (max. 80, 77 Zeichen):** `Digitales Stockbuch: Völker, Durchsicht, Varroa, Honig – offline, ohne Konto.`
-- **Vollständige Beschreibung (2519 von 4000 Zeichen, Stand v2.81) – zum Einfügen:**
+- **Vollständige Beschreibung (2686 von 4000 Zeichen, Stand v2.83) – zum Einfügen:**
 
 ```text
 ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Handy.
@@ -53,6 +53,7 @@ DURCHSICHT AM STAND
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum, Generation und Bewertung
 • Bienenstände mit aktuellem Wetter – kommt beim Öffnen der App von selbst – und Verlauf als Grafik
+• Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner (auch Sirup in Litern)
 
 HONIG UND GESCHÄFT
