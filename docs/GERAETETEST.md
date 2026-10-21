@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 21.10.2026, Version 2.85 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 21.10.2026, Version 2.86 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -96,6 +96,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **G3 Neustart:** App ganz schließen und neu öffnen. → Alle Daten sind da.
 - [ ] **G4 Dunkel:** Kontrollzentrum → Dunkelmodus. → App wird dunkel, alles lesbar.
 - [ ] **G5 Quer:** iPhone drehen. → Nichts ragt über den Rand.
+- [ ] **G6 Großbestand (nur auf einem Testgerät!):** Erst eine eigene Sicherung machen. Dann Einstellungen → „Backup importieren“ → in iCloud Drive den Ordner „ImkerBuch-Test“ → Datei `imkerbuch-backup-grossbestand.json` (50 Stände, 325 Völker, erfundene Daten). → Einspielen dauert wenige Sekunden; Völkerliste, Statistik und Stand-Seiten öffnen ohne Warten. Unterlagen → einige PDFs erzeugen (Bestandsbuch, Königinnen, Hygieneplan, Komplettausdruck, Honig-Etiketten). → Keine Buchstaben untereinander, keine Wörter mitten getrennt, kein Tabellenkopf allein unten, Etiketten ganz auf dem Blatt. Danach die eigene Sicherung wieder einspielen. *(Am Mac geprüft mit `tools/pdf-pruefung.mjs`: alle 57 PDFs.)*
 
 ## H · Kaufen
 

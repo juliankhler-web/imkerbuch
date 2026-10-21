@@ -358,7 +358,7 @@ Fertige Dokumente: `bestandsbuch`, `wanderbuch`, `zuchtbuch(serieId)`, `chargenu
 `bioUnterlagen`, `fuetterungsliste(jahr)`, `fahrtenbuch(jahr)`, `kassenbuchJahr(jahr)`,
 `report(typ)` (`voelker` \| `ertrag` \| `behandlungen`), `komplett()`.
 
-Etiketten-Raster: 90 × 54 mm, 2 × 5 auf A4, Ränder 12/14 mm, Abstände 6/3,6 mm.
+Etiketten-Raster: 90 × 54 mm, 2 × 5 auf A4, Ränder 12/8,5 mm (mittig), Abstände 6/2,5 mm, ohne Fußzeile (bis v2.85: 14 mm oben + 3,6 mm Abstand → letzte Reihe ragte über die Blattkante).
 
 `Xlsx.exportAll()` schreibt eine Mappe mit 22 Blättern (Stände, Völker, Stockkarten,
 Königinnen, Zucht, Behandlungen, Wanderungen, Trachten, Ernten, Chargen, Abfüllungen,

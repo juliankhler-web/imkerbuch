@@ -461,7 +461,7 @@ test('Beispieldaten laden behält die internen Sicherungskopien und legt vorher 
   const snaps = await w.DB.getAll('snapshots');
   assert(snaps.some((x) => x.grund === 'test-alt'), 'ältere Kopie bleibt');
   const vor = snaps.find((x) => x.grund === 'vor-beispieldaten');
-  assert(vor && /Vor der Demo/.test(vor.daten), 'Kopie mit den Daten von vorher');
+  assert(vor && /Vor der Demo/.test(await w.Backup.snapshotText(vor)), 'Kopie mit den Daten von vorher');
   const neu = await w.Backup.geraetNeu();
   assert(neu && neu.demo, 'nach dem Laden gilt das Gerät als „nur Beispieldaten“');
 }));
@@ -500,7 +500,8 @@ test('Backup.snapshotInternal: rollierend, ohne Anhang-Blobs', async (w) => {
   for (let i = 0; i < 12; i++) await w.Backup.snapshotInternal('test');
   const snaps = await w.DB.getAll('snapshots');
   assert(snaps.length <= 10, `max. 10 Snapshots (ist: ${snaps.length})`);
-  const inhalt = JSON.parse(snaps[0].daten);
+  const inhalt = JSON.parse(await w.Backup.snapshotText(snaps[0]));
+  assert(snaps[0].gz && snaps[0].gepackt < snaps[0].groesse, 'gepackt gespeichert');
   assert(!('snapshots' in inhalt.stores), 'Snapshots nicht rekursiv enthalten');
   for (const a of inhalt.stores.anhaenge || []) assert(!a.blob && !a.datenUrl, 'keine Binärdaten im Snapshot');
 });
@@ -7666,6 +7667,56 @@ test('Etikett: Chargennummer steht als eigene Zeile mit L, MHD kommt von der Abf
     await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
   }
 });
+/* PDF-Prüfung 21.10.2026: die fünfte Etikettenreihe endete bei 298,4 mm (Blatt: 297 mm), die Fußzeile stand im Etikett */
+test('Etiketten-Bogen: alle Etiketten liegen mit Rand auf dem Blatt, keine Fußzeile darin', async (w) => {
+  const charge = await w.DB.put('chargen', { losnummer: '2026-07', datum: '2026-07-01', ernteIds: [], mengeKg: 10, sorte: 'Raps' });
+  const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: '2026-07-10', mhd: '2028-07-10', gebindeG: 500, anzahl: 12, bestand: 12 });
+  const echtLib = w.Pdf.lib, J = await w.Pdf.lib(), rahmen = [], echtConfirm = w.UI.confirm;
+  w.Pdf.lib = async () => function (...a) { const d = new J(...a); const rr = d.roundedRect.bind(d); d.roundedRect = (x, y, b, h, ...r) => { rahmen.push({ x, y, b, h }); return rr(x, y, b, h, ...r); }; return d; };
+  w.UI.confirm = async () => true;   // falls das Testgerät Bio ohne Logo ist
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try {
+    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Rapshonig', ursprung: 'Deutschland', anzahl: 12, mitQr: true });
+    const d = w.Pdf.lastDocForTest;
+    assert(d, 'Bogen gebaut');
+    assertEq(d.getNumberOfPages(), 2, 'zwölf Etiketten = zwei Seiten');
+    assertEq(rahmen.length, 12, 'zwölf Rahmen');
+    for (const r of rahmen) assert(r.x >= 8 && r.y >= 8 && r.x + r.b <= 202 && r.y + r.h <= 289, 'Etikett mit Rand auf dem Blatt: ' + JSON.stringify(r));
+    assert(!/Erstellt mit ImkerBuch|Seite 1 von/.test(d.internal.pages.flat().filter(Boolean).join(' ')), 'keine Fußzeile auf dem Etikettenbogen');
+  } finally {
+    w.Pdf.lib = echtLib; w.UI.confirm = echtConfirm; w.Pdf.noDownloadForTest = false;
+    await w.DB.del('abfuellungen', abf.id); await w.DB.del('chargen', charge.id);
+  }
+});
+test('PDF-Tabellen: Geldspalten mit zwei Stellen und Tausenderpunkt, andere Zahlen unverändert', (w) => {
+  const P = w.Pdf;
+  assertEq(P.zahl(405.5, 'Warenwert (€)'), '405,50');
+  assertEq(P.zahl(1194, 'Summe (€)'), '1.194,00');
+  assertEq(P.zahl(17.6, 'Wassergehalt (%)'), '17,6');
+  assertEq(P.zahl(2026, 'Jahrgang'), '2026', 'Jahreszahl ohne Tausenderpunkt');
+  assertEq(P.zahl(NaN, 'Summe (€)'), '');
+});
+test('Zucht-Export: Anpaarung im Klartext, nicht der interne Wert', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('zuchtserien', { name: 'Serie T', startdatum: '2026-06-01', anzahl: 10, termine: w.zuchtTermine('2026-06-01'), anpaarung: 'besamung', belegstelle: '' });
+  await w.DB.put('zuchtserien', { name: 'Serie U', startdatum: '2026-06-02', anzahl: 10, termine: w.zuchtTermine('2026-06-02'), anpaarung: 'belegstelle', belegstelle: 'Belegstelle Norderney' });
+  const rows = await (await w.Xlsx.defs()).zuchtserien.rows();
+  assertEq(rows.find((r) => r.Bezeichnung === 'Serie T').Anpaarung, 'Künstliche Besamung');
+  assertEq(rows.find((r) => r.Bezeichnung === 'Serie U').Anpaarung, 'Belegstelle Norderney');
+}));
+test('Chargenübersicht: Ernten je Sorte zusammengefasst, jedes Datum bleibt', async (w) => isolierteDaten(w, async () => {
+  const e = [];
+  for (const [sorte, datum] of [['Raps', '2026-05-03'], ['Raps', '2026-05-01'], ['Linde', '2026-06-28'], ['Raps', '2026-05-20'], ['Waldhonig', '2025-08-01'], ['Waldhonig', '2026-07-02']]) e.push(await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum, produktart: 'Honig', sorte, mengeKg: 10 }));
+  await w.DB.put('chargen', { losnummer: '2026-01', datum: '2026-07-05', ernteIds: e.map((x) => x.id), mengeKg: 60 });
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try {
+    await w.Pdf.chargenuebersicht('');
+    const zelle = w.Pdf.lastDocForTest.lastAutoTable.body[0].cells[4].raw;
+    const text = String(zelle && typeof zelle === 'object' ? zelle.content : zelle);
+    assert(text.includes('Raps (01.05., 03.05., 20.05.2026)'), 'Raps einmal, alle drei Tage: ' + text);
+    assert(text.includes('Linde (28.06.2026)'), 'eine Ernte mit vollem Datum: ' + text);
+    assert(text.includes('Waldhonig (01.08.2025, 02.07.2026)'), 'verschiedene Jahre mit Jahreszahl: ' + text);
+  } finally { w.Pdf.noDownloadForTest = false; }
+}));
 
 test('Migration: MHD wandert von der Charge an die Abfüllung, Anlegedatum wird nachgetragen', async (w) => {
   await w.S.set('chargeDatumMigriert', false);
@@ -11233,6 +11284,10 @@ test('Statistik: Vergleich zum Vorjahr – Richtung, Prozent, Einheit, „kein V
   assertEq(S.vergleich(5, 5).richtung, 'gleich');
   assertEq(S.vergleich(5, null).text, 'kein Vorjahr');
   assertEq(S.vergleich(10, 8, { gut: '' }).richtung, 'neutral', 'Futter: weder gut noch schlecht');
+  // Winterverluste: Unterschied in Prozentpunkten, der Vorjahreswert aber in Prozent
+  const wv = S.vergleich(0, 6, { einheit: 'Prozentpunkte', altEinheit: '%', gut: 'runter', prozent: false });
+  assertEq(wv.text, '▼ 6 Prozentpunkte'); assertEq(wv.alt, '6 %', 'Vorjahr in Prozent, nicht in Prozentpunkten');
+  assertEq(S.vergleich(15.21, 15.16, { einheit: '€', dez: 2 }).text, '▲ unter 1 %', 'kleiner Unterschied nicht als „0 %“');
 });
 
 test('Statistik: Honig, Futter, Gesundheit, Finanzen – Zahlen und Auffälligkeiten aus festen Testdaten', async (w) => {
@@ -13591,6 +13646,7 @@ test('PDF: Umlaute, € und „“ bleiben, unbekannte Zeichen werden lesbar ers
   assertEq(P.pdfText('Größe ≤ 5 °C → ✓'), 'Größe <= 5 °C -> ok');
   assertEq(P.pdfText('äöüÄÖÜß € „Zitat“ ‚x‘ – — … · ½ Ø § é ñ ’ « » •'), 'äöüÄÖÜß € „Zitat“ ‚x‘ – — … · ½ Ø § é ñ ’ « » •', 'westeuropäische Zeichen bleiben');
   assertEq(P.pdfText('▲ 18 % ▼ 3 kg'), '+ 18\u00A0% - 3\u00A0kg', 'Zahl und Einheit bleiben zusammen');
+  assertEq(P.pdfText('Feuchte ≈ 58 %, ≈80 %'), 'Feuchte ca. 58\u00A0%, ca. 80\u00A0%', '„≈“ wird „ca.“ ohne doppeltes Leerzeichen');
   assertEq(P.pdfText('Honig 😀🐝 gut'), 'Honig  gut', 'Emoji fallen weg');
   assertEq(P.pdfText('ő-ł-Ω'), 'o--', 'Akzent fällt weg, Unbekanntes ebenso');
   const J = await P.lib();
@@ -13725,6 +13781,78 @@ test('Zwischenstände: nur nach Änderungen, die letzten 10, neuester sichtbar, 
     for (const x of fremde) await w.DB.put('snapshots', x, true);
     B._zsRevGeladen = false;
   }
+}));
+
+/* Großbestand-Probe 21.10.2026 (50 Stände, 325 Völker, 45.000 Einträge): Funde und ihre Lösungen */
+test('Großbestand: Zwischenstand gepackt – Zurückholen stellt alles wieder her', async (w) => isolierteDaten(w, async () => {
+  const B = w.Backup, altC = w.UI.confirm;
+  const fremde = await w.DB.getAll('snapshots'); for (const x of fremde) await w.DB.del('snapshots', x.id);
+  try {
+    const v = await w.DB.put('voelker', { name: 'Zurück-Volk „Jörg“', status: 'aktiv' });
+    await B.snapshotInternal('manuell');
+    const snap = (await w.DB.getAll('snapshots'))[0];
+    assert(snap.gz && snap.gepackt < snap.groesse, `gepackt (${snap.gepackt} statt ${snap.groesse} Zeichen)`);
+    await w.DB.del('voelker', v.id);
+    w.UI.confirm = async () => true;
+    await B.restoreSnapshot(snap.id);
+    assertEq(((await w.DB.get('voelker', v.id)) || {}).name, 'Zurück-Volk „Jörg“', 'Volk ist wieder da, Umlaute und Zeichen heil');
+  } finally {
+    w.UI.confirm = altC;
+    for (const x of await w.DB.getAll('snapshots')) await w.DB.del('snapshots', x.id);
+    for (const x of fremde) await w.DB.put('snapshots', x, true);
+    B._zsRevGeladen = false;
+  }
+}));
+
+test('Großbestand: breite Tabellen werden geteilt, eine lange Spalte frisst nicht die Seite', async (w) => {
+  const P = w.Pdf, altDl = P.noDownloadForTest;
+  P.noDownloadForTest = true;
+  try {
+    const kopf = Array.from({ length: 31 }, (_, i) => (i === 0 ? 'Kennung' : `Merkmal ${i}`));
+    const rows = Array.from({ length: 120 }, (_, r) => Object.fromEntries(kopf.map((k, i) => [k, i === 0 ? `GW-26-${r}` : String((r + i) % 6 + 1)])));
+    P.lastDocForTest = null;
+    await P.abschnitte({ titel: 'Breit', teile: [{ titel: 'Königinnen', rows }], datei: 'breit.pdf' });
+    const d = P.lastDocForTest;
+    const tabellen = d.internal.pages.join('').match(/Teil \d von 3/g) || [];
+    assert(tabellen.length >= 3, 'in drei Teile geteilt: ' + tabellen.length);
+    assert(d.getNumberOfPages() < 25, 'überschaubar viele Seiten: ' + d.getNumberOfPages());
+    // eine sehr lange Zelle (Hochformat): nur diese Spalte bricht um, die anderen behalten ihre volle Breite
+    const Lib = await P.lib();
+    const d2 = new Lib({ unit: 'mm', format: 'a4' });
+    const lang = 'Heimstand „Am Bienenhaus“ – hinter der Scheune, Zugang über den Feldweg (Schlüssel beim Nachbarn) und dann rechts am Zaun entlang';
+    P.table(d2, { head: ['Stand', 'Datum', 'Temperatur', 'Wind', 'Quelle'], body: [[lang, '21.10.2026', '12,5', '8', 'Deutscher Wetterdienst'], ['Kurz', '20.10.2026', '11', '4', 'Deutscher Wetterdienst']], startY: 20 });
+    const t2 = d2.lastAutoTable, platz = d2.internal.pageSize.getWidth() - 28;
+    assert(t2.columns.reduce((s, c) => s + c.width, 0) <= platz + 0.5, 'Tabelle passt aufs Blatt');
+    assert(t2.columns[0].width >= 60, 'die lange Spalte bekommt den Rest: ' + Math.round(t2.columns[0].width));
+    for (const s of [1, 2, 3, 4]) assertEq(t2.body[0].cells[s].text.length, 1, `Spalte ${s} in einer Zeile (${t2.body[0].cells[s].text.join('/')})`);
+    // drei lange Spalten (Hygiene-Einträge): die kurzen werden NICHT auf Buchstabenbreite gedrückt
+    const d3 = new Lib({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+    const text = 'Durchgeführt nach Plan; Abweichung: Temperatur über 20 °C, Feuchte ca. 58 %. Maßnahme: Lüften („Stoßlüften“). '.repeat(3);
+    P.table(d3, { head: ['Bereich', 'Datum', 'Eintrag', 'Einzelheiten', 'Notiz'], body: [['Fördermaßnahmen', '02.06.2026', text, text, text]], startY: 20 });
+    const t3 = d3.lastAutoTable;
+    assertEq(t3.body[0].cells[0].text.length, 1, '„Fördermaßnahmen“ in einer Zeile: ' + t3.body[0].cells[0].text.join('/'));
+    assertEq(t3.body[0].cells[1].text.length, 1, 'Datum in einer Zeile: ' + t3.body[0].cells[1].text.join('/'));
+    // Kopfzeile: Wörter werden nicht mitten getrennt („Warteze-it“, „Bienenvolk/Sta-nd“ im Bestandsbuch)
+    const d4 = new Lib({ unit: 'mm', format: 'a4' });
+    P.table(d4, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body: [['01.08.2026', 'Volk Wiltrud 312', 'Ameisensäure 85 % ad us. vet.', '164 ml', 'Verdunster (z. B. Nassenheider)', '0 Tage', 'Ch.-B. 16266/2026 – Bezug: Apotheke „Zum Löwen“']], startY: 20 });
+    const t4 = d4.lastAutoTable;
+    for (const c of t4.head[0].cells ? Object.values(t4.head[0].cells) : []) for (const z of c.text) assert(c.raw.split(/\s+/).includes(z) || c.raw.includes(z + ' ') || c.raw.endsWith(z), 'Kopfwort ganz: ' + c.text.join('|'));
+    for (const s of [0, 3, 5]) assertEq(t4.body[0].cells[s].text.length, 1, `kurzer Wert in einer Zeile (${t4.body[0].cells[s].text.join('/')})`);
+  } finally { P.noDownloadForTest = altDl; }
+});
+
+test('Großbestand: Wetter beim Start liest die Wetterwerte nur einmal, nicht je Stand', async (w) => isolierteDaten(w, async () => {
+  const W = w.Wetter, altDarf = W.darfAuto, altFetch = W.fetchCurrent, altGetAll = w.DB.getAll;
+  for (let i = 0; i < 8; i++) await w.DB.put('staende', { name: 'Stand ' + i, lat: 48 + i / 10, lng: 11 });
+  let lesen = 0;
+  w.DB.getAll = function (st, ...r) { if (st === 'wetter') lesen++; return altGetAll.call(this, st, ...r); };
+  W.darfAuto = () => true; W.fetchCurrent = async () => ({ tempC: 12, windKmh: 5, niederschlagMm: 0, quelle: 'test' });
+  try {
+    W._laeuft = null;
+    const neu = await W.alleAbrufen();
+    assertEq(neu, 8, 'alle Stände abgerufen');
+    assertEq(lesen, 1, 'Wetterwerte einmal gelesen');
+  } finally { w.DB.getAll = altGetAll; W.darfAuto = altDarf; W.fetchCurrent = altFetch; W._laeuft = null; }
 }));
 
 test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {

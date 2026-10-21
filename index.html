@@ -1504,8 +1504,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.85';
+const APP_VERSION = '2.86';
 const CHANGELOG = [
+  { version: '2.86', datum: '2026-10-21', punkte: [
+    '<b>PDFs auch bei großen Imkereien sauber:</b> Getestet mit 50 Ständen, 325 Völkern und rund 45.000 Einträgen – alle 57 PDFs. Spalten werden nicht mehr auf Buchstabenbreite gedrückt, Wörter nicht mehr mitten getrennt, sehr breite Tabellen (Königinnen) kommen in Teilen, Tabellenköpfe stehen nie allein unten auf einer Seite. Mehrere PDFs sind dadurch deutlich kürzer (Hygiene & Bio: 109 → 10 Seiten).',
+    '<b>Honig-Etiketten:</b> Die unterste Etikettenreihe ragte über die Blattkante, und die Fußzeile stand darin. Jetzt liegen alle 10 Etiketten mittig mit Rand auf dem Blatt, ohne Fußzeile.',
+    '<b>Kleinere Korrekturen in PDFs:</b> Beträge in Listen mit zwei Stellen („405,50“), Chargenübersicht fasst Ernten je Sorte zusammen, Anpaarung in der Zucht-Liste im Klartext, „Vorjahr 6 %“ statt „6 Prozentpunkte“, „Milben/Tag“ im Behandlungs-Report.',
+    '<b>Schneller bei vielen Ständen:</b> Das Wetter beim Start liest die gespeicherten Werte nur einmal; Zwischenstände werden gepackt gespeichert (am iPhone gemessen: 13,1 MB → 2,2 MB).',
+  ] },
   { version: '2.85', datum: '2026-10-21', punkte: [
     '<b>Zwischenstände statt „Snapshots“:</b> Nach jeder Änderung merkt sich die App deinen Stand – die letzten 10, ältere werden überschrieben. Unter Einstellungen → Sicherung & Datensicherheit steht der neueste, die älteren klappst du auf. „Zurückholen“ hilft, wenn du aus Versehen viel gelöscht oder eine falsche Sicherung eingespielt hast. Sie liegen nur auf diesem Gerät und ersetzen keine Sicherung.',
   ] },
@@ -6195,9 +6201,11 @@ const Wetter = {
   FRISCH_MIN: 30,
   hatOrt(stand) { return !!stand && stand.lat != null && stand.lng != null && stand.lat !== '' && stand.lng !== ''; },
   zeitpunkt(w) { return Date.parse(w.abgerufen || w.lastModified || w.createdAt || w.datum) || 0; },
-  async speichern(stand, w) {
+  /* `alle` = schon gelesene Wetterwerte: Großbestand-Probe (21.10.2026) – 50 Stände lasen beim Start je ALLE 15.000
+     Werte (am Mac 4 s, bei jedem Start und jeder Rückkehr in die App). alleAbrufen liest jetzt einmal und reicht weiter. */
+  async speichern(stand, w, alle = null) {
     const heute = U.todayIso();
-    const heutige = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.datum === heute && x.quelle !== 'manuell')
+    const heutige = (alle || await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.datum === heute && x.quelle !== 'manuell')
       .sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a));
     const rec = heutige[0] || { standId: stand.id, datum: heute, bemerkung: '' };
     Object.assign(rec, { tempC: w.tempC, windKmh: w.windKmh, niederschlagMm: w.niederschlagMm, quelle: 'dwd', abgerufen: new Date().toISOString() });
@@ -6205,12 +6213,12 @@ const Wetter = {
     return rec;
   },
   /** Neuester abgerufener Wert des Stands – ist er jünger als 30 Minuten, wird nicht neu geholt (außer erzwingen). */
-  async aktuell(stand, { erzwingen = false } = {}) {
+  async aktuell(stand, { erzwingen = false, alle = null } = {}) {
     if (!erzwingen) {
-      const letzter = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a))[0];
+      const letzter = (alle || await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a))[0];
       if (letzter && Date.now() - this.zeitpunkt(letzter) < this.FRISCH_MIN * 60000) return { rec: letzter, neu: false };
     }
-    return { rec: await this.speichern(stand, await this.fetchCurrent(stand)), neu: true };
+    return { rec: await this.speichern(stand, await this.fetchCurrent(stand), alle), neu: true };
   },
   /** Darf die App von selbst abrufen? Schalter „Wetter beim App-Start“, Vollversion, online – und nie im Testlauf. */
   darfAuto() {
@@ -6223,8 +6231,9 @@ const Wetter = {
     if (this._laeuft || !this.darfAuto()) return this._laeuft || Promise.resolve(0);
     this._laeuft = (async () => {
       let neu = 0;
+      const alle = await DB.getAll('wetter');   // einmal lesen, nicht je Stand
       for (const st of (await DB.getAll('staende')).filter((x) => this.hatOrt(x))) {
-        try { if ((await this.aktuell(st)).neu) neu++; } catch (e) { /* nächster Stand */ }
+        try { if ((await this.aktuell(st, { alle })).neu) neu++; } catch (e) { /* nächster Stand */ }
       }
       if (neu) window.dispatchEvent(new CustomEvent('wetter-neu'));
       return neu;
@@ -20378,14 +20387,16 @@ const Statistik = {
   bisVorjahr(j) { return this.stichtagVorjahr(j); },
   imVorjahr(iso, j) { return this.im(iso, String(+j - 1)) && String(iso).slice(0, 10) <= this.bisVorjahr(j); },
   /** Veränderung als Text + Richtung. gut: 'hoch' (mehr ist gut), 'runter' (weniger ist gut), '' (neutral) */
-  vergleich(neu, alt, { einheit = '', dez = 0, gut = 'hoch', prozent = true } = {}) {
+  vergleich(neu, alt, { einheit = '', dez = 0, gut = 'hoch', prozent = true, altEinheit = einheit } = {}) {
     if (alt == null || !Number.isFinite(alt) || !Number.isFinite(neu)) return { text: 'kein Vorjahr', richtung: '' };
     const diff = neu - alt;
     if (Math.abs(diff) < Math.pow(10, -dez) / 2) return { text: `wie im Vorjahr`, richtung: 'gleich' };
     const pfeil = diff > 0 ? '▲' : '▼';
-    const teil = prozent && alt > 0 ? `${U.fmtNum(Math.abs(diff) / alt * 100, 0)} %` : `${U.fmtNum(Math.abs(diff), dez)}${einheit ? ' ' + einheit : ''}`;
+    const pz = prozent && alt > 0 ? Math.abs(diff) / alt * 100 : null;   // „▲ 0 %“ las sich wie ein Fehler – darunter: „unter 1 %“
+    const teil = pz != null ? (pz < 0.5 ? 'unter 1 %' : `${U.fmtNum(pz, 0)} %`) : `${U.fmtNum(Math.abs(diff), dez)}${einheit ? ' ' + einheit : ''}`;
     const richtung = !gut ? 'neutral' : ((diff > 0) === (gut === 'hoch') ? 'gut' : 'schlecht');
-    return { text: `${pfeil} ${teil}`, alt: `${U.fmtNum(alt, dez)}${einheit ? ' ' + einheit : ''}`, richtung };
+    // Der Vorjahreswert hat die Einheit des Werts selbst: „Vorjahr 6 %“, nicht „Vorjahr 6 Prozentpunkte“ (PDF-Prüfung 21.10.2026)
+    return { text: `${pfeil} ${teil}`, alt: `${U.fmtNum(alt, dez)}${altEinheit ? ' ' + altEinheit : ''}`, richtung };
   },
   kachel(label, wert, sub, v) { return { label, wert, sub: sub || '', vergleich: v || null }; },
   volkLink: (v) => (v ? '#/volk/' + v.id : ''),
@@ -20427,7 +20438,7 @@ const Statistik = {
         return { anteil: weg.length / start.length * 100, n: weg.length, von: start.length };
       };
       const w = winter(+j), wv = winter(+j - 1);
-      if (w && (!laufend || monat >= 5)) kacheln.push(this.kachel('Winterverluste', `${U.fmtNum(w.anteil, 0)} %`, `${w.n} von ${w.von} Völkern`, wv ? this.vergleich(w.anteil, wv.anteil, { einheit: 'Prozentpunkte', gut: 'runter', prozent: false }) : null));
+      if (w && (!laufend || monat >= 5)) kacheln.push(this.kachel('Winterverluste', `${U.fmtNum(w.anteil, 0)} %`, `${w.n} von ${w.von} Völkern`, wv ? this.vergleich(w.anteil, wv.anteil, { einheit: 'Prozentpunkte', altEinheit: '%', gut: 'runter', prozent: false }) : null));
       const qMap = new Map(d.koeniginnen.map((q) => [q.id, q]));
       const mitQ = aktiv.filter((v) => qMap.get(v.koeniginId) && qMap.get(v.koeniginId).jahrgang);
       if (mitQ.length) {
@@ -20515,8 +20526,8 @@ const Statistik = {
       const letzte = new Map(); for (const x of v) if (!letzte.has(x.volkId) || x.datum > letzte.get(x.volkId).datum) letzte.set(x.volkId, x);
       const rot = [...letzte.values()].filter((x) => varroaMetrik(x).ampel.stufe === 'rot'), gelb = [...letzte.values()].filter((x) => varroaMetrik(x).ampel.stufe === 'gelb');
       if (letzte.size) kacheln.push(this.kachel('Befall zuletzt hoch', String(rot.length), `von ${letzte.size} kontrollierten Völkern`));
-      for (const x of rot.slice(0, 4)) { const m = varroaMetrik(x); auff.push({ art: 'x', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} ${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – Behandlung prüfen.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
-      for (const x of gelb.slice(0, 3)) { const m = varroaMetrik(x); auff.push({ art: 'w', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} ${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – beobachten.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
+      for (const x of rot.slice(0, 4)) { const m = varroaMetrik(x); auff.push({ art: 'x', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} Milben${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – Behandlung prüfen.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
+      for (const x of gelb.slice(0, 3)) { const m = varroaMetrik(x); auff.push({ art: 'w', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} Milben${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – beobachten.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
       if (!laufend || monat >= 9) {
         const behandelt = (vk) => b.some((x) => (x.zielTyp === 'volk' && x.zielId === vk.id) || (x.zielTyp === 'stand' && vk.standId && x.zielId === vk.standId));
         const ohne = aktiv.filter((vk) => !behandelt(vk));
@@ -21060,10 +21071,19 @@ const Backup = {
      Für Nutzer heißen sie „Zwischenstände“ – Julian (21.10.2026): „Snapshots … 0/10 – erkläre es“. */
   GRUND: { aenderung: 'Nach deinen Änderungen', oeffnen: 'Beim Öffnen der App', taeglich: 'Beim Öffnen der App', auto: 'Bei der automatischen Sicherung', manuell: 'Von Hand angelegt', 'vor-import': 'Vor dem Einspielen einer Sicherung',
     'vor-wiederherstellung': 'Vor dem Zurückholen eines Zwischenstands', 'vor-beispieldaten': 'Vor dem Laden der Beispieldaten' },
+  /* Gepackt wie eine ZIP-Datei (gzip): Großbestand-Probe (21.10.2026) – ein Zwischenstand war 13 MB, zehn wären 130 MB
+     auf dem Handy gewesen; gepackt etwa ein Zehntel. Ältere Geräte ohne CompressionStream speichern ungepackt. */
+  async packen(text) {
+    try { if (typeof CompressionStream === 'undefined') return null; return await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).blob(); } catch (e) { return null; }
+  },
+  async snapshotText(snap) {
+    return snap.gz ? new Response(snap.gz.stream().pipeThrough(new DecompressionStream('gzip'))).text() : snap.daten;
+  },
   async snapshotInternal(grund) {
     const data = await this.buildData(false);
     const json = JSON.stringify(data);
-    await DB.put('snapshots', { datum: U.nowIso(), grund, daten: json, groesse: json.length, rev: data._stand || null });
+    const gz = await this.packen(json);
+    await DB.put('snapshots', { datum: U.nowIso(), grund, ...(gz ? { gz, gepackt: gz.size } : { daten: json }), groesse: json.length, rev: data._stand || null });
     this._zsRev = data._stand || null; this._zsRevGeladen = true;
     const alle = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
     for (const s of alle.slice(10)) await DB.del('snapshots', s.id);
@@ -21098,7 +21118,7 @@ const Backup = {
     const ok2 = await UI.confirm({ title: 'Wirklich sicher?', text: 'Letzte Bestätigung: aktuelle Daten werden überschrieben.', confirmText: 'Zurückholen', danger: true });
     if (!ok2) return;
     await this.snapshotInternal('vor-wiederherstellung');
-    const data = JSON.parse(snap.daten);
+    const data = JSON.parse(await this.snapshotText(snap));
     await this.applyReplace(data, { blobsBehalten: true });
     await this.nachImport(data);
     UI.toast('Zwischenstand zurückgeholt');
@@ -22201,7 +22221,7 @@ const Xlsx = {
       koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
         ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
         'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
-      zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
+      zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || ANPAARUNG_TEXT[z.anpaarung] || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },
@@ -22343,7 +22363,7 @@ const Pdf = {
     '\u202F': ' ', '\u2009': ' ', '\u2007': ' ', '\u2002': ' ', '\u2003': ' ', '\u200B': '', '\u2060': '', '\uFEFF': '', 'ﬁ': 'fi', 'ﬂ': 'fl', '⅓': '1/3', '⅔': '2/3', '∅': 'Ø', '№': 'Nr.' },
   pdfText(t) {
     // Zahl und Einheit bleiben zusammen: „19 %“ brach in schmalen Spalten um (Kassenbuch-PDF, 21.10.2026)
-    return String(t).replace(/(\d) (?=%|€|kg\b|km\b)/g, '$1\u00A0').replace(/[^\x00-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/g, (c) => {
+    return String(t).replace(/(\d) (?=%|€|kg\b|km\b)/g, '$1\u00A0').replace(/≈[ \u00A0]*/g, 'ca. ').replace(/[^\x00-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/g, (c) => {
       if (Pdf.ERSATZ[c] != null) return Pdf.ERSATZ[c];
       const z = c.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
       return /^[\x20-\x7E\xA0-\xFF]+$/.test(z) ? z : '';   // unbekannt (z. B. Emoji): weglassen statt Zeichensalat
@@ -22476,20 +22496,76 @@ const Pdf = {
     }
     return y + 3;
   },
-  table(doc, { head, body, startY, widths, margin }) {
-    /* Kurze Werte („19 %“, „7,5 kg“) nie umbrechen: Spalten, deren Inhalte alle kurz sind, bekommen ihre Mindestbreite.
-       Sonst stand im Kassenbuch-PDF „19“ und darunter „%“ (21.10.2026) – die Tabelle trennt auch am geschützten Leerzeichen. */
-    const spalten = {}, wert = (x) => String(x && typeof x === 'object' ? x.content ?? '' : x ?? '');
+  /** Platzbedarf je Spalte (mm, mit Innenabstand): `voll` = längste Zeile, `wort` = längstes Wort (kurze Werte bis
+      12 Zeichen ganz, ein Riesenwort höchstens 30 % der Breite), `kurz` = alle Werte kurz. Für `table` und `tabelleGeteilt`. */
+  spaltenMasse(doc, head, body, platz) {
+    const wert = (x) => String(x && typeof x === 'object' ? x.content ?? '' : x ?? '');
+    const woerter = (t) => t.split(/[^\S\u00A0]+/);
     const altF = doc.getFont(), altGr = doc.getFontSize();
-    doc.setFont('helvetica', 'normal').setFontSize(8.5);
-    for (let i = 0; i < Math.max(head.length, ...body.map((r) => r.length)); i++) {
-      const werte = body.map((r) => wert(r[i])).filter(Boolean);
-      if (!werte.length || werte.some((w) => w.length > 12 || /\n/.test(w))) continue;   // bis „-1.234,56 €“
-      spalten[i] = { minCellWidth: Math.max(...werte.map((w) => doc.getTextWidth(w))) + 4.4 };   // + Innenabstand 2 × 2 mm
+    const n = Math.max(head.length, ...body.map((r) => r.length));
+    const PAD = 4.4;   // Innenabstand 2 × 2 mm + etwas Luft
+    const voll = [], wort = [], kurz = [];
+    doc.setFontSize(8.5);
+    for (let i = 0; i < n; i++) {
+      let kv = 0, kw = 0, bv = 0, bw = 0, alleKurz = true, hatWerte = false;
+      doc.setFont('helvetica', 'bold');
+      const k = wert(head[i]);
+      if (k) { kv = Math.max(...k.split('\n').map((z) => doc.getTextWidth(z))); kw = Math.max(...woerter(k).map((w) => doc.getTextWidth(w))); }
+      doc.setFont('helvetica', 'normal');
+      for (const r of body) {
+        const z = r[i];
+        if (z && typeof z === 'object' && z.colSpan > 1) continue;   // Zwischenüberschrift über alle Spalten
+        const t = wert(z);
+        if (!t) continue;
+        hatWerte = true;
+        if (t.length > 12 || t.includes('\n')) alleKurz = false;
+        bv = Math.max(bv, ...t.split('\n').map((zz) => doc.getTextWidth(zz)));
+        bw = Math.max(bw, ...woerter(t).map((w) => doc.getTextWidth(w)));
+      }
+      kurz[i] = hatWerte && alleKurz;
+      voll[i] = Math.max(kv, bv) + PAD;
+      // Ein einzelnes Riesenwort (Link, Nummernkette) darf in seiner Spalte umbrechen – sonst nimmt es allen anderen den Platz
+      wort[i] = Math.min(Math.max(kw, kurz[i] ? bv : bw) + PAD, voll[i], platz * 0.3);
     }
     doc.setFont(altF.fontName, altF.fontStyle).setFontSize(altGr);
+    return { voll, wort, kurz };
+  },
+  table(doc, { head, body, startY, widths, margin }) {
+    /* Spaltenbreiten selbst verteilen („Wasserstand“). Passt alles nebeneinander, bleibt es so; sonst werden nur die
+       breitesten Spalten auf eine gemeinsame Höchstbreite gekürzt – schmale Spalten behalten ihre volle Breite, kein Wort
+       wird mitten getrennt, kurze Werte („19 %“, „-1.234,56 €“) brechen nie um (die Tabelle trennt auch am geschützten
+       Leerzeichen; im Kassenbuch stand „19“ über „%“). Großbestand-Probe 21.10.2026: EIN langer Standname machte eine Spalte
+       12 cm breit und alle anderen brachen um; die erste Abhilfe (feste Drittel-Breite) drückte bei drei langen Spalten den
+       Rest auf 4 mm zusammen – die Buchstaben standen untereinander. */
+    // Passt unter startY nicht einmal Kopf + erste Zeile, beginnt die Tabelle auf der nächsten Seite (sonst stand der Kopf allein unten)
+    if (startY > doc.internal.pageSize.getHeight() - 32) { doc.addPage(); startY = 18; }
+    const n = Math.max(head.length, ...body.map((r) => r.length));
+    const rand = margin || { left: 14, right: 14 }, platz = doc.internal.pageSize.getWidth() - (rand.left || 0) - (rand.right || 0);
+    const festeBreite = (i) => (widths && widths[i] && typeof widths[i].cellWidth === 'number' ? widths[i].cellWidth : null);
+    const { voll, wort, kurz } = this.spaltenMasse(doc, head, body, platz);
+    /* Eine vom Aufruf fest vorgegebene Breite wird für kurze Werte nötigenfalls breiter – „Los 2025-10“ brach in der
+       Verkaufsliste (20 mm) um. */
+    const fix = {};
+    for (let i = 0; i < n; i++) if (festeBreite(i) != null) fix[i] = Math.max(festeBreite(i), kurz[i] ? wort[i] : 0);
+    const spalten = {}, frei = [...Array(n).keys()].filter((i) => fix[i] == null);
+    const rest = platz - Object.values(fix).reduce((s, w) => s + w, 0);
+    const summe = (C) => frei.reduce((s, i) => s + Math.min(voll[i], Math.max(C, wort[i])), 0);
+    if (frei.length && rest > 10 && summe(Infinity) > rest) {
+      let breite;
+      if (summe(0) <= rest) {   // Höchstbreite C suchen, bei der genau alles auf die Seite passt
+        let lo = 0, hi = Math.max(...voll);
+        for (let s = 0; s < 40; s++) { const m = (lo + hi) / 2; if (summe(m) > rest) hi = m; else lo = m; }
+        breite = (i) => Math.min(voll[i], Math.max(lo, wort[i]));
+      } else {   // nicht einmal die längsten Wörter passen nebeneinander: alle anteilig verkleinern
+        const f = rest / summe(0);
+        breite = (i) => wort[i] * f;
+      }
+      for (const i of frei) spalten[i] = { cellWidth: breite(i) };
+    } else {
+      for (const i of frei) if (kurz[i]) spalten[i] = { minCellWidth: wort[i] };
+    }
     const stile = {};
-    for (const i of new Set([...Object.keys(spalten), ...Object.keys(widths || {})])) stile[i] = { ...(spalten[i] || {}), ...((widths || {})[i] || {}) };
+    for (const i of new Set([...Object.keys(spalten), ...Object.keys(widths || {})])) stile[i] = { ...(spalten[i] || {}), ...((widths || {})[i] || {}), ...(fix[i] != null ? { cellWidth: fix[i] } : {}) };
     doc.autoTable({
       head: [head], body, startY,
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: [40, 37, 30], overflow: 'linebreak', valign: 'middle', lineWidth: 0.1, lineColor: [226, 216, 196] },
@@ -22502,6 +22578,40 @@ const Pdf = {
     });
     return doc.lastAutoTable.finalY;
   },
+  /** Zahl für eine Tabellenzelle: Dezimalkomma; Geldspalten („… (€)“) immer mit zwei Stellen – „405,5“ sah in der
+      Rechnungsliste nach Tippfehler aus (PDF-Prüfung 21.10.2026). */
+  zahl(v, kopf = '') {
+    if (!Number.isFinite(v)) return '';
+    // Geld wie im Kassenbuch-PDF mit Tausenderpunkt („1.194,00“); andere Zahlen unverändert (Kennungen, Jahre, PLZ)
+    return /\(€\)|in €/.test(kopf) ? v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(v).replace('.', ',');
+  },
+  /** Sehr breite Tabellen (Königinnen: 31 Spalten) in Teile mit höchstens 12 Spalten – die erste Spalte (Kennung, Name,
+      Datum) steht in jedem Teil vorn. Vorher wurden die Spalten so schmal, dass 325 Königinnen 468 Seiten füllten
+      (Großbestand-Probe 21.10.2026). Gilt für die Abschnitts-PDFs und den Komplettausdruck; gibt das neue y zurück. */
+  tabelleGeteilt(doc, { head, body, startY }) {
+    if (head.length <= 14) return this.table(doc, { head, body, startY });
+    /* Teile nach Platzbedarf statt starr je 11 Spalten: eine Spalte zählt mit ihrer vollen Breite (lange Texte höchstens
+       35 % der Seite). Vorher bekam der Pedigree im 1. Teil nur 28 mm und brach auf 13 Zeilen um – 27 Königinnen füllten
+       5 Seiten (Android-Probe 21.10.2026). */
+    const H = doc.internal.pageSize.getHeight(), platz = doc.internal.pageSize.getWidth() - 28;
+    const { voll } = this.spaltenMasse(doc, head, body, platz);
+    const bedarf = (i) => Math.min(voll[i], platz * 0.35);
+    const teile = [];
+    let teil = null;
+    for (let i = 1; i < head.length; i++) {
+      if (!teil || teil.length >= 12 || teil.reduce((s, j) => s + bedarf(j), 0) + bedarf(i) > platz) { teil = [0]; teile.push(teil); }
+      teil.push(i);
+    }
+    const gruppen = teile.length;
+    let y = startY;
+    for (const [g, idx] of teile.entries()) {
+      if (g > 0) { y += 6; if (y > H - 45) { doc.addPage(); y = 18; } }
+      doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(120);
+      doc.text(`Teil ${g + 1} von ${gruppen}: ${idx.slice(1, 4).map((i) => head[i]).join(', ')}${idx.length > 4 ? ' …' : ''}`, 14, y + 2);
+      y = this.table(doc, { head: idx.map((i) => head[i]), body: body.map((r) => idx.map((i) => r[i])), startY: y + 4 });
+    }
+    return y;
+  },
   /** Mehrere Tabellen in einem PDF (Querformat) – Export je Bereich und Volksakte (v2.78). Jeder Teil mit
       allen Spalten; ein einzelner Datensatz mit vielen Feldern (Stammdaten, Königin) erscheint als
       „Feld | Wert“-Liste, damit nichts abgeschnitten wird. */
@@ -22512,17 +22622,17 @@ const Pdf = {
       const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
       const H = doc.internal.pageSize.getHeight();
       let y = await this.header(doc, titel, untertitel);
-      const zelle = (v) => {
+      const zelle = (v, kopf = '') => {
         if (v == null || v === '') return '';
         if (Xlsx._istDatum(v)) return isNaN(v) ? '' : Xlsx._tag(v);
-        if (typeof v === 'number') return Number.isFinite(v) ? String(v).replace('.', ',') : '';
+        if (typeof v === 'number') return this.zahl(v, kopf);
         if (typeof v === 'boolean') return v ? 'ja' : 'nein';
         if (typeof v === 'object') return JSON.stringify(v);
         return String(v);
       };
       for (const [i, t] of teile.entries()) {
         if (i > 0) y += 6;
-        if (y > H - 35) { doc.addPage(); y = 18; }
+        if (y > H - 45) { doc.addPage(); y = 18; }   // Titel + Tabellenkopf + erste Zeile gemeinsam
         doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(122, 80, 0);
         doc.text(`${t.titel} (${t.rows.length})`, 14, y + 4);
         y += 7;
@@ -22537,9 +22647,9 @@ const Pdf = {
         }
         const kopf = Xlsx._kopf(t.rows);
         if (t.rows.length === 1 && kopf.length > 5) {
-          y = this.table(doc, { head: ['Feld', 'Wert'], body: kopf.map((k) => [k, zelle(t.rows[0][k]) || '–']), startY: y, widths: { 0: { cellWidth: 70, fontStyle: 'bold' } } });
+          y = this.table(doc, { head: ['Feld', 'Wert'], body: kopf.map((k) => [k, zelle(t.rows[0][k], k) || '–']), startY: y, widths: { 0: { cellWidth: 70, fontStyle: 'bold' } } });
         } else {
-          y = this.table(doc, { head: kopf, body: t.rows.map((r) => kopf.map((k) => zelle(r[k]))), startY: y });
+          y = this.tabelleGeteilt(doc, { head: kopf, body: t.rows.map((r) => kopf.map((k) => zelle(r[k], k))), startY: y });
         }
       }
       this.finish(doc, datei);
@@ -22669,10 +22779,10 @@ const Pdf = {
     return y + lueckeNach;
   },
   /** Fußzeile mit Seitenzahlen auf allen Seiten, dann ausgeben */
-  finish(doc, dateiname) {
+  finish(doc, dateiname, { ohneFuss = false } = {}) {
     const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
     const n = doc.getNumberOfPages();
-    for (let i = 1; i <= n; i++) {
+    for (let i = 1; i <= n && !ohneFuss; i++) {   // Etikettenbögen ohne Fußzeile – sie stünde auf dem Etikett
       doc.setPage(i);
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(150);
       doc.text(`Seite ${i} von ${n}`, W - 14, H - 7, { align: 'right' });
@@ -22844,7 +22954,16 @@ const Pdf = {
       const body = [];
       const kopf = { fontStyle: 'bold', fillColor: [245, 236, 218] };
       for (const c of chargen) {
-        const ausErnten = (c.ernteIds || []).map((id) => { const e = ernten.get(id); return e ? `${e.sorte || 'Ernte'} (${U.fmtDate(e.datum)})` : ''; }).filter(Boolean);
+        /* Ernten je Sorte zusammengefasst, jedes Datum bleibt: „Frühtracht (08.05., 10.05., 19.06.2026)“. Vorher stand jede
+           Ernte einzeln mit Sorte und Jahr – eine Charge aus 30 Ernten füllte eine 9 cm hohe Zeile (Großbestand-Probe 21.10.2026). */
+        const jeSorte = new Map();
+        for (const id of c.ernteIds || []) { const e = ernten.get(id); if (!e) continue; const k = e.sorte || 'Ernte'; jeSorte.set(k, [...(jeSorte.get(k) || []), e.datum || '']); }
+        const ausErnten = [...jeSorte].map(([sorte, d]) => {
+          const tage = d.filter(Boolean).sort();
+          if (!tage.length) return sorte;
+          const einJahr = tage.every((t) => t.slice(0, 4) === tage[0].slice(0, 4));
+          return `${sorte} (${tage.map((t, i) => (einJahr && i < tage.length - 1 ? U.fmtDate(t).slice(0, 6) : U.fmtDate(t))).join(', ')})`;
+        });
         const eigen = (c.sorte || '').trim();
         const sorten = [...(eigen ? [c.lagerKg > 0 && !(c.ernteIds || []).length ? `${eigen} (Lagerbestand)` : eigen] : []), ...ausErnten].join(', ');
         const abf = U.sortBy(abfAlle.filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
@@ -23098,8 +23217,11 @@ const Pdf = {
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
       const los = abfLos(a, c), mhd = abfMhd(a, c);
-      // Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite
-      const LW = 90, LH = 54, cols = 2, rows = 5, mx = 12, my = 14, gapx = 6, gapy = 3.6;
+      /* Etikett 90×54 mm, 2 Spalten × 5 Zeilen = 10 pro A4-Seite. Vorher 14 mm oben und 3,6 mm Abstand: die fünfte Reihe
+         endete bei 298,4 mm – unter der Blattkante (297 mm) – und die Fußzeile stand darin (PDF-Prüfung 21.10.2026).
+         Jetzt senkrecht mittig: 8,5 mm Rand oben und unten, 2,5 mm Abstand, keine Fußzeile auf dem Bogen. */
+      const LW = 90, LH = 54, cols = 2, rows = 5, gapx = 6, gapy = 2.5;
+      const mx = (210 - cols * LW - (cols - 1) * gapx) / 2, my = (297 - rows * LH - (rows - 1) * gapy) / 2;
       /* Im QR steht, was zur Rückverfolgung nötig ist – die Chargennummer
          zuerst, denn danach wird gesucht, wenn etwas zu klären ist. */
       const qr = opts.mitQr ? await makeQr([
@@ -23230,7 +23352,7 @@ const Pdf = {
         }
         if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
-      this.finish(doc, `etiketten-charge-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`);
+      this.finish(doc, `etiketten-charge-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`, { ohneFuss: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -23509,7 +23631,7 @@ const Pdf = {
       }
       const H = doc.internal.pageSize.getHeight();
       const platz = (n) => { if (yy + n > H - 20) { doc.addPage(); yy = 20; } };
-      platz(14);
+      platz(34);   // Überschrift + Tabellenkopf + erste Zeile zusammen – vorher standen Überschrift und Kopf allein unten
       doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(38, 38, 43);
       doc.text('Durchgeführte Reinigungen (Nachweis)', 14, yy); yy += 6;
       if (!nachweise.length) {
@@ -23824,7 +23946,7 @@ const Pdf = {
       const blick = async (doc, y) => {
         if (!jahr) return y;
         const erg = await Statistik.auswerten(typ, jahr);
-        const pfeil = (t) => String(t || '').replace('▲ ', '+').replace('▼ ', '-');
+        const pfeil = (t) => String(t || '').replace(/^▲ unter/, 'etwas mehr (unter').replace(/^▼ unter/, 'etwas weniger (unter').replace(/\(unter 1 %$/, '(unter 1 %)').replace('▲ ', '+').replace('▼ ', '-');   // „+unter 1 %“ las sich falsch
         let yy = this.table(doc, { head: ['Auf einen Blick', jahr, `Vergleich zu ${+jahr - 1}`], body: erg.kacheln.map((k) => [k.label + (k.sub ? ` (${k.sub})` : ''), k.wert, k.vergleich ? `${pfeil(k.vergleich.text)}${k.vergleich.alt ? ' · Vorjahr ' + k.vergleich.alt : ''}` : '–']), startY: y }) + 6;
         if (erg.auffaellig.length) yy = this.table(doc, { head: ['Auffällig'], body: erg.auffaellig.map((a) => [`${a.titel} – ${a.text}`]), startY: yy }) + 8;
         return yy;
@@ -23848,7 +23970,7 @@ const Pdf = {
         // v2.83: je Tracht mit Ø je Volk und Vorjahr – nur, wenn Ernten einer Tracht zugeordnet sind
         const tr = await Reporting.ertragJeTracht(jahr);
         if (tr.some((r) => r.k !== 'ohne Tracht')) {
-          const pfeil = (t) => String(t || '').replace('▲ ', '+').replace('▼ ', '-');
+          const pfeil = (t) => String(t || '').replace(/^▲ unter/, 'etwas mehr (unter').replace(/^▼ unter/, 'etwas weniger (unter').replace(/\(unter 1 %$/, '(unter 1 %)').replace('▲ ', '+').replace('▼ ', '-');   // „+unter 1 %“ las sich falsch
           doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
           if (yy > 250) { doc.addPage(); yy = 20; }
           doc.text('Ertrag je Tracht', 14, yy); yy += 3;
@@ -23968,8 +24090,8 @@ const Pdf = {
           const head = Object.keys(rows[0]);
           // Datum aus den lokalen Teilen bilden: toISOString() rechnet in UTC und machte in Deutschland aus jedem Datum den Vortag
           const tag = (v) => `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(tag(v)) : typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : (v ?? ''); }));   // Dezimalkomma wie überall
-          this.table(doc, { head, body, startY: y });
+          const body = rows.map((r) => head.map((h) => { const v = r[h]; return v instanceof Date ? U.fmtDate(tag(v)) : typeof v === 'number' ? this.zahl(v, h) : (v ?? ''); }));   // Dezimalkomma wie überall
+          this.tabelleGeteilt(doc, { head, body, startY: y });
         } else {
           doc.setFont('helvetica', 'italic').setFontSize(10).setTextColor(150);
           doc.text('Keine Einträge vorhanden.', 14, y + 4);
