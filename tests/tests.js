@@ -13205,6 +13205,137 @@ test('Einführung beginnt mit „Kurz umschauen“: Startseite, Anpassen, Schnel
   assert(!w.Einfuehrung.KAPITEL.some((x) => x.titel === 'Alles finden'), 'altes Kapitel ersetzt');
 });
 
+/* Julians iPhone 21.10.2026: In „Kurz umschauen“ die Völker-Kachel angetippt → App wechselte zu „Völker“,
+   Imme suchte den Regler-Knopf der Startseite und zeigte „Such den Knopf „#dash-cfg“ auf dieser Seite.“ */
+test('Imme-Führung: Ziel angetippt und Seite gewechselt → Imme holt die Startseite zurück', async (w) => {
+  const A = w.Assistent, e = Object.assign({}, w.Einfuehrung.KAPITEL[0].eintrag, { titel: 'Kurz umschauen' });
+  const toasts = [], altToast = w.UI.toast; w.UI.toast = (t) => toasts.push(t);
+  try {
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard');
+    A.starteTour(e);
+    await warteBis(() => A.tour && A.tour.i === 0 && w.document.querySelector('.bini-ziel.dash-klick'));
+    w.document.querySelector('.bini-ziel.dash-klick').click();
+    w.location.hash = '#/voelker';   // wie das Antippen der Völker-Kachel
+    await warteBis(() => A.tour && A.tour.i === 1 && w.document.querySelector('#dash-cfg.bini-ziel') && w.document.querySelector('.bini-tip'));
+    assertEq(w.currentRoute().route, 'dashboard', 'zurück auf der Startseite');
+    assert(!toasts.some((t) => /#|Such den Knopf/.test(t)), 'keine Fehlermeldung: ' + toasts.join(' | '));
+  } finally { A.beendeTour(true); w.UI.toast = altToast; w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+});
+
+test('Imme-Führung: Hinweis angetippt, nächster Knopf fehlt dort → zurück zur Seite des Hinweises', async (w) => {
+  const A = w.Assistent;
+  const e = { id: 'probe-zurueck', titel: 'Probe', route: 'dashboard', tour: [
+    { knopf: '#main .dash-klick', weiter: true, text: 'Hinweis auf eine Kachel' },
+    { knopf: '#dash-cfg', weiter: true, text: 'Knopf, den es nur auf der Startseite gibt' },
+    { abschluss: '#dash-cfg', text: 'Ende der Probe' }] };
+  try {
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard');
+    A.starteTour(e);
+    await warteBis(() => A.tour && A.tour.i === 0 && w.document.querySelector('.bini-ziel.dash-klick'));
+    w.document.querySelector('.bini-ziel.dash-klick').click();
+    w.location.hash = '#/aufgaben';
+    await warteBis(() => A.tour && A.tour.i === 1 && w.document.querySelector('#dash-cfg.bini-ziel'));
+    assertEq(w.currentRoute().route, 'dashboard', 'ohne eigene Seitenangabe zurück zur Seite des letzten Hinweises');
+  } finally { A.beendeTour(true); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+});
+
+test('Imme-Führung: Knopf nicht zu finden → nie ein innerer Name, Einführung pausiert statt abzubrechen', async (w) => {
+  const A = w.Assistent, E = w.Einfuehrung;
+  const toasts = [], altToast = w.UI.toast, altWarte = A.warteAuf, altAktiv = E.aktiv;
+  w.UI.toast = (t) => toasts.push(t);
+  A.warteAuf = async () => null;   // Knopf taucht nie auf
+  const e = { id: 'probe-fehlt', titel: 'Probe', route: 'dashboard', tour: [{ knopf: '#gibt-es-nicht', text: 'Knopf, den es nicht gibt' }, { abschluss: '#main', text: 'Ende' }] };
+  try {
+    E.aktiv = false;
+    await A.starteTour(e); await warteBis(() => !A.tour);
+    assertEq(toasts.length, 1, 'eine Meldung');
+    assert(!/[#\[]/.test(toasts[0]) && /finde ich hier gerade nicht/.test(toasts[0]), 'Klartext statt „#gibt-es-nicht“: ' + toasts[0]);
+    toasts.length = 0; E.aktiv = true;
+    await A.starteTour(e); await warteBis(() => !A.tour);
+    assert(!E.aktiv && toasts.some((t) => /Einführung pausiert/.test(t)), 'Einführung pausiert, lässt sich bei Imme fortsetzen');
+    toasts.length = 0; E.aktiv = false;
+    await A.starteTour(Object.assign({}, e, { tour: [{ knopf: 'Gibt es nicht', text: 'Knopf mit Namen' }, e.tour[1]] })); await warteBis(() => !A.tour);
+    assert(/Such den Knopf „Gibt es nicht“/.test(toasts[0]), 'Knöpfe mit sichtbarem Namen werden weiter genannt');
+  } finally { w.UI.toast = altToast; A.warteAuf = altWarte; E.aktiv = altAktiv; A.beendeTour(true); }
+});
+
+/* Touren-Prüfung 21.10.2026: Felder waren umbenannt („Welche Abfüllung“ → „Welcher Honig (Gebinde)?“,
+   „Aus welcher Charge“ → „Woraus abfüllen?“, „Häufigkeit“ gab es bei Reinigungen nicht) – Imme übersprang sie still. */
+test('Imme-Führungen: jedes Feld, auf das Imme zeigt, gibt es in einem Formular der App', async (w) => {
+  const quelle = await (await w.fetch('index.html')).text();
+  const N = w.assistentNorm;
+  const labels = [...quelle.matchAll(/label:\s*(['"`])((?:(?!\1).)*)\1/g), ...quelle.matchAll(/<label[^>]*>([^<]+)</g)].map((m) => N(m[2] || m[1]));
+  const dynamisch = ['Geerntet wurde', '500 g'];   // Beschriftung entsteht im Code (zielFelder(…, 'Geerntet wurde'), Gebindegrößen)
+  const touren = [...w.APP_WISSEN.filter((e) => e.tour), ...w.Einfuehrung.KAPITEL.filter((k) => k.eintrag).map((k) => k.eintrag)];
+  const fehlt = [];
+  for (const e of touren) for (const st of e.tour) {
+    if (!st.feld || dynamisch.includes(st.feld)) continue;
+    if (!labels.some((l) => l.includes(N(st.feld)))) fehlt.push(`${e.id}: „${st.feld}“`);
+  }
+  assertEq(fehlt, [], 'Feld gibt es nicht (mehr)');
+  assert(quelle.includes("zielFelder(e || {}, 'Geerntet wurde')"), '„Geerntet wurde“ steht weiter im Ernte-Formular');
+});
+
+test('Imme-Führung: „Weiter“ bei „Öffne den Reiter …“ öffnet den Reiter mit', async (w) => {
+  const A = w.Assistent, e = w.APP_WISSEN.find((x) => x.id === 'honig-verkauf');
+  try {
+    await A.starteTour(e);
+    await warteBis(() => A.tour && A.tour.i === 0 && w.document.querySelector('.bini-tip [data-weiter]'));
+    w.document.querySelector('.bini-tip [data-weiter]').click();
+    await warteBis(() => A.tour && A.tour.i === 1 && w.document.querySelector('.bini-ziel'));
+    assert(/Verkauf erfassen/.test(w.document.querySelector('.bini-ziel').textContent), 'Imme zeigt auf „Verkauf erfassen“ im geöffneten Reiter');
+  } finally { A.beendeTour(true); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+});
+
+/* iPhone-Simulator 21.10.2026: In „Kurz umschauen“ öffnete ein Tipp auf den Regler-Knopf sein Fenster – der nächste
+   Hinweis zeigte dann auf die verdeckte untere Leiste. Dort ist Antippen jetzt nur „Weiter“. */
+test('„Kurz umschauen“: Antippen des Ziels geht nur weiter – kein Seitenwechsel, kein Fenster; danach wieder normal', async (w) => {
+  const A = w.Assistent, e = Object.assign({}, w.Einfuehrung.KAPITEL[0].eintrag, { titel: 'Kurz umschauen' });
+  const fenster = () => w.document.querySelectorAll('#modal-root .modal-back').length;
+  try {
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard');
+    assert(e.tour.slice(0, 4).every((st) => st.nurZeigen), 'die vier Hinweise sind reine Hinweise');
+    const vorher = fenster();
+    A.starteTour(e);
+    await warteBis(() => A.tour && A.tour.i === 0 && w.document.querySelector('.bini-ziel.dash-klick'));
+    w.document.querySelector('.bini-ziel.dash-klick').click();
+    await warteBis(() => A.tour && A.tour.i === 1 && w.document.querySelector('#dash-cfg.bini-ziel'));
+    assertEq(w.currentRoute().route, 'dashboard', 'Kachel antippen wechselt die Seite nicht');
+    w.document.querySelector('#dash-cfg').click();
+    await warteBis(() => A.tour && A.tour.i === 2 && w.document.querySelector('.bini-ziel'));
+    assertEq(fenster(), vorher, 'Regler-Knopf öffnet kein Fenster über dem nächsten Hinweis');
+  } finally { A.beendeTour(true); }
+  // nach der Führung reagieren Kachel und Regler wieder normal
+  const kachel = [...w.document.querySelectorAll('#main .dash-klick')].find((k) => k.dataset.ziel);
+  if (kachel) {
+    kachel.click();
+    await warteBis(() => w.currentRoute().route === kachel.dataset.ziel.split('/')[0]);
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard' && w.document.querySelector('#dash-cfg'));
+  }
+  const vorher2 = fenster();
+  w.document.querySelector('#dash-cfg').click();
+  await warteBis(() => fenster() > vorher2);
+  w.document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove());
+});
+
+/* Touren-Prüfung 21.10.2026: Marktkasse – erstes Glas ohne Preis öffnet „Preis festlegen“; Imme sagte nach 3 s
+   „Geschafft!“ und ihre alte Sprechblase lag über dem Fenster. Ohne Glas im Korb gab es gar keinen Abschluss-Hinweis. */
+test('Imme-Führung: Abschluss wartet auf ein offenes Fenster und nimmt den ersten sichtbaren Selektor', async (w) => {
+  const A = w.Assistent;
+  const e = { id: 'probe-abschluss', titel: 'Probe', route: 'dashboard', tour: [{ abschluss: '#gibt-es-nicht, #dash-cfg, #main', text: 'Ende der Probe' }] };
+  let m = null;
+  try {
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard' && w.document.querySelector('#dash-cfg'));
+    m = w.UI.modal({ title: 'Preis festlegen', body: '<p>Probe</p>' });   // Fenster ist schon offen, wenn der Abschluss dran ist
+    const id = ++A._tourId; A.tour = { e, i: 0, id }; A.schritt(id);
+    await new Promise((r) => setTimeout(r, 3800));
+    assert(A.tour && !w.document.querySelector('.bini-tip'), 'solange das Fenster offen ist: keine Sprechblase, kein „Geschafft“');
+    m.close(); m = null;
+    await warteBis(() => w.document.querySelector('.bini-tip') && w.document.querySelector('.bini-ziel'));
+    assertEq(w.document.querySelector('.bini-ziel').id, 'dash-cfg', 'Reihenfolge der Selektoren entscheidet, nicht die Lage im Dokument');
+  } finally { if (m) m.close(); A.beendeTour(true); }
+});
+
 test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {
   const DB = w.DB;
   await DB.open();
