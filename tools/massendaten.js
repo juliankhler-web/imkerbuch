@@ -163,17 +163,18 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
     strasse: `Gewerbering ${i + 1}`, plz: String(int(80000, 86999)), ort: pick(DOERFER), email: `bestellung${i + 1}@lieferant.invalid`, telefon: `089 000 ${String(i + 1).padStart(4, '0')}`, notiz: '', ...(i < 8 ? { bio: 'ja', oekoWas: 'Bio-Zucker', oekoNummer: `DE-ÖKO-0${int(10, 99)}`, oekoGueltigBis: ymd(Y + 1, 6, 30) } : {}) }));
 
   // ---------- Chargen, Abfüllungen, Verkäufe (mit Kassenbuch) ----------
+  const hoechstHeute = (d) => (d > heute ? heute : d);
   const abfuellungen = [];
   for (const j of jahre) {
     const jahrErnten = ernten.filter((e) => e.datum.startsWith(String(j)));
     for (let c = 0; c < 15 && jahrErnten.length; c++) {
       const teil = jahrErnten.splice(0, Math.max(1, Math.ceil(jahrErnten.length / (15 - c))));
       const kg = Math.round(teil.reduce((s, e) => s + e.mengeKg, 0) * 10) / 10;
-      const datum = teil[teil.length - 1].datum > heute ? heute : U.addDays(teil[teil.length - 1].datum, 7) > heute ? heute : U.addDays(teil[teil.length - 1].datum, 7);
+      const datum = hoechstHeute(U.addDays(teil[teil.length - 1].datum, 7));
       const ch = zu('chargen', { losnummer: `${j}-${String(c + 1).padStart(2, '0')}`, datum, ernteIds: teil.map((e) => e.id), mengeKg: kg, etikettNotiz: `${teil[0].sorte} – ${['cremig gerührt', 'flüssig', 'fein kristallin'][c % 3]}` });
       for (const g of [500, 250, 500]) {
         const anzahl = int(40, 160);
-        abfuellungen.push(zu('abfuellungen', { chargeId: ch.id, datum: U.addDays(datum, int(1, 10)) > heute ? heute : U.addDays(datum, int(1, 10)), mhd: ymd(j + 2, 6, 30), gebindeG: g, anzahl, bestand: anzahl, _charge: ch }));
+        abfuellungen.push(zu('abfuellungen', { chargeId: ch.id, datum: hoechstHeute(U.addDays(datum, int(1, 10))), mhd: ymd(j + 2, 6, 30), gebindeG: g, anzahl, bestand: anzahl, _charge: ch }));
       }
     }
   }
@@ -181,7 +182,7 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
     let rest = a.bestand;
     while (rest > 0 && rnd() < 0.93) {
       const n = Math.min(rest, int(1, 24)), preis = a.gebindeG === 500 ? pick([6.5, 7, 7.5, 8]) : pick([4, 4.5, 5]);
-      const datum = U.addDays(a.datum, int(1, 300)) > heute ? heute : U.addDays(a.datum, int(1, 300));
+      const datum = hoechstHeute(U.addDays(a.datum, int(1, 300)));   // EIN Zufallswert – vorher zwei, so landeten Verkäufe im Jahr 2027
       const k = rnd() < 0.7 ? pick(kunden) : null, betrag = Math.round(n * preis * 100) / 100;
       const kb = zu('kassenbuch', { datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId: k ? k.id : null, beschreibung: `Verkauf: ${n} × ${gebindeLabel(a.gebindeG)} (Charge ${a._charge.losnummer})`, rechnungId: null });
       zu('verkaeufe', { datum, abfuellungId: a.id, anzahl: n, preisJeGlas: preis, betrag, kontaktId: k ? k.id : null, notiz: '', kassenbuchId: kb.id, ausBestand: n });
