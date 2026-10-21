@@ -1504,8 +1504,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.84';
+const APP_VERSION = '2.85';
 const CHANGELOG = [
+  { version: '2.85', datum: '2026-10-21', punkte: [
+    '<b>Zwischenstände statt „Snapshots“:</b> Nach jeder Änderung merkt sich die App deinen Stand – die letzten 10, ältere werden überschrieben. Unter Einstellungen → Sicherung & Datensicherheit steht der neueste, die älteren klappst du auf. „Zurückholen“ hilft, wenn du aus Versehen viel gelöscht oder eine falsche Sicherung eingespielt hast. Sie liegen nur auf diesem Gerät und ersetzen keine Sicherung.',
+  ] },
   { version: '2.84', datum: '2026-10-21', punkte: [
     '<b>Erinnerung an die Sicherung per Mitteilung:</b> Ist deine letzte Sicherung 14 Tage her, meldet sich ImkerBuch um 19 Uhr – auch wenn die App geschlossen ist, danach wöchentlich. Antippen führt direkt zu „Sicherung speichern“ (iCloud Drive bzw. Google Drive). Ein- und ausschalten unter Einstellungen → Sicherung & Datensicherheit.',
   ] },
@@ -2997,6 +3000,7 @@ const DB = {
   _aenderungMelden() {
     window._changedSinceBackup = true;
     if (typeof Erinnerung !== 'undefined') Erinnerung.spaeterPlanen();
+    if (typeof Backup !== 'undefined' && !TEST_MODE) Backup.zwischenstandBald();   // Zwischenstand nach Änderungen (gebündelt)
     window._sicherungKanal?.postMessage('aktualisieren');
   },
   /* Mehrere Speicher in EINER Transaktion: entweder alles oder nichts.
@@ -5951,7 +5955,7 @@ async function startDatenMerken(vorher, demo = false) {
 const Demo = {
   /** Alle Datenspeicher leeren (Einstellungen und interne Sicherungskopien bleiben) und volle Beispieldaten laden. */
   async reset() {
-    await Backup.snapshotInternal('vor-beispieldaten'); // zurückholbar über „Interne Snapshots“
+    await Backup.snapshotInternal('vor-beispieldaten'); // zurückholbar über „Zwischenstände“ in den Einstellungen
     for (const s of DB.STORES) if (s !== 'settings' && s !== 'snapshots') await DB.clear(s);
     await S.set('startDaten', null, { auto: true });
     await this.create();
@@ -21052,25 +21056,52 @@ const Backup = {
   },
 
   /* ---------- Interne Snapshots (rollierend 10, ohne Anhang-Blobs) ---------- */
+  /* Zwischenstände (im Code „snapshots“): Kopie aller Einträge OHNE Foto-/Audiodateien in der App selbst, die 10 neuesten bleiben.
+     Für Nutzer heißen sie „Zwischenstände“ – Julian (21.10.2026): „Snapshots … 0/10 – erkläre es“. */
+  GRUND: { aenderung: 'Nach deinen Änderungen', oeffnen: 'Beim Öffnen der App', taeglich: 'Beim Öffnen der App', auto: 'Bei der automatischen Sicherung', manuell: 'Von Hand angelegt', 'vor-import': 'Vor dem Einspielen einer Sicherung',
+    'vor-wiederherstellung': 'Vor dem Zurückholen eines Zwischenstands', 'vor-beispieldaten': 'Vor dem Laden der Beispieldaten' },
   async snapshotInternal(grund) {
     const data = await this.buildData(false);
     const json = JSON.stringify(data);
-    await DB.put('snapshots', { datum: U.nowIso(), grund, daten: json, groesse: json.length });
+    await DB.put('snapshots', { datum: U.nowIso(), grund, daten: json, groesse: json.length, rev: data._stand || null });
+    this._zsRev = data._stand || null; this._zsRevGeladen = true;
     const alle = U.sortBy(await DB.getAll('snapshots'), (s) => s.datum, true);
     for (const s of alle.slice(10)) await DB.del('snapshots', s.id);
   },
+  /** Zwischenstand nur, wenn sich seit dem letzten etwas geändert hat – Julian (21.10.2026): „eigentlich nur, wenn man
+      was ändert“. Gebündelt: 1 Minute nach der letzten Änderung oder beim Verlassen der App (sonst wären die 10 Plätze
+      schon nach einer Durchsicht voll). Beim Öffnen wird nur nachgeholt, was beim letzten Mal nicht mehr gespeichert
+      wurde (App hart beendet). Gibt true zurück, wenn einer angelegt wurde. */
+  _zsRev: null, _zsRevGeladen: false, _zsT: null, _zsLaeuft: false,
+  async zwischenstand(grund = 'aenderung') {
+    clearTimeout(this._zsT); this._zsT = null;
+    if (this._zsLaeuft) return false;
+    this._zsLaeuft = true;
+    try {
+      const rev = ((await DB.leseAlles(['settings'])).settings.find((r) => r.key === '_datenRevision') || {}).value || null;
+      if (!rev) return false;
+      if (!this._zsRevGeladen) { const l = U.sortBy(await DB.getAll('snapshots'), (x) => x.datum, true)[0]; this._zsRev = l ? l.rev || null : null; this._zsRevGeladen = true; }
+      if (this._zsRev === rev) return false;                     // nichts geändert seit dem letzten
+      const stores = ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'kassenbuch', 'ernten', 'aufgaben', 'trachten'];
+      let daten = false; for (const st of stores) if (await DB.count(st)) { daten = true; break; }
+      if (!daten) return false;                                  // leeres Gerät: nichts zu merken
+      await this.snapshotInternal(grund);
+      return true;
+    } finally { this._zsLaeuft = false; }
+  },
+  zwischenstandBald() { clearTimeout(this._zsT); this._zsT = setTimeout(() => this.zwischenstand('aenderung').catch((e) => console.error('Zwischenstand', e)), 60000); },
   async restoreSnapshot(id) {
     const snap = await DB.get('snapshots', id);
     if (!snap) return;
-    const ok1 = await UI.confirm({ title: 'Snapshot wiederherstellen?', text: `Der Stand vom ${U.fmtDateTime(snap.datum)} ersetzt ALLE aktuellen Daten. Vorher wird automatisch ein Snapshot des jetzigen Stands angelegt.`, confirmText: 'Weiter', danger: true });
+    const ok1 = await UI.confirm({ title: 'Zwischenstand zurückholen?', text: `Der Stand vom ${U.fmtDateTime(snap.datum)} ersetzt ALLE aktuellen Daten. Vorher merkt sich die App den jetzigen Stand als Zwischenstand – so kannst du es rückgängig machen.`, confirmText: 'Weiter', danger: true });
     if (!ok1) return;
-    const ok2 = await UI.confirm({ title: 'Wirklich sicher?', text: 'Letzte Bestätigung: aktuelle Daten werden überschrieben.', confirmText: 'Wiederherstellen', danger: true });
+    const ok2 = await UI.confirm({ title: 'Wirklich sicher?', text: 'Letzte Bestätigung: aktuelle Daten werden überschrieben.', confirmText: 'Zurückholen', danger: true });
     if (!ok2) return;
     await this.snapshotInternal('vor-wiederherstellung');
     const data = JSON.parse(snap.daten);
     await this.applyReplace(data, { blobsBehalten: true });
     await this.nachImport(data);
-    UI.toast('Snapshot wiederhergestellt');
+    UI.toast('Zwischenstand zurückgeholt');
     await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
   },
 
@@ -21150,7 +21181,7 @@ const Backup = {
           <button class="btn btn-primary btn-block" data-merge>${icon('merge')} Zusammenführen (empfohlen)</button>
           <div class="hint mb12 mt8">Neue Einträge werden ergänzt, bei Konflikten gewinnt der neuere Stand – bei Imkerei- und Bio-Angaben Feld für Feld (keine Duplikate dank UUIDs).</div>
           <button class="btn btn-danger btn-block" data-replace>${icon('warn')} Ersetzen (kompletter Restore)</button>
-          <div class="hint mt8">Alle aktuellen Daten werden überschrieben. Vorher wird automatisch ein interner Snapshot angelegt.</div>
+          <div class="hint mt8">Alle aktuellen Daten werden überschrieben. Vorher wird automatisch ein Zwischenstand angelegt.</div>
         </div>`;
     }
     const m = UI.modal({ title: 'Sicherung importieren', body, footer: `<button class="btn btn-ghost" data-cancel>Abbrechen</button>` });
@@ -21199,7 +21230,7 @@ const Backup = {
       const verlust = await this.anhaengeVerlust(data);
       const ok1 = await UI.confirm({ title: 'Alle Daten ersetzen?',
         text: 'Der komplette aktuelle Datenbestand wird durch die Sicherung ersetzt.'
-          + (verlust ? ` Achtung: ${verlust} ${verlust === 1 ? 'Foto bzw. Dokument ist' : 'Fotos bzw. Dokumente sind'} nur hier gespeichert und in der Sicherung nicht enthalten. Diese Dateien gehen endgültig verloren – der interne Snapshot enthält keine Dateianhänge.` : ''),
+          + (verlust ? ` Achtung: ${verlust} ${verlust === 1 ? 'Foto bzw. Dokument ist' : 'Fotos bzw. Dokumente sind'} nur hier gespeichert und in der Sicherung nicht enthalten. Diese Dateien gehen endgültig verloren – der Zwischenstand enthält keine Dateianhänge.` : ''),
         confirmText: 'Weiter' });
       if (!ok1) return;
       const ok2 = await UI.confirm({ title: 'Letzte Bestätigung', text: 'Zum Schutz vor Versehen bitte bestätigen.', confirmText: 'Endgültig ersetzen', requirePhrase: 'ERSETZEN' });
@@ -24627,8 +24658,8 @@ const APP_WISSEN = [
       { knopf: '#ul-suche', weiter: true, text: 'Mit der Suche findest du jede Unterlage über ihren Namen, egal in welcher Kategorie sie liegt.' },
       { abschluss: '#ul-reiter', text: 'Oder du gehst über die Kategorien: Ämter & Pflicht, Völker, Honig & Verkauf, Geld & Steuer, Auswertungen sowie Alles & Daten. Jede Unterlage hat ihre Knöpfe für PDF, Excel und CSV.' }] },
   { id: 'sicherung', titel: 'Datensicherung', route: 'einstellungen', zeige: 'Sicherung',
-    stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
-    antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen.',
+    stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'zwischenstand', 'zwischenstaende', 'snapshot', 'snapshots', 'frueheren stand', 'stand zurueckholen', 'versehentlich geloescht alles', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
+    antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen. Zusätzlich merkt sich die App nach jeder Änderung einen Zwischenstand (die letzten 10, Einstellungen → „Zwischenstände“); damit holst du nach einem Versehen einen früheren Stand zurück – das ersetzt aber keine Sicherung.',
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Sicherung“', 'Sicherung erstellen, Datei an sicherem Ort ablegen'],
     tour: [{ abschnitt: 'Sicherung & Daten', text: 'Tippe auf „Sicherung & Datensicherheit“, damit sich der Bereich öffnet.' },
       { knopf: 'Sicherung s', weiter: true, text: 'Mit diesem Knopf erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in deinem Cloud-Speicher oder per Mail an dich selbst.' },
@@ -25981,6 +26012,13 @@ Views.imkerschule = {
   },
 };
 
+/** „Heute, 07:42“ / „Gestern, 18:05“ / „19.10.2026, 07:31“ für die Liste der Zwischenstände. */
+function zwischenstandZeit(iso, jetzt = new Date()) {
+  const d = new Date(iso), uhr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const tag = (x) => `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`, gestern = new Date(jetzt); gestern.setDate(gestern.getDate() - 1);
+  return tag(d) === tag(jetzt) ? `Heute, ${uhr}` : tag(d) === tag(gestern) ? `Gestern, ${uhr}` : U.fmtDateTime(iso);
+}
+
 /* =====================================================================
    MODUL: EINSTELLUNGEN
    ===================================================================== */
@@ -26019,17 +26057,22 @@ Views.einstellungen = {
           <span class="small muted">${S.get('backupDirName') ? `Ordner: „${U.esc(S.get('backupDirName'))}“` : 'Kein Ordner gewählt → Datei wird automatisch heruntergeladen.'}</span>
         </div>
         ${backupRingHtml()}
-        <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich werden intern die letzten 10 Snapshots behalten.</div>
+        <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich behält die App die letzten 10 Zwischenstände (siehe unten).</div>
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
         `}
         <label class="check-line mt8"><input type="checkbox" id="ab-erinnerung" ${S.get('backupErinnerung') === false ? '' : 'checked'}> <span>Oben an eine fällige Sicherung erinnern</span></label>
         ${Erinnerung.plugin() ? `<label class="check-line mt8"><input type="checkbox" id="ab-mitteilung" ${Erinnerung.sicherungAn() ? 'checked' : ''}> <span>Per Mitteilung an die Sicherung erinnern<br><span class="small muted">Wenn die letzte Sicherung 14 Tage her ist – um 19 Uhr, danach wöchentlich, auch wenn die App geschlossen ist.<span id="ab-mitteilung-stand"></span></span></span></label>` : ''}
-        <h3 class="mb8 mt16">Interne Snapshots (${snaps.length}/10)</h3>
-        <div class="rows">${snaps.map((s) => `<div class="row" style="min-height:46px">
-          <span class="r-main"><span class="r-title">${U.fmtDateTime(s.datum)}</span>
-          <span class="r-sub">${U.esc(s.grund)} · ${U.fmtBytes(s.groesse)} (ohne Foto-/Audiodateien)</span></span>
-          <button class="btn btn-sm btn-ghost no-print" data-snap="${U.esc(s.id)}">${icon('restore')} Wiederherstellen</button></div>`).join('') || '<span class="muted small">Noch keine Snapshots – sie entstehen automatisch bei Auto-Sicherung und vor jedem Import.</span>'}</div>
-        <button class="btn btn-ghost btn-sm mt12" id="snap-now">${icon('plus')} Snapshot jetzt anlegen</button>
+        <h3 class="mb8 mt16">Zwischenstände</h3>
+        <p class="small muted mb8">Nach jeder Änderung merkt sich die App deinen Stand – die letzten 10, ältere werden überschrieben. So holst du einen früheren Stand zurück, wenn du aus Versehen viel gelöscht oder eine falsche Sicherung eingespielt hast. Liegt nur auf diesem Gerät und enthält keine Fotos und Sprachnotizen – ersetzt also keine Sicherung.</p>
+        ${(() => {
+          const zeile = (s) => `<div class="row" style="min-height:46px">
+            <span class="r-main"><span class="r-title">${U.esc(zwischenstandZeit(s.datum))}</span>
+            <span class="r-sub" style="white-space:normal">${U.esc(Backup.GRUND[s.grund] || s.grund || '')}</span></span>
+            <button class="btn btn-sm btn-ghost no-print" data-snap="${U.esc(s.id)}">${icon('restore')} Zurückholen</button></div>`;
+          if (!snaps.length) return '<span class="muted small">Noch keiner – der erste entsteht, sobald du etwas eingetragen hast.</span>';
+          return `<div class="rows">${zeile(snaps[0])}</div>${snaps.length > 1 ? `<details class="zs-aelter mt8"><summary class="small">Ältere Zwischenstände (${snaps.length - 1})</summary><div class="rows mt8">${snaps.slice(1).map(zeile).join('')}</div></details>` : ''}`;
+        })()}
+        <button class="btn btn-ghost btn-sm mt12" id="snap-now">${icon('plus')} Zwischenstand jetzt anlegen</button>
         <h3 class="mb8 mt16">Alle Daten löschen</h3>
         <p class="small muted mb8">Löscht alle deine Einträge, Fotos und Einstellungen von diesem Gerät – zum Beispiel vor dem Verkauf des Geräts. Sichere vorher, wenn du sie behalten willst. Geht auch nach der Testphase.</p>
         <button class="btn btn-danger btn-sm no-print" id="alles-loeschen">${icon('trash')} Alle Daten löschen</button>
@@ -26235,7 +26278,7 @@ Views.einstellungen = {
     /* Sicherung */
     $('#imp-file').onchange = (e) => { if (e.target.files[0]) Backup.importFile(e.target.files[0]); e.target.value = ''; };
     main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap); });
-    $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Snapshot angelegt'); renderRoute(); };
+    $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Zwischenstand angelegt'); renderRoute(); };
     $('#alles-loeschen').onclick = () => alleDatenLoeschen();
 
     /* Belegstellen */
@@ -26417,7 +26460,7 @@ Views.einstellungen = {
       renderRoute({ scrollBehalten: true });
     };
     if ($('#demo-load')) $('#demo-load').onclick = async () => {
-      if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher wird eine interne Kopie angelegt („Interne Snapshots“) – für eine Kopie außerhalb der App vorher eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
+      if (!(await UI.confirm({ title: 'Beispieldaten laden?', text: 'Ersetzt ALLE aktuell vorhandenen Daten durch umfangreiche Demo-Daten. Vorher legt die App einen Zwischenstand an (Einstellungen → „Zwischenstände“) – für eine Kopie außerhalb der App vorher eine Sicherung erstellen.', confirmText: 'Laden', danger: true }))) return;
       await Demo.reset(); navTo('dashboard');
     };
 
@@ -26828,6 +26871,12 @@ async function boot() {
   Wetter.init();
   // Trachtkalender (v2.83): Erinnerung fürs nächste Jahr anlegen, sobald die diesjährige Blüte vorbei ist
   if (!TEST_MODE) setTimeout(() => Tracht.allePflegen().catch((e) => console.error('Tracht-Erinnerungen', e)), 4000);
+  // Zwischenstand nach Änderungen: beim Verlassen der App sofort; beim Öffnen nachholen, falls die App hart beendet wurde
+  if (!TEST_MODE) {
+    const zs = () => Backup.zwischenstand('aenderung').catch((e) => console.error('Zwischenstand', e));
+    setTimeout(zs, 8000);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && Backup._zsT) zs(); });
+  }
   // Nicht auf Apple warten: Start mit dem letzten bekannten Stand, Abgleich im Hintergrund
   Lizenz.init().then(() => { if (S.get('wizardDone') && Lizenz.gesperrt()) Lizenz.fenster(); else Lizenz.lightErinnerung(); });
   warmupBibliotheken();
@@ -26879,7 +26928,7 @@ Object.assign(window, {
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginAhnen, koeniginLabel,
   gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
-  Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat,
+  Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat, zwischenstandZeit,
   Seitenweise, seitenweise, LISTE_SCHRITT,
   ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
   APP_WISSEN, Assistent, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,

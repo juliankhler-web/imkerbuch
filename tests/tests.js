@@ -13689,6 +13689,44 @@ test('Sicherungs-Mitteilung: nach der ersten Sicherung einmal fragen; Antippen f
   }
 });
 
+/* Julian 21.10.2026: „Snapshots … 0/10 – erkläre es“ → Zwischenstände: nur wenn man etwas ändert, die letzten 10,
+   der neueste sichtbar, ältere zum Aufklappen, keine Zählung, keine Fachwörter. */
+test('Zwischenstände: nur nach Änderungen, die letzten 10, neuester sichtbar, ältere aufklappbar', async (w) => isolierteDaten(w, async () => {
+  const B = w.Backup;
+  const fremde = await w.DB.getAll('snapshots');   // aus anderen Tests – vorher weg, danach zurück
+  for (const x of fremde) await w.DB.del('snapshots', x.id);
+  try {
+  B._zsRevGeladen = false;
+  assertEq(await B.zwischenstand(), false, 'leeres Gerät: keiner');
+  await w.DB.put('voelker', { name: 'Zwischen-Volk', status: 'aktiv' });
+  assertEq(await B.zwischenstand(), true, 'nach einer Änderung: einer');
+  const z = w.U.sortBy(await w.DB.getAll('snapshots'), (x) => x.datum, true)[0];
+  assertEq(z.grund, 'aenderung'); assert(z.rev, 'merkt sich den Datenstand');
+  assertEq(await B.zwischenstand(), false, 'ohne neue Änderung kein weiterer');
+  B._zsRevGeladen = false;
+  assertEq(await B.zwischenstand(), false, 'auch nach Neustart nicht (Stand aus der Datenbank gelesen)');
+  for (let i = 0; i < 11; i++) { await w.DB.put('voelker', { name: 'Volk ' + i, status: 'aktiv' }); await B.zwischenstand(); }
+  assertEq((await w.DB.getAll('snapshots')).length, 10, 'die letzten 10, ältere überschrieben');
+  for (const g of ['aenderung', 'oeffnen', 'taeglich', 'auto', 'manuell', 'vor-import', 'vor-wiederherstellung', 'vor-beispieldaten']) assert(B.GRUND[g] && !/-/.test(B.GRUND[g]), 'Klartext für ' + g);
+  const jetzt = new Date(2026, 9, 21, 9, 0);
+  assertEq(w.zwischenstandZeit(new Date(2026, 9, 21, 7, 42).toISOString(), jetzt), 'Heute, 07:42');
+  assertEq(w.zwischenstandZeit(new Date(2026, 9, 20, 18, 5).toISOString(), jetzt), 'Gestern, 18:05');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.einstellungen.render(host);
+    const kopf = [...host.querySelectorAll('h3')].find((h) => /Zwischenstände/.test(h.textContent));
+    assert(kopf && !/\d/.test(kopf.textContent), 'Überschrift ohne „0/10“');
+    const det = host.querySelector('details.zs-aelter');
+    assert(det && !det.open && /Ältere Zwischenstände \(9\)/.test(det.textContent), 'neuester sichtbar, 9 ältere zum Aufklappen');
+    assert(/Nach deinen Änderungen/.test(host.textContent) && /Zurückholen/.test(host.textContent) && !/Snapshot/.test(host.textContent), 'keine Fachwörter');
+  } finally { host.remove(); }
+  } finally {
+    for (const x of await w.DB.getAll('snapshots')) await w.DB.del('snapshots', x.id);
+    for (const x of fremde) await w.DB.put('snapshots', x, true);
+    B._zsRevGeladen = false;
+  }
+}));
+
 test('Datenbank: geschlossene Verbindung (Safari/iOS) wird beim nächsten Zugriff neu geöffnet', async (w) => isolierteDaten(w, async () => {
   const DB = w.DB;
   await DB.open();

@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 21.10.2026, Version 2.84 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, E0 Überschrift). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 21.10.2026, Version 2.85 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -66,6 +66,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **D1** Aufgaben → „+ Neue Aufgabe“, fällig **heute**, Uhrzeit in **3 Minuten**. → Beim ersten Mal Frage „An Aufgaben erinnern?“ → Ja → Apple fragt nach Mitteilungen → Erlauben.
 - [ ] **D2** App schließen (nach oben wischen), iPhone sperren, 3 Minuten warten. → **Mitteilung** von ImkerBuch erscheint.
 
+- [ ] **D6 Zwischenstände:** Einen Eintrag ändern (z. B. eine Notiz am Volk), 1 Minute warten oder die App kurz verlassen. Einstellungen → Sicherung & Datensicherheit → „Zwischenstände“. → Oben steht „Heute, …“ mit „Nach deinen Änderungen“, ältere unter „Ältere Zwischenstände (…)“ zum Aufklappen. Ohne Änderung entsteht keiner.
 - [ ] **D5 Sicherung speichern + Erinnerung:** Einstellungen → „Sicherung speichern“ → „In Dateien sichern“ → iCloud Drive → Sichern. → Danach fragt die App einmal „An die nächste Sicherung erinnern?“ → „Ja, erinnern“. In den Einstellungen steht beim Schalter „Per Mitteilung an die Sicherung erinnern“: „Nächste: …, 19 Uhr“ (14 Tage später). Auf einem zweiten Gerät oder nach Neuinstallation: „Backup importieren“ → Datei aus iCloud Drive wählen → „Alles übernehmen“ → alles ist wieder da, danach „Käufe wiederherstellen“.
 
 ## E · Einrichten nach eigenem Geschmack
