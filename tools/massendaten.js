@@ -27,6 +27,34 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
   }));
   await S.set('profil', Object.assign({}, S.get('profil'), { vorname: 'Jörg' }));
 
+  /* Landbedeckung im Umkreis (Bio) für JEDEN Stand – wie sie die App speichert (stand.bio.anteile). Drei Arten wie im echten
+     Betrieb: amtlich berechnet (feine europäische Klassen, lange Namen), eigene Erhebung (Grundklassen) und OpenStreetMap.
+     Summe immer genau 100,0 %; dazu Verschmutzungsquellen, Erhebungsdatum, Umkreis und Notiz mit Sonderzeichen. */
+  // nur Klassen, die es im Dachauer Land wirklich gibt (keine Reisfelder, Gletscher, Meere …)
+  const NICHT_HIER = /Reis|Oliven|Hafen|Flugh|Deponie|Ständig bewässert|Wein|Hartlaub|Strände|Fels|spärlich|Brand|Gletscher|Salz|Salinen|Gezeiten|Lagunen|Mündung|Meere|Land- und forst/;
+  const KLASSEN_AMTLICH = [...CLC_KLASSEN.values()].filter(([name]) => !NICHT_HIER.test(name));
+  const landbedeckung = (i, lat, lon) => {
+    const art = i % 10 < 7 ? 'amtlich' : i % 10 < 9 ? 'eigen' : 'osm';
+    const vorrat = art === 'eigen' ? BIO_KLASSEN.map((k) => [k.name, k.art]) : KLASSEN_AMTLICH;
+    const n = art === 'eigen' ? vorrat.length : int(6, 13);
+    const gewaehlt = [...vorrat].sort(() => rnd() - 0.5).slice(0, n);
+    const gew = gewaehlt.map(([, a]) => (a === 'tracht' ? 2 + rnd() * 10 : a === 'bebaut' ? 0.3 + rnd() * 3 : rnd() * 1.5));
+    const summe = gew.reduce((x, y) => x + y, 0);
+    const anteile = gewaehlt.map(([name, a], k) => ({ name, art: a, prozent: Math.round((gew[k] / summe) * 1000) / 10 }));
+    const rest = Math.round((100 - anteile.reduce((x, y) => x + y.prozent, 0)) * 10) / 10;
+    anteile.sort((x, y) => y.prozent - x.prozent)[0].prozent = Math.round((anteile[0].prozent + rest) * 10) / 10;   // genau 100,0 %
+    return {
+      umkreisM: i % 9 === 0 ? pick(BIO_UMKREIS_WAHL) : BIO_UMKREIS_VORGABE,
+      erhebung: tag(pick(jahre.slice(-2)), 3, 9),
+      quelle: art === 'amtlich' ? GBV_QUELLE_KURZ : art === 'osm' ? 'OpenStreetMap (Overpass), eigene Auswertung' : 'Eigene Erhebung – Begehung mit Kartenblatt 1 : 25.000',
+      anteile,
+      adresse: pick(DOERFER),
+      lat, lon,
+      quellen: [...BIO_QUELLEN].sort(() => rnd() - 0.5).slice(0, int(0, 3)),
+      notiz: i % 6 === 0 ? 'Raps im Umkreis ≈ 12 ha (konventionell) – Abstand zum Stand > 3 km? Mit Landwirt „Huber“ abgesprochen.' : '',
+    };
+  };
+
   // ---------- Stände: 50, rund um Dachau/Oberbayern, ein paar weiter weg ----------
   const ORTE = ['Obstwiese', 'Rapsfeld', 'Lindenallee', 'Waldrand', 'Heidefläche', 'Klostergarten', 'Streuobst', 'Bahndamm', 'Moorweg', 'Sonnenhang', 'Kiesgrube', 'Auwald', 'Hofstelle', 'Weinberg', 'Kleingarten'];
   const DOERFER = ['Dachau', 'Karlsfeld', 'Bergkirchen', 'Röhrmoos', 'Hebertshausen', 'Haimhausen', 'Odelzhausen', 'Altomünster', 'Weichs', 'Markt Indersdorf', 'Schwabhausen', 'Erdweg', 'Petershausen', 'Vierkirchen', 'Fürstenfeldbruck', 'Freising', 'Moosach', 'Gröbenzell', 'Olching', 'Maisach'];
@@ -35,8 +63,10 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
     const weit = i >= nStaende - 4;   // vier Stände weit weg: Norddeutschland, Pfalz, Schwarzwald, Ostsee
     const [lat, lng] = weit ? [[53.55, 9.99], [49.35, 8.15], [47.99, 7.84], [54.32, 10.13]][i - (nStaende - 4)] : [48.0 + rnd() * 0.75, 10.95 + rnd() * 1.2];
     const name = i === 0 ? 'Heimstand „Am Bienenhaus“ – hinter der Scheune, Zugang über den Feldweg (Schlüssel beim Nachbarn)' : `${pick(ORTE)} ${pick(DOERFER)}${i % 7 === 0 ? ' Süd/Ost' : ''} ${String(i + 1).padStart(2, '0')}`;
-    staende.push(zu('staende', { name, lat: Math.round(lat * 10000) / 10000, lng: Math.round(lng * 10000) / 10000, kmEntfernung: weit ? int(200, 700) : int(2, 60),
-      notizen: i % 5 === 0 ? 'Zufahrt nur bei trockenem Wetter – Schranke ≥ 2,5 m, Code 4711. Grundstück: Fam. Öztürk („Ährenhof“).' : '' }));
+    const la = Math.round(lat * 10000) / 10000, ln = Math.round(lng * 10000) / 10000;
+    staende.push(zu('staende', { name, lat: la, lng: ln, kmEntfernung: weit ? int(200, 700) : int(2, 60),
+      notizen: i % 5 === 0 ? 'Zufahrt nur bei trockenem Wetter – Schranke ≥ 2,5 m, Code 4711. Grundstück: Fam. Öztürk („Ährenhof“).' : '',
+      bio: landbedeckung(i, la, ln) }));
   }
 
   // ---------- Belegstellen ----------

@@ -1516,8 +1516,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.89';
+const APP_VERSION = '2.90';
 const CHANGELOG = [
+  { version: '2.90', datum: '2026-10-23', punkte: [
+    '<b>Öko-Unterlagen: Landbedeckung übersichtlicher:</b> Je Stand eine kompakte Tabelle, größte Fläche zuerst, Anteile einheitlich mit einer Stelle („20,0 %“), Flächen mit 0 % weggelassen. Die Summenzeilen (Tracht, Bebauung, Sonstiges, Summe) sind fett hinterlegt und ergeben zusammen genau die Summe. Eine Stand-Tabelle reißt nicht mehr über die Seitengrenze.',
+    '<b>Hygieneplan:</b> Der Hinweis auf ältere Einträge im Archiv steht jetzt oben unter der Überschrift – vorher stand er manchmal allein auf einer letzten Seite.',
+  ] },
   { version: '2.89', datum: '2026-10-22', punkte: [
     '<b>Völker nach Funktion filtern:</b> Unter der Suche stehen jetzt Knöpfe wie „Wirtschaftsvolk“, „Ableger“ oder „Pflegevolk Königin“ – nur die Funktionen, die du wirklich hast, jeweils mit Anzahl. Sie wirken zusammen mit der Suche und dem Stand, z. B. alle Ableger mit „Anna“ im Namen. Die Sammel-Erfassung nimmt genau diese Auswahl.',
     '<b>Trachtkalender übersichtlich:</b> Blüht dieselbe Pflanze an mehreren Ständen, steht sie nur noch einmal da – mit der Zahl der Stände. Antippen klappt die einzelnen Stände mit ihren eigenen Blütezeiten auf. Auch die Startseiten-Kachel „Tracht“ nennt jede Pflanze nur noch einmal.',
@@ -22646,7 +22650,7 @@ const Pdf = {
     doc.setFont(altF.fontName, altF.fontStyle).setFontSize(altGr);
     return { voll, wort, kurz };
   },
-  table(doc, { head, body, startY, widths, margin }) {
+  table(doc, { head, body, startY, widths, margin, dicht = false }) {
     /* Spaltenbreiten selbst verteilen („Wasserstand“). Passt alles nebeneinander, bleibt es so; sonst werden nur die
        breitesten Spalten auf eine gemeinsame Höchstbreite gekürzt – schmale Spalten behalten ihre volle Breite, kein Wort
        wird mitten getrennt, kurze Werte („19 %“, „-1.234,56 €“) brechen nie um (die Tabelle trennt auch am geschützten
@@ -22684,7 +22688,8 @@ const Pdf = {
     for (const i of new Set([...Object.keys(spalten), ...Object.keys(widths || {})])) stile[i] = { ...(spalten[i] || {}), ...((widths || {})[i] || {}), ...(fix[i] != null ? { cellWidth: fix[i] } : {}) };
     doc.autoTable({
       head: [head], body, startY,
-      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: [40, 37, 30], overflow: 'linebreak', valign: 'middle', lineWidth: 0.1, lineColor: [226, 216, 196] },
+      // dicht: kleine Nachschlage-Tabellen (Landbedeckung je Stand) – ~5,4 statt ~7,6 mm je Zeile
+      styles: { font: 'helvetica', fontSize: dicht ? 8 : 8.5, cellPadding: dicht ? { top: 1.2, bottom: 1.2, left: 2, right: 2 } : 2, textColor: [40, 37, 30], overflow: 'linebreak', valign: 'middle', lineWidth: 0.1, lineColor: [226, 216, 196] },
       headStyles: { fillColor: [232, 160, 19], textColor: [36, 26, 5], fontStyle: 'bold', overflow: 'linebreak' },
       alternateRowStyles: { fillColor: [250, 246, 239] },
       columnStyles: stile, margin: margin || { left: 14, right: 14 },
@@ -23737,8 +23742,12 @@ const Pdf = {
       const plan = U.sortBy(alle.filter((e) => e.bereich === 'hygieneplan'), (e) => (e.bereichName || '').toLowerCase());
       const nachweise = U.sortBy(alle.filter((e) => e.bereich === 'hygienenachweis' && !bioImArchiv('hygienenachweis', e)), (e) => e.datum || '', true);
       const imk = S.get('imkerei') || {};
+      /* Archiv-Hinweis gleich unter die Überschrift: unten stand er bei vollen Seiten allein auf einer neuen Seite
+         (Großbestand-Probe 23.10.2026). */
+      const imArchiv = alle.filter((e) => bioImArchiv(e.bereich, e)).length;
       const { doc, y } = await this.newDoc('Hygieneplan',
-        [imk.name ? `Betrieb: ${imk.name}` : '', `${plan.length} ${plan.length === 1 ? 'Bereich' : 'Bereiche'}`, `${nachweise.length} durchgeführte ${nachweise.length === 1 ? 'Reinigung' : 'Reinigungen'}`].filter(Boolean).join(' · '));
+        [imk.name ? `Betrieb: ${imk.name}` : '', `${plan.length} ${plan.length === 1 ? 'Bereich' : 'Bereiche'}`, `${nachweise.length} durchgeführte ${nachweise.length === 1 ? 'Reinigung' : 'Reinigungen'}`,
+          imArchiv ? `gezeigt werden die letzten ${ARCHIV_JAHRE} Jahre, ${imArchiv} ältere ${imArchiv === 1 ? 'Eintrag liegt' : 'Einträge liegen'} im Archiv der App` : ''].filter(Boolean).join(' · '));
       let yy = y;
       if (!plan.length) {
         doc.setFont('helvetica', 'italic').setFontSize(9.5).setTextColor(150);
@@ -23760,12 +23769,6 @@ const Pdf = {
       }
       // Eigenkontrollen: je Bereich eine Tabelle, nur wenn Einträge da sind
       for (const b of ['honigverarbeitung', 'honigabfuellung', 'honiglager', 'schaedlinge', 'waage', 'massnahmen']) yy = this.bioListenTabelle(doc, yy, b, alle);
-      const imArchiv = alle.filter((e) => bioImArchiv(e.bereich, e)).length;
-      if (imArchiv) {
-        if (yy + 12 > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); yy = 20; }
-        doc.setFont('helvetica', 'italic').setFontSize(8.5).setTextColor(120);
-        doc.text(doc.splitTextToSize(`Dieses Dokument zeigt die letzten ${ARCHIV_JAHRE} Jahre. ${imArchiv} ältere ${imArchiv === 1 ? 'Eintrag liegt' : 'Einträge liegen'} im Archiv der App.`, 182), 14, yy);
-      }
       if (!(await this.anhaengeAnfuegen(doc, 'hygiene'))) return;
       this.finish(doc, `hygieneplan-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -23888,7 +23891,11 @@ const Pdf = {
         const su = bioSummen(anteile);
         const b = st.bio || {};
         const zahl = voelker.filter((v) => v.standId === st.id).length;
-        platz(anteile.length ? 42 : 18);
+        /* Ein Stand = ein Block: passt seine ganze Tabelle auf eine Seite, beginnt er auf einer neuen, statt dass die
+           Summenzeilen allein auf der nächsten Seite stehen (Großbestand-Probe 23.10.2026). Dichte Tabelle ~5,4 mm je Zeile. */
+        const zeilenZahl = anteile.length ? anteile.filter((a) => Number(a.prozent) > 0).length + 3 + (su.sonstiges > 0 ? 1 : 0) + 1 : 0;
+        const block = 18 + (zeilenZahl ? zeilenZahl * 5.4 + 6 : 0) + ((b.quellen || []).length ? 6 : 0);
+        platz(block < H - 40 ? block : 42);
         doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
         doc.text(this.einzeilig(doc, `Standort: ${st.name}`, 182, 11, 8.5), 14, yy); yy += 5;
         doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);
@@ -23898,11 +23905,20 @@ const Pdf = {
         const kz = doc.splitTextToSize(kopfzeile, 180);
         platz(kz.length * 4.2 + 2); doc.text(kz, 14, yy); yy += kz.length * 4.2 + 2;
         if (anteile.length) {
-          const body = anteile.map((a) => [a.name, (BIO_ARTEN.find((x) => x.v === a.art) || BIO_ARTEN[0]).l, U.fmtNum(a.prozent, 1) + ' %']);
-          body.push(['Tracht / Vegetation', '', U.fmtNum(su.tracht, 1) + ' %']);
-          body.push(['Bebauung, Verkehr, Industrie', '', U.fmtNum(su.bebaut, 1) + ' %']);
-          body.push(['Summe', '', U.fmtNum(su.gesamt, 1) + ' %']);
-          yy = this.table(doc, { head: ['Fläche', 'Art', 'Anteil'], body, startY: yy, widths: { 2: { halign: 'right' } } }) + 4;
+          /* Großbestand-Probe 23.10.2026: Anteile einheitlich mit einer Stelle („20,0 %“ statt „20 %“ neben „18,3 %“),
+             Flächen mit 0 % weg (leere Grundzeilen der eigenen Erhebung), größte zuerst; die Summenzeilen fett und
+             hinterlegt – vorher sah „Tracht / Vegetation“ wie eine weitere Fläche aus. „Sonstiges“ dazu, damit die drei
+             Gruppen zusammen die Summe ergeben. */
+          const pz = (x) => (Number(x) || 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+          const summe = { fontStyle: 'bold', fillColor: [245, 236, 218] };
+          const body = U.sortBy(anteile.filter((a) => Number(a.prozent) > 0), (a) => -Number(a.prozent))
+            .map((a) => [a.name, (BIO_ARTEN.find((x) => x.v === a.art) || BIO_ARTEN[0]).l, pz(a.prozent)]);
+          const gruppe = (label, wert) => body.push([{ content: label, styles: summe }, { content: '', styles: summe }, { content: pz(wert), styles: summe }]);
+          gruppe('Tracht / Vegetation', su.tracht);
+          gruppe('Bebauung, Verkehr, Industrie', su.bebaut);
+          if (su.sonstiges > 0) gruppe('Sonstiges (Wasser, Fels …)', su.sonstiges);
+          gruppe('Summe', su.gesamt);
+          yy = this.table(doc, { head: ['Fläche', 'Art', 'Anteil'], body, startY: yy, widths: { 2: { halign: 'right' } }, dicht: true }) + 4;
         }
         if ((b.quellen || []).length) {
           doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);

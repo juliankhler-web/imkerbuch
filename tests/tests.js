@@ -3554,6 +3554,29 @@ test('Bio-PDF baut mit allen Bereichen', async (w) => {
   }
 });
 
+/* Großbestand-Probe 23.10.2026 (Julian: „Landbedeckung in die Testvölker, damit du siehst, ob es richtig im PDF steht“) */
+test('Öko-Unterlagen: Landbedeckung mit einer Stelle, ohne 0-%-Zeilen, sortiert, Summenzeilen fett', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('staende', { name: 'Landbedeckungs-Stand', lat: 48.26, lng: 11.43, bio: { umkreisM: 3500, erhebung: '2026-06-01', quelle: 'Test',
+    anteile: [{ name: 'Wiesen und Weiden', art: 'tracht', prozent: 20 }, { name: 'Komplexe Parzellenstrukturen', art: 'tracht', prozent: 55.5 },
+      { name: 'Nicht durchgängig städtische Prägung', art: 'bebaut', prozent: 24.3 }, { name: 'Wasserflächen', art: 'sonstiges', prozent: 0.2 },
+      { name: 'Acker', art: 'tracht', prozent: 0 }], quellen: ['Klärwerk'] } });
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  const tabellen = [], alt = w.Pdf.table;
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return alt.call(this, doc, o); };
+  try {
+    await w.Pdf.bioUnterlagen();
+    const t = tabellen.find((o) => o.head[0] === 'Fläche');
+    assert(t, 'Landbedeckungs-Tabelle im PDF');
+    const zelle = (x) => (x && typeof x === 'object' ? x.content : x);
+    const zeilen = t.body.map((r) => r.map(zelle));
+    assertEq(zeilen.slice(0, 4).map((r) => r[0]), ['Komplexe Parzellenstrukturen', 'Nicht durchgängig städtische Prägung', 'Wiesen und Weiden', 'Wasserflächen'], 'größte zuerst, ohne 0-%-Zeile');
+    assertEq(zeilen[2][2], '20,0 %', 'immer eine Nachkommastelle');
+    assertEq(zeilen.slice(4).map((r) => r[0]), ['Tracht / Vegetation', 'Bebauung, Verkehr, Industrie', 'Sonstiges (Wasser, Fels …)', 'Summe'], 'Gruppen mit Sonstiges');
+    assertEq(zeilen[zeilen.length - 1][2], '100,0 %', 'Summe 100,0 %');
+    assertEq(t.body[4][0].styles.fontStyle, 'bold', 'Summenzeilen fett');
+  } finally { w.Pdf.table = alt; w.Pdf.noDownloadForTest = false; }
+}));
+
 /* ---------- Charge aus vorhandenem Lagerbestand ---------- */
 test('Charge: ohne Ernten ist „Lagerbestand" vorbelegt', async (w) => {
   w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false;
