@@ -1773,6 +1773,36 @@ test('Königinnen-Import: Kennung, Mutter, Vaterseite, Belegstelle, Pedigree –
   assertEq(exp.find((r) => r.Kennung === 'IM-1').Belegstelle, 'Belegstelle Norderney', 'Belegstelle eigene Spalte im Export');
 }));
 
+/* ---------- Tester-Sperre der Web-Version (23.10.2026) ---------- */
+test('Tester-Sperre: Eingerichtete Tester kommen durch, Neue brauchen den Code, App/Testbetrieb nie gesperrt', async (w) => isolierteDaten(w, async () => {
+  const T = w.TesterSperre, alt = { aktiv: T.aktiv, fa: T.FINGERABDRUCK };
+  assertEq(T.aktiv(), false, 'im Testbetrieb nie gesperrt');
+  assertEq(await T.fingerabdruck(' Wabe 7 '), await T.fingerabdruck('wabe7'), 'Groß/klein und Leerzeichen egal');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    T.aktiv = () => true; T.FINGERABDRUCK = await T.fingerabdruck('Probe-Code 42');
+    await w.S.set('wizardDone', true); assertEq(T.frei(), true, 'wer eingerichtet hat, merkt nichts');
+    assertEq(await T.durchlassen(host), true); assertEq(host.querySelector('.tester-sperre'), null, 'keine Sperrseite');
+    await w.S.set('wizardDone', false); await w.S.set('testerFreigabe', false);
+    try { w.localStorage.removeItem('imkerbuch.tester'); } catch (e) { /* egal */ }
+    assertEq(T.frei(), false, 'neu: gesperrt');
+    let fertig = false;
+    const lauf = T.durchlassen(host).then((x) => { fertig = x; });
+    await new Promise((r) => setTimeout(r, 50));
+    const box = host.querySelector('.tester-sperre');
+    assert(box && /Tester-Code/.test(box.textContent), 'Sperrseite erscheint');
+    box.querySelector('#ts-code').value = 'falsch'; box.querySelector('form').dispatchEvent(new w.Event('submit', { cancelable: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    assert(/stimmt nicht/.test(box.querySelector('.ts-fehler').textContent) && !fertig, 'falscher Code: bleibt gesperrt');
+    box.querySelector('#ts-code').value = ' probe-code 42 '; box.querySelector('form').dispatchEvent(new w.Event('submit', { cancelable: true }));
+    await lauf;
+    assert(fertig && !host.querySelector('.tester-sperre'), 'richtiger Code: frei');
+    assertEq(w.S.get('testerFreigabe'), true, 'Freischaltung gemerkt');
+    T.FINGERABDRUCK = '';
+    assertEq(await T.pruefe('irgendwas'), false, 'ohne festgelegten Code lässt sich nichts freischalten');
+  } finally { T.aktiv = alt.aktiv; T.FINGERABDRUCK = alt.fa; host.remove(); try { w.localStorage.removeItem('imkerbuch.tester'); } catch (e) { /* egal */ } }
+}));
+
 /* ---------- Universal-Import ---------- */
 test('Importer.parseDate: erkennt gängige Datumsformate → ISO', (w) => {
   assertEq(w.Importer.parseDate('03.07.2026'), '2026-07-03', 'TT.MM.JJJJ');

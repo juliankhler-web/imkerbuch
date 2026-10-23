@@ -883,6 +883,13 @@ a.kpill,a.row{color:inherit;text-decoration:none}
    eine Statuszeile, die beim normalen Start LEER bleibt (nur beim Update steht dort etwas).
    Kopf und Statuszeile liegen absolut – so bleibt die Animation wirklich mittig, egal ob
    unten Text steht oder nicht. */
+.tester-sperre{position:fixed;inset:0;z-index:10001;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px 16px;overflow:auto}
+.tester-sperre form{width:100%;max-width:340px;background:var(--card);border-radius:16px;padding:26px 20px;text-align:center;box-shadow:0 1px 0 var(--line)}
+.tester-sperre .ts-logo{font-size:22px;font-weight:800;color:var(--honey-deep);margin:4px 0 6px}
+.tester-sperre p{font-size:14px;color:var(--muted);margin:0 0 16px;line-height:1.5}
+.tester-sperre label{display:block;text-align:left;font-size:13px;font-weight:700;margin-bottom:5px}
+.tester-sperre .ts-fehler{color:var(--danger);font-size:13px;min-height:18px;margin:6px 0 4px}
+.tester-sperre .btn{width:100%;justify-content:center}
 #splash{position:fixed;inset:0;z-index:10000;background:var(--bg);display:flex;align-items:center;justify-content:center;transition:opacity .32s ease;
   --wabe-ruhe:#FCE3BF;--wabe-glanz:#DD6F01}
 /* Auf dem hellen Creme-Hintergrund wäre das Original-Creme fast unsichtbar → kräftigerer Honigton */
@@ -1525,8 +1532,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.92';
+const APP_VERSION = '2.93';
 const CHANGELOG = [
+  { version: '2.93', datum: '2026-10-23', punkte: [
+    '<b>Web-Version nur für Tester:</b> Wer die Web-App in einem Browser zum ersten Mal öffnet, braucht jetzt einen Tester-Code. Wer sie schon eingerichtet hat, merkt davon nichts – deine Daten bleiben, wie sie sind. Die Apps für iPhone und Android sind nicht betroffen.',
+  ] },
   { version: '2.92', datum: '2026-10-23', punkte: [
     '<b>Stammbaum mit beiden Seiten:</b> Im Reiter „Stammbaum“ einer Königin gibt es jetzt die „Ahnentafel (beide Seiten)“ – auch die Vorfahren des Vatervolks (4a) erscheinen, bis zu vier Generationen, am Handy seitlich wischbar. Kommt dieselbe Ahnin mehrfach vor (z. B. auf Mutter- und Vaterseite), weist ein Hinweis darauf hin und sie ist farbig markiert.',
     '<b>Klarere Felder bei der Königin:</b> „Woher stammt die Königin?“ (eigene Nachzucht, Zukauf, Schwarm, Nachschaffung) und „Anpaarung“ (Standbegattung, Belegstelle, Besamung) – „Belegstelle“ steht nicht mehr in zwei Feldern. Das Vatervolk (4a) kannst du jetzt auch bei einer Belegstelle angeben.',
@@ -3292,7 +3302,7 @@ const S = {
     rechnungQr: null, // eigenes QR-Code-Bild (dataURL) für Rechnungen, z. B. Bezahl-/PayPal-Code
     imkerschule: { level: 'anfaenger', done: {}, onboarded: false },
     chargeDatumMigriert: false,
-    darkMode: 'auto', assistentAktiv: true, wizardDone: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
+    darkMode: 'auto', assistentAktiv: true, wizardDone: false, testerFreigabe: false, letzteExterneSicherung: null, letzteAutoSicherung: null, persistHintDismissed: false, backupErinnerung: true, letzteNotif: null, letzteGeseheneVersion: null, fahrtWidgetSeen: false, zeitenWidgetSeen: false,
   },
   /* Gehört zu DIESEM Gerät und reist deshalb weder in der Sicherung mit noch
      kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
@@ -4739,6 +4749,63 @@ const Splash = {
       setTimeout(() => el.remove(), 350);
       this.el = null;
     }, Math.max(0, this.MIN_MS - performance.now()));
+  },
+};
+
+/* =====================================================================
+   TESTER-SPERRE DER WEB-VERSION (23.10.2026). Julian: „es soll aktuell noch
+   keiner auf die Seite kommen, der den Link nicht kennt“ – der Link war
+   versehentlich in drei Mails nach außen gegangen. Wer die App in diesem
+   Browser schon eingerichtet hat (die bisherigen Tester), merkt nichts; wer neu
+   kommt, braucht den Tester-Code. Im Code steht nur ein Fingerabdruck
+   (SHA-256), nicht der Code selbst. Die Apps aus App Store/Google Play sind
+   nicht betroffen. Grenze: Wer Programmcode lesen kann, kommt daran vorbei –
+   die Sperre verhindert, dass ein weitergegebener Link genügt.
+   ===================================================================== */
+const TesterSperre = {
+  FINGERABDRUCK: '6578dab996e2f8f30733a43231f3bc9502c65d568dd7c388c18f947f94ce729f',   // SHA-256 von „imkerbuch-tester:“ + Code (klein, ohne Leerzeichen); Code kennt nur Julian
+  aktiv() { return !IST_NATIVE_APP && !TEST_MODE && location.protocol !== 'file:'; },
+  frei() {
+    if (S.get('wizardDone') || S.get('testerFreigabe')) return true;   // schon eingerichtet bzw. freigeschaltet
+    try { return !!this.FINGERABDRUCK && localStorage.getItem('imkerbuch.tester') === this.FINGERABDRUCK; } catch (e) { return false; }
+  },
+  async fingerabdruck(code) {
+    const t = String(code || '').trim().toLowerCase().replace(/\s+/g, '');
+    if (!t || !(window.crypto && crypto.subtle)) return '';
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('imkerbuch-tester:' + t));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  },
+  async pruefe(code) { return !!this.FINGERABDRUCK && (await this.fingerabdruck(code)) === this.FINGERABDRUCK; },
+  /** Hält den Start an, bis der richtige Code eingegeben ist. true = weiter starten. */
+  async durchlassen(ziel = document.body) {
+    if (!this.aktiv() || this.frei()) return true;
+    Splash.weg();
+    const box = document.createElement('div');
+    box.className = 'tester-sperre';
+    box.innerHTML = `<form novalidate>
+      <div style="font-size:30px">🐝</div>
+      <div class="ts-logo">ImkerBuch</div>
+      <p>Noch in der Testphase – diese Web-Version ist nur für eingeladene Tester.</p>
+      <label for="ts-code">Tester-Code</label>
+      <input class="inp" id="ts-code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Code eingeben">
+      <div class="ts-fehler" role="alert"></div>
+      <button type="submit" class="btn btn-primary">Freischalten</button>
+      <p style="margin:14px 0 0;font-size:12px">Bald im App Store und bei Google Play.</p>
+    </form>`;
+    ziel.appendChild(box);
+    return new Promise((weiter) => {
+      const form = box.querySelector('form'), feld = box.querySelector('#ts-code'), fehler = box.querySelector('.ts-fehler');
+      feld.addEventListener('input', () => { fehler.textContent = ''; });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!(await this.pruefe(feld.value))) { fehler.textContent = feld.value.trim() ? 'Der Code stimmt nicht.' : 'Bitte gib deinen Tester-Code ein.'; feld.focus(); return; }
+        try { localStorage.setItem('imkerbuch.tester', this.FINGERABDRUCK); } catch (err) { /* privater Modus – Einstellung genügt */ }
+        await S.set('testerFreigabe', true, { auto: true });
+        box.remove();
+        weiter(true);
+      });
+      setTimeout(() => feld.focus(), 50);
+    });
   },
 };
 
@@ -27831,6 +27898,7 @@ async function boot() {
     return;
   }
   await S.load();
+  await TesterSperre.durchlassen();   // Web-Version: ohne Einrichtung nur mit Tester-Code (wartet, bis er stimmt)
   await lohnIndexNeu();
   await migriereRaehmchenmass();
   await migriereDokTypZertifikat();
@@ -27901,7 +27969,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
+  TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead, leistePlatz,

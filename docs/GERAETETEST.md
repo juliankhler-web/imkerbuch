@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 23.10.2026, Version 2.92 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 23.10.2026, Version 2.93 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -43,6 +43,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B4 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe; probier es mal mit **Handschuhen**. Am Ende „Speichern“.
 - [ ] **B5 Sprachnotiz:** In der Durchsicht am Stand „Sprachnotiz“ (oder Volk → „Notizen & Anhänge“ → „Aufnehmen“). → **Eine** Frage nach dem Mikrofon. Aufnahme läuft (roter Punkt), Stoppen, abspielen.
 - [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → **Eine** Frage nach der Kamera, Kamera öffnet sich, Foto erscheint als Bild.
+- [ ] **A0 Kein Tester-Code in der App (neu 2.93):** Die App aus Xcode/Android Studio bzw. aus dem Store startet ohne Frage nach einem Tester-Code – die Sperre gilt nur für die Web-Version im Browser.
 - [ ] **B7 Königin:** Königinnen → „+“ → Generation z. B. „F1“ eintragen. → Wird in der Königin angezeigt.
 - [ ] **B7a Königin-Formular (neu):** Eine Königin bearbeiten. → Die Felder heißen „Herkunft / Linie“, „Woher stammt die Königin?“ (Vorschläge: Eigene Nachzucht, Zukauf Züchter, Schwarm, Nachschaffung – **kein** „Belegstelle“ mehr) und „Anpaarung“. Bei „Anpaarung: Belegstelle“ gibt es darunter die Belegstelle **und** das Feld „Vatervolk (4a)“.
 - [ ] **B7b Ahnentafel (Beispieldaten):** Königinnen → die jüngste Carnica-Königin öffnen → Reiter „Stammbaum“. → Oben gelber Hinweis „Gemeinsame Vorfahren … auf Mutter- und Vaterseite“. Knopf „Ahnentafel (beide Seiten)“ → Tafel mit Spalten Königin · Eltern · Großeltern, die gemeinsame Ahnin ist farbig; Regler „Generationen“ ändert die Spalten; am Handy seitlich wischbar. „Mutterlinie“ zeigt wieder die bisherige Liste.

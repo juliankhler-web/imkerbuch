@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 23.10.2026, Version 2.92. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 23.10.2026, Version 2.93. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -13,6 +13,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 1. Diese Adresse öffnen: **https://juliankhler-web.github.io/imkerbuch/** – am Handy in Safari (iPhone) bzw. Chrome (Android), am Computer in Chrome, Edge, Safari oder Firefox.
 2. **Wichtig – wo deine Daten liegen:** nur in **diesem Browser auf diesem Gerät**. Nicht im privaten Fenster testen und die Browserdaten nicht löschen, sonst ist alles weg.
 3. Am Handy kannst du ImkerBuch auf den Home-Bildschirm legen (iPhone: Teilen-Symbol → „Zum Home-Bildschirm“; Android: ⋮ → „App installieren“ bzw. „Zum Startbildschirm“). **Bleib dann bei diesem Symbol** – auf dem iPhone sieht das Symbol andere Daten als Safari.
+3a. **Tester-Code (neu seit 2.93):** Öffnest du die Web-App in einem Browser zum ersten Mal, fragt sie nach einem Tester-Code – den bekommst du persönlich von Julian. Hast du die App in diesem Browser schon eingerichtet, kommt keine Frage. Den Code bitte nicht weitergeben.
 4. **Beispieldaten (wenn du nicht alles selbst eintippen willst):** einmal diese Adresse öffnen: **https://juliankhler-web.github.io/imkerbuch/?testmodus=1** – dann Einstellungen → „Beispieldaten“ → „Beispieldaten laden“. → 15 Völker an 3 Ständen mit Königinnen, Durchsichten, Honig, Rechnungen. **Ersetzt alles, was schon da ist.** (Beim allerersten Start bietet die Begrüßung dann auch „Demo-Daten laden“ an.)
 5. **Neue Version holen:** Einstellungen → „Version“ → „Nach Updates suchen“. Nach einem Update zeigt die App einmal „Was ist neu?“.
 
