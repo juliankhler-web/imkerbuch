@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 23.10.2026, Version 2.94 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 23.10.2026, Version 2.95 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, C4c Bestand kompakt, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -63,6 +63,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **C3 Fütterung je Volk:** Fütterung → „Je Volk“. → Liste mit Zucker/Liter je Volk; beim Volk selbst stehen oben die Summen.
 - [ ] **C4 Ernte direkt abfüllen:** Ernte und Abfüllung → Ernte erfassen → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ die **Ernte** wählen → Anzahl Gläser → Speichern. → Frage „Keine Charge angelegt – direkt abfüllen?“ → Ja → Gläser stehen im Bestand.
 - [ ] **C4b Jahr und Sortierung (neu 2.94):** Ernte und Abfüllung → Reiter Ernte, Sorte, Abfüllung, Verkauf: oben „Jahr:“ und „Sortierung:“ wie bei Charge. Jahr antippen, dann eine Sortierung. → Liste und Summe oben passen zum Jahr, die Seite springt nicht nach oben; bei Verkauf druckt „Liste (PDF)“ das gewählte Jahr.
+- [ ] **C4c Bestand kompakt (neu 2.95):** Ernte und Abfüllung → Reiter „Bestand“. → Oben drei kleine Kacheln nebeneinander, darunter je Charge **eine Zeile** (Losnummer · Sorte, z. B. „500 g: 15 · offen 10 kg“, rechts die Zahl der Gebinde). Zeile antippen → klappt auf mit Gebinde-Tabelle, „Verkauf“ und ggf. „Jetzt abfüllen“; nach einem Verkauf bleibt sie offen. „Nach Sorte und Gebinde“ aufklappen → Gläser je Sorte und Größe. Ausverkaufte Chargen stehen zugeklappt unten.
 - [ ] **C5 Verkauf ohne Bestand + Rabatt:** Reiter „Verkauf“ → „+“ → „Anderer Honig – noch nicht im Bestand“, 30 Gläser à 6 €, Rabatt 10 %. → Unten live „Gesamt: 162,00 €“; beim Speichern Frage „Kein Bestand – trotzdem buchen?“.
 - [ ] **C6 Auswertung:** Kassenbuch → „Auswertung“ → Jahr wechseln (Seite springt **nicht** nach oben) → Kategorie „Honigverkauf“ antippen → welcher Honig an wen; auf einen Abnehmer tippen → Abnehmer öffnet sich. Ernteprognose ganz unten aufklappen.
 - [ ] **C7 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Teilen-Menü mit sauberer Rechnung; unten steht nur „Seite 1 von 1“, kein „Erstellt mit ImkerBuch“.

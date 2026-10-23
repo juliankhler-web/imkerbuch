@@ -15045,3 +15045,79 @@ test('Verbrauchsmaterial: Sortierung Name, Wert, Knapp zuerst, MHD, Neueste – 
     assertEq(cfg.view._sort, 'name'); assertEq(namen(), ['A', 'B']);
   } finally { host.remove(); Object.assign(cfg.view, { _suche: '', _sort: undefined }); }
 }));
+
+/* v2.95 (Julian 23.10.2026: „Bestand ist auch viel zu viel zu scrollen“) – eine Zeile je Charge statt großer Karte */
+test('Honig-Bestand: eine Zeile je Charge, aufklappbar, Ausverkauft zugeklappt, Sortierung, nach Sorte', async (w) => isolierteDaten(w, async () => {
+  const H = w.Views.honig; let host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echtRender = w.renderRoute; let neu = 0; w.renderRoute = async () => { neu++; };
+  const zeige = async () => { const n = w.document.createElement('div'); host.replaceWith(n); host = n; await H.tabBestand(host); };
+  try {
+    const raps = await w.DB.put('chargen', { losnummer: '2026-02', datum: '2026-06-01', ernteIds: [], mengeKg: 30, sorte: 'Raps' });
+    const linde = await w.DB.put('chargen', { losnummer: '2026-10', datum: '2026-07-01', ernteIds: [], mengeKg: 10, sorte: 'Linde' });
+    const eimer = await w.DB.put('chargen', { losnummer: '2026-03', datum: '2026-07-05', ernteIds: [], mengeKg: 25, sorte: 'Wald' });   // nichts abgefüllt
+    const alt = await w.DB.put('chargen', { losnummer: '2025-07', datum: '2025-07-01', ernteIds: [], mengeKg: 5, sorte: 'Raps' });      // ausverkauft
+    await w.DB.put('abfuellungen', { chargeId: raps.id, datum: '2026-06-02', gebindeG: 500, anzahl: 20, bestand: 12 });
+    await w.DB.put('abfuellungen', { chargeId: raps.id, datum: '2026-06-09', gebindeG: 500, anzahl: 10, bestand: 3 });
+    await w.DB.put('abfuellungen', { chargeId: raps.id, datum: '2026-06-03', gebindeG: 250, anzahl: 20, bestand: 20 });
+    await w.DB.put('abfuellungen', { chargeId: linde.id, datum: '2026-07-02', gebindeG: 500, anzahl: 20, bestand: 20 });
+    await w.DB.put('abfuellungen', { chargeId: alt.id, datum: '2025-07-02', gebindeG: 500, anzahl: 10, bestand: 0 });
+    H._bestandOffen = new Set(); H._bestandSort = 'nummer'; H._bestandSortenOffen = false; H._bestandArchivOffen = false;
+    await zeige();
+    const laufend = () => [...host.querySelectorAll('.card > .rows > .bst-ch .r-title')].map((x) => x.textContent.split(' · ')[0]);
+    assertEq(laufend(), ['2026-10', '2026-03', '2026-02'], 'nach Nummer, höchste zuerst; ausverkaufte nicht in der Liste');
+    assertEq(host.querySelectorAll('.bst-ch[open]').length, 0, 'alle Zeilen zugeklappt');
+    const rapsZeile = host.querySelector(`.bst-ch[data-charge="${raps.id}"]`);
+    assert(/500 g: 15 · 250 g: 20/.test(rapsZeile.querySelector('.r-sub').textContent), 'gleiche Gebinde zusammengezählt: ' + rapsZeile.querySelector('.r-sub').textContent);
+    assert(/offen 10 kg/.test(rapsZeile.querySelector('.r-sub').textContent), '30 kg − 20 kg abgefüllt (10 + 5 + 5) = 10 kg offen');
+    assertEq(rapsZeile.querySelector('.r-side b').textContent, '35', 'Gebinde im Bestand');
+    assert(/noch nichts abgefüllt · offen 25 kg/.test(host.querySelector(`.bst-ch[data-charge="${eimer.id}"] .r-sub`).textContent));
+    // Ausverkauft
+    const arch = host.querySelector('[data-bst-archiv]');
+    assert(arch && !arch.open && /Ausverkauft/.test(arch.textContent) && /\(1/.test(arch.textContent), 'eine ausverkaufte Charge, zugeklappt');
+    assert(arch.querySelector(`.bst-ch[data-charge="${alt.id}"]`), '2025-07 steht dort');
+    // Kopf
+    const kopf = host.querySelector('.bst-kopf').textContent.replace(/\s+/g, ' ');
+    const kachel = (i) => [...host.querySelectorAll('.bst-kopf .stat')][i].querySelector('.s-value').textContent + ' ' + [...host.querySelectorAll('.bst-kopf .stat')][i].querySelector('.s-sub').textContent;
+    assertEq([kachel(0), kachel(1), kachel(2)], ['55 Gebinde · 22,5 kg', '35 kg im Eimer', '4 2 mit Gebinden'], 'Kopfzahlen: ' + kopf);
+    // Aufklappen: Gebinde-Tabelle mit Verkauf, Abfüllen-Knopf bei Rest im Eimer; Zustand bleibt beim Neuzeichnen
+    rapsZeile.open = true; rapsZeile.dispatchEvent(new w.Event('toggle'));
+    assert(H._bestandOffen.has(raps.id), 'aufgeklappt gemerkt');
+    assertEq(rapsZeile.querySelectorAll('[data-verkauf]').length, 3, 'je Abfüllung mit Bestand ein Verkauf-Knopf');
+    assert(rapsZeile.querySelector(`[data-abf="${raps.id}"]`), 'Rest im Eimer → „Jetzt abfüllen“');
+    assert(/30 kg gesamt · 20 kg abgefüllt \(50 Gebinde\)/.test(rapsZeile.querySelector('.bst-auf').textContent.replace(/\s+/g, ' ')), 'Kennzahlen der Charge in einer Zeile');
+    await zeige();
+    assert(host.querySelector(`.bst-ch[data-charge="${raps.id}"]`).open, 'nach dem Neuzeichnen (z. B. nach einem Verkauf) noch offen');
+    // Sortierung
+    host.querySelector('[data-bstsort="gebinde"]').click();
+    assertEq(H._bestandSort, 'gebinde'); assertEq(neu, 1, 'Klick zeichnet neu');
+    await zeige(); assertEq(laufend(), ['2026-02', '2026-10', '2026-03'], 'meiste Gebinde zuerst');
+    H._bestandSort = 'offen'; await zeige(); assertEq(laufend(), ['2026-03', '2026-02', '2026-10'], 'meister Rest im Eimer zuerst');
+    H._bestandSort = 'quatsch'; await zeige(); assertEq(H._bestandSort, 'nummer', 'Unbekanntes fällt auf Nummer zurück');
+    // Nach Sorte und Gebinde
+    const so = host.querySelector('[data-bst-sorten]');
+    assert(so && !so.open, 'Sorten-Übersicht zugeklappt');
+    const zeilen = [...so.querySelectorAll('tbody tr')].map((t) => [...t.cells].map((c) => c.textContent.trim()).join(' '));
+    assertEq(zeilen.length, 3, 'Linde 500, Raps 500, Raps 250');
+    assert(/^Linde 500 g 20 10 kg/.test(zeilen[0]) && /^Raps 500 g 15 7,5 kg/.test(zeilen[1]) && /^Raps 250 g 20 5 kg/.test(zeilen[2]), zeilen.join(' | '));
+    // Gegenprüfung: Drucken klappt alles auf und danach wieder zu, ohne den gemerkten Zustand zu ändern
+    w.document.querySelector('#main')?.appendChild(host);   // die Druck-Regel gilt für Teile unter #main
+    const vorher = [...H._bestandOffen];
+    w.dispatchEvent(new w.Event('beforeprint'));
+    assert([...host.querySelectorAll('details.bst-ch, details.bst-klapp')].every((d) => d.open), 'zum Drucken alles offen');
+    await new Promise((r) => setTimeout(r, 30));
+    w.dispatchEvent(new w.Event('afterprint'));
+    await new Promise((r) => setTimeout(r, 200));
+    assertEq(host.querySelectorAll('details[open]').length, vorher.length, 'danach wie vorher');
+    assertEq([...H._bestandOffen], vorher, 'gemerkter Zustand unverändert');
+    assert(!H._bestandSortenOffen && !H._bestandArchivOffen, 'Übersicht und Ausverkauft bleiben zu');
+    // Gegenprüfung: nach Verkauf/Abfüllen im Bestand nicht nach oben springen – sonst wie bisher
+    const route = w.document.body.dataset.route, tab = H._tab;
+    w.document.body.dataset.route = 'honig'; H._tab = 'bestand';
+    assertEq(JSON.stringify(w.imBestandBleiben()), '{"scrollBehalten":true}');
+    H._tab = 'verkaeufe'; assertEq(JSON.stringify(w.imBestandBleiben()), '{}');
+    w.document.body.dataset.route = route; H._tab = tab;
+    // Leer
+    await w.DB.clear('abfuellungen'); await w.DB.clear('chargen'); await zeige();
+    assert(/Noch kein Bestand/.test(host.textContent) && !host.querySelector('[data-bstsort]'), 'ohne Chargen: Hinweis, keine Sortierung');
+  } finally { w.renderRoute = echtRender; host.remove(); H._bestandOffen = new Set(); H._bestandSort = 'nummer'; }
+}));
