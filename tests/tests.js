@@ -1340,8 +1340,10 @@ test('Untere Leiste und Anpassen-Liste zeichnen die bunten Icons', (w) => {
 
 /* ---------- Belegstelle: Herkunft steuert Quelle und Vorschläge ---------- */
 test('zuchtdbQuelle: je Herkunft die richtige Stammbaum-Quelle', (w) => {
-  assertEq(w.zuchtdbQuelle('Buckfast').art, 'paket', 'Buckfast: eigenes Paket möglich (Kehrle, ab 2023 open source)');
-  assertEq(w.zuchtdbQuelle('Elgon').art, 'paket', 'Elgon läuft im Buckfast-System');
+  // Recherche 23.10.2026: Apimondia-Lizenz gilt für Bienen, nicht für Daten → ohne Erlaubnis nur verlinken
+  assertEq(w.zuchtdbQuelle('Buckfast').art, 'link', 'Buckfast: Kehrle/GdeB nur verlinken');
+  assert(/karlkehrle/.test(w.zuchtdbQuelle('Buckfast').url) && !/Datenpaket ist möglich/.test(w.zuchtdbQuelle('Buckfast').text), 'Link zum Kehrle-Register, keine falsche Paket-Zusage');
+  assertEq(w.zuchtdbQuelle('Elgon').art, 'link', 'Elgon läuft im Buckfast-System');
   assertEq(w.zuchtdbQuelle('Carnica').art, 'link', 'Carnica: BeeBreed ohne Export → nur Verlinkung');
   assertEq(w.zuchtdbQuelle('Ligustica (Italiener)').art, 'link');
   assertEq(w.zuchtdbQuelle('Mellifera (Dunkle Biene)').art, 'link');
@@ -1370,7 +1372,8 @@ test('Belegstelle-Formular: Reihenfolge Herkunft → Name → Drohnenlinie', asy
     assert(box.querySelector('a'), 'bei „nur Verlinkung“ gibt es einen Link');
     fR.value = 'Buckfast'; fR.dispatchEvent(new Event('input'));
     assert(/Kehrle/.test(box.textContent), 'Buckfast nennt das Kehrle-Register');
-    assertEq(!!box.querySelector('a'), false, 'bei eigenem Paket kein BeeBreed-Link');
+    const link = box.querySelector('a');
+    assert(link && /karlkehrle/.test(link.href) && !/beebreed/i.test(link.href), 'Buckfast verlinkt das Kehrle-Register, nicht BeeBreed (v2.91: kein Datenpaket ohne Erlaubnis)');
     // Drohnenlinien-Vorschläge folgen der Herkunft
     const linien = (h) => { fR.value = h; fR.dispatchEvent(new Event('input')); return [...el.querySelector('#f-drohnenlinie').closest('.combo').querySelectorAll('.combo-opt')].map((o) => o.dataset.v); };
     assert(linien('Carnica').includes('Carnica Sklenar'), 'Carnica bringt Startvorschläge');
@@ -7355,6 +7358,308 @@ test('Amtliche Meldungen: Tabelle und gemeldete Zahl stimmen überein', async (w
     await w.DB.clear('voelker'); await w.DB.clear('staende');
     for (const x of alt.v) await w.DB.put('voelker', x, true);
     for (const x of alt.s) await w.DB.put('staende', x, true);
+  }
+});
+
+/* Recherche 23.10.2026 (docs/MELDEPFLICHTEN.md): Anzeige nach § 1a, TSK je Bundesland, Wanderschild § 5a */
+test('standAmStichtag: Stand an einem Tag aus Wanderungen und Stand-Wechseln', (w) => {
+  const v = { id: 'sv', standId: 'C', status: 'aktiv', historie: [{ datum: '2025-03-01', text: 'angelegt' }, { datum: '2025-09-10', text: 'Stand gewechselt', standVon: 'B', standNach: 'C' }] };
+  const wand = [{ datum: '2025-06-01', vonStandId: 'A', nachStandId: 'B', volkIds: ['sv'] }, { datum: '2025-07-01', vonStandId: 'X', nachStandId: 'Y', volkIds: ['sv'] }];
+  assertEq(w.standAmStichtag(v, '2025-12-31', wand), 'C', 'heute: C');
+  assertEq(w.standAmStichtag(v, '2025-09-10', wand), 'C', 'am Tag des Wechsels schon am neuen Stand');
+  assertEq(w.standAmStichtag(v, '2025-08-01', wand), 'B', 'vor dem Wechsel: B');
+  assertEq(w.standAmStichtag(v, '2025-05-01', wand), 'A', 'vor der Wanderung: A');
+  assertEq(w.standAmStichtag({ id: 'z', standId: 'Q', historie: [] }, '2020-01-01', wand), 'Q', 'ohne Ereignisse: heutiger Stand');
+  const je = w.voelkerJeStandAm([v, { id: 'o', standId: 'weg', status: 'aktiv', historie: [{ datum: '2024-01-01' }] }], '2025-05-01', wand, new Set(['A', 'B', 'C']));
+  assertEq(je.get('A'), 1); assertEq(je.get(null), 1, 'gelöschter Stand zählt als „ohne Standort“');
+});
+test('Volk-Formular: Stand-Wechsel wird datiert in der Historie vermerkt', async (w) => isolierteDaten(w, async () => {
+  const a = await w.DB.put('staende', { name: 'Altstand' }), b = await w.DB.put('staende', { name: 'Neustand' });
+  const v = await w.DB.put('voelker', { name: 'Wechselvolk', standId: a.id, status: 'aktiv', historie: [{ datum: '2025-01-01', text: 'angelegt' }] });
+  await w.openVolkForm(await w.DB.get('voelker', v.id), {}, () => {});
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    m.querySelector('#f-standId').value = b.id;
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const neu = await w.DB.get('voelker', v.id);
+    const e = neu.historie.find((h) => 'standNach' in h);
+    assert(e, 'Eintrag mit Stand-Wechsel da');
+    assertEq([e.standVon, e.standNach], [a.id, b.id], 'von/nach gespeichert');
+    assert(/Altstand.*Neustand/.test(e.text), 'lesbarer Text: ' + e.text);
+    assert(!neu.historie.some((h) => /Königin geändert/.test(h.text)), 'ohne Königin kein falsches „Königin geändert“');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+}));
+test('Anzeige nach § 1a: Tierhalter, Anlass, Lage je Stand, eingewintert; Summen stimmen', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  await w.S.set('imkerei', { ...altImk, name: 'Imkerei Wabe', tierhalter: 'Erika Mustermann', registriernummer: '091740001234' });
+  const J = +w.U.todayIso().slice(0, 4);
+  const st = await w.DB.put('staende', { name: 'Flurstand', ort: '85221 Dachau', gemarkung: 'Dachau', flurnummer: '1234/5', lat: 48.26, lng: 11.43 });
+  await w.DB.put('voelker', { name: 'P1', standId: st.id, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  await w.DB.put('voelker', { name: 'P2', standId: st.id, status: 'aktiv', historie: [{ datum: w.U.todayIso(), text: 'angelegt' }] });
+  const tab = [], alt = w.Pdf.table, echt = w.Pdf.finish; let text = '';
+  w.Pdf.table = function (d, o) { tab.push(o); return alt.call(this, d, o); };
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  try {
+    await w.Pdf.bestandsmeldung();
+    assert(/§ 1a Bienenseuchen-Verordnung/.test(text), 'Paragraf im Kopf');
+    assert(/Erika Mustermann/.test(text) && /Imkerei Wabe/.test(text), 'Tierhalter und Imkerei');
+    assert(/Beginn der Bienenhaltung/.test(text) && /Aufgabe/.test(text), 'Anlass zum Ankreuzen');
+    const t = tab[0], z = (x) => (x && typeof x === 'object' ? x.content : x);
+    assertEq(t.head.length, 5, 'fünf Spalten');
+    assert(/eingewintert/.test(t.head[4]), 'Spalte eingewintert');
+    const zeile = t.body.find((r) => z(r[0]) === 'Flurstand').map(z);
+    assertEq(zeile[1], '85221 Dachau · Gemarkung Dachau, Fl.-Nr. 1234/5', 'Lage');
+    assert(/48,26 N, 11,43 O/.test(zeile[2]), 'Koordinaten mit N/O: ' + zeile[2]);
+    assertEq(zeile[3], '2', 'zwei Völker heute');
+    const summe = t.body[t.body.length - 1].map(z);
+    assertEq(summe[3], '2', 'Summe heute');
+    assert(Number(summe[4]) <= 2, 'eingewintert nicht mehr als vorhanden');
+  } finally { w.Pdf.table = alt; w.Pdf.finish = echt; await w.S.set('imkerei', altImk); }
+}));
+test('Tierseuchenkasse je Bundesland: Bayern keine Meldung, Thüringen eingewintert, NRW Höchstbesatz, Stand am Stichtag', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  const J = +w.U.todayIso().slice(0, 4);
+  const a = await w.DB.put('staende', { name: 'Winterstand' }), b = await w.DB.put('staende', { name: 'Sommerstand' });
+  // Volk stand am Stichtag (Januar) noch am Winterstand und wanderte erst später
+  const v = await w.DB.put('voelker', { name: 'TSK1', standId: b.id, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  await w.DB.put('wanderungen', { datum: `${J}-04-15`, vonStandId: a.id, nachStandId: b.id, volkIds: [v.id] });
+  const echt = w.Pdf.finish, tab = [], alt = w.Pdf.table; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  w.Pdf.table = function (d, o) { tab.push(o); return alt.call(this, d, o); };
+  const z = (x) => (x && typeof x === 'object' ? x.content : x);
+  try {
+    await w.S.set('imkerei', { ...altImk, bundesland: 'BY' });
+    await w.Pdf.tierseuchenkasse();
+    assert(/In Bayern werden Bienen nicht bei der Tierseuchenkasse gemeldet/.test(text), 'Bayern: keine Meldung');
+    assert(/§ 1a/.test(text), 'Hinweis auf die Anzeige beim Veterinäramt');
+    await w.S.set('imkerei', { ...altImk, bundesland: 'TH' });
+    tab.length = 0; await w.Pdf.tierseuchenkasse();
+    assert(/Thüringen/.test(text) && /03\.01\./.test(text), 'Thüringen mit Stichtag 3.1.');
+    assert(/Eingewintert[\s\S]{0,120}zu melden/.test(text) && !/Völker am[\s\S]{0,60}zu melden/.test(text), 'eingewinterte Völker sind zu melden (nicht der Stichtagsbestand)');
+    const zeilen = tab[0].body.map((r) => r.map(z));
+    if (w.U.todayIso().slice(5) >= '04-15' || w.U.todayIso().slice(5) < '01-03') {
+      // nach der Wanderung: am Stichtag (3.1.) stand das Volk noch am Winterstand
+      const win = zeilen.find((r) => r[0] === 'Winterstand');
+      assert(win && win[2] === '1', 'Stand am Stichtag aus der Wanderung: ' + JSON.stringify(zeilen));
+    }
+    await w.S.set('imkerei', { ...altImk, bundesland: 'NW' });
+    await w.Pdf.tierseuchenkasse();
+    assert(/Höchststand/.test(text) && /31\. Januar/.test(text), 'NRW: Höchstbesatz bis 31. Januar');
+    await w.S.set('imkerei', { ...altImk, bundesland: 'BW' });
+    await w.Pdf.tierseuchenkasse();
+    assert(/01\.05\./.test(text), 'BW: Stichtag 1. Mai');
+    const ul = w.unterlagenListe();
+    assert(/Baden-Württemberg/.test(ul.find((e) => e.id === 'tierseuchenkasse').text), 'Unterlagen nennen das Land');
+  } finally { w.Pdf.finish = echt; w.Pdf.table = alt; await w.S.set('imkerei', altImk); }
+}));
+test('Wanderschild (§ 5a): Name, Anschrift, Völkerzahl, Querformat, ohne Fußzeile', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  await w.S.set('imkerei', { ...altImk, name: 'Imkerei Wabe', tierhalter: 'Erika Mustermann', strasse: 'Am Anger 3', plz: '85221', ort: 'Dachau' });
+  const st = await w.DB.put('staende', { name: 'Rapsfeld' });
+  for (const n of ['W1', 'W2', 'W3']) await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [] });
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try {
+    await w.Pdf.wanderschild(st.id);
+    const d = w.Pdf.lastDocForTest, t = d.internal.pages.flat().filter(Boolean).join(' ');
+    assert(d.internal.pageSize.getWidth() > d.internal.pageSize.getHeight(), 'Querformat');
+    assert(/Erika Mustermann/.test(t) && /Am Anger 3, 85221 Dachau/.test(t), 'Name und Anschrift');
+    assert(/Bienenv.lker an diesem Stand/.test(t) && /\(3\) Tj/.test(t), 'Zahl der Völker: 3');
+    assert(!/Erstellt mit ImkerBuch/.test(t), 'keine App-Fußzeile');
+    w.Pdf.lastDocForTest = null; await w.Pdf.wanderschild(null);
+    assert(/______/.test(w.Pdf.lastDocForTest.internal.pages.flat().filter(Boolean).join(' ')), 'ohne Stand: Zahl zum Eintragen');
+    assert(w.unterlagenListe().some((e) => e.id === 'wanderschild' && e.wahl), 'Wanderschild unter Unterlagen mit Standauswahl');
+  } finally { w.Pdf.noDownloadForTest = false; await w.S.set('imkerei', altImk); }
+}));
+test('Stand: Ort, Gemarkung, Flurnummer werden gespeichert und exportiert; Lerntexte stimmen', async (w) => isolierteDaten(w, async () => {
+  w.openStandForm(null, () => {});
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    m.querySelector('#f-name').value = 'Flurtest';
+    m.querySelector('#f-ort').value = ' 85221 Dachau ';
+    m.querySelector('#f-gemarkung').value = 'Dachau';
+    m.querySelector('#f-flurnummer').value = '12/3';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 400));
+    const st = (await w.DB.getAll('staende')).find((x) => x.name === 'Flurtest');
+    assertEq([st.ort, st.gemarkung, st.flurnummer], ['85221 Dachau', 'Dachau', '12/3'], 'gespeichert und getrimmt');
+    assertEq(w.standLage(st), '85221 Dachau · Gemarkung Dachau, Fl.-Nr. 12/3');
+    const rows = await (await w.Xlsx.defs()).staende.rows();
+    assertEq(rows.find((r) => r.Name === 'Flurtest').Flurnummer, '12/3', 'Excel-Spalte Flurnummer');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+  const recht = w.FAQ_THEMEN.find((t) => t.id === 'recht').fragen.map((q) => q.a).join(' ');
+  assert(!/Beides ist Pflicht/.test(recht), 'keine falsche Aussage „Tierseuchenkasse überall Pflicht“');
+  assert(/§ 1a/.test(recht) && /Varroa/.test(recht + w.FAQ_THEMEN.find((t) => t.id === 'recht').fragen.map((q) => q.f).join(' ')), 'neue Antworten da');
+}));
+
+/* Code-Prüfung 23.10.2026 zu v2.91 + Österreich/Schweiz (docs/MELDEPFLICHTEN.md) */
+test('standAmStichtag: mehrere Wechsel am selben Tag werden in der richtigen Reihenfolge zurückgedreht', (w) => {
+  const hin = { id: 'z1', standId: 'A', historie: [{ datum: '2025-01-01', text: 'angelegt' }, { datum: '2026-10-23', standVon: 'A', standNach: 'B' }, { datum: '2026-10-23', standVon: 'B', standNach: 'A' }] };
+  assertEq(w.standAmStichtag(hin, '2026-01-03', []), 'A', 'Wechsel und Rücknahme am selben Tag: A');
+  const v = { id: 'z2', standId: 'C', historie: [{ datum: '2025-01-01', text: 'angelegt' }, { datum: '2026-10-23', standVon: 'B', standNach: 'C' }] };
+  assertEq(w.standAmStichtag(v, '2026-01-03', [{ datum: '2026-10-23', vonStandId: 'A', nachStandId: 'B', volkIds: ['z2'] }]), 'A', 'Wanderung A→B und Formular B→C am selben Tag: A');
+  assertEq(w.standAmStichtag(v, '2026-10-23', [{ datum: '2026-10-23', vonStandId: 'A', nachStandId: 'B', volkIds: ['z2'] }]), 'C', 'am Tag selbst schon am neuen Stand');
+});
+test('Aufgelöstes Volk: Speichern schreibt keinen Stand-Wechsel und verlängert das Volk nicht', async (w) => isolierteDaten(w, async () => {
+  const s1 = await w.DB.put('staende', { name: 'Altstand' });
+  const v = await w.DB.put('voelker', { name: 'Nora', standId: s1.id, status: 'aufgeloest', historie: [{ datum: '2024-04-01', text: 'Volk angelegt' }, { datum: '2025-09-10', text: 'Volk aufgelöst' }] });
+  await w.DB.softDel('staende', s1.id);
+  await w.openVolkForm(await w.DB.get('voelker', v.id), {}, () => {});
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    m.querySelector('#f-notizen').value = 'nur eine Notiz';
+    m.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 500));
+    const neu = await w.DB.get('voelker', v.id);
+    assert(!neu.historie.some((h) => 'standNach' in h), 'kein Stand-Wechsel-Eintrag: ' + JSON.stringify(neu.historie));
+    assertEq(neu.standId, s1.id, 'alte Stand-Kennung bleibt');
+    assertEq(w.voelkerAmStichtag([neu], '2026-01-03').length, 0, 'zählt nach der Auflösung nicht mehr mit');
+    assertEq(w.voelkerAmStichtag([{ ...neu, historie: [...neu.historie, { datum: '2026-10-23', standVon: 'x', standNach: null }] }], '2026-01-03').length, 0, 'ein Stand-Vermerk ist kein neues Ende');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+}));
+test('Stand löschen: Vermerk in der Historie, frühere Stände bleiben in den Meldungen erhalten', async (w) => isolierteDaten(w, async () => {
+  const h = await w.DB.put('staende', { name: 'Heimstand' }), r = await w.DB.put('staende', { name: 'Raps' });
+  const v = await w.DB.put('voelker', { name: 'Wandervolk', standId: r.id, status: 'aktiv', historie: [{ datum: '2024-01-01', text: 'angelegt' }] });
+  const wand = [{ datum: '2026-04-15', vonStandId: h.id, nachStandId: r.id, volkIds: [v.id] }];
+  const echt = w.UI.confirm; w.UI.confirm = async () => true;
+  try { assert(await w.standLoeschen(await w.DB.get('staende', r.id)), 'gelöscht'); } finally { w.UI.confirm = echt; }
+  const neu = await w.DB.get('voelker', v.id);
+  assertEq(neu.standId, null, 'ohne Stand');
+  const e = neu.historie.find((x) => 'standNach' in x);
+  assert(e && e.standVon === r.id && e.standNach === null, 'datierter Vermerk');
+  assertEq(w.standAmStichtag(neu, '2026-01-03', wand), h.id, 'am Stichtag vor der Wanderung: Heimstand');
+}));
+test('Import: Spalten werden nicht doppelt und nicht falsch vorgeschlagen', (w) => {
+  const g1 = w.Importer.raten('staende', ['Name', 'Anschrift/Ort', 'Gemarkung', 'Flurnummer', 'Breitengrad', 'Längengrad', 'Notizen']);
+  assertEq([g1.name, g1.ort, g1.gemarkung, g1.flurnummer], ['Name', 'Anschrift/Ort', 'Gemarkung', 'Flurnummer'], 'eigene Excel-Ausgabe: ' + JSON.stringify(g1));
+  const g2 = w.Importer.raten('staende', ['Standort', 'Ort', 'Latitude', 'Longitude']);
+  assertEq([g2.name, g2.ort, g2.lat, g2.lng], ['Standort', 'Ort', 'Latitude', 'Longitude'], 'Ort nimmt die Spalte „Ort“: ' + JSON.stringify(g2));
+  const g3 = w.Importer.raten('staende', ['Nr', 'Standname', 'Bemerkung']);
+  assertEq([g3.name, g3.flurnummer, g3.notizen], ['Standname', '', 'Bemerkung'], 'kurze Spalte „Nr“ wird nicht zur Flurnummer: ' + JSON.stringify(g3));
+  const g4 = w.Importer.raten('staende', ['Name']);
+  assertEq(g4.gemarkung, '', 'Gemarkung greift nicht nach „Name“');
+});
+test('Österreich: VIS-Völkermeldung mit zwei Stichtagen, Registrierung und Standschild mit VIS-Nummer', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  await w.S.set('imkerei', { ...altImk, name: 'Imkerei Alm', tierhalter: 'Sepp Huber', strasse: 'Dorfstraße 4', plz: '8010', ort: 'Graz', registriernummer: '9876543', bundesland: 'AT' });
+  const J = +w.U.todayIso().slice(0, 4);
+  const st = await w.DB.put('staende', { name: 'Almstand', ort: 'Dorfstraße 4, 8010 Graz' });
+  for (const n of ['A1', 'A2']) await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  const tab = [], alt = w.Pdf.table, echt = w.Pdf.finish; let text = '';
+  w.Pdf.table = function (d, o) { tab.push(o); return alt.call(this, d, o); };
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  const z = (x) => (x && typeof x === 'object' ? x.content : x);
+  try {
+    assertEq(w.imkereiStaat(), 'AT');
+    const heute = w.U.todayIso(), soll = heute.slice(5) >= '10-31' ? `${J}-10-31` : heute.slice(5) >= '04-30' ? `${J}-04-30` : `${J - 1}-10-31`;
+    assertEq(w.letzterStichtag({ stichtage: [{ t: '04-30', frist: 'a' }, { t: '10-31', frist: 'b' }] }, heute).tag, soll, 'letzter Stichtag');
+    assertEq(w.letzterStichtag({ stichtage: [{ t: '04-30', frist: 'a' }, { t: '10-31', frist: 'b' }] }, '2026-03-01').tag, '2025-10-31', 'im März gilt der 31.10. des Vorjahres');
+    await w.Pdf.tierseuchenkasse();
+    assert(/V.lkermeldung VIS/.test(text) && /sterreich/.test(text), 'Titel VIS Österreich');
+    assert(/VIS-Nummer/.test(text) && /9876543/.test(text), 'VIS-Nummer');
+    assert(/VIS-Nr\. 9876543/.test(text) && !/Betriebs-Nr/.test(text), 'PDF-Kopf nennt die VIS-Nr.');
+    assert(soll.endsWith('04-30') ? /30\. Juni/.test(text) : /31\. Dezember/.test(text), 'Frist passt zum Stichtag');
+    assert(!/Tierseuchenkasse/.test(text) && !/1a Bienenseuchen/.test(text), 'kein deutsches Recht');
+    assertEq(tab[0].head.length, 3, 'ohne Spalte eingewintert: ' + tab[0].head.join(' | '));
+    assertEq(z(tab[0].body.find((r) => z(r[0]) === 'Almstand')[2]), '2', 'zwei Völker am Stichtag');
+    tab.length = 0; await w.Pdf.bestandsmeldung();
+    assert(/Registrierung der Bienenhaltung/.test(text) && /Statistik Austria/.test(text) && /binnen 7 Tagen/.test(text), 'Registrierung fürs VIS');
+    assert(!/1a Bienenseuchen/.test(text), 'kein § 1a');
+    assertEq(tab[0].head.length, 4, 'ohne Spalte eingewintert');
+    const ul = w.unterlagenListe();
+    assertEq(ul.find((e) => e.id === 'tierseuchenkasse').titel, 'Völkermeldung VIS (30.4. / 31.10.)');
+    assertEq(ul.find((e) => e.id === 'wanderschild').titel, 'Standschild');
+    assert(/VIS/.test(w.meldepflichtKurz()), 'Profil-Kurztext');
+    w.Pdf.finish = echt; w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+    await w.Pdf.wanderschild(st.id);
+    const t = w.Pdf.lastDocForTest.internal.pages.flat().filter(Boolean).join(' ');
+    assert(/VIS-Nr\./.test(t) && /9876543/.test(t) && /36a/.test(t), 'Schild mit VIS-Nummer und § 36a');
+    assert(!/an diesem Stand:/.test(t), 'keine Völkerzahl');
+  } finally { w.Pdf.table = alt; w.Pdf.finish = echt; w.Pdf.noDownloadForTest = false; await w.S.set('imkerei', altImk); }
+}));
+test('Schweiz: Bestandeskontrolle mit eingewintert/ausgewintert, alle Stände in der Registrierung, Standnummer aufs Schild', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  await w.S.set('imkerei', { ...altImk, name: 'Imkerei Säntis', tierhalter: 'Ueli Meier', strasse: 'Bahnhofstr. 7', plz: '8001', ort: 'Zürich', registriernummer: 'CH-55', bundesland: 'CH' });
+  const J = +w.U.todayIso().slice(0, 4);
+  const st = await w.DB.put('staende', { name: 'Seestand', ort: 'Bahnhofstr. 7, 8001 Zürich', standNr: 'ZH-77' });
+  await w.DB.put('staende', { name: 'Leerstand', lat: 47.3, lng: 8.5 });
+  for (const n of ['C1', 'C2', 'C3']) await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  const tab = [], alt = w.Pdf.table, echt = w.Pdf.finish; let text = '';
+  w.Pdf.table = function (d, o) { tab.push(o); return alt.call(this, d, o); };
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  const z = (x) => (x && typeof x === 'object' ? x.content : x);
+  try {
+    const heute = w.U.todayIso(), aus = `${heute.slice(5) >= '04-01' ? J : J - 1}-04-01`, ein = `${+aus.slice(0, 4) - 1}-11-01`;
+    await w.Pdf.tierseuchenkasse();
+    assert(/Bestandeskontrolle/.test(text) && /Schweiz/.test(text), 'Titel');
+    assert(!/zu melden/.test(text), 'nichts als „zu melden“ markiert');
+    assertEq(tab[0].head.slice(2), [`eingewintert ${w.U.fmtDate(ein)}`, `ausgewintert ${w.U.fmtDate(aus)}`], 'Herbst und Frühjahr');
+    const zeile = tab[0].body.find((r) => z(r[0]) === 'Seestand').map(z);
+    assertEq(zeile.slice(2), ['3', '3'], 'Zahlen je Stand');
+    tab.length = 0; await w.Pdf.bestandsmeldung();
+    assert(/Registrierung der Bienenst/.test(text) && /18a/.test(text) && /3 Arbeitstagen/.test(text), 'Registrierung beim Kanton');
+    const namen = tab[0].body.map((r) => z(r[0]));
+    assert(namen.includes('Leerstand'), 'auch der leere Stand steht drin: ' + namen.join(', '));
+    assert(/Standnr\. ZH-77/.test(z(tab[0].body.find((r) => z(r[0]) === 'Seestand')[1])), 'Standnummer in der Lage');
+    w.Pdf.finish = echt; w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+    await w.Pdf.wanderschild(st.id);
+    const t = w.Pdf.lastDocForTest.internal.pages.flat().filter(Boolean).join(' ');
+    assert(/Stand-Nr\./.test(t) && /ZH-77/.test(t) && /19a/.test(t), 'Schild mit Standnummer');
+  } finally { w.Pdf.table = alt; w.Pdf.finish = echt; w.Pdf.noDownloadForTest = false; await w.S.set('imkerei', altImk); }
+}));
+test('Meldungen Deutschland: RP meldet den Bestand am 1.1., Lage ohne Hausnummer wird angemahnt, Profil-Kurztext aus dem Land', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  const J = +w.U.todayIso().slice(0, 4);
+  const st = await w.DB.put('staende', { name: 'Wiese', ort: '85221 Dachau' });
+  await w.DB.put('voelker', { name: 'R1', standId: st.id, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  const echt = w.Pdf.finish; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  try {
+    await w.S.set('imkerei', { ...altImk, bundesland: 'RP' });
+    await w.Pdf.tierseuchenkasse();
+    assert(/V.lker am 01\.01\.[\s\S]{0,160}zu melden/.test(text) && !/Eingewintert[\s\S]{0,120}zu melden/.test(text), 'RP: Bestand am 1. Januar ist zu melden');
+    await w.Pdf.bestandsmeldung();
+    assert(/weder eine Anschrift mit Hausnummer/.test(text), 'PLZ und Ort allein reichen nicht');
+    assert(w.standLageReicht({ ort: 'Am Anger 3, 85221 Dachau' }) && w.standLageReicht({ ort: '85221 Dachau', flurnummer: '12' }) && !w.standLageReicht({ ort: '85221 Dachau' }), 'Lage-Prüfung');
+    await w.S.set('imkerei', { ...altImk, bundesland: 'SN', tskNummer: '' });
+    assert(/^Ja · Stichtag 01\.01\./.test(w.meldepflichtKurz()), 'Sachsen: Ja – ' + w.meldepflichtKurz());
+    await w.S.set('imkerei', { ...altImk, bundesland: 'BY', tskPflicht: 'ja' });
+    assert(/^Nein/.test(w.meldepflichtKurz()), 'Bayern: Nein, auch wenn das alte Feld „ja“ sagt');
+  } finally { w.Pdf.finish = echt; await w.S.set('imkerei', altImk); }
+}));
+test('Imkereidaten: Österreich wählbar, Hinweis passt, TSK-Nummer ausgeblendet', async (w) => isolierteDaten(w, async () => {
+  w.location.hash = '#/einstellungen';
+  assert(await warteBis(() => w.document.querySelector('#edit-imkerei')), 'Einstellungen offen');
+  w.document.querySelector('#edit-imkerei').click();
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const sel = m.querySelector('#f-bundesland');
+    assert([...sel.options].some((o) => o.value === 'AT') && [...sel.options].some((o) => o.value === 'CH'), 'Österreich und Schweiz wählbar');
+    sel.value = 'AT'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(/VIS/.test(m.querySelector('[data-tsk-info]').textContent), 'Hinweis zum VIS');
+    assert(m.querySelector('[data-field="tskNummer"]').classList.contains('hidden'), 'TSK-Nummer ausgeblendet');
+    sel.value = 'SN'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(!m.querySelector('[data-field="tskNummer"]').classList.contains('hidden'), 'Sachsen: TSK-Nummer sichtbar');
+  } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
+}));
+test('Lerntexte und Imme: Anmeldung, Gesundheitszeugnis, Varroa, „bei der App anmelden“', (w) => {
+  const k5 = w.LERN_KAPITEL.find((k) => k.id === 5).steps.map((x) => (x.h || '') + ' ' + (x.p || '') + ' ' + (x.note || '')).join(' ');
+  assert(!/Tierseuchenkasse gibt dir eine Registriernummer/.test(k5) && !/kostenlos/.test(k5), 'Imkerschule: kein alter Fehler');
+  assert(/1\. September des Vorjahres/.test(k5) && /andere Zahl der V.lker/.test(k5) && /sterreich/.test(k5), 'Imkerschule: Gesundheitszeugnis, Änderungen, Österreich');
+  const recht = w.FAQ_THEMEN.find((t) => t.id === 'recht').fragen;
+  const alles = recht.map((q) => q.f + ' ' + q.a).join(' ');
+  assert(/1\. September des Vorjahres/.test(alles) && /Sperrbezirk/.test(alles), 'FAQ Gesundheitszeugnis vollständig');
+  assert(/formlos/.test(alles) && !/Behandeln musst du ohnehin/.test(alles), 'FAQ Varroa');
+  assert(recht.some((q) => /sterreich/.test(q.f)) && recht.some((q) => /Schweiz/.test(q.f)), 'FAQ Österreich und Schweiz');
+  const id = (q) => { const a = w.Assistent.antwort(q); return a.art === 'app' ? a.haupt.id : a.art; };
+  for (const q of ['Muss ich mich bei der App anmelden?', 'Muss ich mich einloggen oder anmelden?', 'Brauche ich ein Konto?', 'Wo kann ich mich anmelden?', 'Anmelden']) assertEq(id(q), 'datenschutz', q);
+  assertEq(id('Fütterungen anzeigen'), 'fuetterung', 'Fütterungen anzeigen');
+  assertEq(id('Stockkarte anzeigen'), 'durchsicht', 'Stockkarte anzeigen');
+  for (const q of ['Muss ich meine Bienen beim Veterinäramt anmelden?', 'Muss ich meine Bienenhaltung anzeigen?', 'Wo bekomme ich ein Wanderschild?', 'Ich imkere in Österreich, was muss ich melden?']) {
+    const a = w.Assistent.antwort(q);
+    assert((a.art === 'app' && a.haupt.id === 'anmeldung-amt') || a.art === 'faq', q + ' → ' + id(q));
   }
 });
 

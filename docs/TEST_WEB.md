@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 22.10.2026, Version 2.89. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 23.10.2026, Version 2.91. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -74,6 +74,12 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **F4** Menü → Statistiken → Reiter durchgehen. → Jeder beginnt mit „Auf einen Blick“ und „Auffällig“; eine Zahl gegen deine Einträge prüfen.
 - [ ] **F5** Einen Stand mit Koordinaten öffnen (Internet an). → Wetter steht von selbst da, darunter die Grafik.
 - [ ] **F6** Imkerschule → „Frag ein Thema“ → „Schwarm“ tippen. → Treffer erscheinen, die Tastatur bleibt offen.
+- [ ] **F7 Anzeige nach § 1a:** Einstellungen → Imkereidaten → „Tierhalter (Vor- und Nachname)“, „Bundesland / Land“ und Registriernummer eintragen. Einen Stand → Bearbeiten → „Anschrift oder PLZ und Ort“, „Gemarkung“, „Flurnummer“. Dann Unterlagen → „Anzeige nach § 1a (Veterinäramt)“ → PDF. → Titel „Anzeige der Bienenhaltung … § 1a Bienenseuchen-Verordnung“, Tierhalter, Kästchen „Beginn / Änderung / Aufgabe“, Tabelle mit Lage, Koordinaten, Völker heute und eingewintert; Summen stimmen mit den Zahlen oben überein; unten Ort/Datum/Unterschrift.
+- [ ] **F8 Tierseuchenkasse:** In den Imkereidaten das Bundesland wechseln (z. B. Bayern, dann Thüringen). → Direkt darunter steht, was dort gilt („In Bayern werden Bienen nicht … gemeldet“ bzw. „Stichtag 03.01., Meldung innerhalb von 14 Tagen“). Unterlagen → „Meldung an die Tierseuchenkasse“ → bei Thüringen ist die Zeile „Eingewintert“ fett mit „(zu melden)“.
+- [ ] **F9 Wanderschild:** Einen Stand öffnen → „Wanderschild“. → PDF im Querformat mit Name, Anschrift, Telefon und „Bienenvölker an diesem Stand: …“ in großer Schrift, ohne „Erstellt mit ImkerBuch“. Auch unter Unterlagen → „Wanderschild (§ 5a)“ mit Standauswahl.
+- [ ] **F10 Stand-Wechsel:** Ein Volk öffnen → Bearbeiten → anderen Stand wählen → Speichern. → In der Historie des Volks steht „Stand gewechselt: „A“ → „B““ (und **kein** „Königin geändert“, wenn du die Königin nicht geändert hast).
+- [ ] **F11 Österreich und Schweiz:** Einstellungen → Imkereidaten → „Bundesland / Land“ auf **Österreich**. → Darunter ein Hinweis zum VIS; „TSK-/Melde-Nummer“ verschwindet. Unterlagen → „Registrierung im VIS (Standorte)“ und „Völkermeldung VIS (30.4. / 31.10.)“; beim Stand „Standschild“ mit „VIS-Nr. …“. Dann **Schweiz** → beim Stand → Bearbeiten gibt es „Standnummer vom Kanton“; „Bestandeskontrolle – Völkerzahlen“ zeigt „eingewintert 01.11.“ und „ausgewintert 01.04.“. **Danach dein richtiges Bundesland wieder einstellen.**
+- [ ] **F12 Lage reicht nicht:** Bei einem Stand mit Völkern nur „PLZ Ort“ eintragen. → Die „Anzeige nach § 1a“ weist unten darauf hin, dass Hausnummer, Flurnummer oder Koordinaten fehlen.
 
 ## G · Belastungsprobe
 

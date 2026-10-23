@@ -21,7 +21,7 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
 
   // ---------- Betrieb (erfundene Testangaben) ----------
   await S.set('imkerei', Object.assign({}, S.get('imkerei'), {
-    name: 'Imkerei „Goldwabe“ Müller & Söhne – Testbetrieb', strasse: 'Lindenstraße 12a', plz: '85221', ort: 'Dachau-Süd',
+    name: 'Imkerei „Goldwabe“ Müller & Söhne – Testbetrieb', tierhalter: 'Jörg Müller-Lüdenscheidt', bundesland: 'BY', strasse: 'Lindenstraße 12a', plz: '85221', ort: 'Dachau-Süd',
     telefon: '08131 000000', email: 'test@goldwabe.invalid', registriernummer: '09 174 000 000 000', bgNummer: 'TEST-BG-0000',
     tskPflicht: 'ja', tskNummer: 'TEST-TSK-0000', bio: 'ja', bioKontrollstelle: 'DE-ÖKO-000 (Test)', bioVerbandJN: 'ja', bioVerband: ['Bioland'],
   }));
@@ -64,7 +64,11 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
     const [lat, lng] = weit ? [[53.55, 9.99], [49.35, 8.15], [47.99, 7.84], [54.32, 10.13]][i - (nStaende - 4)] : [48.0 + rnd() * 0.75, 10.95 + rnd() * 1.2];
     const name = i === 0 ? 'Heimstand „Am Bienenhaus“ – hinter der Scheune, Zugang über den Feldweg (Schlüssel beim Nachbarn)' : `${pick(ORTE)} ${pick(DOERFER)}${i % 7 === 0 ? ' Süd/Ost' : ''} ${String(i + 1).padStart(2, '0')}`;
     const la = Math.round(lat * 10000) / 10000, ln = Math.round(lng * 10000) / 10000;
-    staende.push(zu('staende', { name, lat: la, lng: ln, kmEntfernung: weit ? int(200, 700) : int(2, 60),
+    // Lage für die Anzeige nach § 1a: meist PLZ/Ort + Gemarkung/Flurnummer, einige nur Ort, einige gar nichts (Platzhalter testen)
+    const dorf = pick(DOERFER);
+    const lage = i % 10 === 9 ? {} : { ort: `${int(85000, 86999)} ${dorf}${i % 4 === 0 ? `, ${pick(['Am Anger', 'Feldweg', 'Mühlstraße', 'Schloßallee'])} ${int(1, 40)}` : ''}`,
+      ...(i % 3 === 2 ? {} : { gemarkung: i % 11 === 0 ? `${dorf}-Großberghofen (Flur „Ährenfeld“)` : dorf, flurnummer: `${int(100, 2400)}${i % 2 ? '/' + int(1, 12) : ''}` }) };
+    staende.push(zu('staende', { name, ...lage, lat: la, lng: ln, kmEntfernung: weit ? int(200, 700) : int(2, 60),
       notizen: i % 5 === 0 ? 'Zufahrt nur bei trockenem Wetter – Schranke ≥ 2,5 m, Code 4711. Grundstück: Fam. Öztürk („Ährenhof“).' : '',
       bio: landbedeckung(i, la, ln) }));
   }

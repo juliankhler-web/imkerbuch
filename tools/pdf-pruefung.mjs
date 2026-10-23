@@ -30,7 +30,8 @@ await p.evaluate(async () => {
 const auftraege = await p.evaluate(() => {
   const l = unterlagenListe().filter((e) => e.pdf && e.id !== 'komplett').map((e) => ({ id: e.id, titel: e.titel, art: 'liste' }));
   return [...l, { id: 'volksakte', titel: 'Volksakte (ein Volk, Jahr)' }, { id: 'volksakte-alle', titel: 'Volksakte (alle Jahre)' }, { id: 'rechnung', titel: 'Einzelne Rechnung' },
-    { id: 'stockkarte-koenigin', titel: 'Stockkarte einer Königin' }, { id: 'zuchtbuch', titel: 'Zuchtbuch einer Serie' }, { id: 'honig-etikett', titel: 'Honig-Etiketten' }, { id: 'qr-etiketten', titel: 'QR-Etiketten' },
+    { id: 'stockkarte-koenigin', titel: 'Stockkarte einer Königin' }, { id: 'zuchtbuch', titel: 'Zuchtbuch einer Serie' },
+    { id: 'wanderschild', titel: 'Wanderschild (§ 5a)' }, { id: 'tsk-TH', titel: 'Tierseuchenkasse Thüringen' }, { id: 'tsk-NW', titel: 'Tierseuchenkasse NRW' }, { id: 'tsk-ohne', titel: 'Tierseuchenkasse ohne Land' }, { id: 'tsk-AT', titel: 'Völkermeldung VIS Österreich' }, { id: 'tsk-CH', titel: 'Bestandeskontrolle Schweiz' }, { id: 'land-AT-bestandsmeldung', titel: 'Registrierung Österreich' }, { id: 'land-CH-bestandsmeldung', titel: 'Registrierung Schweiz' }, { id: 'land-AT-wanderschild', titel: 'Standschild Österreich' }, { id: 'land-CH-wanderschild', titel: 'Standschild Schweiz' }, { id: 'honig-etikett', titel: 'Honig-Etiketten' }, { id: 'qr-etiketten', titel: 'QR-Etiketten' },
     { id: 'komplett', titel: 'Komplettausdruck (Jahr)' }, ...ARCHIV_BEREICHE.map((k) => ({ id: 'bio-archiv-' + k, titel: 'Bio-Archiv ' + k }))];
 });
 console.log(`${auftraege.length} PDFs werden erzeugt und geprüft …`);
@@ -62,6 +63,13 @@ for (const [nr, a] of auftraege.entries()) {
       else if (a.id.startsWith('volksakte')) { const v = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name)[3]; const j = a.id === 'volksakte' ? jahr : ''; await Pdf.abschnitte({ titel: `Volksakte ${v.name}`, untertitel: j ? 'Jahr ' + j : 'alle Jahre', teile: await Export.volkTeile(v, j), datei: 'volksakte.pdf' }); }
       else if (a.id === 'rechnung') { const r = (await DB.getAll('rechnungen')).filter((x) => x.status === 'festgeschrieben').sort((x, y) => y.positionen.length - x.positionen.length)[0]; await Pdf.rechnung(r.id); }
       else if (a.id === 'stockkarte-koenigin') { const q = (await DB.getAll('koeniginnen')).find((x) => (x.bewertungen || []).length >= 2) || (await DB.getAll('koeniginnen'))[0]; await Pdf.stockkarte(q.id); }
+      else if (a.id === 'wanderschild') { const st = U.sortBy(await DB.getAll('staende'), (x) => -x.name.length)[0]; await Pdf.wanderschild(st.id); }
+      else if (a.id.startsWith('land-')) {   // Österreich/Schweiz: dieselben PDFs mit eigenem Recht
+        const [, land, was] = a.id.split('-'), alt = S.get('imkerei');
+        await S.set('imkerei', { ...alt, bundesland: land });
+        try { if (was === 'wanderschild') { const st = U.sortBy(await DB.getAll('staende'), (x) => -x.name.length)[0]; await Pdf.wanderschild(st.id); } else await Pdf.bestandsmeldung(); } finally { await S.set('imkerei', alt); }
+      }
+      else if (a.id.startsWith('tsk-')) { const alt = S.get('imkerei'); await S.set('imkerei', { ...alt, bundesland: a.id === 'tsk-ohne' ? '' : a.id.slice(4) }); try { await Pdf.tierseuchenkasse(); } finally { await S.set('imkerei', alt); } }
       else if (a.id === 'zuchtbuch') { const z = U.sortBy(await DB.getAll('zuchtserien'), (x) => x.name.length, true)[0]; await Pdf.zuchtbuch(z.id); }
       else if (a.id === 'honig-etikett') { const ab = (await DB.getAll('abfuellungen'))[0]; await Pdf.honigEtikett(ab, await DB.get('chargen', ab.chargeId), { anzahl: 12, mitQr: true, bezeichnung: 'Sommerblütenhonig aus der Region „Dachauer Land“', ursprung: 'Deutschland' }); }   // wie das Formular (Pflichtfelder)
       else if (a.id === 'qr-etiketten') { const v = (await DB.getAll('voelker'))[0]; await qrEtikettPdf(`${v.name} · ${v.beutenkennung}`, await makeQr(`imkerbuch://volk/${v.id}`), 12); }   // der PDF-Bogen der App (im Browser käme der Druckdialog)

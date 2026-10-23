@@ -1516,8 +1516,18 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.90';
+const APP_VERSION = '2.91';
 const CHANGELOG = [
+  { version: '2.91', datum: '2026-10-23', punkte: [
+    '<b>Anmeldung beim Veterinäramt (§ 1a):</b> Unter Unterlagen ▸ Ämter & Pflicht gibt es die „Anzeige nach § 1a“ – mit Tierhalter, Kästchen für Beginn, Änderung oder Aufgabe und je Stand Lage und Koordinaten. Beim Stand trägst du dafür Anschrift, Gemarkung und Flurnummer ein; fehlt eine brauchbare Lage, sagt das PDF Bescheid.',
+    '<b>Tierseuchenkasse je Bundesland:</b> Wähle in den Imkereidaten dein Bundesland – dann stimmen Stichtag, Frist und was gemeldet wird (z. B. Thüringen: eingewinterte Völker, Bayern: keine Meldung). Die Völker stehen in der Tabelle an dem Stand, an dem sie am Stichtag waren.',
+    '<b>Wanderschild:</b> Beim Stand gibt es das Schild nach § 5a mit Name, Anschrift und Völkerzahl zum Ausdrucken.',
+    '<b>Österreich und Schweiz:</b> Als Land wählbar. Dann druckt ImkerBuch die Registrierung fürs VIS bzw. für den Kanton, die Völkermeldung zum 30. April und 31. Oktober (Österreich) bzw. die Zahlen für die Bestandeskontrolle (Schweiz) und ein Standschild mit VIS- bzw. Standnummer.',
+    '<b>Stand-Wechsel in der Historie:</b> Wechselt ein Volk im Formular den Stand oder wird sein Stand gelöscht, steht das mit Datum in seiner Historie.',
+    'Lerntexte zu Anmeldung, Tierseuchenkasse, Varroa-Meldepflicht (seit März 2026) und Gesundheitszeugnis korrigiert und ergänzt.',
+    'Import aus Excel/CSV: Spalten werden besser vorgeschlagen – keine Spalte doppelt, „Gemarkung“ greift nicht mehr nach „Name“.',
+    'Behoben: Beim Speichern eines Volks stand manchmal fälschlich „Königin geändert“ in der Historie; ein aufgelöstes Volk zählte nach dem Bearbeiten wieder mit.',
+  ] },
   { version: '2.90', datum: '2026-10-23', punkte: [
     '<b>Öko-Unterlagen: Landbedeckung übersichtlicher:</b> Je Stand eine kompakte Tabelle, größte Fläche zuerst, Anteile einheitlich mit einer Stelle („20,0 %“), Flächen mit 0 % weggelassen. Die Summenzeilen (Tracht, Bebauung, Sonstiges, Summe) sind fett hinterlegt und ergeben zusammen genau die Summe. Eine Stand-Tabelle reißt nicht mehr über die Seitengrenze.',
     '<b>Hygieneplan:</b> Der Hinweis auf ältere Einträge im Archiv steht jetzt oben unter der Überschrift – vorher stand er manchmal allein auf einer letzten Seite.',
@@ -3227,7 +3237,7 @@ const S = {
   data: {},
   defaults: {
     profil: { vorname: '' },
-    imkerei: { name: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', steuernummer: '', ustIdNr: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
+    imkerei: { name: '', tierhalter: '', bundesland: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', steuernummer: '', ustIdNr: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
       oekoZertNummer: '', oekoZertGueltigBis: '', oekoZertAblage: '' },
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
@@ -6416,9 +6426,31 @@ async function fahrtSchnellBuchen(standId) {
   renderRoute();
 }
 
+/** Lage eines Standes in einer Zeile: „85221 Dachau, Am Anger 3 · Gemarkung Dachau, Fl.-Nr. 1234/5“ (leer, wenn nichts erfasst). */
+function standLage(st) {
+  if (!st) return '';
+  const flur = [st.gemarkung ? `Gemarkung ${st.gemarkung}` : '', st.flurnummer ? `Fl.-Nr. ${st.flurnummer}` : ''].filter(Boolean).join(', ');
+  return [String(st.ort || '').trim(), flur, st.standNr ? `Standnr. ${String(st.standNr).trim()}` : ''].filter(Boolean).join(' · ');
+}
+/** Reicht die Lage eines Stands fürs Amt? Anschrift mit Hausnummer, Flurnummer oder Koordinaten – PLZ und Ort allein
+    reichen den meisten Ämtern nicht (Ämter-Vorgaben in docs/MELDEPFLICHTEN.md, Code-Prüfung 23.10.2026).
+    Hausnummer = ein- bis dreistellige Zahl nach einem Wort; die vier- oder fünfstellige PLZ zählt nicht. */
+function standLageReicht(st) {
+  if (!st) return false;
+  if (String(st.flurnummer || '').trim() || (st.lat && st.lng)) return true;
+  return /\D\s\d{1,3}\s?[a-zA-Z]?(?=[\s,;]|$)/.test(String(st.ort || '').trim());
+}
 function standFormFields() {
   return [
     { key: 'name', label: 'Name des Stands', required: true, placeholder: 'z. B. Heimstand Garten' },
+    /* Lage für die Anzeige nach § 1a BienSeuchV: viele Veterinärämter fragen je Standort Anschrift bzw. PLZ/Ort oder
+       Gemarkung und Flurnummer ab (Recherche 23.10.2026, docs/MELDEPFLICHTEN.md). Alles freiwillig. */
+    { key: 'ort', label: 'Anschrift oder PLZ und Ort', placeholder: 'z. B. 85221 Dachau, Am Anger 3', hint: 'Für die Anzeige beim Amt. Ohne Hausnummer bitte Gemarkung und Flurnummer oder die Koordinaten angeben – PLZ und Ort allein reichen den meisten Ämtern nicht.' },
+    { key: 'gemarkung', label: 'Gemarkung', halb: true, placeholder: 'z. B. Dachau' },
+    { key: 'flurnummer', label: 'Flurnummer', halb: true, placeholder: 'z. B. 1234/5', hint: 'Steht im Grundbuch oder im Bayern-/Länder-Atlas (Flurkarte).' },
+    /* Schweiz: Der Kanton gibt jedem Bienenstand eine Identifikationsnummer, die gut sichtbar am Stand stehen muss
+       (Art. 18a/19a TSV). Das Feld erscheint nur dort – oder wenn schon etwas eingetragen ist. */
+    { key: 'standNr', label: 'Standnummer vom Kanton', placeholder: 'z. B. ZH-1234', hint: 'Steht auf dem Standschild und in der Registrierung.', showIf: (f) => imkereiStaat() === 'CH' || !!f.standNr },
     { key: 'geo', type: 'static', html: `<button type="button" class="btn btn-ghost btn-sm" data-geo>${icon('pin')} Aktuellen Standort übernehmen</button> <span class="small muted" data-geo-status></span>` },
     { key: 'lat', label: 'Breitengrad', type: 'number', placeholder: 'z. B. 51,3127' },
     { key: 'lng', label: 'Längengrad', type: 'number', placeholder: 'z. B. 9,4797' },
@@ -6468,7 +6500,8 @@ function openStandForm(stand, onDone) {
     title: stand ? 'Stand bearbeiten' : 'Neuer Bienenstand',
     fields: standFormFields(), values: stand || {},
     async onSave(v) {
-      await DB.put('staende', Object.assign(stand || { }, { name: v.name, lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
+      const txt = (x) => String(x || '').trim();
+      await DB.put('staende', Object.assign(stand || { }, { name: v.name, ort: txt(v.ort), gemarkung: txt(v.gemarkung), flurnummer: txt(v.flurnummer), standNr: txt(v.standNr), lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
       UI.toast('Stand gespeichert'); if (onDone) onDone();
     },
   });
@@ -6483,12 +6516,14 @@ const DROHNENLINIEN_START = {
 };
 /* Welche Stammbaum-Quelle es je Herkunft überhaupt gibt. Das Formular sagt damit
    ehrlich, was möglich ist, statt leere Auswahllisten anzubieten.
-   Belegt: Kehrle-Register (Buckfast; Königinnen ab 2023 Apimondia Open Source),
-   BeeBreed des Leibniz-Instituts (Carnica/Mellifera/Ligustica; proprietär, kein Export). */
+   Belegt (Recherche 23.10.2026, docs/ZUCHTDATENBANKEN.md): Kehrle-Register und GdeB-Zuchtregister (Buckfast/Elgon;
+   Kopien laut Kehrle-Impressum nur privat – die „Apimondia Open Source“-Lizenz gilt für die Bienen, nicht für Daten),
+   BeeBreed des Länderinstituts für Bienenkunde Hohen Neuendorf (Carnica/Mellifera/Ligustica; proprietär, kein Export,
+   kommerzielle Nutzung der Zuchtwerte nur mit Genehmigung). Ohne Erlaubnis der Betreiber: nur verlinken. */
 const BEEBREED_URL = 'https://www2.hu-berlin.de/beebreed/ZWS/';
 const ZUCHTDB_QUELLEN = {
-  'Buckfast': { art: 'paket', text: 'Stammbäume liegen im Kehrle-Register. Königinnen ab 2023 stehen unter Apimondia-Open-Source-Lizenz – ein Datenpaket ist möglich, sobald ein Export vorliegt.' },
-  'Elgon': { art: 'paket', text: 'Elgon läuft im Buckfast-Pedigree-System (Kürzel „EL“ statt „B“) – dasselbe Paket deckt es mit ab.' },
+  'Buckfast': { art: 'link', url: 'https://pedigree.karlkehrle.org/', name: 'Kehrle-Register', text: 'Stammbäume liegen im Kehrle-Register und im Zuchtregister der GdeB. Ohne Zustimmung der Betreiber darf die App nur dorthin verlinken; ein mitgeliefertes Datenpaket bräuchte deren Erlaubnis.' },
+  'Elgon': { art: 'link', url: 'https://pedigree.karlkehrle.org/', name: 'Kehrle-Register', text: 'Elgon steht im selben Buckfast-System (Kürzel „EL“ statt „B“), vor allem im Kehrle-Register – nur Verlinkung.' },
   'Carnica': { art: 'link', text: 'In BeeBreed geführt (Stammbaum-Browser), aber ohne Datenexport – die App kann nur dorthin verlinken.' },
   'Ligustica (Italiener)': { art: 'link', text: 'In BeeBreed geführt, ohne Datenexport – nur Verlinkung möglich.' },
   'Mellifera (Dunkle Biene)': { art: 'link', text: 'In BeeBreed geführt, ohne Datenexport. SICAMM ist Dachverband ohne offene Stammbaum-Datenbank – nur Verlinkung.' },
@@ -6575,7 +6610,7 @@ async function openBelegstelleForm(bs, onDone) {
     quelleBox.innerHTML = !h
       ? 'Wähle zuerst die Herkunft – danach passen die Vorschläge darunter.'
       : q
-        ? `${U.esc(q.text)}${q.art === 'link' ? ` <a href="${BEEBREED_URL}" target="_blank" rel="noopener">BeeBreed öffnen</a>` : ''}`
+        ? `${U.esc(q.text)}${q.art === 'link' ? ` <a href="${q.url || BEEBREED_URL}" target="_blank" rel="noopener">${U.esc(q.name || 'BeeBreed')} öffnen</a>` : ''}`
         : 'Zu dieser Herkunft ist keine Stammbaum-Datenbank bekannt – hier zählt deine eigene Erfassung.';
     const ausVerzeichnis = verzeichnis.filter((e) => !h || !e.herkunft || e.herkunft === h).map((e) => e.name);
     comboFuellen('name', [...eigeneNamen, ...ausVerzeichnis]);
@@ -6632,7 +6667,9 @@ async function standLoeschen(s) {
   const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === s.id && v.status === 'aktiv');
   const nv = voelker.length;
   if (!(await UI.confirm({ title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${nv ? ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.` : ''}` }))) return false;
-  for (const v of voelker) { v.standId = null; await DB.put('voelker', v); }
+  /* Datiert vermerken, sonst reißt die Rückrechnung „Stand am Stichtag“ hier ab und frühere Stände würden in den
+     Meldungen zu „ohne Standort“ (Code-Prüfung 23.10.2026). */
+  for (const v of voelker) { (v.historie = v.historie || []).push({ datum: U.todayIso(), text: `Stand „${s.name}“ gelöscht – Volk ohne Stand`, standVon: s.id, standNach: null }); v.standId = null; await DB.put('voelker', v); }
   await DB.softDel('staende', s.id); UI.toast('Stand in den Papierkorb verschoben');
   return true;
 }
@@ -6661,10 +6698,12 @@ Views.stand = {
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('staende')">${icon('back')} Alle Stände</button>
       ${pageHead(s.name, `${voelker.length} aktive ${voelker.length === 1 ? 'Volk' : 'Völker'}`, `
         <button class="btn btn-ghost btn-sm no-print" id="edit">${icon('pencil')} Bearbeiten</button>
+        <button class="btn btn-ghost btn-sm no-print" id="wschild" title="${imkereiStaat() === 'DE' ? 'Schild mit Name, Anschrift und Völkerzahl (§ 5a Bienenseuchen-Verordnung)' : 'Schild mit Name, Anschrift und Nummer für den Bienenstand'}">${icon('doc')} ${imkereiStaat() === 'DE' ? 'Wanderschild' : 'Standschild'}</button>
         <button class="btn btn-danger btn-sm no-print" id="del">${icon('trash')}</button>`)}
       <div class="card">
         <div class="detail-kv">
           <dt>Standort</dt><dd>${links ? `${U.fmtNum(s.lat, 5)}, ${U.fmtNum(s.lng, 5)} · <a href="${links.google}" target="_blank" rel="noopener">Google Maps</a> · <a href="${links.osm}" target="_blank" rel="noopener">OpenStreetMap</a>` : '<span class="muted">keine Koordinaten</span>'}</dd>
+          <dt>Lage</dt><dd>${standLage(s) ? U.esc(standLage(s)) : '<span class="muted">– Ort, Gemarkung und Flurnummer in „Bearbeiten“ (für die Anzeige beim Veterinäramt)</span>'}</dd>
           <dt>Entfernung</dt><dd>${s.kmEntfernung ? `${U.fmtNum(s.kmEntfernung)} km einfach (${U.fmtNum(s.kmEntfernung * 2)} km hin & zurück)` : '<span class="muted">– in „Bearbeiten“ hinterlegen fürs Fahrtenbuch</span>'}</dd>
           <dt>Notizen</dt><dd>${U.esc(s.notizen) || '<span class="muted">–</span>'}</dd>
         </div>
@@ -6702,6 +6741,7 @@ Views.stand = {
     $('#trachtAdd').onclick = () => Views.trachten.formular(null, { standIds: [id] });
     $('#tracht-karte').addEventListener('click', async (e) => { const r = e.target.closest('[data-tracht]'); if (r) Views.trachten.formular(await DB.get('trachten', r.dataset.tracht)); });
     $('#edit').onclick = () => openStandForm(s, renderRoute);
+    $('#wschild').onclick = () => Pdf.wanderschild(s.id);
     $('#del').onclick = async () => { if (await standLoeschen(s)) navTo('staende'); };
     $('#addVolk').onclick = () => openVolkForm(null, { standId: id }, renderRoute);
     const sdStand = $('#sdStand');
@@ -6827,9 +6867,20 @@ async function openVolkForm(volk, defaults = {}, onDone) {
     ],
     values: volk || Object.assign({ }, defaults),
     async onSave(v) {
-      const alt = volk ? volk.koeniginId : null;
+      const alt = volk ? (volk.koeniginId || null) : null;   // „|| null“: ohne Feld schrieb jedes Speichern „Königin geändert“
+      const altStand = volk ? (volk.standId || null) : undefined;
       const rec = Object.assign(volk || { status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }] }, v);
       rec.standId = v.standId || null; rec.koeniginId = v.koeniginId || null;
+      /* Stand-Wechsel datiert festhalten – sonst stimmt „Völker je Standort am Stichtag“ in den Meldungen nicht (v2.91).
+         Nur bei aktiven Völkern und nur bei echtem Wechsel: Ein aufgelöstes Volk behält die Kennung eines gelöschten
+         Stands (standLoeschen löst nur aktive), das Formular zeigt dafür „–“. Ohne diese Prüfung schrieb schon das Ändern
+         der Notiz einen Wechsel, und dessen Datum verlängerte das Volk bis heute (Code-Prüfung 23.10.2026). */
+      if (volk && rec.status !== 'aktiv' && altStand && !rec.standId && !staende.some((x) => x.id === altStand)) rec.standId = altStand;
+      if (volk && rec.status === 'aktiv' && altStand !== rec.standId) {
+        const n = (id) => (staende.find((x) => x.id === id) || {}).name || 'ohne Stand';
+        rec.historie = rec.historie || [];
+        rec.historie.push({ datum: U.todayIso(), text: `Stand gewechselt: „${n(altStand)}“ → „${n(rec.standId)}“`, standVon: altStand, standNach: rec.standId });
+      }
       delete rec.raehmchenmass; // abgeschafft: geht im Beutentyp auf
       const saved = await DB.put('voelker', rec);
       if (alt !== rec.koeniginId) {
@@ -8303,7 +8354,7 @@ function pedigreeGdeB(q, qm, tiefe = 6) {
 /* ---------------------------------------------------------------------
    ZUCHTBUCH-KENNUNGEN: die zwei gängigen Systeme erkennen und zerlegen.
 
-   · BeeBreed (Carnica / Mellifera / Ligustica, Leibniz-Institut LIB):
+   · BeeBreed (Carnica / Mellifera / Ligustica, Länderinstitut für Bienenkunde Hohen Neuendorf):
      Länderkürzel (ISO-3166-alpha-2) + VIER Zahlen – (Landes-)Verband,
      Züchternummer, Zuchtbuchnummer, Jahrgang der Geburt. Beispiel
      „DE-2-123-45-2024“. Wichtig: Ein Verbandscode (Land + Verband) gilt je
@@ -10442,7 +10493,11 @@ Views.wanderungen = {
           { key: 'notiz', label: 'Notiz', type: 'textarea' },
           { key: 'hinw', type: 'static', html: `<div class="hint">${w
             ? 'Änderst du den Ziel-Stand, werden die Völker nachgezogen – aber nur die, die noch am bisherigen Ziel stehen.'
-            : 'Die ausgewählten Völker werden automatisch dem Ziel-Stand zugeordnet. Alle übrigen Daten (Königin, Beutentyp, Stockkarte, Behandlungen) bleiben unverändert.'}</div>` },
+            : 'Die ausgewählten Völker werden automatisch dem Ziel-Stand zugeordnet. Alle übrigen Daten (Königin, Beutentyp, Stockkarte, Behandlungen) bleiben unverändert.'}</div>
+            <div class="hint mt8">${({
+              AT: 'Neue Standorte – auch Wander- und Ablegerstände – trägst du binnen 7 Tagen im <b>VIS</b> ein; viele Bundesländer verlangen zusätzlich eine Wandermeldung bei Gemeinde oder Landwirtschaftskammer. Am Stand gehört ein <b>Schild</b> mit deiner VIS-Nummer – das gibt es beim Stand unter „Standschild“.',
+              CH: 'Bringst du Völker in einen anderen Inspektionskreis, informiere vorher die <b>Bieneninspektoren</b> am alten und am neuen Ort (z. B. mit BeeTraffic). Einen neuen Bienenstand meldest du innert 3 Arbeitstagen beim Kanton; die <b>Standnummer</b> gehört gut sichtbar an den Stand („Standschild“ beim Stand). Das Verstellen gehört in die Bestandeskontrolle.',
+            })[imkereiStaat()] || 'Am neuen Standort: das <b>Gesundheitszeugnis</b> des Amtstierarztes (frei von Amerikanischer Faulbrut, frühestens am 1. September des Vorjahres ausgestellt und höchstens 9 Monate alt) dem dortigen Veterinäramt vorlegen und am Stand ein <b>Schild</b> mit Name, Anschrift und Zahl der Völker anbringen (§§ 5, 5a Bienenseuchen-Verordnung) – das Schild gibt es beim Stand unter „Wanderschild“.'}</div>` },
         ],
         values: w ? { ...w, volkIds: w.volkIds || [], grund: wanderungGrund(w, trachten), ...vorbelegt } : {},
         async onSave(v) {
@@ -10637,13 +10692,104 @@ function verkaufHonigText(v, a, c, ernten) {
 }
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
+/* Tierseuchenkasse (TSK) für Bienen je Bundesland – Landesrecht, Recherche mit Gegenprüfung 23.10.2026
+   (docs/MELDEPFLICHTEN.md). Beträge ändern sich jährlich und stehen deshalb bewusst nicht drin.
+   zaehlt: 'bestand' = Völker am Stichtag · 'eingewintert' = im Herbst eingewinterte Völker · 'hoechstbesatz' =
+   höchste Zahl im Jahr einschließlich Ableger. `keine` = Bienen sind dort nicht meldepflichtig. */
+const BUNDESLAENDER = [
+  { k: 'BW', name: 'Baden-Württemberg', tsk: { stichtag: '05-01', frist: 'innerhalb von zwei Wochen nach dem Stichtag (Meldebogen oder online über webTSK)', zaehlt: 'bestand' } },
+  { k: 'BY', name: 'Bayern', keine: 'In Bayern werden Bienen nicht bei der Tierseuchenkasse gemeldet – im Seuchenfall entschädigt der Freistaat.' },
+  { k: 'BE', name: 'Berlin', keine: 'In Berlin gibt es derzeit keine Pflichtmeldung bei der Tiergesundheitskasse; eine freiwillige Meldung wird empfohlen.' },
+  { k: 'BB', name: 'Brandenburg', keine: 'In Brandenburg sind Bienen bei der Tierseuchenkasse weder melde- noch beitragspflichtig.' },
+  { k: 'HB', name: 'Bremen', keine: 'Bremen gehört zur Niedersächsischen Tierseuchenkasse – Bienen sind dort nicht meldepflichtig.' },
+  { k: 'HH', name: 'Hamburg', keine: 'Die Stichtagsmeldung der Hamburger Tierseuchenkasse nennt keine Bienen.' },
+  { k: 'HE', name: 'Hessen', tsk: { stichtag: '01-01', frist: 'innerhalb von zwei Wochen (bis 15. Januar)', zaehlt: 'bestand', zusatz: 'Für Mitglieder im Landesverband Hessischer Imker meldet der Verband.' } },
+  { k: 'MV', name: 'Mecklenburg-Vorpommern', tsk: { stichtag: '01-03', frist: 'kurz nach dem Stichtag – die genaue Frist steht auf dem Erhebungsbogen', zaehlt: 'bestand' } },
+  { k: 'NI', name: 'Niedersachsen', keine: 'Bienen sind bei der Niedersächsischen Tierseuchenkasse nicht meldepflichtig (freiwillig möglich).' },
+  { k: 'NW', name: 'Nordrhein-Westfalen', tsk: { frist: 'bis 31. Januar (tierzahlenmeldung-nrw.de)', zaehlt: 'hoechstbesatz', zusatz: 'Gemeldet wird der Jahreshöchstbesatz einschließlich Ableger, je Hauptstandort und Kreis. Ab 10 Völkern ist eine Überschreitung um mehr als 10 % nachzumelden.' } },
+  // RP: laut Beitragssatzung die am 1. Januar gehaltenen Völker – nicht die vom Herbst (Code-Prüfung 23.10.2026)
+  { k: 'RP', name: 'Rheinland-Pfalz', tsk: { stichtag: '01-01', frist: 'bis 15. Februar', zaehlt: 'bestand' } },
+  { k: 'SL', name: 'Saarland', keine: 'Im Saarland sind Bienen bei der Tierseuchenkasse nicht melde- und beitragspflichtig.' },
+  { k: 'SN', name: 'Sachsen', tsk: { stichtag: '01-01', frist: 'bis 15. Januar (Meldebogen oder Web-TSK)', zaehlt: 'bestand', jeStandort: 'Je Registriernummer eine Meldung – nur Stände mit eigener Registriernummer werden getrennt gemeldet.' } },
+  { k: 'ST', name: 'Sachsen-Anhalt', tsk: { stichtag: '01-03', frist: 'innerhalb von zwei Wochen nach dem Stichtag', zaehlt: 'eingewintert', jeStandort: true } },
+  { k: 'SH', name: 'Schleswig-Holstein', keine: 'Beim Tierseuchenfonds Schleswig-Holstein sind Bienen nicht meldepflichtig.' },
+  { k: 'TH', name: 'Thüringen', tsk: { stichtag: '01-03', frist: 'innerhalb von 14 Tagen nach dem Stichtag', zaehlt: 'eingewintert', jeStandort: true } },
+  /* Österreich und Schweiz (Recherche mit Gegenprüfung 23.10.2026, docs/MELDEPFLICHTEN.md): dort gibt es weder § 1a
+     noch eine Tierseuchenkasse wie in Deutschland. `staat` schaltet Anzeige, Schild und Texte um; `tsk` beschreibt die
+     Völkermeldung, die dem am nächsten kommt – Österreich: VIS mit zwei Stichtagen, Schweiz: Zahlen für die
+     Bestandeskontrolle (eingewintert 1.11., ausgewintert 1.4. laut BLV-Vorlage). `zaehlt: 'info'` = nichts „zu melden“. */
+  { k: 'AT', name: 'Österreich', staat: 'AT', info: 'Österreich: Bienenhaltung ab dem ersten Volk im VIS (Statistik Austria) registrieren, selbst oder über die Ortsgruppe. Zweimal im Jahr die Völkerzahl melden: Stichtag 30. April (bis 30. Juni) und 31. Oktober (bis 31. Dezember). Registriernummer = deine VIS-Nummer.',
+    tsk: { titel: 'Völkermeldung VIS', stichtage: [{ t: '04-30', frist: 'bis 30. Juni im VIS (selbst oder über die Ortsgruppe)' }, { t: '10-31', frist: 'bis 31. Dezember im VIS (selbst oder über die Ortsgruppe)' }], zaehlt: 'bestand', ohneEingewintert: true,
+      zusatz: 'Gemeldet wird die Zahl der besiedelten Beuten – auch ohne Änderung und auch bei 0 Völkern; eine Erinnerung gibt es nicht. Je nach Bundesland kommt eine eigene Meldung dazu, z. B. Kärnten: an den Bürgermeister bis 15. April; Wien: an die Landwirtschaftskammer bis 30. April.' } },
+  { k: 'CH', name: 'Schweiz', staat: 'CH', info: 'Schweiz: Jeden Bienenstand – auch einen leeren – innert 3 Arbeitstagen bei der kantonalen Stelle melden und die Standnummer gut sichtbar anbringen. Eine Bestandeskontrolle je Stand führen und 3 Jahre aufbewahren. Jährliche Erhebung und Termine regelt der Kanton.',
+    tsk: { titel: 'Bestandeskontrolle – Völkerzahlen', stichtag: '04-01', einTag: '11-01', stichLabel: 'Ausgewintert', zaehlt: 'info', frist: 'kein bundesweiter Stichtag – jährliche Erhebung und Termine legt der Kanton fest',
+      zusatz: 'Die Bestandeskontrolle wird je Bienenstand geführt: eingewintert am 1. November, ausgewintert am 1. April (falls der Kanton nichts anderes festlegt), dazu alle Zu- und Abgänge, Standorte und Verstelldaten. 3 Jahre aufbewahren.' } },
+];
+/** Staat aus den Imkereidaten: 'AT', 'CH' oder 'DE' (auch ohne Angabe – die App kommt aus Deutschland). */
+function imkereiStaat(imk = S.get('imkerei')) { const l = BUNDESLAENDER.find((b) => b.k === (imk || {}).bundesland); return (l && l.staat) || 'DE'; }
+/** Beschriftung der Registriernummer in PDF-Köpfen: in Österreich ist es die VIS-Nummer. */
+function regNrLabel(imk = S.get('imkerei')) { return imkereiStaat(imk) === 'AT' ? 'VIS-Nr.' : 'Betriebs-Nr.'; }
+/** Kurztext zur Völkermeldung für die Profil-Karte – aus dem Land, nicht mehr aus dem alten Ja/Nein-Feld (das gilt nur
+    noch ohne gewähltes Land; Code-Prüfung 23.10.2026). */
+function meldepflichtKurz(imk = S.get('imkerei')) {
+  const l = BUNDESLAENDER.find((b) => b.k === (imk || {}).bundesland), nr = imk && imk.tskNummer ? ' · Nr. ' + imk.tskNummer : '';
+  if (!l) return imk && imk.tskPflicht === 'ja' ? 'Ja' + nr : 'Nein (Bundesland wählen, dann zeigt ImkerBuch die Regel)';
+  if (l.keine) return `Nein – in ${l.name} für Bienen nicht nötig`;
+  if (l.staat === 'AT') return 'VIS – Stichtage 30.04. und 31.10.';
+  if (l.staat === 'CH') return 'Kanton – Standmeldung und Bestandeskontrolle';
+  return `Ja · ${l.tsk.stichtag ? 'Stichtag ' + U.fmtDate('2000-' + l.tsk.stichtag).slice(0, 6) : 'Jahreshöchstbesatz'}${nr}`;
+}
+/** Letzter vergangener Stichtag einer Regel (auch mit zwei Stichtagen wie in Österreich) samt der passenden Frist. */
+function letzterStichtag(regel, heute = U.todayIso()) {
+  const J = +heute.slice(0, 4);
+  const liste = regel && regel.stichtage ? regel.stichtage : [{ t: (regel && regel.stichtag) || '01-01', frist: regel && regel.frist }];
+  return liste.map((s) => ({ tag: `${heute.slice(5) >= s.t ? J : J - 1}-${s.t}`, frist: s.frist })).sort((a, b) => (a.tag < b.tag ? 1 : -1))[0];
+}
+/** „Eingewintert“ = Völker am 1. Oktober (wie die Winterverlust-Statistik). */
+const EINWINTERUNG_TAG = '10-01';
+/** Letzter vergangener Einwinterungstag (heute oder früher). */
+function letzteEinwinterung(heute = U.todayIso()) {
+  const j = +heute.slice(0, 4);
+  return `${heute.slice(5) >= EINWINTERUNG_TAG ? j : j - 1}-${EINWINTERUNG_TAG}`;
+}
+/** An welchem Stand stand ein Volk an einem Tag? Vom heutigen Stand rückwärts durch alle späteren Wanderungen und
+    Stand-Wechsel (Historie-Einträge mit standVon/standNach, ab v2.91). Ein Ereignis wird nur zurückgedreht, wenn es
+    zum Stand passt, auf dem das Volk danach stand – so verfälscht eine Wanderung, die ein Volk gar nicht mitgemacht
+    hat, nichts. Vorher nahmen die Meldungen einfach den heutigen Stand (Fund 23.10.2026). */
+function standAmStichtag(v, tag, wanderungen = []) {
+  const ereignisse = [];
+  for (const w of wanderungen || []) if ((w.volkIds || []).includes(v.id) && w.datum && w.nachStandId) ereignisse.push({ datum: w.datum, von: w.vonStandId || null, nach: w.nachStandId });
+  for (const h of v.historie || []) if ('standNach' in h && h.datum) ereignisse.push({ datum: h.datum, von: h.standVon || null, nach: h.standNach || null });
+  ereignisse.forEach((e, i) => { e.nr = i; });
+  let stand = v.standId || null;
+  /* Tag für Tag rückwärts. Mehrere Ereignisse am selben Tag (Wechsel und Rücknahme, Wanderung plus Formular) haben
+     keine Uhrzeit: so lange das jüngst erfasste passende zurückdrehen, bis keins mehr passt (Code-Prüfung 23.10.2026). */
+  const tage = [...new Set(ereignisse.filter((e) => e.datum > tag).map((e) => e.datum))].sort().reverse();
+  for (const d of tage) {
+    const offen = ereignisse.filter((e) => e.datum === d).sort((a, b) => b.nr - a.nr);
+    for (let i = offen.findIndex((e) => e.nach === stand); i >= 0; i = offen.findIndex((e) => e.nach === stand)) { stand = offen[i].von; offen.splice(i, 1); }
+  }
+  return stand;
+}
+/** Völker je Stand an einem Tag: Map standId → Anzahl (null = ohne Stand). */
+function voelkerJeStandAm(alle, tag, wanderungen, staendeIds) {
+  const je = new Map();
+  for (const v of voelkerAmStichtag(alle, tag)) {
+    let st = standAmStichtag(v, tag, wanderungen);
+    if (st && staendeIds && !staendeIds.has(st)) st = null;   // Stand inzwischen gelöscht
+    je.set(st, (je.get(st) || 0) + 1);
+  }
+  return je;
+}
+
 /** Welche Völker gab es an einem bestimmten Tag? Anfang und Ende stehen in der
     Völker-Historie; ein Volk ohne Historie zählt ab seinem Anlegedatum.
     Eine Quelle für Völkerentwicklung, Ernteprognose und die amtlichen Meldungen –
     vorher lag dieselbe Rechnung dreimal im Code. */
 function voelkerAmStichtag(voelker, tag) {
   const beginn = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || tag;
-  const schluss = (v) => (v.status === 'aktiv' ? null : (v.historie && v.historie.length ? v.historie[v.historie.length - 1].datum : null));
+  // Stand-Wechsel-Vermerke (standNach) sind kein Ende – sonst verlängerte ein später Vermerk ein aufgelöstes Volk
+  const schluss = (v) => { if (v.status === 'aktiv') return null; const h = (v.historie || []).filter((e) => !('standNach' in e)); return h.length ? h[h.length - 1].datum : null; };
   return (voelker || []).filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag));
 }
 
@@ -19999,10 +20145,18 @@ function unterlagenListe() {
   const X = (store) => ({ xlsx: (j) => Xlsx.exportModule(store, 'xlsx', { filter: Export.filter({ jahr: j }), name: `${store}-${j || 'alle-jahre'}` }), csv: (j) => Xlsx.exportModule(store, 'csv', { filter: Export.filter({ jahr: j }), name: `${store}-${j || 'alle-jahre'}` }) });
   const T = (store) => ({ pdf: (j) => bereichAlsPdf(store, j), ...X(store) });
   const opt = (liste, name) => liste.map((x) => ({ v: x.id, l: name(x) }));
+  const staat = imkereiStaat();
   const L = [
-    /* Ämter & Pflicht */
-    { id: 'bestandsmeldung', kat: 'amt', titel: 'Bestandsmeldung Veterinäramt', text: 'Völker und Standorte', pdf: () => Pdf.bestandsmeldung() },
-    { id: 'tierseuchenkasse', kat: 'amt', titel: 'Meldung an die Tierseuchenkasse', text: 'Völkerzahl zum Stichtag', pdf: () => Pdf.tierseuchenkasse() },
+    /* Ämter & Pflicht – Titel je Land: Deutschland § 1a/TSK/§ 5a, Österreich VIS, Schweiz Kanton */
+    { id: 'bestandsmeldung', kat: 'amt', titel: ({ AT: 'Registrierung im VIS (Standorte)', CH: 'Registrierung der Bienenstände (Kanton)' })[staat] || 'Anzeige nach § 1a (Veterinäramt)',
+      text: staat === 'CH' ? 'alle Bienenstände mit Lage und Standnummer – auch leere' : 'Völker und Standorte – für Beginn, Änderung und Aufgabe', pdf: () => Pdf.bestandsmeldung(),
+      stichw: 'bestandsmeldung anmeldung registrierung bienenseuchenverordnung 1a standort flurnummer gemarkung amtstierarzt vis kanton standnummer' },
+    { id: 'tierseuchenkasse', kat: 'amt', titel: ({ AT: 'Völkermeldung VIS (30.4. / 31.10.)', CH: 'Bestandeskontrolle – Völkerzahlen' })[staat] || 'Meldung an die Tierseuchenkasse', pdf: () => Pdf.tierseuchenkasse(), stichw: 'tsk stichtag beitrag eingewintert vis bestandeskontrolle ausgewintert',
+      text: (() => { const l = BUNDESLAENDER.find((b) => b.k === (S.get('imkerei') || {}).bundesland); return !l ? 'Völkerzahl zum Stichtag – Bundesland in den Imkereidaten wählen' : l.keine ? `in ${l.name} für Bienen nicht nötig`
+        : l.staat === 'AT' ? 'Österreich: Völkerzahl zu den Stichtagen 30. April und 31. Oktober' : l.staat === 'CH' ? 'Schweiz: eingewintert 1. November, ausgewintert 1. April – je Stand'
+          : `${l.name}: ${l.tsk.stichtag ? 'Stichtag ' + U.fmtDate(`2000-${l.tsk.stichtag}`).slice(0, 6) : 'Jahreshöchstbesatz'}`; })() },
+    { id: 'wanderschild', kat: 'amt', titel: staat === 'DE' ? 'Wanderschild (§ 5a)' : 'Standschild', text: ({ AT: 'Name, Anschrift und VIS-Nummer für den Bienenstand', CH: 'Name, Anschrift und Standnummer für den Bienenstand' })[staat] || 'Name, Anschrift und Völkerzahl für den Bienenstand', stichw: 'wandern wanderstand schild beschilderung standschild',
+      wahl: { label: 'Stand', optionen: async () => [...opt(U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase()), (x) => x.name), { v: '-', l: staat === 'DE' ? 'ohne Stand – Zahl von Hand eintragen' : 'ohne Stand – allgemeines Schild' }], knopf: 'PDF', los: (id) => Pdf.wanderschild(id === '-' ? null : id) } },
     { id: 'bestandsbuch', kat: 'amt', titel: 'Bestandsbuch Arzneimittel (TAMG)', text: 'alle Behandlungen mit Mittel, Menge, Wartezeit', jahr: true, pdf: (j) => Pdf.bestandsbuch(j), ...X('behandlungen'), stichw: 'behandlung varroa medikament tierarzneimittel' },
     { id: 'bio-betrieb', kat: 'amt', titel: 'Bio: Betriebsbeschreibung', text: 'für die Öko-Kontrolle', pdf: () => Pdf.bioBetriebsbeschreibung(), stichw: 'oeko kontrolle' },
     { id: 'bio-vorsorge', kat: 'amt', titel: 'Bio: Vorsorgekonzept', text: 'Maßnahmen gegen Verunreinigung', pdf: () => Pdf.bioVorsorge(), stichw: 'oeko kontrolle' },
@@ -20088,7 +20242,9 @@ Views.meldungen = {
     const jahre = await V.jahre();
     if (V._jahr === null || (V._jahr && !jahre.includes(V._jahr))) V._jahr = U.todayIso().slice(0, 4);
     const imk = S.get('imkerei');
-    const fehlt = !imk.name || !imk.registriernummer;
+    /* Für die Anzeige nach § 1a und die Tierseuchenkasse: welche Angaben fehlen noch (v2.91) */
+    const fehltListe = [!imk.tierhalter && !imk.name ? 'Tierhalter' : '', !imk.strasse || !imk.ort ? 'Anschrift' : '', !imk.registriernummer ? 'Registriernummer' : '', !imk.bundesland ? 'Bundesland / Land' : ''].filter(Boolean);
+    const fehlt = fehltListe.length > 0;
     main.innerHTML = pageHead('Unterlagen', 'Alles zum Ausdrucken und Herausholen – an einem Ort') + `
       <div class="chip-row mb8 no-print" id="ul-jahre"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${jahre.map((j) => `<button type="button" class="chip ${V._jahr === j ? 'active' : ''}" data-uljahr="${j}">${j}</button>`).join('')}<button type="button" class="chip ${V._jahr === '' ? 'active' : ''}" data-uljahr="">Alle Jahre</button></div>
       <div class="field mb12 no-print"><input class="inp" type="search" id="ul-suche" placeholder="Suchen, z. B. „Fahrtenbuch“ …" value="${U.esc(V._suche)}" autocomplete="off" aria-label="Unterlagen durchsuchen"></div>
@@ -20125,7 +20281,7 @@ Views.meldungen = {
         return `<div class="ul-eintrag" data-ul="${U.esc(e.id)}"><div class="ul-kopf"><span class="ul-name">${U.esc(e.titel)}${katName}<small>${U.esc(e.text)}${jahrText ? ' · ' + U.esc(jahrText) : ''}${pdfAus ? ' · PDF nur für ein Jahr' : ''}</small></span><span class="ul-knoepfe">${knoepfe}</span></div>${wahl}</div>`;
       };
       const teile = []; for (const e of treffer) teile.push(await zeile(e));
-      box.innerHTML = `${!q && V._kat === 'amt' && fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für die Meldungen fehlen Angaben zur Imkerei (Name, Anschrift, Betriebsnummer) – bitte in den <a href="#/einstellungen">Einstellungen</a> ergänzen.</span></div>` : ''}
+      box.innerHTML = `${!q && V._kat === 'amt' && fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für die Meldungen fehlen Angaben zur Imkerei (${U.esc(fehltListe.join(', '))}) – bitte in den <a href="#/einstellungen">Einstellungen</a> unter „Imkereidaten“ ergänzen.</span></div>` : ''}
         <div class="card ul-karte">${teile.join('')}</div>`;
       // Kategorie „Alles & Daten“: darunter die Übernahme aus anderen Apps und das PDF-Auslesen
       $('#ul-zusatz', main).innerHTML = !q && V._kat === 'alles' ? `
@@ -20179,7 +20335,11 @@ const Importer = {
       { key: 'lat', label: 'Breitengrad', type: 'num', aliases: ['lat', 'breite', 'breitengrad', 'latitude'] },
       { key: 'lng', label: 'Längengrad', type: 'num', aliases: ['lng', 'lon', 'lange', 'laenge', 'langengrad', 'longitude'] },
       { key: 'notizen', label: 'Notizen', aliases: ['notiz', 'notizen', 'bemerkung', 'kommentar', 'note', 'comment', 'beschreibung'] },
-    ], build: (v) => ({ name: v.name, lat: v.lat ?? null, lng: v.lng ?? null, notizen: v.notizen || '' }) },
+      { key: 'ort', label: 'Anschrift/Ort', aliases: ['ort', 'anschrift', 'adresse', 'anschriftort', 'plzort', 'address', 'location'] },
+      { key: 'gemarkung', label: 'Gemarkung', aliases: ['gemarkung', 'flur'] },
+      { key: 'flurnummer', label: 'Flurnummer', aliases: ['flurnummer', 'flurnr', 'flurstueck', 'flurstuck', 'flurstucksnummer', 'flurstuecksnummer'] },
+      { key: 'standNr', label: 'Standnummer (Kanton)', aliases: ['standnummer', 'standnr', 'identifikationsnummer', 'bienenstandnummer'] },
+    ], build: (v) => ({ name: v.name, lat: v.lat ?? null, lng: v.lng ?? null, notizen: v.notizen || '', ort: v.ort || '', gemarkung: v.gemarkung || '', flurnummer: v.flurnummer || '', standNr: v.standNr || '' }) },
     voelker: { label: 'Völker', store: 'voelker', refs: { stand: 'staende' }, felder: [
       { key: 'name', label: 'Bezeichnung/Name', required: true, aliases: ['name', 'volk', 'volkname', 'bezeichnung', 'colony', 'hive', 'stock', 'nummer', 'nr', 'volksnummer'] },
       { key: 'stand', label: 'Bienenstand (Name)', aliases: ['stand', 'standort', 'apiary', 'bienenstand', 'standname'] },
@@ -20246,6 +20406,22 @@ const Importer = {
     if (/^\d{4,5}$/.test(s)) { const d = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
     return null;
   },
+  /* Auto-Zuordnung: erst exakte Treffer für alle Felder, dann ähnliche – und keine Spalte zweimal. Vorher griff
+     „Gemarkung“ nach der Spalte „Name“ und „Flurnummer“ nach „Nr“, weil jedes Feld für sich gesucht hat
+     (Code-Prüfung 23.10.2026). Ganz kurze Spaltennamen zählen nur exakt. Liefert { feld: spalte | '' }. */
+  raten(entityKey, spalten) {
+    const ent = Importer.ENTITIES[entityKey], guess = {}, belegt = new Set();
+    const suche = (f, passt) => spalten.find((sp) => !belegt.has(sp) && f.aliases.some((a) => passt(Importer._norm(sp), a)));
+    for (const runde of [(n, a) => n === a, (n, a) => n.includes(a) || (n.length >= 4 && a.includes(n))]) {
+      for (const f of ent.felder) {
+        if (guess[f.key]) continue;
+        const treffer = suche(f, runde);
+        if (treffer) { guess[f.key] = treffer; belegt.add(treffer); }
+      }
+    }
+    for (const f of ent.felder) guess[f.key] = guess[f.key] || '';
+    return guess;
+  },
   async start(entityKey, file, zone) {
     zone.innerHTML = `<div class="small muted">Datei wird gelesen …</div>`;
     let rows;
@@ -20258,12 +20434,7 @@ const Importer = {
     if (!rows.length) { zone.innerHTML = `<div class="banner warn">${icon('warn')} <span class="b-msg">Keine Datenzeilen gefunden.</span></div>`; return; }
     const spalten = Object.keys(rows[0]);
     const ent = Importer.ENTITIES[entityKey];
-    // Auto-Zuordnung: je Zielfeld die am besten passende Spalte raten
-    const guess = {};
-    for (const f of ent.felder) {
-      const treffer = spalten.find((sp) => { const n = Importer._norm(sp); return f.aliases.some((a) => n === a || n.includes(a) || a.includes(n)); });
-      guess[f.key] = treffer || '';
-    }
+    const guess = Importer.raten(entityKey, spalten);
     zone.innerHTML = `
       <div class="banner info mb12">${icon('info')} <span class="b-msg"><b>${rows.length}</b> Zeilen in „${U.esc(file.name)}“ gefunden. Ordne die Spalten den Feldern zu (Vorschläge sind schon gesetzt):</span></div>
       <div class="rows mb12">${ent.felder.map((f) => `<div class="row" style="min-height:46px">
@@ -20544,10 +20715,10 @@ const Statistik = {
       kacheln.push(this.kachel('Neue Völker / Ableger', String(neu), laufend ? 'bis heute' : 'im Jahr', this.vergleich(neu, neuV, { prozent: false })));
       // Winterverluste: aktiv am 1.10. des Vorjahrs, eingegangen bis 30.4. dieses Jahres
       const winter = (y) => {
-        const start = voelkerAmStichtag(d.voelker, `${y - 1}-10-01`);
+        const start = voelkerAmStichtag(d.voelker, `${y - 1}-${EINWINTERUNG_TAG}`);
         if (!start.length) return null;
         const ende = `${y}-04-30`;
-        const weg = start.filter((v) => v.status !== 'aktiv' && (v.historie || []).length && (() => { const s = v.historie[v.historie.length - 1].datum; return s > `${y - 1}-10-01` && s <= ende; })());
+        const weg = start.filter((v) => v.status !== 'aktiv' && (v.historie || []).length && (() => { const s = v.historie[v.historie.length - 1].datum; return s > `${y - 1}-${EINWINTERUNG_TAG}` && s <= ende; })());
         return { anteil: weg.length / start.length * 100, n: weg.length, von: start.length };
       };
       const w = winter(+j), wv = winter(+j - 1);
@@ -22335,7 +22506,7 @@ const Xlsx = {
     const ziel = (r) => (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : staende.get(r.zielId)?.name) || '';
     const d = this._d;
     return {
-      staende: { blatt: 'Stände', rows: async () => (await alle('staende')).map((s) => ({ Name: s.name, Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
+      staende: { blatt: 'Stände', rows: async () => (await alle('staende')).map((s) => ({ Name: s.name, 'Anschrift/Ort': s.ort || '', Gemarkung: s.gemarkung || '', Flurnummer: s.flurnummer || '', Standnummer: s.standNr || '', Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
       voelker: { blatt: 'Völker', rows: async () => (await alle('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[v.status] || v.status, 'Angelegt am': d(U.sortBy(v.historie || [], (h) => h.datum || '')[0]?.datum || String(v.createdAt || '').slice(0, 10)), Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await alle('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
       koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
@@ -22600,7 +22771,7 @@ const Pdf = {
     doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
     doc.text(this.einzeilig(doc, imk.name || 'ImkerBuch', textW, 13, 9), 34, 18);
     doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(120);
-    const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
+    const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' '), imk.telefon, imk.email, imk.registriernummer ? regNrLabel(imk) + ' ' + imk.registriernummer : ''].filter(Boolean).join(' · ');
     if (adr) doc.text(this.zeilen(doc, adr, textW, 2), 34, 22.5);
     doc.setDrawColor(232, 160, 19).setLineWidth(0.8).line(14, 31, W - 14, 31);
     // Titel und Untertitel umbrechen, damit nichts über den rechten Rand hinausläuft
@@ -22947,7 +23118,7 @@ const Pdf = {
       const list = U.sortBy((await DB.getAll('behandlungen')).filter((b) => !jahr || String(b.datum || '').startsWith(jahr)), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
-      const { doc, y } = await this.newDoc(`Bestandsbuch – Anwendung von Arzneimitteln${jahr ? ' ' + jahr : ''}`, `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · Betriebs-Nr.: ${imk.registriernummer || '–'}`);
+      const { doc, y } = await this.newDoc(`Bestandsbuch – Anwendung von Arzneimitteln${jahr ? ' ' + jahr : ''}`, `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`);
       const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
@@ -23506,7 +23677,7 @@ const Pdf = {
       let iy = 53;
       const infoRows = [['Rechnungsnr.', r.nummer || '(Entwurf)'], ['Datum', U.fmtDate(r.datum)]];
       infoRows.push(['Lieferdatum', U.fmtDate(r.lieferdatum || r.datum)]);
-      if (imk.registriernummer) infoRows.push(['Betriebs-Nr.', imk.registriernummer]);
+      if (imk.registriernummer) infoRows.push([regNrLabel(imk), imk.registriernummer]);
       if (imk.ustIdNr) infoRows.push(['USt-IdNr.', imk.ustIdNr]);
       else if (imk.steuernummer) infoRows.push(['Steuernummer', imk.steuernummer]);
       for (const [label, val] of infoRows) { doc.setTextColor(120).text(label, 140, iy); doc.setTextColor(30).text(String(val), 190, iy, { align: 'right' }); iy += 5; }
@@ -23617,78 +23788,199 @@ const Pdf = {
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
-  /* ---------- Bestandsmeldung Veterinäramt ---------- */
+  /* ---------- Anzeige nach § 1a Bienenseuchen-Verordnung (Veterinäramt) ---------- */
+  /* Recherche 23.10.2026 (docs/MELDEPFLICHTEN.md): Die Pflicht ist bundesweit gleich (Zahl der Völker und Standort,
+     ab dem ersten Volk, spätestens bei Beginn; Änderungen und Aufgabe nach Art. 84 VO (EU) 2016/429). Die Vordrucke
+     sind je Amt verschieden – dieses Blatt enthält die üblichen Angaben: Tierhalter, Anschrift, Registriernummer, je
+     Standort Lage (Ort, Gemarkung, Flurnummer) und Koordinaten, dazu die eingewinterten Völker, die manche Ämter und
+     Tierseuchenkassen abfragen. Interner Name bleibt „bestandsmeldung“ (Dateiname, Unterlagen-Kennung). */
   async bestandsmeldung() {
     try {
       const imk = S.get('imkerei');
-      const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
-      const staende = await DB.getAll('staende');
-      const { doc, y } = await this.newDoc('Bestandsmeldung Bienenhaltung', 'zur Vorlage beim zuständigen Veterinäramt');
+      const staat = imkereiStaat(imk);   // Österreich: VIS, Schweiz: Kanton – gleiche Angaben, eigene Texte
+      const alle = await DB.getAll('voelker');
+      const voelker = alle.filter((v) => v.status === 'aktiv');
+      const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
+      const wanderungen = await DB.getAll('wanderungen');
+      const heute = U.todayIso(), einTag = letzteEinwinterung(heute);
+      const mitEin = staat === 'DE';   // „eingewintert“ fragen nur deutsche Ämter und Kassen ab
+      const ids = new Set(staende.map((x) => x.id));
+      const jetztJe = new Map();
+      for (const v of voelker) { const st = v.standId && ids.has(v.standId) ? v.standId : null; jetztJe.set(st, (jetztJe.get(st) || 0) + 1); }
+      const einJe = mitEin ? voelkerJeStandAm(alle, einTag, wanderungen, ids) : new Map();
+      const einSumme = [...einJe.values()].reduce((x, y) => x + y, 0);
+      const kopf = {
+        DE: ['Anzeige der Bienenhaltung', 'nach § 1a Bienenseuchen-Verordnung · Änderungen und Aufgabe nach Art. 84 VO (EU) 2016/429'],
+        AT: ['Registrierung der Bienenhaltung', 'Angaben für das VIS der Statistik Austria (Tierkennzeichnungs- und Registrierungsverordnung 2009)'],
+        CH: ['Registrierung der Bienenstände', 'Angaben für die kantonale Stelle (Art. 18a Tierseuchenverordnung)'],
+      }[staat];
+      const { doc, y } = await this.newDoc(kopf[0], kopf[1]);
       let yy = y + 4;
-      doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(40);
-      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold'); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); const z = doc.splitTextToSize(String(wert || '________________________'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
-      zeile('Name des Tierhalters:', imk.name);
+      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(40); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); const z = doc.splitTextToSize(String(wert || '________________________'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
+      zeile('Tierhalter:', imk.tierhalter);
+      if (imk.name && imk.name.trim() !== String(imk.tierhalter || '').trim()) zeile('Imkerei:', imk.name);
       zeile('Anschrift:', [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '));
       zeile('Telefon / E-Mail:', [imk.telefon, imk.email].filter(Boolean).join(' / '));
-      zeile('Landw. Betriebsnummer:', imk.registriernummer);
-      /* Gemeldet wird, was auch in der Tabelle steht. Vorher zählte die Kopfzeile
-         alle aktiven Völker, die Tabelle aber nur die einem Stand zugeordneten –
-         ein Volk ohne Standort fehlte unten und ein leerer Stand zählte oben mit.
-         Ein amtliches Papier darf sich nicht selbst widersprechen. */
-      const jeStand = staende.map((st) => ({ st, n: voelker.filter((v) => v.standId === st.id).length }));
-      const belegte = jeStand.filter((z) => z.n > 0);
-      const ohneStand = voelker.filter((v) => !v.standId || !staende.some((st) => st.id === v.standId)).length;
-      zeile('Anzahl Bienenvölker:', voelker.length);
-      zeile('Anzahl Standorte:', belegte.length + (ohneStand > 0 ? 1 : 0));
-      zeile('Datum der Meldung:', U.fmtDate(U.todayIso()));
-      yy += 3;
-      const body = belegte.map(({ st, n }) => [st.name, st.lat ? `${U.fmtNum(st.lat, 5)}, ${U.fmtNum(st.lng, 5)}` : '–', String(n)]);
-      if (ohneStand > 0) body.push(['ohne Standort erfasst', '–', String(ohneStand)]);
-      body.push([{ content: 'Summe', styles: { fontStyle: 'bold' } }, '', { content: String(voelker.length), styles: { fontStyle: 'bold' } }]);
-      const leere = jeStand.length - belegte.length;
-      const yEnd = this.table(doc, { head: ['Standort', 'Koordinaten', 'Völker'], body, startY: yy });
-      doc.setFontSize(9).setTextColor(90);
-      let yHin = yEnd + 8;
-      if (ohneStand > 0) { doc.text(`Hinweis: ${ohneStand} ${ohneStand === 1 ? 'Volk ist' : 'Völker sind'} keinem Standort zugeordnet.`, 14, yHin); yHin += 5; }
-      if (leere > 0) { doc.text(`${leere} angelegte${leere === 1 ? 'r Standort führt' : ' Standorte führen'} derzeit keine Völker und ${leere === 1 ? 'ist' : 'sind'} hier nicht aufgeführt.`, 14, yHin); yHin += 5; }
-      doc.text('Ort, Datum: ____________________________', 14, yHin + 12);
-      doc.text('Unterschrift: ____________________________', 110, yHin + 12);
-      this.finish(doc, `bestandsmeldung-${U.todayIso()}.pdf`);
+      zeile(staat === 'AT' ? 'VIS-Nummer:' : 'Registriernummer:', imk.registriernummer);
+      // Anlass zum Ankreuzen – dasselbe Blatt dient für Beginn, Änderung und Aufgabe; bricht um, wenn die Zeile voll ist
+      doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(40); doc.text('Anlass:', 14, yy);
+      doc.setFont('helvetica', 'normal').setDrawColor(90).setLineWidth(0.3);
+      let ax = 75;
+      for (const t of { DE: ['Beginn der Bienenhaltung', 'Änderung', 'Aufgabe'], AT: ['Beginn', 'Standort neu oder aufgegeben', 'Aufgabe'], CH: ['neuer Bienenstand', 'Imkerwechsel', 'Auflösung'] }[staat]) {
+        const breite = 5.4 + doc.getTextWidth(t);
+        if (ax > 75 && ax + breite > 196) { ax = 75; yy += 6.5; }
+        doc.rect(ax, yy - 3.2, 3.6, 3.6); doc.text(t, ax + 5.4, yy); ax += breite + 8;
+      }
+      yy += 7;
+      zeile(staat === 'AT' ? 'Besiedelte Beuten:' : 'Anzahl Bienenvölker:', `${voelker.length} (Stand ${U.fmtDate(heute)})`);
+      if (mitEin) zeile('Eingewintert:', `${einSumme} ${einSumme === 1 ? 'Volk' : 'Völker'} am ${U.fmtDate(einTag)}`);
+      yy += 2;
+      /* Gemeldet wird, was auch in der Tabelle steht: Kopfzahlen = Tabellensummen, ein Volk ohne Standort hat eine
+         eigene Zeile, ein Stand ohne Völker steht nur im Hinweis (amtliches Papier darf sich nicht widersprechen).
+         Schweiz: jeder Bienenstand wird registriert, auch ein leerer – dort stehen alle Stände in der Tabelle. */
+      const koord = (st) => (st.lat && st.lng ? `${U.fmtNum(st.lat, 5)} N, ${U.fmtNum(st.lng, 5)} O` : '–');
+      const zahlen = (id) => (mitEin ? [String(jetztJe.get(id) || 0), String(einJe.get(id) || 0)] : [String(jetztJe.get(id) || 0)]);
+      const gelistet = staende.filter((st) => staat === 'CH' || (jetztJe.get(st.id) || 0) + (einJe.get(st.id) || 0) > 0);
+      const zeilen = gelistet.map((st) => [st.name, standLage(st) || '–', koord(st), ...zahlen(st.id)]);
+      if ((jetztJe.get(null) || 0) + (einJe.get(null) || 0) > 0) zeilen.push(['ohne Standort erfasst', '–', '–', ...zahlen(null)]);
+      const fett = { fontStyle: 'bold' };
+      zeilen.push([{ content: 'Summe', styles: fett }, '', '', { content: String(voelker.length), styles: fett }, ...(mitEin ? [{ content: String(einSumme), styles: fett }] : [])]);
+      const lageKopf = { DE: 'Lage (Ort, Gemarkung, Flurnr.)', AT: 'Lage (Anschrift)', CH: 'Lage (Anschrift, Standnr.)' }[staat];
+      const yEnd = this.table(doc, { head: ['Standort', lageKopf, 'Koordinaten', 'Völker heute', ...(mitEin ? [`eingewintert ${U.fmtDate(einTag)}`] : [])], body: zeilen, startY: yy, widths: { 3: { halign: 'right' }, 4: { halign: 'right' } } });
+      const H = doc.internal.pageSize.getHeight();
+      let yHin = yEnd + 7;
+      const hinweis = (t) => { const z = doc.splitTextToSize(t, 182); if (yHin + z.length * 4.2 > H - 30) { doc.addPage(); yHin = 20; } doc.text(z, 14, yHin); yHin += z.length * 4.2 + 1.5; };
+      doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(90);
+      const ohne = jetztJe.get(null) || 0;
+      if (ohne > 0) hinweis(`Hinweis: ${ohne} ${ohne === 1 ? 'Volk ist' : 'Völker sind'} keinem Standort zugeordnet.`);
+      const leere = staende.length - gelistet.length;
+      if (leere > 0) hinweis(`${leere} angelegte${leere === 1 ? 'r Standort führt' : ' Standorte führen'} derzeit keine Völker und ${leere === 1 ? 'ist' : 'sind'} hier nicht aufgeführt.`);
+      const unklar = gelistet.filter((st) => !standLageReicht(st)).length;
+      if (unklar > 0) hinweis(`${unklar} ${unklar === 1 ? 'Standort hat' : 'Standorte haben'} weder eine Anschrift mit Hausnummer noch Flurnummer oder Koordinaten – die meisten Ämter brauchen eins davon. Bitte beim Stand ergänzen oder hier von Hand eintragen.`);
+      if (staat === 'DE' && gelistet.length > 1) hinweis('Stände in einem anderen Landkreis meldest du meist zusätzlich beim dort zuständigen Veterinäramt.');
+      hinweis({
+        DE: 'Die Anzeige ist ab dem ersten Volk Pflicht, spätestens bei Beginn der Bienenhaltung. Änderungen (Standort, Zahl der Völker) und die Aufgabe ebenfalls melden. Viele Veterinärämter haben eigene Vordrucke – dieses Blatt enthält die üblichen Angaben zum Beilegen oder Übertragen.',
+        AT: 'Die Bienenhaltung ist binnen 7 Tagen zu melden (Bezirksverwaltungsbehörde oder VIS), alle Standorte binnen 30 Tagen nach Erhalt der VIS-Zugangsdaten. Neue oder aufgegebene Standorte – auch Wander- und Ablegerstände – binnen 7 Tagen eintragen. Dieses Blatt sammelt die Angaben zum Übertragen ins VIS.',
+        CH: 'Jeder Bienenstand – auch ein leerer – ist innert 3 Arbeitstagen bei der kantonalen Stelle zu melden, ebenso ein Imkerwechsel oder die Auflösung. Meldeweg und Formular unterscheiden sich je Kanton – dieses Blatt sammelt die Angaben zum Übertragen oder Beilegen.',
+      }[staat]);
+      if (yHin + 16 > H - 20) { doc.addPage(); yHin = 20; }
+      doc.text('Ort, Datum: ____________________________', 14, yHin + 10);
+      doc.text('Unterschrift: ____________________________', 110, yHin + 10);
+      this.finish(doc, `bestandsmeldung-${heute}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
-  /* ---------- Tierseuchenkasse ---------- */
+  /* ---------- Tierseuchenkasse (je Bundesland) ---------- */
+  /* Stichtag, Frist und was gezählt wird, regelt jedes Land selbst (BUNDESLAENDER). Gezählt wird aus der Völker-
+     Historie, je Standort mit dem Stand AM STICHTAG (vorher: heutiger Stand – Fund 23.10.2026). Ohne gewähltes
+     Bundesland bleibt es beim allgemeinen Stichtag 1. Januar mit Hinweis. Österreich (VIS, zwei Stichtage) und die
+     Schweiz (Bestandeskontrolle) laufen über dieselbe Rechnung mit eigenen Texten. */
   async tierseuchenkasse() {
     try {
       const imk = S.get('imkerei');
-      const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
-      const staende = await DB.getAll('staende');
-      /* Gemeldet wird der Stichtag, nicht der heutige Tag. Bisher stand
-         „Stichtag 01.01." im Kopf, gezählt wurde aber der Bestand von heute –
-         wer im Juli meldet, hätte eine falsche Zahl eingetragen. Die Zahl kommt
-         jetzt aus der Völker-Historie. Der Stichtag selbst ist je nach Land
-         verschieden, deshalb steht die heutige Zahl zum Vergleich daneben. */
-      const alleVoelker = await DB.getAll('voelker');
-      const stichtag = `${U.todayIso().slice(0, 4)}-01-01`;
-      const amStichtag = voelkerAmStichtag(alleVoelker, stichtag);
-      const { doc, y } = await this.newDoc('Meldedaten Tierseuchenkasse', `Stichtag: ${U.fmtDate(stichtag)} · Zusammenstellung zur Übertragung in das Meldeportal`);
+      const land = BUNDESLAENDER.find((b) => b.k === imk.bundesland) || null;
+      const regel = land && land.tsk ? land.tsk : null;
+      const staat = imkereiStaat(imk);
+      const alle = await DB.getAll('voelker');
+      const voelker = alle.filter((v) => v.status === 'aktiv');
+      const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
+      const wanderungen = await DB.getAll('wanderungen');
+      const ids = new Set(staende.map((x) => x.id));
+      const heute = U.todayIso(), J = +heute.slice(0, 4);
+      const letzt = letzterStichtag(regel, heute), stichtag = letzt.tag, frist = (regel && regel.frist) || letzt.frist;
+      const einTag = `${+stichtag.slice(0, 4) - 1}-${(regel && regel.einTag) || EINWINTERUNG_TAG}`;   // Herbst vor dem Stichtag
+      const mitEin = !(regel && regel.ohneEingewintert);
+      const amStichtag = voelkerAmStichtag(alle, stichtag), eingewintert = voelkerAmStichtag(alle, einTag);
+      const stichLabel = (regel && regel.stichLabel) || 'Völker am';
+      const titel = regel && regel.titel ? `${regel.titel} · ${land.name}` : `Meldedaten Tierseuchenkasse${land ? ' · ' + land.name : ''}`;
+      const portal = staat === 'AT' ? 'Zusammenstellung zur Übertragung in das VIS' : staat === 'CH' ? 'Zahlen für die Bestandeskontrolle je Stand' : 'Zusammenstellung zur Übertragung in das Meldeportal';
+      const { doc, y } = await this.newDoc(titel,
+        land && land.keine ? 'Zusammenstellung zur Information' : regel && !regel.stichtag && !regel.stichtage ? portal
+          : staat === 'CH' ? `Stichtage: ${U.fmtDate(einTag)} und ${U.fmtDate(stichtag)} · ${portal}` : `Stichtag: ${U.fmtDate(stichtag)} · ${portal}`);
       let yy = y + 4;
-      const zeile = (label, wert) => { doc.setFont('helvetica', 'bold').setFontSize(10); doc.text(label, 14, yy); doc.setFont('helvetica', 'normal'); const z = doc.splitTextToSize(String(wert || '–'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
-      zeile('Tierhalter:', imk.name);
-      zeile('Landw. Betriebsnummer:', imk.registriernummer);
-      if (imk.tskPflicht === 'ja' && imk.tskNummer) zeile('TSK-/Melde-Nummer:', imk.tskNummer);
-      zeile(`Völker am ${U.fmtDate(stichtag)}:`, amStichtag.length);
+      const zeile = (label, wert, stark = false) => { doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(40); doc.text(label, 14, yy); doc.setFont('helvetica', stark ? 'bold' : 'normal'); const z = doc.splitTextToSize(String(wert ?? '–'), 121); doc.text(z, 75, yy); yy += Math.max(7, z.length * 4.6 + 2.4); };
+      const hinweis = (t, farbe = 90) => { doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(farbe); const z = doc.splitTextToSize(t, 182); doc.text(z, 14, yy); yy += z.length * 4.2 + 2; };
+      if (land && land.keine) { hinweis(land.keine + ' Die Anzeige beim Veterinäramt nach § 1a Bienenseuchen-Verordnung gilt trotzdem.', 40); yy += 2; }
+      zeile('Tierhalter:', imk.tierhalter || imk.name || '–');
+      if (imk.name && imk.tierhalter && imk.name.trim() !== imk.tierhalter.trim()) zeile('Imkerei:', imk.name);
+      zeile('Anschrift:', [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '–');
+      zeile(staat === 'AT' ? 'VIS-Nummer:' : 'Registriernummer:', imk.registriernummer || '–');
+      if (imk.tskNummer && staat === 'DE') zeile('TSK-/Melde-Nummer:', imk.tskNummer);
+      if (frist) zeile(staat === 'CH' ? 'Termine:' : 'Meldefrist:', frist);
+      // Höchststand im letzten Jahr (Orientierung für den Jahreshöchstbesatz in NRW)
+      let hoechst = 0;
+      if (regel && regel.zaehlt === 'hoechstbesatz') for (let t = `${J - 1}-01-01`; t <= `${J - 1}-12-31`; t = U.addDays(t, 1)) hoechst = Math.max(hoechst, voelkerAmStichtag(alle, t).length);
+      const ZAEHLT = { eingewintert: 'ein', hoechstbesatz: 'hoch', info: null };
+      const zuMelden = !regel ? null : regel.zaehlt in ZAEHLT ? ZAEHLT[regel.zaehlt] : 'stich';
+      // Schweiz: zuerst der Herbst (eingewintert), dann das Frühjahr (ausgewintert) – Reihenfolge der BLV-Vorlage
+      if (mitEin && staat === 'CH') zeile(`Eingewintert (${U.fmtDate(einTag)}):`, eingewintert.length);
+      if (!regel || regel.stichtag || regel.stichtage) zeile(`${stichLabel} ${stichLabel === 'Völker am' ? U.fmtDate(stichtag) + ':' : '(' + U.fmtDate(stichtag) + '):'}`, amStichtag.length + (zuMelden === 'stich' ? '  (zu melden)' : ''), zuMelden === 'stich');
+      if (mitEin && staat !== 'CH') zeile(`Eingewintert (${U.fmtDate(einTag)}):`, eingewintert.length + (zuMelden === 'ein' ? '  (zu melden)' : ''), zuMelden === 'ein');
+      if (zuMelden === 'hoch') zeile(`Höchststand ${J - 1}:`, `${hoechst} (Orientierung – gemeldet wird der für ${J} erwartete Höchstbesatz)`, true);
       zeile('Völker heute:', voelker.length);
-      const jeStand = staende.map((st) => ({ st, n: amStichtag.filter((v) => v.standId === st.id).length })).filter((z) => z.n > 0);
-      const ohneStand = amStichtag.filter((v) => !v.standId || !staende.some((st) => st.id === v.standId)).length;
-      const body = jeStand.map(({ st, n }) => [st.name, String(n)]);
-      if (ohneStand > 0) body.push(['ohne Standort erfasst', String(ohneStand)]);
-      body.push([{ content: 'Summe', styles: { fontStyle: 'bold' } }, { content: String(amStichtag.length), styles: { fontStyle: 'bold' } }]);
-      const yEnd = this.table(doc, { head: ['Standort (Stand am ' + U.fmtDate(stichtag) + ')', 'Völker'], body, startY: yy + 2 });
-      doc.setFontSize(9).setTextColor(90);
-      doc.text('Der Meldestichtag ist Ländersache (meist 01.01., in einigen Ländern abweichend) – bitte mit dem Bescheid der', 14, yEnd + 8);
-      doc.text('Tierseuchenkasse abgleichen. Die Zahl am Stichtag stammt aus der Völker-Historie dieser App.', 14, yEnd + 13);
-      this.finish(doc, `tierseuchenkasse-${U.todayIso()}.pdf`);
+      yy += 2;
+      const jeStich = voelkerJeStandAm(alle, stichtag, wanderungen, ids), jeEin = mitEin ? voelkerJeStandAm(alle, einTag, wanderungen, ids) : new Map();
+      const zahlen = (st) => (staat === 'CH' ? [String(jeEin.get(st) || 0), String(jeStich.get(st) || 0)] : mitEin ? [String(jeStich.get(st) || 0), String(jeEin.get(st) || 0)] : [String(jeStich.get(st) || 0)]);
+      const body = staende.filter((st) => (jeStich.get(st.id) || 0) + (jeEin.get(st.id) || 0) > 0)
+        .map((st) => [st.name, standLage(st) || '–', ...zahlen(st.id)]);
+      if ((jeStich.get(null) || 0) + (jeEin.get(null) || 0) > 0) body.push(['ohne Standort erfasst', '–', ...zahlen(null)]);
+      const fett = { fontStyle: 'bold' };
+      const summen = staat === 'CH' ? [eingewintert.length, amStichtag.length] : mitEin ? [amStichtag.length, eingewintert.length] : [amStichtag.length];
+      body.push([{ content: 'Summe', styles: fett }, '', ...summen.map((n) => ({ content: String(n), styles: fett }))]);
+      const kopf = staat === 'CH' ? [`eingewintert ${U.fmtDate(einTag)}`, `ausgewintert ${U.fmtDate(stichtag)}`] : mitEin ? [`am ${U.fmtDate(stichtag)}`, `eingewintert ${U.fmtDate(einTag)}`] : [`am ${U.fmtDate(stichtag)}`];
+      yy = this.table(doc, { head: ['Standort', 'Lage', ...kopf], body, startY: yy, widths: Object.fromEntries(kopf.map((_, i) => [i + 2, { halign: 'right' }])) }) + 7;
+      if (regel && regel.jeStandort) hinweis(`${land.name}: ${typeof regel.jeStandort === 'string' ? regel.jeStandort : 'Die Völker werden je Standort gemeldet'} – die Tabelle zeigt sie mit dem Stand am jeweiligen Tag.`);
+      if (regel && regel.zusatz) hinweis(regel.zusatz);
+      hinweis(staat === 'AT' ? 'Fristen können sich ändern – maßgeblich sind das VIS der Statistik Austria und die Vorgaben deines Bundeslands. Die Zahlen stammen aus der Völker-Historie dieser App.'
+        : staat === 'CH' ? 'Termine und Formulare unterscheiden sich je Kanton – maßgeblich sind die Vorgaben deiner kantonalen Stelle. Die Zahlen stammen aus der Völker-Historie dieser App.'
+          : land ? 'Fristen und Beträge können sich ändern – maßgeblich sind Meldebogen und Bescheid deiner Tierseuchenkasse. Die Zahlen stammen aus der Völker-Historie dieser App; „eingewintert“ zählt sie als Völker am 1. Oktober – eine Näherung, weil die Länder dafür keinen Tag nennen.'
+            : 'Der Stichtag ist Ländersache (z. B. 1.1., 3.1. oder 1.5.; Nordrhein-Westfalen meldet den Jahreshöchstbesatz bis 31.1.) – bitte in den Imkereidaten das Bundesland wählen, dann stimmen Stichtag und Zählweise. Ohne Angabe rechnet die App mit dem 1. Januar; die Zahlen stammen aus ihrer Völker-Historie.');
+      this.finish(doc, `tierseuchenkasse-${heute}.pdf`);
+    } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
+  },
+
+  /* ---------- Wanderschild nach § 5a Bienenseuchen-Verordnung ---------- */
+  /* Am Wanderstand muss gut sichtbar und haltbar ein Schild mit Name, Anschrift und Zahl der Völker hängen (§ 5a).
+     Querformat A4, große Schrift, ohne App-Fußzeile. Ohne Stand bleibt die Völkerzahl zum Eintragen frei.
+     Österreich: an jeden Stand die VIS-Registrierungsnummer (§ 36a TKZVO 2009); Schweiz: die Identifikationsnummer
+     des Bienenstands vom Kanton (Art. 19a TSV). Dort steht statt der Völkerzahl die Nummer groß auf dem Schild. */
+  async wanderschild(standId = null) {
+    try {
+      const imk = S.get('imkerei'), staat = imkereiStaat(imk);
+      const st = standId ? await DB.get('staende', standId) : null;
+      const n = st ? (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv' && v.standId === st.id).length : 0;
+      const jsPDF = await this.lib();
+      const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true });
+      const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), cx = W / 2;
+      doc.setDrawColor(38, 38, 43).setLineWidth(1.6).roundedRect(10, 10, W - 20, H - 20, 4, 4);
+      doc.setFont('helvetica', 'normal').setFontSize(11).setTextColor(110);
+      doc.text({ DE: 'Bienenstand · § 5a Bienenseuchen-Verordnung', AT: 'Bienenstand · § 36a Tierkennzeichnungs- und Registrierungsverordnung', CH: 'Bienenstand · Art. 19a Tierseuchenverordnung' }[staat], cx, 24, { align: 'center' });
+      const person = String(imk.tierhalter || '').trim(), betrieb = String(imk.name || '').trim();
+      doc.setFont('helvetica', 'bold').setTextColor(38, 38, 43);
+      doc.text(this.einzeilig(doc, person || betrieb || '________________________', W - 40, 40, 20), cx, 52, { align: 'center' });
+      let yy = 66;
+      if (person && betrieb && person !== betrieb) { doc.setFont('helvetica', 'normal').setFontSize(22).setTextColor(60); doc.text(this.einzeilig(doc, betrieb, W - 40, 22, 14), cx, yy, { align: 'center' }); yy += 13; }
+      doc.setFont('helvetica', 'normal').setTextColor(38, 38, 43);
+      const adr = [imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      doc.text(this.einzeilig(doc, adr || '________________________________', W - 40, 26, 14), cx, yy + 4, { align: 'center' }); yy += 16;
+      if (imk.telefon) { doc.setFontSize(20).setTextColor(60); doc.text(`Tel. ${imk.telefon}`, cx, yy + 2, { align: 'center' }); yy += 12; }
+      doc.setDrawColor(232, 160, 19).setLineWidth(1).line(40, yy + 6, W - 40, yy + 6);
+      // Österreich/Schweiz: die amtliche Nummer ist Pflicht, nicht die Völkerzahl – lange Nummern werden kleiner gesetzt
+      const nummer = String((staat === 'CH' ? st && st.standNr : imk.registriernummer) || '').trim();   // Schweiz: Nummer des Stands, nicht des Imkers
+      const label = { DE: 'Bienenvölker an diesem Stand: ', AT: 'VIS-Nr. ', CH: 'Stand-Nr. ' }[staat];
+      doc.setFont('helvetica', 'normal').setFontSize(26).setTextColor(38, 38, 43);
+      const bl = doc.getTextWidth(label);
+      doc.setFont('helvetica', 'bold').setFontSize(44);
+      const zahl = staat === 'DE' ? (n > 0 ? String(n) : '______') : this.einzeilig(doc, nummer || '__________', W - 40 - bl, 44, 24);
+      const gross = doc.getFontSize(), bz = doc.getTextWidth(zahl);
+      const start = cx - (bl + bz) / 2, yz = Math.min(H - 40, yy + 30);
+      doc.setFont('helvetica', 'normal').setFontSize(26).text(label, start, yz);
+      doc.setFont('helvetica', 'bold').setFontSize(gross).text(zahl, start + bl, yz);
+      if (imk.registriernummer && staat === 'DE') { doc.setFont('helvetica', 'normal').setFontSize(13).setTextColor(90); doc.text(`Registriernummer ${imk.registriernummer}`, cx, H - 26, { align: 'center' }); }
+      if (staat === 'CH' && imk.registriernummer) { doc.setFont('helvetica', 'normal').setFontSize(13).setTextColor(90); doc.text(`Registriernummer ${imk.registriernummer}`, cx, H - 26, { align: 'center' }); }
+      doc.setFont('helvetica', 'italic').setFontSize(10).setTextColor(130);
+      doc.text(staat === 'DE' ? 'Bitte wetterfest anbringen (z. B. in einer Klarsichthülle) und bei Änderung der Völkerzahl erneuern.' : 'Bitte dauerhaft, gut sichtbar und wetterfest am Bienenstand anbringen.', cx, H - 17, { align: 'center' });
+      this.finish(doc, `${staat === 'DE' ? 'wanderschild' : 'standschild'}-${st ? st.name : 'stand'}.pdf`, { ohneFuss: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -24208,7 +24500,7 @@ const Pdf = {
       doc.text('Komplettausdruck der Imkerei-Verwaltung', cx, 110, { align: 'center' });
       doc.text(`Stand: ${U.fmtDate(U.todayIso())}${opt.jahr ? ` · Zeitraum ${opt.jahr}` : ''}`, cx, 118, { align: 'center' });
       doc.setFontSize(9).setTextColor(150);
-      doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? 'Betriebs-Nr. ' + imk.registriernummer : ''].filter(Boolean).join(' · '), cx, 130, { align: 'center' });
+      doc.text([imk.strasse || '', [imk.plz, imk.ort].filter(Boolean).join(' '), imk.registriernummer ? regNrLabel(imk) + ' ' + imk.registriernummer : ''].filter(Boolean).join(' · '), cx, 130, { align: 'center' });
       doc.addPage(); // Seite 2 = Inhaltsverzeichnis (wird am Ende gefüllt)
       const toc = [];
       /* Zeitraum über dasselbe Datumsfeld wie die Seitenschätzung und der Export je Bereich (v2.78) */
@@ -24357,12 +24649,13 @@ const LERN_KAPITEL = [
     { h: 'Winter – Ruhe (fast)', p: 'Die Bienen ziehen sich zur Wintertraube zusammen und ruhen. Du störst nicht – nur eine Restentmilbung im brutfreien Dezember und ab und zu ein Blick von außen, ob alles steht.', note: 'Erfolg im ersten Jahr = „gesund überwintert", nicht Kilogramm Honig.' },
   ] },
   { id: 5, titel: 'Formalitäten & Recht', steps: [
-    { svg: `<svg viewBox="0 0 150 176" width="100%" style="max-height:176px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anmelde-Checkliste: Veterinäramt, Tierseuchenkasse, Verein"><rect x="20" y="20" width="110" height="146" rx="8" fill="#b98d4e"/><rect x="30" y="30" width="90" height="128" rx="4" fill="#fcfaf4"/><rect x="55" y="12" width="40" height="18" rx="5" fill="#8a6a3a"/><rect x="40" y="48" width="15" height="15" rx="3" fill="#eaf4e2" stroke="#4C8A2E" stroke-width="2"/><path d="M43 55 l4 4 l6 -8" fill="none" stroke="#4C8A2E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><text x="62" y="60" font-size="10.5" font-weight="bold" fill="#3a2c14">Veterinäramt</text><rect x="40" y="78" width="15" height="15" rx="3" fill="#eaf4e2" stroke="#4C8A2E" stroke-width="2"/><path d="M43 85 l4 4 l6 -8" fill="none" stroke="#4C8A2E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><text x="62" y="86" font-size="10.5" font-weight="bold" fill="#3a2c14">Tierseuchen-</text><text x="62" y="98" font-size="10.5" font-weight="bold" fill="#3a2c14">kasse</text><rect x="40" y="116" width="15" height="15" rx="3" fill="none" stroke="#b6ab97" stroke-width="2"/><text x="62" y="128" font-size="10.5" fill="#8B8478">Imkerverein</text><circle cx="104" cy="140" r="15" fill="#E9A21C" opacity=".92"/><path d="M104 130 l2.6 5.6 l6 .5 l-4.6 4 l1.4 6 l-5.4 -3.2 l-5.4 3.2 l1.4 -6 l-4.6 -4 l6 -.5 z" fill="#fff"/></svg>`, h: 'Anmelden ist Pflicht', p: 'Bevor die Bienen kommen: Melde deine Bienenhaltung beim Veterinäramt deiner Gemeinde an (kostenlos) und bei der Tierseuchenkasse deines Bundeslands.', note: 'Die Tierseuchenkasse gibt dir eine Registriernummer und meldet ans Veterinäramt weiter.' },
-    { h: 'Das Veterinäramt', p: 'Melde deine Bienen beim Veterinäramt (Amtstierarzt) deines Landkreises an. Das ist eine reine Anzeige – kostenlos und meist mit einem kurzen Formular erledigt.', note: 'So weiß das Amt, wo Bienen stehen – wichtig, falls in deiner Region einmal eine Seuche auftaucht.' },
-    { h: 'Die Tierseuchenkasse', p: 'Danach meldest du dich bei der Tierseuchenkasse deines Bundeslands an. Sie vergibt dir eine Registriernummer und leitet deine Anmeldung oft direkt ans Veterinäramt weiter.', note: 'Es fällt ein kleiner Pflichtbeitrag pro Volk und Jahr an – dafür gibt es im Seuchenfall Unterstützung. Deine Registriernummer trägst du später in ImkerBuch ein.' },
+    { svg: `<svg viewBox="0 0 150 176" width="100%" style="max-height:176px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Anmelde-Checkliste: Veterinäramt, Tierseuchenkasse, Verein"><rect x="20" y="20" width="110" height="146" rx="8" fill="#b98d4e"/><rect x="30" y="30" width="90" height="128" rx="4" fill="#fcfaf4"/><rect x="55" y="12" width="40" height="18" rx="5" fill="#8a6a3a"/><rect x="40" y="48" width="15" height="15" rx="3" fill="#eaf4e2" stroke="#4C8A2E" stroke-width="2"/><path d="M43 55 l4 4 l6 -8" fill="none" stroke="#4C8A2E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><text x="62" y="60" font-size="10.5" font-weight="bold" fill="#3a2c14">Veterinäramt</text><rect x="40" y="78" width="15" height="15" rx="3" fill="none" stroke="#b6ab97" stroke-width="2"/><text x="62" y="86" font-size="10.5" fill="#8B8478">Tierseuchen-</text><text x="62" y="98" font-size="10.5" fill="#8B8478">kasse</text><rect x="40" y="116" width="15" height="15" rx="3" fill="none" stroke="#b6ab97" stroke-width="2"/><text x="62" y="128" font-size="10.5" fill="#8B8478">Imkerverein</text><circle cx="104" cy="140" r="15" fill="#E9A21C" opacity=".92"/><path d="M104 130 l2.6 5.6 l6 .5 l-4.6 4 l1.4 6 l-5.4 -3.2 l-5.4 3.2 l1.4 -6 l-4.6 -4 l6 -.5 z" fill="#fff"/></svg>`, h: 'Anmelden ist Pflicht', p: 'Bevor die Bienen kommen: Melde deine Bienenhaltung beim Veterinäramt an – das ist überall Pflicht. Je nach Bundesland kommt die Tierseuchenkasse dazu; ein Imkerverein ist freiwillig.', note: 'Die Registriernummer vergibt meist das Veterinäramt – in Bayern das Landwirtschaftsamt (AELF), in Hessen der HVL in Alsfeld.' },
+    { h: 'Das Veterinäramt', p: 'Melde deine Bienen beim Veterinäramt (Amtstierarzt) deines Landkreises an – ab dem ersten Volk, spätestens wenn du anfängst, mit Zahl der Völker und Standort (§ 1a Bienenseuchen-Verordnung). Du bekommst eine 12-stellige Registriernummer – meist vom Veterinäramt, in Bayern vom Landwirtschaftsamt (AELF), in Hessen vom HVL. Ändert sich etwas (anderer Standort, andere Zahl der Völker) oder hörst du auf, meldest du das ebenfalls.', note: 'Das Formular ist je Landkreis verschieden; einen Stand in einem anderen Landkreis meldest du meist zusätzlich dort. ImkerBuch druckt dir unter Unterlagen die „Anzeige nach § 1a“ mit allen üblichen Angaben.' },
+    { h: 'Die Tierseuchenkasse', p: 'Ob du Bienen zusätzlich der Tierseuchenkasse meldest, regelt dein Bundesland: In acht Ländern ja (z. B. Sachsen, Thüringen, Nordrhein-Westfalen, Baden-Württemberg), in Bayern, Niedersachsen und sechs weiteren nicht. Wo es Pflicht ist, gibt es meist einen Stichtag (in Nordrhein-Westfalen zählt der Jahreshöchstbesatz) und oft einen kleinen Beitrag.', note: 'Trag in den Imkereidaten dein Bundesland ein – dann sagt dir ImkerBuch, ob und wann du melden musst.' },
     { h: 'Verein & Versicherung', p: 'Eine Vereinsmitgliedschaft ist freiwillig, aber Gold wert: Schulung, ein Pate und meist eine Halter-Haftpflicht (falls doch einmal jemand gestochen wird) sind inklusive.', note: 'Über den Imkerverband bist du oft günstig mitversichert – frag im Verein einfach danach.' },
-    { h: 'Kranke Bienen melden', p: 'Einige Bienenkrankheiten sind anzeigepflichtig – vor allem die Amerikanische Faulbrut (AFB). Hast du einen Verdacht, meldest du das dem Veterinäramt. Als Anfänger lernst du früh, worauf du achten musst.', note: 'AFB ist für Menschen völlig harmlos, für Bienenvölker aber gefährlich – daher die Meldepflicht.' },
-    { h: 'Wenn du wandern willst', p: 'Möchtest du deine Völker später an einen anderen Ort bringen (etwa zur Rapsblüte), brauchst du dafür meist ein Gesundheitszeugnis vom Amtstierarzt. Für den festen Standort im ersten Jahr ist das noch kein Thema.', note: 'Erst einmal bleibt dein Volk einfach an seinem Platz stehen – Wandern kommt später.' },
+    { h: 'Kranke Bienen melden', p: 'Einige Bienenkrankheiten sind anzeigepflichtig – vor allem die Amerikanische Faulbrut (AFB). Hast du einen Verdacht, meldest du das dem Veterinäramt. Seit März 2026 ist auch der Befall mit Varroa meldepflichtig – formlos an das Veterinäramt, in der Praxis meist einmal. Als Anfänger lernst du früh, worauf du achten musst.', note: 'AFB ist für Menschen völlig harmlos, für Bienenvölker aber gefährlich – daher die Meldepflicht.' },
+    { h: 'Österreich und Schweiz', p: 'In Österreich registrierst du deine Bienenhaltung im VIS der Statistik Austria (selbst oder über die Ortsgruppe) und meldest zweimal im Jahr die Zahl deiner Völker: Stichtag 30. April und 31. Oktober. In der Schweiz meldest du jeden Bienenstand innert 3 Arbeitstagen beim Kanton und führst je Stand eine Bestandeskontrolle.', note: 'Wähle in den Imkereidaten „Österreich“ oder „Schweiz“ – dann passt ImkerBuch Meldung, Schild und Hinweise an.' },
+    { h: 'Wenn du wandern willst', p: 'Möchtest du deine Völker später an einen anderen Ort bringen (etwa zur Rapsblüte), brauchst du ein Gesundheitszeugnis vom Amtstierarzt (frei von Amerikanischer Faulbrut, frühestens am 1. September des Vorjahres ausgestellt und höchstens 9 Monate alt) und am Wanderstand ein Schild mit Name, Anschrift und Zahl der Völker. Für den festen Standort im ersten Jahr ist das noch kein Thema.', note: 'Erst einmal bleibt dein Volk einfach an seinem Platz stehen – Wandern kommt später.' },
   ] },
   { id: 6, titel: 'Dein erstes Volk', steps: [
     { svg: `<svg viewBox="0 0 180 150" width="100%" style="max-height:160px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dein erstes Volk zieht ein"><ellipse cx="92" cy="140" rx="55" ry="6" fill="#000" opacity=".06"/><rect x="57" y="60" width="70" height="34" rx="3" fill="#cb9c56"/><rect x="57" y="44" width="70" height="18" rx="3" fill="#cb9c56"/><rect x="51" y="34" width="82" height="11" rx="3" fill="#c2c7cc"/><g fill="#a87f3e"><rect x="66" y="72" width="52" height="7" rx="2"/></g><rect x="80" y="96" width="24" height="7" rx="3.5" fill="#2a1c0c"/><rect x="62" y="104" width="60" height="10" rx="2" fill="#b98d4e"/><g fill="#E9A21C" stroke="#5a3f12" stroke-width=".6"><ellipse cx="92" cy="110" rx="3.4" ry="2.2"/><ellipse cx="105" cy="109" rx="3" ry="2"/></g><path d="M22 60 C30 52 36 48 44 42" fill="none" stroke="#b07f32" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/><g transform="translate(46,40)" stroke="#5a3f12" stroke-width=".5"><ellipse cx="0" cy="0" rx="8" ry="5.2" fill="#E9A21C"/><g fill="#4a3410" stroke="none"><ellipse cx="-2.6" cy="0" rx="1.5" ry="4.6"/><ellipse cx="1.4" cy="0" rx="1.5" ry="4.6"/></g><circle cx="8" cy="-1.2" r="3.8" fill="#4a3410" stroke="none"/><ellipse cx="-1" cy="-6" rx="7" ry="3.4" fill="#dce9f6" fill-opacity=".7" stroke="none"/></g></svg>`, h: 'Starte mit einem Ableger', p: 'Am besten beginnst du mit einem Ableger – einem kleinen Jungvolk, meist vom Imkerpaten aus deinem Verein.', note: 'Ein Ableger ist ruhiger und leichter zu führen als ein großes Wirtschaftsvolk – ideal fürs erste Jahr.' },
@@ -24528,14 +24821,18 @@ const FAQ_THEMEN = [
     { f: 'Wie löte ich Mittelwände ein?', a: 'Drähte im Rähmchen spannen (4 waagerechte Drähte), Mittelwand anlegen, mit einem Einlöttrafo oder Akku den Draht erhitzen – er schmilzt ins Wachs und fixiert die Mittelwand. Nicht zu heiß, sonst schmilzt die ganze Platte.' },
   ] },
   { id: 'recht', label: 'Recht & Meldepflicht', icon: 'meldung', fragen: [
-    { f: 'Wo muss ich meine Bienen anmelden?', a: 'Beim Veterinäramt deines Landkreises (kostenlos) und bei der Tierseuchenkasse deines Bundeslands (kleiner Jahresbeitrag). Beides ist Pflicht.' },
-    { f: 'Was ist die Tierseuchenkasse?', a: 'Sie versichert dich im Seuchenfall (z. B. Faulbrut-Sperrgebiet) und gibt dir eine Registriernummer. Der Beitrag beträgt je nach Bundesland wenige Euro pro Volk.' },
+    { f: 'Wo muss ich meine Bienen anmelden?', a: 'Beim Veterinäramt – ab dem ersten Volk, mit Zahl der Völker und Standort (§ 1a Bienenseuchen-Verordnung). Änderungen und die Aufgabe meldest du auch; einen Stand in einem anderen Landkreis meist zusätzlich beim dortigen Amt. Die Registriernummer vergibt meist das Veterinäramt, in Bayern das AELF, in Hessen der HVL. Die Tierseuchenkasse kommt nur in acht Bundesländern dazu (z. B. Sachsen, Thüringen, NRW, Baden-Württemberg), in Bayern und Niedersachsen zum Beispiel nicht. Unter Unterlagen druckt ImkerBuch die „Anzeige nach § 1a“.', link: 'meldungen' },
+    { f: 'Was ist die Tierseuchenkasse?', a: 'Eine Einrichtung deines Bundeslands, die im Seuchenfall (z. B. Faulbrut) entschädigt. Ob Bienen dort gemeldet werden und wann (Stichtag), regelt jedes Land selbst – trag dein Bundesland in den Imkereidaten ein, dann zeigt ImkerBuch es dir. Die Registriernummer kommt in der Regel vom Veterinäramt, nicht von der Kasse.' },
+    { f: 'Muss ich Varroa melden?', a: 'In Deutschland ja: Seit dem 11. März 2026 ist der Befall mit Varroa nach der Tierseuchenmeldeverordnung meldepflichtig. Du meldest ihn unverzüglich und formlos an dein Veterinäramt (§§ 3, 7 TierSeuchMeldV), in der Praxis meist einmal. In Österreich gilt die Meldepflicht nur bei seuchenhaftem Auftreten (laut AGES, wenn mindestens 30 % der Völker eines Stands eingehen oder einzugehen drohen). In der Schweiz ist Varroa eine „zu überwachende Seuche“ – frag im Zweifel deinen Bieneninspektor.' },
     { f: 'Darf ich Honig einfach so verkaufen?', a: 'Kleine Mengen direkt an Endverbraucher (Haustürverkauf) ja. Aber: Etikett mit Pflichtangaben, Lebensmittelhygiene, eventuell Gewerbeanmeldung bei regelmäßigem Verkauf. Als § 24-Pauschallandwirt gelten besondere Steuerregeln.' },
-    { f: 'Was ist ein Gesundheitszeugnis?', a: 'Brauchst du zum Wandern (Bienen an einen anderen Standort bringen). Der Amtstierarzt bestätigt, dass deine Völker frei von anzeigepflichtigen Seuchen sind.' },
+    { f: 'Was ist ein Gesundheitszeugnis?', a: 'Brauchst du in Deutschland zum Wandern (Bienen an einen anderen Standort bringen): Der Amtstierarzt deines Herkunftsorts bestätigt, dass die Völker frei von Amerikanischer Faulbrut sind und der Herkunftsort nicht in einem Faulbrut-Sperrbezirk liegt. Es muss frühestens am 1. September des Vorjahres ausgestellt und darf höchstens 9 Monate alt sein; du legst es am neuen Standort dem Veterinäramt vor (§ 5 Bienenseuchen-Verordnung).' },
+    { f: 'Was muss am Wanderstand stehen?', a: 'In Deutschland ein gut sichtbares, haltbares Schild mit deinem Namen, deiner Anschrift und der Zahl der Völker (§ 5a Bienenseuchen-Verordnung). In Österreich gehört an jeden Stand die VIS-Nummer, in der Schweiz die Standnummer vom Kanton. ImkerBuch druckt dir das Schild beim Stand („Wanderschild“ bzw. „Standschild“).' },
+    { f: 'Ich imkere in Österreich – was muss ich melden?', a: 'Jede Bienenhaltung ab dem ersten Volk wird im VIS der Statistik Austria registriert, selbst oder über die Ortsgruppe. Zweimal im Jahr meldest du die Zahl deiner Völker: Stichtag 30. April (bis 30. Juni) und 31. Oktober (bis 31. Dezember) – auch ohne Änderung und auch bei 0. Neue oder aufgegebene Standorte, auch Wander- und Ablegerstände, trägst du binnen 7 Tagen ein. Jeder Stand braucht ein Schild mit deiner VIS-Nummer. Einen Faulbrut-Verdacht meldest du sofort der Bezirkshauptmannschaft. Dazu kommen Landesregeln, z. B. Wandermeldung bei der Gemeinde.', link: 'meldungen' },
+    { f: 'Ich imkere in der Schweiz – was muss ich melden?', a: 'Jeden Bienenstand – auch einen leeren – meldest du innert 3 Arbeitstagen bei der kantonalen Stelle, ebenso einen Imkerwechsel oder die Auflösung. Die Standnummer gehört gut sichtbar an den Stand. Bringst du Völker in einen anderen Inspektionskreis, informierst du vorher die Bieneninspektoren am alten und am neuen Ort (z. B. mit BeeTraffic). Je Stand führst du eine Bestandeskontrolle und bewahrst sie 3 Jahre auf. Schon der Verdacht auf Faulbrut, Sauerbrut oder Kleinen Beutenkäfer geht sofort an den Bieneninspektor. Fristen und Formulare unterscheiden sich je Kanton.', link: 'meldungen' },
     { f: 'Bin ich Landwirt oder Gewerbetreibender?', a: 'Imkerei bis ca. 30 Völker gilt steuerlich als Landwirtschaft (Urproduktion). Darüber hinaus oder bei stark verarbeiteten Produkten (Kerzen, Kosmetik) kann Gewerbe anfallen. Tipp: § 24 UStG Pauschalierung nutzen.' },
     { f: 'Was ist § 24 UStG (Pauschalierung)?', a: 'Landwirte/Imker können die Umsatzsteuer pauschal abrechnen: Du berechnest 7,8 % USt auf deine Verkäufe, behältst sie aber – ohne Vorsteuerabzug, ohne USt-Erklärung. Gilt automatisch, solange du Landwirt bist.' },
     { f: 'Brauche ich eine Betriebshaftpflicht?', a: 'Dringend empfohlen: Wenn deine Bienen einen Verkehrsunfall oder Sachschaden verursachen, haftest du. Viele Imkervereine (z. B. DIB-Mitglieder) haben eine Gruppenversicherung inklusive.' },
-    { f: 'Was ist bei einem Faulbrut-Sperrgebiet?', a: 'Deine Völker werden amtlich untersucht (Futterkranzprobe). Du darfst keine Völker ein- oder ausführen und keinen Honig verfüttern. Kann Monate dauern. Kosten übernimmt teilweise die Tierseuchenkasse.' },
+    { f: 'Was ist bei einem Faulbrut-Sperrgebiet?', a: 'Deine Völker werden amtlich untersucht (Futterkranzprobe). Du darfst keine Völker ein- oder ausführen und keinen Honig verfüttern. Kann Monate dauern. Entschädigt wird je nach Land über die Tierseuchenkasse oder vom Land selbst (in Bayern vom Freistaat).' },
     { f: 'Darf ich in der Stadt/im Garten imkern?', a: 'Grundsätzlich ja – Bienenhaltung ist ein Grundrecht (Urproduktion). Aber: Nachbarschaftsrecht beachten (Flugbahn nicht über Gehweg/Terrasse), Bebauungsplan prüfen, Vermieter fragen. 3 Meter Abstand zur Grundstücksgrenze einhalten.' },
   ] },
   { id: 'vermehrung', label: 'Vermehrung & Zucht', icon: 'egg', fragen: [
@@ -24906,6 +25203,12 @@ const APP_WISSEN = [
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
     antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position, Pfand-Buchungen laufen ohne Umsatzsteuer.',
     schritte: ['Menü ▸ Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
+  /* Kein einzelnes „anmelden“ als Stichwort: das zog „Muss ich mich bei der App anmelden?“ vom Datenschutz weg
+     (Code-Prüfung 23.10.2026) – dafür Wendungen und eine Regel in ASSISTENT_REGELN. */
+  { id: 'anmeldung-amt', titel: 'Bienen beim Amt melden: Veterinäramt (§ 1a), Tierseuchenkasse, Schild am Stand', route: 'meldungen', zeige: 'Ämter & Pflicht',
+    stichw: ['bienen anmelden', 'bienen melden', 'muss ich bienen melden', 'voelker anmelden', 'veterinaeramt anmelden', 'beim veterinaeramt', 'paragraph 1a', 'paragraf 1a', '1a bienenseuchenverordnung', 'bienenseuchenverordnung', 'anzeige veterinaeramt', 'registriernummer', 'flurnummer', 'gemarkung', 'wanderschild', 'standschild', 'schild wanderstand', 'gesundheitszeugnis', 'tierseuchenkasse bundesland', 'stichtag tierseuchenkasse', 'eingewinterte voelker', 'vis oesterreich', 'statistik austria', 'imker oesterreich', 'imker schweiz', 'kanton melden', 'bestandeskontrolle', 'standnummer', 'bieneninspektor'],
+    antwort: 'Beim Veterinäramt meldest du ab dem ersten Volk Zahl und Standort deiner Völker (§ 1a Bienenseuchen-Verordnung) – auch Änderungen und die Aufgabe. Unter Unterlagen ▸ Ämter & Pflicht druckt ImkerBuch die „Anzeige nach § 1a“ mit Lage und Koordinaten je Stand. Ob zusätzlich die Tierseuchenkasse dazukommt, regelt dein Bundesland – trag es in den Imkereidaten ein. Beim Wandern brauchst du ein Gesundheitszeugnis und am Stand ein Schild: „Wanderschild“ beim Stand. In Österreich (VIS) und der Schweiz (Kanton) gelten eigene Regeln – wähle dort dein Land, dann passt ImkerBuch Meldung und Schild an.',
+    schritte: ['Einstellungen ▸ Imkereidaten: Tierhalter, Bundesland/Land und Registriernummer eintragen', 'Beim Stand ▸ Bearbeiten: Ort, Gemarkung und Flurnummer (Schweiz: Standnummer)', 'Menü ▸ Unterlagen ▸ „Anzeige nach § 1a“ (Österreich/Schweiz: „Registrierung“)'] },
   { id: 'export', titel: 'Unterlagen: Ausdrucke, Meldungen und Export (PDF, Excel, CSV)', route: 'meldungen', zeige: 'Ämter & Pflicht',
     stichw: ['export', 'excel', 'xlsx', 'pdf', 'drucken', 'meldungen', 'veterinaeramt', 'tierseuchenkasse', 'meldung', 'bestandsmeldung', 'meldung an amt', 'bestandsmeldung veterinaeramt', 'alles ausdrucken', 'komplettausdruck', 'meldung veterinaeramt', 'meldung ans veterinaeramt', 'meldung an das veterinaeramt', 'exportieren', 'daten exportieren', 'als excel', 'tabelle', 'ausdrucken', 'meldung tierseuchenkasse', 'tierseuchenkasse meldung', 'unterlagen', 'ausdruck', 'wo finde ich', 'statistik pdf', 'jahr export', 'volksakte', 'csv', 'alles herausholen', 'dokumente'],
     antwort: 'Unter „Unterlagen“ liegt alles, was die App erzeugen kann: Meldungen fürs Amt, Bestandsbuch, Volksakte, Fütterungsliste, Fahrtenbuch, Kassenbuch, Statistiken, Komplettausdruck und Datensicherung. Oben wählst du das Jahr, darunter die Kategorie – oder du suchst einfach nach dem Namen.',
@@ -25200,7 +25503,7 @@ const ASSISTENT_VORSCHLAEGE = ['Warum heißt du Imme?', 'Wie buche ich einen Hon
    Die Frage wird in Wortstämme zerlegt (Endungen, „ge-“-Formen), Wortfamilien zählen als dasselbe
    (z. B. verkaufen / abgeben / losschlagen), lange Zusammensetzungen werden aufgebrochen („Honigverkauf“),
    kleine Tippfehler werden verziehen, seltene Wörter zählen mehr als alltägliche. */
-const ASSISTENT_STOPP = new Set(('wie ich mich mir mein meine meinen meiner meinem kann kannst koennte koennt muss soll will wuerde moechte moechten wo was wer wann warum wieso weshalb welche welcher welches welchen ein eine einen einem einer eines der die das den dem des und oder mit von vom zum zur zu im in am an auf aus bei fuer ist sind wird werden hat habe haben hab mache machen mach macht gibt gibts es nicht auch noch nur dann denn aber wenn bitte mal doch schon ob als so da hier dort dies diese diesen diesem dieses alle allem alles du dich dir dein deine sie ihr ihre bist man wir uns unser sich er ihm ihn immer ganz sehr mehr viel viele jetzt gerade eigentlich einfach irgendwie kurz ja nein okay ok eben dafuer dabei dazu damit darauf daran dort wohin woher wofuer womit sowas etwas nichts jemand jeder jede jedes muesste sollte duerfte darf kommt komme gehen geht gehe finde finden finden zeige zeigen zeig'
+const ASSISTENT_STOPP = new Set(('wie ich mich mir mein meine meinen meiner meinem kann kannst koennte koennt muss soll will wuerde moechte moechten wo was wer wann warum wieso weshalb welche welcher welches welchen ein eine einen einem einer eines der die das den dem des und oder mit von vom zum zur zu im in am an auf aus bei fuer ist sind wird werden hat habe haben hab mache machen mach macht gibt gibts es nicht auch noch nur dann denn aber wenn bitte mal doch schon ob als so da hier dort dies diese diesen diesem dieses alle allem alles du dich dir dein deine sie ihr ihre bist man wir uns unser sich er ihm ihn immer ganz sehr mehr viel viele jetzt gerade eigentlich einfach irgendwie kurz ja nein okay ok eben dafuer dabei dazu damit darauf daran dort wohin woher wofuer womit sowas etwas nichts jemand jeder jede jedes muesste sollte duerfte darf kommt komme gehen geht gehe finde finden finden zeige zeigen zeig anzeigen'
   + ' mal gleich schnell schneller bitte app geben gegeben gib gebe habt bekommen bekomme bekommt brauche brauchen braucht benutze benutzen nutzen nutze verwenden machen gemacht tun tue getan wollen wissen weiss kennen heute gestern morgen vorhin zwei drei vier fuenf immer wieder noch schon gerade jetzt dazu hinzu rein raus rum ander anderem anderen anderer anderes andere imker imkerei').split(' '));
 
 /* Wortfamilien (Stämme, ohne Umlaute): alles in einer Zeile bedeutet dasselbe. */
@@ -25365,6 +25668,10 @@ function assistentFrageMarken(ix, query) {
 }
 /* Kleine Absichts-Regeln für typische Verwechslungen: [Muster in der normalisierten Frage, {Eintrag: Plus/Minus}] */
 const ASSISTENT_REGELN = [
+  // „Muss ich mich bei der App anmelden?“ = Konto/Datenschutz, nicht das Veterinäramt (Code-Prüfung 23.10.2026)
+  [/\bapp\b.*anmeld|anmeld.*\bapp\b|\bmich\b.*anmeld|einlogg|\blogin\b|\bkonto\b|\baccount\b|passwort|^anmelden$/, { datenschutz: 6, 'anmeldung-amt': -8 }, /veterinaer|\bamt\b|beim amt|bienen|voelker|tierseuchen|kanton|behoerde/],
+  // „anzeigen“ ist sonst nur „zeigen“ (Füllwort) – „Bienen(haltung) beim Amt anzeigen“ meint die Anmeldung
+  [/(bienen|bienenhaltung|voelker|imkerei)\b.*\banzeig|\banzeig\w*\b.*(bienen|veterinaer|\bamt\b|behoerde)/, { 'anmeldung-amt': 7 }],
   // Imme selbst aus-/einschalten („Wie schalte ich dich aus?“, „Kann man die Biene ausblenden?“)
   [/\b(schalt\w*|stell\w*|mach\w*|blend\w*|kriege?|bekomm\w*|werd\w*)\b.*\b(dich|imme|assistent\w*|biene)\b.*\b(aus|ab|weg|los|an|ein)\b|\b(dich|imme|assistent\w*|biene)\b.*\b(ausschalten|abschalten|einschalten|anschalten|deaktivieren|aktivieren|ausblenden|abstellen|verstecken|loswerden)\b|\bdeaktivier\w*\b.*\b(dich|imme|assistent\w*|biene)\b|\b(imme|assistent\w*|biene)\b.*\b(nervt|stoert|springt|huepft)\b/, { 'imme-aus': 10 }],
   [/gefuetter|habe.*(sirup|futter|zucker).*gegeben/, { fuetterung: 7, 'futter-rechner': -5 }],
@@ -26343,13 +26650,15 @@ Views.einstellungen = {
         <div class="detail-kv mb12">
           <dt>Vorname</dt><dd>${U.esc(profil.vorname) || '–'}</dd>
           <dt>Imkerei</dt><dd>${U.esc(imk.name) || '–'}</dd>
+          <dt>Tierhalter</dt><dd>${U.esc(imk.tierhalter) || '–'}</dd>
           <dt>Anschrift</dt><dd>${U.esc([imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ')) || '–'}</dd>
           <dt>Kontakt</dt><dd>${U.esc([imk.telefon, imk.email].filter(Boolean).join(' · ')) || '–'}</dd>
-          <dt>Landw. Betriebsnummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
+          <dt>Bundesland / Land</dt><dd>${U.esc((BUNDESLAENDER.find((b) => b.k === imk.bundesland) || {}).name || '') || '–'}</dd>
+          <dt>Registriernummer</dt><dd>${U.esc(imk.registriernummer) || '–'}</dd>
           <dt>Steuernummer</dt><dd>${U.esc(imk.steuernummer) || '–'}</dd>
           <dt>USt-IdNr.</dt><dd>${U.esc(imk.ustIdNr) || '–'}</dd>
           <dt>Berufsgenossenschaft</dt><dd>${U.esc(imk.bgNummer) || '–'}</dd>
-          <dt>Meldepflicht TSK</dt><dd>${imk.tskPflicht === 'ja' ? `Ja${imk.tskNummer ? ' · Nr. ' + U.esc(imk.tskNummer) : ''}` : 'Nein'}</dd>
+          <dt>${imkereiStaat(imk) === 'DE' ? 'Meldepflicht TSK' : 'Völkermeldung'}</dt><dd>${U.esc(meldepflichtKurz(imk))}</dd>
           <dt>Bio-Imkerei</dt><dd>${imk.bio === 'ja' ? `<span class="badge b-ok">Ja</span> ${U.esc(bioZertText(imk))}` : 'Nein'}</dd>
         </div>
         <div class="flex-wrap no-print">
@@ -26582,19 +26891,25 @@ Views.einstellungen = {
       title: 'Profil', fields: [{ key: 'vorname', label: 'Vorname', required: true }], values: profil,
       async onSave(v) { await S.set('profil', v); UI.toast('Gespeichert'); renderRoute(); },
     });
-    $('#edit-imkerei').onclick = () => UI.formModal({
+    $('#edit-imkerei').onclick = () => { const m = UI.formModal({
       title: 'Imkereidaten', wide: true,
       fields: [
-        { key: 'name', label: 'Name der Imkerei' }, { key: 'strasse', label: 'Straße & Nr.' },
+        { key: 'name', label: 'Name der Imkerei' },
+        { key: 'tierhalter', label: 'Tierhalter (Vor- und Nachname)', placeholder: 'z. B. Jörg Müller', hint: 'Steht auf der Anzeige beim Amt und auf dem Schild am Stand – die Ämter fragen nach der Person, nicht nur nach der Imkerei.' },
+        { key: 'strasse', label: 'Straße & Nr.' },
         { key: 'plz', label: 'PLZ' }, { key: 'ort', label: 'Ort' },
         { key: 'telefon', label: 'Telefon' }, { key: 'email', label: 'E-Mail' },
-        { key: 'registriernummer', label: 'Landwirtschaftliche Betriebsnummer' },
+        { key: 'bundesland', label: 'Bundesland / Land', type: 'select', keepOrder: true, options: BUNDESLAENDER.map((b) => ({ v: b.k, l: b.name })), hint: 'Bestimmt, welche Meldungen für dich gelten: In Deutschland regelt jedes Bundesland die Tierseuchenkasse selbst, Österreich und die Schweiz haben eigene Regeln.' },
+        { key: '_tskInfo', type: 'static', html: '<div class="hint" data-tsk-info></div>', showIf: (f) => !!f.bundesland },
+        { key: 'registriernummer', label: 'Registriernummer / landwirtschaftliche Betriebsnummer', hint: 'Deutschland: 12-stellige Nummer nach § 1a Bienenseuchen-Verordnung – meist vom Veterinäramt, in Bayern vom Amt für Ernährung, Landwirtschaft und Forsten (AELF), in Hessen vom HVL. Österreich: deine VIS-Nummer. Schweiz: die Nummer deiner kantonalen Stelle.' },
         { key: 'steuernummer', label: 'Steuernummer', halb: true, hint: 'Erscheint auf der Rechnung – Pflicht nach § 14 UStG, wenn keine USt-IdNr. vorliegt.' },
         { key: 'ustIdNr', label: 'Umsatzsteuer-Identnummer', halb: true, hint: 'Falls vorhanden; sie hat auf der Rechnung Vorrang vor der Steuernummer.' },
         { key: '_trennSteuer', type: 'static', html: '' },
         { key: 'bgNummer', label: 'Berufsgenossenschaft: Mitgliedsnummer', hint: 'Für Imkereien die SVLFG (Sozialversicherung für Landwirtschaft, Forsten und Gartenbau).' },
-        { key: 'tskPflicht', label: 'Meldepflicht Tierseuchenkasse (TSK)?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
-        { key: 'tskNummer', label: 'TSK-/Melde-Nummer', showIf: (f) => f.tskPflicht === 'ja', hint: 'Erscheint auf der Tierseuchenkassen-Meldung.' },
+        /* Ob die Tierseuchenkasse für Bienen zuständig ist, folgt jetzt aus dem Bundesland (v2.91); die Ja/Nein-Frage
+           bleibt nur, solange kein Land gewählt ist. */
+        { key: 'tskPflicht', label: 'Meldepflicht Tierseuchenkasse (TSK)?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }], showIf: (f) => !f.bundesland },
+        { key: 'tskNummer', label: 'TSK-/Melde-Nummer', showIf: (f) => { if (!f.bundesland) return f.tskPflicht === 'ja'; const l = BUNDESLAENDER.find((b) => b.k === f.bundesland) || {}; return !!l.tsk && !l.staat; }, hint: 'Erscheint auf der Tierseuchenkassen-Meldung.' },
         { key: '_bioT', type: 'static', html: '<h3 class="mt8 mb8">Bio-Zertifizierung</h3>' },
         { key: 'bio', label: 'Bio-Imkerei?', type: 'select', default: 'nein', options: [{ v: 'nein', l: 'Nein' }, { v: 'ja', l: 'Ja' }] },
         { key: 'bioKontrollstelle', label: 'Öko-Kontrollstelle', type: 'suggest', options: KONTROLLSTELLEN, placeholder: 'DE-ÖKO-… auswählen oder eintippen', hint: 'Deine Kontrollstelle – erscheint als DE-ÖKO-Code auf dem Bio-Etikett.', showIf: (f) => f.bio === 'ja' },
@@ -26605,6 +26920,11 @@ Views.einstellungen = {
       values: imk,
       async onSave(v) { await S.set('imkerei', Object.assign({}, imk, v)); UI.toast('Gespeichert'); renderRoute(); },
     });
+      /* Unter dem Bundesland steht gleich, was dort für die Tierseuchenkasse gilt (Österreich/Schweiz: eigene Regeln) */
+      const land = $('#f-bundesland', m.el), info = $('[data-tsk-info]', m.el);
+      const zeige = () => { const l = BUNDESLAENDER.find((b) => b.k === (land && land.value)); if (info) info.textContent = !l ? '' : l.info || l.keine || `Tierseuchenkasse ${l.name}: ${l.tsk.stichtag ? 'Stichtag ' + U.fmtDate('2000-' + l.tsk.stichtag).slice(0, 6) + ', ' : ''}Meldung ${l.tsk.frist}.`; };
+      if (land) { land.addEventListener('change', zeige); zeige(); }
+    };
 
     /* Logo */
     $('#logo-file').onchange = async (e) => {
