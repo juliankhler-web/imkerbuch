@@ -7,6 +7,11 @@ const { webkit, devices } = pw.default || pw;
 const BASIS = process.env.BASIS || 'http://localhost:8931/index.html?testmodus=1';
 const b = await webkit.launch();
 const ctx = await b.newContext({ ...devices['iPhone 15 Pro'] });
+/* Seit v2.93 zeigt die Web-Version neuen Besuchern die Tester-Sperre – ohne Freischaltung blieb die Prüfung dort
+   hängen („Ziel ist verdeckt von #ts-code“). Freigeschaltet wird wie bei einem Tester: mit dem Fingerabdruck aus
+   index.html im Browser-Speicher (der Code selbst steht nirgends). */
+const fingerabdruck = (await import('node:fs')).readFileSync(new URL('../index.html', import.meta.url), 'utf8').match(/FINGERABDRUCK: '([0-9a-f]{64})'/)?.[1];
+if (fingerabdruck) await ctx.addInitScript((f) => { try { localStorage.setItem('imkerbuch.tester', f); } catch (e) {} }, fingerabdruck);
 const p = await ctx.newPage();
 const fehlerJs = [];
 p.on('pageerror', (e) => fehlerJs.push(e.message));

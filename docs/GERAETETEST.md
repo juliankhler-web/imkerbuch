@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 23.10.2026, Version 2.93 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 23.10.2026, Version 2.94 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -40,6 +40,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B2b Suche:** Völker → oben in die Suche mehrere Buchstaben zügig tippen. → Die Tastatur bleibt offen, nur die Liste darunter ändert sich. Gleich bei Abnehmer & Lieferanten und Verbrauchsmaterial.
 - [ ] **B2c Funktion:** Völker → unter der Suche einen Knopf wie „Ableger“ antippen (bei vielen Funktionen seitlich wischen). → Nur diese Völker, die Zahl im Knopf stimmt; zusätzlich etwas in die Suche tippen → beides gilt zusammen. „Alle“ zeigt wieder alle.
 - [ ] **B3 Durchsicht:** Volk öffnen → „+ Durchsicht“ → ausfüllen, speichern. → Eintrag steht in der Stockkarte.
+- [ ] **B3b Jahr im Volk (neu 2.94):** Ein Volk mit Einträgen aus mehreren Jahren → Reiter Stockkarte, Fütterung, Varroa, Gewicht: oben „Jahr: Alle · 2026 · 2025 …“. Ein Jahr antippen. → Nur Einträge dieses Jahres; bei Varroa/Gewicht steht unter der Kurve bei „Alle“ die Jahreszahl mit dran (z. B. „12.05.25“). Die Wahl bleibt beim Wechsel zum nächsten Volk.
 - [ ] **B4 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe; probier es mal mit **Handschuhen**. Am Ende „Speichern“.
 - [ ] **B5 Sprachnotiz:** In der Durchsicht am Stand „Sprachnotiz“ (oder Volk → „Notizen & Anhänge“ → „Aufnehmen“). → **Eine** Frage nach dem Mikrofon. Aufnahme läuft (roter Punkt), Stoppen, abspielen.
 - [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → **Eine** Frage nach der Kamera, Kamera öffnet sich, Foto erscheint als Bild.
@@ -61,10 +62,12 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **C2 Fütterung in Litern:** Fütterung → „+ Fütterung“ → Futterart „Futtersirup (z. B. Apiinvert)“. → Feld heißt **„Menge je Volk (Liter)“**. 10 eintragen → darunter „10 L = 13,6 kg Sirup · 10 kg Zucker kommen beim Volk an“.
 - [ ] **C3 Fütterung je Volk:** Fütterung → „Je Volk“. → Liste mit Zucker/Liter je Volk; beim Volk selbst stehen oben die Summen.
 - [ ] **C4 Ernte direkt abfüllen:** Ernte und Abfüllung → Ernte erfassen → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ die **Ernte** wählen → Anzahl Gläser → Speichern. → Frage „Keine Charge angelegt – direkt abfüllen?“ → Ja → Gläser stehen im Bestand.
+- [ ] **C4b Jahr und Sortierung (neu 2.94):** Ernte und Abfüllung → Reiter Ernte, Sorte, Abfüllung, Verkauf: oben „Jahr:“ und „Sortierung:“ wie bei Charge. Jahr antippen, dann eine Sortierung. → Liste und Summe oben passen zum Jahr, die Seite springt nicht nach oben; bei Verkauf druckt „Liste (PDF)“ das gewählte Jahr.
 - [ ] **C5 Verkauf ohne Bestand + Rabatt:** Reiter „Verkauf“ → „+“ → „Anderer Honig – noch nicht im Bestand“, 30 Gläser à 6 €, Rabatt 10 %. → Unten live „Gesamt: 162,00 €“; beim Speichern Frage „Kein Bestand – trotzdem buchen?“.
 - [ ] **C6 Auswertung:** Kassenbuch → „Auswertung“ → Jahr wechseln (Seite springt **nicht** nach oben) → Kategorie „Honigverkauf“ antippen → welcher Honig an wen; auf einen Abnehmer tippen → Abnehmer öffnet sich. Ernteprognose ganz unten aufklappen.
 - [ ] **C7 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Teilen-Menü mit sauberer Rechnung; unten steht nur „Seite 1 von 1“, kein „Erstellt mit ImkerBuch“.
 - [ ] **C8 Material:** Weitere Produkte oder Verbrauchsmaterial → Verkauf/Abgang ohne vorhandene Position. → Frage „Jetzt anlegen?“ statt Fehlermeldung.
+- [ ] **C8b Sortierung Material (neu 2.94):** Verbrauchsmaterial → unter „Art“ die Zeile „Sortierung: Name · Wert · Knapp zuerst · MHD · Neueste“ (Knapp/MHD/Neueste nur, wenn es Mindestbestand/MHD/Datum gibt). → Die Liste ordnet sich um; beim Tippen in die Suche bleibt die Sortierung.
 
 ## D · Erinnerungen
 

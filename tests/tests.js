@@ -13015,8 +13015,12 @@ async function sdOeffnen(w, volkId, start = true) {
 }
 const sdMain = (w) => w.document.querySelector('main');
 async function sdTippe(w, text) {
+  /* Ein Tipp kann die Seite neu zeichnen (main ist dann kurz leer) – erst warten, bis der Knopf wirklich da ist,
+     sonst wackelte der Test („Knopf … fehlt – da: “ mit leerer Liste). */
+  const finde = () => [...(sdMain(w)?.querySelectorAll('button') || [])].find((x) => x.textContent.replace(/\s+/g, ' ').trim().includes(text));
+  await warteBis(finde, 2000);
   const vorher = sdMain(w).querySelector('.sd-frage')?.textContent;
-  const b = [...sdMain(w).querySelectorAll('button')].find((x) => x.textContent.replace(/\s+/g, ' ').trim().includes(text));
+  const b = finde();
   assert(b, `Knopf „${text}“ fehlt – da: ${[...sdMain(w).querySelectorAll('button')].map((x) => x.textContent.trim()).join(' | ')}`);
   b.click();
   await warteBis(() => sdMain(w).querySelector('.sd-frage')?.textContent !== vorher || !sdMain(w).querySelector('.sd'), 1500);
@@ -14835,3 +14839,209 @@ test('Play-Prüfung: exakter Wecker nur mit Erlaubnis des Nutzers, ausstehende K
     toasts = 0; assertEq(await L.kaufen('voll'), false); assertEq(toasts, 0, 'Abbrechen ohne Fehlermeldung');
   } finally { Object.assign(L, echt); w.UI.toast = echtToast; await w.S.set('lizenz', null, { auto: true }); }
 });
+
+/* v2.94 (Julian 23.10.2026: „bei Ernte, Sorte, Abfüllung, Verkauf habe ich keine Möglichkeit, nach Jahren zu
+   sortieren … wie bei Charge“) – Jahr- und Sortier-Leiste je Reiter, dazu Volk und Verbrauchsmaterial. */
+test('Honig: Jahr und Sortierung bei Ernte, Sorte, Abfüllung und Verkauf', async (w) => isolierteDaten(w, async () => {
+  const H = w.Views.honig; let host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echtRender = w.renderRoute; let neu = 0; w.renderRoute = async () => { neu++; };
+  try {
+    const volk = await w.DB.put('voelker', { name: 'Volk A', status: 'aktiv' });
+    const stand = await w.DB.put('staende', { name: 'Stand Zett' });
+    await w.DB.put('ernten', { datum: '2025-06-01', zielTyp: 'volk', zielId: volk.id, mengeKg: 10, sorte: 'Raps', wassergehalt: 17.5 });
+    await w.DB.put('ernten', { datum: '2025-07-15', zielTyp: 'stand', zielId: stand.id, mengeKg: 30, sorte: 'Linde', wassergehalt: 16.2 });
+    await w.DB.put('ernten', { datum: '2026-05-20', zielTyp: 'volk', zielId: volk.id, mengeKg: 20, sorte: 'Akazie' });
+    await w.DB.put('ernten', { datum: '2026-06-02', zielTyp: 'volk', zielId: volk.id, mengeKg: 5 });   // wartet aufs Labor
+    const c25 = await w.DB.put('chargen', { losnummer: '2025-03', datum: '2025-08-01', ernteIds: [], mengeKg: 12, sorte: 'Heide' });
+    const c26 = await w.DB.put('chargen', { losnummer: '2026-01', datum: '2026-06-10', ernteIds: [], mengeKg: 8 });   // Lager ohne Sorte
+    const a1 = await w.DB.put('abfuellungen', { chargeId: c25.id, datum: '2025-08-02', gebindeG: 500, anzahl: 20, bestand: 4 });
+    await w.DB.put('abfuellungen', { chargeId: c26.id, datum: '2026-06-11', gebindeG: 250, anzahl: 30, bestand: 30 });
+    const kunde = await w.DB.put('kontakte', { name: 'Zacharias' }), kunde2 = await w.DB.put('kontakte', { name: 'Anna' });
+    await w.DB.put('verkaeufe', { datum: '2025-09-01', abfuellungId: a1.id, anzahl: 2, betrag: 14, kontaktId: kunde.id });
+    await w.DB.put('verkaeufe', { datum: '2025-10-01', abfuellungId: a1.id, anzahl: 10, betrag: 70, kontaktId: kunde2.id });
+    await w.DB.put('verkaeufe', { datum: '2026-04-01', abfuellungId: a1.id, anzahl: 4, betrag: 28 });
+    H._filter = {};
+    // wie in der App: jeder Reiter zeichnet in einen frischen Kasten (sonst sammelten sich Klick-Lauscher)
+    const zeige = async (tab) => { const neuer = w.document.createElement('div'); host.replaceWith(neuer); host = neuer; await H['tab' + tab](host); return host; };
+    const jahre = () => [...host.querySelectorAll('[data-hfjahr]')].map((b) => b.textContent);
+    const sorts = () => [...host.querySelectorAll('[data-hfsort]')].map((b) => b.textContent);
+
+    // Ernte
+    await zeige('Ernten');
+    assertEq(jahre(), ['Alle', '2026', '2025'], 'Ernte: Alle zuerst, dann die Jahre (neueste vorn)');
+    assertEq(sorts(), ['Datum', 'Menge', 'Sorte', 'Volk / Stand']);
+    assert(host.querySelector('[data-hfjahr="ernten|"]').classList.contains('active'), 'Vorgabe ist „Alle“');
+    assert(/Alle Jahre: 65 kg/.test(host.querySelector('.card-title .badge').textContent), 'Summe über alle Jahre');
+    H._filter.ernten.jahr = '2025'; await zeige('Ernten');
+    assertEq(host.querySelectorAll('.row[data-id]').length, 2, 'nur die zwei Ernten von 2025');
+    assert(/2025: 40 kg/.test(host.querySelector('.card-title .badge').textContent), 'Summe des gewählten Jahres');
+    H._filter.ernten.sort = 'menge'; await zeige('Ernten');
+    assert(/Linde/.test(host.querySelector('.row[data-id]').textContent), 'nach Menge: die 30-kg-Ernte oben');
+    H._filter.ernten = { jahr: '', sort: 'ziel' }; await zeige('Ernten');
+    assert(/Stand Zett/.test(host.querySelector('.row[data-id]').textContent), 'nach Volk / Stand alphabetisch');
+    H._filter.ernten = { jahr: '', sort: 'sorte' }; await zeige('Ernten');
+    const reihe = [...host.querySelectorAll('.row[data-id]')].map((r) => r.textContent);
+    assert(/Akazie/.test(reihe[0]) && !/Akazie|Linde|Raps/.test(reihe[3]), 'nach Sorte alphabetisch, ohne Sorte zuletzt');
+    H._filter.ernten = { jahr: '2031', sort: 'unsinn' }; await zeige('Ernten');
+    assert(host.querySelector('[data-hfjahr="ernten|"]').classList.contains('active'), 'ein Jahr, das es hier nicht gibt, zeigt „Alle“');
+    assertEq(host.querySelectorAll('.row[data-id]').length, 4, '… mit allen Ernten');
+    assertEq(H._filter.ernten.jahr, '2031', 'die Wahl selbst bleibt gespeichert (nur ein Klick ändert sie)');
+    assertEq(H._filter.ernten.sort, 'datum', 'eine unbekannte Sortierung fällt auf die Vorgabe zurück');
+
+    // Klick setzt die Wahl und zeichnet neu
+    neu = 0;
+    host.querySelector('[data-hfjahr="ernten|2026"]').click();
+    assertEq(H._filter.ernten.jahr, '2026', 'Klick auf ein Jahr merkt es'); assertEq(neu, 1, 'und zeichnet neu');
+    host.querySelector('[data-hfsort="ernten|menge"]').click();
+    assertEq(H._filter.ernten.sort, 'menge'); assertEq(H._filter.ernten.jahr, '2026', 'die Jahreswahl bleibt dabei');
+
+    // Sorte
+    await zeige('Sorten');
+    assertEq(jahre(), ['Alle', '2026', '2025'], 'Sorte: Jahre aus Ernten und Chargen');
+    assertEq(sorts(), ['Menge', 'Name', 'Wasser']);
+    assertEq([...host.querySelectorAll('tr[data-sorte]')].map((t) => t.dataset.sorte), ['Linde', 'Akazie', 'Heide', 'Raps'], 'nach Menge: 30, 20, 12, 10 kg');
+    H._filter.sorten.jahr = '2025'; await zeige('Sorten');
+    assertEq([...host.querySelectorAll('tr[data-sorte]')].map((t) => t.dataset.sorte), ['Linde', 'Heide', 'Raps'], '2025: nur Sorten dieses Jahres');
+    assert(!/noch auf ein Laborergebnis/.test(host.textContent) && !/noch keine Sorte \(/.test(host.textContent), '2025: keine Hinweise aus 2026');
+    H._filter.sorten.sort = 'wasser'; await zeige('Sorten');
+    assertEq([...host.querySelectorAll('tr[data-sorte]')].map((t) => t.dataset.sorte), ['Linde', 'Raps', 'Heide'], 'nach Wasser: trockenster zuerst, ohne Laborwert zuletzt');
+    H._filter.sorten = { jahr: '2026', sort: 'name' }; await zeige('Sorten');
+    assertEq([...host.querySelectorAll('tr[data-sorte]')].map((t) => t.dataset.sorte), ['Akazie'], '2026 nach Name');
+    assert(/1 Ernte wartet/.test(host.textContent) && /2026-01/.test(host.textContent), '2026: beide Hinweise gelten diesem Jahr');
+
+    // Abfüllung
+    await zeige('Abfuellung');
+    assertEq(jahre(), ['Alle', '2026', '2025']); assertEq(sorts(), ['Datum', 'Charge', 'Gebinde', 'Bestand']);
+    H._filter.abfuellungen.jahr = '2025'; await zeige('Abfuellung');
+    assertEq(host.querySelectorAll('.row[data-id]').length, 1, 'Abfüllung 2025');
+    H._filter.abfuellungen = { jahr: '', sort: 'bestand' }; await zeige('Abfuellung');
+    assert(/250 g/.test(host.querySelector('.row[data-id]').textContent), 'nach Bestand: 30 Gläser oben');
+    H._filter.abfuellungen = { jahr: '', sort: 'gebinde' }; await zeige('Abfuellung');
+    assert(/500 g/.test(host.querySelector('.row[data-id]').textContent), 'nach Gebinde: das größte oben');
+
+    // Verkauf
+    await zeige('Verkaeufe');
+    assertEq(jahre(), ['Alle', '2026', '2025']); assertEq(sorts(), ['Datum', 'Betrag', 'Abnehmer', 'Menge']);
+    assert(/Pdf\.verkaeufe\(\)/.test(host.innerHTML), 'bei „Alle“ druckt die Liste alle Jahre');
+    H._filter.verkaeufe.jahr = '2025'; await zeige('Verkaeufe');
+    assert(/2025: 84,00/.test(host.querySelector('.card-title .badge').textContent), 'Umsatz des gewählten Jahres');
+    assert(/Pdf\.verkaeufe\('2025'\)/.test(host.innerHTML), 'die PDF-Liste nimmt das gewählte Jahr');
+    H._filter.verkaeufe = { jahr: '', sort: 'betrag' }; await zeige('Verkaeufe');
+    assert(/70,00/.test(host.querySelector('.rows .row').textContent), 'nach Betrag: der größte Verkauf oben');
+    H._filter.verkaeufe = { jahr: '', sort: 'abnehmer' }; await zeige('Verkaeufe');
+    const vk = [...host.querySelectorAll('.rows .row')].map((r) => r.textContent);
+    assert(/Anna/.test(vk[0]) && /Zacharias/.test(vk[1]) && !/Anna|Zacharias/.test(vk[2]), 'nach Abnehmer alphabetisch, ohne Abnehmer zuletzt');
+
+    // Leere Auswahl ≠ leerer Bereich
+    await w.DB.clear('verkaeufe'); H._filter.verkaeufe = {}; await zeige('Verkaeufe');
+    assert(host.querySelector('#add2'), 'ganz ohne Verkauf: der Erst-Knopf wie bisher');
+  } finally { w.renderRoute = echtRender; host.remove(); H._filter = {}; }
+}));
+
+test('Volk: Jahr-Auswahl bei Stockkarte, Fütterung, Varroa und Gewicht; Kurven mit Jahreszahl', async (w) => isolierteDaten(w, async () => {
+  const V = w.Views.volk; let host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    const v = await w.DB.put('voelker', { name: 'Volk J', status: 'aktiv' });
+    for (const d of ['2024-05-01', '2025-05-01', '2025-06-01', '2026-05-01']) {
+      await w.DB.put('stockkarten', { volkId: v.id, datum: d, volksstaerke: 4 });
+      await w.DB.put('varroa', { volkId: v.id, datum: d, methode: 'Bodeneinlage (natürlicher Milbenfall)', milben: 7, tageZaehl: 7 });
+      await w.DB.put('gewichte', { volkId: v.id, datum: d, gewichtKg: 30 });
+    }
+    await w.DB.put('fuetterungen', { volkId: v.id, datum: '2025-08-01', futterart: 'Zuckerwasser 3:2', mengeKg: 10 });
+    await w.DB.put('fuetterungen', { volkId: v.id, datum: '2026-08-01', futterart: 'Zuckerwasser 3:2', mengeKg: 4 });
+    V._filter = {};
+    const zeige = async (fn) => { const neuer = w.document.createElement('div'); host.replaceWith(neuer); host = neuer; await V[fn](host, v); return host; };
+    const jahre = () => [...host.querySelectorAll('[data-hfjahr]')].map((b) => b.textContent);
+
+    await zeige('tabStockkarte');
+    assertEq(jahre(), ['Alle', '2026', '2025', '2024']);
+    assert(!host.querySelector('[data-hfsort]'), 'im Volk nur das Jahr – die Stockkarte bleibt nach Datum');
+    assertEq(host.querySelectorAll('.row[data-sk]').length, 4);
+    V._filter.stockkarte.jahr = '2025'; await zeige('tabStockkarte');
+    assertEq(host.querySelectorAll('.row[data-sk]').length, 2, 'nur 2025');
+    assert(/Durchsichten 2025/.test(host.querySelector('.card-title h2').textContent) && /2 Einträge/.test(host.textContent));
+    host.querySelector('[data-hfjahr="stockkarte|2024"]').click();
+    assertEq(V._filter.stockkarte.jahr, '2024', 'Klick auf ein Jahr');
+
+    await zeige('tabFutter');
+    assert(host.querySelector('[data-hfjahr="futter|"]').classList.contains('active'), 'jeder Reiter hat seine eigene Wahl');
+    V._filter.futter.jahr = '2025'; await zeige('tabFutter');
+    const kacheln = [...host.querySelectorAll('.stat')].map((s) => s.textContent.replace(/\s+/g, ' '));
+    assert(/Zucker 2025/.test(kacheln[0]), 'die Jahres-Kachel folgt der Wahl');
+    assert(/Bisher insgesamt/.test(kacheln[2]) && /2 Gaben/.test(kacheln[2]), '„Bisher insgesamt“ zählt weiter alles');
+    assertEq(host.querySelectorAll('tr[data-fe]').length, 1, 'Tabelle nur 2025');
+    assert(/Gesamt \(2025\): 10 kg/.test(host.textContent), 'Summe der Auswahl ist beschriftet');
+
+    await zeige('tabVarroa');
+    const labels = () => [...host.querySelectorAll('svg text')].map((t) => t.textContent).filter((t) => /^\d\d\.\d\d\./.test(t));
+    assert(labels().some((l) => /^\d\d\.\d\d\.\d\d$/.test(l)), 'über mehrere Jahre steht die Jahreszahl unter der Kurve');
+    V._filter.varroa.jahr = '2025'; await zeige('tabVarroa');
+    assert(labels().length && labels().every((l) => /^\d\d\.\d\d\.$/.test(l)), 'in einem Jahr reicht Tag und Monat');
+    assertEq(host.querySelectorAll('tr[data-ve]').length, 2);
+    assert(/letzte Zählung 01\.05\.2026/.test(host.textContent), 'der aktuelle Stand bleibt die letzte Zählung überhaupt');
+
+    V._filter.gewicht = { jahr: '2024', sort: '' }; await zeige('tabGewicht');
+    assertEq(host.querySelectorAll('tbody tr').length, 1, 'Gewicht 2024');
+    // Review-Fund: Δ der ersten Wiegung eines Jahres zählt zur letzten Wiegung davor (Winterzehrung über Neujahr)
+    await w.DB.put('gewichte', { volkId: v.id, datum: '2025-12-28', gewichtKg: 42 });
+    await w.DB.put('gewichte', { volkId: v.id, datum: '2026-01-15', gewichtKg: 39 });
+    V._filter.gewicht = { jahr: '2026', sort: '' }; await zeige('tabGewicht');
+    const zeile = [...host.querySelectorAll('tbody tr')].find((tr) => /15\.01\.2026/.test(tr.textContent));
+    assert(zeile && /-3/.test(zeile.cells[2].textContent), 'Januar-Wiegung zeigt −3 kg seit Dezember, auch wenn nur 2026 gewählt ist: ' + (zeile && zeile.textContent));
+
+    // Review-Fund: ein Volk ohne Einträge im gewählten Jahr löscht die Wahl nicht für die übrigen Völker
+    const ableger = await w.DB.put('voelker', { name: 'Ableger 26', status: 'aktiv' });
+    await w.DB.put('varroa', { volkId: ableger.id, datum: '2026-07-01', methode: 'Bodeneinlage (natürlicher Milbenfall)', milben: 3, tageZaehl: 7 });
+    V._filter.varroa = { jahr: '2025', sort: '' };
+    host.replaceWith(host = w.document.createElement('div')); await V.tabVarroa(host, ableger);
+    assert(host.querySelector('[data-hfjahr="varroa|"]').classList.contains('active'), 'Ableger ohne 2025: zeigt „Alle“');
+    assertEq(host.querySelectorAll('tr[data-ve]').length, 1);
+    await zeige('tabVarroa');
+    assert(host.querySelector('[data-hfjahr="varroa|2025"]').classList.contains('active'), 'zurück beim Volk mit 2025: wieder 2025 gewählt');
+    assertEq(host.querySelectorAll('tr[data-ve]').length, 2);
+    assertEq(w.kurvenDatum([{ datum: '2025-05-01' }, { datum: '2026-01-02' }])({ datum: '2026-01-02' }), '02.01.26');
+    assertEq(w.kurvenDatum([{ datum: '2025-05-01' }])({ datum: '2025-05-01' }), '01.05.');
+  } finally { w.renderRoute = echtRender; host.remove(); V._filter = {}; }
+}));
+
+test('Verbrauchsmaterial: Sortierung Name, Wert, Knapp zuerst, MHD, Neueste – nur was etwas ändert', async (w) => isolierteDaten(w, async () => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const cfg = w.bereichCfg('verbrauch'); Object.assign(cfg.view, { _suche: '', _jahr: '', _art: '', _sort: undefined });
+  const zeige = async () => { host.innerHTML = ''; await w.renderInventarBereich(host, cfg); };
+  const namen = () => [...host.querySelectorAll('#pos-erg .row .r-title')].map((x) => x.textContent.trim());
+  const sorts = () => [...host.querySelectorAll('[data-invsort]')].map((x) => x.textContent);
+  try {
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Bienenwachs', stueckzahl: 5, preis: 2 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Ameisensäure', stueckzahl: 2, preis: 10 });
+    await zeige();
+    assertEq(sorts(), ['Name', 'Wert'], 'ohne Mindestbestand, MHD und Datum nur Name und Wert');
+    assertEq(namen(), ['Ameisensäure', 'Bienenwachs'], 'Vorgabe: nach Name');
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zuckersack', stueckzahl: 1, mindestbestand: 4, preis: 30, ablauf: '2027-01-01', anschaffung: '2026-03-01' });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Gläser', stueckzahl: 40, mindestbestand: 50, preis: 0.5, ablauf: '2026-12-01', anschaffung: '2025-01-01' });
+    await zeige();
+    assertEq(sorts(), ['Name', 'Wert', 'Knapp zuerst', 'MHD', 'Neueste']);
+    cfg.view._sort = 'wert'; await zeige();
+    assertEq(namen()[0], 'Zuckersack', 'nach Wert: 30 € oben');
+    assert(host.querySelector('[data-invsort="wert"]').classList.contains('active'));
+    cfg.view._sort = 'knapp'; await zeige();
+    assertEq(namen().slice(0, 2), ['Zuckersack', 'Gläser'], 'knapp: 1 von 4 vor 40 von 50, ohne Mindestbestand dahinter');
+    cfg.view._sort = 'mhd'; await zeige();
+    assertEq(namen().slice(0, 2), ['Gläser', 'Zuckersack'], 'MHD: was zuerst abläuft, steht oben');
+    cfg.view._sort = 'neu'; await zeige();
+    assertEq(namen().slice(0, 2), ['Zuckersack', 'Gläser'], 'Neueste: zuletzt angeschafft oben');
+    // Suche behält die Sortierung und zeichnet das Suchfeld nicht neu
+    cfg.view._sort = 'wert'; await zeige();
+    const feld = host.querySelector('#suche');
+    feld.value = 'a'; feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 700));
+    assert(host.querySelector('#suche') === feld, 'dasselbe Suchfeld');
+    assertEq(namen()[0], 'Zuckersack', 'Treffer weiter nach Wert');
+    // Eine Sortierung, die es nicht mehr gibt, fällt auf Name zurück
+    await w.DB.clear('inventar');
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'B', stueckzahl: 1 });
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'A', stueckzahl: 1 });
+    cfg.view._sort = 'mhd'; cfg.view._suche = ''; await zeige();
+    assertEq(cfg.view._sort, 'name'); assertEq(namen(), ['A', 'B']);
+  } finally { host.remove(); Object.assign(cfg.view, { _suche: '', _sort: undefined }); }
+}));

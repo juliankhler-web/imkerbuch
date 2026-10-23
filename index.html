@@ -499,6 +499,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .chip-anz{margin-left:2px;font-weight:600;color:var(--muted)}
 .chip.active .chip-anz{color:#5A3D00}
 .chip{padding:7px 14px;border-radius:var(--r-sm);border:1.5px solid var(--line2);font-size:13px;font-weight:600;background:var(--card);transition:all .15s;min-height:36px}
+/* Langes Drücken auf einen Auswahl-Knopf markierte unter Android das Wort („Copy · Share …“) statt nichts zu tun (v2.94) */
+.chip{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .chip svg{width:15px;height:15px;vertical-align:-2px;flex:0 0 auto}
 .chip.active{background:var(--honey);color:#241A05;border-color:var(--honey);box-shadow:0 4px 10px -5px rgba(232,160,19,.55)}
 .seg{display:inline-flex;background:var(--card2);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px;gap:2px}
@@ -1532,8 +1534,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.93';
+const APP_VERSION = '2.94';
 const CHANGELOG = [
+  { version: '2.94', datum: '2026-10-23', punkte: [
+    '<b>Jahr und Sortierung wie bei „Charge“:</b> Ernte, Sorte, Abfüllung und Verkauf haben oben jetzt „Jahr: Alle · 2026 · 2025 …“ und eine Sortierung (z. B. Ernte nach Menge oder Sorte, Verkauf nach Betrag oder Abnehmer). Die Summe oben zeigt das gewählte Jahr, und „Liste (PDF)“ bei Verkauf druckt genau dieses Jahr.',
+    '<b>Jahr im Volk:</b> Stockkarte, Fütterung, Varroa und Gewicht lassen sich auf ein Jahr eingrenzen – die Wahl bleibt beim Wechsel zum nächsten Volk. Geht eine Kurve über mehrere Jahre, steht die Jahreszahl jetzt mit dran (z. B. „12.05.25“).',
+    '<b>Sortierung bei Material:</b> Verbrauchsmaterial, Inventar und Weitere Produkte lassen sich nach Name, Wert, „Knapp zuerst“, Mindesthaltbarkeit oder „Neueste“ ordnen.',
+  ] },
   { version: '2.93', datum: '2026-10-23', punkte: [
     '<b>Web-Version nur für Tester:</b> Wer die Web-App in einem Browser zum ersten Mal öffnet, braucht jetzt einen Tester-Code. Wer sie schon eingerichtet hat, merkt davon nichts – deine Daten bleiben, wie sie sind. Die Apps für iPhone und Android sind nicht betroffen.',
   ] },
@@ -3954,6 +3961,45 @@ document.addEventListener('click', (e) => {
   Seitenweise.anzahl[key] = b.hasAttribute('data-mehr-alle') ? Infinity : (Seitenweise.anzahl[key] || LISTE_SCHRITT) + LISTE_SCHRITT;
   renderRoute({ scrollBehalten: true });
 }, true);
+
+/* ---------- Jahr- und Sortier-Leiste wie bei „Charge“ ----------
+   Gemeinsam für Ernte, Sorte, Abfüllung, Verkauf und die Reiter im Volk (Julian 23.10.2026: „da habe ich keine
+   Möglichkeit, nach Jahren zu sortieren … wie bei Charge“). Gleiches Aussehen wie dort: „Alle“ vorn als Vorgabe,
+   die Leiste ist immer da. zustand = Ablage der Wahl (je Bereich ein Objekt), key = welcher Reiter; die Wahl gilt,
+   solange die App offen ist. sortierungen: [[Beschriftung, Schlüssel], …], die erste ist die Vorgabe – leer heißt:
+   nur die Jahr-Zeile. Liefert die Leiste als HTML und passt(x) für den Jahresfilter. */
+function jahrFilterLeiste(zustand, key, eintraege, jahrVon, sortierungen = []) {
+  const z = zustand[key] || (zustand[key] = { jahr: '', sort: sortierungen.length ? sortierungen[0][1] : '' });
+  const jahre = [...new Set(eintraege.map(jahrVon).filter(Boolean))].sort().reverse();
+  const ohneJahr = eintraege.some((x) => !jahrVon(x));
+  /* Gibt es das gewählte Jahr HIER nicht (z. B. junger Ableger ohne Einträge von 2025), gilt hier „Alle“ – die Wahl
+     selbst bleibt aber gespeichert, damit das nächste Volk mit Einträgen von 2025 wieder 2025 zeigt. Nur ein Klick
+     (jahrFilterKlick) ändert sie. */
+  const jahr = z.jahr === '__ohne' ? (ohneJahr ? '__ohne' : '') : (z.jahr && jahre.includes(z.jahr) ? z.jahr : '');
+  if (sortierungen.length && !sortierungen.some(([, k]) => k === z.sort)) z.sort = sortierungen[0][1];
+  const chip = (label, val) => `<button type="button" class="chip ${jahr === val ? 'active' : ''}" data-hfjahr="${U.esc(key + '|' + val)}">${U.esc(label)}</button>`;
+  const sChip = (label, val) => `<button type="button" class="chip ${z.sort === val ? 'active' : ''}" data-hfsort="${U.esc(key + '|' + val)}">${U.esc(label)}</button>`;
+  const html = `<div class="chip-row ${sortierungen.length ? 'mb8' : 'mb12'} no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}</div>`
+    + (sortierungen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sortierungen.map(([l, k]) => sChip(l, k)).join('')}</div>` : '');
+  const passt = (x) => (!jahr ? true : jahr === '__ohne' ? !jahrVon(x) : jahrVon(x) === jahr);
+  return { html, jahr, sort: z.sort, passt, jahrText: jahr === '__ohne' ? 'ohne Datum' : jahr || 'Alle Jahre' };
+}
+/** Klick auf einen Knopf der Leiste von jahrFilterLeiste; true = erledigt. */
+function jahrFilterKlick(zustand, ev) {
+  const j = ev.target.closest('[data-hfjahr]'), so = ev.target.closest('[data-hfsort]');
+  if (!j && !so) return false;
+  const roh = j ? j.dataset.hfjahr : so.dataset.hfsort, i = roh.indexOf('|');
+  const key = roh.slice(0, i), wert = roh.slice(i + 1);
+  const z = zustand[key] || (zustand[key] = { jahr: '', sort: '' });
+  if (j) z.jahr = wert; else z.sort = wert;
+  renderRoute({ scrollBehalten: true });
+  return true;
+}
+/** Beschriftung unter einer Kurve: „12.05.“ – geht die Kurve über mehrere Jahre, „12.05.25“, sonst liefen die Jahre durcheinander. */
+function kurvenDatum(liste, feld = 'datum') {
+  const mehrJahre = new Set(liste.map((x) => String(x[feld] || '').slice(0, 4))).size > 1;
+  return (x) => { const d = U.fmtDate(x[feld]); return mehrJahre ? d.slice(0, 6) + d.slice(8, 10) : d.slice(0, 6); };
+}
 
 /** Höhe der Kopfzeile als CSS-Variable --kopf-h: darunter kleben angeheftete Leisten. */
 function kopfHoeheMerken() {
@@ -7270,6 +7316,7 @@ async function sammelFormular(art, volkIds, voelker) {
 
 Views.volk = {
   title: 'Volk',
+  _filter: {},   // Jahr-Wahl je Reiter (Stockkarte, Fütterung, Varroa, Gewicht) – gilt für alle Völker, solange die App offen ist
   async render(main, id) {
     const v = await DB.get('voelker', id);
     if (!v) { main.innerHTML = emptyState('warn', 'Volk nicht gefunden.'); return; }
@@ -7343,20 +7390,26 @@ Views.volk = {
 
   /* ---------- Stockkarte: chronologische Durchsichten ---------- */
   async tabStockkarte(box, v) {
-    const eintraege = U.sortBy((await DB.getAll('stockkarten')).filter((s) => s.volkId === v.id), (s) => s.datum, true);
+    const alleEintraege = U.sortBy((await DB.getAll('stockkarten')).filter((s) => s.volkId === v.id), (s) => s.datum, true);
+    const F = jahrFilterLeiste(Views.volk._filter, 'stockkarte', alleEintraege, (x) => (x.datum || '').slice(0, 4));
+    const eintraege = alleEintraege.filter(F.passt);
     const rate = (n) => (n ? `${n}/5` : '–');
     const vorlagen = S.get('stockkartenVorlagen') || [];
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('buch')}<h2>Durchsichten</h2><button class="btn btn-primary btn-sm no-print" id="skAdd">${icon('plus')} Durchsicht</button></div>
+    const sw = seitenweise('stockkarte', eintraege);
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('buch')}<h2>Durchsichten${F.jahr && F.jahr !== '__ohne' ? ' ' + F.jahr : ''}</h2>${eintraege.length ? `<span class="badge b-honey">${U.fmtNum(eintraege.length)} ${eintraege.length === 1 ? 'Eintrag' : 'Einträge'}</span>` : ''}<button class="btn btn-primary btn-sm no-print" id="skAdd">${icon('plus')} Durchsicht</button></div>
       ${vorlagen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center">Schnell:</span>${vorlagen.map((vl, i) => `<button class="chip" data-vorlage="${U.esc(i)}">${icon('plus')} ${U.esc(vl.name)}</button>`).join('')}</div>` : ''}
-      ${eintraege.length ? `<div class="rows">${eintraege.map((s) => `
+      ${eintraege.length ? `<div class="rows">${sw.sichtbar.map((s) => `
         <button class="row" data-sk="${U.esc(s.id)}">
           <span class="r-main"><span class="r-title">${U.fmtDate(s.datum)} ${s.weiselzellen ? '<span class="badge b-warn">Weiselzellen</span>' : ''}</span>
           <span class="r-sub">Stärke ${rate(s.volksstaerke)} · Brut ${rate(s.brutbild)} · Sanftmut ${rate(s.sanftmut)}${s.futter ? ' · Futter: ' + U.esc(s.futter) : ''}${s.notiz ? ' · ' + U.esc(s.notiz) : ''}</span></span>
-          ${icon('chevR', 'chev')}</button>`).join('')}</div>` : emptyState('buch', 'Noch keine Durchsicht erfasst. Die Stockkarte ist das Gedächtnis des Volks.')}
+          ${icon('chevR', 'chev')}</button>`).join('')}</div>${sw.knopf}`
+      : alleEintraege.length ? '<p class="small muted">Keine Durchsicht in dieser Auswahl.</p>'
+        : emptyState('buch', 'Noch keine Durchsicht erfasst. Die Stockkarte ist das Gedächtnis des Volks.')}
     </div>`;
     $('#skAdd', box).onclick = () => Views.volk.stockkarteForm(v, null);
     box.addEventListener('click', (e) => {
+      if (jahrFilterKlick(Views.volk._filter, e)) return;
       const vl = e.target.closest('[data-vorlage]');
       if (vl) { Views.volk.stockkarteForm(v, null, vorlagen[+vl.dataset.vorlage].werte); return; }
       const b = e.target.closest('[data-sk]'); if (!b) return;
@@ -7434,9 +7487,12 @@ Views.volk = {
 
   /* ---------- Fütterungen ---------- */
   async tabFutter(box, v) {
-    const list = U.sortBy((await DB.getAll('fuetterungen')).filter((f) => f.volkId === v.id), (f) => f.datum, true);
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('honig')}<h2>Fütterungen</h2><button class="btn btn-primary btn-sm no-print" id="fAdd">${icon('plus')} Fütterung</button></div>
+    const alle = U.sortBy((await DB.getAll('fuetterungen')).filter((f) => f.volkId === v.id), (f) => f.datum, true);
+    const F = jahrFilterLeiste(Views.volk._filter, 'futter', alle, (x) => (x.datum || '').slice(0, 4));
+    const list = alle.filter(F.passt);
+    const gewaehltesJahr = F.jahr && F.jahr !== '__ohne' ? F.jahr : '';
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('honig')}<h2>Fütterungen${gewaehltesJahr ? ' ' + gewaehltesJahr : ''}</h2><button class="btn btn-primary btn-sm no-print" id="fAdd">${icon('plus')} Fütterung</button></div>
       ${list.length ? (() => {
         /* „Menge" ist bei Zuckerwasser schon der reine Zucker – dann wäre eine
            zweite Zuckerspalte nur dieselbe Zahl. Sie erscheint deshalb nur, wenn
@@ -7448,15 +7504,19 @@ Views.volk = {
         const zeigtLiter = liter.some((l) => l != null);
         const zSumme = U.sum(zucker.filter(Boolean), (z) => z.kg);
         const lSumme = U.sum(liter.filter((l) => l != null), (l) => l);
-        /* Tester-Wunsch: auf einen Blick, was das Volk bisher bekommen hat – dieses Jahr und insgesamt */
-        const jahrJetzt = U.todayIso().slice(0, 4);
-        const imJahr = list.map((f, i) => i).filter((i) => (list[i].datum || '').startsWith(jahrJetzt));
-        const zJahr = U.sum(imJahr.map((i) => zucker[i]).filter(Boolean), (z) => z.kg);
-        const lJahr = U.sum(imJahr.map((i) => liter[i]).filter((l) => l != null), (l) => l);
+        /* Tester-Wunsch: auf einen Blick, was das Volk bisher bekommen hat – dieses Jahr und insgesamt.
+           Ist oben ein Jahr gewählt, zeigen die ersten Kacheln dieses Jahr; „Bisher insgesamt“ bleibt immer alles. */
+        const jahrJetzt = gewaehltesJahr || U.todayIso().slice(0, 4);
+        const zuckerAlle = alle.map(zuckerAusFuetterung), literAlle = alle.map(sirupLiterAusFuetterung);
+        const imJahr = alle.map((f, i) => i).filter((i) => (alle[i].datum || '').startsWith(jahrJetzt));
+        const zJahr = U.sum(imJahr.map((i) => zuckerAlle[i]).filter(Boolean), (z) => z.kg);
+        const lJahr = U.sum(imJahr.map((i) => literAlle[i]).filter((l) => l != null), (l) => l);
+        const zInsg = U.sum(zuckerAlle.filter(Boolean), (z) => z.kg);
+        const lInsg = U.sum(literAlle.filter((l) => l != null), (l) => l);
         const kacheln = `<div class="stat-grid mb12">
           <div class="stat"><div class="s-label">${icon('flask')} Zucker ${jahrJetzt}</div><div class="s-value">${U.fmtNum(zJahr, 1)} kg</div><div class="s-sub">${imJahr.length} ${imJahr.length === 1 ? 'Gabe' : 'Gaben'}</div></div>
           <div class="stat"><div class="s-label">${icon('futter')} Sirup ${jahrJetzt}</div><div class="s-value">${lJahr > 0 ? U.fmtNum(lJahr, 1) + ' L' : '–'}</div><div class="s-sub">${lJahr > 0 ? 'Zuckerwasser und Fertigsirup' : 'kein Sirup erfasst'}</div></div>
-          <div class="stat"><div class="s-label">Bisher insgesamt</div><div class="s-value">${U.fmtNum(zSumme, 1)} kg</div><div class="s-sub">Zucker in ${list.length} ${list.length === 1 ? 'Gabe' : 'Gaben'}${lSumme > 0 ? ` · ${U.fmtNum(lSumme, 1)} L Sirup` : ''}</div></div>
+          <div class="stat"><div class="s-label">Bisher insgesamt</div><div class="s-value">${U.fmtNum(zInsg, 1)} kg</div><div class="s-sub">Zucker in ${alle.length} ${alle.length === 1 ? 'Gabe' : 'Gaben'}${lInsg > 0 ? ` · ${U.fmtNum(lInsg, 1)} L Sirup` : ''}</div></div>
         </div>`;
         return kacheln + `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Futterart</th><th class="num stark">Menge (kg)</th>${zeigtZucker ? '<th class="num">davon Zucker (kg)</th>' : ''}${zeigtLiter ? '<th class="num stark">Sirup (L)</th>' : ''}<th>Winterfutter</th><th></th></tr></thead>
         <tbody>${list.map((f, i) => `<tr class="tr-klick" data-fe="${U.esc(f.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(f.datum)}</td><td>${U.esc(f.futterart)}</td>
@@ -7465,9 +7525,9 @@ Views.volk = {
           ${zeigtLiter ? `<td class="num stark">${liter[i] != null ? U.fmtNum(liter[i], 1) : '–'}</td>` : ''}
           <td>${f.winterfutter ? '<span class="badge b-blue">Winterfutter</span>' : '–'}</td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-fe="${U.esc(f.id)}">${icon('pencil')}</button></td></tr>`).join('')}</tbody></table></div>
-        <div class="small muted mt8">Gesamt: <b>${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg</b>${zeigtZucker ? ` · davon Zucker: ${U.fmtNum(zSumme, 1)} kg` : ' Zucker'}${zeigtLiter ? ` · angesetzt: <b>${U.fmtNum(lSumme, 1)} L</b> Sirup` : ''}${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''}</div>`;
+        <div class="small muted mt8">Gesamt${list.length < alle.length ? ` (${U.esc(F.jahrText)})` : ''}: <b>${U.fmtNum(U.sum(list, (f) => f.mengeKg))} kg</b>${zeigtZucker ? ` · davon Zucker: ${U.fmtNum(zSumme, 1)} kg` : ' Zucker'}${zeigtLiter ? ` · angesetzt: <b>${U.fmtNum(lSumme, 1)} L</b> Sirup` : ''}${list.some((f) => f.winterfutter) ? ` · davon Winterfutter: ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg` : ''}</div>`;
       })()
-      : emptyState('honig', 'Noch keine Fütterung erfasst.')}
+      : alle.length ? '<p class="small muted">Keine Fütterung in dieser Auswahl.</p>' : emptyState('honig', 'Noch keine Fütterung erfasst.')}
     </div>`;
     const form = async (f) => verdrahteSirupLiter(UI.formModal({
       title: f ? 'Fütterung bearbeiten' : 'Fütterung erfassen',
@@ -7496,24 +7556,27 @@ Views.volk = {
       onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
     }));
     $('#fAdd', box).onclick = () => form(null);
-    box.addEventListener('click', (e) => { const b = e.target.closest('[data-fe]'); if (b) form(list.find((x) => x.id === b.dataset.fe)); });
+    box.addEventListener('click', (e) => { if (jahrFilterKlick(Views.volk._filter, e)) return; const b = e.target.closest('[data-fe]'); if (b) form(list.find((x) => x.id === b.dataset.fe)); });
   },
 
   /* ---------- Varroa-Kontrolle (Milbenfall, Milben/Tag, Ampel) ---------- */
   async tabVarroa(box, v) {
-    const list = U.sortBy((await DB.getAll('varroa')).filter((x) => x.volkId === v.id), (x) => x.datum);
-    const letzte = list.length ? list[list.length - 1] : null;
+    const alle = U.sortBy((await DB.getAll('varroa')).filter((x) => x.volkId === v.id), (x) => x.datum);
+    const letzte = alle.length ? alle[alle.length - 1] : null;   // der aktuelle Stand – unabhängig vom gewählten Jahr
     const mLetzt = letzte ? varroaMetrik(letzte) : null;
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('varroa')}<h2>Varroa-Kontrolle</h2><button class="btn btn-primary btn-sm no-print" id="vAdd">${icon('plus')} Zählung</button></div>
+    const F = jahrFilterLeiste(Views.volk._filter, 'varroa', alle, (x) => (x.datum || '').slice(0, 4));
+    const list = alle.filter(F.passt);
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('varroa')}<h2>Varroa-Kontrolle${F.jahr && F.jahr !== '__ohne' ? ' ' + F.jahr : ''}</h2><button class="btn btn-primary btn-sm no-print" id="vAdd">${icon('plus')} Zählung</button></div>
       ${letzte ? `<div class="flex-wrap mb12"><span class="badge ${mLetzt.ampel.badge}">${U.fmtNum(mLetzt.wert, 1)} Milben${mLetzt.einheit} · ${mLetzt.ampel.text}</span><span class="small muted">letzte Zählung ${U.fmtDate(letzte.datum)}</span></div>` : ''}
-      ${list.length ? UI.chart({ type: 'line', labels: list.map((x) => U.fmtDate(x.datum).slice(0, 6)), series: [{ name: 'Milben', values: list.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
+      ${list.length ? UI.chart({ type: 'line', labels: list.map(kurvenDatum(list)), series: [{ name: 'Milben', values: list.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Milben</th><th class="num">Kennzahl</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
         <tbody>${[...list].reverse().map((x) => { const m = varroaMetrik(x);
           return `<tr class="tr-klick" data-ve="${U.esc(x.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-ve="${U.esc(x.id)}">${icon('pencil')}</button></td></tr>`; }).join('')}</tbody></table></div>
         <div class="hint mt8">Zwei Kennzahlen je nach Methode: <b>Milben/Tag</b> (Bodenschieber/Gemüll, saisonale Schwelle) und <b>Milben je 100 Bienen</b> (Auswaschen/Puderzucker, Richtwert ~3 %). Ohne Gewähr. Behandlung dokumentierst du unter <a href="#/behandlungen">Behandlungen</a>.</div>`
-      : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (Bodenschieber, Auswaschen oder Puderzucker) zeigt früh, wann behandelt werden muss.')}
+      : alle.length ? '<p class="small muted">Keine Zählung in dieser Auswahl.</p>'
+        : emptyState('varroa', 'Noch keine Varroa-Zählung. Regelmäßiges Zählen (Bodenschieber, Auswaschen oder Puderzucker) zeigt früh, wann behandelt werden muss.')}
     </div>`;
     const istBefall = (m) => VARROA_BEFALL_METHODEN.includes(m);
     const form = (x) => UI.formModal({
@@ -7539,20 +7602,25 @@ Views.volk = {
       onDelete: papierkorbDelete('varroa', x, 'Zählung löschen?', 'Wandert in den Papierkorb.'),
     });
     $('#vAdd', box).onclick = () => form(null);
-    box.addEventListener('click', (e) => { const b = e.target.closest('[data-ve]'); if (b) form(list.find((x) => x.id === b.dataset.ve)); });
+    box.addEventListener('click', (e) => { if (jahrFilterKlick(Views.volk._filter, e)) return; const b = e.target.closest('[data-ve]'); if (b) form(list.find((x) => x.id === b.dataset.ve)); });
   },
 
   /* ---------- Gewichtsverlauf ---------- */
   async tabGewicht(box, v) {
-    const list = U.sortBy((await DB.getAll('gewichte')).filter((g) => g.volkId === v.id), (g) => g.datum);
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('gewicht')}<h2>Gewichtsverlauf</h2><button class="btn btn-primary btn-sm no-print" id="gAdd">${icon('plus')} Wiegen</button></div>
-      ${list.length ? UI.chart({ type: 'line', labels: list.map((g) => U.fmtDate(g.datum).slice(0, 6)), series: [{ name: 'kg', values: list.map((g) => g.gewichtKg) }], height: 190, unit: 'kg' }) : ''}
+    const alle = U.sortBy((await DB.getAll('gewichte')).filter((g) => g.volkId === v.id), (g) => g.datum);
+    const F = jahrFilterLeiste(Views.volk._filter, 'gewicht', alle, (x) => (x.datum || '').slice(0, 4));
+    const list = alle.filter(F.passt);
+    // Δ immer zur vorigen Wiegung überhaupt – sonst verlöre die erste Wiegung im Januar die Winterzehrung seit Dezember
+    const vorher = new Map(alle.map((g, i) => [g, alle[i - 1]]));
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('gewicht')}<h2>Gewichtsverlauf${F.jahr && F.jahr !== '__ohne' ? ' ' + F.jahr : ''}</h2><button class="btn btn-primary btn-sm no-print" id="gAdd">${icon('plus')} Wiegen</button></div>
+      ${list.length ? UI.chart({ type: 'line', labels: list.map(kurvenDatum(list)), series: [{ name: 'kg', values: list.map((g) => g.gewichtKg) }], height: 190, unit: 'kg' }) : ''}
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th class="num">Gewicht (kg)</th><th class="num">Δ</th><th></th></tr></thead>
-        <tbody>${[...list].reverse().map((g, i, arr) => { const prev = arr[i + 1]; const d = prev ? g.gewichtKg - prev.gewichtKg : null;
+        <tbody>${[...list].reverse().map((g) => { const prev = vorher.get(g); const d = prev ? g.gewichtKg - prev.gewichtKg : null;
           return `<tr><td>${U.fmtDate(g.datum)}</td><td class="num">${U.fmtNum(g.gewichtKg)}</td><td class="num" style="color:${d > 0 ? 'var(--ok)' : d < 0 ? 'var(--danger)' : 'inherit'}">${d === null ? '–' : (d > 0 ? '+' : '') + U.fmtNum(d)}</td>
           <td class="no-print"><button class="btn btn-xs btn-ghost" data-gd="${U.esc(g.id)}">${icon('trash')}</button></td></tr>`; }).join('')}</tbody></table></div>`
-      : emptyState('gewicht', 'Noch keine Wiegung. Regelmäßiges Wiegen zeigt Tracht und Futtervorrat.')}
+      : alle.length ? '<p class="small muted">Keine Wiegung in dieser Auswahl.</p>'
+        : emptyState('gewicht', 'Noch keine Wiegung. Regelmäßiges Wiegen zeigt Tracht und Futtervorrat.')}
     </div>`;
     $('#gAdd', box).onclick = () => UI.formModal({
       title: 'Gewicht erfassen',
@@ -7563,6 +7631,7 @@ Views.volk = {
       async onSave(val) { await DB.put('gewichte', { volkId: v.id, ...val }); UI.toast('Gewicht gespeichert'); renderRoute(); },
     });
     box.addEventListener('click', async (e) => {
+      if (jahrFilterKlick(Views.volk._filter, e)) return;
       const b = e.target.closest('[data-gd]');
       if (b && (await UI.confirm({ title: 'Wiegung löschen?', text: 'Wandert in den Papierkorb.' }))) { await DB.softDel('gewichte', b.dataset.gd); renderRoute(); }
     });
@@ -15255,15 +15324,30 @@ Views.honig = {
     else await Views.honig.tabBestand(box);
   },
 
+  /* Jahr und Sortierung wie bei „Charge“ – Baustein siehe jahrFilterLeiste. */
+  _filter: {},
+  filterLeiste(key, ...rest) { return jahrFilterLeiste(Views.honig._filter, key, ...rest); },
+  filterKlick(ev) { return jahrFilterKlick(Views.honig._filter, ev); },
+  /** Vergleich nach Datum, neueste zuerst (leer zuletzt) – Rückfall für gleiche Werte. */
+  nachDatum(a, b) { return String(b.datum || '').localeCompare(String(a.datum || '')); },
+
   /* ---------- Verkäufe (Lagerabzug + Kassenbuch automatisch) ---------- */
   async tabVerkaeufe(box) {
-    const list = U.sortBy(await DB.getAll('verkaeufe'), (v) => v.datum, true);
+    const roh = await DB.getAll('verkaeufe');
     const abf = await idMap('abfuellungen'), chargen = await idMap('chargen'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
-    const jahr = U.todayIso().slice(0, 4);
-    const umsatzJahr = U.sum(list.filter((v) => (v.datum || '').startsWith(jahr)), (v) => v.betrag);
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${jahr}: ${U.fmtEur(umsatzJahr)}</span>
-        <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="Pdf.verkaeufe()">${icon('doc')} Liste (PDF)</button><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
+    const H = Views.honig, F = H.filterLeiste('verkaeufe', roh, (v) => (v.datum || '').slice(0, 4), [['Datum', 'datum'], ['Betrag', 'betrag'], ['Abnehmer', 'abnehmer'], ['Menge', 'menge']]);
+    const abnehmer = (v) => (v.kontaktId && kontakte.get(v.kontaktId)?.name) || '';
+    const list = roh.filter(F.passt).sort({
+      datum: H.nachDatum,
+      betrag: (a, b) => (Number(b.betrag) || 0) - (Number(a.betrag) || 0) || H.nachDatum(a, b),
+      abnehmer: (a, b) => (!abnehmer(a)) - (!abnehmer(b)) || abnehmer(a).localeCompare(abnehmer(b), 'de') || H.nachDatum(a, b),
+      menge: (a, b) => (Number(b.anzahl) || 0) - (Number(a.anzahl) || 0) || H.nachDatum(a, b),
+    }[F.sort]);
+    const umsatzJahr = U.sum(list, (v) => v.betrag);
+    const pdfJahr = F.jahr && F.jahr !== '__ohne' ? `'${F.jahr}'` : '';
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${U.esc(F.jahrText)}: ${U.fmtEur(umsatzJahr)}</span>
+        <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="Pdf.verkaeufe(${pdfJahr})">${icon('doc')} Liste (PDF)</button><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
       <p class="small muted mb8 no-print"><a href="#/kassenbuch/filter-honig">Alle Honig-Einnahmen im Kassenbuch ansehen</a></p>
       <p class="small muted mb12">Verkauft wird aus einer <b>Abfüllung</b> (Gebinde). Jeder Verkauf zieht die Gebinde automatisch vom Bestand dieser Abfüllung ab und bucht die Einnahme im Kassenbuch. Für den Wochenmarkt gibt es den großen <b>Marktverkauf</b>-Kassenmodus. Stornieren macht beides rückgängig.</p>
       ${list.length ? `<div class="rows">` + seitenweise('verkaeufe', list).sichtbar.map((v) => {
@@ -15275,10 +15359,12 @@ Views.honig = {
           <button class="btn btn-xs btn-danger no-print" data-storno="${U.esc(v.id)}">Stornieren</button>
         </div>`;
       }).join('') + `</div>` + seitenweise('verkaeufe', list).knopf
-      : emptyState('euro', 'Noch kein Verkauf erfasst. Beim Buchen wird der Bestand automatisch gemindert und die Einnahme im Kassenbuch angelegt.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Verkauf</button>`)}
+      : roh.length ? '<p class="small muted">Kein Verkauf in dieser Auswahl.</p>'
+        : emptyState('euro', 'Noch kein Verkauf erfasst. Beim Buchen wird der Bestand automatisch gemindert und die Einnahme im Kassenbuch angelegt.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erster Verkauf</button>`)}
     </div>`;
     bindAdd(() => verkaufForm(), box);
     box.addEventListener('click', async (e) => {
+      if (H.filterKlick(e)) return;
       const st = e.target.closest('[data-storno]');
       if (st) {
         const vk = list.find((x) => x.id === st.dataset.storno);
@@ -15323,13 +15409,19 @@ Views.honig = {
   },
   async tabErnten(box) {
     const trachtenAlle = await DB.getAll('trachten');   // v2.83: Tracht an der Ernte
-    const list = U.sortBy(await DB.getAll('ernten'), (e) => e.datum, true);
+    const roh = await DB.getAll('ernten');
     const voelker = await idMap('voelker'), staende = await idMap('staende');
     const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
-    const jahr = U.todayIso().slice(0, 4);
-    const kgJahr = U.sum(list.filter((e) => (e.datum || '').startsWith(jahr)), (e) => e.mengeKg);
-    box.innerHTML = `<div class="card">
-      <div class="card-title">${icon('honig')}<h2>Ernten</h2><span class="badge b-honey">${jahr}: ${U.fmtNum(kgJahr)} kg</span>
+    const H = Views.honig, F = H.filterLeiste('ernten', roh, (e) => (e.datum || '').slice(0, 4), [['Datum', 'datum'], ['Menge', 'menge'], ['Sorte', 'sorte'], ['Volk / Stand', 'ziel']]);
+    const list = roh.filter(F.passt).sort({
+      datum: H.nachDatum,
+      menge: (a, b) => (Number(b.mengeKg) || 0) - (Number(a.mengeKg) || 0) || H.nachDatum(a, b),
+      sorte: (a, b) => (!a.sorte) - (!b.sorte) || String(a.sorte || '').localeCompare(String(b.sorte || ''), 'de') || H.nachDatum(a, b),
+      ziel: (a, b) => zn(a).localeCompare(zn(b), 'de', { numeric: true }) || H.nachDatum(a, b),
+    }[F.sort]);
+    const kgJahr = U.sum(list, (e) => e.mengeKg);
+    box.innerHTML = `${F.html}<div class="card">
+      <div class="card-title">${icon('honig')}<h2>Ernten</h2><span class="badge b-honey">${U.esc(F.jahrText)}: ${U.fmtNum(kgJahr)} kg</span>
         <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Ernte</button></div>
       ${list.length ? `<div class="rows">` + seitenweise('ernten', list).sichtbar.map((e) => {
         const sub = [U.fmtDate(e.datum), `${e.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(e))}“`];
@@ -15344,7 +15436,8 @@ Views.honig = {
           <span class="r-sub">${sub.join(' · ')}</span></span>
           <span class="r-side"><b>${U.fmtNum(e.mengeKg)} kg</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('ernten', list).knopf
-      : emptyState('honig', 'Noch keine Ernte erfasst. Aus Ernten entstehen später Chargen mit Losnummern.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Ernte</button>`)}
+      : roh.length ? '<p class="small muted">Keine Ernte in dieser Auswahl.</p>'
+        : emptyState('honig', 'Noch keine Ernte erfasst. Aus Ernten entstehen später Chargen mit Losnummern.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Ernte</button>`)}
     </div>`;
     const form = async (e) => {
       const ziel = await zielFelder(e || {}, 'Geerntet wurde');
@@ -15381,7 +15474,7 @@ Views.honig = {
     };
     const add = () => form(null);
     bindAdd(add, box);
-    box.addEventListener('click', (ev) => { const r = ev.target.closest('.row[data-id]'); if (r) form(list.find((x) => x.id === r.dataset.id)); });
+    box.addEventListener('click', (ev) => { if (H.filterKlick(ev)) return; const r = ev.target.closest('.row[data-id]'); if (r) form(list.find((x) => x.id === r.dataset.id)); });
     const ernteVon = (r) => list.find((x) => x.id === r.dataset.id);
     Wisch.liste(box, '.row[data-id]', { bearbeiten: (r) => form(ernteVon(r)), loeschen: (r) => UI.nurLoeschen(() => form(ernteVon(r))) });
   },
@@ -15389,14 +15482,21 @@ Views.honig = {
   /* ---------- Sorten & Laborergebnisse ---------- */
   async tabSorten(box) {
     const list = await DB.getAll('ernten');
-    const honig = list.filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig');
+    const alleHonig = list.filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig');
+    const alleChargen = await DB.getAll('chargen');
+    /* Jahr: Ernten nach Erntedatum, Chargen aus dem Lagerbestand nach Chargen-Datum – so zeigt „2025“ genau die
+       Sorten dieses Honigjahres. Die Hinweise oben zählen nur die gewählte Auswahl. */
+    const eigenKgVon = (c) => ((c.ernteIds || []).length ? Math.max(0, Number(c.lagerKg) || 0) : Math.max(0, Number(c.mengeKg) || 0));
+    const zaehlt = alleChargen.filter((c) => eigenKgVon(c) > 0);   // nur Chargen, die hier überhaupt auftauchen, liefern ein Jahr
+    const H = Views.honig, F = H.filterLeiste('sorten', [...alleHonig, ...zaehlt], (x) => (x.datum || '').slice(0, 4), [['Menge', 'menge'], ['Name', 'name'], ['Wasser', 'wasser']]);
+    const honig = alleHonig.filter(F.passt);
     const offen = honig.filter((e) => !e.sorte);
     /* Auch CHARGEN können eine eigene Sorte und einen eigenen Laborwert tragen –
        bei Honig aus dem Lagerbestand ist das sogar die einzige Quelle, und wer
        den Laborbericht später an der Charge nachträgt, will ihn hier sehen.
        Gezählt wird davon nur die Menge, die NICHT aus Ernten stammt: sonst
        stünde derselbe Honig zweimal in der Tabelle. */
-    const chargen = await DB.getAll('chargen');
+    const chargen = zaehlt.filter(F.passt);
     const je = new Map();   // Sorte → { kg, n, wasser[] }
     const dazu = (sorte, kg, wasser, quelle) => {
       const k = String(sorte).trim(); if (!k) return;
@@ -15421,8 +15521,13 @@ Views.honig = {
       sorte: z.sorte, kg: z.kg, n: z.n,
       avgW: z.wasser.length ? z.wasser.reduce((a, b) => a + b, 0) / z.wasser.length : null,
       quelle: [...z.quellen].join(' + '),
-    })).sort((a, b) => b.kg - a.kg);
-    box.innerHTML = `<div class="card">
+    })).sort({
+      menge: (a, b) => b.kg - a.kg || a.sorte.localeCompare(b.sorte, 'de'),
+      name: (a, b) => a.sorte.localeCompare(b.sorte, 'de'),
+      wasser: (a, b) => (a.avgW == null) - (b.avgW == null) || (a.avgW ?? 0) - (b.avgW ?? 0) || a.sorte.localeCompare(b.sorte, 'de'),   // trockenster Honig zuerst, ohne Laborwert zuletzt
+    }[F.sort]);
+    const leer = !alleHonig.length && !zaehlt.length;
+    box.innerHTML = `${F.html}<div class="card">
       <div class="card-title">${icon('honig')}<h2>Sorten & Laborergebnisse</h2>
         <button class="btn btn-primary btn-sm no-print" id="lab">${icon('plus')} Laborergebnis eintragen</button></div>
       <p class="small muted mb12">Nach der Schleuderung schickst du eine Probe ins Labor. Kommt das Ergebnis zurück, trägst du hier <b>Sorte</b> und <b>Wassergehalt</b> ein – die App überträgt beides auf alle Ernten der gewählten Schleuderung. Honig <b>aus dem Lagerbestand</b> hat keine Ernte: dort tragen Sorte und Laborwert direkt an der Charge, und diese Tabelle zeigt sie mit. Die Sortenliste selbst pflegst du unter Einstellungen → „Honigsorten“.</p>
@@ -15430,8 +15535,10 @@ Views.honig = {
       ${ohneSorte.length ? `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${ohneSorte.length} ${ohneSorte.length === 1 ? 'Charge aus Lagerbestand hat' : 'Chargen aus Lagerbestand haben'}</b> noch keine Sorte (${ohneSorte.map((c) => U.esc(c.losnummer)).join(', ')}). Ohne sie steht auf dem Etikett nur „Honig“ – die Sorte trägst du im Tab <b>Charge</b> ein.</span></div>` : ''}
       ${sortenRows.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Sorte</th><th class="num">Einträge</th><th class="num">Menge</th><th class="num">Ø Wasser</th><th>Quelle</th></tr></thead>
         <tbody>${sortenRows.map((r) => `<tr class="tr-klick" data-sorte="${U.esc(r.sorte)}" title="Antippen zum Bearbeiten"><td>${U.esc(r.sorte)} <span class="muted small no-print">${icon('pencil', 'tr-stift')}</span></td><td class="num">${r.n}</td><td class="num"><b>${U.fmtNum(r.kg)} kg</b></td><td class="num">${r.avgW != null ? U.fmtNum(r.avgW, 1) + ' %' : '–'}</td><td class="small muted">${U.esc(r.quelle)}</td></tr>`).join('')}</tbody></table></div>`
-        : (offen.length ? '' : emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.'))}
+        : (offen.length || ohneSorte.length ? '' : leer ? emptyState('honig', 'Noch keine Honigernten erfasst. Erfasse zuerst deine Schleuderungen unter „Ernten“.')
+          : '<p class="small muted mt12">Keine Sorte in dieser Auswahl.</p>')}
     </div>`;
+    box.addEventListener('click', (ev) => { H.filterKlick(ev); });
     $('#lab', box).onclick = () => Views.honig.laborForm();
     $$('tr[data-sorte]', box).forEach((tr) => { tr.onclick = () => Views.honig.sorteBearbeiten(tr.dataset.sorte); });
   },
@@ -15918,9 +16025,17 @@ Views.honig = {
 
   /* ---------- Abfüllung (Charge → Gebinde/Gläser, zieht kg von der Charge ab) ---------- */
   async tabAbfuellung(box) {
-    const abf = U.sortBy(await DB.getAll('abfuellungen'), (a) => a.datum, true);
+    const roh = await DB.getAll('abfuellungen');
     const chargen = await idMap('chargen');
-    box.innerHTML = `<div class="card">
+    const H = Views.honig, F = H.filterLeiste('abfuellungen', roh, (a) => (a.datum || '').slice(0, 4), [['Datum', 'datum'], ['Charge', 'charge'], ['Gebinde', 'gebinde'], ['Bestand', 'bestand']]);
+    const los = (a) => String((chargen.get(a.chargeId) || {}).losnummer || '');
+    const abf = roh.filter(F.passt).sort({
+      datum: H.nachDatum,
+      charge: (a, b) => los(b).localeCompare(los(a), 'de', { numeric: true }) || H.nachDatum(a, b),   // wie bei „Charge“: höchste Nummer zuerst
+      gebinde: (a, b) => (Number(b.gebindeG) || 0) - (Number(a.gebindeG) || 0) || H.nachDatum(a, b),
+      bestand: (a, b) => (Number(b.bestand) || 0) - (Number(a.bestand) || 0) || H.nachDatum(a, b),
+    }[F.sort]);
+    box.innerHTML = `${F.html}<div class="card">
       <div class="card-title">${icon('honig')}<h2>Abfüllung</h2><button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Abfüllen</button></div>
       <p class="small muted mb12">Wähle eine Charge und fülle sie in Gebinde ab (z. B. 500 g, 250 g). Die abgefüllte Menge wird automatisch von der Charge abgezogen – mehrere Gebinde auf einmal möglich.</p>
       ${abf.length ? `<div class="rows">` + seitenweise('abfuellungen', abf).sichtbar.map((a) => {
@@ -15931,10 +16046,11 @@ Views.honig = {
           <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${U.esc(a.anzahl)} abgefüllt · noch ${U.esc(a.bestand)} zum Verkauf</span></span>
           <span class="r-side"><b>${U.esc(a.bestand)}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('abfuellungen', abf).knopf
-      : emptyState('honig', 'Noch nichts abgefüllt. Lege zuerst eine Charge an, dann füllst du sie hier in Gebinde ab.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Abfüllung</button>`)}
+      : roh.length ? '<p class="small muted">Keine Abfüllung in dieser Auswahl.</p>'
+        : emptyState('honig', 'Noch nichts abgefüllt. Lege zuerst eine Charge an, dann füllst du sie hier in Gebinde ab.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Abfüllung</button>`)}
     </div>`;
     bindAdd(() => Views.honig.abfuellForm(), box);
-    box.addEventListener('click', (ev) => { const r = ev.target.closest('.row[data-id]'); if (r) Views.honig.abfuellEditForm(abf.find((x) => x.id === r.dataset.id)); });
+    box.addEventListener('click', (ev) => { if (H.filterKlick(ev)) return; const r = ev.target.closest('.row[data-id]'); if (r) Views.honig.abfuellEditForm(abf.find((x) => x.id === r.dataset.id)); });
     const abfVon = (r) => abf.find((x) => x.id === r.dataset.id);
     Wisch.liste(box, '.row[data-id]', {
       bearbeiten: (r) => Views.honig.abfuellEditForm(abfVon(r)),
@@ -17126,7 +17242,25 @@ async function renderInventarBereich(main, cfg) {
   const abgangJahr = jahr && jahr !== '__ohne' ? jahr : U.todayIso().slice(0, 4);
   /* Wert aus den echten Einkäufen, nicht aus dem letzten Preis. */
   const bewertung = (i) => lagerBewertung(i, zugaengeAlle);
-  const wertVon = (i) => bewertung(i).wert;
+  const wertCache = new Map();
+  const wertVon = (i) => { if (!wertCache.has(i.id)) wertCache.set(i.id, bewertung(i).wert); return wertCache.get(i.id); };
+  /* Sortierung der Positionen (Julian 23.10.2026). „Knapp zuerst“ nur, wenn irgendwo ein Mindestbestand steht,
+     „MHD“ nur mit Ablaufdatum, „Neueste“ nur mit Anschaffungsdatum – sonst änderten die Knöpfe nichts. Gleichstand bleibt
+     nach Name, weil „alle“ schon alphabetisch kommt und sort() die Reihenfolge dann hält. */
+  const sortierungen = [['Name', 'name'], ['Wert', 'wert'],
+    ...(alle.some((i) => i.mindestbestand > 0) ? [['Knapp zuerst', 'knapp']] : []),
+    ...(alle.some((i) => i.ablauf) ? [['MHD', 'mhd']] : []),
+    ...(alle.some((i) => i.anschaffung) ? [['Neueste', 'neu']] : [])];   // nach „Anschaffung“ bzw. „Im Bestand seit“
+  if (!sortierungen.some(([, k]) => k === view._sort)) view._sort = 'name';
+  const knappRang = (i) => (i.mindestbestand > 0 ? (Number(i.stueckzahl) || 0) / i.mindestbestand : Infinity);
+  const sortierer = {
+    wert: (a, b) => wertVon(b) - wertVon(a),
+    knapp: (a, b) => knappRang(a) - knappRang(b),
+    mhd: (a, b) => (!a.ablauf) - (!b.ablauf) || String(a.ablauf || '').localeCompare(String(b.ablauf || '')),
+    neu: (a, b) => (!a.anschaffung) - (!b.anschaffung) || String(b.anschaffung || '').localeCompare(String(a.anschaffung || '')),
+  }[view._sort];
+  const ordne = (l) => (sortierer ? [...l].sort(sortierer) : l);
+  list = ordne(list);
   const nachArt = (l) => [...U.groupBy(l, (i) => i.kategorie || '').entries()]
     .map(([k, items]) => ({ k, n: items.length, bestand: bestandText(items), wert: U.sum(items, wertVon) }))
     .sort((a, b) => b.wert - a.wert);
@@ -17189,6 +17323,7 @@ async function renderInventarBereich(main, cfg) {
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
     <div id="inv-reiter"></div><div id="inv-bestand">
     <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Art:</span>${chip('Alle', '', art, 'art')}${arten.map((a) => chip(a, a, art, 'art')).join('')}${hatOhneArt ? chip('ohne Kategorie', '__ohne', art, 'art') : ''}</div>
+    <div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sortierungen.map(([l, k]) => chip(l, k, view._sort, 'invsort')).join('')}</div>
     <div class="card" id="inv-uebersicht">${uebersicht()}</div>` : '<div id="inv-reiter"></div><div id="inv-bestand">') +
     `<div class="card" id="pos-liste">`
       /* Suchfeld immer zeigen, sobald es überhaupt Positionen gibt. Vorher erschien
@@ -17419,6 +17554,7 @@ async function renderInventarBereich(main, cfg) {
   main.addEventListener('click', (e) => {
     const j = e.target.closest('[data-jahr]'); if (j) { view._jahr = j.dataset.jahr; return renderRoute(); }
     const a = e.target.closest('[data-art]'); if (a) { view._art = a.dataset.art; return renderRoute(); }
+    const so = e.target.closest('[data-invsort]'); if (so) { view._sort = so.dataset.invsort; return renderRoute({ scrollBehalten: true }); }
     /* Zeile der Gesamtübersicht: filtert die Liste auf diese Art und springt
        dorthin; nochmal auf dieselbe Zeile hebt den Filter wieder auf. */
     const az = e.target.closest('[data-art-zeile]');
@@ -17450,7 +17586,7 @@ async function renderInventarBereich(main, cfg) {
       clearTimeout(view._sucheTimer);
       view._sucheTimer = setTimeout(() => {
         suchtext = (view._suche || '').trim().toLowerCase();
-        list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
+        list = ordne(alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i))));
         wert = U.sum(list, wertVon); proArt = nachArt(list);
         const ue = $('#inv-uebersicht', main), erg = $('#pos-erg', main);
         if (ue) ue.innerHTML = uebersicht();

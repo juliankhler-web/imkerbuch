@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 23.10.2026, Version 2.93. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 23.10.2026, Version 2.94. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -37,6 +37,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B3 Suche:** Völker → oben in die Suche zügig mehrere Buchstaben tippen. → Die Tastatur bleibt offen, nur die Liste darunter ändert sich. Gleich bei Abnehmer & Lieferanten und Verbrauchsmaterial.
 - [ ] **B3b Funktion:** Völker → unter der Suche einen Knopf wie „Ableger“ antippen (bei vielen Funktionen seitlich wischen). → Nur diese Völker; zusätzlich etwas in die Suche tippen → beides gilt zusammen.
 - [ ] **B4 Durchsicht:** Volk öffnen → „+ Durchsicht“ → ausfüllen, speichern. → Eintrag steht in der Stockkarte.
+- [ ] **B4b Jahr im Volk (neu 2.94):** Volk mit Einträgen aus mehreren Jahren → Reiter Stockkarte, Fütterung, Varroa, Gewicht: oben „Jahr:“ antippen. → Nur dieses Jahr; unter der Varroa-/Gewichtskurve steht bei „Alle“ die Jahreszahl mit dran.
 - [ ] **B5 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe. Am Ende „Speichern“.
 - [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → Kamera bzw. Dateiauswahl öffnet sich, das Foto erscheint als Bild.
 - [ ] **B7 Königin:** Königinnen → „+“ → speichern. → Königin steht in der Liste, beim Volk zuordenbar.
@@ -51,6 +52,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **C1 Behandlung + Bestandsbuch:** Behandlungen → „+ Behandlung“ → speichern → „Bestandsbuch (PDF)“. → Am Computer öffnet sich das PDF in einem neuen Tab, am Handy das Teilen-Menü. PDF sieht ordentlich aus.
 - [ ] **C2 Fütterung:** Fütterung → „+ Fütterung“ → Futterart „Futtersirup (z. B. Apiinvert)“, 10 Liter. → Darunter „10 L = 13,6 kg Sirup · 10 kg Zucker kommen beim Volk an“.
 - [ ] **C3 Ernte abfüllen:** Ernte und Abfüllung → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ eine Ernte wählen → Anzahl Gläser → Speichern. → Gläser stehen im Bestand.
+- [ ] **C3b Jahr und Sortierung (neu 2.94):** Ernte und Abfüllung → Reiter Ernte, Sorte, Abfüllung, Verkauf: oben „Jahr:“ und „Sortierung:“ wie bei Charge. → Liste und Summe passen zum Jahr; bei Verkauf druckt „Liste (PDF)“ das gewählte Jahr. Verbrauchsmaterial hat jetzt ebenfalls eine Zeile „Sortierung“.
 - [ ] **C4 Verkauf mit Rabatt:** Reiter „Verkauf“ → „+“ → 30 Gläser à 6 €, Rabatt 10 %. → Unten „Gesamt: 162,00 €“.
 - [ ] **C5 Kassenbuch:** Kassenbuch → „Auswertung“ → Jahr wechseln → Kategorie antippen. → Aufschlüsselung erscheint, die Seite springt nicht nach oben.
 - [ ] **C6 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Saubere Rechnung; unten steht nur „Seite 1 von 1“.
