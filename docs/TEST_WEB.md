@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 23.10.2026, Version 2.91. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 23.10.2026, Version 2.92. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -39,6 +39,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B5 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe. Am Ende „Speichern“.
 - [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → Kamera bzw. Dateiauswahl öffnet sich, das Foto erscheint als Bild.
 - [ ] **B7 Königin:** Königinnen → „+“ → speichern. → Königin steht in der Liste, beim Volk zuordenbar.
+- [ ] **B7a Königin-Formular (neu):** Eine Königin bearbeiten. → Felder „Herkunft / Linie“, „Woher stammt die Königin?“ (ohne „Belegstelle“ in den Vorschlägen) und „Anpaarung“; „Vatervolk (4a)“ gibt es auch bei Belegstelle.
+- [ ] **B7b Ahnentafel (Beispieldaten):** Die jüngste Carnica-Königin → Reiter „Stammbaum“. → Hinweis „Gemeinsame Vorfahren“; Knopf „Ahnentafel (beide Seiten)“ zeigt Königin · Eltern · Großeltern, die gemeinsame Ahnin farbig; „Stockkarte (PDF)“ enthält unten „Abstammung beider Seiten“.
 - [ ] **B8 Varroa:** Volk → Reiter „Varroa“ → Zählung eintragen. → Ampel und Kurve erscheinen.
 - [ ] **B9 Trachtkalender:** Menü → Trachten → „+ Neue Tracht“ → Pflanze „Raps“, deinen Stand anhaken. → Beginn und Ende stehen von selbst drin (aus Daten des Deutschen Wetterdienstes), speichern. → Oben ein Jahreskalender mit Balken. Dieselbe Pflanze an einem zweiten Stand eintragen → im Kalender bleibt **eine** Zeile mit der Zahl 2; antippen klappt die Stände auf.
 - [ ] **B10 Ernte mit Tracht:** Ernte → „+ Ernte“ → Volk am Raps-Stand, Datum kurz nach der Rapsblüte. → Feld „Tracht“ steht von selbst auf „Raps“.

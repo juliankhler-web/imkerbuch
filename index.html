@@ -858,6 +858,15 @@ a.kpill,a.row{color:inherit;text-decoration:none}
 .kg-ahn.kg-fehlt{border-style:dashed;background:transparent}
 .kg-ahn.kg-fehlt .kg-name{color:var(--muted);font-weight:600}
 .kg-toechter{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px}
+/* Ahnentafel beider Seiten (v2.92): seitlich wischbar, jede Spalte eine Generation */
+.kg-tafel-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px 6px}
+.kg-tafel{display:grid;gap:6px;align-items:stretch}
+.kg-tafel-kopf{font-size:11px;font-weight:700;color:var(--muted);padding:0 2px}
+.kg-tafel-zelle{display:flex;flex-direction:column;justify-content:center;min-width:0}
+.kg-tafel-zelle > .kg-ahn{width:100%}
+.kg-gemeinsam > .kg-ahn{border-color:var(--honey);background:var(--honey-soft)}
+.kg-warnung{background:var(--warn-bg)}
+.kg-warnung > svg{color:var(--warn)}
 .kg-bew-kopf{display:flex;gap:12px;align-items:center;margin-bottom:10px}
 .kg-gruppe{margin-top:10px}
 .kg-merkmal{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;padding:3px 0}
@@ -1516,8 +1525,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.91';
+const APP_VERSION = '2.92';
 const CHANGELOG = [
+  { version: '2.92', datum: '2026-10-23', punkte: [
+    '<b>Stammbaum mit beiden Seiten:</b> Im Reiter „Stammbaum“ einer Königin gibt es jetzt die „Ahnentafel (beide Seiten)“ – auch die Vorfahren des Vatervolks (4a) erscheinen, bis zu vier Generationen, am Handy seitlich wischbar. Kommt dieselbe Ahnin mehrfach vor (z. B. auf Mutter- und Vaterseite), weist ein Hinweis darauf hin und sie ist farbig markiert.',
+    '<b>Klarere Felder bei der Königin:</b> „Woher stammt die Königin?“ (eigene Nachzucht, Zukauf, Schwarm, Nachschaffung) und „Anpaarung“ (Standbegattung, Belegstelle, Besamung) – „Belegstelle“ steht nicht mehr in zwei Feldern. Das Vatervolk (4a) kannst du jetzt auch bei einer Belegstelle angeben.',
+    '<b>Pedigree-Zeile:</b> ImkerBuch schreibt sie jetzt in der Schreibweise des Kehrle-Registers (z. B. „B110(JK) = .26 - B112(JK) ins B312(KK)“) und liest auch Zeilen aus dem Register, von Züchtern und ältere eigene Einträge vollständig – mit Jahren, Belegstellen und Besamung. Steht eine Kennung aus der Zeile auch als Königin in ImkerBuch, wird sie verknüpft.',
+    '<b>Stockkarte (PDF):</b> mit Abstammung beider Seiten über drei Generationen und dem Hinweis auf gemeinsame Vorfahren.',
+    '<b>Königinnen importieren:</b> Excel/CSV übernimmt jetzt auch Kennung, Generation, Status, Mutter, Anpaarung, Vaterseite, Belegstelle und Pedigree und verknüpft sie automatisch. Eine Königin mit gleicher Kennung wird nicht doppelt angelegt.',
+  ] },
   { version: '2.91', datum: '2026-10-23', punkte: [
     '<b>Anmeldung beim Veterinäramt (§ 1a):</b> Unter Unterlagen ▸ Ämter & Pflicht gibt es die „Anzeige nach § 1a“ – mit Tierhalter, Kästchen für Beginn, Änderung oder Aufgabe und je Stand Lage und Koordinaten. Beim Stand trägst du dafür Anschrift, Gemarkung und Flurnummer ein; fehlt eine brauchbare Lage, sagt das PDF Bescheid.',
     '<b>Tierseuchenkasse je Bundesland:</b> Wähle in den Imkereidaten dein Bundesland – dann stimmen Stichtag, Frist und was gemeldet wird (z. B. Thüringen: eingewinterte Völker, Bayern: keine Meldung). Die Völker stehen in der Tabelle an dem Stand, an dem sie am Stichtag waren.',
@@ -2866,7 +2882,8 @@ function inventarTyp(i) { return i.typ || (VERBRAUCH_KATEGORIEN.has(i.kategorie)
    vorausgewählt per Dropdown, eigenes Eintippen bleibt immer möglich. */
 const VORSCHLAEGE = {
   rasse: ['Carnica', 'Buckfast', 'Ligustica (Italiener)', 'Mellifera (Dunkle Biene)', 'Elgon', 'Landbiene/Mix'],
-  herkunft: ['Eigene Nachzucht', 'Belegstelle', 'Standbegattung', 'Künstliche Besamung', 'Zukauf Züchter', 'Schwarm'],
+  // v2.92: nur noch, WOHER die Königin stammt – wie sie begattet wurde, steht im eigenen Feld „Anpaarung“ (Julian: Vorschlag A)
+  herkunft: ['Eigene Nachzucht', 'Zukauf Züchter', 'Schwarm', 'Nachschaffung'],
   // Beutentyp = System + Bauform (ersetzt das frühere Feld „Rähmchenmaß“).
   // Reihenfolge: gängige Magazine → Dadant-Familie → Kleineinheiten → alternative/regionale Beuten.
   beutentyp: [
@@ -6043,7 +6060,7 @@ const Demo = {
     const qA = await mkQ(Y - 4, 'Eigene Nachzucht', 'Carnica Linie T', null, bew(4, 4, 3, 4, 32));
     const qB = await mkQ(Y - 3, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, { anpaarung: 'belegstelle', belegstelle: belegNorderney.name, belegstelleId: belegNorderney.id, ...bew(4, 3, 4, 3, 27) });
     const qC = await mkQ(Y - 2, 'Eigene Nachzucht', 'Carnica Linie T', qA.id, bew(3, 4, 3, 4, 29));
-    const qD = await mkQ(Y - 2, 'Belegstelle', 'Buckfast B7', qB.id, { anpaarung: 'belegstelle', belegstelle: belegBaltrum.name, belegstelleId: belegBaltrum.id });
+    const qD = await mkQ(Y - 2, 'Eigene Nachzucht', 'Buckfast B7', qB.id, { anpaarung: 'belegstelle', belegstelle: belegBaltrum.name, belegstelleId: belegBaltrum.id });
     const qE = await mkQ(Y - 1, 'Eigene Nachzucht', 'Carnica Linie T', qC.id, { anpaarung: 'besamung', vatervolkId: qA.id, ...bew(5, 5, 4, 5, 6) });
     const qF = await mkQ(Y - 1, 'Zukauf', 'Buckfast B7', null, bew(4, 3, 3, 4, 4));
     const qG = await mkQ(Y, 'Eigene Nachzucht', 'Carnica Linie T', qE.id, { anpaarung: 'standbegattung', vatervolkId: qC.id });
@@ -7776,7 +7793,7 @@ Views.koeniginnen = {
   },
   async form(q, onDone) {
     const jahr = new Date().getFullYear();
-    const herkunftOpts = await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft');
+    const herkunftOpts = (await gelernteWerte(VORSCHLAEGE.herkunft, 'koeniginnen', 'herkunft')).filter((x) => !anpaarungAusText(x));
     const rasseOpts = await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie');
     const andereQueens = U.sortBy((await DB.getAll('koeniginnen')).filter((k) => k.id !== (q && q.id)), (k) => k.jahrgang, true);
     const qOpts = andereQueens.map((k) => ({ v: k.id, l: `${k.kennung ? k.kennung + ' · ' : ''}${k.jahrgang} ${queenColor(k.jahrgang)[0]}${k.linie ? ' · ' + k.linie : ''}` }));
@@ -7790,31 +7807,36 @@ Views.koeniginnen = {
     const qm = q ? new Map([...andereQueens, q].map((k) => [k.id, k])) : null;
     const vorschlagPedigree = q ? pedigreeGdeB({ ...q, kennung: q.kennung || kennungVorschlag }, qm) : '';
     const m = UI.formModal({
-      title: q ? 'Königin bearbeiten' : 'Neue Königin', wide: true, // breiter, damit lange Einträge (Belegstelle/Vatervolk unter „Drohnenlinie“) komplett sichtbar sind
+      title: q ? 'Königin bearbeiten' : 'Neue Königin', wide: true, // breiter, damit lange Einträge (Belegstelle/Vatervolk unter „Anpaarung“) komplett sichtbar sind
       fields: [
         { key: 'kennung', label: 'Kennung', placeholder: 'z. B. JK-26-014', hint: 'Eindeutige Zuchtbuch-Kennung – Vorschlag automatisch, frei änderbar.' },
         { key: 'jahrgang', label: 'Jahrgang', type: 'number', required: true, default: jahr, halb: true, hint: `Zeichenfarbe automatisch (${jahr} = ${queenColor(jahr)[0]}).` },
         { key: 'generation', label: 'Generation', type: 'suggest', halb: true, options: ['F0', 'F1', 'F2', 'F3', 'F4', 'F5'], placeholder: 'z. B. F1', hint: 'Freiwillig. Tester-Wunsch: welche Generation der Linie.' },
         { key: '_trennJahr', type: 'static', html: '' },
         { key: 'linie', label: 'Herkunft / Linie', type: 'suggest', options: rasseOpts },
-        { key: 'herkunft', label: 'Anpaarung', type: 'suggest', options: herkunftOpts },
+        /* v2.92 (Julian: Vorschlag A): „herkunft“ hieß seit v0.93 „Anpaarung“, „anpaarung“ hieß „Drohnenlinie“ – damit
+           stand „Belegstelle“ in zwei Feldern. Jetzt: woher sie stammt hier, wie sie begattet wurde unten. Daten bleiben. */
+        { key: 'herkunft', label: 'Woher stammt die Königin?', type: 'suggest', options: herkunftOpts, hint: 'Z. B. eigene Nachzucht oder Zukauf. Wie sie begattet wurde, steht unten bei „Anpaarung“.' },
         { key: 'status', label: 'Status', type: 'select', required: true, default: 'aktiv', options: [{ v: 'aktiv', l: 'aktiv' }, { v: 'verloren', l: 'verloren' }, { v: 'umgeweiselt', l: 'umgeweiselt' }] },
         { key: '_absTitel', type: 'static', html: '<h3 class="mt8 mb8">Abstammung</h3>' },
         { key: 'mutterId', label: 'Mutter (Zuchtmutter, 2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt sie mütterlicherseits ab?' },
-        { key: 'anpaarung', label: 'Drohnenlinie', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (4a). Bei „Belegstelle“ wählst du eine deiner Belegstellen.' },
+        { key: 'anpaarung', label: 'Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– unbekannt –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wie wurde sie begattet? Bei „Belegstelle“ wählst du darunter eine deiner Belegstellen. Das Vatervolk (4a) kannst du immer angeben – auch wenn die Art der Anpaarung unbekannt ist.' },
         { key: 'belegstelleId', label: 'Belegstelle', type: 'select', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle', hint: 'Aus deinen Belegstellen (Einstellungen). Eine neue kannst du direkt hier unten anlegen.' },
-        { key: 'vatervolkId', label: 'Vatervolk (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung', hint: 'Die Drohnenmutter – die Königin des 4a-Volks, deren Drohnen die Anpaarung stellen.' },
+        ...(q && q.belegstelle && !q.belegstelleId ? [{ key: '_belegAlt', type: 'static', showIf: (f) => f.anpaarung === 'belegstelle' && !f.belegstelleId,
+          html: `<div class="hint mb8">Eingetragen ist „${U.esc(q.belegstelle)}“ – das ist (noch) keine deiner Belegstellen. Der Name bleibt so stehen, bis du oben eine Belegstelle wählst.</div>` }] : []),
+        { key: 'vatervolkId', label: 'Vatervolk (4a)', type: 'select', options: qOpts, hint: 'Die Drohnenmutter – die Königin des 4a-Volks, deren Töchter die Drohnen stellen. Bei einer Belegstelle die Mutter der Drohnenvölker dort, falls du sie kennst.' },
         { key: '_pedTitel', type: 'static', html: '<h3 class="mt8 mb8">Pedigree</h3>' },
         { key: 'pedigree', label: 'Pedigree der Königin', type: 'textarea',
-          hint: 'Schreibweise der GdeB-Stockkarte. Leer lassen: Die App bildet es dann selbst aus Mutter und Drohnenlinie – siehe Vorschlag darunter.' },
+          hint: 'Buckfast-Schreibweise des Kehrle-Registers, z. B. „B110(JK) = .26 - B112(JK) ins B312(KK)“. Leer lassen: Die App bildet es dann selbst aus Mutter und Anpaarung – siehe Vorschlag darunter.' },
         { key: '_pedVorschlag', type: 'static',
           html: vorschlagPedigree && vorschlagPedigree.includes('=')
             ? `<div class="hint mb8">Aus dem Stammbaum gebildet:<br><span style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all">${U.esc(vorschlagPedigree)}</span>
                <button type="button" class="btn btn-ghost btn-xs mt6" data-ped-uebernehmen>${icon('download')} Als Text übernehmen</button></div>`
-            : '<div class="hint mb8">Sobald Mutter und Drohnenlinie eingetragen sind, bildet die App hier einen Vorschlag.</div>' },
+            : '<div class="hint mb8">Sobald Mutter und Anpaarung eingetragen sind, bildet die App hier einen Vorschlag.</div>' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
-      values: q ? { ...q, kennung: kennungVorschlag } : { kennung: kennungVorschlag },
+      // Ältere Einträge mit „Belegstelle“ o. ä. unter Herkunft: Anpaarung damit vorbelegen (gespeichert wird erst beim Speichern)
+      values: q ? { ...q, kennung: kennungVorschlag, anpaarung: q.anpaarung || anpaarungAusText(q.herkunft) } : { kennung: kennungVorschlag },
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
         const rec = Object.assign(q || { historie: [] }, {
@@ -7823,8 +7845,9 @@ Views.koeniginnen = {
           pedigree: (v.pedigree || '').trim(),
           mutterId: v.mutterId || null, anpaarung: v.anpaarung || '',
           belegstelleId: v.anpaarung === 'belegstelle' ? (v.belegstelleId || null) : null,
-          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || '') : '', // Name mitschreiben für Anzeige/PDF/Stammbaum
-          vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          // Name mitschreiben; ohne Auswahl bleibt ein importierter Name stehen, der (noch) keine eigene Belegstelle ist
+          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || (!v.belegstelleId && q ? q.belegstelle || '' : '')) : '', // Name mitschreiben für Anzeige/PDF/Stammbaum
+          vatervolkId: v.vatervolkId || null,
         });
         const saved = await DB.put('koeniginnen', rec);
         // Bei Verlust/Umweiselung: Zuordnung im Volk beenden
@@ -8314,19 +8337,18 @@ function zuchtNote(b) {
 }
 
 /**
- * Pedigree der Königin in der Schreibweise der GdeB-Stockkarte, gebildet aus
- * dem gespeicherten Stammbaum:
+ * Pedigree der Königin als eine Zeile, gebildet aus dem gespeicherten Stammbaum – in der Schreibweise,
+ * die das Kehrle-Register vorschreibt („Schreibweise der Pedigrees“, Recherche 23.10.2026):
  *
- *   B110(JK) = 25.B111(JK) - B311(KK) : 24.B112(JK) - B312(KK) : …
+ *   B110(JK) = .26 - B112(JK) ins B312(KK) : .24 - B113(JK) Baltrum B313(KK)
  *
- * Gelesen wird: die Königin, dahinter je Generation das Elternpaar –
- * Mutterlinie (2a) und Drohnenvolk (4a) – mit dem Jahrgang davor. Steht
- * statt eines Vatervolks eine Belegstelle, kommt deren Name in die
- * Vaterposition; das entspricht der Praxis auf der Papierkarte.
+ * Je Generation: Jahrgang der Tochter, Mutter (2a), Paarung („ins“ = Besamung, „x“ = verpaart,
+ * sonst der Name der Belegstelle) und die Drohnenmutter (4a). Weiter geht es nur über die Mutterlinie.
+ * Bis v2.91 schrieb die App „= 26.B112(JK) - B312(KK)“ – das las sie selbst nicht vollständig wieder
+ * ein (Jahre und Belegstellen gingen verloren). pedigreeParse versteht beide Formen.
  *
- * Erzeugt wird nur, was WIRKLICH bekannt ist: Fehlt die Mutter, endet die
- * Kette. Eine erfundene Generation wäre in einem Zuchtbuch schlimmer als
- * eine fehlende.
+ * Erzeugt wird nur, was WIRKLICH bekannt ist: Fehlt die Mutter, endet die Kette. Eine erfundene
+ * Generation wäre in einem Zuchtbuch schlimmer als eine fehlende.
  */
 function pedigreeGdeB(q, qm, tiefe = 6) {
   if (!q) return '';
@@ -8339,16 +8361,27 @@ function pedigreeGdeB(q, qm, tiefe = 6) {
   for (let i = 0; i < tiefe; i++) {
     const mutter = c.mutterId ? qm.get(c.mutterId) : null;
     const vater = c.vatervolkId ? qm.get(c.vatervolkId) : null;
-    const belegstelle = (c.anpaarung === 'belegstelle' && String(c.belegstelle || '').trim()) || '';
-    if (!mutter && !vater && !belegstelle) break;
-    const jahr = c.jahrgang ? String(c.jahrgang).slice(-2) : '';
-    const rechts = vater ? name(vater) : belegstelle;
-    teile.push(`${jahr ? jahr + '.' : ''}${mutter ? name(mutter) : '?'}${rechts ? ' - ' + rechts : ''}`);
+    const beleg = (c.anpaarung === 'belegstelle' && String(c.belegstelle || '').trim()) || '';
+    if (!mutter && !vater && !beleg) break;
+    teile.push({ jahr: c.jahrgang, mutter: mutter ? name(mutter) : '', vater: vater ? name(vater) : '', art: c.anpaarung || '', beleg });
     if (!mutter || gesehen.has(mutter.id)) break;   // Schleifen in fehlerhaften Daten abfangen
     gesehen.add(mutter.id);
     c = mutter;
   }
-  return teile.length ? `${kopf} = ${teile.join(' : ')}` : kopf;
+  return teile.length ? pedigreeZeile(kopf, teile) : kopf;
+}
+/** Schreibt eine Pedigree-Zeile: kopf + Generationen [{ jahr, mutter, vater, art, beleg }]. */
+function pedigreeZeile(kopf, generationen) {
+  // Kennungen ohne Leerzeichen (sonst zerfallen sie beim Lesen), Belegstellen ohne Trennzeichen der Zeile
+  const code = (t) => String(t || '').replace(/\s+/g, '').replace(/[=:;]/g, '');
+  const gen = (g) => {
+    const jahr = g.jahr ? `.${String(g.jahr).slice(-2)} - ` : '';
+    const beleg = String(g.beleg || '').replace(/[=:;„“”"]/g, ' ').replace(/\s+/g, ' ').trim();
+    const belegText = /\d/.test(beleg) ? `„${beleg}“` : beleg;   // Ziffern im Namen würden sonst als Kennung gelesen
+    const paar = g.art === 'besamung' ? 'ins' : g.art === 'belegstelle' && beleg ? belegText : g.art === 'standbegattung' ? 'nat' : g.vater ? 'x' : '';
+    return `${jahr}${code(g.mutter) || '?'}${paar ? ' ' + paar : ''}${g.vater ? ' ' + code(g.vater) : ''}`;
+  };
+  return `${kopf} = ${generationen.map(gen).join(' : ')}`;
 }
 /** Beidseitiger Stammbaum: Mutterlinie (2a) UND Vaterlinie (4a/Belegstelle) aufwärts + Töchter. */
 /* ---------------------------------------------------------------------
@@ -8374,8 +8407,8 @@ function pedigreeGdeB(q, qm, tiefe = 6) {
    Gespeichert werden weiterhin nur Kanten (mutterId / vatervolkId) – der
    Parser dient dem Import und der Prüfung eingetippter Kennungen. --------- */
 const BUCKFAST_TEIL = /[A-Z]{1,3}\s*[0-9]+(?:\.[0-9]+)*\s*\([A-Za-z0-9]{1,5}\)/g;
-const BEEBREED_CODE = /^([A-Z]{2})[-\s.](\d{1,3})[-\s.](\d{1,4})[-\s.](\d{1,5})[-\s.](\d{4})$/;
-const BUCKFAST_CODE = /^([A-Z]{1,3})\s*([0-9]+(?:\.[0-9]+)*)\s*\(([A-Za-z0-9]{1,5})\)\s*(.*)$/;
+const BEEBREED_CODE = /^([A-Z]{2})[-\s.](\d{1,3})[-\s.](\d{1,4})[-\s.](\d{1,5})[-\s.](\d{4})(?:-K)?$/;   // „-K“ = gekört
+const BUCKFAST_CODE = /^([A-Z]{1,3})\s*([0-9]+(?:\.[0-9]+)*[A-Za-z]{0,3})\s*\(([A-Za-z0-9]{1,5})\)\s*(.*)$/;   // auch „B101Vt(KK)“
 /** zweistellige Jahresangabe zu einer vollen Jahreszahl (96 → 1996, 07 → 2007) */
 function kennungJahr(j) { const n = +j; return String(j).length === 2 ? (n > 50 ? 1900 + n : 2000 + n) : n; }
 /** Erkennt das System und zerlegt die Kennung; null, wenn nichts passt. */
@@ -8397,58 +8430,259 @@ function kennungParse(text) {
   };
   const nteile = bf[2].split('.'); // Kehrle-Schreibweise trägt das Jahr in der Nummer: B22.2.07
   if (nteile.length >= 3) res.jahrgang = kennungJahr(nteile[nteile.length - 1]);
-  for (const teil of (s.includes('=') ? s.slice(s.indexOf('=') + 1) : '').split(':')) {
-    const t = teil.trim(); if (!t) continue;
-    const jahr = (t.match(/^\.?(\d{2,4})\s*-/) || [])[1] || null;
-    const paar = t.replace(/^\.?\d{2,4}\s*-/, '');
-    const codes = (paar.match(BUCKFAST_TEIL) || []).map((x) => x.trim());
-    res.generationen.push({
-      jahr: jahr ? kennungJahr(jahr) : null,
-      mutter: codes[0] || '', vatervolk: codes[1] || '',
-      anpaarung: /\bins\b/i.test(paar) ? 'besamung' : (codes[1] ? 'standbegattung' : ''),
-    });
-  }
+  res.generationen = (pedigreeParse(s) || { generationen: [] }).generationen;
   return res;
+}
+
+/* ---------------------------------------------------------------------
+   PEDIGREE-ZEILE LESEN (v2.92). Vorher las nur der Buckfast-Teil oben die
+   Zeile – und nur in Kehrle-Schreibweise („=.96-B173(TR)xB169(TR)“). Der
+   eigene Vorschlag der App („= 26.B112(JK) - B312(KK)“, Schreibweise der
+   GdeB-Stockkarte) verlor beim Wiedereinlesen die Jahre, Belegstellen
+   wurden nicht erkannt, und mit BeeBreed- oder eigenen Kennungen kam gar
+   nichts heraus (Recherche 23.10.2026, docs/ZUCHTDATENBANKEN.md).
+   Jetzt: beide Schreibweisen, jede Kennung, Belegstelle in Vaterposition.
+   Das Jahr vor einem Paar ist der Jahrgang der TOCHTER dieses Paares.
+   --------------------------------------------------------------------- */
+/** Kennung als Vergleichs-Schlüssel: ohne Leerzeichen, groß („b 66 (tr)“ = „B66(TR)“). */
+function kennungSchluessel(k) { return String(k || '').replace(/\s+/g, '').toUpperCase(); }
+/** Kern einer Kennung ohne angehängtes Jahr/Kürzel: GdeB-Register „B76(LM)26sdi“ → „B76(LM)“, BeeBreed „…-2021-K“ → „…-2021“. */
+function kennungKern(k) {
+  const s = kennungSchluessel(k);
+  const m = s.match(/^(.*\)(?:\d*DR)?)\.?\d{2}(?:[A-Z.]+\d*[A-Z]*)?$/) || s.match(/^([A-Z]{2}-\d{1,3}-\d{1,4}-\d{1,5}-\d{4})-K$/);
+  return m ? m[1] : s;
+}
+/** Nachschlage-Tabelle Kennung → Königin (nur Königinnen mit Kennung); kennt auch den Kern ohne Jahr/„-K“. */
+function kennungIndex(qm) {
+  const m = new Map();
+  for (const k of qm.values()) for (const s of [kennungSchluessel(k.kennung), kennungKern(k.kennung)]) if (s && !m.has(s)) m.set(s, k);
+  const get = m.get.bind(m);
+  m.get = (s) => get(s) || get(kennungKern(s));   // „B76(LM)26“ findet die Königin „B76(LM)“ und umgekehrt
+  return m;
+}
+/* Schreibweise laut Kehrle-Register („Schreibweise der Pedigrees“, Th. Kober; Recherche 23.10.2026):
+     ZUCHTVOLK = [Import] .JJ - MUTTER PAARUNG DROHNENMUTTER [Drohnenvölker] (Rasse) ; nächste Generation …
+   PAARUNG ist „ins“ (Besamung), „x“/„×“ (verpaart) oder das Kürzel der Belegstelle (z. B. „bal“ Baltrum, „rud“ Ruden) –
+   dann steht dahinter trotzdem die Mutter der Drohnenvölker (4a). Echte Zeilen weichen ab (– statt -, fehlende
+   Leerzeichen, Jahr hinter der Kennung „B22.3.50(KK).22“, Importkürzel imq/itq/ilv/ivq/isp, „;“ oder „:“), also
+   großzügig lesen. Die alte App-Schreibweise „26.B112(JK) - B312(KK)“ und „- Baltrum“ wird weiter verstanden. */
+const PED_IMPORT = /^(imq|itq|ilv|ivq|isp|imp|icl)\.?$/i;
+const PED_JAHR_TOKEN = /^\.?(\d{2}|\d{4})$/;
+/* Besamung: „ins“, im GdeB-Register auch „sdi“/„mdi“/„hsi“; Besamungsstellen-Kürzel beginnen mit „i“ (Legende
+   „Instrumental insemination“). „nat“ = natürliche Paarung (Standbegattung), „x“ = verpaart, Art offen. Alle übrigen
+   kleinen Kürzel sind Belegstellen. */
+const PED_BESAMUNG = /^(ins\.?|sdi|mdi|hsi|in[a-z]{2}|ibay|iby1|ibra|iahn|ihxb|ikog|izdt|ilux)$/i;
+const PED_KUERZEL = /^[a-z]{2,5}\d?$/;   // klein geschriebenes Paarungs-/Belegstellen-Kürzel
+const PED_FUELL = /^((etc|usw)\.*…?|…|\.{2,}|[?]+|[-–—])$/i;   // auch „etc…“ (Kehrle-Jahrgangsseiten)
+/** Eine Kennung in der Zeile: enthält eine Ziffer. Ein Jahr dahinter wird abgetrennt – Kehrle „B22.3.50(KK).22“ und
+    „B950(PP)1dr.19“, GdeB-Register „B76(LM)26sdi“ (Nachsilben wie sdi/mdi/.6q/SIG beschreiben die Königin selbst). */
+function pedCodeTeilen(tok) {
+  const m = tok.match(/^(.*\)(?:\d*dr)?)\.?(\d{2})(?:[A-Za-z.]+\d*[A-Za-z]*)?$/);
+  return m ? { code: m[1], jahr: kennungJahr(m[2]) } : { code: tok, jahr: null };
+}
+/** Eine Generation („Paar“) einer Pedigree-Zeile → { jahr, mutter, vatervolk, anpaarung[, belegstelle, mutterJahr,
+    vaterJahr, hinweis] }. jahr = Jahrgang der TOCHTER dieses Paares. */
+function pedigreeGeneration(teil) {
+  let t = String(teil || '').replace(/\[[^\]]*\]/g, ' ').replace(/\(\s*\d*\s*dr\.?\s*[a-z.]*\s*\)/gi, ' ')   // [18 dr.c.], (1dr.c.), (28 dr.v.)
+    .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  // Namen in Anführungszeichen (Belegstellen mit Ziffern, von der App so geschrieben) bleiben ein Stück
+  const namen = [];
+  t = t.replace(/[„"“]([^„"“”]+)[“”"]/g, (m0, n) => { namen.push(n.trim()); return ` §${namen.length - 1}§ `; });
+  t = t.replace(/^no\.\s*/i, '')
+    .replace(/\bJg\.\s+(\d{4})\b/g, 'Jg.$1')                                         // alte App-Form „Jg. 2024“
+    .replace(/\b(imq|itq|ilv|ivq|isp|imp|icl)\.(\d{2})\b/gi, '$1 .$2')             // „imq.25“
+    .replace(/\b(imq|itq|ilv|ivq|isp|imp|icl)\.(?=[A-Z])/gi, '$1 ')                   // „ilv.B753(ARG)23“
+    .replace(/^(\d{2}|\d{4})\.(?=[A-Z?])/, '.$1 - ')                                // alte App-Form „26.B112(JK)“, „26.?“
+    .replace(/(^|\s)(\.?\d{2}|\.?\d{4})\s*[-–—]\s*(?=[A-Za-z?§])/, '$1$2 - ')            // „.96-B173“ → „.96 - B173“ (nicht „26-014“)
+    .replace(/\)\s*[x×]\s*(?=[A-Z])/g, ') x ')                                      // „B173(TR)xB169(TR)“
+    .replace(/\)(\d{2})?([a-z]{2,5})(?=[A-Z])/g, (m0, j, k) => `)${j || ''} ${k} `)   // „B14(TR)balHO235(IC)“, „M121(TR)insB78“
+    .replace(/(^|\s)(ins|sdi|mdi|hsi|nat)(?=[A-Z])/g, '$1$2 ');                        // „mdiB64(BPF)“
+  // Wörter: „B173 (TR)“ wieder zusammenfügen; ein allein stehendes „(P)“/„(EL)“ ist das Rassekürzel und fällt weg
+  const tok = [];
+  for (const w of t.split(' ').filter(Boolean)) {
+    if (/^\([A-Za-z]{1,6}\)\S*$/.test(w) && tok.length && /\d/.test(tok[tok.length - 1]) && !tok[tok.length - 1].includes('(')) { tok[tok.length - 1] += w; continue; }
+    if (/^\([A-Za-z]{1,4}\)$/.test(w)) continue;
+    tok.push(w);
+  }
+  const istName = (w) => /^§\d+§$/.test(w);
+  let i = 0, jahr = null;
+  while (i < tok.length && PED_IMPORT.test(tok[i])) i++;
+  if (i < tok.length && PED_JAHR_TOKEN.test(tok[i]) && (tok[i].startsWith('.') || /^[-–—]$/.test(tok[i + 1] || ''))) { jahr = kennungJahr(tok[i].replace('.', '')); i++; }
+  while (i < tok.length && (/^[-–—]$/.test(tok[i]) || PED_IMPORT.test(tok[i]))) i++;
+  let mutter = '', mutterJahr = null;
+  if (tok[i] === '?') i++;                                                            // Mutter unbekannt
+  else if (i < tok.length && /\d/.test(tok[i]) && !istName(tok[i])) { const c = pedCodeTeilen(tok[i++]); mutter = c.code; mutterJahr = c.jahr; }
+  else {   // Name ohne Ziffer – ein kleines Kürzel vorn („tbsl B6(MM)22“) ist aber schon die Paarung
+    const mt = [];
+    while (i < tok.length && !/\d/.test(tok[i]) && !istName(tok[i]) && !/^(x|×)$/i.test(tok[i]) && !PED_FUELL.test(tok[i]) && !PED_KUERZEL.test(tok[i]) && !/^(bst|bes|mp)$/i.test(tok[i]) && !PED_BESAMUNG.test(tok[i])) mt.push(tok[i++]);
+    mutter = mt.join(' ');
+  }
+  let ins = false, paar = false, nat = false, vater = '', vaterJahr = null, bst = '';
+  const worte = [];
+  for (; i < tok.length; i++) {
+    const w = tok[i];
+    if (istName(w)) { worte.push(namen[+w.slice(1, -1)]); continue; }
+    if (/^(bst|mp)$/i.test(w) && /\d/.test(tok[i + 1] || '')) { bst = `Bst ${tok[++i]}`; paar = true; continue; }   // BeeBreed „Bst DE-17-6“
+    if (/^bes$/i.test(w) && /\d/.test(tok[i + 1] || '')) { i++; ins = true; paar = true; continue; }                  // BeeBreed „Bes DE-4-11“
+    if (PED_IMPORT.test(w) || PED_FUELL.test(w)) continue;
+    if (PED_BESAMUNG.test(w)) { ins = true; paar = true; continue; }
+    if (/^nat$/i.test(w)) { nat = true; paar = true; continue; }
+    if (/^[x×]$/i.test(w)) { paar = true; continue; }
+    if (/\d/.test(w)) { const c = pedCodeTeilen(w); vater = c.code; vaterJahr = c.jahr; break; }
+    worte.push(w);
+  }
+  let belegstelle = bst, hinweis = '';
+  if (worte.length > 5) hinweis = worte.join(' ');   // freier Text („pure Monticola import of eggs …“) – keine Belegstelle
+  else if (worte.length) { if (!vater && paar && !PED_KUERZEL.test(worte[0]) && !namen.includes(worte[0])) vater = worte.join(' '); else belegstelle = [belegstelle, worte.join(' ')].filter(Boolean).join(' '); }
+  if (/^\d+$/.test(mutter)) mutter = '';
+  // „x“ sagt nur „verpaart“ – die Art bleibt offen; Standbegattung steht als „nat“ da
+  const g = { jahr, mutter, vatervolk: vater, anpaarung: ins ? 'besamung' : belegstelle ? 'belegstelle' : nat ? 'standbegattung' : '' };
+  if (belegstelle) g.belegstelle = belegstelle;
+  if (mutterJahr) g.mutterJahr = mutterJahr;
+  if (vaterJahr) g.vaterJahr = vaterJahr;
+  if (hinweis) g.hinweis = hinweis;
+  return g;
+}
+/** Ganze Zeile „KOPF = Generation : Generation …“ → { kopf, generationen }; null ohne „=“. */
+function pedigreeParse(text) {
+  const s = String(text || '').trim();
+  const i = s.indexOf('=');
+  if (i < 0) return null;
+  let rest = s.slice(i + 1).replace(/\s*\n\s*(?=(?:imq|itq|ilv|ivq|isp)?\s*\.?\d{2}\s*[-–])/gi, ' : ');   // mehrzeilig eingefügt
+  if (!/[:;]/.test(rest)) rest = rest.replace(/\s(?=\.?\d{2}\s*[-–]\s*[A-Za-z])/g, ' : ');   // Generationen nur durch Leerzeichen getrennt
+  const generationen = rest.split(/[:;]/).map(pedigreeGeneration).filter((g) => g && (g.mutter || g.vatervolk || g.belegstelle));
+  return { kopf: s.slice(0, i).replace(/^no\.\s*/i, '').trim(), generationen };
+}
+
+/** Vaterseite einer Generation – EINE Regel für Mutterlinie und Ahnentafel. r = Datensatz der Tochter (oder null),
+    p = ihre Generation aus einer Pedigree-Zeile. Der Datensatz gilt vor der Zeile; nennt er eine Belegstelle ohne 4a, die
+    Zeile aber eine Drohnenmutter ohne Belegstelle, ist das ein Widerspruch – dann gilt der Datensatz. */
+function vaterseiteAus(r, p, qm, treffer) {
+  const art = (r && (r.anpaarung || anpaarungAusText(r.herkunft))) || (p && p.anpaarung) || '';
+  const beleg = (r && r.anpaarung === 'belegstelle' && r.belegstelle) || (p && p.belegstelle) || '';
+  const widerspruch = !!(r && r.anpaarung === 'belegstelle' && r.belegstelle && p && p.vatervolk && !p.belegstelle);
+  const vRec = (r && r.vatervolkId ? qm.get(r.vatervolkId) : null) || (!(r && r.vatervolkId) && !widerspruch && p && p.vatervolk ? treffer(p.vatervolk) : null);
+  if (vRec) return { quelle: 'eigen', rec: vRec, art, beleg };
+  if (p && p.vatervolk && !widerspruch) return { quelle: 'pedigree', code: p.vatervolk, jahr: p.vaterJahr || null, art, beleg };
+  if (beleg) return { quelle: 'beleg', name: beleg, art: 'belegstelle' };
+  return { quelle: 'fehlt', art };
+}
+/** Pedigree-Zeilen und Kennungs-Treffer für eine Berechnung (Zwischenspeicher je Königin). */
+function stammbaumHilfen(q, qm) {
+  const nachKennung = kennungIndex(qm);
+  const treffer = (code) => { const r = code ? nachKennung.get(kennungSchluessel(code)) : null; return r && r.id !== q.id ? r : null; };
+  const cache = new Map();
+  const ped = (k) => { if (!cache.has(k.id)) cache.set(k.id, (pedigreeParse(k.pedigree) || { generationen: [] }).generationen); return cache.get(k.id); };
+  return { treffer, ped };
 }
 
 /** Ahnen entlang der Mutterlinie: je Generation die Mutter und die Drohnenseite – mit der Herkunft der Angabe:
     'eigen' = Königin in ImkerBuch (antippbar), 'pedigree' = nur aus einer Pedigree-Zeile, 'beleg' = Belegstelle, 'fehlt'.
-    Hinter der letzten Königin mit Datensatz liest es deren Pedigree-Zeile weiter. Endet, wo beides fehlt. */
+    Gelesen wird aus den Datensätzen und der Pedigree-Zeile; hat eine Ahnin keine eigene Zeile, geht es mit der Zeile der
+    Tochter weiter (sie beschreibt die ganze Mutterlinie). v2.92: Kennungen aus der Zeile, die auch als Königin in
+    ImkerBuch stehen, werden verknüpft – ohne die älteren Generationen der Zeile zu verlieren (Code-Prüfung). Das Jahr an
+    einer Mutter ist ihr eigener Jahrgang (in der Zeile steht er bei der nächsten Generation). */
 function koeniginAhnen(q, qm, max = 9) {
-  const gen = [];
-  const gesehen = new Set([q.id]);
-  const pedCache = new Map();
-  const ped = (k) => {
-    if (!pedCache.has(k.id)) { const t = (k.pedigree || '').trim(); pedCache.set(k.id, t.includes('=') ? ((kennungParse(t) || {}).generationen || []) : []); }
-    return pedCache.get(k.id);
-  };
-  let cur = q, basis = q, versatz = 0;
+  const gen = [], gesehen = new Set([q.id]);
+  const { treffer, ped } = stammbaumHilfen(q, qm);
+  let cur = q, linie = ped(q), idx = 0;
   for (let g = 1; g <= max; g++) {
-    let mutter, drohnen;
-    const kind = cur;
-    if (cur) {
-      const mRec = cur.mutterId ? qm.get(cur.mutterId) : null;
-      const vRec = cur.vatervolkId ? qm.get(cur.vatervolkId) : null;
-      const p0 = ped(cur)[0] || null;
-      const art = cur.anpaarung || (p0 && p0.anpaarung) || '';
-      mutter = mRec ? { quelle: 'eigen', rec: mRec } : p0 && p0.mutter ? { quelle: 'pedigree', code: p0.mutter, jahr: p0.jahr } : { quelle: 'fehlt' };
-      if (vRec) drohnen = { quelle: 'eigen', rec: vRec, art };
-      else if (cur.anpaarung === 'belegstelle' && cur.belegstelle) drohnen = { quelle: 'beleg', name: cur.belegstelle, art: 'belegstelle' };
-      else if (p0 && p0.vatervolk) drohnen = { quelle: 'pedigree', code: p0.vatervolk, art };
-      else drohnen = { quelle: 'fehlt', art };
-      if (mRec && !gesehen.has(mRec.id)) { gesehen.add(mRec.id); basis = mRec; versatz = 0; cur = mRec; }
-      else { basis = cur; versatz = 1; cur = null; }       // weiter nur über die Pedigree-Zeile
-    } else {
-      const p = ped(basis)[versatz] || null;
-      mutter = p && p.mutter ? { quelle: 'pedigree', code: p.mutter, jahr: p.jahr } : { quelle: 'fehlt' };
-      drohnen = p && p.vatervolk ? { quelle: 'pedigree', code: p.vatervolk, art: p.anpaarung || '' } : { quelle: 'fehlt', art: '' };
-      versatz++;
-    }
+    const kind = cur, p = linie[idx] || null, nach = linie[idx + 1] || null;
+    const mRec = (cur && cur.mutterId ? qm.get(cur.mutterId) : null) || (p && p.mutter ? treffer(p.mutter) : null);
+    const mutter = mRec ? { quelle: 'eigen', rec: mRec } : p && p.mutter ? { quelle: 'pedigree', code: p.mutter, jahr: p.mutterJahr || (nach ? nach.jahr : null) } : { quelle: 'fehlt' };
+    const drohnen = vaterseiteAus(cur, p, qm, treffer);
     if (mutter.quelle === 'fehlt' && drohnen.quelle === 'fehlt') break;   // dahinter ist nichts erfasst
     gen.push({ g, kind, mutter, drohnen });
+    if (mRec && !gesehen.has(mRec.id)) {
+      gesehen.add(mRec.id); cur = mRec;
+      const eigene = ped(mRec);
+      if (eigene.length) { linie = eigene; idx = 0; } else idx++;
+    } else { cur = null; idx++; }       // weiter nur über die Pedigree-Zeile
   }
   return gen;
 }
+
+/* ---------------------------------------------------------------------
+   AHNENTAFEL BEIDER SEITEN (v2.92). Vorher reichte die Vaterseite nur eine
+   Stufe: das Vatervolk (4a) ohne dessen eigene Vorfahren – damit fehlte die
+   Grundlage, verwandte Anpaarungen zu erkennen. Jetzt hat jede Ahnin wieder
+   Mutter (2a) und Vaterseite (4a), aus Datensätzen, Pedigree-Zeilen und
+   gleichen Kennungen. Einen Inzuchtkoeffizienten rechnet die App bewusst
+   NICHT (bei Bienen mit Drohnenvölker-Gruppen nur mit dem Verfahren der
+   Register verlässlich) – sie zeigt gemeinsame Vorfahren.
+   --------------------------------------------------------------------- */
+/** Baum: { quelle, rec?, code?, name?, jahr?, art?, beleg?, pfad ('' = die Königin, 'M' Mutter, 'V' Vaterseite, 'MV' …),
+    zeile/idx (wo in einer Pedigree-Zeile ihre Eltern stehen), mutter?, vater?, kreis? } */
+function koeniginAhnentafel(q, qm, tiefe = 4) {
+  const { treffer, ped } = stammbaumHilfen(q, qm);
+  const eltern = (n) => {
+    const r = n.quelle === 'eigen' ? n.rec : null;
+    if (!r && !n.zeile) return null;   // Vaterseite nur aus einer Zeile: dahinter unbekannt
+    const p = n.zeile ? n.zeile[n.idx] || null : null, nach = n.zeile ? n.zeile[n.idx + 1] || null : null;
+    const mRec = (r && r.mutterId ? qm.get(r.mutterId) : null) || (p && p.mutter ? treffer(p.mutter) : null);
+    const mutter = mRec ? { quelle: 'eigen', rec: mRec } : p && p.mutter ? { quelle: 'pedigree', code: p.mutter, jahr: p.mutterJahr || (nach ? nach.jahr : null) } : { quelle: 'fehlt' };
+    if (mutter.quelle !== 'fehlt') {   // wo stehen die Eltern der Mutter? In ihrer eigenen Zeile, sonst weiter in dieser
+      const eigene = mRec ? ped(mRec) : [];
+      if (eigene.length) { mutter.zeile = eigene; mutter.idx = 0; } else if (n.zeile) { mutter.zeile = n.zeile; mutter.idx = n.idx + 1; }
+    }
+    const vater = vaterseiteAus(r, p, qm, treffer);
+    if (vater.quelle === 'eigen') { const eigene = ped(vater.rec); if (eigene.length) { vater.zeile = eigene; vater.idx = 0; } }
+    return { mutter, vater };
+  };
+  const bau = (n, pfad, kette) => {
+    n.pfad = pfad;
+    if (pfad.length >= tiefe) return n;
+    const id = n.quelle === 'eigen' ? 'r:' + n.rec.id : null;
+    if (id && kette.has(id)) { n.kreis = true; return n; }   // fehlerhafte Daten: eine Königin ist ihre eigene Ahnin
+    const e = eltern(n);
+    if (!e) return n;
+    const weiter = id ? new Set([...kette, id]) : kette;
+    n.mutter = bau(e.mutter, pfad + 'M', weiter);
+    n.vater = bau(e.vater, pfad + 'V', weiter);
+    return n;
+  };
+  return bau({ quelle: 'eigen', rec: q, zeile: ped(q), idx: 0 }, '', new Set());
+}
+/** Knoten an einem Pfad („MV“ = Vaterseite der Mutter). */
+function ahnentafelKnoten(baum, pfad) {
+  let n = baum;
+  for (const c of pfad) { if (!n) return null; n = c === 'M' ? n.mutter : n.vater; }
+  return n || null;
+}
+/** Ahnin als Schlüssel für Vergleiche: gleiche Kennung = gleiche Königin. */
+function ahnSchluessel(n) {
+  if (!n || (n.quelle !== 'eigen' && n.quelle !== 'pedigree')) return null;
+  if (n.quelle === 'eigen') return n.rec.kennung ? 'k:' + kennungSchluessel(n.rec.kennung) : 'r:' + n.rec.id;
+  // „Jg.2024“ steht für eine Königin ohne Kennung – zwei solche sind nicht dieselbe Ahnin
+  return n.code && !/^(JG\.?\d{4}|[?]+)$/i.test(kennungSchluessel(n.code)) ? 'k:' + kennungSchluessel(n.code) : null;
+}
+/** Vorfahren, die mehrfach in der Ahnentafel stehen. Nur die nächsten: kommt eine Ahnin doppelt vor, stehen auch all
+    ihre Vorfahren doppelt da – die werden nicht noch einmal gemeldet. beideSeiten = auf Mutter- UND Vaterseite. */
+function gemeinsameAhnen(baum) {
+  const vorkommen = new Map();
+  const geh = (n) => {
+    if (!n) return;
+    const s = n.pfad ? ahnSchluessel(n) : null;
+    if (s) { if (!vorkommen.has(s)) vorkommen.set(s, { knoten: n, pfade: [] }); vorkommen.get(s).pfade.push(n.pfad); }
+    geh(n.mutter); geh(n.vater);
+  };
+  geh(baum);
+  const mehrfach = [...vorkommen.values()].filter((x) => x.pfade.length > 1).sort((a, b) => Math.min(...a.pfade.map((p) => p.length)) - Math.min(...b.pfade.map((p) => p.length)));
+  const gemeldet = new Set(), ergebnis = [];
+  for (const x of mehrfach) {
+    if (x.pfade.every((p) => [...gemeldet].some((g) => p.length > g.length && p.startsWith(g)))) continue;
+    x.pfade.forEach((p) => gemeldet.add(p));
+    ergebnis.push({ knoten: x.knoten, pfade: x.pfade, beideSeiten: x.pfade.some((p) => p[0] === 'M') && x.pfade.some((p) => p[0] === 'V') });
+  }
+  return ergebnis;
+}
+/** „Mutterseite, 2. Generation“ */
+function ahnPfadText(pfad) { return `${pfad[0] === 'M' ? 'Mutterseite' : 'Vaterseite'}, ${pfad.length}. Generation`; }
+/** Name einer Ahnin für Texte und PDF. */
+function ahnName(n) { return !n ? '' : n.quelle === 'eigen' ? koeniginKurz(n.rec) : n.quelle === 'pedigree' ? n.code : n.quelle === 'beleg' ? belegstelleText(n.name) : 'nicht erfasst'; }
+/** „Belegstelle Baltrum“ – ohne „Belegstelle Belegstelle …“, wenn der Name das Wort schon enthält. */
+function belegstelleText(name) { const n = String(name || '').trim(); return !n ? 'Belegstelle' : /^(bel\.?|belegst|bst\b)/i.test(n) ? n : `Belegstelle ${n}`; }
 
 /* =====================================================================
    KÖNIGIN ALS EIGENE SEITE (v2.50). Julian: „sehr unübersichtlich, nicht
@@ -8459,6 +8693,15 @@ function koeniginAhnen(q, qm, max = 9) {
    ÜBER der Seite – nach Speichern oder Abbrechen bleibt man bei der Königin.
    ===================================================================== */
 const KEHRLE_URL = 'https://pedigree.karlkehrle.org/';
+/** „Belegstelle“, „Standbegattung“, „Künstliche Besamung“ als Text → Anpaarungs-Schlüssel ('' wenn keins davon). */
+function anpaarungAusText(t) {
+  const x = String(t || '').trim().toLowerCase();
+  if (!x) return '';
+  if (/^(bel\.?|belegstelle|belegstation)\b/.test(x)) return 'belegstelle';
+  if (/besamung|^ins\.?$|^ki$|instrumentell/.test(x)) return 'besamung';
+  if (/standbegattung|^stand$|freie begattung|standpaarung/.test(x)) return 'standbegattung';
+  return '';
+}
 const ANPAARUNG_TEXT = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Künstliche Besamung' };
 
 /** Eine Ahnin im Stammbaum: antippbar, wenn sie in ImkerBuch steht; sonst mit Herkunft der Angabe. */
@@ -8483,14 +8726,17 @@ function ahnKarteHtml(n, rolle, kind) {
     ? `<button type="button" class="kg-ahn kg-fehlt" data-nachtragen="${U.esc(kind.id)}">${kopf}<span class="kg-name">nicht erfasst</span><span class="kg-quelle q-fehlt">+ bei ${U.esc(koeniginKurz(kind))} nachtragen</span></button>`
     : `<div class="kg-ahn kg-fehlt">${kopf}<span class="kg-name">nicht erfasst</span><span class="kg-quelle q-fehlt">auch nicht in der Pedigree-Zeile</span></div>`;
 }
-function drohnenRolle(art) {
-  return art === 'besamung' ? 'Vatervolk (Besamung)' : art === 'standbegattung' ? 'Vatervolk (Standbegattung)' : art === 'belegstelle' ? 'Belegstelle' : 'Drohnenseite';
+function drohnenRolle(art, beleg = '') {
+  return art === 'besamung' ? 'Vatervolk (Besamung)' : art === 'standbegattung' ? 'Vatervolk (Standbegattung)'
+    : art === 'belegstelle' ? belegstelleText(beleg) : 'Drohnenseite';
 }
 
 Views.koenigin = {
   title: 'Königin',
   _teil: 'kg-ueb',
   _tiefe: 5,
+  _tafelTiefe: 3,
+  _sbAnsicht: 'linie',
   async render(main, id) {
     const q = id ? await DB.get('koeniginnen', id) : null;
     if (!q) {
@@ -8506,6 +8752,12 @@ Views.koenigin = {
     const bewertungen = gdebListe(q), aktuell = bewertungen[0] || null;
     const mittel = gdebMittel(aktuell), voll = gdebVollstaendig(aktuell), noten = gdebNoten(aktuell);
     const ahnen = koeniginAhnen(q, qm, 9);
+    /* Ahnentafel beider Seiten: tiefer gerechnet als gezeigt, damit gemeinsame Vorfahren auch weiter hinten auffallen */
+    const tafel = koeniginAhnentafel(q, qm, 6);
+    const gemeinsam = gemeinsameAhnen(tafel);
+    const gemeinsamSchl = new Set(gemeinsam.map((x) => ahnSchluessel(x.knoten)));
+    const bekanntBis = (n) => (!n ? 0 : Math.max(n.quelle === 'fehlt' ? 0 : n.pfad.length, bekanntBis(n.mutter), bekanntBis(n.vater)));
+    const tafelMax = Math.min(4, bekanntBis(tafel));
     const toechter = U.sortBy([...qm.values()].filter((k) => k.mutterId === q.id), (k) => k.jahrgang, true);
     const register = zuchtdbQuelle(q.linie);
     const kenn = kennungParse(q.kennung);
@@ -8522,11 +8774,11 @@ Views.koenigin = {
         <dt>Jahrgang</dt><dd><span class="dot" style="background:${hex}"></span> ${U.zahl(q.jahrgang)} (${U.esc(farbe)})</dd>
         ${q.generation ? `<dt>Generation</dt><dd>${U.esc(q.generation)}</dd>` : ''}
         <dt>Herkunft / Linie</dt><dd>${U.esc(q.linie) || '–'}</dd>
-        <dt>Anpaarung</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
+        <dt>Woher</dt><dd>${U.esc(q.herkunft) || '–'}</dd>
         <dt>Mutter (2a)</dt><dd>${link(mutter)}</dd>
-        <dt>Drohnenlinie</dt><dd>${ANPAARUNG_TEXT[q.anpaarung] || '–'}</dd>
+        <dt>Anpaarung</dt><dd>${ANPAARUNG_TEXT[q.anpaarung || anpaarungAusText(q.herkunft)] || '–'}</dd>
         ${q.anpaarung === 'belegstelle' ? `<dt>Belegstelle</dt><dd>${U.esc(q.belegstelle) || '–'}</dd>` : ''}
-        ${q.anpaarung === 'standbegattung' || q.anpaarung === 'besamung' ? `<dt>Vatervolk (4a)</dt><dd>${link(vater)}</dd>` : ''}
+        ${q.anpaarung === 'standbegattung' || q.anpaarung === 'besamung' || vater ? `<dt>Vatervolk (4a)</dt><dd>${link(vater)}</dd>` : ''}
         <dt>Im Volk</dt><dd>${volk ? `<a href="#/volk/${U.esc(volk.id)}">${U.esc(volk.name)} ›</a>` : '<span class="muted">keinem Volk zugeordnet</span>'}</dd>
         <dt>Status</dt><dd><span class="badge ${statusBadge}">${U.esc(q.status)}</span></dd>
         ${q.notiz ? `<dt>Notiz</dt><dd>${U.esc(q.notiz)}</dd>` : ''}
@@ -8553,8 +8805,25 @@ Views.koenigin = {
       ? ` – ${eigeneGen} ${eigeneGen === 1 ? 'Generation' : 'Generationen'} als eigene Königinnen${pedGen ? `, ${pedGen} aus der Pedigree-Zeile` : ''}` : ''}.
       ${regLink ? `<br><span class="muted">Fehlt etwas? ${regLink} nachsehen und hier eintragen – automatisch abrufen dürfen wir die Register nicht.</span>` : ''}</div></div>`;
     const tiefe = Math.max(1, Math.min(V._tiefe, ahnen.length || 1));
+    const gemeinsamHtml = gemeinsam.length ? `<div class="kg-hinweis kg-warnung mb12">${icon('warn')}<div><b>Gemeinsame Vorfahren</b>
+      ${gemeinsam.map((x) => `<br>${U.esc(ahnName(x.knoten))}: ${x.pfade.map(ahnPfadText).join(' und ')}${x.beideSeiten ? ' – auf Mutter- und Vaterseite, die Anpaarung ist verwandt' : ''}`).join('')}
+      <br><span class="muted">Den Inzuchtgrad (Inzuchtkoeffizient) berechnen BeeBreed und das Kehrle-Register; ImkerBuch zeigt, wo dieselbe Ahnin mehrfach vorkommt.</span></div></div>` : '';
+    const tafelTiefe = Math.max(1, Math.min(V._tafelTiefe || 3, tafelMax || 1));
+    const ansicht = V._sbAnsicht === 'tafel' && tafelMax ? 'tafel' : 'linie';
     const sb = `<div class="card">
       ${quelleHtml}
+      ${gemeinsamHtml}
+      ${tafelMax ? `<div class="chip-row mb12 no-print" role="group" aria-label="Ansicht des Stammbaums">
+        <button type="button" class="chip ${ansicht === 'linie' ? 'active' : ''}" data-sb-ansicht="linie" aria-pressed="${ansicht === 'linie'}">Mutterlinie</button>
+        <button type="button" class="chip ${ansicht === 'tafel' ? 'active' : ''}" data-sb-ansicht="tafel" aria-pressed="${ansicht === 'tafel'}">Ahnentafel (beide Seiten)</button></div>
+      <div id="kg-sb-tafel"${ansicht === 'tafel' ? '' : ' hidden'}>
+        ${tafelMax > 1 ? `<div class="kg-regler no-print"><label for="kg-tafel-tiefe">Generationen</label>
+          <input type="range" id="kg-tafel-tiefe" min="1" max="${tafelMax}" step="1" value="${tafelTiefe}" aria-label="Generationen der Ahnentafel">
+          <output id="kg-tafel-zahl"></output></div>` : ''}
+        <div class="kg-tafel-scroll"><div class="kg-tafel" id="kg-tafel"></div></div>
+        <div class="small muted mt8">Mutter (2a) oben, Vaterseite (4a) darunter – seitlich wischen für ältere Generationen.</div>
+      </div>` : ''}
+      <div id="kg-sb-linie"${ansicht === 'linie' ? '' : ' hidden'}>
       ${ahnen.length ? `
         ${ahnen.length > 1 ? `<div class="kg-regler no-print">
           <label for="kg-tiefe">Generationen</label>
@@ -8564,8 +8833,9 @@ Views.koenigin = {
         <div class="kg-stand"><span id="kg-bekannt"></span><span class="kg-balken"><i id="kg-balken"></i></span></div>
         <div class="kg-baum" id="kg-baum"></div>
         <div class="small muted mt8" id="kg-ende"></div>`
-        : `<p class="small muted mb12">Noch keine Abstammung erfasst. Trage bei dieser Königin Mutter und Drohnenlinie ein – oder lege ihre Mutter als eigene Königin an.</p>
-           <button type="button" class="btn btn-primary btn-sm no-print" data-kg-edit>${icon('pencil')} Mutter und Drohnenlinie eintragen</button>`}
+        : `<p class="small muted mb12">Noch keine Abstammung erfasst. Trage bei dieser Königin Mutter und Anpaarung ein – oder lege ihre Mutter als eigene Königin an.</p>
+           <button type="button" class="btn btn-primary btn-sm no-print" data-kg-edit>${icon('pencil')} Mutter und Anpaarung eintragen</button>`}
+      </div>
       ${toechter.length ? `<div class="small muted mt16 mb8"><b>Nachkommen</b> – Töchter dieser Königin</div>
         <div class="kg-toechter">${toechter.map((k) => ahnKarteHtml({ quelle: 'eigen', rec: k }, k.status === 'aktiv' ? 'Tochter' : `Tochter · ${k.status}`)).join('')}</div>` : ''}
     </div>`;
@@ -8630,7 +8900,7 @@ Views.koenigin = {
       box.innerHTML = zeilen.map((x, i) => `<div class="kg-gen${i >= gezeigt ? ' kg-neu' : ''}" style="animation-delay:${Math.max(0, i - gezeigt) * 45}ms">
         <span class="kg-gen-nr" title="${x.g}. Generation">${x.g}</span>
         ${ahnKarteHtml(x.mutter, ['Mutter', 'Großmutter', 'Urgroßmutter'][x.g - 1] || 'Mutterlinie', x.kind)}
-        ${ahnKarteHtml(x.drohnen, drohnenRolle(x.drohnen.art), x.kind)}</div>`).join('');
+        ${ahnKarteHtml(x.drohnen, drohnenRolle(x.drohnen.art, x.drohnen.beleg), x.kind)}</div>`).join('');
       gezeigt = t;
       const bekannt = zeilen.reduce((a, x) => a + (x.mutter.quelle !== 'fehlt') + (x.drohnen.quelle !== 'fehlt'), 0);
       const out = $('#kg-tiefe-zahl', main); if (out) out.innerHTML = `<b>${t}</b> von ${ahnen.length}`;
@@ -8649,6 +8919,36 @@ Views.koenigin = {
     const regler = $('#kg-tiefe', main);
     if (regler) regler.oninput = () => { V._tiefe = +regler.value; baum(V._tiefe); };
 
+    /* Ahnentafel: Spalte 1 die Königin, dann je Generation doppelt so viele Felder. Hinter Unbekanntem bleibt es leer;
+       fehlt bei einer eigenen Königin eine Angabe, gibt es „nachtragen“. Gemeinsame Vorfahren sind farbig. */
+    const tafelZeichnen = (D) => {
+      const box = $('#kg-tafel', main); if (!box) return;
+      const zeilen = 2 ** D;
+      box.style.gridTemplateColumns = `repeat(${D + 1}, minmax(128px, 1fr))`;
+      const kopf = ['Königin', 'Eltern', 'Großeltern', 'Urgroßeltern', 'Ururgroßeltern'];
+      let html = kopf.slice(0, D + 1).map((t, i) => `<div class="kg-tafel-kopf" style="grid-column:${i + 1};grid-row:1">${t}</div>`).join('');
+      html += `<div class="kg-tafel-zelle" style="grid-column:1;grid-row:2 / span ${zeilen}"><div class="kg-ahn"><span class="kg-rolle">diese Königin</span>
+        <span class="kg-name"><span class="dot" style="background:${hex}"></span><span>${U.esc(koeniginKurz(q)).replace(/\(/g, '<wbr>(')}</span></span><span class="kg-quelle q-eigen">${U.zahl(q.jahrgang)}</span></div></div>`;
+      for (let g = 1; g <= D; g++) {
+        const span = 2 ** (D - g);
+        for (let i = 0; i < 2 ** g; i++) {
+          const pfad = i.toString(2).padStart(g, '0').replace(/0/g, 'M').replace(/1/g, 'V');
+          const eltern = ahnentafelKnoten(tafel, pfad.slice(0, -1)), n = ahnentafelKnoten(tafel, pfad);
+          if (!eltern || !n || eltern.kreis) continue;
+          if (n.quelle === 'fehlt' && eltern.quelle !== 'eigen') continue;   // nur Nachtragbares als Lücke zeigen
+          const rolle = pfad.endsWith('M') ? (g === 1 ? 'Mutter (2a)' : 'Mutter') : (g === 1 && n.quelle !== 'beleg' ? `${drohnenRolle(n.art, n.beleg)} · 4a` : drohnenRolle(n.art, n.beleg));
+          const gem = gemeinsamSchl.has(ahnSchluessel(n));
+          html += `<div class="kg-tafel-zelle${gem ? ' kg-gemeinsam' : ''}" style="grid-column:${g + 1};grid-row:${i * span + 2} / span ${span}"${gem ? ' title="Gemeinsame Ahnin"' : ''}>${ahnKarteHtml(n, rolle, eltern.quelle === 'eigen' ? eltern.rec : null)}</div>`;
+        }
+      }
+      box.innerHTML = html;
+      const out = $('#kg-tafel-zahl', main); if (out) out.innerHTML = `<b>${D}</b> von ${tafelMax}`;
+      const r = $('#kg-tafel-tiefe', main); if (r) r.setAttribute('aria-valuetext', `${D} von ${tafelMax} Generationen`);
+    };
+    if (tafelMax) tafelZeichnen(tafelTiefe);
+    const tafelRegler = $('#kg-tafel-tiefe', main);
+    if (tafelRegler) tafelRegler.oninput = () => { V._tafelTiefe = +tafelRegler.value; tafelZeichnen(V._tafelTiefe); };
+
     /* Klicks: Ahninnen öffnen, Fehlendes nachtragen, Formulare über der Seite */
     main.addEventListener('click', async (e) => {
       const ahn = e.target.closest('[data-koenigin]');
@@ -8656,6 +8956,14 @@ Views.koenigin = {
       const nach = e.target.closest('[data-nachtragen]');
       if (nach) { const k = await DB.get('koeniginnen', nach.dataset.nachtragen); if (k) Views.koeniginnen.form(k); return; }
       if (e.target.closest('[data-kg-edit]')) return Views.koeniginnen.form(q);
+      const sbA = e.target.closest('[data-sb-ansicht]');
+      if (sbA) {
+        V._sbAnsicht = sbA.dataset.sbAnsicht;
+        $$('[data-sb-ansicht]', main).forEach((b) => { const an = b === sbA; b.classList.toggle('active', an); b.setAttribute('aria-pressed', String(an)); });
+        $('#kg-sb-tafel', main).hidden = V._sbAnsicht !== 'tafel';
+        $('#kg-sb-linie', main).hidden = V._sbAnsicht === 'tafel';
+        return;
+      }
       if (e.target.closest('[data-kg-bew]')) return gdebBewertungForm(q.id);
       if (e.target.closest('[data-kg-pdf]')) return Pdf.stockkarte(q.id);
       const b = e.target.closest('[data-bew]'); if (b) return gdebBewertungForm(q.id, b.dataset.bew);
@@ -8689,7 +8997,8 @@ async function erzeugeToechter(serie, n, jahrgang) {
       kennung, jahrgang, linie: serie.linie || '', herkunft: 'Eigene Nachzucht', status: 'aktiv',
       mutterId: serie.zuchtmutterId || null, anpaarung: serie.anpaarung || '',
       belegstelle: serie.anpaarung === 'belegstelle' ? (serie.belegstelle || '') : '',
-      vatervolkId: (serie.anpaarung === 'besamung' || serie.anpaarung === 'standbegattung') ? (serie.vatervolkId || null) : null,
+      belegstelleId: serie.anpaarung === 'belegstelle' ? (serie.belegstelleId || null) : null,
+      vatervolkId: serie.vatervolkId || null,
       bewertung: {}, serieId: serie.id, serieName: serie.name, historie: [], notiz: `Aus Zuchtserie „${serie.name}“`,
     });
     erzeugt++;
@@ -8938,9 +9247,9 @@ Views.zucht = {
         { key: '_hTitel', type: 'static', html: '<h3 class="mt8 mb8">Herkunft (wird an die Töchter vererbt)</h3>' },
         { key: 'zuchtmutterId', label: 'Zuchtmutter (2a)', type: 'select', options: qOpts, hint: 'Von welcher Königin stammt der Zuchtstoff?' },
         { key: 'linie', label: 'Rasse / Linie', type: 'suggest', options: await gelernteWerte(VORSCHLAEGE.rasse, 'koeniginnen', 'linie') },
-        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wähle „Standbegattung“ oder „Künstliche Besamung“ – dann erscheint darunter das Feld für das Vatervolk (Drohnenlinie). Bei „Belegstelle“ wählst du eine deiner Belegstellen.' },
+        { key: 'anpaarung', label: 'Geplante Anpaarung', type: 'select', default: '', options: [{ v: '', l: '– offen –' }, { v: 'standbegattung', l: 'Standbegattung' }, { v: 'belegstelle', l: 'Belegstelle' }, { v: 'besamung', l: 'Künstliche Besamung' }], hint: 'Wie sollen die Töchter begattet werden? Bei „Belegstelle“ wählst du darunter eine deiner Belegstellen. Das Vatervolk (4a) kannst du immer angeben.' },
         { key: 'belegstelleId', label: 'Belegstelle', type: 'select', options: belegOpts, showIf: (f) => f.anpaarung === 'belegstelle', hint: 'Aus deinen Belegstellen (Einstellungen). Eine neue kannst du direkt hier unten anlegen.' },
-        { key: 'vatervolkId', label: 'Vatervolk / Drohnenlinie (4a)', type: 'select', options: qOpts, showIf: (f) => f.anpaarung === 'besamung' || f.anpaarung === 'standbegattung' },
+        { key: 'vatervolkId', label: 'Vatervolk (4a)', type: 'select', options: qOpts, hint: 'Die Drohnenmutter – bei einer Belegstelle die Mutter der Drohnenvölker dort, falls bekannt. Geht an alle Töchter der Serie.' },
         { key: '_vTitel', type: 'static', html: '<h3 class="mt8 mb8">Verlauf (optional)</h3><div class="hint mb8">Zwischenzahlen zur Erfolgskontrolle – Faustregel: je Stufe fällt rund ein Drittel aus.</div>' },
         { key: 'angenommen', label: 'Angenommene Zellen', type: 'number' },
         { key: 'geschluepft', label: 'Geschlüpfte Königinnen', type: 'number' },
@@ -8954,8 +9263,8 @@ Views.zucht = {
           name: v.name, startdatum: v.startdatum, anzahl: v.anzahl, linie: v.linie, notiz: v.notiz,
           zuchtmutterId: v.zuchtmutterId || null, anpaarung: v.anpaarung || '',
           belegstelleId: v.anpaarung === 'belegstelle' ? (v.belegstelleId || null) : null,
-          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || '') : '',
-          vatervolkId: (v.anpaarung === 'besamung' || v.anpaarung === 'standbegattung') ? (v.vatervolkId || null) : null,
+          belegstelle: v.anpaarung === 'belegstelle' ? (belegName.get(v.belegstelleId) || (!v.belegstelleId && s ? s.belegstelle || '' : '')) : '',
+          vatervolkId: v.vatervolkId || null,
           angenommen: v.angenommen ?? null, geschluepft: v.geschluepft ?? null, begattet: v.begattet ?? null,
         });
         rec.termine = zuchtTermine(rec.startdatum);
@@ -8988,7 +9297,7 @@ Views.zucht = {
     const m = UI.modal({
       title: s.name, wide: true,
       body: `<div class="flex-wrap mb12"><span class="kpill">Umlarven: ${U.fmtDate(s.startdatum)}</span><span class="kpill">${U.zahl(s.anzahl)} Zellen</span>${s.linie ? `<span class="kpill">${U.esc(s.linie)}</span>` : ''}</div>
-        ${(zm || anpaarungText) ? `<div class="detail-kv mb12">${zm ? `<dt>Zuchtmutter (2a)</dt><dd>${koeniginLabel(zm)}</dd>` : ''}${anpaarungText ? `<dt>Anpaarung (4a)</dt><dd>${vv ? koeniginLabel(vv) + ' · ' : ''}${anpaarungText}</dd>` : ''}</div>` : ''}
+        ${(zm || anpaarungText || vv) ? `<div class="detail-kv mb12">${zm ? `<dt>Zuchtmutter (2a)</dt><dd>${koeniginLabel(zm)}</dd>` : ''}${anpaarungText ? `<dt>Anpaarung</dt><dd>${anpaarungText}</dd>` : ''}${vv ? `<dt>Vatervolk (4a)</dt><dd>${koeniginLabel(vv)}</dd>` : ''}</div>` : ''}
         ${funnel.length > 1 ? `<div class="stat-grid mb12">${funnel.map(([l, n]) => `<div class="stat"><div class="s-label">${l}</div><div class="s-value">${U.zahl(n)}</div></div>`).join('')}</div>` : ''}
         ${s.notiz ? `<p class="small muted mb12">${U.esc(s.notiz)}</p>` : ''}
         ${bereitsErzeugt ? `<div class="banner info mb12">${icon('info')} <span class="b-msg">Aus dieser Serie wurden bereits <b>${bereitsErzeugt} Töchter</b> als Königinnen angelegt.</span></div>` : ''}
@@ -20348,12 +20657,71 @@ const Importer = {
       { key: 'beutenkennung', label: 'Beutenkennung', aliases: ['kennung', 'beutenkennung', 'tag', 'label'] },
       { key: 'notizen', label: 'Notizen', aliases: ['notiz', 'notizen', 'bemerkung', 'kommentar', 'note'] },
     ], build: (v, refs) => ({ name: v.name, standId: refs.stand || null, koeniginId: null, funktion: v.funktion || '', beutentyp: v.beutentyp || '', beutenkennung: v.beutenkennung || '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Importiert' }], notizen: v.notizen || '' }) },
+    /* v2.92: Kennung, Mutter, Vaterseite und Pedigree kommen mit – vorher nur Jahrgang/Herkunft/Linie, ein
+       Stammbaum ging beim Import verloren. Mutter und Vaterseite werden NACH dem Einlesen über die Kennung
+       verknüpft (auch mit Königinnen aus derselben Datei). Spaltennamen passen zum eigenen Excel-Export. */
     koeniginnen: { label: 'Königinnen', store: 'koeniginnen', felder: [
+      { key: 'kennung', label: 'Kennung', aliases: ['kennung', 'koeniginkennung', 'zuchtbuchnummer', 'zuchtbuchnr', 'queenid', 'koenigin'] },
       { key: 'jahrgang', label: 'Jahrgang', required: true, type: 'num', aliases: ['jahrgang', 'jahr', 'year', 'geburtsjahr'] },
-      { key: 'herkunft', label: 'Herkunft', aliases: ['herkunft', 'origin', 'quelle'] },
-      { key: 'linie', label: 'Rasse/Linie', aliases: ['linie', 'rasse', 'race', 'line', 'zuchtlinie'] },
+      { key: 'generation', label: 'Generation', aliases: ['generation'] },
+      { key: 'linie', label: 'Herkunft / Linie', aliases: ['linie', 'rasse', 'race', 'line', 'zuchtlinie', 'herkunftlinie'] },
+      { key: 'herkunft', label: 'Woher stammt sie', aliases: ['herkunft', 'origin', 'quelle', 'woher', 'wohersstammtsie', 'woherstammtdiekonigin'] },
+      { key: 'status', label: 'Status', aliases: ['status', 'zustand'] },
+      { key: 'mutter', label: 'Mutter (2a) – Kennung', aliases: ['mutter2a', 'mutter', 'mother', 'dam', 'zuchtmutter', 'mutterkennung'] },
+      { key: 'anpaarung', label: 'Anpaarung', aliases: ['anpaarung', 'begattung', 'paarung', 'mating'] },
+      { key: 'vater', label: 'Vaterseite (4a) – Kennung oder Belegstelle', aliases: ['vaterseite4a', 'vaterseite', 'vatervolk', 'vatervolk4a', 'vater', 'drohnenmutter', 'sire', 'drohnenvolk'] },
+      { key: 'belegstelle', label: 'Belegstelle', aliases: ['belegstelle', 'belegstation', 'matingstation'] },
+      { key: 'pedigree', label: 'Pedigree', aliases: ['pedigree', 'abstammung', 'stammbaum', 'pedigreezeile'] },
       { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
-    ], build: (v) => ({ jahrgang: Math.round(v.jahrgang), herkunft: v.herkunft || '', linie: v.linie || '', status: 'aktiv', historie: [], notiz: v.notiz || '' }) },
+    ],
+    build: (v) => ({
+      kennung: v.kennung || '', jahrgang: Math.round(v.jahrgang), generation: v.generation || '', herkunft: v.herkunft || '', linie: v.linie || '',
+      status: ({ verloren: 'verloren', umgeweiselt: 'umgeweiselt' })[String(v.status || '').trim().toLowerCase()] || 'aktiv',
+      historie: [], notiz: v.notiz || '', pedigree: v.pedigree || '',
+      mutterId: null, anpaarung: '', belegstelle: '', belegstelleId: null, vatervolkId: null,
+    }),
+    /** gleiche Kennung schon da → Zeile auslassen (nichts überschreiben) */
+    async schonDa(v) {
+      if (!v.kennung) return false;
+      if (!this._kennungen) this._kennungen = new Set((await DB.getAll('koeniginnen')).map((k) => kennungSchluessel(k.kennung)).filter(Boolean));
+      const s = kennungSchluessel(v.kennung);
+      if (this._kennungen.has(s)) return true;
+      this._kennungen.add(s); return false;
+    },
+    /** Mutter und Vaterseite über die Kennung verknüpfen – erst jetzt, wenn alle Zeilen da sind */
+    async nachImport(neu) {
+      this._kennungen = null;
+      const alle = await DB.getAll('koeniginnen');
+      const nachK = kennungIndex(new Map(alle.map((k) => [k.id, k])));
+      const belege = await DB.getAll('belegstellen');
+      const belegNach = (name) => belege.find((b) => Importer._norm(b.name) === Importer._norm(name)) || belege.find((b) => Importer._norm(b.name).includes(Importer._norm(name)) && Importer._norm(name).length >= 4) || null;
+      let mutter = 0, vater = 0, belegZahl = 0;
+      for (const { rec, v } of neu) {
+        const p0 = ((pedigreeParse(v.pedigree) || {}).generationen || [])[0] || null;
+        const finde = (code) => { const r = code ? nachK.get(kennungSchluessel(code)) : null; return r && r.id !== rec.id ? r : null; };
+        const m = finde(v.mutter) || (!v.mutter && p0 ? finde(p0.mutter) : null);
+        if (m) { rec.mutterId = m.id; mutter++; }
+        const artSpalte = anpaarungAusText(v.anpaarung);
+        let art = artSpalte || (p0 ? p0.anpaarung : '');
+        const vRoh = String(v.vater || '').trim();
+        const vRec = finde(vRoh) || (!vRoh && p0 ? finde(p0.vatervolk) : null);
+        /* Vaterseite ohne Ziffer ist eine Belegstelle – aber nur, wenn die Anpaarung leer ist oder „Belegstelle“ sagt
+           (sonst eine Drohnenmutter ohne Kennung). Eine Kennung mit Ziffer ist nie eine Belegstelle. */
+        const vAlsBeleg = vRoh && !vRec && !/\d/.test(vRoh) && (!artSpalte || artSpalte === 'belegstelle');
+        const belegName = String(v.belegstelle || '').trim() || (vAlsBeleg ? vRoh : '') || (!vRoh && p0 && p0.belegstelle) || '';
+        // Belegstelle und Drohnenmutter (4a) dürfen zusammen vorkommen – so schreibt es auch das Kehrle-Register
+        if (belegName) { const b = belegNach(belegName); art = 'belegstelle'; rec.belegstelle = b ? b.name : belegName; rec.belegstelleId = b ? b.id : null; belegZahl++; }
+        if (vRec) { rec.vatervolkId = vRec.id; vater++; }
+        rec.anpaarung = art || '';
+        /* Mutter oder Vaterseite nicht als Königin vorhanden: als Pedigree-Zeile festhalten, damit nichts verloren geht
+           und der Stammbaum sie trotzdem zeigt */
+        const mOffen = v.mutter && !m ? String(v.mutter).trim() : '', vOffen = vRoh && !vRec && !vAlsBeleg && vRoh !== belegName ? vRoh : '';
+        if (!rec.pedigree && (mOffen || vOffen)) rec.pedigree = pedigreeZeile(String(rec.kennung || koeniginKurz(rec)).replace(/\s+/g, ''), [{ jahr: rec.jahrgang, mutter: mOffen || (m ? koeniginKurz(m) : ''), vater: vOffen || (vRec ? koeniginKurz(vRec) : ''), art, beleg: belegName }]);
+        await DB.put('koeniginnen', rec);
+      }
+      const teile = [mutter ? `Mutter bei ${mutter}` : '', vater ? `Vatervolk (4a) bei ${vater}` : ''].filter(Boolean);
+      return [teile.length ? `${teile.join(', ')} ${Math.max(mutter, vater) === 1 && teile.length === 1 ? 'Königin' : 'Königinnen'} verknüpft.` : '', belegZahl ? `Belegstelle bei ${belegZahl} eingetragen.` : ''].filter(Boolean).join(' ');
+    } },
     stockkarten: { label: 'Durchsichten (Stockkarte)', store: 'stockkarten', refs: { volk: 'voelker' }, felder: [
       { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive', 'volkname', 'stock'] },
       { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'durchsicht'] },
@@ -20468,7 +20836,8 @@ const Importer = {
     const ent = Importer.ENTITIES[entityKey];
     const refIdx = {};
     for (const rk of Object.keys(ent.refs || {})) refIdx[rk] = await Importer._nameIndex(ent.refs[rk]);
-    let ok = 0, uebersprungen = 0; const probleme = [];
+    let ok = 0, uebersprungen = 0, doppelt = 0; const probleme = [], neu = [];
+    if (ent.schonDa) ent._kennungen = null;
     for (const r of rows) {
       // Rohwerte je Zielfeld ziehen + typisieren
       const v = {};
@@ -20499,16 +20868,20 @@ const Importer = {
         refs[rk] = id || null;
       }
       if (skip) { uebersprungen++; continue; }
+      if (ent.schonDa && await ent.schonDa(v)) { doppelt++; continue; }
       const rec = ent.build(v, refs);
       const saved = await DB.put(ent.store, rec);
+      neu.push({ rec: saved, v });
       // neu angelegte Stände/Völker sofort in den Namensindex (für Folgezeilen)
       if (entityKey === 'staende' || entityKey === 'voelker') { /* eigener Index nicht nötig hier */ }
       ok++;
     }
     if (entityKey === 'staende' || entityKey === 'voelker') { /* Referenz-Caches anderer Importe veralten – egal, sie werden je Import neu gebaut */ }
+    const nachher = ent.nachImport && neu.length ? await ent.nachImport(neu) : '';
     let msg = `${ok} ${ent.label} importiert`;
     if (uebersprungen) msg += `, ${uebersprungen} übersprungen`;
-    zone.innerHTML = `<div class="banner ${ok ? 'info' : 'warn'}">${icon(ok ? 'check' : 'warn')} <span class="b-msg"><b>${msg}.</b>${probleme.length ? ` Nicht gefundene Völker (erst Völker importieren): ${U.esc(probleme.slice(0, 8).join(', '))}${probleme.length > 8 ? ' …' : ''}.` : ''}</span></div>`;
+    if (doppelt) msg += `, ${doppelt} schon vorhanden (gleiche Kennung, nicht überschrieben)`;
+    zone.innerHTML = `<div class="banner ${ok ? 'info' : 'warn'}">${icon(ok ? 'check' : 'warn')} <span class="b-msg"><b>${msg}.</b>${nachher ? ' ' + U.esc(nachher) : ''}${probleme.length ? ` Nicht gefundene Völker (erst Völker importieren): ${U.esc(probleme.slice(0, 8).join(', '))}${probleme.length > 8 ? ' …' : ''}.` : ''}</span></div>`;
     UI.toast(msg);
     window._changedSinceBackup = true;
   },
@@ -22509,7 +22882,7 @@ const Xlsx = {
       staende: { blatt: 'Stände', rows: async () => (await alle('staende')).map((s) => ({ Name: s.name, 'Anschrift/Ort': s.ort || '', Gemarkung: s.gemarkung || '', Flurnummer: s.flurnummer || '', Standnummer: s.standNr || '', Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
       voelker: { blatt: 'Völker', rows: async () => (await alle('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[v.status] || v.status, 'Angelegt am': d(U.sortBy(v.historie || [], (h) => h.datum || '')[0]?.datum || String(v.createdAt || '').slice(0, 10)), Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await alle('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
-      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Status: q.status, Pedigree: q.pedigree || pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
+      koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Generation: q.generation || '', Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Belegstelle: q.anpaarung === 'belegstelle' ? (q.belegstelle || '') : '', Status: q.status, Pedigree: q.pedigree || '', 'Pedigree (aus dem Stammbaum)': q.pedigree ? '' : pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
         ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
         'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || ANPAARUNG_TEXT[z.anpaarung] || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
@@ -23174,7 +23547,16 @@ const Pdf = {
       doc.setTextColor(120).text('Pedigree der Königin:', 14, yy);
       doc.setTextColor(40);
       const pedZeilen = doc.splitTextToSize(ped || '–', 132);
-      doc.text(pedZeilen, 62, yy); yy += pedZeilen.length * 4.4 + 4;
+      doc.text(pedZeilen, 62, yy); yy += pedZeilen.length * 4.4 + 1;
+      // Ahnentafel beider Seiten (v2.92) – für die Tabelle unten und den Hinweis auf gemeinsame Vorfahren
+      const tafel = koeniginAhnentafel(q, km, 6), gemeinsam = gemeinsameAhnen(tafel);
+      const gemeinsamSchl = new Set(gemeinsam.map((x) => ahnSchluessel(x.knoten)));
+      if (gemeinsam.length) {
+        doc.setTextColor(120).text('Gemeinsame Vorfahren:', 14, yy + 3.4);
+        const gz = doc.splitTextToSize(gemeinsam.map((x) => `${ahnName(x.knoten)} (${x.pfade.map(ahnPfadText).join(' und ')})`).join('; '), 132);
+        doc.setTextColor(40).text(gz, 62, yy + 3.4); yy += gz.length * 4.4 + 3.4;
+      }
+      yy += 3;
 
       doc.setFontSize(8.5).setTextColor(110);
       doc.text('Neue Bewertung: 1–6. Altspalten: 1–4, unverändert; Mittelwerte verschiedener Skalen nicht vergleichen.', 14, yy);
@@ -23218,6 +23600,25 @@ const Pdf = {
       doc.text(`* Zusatzmerkmale. Zuletzt bewertet: ${voll.kern} von ${voll.von} Kernmerkmalen – für ein Zuchtvolk sollen mindestens ${voll.mindest} bewertet sein.`, 14, ny);
       if (liste.length > spalten.length) {
         doc.text(`Es werden die letzten ${spalten.length} von ${liste.length} Bewertungen gezeigt.`, 14, ny + 4.5);
+        ny += 4.5;
+      }
+      /* Abstammung beider Seiten, drei Generationen: nur was bekannt ist, Mutter (2a) vor Vaterseite (4a) */
+      const ahnenZeilen = [];
+      for (let g = 1; g <= 3; g++) for (let i = 0; i < 2 ** g; i++) {
+        const pfad = i.toString(2).padStart(g, '0').replace(/0/g, 'M').replace(/1/g, 'V');
+        const n = ahnentafelKnoten(tafel, pfad);
+        if (!n || n.quelle === 'fehlt') continue;
+        const jahr = n.quelle === 'eigen' ? n.rec.jahrgang : n.jahr;
+        const art = !pfad.endsWith('V') || n.quelle === 'beleg' ? '' : n.art === 'belegstelle' ? ` (${belegstelleText(n.beleg)})` : ANPAARUNG_TEXT[n.art] ? ` (${ANPAARUNG_TEXT[n.art]})` : '';
+        ahnenZeilen.push([String(g), pfad.split('').map((c) => (c === 'M' ? 'Mutter' : 'Vaterseite')).join(' › ') + art,
+          ahnName(n) + (gemeinsamSchl.has(ahnSchluessel(n)) ? ' (gemeinsam)' : ''), jahr ? String(jahr) : '',
+          { eigen: 'ImkerBuch', pedigree: 'Pedigree-Zeile', beleg: 'Belegstelle' }[n.quelle] || '']);
+      }
+      if (ahnenZeilen.length) {
+        ny += 8; platz(24);
+        doc.setFont('helvetica', 'bold').setFontSize(9.5).setTextColor(60).text('Abstammung beider Seiten (bis 3 Generationen)', 14, ny);
+        this.table(doc, { head: ['Gen.', 'Linie von der Königin aus', 'Ahnin / Belegstelle', 'Jahrgang', 'Angabe aus'], body: ahnenZeilen, startY: ny + 2.5,
+          widths: { 0: { halign: 'center' }, 3: { halign: 'right' } } });
       }
       this.finish(doc, `stockkarte-${(q.kennung || 'koenigin').replace(/[^\wäöüß.-]+/gi, '_')}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -24972,8 +25373,8 @@ const APP_WISSEN = [
     antwort: 'Für die Durchsicht direkt am Bienenstand gibt es „Durchsicht am Stand“: eine Frage pro Bildschirm, große Knöpfe, auch mit Handschuhen bedienbar. Nach „Speichern“ geht es von selbst zum nächsten Volk des Standes.',
     schritte: ['Bienenstände ▸ Stand antippen ▸ „Durchsicht am Stand“', 'oder im Volk oben „Durchsicht am Stand“', 'oder auf der Startseite im Widget „Durchsicht am Stand“', 'oder den QR-Aufkleber an der Beute scannen (Volk ▸ „QR-Code“ druckt ihn)'] },
   { id: 'koenigin-stammbaum', titel: 'Stammbaum einer Königin ansehen', route: 'koeniginnen', zeige: '',
-    stichw: ['stammbaum', 'pedigree', 'ahnen', 'ahnin', 'abstammung', 'generationen', 'mutterlinie', 'grossmutter', 'vatervolk', 'drohnenseite', 'drohnenlinie herkunft', 'kehrle', 'beebreed', 'zuchtbuch', 'woher kommen die daten', 'stammbaum regler'],
-    antwort: 'Tippe eine Königin an – sie öffnet sich als eigene Seite. Im Reiter „Stammbaum“ schiebst du den Regler so weit, wie Generationen erfasst sind; Zähler und Balken zeigen sofort, wie viele Vorfahren bekannt sind. Jede Ahnin trägt, woher die Angabe kommt: „in ImkerBuch“ (antippen öffnet sie), „aus der Pedigree-Zeile“ oder „nicht erfasst“ (antippen zum Nachtragen). Kehrle-Register und BeeBreed dürfen wir nicht automatisch abrufen – dort nachsehen und hier eintragen.',
+    stichw: ['stammbaum', 'pedigree', 'ahnen', 'ahnin', 'ahnentafel', 'abstammung', 'generationen', 'mutterlinie', 'grossmutter', 'vatervolk', 'drohnenseite', 'gemeinsame vorfahren', 'verwandt', 'inzucht', 'drohnenlinie herkunft', 'kehrle', 'beebreed', 'zuchtbuch', 'woher kommen die daten', 'stammbaum regler'],
+    antwort: 'Tippe eine Königin an – sie öffnet sich als eigene Seite. Im Reiter „Stammbaum“ schiebst du den Regler so weit, wie Generationen erfasst sind; Zähler und Balken zeigen sofort, wie viele Vorfahren bekannt sind. Jede Ahnin trägt, woher die Angabe kommt: „in ImkerBuch“ (antippen öffnet sie), „aus der Pedigree-Zeile“ oder „nicht erfasst“ (antippen zum Nachtragen). Kehrle-Register und BeeBreed dürfen wir nicht automatisch abrufen – dort nachsehen und hier eintragen. Mit „Ahnentafel (beide Seiten)“ siehst du auch die Vorfahren des Vatervolks (4a); kommt dieselbe Ahnin mehrfach vor, steht oben ein Hinweis „Gemeinsame Vorfahren“.',
     schritte: ['Menü ▸ Königinnen', 'Königin antippen', 'Reiter „Stammbaum“ öffnen und den Regler schieben'] },
   { id: 'koenigin', titel: 'Königinnen verwalten', route: 'koeniginnen', zeige: 'Königin',
     stichw: ['koenigin', 'weisel', 'koenigin anlegen', 'zeichnen', 'koeniginnenfarbe', 'umweiseln', 'herkunft', 'stockmutter', 'neue koenigin', 'koenigin neu', 'koenigin hinzufuegen', 'koengin', 'weisel anlegen', 'koenigin zeichnen', 'farbe koenigin', 'koeniginnen', 'welche farbe', 'zeichnungsfarbe', 'koenigin eintragen', 'koenigin erfassen', 'koenigin jahrgang', 'koenigin herkunft'],
@@ -24981,7 +25382,7 @@ const APP_WISSEN = [
     schritte: ['Menü ▸ Königinnen', '„+ Neue Königin“ tippen', 'Herkunft, Jahrgang, Farbe eintragen'],
     tour: [{ knopf: 'Königin', text: 'Tippe auf „+ Neue Königin“.' },
       { feld: 'Jahrgang', text: 'In welchem Jahr ist die Königin geschlüpft?' },
-      { feld: 'Herkunft', text: 'Woher kommt sie? Zucht, Zukauf, eigene Nachzucht …' },
+      { feld: 'Woher stammt die Königin', text: 'Woher stammt sie? Eigene Nachzucht, Zukauf, Schwarm …' },
       { feld: 'Status', text: 'Wie ist ihr Stand heute, zum Beispiel „aktiv“?' },
       { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'zucht', titel: 'Königinnen züchten', route: 'zucht', zeige: 'Serie',

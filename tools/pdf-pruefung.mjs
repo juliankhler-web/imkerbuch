@@ -30,7 +30,7 @@ await p.evaluate(async () => {
 const auftraege = await p.evaluate(() => {
   const l = unterlagenListe().filter((e) => e.pdf && e.id !== 'komplett').map((e) => ({ id: e.id, titel: e.titel, art: 'liste' }));
   return [...l, { id: 'volksakte', titel: 'Volksakte (ein Volk, Jahr)' }, { id: 'volksakte-alle', titel: 'Volksakte (alle Jahre)' }, { id: 'rechnung', titel: 'Einzelne Rechnung' },
-    { id: 'stockkarte-koenigin', titel: 'Stockkarte einer Königin' }, { id: 'zuchtbuch', titel: 'Zuchtbuch einer Serie' },
+    { id: 'stockkarte-koenigin', titel: 'Stockkarte einer Königin' }, { id: 'stockkarte-ahnen', titel: 'Stockkarte mit voller Ahnentafel' }, { id: 'zuchtbuch', titel: 'Zuchtbuch einer Serie' },
     { id: 'wanderschild', titel: 'Wanderschild (§ 5a)' }, { id: 'tsk-TH', titel: 'Tierseuchenkasse Thüringen' }, { id: 'tsk-NW', titel: 'Tierseuchenkasse NRW' }, { id: 'tsk-ohne', titel: 'Tierseuchenkasse ohne Land' }, { id: 'tsk-AT', titel: 'Völkermeldung VIS Österreich' }, { id: 'tsk-CH', titel: 'Bestandeskontrolle Schweiz' }, { id: 'land-AT-bestandsmeldung', titel: 'Registrierung Österreich' }, { id: 'land-CH-bestandsmeldung', titel: 'Registrierung Schweiz' }, { id: 'land-AT-wanderschild', titel: 'Standschild Österreich' }, { id: 'land-CH-wanderschild', titel: 'Standschild Schweiz' }, { id: 'honig-etikett', titel: 'Honig-Etiketten' }, { id: 'qr-etiketten', titel: 'QR-Etiketten' },
     { id: 'komplett', titel: 'Komplettausdruck (Jahr)' }, ...ARCHIV_BEREICHE.map((k) => ({ id: 'bio-archiv-' + k, titel: 'Bio-Archiv ' + k }))];
 });
@@ -62,6 +62,10 @@ for (const [nr, a] of auftraege.entries()) {
       if (a.art === 'liste') { const e = unterlagenListe().find((x) => x.id === a.id); await e.pdf(e.jahr ? jahr : ''); }
       else if (a.id.startsWith('volksakte')) { const v = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name)[3]; const j = a.id === 'volksakte' ? jahr : ''; await Pdf.abschnitte({ titel: `Volksakte ${v.name}`, untertitel: j ? 'Jahr ' + j : 'alle Jahre', teile: await Export.volkTeile(v, j), datei: 'volksakte.pdf' }); }
       else if (a.id === 'rechnung') { const r = (await DB.getAll('rechnungen')).filter((x) => x.status === 'festgeschrieben').sort((x, y) => y.positionen.length - x.positionen.length)[0]; await Pdf.rechnung(r.id); }
+      else if (a.id === 'stockkarte-ahnen') {   // die Königin mit den meisten bekannten Vorfahren (Ahnentafel im PDF voll)
+        const km = await idMap('koeniginnen'), zaehl = (n) => (!n ? 0 : (n.quelle !== 'fehlt' ? 1 : 0) + zaehl(n.mutter) + zaehl(n.vater));
+        const q = U.sortBy([...km.values()], (x) => zaehl(koeniginAhnentafel(x, km, 3)), true)[0]; await Pdf.stockkarte(q.id);
+      }
       else if (a.id === 'stockkarte-koenigin') { const q = (await DB.getAll('koeniginnen')).find((x) => (x.bewertungen || []).length >= 2) || (await DB.getAll('koeniginnen'))[0]; await Pdf.stockkarte(q.id); }
       else if (a.id === 'wanderschild') { const st = U.sortBy(await DB.getAll('staende'), (x) => -x.name.length)[0]; await Pdf.wanderschild(st.id); }
       else if (a.id.startsWith('land-')) {   // Österreich/Schweiz: dieselben PDFs mit eigenem Recht
@@ -96,7 +100,7 @@ for (const [nr, a] of auftraege.entries()) {
     }
     // Bild: erste und mittlere Seite nebeneinander
     const bilder = [];
-    for (const n of [...new Set([1, ...(a.id === 'komplett' ? [2] : []), Math.max(1, Math.ceil(seiten / 2))])]) {   // Komplett: dazu das Inhaltsverzeichnis
+    for (const n of [...new Set([1, ...(a.id === 'komplett' ? [2] : []), Math.max(1, Math.ceil(seiten / 2)), seiten])]) {   // Komplett: dazu das Inhaltsverzeichnis; immer auch die letzte Seite
       const pg = await pdf.getPage(n), vp = pg.getViewport({ scale: 1 }), s = 760 / Math.max(vp.width, vp.height) * (vp.width > vp.height ? 1.25 : 1);
       const v2 = pg.getViewport({ scale: s }), c = document.createElement('canvas'); c.width = v2.width; c.height = v2.height;
       await pg.render({ canvasContext: c.getContext('2d'), viewport: v2 }).promise; bilder.push(c);

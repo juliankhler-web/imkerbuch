@@ -90,6 +90,10 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
       status: aktiv ? 'aktiv' : 'umgeweiselt', historie: [], notiz: i % 23 === 0 ? 'Sehr sanftmütig, wabenstet – Zuchtkandidatin (Note ≥ 3,5).' : '', mutterId: mutter ? mutter.id : null,
       anpaarung: pick(['belegstelle', 'standbegattung', 'besamung', '']), belegstelle: '', belegstelleId: null, vatervolkId: null, bewertung: {} });
     if (q.anpaarung === 'belegstelle') { const b = pick(beleg); q.belegstelle = b.name; q.belegstelleId = b.id; }
+    // Vaterseite (4a) und Pedigree-Zeilen (Kehrle-Schreibweise) – für Ahnentafel und Stockkarten-PDF (v2.92)
+    const aeltere = queens.filter((x) => x.jahrgang < jg);
+    if (aeltere.length > 5 && rnd() < 0.6) q.vatervolkId = pick(aeltere).id;
+    if (!q.mutterId && rnd() < 0.35) q.pedigree = `${q.kennung} = .${String(jg).slice(-2)} - B${int(10, 400)}(TR) ${pick(['ins', 'x', 'bal', 'Insel Norderney'])} B${int(10, 400)}(PJ) [${int(8, 40)} dr.c.] : .${String(jg - 2).slice(-2)} - B${int(10, 400)}(KK) x B${int(10, 400)}(LE)`;
     if (rnd() < 0.6) {   // Bewertungen nach GdeB (1–3 Termine) – für Königinnen-Liste und Stockkarte
       q.bewertungen = Array.from({ length: int(1, 3) }, (_, k) => {
         const noten = {}; for (const g of GDEB_GRUPPEN) for (const m of g.merkmale) noten[m.key] = int(1, 6);

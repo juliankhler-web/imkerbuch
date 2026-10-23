@@ -1411,8 +1411,9 @@ test('kennungParse: mehrgenerationige Pedigree-Zeile zerlegen', (w) => {
   const p = w.kennungParse('B66(TR)=.96-B173(TR)xB169(TR): .94-B2(TR)xB224(PJ)');
   assertEq(p.code, 'B66(TR)', 'Kopf ist die Königin selbst');
   assertEq(p.generationen.length, 2, 'zwei Generationen durch „:“ getrennt');
-  assertEq(p.generationen[0], { jahr: 1996, mutter: 'B173(TR)', vatervolk: 'B169(TR)', anpaarung: 'standbegattung' });
-  assertEq(p.generationen[1], { jahr: 1994, mutter: 'B2(TR)', vatervolk: 'B224(PJ)', anpaarung: 'standbegattung' });
+  // „x“ sagt nur „verpaart“ – die Art der Anpaarung bleibt offen (v2.92; Standbegattung schreibt das Register „nat“)
+  assertEq(p.generationen[0], { jahr: 1996, mutter: 'B173(TR)', vatervolk: 'B169(TR)', anpaarung: '' });
+  assertEq(p.generationen[1], { jahr: 1994, mutter: 'B2(TR)', vatervolk: 'B224(PJ)', anpaarung: '' });
 });
 test('kennungParse: „ins“ bedeutet künstliche Besamung', (w) => {
   const p = w.kennungParse('B66(TR)=.20-B173(TR) ins B1(BW)');
@@ -1515,6 +1516,261 @@ test('Königin: aus der Liste wird die Seite geöffnet; gelöschte Königin zeig
     await w.Views.koenigin.render(host, 'gibt-es-nicht');
     assert(/gibt es nicht mehr/.test(host.textContent) && /Zu den Königinnen/.test(host.textContent), 'freundlicher Hinweis mit Rückweg');
   } finally { w.location.hash = altHash; await w.renderRoute(); }
+}));
+
+/* ---------- Stammbaum v2.92: Pedigree-Zeile lesen/schreiben, Ahnentafel beider Seiten, Feldnamen, Import ---------- */
+test('pedigreeParse: echte Zeilen aus dem Kehrle-Register und der Bruder-Adam-Schreibweise', (w) => {
+  const a = w.pedigreeParse('No. B257(IZ)= .94-A299(IZ) ins B171(IZ);.92-A224(IZ) rud B314(IZ);');
+  assertEq(a.kopf, 'B257(IZ)', '„No.“ fällt weg');
+  assertEq(a.generationen, [
+    { jahr: 1994, mutter: 'A299(IZ)', vatervolk: 'B171(IZ)', anpaarung: 'besamung' },
+    { jahr: 1992, mutter: 'A224(IZ)', vatervolk: 'B314(IZ)', anpaarung: 'belegstelle', belegstelle: 'rud' },
+  ], 'Strichpunkt trennt, Belegstellen-Kürzel mit Drohnenmutter');
+  const b = w.pedigreeParse('B2(KK) = .24 - B22.3.50(KK).22 ins EL18.1.49(KK).18 [1 dr.c.] (EL)').generationen[0];
+  assertEq([b.jahr, b.mutter, b.mutterJahr, b.vatervolk, b.vaterJahr, b.anpaarung], [2024, 'B22.3.50(KK)', 2022, 'EL18.1.49(KK)', 2018, 'besamung'], 'Jahr hinter der Kennung, Klammern am Ende');
+  const c = w.pedigreeParse('B14Vt(RHO) = imq .13 - EL61(KK).11 hbg B235(PJ).10 [18 dr.c.]').generationen[0];
+  assertEq([c.jahr, c.mutter, c.belegstelle, c.vatervolk, c.anpaarung], [2013, 'EL61(KK)', 'hbg', 'B235(PJ)', 'belegstelle'], 'Importkürzel vor dem Jahr');
+  const d = w.pedigreeParse('B34(BZF) = .18 – B15(LE) ilv × frkg B92(DB) [60 dr.c.] : .16 – B65(LE) mrk B59(MKN) [28 dr.c.]').generationen;
+  assertEq([d[0].belegstelle, d[0].vatervolk, d[1].mutter, d[1].belegstelle, d[1].jahr], ['frkg', 'B92(DB)', 'B65(LE)', 'mrk', 2016], 'Halbgeviertstrich, ×, Doppelpunkt');
+  const e = w.pedigreeParse('X1(AB) = imq .01 - PrimRed01 x PrRinder').generationen[0];
+  assertEq([e.mutter, e.vatervolk, e.anpaarung], ['PrimRed01', 'PrRinder', ''], 'Drohnenseite ohne Ziffer nach „x“ bleibt Vaterseite, Art offen');
+  const f = w.pedigreeParse('Y(AB) = .12 – P214(PJ) ins × isp capVSH-1B').generationen[0];
+  assertEq([f.mutter, f.vatervolk, f.anpaarung], ['P214(PJ)', 'capVSH-1B', 'besamung'], 'importiertes Sperma');
+  const g = w.pedigreeParse('Z(AB) = imq .87 – S-86 shr B-121 [6 dr.c.]').generationen[0];
+  assertEq([g.jahr, g.mutter, g.belegstelle, g.vatervolk], [1987, 'S-86', 'shr', 'B-121'], 'alte Kennungen mit Bindestrich');
+  const alt = w.pedigreeParse('B1(JK) = 26.B9(JK) - Baltrum : 24.B8(JK) - B7(KK)').generationen;
+  assertEq([alt[0].jahr, alt[0].mutter, alt[0].belegstelle, alt[0].anpaarung, alt[1].jahr, alt[1].vatervolk], [2026, 'B9(JK)', 'Baltrum', 'belegstelle', 2024, 'B7(KK)'], 'alte App-Schreibweise bis v2.91');
+  const bb = w.pedigreeParse('DE-4-109-35-2024 = .24 - DE-4-109-12-2022 Bel. Norderney DE-4-55-7-2021').generationen[0];
+  assertEq([bb.mutter, bb.belegstelle, bb.vatervolk], ['DE-4-109-12-2022', 'Bel. Norderney', 'DE-4-55-7-2021'], 'BeeBreed-Kennungen');
+  assertEq(w.pedigreeParse('GW-26-001 = .26 - GW-24-010 x GW-23-005').generationen[0].vatervolk, 'GW-23-005', 'eigene Kennungen');
+  assertEq(w.pedigreeParse('ohne Gleichheitszeichen'), null);
+  assertEq(w.pedigreeParse('B1(JK) = .26 - ? x ?').generationen.length, 0, 'nur Fragezeichen: keine Generation');
+});
+test('pedigreeParse: GdeB-Register (Jahr am Namen, sdi/mdi/hsi/nat), Züchter-Webseiten, BeeBreed (Bst/Bes, -K)', (w) => {
+  const g = (z, i = 0) => w.pedigreeParse(z).generationen[i];
+  const a = w.pedigreeParse('B4(TBT)26 = .26 - B76(LM)26sdi leyh S31(MKN)22 [25 dr.c.] : .26 - B74(LM)24 sdi B77(LM)22mdi [1 dr.c.] : .24 - B77(LM)22mdi ins B322(PJ)20 [some dr.c.]');
+  assertEq([a.generationen[0].mutter, a.generationen[0].mutterJahr, a.generationen[0].belegstelle, a.generationen[0].vatervolk, a.generationen[0].vaterJahr], ['B76(LM)', 2026, 'leyh', 'S31(MKN)', 2022], 'GdeB: Jahr am Namen, Belegstellen-Kürzel');
+  assertEq([a.generationen[1].anpaarung, a.generationen[1].vatervolk], ['besamung', 'B77(LM)'], '„sdi“ = Besamung');
+  assertEq(a.generationen.length, 3);
+  assertEq([g('B140(AKY)26 = .26 - B75(NE)25 nat').anpaarung, g('B140(AKY)26 = .26 - B75(NE)25 nat').vatervolk], ['standbegattung', ''], '„nat“ ohne Vater');
+  assertEq([g('X(A)26 = .26 - B4609(LUE)24 leyh [some dr.c.]').belegstelle, g('X(A)26 = .26 - B4609(LUE)24 leyh [some dr.c.]').vatervolk], ['leyh', ''], 'Belegstelle ohne Vater');
+  assertEq(g('X(A)26 = .24 - B58(GKT)23 ins [some dr.c.]').anpaarung, 'besamung', 'Besamung ohne Vater');
+  const tb = g('B2(BLH)26 = tbsl B6(MM)22 [30 dr.c.]');
+  assertEq([tb.mutter, tb.belegstelle, tb.vatervolk], ['', 'tbsl', 'B6(MM)'], 'nur Kürzel und Drohnenmutter: keine erfundene Mutter');
+  const il = g('B45(AMW)26 = .24 - ilv.B753(ARG)23 glm B80(LE)20 [11 dr.c.]');
+  assertEq([il.mutter, il.belegstelle, il.vatervolk], ['B753(ARG)', 'glm', 'B80(LE)'], 'Importkürzel am Namen');
+  const kl = w.pedigreeParse('B58(TR)=24-B14(TR)balHO235(IC) : 22-B171(TR)balB2(TR): 20-B1(TR)mrkM102(MKN):').generationen;
+  assertEq([kl.length, kl[0].jahr, kl[0].mutter, kl[0].belegstelle, kl[0].vatervolk, kl[2].belegstelle], [3, 2024, 'B14(TR)', 'bal', 'HO235(IC)', 'mrk'], 'ohne Leerzeichen geschrieben');
+  const md = w.pedigreeParse('B191KWS24mdi= .24 – ilv.B75(BPF)22mdi mdi L113(KKI)23(1dr.c.): .22 – B8562 (BPF)20 mdiB64(BPF)21mdi(1dr.c.): .20 – B562(PJ)18sdi amm B18218(KK)18sdi (28 dr.v.)').generationen;
+  assertEq([md[0].mutter, md[0].anpaarung, md[0].vatervolk, md[1].mutter, md[1].vatervolk, md[2].belegstelle], ['B75(BPF)', 'besamung', 'L113(KKI)', 'B8562(BPF)', 'B64(BPF)', 'amm'], 'Klammer-Drohnenzahl, Leerzeichen vor Züchterkürzel');
+  const ohne = w.pedigreeParse('B179(TR)= 22-M121(TR)insB78(TR) 20-M70(TR)mrkM102(MKN)').generationen;
+  assertEq([ohne.length, ohne[0].anpaarung, ohne[0].vatervolk, ohne[1].jahr, ohne[1].belegstelle], [2, 'besamung', 'B78(TR)', 2020, 'mrk'], 'Generationen ohne Trennzeichen');
+  const bb = g('DE-4-1-90320-2024 = .24 - DE-4-1-90440-2022 Bst DE-17-6 DE-4-1-105-2021-K');
+  assertEq([bb.mutter, bb.belegstelle, bb.vatervolk, bb.anpaarung], ['DE-4-1-90440-2022', 'Bst DE-17-6', 'DE-4-1-105-2021-K', 'belegstelle'], 'BeeBreed: Belegstellen-Code');
+  assertEq(g('DE-4-1-10-2024 = .24 - DE-4-1-94-2022-K Bes DE-4-11').anpaarung, 'besamung', 'BeeBreed: Besamer-Code');
+  assertEq(w.pedigreeParse('M4(IZ) = .89-pure Monticola import of eggs and semen, E. Österlund').generationen.length, 0, 'freier Text ergibt keine erfundene Belegstelle');
+  assertEq(w.kennungParse('DE-4-1-105-2021-K').system, 'beebreed', 'gekörte BeeBreed-Königin');
+  assertEq(w.kennungParse('B101Vt(KK)').nummer, '101Vt', 'Buchstaben in der Nummer');
+  assertEq([w.kennungKern('B76(LM)26sdi'), w.kennungKern('B22.3.50(KK).22'), w.kennungKern('B950(PP)1dr'), w.kennungKern('DE-4-1-105-2021-K')], ['B76(LM)', 'B22.3.50(KK)', 'B950(PP)1DR', 'DE-4-1-105-2021'], 'Kern ohne Jahr, „1dr“ bleibt');
+  const idx = w.kennungIndex(new Map([['a', { id: 'a', kennung: 'B76(LM)' }], ['b', { id: 'b', kennung: 'DE-4-1-105-2021-K' }]]));
+  assertEq([idx.get(w.kennungSchluessel('B76(LM)26')) && idx.get(w.kennungSchluessel('B76(LM)26')).id, idx.get(w.kennungSchluessel('DE-4-1-105-2021')) && idx.get(w.kennungSchluessel('DE-4-1-105-2021')).id], ['a', 'b'], 'Verknüpfung auch mit Jahr bzw. ohne „-K“');
+});
+test('pedigreeParse: Funde der Code-Prüfung (Fragezeichen, Rassekürzel, etc., Leerzeichen, mehrzeilig, Ziffern im Namen)', (w) => {
+  const g = (z, i = 0) => w.pedigreeParse(z).generationen[i];
+  const f = g('B1(JK) = .26 - ? Belegstelle Norderney');
+  assertEq([f.mutter, f.belegstelle, f.anpaarung], ['', 'Belegstelle Norderney', 'belegstelle'], 'unbekannte Mutter mit Belegstelle');
+  assertEq([g('B1(JK) = 26.? - Baltrum').mutter, g('B1(JK) = 26.? - Baltrum').belegstelle], ['', 'Baltrum'], 'alte App-Form mit Fragezeichen');
+  assertEq(g('Jg. 2026 = 26.Jg. 2024 - B7(KK)').mutter, 'Jg.2024', 'alte App-Form ohne Kennung');
+  const r = w.pedigreeParse('B21(KK) = (P) .21 - B19.1.99(KK) ins B950(PP)1dr.19 [one drone] : .19 - B18(KK) amm EL87(GGI) ; etc.').generationen;
+  assertEq([r.length, r[0].mutter, r[0].vatervolk, r[0].vaterJahr, r[1].belegstelle], [2, 'B19.1.99(KK)', 'B950(PP)1dr', 2019, 'amm'], 'Rassekürzel vorn, Jahr hinter „1dr“, „etc.“ am Ende');
+  const iv = g('X(A) = .04 - ivq. B621(PJ) ins B80(AH)');
+  assertEq([iv.mutter, iv.vatervolk, iv.anpaarung], ['B621(PJ)', 'B80(AH)', 'besamung'], 'Importkürzel mit Punkt');
+  const sp = g('B66(TR) = .96 - B173 (TR) x B169 (TR)');
+  assertEq([sp.mutter, sp.vatervolk], ['B173(TR)', 'B169(TR)'], 'Leerzeichen vor der Züchterklammer');
+  const ml = w.pedigreeParse('B2(KK) = .24 - B22(KK) ins EL18(KK)\n.22 - B21(KK) amm B1(PJ)\n.20 - B19(KK) nat B8(TR)').generationen;
+  assertEq([ml.length, ml[1].belegstelle, ml[2].anpaarung], [3, 'amm', 'standbegattung'], 'mehrzeilig eingefügt');
+  assertEq([g('Q1 = 26-014 x B1(AB)').mutter, g('Q1 = 26-014 x B1(AB)').jahr], ['26-014', null], 'Kennung „26-014“ ohne Jahr ist kein Jahr');
+  const z = w.pedigreeZeile('K1', [{ jahr: 2026, mutter: 'M1', vater: 'V1', art: 'belegstelle', beleg: 'Belegstelle 3 Süd' }]);
+  const zz = w.pedigreeParse(z).generationen[0];
+  assertEq([zz.mutter, zz.belegstelle, zz.vatervolk], ['M1', 'Belegstelle 3 Süd', 'V1'], 'Belegstelle mit Ziffer übersteht die Rundreise: ' + z);
+  assertEq(w.pedigreeParse(w.pedigreeZeile('K2', [{ jahr: 2026, mutter: 'M2', vater: '', art: 'standbegattung' }])).generationen[0].anpaarung, 'standbegattung', 'Standbegattung ohne Vater bleibt erhalten');
+  assertEq(w.pedigreeParse(w.pedigreeZeile('K3', [{ jahr: 2026, mutter: 'M3', vater: 'V3', art: '' }])).generationen[0].anpaarung, '', 'unbekannte Art bleibt unbekannt');
+});
+test('pedigreeGdeB: Kehrle-Schreibweise, die sich vollständig wieder einlesen lässt', (w) => {
+  const qm = new Map();
+  const mk = (id, kennung, jahrgang, x = {}) => { const q = { id, kennung, jahrgang, ...x }; qm.set(id, q); return q; };
+  mk('dm', 'B54(TR)', 2023); mk('vv', 'B312(KK)', 2025); mk('om', 'B113(JK)', 2023);
+  mk('m', 'B112(JK)', 2024, { mutterId: 'om', anpaarung: 'belegstelle', belegstelle: 'Insel Baltrum', vatervolkId: 'dm' });
+  const q = mk('q', 'B110(JK)', 2026, { mutterId: 'm', anpaarung: 'standbegattung', vatervolkId: 'vv' });
+  const zeile = w.pedigreeGdeB(q, qm);
+  assertEq(zeile, 'B110(JK) = .26 - B112(JK) nat B312(KK) : .24 - B113(JK) Insel Baltrum B54(TR)');
+  const p = w.pedigreeParse(zeile);
+  assertEq(p.kopf, 'B110(JK)');
+  assertEq(p.generationen[0], { jahr: 2026, mutter: 'B112(JK)', vatervolk: 'B312(KK)', anpaarung: 'standbegattung' });
+  assertEq(p.generationen[1], { jahr: 2024, mutter: 'B113(JK)', vatervolk: 'B54(TR)', anpaarung: 'belegstelle', belegstelle: 'Insel Baltrum' });
+  // Ohne Kennung: kein Leerzeichen im Namen, sonst zerfällt er beim Lesen
+  const ohne = { id: 'o', jahrgang: 2026, mutterId: 'om', anpaarung: 'besamung' };
+  qm.set('o', ohne);
+  assertEq(w.pedigreeParse(w.pedigreeGdeB(ohne, qm)).generationen[0], { jahr: 2026, mutter: 'B113(JK)', vatervolk: '', anpaarung: 'besamung' });
+  assertEq(w.pedigreeZeile('K1', [{ jahr: 2026, mutter: '', vater: 'V 1', art: 'belegstelle', beleg: 'A:B;C' }]), 'K1 = .26 - ? A B C V1', 'Trennzeichen aus der Belegstelle entfernt');
+});
+test('koeniginAhnen: Jahr der Mutter aus der nächsten Generation, Kennungen aus der Zeile werden verknüpft', async (w) => isolierteDaten(w, async () => {
+  const b173 = await w.DB.put('koeniginnen', { kennung: 'B173 (TR)', jahrgang: 1994, status: 'verloren', historie: [], anpaarung: 'besamung' });
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'B66(TR)', jahrgang: 1996, status: 'aktiv', historie: [], pedigree: 'B66(TR)=.96-B173(TR)xB169(TR): .94-B2(TR)xB224(PJ)' });
+  const q = await w.DB.put('koeniginnen', { kennung: 'PZ-Q2', jahrgang: 2025, status: 'aktiv', historie: [], mutterId: mutter.id });
+  const qm = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  const a = w.koeniginAhnen(q, qm, 9);
+  assertEq(a[1].mutter.quelle, 'eigen', 'B173(TR) steht als Königin in ImkerBuch – verknüpft trotz Leerzeichen');
+  assertEq(a[1].mutter.rec.id, b173.id);
+  assertEq(a[1].drohnen.code, 'B169(TR)');
+  assertEq([a.length, a[2].mutter.code], [3, 'B2(TR)'], 'die ältere Generation aus der Zeile bleibt erhalten (Code-Prüfung)');
+  await w.DB.del('koeniginnen', b173.id);
+  const qm2 = new Map((await w.DB.getAll('koeniginnen')).map((k) => [k.id, k]));
+  const b = w.koeniginAhnen(q, qm2, 9);
+  assertEq([b[1].mutter.quelle, b[1].mutter.code, b[1].mutter.jahr], ['pedigree', 'B173(TR)', 1994], 'Jahrgang der Mutter = Jahr der nächsten Generation');
+}));
+test('Ahnentafel beider Seiten: Vaterseite mit eigenen Vorfahren, gemeinsame Ahnin erkannt, Kreise brechen ab', (w) => {
+  const qm = new Map();
+  const mk = (id, kennung, jahrgang, x = {}) => { const q = { id, kennung, jahrgang, status: 'aktiv', historie: [], ...x }; qm.set(id, q); return q; };
+  mk('ur', 'A0', 2018);
+  mk('qa', 'A1', 2020, { mutterId: 'ur' });
+  mk('qc', 'C1', 2022, { mutterId: 'qa', anpaarung: 'belegstelle', belegstelle: 'Norderney' });
+  const qe = mk('qe', 'E1', 2024, { mutterId: 'qc', anpaarung: 'besamung', vatervolkId: 'qa' });
+  const t = w.koeniginAhnentafel(qe, qm, 4);
+  assertEq(w.ahnentafelKnoten(t, 'M').rec.id, 'qc');
+  assertEq(w.ahnentafelKnoten(t, 'V').rec.id, 'qa', 'Vaterseite (4a)');
+  assertEq(w.ahnentafelKnoten(t, 'VM').rec.id, 'ur', 'Mutter der 4a-Königin – vorher fehlte diese Stufe');
+  assertEq(w.ahnentafelKnoten(t, 'MV').quelle, 'beleg');
+  const gem = w.gemeinsameAhnen(t);
+  assertEq(gem.length, 1, 'nur die nächste gemeinsame Ahnin, nicht noch einmal deren Mutter: ' + JSON.stringify(gem.map((x) => x.pfade)));
+  assertEq([gem[0].knoten.rec.id, gem[0].pfade.sort(), gem[0].beideSeiten], ['qa', ['MM', 'V'], true]);
+  assertEq(w.ahnPfadText('MM'), 'Mutterseite, 2. Generation');
+  // Kreis in fehlerhaften Daten
+  const k = mk('k', 'K1', 2026); k.mutterId = 'k';
+  const tk = w.koeniginAhnentafel(k, qm, 4);
+  assert(w.ahnentafelKnoten(tk, 'M').kreis, 'Kreis erkannt');
+  assertEq(w.ahnentafelKnoten(tk, 'MM'), null, 'kein Endlos-Baum');
+});
+test('Stammbaum: Funde der Code-Prüfung (gleiche Vaterseite in beiden Ansichten, Belegstelle nicht doppelt, Platzhalter)', (w) => {
+  const qm = new Map();
+  const r1 = { id: 'r1', kennung: 'R1', jahrgang: 2026, anpaarung: 'belegstelle', belegstelle: 'Baltrum', pedigree: 'R1 = .26 - M1(AB) x V1(AB)' };
+  qm.set('r1', r1);
+  assertEq(w.koeniginAhnen(r1, qm, 3)[0].drohnen.quelle, 'beleg', 'Mutterlinie: Datensatz gilt');
+  assertEq(w.ahnentafelKnoten(w.koeniginAhnentafel(r1, qm, 2), 'V').quelle, 'beleg', 'Ahnentafel: dieselbe Regel');
+  assertEq([w.belegstelleText('Belegstelle Norderney'), w.belegstelleText('Baltrum'), w.drohnenRolle('belegstelle', 'Belegstelle Juist')], ['Belegstelle Norderney', 'Belegstelle Baltrum', 'Belegstelle Juist'], 'kein „Belegstelle Belegstelle“');
+  // Zwei verschiedene Mütter ohne Kennung („Jg.2023“) sind keine gemeinsame Ahnin
+  qm.set('c', { id: 'c', kennung: 'C-25', jahrgang: 2025, pedigree: 'C-25 = .25 - Jg.2023 ins IK-22-001' });
+  qm.set('d', { id: 'd', kennung: 'D-25', jahrgang: 2025, pedigree: 'D-25 = .25 - Jg.2023 x IK-21-009' });
+  const q2 = { id: 'q2', kennung: 'Q2', jahrgang: 2026, mutterId: 'c', vatervolkId: 'd', anpaarung: 'besamung' };
+  qm.set('q2', q2);
+  assertEq(w.gemeinsameAhnen(w.koeniginAhnentafel(q2, qm, 4)).length, 0, 'Platzhalter zählen nicht');
+  // Eigene Zeile ohne Mutter, aber mit Belegstelle: zurückgelesen ohne erfundene Mutter
+  const ohne = { id: 'o', kennung: 'JK-26-014', jahrgang: 2026, anpaarung: 'belegstelle', belegstelle: 'Belegstelle Baltrum' };
+  qm.set('o', ohne);
+  const z = w.pedigreeParse(w.pedigreeGdeB(ohne, qm)).generationen[0];
+  assertEq([z.mutter, z.belegstelle, z.anpaarung], ['', 'Belegstelle Baltrum', 'belegstelle'], w.pedigreeGdeB(ohne, qm));
+  const etc = w.pedigreeParse('B20(KS) = .16 – B143(KS) lthl B19(BB) [33 dr.c.] : .15 – B79(KS) lthl A5(CS) [31 dr.c.] : (B) .14 – B62(KS) bal B54(TR) [22 dr.c.] : .13 – B36(KS) lthl GR23(TR) [32 dr.c.] : etc…').generationen;
+  assertEq([etc.length, etc[2].jahr, etc[2].mutter, etc[2].belegstelle, etc[1].mutter], [4, 2014, 'B62(KS)', 'bal', 'B79(KS)'], 'Kehrle-Jahrgangsseite mit Rassekürzel und „etc…“');
+});
+test('Königinnen-Import: Vaterseite richtig gedeutet (Besamung bleibt, unbekannte Drohnenmutter bleibt erhalten), Excel-Spalten', async (w) => isolierteDaten(w, async () => {
+  const rows = [
+    { Kennung: 'VS-1', Jahrgang: '2025', Anpaarung: 'Besamung', 'Vaterseite (4a)': 'Troiseck', Belegstelle: '' },
+    { Kennung: 'VS-2', Jahrgang: '2025', Anpaarung: 'Belegstelle', 'Vaterseite (4a)': 'B98(XY)', Belegstelle: 'Norderney' },
+    { Kennung: 'VS-3', Jahrgang: '2025', Anpaarung: 'Belegstelle', 'Vaterseite (4a)': 'B97(XY)', Belegstelle: '' },
+  ];
+  const zone = w.document.createElement('div');
+  await w.Importer.run('koeniginnen', rows, w.Importer.raten('koeniginnen', Object.keys(rows[0])), zone);
+  const alle = await w.DB.getAll('koeniginnen'), k = (x) => alle.find((q) => q.kennung === x);
+  assertEq([k('VS-1').anpaarung, k('VS-1').belegstelle], ['besamung', ''], 'Besamung wird nicht zur Belegstelle');
+  assertEq(w.pedigreeParse(k('VS-1').pedigree).generationen[0].vatervolk, 'Troiseck', 'Drohnenmutter ohne Kennung in der Pedigree-Zeile');
+  assertEq([k('VS-2').belegstelle, w.pedigreeParse(k('VS-2').pedigree).generationen[0].vatervolk], ['Norderney', 'B98(XY)'], 'Belegstelle UND unbekannte Drohnenmutter bleiben');
+  assertEq([k('VS-3').anpaarung, k('VS-3').belegstelle, w.pedigreeParse(k('VS-3').pedigree).generationen[0].vatervolk], ['belegstelle', '', 'B97(XY)'], 'eine Kennung ist nie der Name der Belegstelle');
+  assert(/Belegstelle bei 1/.test(zone.textContent), 'Belegstellen getrennt gemeldet: ' + zone.textContent);
+  const exp = await (await w.Xlsx.defs()).koeniginnen.rows();
+  const e1 = exp.find((r) => r.Kennung === 'VS-1');
+  assert(e1.Pedigree && /Troiseck/.test(e1.Pedigree) && e1['Pedigree (aus dem Stammbaum)'] === '', 'eigene Zeile in „Pedigree“');
+  await w.DB.put('koeniginnen', { kennung: 'VS-4', jahrgang: 2026, mutterId: k('VS-1').id, status: 'aktiv', historie: [] });
+  const e4 = (await (await w.Xlsx.defs()).koeniginnen.rows()).find((r) => r.Kennung === 'VS-4');
+  assert(e4.Pedigree === '' && /VS-4 = \.26 - VS-1/.test(e4['Pedigree (aus dem Stammbaum)']), 'automatische Zeile in eigener Spalte – wird beim Import nicht als „von Hand“ übernommen');
+}));
+test('Königin-Formular: „Woher stammt die Königin?“ und „Anpaarung“, keine Doppelung, Vatervolk auch bei Belegstelle', async (w) => isolierteDaten(w, async () => {
+  const alt = await w.DB.put('koeniginnen', { kennung: 'ALT-1', jahrgang: 2024, herkunft: 'Belegstelle', status: 'aktiv', historie: [] });
+  await w.Views.koeniginnen.form(await w.DB.get('koeniginnen', alt.id));
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const label = (k) => m.querySelector(`[data-field="${k}"] label`).textContent.replace(/\s*\*$/, '').trim();
+    assertEq(label('herkunft'), 'Woher stammt die Königin?');
+    assertEq(label('anpaarung'), 'Anpaarung');
+    assertEq(m.querySelector('#f-anpaarung').value, 'belegstelle', 'alte „Belegstelle“ unter Herkunft belegt die Anpaarung vor');
+    const vorschlaege = [...m.querySelector('[data-field="herkunft"]').querySelectorAll('.combo-opt')].map((o) => o.dataset.v);
+    assert(!vorschlaege.includes('Belegstelle') && vorschlaege.includes('Eigene Nachzucht'), 'Vorschläge ohne Anpaarungsarten: ' + vorschlaege.join(', '));
+    assert(!m.querySelector('[data-field="vatervolkId"]').classList.contains('hidden'), 'Vatervolk (4a) auch bei Belegstelle sichtbar');
+    assert(!/Drohnenlinie/.test(m.querySelector('form') ? m.querySelector('form').textContent : m.textContent), 'kein „Drohnenlinie“ mehr im Königin-Formular');
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+  // Importierter Belegstellen-Name ohne eigene Belegstelle geht beim Speichern nicht verloren
+  const imp = await w.DB.put('koeniginnen', { kennung: 'IMP-1', jahrgang: 2025, anpaarung: 'belegstelle', belegstelle: 'Ruden', belegstelleId: null, status: 'aktiv', historie: [] });
+  await w.Views.koeniginnen.form(await w.DB.get('koeniginnen', imp.id));
+  const m2 = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    assert(/Ruden/.test(m2.textContent), 'Hinweis auf den eingetragenen Namen');
+    m2.querySelector('#f-notiz').value = 'nur Notiz';
+    m2.querySelector('.modal-foot .btn-primary').click();
+    await new Promise((r) => setTimeout(r, 400));
+    assertEq((await w.DB.get('koeniginnen', imp.id)).belegstelle, 'Ruden', 'Belegstelle bleibt');
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+}));
+test('Königin-Seite: Ahnentafel umschalten, gemeinsame Vorfahren als Hinweis, Stockkarte mit Abstammung', async (w) => isolierteDaten(w, async () => {
+  const qa = await w.DB.put('koeniginnen', { kennung: 'T-A', jahrgang: 2020, status: 'aktiv', historie: [] });
+  const qc = await w.DB.put('koeniginnen', { kennung: 'T-C', jahrgang: 2022, status: 'aktiv', historie: [], mutterId: qa.id });
+  const qe = await w.DB.put('koeniginnen', { kennung: 'T-E', jahrgang: 2024, status: 'aktiv', historie: [], mutterId: qc.id, anpaarung: 'besamung', vatervolkId: qa.id });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const alt = { t: w.Views.koenigin._teil, a: w.Views.koenigin._sbAnsicht };
+  try {
+    w.Views.koenigin._teil = 'kg-sb'; w.Views.koenigin._sbAnsicht = 'linie';
+    await w.Views.koenigin.render(host, qe.id);
+    assert(/Gemeinsame Vorfahren/.test(host.textContent) && /T-A/.test(host.querySelector('.kg-warnung').textContent) && /Mutter- und Vaterseite/.test(host.textContent), 'Hinweis auf die verwandte Anpaarung');
+    assert(!host.querySelector('#kg-sb-linie').hidden && host.querySelector('#kg-sb-tafel').hidden, 'erst die Mutterlinie');
+    host.querySelector('[data-sb-ansicht="tafel"]').click();
+    assert(host.querySelector('#kg-sb-linie').hidden && !host.querySelector('#kg-sb-tafel').hidden, 'Ahnentafel sichtbar');
+    assert(host.querySelectorAll('#kg-tafel .kg-tafel-zelle').length >= 3, 'Königin, Mutter, Vaterseite');
+    assert(host.querySelector('#kg-tafel .kg-gemeinsam'), 'gemeinsame Ahnin farbig');
+    assertEq(w.Views.koenigin._sbAnsicht, 'tafel', 'Ansicht gemerkt');
+    w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+    await w.Pdf.stockkarte(qe.id);
+    const t = w.Pdf.lastDocForTest.internal.pages.flat().filter(Boolean).join(' ');
+    assert(/Abstammung beider Seiten/.test(t), 'Stockkarte: Abschnitt Abstammung');
+    assert(/Gemeinsame Vorfahren/.test(t), 'Stockkarte: gemeinsame Vorfahren');
+    assert(/T-A \\?\(gemeinsam\\?\)/.test(t), 'Stockkarte: Ahnin markiert – ' + (t.match(/T-A[^)]{0,30}/g) || []).join(' | '));
+  } finally { w.Pdf.noDownloadForTest = false; w.Views.koenigin._teil = alt.t; w.Views.koenigin._sbAnsicht = alt.a; host.remove(); }
+}));
+test('Königinnen-Import: Kennung, Mutter, Vaterseite, Belegstelle, Pedigree – verknüpft, Doppelte ausgelassen', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('belegstellen', { name: 'Belegstelle Norderney', rasse: 'Carnica' });
+  await w.DB.put('koeniginnen', { kennung: 'IM-ALT', jahrgang: 2021, status: 'aktiv', historie: [] });
+  const rows = [
+    { Kennung: 'IM-1', Jahrgang: '2024', Herkunft: 'Eigene Nachzucht', 'Mutter (2a)': 'IM-ALT', Anpaarung: 'Belegstelle', 'Vaterseite (4a)': 'Norderney', Status: 'aktiv', Pedigree: '' },
+    { Kennung: 'IM-2', Jahrgang: '2025', Herkunft: 'Eigene Nachzucht', 'Mutter (2a)': 'IM-1', Anpaarung: 'Besamung', 'Vaterseite (4a)': 'IM-ALT', Status: 'aktiv', Pedigree: '' },
+    { Kennung: 'IM-3', Jahrgang: '2025', Herkunft: 'Zukauf Züchter', 'Mutter (2a)': 'B99(XY)', Anpaarung: '', 'Vaterseite (4a)': 'B98(XY)', Status: 'verloren', Pedigree: '' },
+    { Kennung: 'IM-4', Jahrgang: '2026', Herkunft: '', 'Mutter (2a)': '', Anpaarung: '', 'Vaterseite (4a)': '', Status: '', Pedigree: 'IM-4 = .26 - IM-2 ins IM-1' },
+    { Kennung: 'im-alt', Jahrgang: '2021', Herkunft: '', 'Mutter (2a)': '', Anpaarung: '', 'Vaterseite (4a)': '', Status: '', Pedigree: '' },
+  ];
+  const map = w.Importer.raten('koeniginnen', Object.keys(rows[0]));
+  assertEq([map.kennung, map.mutter, map.vater, map.anpaarung, map.pedigree], ['Kennung', 'Mutter (2a)', 'Vaterseite (4a)', 'Anpaarung', 'Pedigree'], 'Spalten des eigenen Exports erkannt');
+  const zone = w.document.createElement('div');
+  await w.Importer.run('koeniginnen', rows, map, zone);
+  assert(/4 Königinnen importiert/.test(zone.textContent) && /1 schon vorhanden/.test(zone.textContent), zone.textContent);
+  const alle = await w.DB.getAll('koeniginnen'), k = (x) => alle.find((q) => q.kennung === x);
+  assertEq(k('IM-1').mutterId, k('IM-ALT').id);
+  assertEq([k('IM-1').anpaarung, k('IM-1').belegstelle, !!k('IM-1').belegstelleId], ['belegstelle', 'Belegstelle Norderney', true], 'Belegstelle über den Namen gefunden');
+  assertEq([k('IM-2').mutterId, k('IM-2').vatervolkId, k('IM-2').anpaarung], [k('IM-1').id, k('IM-ALT').id, 'besamung'], 'Mutter aus derselben Datei verknüpft');
+  assertEq([k('IM-3').mutterId, k('IM-3').status], [null, 'verloren']);
+  assertEq(w.pedigreeParse(k('IM-3').pedigree).generationen[0].mutter, 'B99(XY)', 'unbekannte Kennungen als Pedigree-Zeile gesichert');
+  assertEq([k('IM-4').mutterId, k('IM-4').vatervolkId, k('IM-4').anpaarung], [k('IM-2').id, k('IM-1').id, 'besamung'], 'aus der Pedigree-Zeile verknüpft');
+  assertEq(alle.filter((q) => w.kennungSchluessel(q.kennung) === 'IM-ALT').length, 1, 'gleiche Kennung nicht doppelt angelegt');
+  // Rundreise: eigener Excel-Export → Import ergibt dieselben Verknüpfungen
+  const exp = await (await w.Xlsx.defs()).koeniginnen.rows();
+  const zeile = exp.find((r) => r.Kennung === 'IM-2');
+  assertEq([zeile['Mutter (2a)'], zeile.Anpaarung, zeile['Vaterseite (4a)']], ['IM-1', 'Besamung', 'IM-ALT']);
+  assertEq(exp.find((r) => r.Kennung === 'IM-1').Belegstelle, 'Belegstelle Norderney', 'Belegstelle eigene Spalte im Export');
 }));
 
 /* ---------- Universal-Import ---------- */
@@ -9253,7 +9509,9 @@ test('GdeB-Pedigree: wird aus dem Stammbaum gebildet', (w) => {
   mk('v', 'B312.1.25(KK)', 2025, null, null);
   const q = mk('q', 'B110.2.26(JK)', 2026, 'm', 'v');
   const p = w.pedigreeGdeB(q, qm);
-  assertEq(p, 'B110.2.26(JK) = 26.B112.2.24(JK) - B312.1.25(KK) : 24.B113.2.23(JK) - B313.1.23(KK)');
+  assertEq(p, 'B110.2.26(JK) = .26 - B112.2.24(JK) ins B312.1.25(KK) : .24 - B113.2.23(JK) ins B313.1.23(KK)');
+  // v2.92: der Vorschlag lässt sich wieder vollständig einlesen (Jahre, Besamung)
+  assertEq(w.pedigreeParse(p).generationen[1], { jahr: 2024, mutter: 'B113.2.23(JK)', vatervolk: 'B313.1.23(KK)', anpaarung: 'besamung' });
   // Ohne Abstammung bleibt nur die eigene Kennung
   assertEq(w.pedigreeGdeB(qm.get('ov'), qm), 'B313.1.23(KK)', 'keine erfundene Generation');
   assertEq(w.pedigreeGdeB(null, qm), '', 'robust ohne Königin');
@@ -9264,7 +9522,8 @@ test('GdeB-Pedigree: Belegstelle steht in der Vaterposition, Schleifen brechen a
   const m = { id: 'm', kennung: 'B9(JK)', jahrgang: 2025, mutterId: null, vatervolkId: null };
   const q = { id: 'q', kennung: 'B1(JK)', jahrgang: 2026, mutterId: 'm', anpaarung: 'belegstelle', belegstelle: 'Baltrum' };
   qm.set('m', m); qm.set('q', q);
-  assertEq(w.pedigreeGdeB(q, qm), 'B1(JK) = 26.B9(JK) - Baltrum');
+  assertEq(w.pedigreeGdeB(q, qm), 'B1(JK) = .26 - B9(JK) Baltrum');
+  assertEq(w.pedigreeParse('B1(JK) = 26.B9(JK) - Baltrum').generationen[0].belegstelle, 'Baltrum', 'alte App-Form: Belegstelle erkannt');
   // Fehlerhafte Daten: Mutter zeigt auf sich selbst
   const kreis = { id: 'k', kennung: 'B5(JK)', jahrgang: 2026, mutterId: 'k' };
   qm.set('k', kreis);
