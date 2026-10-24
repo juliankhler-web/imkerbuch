@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 23.10.2026, Version 2.95. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 24.10.2026, Version 2.96. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -62,6 +62,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 ## D · Aufgaben und Sicherung
 
 - [ ] **D1 Aufgabe:** Aufgaben → „+ Neue Aufgabe“, fällig heute. → Steht in der Liste und auf der Startseite. *(Im Browser kommen Erinnerungen nur, solange ImkerBuch geöffnet ist – Mitteilungen bei geschlossener App gibt es nur in der App aus dem Store.)*
+- [ ] **D1b Aufgabe aus der Auswahl (neu 2.96):** „+ Neue Aufgabe“ → ins Feld „Aufgabe“ tippen. → Liste mit typischen Aufgaben, Tippen filtert. „Futterkontrolle“ wählen → unten „Tätigkeitsbereich: Fütterung“ mit Schild. Selbst geänderter Bereich bleibt; freies Eintippen geht auch.
 - [ ] **D2 Zwischenstände:** Einen Eintrag ändern, 1 Minute warten. Einstellungen → „Sicherung & Datensicherheit“ → „Zwischenstände“. → Oben „Heute, …“ mit „Nach deinen Änderungen“.
 - [ ] **D3 Sicherung:** Einstellungen → „Sicherung & Datensicherheit“ → „Backup herunterladen“ (am Handy „Sicherung senden“). → Eine Datei `imkerbuch-backup-….json` wird gespeichert bzw. geteilt.
 - [ ] **D4 Sicherung einspielen:** „Backup importieren“ → dieselbe Datei wählen → „Zusammenführen“. → Meldung, nichts doppelt.

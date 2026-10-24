@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 23.10.2026, Version 2.95 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, C4c Bestand kompakt, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 24.10.2026, Version 2.96 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, C4c Bestand kompakt, D1b Aufgaben-Auswahl, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 
@@ -75,6 +75,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **D0** Eine Aufgabe für **heute in 3 Minuten** mit Uhrzeit anlegen, App schließen. → Pünktlich kommt „Jetzt: …“ (vorher kam bei „1 Stunde vorher“ gar nichts, wenn die Stunde schon vorbei war). Android: kann bis zu einige Minuten später kommen.
 
 - [ ] **D1** Aufgaben → „+ Neue Aufgabe“, fällig **heute**, Uhrzeit in **3 Minuten**. → Beim ersten Mal Frage „An Aufgaben erinnern?“ → Ja → Apple fragt nach Mitteilungen → Erlauben.
+- [ ] **D1b Aufgabe aus der Auswahl (neu 2.96):** Aufgaben → „+ Neue Aufgabe“ → ins Feld „Aufgabe“ tippen. → Liste mit typischen Aufgaben; „Fut“ tippen filtert (Futterkontrolle, Futterteig geben …). „Futterkontrolle“ wählen → unten unter „Für die Zeiterfassung“ steht **Tätigkeitsbereich: Fütterung** mit grünem Schild „aus „Futterkontrolle““ und der Arbeitsschritt ist markiert. Bereich selbst ändern und Aufgabe umtippen → deine Wahl bleibt. Frei eintippen (z. B. „Imkerkurs geben“) geht auch.
 - [ ] **D2** App schließen (nach oben wischen), iPhone sperren, 3 Minuten warten. → **Mitteilung** von ImkerBuch erscheint.
 
 - [ ] **D6 Zwischenstände:** Einen Eintrag ändern (z. B. eine Notiz am Volk), 1 Minute warten oder die App kurz verlassen. Einstellungen → Sicherung & Datensicherheit → „Zwischenstände“. → Oben steht „Heute, …“ mit „Nach deinen Änderungen“, ältere unter „Ältere Zwischenstände (…)“ zum Aufklappen. Ohne Änderung entsteht keiner.

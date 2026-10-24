@@ -1546,8 +1546,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.95';
+const APP_VERSION = '2.96';
 const CHANGELOG = [
+  { version: '2.96', datum: '2026-10-24', punkte: [
+    '<b>Typische Aufgaben zur Auswahl:</b> Bei „Neue Aufgabe“ kannst du jetzt aus fast 90 typischen Aufgaben übers Bienenjahr wählen – von Futterkontrolle über Ameisensäure-Behandlung bis Völkerbestand melden. Deine eigenen Aufgaben von früher stehen mit drin. Frei eintippen geht weiterhin.',
+    '<b>Tätigkeitsbereich füllt sich selbst:</b> Unten im Abschnitt „Für die Zeiterfassung“ steht jetzt „Tätigkeitsbereich“ statt „Tätigkeit“ – und er passt sich der Aufgabe an (Futterkontrolle → Fütterung). Wählst du selbst etwas anderes, bleibt deine Wahl. Auch „Zeit nachtragen“ und die Dauer-Abfrage beim Abhaken schlagen den Bereich so vor.',
+  ] },
   { version: '2.95', datum: '2026-10-23', punkte: [
     '<b>Bestand viel kürzer:</b> Unter Ernte und Abfüllung → „Bestand“ steht jetzt <b>eine Zeile je Charge</b> – Losnummer, Sorte, Gebinde im Regal und was noch im Eimer ist. Antippen klappt die Gebinde mit „Verkauf“ und „Jetzt abfüllen“ auf. Ausverkaufte Chargen liegen zugeklappt ganz unten.',
     '<b>Nach Sorte und Gebinde:</b> Oben im Bestand zeigt eine aufklappbare Übersicht auf einen Blick, wie viele Gläser je Sorte und Größe da sind (z. B. „Raps · 500 g · 15“). Dazu lässt sich die Liste nach Nummer, Gebinden oder Rest im Eimer sortieren.',
@@ -8321,6 +8325,7 @@ function listenwertNeuShortcut(m, feldKey, settingKey, { label, titel, platzhalt
       if (field && field.tagName === 'SELECT') {
         if (![...field.options].some((o) => o.value === wert)) { const opt = document.createElement('option'); opt.value = wert; opt.textContent = wert; field.appendChild(opt); }
         field.value = wert;
+        field.dispatchEvent(new Event('change', { bubbles: true }));   // wie eine eigene Wahl: abhängige Felder folgen, kein Vorschlag überschreibt sie
       } else if (field && field.classList.contains('combo-inp')) {
         const liste2 = $('.combo-list', field.closest('.combo'));
         if (liste2 && ![...liste2.children].some((o) => o.dataset.v === wert)) { const opt = document.createElement('div'); opt.className = 'combo-opt'; opt.dataset.v = wert; opt.textContent = wert; liste2.appendChild(opt); }
@@ -17912,20 +17917,27 @@ Views.aufgaben = {
     const staendeAlle = U.sortBy(await DB.getAll('staende'), (x) => x.name.toLowerCase());
     const voelkerAktiv = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     const funktionenAlle = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelkerAktiv.map((v) => v.funktion).filter(Boolean)])];
+    const vorschlaege = await aufgabenVorschlaege(all);
+    const eigeneFrueher = all.filter((x) => !x.quelle || x.quelle === 'manuell');
     const form = (a, vorgabeDatum) => {
+      // Alten Bereich erhalten, falls er inzwischen aus den Einstellungen entfernt wurde
+      const kats = [...S.get('taetigkeiten')];
+      if (a && a.kategorie && !kats.includes(a.kategorie)) kats.push(a.kategorie);
       const m = UI.formModal({
         title: a ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
         fields: [
-          { key: 'titel', label: 'Aufgabe', required: true, placeholder: 'z. B. Futterkontrolle' },
+          { key: 'titel', label: 'Aufgabe', type: 'suggest', required: true, placeholder: 'auswählen oder eintippen …', options: vorschlaege,
+            hint: 'Typische Aufgaben übers Bienenjahr (z. B. Futterkontrolle) und deine eigenen von früher – oder einfach frei eintippen.' },
           { key: 'faellig', label: 'Fällig am', type: 'date' },
           { key: 'uhrzeit', label: 'Uhrzeit (optional)', type: 'time', hint: 'Mit Uhrzeit erinnert die App vorher (Einstellungen → Erinnerungen), sonst morgens am Fälligkeitstag.' },
           { key: 'standId', label: 'Bienenstand', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staendeAlle.map((st) => ({ v: st.id, l: st.name }))], hint: 'Filtert die Völker unten – und ist der Bezug, wenn du kein einzelnes Volk wählst.' },
           { key: 'funktion', label: 'Funktion (nur Filter)', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionenAlle.map((f) => ({ v: f, l: f }))] },
           { key: 'volkId', label: 'Volk', type: 'select', options: [{ v: '', l: 'kein einzelnes Volk' }, ...voelkerAktiv.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') }))], hint: 'Wandert das Volk, zeigt die Aufgabe von selbst den neuen Stand.' },
-          { key: 'kategorie', label: 'Tätigkeit (Zeiterfassung)', type: 'select', options: S.get('taetigkeiten').map((t) => ({ v: t, l: t })) },
+          { key: 'notiz', label: 'Notiz', type: 'textarea' },
+          { key: '_zeitKopf', type: 'static', html: '<h3 class="mt8 mb4">Für die Zeiterfassung</h3><div class="hint">Füllt sich aus der Aufgabe – nur ändern, wenn es nicht passt. Beim Abhaken fragt die App nach der Dauer.</div>' },
+          { key: 'kategorie', label: 'Tätigkeitsbereich', type: 'select', options: kats.map((t) => ({ v: t, l: t })) },
           SCHRITTE_FELD,
           { key: 'zeitMinuten', label: 'Zeitaufwand (Minuten)', type: 'number', hint: 'Wird beim Abhaken automatisch abgefragt – hier änderbar.' },
-          { key: 'notiz', label: 'Notiz', type: 'textarea' },
         ],
         values: a || (vorgabeDatum ? { faellig: vorgabeDatum } : {}),
         async onSave(v) {
@@ -17951,7 +17963,9 @@ Views.aufgaben = {
         if (volk && volk.standId && sel) sel.value = volk.standId;
       }
       verdrahteVolkAuswahl(m, voelkerAktiv);
+      listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neuen Tätigkeitsbereich anlegen', titel: 'Neuer Tätigkeitsbereich', platzhalter: 'z. B. Imkerkurse' });
       verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
+      verdrahteBereichVorschlag(m, { auto: !a, frueher: eigeneFrueher });
       return m;
     };
     const add = () => form(null);
@@ -18050,7 +18064,7 @@ const ARBEITSSCHRITT_START = {
     ['Thymol', 'thymol apiguard apilife thymovar'],
   ],
   'Ernte & Schleudern': [
-    ['Honigräume abnehmen', 'abnehmen abgenommen bienenflucht abkehren abgekehrt abfegen abgefegt ~honigraum ~honigraeume'],
+    ['Honigräume abnehmen', 'abnehmen abgenommen runter runternehmen runtergenommen entnehmen entnommen abraeumen abgeraeumt bienenflucht abkehren abgekehrt abfegen abgefegt ~honigraum ~honigraeume'],
     ['Entdeckeln', 'entdeckeln entdeckelt entdeckelungsgabel'],
     ['Schleudern', 'schleudern geschleudert schleuder ~honig'],
     ['Sieben & Klären', 'sieben gesiebt klaeren geklaert abschaeumen abgeschaeumt absetzen'],
@@ -18168,11 +18182,23 @@ function schrittAusTitel(titel) {
  * @returns {string[]} erkannte Schritt-Namen (ohne Dubletten), leer wenn nichts passt
  */
 function schritteErkennen(text, bereich) {
-  const roh = String(text || '').split(':')[0].replace(/\([^)]*\)/g, ' ');
+  const roh = String(text || '').split(':')[0];
   const teile = roh.split(/\s*(?:,|;|\/|\+|&|\bund\b|\bsowie\b|\bdanach\b|\bdann\b|\banschlie(?:ß|ss)end\b)\s*/i).map((x) => x.trim()).filter(Boolean);
-  const namen = [];
-  for (const t of teile) { const r = schrittErkennen(t, bereich); if (r && !namen.includes(r.n)) namen.push(r.n); }
-  if (!namen.length) { const r = schrittErkennen(text, bereich); if (r) namen.push(r.n); }
+  const da = schritteFuer(bereich).map((x) => x.n);
+  const namen = [], dazu = (n) => { if (n && !namen.includes(n)) namen.push(n); };
+  let bewusstOhne = false;
+  /* Vorlage mit festem Schritt („Ableger kontrollieren“ → Durchsicht) je Teil – so bleibt bei „Honigernte und entdeckelt“
+     auch der zweite Teil erhalten (Gegenprüfung v2.96). Gilt, solange der feste Schritt im gewählten Bereich vorkommt. */
+  const fest = (t) => {
+    const v = typeof AUFGABEN_VORLAGEN !== 'undefined' && vorlageZu(t);
+    if (!v || v.length < 3) return false;
+    const liste = [].concat(v[2]).filter(Boolean), passend = liste.filter((n) => da.includes(n));
+    if (passend.length) { passend.forEach(dazu); return true; }
+    if (!liste.length && bereich === v[1]) { bewusstOhne = true; return true; }
+    return false;
+  };
+  for (const t of teile) { if (!fest(t)) { const r = schrittErkennen(t, bereich); if (r) dazu(r.n); } }
+  if (!namen.length && !bewusstOhne && !fest(text)) { const r = schrittErkennen(text, bereich); if (r) dazu(r.n); }
   return namen;
 }
 /** Gewählte Schritte eines Eintrags (neu: Liste `schritte`, alt: Text `schritt`). */
@@ -18221,6 +18247,195 @@ async function schrittMerken(bereich, schritt) {
   alle[bereich] = [...liste, s];
   await S.set('arbeitsschritte', alle);
 }
+/* ---------- Typische Aufgaben übers Bienenjahr (Julian 24.10.2026) ----------
+   „Bei Aufgabe hinzufügen wäre eine große Auswahl an typischen Aufgaben gut – und auch selber eingeben.“ Jede Vorlage
+   kennt ihren Tätigkeitsbereich: wählt man „Futterkontrolle“, steht unten für die Zeiterfassung gleich „Fütterung“
+   (vorher stand dort immer der erste Bereich, „Durchsicht & Völkerpflege“). Eigene Aufgaben von früher kommen dazu.
+   Ein drittes Feld legt den Arbeitsschritt fest, wo die Erkennung aus dem Text danebenläge („Ableger kontrollieren“ ist
+   eine Durchsicht, nicht „Ableger bilden“); '' heißt: kein Schritt vorgeben. */
+const AUFGABEN_VORLAGEN = [
+  // Durchsicht & Völkerpflege
+  ['Durchsicht', 'Durchsicht & Völkerpflege'], ['Frühjahrsdurchsicht', 'Durchsicht & Völkerpflege'], ['Schwarmkontrolle', 'Durchsicht & Völkerpflege'],
+  ['Weiselzellen brechen', 'Durchsicht & Völkerpflege'], ['Weiselrichtigkeit prüfen', 'Durchsicht & Völkerpflege', 'Durchsicht'], ['Honigraum aufsetzen', 'Durchsicht & Völkerpflege'],
+  ['Erweitern (Zarge geben)', 'Durchsicht & Völkerpflege'], ['Absperrgitter einlegen', 'Durchsicht & Völkerpflege'], ['Ableger bilden', 'Durchsicht & Völkerpflege'],
+  ['Ableger kontrollieren', 'Durchsicht & Völkerpflege', 'Durchsicht'], ['Drohnenrahmen einhängen', 'Durchsicht & Völkerpflege'], ['Drohnenrahmen schneiden', 'Durchsicht & Völkerpflege'],
+  ['Völker vereinigen', 'Durchsicht & Völkerpflege'], ['Schwarm einfangen', 'Durchsicht & Völkerpflege'], ['Völker wiegen', 'Durchsicht & Völkerpflege'],
+  ['Einwintern', 'Durchsicht & Völkerpflege'], ['Völker einengen', 'Durchsicht & Völkerpflege'], ['Mäusegitter anbringen', 'Durchsicht & Völkerpflege'],
+  ['Mäusegitter abnehmen', 'Durchsicht & Völkerpflege', ''], ['Fluglochkeil einsetzen', 'Durchsicht & Völkerpflege'], ['Winterkontrolle (Totenfall, Flugloch)', 'Durchsicht & Völkerpflege'],
+  ['Reinigungsflug beobachten', 'Durchsicht & Völkerpflege'], ['Tränke auffüllen', 'Durchsicht & Völkerpflege'], ['Bienenstand mähen', 'Durchsicht & Völkerpflege'],
+  // Fütterung
+  ['Futterkontrolle', 'Fütterung'], ['Auffüttern', 'Fütterung'], ['Futtersirup geben', 'Fütterung'], ['Futterteig geben', 'Fütterung'],
+  ['Notfütterung', 'Fütterung'], ['Reizfütterung', 'Fütterung'], ['Futter ansetzen', 'Fütterung'], ['Futterzarge abnehmen', 'Fütterung'],
+  // Behandlung
+  ['Varroa-Kontrolle (Windel)', 'Behandlung', 'Varroa zählen'], ['Varroa auswaschen', 'Behandlung'], ['Ameisensäure-Behandlung', 'Behandlung'],
+  ['Ameisensäure-Verdunster entfernen', 'Behandlung'], ['Oxalsäure-Winterbehandlung', 'Behandlung'], ['Thymol-Behandlung', 'Behandlung'],
+  ['Behandlungserfolg kontrollieren', 'Behandlung', 'Varroa zählen'], ['Brutfreiheit herstellen', 'Behandlung'],
+  // Ernte & Schleudern
+  ['Honigernte', 'Ernte & Schleudern', ['Honigräume abnehmen', 'Schleudern']], ['Bienenflucht einlegen', 'Ernte & Schleudern'], ['Honigräume abnehmen', 'Ernte & Schleudern'],
+  ['Schleudern', 'Ernte & Schleudern'], ['Wassergehalt messen', 'Ernte & Schleudern'], ['Honig sieben und abschäumen', 'Ernte & Schleudern'],
+  ['Honig rühren', 'Ernte & Schleudern'], ['Honigprobe ins Labor schicken', 'Ernte & Schleudern'], ['Schleuderraum reinigen', 'Ernte & Schleudern', ''],
+  // Abfüllen & Etikettieren
+  ['Abfüllen', 'Abfüllen & Etikettieren'], ['Gläser spülen', 'Abfüllen & Etikettieren'], ['Etiketten drucken', 'Abfüllen & Etikettieren'],
+  ['Etiketten kleben', 'Abfüllen & Etikettieren'], ['Gewährverschlüsse anbringen', 'Abfüllen & Etikettieren'],
+  // Bau & Reparatur
+  ['Rähmchen drahten', 'Bau & Reparatur'], ['Mittelwände einlöten', 'Bau & Reparatur'], ['Waben einschmelzen', 'Bau & Reparatur'],
+  ['Wachs zum Umarbeiten bringen', 'Bau & Reparatur'], ['Beuten reinigen', 'Bau & Reparatur'], ['Beuten streichen', 'Bau & Reparatur'],
+  ['Wabenlager kontrollieren (Wachsmotte)', 'Bau & Reparatur'], ['Material reparieren', 'Bau & Reparatur'],
+  // Wanderung & Transport
+  ['Wanderung vorbereiten', 'Wanderung & Transport'], ['Völker wandern', 'Wanderung & Transport', ['Auf- & Abladen', 'Fahrt']], ['Völker zurückholen', 'Wanderung & Transport', ['Auf- & Abladen', 'Fahrt']],
+  ['Wanderstand vorbereiten', 'Wanderung & Transport', 'Standplatz einrichten'],
+  // Verkauf & Vermarktung
+  ['Honig ausliefern', 'Verkauf & Vermarktung'], ['Markttag', 'Verkauf & Vermarktung'], ['Hofladen auffüllen', 'Verkauf & Vermarktung'],
+  ['Preise prüfen', 'Verkauf & Vermarktung'],
+  // Zucht
+  ['Umlarven', 'Zucht'], ['Zuchtrahmen kontrollieren', 'Zucht'], ['Begattungseinheiten bestücken', 'Zucht'], ['Zur Belegstelle bringen', 'Zucht'],
+  ['Königin zeichnen', 'Zucht'], ['Königin zusetzen', 'Zucht'], ['Eilage kontrollieren', 'Zucht'],
+  // Verwaltung & Büro
+  ['Völkerbestand melden (Tierseuchenkasse)', 'Verwaltung & Büro'], ['Gesundheitszeugnis beantragen', 'Verwaltung & Büro'],
+  ['Bestandsbuch nachtragen', 'Verwaltung & Büro'], ['Kassenbuch nachtragen', 'Verwaltung & Büro'], ['Rechnung schreiben', 'Verwaltung & Büro'],
+  ['Material bestellen', 'Verwaltung & Büro'], ['Gläser und Deckel bestellen', 'Verwaltung & Büro'], ['Futter bestellen', 'Verwaltung & Büro'],
+  ['Behandlungsmittel besorgen', 'Verwaltung & Büro'], ['Sicherung machen', 'Verwaltung & Büro'],
+  // Sonstiges
+  ['Vereinstreffen', 'Sonstiges'], ['Imkerkurs', 'Sonstiges'],
+];
+/**
+ * Kern eines Aufgabentitels ohne Zusatz: „Futter nachfüllen – Anna 039“ / „Fütterung prüfen: Volk 3“ → „Futter nachfüllen“.
+ * Getrennt wird am ersten „ – “ oder „:“; behalten wird die längere Seite – so bleibt auch bei „Stand Wald: Futter
+ * nachfüllen“ (Zusatz vorn) die eigentliche Aufgabe stehen (Gegenprüfung v2.96).
+ */
+const _kern = new Map();
+function aufgabeKern(titel) {
+  const t = String(titel || '').replace(/\s+/g, ' ').trim();
+  if (_kern.has(t)) return _kern.get(t);
+  const m = t.match(/^(.*?)(?:\s[–-]\s|:\s*)(.*)$/);
+  let kern = t;
+  if (m) {
+    /* Welche Seite ist die Tätigkeit? „Futterkontrolle: Stand am Waldrand Nord“ → vorn, „Stand Wald: Futter nachfüllen“ →
+       hinten. Die Seite, die eine Vorlage trifft oder einem Bereich zuzuordnen ist; sonst vorn (die häufigste Form). */
+    const vorn = m[1].trim(), hinten = m[2].trim();
+    const taetig = (x) => !!vorlageGenau(x) || ((bereichPunkte(x, S.get('taetigkeiten') || [])[0] || {}).p || 0) >= 1.5;
+    kern = !vorn ? hinten : !hinten ? vorn : taetig(vorn) ? vorn : taetig(hinten) ? hinten : vorn;
+  }
+  if (_kern.size > 5000) _kern.clear();
+  _kern.set(t, kern || t);
+  return kern || t;
+}
+/** Vorlage, die genau passt oder am Wortanfang steht („Honigernte – Stand 2“, „Durchsicht Stand Wald“). Längste gewinnt. */
+function vorlageGenau(text) {
+  const k = assistentNorm(String(text || '').trim()); if (!k) return null;
+  let best = null;
+  for (const v of AUFGABEN_VORLAGEN) {
+    const t = assistentNorm(v[0]);
+    if ((k === t || k.startsWith(t + ' ')) && (!best || t.length > assistentNorm(best[0]).length)) best = v;
+  }
+  return best;
+}
+/** Passende Vorlage zu einem Text – auch, wenn die Tätigkeit hinten steht („Stand Wald: Futterkontrolle“). */
+function vorlageZu(text) { return vorlageGenau(text) || vorlageGenau(aufgabeKern(text)); }
+/**
+ * Auswahl fürs Feld „Aufgabe“: die Vorlagen + eigene Aufgaben von früher (nur selbst angelegte, nicht die automatischen).
+ * Eigene werden auf ihren Kern gekürzt (sonst stünde „… – Anna 039“ für jedes Volk einzeln da) und nur die 40
+ * häufigsten kommen dazu – im Großbestand waren es sonst fast 1.000 Einträge.
+ */
+async function aufgabenVorschlaege(liste) {
+  const schon = new Set(AUFGABEN_VORLAGEN.map(([t]) => assistentNorm(t)));
+  const eigene = new Map();   // Norm → { t, n }
+  for (const a of liste || await DB.getAll('aufgaben')) {
+    if ((a.quelle && a.quelle !== 'manuell') || a.zeitNachtrag) continue;   // automatische und nachgetragene Zeiten („gedrahtet“) nicht
+    const t = aufgabeKern(a.titel), k = assistentNorm(t);
+    if (!t || !k || schon.has(k)) continue;
+    const z = eigene.get(k) || { t, n: 0 }; z.n++; eigene.set(k, z);
+  }
+  const haeufig = [...eigene.values()].sort((x, y) => y.n - x.n || x.t.localeCompare(y.t, 'de')).slice(0, 40).map((z) => z.t);
+  return [...AUFGABEN_VORLAGEN.map(([t]) => t), ...haeufig];
+}
+/* Allgemeine Tätigkeitswörter sagen nichts über den Bereich („Königin prüfen“ ist keine Futterkontrolle, „Tränke füllen“
+   kein Abfüllen) – für die Bereichswahl zählen sie nicht (Gegenprüfung v2.96). */
+const BEREICH_ALLGEMEIN = new Set(('pruefen geprueft pruefung kontrolle kontrollieren kontrolliert checken gecheckt machen gemacht erledigen erledigt '
+  + 'reinigen gereinigt putzen geputzt saubermachen fuellen gefuellt auffuellen aufgefuellt nachfuellen nachgefuellt geben gegeben holen geholt '
+  + 'bringen gebracht vorbereiten vorbereitet wiegen gewogen messen gemessen legen gelegt neu neue stand staende').split(' '));
+/** Tätigkeitswörter zu den Bereichsnamen („Völker behandeln“ → Behandlung) – zusätzlich zu den Wörtern der Arbeitsschritte. */
+const BEREICH_WORTE = {
+  'Behandlung': 'behandeln behandelt behandlung', 'Ernte & Schleudern': 'ernten geerntet', 'Wanderung & Transport': 'wandern gewandert',
+  'Verkauf & Vermarktung': 'verkaufen verkauft', 'Zucht': 'zuechten gezuechtet', 'Fütterung': 'fuettern gefuettert fuetterung',
+};
+/** Frühere eigene Einordnungen als Nachschlag-Tabelle: Titel und Kern → Bereich, die neueste gewinnt. */
+function bereichKarte(frueher) {
+  const karte = new Map();
+  for (const a of [...(frueher || [])].filter((x) => x && x.kategorie).sort((x, y) => String(x.lastModified || '').localeCompare(String(y.lastModified || '')) || String(x.faellig || '').localeCompare(String(y.faellig || '')))) {
+    for (const k of [assistentNorm(a.titel || ''), assistentNorm(aufgabeKern(a.titel))]) if (k) karte.set(k, a.kategorie);
+  }
+  return karte;
+}
+/** Punkte je Bereich aus dem Text: Suchwörter seiner Arbeitsschritte und die Wörter seines Namens; allgemeine Wörter zählen nicht. */
+function bereichPunkte(text, bereiche) {
+  const tokens = assistentNorm(String(text || '').replace(/\([^)]*\)/g, ' ')).split(' ')
+    .filter((w) => w && (w.length >= 3 || /^(as|os)$/.test(w)) && !ASSISTENT_STOPP.has(w) && !BEREICH_ALLGEMEIN.has(w)).map((w) => ({ w, st: assistentStamm(w) }));
+  if (!tokens.length) return [];
+  return bereiche.map((b) => {
+    const keys = [...schritteFuer(b).flatMap((x) => schrittKeys(x)),
+      ...(assistentNorm(b) + ' ' + (BEREICH_WORTE[b] || '')).split(' ').filter((w) => w.length >= 3 && !ASSISTENT_STOPP.has(w)).map((w) => ({ w, st: assistentStamm(w), g: 3 }))]
+      .map((k) => (k.g === 1 ? { ...k, g: 1.5 } : k));   // Gegenstände („~Futter“) zählen für den Bereich etwas mehr als für den Schritt
+    let p = 0;
+    for (const t of tokens) { let x = 0; for (const k of keys) x = Math.max(x, schrittWortPunkte(t, k)); p += x; }
+    return { b, p };
+  }).sort((x, y) => y.p - x.p);
+}
+/**
+ * Tätigkeitsbereich zu einem Aufgabentext: Vorlage (auch mit Zusatz) → so hast du es zuletzt eingeordnet → eindeutig
+ * aus dem Text erkannt. Unsicher (nichts oder Gleichstand) → null: dann wird nichts vorgeschlagen. Nur Bereiche,
+ * die es in den Einstellungen gibt.
+ * @param {string} text
+ * @param {Map|Array} [frueher] Karte aus bereichKarte() oder eigene Aufgaben
+ */
+function bereichAusText(text, frueher = []) {
+  const k = assistentNorm(String(text || '').trim()); if (!k) return null;
+  const erlaubt = S.get('taetigkeiten') || [];
+  const v = vorlageZu(text);
+  if (v && erlaubt.includes(v[1])) return v[1];
+  const karte = frueher instanceof Map ? frueher : bereichKarte(frueher);
+  const alt = karte.get(k) || karte.get(assistentNorm(aufgabeKern(text)));
+  if (alt && erlaubt.includes(alt)) return alt;
+  const p = bereichPunkte(text, erlaubt);
+  if (!p.length || p[0].p < 1.5) return null;
+  if (p[1] && p[0].p - p[1].p < 0.5) return null;   // Gleichstand („Ableger füttern“): lieber selbst wählen lassen
+  return p[0].b;
+}
+/**
+ * Formular: der Tätigkeitsbereich folgt dem Aufgabentext, bis man ihn selbst ändert. Beim Bearbeiten eines
+ * bestehenden Eintrags (auto: false) bleibt er, wie er ist. Ein kleines Schild zeigt, woher der Vorschlag kommt.
+ */
+function verdrahteBereichVorschlag(m, { titel = 'titel', kat = 'kategorie', auto = true, frueher = [] } = {}) {
+  const ti = $('#f-' + titel, m.el), ka = $('#f-' + kat, m.el); if (!ti || !ka) return;
+  const label = ka.closest('.field') && ka.closest('.field').querySelector('label');
+  let selbst = false, folgt = auto, autoGesetzt = false;
+  const start = ka.value, karte = bereichKarte(frueher);
+  const setze = (wert) => { ka.value = wert; selbst = true; ka.dispatchEvent(new Event('change', { bubbles: true })); selbst = false; };   // Arbeitsschritte folgen
+  const schild = (text) => {
+    let el = label && label.querySelector('.bereich-vorschlag');
+    if (!text) { if (el) el.remove(); return; }
+    if (!el && label) { el = document.createElement('span'); el.className = 'badge b-ok bereich-vorschlag'; el.style.marginLeft = '6px'; label.appendChild(el); }
+    if (el) el.textContent = text;
+  };
+  ka.addEventListener('change', () => { if (!selbst) { folgt = false; schild(''); } });
+  ti.addEventListener('input', () => {
+    if (!folgt) return;
+    // Arbeitsschritte von Hand gewählt? Dann gehört der Bereich auch dir – sonst lernte die App den Schritt im falschen Bereich.
+    if (m.schritteVonHand && m.schritteVonHand()) { folgt = false; return; }
+    const t = ti.value.trim();
+    const b = t ? bereichAusText(t, karte) : null;
+    if (!b || ![...ka.options].some((o) => o.value === b)) {
+      schild('');
+      if (autoGesetzt && ka.value !== start) setze(start);   // unsicher: zurück auf den Ausgangswert, nichts erzwingen
+      autoGesetzt = false;
+      return;
+    }
+    schild(`aus „${t.length > 28 ? t.slice(0, 27) + '…' : t}“`);
+    autoGesetzt = true;
+    if (ka.value !== b) setze(b);
+  });
+}
+
 /**
  * Auswahl der Arbeitsschritte als Knöpfe (mehrere möglich) + „eigener“. Solange man nichts antippt, folgt die
  * Auswahl dem Text (automatisch erkannt). Gibt { werte() } zurück.
@@ -18274,6 +18489,7 @@ function verdrahteSchrittFeld(m, { titel = 'titel', kat = 'kategorie', minuten =
   if (ka) ka.addEventListener('change', api.neu);
   if (mi) mi.addEventListener('input', api.neu);
   m.schritteWerte = api.werte;
+  m.schritteVonHand = api.vonHand;
 }
 
 /* ---------- Kreisdiagramm, das sich auffächert ----------
@@ -18379,13 +18595,13 @@ function zeitFaecher(box, bereiche, zustand, eintragZeile) {
 function zeitDialog(a) {
   if (Lizenz.light()) return;   // Zeiterfassung ist Vollversion – nach dem Abhaken nicht nach der Dauer fragen
   const taetigkeiten = S.get('taetigkeiten');
-  const vorschlag = { zucht: 'Zucht', behandlung: 'Behandlung', fuetterung: 'Fütterung' }[a.quelle] || a.kategorie || '';
+  const vorschlag = { zucht: 'Zucht', behandlung: 'Behandlung', fuetterung: 'Fütterung' }[a.quelle] || a.kategorie || bereichAusText(a.titel) || '';
   const m = UI.modal({
     title: 'Wie lange hat es gedauert?',
     body: `<p class="small muted mb12">„${U.esc(a.titel)}“ – landet in deiner <a href="#/zeiten">Zeiterfassung</a>.</p>
       <div class="chip-row mb12" id="zt-chips">${[15, 30, 45, 60, 90, 120].map((n) => `<button class="chip" data-min="${U.esc(n)}">${n < 60 ? n + ' min' : (n / 60).toLocaleString('de-DE') + ' h'}</button>`).join('')}</div>
       <div class="field"><label>Oder Minuten eingeben</label><input class="inp" id="zt-min" inputmode="numeric" placeholder="z. B. 25"></div>
-      <div class="field"><label>Tätigkeit</label><select class="inp" id="zt-kat">${optionenSortiert(taetigkeiten, true).map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>
+      <div class="field"><label>Tätigkeitsbereich</label><select class="inp" id="zt-kat">${optionenSortiert(taetigkeiten, true).map((t) => `<option ${t === vorschlag ? 'selected' : ''}>${U.esc(t)}</option>`).join('')}</select></div>
       <div class="field"><label>Arbeitsschritte <span class="muted" style="font-weight:400">(mehrere möglich)</span></label><div class="zs-box" id="zt-schritte"></div></div>`,
     footer: `<button class="btn btn-ghost" data-skip>Ohne Zeit</button><button class="btn btn-primary" data-ok>Speichern</button>`,
   });
@@ -18450,14 +18666,17 @@ Views.zeiten = {
         fields: [
           { key: 'titel', label: 'Was hast du gemacht?', required: true, placeholder: 'z. B. Rähmchen gedrahtet' },
           { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
-          { key: 'kategorie', label: 'Tätigkeit', type: 'select', required: true, options: kats.map((t) => ({ v: t, l: t })) },
+          /* Ohne Pflicht-Kennzeichen, damit es ein leeres „–“ gibt: ist der Vorschlag unsicher, bleibt das Feld leer statt
+             still auf dem ersten Bereich zu stehen (Gegenprüfung v2.96). Pflicht bleibt es trotzdem – siehe onSave. */
+          { key: 'kategorie', label: 'Tätigkeitsbereich', type: 'select', options: kats.map((t) => ({ v: t, l: t })), hint: 'Wird aus deinem Text vorgeschlagen – passt nichts, bitte selbst wählen.' },
           SCHRITTE_FELD,
           { key: 'zeitMinuten', label: 'Dauer (Minuten)', type: 'number', required: true },
         ],
         values: a ? { titel: a.titel, datum: datumVon(a), kategorie: a.kategorie || 'Sonstiges', zeitMinuten: a.zeitMinuten } : {},
         async onSave(v) {
+          if (!v.kategorie) throw feldFehler('kategorie', 'Bitte einen Tätigkeitsbereich wählen.');
           const schritte = m.schritteWerte ? m.schritteWerte() : [];
-          const rec = Object.assign(a || { quelle: 'manuell', refId: null, notiz: '' }, { titel: v.titel, faellig: v.datum, erledigt: true, kategorie: v.kategorie, schritte, zeitMinuten: Math.round(v.zeitMinuten) });
+          const rec = Object.assign(a || { quelle: 'manuell', refId: null, notiz: '', zeitNachtrag: true }, { titel: v.titel, faellig: v.datum, erledigt: true, kategorie: v.kategorie, schritte, zeitMinuten: Math.round(v.zeitMinuten) });
           delete rec.schritt;
           await DB.put('aufgaben', rec);
           for (const x of schritte) await schrittMerken(v.kategorie, x);
@@ -18465,8 +18684,9 @@ Views.zeiten = {
         },
         onDelete: a ? papierkorbDelete('aufgaben', a, 'Zeiteintrag löschen?', 'Wandert in den Papierkorb.') : undefined,
       });
-      listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neue Tätigkeit anlegen', titel: 'Neue Tätigkeit', platzhalter: 'z. B. Rähmchen drahten' });
+      listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neuen Tätigkeitsbereich anlegen', titel: 'Neuer Tätigkeitsbereich', platzhalter: 'z. B. Imkerkurse' });
       verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
+      verdrahteBereichVorschlag(m, { auto: !a });
     };
     bindAdd(() => form(null));
     jahresReiter(main, jahre, jahr, (j) => { Views.zeiten._jahr = j; });
@@ -28203,7 +28423,7 @@ Object.assign(window, {
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat, zwischenstandZeit,
   Seitenweise, seitenweise, LISTE_SCHRITT,
-  ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
+  AUFGABEN_VORLAGEN, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
   APP_WISSEN, Assistent, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,

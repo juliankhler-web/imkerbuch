@@ -15121,3 +15121,150 @@ test('Honig-Bestand: eine Zeile je Charge, aufklappbar, Ausverkauft zugeklappt, 
     assert(/Noch kein Bestand/.test(host.textContent) && !host.querySelector('[data-bstsort]'), 'ohne Chargen: Hinweis, keine Sortierung');
   } finally { w.renderRoute = echtRender; host.remove(); H._bestandOffen = new Set(); H._bestandSort = 'nummer'; }
 }));
+
+/* v2.96 (Julian 24.10.2026: „bei Aufgabe hinzufügen … große Auswahl an typischen Aufgaben und auch selber eingeben …
+   sollte da nicht Tätigkeitsbereich für die Zeiterfassung stehen?“) */
+test('Aufgabe: typische Aufgaben zur Auswahl, Tätigkeitsbereich folgt der Aufgabe, eigene Wahl bleibt', async (w) => isolierteDaten(w, async () => {
+  const w8 = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Vorlagen: viele, jeder Bereich gibt es, keine doppelt
+  const V = w.AUFGABEN_VORLAGEN, bereiche = new Set(w.S.get('taetigkeiten'));
+  assert(V.length >= 80, 'große Auswahl: ' + V.length);
+  assert(V.every(([, b]) => bereiche.has(b)), 'jede Vorlage hat einen vorhandenen Bereich');
+  assertEq(new Set(V.map(([t]) => t.toLowerCase())).size, V.length, 'keine doppelt');
+  // Erkennung
+  assertEq(w.bereichAusText('Futterkontrolle'), 'Fütterung');
+  assertEq(w.bereichAusText('futterkontrolle '), 'Fütterung', 'Groß/klein und Leerzeichen egal');
+  assertEq(w.bereichAusText('Gläser bestellen'), 'Verwaltung & Büro', 'aus dem Text erkannt (Einkauf & Bestellung)');
+  assertEq(w.bereichAusText('Varroa zählen am Stand'), 'Behandlung');
+  assertEq(w.bereichAusText('Kaffee trinken'), null, 'nichts erkannt');
+  // Feste Arbeitsschritte, wo die Text-Erkennung danebenläge
+  assertEq(w.schritteErkennen('Ableger kontrollieren', 'Durchsicht & Völkerpflege'), ['Durchsicht'], 'Kontrolle ist eine Durchsicht, nicht „Ableger bilden“');
+  assertEq(w.schritteErkennen('Varroa-Kontrolle (Windel)', 'Behandlung'), ['Varroa zählen']);
+  assertEq(w.schritteErkennen('Honigernte', 'Ernte & Schleudern'), ['Honigräume abnehmen', 'Schleudern']);
+  assertEq(w.schritteErkennen('Mäusegitter abnehmen', 'Durchsicht & Völkerpflege'), [], 'bewusst kein Schritt (nicht „Einwintern“)');
+  assertEq(w.schritteErkennen('Ableger bilden', 'Durchsicht & Völkerpflege'), ['Ableger bilden'], 'ohne festen Schritt wie bisher');
+  assertEq(w.schritteErkennen('Varroa-Kontrolle (Windel)', 'Sonstiges').length, 1, 'anderer Bereich: normale Erkennung');
+  assertEq(w.bereichAusText('Kaffee trinken', [{ titel: 'Kaffee trinken – Stand 3', kategorie: 'Sonstiges' }]), 'Sonstiges', 'wie letztes Mal eingeordnet (Kern ohne Zusatz)');
+  // Gegenprüfung v2.96: Vorlage mit Zusatz, allgemeine Wörter, Gleichstand, neueste Einordnung
+  assert(w.AUFGABEN_VORLAGEN.every(([t, b]) => w.bereichAusText(t + ' – Stand 2') === b && w.bereichAusText(t + ': Anna 039') === b), 'jede Vorlage behält mit Zusatz ihren Bereich');
+  assertEq(w.bereichAusText('Durchsicht Stand Wald'), 'Durchsicht & Völkerpflege', 'Vorlage am Anfang, Rest Zusatz');
+  assertEq(w.aufgabeKern('Stand Wald: Futter nachfüllen'), 'Futter nachfüllen', 'Zusatz vorn: die längere Seite bleibt');
+  assertEq(w.aufgabeKern('Fütterung prüfen: Volk 3'), 'Fütterung prüfen');
+  assertEq(w.bereichAusText('Königin prüfen'), null, '„prüfen“ allein macht keine Futterkontrolle');
+  assertEq(w.bereichAusText('Tränke füllen'), null, '„füllen“ allein macht kein Abfüllen');
+  assertEq(w.bereichAusText('Ableger füttern'), null, 'Gleichstand zweier Bereiche: selbst wählen');
+  assertEq(w.bereichAusText('Völker behandeln'), 'Behandlung');
+  assertEq(w.bereichAusText('Honig ernten'), 'Ernte & Schleudern');
+  assertEq(w.bereichAusText('Varroa prüfen'), 'Behandlung');
+  assertEq(w.bereichAusText('Futter prüfen'), 'Fütterung');
+  assertEq(w.bereichAusText('Kaffee trinken', [{ titel: 'Kaffee trinken', kategorie: 'Zucht', lastModified: 1 }, { titel: 'Kaffee trinken', kategorie: 'Sonstiges', lastModified: 5 }, { titel: 'Kaffee trinken', kategorie: 'Bau & Reparatur', lastModified: 3 }]), 'Sonstiges', 'die neueste Einordnung gewinnt');
+  assertEq(w.schritteErkennen('Honigernte – Stand 2', 'Ernte & Schleudern'), ['Honigräume abnehmen', 'Schleudern'], 'fester Schritt auch mit Zusatz');
+  // Gegenprüfung Runde 2
+  assertEq(w.schritteErkennen('Varroa-Kontrolle (Windel) und Ameisensäure', 'Behandlung'), ['Varroa zählen', 'Ameisensäure'], 'zweite Tätigkeit bleibt erhalten');
+  assertEq(w.schritteErkennen('Honigernte und entdeckelt', 'Ernte & Schleudern'), ['Honigräume abnehmen', 'Schleudern', 'Entdeckeln']);
+  assertEq(w.schritteErkennen('Mäusegitter abnehmen und Durchsicht', 'Durchsicht & Völkerpflege'), ['Durchsicht']);
+  assertEq(w.schritteErkennen('Gläser abgefüllt & etikettiert', 'Abfüllen & Etikettieren'), ['Abfüllen', 'Etiketten kleben'], 'freie Texte wie bisher');
+  assertEq(w.aufgabeKern('Futterkontrolle: Stand am Waldrand Nord'), 'Futterkontrolle', 'Tätigkeit vorn bleibt, auch wenn der Ort länger ist');
+  assertEq(w.aufgabeKern('Rasen mähen – Stand am Waldrand Nord'), 'Rasen mähen', 'nichts erkennbar: vorn');
+  assertEq(w.bereichAusText('Königin suchen', [{ titel: 'Futterkontrolle: Stand am Waldrand Nord', kategorie: 'Fütterung' }]), null, 'ein Ortsname wird nicht zum gelernten Kern');
+  assertEq(w.bereichAusText('Honigräume runter'), 'Ernte & Schleudern', 'Abnehmen ist Ernte, nicht Erweitern');
+  assertEq(w.bereichAusText('Honigraum aufsetzen'), 'Durchsicht & Völkerpflege');
+  assertEq(w.bereichAusText('Wachs wegbringen', [{ titel: 'Wachs wegbringen', kategorie: 'Verkauf & Vermarktung', faellig: '2026-09-01', lastModified: '2026-01-10T10:00:00.000Z' },
+    { titel: 'Wachs wegbringen', kategorie: 'Bau & Reparatur', faellig: '', lastModified: '2026-10-24T08:00:00.000Z' }]), 'Bau & Reparatur', 'neueste Einordnung nach Änderungszeit (Text), nicht nach Fälligkeit');
+  // Eigene von früher: auf den Kern gekürzt, automatische nicht, Vorlagen nicht doppelt
+  for (let i = 0; i < 5; i++) await w.DB.put('aufgaben', { titel: `Futter nachfüllen – Volk ${i}`, quelle: 'manuell', erledigt: false });
+  await w.DB.put('aufgaben', { titel: 'Fütterung prüfen: Volk Anna', quelle: 'fuetterung', erledigt: false });
+  await w.DB.put('aufgaben', { titel: 'futterkontrolle', quelle: 'manuell', erledigt: false });
+  await w.DB.put('aufgaben', { titel: 'Rähmchen gedrahtet', quelle: 'manuell', erledigt: true, zeitMinuten: 30, zeitNachtrag: true });
+  const vs = await w.aufgabenVorschlaege();
+  assertEq(vs.filter((t) => /^Futter nachfüllen$/.test(t)).length, 1, 'eigene einmal, ohne Volk-Zusatz');
+  assert(!vs.some((t) => /Fütterung prüfen/.test(t)), 'automatische Aufgaben nicht');
+  assertEq(vs.filter((t) => t.toLowerCase() === 'futterkontrolle').length, 1, 'Vorlage nicht doppelt');
+  assert(!vs.includes('Rähmchen gedrahtet'), 'nachgetragene Zeiten sind keine Aufgaben-Vorschläge');
+  for (let i = 0; i < 60; i++) await w.DB.put('aufgaben', { titel: `Eigene Arbeit ${i}`, quelle: 'manuell', erledigt: false });
+  assertEq((await w.aufgabenVorschlaege()).length, V.length + 40, 'höchstens 40 eigene');
+
+  // Formular
+  w.location.hash = '#/aufgaben'; await w.renderRoute(); await w8(300);
+  w.document.querySelector('#main #add').click(); await w8(300);
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const ti = m.querySelector('#f-titel'), ka = m.querySelector('#f-kategorie');
+    assert(ti.classList.contains('combo-inp'), 'Aufgabe ist eine Auswahl mit freiem Eintippen');
+    assert(m.querySelectorAll('.combo-opt').length >= V.length, 'alle Vorlagen in der Auswahl');
+    assert(/^Tätigkeitsbereich/.test(ka.closest('.field').querySelector('label').textContent), 'heißt jetzt „Tätigkeitsbereich“');
+    assert(/Für die Zeiterfassung/.test(m.querySelector('[data-field="_zeitKopf"]').textContent), 'eigener Abschnitt „Für die Zeiterfassung“');
+    const labels = [...m.querySelectorAll('.field > label')].map((l) => l.textContent);
+    assert(labels.findIndex((t) => /^Notiz/.test(t)) < labels.findIndex((t) => /^Tätigkeitsbereich/.test(t)), 'Notiz steht vor dem Zeiterfassungs-Teil');
+    const tippe = async (t) => { ti.value = t; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50); };
+    const aktiv = () => [...m.querySelectorAll('.zs-box .chip.active')].map((c) => c.dataset.zs);
+    await tippe('Futterkontrolle');
+    assertEq(ka.value, 'Fütterung', 'Bereich folgt der Aufgabe');
+    assert(/aus „Futterkontrolle“/.test(ka.closest('.field').querySelector('label').textContent), 'Schild zeigt die Herkunft');
+    assertEq(aktiv(), ['Futterkontrolle'], 'Arbeitsschritt passt dazu');
+    // Auswahl aus der Liste wie mit dem Finger
+    [...m.querySelectorAll('.combo-opt')].find((o) => o.textContent === 'Rähmchen drahten').click(); await w8(50);
+    assertEq(ka.value, 'Bau & Reparatur');
+    await tippe('Imkerkurs geben');
+    assertEq(ka.value, 'Sonstiges', 'Vorlage „Imkerkurs“ mit Zusatz');
+    await tippe('Kaffee trinken');
+    assertEq(ka.value, '', 'unsicher: zurück auf leer, nichts erzwungen');
+    assert(!m.querySelector('.bereich-vorschlag'), 'und kein Schild');
+    // Arbeitsschritt von Hand gewählt → Bereich folgt nicht mehr (sonst lernte die App den Schritt im falschen Bereich)
+    await tippe('Völker wiegen');
+    assertEq(ka.value, 'Durchsicht & Völkerpflege');
+    m.querySelector('[data-zs="Durchsicht"]').click();
+    await tippe('Futterkontrolle');
+    assertEq(ka.value, 'Durchsicht & Völkerpflege', 'nach eigener Schritt-Wahl bleibt der Bereich');
+  } finally { w.FormGuard.dirty = false; m.remove(); }
+  // selbst geändert: bleibt (frisches Formular)
+  w.document.querySelector('#main #add').click(); await w8(300);
+  const m3 = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const ti = m3.querySelector('#f-titel'), ka = m3.querySelector('#f-kategorie');
+    ti.value = 'Futterkontrolle'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
+    ka.value = 'Zucht'; ka.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert(!m3.querySelector('.bereich-vorschlag'), 'Schild weg, sobald man selbst wählt');
+    ti.value = 'Schleudern'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
+    assertEq(ka.value, 'Zucht', 'eigene Wahl wird nicht überschrieben');
+  } finally { w.FormGuard.dirty = false; m3.remove(); }
+
+  // Bearbeiten: Bereich bleibt, wie er gespeichert ist
+  const alt = await w.DB.put('aufgaben', { titel: 'Futterkontrolle', kategorie: 'Sonstiges', quelle: 'manuell', erledigt: false, faellig: w.U.todayIso() });
+  await w.renderRoute(); await w8(300);
+  w.document.querySelector(`#main [data-open="${alt.id}"]`)?.click(); await w8(300);
+  const m2 = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    assert(m2 && /Aufgabe bearbeiten/.test(m2.textContent), 'Bearbeiten-Fenster offen');
+    const ti2 = m2.querySelector('#f-titel'), ka2 = m2.querySelector('#f-kategorie');
+    assertEq(ka2.value, 'Sonstiges');
+    ti2.value = 'Futterkontrolle am Stand'; ti2.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
+    assertEq(ka2.value, 'Sonstiges', 'beim Bearbeiten kein Umspringen');
+  } finally { w.FormGuard.dirty = false; m2 && m2.remove(); }
+
+  // „Zeit nachtragen“: Vorschlag aus dem Text, unsicher → leer (nicht still der erste Bereich), Speichern verlangt einen Bereich
+  w.location.hash = '#/zeiten'; await w.renderRoute(); await w8(300);
+  w.document.querySelector('#main #add').click(); await w8(300);
+  const mz = [...w.document.querySelectorAll('.modal-back')].pop();
+  try {
+    const ti = mz.querySelector('#f-titel'), ka = mz.querySelector('#f-kategorie');
+    assertEq(ka.value, '', 'neu: noch kein Bereich');
+    ti.value = 'Rähmchen gedrahtet'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
+    assertEq(ka.value, 'Bau & Reparatur');
+    ti.value = 'Kaffee getrunken'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
+    assertEq(ka.value, '', 'unsicher: zurück auf leer');
+    mz.querySelector('#f-zeitMinuten').value = '20';
+    mz.querySelector('[data-save]').click(); await w8(300);
+    assert(mz.isConnected && /Tätigkeitsbereich wählen/.test(mz.textContent), 'ohne Bereich wird nicht gespeichert');
+  } finally { w.FormGuard.dirty = false; mz.remove(); }
+  // Abhaken: Dauer-Abfrage schlägt den Bereich aus dem Text vor, wenn keiner gespeichert ist
+  const ohne = await w.DB.put('aufgaben', { titel: 'Honigräume abnehmen', quelle: 'manuell', erledigt: true });
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    w.zeitDialog(ohne); await w8(200);
+    const d = [...w.document.querySelectorAll('.modal-back')].pop();
+    assertEq(d.querySelector('#zt-kat').value, 'Ernte & Schleudern');
+    assert(/Tätigkeitsbereich/.test(d.textContent), 'auch dort „Tätigkeitsbereich“');
+    d.remove();
+  } finally { w.Lizenz.light = echtLight; }
+}));
