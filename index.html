@@ -1549,8 +1549,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.97';
+const APP_VERSION = '2.98';
 const CHANGELOG = [
+  { version: '2.98', datum: '2026-10-25', punkte: [
+    '<b>Aufgaben: Der Tätigkeitsbereich rät vorsichtiger.</b> Namen und Alltagswörter („Frau Müller anrufen“, „Messe besuchen“) lösen keinen Vorschlag mehr aus – vorher landete so etwas bei Behandlung oder Ernte. Wörter, die bei dir ein Kontakt, ein Volk oder ein Stand heißt, zählen nicht mit. Lieber kein Vorschlag als ein falscher.',
+    '<b>Arbeitsschritte:</b> „Futter prüfen“ wird Futterkontrolle, „Futter geben“ oder „nachfüllen“ wird Füttern (nicht mehr „Futter ansetzen“). Neuer Schritt „Völker vereinigen“; „Reinigungsflug“ zählt zur Durchsicht. Ohne gewählten Bereich wird kein Schritt vorab angehakt.',
+    '<b>Verkauf:</b> Ist oben „ohne Datum“ gewählt, druckt „Liste (PDF)“ jetzt genau diese Verkäufe.',
+  ] },
   { version: '2.97', datum: '2026-10-25', punkte: [
     '<b>Anzeige nach § 1a ohne „eingewintert“:</b> Das Blatt fürs Veterinäramt nennt jetzt nur noch, was § 1a verlangt – Zahl und Standort der Völker. Die Zeile „Eingewintert … am 1. Oktober“ hatte einen Tester und sein Amt verwirrt: Sie war keine Vorgabe eines Amtes, sondern eine Festlegung der App. Eingewinterte Völker stehen weiter auf dem Blatt für die Tierseuchenkasse, wo Thüringen und Sachsen-Anhalt sie abfragen.',
     '<b>Kleiner Schönheitsfehler:</b> In Statistiken → Honig passten die fünf Knöpfe „Volk · Stand · Sorte · Tracht · Jahr“ auf dem kleinsten iPhone nicht ganz in die Zeile.',
@@ -15387,7 +15392,7 @@ Views.honig = {
       menge: (a, b) => (Number(b.anzahl) || 0) - (Number(a.anzahl) || 0) || H.nachDatum(a, b),
     }[F.sort]);
     const umsatzJahr = U.sum(list, (v) => v.betrag);
-    const pdfJahr = F.jahr && F.jahr !== '__ohne' ? `'${F.jahr}'` : '';
+    const pdfJahr = F.jahr ? `'${F.jahr}'` : '';   // auch „ohne Datum“ (__ohne) kommt mit – Ausdruck = Anzeige
     box.innerHTML = `${F.html}<div class="card">
       <div class="card-title">${icon('euro')}<h2>Verkäufe</h2><span class="badge b-honey">${U.esc(F.jahrText)}: ${U.fmtEur(umsatzJahr)}</span>
         <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="Pdf.verkaeufe(${pdfJahr})">${icon('doc')} Liste (PDF)</button><button class="btn btn-ghost btn-sm" onclick="navTo('markt')">${icon('kasse')} Marktverkauf</button><button class="btn btn-primary btn-sm" id="add">${icon('plus')} Verkauf erfassen</button></span></div>
@@ -17925,6 +17930,7 @@ Views.aufgaben = {
     const voelkerAktiv = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     const funktionenAlle = [...new Set([...VORSCHLAEGE.volksfunktion, ...voelkerAktiv.map((v) => v.funktion).filter(Boolean)])];
     const vorschlaege = await aufgabenVorschlaege(all);
+    const namenBekannt = await bekannteNamen();   // Kontakt-, Volk- und Standnamen zählen beim Bereichsvorschlag nicht
     const eigeneFrueher = all.filter((x) => !x.quelle || x.quelle === 'manuell');
     const form = (a, vorgabeDatum) => {
       // Alten Bereich erhalten, falls er inzwischen aus den Einstellungen entfernt wurde
@@ -17972,7 +17978,7 @@ Views.aufgaben = {
       verdrahteVolkAuswahl(m, voelkerAktiv);
       listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neuen Tätigkeitsbereich anlegen', titel: 'Neuer Tätigkeitsbereich', platzhalter: 'z. B. Imkerkurse' });
       verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
-      verdrahteBereichVorschlag(m, { auto: !a, frueher: eigeneFrueher });
+      verdrahteBereichVorschlag(m, { auto: !a, frueher: eigeneFrueher, namen: namenBekannt });
       return m;
     };
     const add = () => form(null);
@@ -18052,17 +18058,18 @@ Views.aufgaben = {
    ===================================================================== */
 const ARBEITSSCHRITT_START = {
   'Durchsicht & Völkerpflege': [
-    ['Durchsicht', 'durchsicht durchgesehen durchsehen nachschau nachgesehen nachsehen stockkarte kontrolle kontrolliert begutachtet inspektion volkskontrolle'],
+    ['Durchsicht', 'durchsicht durchgesehen durchsehen nachschau nachgesehen nachsehen stockkarte kontrolle kontrolliert begutachtet inspektion volkskontrolle reinigungsflug'],
     ['Schwarmkontrolle', 'schwarm schwarmkontrolle weiselzelle weiselzellen schwarmzelle schwarmzellen ausgebrochen gebrochen schwarmstimmung'],
     ['Erweitern & Honigraum', 'erweitern erweitert honigraum honigraeume zarge zargen aufgesetzt aufsetzen absperrgitter'],
     ['Ableger bilden', 'ableger jungvolk kunstschwarm teilen geteilt brutableger flugling'],
+    ['Völker vereinigen', 'vereinigen vereinigt vereinigung zusammenlegen zusammengelegt ~voelker'],
     ['Drohnenrahmen schneiden', 'drohnenrahmen drohnenbrut ausschneiden ausgeschnitten'],
     ['Einwintern', 'einwintern eingewintert maeusegitter fluglochkeil winterfest einengen eingeengt'],
   ],
   'Fütterung': [
-    ['Füttern', 'fuettern gefuettert auffuettern aufgefuettert futtergabe einfuettern gegeben geben aufgelegt auflegen futterteig futtertasche futterzarge sirup zuckerwasser futtersirup ~futter'],
+    ['Füttern', 'fuettern gefuettert auffuettern aufgefuettert futtergabe einfuettern gegeben geben aufgelegt auflegen futterteig futtertasche futterzarge sirup zuckerwasser futtersirup futter nachfuellen nachgefuellt'],
     ['Futter ansetzen', 'ansetzen angesetzt anruehren angeruehrt mischen gemischt anmischen ~zuckerwasser ~sirup ~zucker'],
-    ['Futterkontrolle', 'futterkontrolle futtervorrat kontrolle kontrolliert pruefen geprueft gewogen wiegen ~fuetterung'],
+    ['Futterkontrolle', 'futterkontrolle futtervorrat kontrolle kontrolliert pruefen geprueft gewogen wiegen futter ~fuetterung'],
   ],
   'Behandlung': [
     ['Varroa zählen', 'zaehlen gezaehlt gemuell windel bodeneinlage diagnose auswaschen ausgewaschen puderzucker milbenfall befall ~varroa'],
@@ -18266,10 +18273,10 @@ const AUFGABEN_VORLAGEN = [
   ['Weiselzellen brechen', 'Durchsicht & Völkerpflege'], ['Weiselrichtigkeit prüfen', 'Durchsicht & Völkerpflege', 'Durchsicht'], ['Honigraum aufsetzen', 'Durchsicht & Völkerpflege'],
   ['Erweitern (Zarge geben)', 'Durchsicht & Völkerpflege'], ['Absperrgitter einlegen', 'Durchsicht & Völkerpflege'], ['Ableger bilden', 'Durchsicht & Völkerpflege'],
   ['Ableger kontrollieren', 'Durchsicht & Völkerpflege', 'Durchsicht'], ['Drohnenrahmen einhängen', 'Durchsicht & Völkerpflege'], ['Drohnenrahmen schneiden', 'Durchsicht & Völkerpflege'],
-  ['Völker vereinigen', 'Durchsicht & Völkerpflege'], ['Schwarm einfangen', 'Durchsicht & Völkerpflege'], ['Völker wiegen', 'Durchsicht & Völkerpflege'],
+  ['Völker vereinigen', 'Durchsicht & Völkerpflege', 'Völker vereinigen'], ['Schwarm einfangen', 'Durchsicht & Völkerpflege'], ['Völker wiegen', 'Durchsicht & Völkerpflege'],
   ['Einwintern', 'Durchsicht & Völkerpflege'], ['Völker einengen', 'Durchsicht & Völkerpflege'], ['Mäusegitter anbringen', 'Durchsicht & Völkerpflege'],
   ['Mäusegitter abnehmen', 'Durchsicht & Völkerpflege', ''], ['Fluglochkeil einsetzen', 'Durchsicht & Völkerpflege'], ['Winterkontrolle (Totenfall, Flugloch)', 'Durchsicht & Völkerpflege'],
-  ['Reinigungsflug beobachten', 'Durchsicht & Völkerpflege'], ['Tränke auffüllen', 'Durchsicht & Völkerpflege'], ['Bienenstand mähen', 'Durchsicht & Völkerpflege'],
+  ['Reinigungsflug beobachten', 'Durchsicht & Völkerpflege', 'Durchsicht'], ['Tränke auffüllen', 'Durchsicht & Völkerpflege'], ['Bienenstand mähen', 'Durchsicht & Völkerpflege'],
   // Fütterung
   ['Futterkontrolle', 'Fütterung'], ['Auffüttern', 'Fütterung'], ['Futtersirup geben', 'Fütterung'], ['Futterteig geben', 'Fütterung'],
   ['Notfütterung', 'Fütterung'], ['Reizfütterung', 'Fütterung'], ['Futter ansetzen', 'Fütterung'], ['Futterzarge abnehmen', 'Fütterung'],
@@ -18320,7 +18327,7 @@ function aufgabeKern(titel) {
     /* Welche Seite ist die Tätigkeit? „Futterkontrolle: Stand am Waldrand Nord“ → vorn, „Stand Wald: Futter nachfüllen“ →
        hinten. Die Seite, die eine Vorlage trifft oder einem Bereich zuzuordnen ist; sonst vorn (die häufigste Form). */
     const vorn = m[1].trim(), hinten = m[2].trim();
-    const taetig = (x) => !!vorlageGenau(x) || ((bereichPunkte(x, S.get('taetigkeiten') || [])[0] || {}).p || 0) >= 1.5;
+    const taetig = (x) => !!vorlageGenau(x) || ((bereichPunkte(x, S.get('taetigkeiten') || [])[0] || {}).p || 0) >= 2;
     kern = !vorn ? hinten : !hinten ? vorn : taetig(vorn) ? vorn : taetig(hinten) ? hinten : vorn;
   }
   if (_kern.size > 5000) _kern.clear();
@@ -18360,11 +18367,19 @@ async function aufgabenVorschlaege(liste) {
    kein Abfüllen) – für die Bereichswahl zählen sie nicht (Gegenprüfung v2.96). */
 const BEREICH_ALLGEMEIN = new Set(('pruefen geprueft pruefung kontrolle kontrollieren kontrolliert checken gecheckt machen gemacht erledigen erledigt '
   + 'reinigen gereinigt putzen geputzt saubermachen fuellen gefuellt auffuellen aufgefuellt nachfuellen nachgefuellt geben gegeben holen geholt '
-  + 'bringen gebracht vorbereiten vorbereitet wiegen gewogen messen gemessen legen gelegt neu neue stand staende').split(' '));
+  + 'bringen gebracht vorbereiten vorbereitet wiegen gewogen messen gemessen legen gelegt neu neue stand staende messe').split(' '));
 /** Tätigkeitswörter zu den Bereichsnamen („Völker behandeln“ → Behandlung) – zusätzlich zu den Wörtern der Arbeitsschritte. */
 const BEREICH_WORTE = {
-  'Behandlung': 'behandeln behandelt behandlung', 'Ernte & Schleudern': 'ernten geerntet', 'Wanderung & Transport': 'wandern gewandert',
-  'Verkauf & Vermarktung': 'verkaufen verkauft', 'Zucht': 'zuechten gezuechtet', 'Fütterung': 'fuettern gefuettert fuetterung',
+  'Durchsicht & Völkerpflege': 'durchsicht durchsichten nachschau vereinigen vereinigt vereinigung',
+  'Fütterung': 'fuettern gefuettert fuetterung futter',
+  'Behandlung': 'behandeln behandelt behandlung varroa milben',
+  'Ernte & Schleudern': 'ernten geerntet ernte schleudern geschleudert honigernte',
+  'Abfüllen & Etikettieren': 'abfuellen abgefuellt abfuellung etikettieren etikettiert',
+  'Bau & Reparatur': 'bauen gebaut reparatur reparieren repariert',
+  'Wanderung & Transport': 'wandern gewandert wanderung transport',
+  'Verkauf & Vermarktung': 'verkaufen verkauft verkauf vermarktung',
+  'Zucht': 'zuechten gezuechtet zucht',
+  'Verwaltung & Büro': 'verwaltung buero',
 };
 /** Frühere eigene Einordnungen als Nachschlag-Tabelle: Titel und Kern → Bereich, die neueste gewinnt. */
 function bereichKarte(frueher) {
@@ -18375,16 +18390,42 @@ function bereichKarte(frueher) {
   return karte;
 }
 /** Punkte je Bereich aus dem Text: Suchwörter seiner Arbeitsschritte und die Wörter seines Namens; allgemeine Wörter zählen nicht. */
-function bereichPunkte(text, bereiche) {
-  const tokens = assistentNorm(String(text || '').replace(/\([^)]*\)/g, ' ')).split(' ')
-    .filter((w) => w && (w.length >= 3 || /^(as|os)$/.test(w)) && !ASSISTENT_STOPP.has(w) && !BEREICH_ALLGEMEIN.has(w)).map((w) => ({ w, st: assistentStamm(w) }));
+/* Anrede: das Wort danach ist ein Name („Frau Müller anrufen“) und sagt nichts über den Bereich (Durchsicht 25.10.2026). */
+const BEREICH_ANREDE = new Set(['frau', 'herr', 'herrn', 'familie', 'fam', 'firma', 'fa']);
+/** Namen aller Kontakte, Völker und Stände als normierte Wörter – sie zählen bei der Bereichswahl nicht mit („Honig für Schneider“ ≠ schneiden). */
+async function bekannteNamen() {
+  const woerter = new Set();
+  for (const store of ['kontakte', 'voelker', 'staende']) {
+    for (const r of await DB.getAll(store)) for (const w of assistentNorm(r.name || '').split(' ')) if (w.length >= 3 && !ASSISTENT_STOPP.has(w)) woerter.add(w);
+  }
+  return woerter;
+}
+/** Punkte je Bereich aus dem Text – NUR genaue Wort- oder Stammtreffer (Durchsicht 25.10.2026: die Tippfehler- und
+    Teilwort-Toleranz der Schritt-Erkennung machte aus „Müller“ Gemüll, aus „Schneider“ schneiden, aus „Messe“ messen,
+    aus „vereinigen“ reinigen). Zusammensetzungen zählen nur mit den Bereichswörtern selbst („Rapsernte“, „Marktverkauf“). */
+function bereichPunkte(text, bereiche, namen = null) {
+  const roh = assistentNorm(String(text || '').replace(/\([^)]*\)/g, ' ')).split(' ').filter(Boolean);
+  const tokens = [];
+  for (let i = 0; i < roh.length; i++) {
+    const w = roh[i];
+    if (BEREICH_ANREDE.has(w)) { i++; continue; }
+    if (!(w.length >= 3 || /^(as|os)$/.test(w)) || ASSISTENT_STOPP.has(w) || BEREICH_ALLGEMEIN.has(w)) continue;
+    if (namen && namen.has(w)) continue;
+    tokens.push({ w, st: assistentStamm(w) });
+  }
   if (!tokens.length) return [];
   return bereiche.map((b) => {
-    const keys = [...schritteFuer(b).flatMap((x) => schrittKeys(x)),
-      ...(assistentNorm(b) + ' ' + (BEREICH_WORTE[b] || '')).split(' ').filter((w) => w.length >= 3 && !ASSISTENT_STOPP.has(w)).map((w) => ({ w, st: assistentStamm(w), g: 3 }))]
+    const eigene = (assistentNorm(b) + ' ' + (BEREICH_WORTE[b] || '')).split(' ').filter((w) => w.length >= 3 && !ASSISTENT_STOPP.has(w));
+    const keys = [...schritteFuer(b).flatMap((x) => schrittKeys(x)), ...eigene.map((w) => ({ w, st: assistentStamm(w), g: 3 }))]
       .map((k) => (k.g === 1 ? { ...k, g: 1.5 } : k));   // Gegenstände („~Futter“) zählen für den Bereich etwas mehr als für den Schritt
+    const zusammen = eigene.filter((w) => w.length >= 5);
     let p = 0;
-    for (const t of tokens) { let x = 0; for (const k of keys) x = Math.max(x, schrittWortPunkte(t, k)); p += x; }
+    for (const t of tokens) {
+      let x = 0;
+      for (const k of keys) if (t.st === k.st || t.w === k.w) x = Math.max(x, k.g);
+      if (!x && zusammen.some((w) => t.w.length > w.length && t.w.endsWith(w))) x = 2.1;
+      p += x;
+    }
     return { b, p };
   }).sort((x, y) => y.p - x.p);
 }
@@ -18395,7 +18436,7 @@ function bereichPunkte(text, bereiche) {
  * @param {string} text
  * @param {Map|Array} [frueher] Karte aus bereichKarte() oder eigene Aufgaben
  */
-function bereichAusText(text, frueher = []) {
+function bereichAusText(text, frueher = [], namen = null) {
   const k = assistentNorm(String(text || '').trim()); if (!k) return null;
   const erlaubt = S.get('taetigkeiten') || [];
   const v = vorlageZu(text);
@@ -18403,8 +18444,8 @@ function bereichAusText(text, frueher = []) {
   const karte = frueher instanceof Map ? frueher : bereichKarte(frueher);
   const alt = karte.get(k) || karte.get(assistentNorm(aufgabeKern(text)));
   if (alt && erlaubt.includes(alt)) return alt;
-  const p = bereichPunkte(text, erlaubt);
-  if (!p.length || p[0].p < 1.5) return null;
+  const p = bereichPunkte(text, erlaubt, namen);
+  if (!p.length || p[0].p < 2) return null;   // ein schwaches Wort allein („Honig“) entscheidet nicht
   if (p[1] && p[0].p - p[1].p < 0.5) return null;   // Gleichstand („Ableger füttern“): lieber selbst wählen lassen
   return p[0].b;
 }
@@ -18412,7 +18453,7 @@ function bereichAusText(text, frueher = []) {
  * Formular: der Tätigkeitsbereich folgt dem Aufgabentext, bis man ihn selbst ändert. Beim Bearbeiten eines
  * bestehenden Eintrags (auto: false) bleibt er, wie er ist. Ein kleines Schild zeigt, woher der Vorschlag kommt.
  */
-function verdrahteBereichVorschlag(m, { titel = 'titel', kat = 'kategorie', auto = true, frueher = [] } = {}) {
+function verdrahteBereichVorschlag(m, { titel = 'titel', kat = 'kategorie', auto = true, frueher = [], namen = null } = {}) {
   const ti = $('#f-' + titel, m.el), ka = $('#f-' + kat, m.el); if (!ti || !ka) return;
   const label = ka.closest('.field') && ka.closest('.field').querySelector('label');
   let selbst = false, folgt = auto, autoGesetzt = false;
@@ -18430,7 +18471,7 @@ function verdrahteBereichVorschlag(m, { titel = 'titel', kat = 'kategorie', auto
     // Arbeitsschritte von Hand gewählt? Dann gehört der Bereich auch dir – sonst lernte die App den Schritt im falschen Bereich.
     if (m.schritteVonHand && m.schritteVonHand()) { folgt = false; return; }
     const t = ti.value.trim();
-    const b = t ? bereichAusText(t, karte) : null;
+    const b = t ? bereichAusText(t, karte, namen) : null;
     if (!b || ![...ka.options].some((o) => o.value === b)) {
       schild('');
       if (autoGesetzt && ka.value !== start) setze(start);   // unsicher: zurück auf den Ausgangswert, nichts erzwingen
@@ -18451,7 +18492,7 @@ function verdrahteBereichVorschlag(m, { titel = 'titel', kat = 'kategorie', auto
  */
 function schrittKnoepfe(box, o) {
   let gewaehlt = [...(o.vorher || [])], vonHand = gewaehlt.length > 0, eigenOffen = false;
-  const auto = () => { if (!vonHand) gewaehlt = schritteErkennen(o.text(), o.kat()); };
+  const auto = () => { if (!vonHand) gewaehlt = o.kat() ? schritteErkennen(o.text(), o.kat()) : []; };   // ohne Bereich kein Schritt (sonst käme einer aus irgendeinem Bereich)
   const zeichne = () => {
     const namen = schritteFuer(o.kat()).map((x) => x.n);
     for (const g of gewaehlt) if (!namen.includes(g)) namen.push(g);
@@ -18664,6 +18705,7 @@ Views.zeiten = {
           <p class="hint mt8">Tippe einen Eintrag an, um Dauer, Tätigkeit oder Datum zu ändern.</p>`
         : emptyState('uhr', 'Noch keine Zeiten erfasst. Hake eine Aufgabe ab (die App fragt dann nach der Dauer) oder trage hier eine Zeit nach.')}
       </div>`;
+    const namenBekannt = await bekannteNamen();
     const form = (a) => {
       // Alte Tätigkeit erhalten, falls sie inzwischen aus den Einstellungen entfernt wurde
       const kats = [...S.get('taetigkeiten')];
@@ -18693,7 +18735,7 @@ Views.zeiten = {
       });
       listenwertNeuShortcut(m, 'kategorie', 'taetigkeiten', { label: 'Neuen Tätigkeitsbereich anlegen', titel: 'Neuer Tätigkeitsbereich', platzhalter: 'z. B. Imkerkurse' });
       verdrahteSchrittFeld(m, { vorher: a ? schritteGewaehlt(a) : [] });
-      verdrahteBereichVorschlag(m, { auto: !a });
+      verdrahteBereichVorschlag(m, { auto: !a, namen: namenBekannt });
     };
     bindAdd(() => form(null));
     jahresReiter(main, jahre, jahr, (j) => { Views.zeiten._jahr = j; });
@@ -24198,10 +24240,11 @@ const Pdf = {
   async verkaeufe(jahr) {
     try {
       const alle = U.sortBy(await DB.getAll('verkaeufe'), (v) => v.datum);
-      const list = jahr ? alle.filter((v) => (v.datum || '').startsWith(String(jahr))) : alle;
+      const ohneDatum = jahr === '__ohne';   // Jahr-Knopf „ohne Datum“ in der Verkaufsliste
+      const list = ohneDatum ? alle.filter((v) => !v.datum) : jahr ? alle.filter((v) => (v.datum || '').startsWith(String(jahr))) : alle;
       const abf = await idMap('abfuellungen'), chargen = await idMap('chargen'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
       const umsatz = U.sum(list, (v) => v.betrag), stueck = U.sum(list, (v) => v.anzahl);
-      const { doc, y } = await this.newDoc(`Verkäufe${jahr ? ' ' + jahr : ' – Übersicht'}`, `${list.length} ${list.length === 1 ? 'Verkauf' : 'Verkäufe'} · ${stueck} Gebinde · Umsatz ${U.fmtEur(umsatz)}`);
+      const { doc, y } = await this.newDoc(`Verkäufe${ohneDatum ? ' ohne Datum' : jahr ? ' ' + jahr : ' – Übersicht'}`, `${list.length} ${list.length === 1 ? 'Verkauf' : 'Verkäufe'} · ${stueck} Gebinde · Umsatz ${U.fmtEur(umsatz)}`);
       const body = list.map((v) => {
         const a = abf.get(v.abfuellungId), c = a ? chargen.get(a.chargeId) : null;
         return [U.fmtDate(v.datum), verkaufHonigText(v, a, c, ernten), c ? 'Los ' + c.losnummer : '–', String(v.anzahl), U.fmtEur(v.preisJeGlas), U.fmtEur(v.betrag), kontakte.get(v.kontaktId)?.name || ''];
@@ -24212,7 +24255,7 @@ const Pdf = {
         { content: U.fmtEur(umsatz), styles: { fontStyle: 'bold', halign: 'right' } }, '',
       ]);
       this.table(doc, { head: ['Datum', 'Produkt', 'Los', 'Anzahl', 'à (€)', 'Betrag (€)', 'Käufer'], body, startY: y, widths: { 0: { cellWidth: 20 }, 2: { cellWidth: 20 }, 3: { cellWidth: 16, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' }, 5: { cellWidth: 22, halign: 'right' } } });
-      this.finish(doc, `verkaeufe-${jahr || 'alle'}-${U.todayIso()}.pdf`);
+      this.finish(doc, `verkaeufe-${ohneDatum ? 'ohne-datum' : jahr || 'alle'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26494,7 +26537,7 @@ function assistentStamm(w) {
   if (ASSISTENT_AUSNAHMEN[w]) return ASSISTENT_AUSNAHMEN[w];
   let s = w;
   for (const p of ASSISTENT_VERBPRAEFIX) { if (s.startsWith(p + 'ge') && s.length > p.length + 5) { s = p + s.slice(p.length + 2); break; } }
-  if (/^ge[a-z]{5,}/.test(s) && !/^gewicht|^geraet|^gebinde|^gebuehr|^gewinn|^gesund|^gemeinsam|^genau|^gestern|^geld|^gebaeude|^gelaende/.test(s)) s = s.slice(2);
+  if (/^ge[a-z]{5,}/.test(s) && !/^gewicht|^geraet|^gebinde|^gebuehr|^gewinn|^gesund|^gemeinsam|^genau|^gestern|^geld|^gebaeude|^gelaende|^gemuell/.test(s)) s = s.slice(2);
   for (const suf of ['ungen', 'ung', 'keit', 'heit', 'lich', 'isch', 'ern', 'ten', 'test', 'tet', 'est', 'en', 'er', 'es', 'em', 'st', 'te', 'e', 'n', 's', 't']) {
     if ((s.length - suf.length >= 4 || (suf === 'e' && s.length === 4)) && s.endsWith(suf)) { s = s.slice(0, s.length - suf.length); break; }
   }

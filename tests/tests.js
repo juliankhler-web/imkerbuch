@@ -15170,6 +15170,23 @@ test('Aufgabe: typische Aufgaben zur Auswahl, Tätigkeitsbereich folgt der Aufga
   assertEq(w.bereichAusText('Honigraum aufsetzen'), 'Durchsicht & Völkerpflege');
   assertEq(w.bereichAusText('Wachs wegbringen', [{ titel: 'Wachs wegbringen', kategorie: 'Verkauf & Vermarktung', faellig: '2026-09-01', lastModified: '2026-01-10T10:00:00.000Z' },
     { titel: 'Wachs wegbringen', kategorie: 'Bau & Reparatur', faellig: '', lastModified: '2026-10-24T08:00:00.000Z' }]), 'Bau & Reparatur', 'neueste Einordnung nach Änderungszeit (Text), nicht nach Fälligkeit');
+  // Durchsicht 25.10.2026: Namen und Alltagswörter kippen den Bereich nicht mehr (nur genaue Treffer, Anrede, bekannte Namen)
+  for (const t of ['Frau Müller anrufen', 'Honig für Frau Schneider', 'Messe besuchen', 'Gläser für Fischer', 'Völker zum Rapsfeld bringen', 'Honigprämierung einreichen', 'Honig']) assertEq(w.bereichAusText(t), null, 'kein Vorschlag bei „' + t + '“');
+  await w.DB.put('kontakte', { name: 'Schneider' });
+  const namen = await w.bekannteNamen();
+  assert(namen.has('schneider'), 'Kontaktname bekannt');
+  assertEq(w.bereichAusText('Honig für Schneider', [], namen), null, 'Kontaktname zählt nicht (sonst „schneiden“)');
+  assertEq(w.bereichAusText('Rapsernte'), 'Ernte & Schleudern', 'Zusammensetzung mit Bereichswort');
+  assertEq(w.bereichAusText('Marktverkauf vorbereitet'), 'Verkauf & Vermarktung');
+  assertEq(w.bereichAusText('Vereinigung Volk 3 und 4'), 'Durchsicht & Völkerpflege', 'vereinigen ist kein reinigen');
+  assertEq(w.bereichAusText('Reinigungsflug'), 'Durchsicht & Völkerpflege');
+  assertEq(w.bereichAusText('Varroabehandlung'), 'Behandlung');
+  assertEq(w.schritteErkennen('Futter prüfen', 'Fütterung'), ['Futterkontrolle'], 'Futter prüfen = Futterkontrolle, nicht „Futter ansetzen“');
+  assertEq(w.schritteErkennen('Futter geben', 'Fütterung'), ['Füttern']);
+  assertEq(w.schritteErkennen('Futter nachfüllen', 'Fütterung'), ['Füttern']);
+  assertEq(w.schritteErkennen('Futter ansetzen', 'Fütterung'), ['Futter ansetzen']);
+  assertEq(w.schritteErkennen('Volk 3 mit 4 vereinigen', 'Durchsicht & Völkerpflege'), ['Völker vereinigen']);
+  assertEq(w.schritteErkennen('Reinigungsflug', 'Durchsicht & Völkerpflege'), ['Durchsicht']);
   // Eigene von früher: auf den Kern gekürzt, automatische nicht, Vorlagen nicht doppelt
   for (let i = 0; i < 5; i++) await w.DB.put('aufgaben', { titel: `Futter nachfüllen – Volk ${i}`, quelle: 'manuell', erledigt: false });
   await w.DB.put('aufgaben', { titel: 'Fütterung prüfen: Volk Anna', quelle: 'fuetterung', erledigt: false });
@@ -15252,6 +15269,7 @@ test('Aufgabe: typische Aufgaben zur Auswahl, Tätigkeitsbereich folgt der Aufga
     assertEq(ka.value, 'Bau & Reparatur');
     ti.value = 'Kaffee getrunken'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w8(50);
     assertEq(ka.value, '', 'unsicher: zurück auf leer');
+    assertEq(mz.querySelectorAll('.zs-box .chip.active').length, 0, 'ohne Bereich wird kein Schritt vorab angehakt');
     mz.querySelector('#f-zeitMinuten').value = '20';
     mz.querySelector('[data-save]').click(); await w8(300);
     assert(mz.isConnected && /Tätigkeitsbereich wählen/.test(mz.textContent), 'ohne Bereich wird nicht gespeichert');
@@ -15266,4 +15284,26 @@ test('Aufgabe: typische Aufgaben zur Auswahl, Tätigkeitsbereich folgt der Aufga
     assert(/Tätigkeitsbereich/.test(d.textContent), 'auch dort „Tätigkeitsbereich“');
     d.remove();
   } finally { w.Lizenz.light = echtLight; }
+}));
+
+
+/* v2.98 (Durchsicht 25.10.2026): Jahr-Knopf „ohne Datum“ → „Liste (PDF)“ druckt genau diese Verkäufe */
+test('Verkauf: „ohne Datum“ gewählt → Liste (PDF) druckt nur die undatierten Verkäufe', async (w) => isolierteDaten(w, async () => {
+  const H = w.Views.honig, host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const echt = w.Pdf.finish; let text = ''; w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  try {
+    const c = await w.DB.put('chargen', { losnummer: '2026-01', datum: '2026-06-01', ernteIds: [], mengeKg: 10, sorte: 'Raps' });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-06-02', gebindeG: 500, anzahl: 20, bestand: 10 });
+    await w.DB.put('verkaeufe', { datum: '2026-07-01', abfuellungId: a.id, anzahl: 2, betrag: 14 });
+    await w.DB.put('verkaeufe', { datum: '', abfuellungId: a.id, anzahl: 3, betrag: 12 });   // z. B. aus einer fremden Sicherung ohne Datum
+    H._filter = { verkaeufe: { jahr: '__ohne', sort: 'datum' } };
+    await H.tabVerkaeufe(host);
+    assert(host.querySelector('[data-hfjahr="verkaeufe|__ohne"]').classList.contains('active'), 'Knopf „ohne Datum“ aktiv');
+    assert(/Pdf\.verkaeufe\('__ohne'\)/.test(host.innerHTML), 'PDF-Knopf gibt „ohne Datum“ weiter');
+    await w.Pdf.verkaeufe('__ohne');
+    assert(/ohne Datum/.test(text) && /12,00/.test(text) && !/14,00/.test(text), 'nur der undatierte Verkauf im PDF');
+    await w.Pdf.verkaeufe('2026');
+    assert(/14,00/.test(text) && !/12,00/.test(text), 'Jahr 2026 wie bisher');
+  } finally { w.Pdf.finish = echt; w.renderRoute = echtRender; host.remove(); H._filter = {}; }
 }));

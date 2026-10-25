@@ -1,6 +1,6 @@
 # ImkerBuch – Test auf dem echten iPhone
 
-Stand: 25.10.2026, Version 2.97 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, C4c Bestand kompakt, D1b Aufgaben-Auswahl, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
+Stand: 25.10.2026, Version 2.98 (Teile A und E schon im iPhone-Simulator vorgeprüft, Funde behoben; A6b neu nach deinem Fund; neu: B9–B12 Trachtkalender und PDF-Sonderzeichen, D5 Sicherung mit Erinnerung, D6 Zwischenstände, E0 Überschrift, B7a–B7d Stammbaum/Ahnentafel, B3b/C4b/C8b Jahr und Sortierung, C4c Bestand kompakt, D1b Aufgaben-Auswahl, F4d–F4i Meldungen ans Amt inkl. Österreich/Schweiz, G6 Großbestand). Dauer: etwa 60–90 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen (Seitentaste + Lauter) und mir schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft mir (z. B. „B4 geht nicht“).
 

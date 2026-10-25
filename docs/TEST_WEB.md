@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 25.10.2026, Version 2.97. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 25.10.2026, Version 2.98. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
