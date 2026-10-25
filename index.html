@@ -2,6 +2,7 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="robots" content="noindex, nofollow">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FAF6EF">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -518,6 +519,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .seg{display:inline-flex;background:var(--card2);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px;gap:2px}
 .seg button{padding:7px 15px;border-radius:9px;font-size:13.5px;font-weight:600;color:var(--muted);min-height:36px}
 .seg button.active{background:var(--card);color:var(--text);box-shadow:var(--shadow);font-weight:700}
+/* Schmale Handys (iPhone SE): fünf Knöpfe („Volk · Stand · Sorte · Tracht · Jahr“) ragten 2 px über den Rand – Gesamtprüfung 25.10.2026 */
+@media(max-width:400px){.seg{display:flex;flex-wrap:wrap;max-width:100%}.seg button{padding:7px 10px;flex:1 1 auto}}
 .dot{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(0,0,0,.2);vertical-align:-1px}
 
 /* =====================================================================
@@ -1546,8 +1549,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.96';
+const APP_VERSION = '2.97';
 const CHANGELOG = [
+  { version: '2.97', datum: '2026-10-25', punkte: [
+    '<b>Anzeige nach § 1a ohne „eingewintert“:</b> Das Blatt fürs Veterinäramt nennt jetzt nur noch, was § 1a verlangt – Zahl und Standort der Völker. Die Zeile „Eingewintert … am 1. Oktober“ hatte einen Tester und sein Amt verwirrt: Sie war keine Vorgabe eines Amtes, sondern eine Festlegung der App. Eingewinterte Völker stehen weiter auf dem Blatt für die Tierseuchenkasse, wo Thüringen und Sachsen-Anhalt sie abfragen.',
+    '<b>Kleiner Schönheitsfehler:</b> In Statistiken → Honig passten die fünf Knöpfe „Volk · Stand · Sorte · Tracht · Jahr“ auf dem kleinsten iPhone nicht ganz in die Zeile.',
+  ] },
   { version: '2.96', datum: '2026-10-24', punkte: [
     '<b>Typische Aufgaben zur Auswahl:</b> Bei „Neue Aufgabe“ kannst du jetzt aus fast 90 typischen Aufgaben übers Bienenjahr wählen – von Futterkontrolle über Ameisensäure-Behandlung bis Völkerbestand melden. Deine eigenen Aufgaben von früher stehen mit drin. Frei eintippen geht weiterhin.',
     '<b>Tätigkeitsbereich füllt sich selbst:</b> Unten im Abschnitt „Für die Zeiterfassung“ steht jetzt „Tätigkeitsbereich“ statt „Tätigkeit“ – und er passt sich der Aufgabe an (Futterkontrolle → Fütterung). Wählst du selbst etwas anderes, bleibt deine Wahl. Auch „Zeit nachtragen“ und die Dauer-Abfrage beim Abhaken schlagen den Bereich so vor.',
@@ -24703,8 +24710,10 @@ const Pdf = {
   /* Recherche 23.10.2026 (docs/MELDEPFLICHTEN.md): Die Pflicht ist bundesweit gleich (Zahl der Völker und Standort,
      ab dem ersten Volk, spätestens bei Beginn; Änderungen und Aufgabe nach Art. 84 VO (EU) 2016/429). Die Vordrucke
      sind je Amt verschieden – dieses Blatt enthält die üblichen Angaben: Tierhalter, Anschrift, Registriernummer, je
-     Standort Lage (Ort, Gemarkung, Flurnummer) und Koordinaten, dazu die eingewinterten Völker, die manche Ämter und
-     Tierseuchenkassen abfragen. Interner Name bleibt „bestandsmeldung“ (Dateiname, Unterlagen-Kennung). */
+     Standort Lage (Ort, Gemarkung, Flurnummer) und Koordinaten. OHNE „eingewintert“ (v2.97): § 1a verlangt nur Zahl
+     und Standort, kein gefundener Vordruck fragt das ab, und der 1. Oktober war nur eine Festlegung der App – ein
+     Tester fragte zu Recht „was denkt sich da der Veterinär?“. Eingewinterte Völker stehen weiter auf dem Blatt für
+     die Tierseuchenkasse (Thüringen/Sachsen-Anhalt). Interner Name bleibt „bestandsmeldung“ (Dateiname, Kennung). */
   async bestandsmeldung() {
     try {
       const imk = S.get('imkerei');
@@ -24712,14 +24721,10 @@ const Pdf = {
       const alle = await DB.getAll('voelker');
       const voelker = alle.filter((v) => v.status === 'aktiv');
       const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
-      const wanderungen = await DB.getAll('wanderungen');
-      const heute = U.todayIso(), einTag = letzteEinwinterung(heute);
-      const mitEin = staat === 'DE';   // „eingewintert“ fragen nur deutsche Ämter und Kassen ab
+      const heute = U.todayIso();
       const ids = new Set(staende.map((x) => x.id));
       const jetztJe = new Map();
       for (const v of voelker) { const st = v.standId && ids.has(v.standId) ? v.standId : null; jetztJe.set(st, (jetztJe.get(st) || 0) + 1); }
-      const einJe = mitEin ? voelkerJeStandAm(alle, einTag, wanderungen, ids) : new Map();
-      const einSumme = [...einJe.values()].reduce((x, y) => x + y, 0);
       const kopf = {
         DE: ['Anzeige der Bienenhaltung', 'nach § 1a Bienenseuchen-Verordnung · Änderungen und Aufgabe nach Art. 84 VO (EU) 2016/429'],
         AT: ['Registrierung der Bienenhaltung', 'Angaben für das VIS der Statistik Austria (Tierkennzeichnungs- und Registrierungsverordnung 2009)'],
@@ -24744,20 +24749,19 @@ const Pdf = {
       }
       yy += 7;
       zeile(staat === 'AT' ? 'Besiedelte Beuten:' : 'Anzahl Bienenvölker:', `${voelker.length} (Stand ${U.fmtDate(heute)})`);
-      if (mitEin) zeile('Eingewintert:', `${einSumme} ${einSumme === 1 ? 'Volk' : 'Völker'} am ${U.fmtDate(einTag)}`);
       yy += 2;
       /* Gemeldet wird, was auch in der Tabelle steht: Kopfzahlen = Tabellensummen, ein Volk ohne Standort hat eine
          eigene Zeile, ein Stand ohne Völker steht nur im Hinweis (amtliches Papier darf sich nicht widersprechen).
          Schweiz: jeder Bienenstand wird registriert, auch ein leerer – dort stehen alle Stände in der Tabelle. */
       const koord = (st) => (st.lat && st.lng ? `${U.fmtNum(st.lat, 5)} N, ${U.fmtNum(st.lng, 5)} O` : '–');
-      const zahlen = (id) => (mitEin ? [String(jetztJe.get(id) || 0), String(einJe.get(id) || 0)] : [String(jetztJe.get(id) || 0)]);
-      const gelistet = staende.filter((st) => staat === 'CH' || (jetztJe.get(st.id) || 0) + (einJe.get(st.id) || 0) > 0);
-      const zeilen = gelistet.map((st) => [st.name, standLage(st) || '–', koord(st), ...zahlen(st.id)]);
-      if ((jetztJe.get(null) || 0) + (einJe.get(null) || 0) > 0) zeilen.push(['ohne Standort erfasst', '–', '–', ...zahlen(null)]);
+      const zahl = (id) => String(jetztJe.get(id) || 0);
+      const gelistet = staende.filter((st) => staat === 'CH' || (jetztJe.get(st.id) || 0) > 0);
+      const zeilen = gelistet.map((st) => [st.name, standLage(st) || '–', koord(st), zahl(st.id)]);
+      if ((jetztJe.get(null) || 0) > 0) zeilen.push(['ohne Standort erfasst', '–', '–', zahl(null)]);
       const fett = { fontStyle: 'bold' };
-      zeilen.push([{ content: 'Summe', styles: fett }, '', '', { content: String(voelker.length), styles: fett }, ...(mitEin ? [{ content: String(einSumme), styles: fett }] : [])]);
+      zeilen.push([{ content: 'Summe', styles: fett }, '', '', { content: String(voelker.length), styles: fett }]);
       const lageKopf = { DE: 'Lage (Ort, Gemarkung, Flurnr.)', AT: 'Lage (Anschrift)', CH: 'Lage (Anschrift, Standnr.)' }[staat];
-      const yEnd = this.table(doc, { head: ['Standort', lageKopf, 'Koordinaten', 'Völker heute', ...(mitEin ? [`eingewintert ${U.fmtDate(einTag)}`] : [])], body: zeilen, startY: yy, widths: { 3: { halign: 'right' }, 4: { halign: 'right' } } });
+      const yEnd = this.table(doc, { head: ['Standort', lageKopf, 'Koordinaten', 'Völker heute'], body: zeilen, startY: yy, widths: { 3: { halign: 'right' } } });
       const H = doc.internal.pageSize.getHeight();
       let yHin = yEnd + 7;
       const hinweis = (t) => { const z = doc.splitTextToSize(t, 182); if (yHin + z.length * 4.2 > H - 30) { doc.addPage(); yHin = 20; } doc.text(z, 14, yHin); yHin += z.length * 4.2 + 1.5; };

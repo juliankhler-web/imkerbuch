@@ -7676,7 +7676,7 @@ test('Volk-Formular: Stand-Wechsel wird datiert in der Historie vermerkt', async
     assert(!neu.historie.some((h) => /Königin geändert/.test(h.text)), 'ohne Königin kein falsches „Königin geändert“');
   } finally { w.document.querySelectorAll('.modal-back').forEach((x) => x.remove()); w.FormGuard.dirty = false; }
 }));
-test('Anzeige nach § 1a: Tierhalter, Anlass, Lage je Stand, eingewintert; Summen stimmen', async (w) => isolierteDaten(w, async () => {
+test('Anzeige nach § 1a: Tierhalter, Anlass, Lage je Stand – ohne „eingewintert“; Summen stimmen', async (w) => isolierteDaten(w, async () => {
   const altImk = w.S.get('imkerei');
   await w.S.set('imkerei', { ...altImk, name: 'Imkerei Wabe', tierhalter: 'Erika Mustermann', registriernummer: '091740001234' });
   const J = +w.U.todayIso().slice(0, 4);
@@ -7692,15 +7692,14 @@ test('Anzeige nach § 1a: Tierhalter, Anlass, Lage je Stand, eingewintert; Summe
     assert(/Erika Mustermann/.test(text) && /Imkerei Wabe/.test(text), 'Tierhalter und Imkerei');
     assert(/Beginn der Bienenhaltung/.test(text) && /Aufgabe/.test(text), 'Anlass zum Ankreuzen');
     const t = tab[0], z = (x) => (x && typeof x === 'object' ? x.content : x);
-    assertEq(t.head.length, 5, 'fünf Spalten');
-    assert(/eingewintert/.test(t.head[4]), 'Spalte eingewintert');
+    assertEq(t.head.length, 4, 'vier Spalten – ohne „eingewintert“ (v2.97: § 1a verlangt nur Zahl und Standort; Tester-Frage)');
+    assert(!/ingewintert/.test(text), 'nirgends „eingewintert“ auf dem § 1a-Blatt');
     const zeile = t.body.find((r) => z(r[0]) === 'Flurstand').map(z);
     assertEq(zeile[1], '85221 Dachau · Gemarkung Dachau, Fl.-Nr. 1234/5', 'Lage');
     assert(/48,26 N, 11,43 O/.test(zeile[2]), 'Koordinaten mit N/O: ' + zeile[2]);
     assertEq(zeile[3], '2', 'zwei Völker heute');
     const summe = t.body[t.body.length - 1].map(z);
     assertEq(summe[3], '2', 'Summe heute');
-    assert(Number(summe[4]) <= 2, 'eingewintert nicht mehr als vorhanden');
   } finally { w.Pdf.table = alt; w.Pdf.finish = echt; await w.S.set('imkerei', altImk); }
 }));
 test('Tierseuchenkasse je Bundesland: Bayern keine Meldung, Thüringen eingewintert, NRW Höchstbesatz, Stand am Stichtag', async (w) => isolierteDaten(w, async () => {
