@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 25.10.2026, Version 2.98. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 26.10.2026, Version 2.99. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -63,6 +63,9 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 - [ ] **D1 Aufgabe:** Aufgaben → „+ Neue Aufgabe“, fällig heute. → Steht in der Liste und auf der Startseite. *(Im Browser kommen Erinnerungen nur, solange ImkerBuch geöffnet ist – Mitteilungen bei geschlossener App gibt es nur in der App aus dem Store.)*
 - [ ] **D1b Aufgabe aus der Auswahl (neu 2.96):** „+ Neue Aufgabe“ → ins Feld „Aufgabe“ tippen. → Liste mit typischen Aufgaben, Tippen filtert. „Futterkontrolle“ wählen → unten „Tätigkeitsbereich: Fütterung“ mit Schild. Selbst geänderter Bereich bleibt; freies Eintippen geht auch.
+- [ ] **D1c Zeit buchen (neu 2.99):** Startseite → Kachel „Zeit buchen“ → „+ Zeit“ bei einer Arbeit → „Zeit buchen“. → Hinweis „Zeit gebucht …“ mit „Rückgängig“; in der Zeiterfassung steht der Eintrag, oben unter „Häufige Arbeiten“ **dieselben Zeilen** wie auf der Startseite. Zweimal schnell klicken → nur **ein** Eintrag.
+- [ ] **D1d Aufgaben-Kachel (neu 2.99):** Startseite → „Anstehende Aufgaben“ → Kästchen anklicken. → Aufgabe ist erledigt, die App fragt nach der Dauer; „Rückgängig“ im Hinweis macht sie wieder offen. „+ Neue Aufgabe“ → oben „Häufig“: ein Klick füllt Aufgabe, Bereich und Arbeitsschritt.
+- [ ] **D1e Häufige Fahrten (neu 2.99):** Startseite → Kachel „Fahrten“ und Fahrtenbuch → „Häufige Fahrten“ zeigen dieselbe Liste. „Fahrt buchen“ → **eine** Fahrt im Fahrtenbuch; „Fahrtenbuch (PDF)“ enthält sie mit km und Summe.
 - [ ] **D2 Zwischenstände:** Einen Eintrag ändern, 1 Minute warten. Einstellungen → „Sicherung & Datensicherheit“ → „Zwischenstände“. → Oben „Heute, …“ mit „Nach deinen Änderungen“.
 - [ ] **D3 Sicherung:** Einstellungen → „Sicherung & Datensicherheit“ → „Backup herunterladen“ (am Handy „Sicherung senden“). → Eine Datei `imkerbuch-backup-….json` wird gespeichert bzw. geteilt.
 - [ ] **D4 Sicherung einspielen:** „Backup importieren“ → dieselbe Datei wählen → „Zusammenführen“. → Meldung, nichts doppelt.

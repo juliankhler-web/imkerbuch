@@ -15307,3 +15307,482 @@ test('Verkauf: „ohne Datum“ gewählt → Liste (PDF) druckt nur die undatier
     assert(/14,00/.test(text) && !/12,00/.test(text), 'Jahr 2026 wie bisher');
   } finally { w.Pdf.finish = echt; w.renderRoute = echtRender; host.remove(); H._filter = {}; }
 }));
+
+/* =====================================================================
+   v2.99 (Julian 26.10.2026): Schnellzugriffe – Fahrten, „Zeit buchen“, Aufgaben-Kachel.
+   „Gewisse Aufgaben macht man immer – die soll man nicht jedes Mal komplett neu anlegen müssen.“
+   „Nimmt er auch die Fahrten vernünftig in die PDFs und bucht er alles zuverlässig?“
+   ===================================================================== */
+const w99 = (ms) => new Promise((r) => setTimeout(r, ms));
+const letztesModal = (w) => [...w.document.querySelectorAll('.modal-back')].pop();
+/** PDF-Text abfangen statt herunterzuladen */
+async function pdfText(w, fn) {
+  const echt = w.Pdf.finish; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' '); };
+  try { await fn(); } finally { w.Pdf.finish = echt; }
+  return text;
+}
+/** Zeiteintrag wie aus „Zeit nachtragen“ */
+const zeitEintrag = (w, titel, min, kategorie, tageZurueck = 0, extra = {}) => w.DB.put('aufgaben', Object.assign({
+  quelle: 'manuell', refId: null, notiz: '', zeitNachtrag: true, titel, faellig: w.U.addDays ? w.U.addDays(w.U.todayIso(), -tageZurueck) : new Date(Date.now() - tageZurueck * 864e5).toISOString().slice(0, 10),
+  erledigt: true, kategorie, schritte: [], zeitMinuten: min }, extra));
+
+test('Zeit buchen: typische Arbeiten je Monat sind alle echte Vorlagen (mind. fünf, keine doppelt)', (w) => {
+  const titel = new Set(w.AUFGABEN_VORLAGEN.map((v) => v[0]));
+  for (let m = 1; m <= 12; m++) {
+    const l = w.ZEIT_SAISON[m];
+    assert(l && l.length >= 5, `Monat ${m}: mindestens fünf`);
+    for (const t of l) assert(titel.has(t), `Monat ${m}: „${t}“ ist eine Vorlage`);
+    assertEq(new Set(l).size, l.length, `Monat ${m}: keine doppelt`);
+  }
+  assertEq(w.zeitMinText(20), '20 min'); assertEq(w.zeitMinText(60), '1 h'); assertEq(w.zeitMinText(90), '1,5 h'); assertEq(w.zeitMinText(75), '75 min');
+});
+
+test('Zeit buchen: häufige Arbeiten – Kern des Titels, übliche Dauer (Median, 5er), meist gewählter Bereich und Schritte', async (w) => isolierteDaten(w, async () => {
+  await zeitEintrag(w, 'Futterkontrolle – Stand 1', 18, 'Fütterung', 2, { schritte: ['Futterkontrolle'] });
+  await zeitEintrag(w, 'Futterkontrolle: Stand Wald', 22, 'Fütterung', 5, { schritte: ['Futterkontrolle'] });
+  await zeitEintrag(w, 'Futterkontrolle', 41, 'Durchsicht & Völkerpflege', 9);
+  await zeitEintrag(w, 'Rähmchen drahten', 60, 'Bau & Reparatur', 400);        // älter als ein Jahr
+  await zeitEintrag(w, 'Rähmchen drahten', 60, 'Bau & Reparatur', 500);
+  await w.DB.put('aufgaben', { titel: 'Futterkontrolle', quelle: 'fuetterung', erledigt: true, zeitMinuten: 300, faellig: w.U.todayIso() });   // automatische zählen nicht
+  await w.DB.put('aufgaben', { titel: 'Futterkontrolle', quelle: 'manuell', erledigt: false, zeitMinuten: 300 });                               // offene zählen nicht
+  const l = w.zeitArbeiten(await w.DB.getAll('aufgaben'));
+  assertEq(l.map((x) => x.titel), ['Futterkontrolle', 'Rähmchen drahten'], 'nach Häufigkeit im letzten Jahr');
+  const f = l[0];
+  assertEq([f.n, f.nJahr, f.minuten, f.kategorie, f.schritte], [3, 3, 20, 'Fütterung', ['Futterkontrolle']], 'Median 22 → 20 min, Bereich und Schritte wie meistens');
+  assertEq([l[1].n, l[1].nJahr], [2, 0], 'alte Einträge zählen gesamt, nicht im letzten Jahr');
+  assertEq(await w.zeitTypisch('Futterkontrolle – Stand 9'), 20, 'übliche Dauer auch mit Zusatz im Titel');
+  assertEq(await w.zeitTypisch('Kaffee kochen'), 0, 'unbekannt = 0');
+}));
+
+test('Zeit buchen: automatisch eigene + häufige (ab zweimal), aufgefüllt mit Arbeiten des Monats; eigene Auswahl in ihrer Reihenfolge', async (w) => isolierteDaten(w, async () => {
+  const heute = '2026-10-15';
+  // nur Monatsvorschläge
+  let r = await w.zeitSchnellEintraege(await w.DB.getAll('aufgaben'), heute);
+  assertEq(r.eintraege.map((e) => e.titel), w.ZEIT_SAISON[10].slice(0, 5), 'ohne eigene Zeiten: fünf typische für Oktober');
+  assert(r.eintraege.every((e) => e.art === 'saison' && e.kategorie), 'mit Tätigkeitsbereich aus der Vorlage');
+  // eine Arbeit zweimal, eine einmal, ein eigener Schnellzugriff
+  for (const t of [3, 6]) await zeitEintrag(w, 'Völker wiegen', 35, 'Durchsicht & Völkerpflege', 0, { faellig: '2026-10-0' + t });
+  await zeitEintrag(w, 'Einmal-Arbeit', 10, 'Sonstiges', 0, { faellig: '2026-10-01' });
+  await w.S.set('zeitVorlagen', [{ id: 'zv1', titel: 'Bienenstand mähen', kategorie: 'Durchsicht & Völkerpflege', schritte: [], minuten: 50 }]);
+  r = await w.zeitSchnellEintraege(await w.DB.getAll('aufgaben'), heute);
+  const t = r.eintraege.map((e) => e.titel);
+  assertEq(t.slice(0, 2), ['Völker wiegen', 'Bienenstand mähen'], 'häufige (2-mal) vor eigenem (0-mal)');
+  assert(!t.includes('Einmal-Arbeit'), 'einmal reicht nicht für „häufig“');
+  assertEq(t.length, 5, 'auf fünf aufgefüllt');
+  assertEq(r.eintraege[0].minuten, 35, 'übliche Dauer'); assertEq(r.eintraege[1].minuten, 50, 'eigene Dauer');
+  // eigene Auswahl: Reihenfolge bleibt, Gelöschtes fällt weg, unbekannte Arbeit löst sich über die Vorlage auf
+  await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren', 'eigen:weg', 'eigen:zv1', 'arbeit:Völker wiegen']);
+  r = await w.zeitSchnellEintraege(await w.DB.getAll('aufgaben'), heute);
+  assertEq(r.eintraege.map((e) => e.titel), ['Honig rühren', 'Bienenstand mähen', 'Völker wiegen'], 'Auswahl');
+  assertEq(r.eintraege[0].kategorie, 'Ernte & Schleudern', 'Vorlage liefert den Bereich');
+  assert(r.auswahl, 'als eigene Auswahl gekennzeichnet');
+}));
+
+test('Zeit buchen: „+ Zeit“ bucht genau einen Eintrag für heute – Doppeltipp, Rückgängig, Zeiterfassung und PDFs', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const toasts = []; const echtToast = w.UI.toast; w.UI.toast = (msg, typ, aktion) => { toasts.push({ msg, typ, aktion }); };
+  try {
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Futterkontrolle', 25, 'Fütterung', i + 1, { schritte: ['Futterkontrolle'] });
+    const vorher = (await w.DB.getAll('aufgaben')).length;
+    const m = await w.zeitSchnellOeffnen('arbeit:Futterkontrolle'); await w99(100);
+    assert(m && /Futterkontrolle · heute/.test(m.el.textContent), 'Dialog mit Titel');
+    assert(m.el.querySelector('#zs-chips .chip.active[data-min="25"]'), 'übliche Dauer 25 min ist schon gewählt (auch wenn sie keine Standardstufe ist)');
+    assert(/Fütterung › Futterkontrolle/.test(m.el.textContent), 'Bereich und Schritt sichtbar');
+    const ok = m.el.querySelector('[data-ok]'); ok.click(); ok.click(); await w99(400);
+    const neu = (await w.DB.getAll('aufgaben')).length;
+    assertEq(neu, vorher + 1, 'Doppeltipp bucht nur einmal');
+    const rec = (await w.DB.getAll('aufgaben')).find((a) => a.faellig === w.U.todayIso() && a.titel === 'Futterkontrolle');
+    assertEq([rec.erledigt, rec.zeitMinuten, rec.kategorie, rec.schritte, rec.quelle, rec.zeitNachtrag], [true, 25, 'Fütterung', ['Futterkontrolle'], 'manuell', true], 'gespeichert wie „Zeit nachtragen“');
+    const gebucht = toasts.find((x) => /Zeit gebucht: 25 min/.test(x.msg));
+    assert(gebucht && gebucht.aktion, 'Hinweis mit „Rückgängig“: ' + JSON.stringify(toasts.map((x) => x.msg)));
+    // erscheint in Zeiterfassung, Statistik-PDF und Bereichs-PDF
+    const jahr = w.U.todayIso().slice(0, 4);
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try { await w.Views.zeiten.render(host); assert(/Futterkontrolle/.test(host.querySelector('#zeit-faecher').closest('.card').nextElementSibling.textContent), 'in „Letzte Einträge“'); } finally { host.remove(); }
+    const statistik = await pdfText(w, () => w.Pdf.report('arbeit', jahr));
+    assert(/Fütterung/.test(statistik) && /1,3/.test(statistik), 'Statistik-PDF: Fütterung 75 min = 1,3 h: ' + statistik.slice(0, 300));
+    const bereich = await pdfText(w, () => w.bereichAlsPdf('aufgaben', jahr));
+    assert(/Futterkontrolle/.test(bereich) && /25/.test(bereich), 'Aufgaben-&-Zeiten-PDF enthält den Eintrag');
+    assert(!toasts.some((x) => /fehlgeschlagen/.test(x.msg)), 'kein PDF-Fehler: ' + JSON.stringify(toasts.map((x) => x.msg)));
+    // Rückgängig entfernt genau diesen Eintrag
+    await gebucht.aktion.fn();
+    assertEq((await w.DB.getAll('aufgaben')).length, vorher, 'Rückgängig nimmt die Buchung zurück');
+    // ohne Dauer / ohne Bereich wird nicht gebucht
+    const m2 = await w.zeitSchnellOeffnen('arbeit:Kaffee holen'); await w99(100);
+    m2.el.querySelector('[data-ok]').click(); await w99(150);
+    assert(m2.el.isConnected && /Tätigkeitsbereich/.test(m2.el.querySelector('#zs-kat-err').textContent) && m2.el.querySelector('#zs-kat').closest('.field').classList.contains('invalid'), 'ohne Bereich: Hinweis direkt am Bereich statt Buchung');
+    m2.el.querySelector('#zs-kat').value = 'Sonstiges'; m2.el.querySelector('[data-ok]').click(); await w99(150);
+    assert(m2.el.isConnected && /Dauer/.test(m2.el.querySelector('#zs-err').textContent) && !m2.el.querySelector('#zs-kat').closest('.field').classList.contains('invalid'), 'ohne Dauer: Hinweis an der Dauer, Bereich wieder ok');
+    m2.el.querySelector('#zs-min').value = '12'; m2.el.querySelector('[data-ok]').click(); await w99(300);
+    assert((await w.DB.getAll('aufgaben')).some((a) => a.titel === 'Kaffee holen' && a.zeitMinuten === 12 && a.kategorie === 'Sonstiges'), 'mit Bereich und eigener Minutenzahl gebucht');
+  } finally { w.Lizenz.light = echtLight; w.renderRoute = echtRender; w.UI.toast = echtToast; dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: „Mehr …“ öffnet „Zeit nachtragen“ vorausgefüllt; Vorschläge enthalten nachgetragene Zeiten, übliche Dauer kommt von selbst', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Rähmchen gedrahtet', 40, 'Bau & Reparatur', i + 1, { schritte: ['Rähmchen drahten'] });
+    const m = await w.zeitSchnellOeffnen('arbeit:Rähmchen gedrahtet'); await w99(100);
+    m.el.querySelector('[data-min="30"]').click();
+    m.el.querySelector('[data-zs-mehr]').click(); await w99(500);
+    const f = letztesModal(w);
+    assert(/Zeit nachtragen/.test(f.textContent), 'Formular offen');
+    assertEq([f.querySelector('#f-titel').value, f.querySelector('#f-kategorie').value, f.querySelector('#f-zeitMinuten').value], ['Rähmchen gedrahtet', 'Bau & Reparatur', '30'], 'vorausgefüllt mit der gewählten Dauer');
+    assertEq([...f.querySelectorAll('.zs-box .chip.active')].map((c) => c.textContent), ['Rähmchen drahten'], 'Arbeitsschritt übernommen');
+    assert([...f.querySelectorAll('.combo-opt')].some((o) => o.dataset.v === 'Rähmchen gedrahtet'), 'nachgetragene Zeiten stehen in der Auswahl');
+    w.FormGuard.dirty = false; f.remove();
+    // neues Formular: bekannte Arbeit setzt die übliche Dauer, selbst geänderte bleibt
+    await w.zeitEintragForm(null); await w99(300);
+    const g = letztesModal(w), ti = g.querySelector('#f-titel'), mi = g.querySelector('#f-zeitMinuten');
+    ti.value = 'Rähmchen gedrahtet'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(50);
+    assertEq(mi.value, '40', 'übliche Dauer eingesetzt');
+    ti.value = 'Unbekanntes'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(50);
+    assertEq(mi.value, '', 'wieder weg, wenn die Arbeit unbekannt ist');
+    mi.value = '15'; mi.dispatchEvent(new w.Event('input', { bubbles: true }));
+    ti.value = 'Rähmchen gedrahtet'; ti.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(50);
+    assertEq(mi.value, '15', 'selbst eingetragene Minuten werden nicht überschrieben');
+    w.FormGuard.dirty = false; g.remove();
+  } finally { w.Lizenz.light = echtLight; dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: Kachel und Zeiterfassung zeigen dieselben Zeilen; Aufklappen ab dem sechsten; Anpassen speichert die Auswahl', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    for (const t of ['A-Arbeit', 'B-Arbeit', 'C-Arbeit', 'D-Arbeit', 'E-Arbeit', 'F-Arbeit', 'G-Arbeit']) for (let i = 0; i < 2; i++) await zeitEintrag(w, t, 10, 'Sonstiges', i);
+    host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
+    const kachel = [...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent);
+    assertEq(kachel.length, 7, 'alle sieben in der Kachel');
+    assertEq(host.querySelectorAll('.zeit-row[data-fw-mehr]').length, 2, 'zwei zum Aufklappen');
+    assert([...host.querySelectorAll('.zeit-row[data-fw-mehr]')].every((r) => r.style.display === 'none'), 'zunächst eingeklappt');
+    w.schnellListeToggle(host.querySelector('.zeit-toggle'), 'zeiten');
+    assert([...host.querySelectorAll('.zeit-row[data-fw-mehr]')].every((r) => r.style.display === ''), 'aufgeklappt');
+    w.DASH_WIDGETS.zeiten._alle = false;
+    const seite = w.document.createElement('div'); w.document.body.appendChild(seite);
+    try {
+      await w.Views.zeiten.render(seite);
+      assertEq([...seite.querySelectorAll('#haeufige-arbeiten .zeit-row .r-title')].map((x) => x.textContent), kachel, 'Seite = Kachel');
+      assertEq([...seite.querySelectorAll('#haeufige-arbeiten .r-sub')].map((x) => x.textContent), [...host.querySelectorAll('.zeit-row .r-sub')].map((x) => x.textContent), 'auch die zweite Zeile');
+    } finally { seite.remove(); }
+    // Anpassen: Auswahl speichern
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    const box = m.el.querySelector('input[value="arbeit:C-Arbeit"]'); box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:C-Arbeit'], 'gespeichert');
+    host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
+    assertEq([...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent), ['C-Arbeit'], 'Kachel zeigt nur die Auswahl');
+  } finally { w.renderRoute = echtRender; host.remove(); dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: eigener Schnellzugriff anlegen, mit eigener Auswahl gleich sichtbar, löschen räumt die Auswahl auf', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren']);
+    const f = await w.zeitVorlageForm(null); await w99(200);
+    const ti = f.el.querySelector('#f-titel'); ti.value = 'Wachs klären'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    f.el.querySelector('#f-kategorie').value = 'Bau & Reparatur'; f.el.querySelector('#f-kategorie').dispatchEvent(new w.Event('change', { bubbles: true }));
+    f.el.querySelector('#f-zeitMinuten').value = '45';
+    f.el.querySelector('[data-save]').click(); await w99(400);
+    const z = w.S.get('zeitVorlagen');
+    assertEq([z.length, z[0].titel, z[0].kategorie, z[0].minuten], [1, 'Wachs klären', 'Bau & Reparatur', 45], 'gespeichert');
+    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:Honig rühren', 'eigen:' + z[0].id], 'in die eigene Auswahl aufgenommen');
+    const e = (await w.zeitSchnellEintraege()).eintraege;
+    assertEq(e.map((x) => x.titel), ['Honig rühren', 'Wachs klären'], 'erscheint');
+    assertEq(e[1].minuten, 45, 'mit eigener Dauer');
+    // löschen (über den Verwalten-Dialog, Rückfrage bestätigt)
+    const echtConfirm = w.UI.confirm; w.UI.confirm = async () => true;
+    try {
+      const m = w.zeitVorlagenManager(); await w99(100);
+      m.el.querySelector('[data-zv-del]').click(); await w99(400);
+    } finally { w.UI.confirm = echtConfirm; }
+    assertEq(w.S.get('zeitVorlagen'), [], 'gelöscht');
+    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:Honig rühren'], 'aus der Auswahl entfernt');
+  } finally { w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+test('Fahrten: Kachel und Fahrtenbuch zeigen dieselbe Liste – eigene Fahrten nach Nutzung einsortiert', async (w) => isolierteDaten(w, async () => {
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const seite = w.document.createElement('div'); w.document.body.appendChild(seite);
+  try {
+    const a = await w.DB.put('staende', { name: 'Stand A', kmEntfernung: 5 });
+    const b = await w.DB.put('staende', { name: 'Stand B', kmEntfernung: 9 });
+    await w.S.set('fahrtvorlagen', [{ id: 'v1', name: 'Imkerbedarf', km: 34, zweck: 'Einkauf', standId: null, freiZiel: 'Imkerbedarf' }]);
+    for (let i = 0; i < 3; i++) await w.DB.put('fahrten', { datum: w.U.todayIso(), standId: null, freiZiel: 'Imkerbedarf', km: 34, zweck: 'Einkauf' });
+    await w.DB.put('fahrten', { datum: w.U.todayIso(), standId: b.id, km: 18, zweck: 'Fahrt zum Stand' });
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    const kachel = [...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent);
+    assertEq(kachel, ['Imkerbedarf', 'Stand B', 'Stand A'], 'eigene Fahrt (3) vor Stand B (1) vor Stand A (0)');
+    assert(/3 Fahrten/.test(host.querySelector('.fahrt-row .r-sub').textContent), 'Nutzung der eigenen Fahrt sichtbar');
+    await w.Views.fahrten.render(seite);
+    assertEq([...seite.querySelectorAll('#haeufige-fahrten .fahrt-row .r-title')].map((x) => x.textContent), kachel, 'Fahrtenbuch = Kachel');
+    assert(!seite.querySelector('[data-vorlage]'), 'die alten Vorlage-Chips sind weg');
+    assert(seite.querySelector('#haeufige-fahrten [onclick^="fahrtWidgetKonfig"]'), 'Anpassen auch im Fahrtenbuch');
+  } finally { w.renderRoute = echtRender; host.remove(); seite.remove(); }
+}));
+
+test('Fahrten: Ein-Tipp-Buchung (Stand und eigene Fahrt) landet zuverlässig im Fahrtenbuch-PDF und in der Statistik', async (w) => isolierteDaten(w, async () => {
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const st = await w.DB.put('staende', { name: 'Waldrand', kmEntfernung: 7 });
+    await w.S.set('fahrtvorlagen', [{ id: 'v1', name: 'Heim → Waldrand', km: 23, zweck: 'Wanderung', standId: null, freiZiel: 'Heim → Waldrand' }]);
+    await w.fahrtSchnellBuchen(st.id);
+    await w.fahrtVorlageBuchen('v1');
+    const f = U99(await w.DB.getAll('fahrten'));
+    assertEq(f.map((x) => [x.datum, x.km, x.zweck, x.standId || x.freiZiel]), [[w.U.todayIso(), 14, 'Fahrt zum Stand', st.id], [w.U.todayIso(), 23, 'Wanderung', 'Heim → Waldrand']], 'beide gespeichert');
+    const jahr = w.U.todayIso().slice(0, 4);
+    const pdf = await pdfText(w, () => w.Pdf.fahrtenbuch(jahr));
+    assert(/\(Summe\) Tj[\s\S]*?\(37\) Tj/.test(pdf), 'Summenzeile 37 km: ' + JSON.stringify(pdf.match(/\(([^)]*)\) Tj/g)));
+    assert(/\(Waldrand\)/.test(pdf) && /Heim -> Waldrand/.test(pdf) && /Wanderung/.test(pdf) && /\(14\)/.test(pdf) && /\(23\)/.test(pdf), 'beide Fahrten im PDF (Pfeil als „->“): ' + pdf.slice(0, 600));
+    const stat = await pdfText(w, () => w.Pdf.report('arbeit', jahr));
+    assert(/Waldrand/.test(stat) && /14/.test(stat) && /23/.test(stat), 'Kilometer je Ziel in der Statistik');
+    // Doppeltipp bucht nicht doppelt; Rückgängig nimmt genau die Buchung zurück
+    const st2 = await w.DB.put('staende', { name: 'Doppel', kmEntfernung: 3 });
+    const toasts = []; const echtToast = w.UI.toast; w.UI.toast = (msg, typ, aktion) => { toasts.push({ msg, aktion }); };
+    try {
+      await Promise.all([w.fahrtSchnellBuchen(st2.id), w.fahrtSchnellBuchen(st2.id)]);
+      assertEq((await w.DB.getAll('fahrten')).filter((x) => x.standId === st2.id).length, 1, 'Doppeltipp: eine Fahrt');
+      const h = toasts.find((x) => /Fahrt gebucht: 6 km zu Doppel/.test(x.msg));
+      assert(h && h.aktion, 'Hinweis mit „Rückgängig“');
+      await h.aktion.fn();
+      assertEq((await w.DB.getAll('fahrten')).filter((x) => x.standId === st2.id).length, 0, 'Rückgängig entfernt sie');
+    } finally { w.UI.toast = echtToast; }
+    // Light: der Ein-Tipp-Weg bucht nichts mehr (vorher ging das an der Sperre vorbei)
+    w.Lizenz.light = () => true;
+    const echtFenster = w.Lizenz.fenster; let fenster = 0; w.Lizenz.fenster = () => { fenster++; };
+    try { await w.fahrtSchnellBuchen(st.id); await w.fahrtVorlageBuchen('v1'); } finally { w.Lizenz.fenster = echtFenster; }
+    assertEq((await w.DB.getAll('fahrten')).length, 2, 'Light: keine weitere Fahrt');
+    assertEq(fenster, 2, 'Light: Kauf-Fenster statt Buchung');
+  } finally { w.renderRoute = echtRender; w.Lizenz.light = echtLight; }
+  function U99(l) { return [...l].sort((x, y) => x.km - y.km); }
+}));
+
+test('Light: Zeit buchen und neue Aufgabe von der Startseite öffnen das Kauf-Fenster und speichern nichts', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light, echtFenster = w.Lizenz.fenster; let fenster = 0;
+  w.Lizenz.light = () => true; w.Lizenz.fenster = () => { fenster++; };
+  try {
+    assertEq(await w.zeitSchnellOeffnen('arbeit:Futterkontrolle'), null, 'kein Dialog');
+    assertEq(await w.aufgabeForm(null), null, 'kein Formular');
+    assertEq(await w.zeitEintragForm(null), null, 'kein „Zeit nachtragen“');
+    assertEq(fenster, 3, 'dreimal das Kauf-Fenster');
+    assertEq((await w.DB.getAll('aufgaben')).length, 0, 'nichts gespeichert');
+  } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; dialogeSchliessen(w); }
+}));
+
+test('Aufgaben-Kachel: Häkchen erledigt die Aufgabe, fragt die Dauer mit üblicher Zeit; Rückgängig macht beides rückgängig', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const toasts = []; const echtToast = w.UI.toast; w.UI.toast = (msg, typ, aktion) => { toasts.push({ msg, aktion }); };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const st = await w.DB.put('staende', { name: 'Obstwiese' });
+    const v = await w.DB.put('voelker', { name: 'Anna', status: 'aktiv', standId: st.id });
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Futterkontrolle', 30, 'Fütterung', i + 3);
+    const a = await w.DB.put('aufgaben', { titel: 'Futterkontrolle – Anna', quelle: 'manuell', erledigt: false, faellig: w.U.todayIso(), volkId: v.id, kategorie: 'Fütterung' });
+    host.innerHTML = await w.DASH_WIDGETS.aufgaben.html();
+    const zeile = [...host.querySelectorAll('.auf-wrow')].find((r) => /Futterkontrolle – Anna/.test(r.textContent));
+    assert(zeile && /Anna · Obstwiese/.test(zeile.textContent), 'Volk und Stand stehen darunter');
+    assert(/heute/.test(zeile.querySelector('.badge').textContent), 'fällig „heute“');
+    assert(host.querySelector('[onclick^="aufgabeForm"]'), '„+ Neue Aufgabe“ vorhanden');
+    const cb = zeile.querySelector('input[data-wcheck]'); cb.checked = true;
+    await w.aufgabeWidgetAbhaken(cb); await w99(300);
+    assert((await w.DB.get('aufgaben', a.id)).erledigt, 'erledigt gespeichert');
+    const d = letztesModal(w);
+    assert(d && /Wie lange/.test(d.textContent), 'Dauer-Abfrage offen');
+    assertEq(d.querySelector('#zt-min').value, '30', 'übliche Dauer schon eingetragen');
+    assert(/Meist 30 min/.test(d.textContent), 'und gesagt');
+    await toasts.find((t) => /Erledigt/.test(t.msg)).aktion.fn(); await w99(300);
+    assert(!(await w.DB.get('aufgaben', a.id)).erledigt, 'Rückgängig: wieder offen');
+    assert(!d.isConnected, 'Rückgängig schließt die Dauer-Abfrage');
+  } finally { w.Lizenz.light = echtLight; w.renderRoute = echtRender; w.UI.toast = echtToast; host.remove(); dialogeSchliessen(w); }
+}));
+
+test('Startseite: Antippen des Abhak-Kästchens öffnet nicht die Aufgaben-Seite', async (w) => {
+  w.location.hash = '#/dashboard'; await w.renderRoute(); await w99(300);
+  const main = w.document.querySelector('#main');
+  const lab = w.document.createElement('label'); lab.className = 'check-line';
+  const k = main.querySelector('.dash-klick[data-ziel="aufgaben"]') || main.querySelector('.dash-klick');
+  assert(k, 'eine Kachel ist da'); k.appendChild(lab);
+  const vorher = w.location.hash;
+  lab.dispatchEvent(new w.MouseEvent('click', { bubbles: true })); await w99(200);
+  lab.remove();
+  assertEq(w.location.hash, vorher, 'kein Seitenwechsel');
+});
+
+test('Neue Aufgabe: „Häufig“ füllt Aufgabe, Bereich und Schritte – Dauer bleibt leer; Bearbeiten zeigt keine „Häufig“-Zeile', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Varroa-Kontrolle (Windel)', 15, 'Behandlung', i + 1, { schritte: ['Varroa zählen'] });
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Etiketten drucken', 20, 'Abfüllen & Etikettieren', i + 1);
+    const m = await w.aufgabeForm(null); await w99(200);
+    const chips = [...m.el.querySelectorAll('[data-hf]')];
+    assert(chips.length >= 2 && chips.length <= 10, 'Häufig-Knöpfe da');
+    chips.find((c) => /Varroa/.test(c.textContent)).click(); await w99(50);
+    assertEq([m.el.querySelector('#f-titel').value, m.el.querySelector('#f-kategorie').value], ['Varroa-Kontrolle (Windel)', 'Behandlung']);
+    assertEq([...m.el.querySelectorAll('.zs-box .chip.active')].map((c) => c.textContent), ['Varroa zählen'], 'Schritt übernommen');
+    assertEq(m.el.querySelector('#f-zeitMinuten').value, '', 'Dauer leer – beim Abhaken wird nach der echten Zeit gefragt');
+    assertEq(m.el.querySelector('.combo-list').style.display, 'none', 'Auswahlliste bleibt zu');
+    // zweiter Tipp ersetzt alles
+    chips.find((c) => /Etiketten/.test(c.textContent)).click(); await w99(50);
+    assertEq([m.el.querySelector('#f-titel').value, m.el.querySelector('#f-kategorie').value], ['Etiketten drucken', 'Abfüllen & Etikettieren']);
+    assert(![...m.el.querySelectorAll('.zs-box .chip.active')].some((c) => c.textContent === 'Varroa zählen'), 'alter Schritt ist weg');
+    m.el.querySelector('#f-faellig').value = w.U.todayIso();
+    m.el.querySelector('[data-save]').click(); await w99(400);
+    const a = (await w.DB.getAll('aufgaben')).find((x) => !x.erledigt);
+    assertEq([a.titel, a.kategorie, a.faellig, a.zeitMinuten], ['Etiketten drucken', 'Abfüllen & Etikettieren', w.U.todayIso(), null], 'gespeichert');
+    const m2 = await w.aufgabeForm(a); await w99(200);
+    assert(!m2.el.querySelector('[data-hf]'), 'beim Bearbeiten keine Häufig-Zeile');
+    w.FormGuard.dirty = false; m2.el.closest('.modal-back') ? m2.el.closest('.modal-back').remove() : m2.el.remove();
+  } finally { w.Lizenz.light = echtLight; dialogeSchliessen(w); }
+}));
+
+/* ---------- v2.99 Agenten-Durchsicht: bestätigte Funde ---------- */
+test('Hinweis „Rückgängig“ lässt sich wirklich antippen (die Hinweisleiste lässt Tipps sonst durch)', async (w) => {
+  let getippt = false;
+  w.UI.toast('Test-Hinweis', 'ok', { text: 'Rückgängig', fn: async () => { getippt = true; } });
+  await w99(400);
+  const b = [...w.document.querySelectorAll('#toast-root .toast-aktion')].pop();
+  try {
+    const r = b.getBoundingClientRect();
+    const oben = w.document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    assert(oben === b || b.contains(oben), 'an der Stelle des Knopfs liegt der Knopf selbst, nicht das Element darunter: ' + (oben && oben.outerHTML.slice(0, 80)));
+    assertEq(w.getComputedStyle(b).pointerEvents, 'auto', 'Knopf nimmt Tipps an');
+    assert(r.height >= 32, 'Knopf ist groß genug zum Tippen: ' + r.height);
+    oben.click(); await w99(50);
+    assert(getippt, 'Rückgängig wurde ausgeführt');
+  } finally { w.document.querySelectorAll('#toast-root .toast').forEach((t) => t.remove()); }
+});
+
+test('Aufgaben-Kachel: „Rückgängig“ während die Startseite neu zeichnet → keine Dauer-Abfrage, Aufgabe bleibt offen', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const echtRender = w.renderRoute; let undoJetzt = null;
+  w.renderRoute = async () => { if (undoJetzt) { const f = undoJetzt; undoJetzt = null; await f(); } await w99(50); };
+  const echtToast = w.UI.toast; w.UI.toast = (msg, typ, aktion) => { if (aktion && /Erledigt/.test(msg)) undoJetzt = aktion.fn; };
+  try {
+    const a = await w.DB.put('aufgaben', { titel: 'Völker wiegen', quelle: 'manuell', erledigt: false, faellig: w.U.todayIso() });
+    const inp = w.document.createElement('input'); inp.type = 'checkbox'; inp.dataset.wcheck = a.id; inp.checked = true;
+    await w.aufgabeWidgetAbhaken(inp); await w99(200);
+    assert(!w.document.querySelector('#zt-chips'), 'keine Dauer-Abfrage nach „Rückgängig“');
+    assertEq((await w.DB.get('aufgaben', a.id)).erledigt, false, 'Aufgabe bleibt offen');
+    // Dauer-Abfrage, die schon offen ist, schreibt eine inzwischen wieder geöffnete Aufgabe nicht zurück auf „erledigt“
+    const b = await w.DB.put('aufgaben', { titel: 'Futterkontrolle', quelle: 'manuell', erledigt: true });
+    const d = w.zeitDialog(b); await w99(100);
+    const x = await w.DB.get('aufgaben', b.id); x.erledigt = false; await w.DB.put('aufgaben', x);
+    d.el.querySelector('[data-min="30"]').click(); await w99(200);
+    const y = await w.DB.get('aufgaben', b.id);
+    assertEq([y.erledigt, y.zeitMinuten || 0], [false, 0], 'bleibt offen, keine Zeit gebucht');
+  } finally { w.Lizenz.light = echtLight; w.renderRoute = echtRender; w.UI.toast = echtToast; dialogeSchliessen(w); }
+}));
+
+test('Häufige Arbeiten: Schritte stammen aus dem gewählten Bereich; stabiler Schlüssel bei Titeln mit zwei Trennern', async (w) => isolierteDaten(w, async () => {
+  for (const s of [['Futterkontrolle'], ['Futterkontrolle', 'Füttern'], ['Füttern']]) await zeitEintrag(w, 'Futterkontrolle', 20, 'Fütterung', 1, { schritte: s });
+  for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Futterkontrolle', 20, 'Durchsicht & Völkerpflege', 2, { schritte: ['Durchsicht'] });
+  let f = w.zeitArbeiten(await w.DB.getAll('aufgaben'))[0];
+  assertEq(f.kategorie, 'Fütterung');
+  assert(!f.schritte.includes('Durchsicht'), 'kein Durchsicht-Schritt unter Fütterung: ' + JSON.stringify(f.schritte));
+  // „Am Waldrand - Durchsicht - Anna 039“: der Kern enthält noch einen Trenner – Dauer und Anzahl dürfen nicht verloren gehen
+  for (let i = 0; i < 3; i++) await zeitEintrag(w, 'Am Waldrand - Durchsicht - Anna 039', 35, 'Durchsicht & Völkerpflege', i);
+  const r = await w.zeitSchnellEintraege();
+  const e = r.eintraege.find((x) => /Anna 039/.test(x.titel));
+  assert(e, 'steht in der Liste: ' + JSON.stringify(r.eintraege.map((x) => x.titel)));
+  assertEq([e.minuten, e.n, e.art], [35, 3, 'arbeit'], 'mit üblicher Dauer und Anzahl');
+  assertEq(await w.zeitTypisch('Am Waldrand - Durchsicht - Anna 039'), 35, 'übliche Dauer beim Abhaken');
+  // Bereich inzwischen entfernt: Schritte werden für den Ausweich-Bereich neu bestimmt
+  const alt = w.S.get('taetigkeiten');
+  try {
+    await w.S.set('taetigkeiten', alt.filter((x) => x !== 'Fütterung'));
+    const g = w.zeitSchnellAus('arbeit:Futterkontrolle', w.zeitArbeiten(await w.DB.getAll('aufgaben')));
+    assert(g.kategorie !== 'Fütterung', 'entfernter Bereich wird nicht mehr vorgeschlagen');
+    assert(!g.schritte.some((x) => ['Füttern', 'Futterkontrolle'].includes(x)) || g.kategorie === '', 'keine Fütterungs-Schritte in anderem Bereich: ' + JSON.stringify(g));
+  } finally { await w.S.set('taetigkeiten', alt); }
+}));
+
+test('Zeit buchen: eigenen Schnellzugriff im Formular löschen fragt nach und schließt das Formular', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const echtConfirm = w.UI.confirm; let frage = 0; w.UI.confirm = async () => { frage++; return true; };
+  try {
+    await w.S.set('zeitVorlagen', [{ id: 'zv9', titel: 'Wachs klären', kategorie: 'Bau & Reparatur', schritte: [], minuten: 30 }]);
+    const f = await w.zeitVorlageForm(w.S.get('zeitVorlagen')[0]); await w99(200);
+    f.el.querySelector('[data-del]').click(); await w99(300);
+    assertEq(frage, 1, 'Rückfrage');
+    assertEq(w.S.get('zeitVorlagen'), [], 'gelöscht');
+    assert(!f.el.isConnected, 'Formular ist zu – „Speichern“ kann ihn nicht zurückholen');
+  } finally { w.renderRoute = echtRender; w.UI.confirm = echtConfirm; dialogeSchliessen(w); }
+}));
+
+test('Zeiterfassung: alter Eintrag über 24 Stunden bleibt bearbeitbar, neue Einträge haben die Grenze', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    const a = await zeitEintrag(w, 'Imkerkurs Wochenende', 1800, 'Sonstiges', 3);
+    const f = await w.zeitEintragForm(a); await w99(200);
+    f.el.querySelector('#f-kategorie').value = 'Verwaltung & Büro';
+    f.el.querySelector('[data-save]').click(); await w99(300);
+    assertEq((await w.DB.get('aufgaben', a.id)).kategorie, 'Verwaltung & Büro', 'gespeichert, Dauer unverändert');
+    const g = await w.zeitEintragForm(null); await w99(200);
+    g.el.querySelector('#f-titel').value = 'Test'; g.el.querySelector('#f-kategorie').value = 'Sonstiges'; g.el.querySelector('#f-zeitMinuten').value = '2000';
+    g.el.querySelector('[data-save]').click(); await w99(300);
+    assert(g.el.isConnected && /1\.440/.test(g.el.textContent), 'neu über 24 h: Hinweis statt Speichern');
+  } finally { w.renderRoute = echtRender; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Häufige Fahrten: neue eigene Fahrt kommt bei eigener Auswahl dazu; einmalige Übernahme für bisherige Auswahl', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Stand X', kmEntfernung: 4 });
+  await w.S.set('fahrtvorlagen', [{ id: 'alt1', name: 'Imkerbedarf', km: 30, zweck: 'Einkauf', standId: null, freiZiel: 'Imkerbedarf' }]);
+  await w.S.set('fahrtWidgetAuswahl', ['stand:' + st.id]);
+  await w.migriereFahrtAuswahl(true);
+  assertEq(w.S.get('fahrtWidgetAuswahl'), ['stand:' + st.id, 'vorlage:alt1'], 'bisherige eigene Fahrten bleiben im Fahrtenbuch sichtbar');
+  await w.fahrtAuswahlDazu('neu2');
+  assertEq(w.S.get('fahrtWidgetAuswahl').at(-1), 'vorlage:neu2', 'neue eigene Fahrt kommt dazu');
+  await w.S.set('fahrtWidgetAuswahl', []);
+  await w.fahrtAuswahlDazu('neu3'); await w.migriereFahrtAuswahl(true);
+  assertEq(w.S.get('fahrtWidgetAuswahl'), [], 'ohne eigene Auswahl (automatisch) bleibt es automatisch');
+}));
+
+test('Neue Aufgabe: „Häufig“ ohne bekannten Bereich lässt nicht den Bereich des vorigen Knopfs stehen', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Völker wiegen', 20, 'Durchsicht & Völkerpflege', i + 1);
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Kaffee für Helfer', 10, 'Sonstiges', i + 1);
+    const alt = w.S.get('taetigkeiten');
+    await w.S.set('taetigkeiten', alt.filter((x) => x !== 'Sonstiges'));   // Bereich der zweiten Arbeit entfernt
+    try {
+      const m = await w.aufgabeForm(null); await w99(200);
+      const chips = [...m.el.querySelectorAll('[data-hf]')];
+      chips.find((c) => /Völker wiegen/.test(c.textContent)).click(); await w99(50);
+      assertEq(m.el.querySelector('#f-kategorie').value, 'Durchsicht & Völkerpflege');
+      chips.find((c) => /Kaffee/.test(c.textContent)).click(); await w99(50);
+      assert(m.el.querySelector('#f-kategorie').value !== 'Durchsicht & Völkerpflege', 'Bereich vom vorigen Knopf ist weg: ' + m.el.querySelector('#f-kategorie').value);
+    } finally { await w.S.set('taetigkeiten', alt); }
+  } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Light: Reinigungs-Kurzwahl bucht nicht am Vollversions-Bereich vorbei; Aufgaben-Häkchen hat ein großes Tippfeld', async (w) => isolierteDaten(w, async () => {
+  const echtLight = w.Lizenz.light, echtFenster = w.Lizenz.fenster; let fenster = 0;
+  w.Lizenz.light = () => true; w.Lizenz.fenster = () => { fenster++; };
+  try {
+    assertEq(await w.Views.bio.reinigungBuchen({ id: 'k1', bereichName: 'Schleuderraum' }), null, 'nichts gebucht');
+    assertEq(fenster, 1, 'Kauf-Fenster');
+    assertEq((await w.DB.getAll('bioeintraege')).length, 0, 'kein Nachweis gespeichert');
+  } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; }
+  await w.DB.put('aufgaben', { titel: 'Tippfeld', quelle: 'manuell', erledigt: false, faellig: w.U.todayIso() });
+  const host = w.document.createElement('div'); host.style.width = '375px'; host.className = 'dash-klick'; w.document.querySelector('#main').appendChild(host);
+  try {
+    host.innerHTML = await w.DASH_WIDGETS.aufgaben.html();
+    const r = host.querySelector('.auf-wrow .check-line').getBoundingClientRect();
+    assert(r.width >= 44 && r.height >= 44, `Tippfeld mindestens 44 × 44 px: ${Math.round(r.width)} × ${Math.round(r.height)}`);
+  } finally { host.remove(); }
+}));
