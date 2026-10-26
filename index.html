@@ -504,6 +504,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .empty svg{width:44px;height:44px;opacity:.4}
 .empty .e-text{font-size:14px;max-width:340px}
 .chip-row{display:flex;gap:7px;flex-wrap:wrap}
+.bst-knoepfe{display:flex;flex-direction:column;gap:4px;align-items:flex-end}
 /* v2.99: „Häufig“ in „Neue Aufgabe“ – eine wischbare Zeile statt vier Zeilen Knöpfe über dem Formular */
 .hf-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;margin-right:-4px}
 .hf-chips::-webkit-scrollbar{display:none}
@@ -1558,8 +1559,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '2.99';
+const APP_VERSION = '3.00';
 const CHANGELOG = [
+  { version: '3.00', datum: '2026-10-26', punkte: [
+    '<b>Honig: Verlust und Eigenverbrauch buchen.</b> Zerbrochene, verschenkte oder selbst gegessene Gläser und den Rest im Eimer buchst du jetzt wie beim Inventar unter „Eigenverbrauch / Verlust“ – im Kassenbuch über „An- und Verkauf buchen“ oder im Reiter „Bestand“ mit „Verlust“. Gründe: Abfüllverlust, Bruch, Eigenverbrauch, Verschenkt, An Bienen verfüttert, Verdorben.',
+    '<b>Verlust beim Abfüllen:</b> Im Formular „Abfüllen“ siehst du, was danach noch in der Charge bleibt, und buchst den Rest mit einem Tipp als Verlust. Die Charge ist dann wirklich leer und erinnert nicht mehr ans Haltbarkeitsdatum.',
+    '<b>Alles bleibt nachvollziehbar:</b> Charge, Bestand, Abfüllungen, Chargenübersicht-PDF und Excel zeigen die Verluste; im Kassenbuch steht je Abgang eine Zeile mit 0,00 €. Zerbrochene Gläser zählen nicht mehr als „verkauft“ und nicht als Pfandglas beim Kunden.',
+    '<b>Genauer:</b> Gebuchte Verluste und lose abgegebener Honig können nicht mehr ein zweites Mal abgefüllt werden; bei der Lohnverarbeitung lässt sich nicht mehr Honig abgeben, als im Eimer ist. Ältere Abfüllungen bleiben trotzdem immer änderbar (MHD, Bestand, Losnummer). Eine Abfüllung mit gebuchten Verlusten löschst du erst, nachdem du die Verluste gelöscht hast.',
+  ] },
   { version: '2.99', datum: '2026-10-26', punkte: [
     '<b>Zeit buchen mit einem Tipp:</b> Arbeiten, die du oft machst, stehen auf der Startseite in „Zeit buchen“ – und genauso in der Zeiterfassung unter „Häufige Arbeiten“. „+ Zeit“ antippen: Deine übliche Dauer ist schon gewählt, „Zeit buchen“ trägt sie für heute ein (mit „Rückgängig“). Hast du noch wenig erfasst, schlägt die App typische Arbeiten des Monats vor. Über „Anpassen“ wählst du selbst aus und legst eigene Schnellzugriffe an.',
     '<b>Neue Aufgabe – „Häufig“:</b> Oben stehen dieselben Arbeiten. Ein Tipp füllt Aufgabe, Tätigkeitsbereich und Arbeitsschritte aus – du wählst nur noch das Datum.',
@@ -3026,8 +3033,8 @@ async function gelernteWerte(presets, store, feld) {
    DB: IndexedDB-Wrapper (UUID + lastModified auf jedem Datensatz)
    ===================================================================== */
 const DB = {
-  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 10, _db: null, // v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge · v9: +pfandbewegungen · v10: +materialzugaenge
-  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialzugaenge', 'materialabgaenge', 'pfandbewegungen', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
+  NAME: TEST_MODE ? 'imkerbuch-test' : 'imkerbuch', VER: 11, _db: null, // v11: +honigabgaenge (Honig: Verlust/Eigenverbrauch, v3.00) · v2: +verkaeufe · v3: +fahrten · v4: +varroa · v5: +abfuellungen · v6: +belegstellen · v7: +bioeintraege · v8: +materialabgaenge · v9: +pfandbewegungen · v10: +materialzugaenge
+  STORES: ['staende', 'wetter', 'voelker', 'stockkarten', 'fuetterungen', 'gewichte', 'varroa', 'koeniginnen', 'zuchtserien', 'belegstellen', 'behandlungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'honigabgaenge', 'fahrten', 'kontakte', 'kassenbuch', 'rechnungen', 'inventar', 'materialzugaenge', 'materialabgaenge', 'pfandbewegungen', 'aufgaben', 'bioeintraege', 'anhaenge', 'snapshots', 'papierkorb', 'settings'],
   /** Stores, die in Export/Import/Snapshot einfließen (snapshots selbst nie) */
   get DATA_STORES() { return this.STORES.filter((s) => s !== 'snapshots'); },
   open() {
@@ -3154,7 +3161,7 @@ const DB = {
       tx.oncomplete = () => {
         if (this._betriebsdaten(liste)) this._aenderungMelden();
         // Honig, der lose zur Verarbeitung abgegeben wurde, steht in den Zugängen – bei jeder Änderung dort neu summieren
-        if (liste.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.op === 'clear' || o.store === 'papierkorb')) lohnIndexNeu().then(() => res(true), () => res(true));
+        if (liste.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.store === 'honigabgaenge' || o.op === 'clear' || o.store === 'papierkorb')) lohnIndexNeu().then(() => res(true), () => res(true));
         else res(true);
       };
       tx.onerror = () => { if (this._tot(tx.error)) this._verbindungWeg(db); rej(tx.error || new Error('Schreibvorgang fehlgeschlagen')); };
@@ -3196,7 +3203,7 @@ const DB = {
       tx.oncomplete = () => {
         if (this._betriebsdaten(ops)) this._aenderungMelden();
         // Lose zur Verarbeitung abgegebener Honig steht in den Zugängen – nach jeder Änderung dort neu summieren
-        const lohnNeu = ops.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.store === 'papierkorb' || o.op === 'clear');
+        const lohnNeu = ops.some((o) => o.store === 'materialzugaenge' || o.store === 'inventar' || o.store === 'honigabgaenge' || o.store === 'papierkorb' || o.op === 'clear');
         (lohnNeu ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(wert), () => resolve(wert));
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
@@ -3241,6 +3248,8 @@ const DB = {
       const verbunden = await verkaufsPapierkorbWiederherstellen(trashId);
       if (verbunden) return verbunden.bereitsErledigt ? null : verbunden;
     }
+    // Honig-Abgang: Gebinde erneut vom Bestand abziehen bzw. prüfen, ob im Eimer noch genug ist (v3.00)
+    if (vorab.store === 'honigabgaenge') return honigAbgangWiederherstellen(trashId);
     if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
       throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
@@ -3249,7 +3258,7 @@ const DB = {
       let ergebnis = null, ursache = null;
       tx.oncomplete = () => {
         if (ergebnis) this._aenderungMelden();
-        (ergebnis && (ergebnis.store === 'materialzugaenge' || ergebnis.store === 'inventar') ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
+        (ergebnis && (ergebnis.store === 'materialzugaenge' || ergebnis.store === 'inventar' || ergebnis.store === 'honigabgaenge') ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
       tx.onabort = () => reject(ursache || tx.error || new Error('Wiederherstellen abgebrochen – nichts wurde geändert.'));
@@ -6319,6 +6328,9 @@ const Demo = {
     await DB.put('kontakte', { typ: 'lieferant', name: 'Glaswerk Nord', strasse: '', plz: '', ort: 'Hamburg', email: '', telefon: '', notiz: 'Neutralgläser 500/250 g.' });
     try { await verkaufErfassen({ abfuellungId: aLinde500.id, anzahl: 12, preisJeGlas: 7.5, kontaktId: k1.id, datum: d(-18), notiz: 'Hofladen' }); } catch (e) {}
     try { await verkaufErfassen({ abfuellungId: aLinde500.id, anzahl: 5, preisJeGlas: 8, kontaktId: k2.id, datum: d(-9), notiz: 'Café' }); } catch (e) {}
+    // Honig-Abgänge (v3.00): Bruch beim Etikettieren und der Rest im Eimer beim Abfüllen
+    try { await honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: aLinde500.id, art: 'Bruch', datum: d(-5), menge: 2, notiz: 'beim Etikettieren heruntergefallen' }); } catch (e) {}
+    try { await honigAbgangBuchen({ quelle: 'charge', chargeId: chRaps.id, art: 'Abfüllverlust', datum: ymd(Y, 6, 20), menge: 0.6, notiz: 'Rest im Eimer und Schaum' }); } catch (e) {}
 
     for (const [dt, ty, ka, be, sr, bs] of [
       [ymd(Y - 2, 7, 10), 'einnahme', 'Honigverkauf', 420, 0, 'Saison-Honig ' + (Y - 2)],
@@ -10014,12 +10026,24 @@ function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
     if (alt && neuKg <= buchungsZahl(alt.anzahl, 'Bisherige Anzahl') * buchungsZahl(alt.gebindeG, 'Bisherige Gebindegröße') / 1000) return;
     throw new Error('Die Charge fehlt. Bitte zuerst wiederherstellen.');
   }
+  /* Bearbeiten ohne Mehrbedarf (MHD, Los, Datum, Bestand, weniger Gebinde) immer erlauben – sonst sperrten ältere,
+     schon überbuchte Chargen (z. B. Lohnverarbeitung vor v3.00) jede Korrektur (Durchsicht v3.00) */
+  const altRec = ohneId ? d.abfuellungen.find((a) => a.id === ohneId) : null;
+  const neuKgEigen = neue.reduce((n, a) => n + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
+  if (altRec && neuKgEigen <= buchungsZahl(altRec.anzahl, 'Bisherige Anzahl') * buchungsZahl(altRec.gebindeG, 'Bisherige Gebindegröße') / 1000 + 0.0001) return;
   const vorhandene = d.abfuellungen.filter((a) => a.chargeId === chargeId && a.id !== ohneId);
   const kg = [...vorhandene, ...neue].reduce((sum, a) => sum + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
-  if (!Number.isFinite(kg) || kg > buchungsZahl(c.mengeKg, 'Chargenmenge') + 0.0001) throw new Error('Die Abfüllungen übersteigen die verfügbare Honigmenge. Bitte Charge und andere Abfüllungen prüfen.');
+  /* Gebuchte Verluste aus dem Eimer und lose zur Verarbeitung abgegebener Honig stehen nicht mehr zum Abfüllen bereit
+     (vorher zählte nur die Gesamtmenge – Kartierung v3.00) */
+  const verlust = d.honigabgaenge ? verlustKgIn(d, chargeId) : chargeVerlustKg(chargeId), lohn = chargeVerarbeitetKg(chargeId);
+  const belegt = kg + verlust + lohn;
+  if (!Number.isFinite(belegt) || belegt > buchungsZahl(c.mengeKg, 'Chargenmenge') + 0.0001) {
+    const teile = [`${U.fmtNum(kg, 2)} kg abgefüllt`, ...(verlust > 0 ? [`${U.fmtNum(verlust, 2)} kg als Verlust gebucht`] : []), ...(lohn > 0 ? [`${U.fmtNum(lohn, 2)} kg zur Verarbeitung abgegeben`] : [])];
+    throw new Error(`Die Abfüllungen übersteigen die verfügbare Honigmenge: ${teile.join(', ')} – die Charge hat ${U.fmtNum(c.mengeKg, 2)} kg.`);
+  }
 }
 async function abfuellungenAnlegen(v) {
-  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar'], (d) => {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge'], (d) => {
     const posten = GEBINDE_PRESETS.map((g) => ({ gebindeG: g, anzahl: Math.round(buchungsZahl(v['g_' + g] || 0, 'Anzahl')), feld: 'gl_' + g })).filter((p) => p.anzahl > 0);
     if (v.eigenesG > 0 && v.eigenesN > 0) posten.push({ gebindeG: Math.round(buchungsZahl(v.eigenesG, 'Gebindegröße')), anzahl: Math.round(buchungsZahl(v.eigenesN, 'Anzahl')), feld: 'gl_eigen' });
     if (!posten.length || posten.some((p) => p.gebindeG <= 0 || p.anzahl <= 0)) throw feldFehler('g_' + GEBINDE_PRESETS[0], 'Bitte eine positive Gebindegröße und Anzahl eintragen.');
@@ -10044,16 +10068,28 @@ async function abfuellungenAnlegen(v) {
         }
       }
     }
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'abfuellungen', obj }))), wert: { recs, gesamt, gefehlt } };
+    /* Verlust beim Abfüllen (v3.00): Rest im Eimer, Schaum, Siebrückstand – als Abgang aus der Charge, in derselben Buchung */
+    let verlust = null;
+    const verlustKg = (v.verlustKg === '' || v.verlustKg == null) ? 0 : Math.round(buchungsZahl(v.verlustKg, 'Verlust') * 1000) / 1000;
+    if (verlustKg > 0) {
+      const c = d.chargen.find((x) => x.id === v.chargeId);
+      const abgefuellt = U.sum([...d.abfuellungen.filter((a) => a.chargeId === v.chargeId), ...recs], (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000);
+      const rest = Math.round(((c ? buchungsZahl(c.mengeKg, 'Chargenmenge') : 0) - abgefuellt - verlustKgIn(d, v.chargeId) - chargeVerarbeitetKg(v.chargeId)) * 1000) / 1000;
+      if (verlustKg > rest + 0.0001) throw feldFehler('verlustKg', rest > 0 ? `Nach dem Abfüllen sind nur noch ${U.fmtNum(rest, 2)} kg in der Charge.` : 'Nach dem Abfüllen ist kein Honig mehr in der Charge.');
+      verlust = { id: U.uuid(), datum: v.datum || U.todayIso(), art: 'Abfüllverlust', quelle: 'charge', chargeId: v.chargeId, kg: verlustKg, notiz: 'beim Abfüllen' };
+    }
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'abfuellungen', obj })), verlust ? [{ store: 'honigabgaenge', obj: verlust }] : []), wert: { recs, gesamt, gefehlt, verlust } };
   });
 }
 async function abfuellungAendern(erwartet, v) {
-  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar'], (d) => {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge'], (d) => {
     const a = d.abfuellungen.find((x) => x.id === erwartet.id);
-    if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf. Bitte erneut öffnen.');
+    if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf oder Verlust. Bitte erneut öffnen.');
     const alteAnzahl = buchungsZahl(a.anzahl, 'Bisherige Anzahl'), anzahl = Math.round(buchungsZahl(v.anzahl, 'Anzahl')), gebindeG = Math.round(buchungsZahl(v.gebindeG, 'Gebindegröße'));
     const bestand = Math.round(buchungsZahl(v.bestand, 'Bestand'));
     if (gebindeG <= 0 || bestand > anzahl) throw feldFehler(gebindeG <= 0 ? 'gebindeG' : 'bestand', 'Gebindegröße muss positiv sein; verfügbarer Bestand darf die abgefüllte Anzahl nicht überschreiten.');
+    const weg = glasAbgangIn(d, a.id);
+    if (bestand + weg > anzahl) throw feldFehler(weg > anzahl ? 'anzahl' : 'bestand', `${weg} Gebinde sind als Verlust oder Eigenverbrauch gebucht – zusammen mit „Davon noch zum Verkauf“ darf das die abgefüllte Anzahl nicht überschreiten.`);
     pruefeAbfuellMenge(d, a.chargeId, [{ anzahl, gebindeG }], a.id);
     const geaendert = new Map(); let gefehlt = 0;
     if (alteAnzahl > 0 && anzahl !== alteAnzahl) {
@@ -10071,7 +10107,9 @@ async function abfuellungAendern(erwartet, v) {
       });
     }
     Object.assign(a, { anzahl, gebindeG, bestand, datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() });
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'abfuellungen', obj: a }), wert: { rec: a, gefehlt } };
+    // Gebindegröße korrigiert: die Abgänge dieser Abfüllung zeigen sonst weiter die alte Größe (Durchsicht v3.00)
+    const abgaengeNeu = (d.honigabgaenge || []).filter((x) => x.quelle === 'abfuellung' && x.abfuellungId === a.id && x.gebindeG !== gebindeG).map((x) => ({ store: 'honigabgaenge', obj: { ...x, gebindeG } }));
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'abfuellungen', obj: a }, abgaengeNeu), wert: { rec: a, gefehlt } };
   });
 }
 /** Dasselbe aus den Feldern eines offenen Formulars. */
@@ -11379,11 +11417,23 @@ function voelkerAmStichtag(voelker, tag) {
 
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
 /** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
-function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle) - chargeVerarbeitetKg(charge.id)) * 1000) / 1000; }
+function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle) - chargeVerarbeitetKg(charge.id) - chargeVerlustKg(charge.id)) * 1000) / 1000; }
 /* Lose an einen Verarbeiter abgegebener Honig (Lohnverarbeitung bei „Weitere Produkte“). Die Summe je Charge wird bei jedem Schreiben
    der Zugänge neu aus den Datensätzen gebildet – so stimmt sie auch nach Ändern, Löschen und Wiederherstellen. */
 let LOHN_KG = new Map();
 const chargeVerarbeitetKg = (chargeId) => LOHN_KG.get(chargeId) || 0;
+/* Honig-Abgänge (v3.00): kg aus dem Eimer je Charge und Gebinde je Abfüllung – synchron abrufbar wie LOHN_KG,
+   neu gebaut nach jedem Schreiben in 'honigabgaenge' oder den Papierkorb (DB-Haken) und beim Start. */
+let HONIG_VERLUST_KG = new Map(), GLAS_ABGANG = new Map();
+const chargeVerlustKg = (chargeId) => HONIG_VERLUST_KG.get(chargeId) || 0;
+const glasAbgangVon = (abfuellungId) => GLAS_ABGANG.get(abfuellungId) || 0;
+/** Dasselbe innerhalb einer Transaktion (aus d.honigabgaenge) – der Index kommt erst nach dem Schreiben. */
+function verlustKgIn(d, chargeId, ohneId = null) {
+  return Math.round(U.sum((d.honigabgaenge || []).filter((x) => x.quelle === 'charge' && x.chargeId === chargeId && x.id !== ohneId), (x) => Number(x.kg) || 0) * 1000) / 1000;
+}
+function glasAbgangIn(d, abfuellungId, ohneId = null) {
+  return U.sum((d.honigabgaenge || []).filter((x) => x.quelle === 'abfuellung' && x.abfuellungId === abfuellungId && x.id !== ohneId), (x) => Number(x.ausBestand ?? x.anzahl) || 0);
+}
 async function lohnIndexNeu() {
   const m = new Map();
   try {
@@ -11392,6 +11442,14 @@ async function lohnIndexNeu() {
     for (const z of await DB.getAll('materialzugaenge')) if (z.lohn && z.chargeId && Number(z.honigKg) > 0 && positionen.has(z.inventarId)) m.set(z.chargeId, (m.get(z.chargeId) || 0) + Number(z.honigKg));
   } catch (e) { /* ohne Index zählt nur der abgefüllte Honig */ }
   LOHN_KG = m;
+  const kg = new Map(), gl = new Map();
+  try {
+    for (const x of await DB.getAll('honigabgaenge')) {
+      if (x.quelle === 'charge' && x.chargeId && Number(x.kg) > 0) kg.set(x.chargeId, Math.round(((kg.get(x.chargeId) || 0) + Number(x.kg)) * 1000) / 1000);
+      else if (x.quelle === 'abfuellung' && x.abfuellungId) gl.set(x.abfuellungId, (gl.get(x.abfuellungId) || 0) + (Number(x.ausBestand ?? x.anzahl) || 0));
+    }
+  } catch (e) { /* ältere Datenbank ohne den Bereich: keine Abgänge */ }
+  HONIG_VERLUST_KG = kg; GLAS_ABGANG = gl;
 }
 /* Die Losnummer darf an der Abfüllung abweichen. Im Lebensmittelrecht ist ein
    Los die Menge, die unter praktisch gleichen Bedingungen ABGEPACKT wurde –
@@ -11517,6 +11575,211 @@ async function verkaufErfassen({ abfuellungId, anzahl, preisJeGlas, kontaktId = 
       ...(a ? {} : { sorte: String(sorte || '').trim(), gebindeG: Number(gebindeG) }) };
     return { ops: [...(a ? [{ store: 'abfuellungen', obj: a }] : []), { store: 'kassenbuch', obj: kb }, { store: 'verkaeufe', obj: v }], wert: v };
   });
+}
+/* =====================================================================
+   HONIG: EIGENVERBRAUCH / VERLUST (v3.00, Julian 26.10.2026: „Beim Abfüllen habe ich Verluste – unter Inventar kann ich
+   Verluste buchen, aber nicht Honig.“ Entschieden: alle drei Wege – im Formular „Abfüllen“, im Bestand und jederzeit über
+   „Eigenverbrauch / Verlust“ wie beim Inventar (auch im Kassenbuch) – mit sechs Gründen.)
+   Zwei Ebenen, sauber getrennt:
+   - kg aus dem Eimer (noch nicht abgefüllte Charge): Datensatz {quelle:'charge', chargeId, kg}; chargeRestKg zieht die Summe ab.
+   - Gebinde aus einer Abfüllung: {quelle:'abfuellung', abfuellungId, anzahl, ausBestand}; mindert abfuellung.bestand atomar
+     (wie ein Verkauf, ausBestand gemerkt) – der Honig ist ja schon abgefüllt und zählt nicht nochmals vom Eimer.
+   Kein Geld, keine Umsatzsteuer: im Kassenbuch nur als Zeile mit 0,00 €. Nicht als Verkauf mit 0 € speichern – Verkäufe
+   fließen in Erlös je kg, Statistik und Pfand.
+   ===================================================================== */
+const HONIG_ABGANG_ARTEN = ['Abfüllverlust', 'Bruch', 'Eigenverbrauch', 'Verschenkt', 'An Bienen verfüttert', 'Verdorben'];
+const HONIG_ABGANG_HINWEIS = {
+  'Abfüllverlust': 'Rest im Eimer, Schaum, Siebrückstand.',
+  'Bruch': 'Zerbrochenes oder beschädigtes Gebinde.',
+  'Eigenverbrauch': 'Für den eigenen Haushalt.',
+  'Verschenkt': 'An Familie, Freunde oder Helfer abgegeben.',
+  /* LWG Bayern „Verwendung von Honig als Winterfutter“, § 8 BienSeuchV (Recherche 26.10.2026) */
+  'An Bienen verfüttert': 'Nur eigenen Honig aus gesunden Völkern verfüttern – fremder Honig kann Faulbrut übertragen. Keinen gärigen, Honigtau-, Heide- oder Kastanienhonig. Nicht offen am Stand ausschlecken lassen.',
+  'Verdorben': 'Z. B. gärig geworden oder verunreinigt.',
+};
+/** Kurztext eines Abgangs: „2 × 500 g · Charge 2026-01 · Bruch“ bzw. „0,6 kg · Charge 2026-01 · Abfüllverlust“. */
+function honigAbgangText(x, chargen) {
+  const c = chargen && typeof chargen.get === 'function' ? chargen.get(x.chargeId) : null;
+  const menge = x.quelle === 'charge' ? `${U.fmtNum(x.kg, 2)} kg` : `${U.fmtNum(x.anzahl, 0)} × ${gebindeLabel(x.gebindeG)}`;
+  return `${menge} · Charge ${c ? c.losnummer : '?'} · ${x.art}`;
+}
+/**
+ * Bucht (oder ändert) einen Honig-Abgang unter einer Schreibsperre. Beim Ändern wird der alte Abgang erst zurückgenommen.
+ * @param {{quelle:'charge'|'abfuellung', chargeId?, abfuellungId?, art, datum, menge, notiz}} e
+ * @param {object|null} alt  bisheriger Datensatz (Bearbeiten)
+ */
+/* Liegt die Abfüllung eines Gebinde-Abgangs im Papierkorb, darf der Abgang weder geändert noch gelöscht werden – sonst
+   gingen die Gebinde verloren und würden nach dem Wiederherstellen doppelt abgezogen (Durchsicht v3.00). Ist sie endgültig
+   gelöscht, gibt es nichts mehr zurückzugeben. */
+function abfuellungImPapierkorb(d, abfuellungId) {
+  if ((d.papierkorb || []).some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === abfuellungId)) throw new Error('Die Abfüllung liegt im Papierkorb. Bitte sie zuerst wiederherstellen – nichts wurde geändert.');
+}
+async function honigAbgangBuchen(e, alt = null) {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], (d) => {
+    const geaendert = new Map();
+    if (alt) {
+      const x = d.honigabgaenge.find((y) => y.id === alt.id);
+      if (!x) throw new Error('Diesen Eintrag gibt es nicht mehr. Bitte die Ansicht neu öffnen.');
+      if (alt.lastModified && x.lastModified !== alt.lastModified) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
+      if (x.quelle === 'abfuellung') {
+        const a = d.abfuellungen.find((y) => y.id === x.abfuellungId);
+        if (a) { a.bestand = Math.min(buchungsZahl(a.anzahl, 'Anzahl'), buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(x.ausBestand ?? x.anzahl, 'Abgang')); geaendert.set(a.id, a); }
+        else abfuellungImPapierkorb(d, x.abfuellungId);
+      }
+      d.honigabgaenge = d.honigabgaenge.filter((y) => y.id !== x.id);
+    }
+    const art = HONIG_ABGANG_ARTEN.includes(e.art) ? e.art : null;
+    if (!art) throw feldFehler('art', 'Bitte einen Grund wählen.');
+    const basis = { id: alt ? alt.id : U.uuid(), datum: e.datum || U.todayIso(), art, notiz: String(e.notiz || '').trim() };
+    if (alt && alt.createdAt) basis.createdAt = alt.createdAt;
+    let rec;
+    if (e.quelle === 'abfuellung') {
+      const a = geaendert.get(e.abfuellungId) || d.abfuellungen.find((y) => y.id === e.abfuellungId);
+      if (!a) throw feldFehler('abfuellungId', 'Bitte eine vorhandene Abfüllung wählen.');
+      const roh = buchungsZahl(e.menge === '' || e.menge == null ? 0 : e.menge, 'Anzahl');
+      if (!Number.isInteger(roh)) throw feldFehler('menge', 'Bitte ganze Gebinde eintragen (z. B. 2).');
+      const n = roh;
+      if (!(n > 0)) throw feldFehler('menge', 'Bitte eine Anzahl größer als 0 eintragen.');
+      const bestand = buchungsZahl(a.bestand, 'Bestand');
+      if (n > bestand) throw feldFehler('menge', bestand ? `Von dieser Abfüllung sind nur noch ${bestand} Gebinde da.` : 'Von dieser Abfüllung ist nichts mehr da.');
+      a.bestand = bestand - n; geaendert.set(a.id, a);
+      rec = { ...basis, quelle: 'abfuellung', chargeId: a.chargeId, abfuellungId: a.id, gebindeG: a.gebindeG, anzahl: n, ausBestand: n };
+    } else if (e.quelle === 'charge') {
+      if (art === 'Bruch') throw feldFehler('art', '„Bruch“ gibt es nur für abgefüllte Gebinde – für den Eimer bitte „Abfüllverlust“ oder „Verdorben“.');
+      const c = d.chargen.find((y) => y.id === e.chargeId);
+      if (!c) throw feldFehler('chargeId', 'Bitte eine vorhandene Charge wählen.');
+      const kg = Math.round(buchungsZahl(e.menge === '' || e.menge == null ? 0 : e.menge, 'Menge') * 1000) / 1000;
+      if (!(kg > 0)) throw feldFehler('menge', 'Bitte eine Menge größer als 0 eintragen.');
+      const abgefuellt = U.sum(d.abfuellungen.filter((y) => y.chargeId === c.id), (y) => buchungsZahl(y.anzahl, 'Anzahl') * buchungsZahl(y.gebindeG, 'Gebindegröße') / 1000);
+      const rest = Math.round((buchungsZahl(c.mengeKg || 0, 'Chargenmenge') - abgefuellt - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+      if (kg > rest + 0.0001) throw feldFehler('menge', rest > 0 ? `Im Eimer sind nur noch ${U.fmtNum(rest, 2)} kg.` : 'In dieser Charge ist kein Honig mehr im Eimer.');
+      rec = { ...basis, quelle: 'charge', chargeId: c.id, kg };
+    } else throw feldFehler('quelle', 'Bitte wählen: Gebinde oder Honig im Eimer.');
+    return { ops: [...[...geaendert.values()].map((obj) => ({ store: 'abfuellungen', obj })), { store: 'honigabgaenge', obj: rec }], wert: rec };
+  });
+}
+/** Abgang zurücknehmen: Gebinde kommen in den Bestand zurück, der Datensatz in den Papierkorb (kg wirken über den Index). */
+async function honigAbgangLoeschen(id) {
+  return DB.aendereAtomar(['abfuellungen', 'honigabgaenge', 'papierkorb'], (d) => {
+    const x = d.honigabgaenge.find((y) => y.id === id);
+    if (!x) return { ops: [], wert: null };   // schon gelöscht (z. B. in einem anderen Fenster)
+    const ops = [];
+    if (x.quelle === 'abfuellung') {
+      const a = d.abfuellungen.find((y) => y.id === x.abfuellungId);
+      if (a) { a.bestand = Math.min(buchungsZahl(a.anzahl, 'Anzahl'), buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(x.ausBestand ?? x.anzahl, 'Abgang')); ops.push({ store: 'abfuellungen', obj: a }); }
+      else abfuellungImPapierkorb(d, x.abfuellungId);
+    }
+    ops.push(...papierkorbAuftraege('honigabgaenge', x));
+    return { ops, wert: x };
+  });
+}
+/** Aus dem Papierkorb zurückholen: Gebinde wieder abziehen bzw. prüfen, ob im Eimer noch genug ist – sonst nichts ändern. */
+async function honigAbgangWiederherstellen(trashId) {
+  return DB.aendereAtomar(['papierkorb', 'chargen', 'abfuellungen', 'honigabgaenge'], (d) => {
+    const t = d.papierkorb.find((y) => y.id === trashId);
+    if (!t) return { ops: [], wert: null };
+    const x = t.daten;
+    if (!x || !x.id) throw new Error('Der Papierkorb-Eintrag ist beschädigt. Bitte die Ansicht neu öffnen.');
+    if (d.honigabgaenge.some((y) => y.id === x.id)) throw new Error('Ein Datensatz mit dieser Kennung ist bereits vorhanden. Er wurde nicht überschrieben.');
+    const ops = [];
+    if (x.quelle === 'abfuellung') {
+      const a = d.abfuellungen.find((y) => y.id === x.abfuellungId);
+      if (!a) throw new Error('Die Abfüllung fehlt. Bitte zuerst die Abfüllung wiederherstellen.');
+      const n = buchungsZahl(x.ausBestand ?? x.anzahl, 'Abgang'), bestand = buchungsZahl(a.bestand, 'Bestand');
+      if (n > bestand) throw new Error('Der Bestand reicht für diesen Abgang nicht mehr. Nichts wurde wiederhergestellt.');
+      a.bestand = bestand - n; ops.push({ store: 'abfuellungen', obj: a });
+    } else if (x.quelle === 'charge') {
+      const c = d.chargen.find((y) => y.id === x.chargeId);
+      if (!c) throw new Error('Die Charge fehlt. Bitte zuerst die Charge wiederherstellen.');
+      const abgefuellt = U.sum(d.abfuellungen.filter((y) => y.chargeId === c.id), (y) => buchungsZahl(y.anzahl, 'Anzahl') * buchungsZahl(y.gebindeG, 'Gebindegröße') / 1000);
+      const rest = (Number(c.mengeKg) || 0) - abgefuellt - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id);
+      if ((Number(x.kg) || 0) > rest + 0.0001) throw new Error('In der Charge ist nicht mehr genug Honig für diesen Abgang. Nichts wurde wiederhergestellt.');
+    }
+    ops.push({ store: 'honigabgaenge', obj: x }, { op: 'del', store: 'papierkorb', id: t.id });
+    return { ops, wert: t };
+  });
+}
+/**
+ * Formular „Eigenverbrauch / Verlust · Honig“ – aus dem Kassenbuch, dem Bestand, der Charge oder zum Bearbeiten.
+ * @param {{quelle?, chargeId?, abfuellungId?, art?}} vor  Vorauswahl
+ * @param {object|null} rec  bestehender Abgang
+ */
+async function honigAbgangForm(vor = {}, rec = null) {
+  if (Lizenz.nurVoll('Ernte und Abfüllung')) return null;
+  const abfAlle = await DB.getAll('abfuellungen');
+  const chargenAlle = await DB.getAll('chargen');
+  const chargenM = new Map(chargenAlle.map((c) => [c.id, c]));
+  const ernten = await idMap('ernten');
+  // Beim Bearbeiten steht die eigene Menge wieder zur Verfügung
+  const verfuegbar = (a) => (Number(a.bestand) || 0) + (rec && rec.quelle === 'abfuellung' && rec.abfuellungId === a.id ? (Number(rec.ausBestand ?? rec.anzahl) || 0) : 0);
+  const imEimer = (c) => Math.max(0, chargeRestKg(c, abfAlle) + (rec && rec.quelle === 'charge' && rec.chargeId === c.id ? (Number(rec.kg) || 0) : 0));
+  const abfListe = U.sortBy(abfAlle.filter((a) => verfuegbar(a) > 0 || (rec && rec.abfuellungId === a.id)), (a) => a.datum || '', true);
+  const chListe = U.sortBy(chargenAlle.filter((c) => imEimer(c) > 0.0001 || (rec && rec.quelle === 'charge' && rec.chargeId === c.id)), (c) => c.losnummer, true);
+  if (!rec && !abfListe.length && !chListe.length) { UI.toast('Nichts zu buchen: Es gibt weder abgefüllte Gebinde noch Honig im Eimer.', 'err'); return null; }
+  // Vorauswahl passend zum Ort, an dem das Formular geöffnet wurde: Charge ↔ ihre Abfüllung (Durchsicht v3.00)
+  const vorAbf = vor.abfuellungId ? abfAlle.find((a) => a.id === vor.abfuellungId) : null;
+  const chargeVon = vor.chargeId || (vorAbf ? vorAbf.chargeId : null);
+  const abfDerCharge = chargeVon ? abfListe.find((a) => a.chargeId === chargeVon && verfuegbar(a) > 0) : null;
+  const abfText = (a) => { const c = chargenM.get(a.chargeId); return `${chargeUndLos(a, c)} · ${c ? honigName(c, ernten) : 'Honig'} · ${gebindeLabel(a.gebindeG)} · ${verfuegbar(a)} da`; };
+  const chText = (c) => `Charge ${c.losnummer} · ${honigName(c, ernten)} · ${U.fmtNum(imEimer(c), 2)} kg im Eimer`;
+  const quelle0 = rec ? rec.quelle : (vor.quelle && ((vor.quelle === 'abfuellung' && abfListe.length) || (vor.quelle === 'charge' && chListe.length)) ? vor.quelle : (abfListe.length ? 'abfuellung' : 'charge'));
+  const m = UI.formModal({
+    title: rec ? 'Abgang bearbeiten · Honig' : 'Eigenverbrauch / Verlust · Honig', wide: true,
+    fields: [
+      { key: 'quelle', label: 'Woraus?', type: 'select', required: true, keepOrder: true,
+        options: [...(abfListe.length || (rec && rec.quelle === 'abfuellung') ? [{ v: 'abfuellung', l: 'Gebinde aus einer Abfüllung (Gläser, Eimer)' }] : []), ...(chListe.length || (rec && rec.quelle === 'charge') ? [{ v: 'charge', l: 'Honig im Eimer (kg, noch nicht abgefüllt)' }] : [])] },
+      { key: 'abfuellungId', label: 'Welche Abfüllung?', type: 'select', keepOrder: true, options: abfListe.map((a) => ({ v: a.id, l: abfText(a) })), showIf: (f) => f.quelle === 'abfuellung' },
+      { key: 'chargeId', label: 'Welche Charge?', type: 'select', keepOrder: true, options: chListe.map((c) => ({ v: c.id, l: chText(c) })), showIf: (f) => f.quelle === 'charge' },
+      { key: 'art', label: 'Grund', type: 'select', required: true, keepOrder: true, options: HONIG_ABGANG_ARTEN.map((a) => ({ v: a, l: a })) },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, halb: true, default: U.todayIso() },
+      { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
+      { key: '_info', type: 'static', html: '<div class="hint" data-ha-info></div>' },
+      { key: 'notiz', label: 'Notiz', type: 'textarea', placeholder: 'z. B. beim Etikettieren heruntergefallen' },
+    ],
+    values: rec ? { quelle: rec.quelle, abfuellungId: rec.abfuellungId || '', chargeId: rec.chargeId || '', art: rec.art, datum: rec.datum, menge: rec.quelle === 'charge' ? rec.kg : rec.anzahl, notiz: rec.notiz || '' }
+      : { quelle: quelle0, abfuellungId: vor.abfuellungId && abfListe.some((a) => a.id === vor.abfuellungId) ? vor.abfuellungId : ((abfDerCharge || abfListe[0]) || {}).id,
+        chargeId: chargeVon && chListe.some((c) => c.id === chargeVon) ? chargeVon : (chListe[0] || {}).id,
+        art: vor.art || (quelle0 === 'charge' ? 'Abfüllverlust' : 'Bruch'), datum: U.todayIso() },
+    async onSave(v) {
+      const erg = await honigAbgangBuchen({ quelle: v.quelle, abfuellungId: v.abfuellungId, chargeId: v.chargeId, art: v.art, datum: v.datum, menge: v.menge, notiz: v.notiz }, rec);
+      UI.toast(`${rec ? 'Geändert' : 'Gebucht'}: ${honigAbgangText(erg, chargenM)}`);
+      await pruefeMhd(); renderRoute(imBestandBleiben());
+    },
+    onDelete: rec ? async () => {
+      if (!(await UI.confirm({ title: 'Abgang löschen?', text: rec.quelle === 'abfuellung' ? 'Die Gebinde kommen zurück in den Bestand. Der Eintrag wandert in den Papierkorb.' : 'Der Honig zählt wieder als „im Eimer“. Der Eintrag wandert in den Papierkorb.', confirmText: 'Löschen' }))) return false;
+      await honigAbgangLoeschen(rec.id);
+      UI.toast('Abgang gelöscht – im Papierkorb'); renderRoute(imBestandBleiben());
+      return true;
+    } : undefined,
+  });
+  /* Live: Menge in Gebinden oder kg, Bestand vorher → nachher, Hinweis zum Grund */
+  const q = $('#f-quelle', m.el), ab = $('#f-abfuellungId', m.el), ch = $('#f-chargeId', m.el), ar = $('#f-art', m.el), me = $('#f-menge', m.el), info = $('[data-ha-info]', m.el);
+  const label = me && me.closest('.field') && me.closest('.field').querySelector('label');
+  const zeichne = () => {
+    if (!q || !info) return;
+    const n = U.parseNum(me.value) || 0, teile = [];
+    if (q.value === 'abfuellung') {
+      if (label) label.innerHTML = 'Menge (Gebinde) <span class="req">*</span>';
+      if (me) me.placeholder = 'z. B. 2';
+      const a = abfAlle.find((x) => x.id === (ab && ab.value));
+      if (a) { const b = verfuegbar(a); teile.push(n > b ? `<b style="color:var(--danger)">Nur ${b} Gebinde da.</b>` : `Bestand ${b} → ${Math.max(0, b - Math.round(n))} Gebinde.`); }
+    } else {
+      if (label) label.innerHTML = 'Menge (kg) <span class="req">*</span>';
+      if (me) me.placeholder = 'z. B. 0,5';
+      const c = chargenM.get(ch && ch.value);
+      if (c) { const r = imEimer(c); teile.push(n > r + 0.0001 ? `<b style="color:var(--danger)">Im Eimer sind nur ${U.fmtNum(r, 2)} kg.</b>` : `Im Eimer ${U.fmtNum(r, 2)} kg → ${U.fmtNum(Math.max(0, r - n), 2)} kg.`); }
+      if (ar && ar.value === 'Bruch') teile.push('<b>„Bruch“ gibt es nur für abgefüllte Gebinde.</b>');
+    }
+    if (ar && HONIG_ABGANG_HINWEIS[ar.value]) teile.push(U.esc(HONIG_ABGANG_HINWEIS[ar.value]));
+    teile.push('Bringt kein Geld – im Kassenbuch steht eine Zeile mit 0,00 €.');
+    info.innerHTML = teile.join(' ');
+  };
+  for (const el of [q, ab, ch, ar]) if (el) el.addEventListener('change', zeichne);
+  // Eimer gewählt, Grund noch „Bruch“ (gibt es dort nicht): auf „Abfüllverlust“ umstellen
+  if (q && ar) q.addEventListener('change', () => { if (q.value === 'charge' && ar.value === 'Bruch') { ar.value = 'Abfüllverlust'; zeichne(); } });
+  if (me) me.addEventListener('input', zeichne);
+  zeichne();
+  return m;
 }
 /** Archiviert zusammengehörige Zeilen innerhalb eines bereits berechneten Plans. */
 function papierkorbAuftraege(store, rec) {
@@ -15857,7 +16120,8 @@ Views.honig = {
      rutscht aber unter einen Trenner, damit die laufende Saison oben steht. */
   chargeErledigt(c, abfAlle) {
     const eigene = (abfAlle || []).filter((a) => a.chargeId === c.id);
-    if (!eigene.length) return false;                       // nie abgefüllt = offen
+    // nie abgefüllt = offen – außer der Eimer ist über Verlust oder Verarbeitung leer geworden (v3.00)
+    if (!eigene.length) return (chargeVerlustKg(c.id) > 0 || chargeVerarbeitetKg(c.id) > 0) && chargeRestKg(c, abfAlle) <= 0.0001;
     if (chargeRestKg(c, abfAlle) > 0.0001) return false;    // noch Honig im Eimer
     return U.sum(eigene, (a) => a.bestand || 0) <= 0;       // noch Gläser da?
   },
@@ -15903,9 +16167,9 @@ Views.honig = {
       return `<button class="row" data-id="${U.esc(c.id)}"${ordnen ? ' data-nooepnen' : ''}>
         ${ordnen ? '<span class="row-grip" data-grip title="verschieben" aria-label="verschieben">⠿</span>' : `<span class="r-ic">${icon('qr')}</span>`}
         <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}${c.datum ? ` <span class="muted small">· ${U.fmtDate(c.datum)}</span>` : ''}</span>
-        <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}${chargeVerarbeitetKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerarbeitetKg(c.id), 1)} kg zur Verarbeitung abgegeben` : ''}</span></span>
+        <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}${chargeVerarbeitetKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerarbeitetKg(c.id), 1)} kg zur Verarbeitung abgegeben` : ''}${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}</span></span>
         <span class="r-side">${erledigt
-          ? '<b class="muted">ausverkauft</b>'
+          ? `<b class="muted">${abfAlle.some((a) => a.chargeId === c.id) ? 'ausverkauft' : 'aufgebraucht'}</b>`
           : `<b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;
     };
     const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-cjahr="${U.esc(val)}">${U.esc(label)}</button>`;
@@ -16000,7 +16264,7 @@ Views.honig = {
           hint: 'Wird zur Erntemenge addiert.' },
         { key: 'lagerHerkunft', label: 'Woher stammt dieser Lagerbestand?', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
           placeholder: 'z. B. Restbestand Frühtracht 2025, eigene Völker', hint: 'Für die Rückverfolgbarkeit: ohne erfasste Ernte ist diese Angabe der einzige Herkunftsnachweis.' },
-        { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', hint: 'Wird automatisch aus Ernten und Lagerbestand summiert – bei Bedarf überschreibbar (z. B. Verluste beim Schleudern).' },
+        { key: 'mengeKg', label: 'Gesamtmenge (kg)', type: 'number', hint: 'Wird automatisch aus Ernten und Lagerbestand summiert – bei Bedarf überschreibbar. Verluste beim Abfüllen oder Schleudern besser im Bestand unter „Verlust“ buchen – dann bleibt nachvollziehbar, wohin der Honig ging.' },
         /* Sorte und Laborwert gehören auch an die Charge selbst. Bei Honig aus dem
            LAGERBESTAND gibt es keine Ernte, aus der sie stammen könnten – ohne
            diese Felder stünde auf dem Etikett nur „Honig". Sind Ernten verknüpft
@@ -16029,6 +16293,10 @@ Views.honig = {
         if (!ernteIds.length && lagerKg <= 0) throw feldFehler('ernteIds', 'Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
         const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
+        if (c && mengeKg < (Number(c.mengeKg) || 0) - 0.0001) {   // nur beim Verkleinern: nicht weniger, als schon abgefüllt, als Verlust gebucht oder abgegeben ist (v3.00)
+          const belegt = Math.round((chargeAbgefuelltKg(c.id, await DB.getAll('abfuellungen')) + chargeVerlustKg(c.id) + chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+          if (mengeKg < belegt - 0.0001) throw feldFehler('mengeKg', `Aus dieser Charge sind schon ${U.fmtNum(belegt, 2)} kg abgefüllt, als Verlust gebucht oder abgegeben – die Gesamtmenge kann nicht kleiner sein.`);
+        }
         const rec = Object.assign(c || {}, { losnummer: v.losnummer, datum: v.datum, ernteIds, lagerKg,
           lagerHerkunft: ohneLager ? '' : (v.lagerHerkunft || '').trim(), mengeKg,
           sorte: (v.sorte || '').trim(),
@@ -16096,6 +16364,8 @@ Views.honig = {
     const rest = chargeRestKg(c, abf);
     const glaeserGesamt = U.sum(abf, (a) => a.anzahl);
     const glaeserBestand = U.sum(abf, (a) => a.bestand);
+    const abgaenge = U.sortBy((await DB.getAll('honigabgaenge')).filter((x) => x.chargeId === c.id), (x) => x.datum || '', true);
+    const chM = new Map([[c.id, c]]);
     const m = UI.modal({
       title: `Charge ${c.losnummer}`, wide: true,
       body: `
@@ -16119,9 +16389,13 @@ Views.honig = {
         <div class="rows mb12">${abf.length ? abf.map((a) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · ${U.esc(a.anzahl)} Gebinde</span>
-          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${U.esc(a.bestand)} zum Verkauf</span></span>
+          <span class="r-sub">abgefüllt ${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · noch ${U.esc(a.bestand)} zum Verkauf${glasAbgangVon(a.id) ? ` · ${glasAbgangVon(a.id)} Verlust/Eigenverbrauch` : ''}</span></span>
           ${Testmodus.an() ? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf="${U.esc(a.id)}">${icon('doc')} Etikett</button>` : ''}</div>`).join('') : '<span class="muted small">Noch nichts abgefüllt. Nutze den Tab „Abfüllung“.</span>'}</div>
         ${abf.length ? `<p class="small muted mb12">${glaeserBestand} von ${glaeserGesamt} Gebinden stehen noch zum Verkauf.</p>` : ''}
+        ${abgaenge.length ? `<h3 class="mb8">Verlust und Eigenverbrauch</h3>
+        <div class="rows mb12">${abgaenge.map((x) => `<button class="row" data-habgang="${U.esc(x.id)}" style="min-height:44px;padding:8px 4px">
+          <span class="r-ic" style="width:32px;height:32px;background:var(--card2);color:var(--muted)">${icon('minus')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(honigAbgangText(x, chM))}</span><span class="r-sub">${U.fmtDate(x.datum)}${x.notiz ? ' · ' + U.esc(x.notiz) : ''}</span></span>${icon('chevR', 'chev')}</button>`).join('')}</div>` : ''}
         <h3 class="mb8">Rückverfolgung: Charge → Ernte → Volk</h3>
         <div class="rows mb12">${kette.map(({ e, quelle }) => `<div class="row" style="min-height:44px;padding:8px 4px">
           <span class="r-ic" style="width:32px;height:32px">${icon('honig')}</span>
@@ -16136,11 +16410,15 @@ Views.honig = {
         ${!(c.ernteIds || []).length && !(c.sorte || '').trim() ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für diese Charge fehlt die <b>Honigsorte</b>. Ohne Ernte gibt es keine andere Quelle dafür – auf dem Etikett stünde sonst nur „Honig". Charge bearbeiten und nachtragen.</span></div>` : ''}
         <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
+        ${rest > 0 || glaeserBestand > 0 ? `<button class="btn btn-ghost" data-hverlust-detail>${icon('minus')} Verlust</button>` : ''}
         ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}
         <button class="btn btn-primary" data-qr>${icon('qr')} QR-Code erzeugen</button>`,
     });
     $$('[data-etikett-abf]', m.el).forEach((b) => b.onclick = () => { const a = abf.find((x) => x.id === b.dataset.etikettAbf); if (a) honigEtikettForm(a, c); });
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.honig.chargeForm(c); };
+    const hv = $('[data-hverlust-detail]', m.el);
+    if (hv) hv.onclick = () => { m.close(true); honigAbgangForm(rest > 0 ? { quelle: 'charge', chargeId: c.id } : { quelle: 'abfuellung', abfuellungId: (abf.find((a) => a.bestand > 0) || {}).id }); };
+    $$('[data-habgang]', m.el).forEach((b) => { b.onclick = () => { const x = abgaenge.find((y) => y.id === b.dataset.habgang); if (x) { m.close(true); honigAbgangForm({}, x); } }; });
     const abfBtn = $('[data-abf]', m.el);
     if (abfBtn) abfBtn.onclick = () => { m.close(true); Views.honig.abfuellForm(c.id); };
     $('[data-qr]', m.el).onclick = async () => {
@@ -16190,7 +16468,7 @@ Views.honig = {
         return `<button class="row" data-id="${U.esc(a.id)}">
           <span class="r-ic">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${gebindeLabel(a.gebindeG)} · Charge ${U.esc(chargeUndLos(a, c))}</span>
-          <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${U.esc(a.anzahl)} abgefüllt · noch ${U.esc(a.bestand)} zum Verkauf</span></span>
+          <span class="r-sub">${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · haltbar bis ${U.fmtDate(abfMhd(a, c))}` : ''} · ${U.esc(a.anzahl)} abgefüllt · noch ${U.esc(a.bestand)} zum Verkauf${glasAbgangVon(a.id) ? ` · ${glasAbgangVon(a.id)} Verlust` : ''}</span></span>
           <span class="r-side"><b>${U.esc(a.bestand)}</b><br><span class="muted small">Gebinde</span></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('abfuellungen', abf).knopf
       : roh.length ? '<p class="small muted">Keine Abfüllung in dieser Auswahl.</p>'
@@ -16258,6 +16536,9 @@ Views.honig = {
         ...gebindeFelder,
         { key: 'eigenesG', label: 'Eigenes Gebinde – Größe (g)', type: 'number', placeholder: 'z. B. 30' },
         { key: 'eigenesN', label: 'Eigenes Gebinde – Anzahl', type: 'number' },
+        /* v3.00 (Julian: „beim Abfüllen habe ich Verluste“): Rest im Eimer, Schaum, Siebrückstand gleich mitbuchen */
+        { key: '_verlustKopf', type: 'static', html: '<h3 class="mt8 mb4">Verlust beim Abfüllen</h3><div class="hint mb8" data-verlust-info></div>' },
+        { key: 'verlustKg', label: 'Verlust (kg)', type: 'number', placeholder: 'z. B. 0,5', hint: 'Rest im Eimer, Schaum, Siebrückstand. Leer lassen, wenn noch Honig für später übrig ist.' },
         ...abzugFelder,
       ],
       values: {},
@@ -16280,12 +16561,38 @@ Views.honig = {
         let erg;
         try { erg = await abfuellungenAnlegen(v); }
         catch (e) { if (neueCharge) await DB.del('chargen', neueCharge.id); if (neueCharge) v.chargeId = 'ernte:' + neueCharge.ernteIds[0]; throw e; }
-        UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}`);
+        UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}${erg.verlust ? ` · ${U.fmtNum(erg.verlust.kg, 2)} kg Verlust gebucht` : ''}`);
         if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten – nur der vorhandene Bestand wurde abgezogen`, 'err');
         await pruefeMhd(); renderRoute(imBestandBleiben());
       },
     });
     verdrahteGlasAbzug(m, stueck);
+    /* Verlust beim Abfüllen: zeigt, was nach dem Abfüllen im Eimer bleibt, und übernimmt auf Wunsch den ganzen Rest */
+    const vInfo = $('[data-verlust-info]', m.el), vFeld = $('#f-verlustKg', m.el);
+    if (vInfo && vFeld) {
+      const geplantKg = () => GEBINDE_PRESETS.reduce((n, g) => n + Math.max(0, Math.round(U.parseNum(($('#f-g_' + g, m.el) || {}).value) || 0)) * g / 1000, 0)
+        + Math.max(0, Math.round(U.parseNum(($('#f-eigenesN', m.el) || {}).value) || 0)) * Math.max(0, U.parseNum(($('#f-eigenesG', m.el) || {}).value) || 0) / 1000;
+      const vorher = () => {
+        const wahl = ($('#f-chargeId', m.el) || {}).value || '';
+        if (wahl.startsWith('ernte:')) { const e = freieErnten.find((x) => 'ernte:' + x.id === wahl); return e ? Number(e.mengeKg) || 0 : 0; }
+        const c = chargen.find((x) => x.id === wahl); return c ? chargeRestKg(c, abfAlle) : 0;
+      };
+      const danach = () => Math.round((vorher() - geplantKg()) * 1000) / 1000;
+      /* Knopf nur einmal bauen und danach nur Text ändern: beim Verlassen eines Zahlenfelds kommt „change“ – würde der
+         Hinweis dabei neu gezeichnet, ginge der Tipp auf den Knopf ins Leere (Durchsicht v3.00, iPhone) */
+      vInfo.innerHTML = '<span data-vt></span> <button type="button" class="btn btn-ghost btn-xs" data-ganzer-rest>Ganzen Rest als Verlust (<span data-vr></span> kg)</button>';
+      const vt = $('[data-vt]', vInfo), vr = $('[data-vr]', vInfo), vk = $('[data-ganzer-rest]', vInfo);
+      const zeichne = () => {
+        const r = danach(), v = U.parseNum(vFeld.value) || 0;
+        vt.innerHTML = r < -0.0001 ? `<b style="color:var(--danger)">Das sind ${U.fmtNum(-r, 2)} kg mehr, als in der Charge sind.</b>`
+          : `Danach bleiben in der Charge <b>${U.fmtNum(Math.max(0, r - v), 2)} kg</b>${v > 0 ? ` (${U.fmtNum(v, 2)} kg als Verlust)` : ''}.`;
+        vr.textContent = U.fmtNum(Math.max(0, r), 2);
+        vk.style.display = r > 0.0001 ? '' : 'none';
+      };
+      vInfo.addEventListener('click', (ev) => { if (ev.target.closest('[data-ganzer-rest]')) { vFeld.value = String(Math.max(0, danach())).replace('.', ','); FormGuard.dirty = true; zeichne(); } });
+      m.el.addEventListener('input', zeichne); m.el.addEventListener('change', zeichne);
+      zeichne();
+    }
   },
   /** Einzelne Abfüllung korrigieren oder löschen (freigegebene kg fließen automatisch zurück). */
   async abfuellEditForm(a) {
@@ -16298,7 +16605,7 @@ Views.honig = {
         { key: 'datum', label: 'Datum', type: 'date', required: true, halb: true },
         { key: 'anzahl', label: 'Anzahl abgefüllt', type: 'number', required: true, halb: true },
         { key: '_trennAbfDatum', type: 'static', html: '' },
-        { key: 'bestand', label: 'Davon noch zum Verkauf', type: 'number', required: true, hint: 'Abgefüllt, aber noch nicht verkauft. Wird durch Verkäufe automatisch gemindert.' },
+        { key: 'bestand', label: 'Davon noch zum Verkauf', type: 'number', required: true, hint: 'Abgefüllt, aber noch nicht verkauft. Wird durch Verkäufe und Verluste automatisch gemindert. Zerbrochene oder verschenkte Gebinde besser im Bestand unter „Verlust“ buchen – dann bleibt nachvollziehbar, wohin sie gingen.' },
         { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', default: abfMhd(a, c) || mhdVorschlag(a.datum),
           hint: 'Steht auf dem Etikett dieser Abfüllung.' },
         { key: 'losnummer', label: 'Losnummer für diese Abfüllung', placeholder: `leer = Chargennummer ${c ? c.losnummer : ''}`,
@@ -16315,10 +16622,19 @@ Views.honig = {
       /* Löschen gibt Gläser, Deckel und Etiketten zurück – wie bei Fütterung
          und Behandlung. */
       onDelete: async () => {
+        /* Gebinde-Abgänge hängen an dieser Abfüllung: erst sie löschen, sonst zählte ihr Honig doppelt
+           (verloren UND wieder im Eimer) – Durchsicht v3.00 */
+        const abg = (await DB.getAll('honigabgaenge')).filter((x) => x.quelle === 'abfuellung' && x.abfuellungId === a.id);
+        if (abg.length) {
+          await UI.confirm({ title: 'Erst die Verluste löschen', text: `Zu dieser Abfüllung sind ${U.sum(abg, (x) => Number(x.ausBestand ?? x.anzahl) || 0)} Gebinde als Verlust oder Eigenverbrauch gebucht (${abg.map((x) => x.art).join(', ')}). Lösche diese Einträge zuerst – in der Charge unter „Verlust und Eigenverbrauch“ –, dann die Abfüllung.`, confirmText: 'Verstanden', danger: false });
+          return false;
+        }
+        const eimer = (await DB.getAll('honigabgaenge')).filter((x) => x.quelle === 'charge' && x.chargeId === a.chargeId && x.datum === a.datum && x.notiz === 'beim Abfüllen');
         const zurueck = (a.verbrauchAbzug || []).map((x) => `${U.fmtNum(x.menge, 0)} ${x.bezeichnung}`).join(', ');
         if (!(await UI.confirm({ title: 'Abfüllung löschen?',
           text: 'Wandert in den Papierkorb; die Menge zählt wieder als frei in der Charge.'
-            + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
+            + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '')
+            + (eimer.length ? ` Der beim Abfüllen gebuchte Verlust (${U.fmtNum(U.sum(eimer, (x) => Number(x.kg) || 0), 2)} kg) bleibt an der Charge – löschen kannst du ihn in der Charge unter „Verlust und Eigenverbrauch“.` : ''),
           confirmText: 'Löschen', danger: true }))) return false;
         await loescheMitMaterial('abfuellungen', a);
         UI.toast('Abfüllung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
@@ -16370,19 +16686,20 @@ Views.honig = {
       return teile.join(' · ');
     };
     const auf = (d) => {
-      const zeilen = d.abf.map((a) => `<tr>
-        <td><b>${gebindeLabel(a.gebindeG)}</b>${a.datum ? `<br><span class="small muted">${U.fmtDate(a.datum)}</span>` : ''}</td>
+      const zeilen = d.abf.map((a) => { const weg = glasAbgangVon(a.id); return `<tr>
+        <td><b>${gebindeLabel(a.gebindeG)}</b>${a.datum ? `<br><span class="small muted">${U.fmtDate(a.datum)}</span>` : ''}${weg ? `<br><span class="small muted">${weg} Verlust/Eigenv.</span>` : ''}</td>
         <td class="num">${U.zahl(a.bestand)}</td>
         <td class="num">${U.fmtNum(a.bestand * a.gebindeG / 1000, 1)} kg</td>
-        <td class="num">${a.anzahl - a.bestand}</td>
-        <td class="no-print">${a.bestand > 0 ? `<button class="btn btn-xs btn-ghost" data-verkauf="${U.esc(a.id)}">${icon('euro')} Verkauf</button>` : ''}</td></tr>`).join('');
+        <td class="num">${Math.max(0, a.anzahl - a.bestand - weg)}</td>
+        <td class="no-print">${a.bestand > 0 ? `<div class="bst-knoepfe"><button class="btn btn-xs btn-ghost" data-verkauf="${U.esc(a.id)}">${icon('euro')} Verkauf</button><button class="btn btn-xs btn-ghost" data-hverlust="abf:${U.esc(a.id)}">${icon('minus')} Verlust</button></div>` : ''}</td></tr>`; }).join('');
       return `<div class="bst-auf">
         <p class="small muted mb8">${U.fmtNum(d.c.mengeKg || 0, 1)} kg gesamt · ${kgFmt(d.gAbgefuellt)} kg abgefüllt (${U.zahl(U.sum(d.abf, (a) => a.anzahl))} Gebinde)${d.freiKg > 0.0001 ? ` · <b>${U.fmtNum(d.freiKg, 1)} kg</b> noch nicht abgefüllt` : ''}${d.c.datum ? ` · angelegt ${U.fmtDate(d.c.datum)}` : ''}</p>
         ${d.abf.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th class="num">Verkauft</th><th class="no-print"></th></tr></thead>
           <tbody>${zeilen}
           <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe zum Verkauf</td><td class="num">${U.zahl(d.glaeser)}</td><td class="num">${kgFmt(d.gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
           </tbody></table></div>` : ''}
-        ${d.freiKg > 0.0001 ? `<button class="btn btn-xs btn-ghost no-print mt8" data-abf="${U.esc(d.c.id)}">${icon('plus')} Jetzt abfüllen</button>` : ''}
+        ${chargeVerlustKg(d.c.id) > 0 ? `<p class="small muted mt8">Aus dem Eimer als Verlust/Eigenverbrauch gebucht: ${U.fmtNum(chargeVerlustKg(d.c.id), 2)} kg</p>` : ''}
+        ${d.freiKg > 0.0001 ? `<div class="flex-wrap no-print mt8" style="gap:6px"><button class="btn btn-xs btn-ghost" data-abf="${U.esc(d.c.id)}">${icon('plus')} Jetzt abfüllen</button><button class="btn btn-xs btn-ghost" data-hverlust="ch:${U.esc(d.c.id)}">${icon('minus')} Verlust im Eimer</button></div>` : ''}
       </div>`;
     };
     const zeile = (d) => `<details class="bst-ch" data-charge="${U.esc(d.c.id)}"${H._bestandOffen.has(d.c.id) ? ' open' : ''}>
@@ -16410,6 +16727,7 @@ Views.honig = {
       ${sorten.length ? `<details class="card bst-klapp mb12" data-bst-sorten${H._bestandSortenOffen ? ' open' : ''}><summary>${icon('chevR', 'chev')}Nach Sorte und Gebinde <span class="small muted" style="font-weight:400">(${sorten.length})</span></summary>
         <div class="tbl-wrap mt8"><table class="tbl"><thead><tr><th>Honig</th><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th>Chargen</th></tr></thead>
         <tbody>${sorten.map((z) => `<tr><td><b>${U.esc(z.name)}</b></td><td>${gebindeLabel(z.g)}</td><td class="num">${U.zahl(z.n)}</td><td class="num">${U.fmtNum(z.n * z.g / 1000, 1)} kg</td><td class="small muted">${U.esc((() => { const l = [...z.chargen].sort((x, y) => String(y).localeCompare(String(x), 'de', { numeric: true })); return l.slice(0, 3).join(', ') + (l.length > 3 ? ` +${l.length - 3} weitere` : ''); })())}</td></tr>`).join('')}</tbody></table></div></details>` : ''}
+      ${chargen.length ? `<div class="mb12 no-print"><button class="btn btn-ghost btn-sm btn-zwei" data-hverlust=""><span>${icon('minus')} Eigenverbrauch / Verlust</span><small>Bruch, Rest im Eimer, verschenkt …</small></button></div>` : ''}
       ${chargen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${SORT.map(([l, k]) => `<button type="button" class="chip ${H._bestandSort === k ? 'active' : ''}" data-bstsort="${k}">${l}</button>`).join('')}</div>` : ''}
       <div class="card">
         <div class="card-title">${icon('qr')}<h2>Chargen</h2><span class="spacer"></span><button class="btn btn-ghost btn-sm no-print" onclick="Pdf.chargenuebersicht()" title="Chargenübersicht (PDF)" aria-label="Chargenübersicht (PDF)">${icon('doc')} PDF</button></div>
@@ -16430,6 +16748,8 @@ Views.honig = {
     box.addEventListener('click', (e) => {
       const so = e.target.closest('[data-bstsort]'); if (so) { H._bestandSort = so.dataset.bstsort; return renderRoute({ scrollBehalten: true }); }
       const b = e.target.closest('[data-verkauf]'); if (b) return verkaufForm(b.dataset.verkauf);
+      const hv = e.target.closest('[data-hverlust]');
+      if (hv) { const [art, id] = hv.dataset.hverlust.split(':'); return honigAbgangForm(art === 'abf' ? { quelle: 'abfuellung', abfuellungId: id } : art === 'ch' ? { quelle: 'charge', chargeId: id } : {}); }
       const ab = e.target.closest('[data-abf]'); if (ab) return Views.honig.abfuellForm(ab.dataset.abf);
     });
   },
@@ -16553,7 +16873,7 @@ Views.markt = {
    ältere oder von Hand erfasste Buchungen über die Kategorie, sonst „Sonstiges“. */
 const KASSE_BEREICHE = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Inventar'], ['produkt', 'Weitere Produkte'], ['honig', 'Honig'], ['pfand', 'Pfand'], ['sonstiges', 'Sonstiges']];
 /** Bereich eines Lager-Datensatzes (Zugang/Abgang) nach seinem Typ. */
-const lagerBereichVon = (typ) => (typ === 'inventar' ? 'inventar' : typ === 'produkt' ? 'produkt' : 'verbrauch');
+const lagerBereichVon = (typ) => (typ === 'inventar' ? 'inventar' : typ === 'produkt' ? 'produkt' : typ === 'honig' ? 'honig' : 'verbrauch');
 async function kassenBereiche() {
   const [inv, zug, abg, vk, pf] = await Promise.all(['inventar', 'materialzugaenge', 'materialabgaenge', 'verkaeufe', 'pfandbewegungen'].map((st) => DB.getAll(st)));
   const typVon = new Map(inv.map((i) => [i.id, inventarTyp(i)]));
@@ -16634,8 +16954,8 @@ Views.kassenbuch = {
       footer: '<button class="btn btn-ghost" data-ab>Abbrechen</button><button class="btn btn-primary" data-ok>Weiter</button>',
     });
     const zeichnen = () => {
-      // Eigenverbrauch/Verlust gibt es nur bei Material und Inventar
-      if (richtung === 'weg' && (bereich === 'honig' || bereich === 'sonstiges')) bereich = '';
+      // Eigenverbrauch/Verlust gibt es bei Material, Inventar, Weiteren Produkten und (v3.00) Honig – nicht bei reinen Geldbuchungen
+      if (richtung === 'weg' && bereich === 'sonstiges') bereich = '';
       const wahl = [['ein', 'plus', 'Einkauf'], ['ver', 'euro', 'Verkauf'], ['weg', 'trash', 'Eigenverbrauch / Verlust']];
       const hinweis = bereich === 'sonstiges' ? 'Eine reine Geldbuchung ohne Bestand.'
         : (richtung === 'ein' && bereich === 'honig') ? 'Honig wird nur als Ausgabe gebucht, ohne Lagerbestand.'
@@ -16644,7 +16964,7 @@ Views.kassenbuch = {
       $('[data-ak]', m.el).innerHTML = `<p class="small muted mb8">Was möchtest du buchen?</p>
         <div class="grid3 mb12" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px">${wahl.map(([k, ic, l]) => `<button type="button" class="btn ${richtung === k ? 'btn-primary' : 'btn-ghost'}" data-r="${k}" style="height:auto;padding:10px 6px;white-space:normal;line-height:1.25">${icon(ic)} ${l}</button>`).join('')}</div>
         <p class="small muted mb8">Für welchen Bereich?</p>
-        <div class="chip-row">${BER.filter((b) => !(richtung === 'weg' && (b[0] === 'honig' || b[0] === 'sonstiges'))).map((b) => `<button type="button" class="chip ${bereich === b[0] ? 'active' : ''}" data-b="${b[0]}">${b[1]}</button>`).join('')}</div>
+        <div class="chip-row">${BER.filter((b) => !(richtung === 'weg' && b[0] === 'sonstiges')).map((b) => `<button type="button" class="chip ${bereich === b[0] ? 'active' : ''}" data-b="${b[0]}">${b[1]}</button>`).join('')}</div>
         <p class="small muted mt12">${hinweis}</p>`;
       $$('[data-r]', m.el).forEach((b) => { b.onclick = () => { richtung = b.dataset.r; zeichnen(); }; });
       $$('[data-b]', m.el).forEach((b) => { b.onclick = () => { bereich = b.dataset.b; zeichnen(); }; });
@@ -16663,7 +16983,7 @@ Views.kassenbuch = {
       const cfg = bereichCfg(bereich);
       return richtung === 'ein' ? materialZugangForm(cfg) : materialAbgangForm(cfg, '', null, richtung === 'weg' ? 'Eigenverbrauch' : 'Verkauf');
     }
-    if (bereich === 'honig') return richtung === 'ver' ? verkaufForm() : Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: 'Honig-Zukauf', datum: U.todayIso(), titel: 'Einkauf · Honig' });
+    if (bereich === 'honig') return richtung === 'ver' ? verkaufForm() : richtung === 'weg' ? honigAbgangForm() : Views.kassenbuch.form(null, { typ: 'ausgabe', katAus: 'Honig-Zukauf', datum: U.todayIso(), titel: 'Einkauf · Honig' });
     return Views.kassenbuch.form(null, { typ: richtung === 'ein' ? 'ausgabe' : 'einnahme', datum: U.todayIso(), titel: `${richtung === 'ein' ? 'Einkauf' : 'Verkauf'} · Sonstiges (nur Geld)` });
   },
 
@@ -16675,7 +16995,10 @@ Views.kassenbuch = {
     const bMap = await kassenBereiche();
     const imJahr = all.filter((k) => (k.datum || '').startsWith(jahr));
     /* Eigenverbrauch, Verlust und Verschenktes bringen kein Geld und stehen nicht im Kassenbuch – sie erscheinen hier als Zeilen mit 0,00 € und zählen nicht in die Summen. */
-    const weg = (await DB.getAll('materialabgaenge')).filter((a) => a.art && a.art !== 'Verkauf' && a.art !== 'Korrektur' && (a.datum || '').startsWith(jahr));
+    const chargenM = await idMap('chargen');
+    const weg = [...(await DB.getAll('materialabgaenge')).filter((a) => a.art && a.art !== 'Verkauf' && a.art !== 'Korrektur' && (a.datum || '').startsWith(jahr)),
+      // Honig: Verlust und Eigenverbrauch (v3.00) – gleiche 0,00-€-Zeile, Bereich „Honig“
+      ...(await DB.getAll('honigabgaenge')).filter((x) => (x.datum || '').startsWith(jahr)).map((x) => ({ id: x.id, datum: x.datum, art: x.art, typ: 'honig', _honig: x }))];
     const vorhandeneB = KASSE_BEREICHE.filter(([key]) => imJahr.some((k) => kassenBereich(k, bMap) === key) || weg.some((a) => lagerBereichVon(a.typ) === key));
     const bFilter = vorhandeneB.some(([key]) => key === Views.kassenbuch._bereich) ? Views.kassenbuch._bereich : '';
     const kFilter = Views.kassenbuch._kontakt || '';
@@ -16699,7 +17022,7 @@ Views.kassenbuch = {
       ${(list.length || wegListe.length) ? `<div class="rows">` + kbSeite.sichtbar.map((x) => x.a ? `
         <button class="row" data-abgang="${U.esc(x.a.id)}">
           <span class="r-ic" style="background:var(--card2);color:var(--muted)">${icon('minus')}</span>
-          <span class="r-main"><span class="r-title">${U.esc(`${U.fmtNum(x.a.menge, 2)} ${x.a.einheit || ''} ${x.a.bezeichnung || ''}`.replace(/\s+/g, ' ').trim())} · ${U.esc(x.a.art)}</span>
+          <span class="r-main"><span class="r-title">${x.a._honig ? U.esc(honigAbgangText(x.a._honig, chargenM)) : `${U.esc(`${U.fmtNum(x.a.menge, 2)} ${x.a.einheit || ''} ${x.a.bezeichnung || ''}`.replace(/\s+/g, ' ').trim())} · ${U.esc(x.a.art)}`}</span>
           <span class="r-sub">${U.fmtDate(x.a.datum)} · ohne Geld${vorhandeneB.length > 1 ? ` · ${(KASSE_BEREICHE.find(([key]) => key === lagerBereichVon(x.a.typ)) || [])[1]}` : ''}</span></span>
           <span class="r-side" style="color:var(--muted)"><b>${U.fmtEur(0)}</b></span>
           ${icon('chevR', 'chev')}</button>` : (k => `
@@ -16717,12 +17040,12 @@ Views.kassenbuch = {
       if (e.target.closest('[data-kontaktweg]')) { Views.kassenbuch._kontakt = ''; return renderRoute(); }
       const bf = e.target.closest('[data-bereich]'); if (bf) { Views.kassenbuch._bereich = bf.dataset.bereich; return renderRoute(); }
       const c = e.target.closest('[data-jahr]'); if (c) { Views.kassenbuch._jahr = c.dataset.jahr; return renderRoute({ scrollBehalten: true }); }
-      const ab = e.target.closest('.row[data-abgang]'); if (ab) { const a = weg.find((x) => x.id === ab.dataset.abgang); if (a) materialAbgangForm(bereichCfg(lagerBereichVon(a.typ)), a.inventarId, a); return; }
+      const ab = e.target.closest('.row[data-abgang]'); if (ab) { const a = weg.find((x) => x.id === ab.dataset.abgang); if (a) { if (a._honig) honigAbgangForm({}, a._honig); else materialAbgangForm(bereichCfg(lagerBereichVon(a.typ)), a.inventarId, a); } return; }
       const r = e.target.closest('.row[data-id]'); if (r) Views.kassenbuch.detail(all.find((x) => x.id === r.dataset.id), kontakte);
     });
     const buchungVon = (r) => all.find((x) => x.id === r.dataset.id);
     Wisch.liste(box, '.row[data-id]', { bearbeiten: (r) => Views.kassenbuch.form(buchungVon(r)), loeschen: (r) => kassenbuchLoeschen(buchungVon(r)) });
-    const abgangOeffnen = (r) => { const a = weg.find((x) => x.id === r.dataset.abgang); return materialAbgangForm(bereichCfg(lagerBereichVon(a.typ)), a.inventarId, a); };
+    const abgangOeffnen = (r) => { const a = weg.find((x) => x.id === r.dataset.abgang); return a._honig ? honigAbgangForm({}, a._honig) : materialAbgangForm(bereichCfg(lagerBereichVon(a.typ)), a.inventarId, a); };
     Wisch.liste(box, '.row[data-abgang]', { bearbeiten: abgangOeffnen, loeschen: (r) => UI.nurLoeschen(() => abgangOeffnen(r)) });
   },
   /** Eigener Reiter für die laufenden allgemeinen Geschäftskosten (Kategorie-Filter). */
@@ -20449,6 +20772,14 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     async onSave(v) {
       const istNeu = v.inventarId === NEU;
       const lohnArt = v.art === 'Lohnverarbeitung';
+      /* Lose abgegebener Honig: nicht mehr, als in der Charge noch im Eimer ist (bisher ungeprüft – Durchsicht v3.00) */
+      if (lohnArt && v.chargeId && Number(v.honigKg) > 0) {
+        const ch = await DB.get('chargen', v.chargeId);
+        if (ch) {
+          const frei = chargeRestKg(ch, await DB.getAll('abfuellungen')) + (rec && rec.lohn && rec.chargeId === ch.id ? Number(rec.honigKg) || 0 : 0);
+          if (Number(v.honigKg) > frei + 0.0001) throw feldFehler('honigKg', frei > 0 ? `In Charge ${ch.losnummer} sind nur noch ${U.fmtNum(frei, 2)} kg im Eimer.` : `In Charge ${ch.losnummer} ist kein Honig mehr im Eimer.`);
+        }
+      }
       const art = lohnArt ? 'Einkauf' : (v.art || 'Einkauf');
       const lohnKosten = lohnArt ? Math.round(Math.max(0, Number(v.kostenGesamt) || 0) * 100) / 100 : 0;
       let pos = istNeu ? null : posten.find((i) => i.id === v.inventarId);
@@ -20942,7 +21273,8 @@ function pfandUmlauf(pos, abfuellungen, bewegungen) {
   const passend = groesse
     ? (abfuellungen || []).filter((a) => gebindeGrammAus(a.gebindeG) === groesse && (!seit || String(a.datum || '') >= seit))
     : [];
-  const verkauft = U.sum(passend, (a) => Math.max(0, (Number(a.anzahl) || 0) - (Number(a.bestand) || 0)));
+  // Als Verlust oder Eigenverbrauch gebuchte Gebinde sind nicht beim Kunden (v3.00)
+  const verkauft = U.sum(passend, (a) => Math.max(0, (Number(a.anzahl) || 0) - (Number(a.bestand) || 0) - glasAbgangVon(a.id)));
   const zurueck = U.sum((bewegungen || []).filter((b) => b.inventarId === (pos || {}).id), (b) => Math.max(0, Number(b.anzahl) || 0));
   const draussen = Math.max(0, verkauft - zurueck);
   return { groesse, pfand, seit, verkauft, zurueck, draussen, offen: Math.round(draussen * pfand * 100) / 100, ohneGroesse: !groesse };
@@ -21302,7 +21634,7 @@ function abzugAnteil(buchung, n) {
   return buchung.abzug.map((a) => ({ ...a, menge: Math.round((a.menge / n) * 1000) / 1000 }));
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', settings: 'Einstellung' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', honigabgaenge: 'Honig-Abgang', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', settings: 'Einstellung' };
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -21574,6 +21906,7 @@ function unterlagenListe() {
     { id: 'chargen', kat: 'honig', titel: 'Chargenübersicht', text: 'Charge → Abfüllung → Ernte (Rückverfolgbarkeit)', jahr: true, pdf: (j) => Pdf.chargenuebersicht(j), ...X('chargen'), stichw: 'los losnummer rueckverfolgbarkeit' },
     { id: 'abfuellungen', kat: 'honig', titel: 'Abfüllungen', text: 'Gebinde, Losnummer, MHD', jahr: true, ...T('abfuellungen'), stichw: 'glas gebinde mhd' },
     { id: 'verkaeufe', kat: 'honig', titel: 'Verkäufe', text: 'mit Umsatz und Käufern', jahr: true, pdf: (j) => Pdf.verkaeufe(j), ...X('verkaeufe'), stichw: 'umsatz verkauf markt' },
+    { id: 'honigabgaenge', kat: 'honig', titel: 'Honig: Verlust & Eigenverbrauch', text: 'Abfüllverlust, Bruch, Eigenverbrauch, Verschenktes', jahr: true, ...T('honigabgaenge'), stichw: 'verlust bruch eigenverbrauch verschenkt schwund abfuellverlust' },
     { id: 'rechnung', kat: 'honig', titel: 'Einzelne Rechnung', text: 'Rechnung als PDF', jahr: true, stichw: 'rechnung kunde',
       wahl: { label: 'Rechnung', optionen: async (j) => opt(U.sortBy((await DB.getAll('rechnungen')).filter((r) => !j || String(r.datum || '').startsWith(j)), (r) => r.datum || '', true), (r) => `${r.nummer || 'Entwurf'} · ${U.fmtDate(r.datum)}`), knopf: 'PDF', los: (id) => Pdf.rechnung(id) } },
     { id: 'rechnungsliste', kat: 'honig', titel: 'Rechnungsliste', text: 'alle Rechnungen mit Beträgen', jahr: true, ...T('rechnungen'), stichw: 'rechnung' },
@@ -21615,7 +21948,7 @@ Views.meldungen = {
   _kat: 'amt', _jahr: null, _suche: '',
   async jahre() {
     const j = new Set([U.todayIso().slice(0, 4)]);
-    for (const store of ['stockkarten', 'behandlungen', 'fuetterungen', 'ernten', 'kassenbuch', 'fahrten', 'verkaeufe', 'wanderungen', 'varroa', 'chargen', 'rechnungen', 'materialabgaenge', 'aufgaben']) {
+    for (const store of ['stockkarten', 'behandlungen', 'fuetterungen', 'ernten', 'kassenbuch', 'fahrten', 'verkaeufe', 'honigabgaenge', 'wanderungen', 'varroa', 'chargen', 'rechnungen', 'materialabgaenge', 'aufgaben']) {
       for (const r of await DB.getAll(store)) { const y = Export.datumVon(store, r).slice(0, 4); if (/^\d{4}$/.test(y)) j.add(y); }
     }
     return [...j].sort().reverse();
@@ -23192,6 +23525,8 @@ const Backup = {
       verkauft.set(id, (verkauft.get(id) || 0) + n);
     };
     for (const v of d.verkaeufe) zaehle(v.abfuellungId, v.anzahl);
+    // Honig-Abgänge (Bruch, Eigenverbrauch …) senken den Bestand genauso – sonst stünde er nach dem Zusammenführen zu hoch (v3.00)
+    for (const x of d.honigabgaenge || []) if (x.quelle === 'abfuellung') zaehle(x.abfuellungId, x.ausBestand ?? x.anzahl);
     for (const r of d.rechnungen) if (r.status === 'festgeschrieben') for (const p of (r.positionen || [])) zaehle(p.abfuellungId, p.menge);
     const ops = [];
     for (const a of d.abfuellungen) {
@@ -23204,7 +23539,7 @@ const Backup = {
     return ops;
   },
   async bestandAbgleich() {
-    return DB.aendereAtomar(['abfuellungen', 'verkaeufe', 'rechnungen'], (d) => {
+    return DB.aendereAtomar(['abfuellungen', 'verkaeufe', 'rechnungen', 'honigabgaenge'], (d) => {
       const ops = this.bestandAbgleichPlan(d);
       return { ops, wert: ops.length };
     });
@@ -23963,8 +24298,9 @@ const Xlsx = {
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },
       ernten: { blatt: 'Ernten', rows: async () => (await alle('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', Tracht: trachten.has(e.trachtId) ? Tracht.name(trachten.get(e.trachtId)) : '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
-      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await alle('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
-      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await alle('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand })) },
+      chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await alle('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), 'Verlust (kg)': chargeVerlustKg(c.id), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
+      abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await alle('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand, 'Verlust / Eigenverbrauch': glasAbgangVon(a.id) })) },
+      honigabgaenge: { blatt: 'Honig: Verlust & Eigenverbrauch', rows: async () => { const abf = await idMap('abfuellungen'); return U.sortBy(await alle('honigabgaenge'), (x) => x.datum || '').map((x) => { const a = abf.get(x.abfuellungId); const c = chargenM.get(x.chargeId); return ({ Datum: d(x.datum), Charge: c ? c.losnummer : '', Los: a ? abfLos(a, c) : '', Woraus: x.quelle === 'charge' ? 'Eimer (nicht abgefüllt)' : 'Gebinde', Gebinde: x.quelle === 'charge' ? '' : gebindeLabel(x.gebindeG), Menge: x.quelle === 'charge' ? x.kg : x.anzahl, Einheit: x.quelle === 'charge' ? 'kg' : 'Gebinde', Grund: x.art, Notiz: x.notiz }); }); } },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await alle('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: verkaufGebindeG(v, a) ? gebindeLabel(verkaufGebindeG(v, a)) : '', Sorte: a ? '' : (v.sorte || ''), 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await alle('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
@@ -24738,11 +25074,11 @@ const Pdf = {
         body.push([
           { content: `Charge ${c.losnummer}`, styles: kopf },
           { content: `${U.fmtNum(c.mengeKg || 0, 1)} kg`, styles: kopf },
-          { content: `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei`, styles: kopf },
+          { content: `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}`, styles: kopf },
           { content: U.fmtDate(c.datum) || '–', styles: kopf },
           { content: sorten, styles: kopf },
         ]);
-        for (const a of abf) body.push([`↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} zum Verkauf`,
+        for (const a of abf) body.push([`↳ ${gebindeLabel(a.gebindeG)}`, `${a.anzahl} abgefüllt`, `${a.bestand} zum Verkauf${glasAbgangVon(a.id) ? ` · ${glasAbgangVon(a.id)} Verlust` : ''}`,
           `${U.fmtDate(a.datum)}${abfMhd(a, c) ? ` · MHD ${U.fmtDate(abfMhd(a, c))}` : ''}`, '']);
       }
       this.table(doc, { head: ['Charge / Gebinde', 'Menge / Abgefüllt', 'Frei / Bestand', 'Angelegt / Abgefüllt', 'Ernten'], body, startY: y, widths: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 } } });
@@ -25908,7 +26244,7 @@ const Pdf = {
 
   /* ---------- Komplettausdruck (Deckblatt, Inhaltsverzeichnis, alle Module) ---------- */
   /* Was in den Komplettausdruck gehört. Stammdaten (ohne Jahr) kommen immer ganz mit, alles mit Datum folgt dem Zeitraum. */
-  KOMPLETT_KAPITEL: ['staende', 'voelker', 'stockkarten', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'fuetterungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'],
+  KOMPLETT_KAPITEL: ['staende', 'voelker', 'stockkarten', 'varroa', 'koeniginnen', 'zuchtserien', 'behandlungen', 'fuetterungen', 'trachten', 'wanderungen', 'ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'honigabgaenge', 'fahrten', 'kassenbuch', 'kontakte', 'rechnungen', 'inventar', 'aufgaben'],
   KOMPLETT_STAMM: ['staende', 'voelker', 'koeniginnen', 'kontakte', 'inventar'],
   KOMPLETT_DATUM: { zuchtserien: 'startdatum', trachten: 'von', aufgaben: 'faellig' },   // sonst „datum“
   KOMPLETT_ZEILEN_JE_SEITE: 15,   // im Stresstest gemessen (Querformat, umbrechende Spalten)
@@ -26001,13 +26337,14 @@ const Pdf = {
       doc.text('Inhaltsverzeichnis', 14, 30);
       doc.setFontSize(11);
       let ty = 44;
+      const schritt = Math.min(8, (doc.internal.pageSize.getHeight() - 20 - 44) / Math.max(1, toc.length));   // passt immer über die Fußzeile (21 Kapitel seit v3.00)
       for (const t of toc) {
         doc.setFont('helvetica', 'normal').setTextColor(60);
         doc.text(t.titel, 18, ty);
         doc.setTextColor(140);
         doc.text(String(t.seite), 190, ty, { align: 'right' });
         doc.setDrawColor(230, 222, 205).setLineWidth(0.2).line(18 + doc.getTextWidth(t.titel) + 3, ty - 1, 185, ty - 1);
-        ty += 8;
+        ty += schritt;
       }
       this.finish(doc, `imkerbuch-komplett-${opt.jahr || 'alle'}-${U.todayIso()}.pdf`);
     } catch (e) { console.error(e); UI.toast('Komplettausdruck fehlgeschlagen: ' + e.message, 'err'); }
@@ -26508,7 +26845,7 @@ const APP_WISSEN = [
       { feld: '500 g', text: 'Trage ein, wie viele Gläser du je Größe abgefüllt hast. Gläser und Deckel zieht die App vom Lager ab.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Fertig – die Gläser stehen jetzt im Bestand.' }] },
   { id: 'honig-verkauf', titel: 'Honig verkaufen', route: 'honig', zeige: 'Verkauf',
-    stichw: ['honig verkaufen', 'verkauf', 'verkaufen', 'verkauf erfassen', 'glas verkauft', 'honigverkauf', 'abgeben', 'glaeser verkaufen', 'an kunden verkaufen', 'glaeser an kunden verkaufen', 'honig an kunden', 'kunde hat honig gekauft', 'an privatkunde', 'privatkunde', 'nachbarin', 'nachbar hat honig gekauft', 'honig weiterverkauft', 'honig weitergegeben', 'honigabgabe', 'honig abgabe', 'gläser verkauft', 'glaeser verkauft', '8 euro', 'honig verkauft', 'verkauf an kunden', 'verkauf eintragen', 'honig losgeworden', 'honig verschenkt', 'verkauf buchen', 'wie buche ich einen verkauf', 'einen verkauf buchen'],
+    stichw: ['honig verkaufen', 'verkauf', 'verkaufen', 'verkauf erfassen', 'glas verkauft', 'honigverkauf', 'abgeben', 'glaeser verkaufen', 'an kunden verkaufen', 'glaeser an kunden verkaufen', 'honig an kunden', 'kunde hat honig gekauft', 'an privatkunde', 'privatkunde', 'nachbarin', 'nachbar hat honig gekauft', 'honig weiterverkauft', 'honig weitergegeben', 'honigabgabe', 'honig abgabe', 'gläser verkauft', 'glaeser verkauft', '8 euro', 'honig verkauft', 'verkauf an kunden', 'verkauf eintragen', 'honig losgeworden', 'verkauf buchen', 'wie buche ich einen verkauf', 'einen verkauf buchen'],
     antwort: 'Verkäufe erfasst du im Reiter „Verkauf“. Der Bestand sinkt automatisch, und die Einnahme landet im Kassenbuch.',
     schritte: ['Menü ▸ Ernte', 'Reiter „Verkauf“ ▸ „Verkauf erfassen“', 'Abfüllung, Anzahl, Preis und Kunde wählen'],
     tour: [{ reiter: 'Verkauf', text: 'Öffne den Reiter „Verkauf“.' },
@@ -26518,6 +26855,21 @@ const APP_WISSEN = [
       { feld: 'Preis je Gebinde', text: 'Preis pro Glas in Euro.' },
       { feld: 'An wen verkauft', text: 'Optional: der Kunde. Ohne Kunden gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Die Einnahme landet im Kassenbuch.' }] },
+  /* v3.00 (Julian 26.10.2026: „beim Abfüllen habe ich Verluste … nicht Honig“) */
+  { id: 'honig-verlust', titel: 'Honig: Verlust oder Eigenverbrauch buchen', route: 'kassenbuch', zeige: 'An- und Verkauf buchen',
+    stichw: ['abfuellverlust', 'verlust beim abfuellen', 'honig verlust', 'honigverlust', 'glas kaputt', 'glas zerbrochen', 'glaeser kaputt', 'glaeser zerbrochen', 'bruch glaeser', 'glasbruch', 'honig verschuettet', 'eigenverbrauch honig', 'honig selbst gegessen', 'glas selbst gegessen', 'honig verschenkt', 'glas verschenkt', 'honig schwund', 'rest im eimer', 'rest im abfuellkuebel', 'schaum abgeschoepft', 'honig an bienen verfuettert', 'honig verfuettert', 'honig verdorben', 'honig gaerig', 'honig gegoren'],
+    antwort: 'Zerbrochene, verschenkte oder selbst gegessene Gläser und den Rest im Eimer buchst du unter „Eigenverbrauch / Verlust“: im Kassenbuch über „An- und Verkauf buchen“ → „Eigenverbrauch / Verlust“ → „Honig“, oder im Honig-Bereich im Reiter „Bestand“ mit „Verlust“. Beim Abfüllen trägst du den Rest gleich im Feld „Verlust beim Abfüllen“ ein. Es bringt kein Geld – im Kassenbuch steht eine Zeile mit 0,00 €.',
+    schritte: ['Menü ▸ Kassenbuch (oder Ernte und Abfüllung ▸ Bestand)', '„An- und Verkauf buchen“ ▸ „Eigenverbrauch / Verlust“ ▸ „Honig“', 'Gebinde oder Eimer, Grund und Menge wählen, speichern'],
+    tour: [{ reiter: 'Buchungen', text: 'Öffne den Reiter „Buchungen“.' },
+      { knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
+      { knopf: 'Eigenverbrauch / Verlust', text: 'Tippe auf „Eigenverbrauch / Verlust“.' },
+      { knopf: 'Honig', exakt: true, text: 'Wähle den Bereich „Honig“.' },
+      { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
+      { feld: 'Woraus', text: 'Gebinde aus einer Abfüllung (zerbrochen, verschenkt …) oder Honig im Eimer (Rest beim Abfüllen).' },
+      { feld: 'Grund', text: 'Warum ist der Honig weg? Darunter steht ein kurzer Hinweis zum Grund.' },
+      { feld: 'Datum', text: 'An welchem Tag?' },
+      { feld: 'Menge', text: 'Wie viele Gebinde bzw. wie viele kg? Darunter siehst du den Bestand vorher und nachher.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'markt', titel: 'Marktkasse / Verkauf am Stand', route: 'honig', zeige: 'Markt',
     stichw: ['markt', 'marktkasse', 'wochenmarkt', 'kasse', 'bar kassieren', 'wechselgeld', 'schnellverkauf', 'marktverkauf', 'marktstand', 'am stand kassieren', 'kassieren', 'hofladen kasse', 'am markt', 'auf dem markt', 'markt stehen', 'bar bezahlt', 'kasse markt', 'marktstand kasse', 'verkaufsstand'],
     antwort: 'Für den Verkauf am Marktstand gibt es die Marktkasse: Gläser antippen, Wechselgeld sehen, kassieren.',
@@ -26532,7 +26884,7 @@ const APP_WISSEN = [
     schritte: ['Menü ▸ Kassenbuch', '„Buchung“ tippen', 'Datum, Betrag, Kategorie und Kontakt eintragen'] },
   { id: 'an-verkauf', titel: 'An- und Verkauf von Material buchen', route: 'material', zeige: 'An- und Verkauf buchen',
     stichw: ['anverkauf', 'an und verkauf', 'material einkaufen', 'material verkaufen', 'einkauf', 'eigenverbrauch', 'verlust buchen', 'zukauf', 'materialverkauf', 'an und verkauf', 'anverkauf', 'eigenverbrauch', 'verlust buchen', 'gläser gekauft', 'zucker gekauft', 'zucker eingekauft', 'gläser nachbestellt', 'glaeser nachbestellt', 'material bestellt', 'lieferung gebucht', 'lieferung glaeser', 'honig kaufen', 'honig gekauft', 'honig zukaufen', 'zuckersirup verschenkt', 'verschenkt', 'futter verdorben', 'verdorben', 'verlust', 'weggeschmissen', 'entsorgt', 'kaputt gegangen'],
-    antwort: 'In den Bereichen Verbrauchsmaterial, Inventar und Weitere Produkte gibt es den Knopf „An- und Verkauf buchen“. Dort wählst du Einkauf, Verkauf, Eigenverbrauch oder Verlust – die Buchung ins Kassenbuch läuft automatisch.',
+    antwort: 'In den Bereichen Verbrauchsmaterial, Inventar und Weitere Produkte gibt es den Knopf „An- und Verkauf buchen“. Dort wählst du Einkauf, Verkauf, Eigenverbrauch oder Verlust – die Buchung ins Kassenbuch läuft automatisch. Eigenverbrauch und Verlust gibt es dort auch für Honig.',
     schritte: ['Menü ▸ Verbrauchsmaterial (oder Inventar / Weitere Produkte)', '„An- und Verkauf buchen“ tippen', 'Art, Position, Menge und Preis eingeben'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
@@ -29006,7 +29358,7 @@ Object.assign(window, {
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat, zwischenstandZeit,
   Seitenweise, seitenweise, LISTE_SCHRITT,
-  AUFGABEN_VORLAGEN, ZEIT_SAISON, MONATSNAMEN, migriereFahrtAuswahl, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
+  AUFGABEN_VORLAGEN, ZEIT_SAISON, MONATSNAMEN, migriereFahrtAuswahl, HONIG_ABGANG_ARTEN, chargeVerlustKg, glasAbgangVon, chargeRestKg, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
   APP_WISSEN, Assistent, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,

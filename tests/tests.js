@@ -11117,14 +11117,15 @@ test('Kassenbuch: An- und Verkauf buchen, Bereichs-Filter und Weg aus den Bereic
     assert(box.querySelector('#an-verkauf'), 'Knopf „An- und Verkauf buchen“');
     assert(/Zucker BT/.test(box.textContent) && !/Von Hand BT/.test(box.textContent), 'Filter Verbrauchsmaterial zeigt nur dessen Buchungen');
     w.Views.kassenbuch._bereich = ''; box.remove();
-    // Auswahl: Einkauf Verbrauchsmaterial → Zugangsformular; Honig ist auch beim Einkauf wählbar, Eigenverbrauch nur bei Material/Inventar
+    // Auswahl: Einkauf Verbrauchsmaterial → Zugangsformular; Honig ist beim Einkauf und (v3.00) bei Eigenverbrauch / Verlust wählbar
     w.Views.kassenbuch.anVerkaufBuchen('honig'); await new Promise((r) => setTimeout(r, 300));
     let m = w.document.querySelector('.modal-back');
     assert(m.querySelector('[data-b="honig"]'), 'Honig ist beim Verkauf wählbar');
     m.querySelector('[data-r="ein"]').click(); await new Promise((r) => setTimeout(r, 100));
     assert(m.querySelector('[data-b="honig"]'), 'Honig ist auch beim Einkauf wählbar');
     m.querySelector('[data-r="weg"]').click(); await new Promise((r) => setTimeout(r, 100));
-    assert(!m.querySelector('[data-b="honig"]') && !m.querySelector('[data-b="sonstiges"]') && m.querySelector('[data-b="inventar"]'), 'Eigenverbrauch / Verlust nur bei Verbrauchsmaterial und Inventar');
+    // v3.00 (Julian 26.10.2026): Eigenverbrauch / Verlust auch für Honig – nur reine Geldbuchungen („Sonstiges“) nicht
+    assert(m.querySelector('[data-b="honig"]') && !m.querySelector('[data-b="sonstiges"]') && m.querySelector('[data-b="inventar"]'), 'Eigenverbrauch / Verlust bei Material, Inventar und Honig');
     m.querySelector('[data-r="ein"]').click(); await new Promise((r) => setTimeout(r, 100));
     m.querySelector('[data-b="verbrauch"]').click(); m.querySelector('[data-ok]').click(); await new Promise((r) => setTimeout(r, 500));
     m = [...w.document.querySelectorAll('.modal-back')].pop();
@@ -12351,6 +12352,16 @@ const IMME_FRAGEN = [
   ["Ich habe Gläser gekauft",["an-verkauf","material"]],
   ["Material verkaufen","an-verkauf"],
   ["Eigenverbrauch","an-verkauf"],
+  ["Glas beim Abfüllen kaputt gegangen","honig-verlust"],
+  ["Verlust beim Abfüllen buchen","honig-verlust"],
+  ["Ich habe ein Glas Honig verschenkt","honig-verlust"],
+  ["Rest im Eimer als Verlust","honig-verlust"],
+  ["Honig ist gärig geworden","honig-verlust"],
+  ["Verluste beim Abfüllen","honig-verlust"],
+  ["Verluste buchen","an-verkauf"],
+  ["Material Verluste buchen","an-verkauf"],
+  ["Wo trage ich Verluste ein?","volk-aufloesen"],
+  ["Verluste eintragen","volk-aufloesen"],
   ["Verlust buchen Material","an-verkauf"],
   ["an und verkauf","an-verkauf"],
   ["Zukauf eintragen","an-verkauf"],
@@ -15808,4 +15819,263 @@ test('Light: Aufgaben abhaken (Startseite und Aufgaben-Seite) öffnet das Kauf-F
     assertEq([fenster, (await w.DB.get('aufgaben', a.id)).erledigt], [2, false], 'Aufgaben-Seite: Kauf-Fenster, Aufgabe offen');
     assertEq(w.document.querySelector(`#main input[data-check="${a.id}"]`).checked, false, 'Häkchen springt zurück');
   } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; host.remove(); dialogeSchliessen(w); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));
+
+
+/* =====================================================================
+   v3.00 (Julian 26.10.2026): „Beim Abfüllen habe ich Verluste – im Inventar kann ich Verluste buchen, aber nicht Honig.“
+   Honig-Abgänge: kg aus dem Eimer (Charge) und Gebinde aus einer Abfüllung.
+   ===================================================================== */
+async function honigTestdaten(w) {
+  const c = await w.DB.put('chargen', { losnummer: 'HV-1', datum: '2026-07-01', ernteIds: [], lagerKg: 20, lagerHerkunft: 'Test', mengeKg: 20, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 30, bestand: 30 });
+  return { c, a };
+}
+test('Honig-Abgang Gebinde: Bestand sinkt, kein Kassenbuch, nicht „verkauft“, nicht beim Kunden; Löschen gibt zurück, Wiederherstellen zieht erneut ab', async (w) => isolierteDaten(w, async () => {
+  const { c, a } = await honigTestdaten(w);
+  const kbVorher = (await w.DB.getAll('kassenbuch')).length;
+  const x = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 3, notiz: 'runtergefallen' });
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, x.ausBestand, x.chargeId, x.gebindeG], [27, 3, c.id, 500], 'Bestand 30 → 27, Abgang mit Charge und Gebinde');
+  assertEq((await w.DB.getAll('kassenbuch')).length, kbVorher, 'kein Geld, keine Kassenbuch-Buchung');
+  assertEq(w.glasAbgangVon(a.id), 3, 'Index kennt die 3 Gebinde');
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 5, 'Eimer-Rest unverändert (15 kg abgefüllt von 20)');
+  // Pfand: verlorene Gläser sind nicht beim Kunden
+  const u = w.pfandUmlauf({ id: 'p', gebindeG: 500, pfand: 0.5 }, await w.DB.getAll('abfuellungen'), []);
+  assertEq(u.verkauft, 0, 'kein Glas „beim Kunden“');
+  // zu viel
+  let fehler = '';
+  try { await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Eigenverbrauch', datum: '2026-08-02', menge: 28 }); } catch (e) { fehler = e.message; }
+  assert(/nur noch 27/.test(fehler), 'mehr als der Bestand geht nicht: ' + fehler);
+  // Bearbeiten: 3 → 5
+  const y = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 5 }, await w.DB.get('honigabgaenge', x.id));
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, y.id, (await w.DB.getAll('honigabgaenge')).length], [25, x.id, 1], 'Ändern nimmt die alte Menge zurück und bucht die neue');
+  // Löschen → Papierkorb, Bestand zurück
+  await w.honigAbgangLoeschen(x.id);
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, (await w.DB.getAll('honigabgaenge')).length, w.glasAbgangVon(a.id)], [30, 0, 0], 'Löschen gibt die Gebinde zurück');
+  const t = (await w.DB.getAll('papierkorb')).find((p) => p.store === 'honigabgaenge');
+  assert(t, 'liegt im Papierkorb');
+  // Wiederherstellen zieht wieder ab – reicht der Bestand nicht, ändert sich nichts
+  const ab = await w.DB.get('abfuellungen', a.id); ab.bestand = 2; await w.DB.put('abfuellungen', ab);
+  let f2 = ''; try { await w.DB.trashRestore(t.id); } catch (e) { f2 = e.message; }
+  assert(/reicht/.test(f2) && (await w.DB.getAll('honigabgaenge')).length === 0, 'zu wenig Bestand: nichts wiederhergestellt');
+  ab.bestand = 30; await w.DB.put('abfuellungen', ab);
+  await w.DB.trashRestore(t.id);
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, (await w.DB.getAll('honigabgaenge')).length, w.glasAbgangVon(a.id)], [25, 1, 5], 'wiederhergestellt und erneut abgezogen');
+}));
+
+test('Honig-Abgang aus dem Eimer: Rest sinkt, darf nicht mehr abgefüllt werden, „Bruch“ gibt es dort nicht', async (w) => isolierteDaten(w, async () => {
+  const { c, a } = await honigTestdaten(w);   // 20 kg, 15 kg abgefüllt → 5 kg im Eimer
+  let f = ''; try { await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Bruch', datum: '2026-08-01', menge: 1 }); } catch (e) { f = e.message; }
+  assert(/nur für abgefüllte/.test(f), 'Bruch im Eimer abgelehnt: ' + f);
+  f = ''; try { await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Abfüllverlust', datum: '2026-08-01', menge: 5.5 }); } catch (e) { f = e.message; }
+  assert(/nur noch 5/.test(f), 'mehr als im Eimer geht nicht: ' + f);
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Abfüllverlust', datum: '2026-08-01', menge: 0.75 });
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 4.25, 'Rest 5 → 4,25 kg');
+  assertEq(w.chargeVerlustKg(c.id), 0.75);
+  // Abfüllen: die 0,75 kg stehen nicht mehr zur Verfügung
+  let f3 = ''; try { await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-08-02', g_500: 9 }); } catch (e) { f3 = e.message; }
+  assert(/übersteigen/.test(f3), '9 × 500 g = 4,5 kg > 4,25 kg: ' + f3);
+  await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-08-02', g_500: 8 });
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0.25, '8 × 500 g gehen');
+  // An Bienen verfüttert: den letzten Rest
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'An Bienen verfüttert', datum: '2026-08-03', menge: 0.25 });
+  assert(w.Views.honig.chargeErledigt(c, (await w.DB.getAll('abfuellungen')).map((x) => ({ ...x, bestand: 0 }))), 'leer + nichts mehr im Bestand = erledigt');
+}));
+
+test('Abfüllen mit „Verlust beim Abfüllen“: bucht den Rest in derselben Buchung, „Ganzen Rest“ füllt das Feld, zu viel wird abgelehnt', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    const c = await w.DB.put('chargen', { losnummer: 'HV-2', datum: '2026-07-01', ernteIds: [], lagerKg: 10, lagerHerkunft: 'Test', mengeKg: 10, sorte: 'Linde' });
+    await w.Views.honig.abfuellForm(c.id); await w99(300);
+    const m = letztesModal(w);
+    const f500 = m.querySelector('#f-g_500'); f500.value = '19'; f500.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(50);
+    assert(/Danach bleiben in der Charge/.test(m.querySelector('[data-verlust-info]').textContent) && /0,5 kg/.test(m.querySelector('[data-verlust-info]').textContent), 'zeigt 0,5 kg Rest: ' + m.querySelector('[data-verlust-info]').textContent);
+    m.querySelector('[data-ganzer-rest]').click(); await w99(50);
+    assertEq(m.querySelector('#f-verlustKg').value, '0,5', 'Ganzer Rest übernommen');
+    m.querySelector('[data-save]').click(); await w99(500);
+    const x = (await w.DB.getAll('honigabgaenge')).find((y) => y.chargeId === c.id);
+    assert(x && x.art === 'Abfüllverlust' && x.kg === 0.5 && x.quelle === 'charge', 'Abfüllverlust gebucht: ' + JSON.stringify(x));
+    assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0, 'Charge ist leer');
+    // zu viel Verlust → keine Abfüllung, kein Abgang
+    const c2 = await w.DB.put('chargen', { losnummer: 'HV-3', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Linde' });
+    let f = ''; try { await w.abfuellungenAnlegen({ chargeId: c2.id, datum: '2026-08-02', g_500: 9, verlustKg: 1 }); } catch (e) { f = e.message; }
+    assert(/nur noch 0,5 kg/.test(f), 'Verlust größer als der Rest: ' + f);
+    assertEq([(await w.DB.getAll('abfuellungen')).filter((y) => y.chargeId === c2.id).length, (await w.DB.getAll('honigabgaenge')).filter((y) => y.chargeId === c2.id).length], [0, 0], 'nichts gebucht (alles oder nichts)');
+  } finally { w.Lizenz.light = echtLight; w.renderRoute = echtRender; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Honig-Abgang im Kassenbuch: „Eigenverbrauch / Verlust“ → Honig öffnet das Honig-Formular; 0,00-€-Zeile, Summen unverändert, Antippen öffnet den Abgang', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const { a } = await honigTestdaten(w);
+    w.Views.kassenbuch.anVerkaufOeffnen('weg', 'honig'); await w99(400);
+    let m = letztesModal(w);
+    assert(m && /Eigenverbrauch \/ Verlust · Honig/.test(m.textContent), 'Honig-Formular statt „Einkauf · Honig“');
+    assertEq(m.querySelector('#f-abfuellungId').value, a.id, 'Abfüllung vorgewählt');
+    m.querySelector('#f-art').value = 'Verschenkt'; m.querySelector('#f-art').dispatchEvent(new w.Event('change', { bubbles: true }));
+    const me = m.querySelector('#f-menge'); me.value = '2'; me.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assert(/Bestand 30 → 28/.test(m.querySelector('[data-ha-info]').textContent), 'Vorher → nachher: ' + m.querySelector('[data-ha-info]').textContent);
+    m.querySelector('[data-save]').click(); await w99(500);
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 28, 'gebucht');
+    const jahr = (await w.DB.getAll('honigabgaenge'))[0].datum.slice(0, 4);
+    w.Views.kassenbuch._jahr = jahr;
+    const box = w.document.createElement('div'); w.document.body.appendChild(box);
+    try {
+      await w.Views.kassenbuch.tabBuchungen(box);
+      const z = box.querySelector('.row[data-abgang]');
+      assert(z && /2 × 500 g · Charge HV-1 · Verschenkt/.test(z.textContent) && /0,00/.test(z.textContent), '0,00-€-Zeile: ' + (z && z.textContent));
+      z.click(); await w99(400);
+      m = letztesModal(w);
+      assert(/Abgang bearbeiten · Honig/.test(m.textContent), 'Antippen öffnet den Honig-Abgang');
+    } finally { box.remove(); w.Views.kassenbuch._jahr = null; }
+  } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Honig-Abgang: Bestandsabgleich nach dem Zusammenführen zählt Abgänge; Abfüllung ändern respektiert sie; Charge kann nicht kleiner werden', async (w) => isolierteDaten(w, async () => {
+  const { c, a } = await honigTestdaten(w);
+  const x = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Eigenverbrauch', datum: '2026-08-01', menge: 4 });
+  // anderes Gerät hatte noch den alten Bestand 30 → Abgleich muss auf 26 korrigieren
+  const plan = w.Backup.bestandAbgleichPlan({ abfuellungen: [{ ...a, bestand: 30 }], verkaeufe: [], rechnungen: [], honigabgaenge: [x] });
+  assertEq(plan.map((o) => o.obj.bestand), [26], 'Abgang zählt wie ein Verkauf');
+  let f = ''; try { await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 30, gebindeG: 500, bestand: 28, datum: '2026-07-02' }); } catch (e) { f = e.message; }
+  assert(/als Verlust oder Eigenverbrauch gebucht/.test(f), 'Bestand + Abgang > Anzahl abgelehnt: ' + f);
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Verdorben', datum: '2026-08-01', menge: 1 });
+  // Gesamtmenge der Charge: 15 kg abgefüllt + 1 kg Verlust = 16 kg belegt
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    await w.Views.honig.chargeForm(await w.DB.get('chargen', c.id)); await w99(300);
+    const m = letztesModal(w);
+    m.querySelector('#f-mengeKg').value = '15,5';
+    m.querySelector('[data-save]').click(); await w99(300);
+    assert(m.isConnected && /16 kg/.test(m.textContent), 'kleiner als belegt geht nicht');
+  } finally { w.renderRoute = echtRender; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Honig-Abgang: Chargenübersicht-PDF und Excel zeigen Verluste; Light öffnet das Kauf-Fenster', async (w) => isolierteDaten(w, async () => {
+  const { c, a } = await honigTestdaten(w);
+  await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2 });
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Abfüllverlust', datum: '2026-08-01', menge: 0.4 });
+  const pdf = await pdfText(w, () => w.Pdf.chargenuebersicht(''));
+  const zeilen1 = ((pdf.match(/\(([^)]*)\) Tj/g) || []).map((x) => x.slice(1, -4))).join(' ');   // umbrochene Zellen zusammensetzen
+  assert(/0,4[\s\u00A0]kg Verlust/.test(zeilen1) && /28 zum Verkauf · 2 Verlust/.test(zeilen1), 'PDF nennt beide Verluste: ' + zeilen1.slice(0, 400));
+  const defs = await w.Xlsx.defs();
+  const zeilen = await defs.honigabgaenge.rows();
+  assertEq(zeilen.map((z) => [z.Grund, z.Menge, z.Einheit, z.Charge]).sort(), [['Bruch', 2, 'Gebinde', 'HV-1'], ['Abfüllverlust', 0.4, 'kg', 'HV-1']].sort(), 'Excel-Blatt');
+  const ch = (await defs.chargen.rows())[0];
+  assertEq([ch['Verlust (kg)'], ch['Nicht abgefüllt (kg)']], [0.4, 4.6], 'Chargen-Blatt');
+  const echtLight = w.Lizenz.light, echtFenster = w.Lizenz.fenster; let fenster = 0;
+  w.Lizenz.light = () => true; w.Lizenz.fenster = () => { fenster++; };
+  try { assertEq(await w.honigAbgangForm(), null); assertEq(fenster, 1, 'Kauf-Fenster'); } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; }
+}));
+
+
+/* ---------- v3.00 Agenten-Durchsicht: bestätigte Funde ---------- */
+test('Honig-Abgang: Löschen/Ändern, während die Abfüllung im Papierkorb liegt, ändert nichts; endgültig gelöschte Abfüllung blockiert nicht', async (w) => isolierteDaten(w, async () => {
+  const { a } = await honigTestdaten(w);
+  const x = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2 });
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id));
+  let f = ''; try { await w.honigAbgangLoeschen(x.id); } catch (e) { f = e.message; }
+  assert(/Papierkorb/.test(f) && await w.DB.get('honigabgaenge', x.id), 'Löschen verweigert: ' + f);
+  f = ''; try { await w.honigAbgangBuchen({ quelle: 'charge', chargeId: x.chargeId, art: 'Verdorben', datum: '2026-08-01', menge: 1 }, await w.DB.get('honigabgaenge', x.id)); } catch (e) { f = e.message; }
+  assert(/Papierkorb/.test(f), 'Ändern verweigert: ' + f);
+  // Abfüllung wiederherstellen: Bestand 28, Abgang 2 – alles passt wieder
+  const t = (await w.DB.getAll('papierkorb')).find((p) => p.store === 'abfuellungen');
+  await w.DB.trashRestore(t.id);
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, w.glasAbgangVon(a.id)], [28, 2]);
+  // endgültig weg: dann lässt sich der Abgang löschen (es gibt nichts zurückzugeben)
+  await w.DB.del('abfuellungen', a.id);
+  await w.honigAbgangLoeschen(x.id);
+  assert(!(await w.DB.get('honigabgaenge', x.id)), 'gelöscht');
+}));
+
+test('Abfüllung mit Verlusten lässt sich erst löschen, wenn die Verluste gelöscht sind', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const echtConfirm = w.UI.confirm; const fragen = []; w.UI.confirm = async (o) => { fragen.push(o); return true; };
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    const { a } = await honigTestdaten(w);
+    await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2 });
+    await w.Views.honig.abfuellEditForm(await w.DB.get('abfuellungen', a.id)); await w99(300);
+    letztesModal(w).querySelector('[data-del]').click(); await w99(400);
+    assert(/Erst die Verluste löschen/.test(fragen.at(-1).title) && await w.DB.get('abfuellungen', a.id), 'Abfüllung bleibt, Hinweis kommt');
+  } finally { w.Lizenz.light = echtLight; w.UI.confirm = echtConfirm; w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+test('Überbuchte Altdaten (Lohnverarbeitung): MHD und Bestand bleiben änderbar, mehr Gebinde nicht; Meldung nennt die Ursache; Charge speichern ohne Verkleinern geht', async (w) => isolierteDaten(w, async () => {
+  const c = await w.DB.put('chargen', { losnummer: 'LO-1', datum: '2026-07-01', ernteIds: [], lagerKg: 20, lagerHerkunft: 'Test', mengeKg: 20, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 40, bestand: 40 });
+  const pos = await w.DB.put('inventar', { bezeichnung: 'Met', typ: 'produkt', einheit: 'Flasche', stueckzahl: 10 });
+  await w.DB.put('materialzugaenge', { inventarId: pos.id, typ: 'produkt', lohn: true, chargeId: c.id, honigKg: 5, menge: 10, datum: '2026-07-10' });
+  assertEq(w.chargeVerarbeitetKg(c.id), 5, 'Altdaten: 5 kg abgegeben, obwohl alles abgefüllt ist');
+  await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 40, gebindeG: 500, bestand: 38, datum: '2026-07-02', mhd: '2028-06-30' });
+  assertEq((await w.DB.get('abfuellungen', a.id)).mhd, '2028-06-30', 'MHD/Bestand änderbar');
+  let f = ''; try { await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 41, gebindeG: 500, bestand: 38, datum: '2026-07-02' }); } catch (e) { f = e.message; }
+  assert(/zur Verarbeitung abgegeben/.test(f), 'mehr geht nicht – Meldung nennt die Verarbeitung: ' + f);
+  // Charge speichern ohne die Menge zu verkleinern
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    await w.Views.honig.chargeForm(await w.DB.get('chargen', c.id)); await w99(300);
+    const m = letztesModal(w);
+    m.querySelector('#f-sorte').value = 'Rapshonig';
+    m.querySelector('[data-save]').click(); await w99(300);
+    assertEq((await w.DB.get('chargen', c.id)).sorte, 'Rapshonig', 'Sorte nachgetragen');
+  } finally { w.renderRoute = echtRender; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Honig-Abgang: Gebindegröße korrigieren zieht die Abgänge mit; Kommazahl bei Gebinden abgelehnt; Charge nur mit Verlust ist „aufgebraucht“', async (w) => isolierteDaten(w, async () => {
+  const { a } = await honigTestdaten(w);
+  const x = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2 });
+  await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 30, gebindeG: 250, bestand: 28, datum: '2026-07-02' });
+  assertEq((await w.DB.get('honigabgaenge', x.id)).gebindeG, 250, 'Abgang zeigt die neue Größe');
+  let f = ''; try { await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2.5 }); } catch (e) { f = e.message; }
+  assert(/ganze Gebinde/.test(f), 'Kommazahl abgelehnt: ' + f);
+  const c2 = await w.DB.put('chargen', { losnummer: 'LV-1', datum: '2026-07-01', ernteIds: [], lagerKg: 4, lagerHerkunft: 'Test', mengeKg: 4, sorte: 'Heide' });
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c2.id, art: 'Verdorben', datum: '2026-08-01', menge: 4 });
+  assert(w.Views.honig.chargeErledigt(c2, await w.DB.getAll('abfuellungen')), 'nie abgefüllt, aber ganz verdorben = erledigt');
+}));
+
+test('Abfüllen: „Ganzen Rest als Verlust“ wirkt auch direkt nach dem Eintippen der Gläserzahl (Knopf wird nicht neu gebaut)', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const c = await w.DB.put('chargen', { losnummer: 'GR-1', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Linde' });
+    await w.Views.honig.abfuellForm(c.id); await w99(300);
+    const m = letztesModal(w);
+    const knopf = m.querySelector('[data-ganzer-rest]');
+    const f = m.querySelector('#f-g_500'); f.value = '1'; f.dispatchEvent(new w.Event('input', { bubbles: true })); f.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert(m.querySelector('[data-ganzer-rest]') === knopf && knopf.isConnected, 'derselbe Knopf nach „change“');
+    knopf.click(); await w99(50);
+    assertEq(m.querySelector('#f-verlustKg').value, '4,5', 'erster Tipp wirkt');
+  } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Lohnverarbeitung: nicht mehr Honig abgeben, als im Eimer ist; Verlust-Formular wählt Abfüllung der gleichen Charge vor', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const { c } = await honigTestdaten(w);   // 5 kg im Eimer
+    const c2 = await w.DB.put('chargen', { losnummer: 'HV-9', datum: '2026-07-09', ernteIds: [], lagerKg: 6, lagerHerkunft: 'Test', mengeKg: 6, sorte: 'Linde' });
+    await w.DB.put('abfuellungen', { chargeId: c2.id, datum: '2026-07-10', gebindeG: 250, anzahl: 4, bestand: 4 });   // neuere Abfüllung einer anderen Charge
+    const m = await w.honigAbgangForm({ quelle: 'charge', chargeId: c.id }); await w99(200);
+    const abf = (await w.DB.getAll('abfuellungen')).find((x) => x.chargeId === c.id);
+    assertEq(m.el.querySelector('#f-abfuellungId').value, abf.id, 'beim Umschalten auf Gebinde: Abfüllung DIESER Charge');
+    w.FormGuard.dirty = false; m.el.remove();
+    // Lohnverarbeitung über den Rest
+    const cfg = w.bereichCfg('produkt');
+    const pos = await w.DB.put('inventar', { bezeichnung: 'Met', typ: 'produkt', einheit: 'Flasche', stueckzahl: 0, kategorie: '' });
+    await w.materialZugangForm(cfg, pos.id); await w99(300);
+    const z = letztesModal(w);
+    const art = z.querySelector('#f-art');
+    if (art) { art.value = 'Lohnverarbeitung'; art.dispatchEvent(new w.Event('change', { bubbles: true })); await w99(50); }
+    const set = (id, val) => { const el = z.querySelector('#f-' + id); if (el) { el.value = val; el.dispatchEvent(new w.Event('change', { bubbles: true })); } };
+    set('menge', '10'); set('chargeId', c.id); set('honigKg', '6');
+    z.querySelector('[data-save]').click(); await w99(400);
+    assert(z.isConnected && /nur noch 5 kg im Eimer/.test(z.textContent), 'mehr als der Rest abgelehnt');
+  } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
 }));

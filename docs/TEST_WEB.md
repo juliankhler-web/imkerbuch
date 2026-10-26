@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 26.10.2026, Version 2.99. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 26.10.2026, Version 3.00. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -54,6 +54,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **C3 Ernte abfüllen:** Ernte und Abfüllung → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ eine Ernte wählen → Anzahl Gläser → Speichern. → Gläser stehen im Bestand.
 - [ ] **C3b Jahr und Sortierung (neu 2.94):** Ernte und Abfüllung → Reiter Ernte, Sorte, Abfüllung, Verkauf: oben „Jahr:“ und „Sortierung:“ wie bei Charge. → Liste und Summe passen zum Jahr; bei Verkauf druckt „Liste (PDF)“ das gewählte Jahr. Verbrauchsmaterial hat jetzt ebenfalls eine Zeile „Sortierung“.
 - [ ] **C3c Bestand kompakt (neu 2.95):** Ernte und Abfüllung → Reiter „Bestand“. → Je Charge eine Zeile; antippen klappt Gebinde mit „Verkauf“ auf. „Nach Sorte und Gebinde“ zeigt die Gläser je Sorte und Größe; ausverkaufte Chargen stehen zugeklappt unten.
+- [ ] **C3d Honig-Verlust (neu 3.00):** Reiter „Abfüllung“ → „+“ → unter „Verlust beim Abfüllen“ „Ganzen Rest als Verlust“ → speichern. → Charge zeigt „… kg Verlust“, nichts mehr im Eimer. Reiter „Bestand“ → bei einer Glasgröße „Verlust“ → „Bruch“, 2 → „Im Bestand“ sinkt um 2, „Verkauft“ bleibt gleich; im Kassenbuch eine Zeile mit 0,00 €.
 - [ ] **C4 Verkauf mit Rabatt:** Reiter „Verkauf“ → „+“ → 30 Gläser à 6 €, Rabatt 10 %. → Unten „Gesamt: 162,00 €“.
 - [ ] **C5 Kassenbuch:** Kassenbuch → „Auswertung“ → Jahr wechseln → Kategorie antippen. → Aufschlüsselung erscheint, die Seite springt nicht nach oben.
 - [ ] **C6 Rechnung:** Rechnungen → „Neue Rechnung“ → Kunde, Position → „PDF“. → Saubere Rechnung; unten steht nur „Seite 1 von 1“.

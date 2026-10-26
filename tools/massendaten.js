@@ -210,13 +210,24 @@ async function massendatenErzeugen({ staende: nStaende = 50, voelker: nVoelker =
       const kg = Math.round(teil.reduce((s, e) => s + e.mengeKg, 0) * 10) / 10;
       const datum = hoechstHeute(U.addDays(teil[teil.length - 1].datum, 7));
       const ch = zu('chargen', { losnummer: `${j}-${String(c + 1).padStart(2, '0')}`, datum, ernteIds: teil.map((e) => e.id), mengeKg: kg, etikettNotiz: `${teil[0].sorte} – ${['cremig gerührt', 'flüssig', 'fein kristallin'][c % 3]}` });
+      let abgefuelltKg = 0;
       for (const g of [500, 250, 500]) {
         const anzahl = int(40, 160);
+        abgefuelltKg += anzahl * g / 1000;
         abfuellungen.push(zu('abfuellungen', { chargeId: ch.id, datum: hoechstHeute(U.addDays(datum, int(1, 10))), mhd: ymd(j + 2, 6, 30), gebindeG: g, anzahl, bestand: anzahl, _charge: ch }));
       }
+      // Honig-Abgänge aus dem Eimer (v3.00): Rest beim Abfüllen, verfüttert, Eigenverbrauch – nur, wo wirklich noch Honig im Eimer ist
+      const rest = Math.round((kg - abgefuelltKg) * 10) / 10;
+      if (rest >= 0.2 && rnd() < 0.5) zu('honigabgaenge', { datum: hoechstHeute(U.addDays(datum, int(1, 12))), art: pick(['Abfüllverlust', 'Abfüllverlust', 'An Bienen verfüttert', 'Eigenverbrauch', 'Verdorben']),
+        quelle: 'charge', chargeId: ch.id, kg: Math.min(rest, int(2, 18) / 10), notiz: pick(['Rest im Eimer und Schaum', 'Siebrückstand', '', 'an die Ableger verfüttert']) });
     }
   }
   for (const a of abfuellungen) {
+    // Gebinde-Abgänge (v3.00): Bruch, Eigenverbrauch, Verschenktes – vor den Verkäufen, damit der Bestand stimmt
+    if (rnd() < 0.35) {
+      const n = Math.min(a.bestand, int(1, 4));
+      if (n > 0) { zu('honigabgaenge', { datum: hoechstHeute(U.addDays(a.datum, int(1, 120))), art: pick(['Bruch', 'Eigenverbrauch', 'Verschenkt', 'Verdorben', 'Abfüllverlust']), quelle: 'abfuellung', chargeId: a.chargeId, abfuellungId: a.id, gebindeG: a.gebindeG, anzahl: n, ausBestand: n, notiz: pick(['beim Etikettieren heruntergefallen', 'Geschenk für Helfer', '', 'Deckel undicht']) }); a.bestand -= n; }
+    }
     let rest = a.bestand;
     while (rest > 0 && rnd() < 0.93) {
       const n = Math.min(rest, int(1, 24)), preis = a.gebindeG === 500 ? pick([6.5, 7, 7.5, 8]) : pick([4, 4.5, 5]);
