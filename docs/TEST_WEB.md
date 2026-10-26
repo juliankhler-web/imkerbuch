@@ -103,6 +103,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 - [ ] **L1** Einstellungen → „Lizenz-Vorschau“ → „Light (nach 30 Tagen)“. → Hinweis „Du nutzt ImkerBuch Light“, gesperrte Bereiche tragen das Schild „Voll“.
 - [ ] **L2** Mit mehr als 2 Völkern: Durchsicht speichern. → Hinweis „Light gilt für bis zu 2 Völker“.
+- [ ] **L2b Schnellzugriffe (neu 2.99):** Startseite → Kästchen bei „Anstehende Aufgaben“, „+ Zeit“, „Fahrt buchen“. → Jedes Mal das Kauf-Fenster, nichts wird abgehakt oder gebucht.
 - [ ] **L3** Vorschau am Ende wieder auf „Aus“ stellen.
 
 ---

@@ -15786,3 +15786,26 @@ test('Light: Reinigungs-Kurzwahl bucht nicht am Vollversions-Bereich vorbei; Auf
     assert(r.width >= 44 && r.height >= 44, `Tippfeld mindestens 44 × 44 px: ${Math.round(r.width)} × ${Math.round(r.height)}`);
   } finally { host.remove(); }
 }));
+
+/* Julian 26.10.2026: „die Light-Version soll diese Funktionen nicht haben“ – Aufgaben abhaken ist Vollversion */
+test('Light: Aufgaben abhaken (Startseite und Aufgaben-Seite) öffnet das Kauf-Fenster und speichert nichts', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light, echtFenster = w.Lizenz.fenster; let fenster = 0;
+  w.Lizenz.light = () => true; w.Lizenz.fenster = () => { fenster++; };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const a = await w.DB.put('aufgaben', { titel: 'Light-Aufgabe', quelle: 'manuell', erledigt: false, faellig: w.U.todayIso() });
+    host.innerHTML = await w.DASH_WIDGETS.aufgaben.html();
+    const cb = host.querySelector(`input[data-wcheck="${a.id}"]`); cb.checked = true;
+    await w.aufgabeWidgetAbhaken(cb); await w99(100);
+    assertEq([fenster, cb.checked, (await w.DB.get('aufgaben', a.id)).erledigt], [1, false, false], 'Startseite: Kauf-Fenster, Häkchen zurück, Aufgabe offen');
+    assert(!w.document.querySelector('#zt-chips'), 'keine Dauer-Abfrage');
+    // Aufgaben-Seite
+    w.location.hash = '#/aufgaben'; await w.renderRoute(); await w99(400);
+    const box = w.document.querySelector(`#main input[data-check="${a.id}"]`);
+    assert(box, 'Kästchen auf der Aufgaben-Seite');
+    box.click(); await w99(300);
+    assertEq([fenster, (await w.DB.get('aufgaben', a.id)).erledigt], [2, false], 'Aufgaben-Seite: Kauf-Fenster, Aufgabe offen');
+    assertEq(w.document.querySelector(`#main input[data-check="${a.id}"]`).checked, false, 'Häkchen springt zurück');
+  } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; host.remove(); dialogeSchliessen(w); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));

@@ -134,6 +134,7 @@ Für diesen Teil brauchst du den **Test-Build** (mit Beispieldaten und Vorschau-
 - [ ] **I1** Einstellungen → „Lizenz-Vorschau“ → „Light (nach 30 Tagen)“. → Beim Start bzw. auf der Startseite Hinweis „Du nutzt ImkerBuch Light“.
 - [ ] **I2** Menü und untere Leiste: gesperrte Bereiche tragen das Schild **„Voll“**.
 - [ ] **I3** Kassenbuch öffnen → Hinweis-Leiste oben, Buchungen sichtbar; „Neue Buchung“ → speichern → **Kauf-Fenster** statt Speichern.
+- [ ] **I3b Schnellzugriffe in Light (neu 2.99):** Startseite → „Anstehende Aufgaben“ → Kästchen antippen. → **Kauf-Fenster**, das Häkchen springt zurück, die Aufgabe bleibt offen (auf der Aufgaben-Seite genauso). „+ Zeit“, „Fahrt buchen“ und „+ Neue Aufgabe“ → ebenfalls Kauf-Fenster, nichts wird gebucht.
 - [ ] **I4** Mit mehr als 2 Völkern: Durchsicht speichern → Hinweis „Light gilt für bis zu 2 Völker“. „+ Neues Volk“ → Kauf-Fenster.
 - [ ] **I5** „Weiter mit Light“ im Kauf-Fenster schließt es. Vorschau am Ende wieder auf „Aus“ stellen.
 
