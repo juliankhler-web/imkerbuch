@@ -7442,7 +7442,7 @@ test('Anzeige-Dialoge öffnen und schließen, ohne etwas zu verändern', async (
 
 test('fahrtWidgetKonfig: speichert die Auswahl, ohne Stände meldet sie sich', async (w) => {
   dialogeSchliessen(w);
-  const altAuswahl = w.S.get('fahrtWidgetAuswahl');
+  const altFest = w.S.get('fahrtSchnellFest'), altAus = w.S.get('fahrtSchnellAus');
   const altStaende = await w.DB.getAll('staende');
   const altVorlagen = w.S.get('fahrtvorlagen');
   const toasts = [];
@@ -7464,15 +7464,15 @@ test('fahrtWidgetKonfig: speichert die Auswahl, ohne Stände meldet sie sich', a
     const modal = w.document.querySelector('.modal-back');
     assert(modal, 'jetzt öffnet der Dialog');
     const box = modal.querySelector(`input[value="stand:${stand.id}"]`);
-    assert(box, 'der Stand steht zur Auswahl');
-    box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assert(box && box.checked, 'der Stand steht in der Liste und ist angehakt (v3.01)');
+    box.checked = false; box.dispatchEvent(new w.Event('change', { bubbles: true }));
     modal.querySelector('[data-save]').click();
     await new Promise((r) => setTimeout(r, 300));
-    assertEq(w.S.get('fahrtWidgetAuswahl'), ['stand:' + stand.id], 'die Auswahl ist gespeichert');
+    assertEq(w.S.get('fahrtSchnellAus'), ['stand:' + stand.id], 'abgehakt = ausgeblendet');
   } finally {
     w.UI.toast = echtToast;
     dialogeSchliessen(w);
-    await w.S.set('fahrtWidgetAuswahl', altAuswahl);
+    await w.S.set('fahrtSchnellFest', altFest || []); await w.S.set('fahrtSchnellAus', altAus || []);
     await w.S.set('fahrtvorlagen', altVorlagen);
     await w.DB.clear('staende');
     for (const x of altStaende) await w.DB.put('staende', x, true);
@@ -15378,16 +15378,22 @@ test('Zeit buchen: automatisch eigene + häufige (ab zweimal), aufgefüllt mit A
   await w.S.set('zeitVorlagen', [{ id: 'zv1', titel: 'Bienenstand mähen', kategorie: 'Durchsicht & Völkerpflege', schritte: [], minuten: 50 }]);
   r = await w.zeitSchnellEintraege(await w.DB.getAll('aufgaben'), heute);
   const t = r.eintraege.map((e) => e.titel);
-  assertEq(t.slice(0, 2), ['Völker wiegen', 'Bienenstand mähen'], 'häufige (2-mal) vor eigenem (0-mal)');
+  assertEq(t.slice(0, 2), ['Bienenstand mähen', 'Völker wiegen'], 'eigene zuerst (sie verdrängen nichts), dann häufige');
   assert(!t.includes('Einmal-Arbeit'), 'einmal reicht nicht für „häufig“');
-  assertEq(t.length, 5, 'auf fünf aufgefüllt');
-  assertEq(r.eintraege[0].minuten, 35, 'übliche Dauer'); assertEq(r.eintraege[1].minuten, 50, 'eigene Dauer');
-  // eigene Auswahl: Reihenfolge bleibt, Gelöschtes fällt weg, unbekannte Arbeit löst sich über die Vorlage auf
-  await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren', 'eigen:weg', 'eigen:zv1', 'arbeit:Völker wiegen']);
+  assertEq(t.length, 6, 'eigener + fünf weitere (eigene zählen beim Auffüllen nicht mit)');
+  assertEq(r.eintraege[1].minuten, 35, 'übliche Dauer'); assertEq(r.eintraege[0].minuten, 50, 'eigene Dauer');
+  assert(r.eintraege.slice(2).every((e) => e.art === 'saison'), 'aufgefüllt mit Vorschlägen');
+  // v3.01: festgehalten kommt OBEN dazu, Ausgeblendetes fällt weg, der Rest bleibt automatisch
+  await w.S.set('zeitSchnellFest', ['arbeit:Honig rühren', 'eigen:weg']);
+  await w.S.set('zeitSchnellAus', ['arbeit:Völker wiegen']);
   r = await w.zeitSchnellEintraege(await w.DB.getAll('aufgaben'), heute);
-  assertEq(r.eintraege.map((e) => e.titel), ['Honig rühren', 'Bienenstand mähen', 'Völker wiegen'], 'Auswahl');
+  const t2 = r.eintraege.map((e) => e.titel);
+  assertEq(t2[0], 'Honig rühren', 'Festgehaltenes oben');
+  assert(!t2.includes('Völker wiegen'), 'Ausgeblendetes fehlt');
+  assert(t2.includes('Bienenstand mähen'), 'eigene bleiben automatisch drin');
   assertEq(r.eintraege[0].kategorie, 'Ernte & Schleudern', 'Vorlage liefert den Bereich');
-  assert(r.auswahl, 'als eigene Auswahl gekennzeichnet');
+  assert(r.angepasst, 'als angepasst gekennzeichnet');
+  await w.S.set('zeitSchnellFest', []); await w.S.set('zeitSchnellAus', []);
 }));
 
 test('Zeit buchen: „+ Zeit“ bucht genau einen Eintrag für heute – Doppeltipp, Rückgängig, Zeiterfassung und PDFs', async (w) => isolierteDaten(w, async () => {
@@ -15414,7 +15420,9 @@ test('Zeit buchen: „+ Zeit“ bucht genau einen Eintrag für heute – Doppelt
     const host = w.document.createElement('div'); w.document.body.appendChild(host);
     try { await w.Views.zeiten.render(host); assert(/Futterkontrolle/.test(host.querySelector('#zeit-faecher').closest('.card').nextElementSibling.textContent), 'in „Letzte Einträge“'); } finally { host.remove(); }
     const statistik = await pdfText(w, () => w.Pdf.report('arbeit', jahr));
-    assert(/Fütterung/.test(statistik) && /1,3/.test(statistik), 'Statistik-PDF: Fütterung 75 min = 1,3 h: ' + statistik.slice(0, 300));
+    // erwartet aus den Einträgen dieses Jahres – am 1./2. Januar liegen die Vortage im Vorjahr (2. Durchsicht v3.01)
+    const minJahr = (await w.DB.getAll('aufgaben')).filter((a) => a.kategorie === 'Fütterung' && a.erledigt && String(a.faellig).startsWith(jahr)).reduce((s, a) => s + (a.zeitMinuten || 0), 0);
+    assert(/Fütterung/.test(statistik) && statistik.includes(w.U.fmtNum(minJahr / 60, 1)), `Statistik-PDF: Fütterung ${minJahr} min = ${w.U.fmtNum(minJahr / 60, 1)} h: ` + statistik.slice(0, 300));
     const bereich = await pdfText(w, () => w.bereichAlsPdf('aufgaben', jahr));
     assert(/Futterkontrolle/.test(bereich) && /25/.test(bereich), 'Aufgaben-&-Zeiten-PDF enthält den Eintrag');
     assert(!toasts.some((x) => /fehlgeschlagen/.test(x.msg)), 'kein PDF-Fehler: ' + JSON.stringify(toasts.map((x) => x.msg)));
@@ -15468,6 +15476,7 @@ test('Zeit buchen: Kachel und Zeiterfassung zeigen dieselben Zeilen; Aufklappen 
     for (const t of ['A-Arbeit', 'B-Arbeit', 'C-Arbeit', 'D-Arbeit', 'E-Arbeit', 'F-Arbeit', 'G-Arbeit']) for (let i = 0; i < 2; i++) await zeitEintrag(w, t, 10, 'Sonstiges', i);
     host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
     const kachel = [...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent);
+    assert(!host.querySelector('.zs-vorschlag'), 'keine Vorschläge, wenn genug eigene Arbeiten da sind');
     assertEq(kachel.length, 7, 'alle sieben in der Kachel');
     assertEq(host.querySelectorAll('.zeit-row[data-fw-mehr]').length, 2, 'zwei zum Aufklappen');
     assert([...host.querySelectorAll('.zeit-row[data-fw-mehr]')].every((r) => r.style.display === 'none'), 'zunächst eingeklappt');
@@ -15480,13 +15489,16 @@ test('Zeit buchen: Kachel und Zeiterfassung zeigen dieselben Zeilen; Aufklappen 
       assertEq([...seite.querySelectorAll('#haeufige-arbeiten .zeit-row .r-title')].map((x) => x.textContent), kachel, 'Seite = Kachel');
       assertEq([...seite.querySelectorAll('#haeufige-arbeiten .r-sub')].map((x) => x.textContent), [...host.querySelectorAll('.zeit-row .r-sub')].map((x) => x.textContent), 'auch die zweite Zeile');
     } finally { seite.remove(); }
-    // Anpassen: Auswahl speichern
+    // Anpassen (v3.01): alles Sichtbare ist angehakt; abhaken blendet aus, der Rest bleibt
     const m = await w.zeitSchnellKonfig(); await w99(200);
-    const box = m.el.querySelector('input[value="arbeit:C-Arbeit"]'); box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assertEq([...m.el.querySelectorAll('input[type=checkbox]')].filter((b) => b.checked).length, 7, 'alle sieben angehakt');
+    const box = m.el.querySelector('input[value="arbeit:C-Arbeit"]'); box.checked = false; box.dispatchEvent(new w.Event('change', { bubbles: true }));
     m.el.querySelector('[data-save]').click(); await w99(300);
-    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:C-Arbeit'], 'gespeichert');
+    assertEq(w.S.get('zeitSchnellAus'), ['arbeit:C-Arbeit'], 'ausgeblendet gemerkt');
     host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
-    assertEq([...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent), ['C-Arbeit'], 'Kachel zeigt nur die Auswahl');
+    const nachher = [...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent.replace('Vorschlag', '').trim());
+    assert(!nachher.includes('C-Arbeit') && nachher.includes('A-Arbeit') && nachher.includes('G-Arbeit'), 'nur C fehlt, der Rest bleibt: ' + nachher.join(', '));
+    await w.S.set('zeitSchnellAus', []);
   } finally { w.renderRoute = echtRender; host.remove(); dialogeSchliessen(w); }
 }));
 
@@ -15494,7 +15506,7 @@ test('Zeit buchen: eigener Schnellzugriff anlegen, mit eigener Auswahl gleich si
   dialogeSchliessen(w);
   const echtRender = w.renderRoute; w.renderRoute = async () => {};
   try {
-    await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren']);
+    await w.S.set('zeitSchnellFest', ['arbeit:Honig rühren']);
     const f = await w.zeitVorlageForm(null); await w99(200);
     const ti = f.el.querySelector('#f-titel'); ti.value = 'Wachs klären'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
     f.el.querySelector('#f-kategorie').value = 'Bau & Reparatur'; f.el.querySelector('#f-kategorie').dispatchEvent(new w.Event('change', { bubbles: true }));
@@ -15502,10 +15514,10 @@ test('Zeit buchen: eigener Schnellzugriff anlegen, mit eigener Auswahl gleich si
     f.el.querySelector('[data-save]').click(); await w99(400);
     const z = w.S.get('zeitVorlagen');
     assertEq([z.length, z[0].titel, z[0].kategorie, z[0].minuten], [1, 'Wachs klären', 'Bau & Reparatur', 45], 'gespeichert');
-    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:Honig rühren', 'eigen:' + z[0].id], 'in die eigene Auswahl aufgenommen');
     const e = (await w.zeitSchnellEintraege()).eintraege;
-    assertEq(e.map((x) => x.titel), ['Honig rühren', 'Wachs klären'], 'erscheint');
+    assertEq(e.map((x) => x.titel).slice(0, 2), ['Honig rühren', 'Wachs klären'], 'erscheint von selbst, Festgehaltenes bleibt oben');
     assertEq(e[1].minuten, 45, 'mit eigener Dauer');
+    await w.S.set('zeitSchnellAus', ['eigen:' + z[0].id]);
     // löschen (über den Verwalten-Dialog, Rückfrage bestätigt)
     const echtConfirm = w.UI.confirm; w.UI.confirm = async () => true;
     try {
@@ -15513,7 +15525,7 @@ test('Zeit buchen: eigener Schnellzugriff anlegen, mit eigener Auswahl gleich si
       m.el.querySelector('[data-zv-del]').click(); await w99(400);
     } finally { w.UI.confirm = echtConfirm; }
     assertEq(w.S.get('zeitVorlagen'), [], 'gelöscht');
-    assertEq(w.S.get('zeitSchnellAuswahl'), ['arbeit:Honig rühren'], 'aus der Auswahl entfernt');
+    assertEq([w.S.get('zeitSchnellFest'), w.S.get('zeitSchnellAus')], [['arbeit:Honig rühren'], ['arbeit:Wachs klären']], 'Schlüssel des gelöschten Schnellzugriffs entfernt – sein Name bleibt ausgeblendet');
   } finally { w.renderRoute = echtRender; dialogeSchliessen(w); }
 }));
 
@@ -15749,17 +15761,29 @@ test('Zeiterfassung: alter Eintrag über 24 Stunden bleibt bearbeitbar, neue Ein
   } finally { w.renderRoute = echtRender; w.FormGuard.dirty = false; dialogeSchliessen(w); }
 }));
 
-test('Häufige Fahrten: neue eigene Fahrt kommt bei eigener Auswahl dazu; einmalige Übernahme für bisherige Auswahl', async (w) => isolierteDaten(w, async () => {
+test('Häufige Fahrten / Zeit buchen: Übernahme der alten Auswahl (v3.00 → v3.01) behält die Ansicht, neue eigene Fahrt erscheint von selbst', async (w) => isolierteDaten(w, async () => {
   const st = await w.DB.put('staende', { name: 'Stand X', kmEntfernung: 4 });
   await w.S.set('fahrtvorlagen', [{ id: 'alt1', name: 'Imkerbedarf', km: 30, zweck: 'Einkauf', standId: null, freiZiel: 'Imkerbedarf' }]);
+  const st2 = await w.DB.put('staende', { name: 'Stand Y', kmEntfernung: 6 });
   await w.S.set('fahrtWidgetAuswahl', ['stand:' + st.id]);
   await w.migriereFahrtAuswahl(true);
-  assertEq(w.S.get('fahrtWidgetAuswahl'), ['stand:' + st.id, 'vorlage:alt1'], 'bisherige eigene Fahrten bleiben im Fahrtenbuch sichtbar');
-  await w.fahrtAuswahlDazu('neu2');
-  assertEq(w.S.get('fahrtWidgetAuswahl').at(-1), 'vorlage:neu2', 'neue eigene Fahrt kommt dazu');
-  await w.S.set('fahrtWidgetAuswahl', []);
-  await w.fahrtAuswahlDazu('neu3'); await w.migriereFahrtAuswahl(true);
-  assertEq(w.S.get('fahrtWidgetAuswahl'), [], 'ohne eigene Auswahl (automatisch) bleibt es automatisch');
+  assertEq(w.S.get('fahrtWidgetAuswahl'), ['stand:' + st.id, 'vorlage:alt1'], 'v3.00: bisherige eigene Fahrten bleiben sichtbar');
+  // v3.01: aus „nur diese“ wird „festgehalten + ausgeblendet“ – die Ansicht bleibt genau gleich
+  await w.migriereSchnellzugriffe(true);
+  assertEq([w.S.get('fahrtSchnellFest'), w.S.get('fahrtSchnellAus'), w.S.get('fahrtWidgetAuswahl')], [['stand:' + st.id, 'vorlage:alt1'], ['stand:' + st2.id], []], 'übernommen');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    assertEq([...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent), ['Stand X', 'Imkerbedarf'], 'gleiche Ansicht wie vorher');
+    // neue eigene Fahrt erscheint von selbst
+    await w.S.set('fahrtvorlagen', [...w.S.get('fahrtvorlagen'), { id: 'neu2', name: 'Verein', km: 12, zweck: 'Verein', standId: null, freiZiel: 'Verein' }]);
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    assert([...host.querySelectorAll('.fahrt-row .r-title')].some((x) => x.textContent === 'Verein'), 'neue eigene Fahrt ist da');
+  } finally { host.remove(); }
+  // Zeit buchen: alte Auswahl wird festgehalten, die automatischen kommen zurück
+  await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren']); await w.S.set('zeitSchnellFest', []);
+  await w.migriereSchnellzugriffe(true);
+  assertEq([w.S.get('zeitSchnellFest'), w.S.get('zeitSchnellAuswahl')], [['arbeit:Honig rühren'], []], 'Zeit buchen übernommen');
 }));
 
 test('Neue Aufgabe: „Häufig“ ohne bekannten Bereich lässt nicht den Bereich des vorigen Knopfs stehen', async (w) => isolierteDaten(w, async () => {
@@ -16078,4 +16102,346 @@ test('Lohnverarbeitung: nicht mehr Honig abgeben, als im Eimer ist; Verlust-Form
     z.querySelector('[data-save]').click(); await w99(400);
     assert(z.isConnected && /nur noch 5 kg im Eimer/.test(z.textContent), 'mehr als der Rest abgelehnt');
   } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+/* v3.01 (Julian 27.10.2026): „im Widget stehen Dinge, die ich nie eingetragen hatte, und wenn ich bei Anpassen selber was
+   hinzufüge, verschwindet, was drin stand“ */
+test('Zeit buchen anpassen: Sichtbares ist angehakt, Dazuholen behält die Liste, Vorschläge tragen ein Schild, Zurücksetzen macht automatisch', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await zeitEintrag(w, 'Wachs klären', 60, 'Bau & Reparatur', 3);   // nur einmal → nicht automatisch; in keinem Monat ein Vorschlag
+    host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
+    const vorher = [...host.querySelectorAll('.zeit-row')].length;
+    assert(vorher === 5 && host.querySelectorAll('.zs-vorschlag').length === 5, 'fünf Vorschläge mit Schild „Vorschlag“');
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    const an = [...m.el.querySelectorAll('input[type=checkbox]')].filter((b) => b.checked).map((b) => b.value);
+    assertEq(an.length, 5, 'die fünf sichtbaren sind angehakt');
+    const box = m.el.querySelector('input[value="arbeit:Wachs klären"]');
+    assert(box && !box.checked, 'Wachs klären steht zur Wahl, nicht angehakt');
+    assert(/Wachs klären · 1-mal · meist 1 h/.test(box.closest('label').textContent), 'Beschriftung mit Anzahl: ' + box.closest('label').textContent);
+    const monat = w.MONATSNAMEN[+w.U.todayIso().slice(5, 7) - 1];
+    const vorschlag = [...m.el.querySelectorAll('.check-line')].filter((l) => l.textContent.includes('Vorschlag für ' + monat));
+    assertEq(vorschlag.length, 6, 'die sechs Vorschläge des Monats tragen „Vorschlag für ' + monat + '“');
+    assert(![...m.el.querySelectorAll('.check-line')].some((l) => /\b0-mal/.test(l.textContent)), 'nirgends „0-mal“');
+    box.checked = true; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    assertEq(w.S.get('zeitSchnellFest'), ['arbeit:Wachs klären'], 'festgehalten');
+    assertEq(w.S.get('zeitSchnellAus'), [], 'nichts ausgeblendet');
+    host.innerHTML = await w.DASH_WIDGETS.zeiten.html();
+    const titel = [...host.querySelectorAll('.zeit-row .r-title')].map((x) => x.textContent.replace('Vorschlag', '').trim());
+    assertEq([titel.length, titel[0]], [6, 'Wachs klären'], 'dazugeholt, die fünf bleiben: ' + titel.join(', '));
+    // Zurücksetzen
+    const m2 = await w.zeitSchnellKonfig(); await w99(200);
+    m2.el.querySelector('[data-schnell-reset]').click(); await w99(300);
+    assertEq([w.S.get('zeitSchnellFest'), w.S.get('zeitSchnellAus')], [[], []], 'wieder automatisch');
+  } finally { w.renderRoute = echtRender; host.remove(); dialogeSchliessen(w); }
+}));
+
+/* Durchsicht v3.01: gleichnamige Zeilen, Festgehaltenes, Nachrücken, Zusammenführen mit alter Sicherung, Häufig-Knöpfe */
+test('Zeit buchen anpassen: eigener Schnellzugriff und gleichnamige Arbeit sind eine Zeile – Abhaken nimmt beide weg', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    await w.S.set('zeitVorlagen', [{ id: 'fu', titel: 'Fütterung', kategorie: 'Fütterung', minuten: 20, schritte: [] }]);
+    for (let i = 0; i < 3; i++) await zeitEintrag(w, 'Fütterung', 20, 'Fütterung', i + 1);
+    const titel = async () => (await w.zeitSchnellEintraege()).eintraege.map((e) => e.titel);
+    assertEq((await titel()).filter((t) => t === 'Fütterung').length, 1, 'einmal in der Liste');
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    const zeilen = [...m.el.querySelectorAll('.check-line')].filter((l) => /^Fütterung\b/.test(l.textContent.trim()));
+    assertEq(zeilen.length, 1, 'eine Zeile im Fenster: ' + zeilen.map((l) => l.textContent.trim()).join(' | '));
+    assertEq(zeilen[0].querySelector('input').value, 'eigen:fu', 'der eigene Schnellzugriff steht für beide');
+    const box = zeilen[0].querySelector('input'); box.checked = false; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    assert(!(await titel()).includes('Fütterung'), 'nach dem Abhaken weg – auch die oft gebuchte Arbeit rückt nicht nach: ' + (await titel()).join(', '));
+    assertEq(w.S.get('zeitSchnellFest'), [], 'nichts festgehalten');
+    // wieder anhaken holt sie zurück
+    const m2 = await w.zeitSchnellKonfig(); await w99(200);
+    const b2 = [...m2.el.querySelectorAll('.check-line')].find((l) => /^Fütterung\b/.test(l.textContent.trim())).querySelector('input');
+    assert(!b2.checked, 'steht ohne Haken zur Wahl');
+    b2.checked = true; b2.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m2.el.querySelector('[data-save]').click(); await w99(300);
+    assertEq((await titel()).filter((t) => t === 'Fütterung').length, 1, 'wieder da, einmal');
+    assertEq(w.S.get('zeitSchnellAus'), [], 'nichts mehr ausgeblendet');
+  } finally { w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen anpassen: nach dem Speichern steht genau das Angehakte in der Liste – nichts rückt nach, Festgehaltenes bleibt', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const oeffne = async () => { const m = await w.zeitSchnellKonfig(); await w99(200); return m; };
+  const haken = (m) => [...m.el.querySelectorAll('input[type=checkbox]')].filter((b) => b.checked).map((b) => b.value);
+  const setze = (m, key, an) => { const b = m.el.querySelector(`input[value="${key}"]`); b.checked = an; b.dispatchEvent(new w.Event('change', { bubbles: true })); };
+  const liste = async () => (await w.zeitSchnellEintraege()).eintraege.map((e) => e.key);
+  try {
+    // nur Vorschläge des Monats: fünf sichtbar, der sechste steht ohne Haken im Fenster
+    let m = await oeffne();
+    const sichtbar = haken(m);
+    assertEq(sichtbar.length, 5, 'fünf Vorschläge angehakt');
+    setze(m, sichtbar[1], false);
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    const nachher = await liste();
+    assertEq(nachher, sichtbar.filter((k, i) => i !== 1), 'ein Vorschlag weg, der sechste rückt NICHT nach');
+    // erneut öffnen: was in der Liste steht = was angehakt ist
+    m = await oeffne();
+    assertEq(haken(m), nachher, 'Fenster und Liste stimmen überein');
+    dialogeSchliessen(w);
+    // Festgehaltenes bleibt festgehalten, auch wenn es gerade ohnehin von selbst käme
+    await w.S.set('zeitSchnellAus', []); await w.S.set('zeitSchnellFest', ['arbeit:Wachs klären']);
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Wachs klären', 30, 'Bau & Reparatur', i + 1);   // jetzt häufig → käme auch so
+    m = await oeffne();
+    assert(haken(m).includes('arbeit:Wachs klären'), 'angehakt');
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    assertEq(w.S.get('zeitSchnellFest'), ['arbeit:Wachs klären'], 'bleibt festgehalten – sonst wäre es weg, sobald es nicht mehr häufig ist');
+    // Ein ausgeblendeter häufiger Eintrag wird wieder angehakt: der sichtbare Vorschlag, den er verdrängen würde, bleibt
+    await w.S.set('zeitSchnellFest', []);
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Honig rühren', 15, 'Abfüllen & Etikettieren', i + 1);
+    for (const t of ['A-Arbeit', 'B-Arbeit']) for (let i = 0; i < 2; i++) await zeitEintrag(w, t, 10, 'Sonstiges', i + 1);
+    await w.S.set('zeitSchnellAus', ['arbeit:Honig rühren']);
+    const vorher = await liste();
+    assert(!vorher.includes('arbeit:Honig rühren') && vorher.length === 5, 'ausgeblendet, fünf in der Liste: ' + vorher.join(', '));
+    m = await oeffne();
+    setze(m, 'arbeit:Honig rühren', true);
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    const jetzt = await liste();
+    assertEq([jetzt.length, jetzt.includes('arbeit:Honig rühren'), vorher.every((k) => jetzt.includes(k))], [6, true, true], 'dazugekommen, nichts verdrängt: ' + jetzt.join(', '));
+    // nur das Angehakte ist festgehalten; Vorschläge bleiben Vorschläge (vorher wurde der verdrängte festgehalten und hieß dann
+    // „von dir dazugeholt“, 2. Durchsicht v3.01)
+    assertEq([w.S.get('zeitSchnellFest'), w.S.get('zeitSchnellAus')], [['arbeit:Honig rühren'], []], 'nur Honig rühren festgehalten, nichts ausgeblendet');
+    const saisonVorher = (await w.zeitSchnellEintraege()).eintraege.filter((e) => vorher.includes(e.key) && w.ZEIT_SAISON[+w.U.todayIso().slice(5, 7)].includes(e.titel));
+    assert(saisonVorher.length && saisonVorher.every((e) => e.art === 'saison'), 'Vorschläge tragen weiter „Vorschlag“: ' + saisonVorher.map((e) => e.titel + '=' + e.art).join(', '));
+    m = await oeffne();
+    assert(saisonVorher.every((e) => /Vorschlag für/.test(m.el.querySelector(`input[value="${e.key}"]`).closest('label').textContent)), 'im Fenster „Vorschlag für …“');
+    assert(![...m.el.querySelectorAll('.check-line')].some((l) => /von dir dazugeholt/.test(l.textContent)), 'nichts heißt „von dir dazugeholt“');
+  } finally { w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+/* 2. Durchsicht v3.01: Nachrücker nur im laufenden Monat, eigene Schnellzugriffe mit Zusatz, gleicher Name fest/eigen, Löschen */
+test('Zeit buchen anpassen: Nachgerücktes bleibt nur diesen Monat weg – ein neuer eigener Schnellzugriff gleichen Namens erscheint', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const echtHeute = w.U.todayIso;
+  const aendern = (el) => el.dispatchEvent(new w.Event('change', { bubbles: true }));
+  try {
+    const heute = w.U.todayIso(), saison = w.ZEIT_SAISON[+heute.slice(5, 7)], sechster = saison[5];
+    let m = await w.zeitSchnellKonfig(); await w99(200);
+    const b = m.el.querySelector(`input[value="arbeit:${saison[0]}"]`); b.checked = false; aendern(b);
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    const aus = w.S.get('zeitSchnellAus');
+    assertEq(aus, ['arbeit:' + saison[0], `monat:${heute.slice(0, 7)}:arbeit:${sechster}`], 'abgehakt = immer, nachgerückt = nur dieser Monat');
+    assert(!(await w.zeitSchnellEintraege()).eintraege.some((e) => e.titel === sechster), 'diesen Monat rückt „' + sechster + '“ nicht nach');
+    const naechst = w.U.addDays(heute.slice(0, 7) + '-01', 32), n6 = w.assistentNorm(sechster);
+    assert(w.zeitAusNkeys(aus, [], heute).has(n6) && !w.zeitAusNkeys(aus, [], naechst).has(n6), 'im nächsten Monat zählt der Nachrücker nicht mehr');
+    assert(w.zeitAusNkeys(aus, [], naechst).has(w.assistentNorm(saison[0])), 'das Abgehakte bleibt weg');
+    // im nächsten Monat räumt „Anpassen“ den alten Nachrücker weg
+    w.U.todayIso = () => naechst;
+    m = await w.zeitSchnellKonfig(); await w99(200);
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    w.U.todayIso = echtHeute;
+    assert(!w.S.get('zeitSchnellAus').some((k) => k.startsWith('monat:' + heute.slice(0, 7))), 'alter Nachrücker weggeräumt: ' + w.S.get('zeitSchnellAus').join(', '));
+    // zurück in diesem Monat: Nachrücker wieder setzen, dann eigenen Schnellzugriff mit genau diesem Namen anlegen
+    await w.S.set('zeitSchnellAus', aus);
+    const f = await w.zeitVorlageForm(null); await w99(200);
+    const ti = f.el.querySelector('#f-titel'); ti.value = sechster; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    f.el.querySelector('#f-kategorie').value = 'Bau & Reparatur'; aendern(f.el.querySelector('#f-kategorie'));
+    f.el.querySelector('#f-zeitMinuten').value = '30';
+    f.el.querySelector('[data-save]').click(); await w99(400);
+    const e = (await w.zeitSchnellEintraege()).eintraege;
+    assert(e.some((x) => x.art === 'eigen' && x.titel === sechster), 'der neue eigene Schnellzugriff steht in der Liste: ' + e.map((x) => x.titel).join(', '));
+    assertEq(w.S.get('zeitSchnellAus'), ['arbeit:' + saison[0]], 'sein Name ist freigegeben, das Abgehakte bleibt');
+  } finally { w.U.todayIso = echtHeute; w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: eigene Schnellzugriffe mit Zusatz („Fütterung: Stand Wald“) bleiben eigene Zeilen – auch nach dem Buchen', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  try {
+    await w.S.set('zeitVorlagen', [{ id: 'wa', titel: 'Fütterung: Stand Wald', kategorie: 'Fütterung', minuten: 30, schritte: [] },
+      { id: 'be', titel: 'Fütterung: Stand Berg', kategorie: 'Fütterung', minuten: 45, schritte: [] }]);
+    await w.S.set('zeitSchnellAus', ['arbeit:Fütterung']);   // die Arbeit „Fütterung“ ist abgehakt
+    const keys = async () => (await w.zeitSchnellEintraege()).eintraege.map((e) => e.key);
+    let k = await keys();
+    assert(k.includes('eigen:wa') && k.includes('eigen:be'), 'beide in der Liste: ' + k.join(', '));
+    for (let i = 0; i < 3; i++) await zeitEintrag(w, 'Fütterung: Stand Wald', 30, 'Fütterung', i + 1);
+    k = await keys();
+    assert(k.includes('eigen:wa') && k.includes('eigen:be'), 'nach dem Buchen weiter beide (vorher fiel einer weg): ' + k.join(', '));
+    assert(!k.includes('arbeit:Fütterung'), 'die abgehakte Arbeit bleibt weg');
+    const sub = (await w.zeitSchnellEintraege()).eintraege.find((e) => e.key === 'eigen:be');
+    assertEq(sub.n, 0, '„Stand Berg“ zählt nicht die Buchungen von „Stand Wald“');
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    const be = m.el.querySelector('input[value="eigen:be"]');
+    assert(be && be.checked, '„Stand Berg“ steht angehakt im Fenster');
+    dialogeSchliessen(w);
+    // umgekehrt: den eigenen „Stand Wald“ ausblenden nimmt die Arbeit „Fütterung“ nicht mit
+    await w.S.set('zeitSchnellAus', ['eigen:wa']);
+    k = await keys();
+    assert(!k.includes('eigen:wa') && k.includes('eigen:be') && k.includes('arbeit:Fütterung'), 'nur „Stand Wald“ fehlt: ' + k.join(', '));
+    // Übernahme einer Auswahl aus v3.00: beide bleiben
+    await w.S.set('zeitSchnellAus', []); await w.S.set('zeitSchnellFest', []); await w.S.set('zeitSchnellAuswahl', ['eigen:wa', 'eigen:be']);
+    await w.migriereSchnellzugriffe(true);
+    k = await keys();
+    assert(k.includes('eigen:wa') && k.includes('eigen:be'), 'nach der Übernahme beide da: ' + k.join(', '));
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: eigener Schnellzugriff steht für die gleichnamige festgehaltene Arbeit – mit seiner Dauer und seinen Schritten', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  try {
+    await zeitEintrag(w, 'Fütterung', 35, 'Fütterung', 1);
+    await w.S.set('zeitSchnellFest', ['arbeit:Fütterung']);
+    await w.S.set('zeitVorlagen', [{ id: 'fu', titel: 'Fütterung', kategorie: 'Fütterung', minuten: 20, schritte: ['Zuckerwasser geben'] }]);
+    const e = (await w.zeitSchnellEintraege()).eintraege;
+    const fu = e.filter((x) => x.nkey === w.assistentNorm('Fütterung'));
+    assertEq([fu.length, fu[0].key, fu[0].minuten, fu[0].schritte], [1, 'eigen:fu', 20, ['Zuckerwasser geben']], 'eine Zeile – der eigene mit 20 min und seinem Schritt');
+    assertEq(e[0].key, 'eigen:fu', 'steht vorn wie das Festgehaltene');
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    assert(m.el.querySelector('input[value="eigen:fu"]').checked && !m.el.querySelector('input[value="arbeit:Fütterung"]'), 'im Fenster der eigene, angehakt, keine zweite Zeile');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen: ausgeblendeten eigenen Schnellzugriff löschen oder umbenennen holt die gleichnamige Arbeit nicht zurück', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const echtConfirm = w.UI.confirm; w.UI.confirm = async () => true;
+  const keys = async () => (await w.zeitSchnellEintraege()).eintraege.map((e) => e.key);
+  const loeschen = async () => { const m = w.zeitVorlagenManager(); await w99(100); m.el.querySelector('[data-zv-del]').click(); await w99(400); dialogeSchliessen(w); };
+  try {
+    for (let i = 0; i < 3; i++) await zeitEintrag(w, 'Fütterung', 20, 'Fütterung', i + 1);
+    await w.S.set('zeitVorlagen', [{ id: 'fu', titel: 'Fütterung', kategorie: 'Fütterung', minuten: 20, schritte: [] }]);
+    await w.S.set('zeitSchnellAus', ['eigen:fu']);
+    const vorher = await keys();
+    assert(!vorher.includes('eigen:fu') && !vorher.includes('arbeit:Fütterung'), 'abgehakt: beide weg');
+    await loeschen();
+    assertEq(w.S.get('zeitSchnellAus'), ['arbeit:Fütterung'], 'der Name bleibt ausgeblendet');
+    assertEq(await keys(), vorher, 'Liste unverändert – „Fütterung“ kommt nicht zurück');
+    // Name mit Zusatz ist keine eigene Arbeit: nichts merken, sonst wäre „Fütterung“ mit weg
+    await w.S.set('zeitSchnellAus', ['eigen:wa']);
+    await w.S.set('zeitVorlagen', [{ id: 'wa', titel: 'Fütterung: Stand Wald', kategorie: 'Fütterung', minuten: 30, schritte: [] }]);
+    await loeschen();
+    assertEq(w.S.get('zeitSchnellAus'), [], 'für „Fütterung: Stand Wald“ wird nichts gemerkt');
+    // zwei eigene mit genau gleichem Namen sind eine Zeile: den ausgeblendeten löschen, der zweite bleibt ausgeblendet
+    await w.S.set('zeitVorlagen', [{ id: 'w1', titel: 'Fütterung: Stand Wald', kategorie: 'Fütterung', minuten: 30, schritte: [] },
+      { id: 'w2', titel: 'Fütterung: Stand Wald', kategorie: 'Fütterung', minuten: 40, schritte: [] }]);
+    await w.S.set('zeitSchnellAus', ['eigen:w1']);
+    assert(!(await keys()).some((x) => x === 'eigen:w1' || x === 'eigen:w2'), 'beide weg');
+    await loeschen();
+    assertEq(w.S.get('zeitSchnellAus'), ['eigen:w2'], 'die Ausblendung geht auf den Zwilling über');
+    assert(!(await keys()).includes('eigen:w2'), 'der Zwilling taucht nicht auf');
+    // umbenennen: alter Name bleibt ausgeblendet, der umbenannte erscheint
+    await w.S.set('zeitVorlagen', [{ id: 'fu', titel: 'Fütterung', kategorie: 'Fütterung', minuten: 20, schritte: [] }]);
+    await w.S.set('zeitSchnellAus', ['eigen:fu']);
+    const f = await w.zeitVorlageForm(w.S.get('zeitVorlagen')[0]); await w99(200);
+    const ti = f.el.querySelector('#f-titel'); ti.value = 'Futter nachfüllen'; ti.dispatchEvent(new w.Event('input', { bubbles: true }));
+    f.el.querySelector('#f-kategorie').value = 'Fütterung'; f.el.querySelector('#f-kategorie').dispatchEvent(new w.Event('change', { bubbles: true }));
+    f.el.querySelector('[data-save]').click(); await w99(400);
+    assertEq(w.S.get('zeitSchnellAus'), ['arbeit:Fütterung'], 'alter Name bleibt ausgeblendet');
+    const k = await keys();
+    assert(k.includes('eigen:fu') && !k.includes('arbeit:Fütterung'), 'der umbenannte steht da, „Fütterung“ nicht: ' + k.join(', '));
+  } finally { w.UI.confirm = echtConfirm; w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+/* 3. Durchsicht v3.01 */
+test('Zeit buchen: eigene Schnellzugriffe mit Namen ohne a–z („Кормление“, „🐝🐝“) erscheinen – auch nach der Übernahme aus v3.00', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  try {
+    await w.S.set('zeitVorlagen', [{ id: 'ru', titel: 'Кормление', kategorie: 'Fütterung', minuten: 30, schritte: [] },
+      { id: 'bi', titel: '🐝🐝', kategorie: 'Sonstiges', minuten: 10, schritte: [] }]);
+    const keys = async () => (await w.zeitSchnellEintraege()).eintraege.map((e) => e.key);
+    let k = await keys();
+    assert(k.includes('eigen:ru') && k.includes('eigen:bi'), 'beide in der Liste: ' + k.join(', '));
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    assert(['eigen:ru', 'eigen:bi'].every((x) => { const b = m.el.querySelector(`input[value="${x}"]`); return b && b.checked; }), 'beide angehakt im Fenster');
+    const b = m.el.querySelector('input[value="eigen:ru"]'); b.checked = false; b.dispatchEvent(new w.Event('change', { bubbles: true }));
+    const echtRender = w.renderRoute; w.renderRoute = async () => {};
+    try { m.el.querySelector('[data-save]').click(); await w99(300); } finally { w.renderRoute = echtRender; }
+    k = await keys();
+    assert(!k.includes('eigen:ru') && k.includes('eigen:bi'), 'abhaken wirkt nur auf „Кормление“: ' + k.join(', '));
+    await w.S.set('zeitSchnellAus', []); await w.S.set('zeitSchnellFest', []); await w.S.set('zeitSchnellAuswahl', ['eigen:ru', 'eigen:bi']);
+    await w.migriereSchnellzugriffe(true);
+    k = await keys();
+    assert(k.includes('eigen:ru') && k.includes('eigen:bi'), 'nach der Übernahme beide da: ' + k.join(', '));
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Zeit buchen anpassen: auch mit mehr als 30 häufigen Arbeiten steht nach dem Speichern genau das Angehakte in der Liste', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  try {
+    for (let i = 1; i <= 33; i++) for (let j = 0; j < 2 + (i <= 10 ? 1 : 0); j++) await zeitEintrag(w, 'Arbeit ' + String(i).padStart(2, '0'), 10, 'Sonstiges', j + 1);
+    const vorher = (await w.zeitSchnellEintraege()).eintraege;
+    assertEq(vorher.length, 15, 'fünfzehn häufige in der Liste');
+    const m = await w.zeitSchnellKonfig(); await w99(200);
+    assert(m.el.querySelector('input[value="arbeit:Arbeit 33"]'), 'auch die 33. häufige steht im Fenster');
+    const behalten = vorher.slice(0, 3).map((e) => e.key);
+    for (const e of vorher.slice(3)) { const b = m.el.querySelector(`input[value="${e.key}"]`); b.checked = false; b.dispatchEvent(new w.Event('change', { bubbles: true })); }
+    m.el.querySelector('[data-save]').click(); await w99(400);
+    const nachher = (await w.zeitSchnellEintraege()).eintraege.map((e) => e.key);
+    assertEq(nachher, behalten, 'genau die drei angehakten – nichts rückt nach: ' + nachher.join(', '));
+  } finally { w.renderRoute = echtRender; dialogeSchliessen(w); }
+}));
+
+test('Schnellzugriffe: Zusammenführen mit einer Sicherung aus v3.00 überschreibt keine neueren Einstellungen', async (w) => isolierteDaten(w, async () => {
+  const st = { id: 'st-a', name: 'Stand A' }; await w.DB.put('staende', st);
+  await w.S.set('zeitSchnellFest', ['arbeit:Wachs klären']); await w.S.set('zeitSchnellAus', ['arbeit:Futterkontrolle']);
+  await w.S.set('fahrtSchnellFest', []); await w.S.set('fahrtSchnellAus', ['stand:st-a']);
+  // so sieht es nach dem Zusammenführen aus: alte Auswahl aus der Sicherung ist wieder da
+  await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren']); await w.S.set('fahrtWidgetAuswahl', ['stand:st-a']);
+  await w.migriereSchnellzugriffe(true);
+  assertEq([w.S.get('zeitSchnellFest'), w.S.get('zeitSchnellAus'), w.S.get('fahrtSchnellFest'), w.S.get('fahrtSchnellAus')],
+    [['arbeit:Wachs klären'], ['arbeit:Futterkontrolle'], [], ['stand:st-a']], 'Einstellungen dieses Geräts bleiben');
+  assertEq([w.S.get('zeitSchnellAuswahl'), w.S.get('fahrtWidgetAuswahl')], [[], []], 'alte Auswahl weggeräumt');
+  // ohne neue Einstellung (frisch eingespielte alte Sicherung) wird umgestellt wie bisher
+  await w.S.set('zeitSchnellFest', []); await w.S.set('zeitSchnellAus', []); await w.S.set('fahrtSchnellAus', []);
+  await w.S.set('zeitSchnellAuswahl', ['arbeit:Honig rühren']); await w.S.set('fahrtWidgetAuswahl', ['stand:st-a']);
+  await w.migriereSchnellzugriffe(true);
+  assertEq([w.S.get('zeitSchnellFest'), w.S.get('fahrtSchnellFest')], [['arbeit:Honig rühren'], ['stand:st-a']], 'alte Auswahl übernommen');
+}));
+
+test('Neue Aufgabe: Vorschläge des Monats stehen in eigener Zeile, getrennt von „Häufig“', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const monat = w.MONATSNAMEN[+w.U.todayIso().slice(5, 7) - 1];
+    let m = await w.aufgabeForm(null); await w99(200);
+    let feld = m.el.querySelector('[data-field="_haeufig"]');
+    assertEq([...feld.querySelectorAll('label')].map((l) => l.textContent), ['Vorschläge für ' + monat], 'ohne eigene Arbeiten nur die Vorschläge');
+    assert([...feld.querySelectorAll('[data-hf]')].every((c) => c.classList.contains('hf-vorschlag')), 'alle als Vorschlag gekennzeichnet');
+    dialogeSchliessen(w);
+    for (let i = 0; i < 2; i++) await zeitEintrag(w, 'Wachs klären', 30, 'Bau & Reparatur', i + 1);
+    m = await w.aufgabeForm(null); await w99(200);
+    feld = m.el.querySelector('[data-field="_haeufig"]');
+    assertEq([...feld.querySelectorAll('label')].map((l) => l.textContent), ['Häufig', 'Vorschläge für ' + monat], 'zwei Zeilen');
+    const reihen = [...feld.querySelectorAll('.hf-chips')];
+    assertEq([...reihen[0].querySelectorAll('[data-hf]')].map((c) => [c.textContent, c.classList.contains('hf-vorschlag')]), [['Wachs klären', false]], 'Häufig: das Eigene');
+    assertEq(reihen[1].querySelectorAll('[data-hf]').length, 4, 'Vorschläge bis fünf aufgefüllt');
+    reihen[0].querySelector('[data-hf]').click(); await w99(50);
+    assertEq(m.el.querySelector('#f-titel').value, 'Wachs klären', 'Tipp füllt aus');
+    reihen[1].querySelector('[data-hf]').click(); await w99(50);
+    assertEq(m.el.querySelector('#f-titel').value, reihen[1].querySelector('[data-hf]').textContent, 'Tipp in der Vorschlagszeile füllt aus');
+  } finally { w.Lizenz.light = echtLight; w.FormGuard.dirty = false; dialogeSchliessen(w); }
+}));
+
+test('Häufige Fahrten anpassen: abhaken blendet aus, wieder anhaken holt zurück; neuer Stand erscheint von selbst', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtRender = w.renderRoute; w.renderRoute = async () => {};
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    const a = await w.DB.put('staende', { name: 'Anger', kmEntfernung: 2 });
+    const b = await w.DB.put('staende', { name: 'Buche', kmEntfernung: 3 });
+    let m = await w.fahrtWidgetKonfig(); await w99(200);
+    const box = m.el.querySelector(`input[value="stand:${a.id}"]`); box.checked = false; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    assertEq([...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent), ['Buche'], 'Anger ausgeblendet, Buche bleibt');
+    await w.DB.put('staende', { name: 'Chaussee', kmEntfernung: 4 });
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    assertEq([...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent), ['Buche', 'Chaussee'], 'neuer Stand erscheint von selbst');
+    m = await w.fahrtWidgetKonfig(); await w99(200);
+    const box2 = m.el.querySelector(`input[value="stand:${a.id}"]`);
+    assert(box2 && !box2.checked, 'Anger steht nicht angehakt zur Wahl');
+    box2.checked = true; box2.dispatchEvent(new w.Event('change', { bubbles: true }));
+    m.el.querySelector('[data-save]').click(); await w99(300);
+    host.innerHTML = await w.DASH_WIDGETS.fahrt.html();
+    assertEq([...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent).sort(), ['Anger', 'Buche', 'Chaussee'], 'wieder da');
+  } finally { w.renderRoute = echtRender; host.remove(); dialogeSchliessen(w); }
 }));

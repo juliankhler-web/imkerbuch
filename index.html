@@ -509,6 +509,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .hf-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;margin-right:-4px}
 .hf-chips::-webkit-scrollbar{display:none}
 .hf-chips .chip{flex:0 0 auto}
+.chip.hf-vorschlag{border-style:dashed;border-color:var(--honey)}
 /* Startseite „Anstehende Aufgaben“: Titel darf zweizeilig sein (Häkchen und Datum lassen wenig Platz) */
 /* Startseiten-Kachel „Anstehende Aufgaben“: das Häkchen bekommt ein fingergroßes Tippfeld (vorher 21 px – knapp daneben öffnete die Aufgaben-Seite) */
 .auf-wrow .check-line{min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;margin:-6px 0 -6px -6px;flex:0 0 auto;cursor:pointer}
@@ -1559,8 +1560,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.00';
+const APP_VERSION = '3.01';
 const CHANGELOG = [
+  { version: '3.01', datum: '2026-10-27', punkte: [
+    '<b>„Anpassen“ verständlicher:</b> Bei „Zeit buchen“ und „Häufige Fahrten“ ist jetzt angehakt, was gerade in der Liste steht. Abhaken blendet aus, anhaken holt dazu, ohne etwas zu verdrängen – vorher ersetzte eine neue Auswahl die ganze Liste, und alles andere verschwand. Nach dem Speichern steht genau das Angehakte in der Liste; es rückt nichts ungefragt nach. Im nächsten Monat kommen dessen Vorschläge wieder von selbst. „Zurücksetzen“ macht die Liste wieder automatisch.',
+    '<b>Vorschläge gekennzeichnet:</b> Typische Arbeiten des Monats, die du nie eingetragen hast, tragen in „Zeit buchen“ das Schild „Vorschlag“. In „Neue Aufgabe“ stehen sie in einer eigenen Zeile „Vorschläge für …“, getrennt von dem, was du oft machst.',
+    '<b>Eigene Schnellzugriffe und eigene Fahrten</b> erscheinen immer von selbst in der Liste und verdrängen nichts. Schnellzugriffe mit Zusatz im Namen, z. B. „Fütterung: Stand Wald“ und „Fütterung: Stand Berg“, bleiben auch nach dem Buchen eigene Zeilen.',
+  ] },
   { version: '3.00', datum: '2026-10-26', punkte: [
     '<b>Honig: Verlust und Eigenverbrauch buchen.</b> Zerbrochene, verschenkte oder selbst gegessene Gläser und den Rest im Eimer buchst du jetzt wie beim Inventar unter „Eigenverbrauch / Verlust“ – im Kassenbuch über „An- und Verkauf buchen“ oder im Reiter „Bestand“ mit „Verlust“. Gründe: Abfüllverlust, Bruch, Eigenverbrauch, Verschenkt, An Bienen verfüttert, Verdorben.',
     '<b>Verlust beim Abfüllen:</b> Im Formular „Abfüllen“ siehst du, was danach noch in der Charge bleibt, und buchst den Rest mit einem Tipp als Verlust. Die Charge ist dann wirklich leer und erinnert nicht mehr ans Haltbarkeitsdatum.',
@@ -3348,7 +3354,9 @@ const S = {
     belegstellenVerzeichnis: [],
     fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
     zeitVorlagen: [], // v2.99: eigene Schnellzugriffe „Zeit buchen“: {id,titel,kategorie,schritte,minuten}
-    zeitSchnellAuswahl: [], // v2.99: Auswahl „Zeit buchen“: ['eigen:<id>','arbeit:<Titel>']; leer = automatisch
+    zeitSchnellAuswahl: [], // bis v3.00 („nur diese“) – v3.01 übernimmt sie in zeitSchnellFest
+    zeitSchnellFest: [], // v3.01: zusätzlich angehakte Einträge „Zeit buchen“ ['eigen:<id>','arbeit:<Titel>']
+    zeitSchnellAus: [], // v3.01: abgehakte (ausgeblendete) Einträge „Zeit buchen“
     /* Hinweise „Aufgabe hat sich geändert“: offen = noch anzuzeigen,
        weg = weggeklickt und darf nie wieder kommen (Schlüssel je Änderung). */
     aufgabenHinweise: { offen: [], weg: [] },
@@ -3358,7 +3366,9 @@ const S = {
     bioBetriebEigen: [], // selbst ergänzte Abschnitte der Betriebsbeschreibung: [{ key, titel }]
     hygienePunkteEigen: {}, // eigene Kontrollpunkte der Checklisten: { honigverarbeitung: [{v,l}], honigabfuellung: [{v,l}] }
     bioBetriebQuelle: {}, // Abschnitte der Betriebsbeschreibung, die aus einer eigenen Unterlage übernommen wurden: { key: { typ:'eigen', datum, text } }
-    fahrtWidgetAuswahl: [], // Dashboard-Schnellzugriffe: ['stand:<id>','vorlage:<id>']; leer = automatisch Top-5-Stände
+    fahrtWidgetAuswahl: [], // bis v3.00 („nur diese“) – v3.01 übernimmt sie in fahrtSchnellFest/-Aus
+    fahrtSchnellFest: [], // v3.01: oben festgehaltene Häufige Fahrten ['stand:<id>','vorlage:<id>']
+    fahrtSchnellAus: [], // v3.01: ausgeblendete Häufige Fahrten
     /* Verkaufspreise je Abfüllung für den Marktverkauf. Gehören gespeichert:
        auf dem Markt schließt man die App zwischendurch, und die Preise mitten
        im Verkauf noch einmal eintippen zu müssen, ist genau das, was nervt. */
@@ -3386,7 +3396,7 @@ const S = {
      geändert": Merker der App und reine Darstellung. Alles andere in den
      Einstellungen sind Angaben des Imkers – Imkerei, Bio-Texte, Vorlagen,
      Listen. Die gehören in die nächste Sicherung, auch wenn sonst nichts neu ist. */
-  NUR_DARSTELLUNG: new Set(['wizardDone', 'letzteGeseheneVersion', 'dokTypZertifikat', 'darkMode', 'bottomNav', 'menuOrder', 'dashboardWidgets', 'fahrtWidgetAuswahl', 'assistentAktiv', 'logoImHeader', 'features', 'backupErinnerung', 'aufgabenHinweise', 'imkerschule']),
+  NUR_DARSTELLUNG: new Set(['wizardDone', 'letzteGeseheneVersion', 'dokTypZertifikat', 'darkMode', 'bottomNav', 'menuOrder', 'dashboardWidgets', 'fahrtWidgetAuswahl', 'fahrtSchnellFest', 'fahrtSchnellAus', 'zeitSchnellFest', 'zeitSchnellAus', 'assistentAktiv', 'logoImHeader', 'features', 'backupErinnerung', 'aufgabenHinweise', 'imkerschule']),
   zaehltAlsDaten(key) {
     return typeof key === 'string' && !this.GERAET.has(key) && !this.NUR_DARSTELLUNG.has(key) && !/(Migriert|WidgetSeen)$/.test(key);
   },
@@ -6519,8 +6529,7 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
         const vorlagen = S.get('fahrtvorlagen') || [];
         const neuId = U.uuid();
         vorlagen.push({ id: neuId, name, km: rec.km, zweck: rec.zweck, standId: rec.standId, freiZiel: rec.freiZiel });
-        await S.set('fahrtvorlagen', vorlagen);
-        await fahrtAuswahlDazu(neuId);
+        await S.set('fahrtvorlagen', vorlagen);   // erscheint von selbst unter „Häufige Fahrten“ (v3.01)
       }
       UI.toast(bearbeiten ? 'Fahrt gespeichert' : (v.alsVorlage ? 'Fahrt erfasst + als Vorlage gemerkt' : 'Fahrt erfasst'));
       if (onDone) onDone(); else renderRoute();
@@ -6585,11 +6594,21 @@ function fahrtSchnellKopf(titel, mitLink) {
   return `<div class="card-title">${icon('truck')}<h2>${U.esc(titel)}</h2>
     <span class="flex-wrap no-print" style="gap:8px"><button class="btn btn-ghost btn-sm" onclick="fahrtWidgetKonfig()">${icon('pencil')} Anpassen</button>${mitLink ? '<a href="#/fahrten" class="small">Fahrtenbuch</a>' : ''}</span></div>`;
 }
-/** Neue eigene Fahrt: Gibt es unter „Anpassen“ eine eigene Auswahl, kommt sie dort gleich dazu – sonst stünde sie weder auf der
-    Startseite noch im Fahrtenbuch (Durchsicht v2.99; bei „Zeit buchen“ genauso). */
-async function fahrtAuswahlDazu(id) {
-  const aw = S.get('fahrtWidgetAuswahl') || [];
-  if (aw.length && !aw.includes('vorlage:' + id)) await S.set('fahrtWidgetAuswahl', [...aw, 'vorlage:' + id]);
+/**
+ * Reihenfolge der Häufigen Fahrten (v3.01, Julian 27.10.2026: „wenn ich bei Anpassen selber was hinzufüge, verschwindet,
+ * was drin stand“): oben die festgehaltenen, dann automatisch eigene Fahrten und Stände nach Nutzung – ohne ausgeblendete.
+ * Neue Stände und eigene Fahrten erscheinen von selbst. Liefert [{key, s?|vl?, n}].
+ */
+function fahrtSchnellReihe(staende, vorlagen, fahrten, besuche) {
+  const aus = new Set(S.get('fahrtSchnellAus') || []);
+  const auto = [
+    ...vorlagen.map((vl) => ({ key: 'vorlage:' + vl.id, vl, n: fahrtVorlageNutzung(vl, fahrten) })),
+    ...staende.map((st) => ({ key: 'stand:' + st.id, s: st, n: besuche.get(st.id) || 0 })),
+  ].sort((a, b) => b.n - a.n);   // stabil: Gleichstand → eigene Fahrt zuerst, Stände alphabetisch
+  const nachKey = new Map(auto.map((e) => [e.key, e]));
+  const fest = (S.get('fahrtSchnellFest') || []).filter((k) => nachKey.has(k) && !aus.has(k)).map((k) => nachKey.get(k));
+  const festKeys = new Set(fest.map((e) => e.key));
+  return [...fest, ...auto.filter((e) => !aus.has(e.key) && !festKeys.has(e.key))];
 }
 /** Wie oft eine eigene Fahrt schon gebucht wurde: gleiches Ziel (Stand und km, oder freies Ziel). */
 function fahrtVorlageNutzung(vl, fahrten) {
@@ -6604,7 +6623,6 @@ function fahrtVorlageNutzung(vl, fahrten) {
 async function fahrtSchnellListe() {
   const staendeAlle = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
   const vorlagen = S.get('fahrtvorlagen') || [];
-  const auswahl = S.get('fahrtWidgetAuswahl') || [];
   if (!staendeAlle.length && !vorlagen.length) {
     return `<div class="muted small">Lege einen Bienenstand oder eine eigene Fahrt an – dann buchst du Fahrten mit einem Tipp ins Fahrtenbuch.</div>
       <button class="btn btn-ghost btn-sm no-print mt8" onclick="Views.fahrten.vorlageForm(null)">${icon('plus')} Eigene Fahrt anlegen</button>`;
@@ -6625,20 +6643,8 @@ async function fahrtSchnellListe() {
     U.esc(vl.name),
     `${vl.km ? `${U.fmtNum(vl.km)} km` : 'km nicht gesetzt'}${vl.zweck ? ' · ' + U.esc(vl.zweck) : ''}${mal(fahrtVorlageNutzung(vl, fahrten))}`,
     `<button class="btn btn-primary btn-sm no-print" onclick="fahrtVorlageBuchen('${U.esc(vl.id)}')">${icon('plus')} Fahrt buchen</button>`, opt);
-  if (auswahl.length) {
-    // eigene Auswahl (Stände und/oder eigene Fahrten) – alle sichtbar, in der gewählten Reihenfolge
-    const rows = auswahl.map((key) => {
-      const [typ, id] = key.split(':');
-      if (typ === 'stand') { const s = staende.find((x) => x.id === id); return s ? standZeile(s, {}) : ''; }
-      const vl = vorlagen.find((x) => x.id === id); return vl ? vorlageZeile(vl, {}) : '';
-    }).join('');
-    return `<div class="rows">${rows || '<div class="muted small">Die gewählten Einträge gibt es nicht mehr – bitte unter „Anpassen“ neu wählen.</div>'}</div>`;
-  }
-  // automatisch: eigene Fahrten und Stände nach Anzahl gebuchter Fahrten (stabil sortiert: Gleichstand → eigene Fahrt zuerst)
-  const eintraege = [
-    ...vorlagen.map((vl) => ({ vl, n: fahrtVorlageNutzung(vl, fahrten) })),
-    ...staende.map((s) => ({ s, n: besuche.get(s.id) || 0 })),
-  ].sort((a, b) => b.n - a.n);
+  const eintraege = fahrtSchnellReihe(staende, vorlagen, fahrten, besuche);
+  if (!eintraege.length) return '<div class="muted small">Alles ausgeblendet – unter „Anpassen“ wieder anhaken.</div>';
   const TOP = 5, offen = DASH_WIDGETS.fahrt._alle;
   const rows = eintraege.map((e, i) => {
     const opt = { mehr: i >= TOP, versteckt: i >= TOP && !offen };
@@ -6671,27 +6677,49 @@ async function fahrtVorlageBuchen(vorlageId) {
   renderRoute({ scrollBehalten: true });
 }
 
-/** Dashboard-Kachel „Fahrten“ anpassen: welche Stände und eigenen Fahrten als Schnellzugriff erscheinen. */
+/** Einen Schlüssel aus „festgehalten“ und „ausgeblendet“ entfernen (Eintrag gelöscht). praefix: 'fahrtSchnell' | 'zeitSchnell' */
+async function schnellSchluesselWeg(praefix, key) {
+  for (const art of ['Fest', 'Aus']) { const l = S.get(praefix + art) || []; if (l.includes(key)) await S.set(praefix + art, l.filter((k) => k !== key)); }
+}
+/**
+ * „Häufige Fahrten anpassen“ (v3.01): angehakt ist, was gerade in der Liste steht. Abhaken blendet aus, anhaken holt zurück –
+ * vorher ersetzte eine neue Auswahl die ganze Liste („alles andere verschwindet“, Julian 27.10.2026).
+ */
 async function fahrtWidgetKonfig() {
   const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
   const vorlagen = S.get('fahrtvorlagen') || [];
-  const opts = [
-    ...staende.map((s) => ({ v: 'stand:' + s.id, l: `Stand: ${s.name}` })),
-    ...vorlagen.map((v) => ({ v: 'vorlage:' + v.id, l: `Eigene Fahrt: ${v.name}${v.km ? ' · ' + U.fmtNum(v.km) + ' km' : ''}` })),
-  ];
-  if (!opts.length) return UI.toast('Lege zuerst einen Bienenstand oder eine eigene Fahrt an (Fahrtenbuch → „+ Fahrt“ → „Als häufige Fahrt merken“).', 'err');
+  if (!staende.length && !vorlagen.length) return UI.toast('Lege zuerst einen Bienenstand oder eine eigene Fahrt an (Fahrtenbuch → „+ Fahrt“ → „Als häufige Fahrt merken“).', 'err');
+  const fahrten = await DB.getAll('fahrten');
+  const { sorted, besuche } = staendeNachBesuchen(staende, fahrten);
+  const sichtbar = fahrtSchnellReihe(sorted, vorlagen, fahrten, besuche);
+  const sichtbarKeys = new Set(sichtbar.map((e) => e.key));
+  const label = (k) => { const [typ, id] = k.split(':'); if (typ === 'stand') { const st = staende.find((x) => x.id === id); return st ? `Stand: ${st.name}` : null; } const v = vorlagen.find((x) => x.id === id); return v ? `Eigene Fahrt: ${v.name}${v.km ? ' · ' + U.fmtNum(v.km) + ' km' : ''}` : null; };
+  const alleKeys = [...sichtbar.map((e) => e.key), ...[...vorlagen.map((v) => 'vorlage:' + v.id), ...staende.map((st) => 'stand:' + st.id)].filter((k) => !sichtbarKeys.has(k))];
+  const opts = alleKeys.map((k) => ({ v: k, l: label(k) })).filter((o) => o.l);
   const m = UI.formModal({
     title: 'Häufige Fahrten anpassen', wide: true,
     fields: [
-      { key: '_h', type: 'static', html: `<div class="hint mb8">Gilt für die Startseite und das Fahrtenbuch – beide zeigen dieselbe Liste. Nichts ausgewählt = automatisch deine häufigsten Fahrten (Stände und eigene Fahrten).</div>
-        <button type="button" class="btn btn-ghost btn-sm mb8" data-vl-verwalten>${icon('truck')} Eigene Fahrten verwalten</button>` },
-      { key: 'auswahl', label: 'Anzeigen', type: 'multicheck', options: opts, keepOrder: true },
+      { key: '_h', type: 'static', html: `<div class="hint mb8">Angehakt = steht in der Liste (Startseite und Fahrtenbuch). Abhaken blendet aus, anhaken holt zurück. Neue Stände und eigene Fahrten erscheinen von selbst.</div>
+        <div class="flex-wrap mb8" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-vl-verwalten>${icon('truck')} Eigene Fahrten verwalten</button><button type="button" class="btn btn-ghost btn-sm" data-schnell-reset>${icon('restore')} Zurücksetzen</button></div>` },
+      { key: 'auswahl', label: 'In der Liste', type: 'multicheck', options: opts, keepOrder: true },
     ],
-    values: { auswahl: S.get('fahrtWidgetAuswahl') || [] },
-    async onSave(v) { await S.set('fahrtWidgetAuswahl', v.auswahl || []); UI.toast('Häufige Fahrten angepasst'); renderRoute({ scrollBehalten: true }); },
+    values: { auswahl: [...sichtbarKeys] },
+    async onSave(v) {
+      const an = new Set(v.auswahl || []);
+      await S.set('fahrtSchnellAus', opts.map((o) => o.v).filter((k) => !an.has(k)));
+      await S.set('fahrtSchnellFest', (S.get('fahrtSchnellFest') || []).filter((k) => an.has(k)));
+      UI.toast('Häufige Fahrten angepasst'); renderRoute({ scrollBehalten: true });
+    },
   });
   const vw = m && m.el && $('[data-vl-verwalten]', m.el);
-  if (vw) vw.onclick = async () => { if (!(await m.close())) return; Views.fahrten.vorlagenManager(); };   // fragt bei gesetzten Haken „Änderungen verwerfen?“
+  if (vw) vw.onclick = async () => { if (!(await m.close())) return; Views.fahrten.vorlagenManager(); };   // fragt bei geänderten Haken „Änderungen verwerfen?“
+  const rs = m && m.el && $('[data-schnell-reset]', m.el);
+  if (rs) rs.onclick = async () => {
+    await S.set('fahrtSchnellAus', []); await S.set('fahrtSchnellFest', []);
+    FormGuard.dirty = false; await m.close(true);
+    UI.toast('Häufige Fahrten wieder automatisch'); renderRoute({ scrollBehalten: true });
+  };
+  return m;
 }
 
 async function fahrtSchnellBuchen(standId) {
@@ -18303,7 +18331,15 @@ async function aufgabeForm(a, vorgabeDatum) {
   const m = UI.formModal({
     title: a ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
     fields: [
-      ...(haeufig.length ? [{ key: '_haeufig', type: 'static', html: `<label>Häufig</label><div class="chip-row hf-chips">${haeufig.map((e, i) => `<button type="button" class="chip" data-hf="${i}">${U.esc(e.titel)}</button>`).join('')}</div><div class="hint">Ein Tipp füllt Aufgabe, Tätigkeitsbereich und Arbeitsschritte aus – du wählst nur noch das Datum.</div>` }] : []),
+      ...(haeufig.length ? [{ key: '_haeufig', type: 'static', html: (() => {
+        // Vorschläge des Monats in eigener Zeile – nicht vermischt mit dem, was man selbst oft macht (v3.01)
+        const zeile = (titel, nurVorschlag) => {
+          const knoepfe = haeufig.map((e, i) => (e.art === 'saison') === nurVorschlag ? `<button type="button" class="chip${nurVorschlag ? ' hf-vorschlag' : ''}" data-hf="${i}">${U.esc(e.titel)}</button>` : '').join('');
+          return knoepfe ? `<label>${titel}</label><div class="chip-row hf-chips">${knoepfe}</div>` : '';
+        };
+        return zeile('Häufig', false) + zeile(`Vorschläge für ${MONATSNAMEN[+U.todayIso().slice(5, 7) - 1]}`, true)
+          + '<div class="hint">Ein Tipp füllt Aufgabe, Tätigkeitsbereich und Arbeitsschritte aus – du wählst nur noch das Datum.</div>';
+      })() }] : []),
       { key: 'titel', label: 'Aufgabe', type: 'suggest', required: true, placeholder: 'auswählen oder eintippen …', options: vorschlaege,
         hint: 'Typische Aufgaben übers Bienenjahr (z. B. Futterkontrolle) und deine eigenen von früher – oder einfach frei eintippen.' },
       { key: 'faellig', label: 'Fällig am', type: 'date' },
@@ -19251,40 +19287,91 @@ function zeitBereichMitSchritten(kat, schritte, titel) {
   const ok = zeitBereichOk(kat, titel);
   return { kategorie: ok, schritte: ok === kat ? [...(schritte || [])] : (ok ? schritteErkennen(titel, ok) : []) };
 }
+/** Name als Vergleichsschlüssel; Namen ohne a–z und Ziffern („Кормление“, „🍯“) behalten sich selbst – sonst blieb der Schlüssel
+    leer und ein solcher eigener Schnellzugriff erschien nirgends (3. Durchsicht v3.01). */
+function zeitNorm(t) { return assistentNorm(t) || String(t || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
 function zeitSchnellAus(key, arbeiten) {
   const i = String(key || '').indexOf(':'); if (i < 0) return null;
   const typ = key.slice(0, i), wert = key.slice(i + 1);
   if (typ === 'eigen') {
     const z = (S.get('zeitVorlagen') || []).find((x) => x.id === wert); if (!z) return null;
-    const st = zeitArbeitZu(z.titel, arbeiten);
+    /* Bedeutung = der ganze Name. Vorher sprang sie nach der ersten Buchung auf den Kern: „Futterkontrolle: Stand Wald“ wurde
+       zu „Futterkontrolle“ – verschwand, wenn die ausgeblendet war, und zwei eigene „Fütterung: Stand …“ wurden zu einer Zeile
+       (2. Durchsicht v3.01). Gleich heißen nur genau gleiche Namen; die Anzahl zählt deshalb auch nur genau diese. */
+    const nkey = zeitNorm(z.titel), gleich = arbeiten.find((y) => y.key === nkey), st = gleich || zeitArbeitZu(z.titel, arbeiten);
     return { key, art: 'eigen', titel: z.titel, ...zeitBereichMitSchritten(z.kategorie, Array.isArray(z.schritte) ? z.schritte : [], z.titel),
-      minuten: z.minuten || (st ? st.minuten : 0), n: st ? st.nJahr : 0, nkey: st ? st.key : assistentNorm(z.titel) };
+      minuten: z.minuten || (st ? st.minuten : 0), n: gleich ? gleich.nJahr : 0, nAlle: gleich ? gleich.n : 0, nkey };
   }
   if (typ !== 'arbeit' || !wert.trim()) return null;
   const st = zeitArbeitZu(wert, arbeiten);
-  if (st) return { key, art: 'arbeit', titel: st.titel, ...zeitBereichMitSchritten(st.kategorie, st.schritte, st.titel), minuten: st.minuten, n: st.nJahr, nkey: st.key };
-  return { key, art: 'vorlage', ...zeitAusTitel(wert), n: 0, nkey: assistentNorm(wert) };
+  if (st) return { key, art: 'arbeit', titel: st.titel, ...zeitBereichMitSchritten(st.kategorie, st.schritte, st.titel), minuten: st.minuten, n: st.nJahr, nAlle: st.n, nkey: st.key };
+  return { key, art: 'vorlage', ...zeitAusTitel(wert), n: 0, nAlle: 0, nkey: zeitNorm(wert) };
 }
 /**
- * Die Zeilen für „Zeit buchen“. Mit eigener Auswahl genau diese (Reihenfolge wie gewählt); sonst automatisch: eigene Schnellzugriffe
- * und Arbeiten, die im letzten Jahr mindestens zweimal vorkamen – häufigste zuerst –, aufgefüllt mit typischen Arbeiten des Monats.
+ * Ausgeblendet wird nach Bedeutung, nicht nach Schlüssel: Ein eigener Schnellzugriff „Fütterung“ und die oft gebuchte
+ * Arbeit „Fütterung“ sind für Julian dasselbe – abhaken muss beide wegnehmen (Durchsicht v3.01).
+ */
+function zeitAusNkeys(aus, arbeiten, heute = U.todayIso()) {
+  const out = new Set();
+  for (const k of aus || []) { const e = zeitSchnellAus(zeitAusKey(k, heute), arbeiten); if (e && e.nkey) out.add(e.nkey); }
+  return out;
+}
+/**
+ * „monat:2026-10:arbeit:X“ = nur in diesem Monat ausgeblendet. So merkt sich „Anpassen“, was nach dem Speichern nachgerückt
+ * wäre: im selben Monat bleibt die Liste genau wie angehakt, im nächsten füllt sie sich wieder mit dessen Vorschlägen – vorher
+ * fehlte z. B. „Waben einschmelzen“ für immer, nur weil es im Oktober ohne Haken im Fenster stand (2. Durchsicht v3.01).
+ * @returns {string} der eigentliche Schlüssel – leer, wenn er zu einem anderen Monat gehört
+ */
+function zeitAusKey(k, heute = U.todayIso()) {
+  const m = /^monat:(\d{4}-\d{2}):(.+)$/.exec(String(k || ''));
+  return !m ? k : m[1] === heute.slice(0, 7) ? m[2] : '';
+}
+/** Festgehaltene Zeilen; hat ein eigener Schnellzugriff denselben Namen, steht er für die Arbeit – mit seiner Dauer und seinen
+    Schritten (vorher überdeckte die festgehaltene Arbeit einen später angelegten eigenen, 2. Durchsicht v3.01). */
+function zeitFestEintraege(festKeys, arbeiten, ausN) {
+  const eigenN = new Map();
+  for (const z of S.get('zeitVorlagen') || []) { const e = zeitSchnellAus('eigen:' + z.id, arbeiten); if (e && !eigenN.has(e.nkey)) eigenN.set(e.nkey, e); }
+  const fest = [], schon = new Set();
+  for (const k of festKeys || []) {
+    let e = zeitSchnellAus(k, arbeiten);
+    if (e && e.art !== 'eigen' && eigenN.has(e.nkey)) e = eigenN.get(e.nkey);
+    if (!e || !e.nkey || ausN.has(e.nkey) || schon.has(e.nkey)) continue;
+    schon.add(e.nkey); fest.push(e);
+  }
+  return fest;
+}
+/**
+ * Automatische Zeilen „Zeit buchen“: eigene Schnellzugriffe (immer, sie verdrängen nichts), Arbeiten, die im letzten Jahr
+ * mindestens zweimal vorkamen (häufigste zuerst), aufgefüllt mit Vorschlägen des Monats bis fünf – ohne ausgeblendete und
+ * ohne festgehaltene (die stehen schon vorn).
+ */
+function zeitAutoEintraege(arbeiten, aus, heute = U.todayIso(), fest = []) {
+  const out = [], schon = zeitAusNkeys(aus, arbeiten, heute);   // Ausgeblendetes belegt seinen Namen – nichts Gleichnamiges rückt nach
+  for (const e of fest) schon.add(e.nkey);   // Festgehaltenes steht schon vorn und nimmt keinen der fünf Plätze weg
+  const dazu = (e) => { if (!e || !e.nkey || schon.has(e.nkey)) return; schon.add(e.nkey); out.push(e); };
+  for (const z of S.get('zeitVorlagen') || []) dazu(zeitSchnellAus('eigen:' + z.id, arbeiten));
+  const nEigen = out.length;
+  const haeufig = arbeiten.filter((x) => x.nJahr >= 2).map((x) => zeitSchnellAus('arbeit:' + x.titel, arbeiten)).filter(Boolean).sort((a, b) => b.n - a.n);
+  for (const e of haeufig) { if (out.length - nEigen >= 15) break; dazu(e); }
+  for (const t of ZEIT_SAISON[+heute.slice(5, 7)] || []) {
+    if (out.length - nEigen >= 5) break;
+    const e = zeitSchnellAus('arbeit:' + t, arbeiten);
+    if (e && e.art !== 'arbeit') e.art = 'saison';
+    dazu(e);
+  }
+  return out;
+}
+/**
+ * Die Zeilen für „Zeit buchen“ (v3.01): festgehaltene (in „Anpassen“ dazugeholt) + automatische, ohne ausgeblendete.
+ * Vorher ersetzte eine eigene Auswahl die ganze Liste – Julian 27.10.2026: „wenn ich bei Anpassen selber was hinzufüge,
+ * verschwindet, was drin stand“.
  */
 async function zeitSchnellEintraege(alle = null, heute = U.todayIso()) {
   const arbeiten = zeitArbeiten(alle || await DB.getAll('aufgaben'), heute);
-  const auswahl = S.get('zeitSchnellAuswahl') || [];
-  if (auswahl.length) return { eintraege: auswahl.map((k) => zeitSchnellAus(k, arbeiten)).filter(Boolean), auswahl: true, arbeiten };
-  const kand = [], schon = new Set();
-  const dazu = (e) => { const k = e && e.nkey; if (!k || schon.has(k)) return; schon.add(k); kand.push(e); };
-  for (const z of S.get('zeitVorlagen') || []) dazu(zeitSchnellAus('eigen:' + z.id, arbeiten));
-  for (const x of arbeiten) if (x.nJahr >= 2) dazu(zeitSchnellAus('arbeit:' + x.titel, arbeiten));
-  kand.sort((a, b) => b.n - a.n);   // stabil: bei Gleichstand eigene Schnellzugriffe zuerst
-  const eintraege = kand.slice(0, 15);
-  for (const t of ZEIT_SAISON[+heute.slice(5, 7)] || []) {
-    if (eintraege.length >= 5) break;
-    const e = zeitSchnellAus('arbeit:' + t, arbeiten); if (!e || schon.has(e.nkey)) continue; schon.add(e.nkey);
-    eintraege.push({ ...e, art: e.art === 'arbeit' ? 'arbeit' : 'saison' });
-  }
-  return { eintraege, auswahl: false, arbeiten };
+  const aus = S.get('zeitSchnellAus') || [];
+  const fest = zeitFestEintraege(S.get('zeitSchnellFest'), arbeiten, zeitAusNkeys(aus, arbeiten, heute));
+  const eintraege = [...fest, ...zeitAutoEintraege(arbeiten, aus, heute, fest)];
+  return { eintraege, angepasst: !!(fest.length || aus.length), arbeiten };
 }
 /** Kopf der Karte „Zeit buchen“ / „Häufige Arbeiten“ – auf der Startseite mit Weg in die Zeiterfassung. */
 function zeitSchnellKopf(titel, mitLink) {
@@ -19293,21 +19380,22 @@ function zeitSchnellKopf(titel, mitLink) {
 }
 /** Zweite Zeile eines Schnellzugriffs: „Fütterung · meist 20 min · 12-mal“. */
 function zeitSchnellSub(e) {
-  const wie = e.n ? `${e.n}-mal` : e.art === 'saison' ? 'jetzt typisch' : e.art === 'eigen' ? 'eigener Schnellzugriff' : '';
+  const wie = e.n ? `${e.n}-mal` : e.art === 'eigen' ? 'eigener Schnellzugriff' : e.nAlle ? `früher ${e.nAlle}-mal` : '';
   return [e.kategorie || 'Bereich noch offen', e.minuten ? `meist ${zeitMinText(e.minuten)}` : '', wie].filter(Boolean).join(' · ');
 }
 /** Zeilen „Zeit buchen“ – identisch in der Startseiten-Kachel und in der Zeiterfassung. */
 async function zeitSchnellListe(alle = null) {
-  const { eintraege, auswahl } = await zeitSchnellEintraege(alle);
-  if (!eintraege.length) return '<div class="muted small">Die gewählten Einträge gibt es nicht mehr – bitte unter „Anpassen“ neu wählen.</div>';
+  const { eintraege } = await zeitSchnellEintraege(alle);
+  if (!eintraege.length) return '<div class="muted small">Alles ausgeblendet – unter „Anpassen“ wieder anhaken.</div>';
   const TOP = 5, offen = DASH_WIDGETS.zeiten._alle;
   const rows = eintraege.map((e, i) => {
-    const mehr = !auswahl && i >= TOP;
+    const mehr = i >= TOP;
+    // Vorschläge des Monats sichtbar kennzeichnen – Julian hielt sie für fremde Einträge (v3.01)
     return `<div class="row zeit-row schnell-row" style="min-height:44px;padding:8px 4px${mehr && !offen ? ';display:none' : ''}" ${mehr ? 'data-fw-mehr' : ''}>
-      <div class="r-main"><div class="r-title">${U.esc(e.titel)}</div><div class="r-sub">${U.esc(zeitSchnellSub(e))}</div></div>
+      <div class="r-main"><div class="r-title">${U.esc(e.titel)}${e.art === 'saison' ? ' <span class="badge b-honey zs-vorschlag">Vorschlag</span>' : ''}</div><div class="r-sub">${U.esc(zeitSchnellSub(e))}</div></div>
       <button class="btn btn-primary btn-sm no-print" data-zk="${U.esc(e.key)}" onclick="zeitSchnellOeffnen(this.dataset.zk)">${icon('plus')} Zeit</button></div>`;
   }).join('');
-  return `<div class="rows">${rows}</div>${!auswahl && eintraege.length > TOP ? schnellMehrKnopf(eintraege.length, 'zeiten', 'zeit-toggle') : ''}`;
+  return `<div class="rows">${rows}</div>${eintraege.length > TOP ? schnellMehrKnopf(eintraege.length, 'zeiten', 'zeit-toggle') : ''}`;
 }
 /** Ein Tipp auf „+ Zeit“: kleiner Dialog – übliche Dauer ist schon gewählt, „Zeit buchen“ trägt sie für heute ein. */
 async function zeitSchnellOeffnen(key) {
@@ -19368,33 +19456,91 @@ async function zeitSchnellSpeichern(e, kategorie, schritte, minuten, datum = U.t
   for (const x of rec.schritte) await schrittMerken(kategorie, x);
   return rec;
 }
-/** „Anpassen“: welche Arbeiten in „Zeit buchen“ stehen (gilt für Startseite und Zeiterfassung) + eigene Schnellzugriffe. */
+/**
+ * „Zeit buchen anpassen“ (v3.01): angehakt ist, was gerade in der Liste steht. Abhaken blendet aus, anhaken holt dazu;
+ * neue häufige Arbeiten und Vorschläge des Monats kommen weiter von selbst, solange man sie nicht abhakt.
+ */
 async function zeitSchnellKonfig() {
   const alle = await DB.getAll('aufgaben');
-  const arbeiten = zeitArbeiten(alle);
-  const eigene = S.get('zeitVorlagen') || [];
-  const auswahl = S.get('zeitSchnellAuswahl') || [];
-  const monat = new Date().getMonth();
-  const opts = [], schon = new Set();
-  const dazu = (v, l) => { if (schon.has(v)) return; schon.add(v); opts.push({ v, l }); };
-  for (const z of eigene) dazu('eigen:' + z.id, `Eigene: ${z.titel}${z.minuten ? ' · ' + zeitMinText(z.minuten) : ''}`);
-  const normen = new Set();
-  for (const x of arbeiten.slice(0, 30)) { normen.add(x.key); dazu('arbeit:' + x.titel, `${x.titel} · ${x.n}-mal · meist ${zeitMinText(x.minuten)}`); }
-  for (const t of ZEIT_SAISON[monat + 1] || []) if (!normen.has(assistentNorm(t))) dazu('arbeit:' + t, `${t} · typisch im ${MONATSNAMEN[monat]}`);
-  for (const k of auswahl) dazu(k, k.startsWith('arbeit:') ? k.slice(7) : k);   // Gewähltes bleibt sichtbar, auch wenn es nicht mehr häufig ist
+  const heute = U.todayIso(), monat = +heute.slice(5, 7);
+  const { eintraege, arbeiten } = await zeitSchnellEintraege(alle, heute);
+  const opts = [], nachKey = new Map(), schon = new Set();
+  const wieOft = (e) => e.n ? `${e.n}-mal` : e.nAlle ? `früher ${e.nAlle}-mal` : '';
+  const label = (e) => [e.titel, e.art === 'eigen' ? 'eigener Schnellzugriff' : e.art === 'saison' ? `Vorschlag für ${MONATSNAMEN[monat - 1]}`
+    : e.art === 'vorlage' ? 'von dir dazugeholt' : wieOft(e), e.art !== 'eigen' && e.art !== 'saison' && e.minuten ? 'meist ' + zeitMinText(e.minuten) : ''].filter(Boolean).join(' · ');
+  // je Name nur eine Zeile (eigener Schnellzugriff vor gleichnamiger Arbeit) – sonst wirkte Abhaken nicht (Durchsicht v3.01)
+  const dazu = (e) => { if (!e || !e.nkey || schon.has(e.nkey)) return; schon.add(e.nkey); nachKey.set(e.key, e); opts.push({ v: e.key, l: label(e) }); };
+  for (const e of eintraege) dazu(e);   // zuerst, was gerade in der Liste steht (angehakt)
+  for (const z of S.get('zeitVorlagen') || []) dazu(zeitSchnellAus('eigen:' + z.id, arbeiten));
+  // alle häufigen (sie können in der Liste stehen) und die übrigen der ersten 30 – vorher fehlten häufige ab Platz 31 (3. Durchsicht v3.01)
+  for (const x of arbeiten.filter((y, i) => i < 30 || y.nJahr >= 2)) dazu(zeitSchnellAus('arbeit:' + x.titel, arbeiten));
+  for (const t of ZEIT_SAISON[monat] || []) { const e = zeitSchnellAus('arbeit:' + t, arbeiten); if (e && e.art !== 'arbeit') e.art = 'saison'; dazu(e); }
   const m = UI.formModal({
     title: 'Zeit buchen anpassen', wide: true,
     fields: [
-      { key: '_h', type: 'static', html: `<div class="hint mb8">Gilt für die Startseite und die Zeiterfassung – beide zeigen dieselbe Liste. Nichts ausgewählt = automatisch deine häufigsten Arbeiten (ab zweimal im letzten Jahr), aufgefüllt mit typischen Arbeiten des Monats.</div>
-        <button type="button" class="btn btn-ghost btn-sm mb8" data-zv-verwalten>${icon('uhr')} Eigene Schnellzugriffe verwalten</button>` },
-      { key: 'auswahl', label: 'Anzeigen', type: 'multicheck', options: opts, keepOrder: true },
+      { key: '_h', type: 'static', html: `<div class="hint mb8">Angehakt = steht in der Liste (Startseite und Zeiterfassung). Abhaken blendet aus, anhaken holt dazu. Neue häufige Arbeiten und Vorschläge des Monats kommen von selbst dazu.</div>
+        <div class="flex-wrap mb8" style="gap:6px"><button type="button" class="btn btn-ghost btn-sm" data-zv-verwalten>${icon('uhr')} Eigene Schnellzugriffe verwalten</button><button type="button" class="btn btn-ghost btn-sm" data-schnell-reset>${icon('restore')} Zurücksetzen</button></div>` },
+      { key: 'auswahl', label: 'In der Liste', type: 'multicheck', options: opts, keepOrder: true },
     ],
-    values: { auswahl },
-    async onSave(v) { await S.set('zeitSchnellAuswahl', v.auswahl || []); UI.toast('Zeit buchen angepasst'); renderRoute({ scrollBehalten: true }); },
+    values: { auswahl: eintraege.map((e) => e.key) },
+    async onSave(v) {
+      const an = (v.auswahl || []).filter((k) => nachKey.has(k));
+      const nk = (k) => { const e = nachKey.get(k) || zeitSchnellAus(zeitAusKey(k, heute), arbeiten); return e ? e.nkey : ''; };
+      const anN = new Set(an.map(nk)), sichtbarN = new Set(eintraege.map((e) => e.nkey));
+      /* ausgeblendet: was SICHTBAR war und abgehakt wurde, plus früher Ausgeblendetes, das nicht wieder angehakt ist
+         (Nachrücker vergangener Monate fallen weg). Was gar nicht in der Liste stand und nicht angehakt wird, bleibt unberührt. */
+      const aus = [...new Set([...(S.get('zeitSchnellAus') || []).filter((k) => zeitAusKey(k, heute) && !anN.has(nk(k))), ...eintraege.filter((e) => !anN.has(e.nkey)).map((e) => e.key)])];
+      /* festgehalten: früher Festgehaltenes, solange es angehakt bleibt (auch wenn es gerade ohnehin automatisch kommt – sonst
+         verschwände es, sobald es nicht mehr häufig ist), dazu neu Angehaktes, das nicht schon in der Liste stand. Festgehaltenes
+         nimmt keinen der fünf Plätze weg – so verdrängt Dazuholen nichts (vorher wurde dafür das Verdrängte festgehalten und
+         trug danach „von dir dazugeholt“ statt „Vorschlag“, 2. Durchsicht v3.01). Eigene Schnellzugriffe kommen ohnehin. */
+      const festN = new Set(), festNeu = [];
+      const halte = (k) => { const n = nk(k); if (!n || festN.has(n)) return; festN.add(n); festNeu.push(k); };
+      (S.get('zeitSchnellFest') || []).filter((k) => anN.has(nk(k))).forEach(halte);
+      an.filter((k) => !sichtbarN.has(nk(k)) && !k.startsWith('eigen:')).forEach(halte);
+      const fest = zeitFestEintraege(festNeu, arbeiten, new Set());
+      /* Was nicht angehakt ist, darf danach nicht nachrücken – sonst stünde in der Liste, was eben nicht angehakt war. Das gilt
+         nur für diesen Monat; danach kommen die Vorschläge des neuen Monats wieder von selbst. */
+      for (let i = 0; i <= opts.length + arbeiten.length; i++) {
+        const nachruecker = zeitAutoEintraege(arbeiten, aus, heute, fest).filter((e) => !anN.has(e.nkey));
+        if (!nachruecker.length) break;
+        aus.push(...nachruecker.map((e) => `monat:${heute.slice(0, 7)}:${e.key}`));
+      }
+      await S.set('zeitSchnellAus', aus); await S.set('zeitSchnellFest', festNeu);
+      UI.toast('Zeit buchen angepasst'); renderRoute({ scrollBehalten: true });
+    },
   });
   const vw = m && m.el && $('[data-zv-verwalten]', m.el);
-  if (vw) vw.onclick = async () => { if (!(await m.close())) return; zeitVorlagenManager(); };   // fragt bei gesetzten Haken „Änderungen verwerfen?“
+  if (vw) vw.onclick = async () => { if (!(await m.close())) return; zeitVorlagenManager(); };   // fragt bei geänderten Haken „Änderungen verwerfen?“
+  const rs = m && m.el && $('[data-schnell-reset]', m.el);
+  if (rs) rs.onclick = async () => {
+    await S.set('zeitSchnellAus', []); await S.set('zeitSchnellFest', []);
+    FormGuard.dirty = false; await m.close(true);
+    UI.toast('Zeit buchen wieder automatisch'); renderRoute({ scrollBehalten: true });
+  };
   return m;
+}
+/**
+ * Ausgeblendeten eigenen Schnellzugriff durch seinen Namen ersetzen (Löschen, Umbenennen): Abhaken hatte alles mit diesem Namen
+ * weggenommen – ohne das kam die gleichnamige Arbeit zurück (2. Durchsicht v3.01) oder ein gleichnamiger zweiter eigener
+ * (Zufallstest v3.01). Steht der Name für sich allein als Arbeit, merkt sich das „arbeit:<Name>“; ein Name mit Zusatz
+ * („Fütterung: Stand Wald“) ist keine eigene Arbeit – dafür nichts merken, sonst wäre „Fütterung“ mit ausgeblendet.
+ */
+function zeitAusOhneEigen(aus, z, arbeiten) {
+  const k = 'eigen:' + z.id; if (!aus.includes(k)) return aus;
+  const rest = aus.filter((x) => x !== k), n = zeitNorm(z.titel);
+  if (!n || zeitAusNkeys(rest, arbeiten).has(n)) return rest;
+  const zwilling = (S.get('zeitVorlagen') || []).find((x) => x.id !== z.id && zeitNorm(x.titel) === n);
+  if (zwilling) rest.push('eigen:' + zwilling.id);
+  else if (zeitNorm(aufgabeKern(z.titel)) === n) rest.push('arbeit:' + z.titel);
+  return rest;
+}
+/** Eigenen Schnellzugriff löschen (Liste und Formular). */
+async function zeitVorlageWeg(z) {
+  const arb = zeitArbeiten(await DB.getAll('aufgaben'));
+  await S.set('zeitSchnellAus', zeitAusOhneEigen(S.get('zeitSchnellAus') || [], z, arb));
+  await S.set('zeitVorlagen', (S.get('zeitVorlagen') || []).filter((x) => x.id !== z.id));
+  await schnellSchluesselWeg('zeitSchnell', 'eigen:' + z.id);
 }
 /** Eigene Schnellzugriffe für „Zeit buchen“: Liste mit Bearbeiten/Löschen + „Neu“. */
 function zeitVorlagenManager() {
@@ -19415,10 +19561,8 @@ function zeitVorlagenManager() {
     const del = ev.target.closest('[data-zv-del]');
     if (del) {
       if (!(await UI.confirm({ title: 'Schnellzugriff löschen?', text: 'Deine gebuchten Zeiten bleiben erhalten.', confirmText: 'Löschen' }))) return;
-      const id = del.dataset.zvDel;
-      await S.set('zeitVorlagen', (S.get('zeitVorlagen') || []).filter((x) => x.id !== id));
-      const aw = S.get('zeitSchnellAuswahl') || [];
-      if (aw.includes('eigen:' + id)) await S.set('zeitSchnellAuswahl', aw.filter((k) => k !== 'eigen:' + id));
+      const z = (S.get('zeitVorlagen') || []).find((x) => x.id === del.dataset.zvDel);
+      if (z) await zeitVorlageWeg(z);
       m.close(true); renderRoute({ scrollBehalten: true }); zeitVorlagenManager();
       return;
     }
@@ -19450,16 +19594,22 @@ async function zeitVorlageForm(z) {
       const i = liste.findIndex((x) => x.id === rec.id);
       if (i >= 0) liste[i] = rec; else liste.push(rec);
       await S.set('zeitVorlagen', liste);
-      // Mit eigener Auswahl erscheint ein neuer Schnellzugriff sonst nirgends – also gleich dazunehmen
-      const aw = S.get('zeitSchnellAuswahl') || [];
-      if (!z && aw.length) await S.set('zeitSchnellAuswahl', [...aw, 'eigen:' + rec.id]);
+      /* Erscheint von selbst in „Zeit buchen“ (v3.01: eigene Schnellzugriffe stehen immer in der Liste, bis man sie abhakt).
+         Neu oder umbenannt: Ein früher ausgeblendeter gleicher Name gibt ihn frei – sonst fehlte der neue Schnellzugriff trotz
+         „gespeichert“; ein ausgeblendeter alter Name bleibt ausgeblendet (2. Durchsicht v3.01). */
+      const neuN = zeitNorm(rec.titel);
+      if (!z || zeitNorm(z.titel) !== neuN) {
+        const arb = zeitArbeiten(alle);
+        const aus = (z ? zeitAusOhneEigen(S.get('zeitSchnellAus') || [], z, arb) : S.get('zeitSchnellAus') || [])
+          .filter((k) => { const e = zeitSchnellAus(zeitAusKey(k), arb); return !e || e.nkey !== neuN; });
+        await S.set('zeitSchnellAus', aus);
+      }
       for (const x of rec.schritte) await schrittMerken(rec.kategorie, x);
       UI.toast('Schnellzugriff gespeichert'); renderRoute({ scrollBehalten: true });
     },
     onDelete: z ? async () => {
       if (!(await UI.confirm({ title: 'Schnellzugriff löschen?', text: 'Deine gebuchten Zeiten bleiben erhalten.', confirmText: 'Löschen' }))) return false;
-      await S.set('zeitVorlagen', (S.get('zeitVorlagen') || []).filter((x) => x.id !== z.id));
-      await S.set('zeitSchnellAuswahl', (S.get('zeitSchnellAuswahl') || []).filter((k) => k !== 'eigen:' + z.id));
+      await zeitVorlageWeg(z);
       UI.toast('Schnellzugriff gelöscht'); renderRoute({ scrollBehalten: true });
       return true;   // Formular schließt (sonst holte „Speichern“ den gelöschten Eintrag zurück)
     } : undefined,
@@ -22860,8 +23010,7 @@ Views.fahrten = {
       const del = e.target.closest('[data-vl-del]');
       if (del && (await UI.confirm({ title: 'Vorlage löschen?', text: '', confirmText: 'Löschen' }))) {
         await S.set('fahrtvorlagen', (S.get('fahrtvorlagen') || []).filter((x) => x.id !== del.dataset.vlDel));
-        const aw = S.get('fahrtWidgetAuswahl') || [];
-        if (aw.includes('vorlage:' + del.dataset.vlDel)) await S.set('fahrtWidgetAuswahl', aw.filter((k) => k !== 'vorlage:' + del.dataset.vlDel));
+        await schnellSchluesselWeg('fahrtSchnell', 'vorlage:' + del.dataset.vlDel);
         m.close(true); Views.fahrten.vorlagenManager();
       }
     });
@@ -22903,7 +23052,7 @@ Views.fahrten = {
         const i = list.findIndex((x) => x.id === rec.id);
         if (i >= 0) list[i] = rec; else list.push(rec);
         await S.set('fahrtvorlagen', list);
-        if (i < 0) await fahrtAuswahlDazu(rec.id);
+
         UI.toast('Vorlage gespeichert'); renderRoute();
       },
     });
@@ -23474,6 +23623,7 @@ const Backup = {
     if (offen('belegstellenMigriert')) await migriereBelegstellen(true);
     if (offen('chargeDatumMigriert')) await migriereChargeDatumUndMhd(true);
     if (offen('fahrtAuswahlV299')) await migriereFahrtAuswahl(true);   // Sicherung aus v2.98 oder älter
+    if (offen('schnellzugriffeV301')) await migriereSchnellzugriffe(true);   // Sicherung aus v3.00 oder älter
     await S.load();
   },
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
@@ -27217,11 +27367,11 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Fahrtenbuch', '„Fahrtenbuch … (PDF)“ antippen'] },
   { id: 'fahrt-kurzwahl', titel: 'Häufige Fahrten als Kurzwahl', route: 'fahrten', zeige: 'Anpassen',
     stichw: ['kurzwahl', 'fahrt vorlage', 'immer gleiche fahrt', 'schnell fahrt buchen', 'strecke speichern', 'standardfahrt', 'wiederkehrende fahrt', 'haeufige fahrt', 'fahrt vorlagen', 'fahrt schneller buchen', 'schneller buchen', 'fahrt schneller', 'schnellbuchung', 'fahrt schnell eintragen', 'stammstrecke'],
-    antwort: 'Oben im Fahrtenbuch stehen „Häufige Fahrten“ – dieselben wie auf der Startseite. Ohne eigene Auswahl zeigt die App deine häufigsten Stände und eigenen Fahrten. Über „Anpassen“ wählst du selbst aus und legst unter „Eigene Fahrten verwalten“ feste Strecken an. Danach genügt ein Tipp auf „Fahrt buchen“.',
+    antwort: 'Oben im Fahrtenbuch stehen „Häufige Fahrten“ – dieselben wie auf der Startseite. Die App zeigt deine häufigsten Stände und eigenen Fahrten. Über „Anpassen“ blendest du Einträge aus (Haken weg) oder holst sie zurück; unter „Eigene Fahrten verwalten“ legst du feste Strecken an. Danach genügt ein Tipp auf „Fahrt buchen“.',
     schritte: ['Menü ▸ Fahrtenbuch', 'Bei „Häufige Fahrten“ auf „Anpassen“ tippen', '„Eigene Fahrten verwalten“ ▸ „Neue Vorlage“'] },
   { id: 'zeit-schnell', titel: 'Häufige Arbeiten mit einem Tipp buchen', route: 'zeiten', zeige: 'Häufige Arbeiten',   // Karte zeigen – „Zeit“ träfe zuerst „Zeit nachtragen“
     stichw: ['zeit buchen', 'haeufige arbeiten', 'haeufige arbeit', 'zeit schnell', 'zeit schneller eintragen', 'immer gleiche arbeit', 'arbeit vorlage', 'zeit vorlage', 'schnellzugriff zeit', 'zeit mit einem tipp', 'arbeit schnell buchen'],
-    antwort: 'Arbeiten, die du oft machst, stehen in der Zeiterfassung unter „Häufige Arbeiten“ – und genauso auf der Startseite in „Zeit buchen“. Tippe auf „+ Zeit“: Die übliche Dauer ist schon gewählt, „Zeit buchen“ trägt sie für heute ein. Über „Anpassen“ wählst du selbst aus oder legst eigene Schnellzugriffe an.',
+    antwort: 'Arbeiten, die du oft machst, stehen in der Zeiterfassung unter „Häufige Arbeiten“ – und genauso auf der Startseite in „Zeit buchen“. Tippe auf „+ Zeit“: Die übliche Dauer ist schon gewählt, „Zeit buchen“ trägt sie für heute ein. Einträge mit dem Schild „Vorschlag“ sind typische Arbeiten des Monats. Über „Anpassen“ blendest du Einträge aus (Haken weg), holst weitere dazu oder legst eigene Schnellzugriffe an.',
     schritte: ['Menü ▸ Zeiterfassung (oder Startseite „Zeit buchen“)', 'Oben die Karte „Häufige Arbeiten“', 'Bei der Arbeit „+ Zeit“ antippen, Dauer prüfen, „Zeit buchen“'] },
   { id: 'aufgabe-haeufig', titel: 'Wiederkehrende Aufgabe schnell anlegen', route: 'aufgaben', zeige: 'Neue Aufgabe',
     stichw: ['wiederkehrende aufgabe', 'aufgabe vorlage', 'immer gleiche aufgabe', 'aufgabe wiederholen', 'aufgabe schnell anlegen', 'haeufige aufgabe', 'aufgabe nicht neu eingeben', 'aufgabe kopieren'],
@@ -29042,6 +29192,32 @@ async function migriereFahrtAuswahl(erzwingen = false) {
   }
   await S.set('fahrtAuswahlV299', true, { auto: true });
 }
+/**
+ * v3.01: aus „nur diese“ wird „festgehalten + automatisch, ohne ausgeblendete“.
+ * Zeit buchen: bisherige Auswahl wird festgehalten, die automatischen kommen zurück (genau das vermisste Julian).
+ * Fahrten: Ansicht bleibt wie eingestellt – Auswahl festgehalten, alle anderen Stände/Fahrten ausgeblendet.
+ */
+async function migriereSchnellzugriffe(erzwingen = false) {
+  if (!erzwingen && S.get('schnellzugriffeV301')) return;
+  /* Hat dieses Gerät schon die neue Einstellung (Zusammenführen mit einer älteren Sicherung), gewinnt sie – die alte Auswahl
+     aus der Sicherung wird nur noch weggeräumt, sonst überschriebe sie, was Julian hier zuletzt angepasst hat (Durchsicht v3.01). */
+  const schonNeu = (praefix) => !!((S.get(praefix + 'Fest') || []).length || (S.get(praefix + 'Aus') || []).length);
+  const za = S.get('zeitSchnellAuswahl') || [];
+  if (za.length) {
+    if (!schonNeu('zeitSchnell')) await S.set('zeitSchnellFest', [...new Set(za)], { auto: true });
+    await S.set('zeitSchnellAuswahl', [], { auto: true });
+  }
+  const fa = S.get('fahrtWidgetAuswahl') || [];
+  if (fa.length) {
+    if (!schonNeu('fahrtSchnell')) {
+      const alleKeys = [...(await DB.getAll('staende')).map((st) => 'stand:' + st.id), ...(S.get('fahrtvorlagen') || []).map((v) => 'vorlage:' + v.id)];
+      await S.set('fahrtSchnellFest', fa, { auto: true });
+      await S.set('fahrtSchnellAus', alleKeys.filter((k) => !fa.includes(k)), { auto: true });
+    }
+    await S.set('fahrtWidgetAuswahl', [], { auto: true });
+  }
+  await S.set('schnellzugriffeV301', true, { auto: true });
+}
 async function migriereDokTypZertifikat(erzwingen = false) {
   if (!erzwingen && S.get('dokTypZertifikat')) return;
   const t = Array.isArray(S.get('dokumentTypen')) ? S.get('dokumentTypen').slice() : [];
@@ -29285,6 +29461,7 @@ async function boot() {
   await migriereBelegstellen();
   await migriereChargeDatumUndMhd();
   await migriereFahrtAuswahl();
+  await migriereSchnellzugriffe();
   applyTheme();
   renderChrome();
   applyHeaderLogo();
@@ -29358,7 +29535,7 @@ Object.assign(window, {
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
   Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat, zwischenstandZeit,
   Seitenweise, seitenweise, LISTE_SCHRITT,
-  AUFGABEN_VORLAGEN, ZEIT_SAISON, MONATSNAMEN, migriereFahrtAuswahl, HONIG_ABGANG_ARTEN, chargeVerlustKg, glasAbgangVon, chargeRestKg, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
+  AUFGABEN_VORLAGEN, ZEIT_SAISON, MONATSNAMEN, migriereFahrtAuswahl, migriereSchnellzugriffe, HONIG_ABGANG_ARTEN, chargeVerlustKg, glasAbgangVon, chargeRestKg, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,
   APP_WISSEN, Assistent, LERN_KAPITEL, ISchule, openVolkForm, FAQ_THEMEN, faqSuche, jitEmpfehlungen, SAISON_EMPFEHLUNGEN, FAQ_SYNONYME, migriereRaehmchenmass,
   openBelegstelleForm, belegstelleNeuShortcut, belegstelleLabel, migriereBelegstellen, listenwertNeuShortcut,
   kennungParse, kennungJahr, zuchtdbQuelle, ZUCHTDB_QUELLEN, DROHNENLINIEN_START, BEEBREED_URL,

@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 26.10.2026, Version 3.00. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 27.10.2026, Version 3.01. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -67,6 +67,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **D1c Zeit buchen (neu 2.99):** Startseite → Kachel „Zeit buchen“ → „+ Zeit“ bei einer Arbeit → „Zeit buchen“. → Hinweis „Zeit gebucht …“ mit „Rückgängig“; in der Zeiterfassung steht der Eintrag, oben unter „Häufige Arbeiten“ **dieselben Zeilen** wie auf der Startseite. Zweimal schnell klicken → nur **ein** Eintrag.
 - [ ] **D1d Aufgaben-Kachel (neu 2.99):** Startseite → „Anstehende Aufgaben“ → Kästchen anklicken. → Aufgabe ist erledigt, die App fragt nach der Dauer; „Rückgängig“ im Hinweis macht sie wieder offen. „+ Neue Aufgabe“ → oben „Häufig“: ein Klick füllt Aufgabe, Bereich und Arbeitsschritt.
 - [ ] **D1e Häufige Fahrten (neu 2.99):** Startseite → Kachel „Fahrten“ und Fahrtenbuch → „Häufige Fahrten“ zeigen dieselbe Liste. „Fahrt buchen“ → **eine** Fahrt im Fahrtenbuch; „Fahrtenbuch (PDF)“ enthält sie mit km und Summe.
+- [ ] **D1f Anpassen mit Haken (neu 3.01):** „Zeit buchen“ → „Anpassen“: Sichtbares ist angehakt. Einen Eintrag dazu anhaken, einen abhaken → speichern. → Der neue ist da, der abgehakte fehlt, der Rest bleibt. Vorschläge tragen das Schild „Vorschlag“; nach dem Abhaken rückt nichts nach. Bei „Fahrten“ → „Anpassen“ genauso. In „+ Neue Aufgabe“ stehen die Vorschläge des Monats in eigener Zeile. Zwei eigene Schnellzugriffe „Fütterung: Stand Wald“ und „Fütterung: Stand Berg“ anlegen, einen davon buchen → beide bleiben in der Liste.
 - [ ] **D2 Zwischenstände:** Einen Eintrag ändern, 1 Minute warten. Einstellungen → „Sicherung & Datensicherheit“ → „Zwischenstände“. → Oben „Heute, …“ mit „Nach deinen Änderungen“.
 - [ ] **D3 Sicherung:** Einstellungen → „Sicherung & Datensicherheit“ → „Backup herunterladen“ (am Handy „Sicherung senden“). → Eine Datei `imkerbuch-backup-….json` wird gespeichert bzw. geteilt.
 - [ ] **D4 Sicherung einspielen:** „Backup importieren“ → dieselbe Datei wählen → „Zusammenführen“. → Meldung, nichts doppelt.
