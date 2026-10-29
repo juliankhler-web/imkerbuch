@@ -270,3 +270,18 @@ App-ID **6824860228**, Bundle-ID `de.imkerbuch.app`, SKU `imkerbuch-ios`. **Nich
 - ⚠️ **Julian (Geschäftliches):** Vertrag kostenpflichtige Apps, Steuerformular, Bank, DSA-Händlerangaben – ohne aktiven Vertrag laden Käufe in TestFlight/Sandbox meist nicht.
 - Offen: Build hochladen (Xcode → Archive) und **TestFlight erst mit der finalen Version** (Julian 20.10.2026) – vorher kein Hochladen, keine Tester-Einladung; Bilder „iPhone Duo“ ab April 2027 Pflicht.
 - GitHub bleibt **öffentlich** (Julian 20.10.2026) – Web-Version und Seiten bleiben erreichbar; Tester wechseln über TestFlight in die App (vorher Sicherung in der Web-Version, in der App einlesen).
+
+## 30. Eigene Website mit eigener Adresse (Julian 2026-10-29: „richtige Website kaufen oder kostenlos – wie die Landingpage“)
+
+Recherche 29.10.2026 (Workflow mit Gegenprüfung, Quellen in der Sitzung; Preise brutto pro Jahr, erstes Jahr → danach). **Noch nichts gekauft – Julian entscheidet, wenn alles in den Startlöchern ist.**
+
+- **Adresse (whois 29.10.2026):** `imkerbuch.de` ist **vergeben** (leitet auf wiki.bienenzeitung.de). Frei: `imker-buch.de`, `imkerbuch-app.de`, `imkerbuch.eu`, `imkerbuch.com`, `imkerbuch.app` (RDAP 404). Marke „ImkerBuch“ im DPMA-Register weiter ungeprüft (§ 1).
+- **Kosten nur für die Adresse:** .de bei INWX 5,97 € → 4,65 € (+ evtl. 1,32 € einmalig), netcup 5,04 € → 5,04 €, Hetzner 5,83 €. Lockangebote meiden: Strato 0,60 € → 12,00 €, IONOS 0,96 € → 15,60 €. .app bei INWX 11,31 € (Aktion bis 01.01.2027) → 23,92 €; .com wird ab 1.11.2026 teurer (Verisign). Eine seriöse dauerhaft kostenlose eigene Adresse gibt es nicht (Freenom vergibt keine Gratis-Domains mehr).
+- **Hosting kostenlos:** Cloudflare Pages/Workers (0 €, Aufrufe unbegrenzt, privates Repo oder direktes Hochladen möglich, HTTPS, AVV/DPA in den Bedingungen enthalten, DPF-zertifiziert). Voraussetzung: Adresse nutzt Cloudflare-Nameserver (DNSSEC vorher beim Anbieter aus). Netlify Free geht auch (harte Monatsgrenze, Seite sonst offline); **Vercel Hobby nicht** (nur nicht-gewerblich).
+- **E-Mail:** Weiterleitung `support@…` → Gmail kostenlos über Cloudflare Email Routing. **Senden** von der eigenen Adresse ist dort nicht kostenlos (eigener Mail-Anbieter nötig, nicht recherchiert).
+- ⚠️ **Zusammenhang mit „Repo privat“ (§ 18, § 26):** GitHub Pages im Gratis-Tarif geht offline, sobald das Repo privat ist → Datenschutz- und Support-Links in **beiden Stores** wären tot. Also Website **vor oder zusammen mit** dem Privat-Schalten umziehen (oder § 26: zweites öffentliches Mini-Repo). Ein Zugangsschutz darf Datenschutz/Support/Impressum nie treffen.
+- **Stores:** Apple – Support-URL (mit echten Kontaktdaten) und Datenschutz-URL Pflicht, Marketing-URL freiwillig; keine eigene Domain nötig. Google – Datenschutz-Link Pflicht (öffentlich, https, kein PDF); Website Pflicht nur beim **Organisationskonto** (D-U-N-S-Weg), Prüfung über Google Search Console möglich. assetlinks.json / apple-app-site-association werden mit der Capacitor-App **nicht** gebraucht (kein TWA, keine App-Links).
+- **Recht:** Impressum (§ 5 DDG) und Datenschutzerklärung (Server-Logs = IP) gibt es schon; ohne Tracking/Cookies kein Cookie-Banner nötig.
+- **Umzug ist klein:** Die App (index.html) enthält die github.io-Adresse nicht; anzupassen wären landing.html, Store-Texte (`APP_STORE_TEXTE.md`, `PLAY_STORE.md`) und die Felder in App Store Connect / Play Console.
+- **Vorschlag (offen):** `imker-buch.de` oder `imkerbuch.app` bei INWX/netcup (~5 €/Jahr bzw. ~24 €/Jahr), Website wie die Landingpage auf Cloudflare (0 €), Weiterleitung support@ → Gmail (0 €). Kauf und Konten macht Julian selbst (Claude gibt keine Zahlungsdaten/Passwörter ein).
+
