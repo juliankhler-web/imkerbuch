@@ -57,7 +57,7 @@ VÖLKER, KÖNIGINNEN, STÄNDE
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner (auch Sirup in Litern)
 
 HONIG UND GESCHÄFT
-• Ernte, Chargen, Abfüllung und Bestand – Etiketten-QR als PDF
+• Ernte, Chargen, Abfüllung und Bestand – Honig-Etiketten als PDF
 • Kassenbuch, Rechnungen, Abnehmer, Verkauf mit Rabatt
 • Fahrtenbuch und Zeiterfassung
 

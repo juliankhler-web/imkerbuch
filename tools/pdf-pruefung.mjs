@@ -75,7 +75,7 @@ for (const [nr, a] of auftraege.entries()) {
       }
       else if (a.id.startsWith('tsk-')) { const alt = S.get('imkerei'); await S.set('imkerei', { ...alt, bundesland: a.id === 'tsk-ohne' ? '' : a.id.slice(4) }); try { await Pdf.tierseuchenkasse(); } finally { await S.set('imkerei', alt); } }
       else if (a.id === 'zuchtbuch') { const z = U.sortBy(await DB.getAll('zuchtserien'), (x) => x.name.length, true)[0]; await Pdf.zuchtbuch(z.id); }
-      else if (a.id === 'honig-etikett') { const ab = (await DB.getAll('abfuellungen'))[0]; await Pdf.honigEtikett(ab, await DB.get('chargen', ab.chargeId), { anzahl: 12, mitQr: true, bezeichnung: 'Sommerblütenhonig aus der Region „Dachauer Land“', ursprung: 'Deutschland' }); }   // wie das Formular (Pflichtfelder)
+      else if (a.id === 'honig-etikett') { const ab = (await DB.getAll('abfuellungen'))[0]; await Pdf.honigEtikett(ab, await DB.get('chargen', ab.chargeId), { anzahl: 12, bezeichnung: 'Sommerblütenhonig aus der Region „Dachauer Land“', ursprung: 'Deutschland' }); }   // wie das Formular (Pflichtfelder)
       else if (a.id === 'qr-etiketten') { const v = (await DB.getAll('voelker'))[0]; await qrEtikettPdf(`${v.name} · ${v.beutenkennung}`, await makeQr(`imkerbuch://volk/${v.id}`), 12); }   // der PDF-Bogen der App (im Browser käme der Druckdialog)
       else if (a.id === 'komplett') await Pdf.komplett({ jahr });
       else if (a.id.startsWith('bio-archiv-')) await Pdf.bioArchiv(a.id.slice(11));

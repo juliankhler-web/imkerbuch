@@ -46,7 +46,7 @@
 6. ✅ **Behandlungen/Bestandsbuch (TAMG)**: pro Volk oder Stand, Mittel/Menge/Einheit/Anwendungsart/Wartezeit, Beleg-Anhang (Foto/PDF), Wartezeit-Ende als Auto-Aufgabe, Bestandsbuch-PDF-Formblatt
 7. ✅ **Trachtkalender (v2.83)**: Pflanze + Stände wählen → Blütezeit aus DWD-Phänologie (Median 2016–2025, bis 5 Stellen ≤ 40 km, offline in `BLUEHZEITEN`, `tools/bluehzeiten.mjs`), sonst Deutschland-Schnitt bzw. Richtwert; „jedes Jahr“; Jahreskalender; Kachel „Tracht“ (blüht/bald/„Als Aufgabe“); „Was hier blüht“ am Stand; Erinnerung als Aufgabe X Tage vorher (auch Folgejahr); Tracht an der Ernte (Vorschlag nach Datum + Stand, Sorte dazu); Statistik „Ertrag je Tracht“ mit Ø je Volk und Vorjahr, Kachel „Stärkste Tracht“, PDF + Excel
 8. ✅ **Wanderungen**: geführt in Schritten – Ausgangs-Stand wählen → dessen Völker einzeln oder alle auswählen → Ziel-Stand → Datum; die Völker werden automatisch dem Ziel-Stand zugeordnet (Historie-Eintrag je Volk, übrige Volk-Daten unberührt); „Grund der Wanderung" (Freitext mit Vorschlägen: Trachten, Belegstelle, Bestäubungseinsatz … – passt er auf eine angelegte Tracht, bleibt die Verknüpfung erhalten), Notiz, Wanderbuch-PDF
-9. ✅ **Honigverwaltung**: Ernten pro Volk/Stand (Datum, Sorte, kg, Tracht), Chargen mit Losnummern (Vorschlag `JJJJ-NN`), Rückverfolgung Glas → Charge → Ernte → Volk, Bestandsübersicht mit Korrektur, QR-Code je Charge + druckbarer Etiketten-Bogen (12×)
+9. ✅ **Honigverwaltung**: Ernten pro Volk/Stand (Datum, Sorte, kg, Tracht), Chargen mit Losnummern (Vorschlag `JJJJ-NN`), Rückverfolgung Glas → Charge → Ernte → Volk, Bestandsübersicht mit Korrektur
 10. ✅ **Kassenbuch**: Einnahmen/Ausgaben mit Kategorien + Steuersatz, Kunden-/Lieferantenverwaltung mit Kontaktdaten, Belegfotos/-PDFs als Anhang (Belegarchiv), Jahresauswertung mit Monats-Diagramm + Kategorien-Tabelle + Jahres-PDF
 11. ✅ **Rechnungen**: Positionen frei oder aus Honigbestand (Charge), §19 UStG oder USt (7/19 %, aus Brutto herausgerechnet), fortlaufende Nummern (Präfix + Zähler in den Einstellungen), PDF mit Logo/Anschrift/optional QR, Entwurf-/Storno-Wasserzeichen; Festschreiben mindert Bestand + bucht Kassenbuch-Einnahme; Storno stellt Bestand wieder her + Gegenbuchung
 12. ✅ **Inventar**: Kategorien, Anschaffungsdatum, Preis, Stückzahl, Zuordnung Stand/Volk, Notizen, Gesamtwert
@@ -56,7 +56,7 @@
 
 ## v0.39: Honig-Etiketten, Stockkarten-Vorlagen, Zucht-Stammbaum (2026-07-04)
 
-- ✅ **Honig-Etiketten-PDF** (`Pdf.honigEtikett`, Charge-Detail → Etikett): druckfertiger Bogen (90×54 mm, 10/Seite) mit Honigverordnungs-Pflichtangaben (Bezeichnung, Nettofüllmenge, Imkerei-Name+Anschrift, Ursprungsland, MHD, Los) + Logo, optional QR; `honigEtikettForm` sammelt Bezeichnung/Ursprung/Anzahl
+- ✅ **Honig-Etiketten-PDF** (`Pdf.honigEtikett`, Unterlagen ▸ Honig & Verkauf): druckfertiger Bogen (90×54 mm, 10/Seite) mit Honigverordnungs-Pflichtangaben (Bezeichnung, Nettofüllmenge, Imkerei-Name+Anschrift, Ursprungsland, MHD, Los) + Logo; `honigEtikettForm` sammelt Bezeichnung/Ursprung/Anzahl
 - ✅ **Stockkarten-Vorlagen** (Setting `stockkartenVorlagen`): Durchsicht als Vorlage speichern (Feld im Formular), Schnell-Buttons im Stockkarte-Tab öffnen das Formular vorbefüllt; Verwaltung/Löschen in den Einstellungen
 - ✅ **Königinnen-Zucht-Stammbaum**: `koeniginnen.mutterId`, `koeniginStammbaumHtml` zeigt Ahnenlinie aufwärts + Töchter rekursiv (Tiefe 3, zyklensicher); Muttertier-Auswahl im Königinnen-Formular
 

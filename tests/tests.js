@@ -8575,7 +8575,7 @@ test('Etikett: Chargennummer steht als eigene Zeile mit L, MHD kommt von der Abf
   let gebaut = null;
   w.Pdf.finish = (doc, name) => { gebaut = { name, text: doc.internal.pages.flat().filter(Boolean).join(' ') }; };
   try {
-    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 2, mitQr: false });
+    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 2 });
     assert(gebaut, 'das Etikett wurde gebaut');
     assert(/L 2026-06/.test(gebaut.text), 'die Chargennummer steht mit L auf dem Etikett');
     assert(/Mindestens haltbar bis/.test(gebaut.text), 'und das MHD im Klartext');
@@ -8585,7 +8585,7 @@ test('Etikett: Chargennummer steht als eigene Zeile mit L, MHD kommt von der Abf
     // Ohne MHD an der Abfüllung: Linie zum Eintragen, nicht leer
     const ohne = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: '2026-06-10', gebindeG: 250, anzahl: 5, bestand: 5 });
     gebaut = null;
-    await w.Pdf.honigEtikett(ohne, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 1, mitQr: false });
+    await w.Pdf.honigEtikett(ohne, charge, { bezeichnung: 'Lindenhonig', ursprung: 'Deutschland', anzahl: 1 });
     assert(/_____/.test(gebaut.text), 'ohne MHD bleibt eine Linie zum Eintragen');
     assert(/L 2026-06/.test(gebaut.text), 'die Chargennummer steht trotzdem da');
     await w.DB.del('abfuellungen', ohne.id);
@@ -8603,7 +8603,7 @@ test('Etiketten-Bogen: alle Etiketten liegen mit Rand auf dem Blatt, keine Fußz
   w.UI.confirm = async () => true;   // falls das Testgerät Bio ohne Logo ist
   w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
   try {
-    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Rapshonig', ursprung: 'Deutschland', anzahl: 12, mitQr: true });
+    await w.Pdf.honigEtikett(abf, charge, { bezeichnung: 'Rapshonig', ursprung: 'Deutschland', anzahl: 12 });
     const d = w.Pdf.lastDocForTest;
     assert(d, 'Bogen gebaut');
     assertEq(d.getNumberOfPages(), 2, 'zwölf Etiketten = zwei Seiten');
@@ -8723,7 +8723,7 @@ test('Losnummer je Abfüllung: eigene Nummer schlägt die der Charge', async (w)
     let gebaut = null;
     w.Pdf.finish = (doc) => { gebaut = doc.internal.pages.flat().filter(Boolean).join(' '); };
     try {
-      await w.Pdf.honigEtikett(abf[0], charge, { bezeichnung: 'Honig', ursprung: 'Deutschland', anzahl: 1, mitQr: false });
+      await w.Pdf.honigEtikett(abf[0], charge, { bezeichnung: 'Honig', ursprung: 'Deutschland', anzahl: 1 });
       assert(/L L-2026-0610/.test(gebaut), 'das Etikett zeigt die eigene Losnummer');
       assert(/Charge LOS-CH/.test(gebaut), 'und daneben die Chargennummer');
     } finally { w.Pdf.finish = echt; }
@@ -9069,27 +9069,18 @@ test('Sicherheit: Bestätigungsfenster zeigt Eingaben als Text, nicht als HTML',
   }
 });
 
-test('QR-Druckbogen: eine Funktion für Volk und Charge', async (w) => {
+test('QR-Druckbogen fürs Volk', async (w) => {
   const echtPrint = w.print;
-  let gedruckt = 0;
+  let gedruckt = 0, bogen;
   w.print = () => { gedruckt++; };
   try {
-    // Charge: 12 kleine Codes in vier Spalten
-    w.Views.honig.qrPrint({ losnummer: '2026-06' }, 'data:image/png;base64,AA');
-    let bogen = w.document.querySelector('.qr-print');
-    assert(bogen, 'der Bogen ist da');
-    assertEq(bogen.querySelectorAll('img').length, 12, 'zwölf Codes fürs Glas');
-    assert(/Charge 2026-06/.test(bogen.textContent), 'mit der Chargennummer');
-    assert(/repeat\(4,/.test(bogen.innerHTML), 'in vier Spalten');
-    bogen.remove(); w.document.body.classList.remove('qr-printing');
-
     // Volk: sechs große Codes in drei Spalten
     w.qrEtikettDruck('Volk A', 'data:image/png;base64,AA');
     bogen = w.document.querySelector('.qr-print');
     assertEq(bogen.querySelectorAll('img').length, 6, 'sechs Codes fürs Beutendach');
     assert(/repeat\(3,/.test(bogen.innerHTML), 'in drei Spalten');
     assert(/40mm/.test(bogen.innerHTML), 'und größer');
-    assertEq(gedruckt, 2, 'beide Male wurde gedruckt');
+    assertEq(gedruckt, 1, 'es wurde gedruckt');
 
     // Auch hier: Eingaben bleiben Text
     bogen.remove();
@@ -11694,7 +11685,7 @@ test('Assistent Imme: Wissen deckt alle Menübereiche ab, Suche findet die richt
   assertEq(erst('Wie heißt du?'), 'imme');
   assert(/Biene/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort) && /Imker/.test(w.APP_WISSEN.find((e) => e.id === 'imme').antwort), 'Erklärung nennt Biene und Imker');
   assertEq(erst('Wie stelle ich die Umsatzsteuer ein?'), 'steuer');
-  assertEq(erst('Wie drucke ich Etiketten mit Losnummer?'), 'abfuellen');
+  assertEq(erst('Wie drucke ich Etiketten mit Losnummer?'), 'honig-etikett');
   assertEq(erst('blablub xyz'), 'nichts');
   // Menü: Imkerschule ausgeblendet, Assistent da
   assert(!w.NAV.some((n) => n.route === 'imkerschule') && w.NAV.some((n) => n.route === 'assistent'), 'Assistent ersetzt die Imkerschule im Menü');
@@ -11752,15 +11743,15 @@ test('Imme-Sprechblase: nie unter der Statusleiste, weicht nach unten aus, verde
 /* Android-Emulator 20.10.2026: In den Apps (iPhone/Android) tut window.print() nichts – „Etikett drucken“
    war dort ein toter Knopf. Jetzt entsteht ein PDF-Bogen mit denselben Maßen. */
 test('QR-Etiketten als PDF: richtige Anzahl, Seitenumbruch, Beschriftung', async (w) => {
-  const qr = await w.makeQr('Charge 2026-07');
+  const qr = await w.makeQr('Volk Bruno');
   const alt = w.Pdf.noDownloadForTest; w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
   try {
-    await w.qrEtikettPdf('Charge 2026-07', qr, 12, { spalten: 4, mm: 30, schrift: 8 });
+    await w.qrEtikettPdf('Volk Bruno', qr, 12, { spalten: 4, mm: 30, schrift: 8 });
     const doc = w.Pdf.lastDocForTest;
     assert(doc, 'PDF wurde erzeugt');
     assertEq(doc.getNumberOfPages(), 1, '12 kleine Etiketten passen auf eine Seite');
     const text = doc.output();
-    assert(/Charge 2026-07 \\u2013 QR-Etiketten|QR-Etiketten/.test(text), 'Überschrift steht im PDF');
+    assert(/QR-Etiketten/.test(text), 'Überschrift steht im PDF');
     assertEq((text.match(/\/Subtype \/Image/g) || []).length >= 1, true, 'QR-Bild eingebettet');
     w.Pdf.lastDocForTest = null;
     await w.qrEtikettPdf('Volk Anna', qr, 30, { spalten: 3, mm: 40, schrift: 9 });
@@ -13995,12 +13986,31 @@ test('Beispieldaten nur im Testmodus (Store-Version ohne)', async (w) => isolier
   } finally { w.__ohneTestmodus = false; host.remove(); }
 }));
 
-test('Etikett-Druck ist in der Store-Version ausgeblendet (nur Testmodus)', async (w) => {
-  const quelle = w.document.documentElement.outerHTML;
-  assert(/Testmodus\.an\(\) \? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf/.test(await (await w.fetch('index.html')).text()), 'Etikett-Knopf hängt am Testmodus');
-  assert(!w.APP_WISSEN.some((e) => /Etiketten drucken/.test(e.titel)), 'Imme verspricht keinen Etikettendruck');
-  assert(quelle);
+/* Julian 30.10.2026: „qr code raus die erzeugung des etiketts drin lassen“ + „ich hatte nur imme etikett gefragt und sie wusste es nicht“ */
+test('Honig-Etikett: für Kunden unter Unterlagen, Imme kennt den Weg, kein QR am Honig', async (w) => {
+  const quelle = await (await w.fetch('index.html')).text();
+  assert(/Testmodus\.an\(\) \? `<button class="btn btn-xs btn-ghost no-print" data-etikett-abf/.test(quelle), 'der Knopf in der Charge bleibt Testmodus');
+  const eintrag = w.unterlagenListe().find((e) => e.id === 'honig-etikett');
+  assert(eintrag && !/Testmodus/.test(String(eintrag.wahl.los)), 'Eintrag unter Unterlagen ist für alle da');
+  assertEq(eintrag.kat, 'honig', 'im Reiter Honig & Verkauf');
+  for (const frage of ['etikett', 'Etiketten', 'wie erstelle ich ein etikett', 'etikett drucken', 'honigetikett', 'wie mache ich etiketten für meine gläser', 'aufkleber für gläser']) {
+    assertEq((w.assistentSuche(frage).app[0] || {}).id, 'honig-etikett', `Imme zu „${frage}“`);
+  }
+  for (const frage of ['honig abfüllen', 'mhd', 'losnummer']) assertEq((w.assistentSuche(frage).app[0] || {}).id, 'abfuellen', `„${frage}“ bleibt beim Abfüllen`);
+  assertEq((w.assistentSuche('qr code').app[0] || {}).id, 'qr-code', 'der QR-Aufkleber am Volk bleibt');
+  assert(!/mitQr|data-qr|qrDataUrl|qrPrint|QR-Code erzeugen|Etiketten-QR (als|drucken)/.test(quelle.replace(/\{ version: '[\s\S]*?\] \},/g, '')), 'kein QR mehr an Charge und Honig-Etikett');
+  assert(typeof w.volkQrAnzeigen === 'function' && w.unterlagenListe().some((e) => e.id === 'qr-etiketten'), 'Volk-QR bleibt');
 });
+
+test('Charge-Fenster ohne QR-Knopf', async (w) => isolierteDaten(w, async () => {
+  const c = await w.DB.put('chargen', { losnummer: 'QR-1', datum: '2026-07-01', ernteIds: [], mengeKg: 10, sorte: 'Raps' });
+  await w.Views.honig.chargeDetail(c);
+  const m = [...w.document.querySelectorAll('.modal')].pop();
+  assert(m && /Charge QR-1/.test(m.textContent), 'das Fenster der Charge ist offen');
+  assert(!m.querySelector('[data-qr]') && !m.querySelector('#qr-zone') && !/QR-Code/.test(m.textContent), 'kein QR im Fenster');
+  assert(m.querySelector('[data-edit]'), 'Bearbeiten bleibt');
+  w.document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+}));
 
 test('Königin ohne Bewertung: Weiter-Pfeil bleibt klein (kein Riesenpfeil)', async (w) => isolierteDaten(w, async () => {
   const q = await w.DB.put('koeniginnen', { kennung: 'PF-1', jahrgang: 2026, status: 'aktiv', historie: [], bewertung: {} });

@@ -1576,8 +1576,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.05';
+const APP_VERSION = '3.06';
 const CHANGELOG = [
+  { version: '3.06', datum: '2026-10-30', punkte: [
+    '<b>Honig-Etiketten</b> gibt es jetzt unter Unterlagen ▸ Honig & Verkauf: Abfüllung wählen, ausfüllen, PDF erzeugen. Imme erklärt dir den Weg, wenn du sie nach dem Etikett fragst.',
+    'Der <b>QR-Code bei der Charge</b> und auf dem Honig-Etikett ist entfallen. Der QR-Aufkleber fürs Volk bleibt unverändert.',
+  ] },
   { version: '3.05', datum: '2026-10-30', punkte: [
     '<b>Tipp-Kachel:</b> Bei hohem Varroa-Befall oder fehlender Auffütterung zeigt die Kachel „Saisonaler Tipp“ jetzt zuerst die Warnung. Sonst kommt wie bisher der Tipp zum Monat.',
     '<b>Light-Version:</b> Marktverkauf und Wetter von Hand eintragen gehören zur Vollversion. Sie ließen sich bisher trotzdem nutzen. Jetzt erscheint auch dort das Kauf-Fenster. Was schon eingetragen ist, bleibt sichtbar.',
@@ -7440,10 +7444,8 @@ async function volkQrAnzeigen(v) {
     $('#vqr-print', m.el).onclick = () => qrEtikettDruck(`${v.name}${v.beutenkennung ? ' · ' + v.beutenkennung : ''}`, dataUrl);
   } catch (e) { $('#vqr-zone', m.el).innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
 }
-/** Druckbogen mit mehreren gleichen QR-Etiketten (generisch für Volk und Charge).
-    `spalten` und `mm` steuern, wie groß und wie dicht die Codes auf dem Bogen
-    stehen – ein Volk-Etikett fürs Beutendach darf größer sein als ein
-    Chargen-Aufkleber fürs Glas. */
+/** Druckbogen mit mehreren gleichen QR-Etiketten fürs Volk.
+    `spalten` und `mm` steuern, wie groß und wie dicht die Codes auf dem Bogen stehen. */
 function qrEtikettDruck(titel, dataUrl, anzahl = 6, { spalten = 3, mm = 40, schrift = 9 } = {}) {
   /* In der App (iPhone/Android) gibt es keinen Druckdialog des Browsers – window.print() tut dort
      nichts. Darum dort ein PDF-Bogen in denselben Maßen, der wie jedes andere PDF geteilt bzw.
@@ -11498,7 +11500,6 @@ async function honigEtikettForm(a, c) {
       { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || verkehrsbezeichnung(sorte), options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
       { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
       { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
-      { key: 'mitQr', label: 'QR-Code (Rückverfolgung) aufs Etikett', type: 'check', default: false },
       { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${U.esc(abfLos(a, c))}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
     ],
     saveText: 'Etiketten-PDF erzeugen',
@@ -11521,7 +11522,7 @@ async function honigEtikettForm(a, c) {
 }
 
 /* =====================================================================
-   MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, QR, Bestand,
+   MODUL: HONIGVERWALTUNG (Ernten → Chargen → Gläser, Bestand,
    Verkäufe mit automatischem Lagerabzug + Kassenbuch-Buchung)
    ===================================================================== */
 /* --- Gebinde-Helfer: Charge = Los-Bestand (kg), Abfüllung = Gläser eines Gebindes --- */
@@ -16340,7 +16341,7 @@ Views.honig = {
     filtern();
   },
 
-  /* ---------- Chargen (Losnummern, QR, Rückverfolgung) ---------- */
+  /* ---------- Chargen (Losnummern, Rückverfolgung) ---------- */
   /* Eine Charge ist erledigt, wenn nichts mehr im Eimer und nichts mehr im
      Regal steht: vollständig abgefüllt UND alle Gläser verkauft. Sie bleibt
      erhalten – die Rückverfolgbarkeit endet nicht mit dem letzten Glas –,
@@ -16392,7 +16393,7 @@ Views.honig = {
       const herkunft = [sorten, lager].filter(Boolean).join(' + ') || 'ohne Ernte-Zuordnung';
       const erledigt = Views.honig.chargeErledigt(c, abfAlle);
       return `<button class="row" data-id="${U.esc(c.id)}"${ordnen ? ' data-nooepnen' : ''}>
-        ${ordnen ? '<span class="row-grip" data-grip title="verschieben" aria-label="verschieben">⠿</span>' : `<span class="r-ic">${icon('qr')}</span>`}
+        ${ordnen ? '<span class="row-grip" data-grip title="verschieben" aria-label="verschieben">⠿</span>' : `<span class="r-ic">${icon('honig')}</span>`}
         <span class="r-main"><span class="r-title">Charge ${U.esc(c.losnummer)}${c.datum ? ` <span class="muted small">· ${U.fmtDate(c.datum)}</span>` : ''}</span>
         <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}${chargeVerarbeitetKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerarbeitetKg(c.id), 1)} kg zur Verarbeitung abgegeben` : ''}${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}</span></span>
         <span class="r-side">${erledigt
@@ -16406,13 +16407,13 @@ Views.honig = {
       <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '')}${jahre.map((j) => chip(j, j)).join('')}${ohneJahr ? chip('ohne Datum', '__ohne') : ''}</div>
       ${ordnen ? '' : `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${sChip('Nummer', 'nummer')}${sChip('Datum', 'datum')}${sChip('Menge', 'menge')}${hatHand || sort === 'hand' ? sChip('Eigene', 'hand') : ''}</div>`}
       <div class="card">
-      <div class="card-title">${icon('qr')}<h2>Chargen</h2>
+      <div class="card-title">${icon('honig')}<h2>Chargen</h2>
         <button class="btn btn-ghost btn-sm no-print" id="ordnen">${icon(ordnen ? 'check' : 'pencil')} ${ordnen ? 'Fertig' : 'Anordnen'}</button>
         <button class="btn btn-primary btn-sm no-print" id="add">${icon('plus')} Charge</button></div>
       ${ordnen ? `<div class="hint mb12">Zeile am Griff <b>⠿</b> anfassen und an die gewünschte Stelle ziehen. Die Reihenfolge wird sofort gespeichert; laufende Chargen und Archiv bleiben getrennt.</div>` : ''}
       ${offen.length ? `<div class="rows${ordnen ? ' ordnen' : ''}" id="chargen-offen">${offen.map(zeile).join('')}</div>`
         : (alle.length ? `<p class="small muted">Keine laufende Charge in dieser Auswahl.</p>`
-          : emptyState('qr', 'Noch keine Charge. Eine Charge macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`))}
+          : emptyState('honig', 'Noch keine Charge. Eine Charge macht jedes Glas rückverfolgbar bis zum Volk.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Charge</button>`))}
       ${archiv.length ? `
         <div class="mt16" style="border-top:2px solid var(--line);padding-top:12px">
           <div class="flex-wrap mb8"><b>Archiv</b><span class="small muted">${archiv.length} ${archiv.length === 1 ? 'Charge ist' : 'Chargen sind'} vollständig abgefüllt und verkauft</span></div>
@@ -16478,7 +16479,7 @@ Views.honig = {
       title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
         { key: 'losnummer', label: 'Chargennummer', required: true, halb: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`,
-          hint: 'Steht auf dem Etikett und im QR-Code. Im Lebensmittelrecht heißt sie „Los" und wird dort mit einem vorangestellten L gedruckt.' },
+          hint: 'Steht auf dem Etikett. Im Lebensmittelrecht heißt sie „Los" und wird dort mit einem vorangestellten L gedruckt.' },
         { key: 'datum', label: 'Charge angelegt am', type: 'date', required: true, halb: true, default: U.todayIso(),
           hint: 'Der Tag, an dem du den Honig zu dieser Charge zusammengefasst hast.' },
         { key: '_trennKopf', type: 'static', html: '' },
@@ -16634,12 +16635,10 @@ Views.honig = {
             <span class="r-sub">${c.lagerHerkunft ? U.esc(c.lagerHerkunft) : 'ohne Herkunftsangabe – bitte in der Charge ergänzen'}</span></span></div>` : '')
           || '<span class="muted small">Keine Ernten zugeordnet.</span>'}</div>
         ${c.lagerKg > 0 && !c.lagerHerkunft ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für den Lagerbestand fehlt die Herkunftsangabe. Ohne erfasste Ernte ist sie der einzige Nachweis, woher der Honig stammt.</span></div>` : ''}
-        ${!(c.ernteIds || []).length && !(c.sorte || '').trim() ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für diese Charge fehlt die <b>Honigsorte</b>. Ohne Ernte gibt es keine andere Quelle dafür – auf dem Etikett stünde sonst nur „Honig". Charge bearbeiten und nachtragen.</span></div>` : ''}
-        <div id="qr-zone" class="mt12" style="text-align:center"></div>`,
+        ${!(c.ernteIds || []).length && !(c.sorte || '').trim() ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für diese Charge fehlt die <b>Honigsorte</b>. Ohne Ernte gibt es keine andere Quelle dafür – auf dem Etikett stünde sonst nur „Honig". Charge bearbeiten und nachtragen.</span></div>` : ''}`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>
         ${rest > 0 || glaeserBestand > 0 ? `<button class="btn btn-ghost" data-hverlust-detail>${icon('minus')} Verlust</button>` : ''}
-        ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}
-        <button class="btn btn-primary" data-qr>${icon('qr')} QR-Code erzeugen</button>`,
+        ${rest > 0 ? `<button class="btn btn-ghost" data-abf>${icon('plus')} Abfüllen</button>` : ''}`,
     });
     $$('[data-etikett-abf]', m.el).forEach((b) => b.onclick = () => { const a = abf.find((x) => x.id === b.dataset.etikettAbf); if (a) honigEtikettForm(a, c); });
     $('[data-edit]', m.el).onclick = () => { m.close(true); Views.honig.chargeForm(c); };
@@ -16648,31 +16647,6 @@ Views.honig = {
     $$('[data-habgang]', m.el).forEach((b) => { b.onclick = () => { const x = abgaenge.find((y) => y.id === b.dataset.habgang); if (x) { m.close(true); honigAbgangForm({}, x); } }; });
     const abfBtn = $('[data-abf]', m.el);
     if (abfBtn) abfBtn.onclick = () => { m.close(true); Views.honig.abfuellForm(c.id); };
-    $('[data-qr]', m.el).onclick = async () => {
-      const zone = $('#qr-zone', m.el);
-      zone.innerHTML = '<span class="muted small">QR-Code wird erzeugt …</span>';
-      try {
-        const dataUrl = await Views.honig.qrDataUrl(c, ernten);
-        zone.innerHTML = `<img src="${dataUrl}" alt="QR-Code Charge ${U.esc(c.losnummer)}" style="width:180px;height:180px;border:1px solid var(--line);border-radius:12px;background:#fff;padding:8px">
-          <div class="mt8"><button class="btn btn-ghost btn-sm" id="qr-print">${icon('print')} ${IST_NATIVE_APP ? 'Etiketten-QR als PDF' : 'Etiketten-QR drucken'}</button></div>`;
-        $('#qr-print', zone).onclick = () => Views.honig.qrPrint(c, dataUrl);
-      } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} QR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
-      /* Der Code erscheint am Ende eines langen Fensters – ohne das hier
-         scrollt niemand hin und hält ihn für „nicht erzeugt". */
-      try { zone.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
-    };
-  },
-  /** QR-Inhalt: kompakte Chargeninfo für das Etikett */
-  async qrDataUrl(c, erntenMap) {
-    const imk = S.get('imkerei');
-    const sorten = chargeSorten(c, erntenMap).join(', ');
-    const text = [`Charge: ${c.losnummer}`, c.datum ? `Angelegt: ${U.fmtDate(c.datum)}` : '', sorten ? `Sorte: ${sorten}` : '', imk.name ? `Imkerei: ${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : ''].filter(Boolean).join('\n');
-    return makeQr(text);
-  },
-  /** Druckansicht: Bogen mit QR-Codes fürs Glas – dieselbe Mechanik wie beim
-      Volk, nur kleiner und dichter. Die Kopie dieser Funktion ist entfallen. */
-  qrPrint(c, dataUrl) {
-    qrEtikettDruck(`Charge ${c.losnummer}`, dataUrl, 12, { spalten: 4, mm: 30, schrift: 8 });
   },
 
   /* ---------- Abfüllung (Charge → Gebinde/Gläser, zieht kg von der Charge ab) ---------- */
@@ -16930,7 +16904,7 @@ Views.honig = {
       </div>`;
     };
     const zeile = (d) => `<details class="bst-ch" data-charge="${U.esc(d.c.id)}"${H._bestandOffen.has(d.c.id) ? ' open' : ''}>
-        <summary class="row"><span class="r-ic">${icon('qr')}</span>
+        <summary class="row"><span class="r-ic">${icon('honig')}</span>
           <span class="r-main"><span class="r-title">${U.esc(d.c.losnummer)} · ${U.esc(d.name)}</span><span class="r-sub">${U.esc(kurz(d))}</span></span>
           <span class="r-side"><b>${U.zahl(d.glaeser)}</b><br><span class="small muted">Gebinde</span></span>${icon('chevR', 'chev')}</summary>
         ${auf(d)}</details>`;
@@ -16949,7 +16923,7 @@ Views.honig = {
       <div class="stat-grid bst-kopf mb12">
         <div class="stat"><div class="s-label">${icon('honig')} Zum Verkauf</div><div class="s-value">${U.zahl(totalGlaeser)}</div><div class="s-sub">Gebinde · ${U.fmtNum(totalKgGlaeser, 1)} kg</div></div>
         <div class="stat"><div class="s-label">${icon('gewicht')} Nicht abgefüllt</div><div class="s-value">${U.fmtNum(totalFreiKg, 1)}</div><div class="s-sub">kg im Eimer</div></div>
-        <div class="stat"><div class="s-label">${icon('qr')} Chargen</div><div class="s-value">${chargen.length}</div><div class="s-sub">${mitGebinden} mit Gebinden</div></div>
+        <div class="stat"><div class="s-label">${icon('honig')} Chargen</div><div class="s-value">${chargen.length}</div><div class="s-sub">${mitGebinden} mit Gebinden</div></div>
       </div>
       ${sorten.length ? `<details class="card bst-klapp mb12" data-bst-sorten${H._bestandSortenOffen ? ' open' : ''}><summary>${icon('chevR', 'chev')}Nach Sorte und Gebinde <span class="small muted" style="font-weight:400">(${sorten.length})</span></summary>
         <div class="tbl-wrap mt8"><table class="tbl"><thead><tr><th>Honig</th><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th>Chargen</th></tr></thead>
@@ -16957,7 +16931,7 @@ Views.honig = {
       ${chargen.length ? `<div class="mb12 no-print"><button class="btn btn-ghost btn-sm btn-zwei" data-hverlust=""><span>${icon('minus')} Eigenverbrauch / Verlust</span><small>Bruch, Rest im Eimer, verschenkt …</small></button></div>` : ''}
       ${chargen.length ? `<div class="chip-row mb12 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Sortierung:</span>${SORT.map(([l, k]) => `<button type="button" class="chip ${H._bestandSort === k ? 'active' : ''}" data-bstsort="${k}">${l}</button>`).join('')}</div>` : ''}
       <div class="card">
-        <div class="card-title">${icon('qr')}<h2>Chargen</h2><span class="spacer"></span><button class="btn btn-ghost btn-sm no-print" onclick="Pdf.chargenuebersicht()" title="Chargenübersicht (PDF)" aria-label="Chargenübersicht (PDF)">${icon('doc')} PDF</button></div>
+        <div class="card-title">${icon('honig')}<h2>Chargen</h2><span class="spacer"></span><button class="btn btn-ghost btn-sm no-print" onclick="Pdf.chargenuebersicht()" title="Chargenübersicht (PDF)" aria-label="Chargenübersicht (PDF)">${icon('doc')} PDF</button></div>
         ${laufend.length ? `<div class="rows">${sw.sichtbar.map(zeile).join('')}</div>${sw.knopf}`
           : chargen.length ? '<p class="small muted">Alle Chargen sind abgefüllt und verkauft.</p>'
           : emptyState('honig', 'Noch kein Bestand – lege eine Charge an und fülle sie im Tab „Abfüllung“ ab.')}
@@ -25679,16 +25653,6 @@ const Pdf = {
          Jetzt senkrecht mittig: 8,5 mm Rand oben und unten, 2,5 mm Abstand, keine Fußzeile auf dem Bogen. */
       const LW = 90, LH = 54, cols = 2, rows = 5, gapx = 6, gapy = 2.5;
       const mx = (210 - cols * LW - (cols - 1) * gapx) / 2, my = (297 - rows * LH - (rows - 1) * gapy) / 2;
-      /* Im QR steht, was zur Rückverfolgung nötig ist – die Chargennummer
-         zuerst, denn danach wird gesucht, wenn etwas zu klären ist. */
-      const qr = opts.mitQr ? await makeQr([
-        `Los: ${los}`,
-        eigenesLos(a, c) && c ? `Charge: ${c.losnummer}` : '',
-        opts.bezeichnung,
-        mhd ? `Mindestens haltbar bis: ${U.fmtDate(mhd)}` : '',
-        `Nettofüllmenge: ${gebindeLabel(a.gebindeG)}`,
-        imk.name ? `${imk.name}${imk.ort ? ', ' + imk.ort : ''}` : '',
-      ].filter(Boolean).join('\n')).catch(() => null) : null;
       /* Passen Name und Anschrift auch in zwei Zeilen nicht aufs Etikett,
          würden sie gekürzt – vorher fragen statt still Pflichtangaben abzuschneiden. */
       {
@@ -25697,7 +25661,7 @@ const Pdf = {
         const nameOben = doc.getTextWidth(imk.name || 'Imkerei') <= Math.max(24, LW - 20 - bioBilder.length * 10);
         const adr = [nameOben ? '' : imk.name, imk.strasse, plzOrt].filter(Boolean).join(', ');
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
-        if (doc.splitTextToSize(adr, LW - 12 - (qr ? 18 : 0)).length > 2
+        if (doc.splitTextToSize(adr, LW - 12).length > 2
           && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz) oder lass den QR-Code weg.', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
       }
       for (let i = 0; i < anzahl; i++) {
@@ -25774,7 +25738,7 @@ const Pdf = {
         let ly = cy + (eng ? (bioEtikett ? 3.8 : 5.5) : (bioEtikett ? 4 : 7));
         let zh = eng ? 3.3 : (bioEtikett ? 3.6 : 3.8);
         const fs = eng ? 8 : 8.5;
-        const zeilenBreite = LW - 12 - (qr ? 18 : 0);
+        const zeilenBreite = LW - 12;
         const anschrift = [nameGekuerzt ? nameText : '', imk.strasse, [imk.plz, imk.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ') || 'Anschrift in Einstellungen ergänzen';
         // 6,5 pt = kleinste Größe mit 1,2 mm x-Höhe (Lebensmittel-Informationsverordnung)
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
@@ -25807,7 +25771,6 @@ const Pdf = {
           zeile(oekoHerkunft(opts.ursprung));
           doc.setTextColor(90);
         }
-        if (qr) doc.addImage(qr, 'PNG', x + LW - 17, yy + LH - 17, 13, 13);
       }
       this.finish(doc, `etiketten-charge-${los}-${gebindeLabel(a.gebindeG).replace(/\s/g, '')}.pdf`, { ohneFuss: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -27186,8 +27149,14 @@ const APP_WISSEN = [
       { feld: 'Menge (kg)', text: 'Wie viel Kilogramm?' },
       { feld: 'Wassergehalt', text: 'Der Wassergehalt (Refraktometer). Bis 18 % ist normal.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Aus Ernten entstehen später Chargen.' }] },
+  { id: 'honig-etikett', titel: 'Honig-Etikett erstellen', route: 'meldungen', zeige: 'Honig & Verkauf',
+    stichw: ['etikett', 'etiketten', 'honig etikett', 'honigetikett', 'honigetiketten', 'etikett erstellen', 'etiketten erstellen', 'etikett machen', 'etiketten machen', 'etikett anlegen', 'etikett drucken', 'etiketten drucken', 'etikettendruck', 'etikettenbogen', 'etiketten honigglaeser', 'etiketten fuer meine honigglaeser', 'etiketten fuer glaeser', 'glasetikett', 'label', 'label drucken', 'aufkleber glas', 'aufkleber glaeser', 'aufkleber fuer glaeser', 'glas beschriften', 'glaeser beschriften', 'etikett pdf'],
+    antwort: 'Aus jeder Abfüllung machst du einen Etikettenbogen als PDF. Füllmenge, Mindesthaltbarkeit, Los und deine Anschrift kommen von allein drauf. Du brauchst dafür zuerst eine Abfüllung.',
+    schritte: ['Menü ▸ Unterlagen', 'Reiter „Honig & Verkauf“', 'Bei „Honig-Etiketten“ die Abfüllung wählen und „Öffnen“ tippen', 'Bezeichnung, Ursprungsland und Anzahl prüfen, dann „Etiketten-PDF erzeugen“'],
+    tour: [{ reiter: 'Honig & Verkauf', text: 'Öffne den Reiter „Honig & Verkauf“.' },
+      { abschluss: '[data-ul="honig-etikett"]', text: 'Hier wählst du die Abfüllung und tippst auf „Öffnen“. Danach prüfst du Bezeichnung, Ursprungsland und Anzahl und erzeugst das Etiketten-PDF.' }] },
   { id: 'abfuellen', titel: 'Honig abfüllen', route: 'honig', zeige: 'Abfüllen',
-    stichw: ['abfuellen', 'abfuellung', 'glaeser', 'glas', 'etikett', 'etiketten', 'mhd', 'losnummer', 'honigglas', 'gebinde', 'abfuellen von honig', 'mindesthaltbarkeitsdatum', 'mindesthaltbarkeit', 'haltbarkeit glas', 'abgefuellt', 'honig abgefuellt', 'glaeser abgefuellt', '80 glaeser', 'gläser honig', 'glas honig', 'honig in glaeser', 'losnummer glaeser', 'losnummer fuer glaeser', 'mhd glaeser', 'etikett drucken', 'etiketten machen', 'etiketten honigglaeser', 'etiketten fuer meine honigglaeser', 'etikettendruck', 'glasetikett', 'abfuellung dokumentieren', 'gebinde abgefuellt', '500 g glaeser'],
+    stichw: ['abfuellen', 'abfuellung', 'glaeser', 'glas', 'mhd', 'losnummer', 'honigglas', 'gebinde', 'abfuellen von honig', 'mindesthaltbarkeitsdatum', 'mindesthaltbarkeit', 'haltbarkeit glas', 'abgefuellt', 'honig abgefuellt', 'glaeser abgefuellt', '80 glaeser', 'gläser honig', 'glas honig', 'honig in glaeser', 'losnummer glaeser', 'losnummer fuer glaeser', 'mhd glaeser', 'abfuellung dokumentieren', 'gebinde abgefuellt', '500 g glaeser'],
     antwort: 'Beim Abfüllen wählst du die Charge, das Glas und die Anzahl. Die App zieht Gläser und Deckel vom Lager ab und vergibt die Losnummer für dein Etikett.',
     schritte: ['Menü ▸ Ernte', 'Reiter „Abfüllung“ ▸ „Abfüllen“', 'Charge, Gläser und Anzahl wählen und speichern'],
     tour: [{ reiter: 'Abfüllung', text: 'Öffne den Reiter „Abfüllung“.' },

@@ -112,7 +112,7 @@ async function main() {
     ['rechnung', `const r = (await DB.getAll('rechnungen')).find(x => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0];
                   await Pdf.rechnung(r.id);`],
     ['honig-etikett', `const a = (await DB.getAll('abfuellungen'))[0]; const c = await DB.get('chargen', a.chargeId);
-                  await Pdf.honigEtikett(a, c, { anzahl: 4, bezeichnung: '${BEZ}', ursprung: 'Deutschland', mitQr: true });`],
+                  await Pdf.honigEtikett(a, c, { anzahl: 4, bezeichnung: '${BEZ}', ursprung: 'Deutschland' });`],
     ['stockkarte', `const v = (await DB.getAll('voelker')).find(x => x.koeniginId && x.status === 'aktiv');
                   await setBewertung(v.koeniginId, { sanftmut: 6, wabenstetigkeit: 5, schwarmtraegheit: 4, bienen: 5, brut: 5, ueberwinterung: 4, fruchtbarkeit: 5, fruehtracht: 6, sommertracht: 4, wirrbau: 5, propolis: 4, varroaschaeden: 5, vsh: 4, hyg: 4 }, '2026-06-18', { wetter: 'sonnig', temperatur: 24, bemerkung: 'Sehr ruhig auf der Wabe, kein Wirrbau.' });
                   await setBewertung(v.koeniginId, { sanftmut: 5, wabenstetigkeit: 4, bienen: 4, brut: 5, ueberwinterung: 4 }, '2026-05-02', { wetter: 'bewölkt', temperatur: 17, bemerkung: 'Frühjahr etwas verhalten.' });

@@ -52,7 +52,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
 ## 4. Inhalt und Prüfung
 
-- ✅ Keine Beta-/Test-/Demo-Funktionen in der Store-Version: Zucht, Etiketten-Designer und Beispieldaten nur im Testmodus (`ZUCHT_AN`, `Testmodus.an()`); `sync-app.sh` ohne `--testmodus` = Store-Bau.
+- ✅ Keine Beta-/Test-/Demo-Funktionen in der Store-Version: Zucht, Etiketten-Gestalter und Beispieldaten nur im Testmodus (`ZUCHT_AN`, `Testmodus.an()`); `sync-app.sh` ohne `--testmodus` = Store-Bau.
 - 4.2 „mehr als eine verpackte Website“: ImkerBuch ist offline, mit Kamera, Mikrofon, PDF – gut; trotzdem in den Prüfer-Notizen erklären.
 - Prüfer-Notiz: „Offline-App, kein Konto nötig; Beispieldaten über den Startassistenten.“ Mit Cloud: **Demo-Konto** mitgeben, Server muss laufen.
 - Altersfreigabe-Fragebogen ausfüllen (voraussichtlich ab 4).
@@ -113,7 +113,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 - **Preis:** 1 Monat kostenlos, dann Einmalkauf **14,99 € (Einführungspreis)**, später **24,99 €**. Familienfreigabe vorerst nicht.
 - **Cloud-Abo** 0,99 €/Monat kommt in einer späteren Version, zusammen mit der **Waage** (Codex-Entwurf liegt im Zweig `codex/waage-entwurf`).
 - **Zucht:** in der Store-Version „Kommt bald“.
-- **Honig-Etikettendruck:** vorerst ganz raus (nur im Testmodus sichtbar); auch kein Haftungshinweis dazu.
+- **Honig-Etikett (geändert 30.10.2026, Julian: „qr code raus die erzeugung des etiketts drin lassen“):** Für Kunden unter Unterlagen ▸ Honig & Verkauf ▸ Honig-Etiketten, Imme erklärt den Weg. QR-Code bei der Charge und auf dem Honig-Etikett entfällt. Der Knopf „Etikett“ in der Charge bleibt nur im Testmodus. Der Etiketten-Gestalter bleibt für später. Früher hieß es hier „ganz raus“: Der Eintrag unter Unterlagen hatte diese Sperre nie.
 - **Beispieldaten:** nur im Testmodus (Web `?testmodus=1`, App `./native/sync-app.sh --testmodus`).
 - **Länder:** zuerst nur Deutschland, Österreich, Schweiz.
 - **Bewertungs-Nachfrage:** ja (Apple-Fenster, max. 3×/Jahr). Hilfe/Erklärvideos erst bei Bedarf.
@@ -138,7 +138,7 @@ Legende: ✅ vorhanden · ⚠️ fehlt/zu tun · ❓ Entscheidung von Julian
 
 - [x] Riesenpfeil bei unbewerteter Königin
 - [x] Zucht in der Store-Version ausgeblendet (Testmodus: nutzbar)
-- [x] Sicherungs-Hinweis nur auf dem Dashboard · Willkommen „Überspringen“ · Knöpfe gleich groß · Etikett + Beispieldaten nur Testmodus
+- [x] Sicherungs-Hinweis nur auf dem Dashboard · Willkommen „Überspringen“ · Knöpfe gleich groß · Etikett-Knopf in der Charge + Beispieldaten nur Testmodus
 - [x] Hilfe & Kontakt (E-Mail juliankhler@googlemail.com, Version/Gerät vorausgefüllt) – Adresse in `SUPPORT_MAIL`; offen: eigene Support-Adresse (siehe 16)
 - [x] Erinnerungen Aufgaben/Kalender als lokale Mitteilungen (Abschnitt 11) – v2.55, im Simulator geprüft; Android: Erlaubnis exakte Uhrzeit noch prüfen
 - [x] Imme-Einführung für Neulinge (Abschnitt 10) – `Einfuehrung`, Angebot nach Willkommen, Chip bei Imme, „Einführung wiederholen“ in Einstellungen → Rechtliches
