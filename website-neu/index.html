@@ -1,0 +1,1730 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ImkerBuch – Deine ganze Imkerei. In einer App.</title>
+<meta name="description" content="ImkerBuch ist die App für deine ganze Imkerei: Völker, Königinnen, Honig, Kassenbuch und alle Unterlagen fürs Amt – offline auf deinem Handy, ohne Konto. 30 Tage alle Funktionen kostenlos testen.">
+<!-- ENTWURF: die nächste Zeile vor dem Veröffentlichen entfernen -->
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#EDE3CF">
+<link rel="icon" href="../icon-192.png">
+<link rel="apple-touch-icon" href="../icon-180.png">
+<script>document.documentElement.classList.add('js')</script>
+<style>
+/* =========================================================
+   ImkerBuch – Startseite (Entwurf nach Vorlage „Bloom“)
+   Keine externen Schriften, keine externen Anfragen,
+   keine Cookies, kein localStorage.
+   ========================================================= */
+:root{
+  --honig:#E9A23B; --honig-2:#F2BE5F; --honig-hell:#FBE9C4; --honig-tief:#9A5C10; --honig-text:#7E4A0B;
+  --wiese:#5B8A2F; --wiese-tief:#3B6320; --wiese-hell:#E2ECCF;
+  --creme:#FBF7EF; --creme-2:#F6F0E3; --sand:#EDE3CF;
+  --text:#21170B; --text-2:#4D3E2C; --text-3:#6E5D49;
+  --linie:rgba(33,23,11,.14);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* Rahmen: Abstand zum Fensterrand (waagrecht/senkrecht), weißer Rand, Außenradius
+     (Vorlage: Seitenabstand ca. 4,8 % der Breite, weißer Rand ca. 0,9 %) */
+  --mh:clamp(8px,4.8vw,96px);
+  --mv:clamp(6px,1.8vw,28px);
+  --b:clamp(6px,.9vw,15px);
+  --r:clamp(20px,2.3vw,36px);
+  --ri:calc(var(--r) - var(--b));
+  --pad:clamp(18px,3.2vw,48px);
+  --block-r:clamp(14px,1.5vw,22px);
+  --sticky:calc(var(--mv) + var(--b) + 14px);
+  --spalte:296px;--luecke:clamp(20px,2.4vw,34px);--handy-b:312px;--fq-luecke:16px;
+}
+@media (max-width:640px){
+  /* Handy: Karte fast randlos – 2 px Abstand + 6 px weißer Rand = 8 px */
+  :root{--mh:2px;--mv:2px;--b:6px;--r:24px;--pad:18px;--block-r:16px;--fq-luecke:12px}
+}
+
+/* weiche Übergänge für das Ausblenden am Rand der Fragen-Karten */
+@property --l0{syntax:'<number>';inherits:false;initial-value:1}
+@property --lm{syntax:'<number>';inherits:false;initial-value:1}
+@property --rm{syntax:'<number>';inherits:false;initial-value:.25}
+@property --r0{syntax:'<number>';inherits:false;initial-value:0}
+@property --aus{syntax:'<length-percentage>';inherits:false;initial-value:100%}
+
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;background:var(--sand);scroll-behavior:smooth;
+  scroll-padding-top:calc(var(--mv) + var(--b) + 16px)}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;font-family:var(--sans);color:var(--text);background:var(--sand);font-size:17px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+svg,video,img{display:block}
+a{color:inherit}
+button{font:inherit;color:inherit}
+h1,h2,h3,p,ul,figure{margin:0}
+ul{padding:0;list-style:none}
+:focus-visible{outline:3px solid var(--wiese-tief);outline-offset:3px}
+.hero :focus-visible,.film-block :focus-visible{outline-color:#fff}
+
+.sprung{position:fixed;left:16px;top:-80px;z-index:100;background:#fff;color:var(--text);padding:10px 16px;border-radius:9px;text-decoration:none;font-weight:600}
+.sprung:focus{top:16px}
+/* nur für Bildschirmleser */
+.sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* ---------- Kulisse: verschwommenes Video + Kartenrand (nur mit JS) ----------
+   Die Kulisse liegt fest über der Seite; in der Mitte ist ein Fenster mit dem
+   Außenradius der Karte ausgestanzt. Der weiße Rand links/rechts gehört zum
+   Inhalt (.karte), oben und unten läuft der Inhalt beim Scrollen bis an die
+   Außenkante – wie in der Vorlage. */
+.kulisse{display:none}
+/* pointer-events:none: Die Ebene liegt über der Seite und darf weder Wischen noch Scrollen abfangen */
+html.rahmen-an .kulisse{display:block;position:fixed;inset:0;z-index:40;overflow:hidden;pointer-events:none;
+  background:
+    radial-gradient(70% 55% at 25% 15%,#a9cff0 0%,rgba(169,207,240,0) 70%),
+    radial-gradient(60% 50% at 80% 95%,#d8ad4c 0%,rgba(216,173,76,0) 70%),
+    linear-gradient(180deg,#a8cdef 0%,#cfe1ee 36%,#a3bf70 62%,#86a548 100%)}
+.kulisse-film{position:absolute;left:50%;top:50%;width:26%;height:26%;
+  transform:translate(-50%,-50%) scale(4.5);filter:blur(8px) saturate(1.08)}
+.kulisse-film video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.kulisse::after{content:"";position:absolute;inset:0;background:rgba(255,249,238,.14)}
+.rahmen-linie{position:absolute;z-index:2;top:var(--mv);bottom:var(--mv);left:var(--mh);right:var(--mh);
+  border-radius:var(--r);box-shadow:0 26px 70px -28px rgba(40,28,8,.45)}
+
+/* ---------- Karte ---------- */
+.karte{padding:10px}
+html.rahmen-an .karte{background:#fff;padding:calc(var(--mv) + var(--b)) calc(var(--mh) + var(--b))}
+.innen{background:#fff;border-radius:var(--ri);overflow:hidden;overflow:clip}
+html:not(.rahmen-an) .innen{border-radius:22px}
+
+/* ---------- Filme (nahtlose Vorwärts-Schleife, im Video selbst) ---------- */
+/* Die Videos sind Dekoration: keine Bedienleiste, auch nicht ohne JavaScript */
+video::-webkit-media-controls,video::-webkit-media-controls-enclosure,video::-webkit-media-controls-panel{display:none!important}
+.film{position:absolute;inset:0;overflow:hidden;z-index:-2}
+.film video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+
+/* ---------- Knöpfe: abgerundete Rechtecke (12 px); nur der Knopf mit rundem Pfeil-Kreis ist eine volle Kapsel (.kapsel) ---------- */
+.knopf-glas{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 20px;
+  border-radius:12px;background:rgba(20,40,80,.28);border:0;
+  -webkit-backdrop-filter:blur(16px) saturate(1.15);backdrop-filter:blur(16px) saturate(1.15);
+  color:#fff;text-decoration:none;font-size:15px;font-weight:500;cursor:pointer;white-space:nowrap;
+  transition:background .2s}
+.knopf-glas:hover{background:rgba(20,40,80,.4)}
+/* Pause-Knopf: dunkel hinterlegt, damit das Symbol auch über der hellen Wiese gut sichtbar ist */
+.knopf-pause{display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:12px;cursor:pointer;
+  background:rgba(20,15,5,.5);color:#fff;-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);transition:background .2s}
+.knopf-pause:hover{background:rgba(20,15,5,.68)}
+.knopf-weiss,.knopf-dunkel{display:inline-flex;align-items:center;gap:12px;min-height:50px;padding:6px 22px 6px 7px;
+  border-radius:12px;background:#fff;color:var(--text);text-decoration:none;font-size:15.5px;font-weight:600;
+  box-shadow:0 10px 26px -12px rgba(20,15,5,.45);transition:transform .2s ease,box-shadow .2s ease;white-space:nowrap}
+.knopf-dunkel{background:var(--text);color:#fff;box-shadow:none}
+.knopf-weiss:hover,.knopf-dunkel:hover{transform:translateY(-1px)}
+.kapsel{border-radius:999px;min-height:48px;padding:6px 22px 6px 6px}
+.ohne-klick{cursor:default;box-shadow:none}
+.ohne-klick:hover{transform:none!important}
+.knopf-rand{display:inline-flex;align-items:center;min-height:50px;padding:0 22px;border-radius:12px;
+  border:1px solid rgba(33,23,11,.28);color:var(--text);text-decoration:none;font-size:15.5px;font-weight:600}
+.knopf-rand:hover{background:var(--creme-2)}
+/* „Bald im App Store & bei Google Play“: darf auf schmalen Bildschirmen in zwei Zeilen umbrechen, aber nur zwischen den Teilen */
+.bald-text{white-space:normal;text-align:left;line-height:1.25}
+.bald-text > span{white-space:nowrap}
+.kreis{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;transition:transform .25s ease}
+.knopf-weiss:hover .kreis,.knopf-dunkel:hover .kreis{transform:translateX(2px)}
+.kreis-honig{background:var(--honig);color:var(--text)}
+.kreis-wiese{background:var(--wiese-tief);color:#fff}
+.kreis-weiss{background:#fff;color:var(--text)}
+
+/* ---------- Hero ---------- */
+.hero{position:relative;isolation:isolate;overflow:hidden;border-radius:var(--ri);color:#fff;
+  display:flex;flex-direction:column;min-height:600px;background:#4f7fae;
+  height:calc(100vh - 2*(var(--mv) + var(--b)));height:calc(100svh - 2*(var(--mv) + var(--b)))}
+html:not(.rahmen-an) .hero{height:calc(100svh - 20px);border-radius:22px}
+.hero .film video{object-position:50% 40%}
+/* Schleier: wirkt wie tieferer Himmel (multiply) und dämpft nur die Wolken hinter dem Text – die Biene unten bleibt unberührt */
+.hero-schleier{position:absolute;inset:0;z-index:-1;pointer-events:none;mix-blend-mode:multiply;
+  background:
+    radial-gradient(26vh 19vh at calc(50% + 31vh) 26%,rgba(62,104,172,.96) 0%,rgba(62,104,172,.88) 58%,rgba(62,104,172,0) 100%),
+    radial-gradient(64% 36% at 50% 27%,rgba(66,112,182,.66) 0%,rgba(66,112,182,.5) 62%,rgba(66,112,182,0) 100%),
+    radial-gradient(52% 15% at 50% 39%,rgba(66,112,182,.5) 0%,rgba(66,112,182,.36) 60%,rgba(66,112,182,0) 100%),
+    radial-gradient(34% 26% at 0% 0%,rgba(52,88,150,.9) 0%,rgba(52,88,150,.72) 50%,rgba(52,88,150,0) 100%),
+    linear-gradient(180deg,rgba(66,104,160,.34) 0%,rgba(66,104,160,.2) 16%,rgba(66,104,160,.06) 38%,rgba(66,104,160,0) 50%)}
+
+.kopf{position:relative;z-index:6;display:flex;align-items:center;gap:clamp(16px,2.2vw,34px);
+  padding:clamp(14px,2vw,26px) clamp(16px,2.4vw,36px) 0}
+/* Logo wie in der App: Waben-Symbol + Systemschrift, Gewicht 800, letter-spacing -.02em */
+.logo{font-family:var(--sans);font-size:clamp(19px,1.6vw,23px);font-weight:800;letter-spacing:-.02em;line-height:1;
+  color:#fff;text-decoration:none;margin-right:auto;display:inline-flex;align-items:center;gap:.42em;white-space:nowrap}
+.logo svg{width:1.6em;height:1.6em;flex:none}
+.menue{display:flex;align-items:center;gap:clamp(16px,2.2vw,32px);font-size:15px;font-weight:450}
+.menue > li > a,.dd > summary{color:#fff;text-decoration:none;padding:10px 0;display:inline-flex;align-items:center;gap:5px;cursor:pointer;opacity:.96}
+.menue > li > a:hover,.dd > summary:hover{opacity:1;text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:1px}
+.dd{position:relative}
+.dd > summary,.mobil > summary{list-style:none}
+.dd > summary::-webkit-details-marker,.mobil > summary::-webkit-details-marker{display:none}
+.dd > summary svg{width:12px;height:12px;transition:transform .2s}
+.dd[open] > summary svg{transform:rotate(180deg)}
+.dd-feld{position:absolute;top:calc(100% + 10px);left:-18px;width:310px;padding:8px;border-radius:16px;background:#fff;color:var(--text);
+  box-shadow:0 24px 60px -18px rgba(20,14,4,.45),0 2px 6px rgba(20,14,4,.08)}
+.dd-feld a{display:block;padding:11px 13px;border-radius:10px;text-decoration:none}
+.dd-feld a:hover,.dd-feld a:focus-visible{background:var(--creme-2)}
+.dd-feld.breit{width:min(640px,62vw);display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:4px}
+.dd-feld b{display:block;font-size:15px;font-weight:600}
+.dd-feld span{display:block;font-size:13.5px;color:var(--text-3);line-height:1.4;margin-top:2px}
+.kopf-aktionen{display:flex;align-items:center;gap:10px}
+/* „Anmelden“: zurückhaltend, ohne Fläche und ohne Rahmen */
+.anmelden{display:inline-flex;align-items:center;gap:7px;min-height:42px;padding:0 6px;color:#fff;text-decoration:none;
+  font-size:15px;font-weight:500;opacity:.96}
+.anmelden svg{width:16px;height:16px}
+.anmelden:hover{opacity:1;text-decoration:underline;text-underline-offset:5px;text-decoration-thickness:1px}
+.mobil{display:none;position:static}
+.mobil-feld{position:absolute;left:10px;right:10px;top:calc(100% + 8px);max-height:calc(100svh - 96px);overflow:auto;overscroll-behavior:contain;
+  background:#fff;color:var(--text);border-radius:16px;padding:8px 10px 10px;box-shadow:0 24px 60px -18px rgba(20,14,4,.5)}
+.mobil-feld p{font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);padding:10px 12px 2px}
+.mobil-feld a{display:block;padding:9px 12px;border-radius:10px;text-decoration:none;font-size:16.5px;line-height:1.4}
+.mobil-feld a:hover{background:var(--creme-2)}
+/* Knöpfe unten: „Anmelden“ (falls sichtbar) und der App-Knopf nebeneinander */
+.mobil-aktionen{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:8px;margin-top:10px}
+.mobil-feld .mobil-aktionen a{display:flex;justify-content:center;align-items:center;min-height:48px;padding:0 12px;border-radius:12px;font-size:15.5px;font-weight:600}
+.mobil-feld .mobil-aktionen .knopf-dunkel{padding:4px 14px;gap:10px}
+.mobil-feld .mobil-aktionen .knopf-rand{border:1px solid rgba(33,23,11,.28);border-radius:12px}
+
+/* Text steht im Himmel: Der Block füllt nur den Bereich über der Biene (Video: Flügelspitzen ab ca. 55 % der Höhe)
+   und zentriert sich darin – so bleibt die Biene bei jeder Fenstergröße frei. */
+.hero{--kopf-h:calc(clamp(14px,2vw,26px) + 42px);--himmel:53%}
+.hero-text{position:absolute;z-index:2;left:0;right:0;top:0;height:var(--himmel);padding:var(--kopf-h) var(--pad) 0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.hero h1{font-weight:500;font-size:clamp(36px,min(5.8vw,8.4vh),88px);line-height:1.04;letter-spacing:-.013em;
+  text-shadow:0 2px 34px rgba(8,18,32,.3)}
+.hero-text > p{margin-top:clamp(10px,2.1vh,26px);font-size:clamp(15.5px,min(1.3vw,2.2vh),19px);line-height:1.4;max-width:36em;text-wrap:balance;
+  text-shadow:0 1px 3px rgba(8,18,32,.5),0 1px 18px rgba(8,18,32,.5)}
+.hero-text .knopf-weiss{margin-top:clamp(14px,3.2vh,38px)}
+.film-pause{position:absolute;right:clamp(14px,1.8vw,24px);bottom:clamp(14px,1.8vw,24px);z-index:3}
+.film-pause svg{width:14px;height:14px}
+.film-pause .an{display:none}
+.film-pause[aria-pressed="true"] .an{display:block}
+.film-pause[aria-pressed="true"] .aus{display:none}
+html:not(.js) .film-pause{display:none}
+
+/* ---------- Abschnitte allgemein ---------- */
+.abschnitt{padding:clamp(64px,8.4vw,128px) var(--pad) 0}
+.raster{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:clamp(20px,3vw,48px)}
+.etikett{grid-column:1;font-weight:600;font-size:clamp(19px,1.5vw,22px);line-height:1.25;letter-spacing:-.012em}
+.rechts{grid-column:2 / -1}
+.satz{font-size:clamp(26px,2.75vw,40px);line-height:1.2;letter-spacing:-.012em;font-weight:470;text-wrap:pretty}
+
+/* 01 Über */
+.zahlen{margin-top:clamp(56px,7vw,112px);row-gap:40px}
+.zahl{font-size:clamp(58px,5.7vw,86px);line-height:1;letter-spacing:-.03em;font-weight:400;font-variant-numeric:tabular-nums;white-space:nowrap}
+.zahl small{font-size:.62em;letter-spacing:-.01em;margin-left:.08em}
+.zahlen h3{font-size:clamp(19px,1.5vw,22px);font-weight:500;margin-top:18px;letter-spacing:-.008em;line-height:1.25}
+.zahlen li > p:last-child{font-size:15px;color:var(--text-2);margin-top:8px;max-width:15em;line-height:1.45}
+
+/* Aus der Praxis (Steffen Pfau) – schmales Band zwischen 01 und 02 */
+.praxis{padding:clamp(56px,6.4vw,100px) var(--pad) 0}
+/* Spalten so, dass der Text genau auf der 2. Spalte des Seitenrasters beginnt (wie Zahlen und Funktionen) */
+.praxis-band{--pg:clamp(20px,3vw,48px);--pp:clamp(22px,2.8vw,42px);display:grid;align-items:center;
+  grid-template-columns:calc((100% + 2*var(--pp) - 2*var(--pg)) / 3 - var(--pp)) minmax(0,1fr);column-gap:var(--pg);
+  border-radius:var(--block-r);padding:clamp(26px,2.8vw,42px) var(--pp);
+  background:linear-gradient(100deg,#F8EAD0 0%,#F6F0E3 42%,#F6F0E3 100%)}
+.praxis-logo-feld{grid-column:1}
+/* Logo als normales Bild, schon lokal in dunklem Honigbraun eingefärbt (keine CSS-Maske:
+   funktioniert so in jedem Browser, auch beim Öffnen der Datei per Doppelklick) */
+.praxis-logo{display:block;width:clamp(210px,19vw,290px)}
+.praxis-logo img{display:block;width:100%;height:auto}
+/* Hoher Kontrast (Windows): helle Unterlage behalten, damit das braune Logo lesbar bleibt */
+@media (forced-colors:active){.praxis-logo{forced-color-adjust:none;background:#FBF7EF;padding:8px 10px;border-radius:9px}}
+.praxis-text{grid-column:2}
+.praxis-titel{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);line-height:1.3;text-wrap:balance}
+.praxis-satz{margin-top:10px;font-size:clamp(19px,1.6vw,23px);line-height:1.35;letter-spacing:-.01em;font-weight:470;text-wrap:pretty;max-width:34em}
+.praxis-zeile{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-top:16px;font-size:15px}
+.praxis-schild{display:inline-flex;align-items:center;padding:5px 10px;border-radius:8px;background:var(--wiese-hell);color:var(--wiese-tief);
+  font-size:13.5px;font-weight:600;line-height:1.3}
+.praxis-link{display:inline-flex;align-items:center;gap:6px;min-height:32px;color:var(--text);font-weight:600;
+  text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:rgba(33,23,11,.35)}
+.praxis-link:hover{text-decoration-color:currentColor}
+.praxis-link svg{width:13px;height:13px;flex:none}
+
+/* 02 Funktionen (Honig-Block): Reiter je Thema, echtes App-Bild, alle Funktionen des Themas */
+.block{border-radius:var(--block-r)}
+.honig-block{margin-top:clamp(64px,7vw,104px);padding:clamp(36px,4.4vw,70px) var(--pad) clamp(40px,5vw,72px);
+  background:
+    linear-gradient(180deg,rgba(252,243,226,0) 0%,rgba(252,243,226,0) 30%,rgba(252,243,226,.75) 62%,#FCF3E2 86%),
+    linear-gradient(90deg,#F4C978 0%,#EDA940 34%,#ECA83E 58%,#F2BF66 82%,#F8DCA6 100%)}
+.block-links .knopf-weiss{margin-top:22px}
+.kopf-raster,.themen{display:grid;grid-template-columns:var(--spalte) minmax(0,1fr);column-gap:var(--luecke)}
+.gross{font-size:clamp(28px,2.9vw,42px);line-height:1.14;letter-spacing:-.016em;font-weight:480;text-wrap:balance;max-width:22em}
+.gross .zeile{display:block}
+.unter{margin-top:16px;font-size:clamp(16px,1.25vw,18.5px);line-height:1.5;color:var(--text-2);max-width:40em;text-wrap:pretty}
+.themen{margin-top:clamp(36px,4.4vw,60px);align-items:start}
+
+/* Themen (Reiter) */
+.reiter-spalte{position:sticky;top:var(--sticky)}
+.reiter-hinweis,.reiter-spur{display:none}
+.reiter-liste{display:flex;flex-direction:column;gap:4px}
+.reiter{display:grid;grid-template-columns:36px minmax(0,1fr) auto;align-items:center;column-gap:12px;
+  min-height:54px;padding:8px 10px 8px 9px;border-radius:12px;text-decoration:none;color:var(--text);
+  font-size:15.5px;font-weight:500;line-height:1.25;letter-spacing:-.008em;white-space:nowrap;
+  transition:background .2s ease,box-shadow .25s ease;-webkit-tap-highlight-color:transparent}
+.reiter:hover{background:rgba(255,255,255,.38)}
+.reiter-ic{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.42);color:var(--text);
+  transition:background .2s ease,color .2s ease}
+.reiter-ic svg{width:20px;height:20px}
+.reiter-zahl{font-size:12.5px;font-weight:600;color:var(--text-2);font-variant-numeric:tabular-nums;min-width:24px;text-align:center;
+  padding:2px 5px;border-radius:7px;background:rgba(255,255,255,.34)}
+.reiter[aria-selected="true"]{background:#fff;font-weight:600;box-shadow:0 12px 28px -16px rgba(60,35,0,.55),0 1px 2px rgba(60,35,0,.06)}
+.reiter[aria-selected="true"] .reiter-ic{background:var(--honig);color:var(--text)}
+.reiter[aria-selected="true"] .reiter-zahl{background:var(--honig-hell);color:var(--honig-text)}
+html:not(.js) .reiter[aria-selected]{background:rgba(255,255,255,.3);box-shadow:none;font-weight:500}
+.light-info{margin-top:18px;padding:16px 16px 17px;border-radius:14px;background:rgba(255,255,255,.5);font-size:14px;line-height:1.5;color:var(--text-2)}
+.handy-info{display:none}
+.light-info h3{font-size:14.5px;font-weight:650;color:var(--text);margin-bottom:4px;letter-spacing:-.005em}
+
+/* Bühne: Handy + Funktionen */
+.buehne{border-radius:var(--block-r);background:rgba(255,253,248,.82);
+  box-shadow:0 30px 70px -44px rgba(90,52,0,.55),inset 0 0 0 1px rgba(255,255,255,.7);
+  -webkit-backdrop-filter:blur(14px) saturate(1.05);backdrop-filter:blur(14px) saturate(1.05);
+  padding:clamp(24px,2.6vw,38px)}
+.tafel{display:grid;grid-template-columns:var(--handy-b) minmax(0,1fr);column-gap:clamp(28px,3vw,44px);
+  grid-template-areas:"kopf kopf" "geraet liste" "fuss liste";grid-template-rows:auto auto 1fr;align-items:start}
+.tafel:focus{outline:none}
+html:not(.js) .tafel + .tafel{margin-top:56px;padding-top:40px;border-top:1px solid rgba(70,40,5,.14)}
+.tafel-kopf{grid-area:kopf;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:24px;align-items:end;
+  padding-bottom:26px;margin-bottom:30px;border-bottom:1px solid rgba(70,40,5,.14)}
+.tafel-kopf > *{grid-column:1}
+.tafel-kopf .meta{grid-column:2;grid-row:1 / span 3;align-self:end;margin-top:0;justify-content:flex-end}
+.kicker{font-size:12.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--honig-text)}
+.tafel-kopf h3{margin-top:8px;font-size:clamp(26px,2.3vw,34px);line-height:1.12;font-weight:500;letter-spacing:-.018em;text-wrap:balance}
+.intro{margin-top:10px;font-size:clamp(16px,1.2vw,17.5px);line-height:1.5;color:var(--text-2);max-width:36em;text-wrap:pretty}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.schild{display:inline-flex;align-items:center;min-height:28px;padding:3px 10px;border-radius:8px;font-size:13.5px;font-weight:600;line-height:1.25;
+  background:rgba(122,72,0,.09);color:var(--text)}
+.schild-gruen{background:var(--wiese-hell);color:var(--wiese-tief)}
+.schild-honig{background:var(--honig-hell);color:var(--honig-text)}
+
+/* Handy-Rahmen mit echtem App-Bild */
+.geraet{grid-area:geraet}
+.handy{border-radius:44px;padding:9px;background:linear-gradient(160deg,#3a322a 0%,#1d1813 45%,#2a231c 100%);
+  box-shadow:0 46px 80px -40px rgba(70,40,0,.65),0 18px 30px -22px rgba(40,25,5,.5),inset 0 0 0 1px rgba(255,255,255,.12)}
+.bildschirm{container-type:inline-size;border-radius:35px;overflow:hidden;background:#FAF7EF;isolation:isolate}
+.statusleiste{position:relative;display:flex;align-items:center;justify-content:space-between;aspect-ratio:390/44;
+  padding:0 7% 0 9%;background:#FAF7EF;color:#1b140b}
+.uhr{font-size:4.1cqw;font-weight:650;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kamera{position:absolute;left:50%;top:50%;width:3.1cqw;height:3.1cqw;margin:-1.55cqw 0 0 -1.55cqw;border-radius:50%;background:#14100b}
+.status-ic{width:15cqw;height:auto;aspect-ratio:54/12}
+.bildschirm img{width:100%;height:auto;aspect-ratio:640/1385}
+.geraet figcaption{margin-top:14px;font-size:12.5px;line-height:1.4;color:var(--text-2);text-align:center}
+
+/* Funktionen mit Haken */
+.tafel-liste{grid-area:liste}
+.funktionen{display:grid;gap:13px}
+.funktionen li{display:grid;grid-template-columns:22px minmax(0,1fr);column-gap:12px;align-items:start}
+.fn-haken{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--honig-hell);color:var(--honig-tief)}
+.fn-haken svg{width:14px;height:14px}
+.funktionen p{font-size:14.5px;line-height:1.5;color:var(--text-2);text-wrap:pretty}
+.funktionen strong{font-weight:620;color:var(--text);letter-spacing:-.004em}
+.funktionen .light{vertical-align:1px}
+.light{display:inline-flex;align-items:center;vertical-align:1.5px;margin-left:7px;padding:1px 6px;border-radius:6px;
+  background:var(--wiese-hell);color:var(--wiese-tief);font-size:11.5px;font-weight:650;letter-spacing:.02em;line-height:1.45;white-space:nowrap}
+.hinweis{color:var(--text-3)}
+.nw{white-space:nowrap}
+.tafel-fuss{grid-area:fuss;display:flex;flex-direction:column;align-items:flex-start;gap:14px;margin-top:26px;padding-top:20px;border-top:1px solid rgba(70,40,5,.14)}
+.legende{font-size:13.5px;line-height:1.5;color:var(--text-3);max-width:34em}
+.legende .light{margin-left:0;vertical-align:1px}
+.weiter{display:inline-flex;align-items:center;gap:10px;min-height:44px;max-width:100%;padding:9px 16px;border-radius:12px;background:var(--text);color:#fff;
+  font-size:14.5px;font-weight:600;line-height:1.3;text-decoration:none;transition:transform .2s ease}
+.weiter svg{flex:none;transition:transform .25s ease}
+.weiter:hover{transform:translateY(-1px)}
+.weiter:hover svg{transform:translateX(2px)}
+html:not(.js) .tafel-fuss .weiter{display:none}
+@media (prefers-reduced-motion:no-preference){
+  .tafel.neu .tafel-kopf,.tafel.neu .tafel-liste{animation:rein .45s cubic-bezier(.2,.7,.2,1) both}
+  .tafel.neu .geraet .bildschirm{animation:bild .5s ease both}
+  .tafel.neu .tafel-liste{animation-delay:.06s}
+}
+@keyframes rein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes bild{from{opacity:.35}to{opacity:1}}
+
+/* 03 Fragen: Karten-Reihe mit Pfeilen, Zähler, Punkten, Wischen und Pfeiltasten */
+.steuerung{display:flex;align-items:center;justify-content:flex-end;gap:18px;margin-top:clamp(40px,4.4vw,60px)}
+html:not(.js) .steuerung{display:none}
+.stand{font-size:14.5px;line-height:1;color:var(--text-3);font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}
+.stand b{color:var(--text);font-weight:600}
+.pfeile{display:flex;gap:8px}
+.pfeil{width:52px;height:52px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+  background:var(--text);color:#fff;transition:background .2s ease,color .2s ease}
+.pfeil svg{width:19px;height:19px;transition:transform .25s ease}
+.pfeil:hover{background:#3A2B18}
+.pfeil[data-weiter]:hover svg{transform:translateX(2px)}
+.pfeil[data-zurueck]:hover svg{transform:translateX(-2px)}
+/* am Anfang/Ende ausgegraut – bleibt aber per Tastatur erreichbar */
+.pfeil[aria-disabled="true"]{background:var(--creme-2);color:#8F8169;cursor:default}
+.pfeil[aria-disabled="true"] svg{transform:none!important}
+.bahn{position:relative;display:flex;gap:var(--fq-luecke);overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;
+  margin:18px calc(-1*var(--pad)) 0;padding:4px var(--pad) 10px;scroll-padding-inline:var(--pad);scrollbar-width:none;
+  /* Ränder weich ausblenden – nur im Randstreifen außerhalb der Inhaltsbreite */
+  --start:clamp(250px,21vw,310px);
+  --ein:var(--pad);--aus:calc(100% - var(--pad));
+  --mask:linear-gradient(90deg,rgba(0,0,0,var(--l0)) 0,rgba(0,0,0,var(--lm)) calc(var(--ein) - var(--fq-luecke)),#000 var(--ein),
+    #000 var(--aus),rgba(0,0,0,var(--rm)) calc(var(--aus) + var(--fq-luecke)),rgba(0,0,0,var(--r0)) 100%);
+  -webkit-mask-image:var(--mask);mask-image:var(--mask);
+  --l0:0;--lm:.25;--rm:.25;--r0:0;transition:--l0 .4s ease,--lm .4s ease,--rm .4s ease,--r0 .4s ease,--aus .4s ease}
+.bahn.am-anfang{--l0:1;--lm:1;--rm:.8;
+  --aus:calc(var(--pad) + var(--start) + (200% - 4*var(--pad) - 4*var(--fq-luecke)) / 3 + 2*var(--fq-luecke) + 2px)}
+.bahn.am-ende{--rm:1;--r0:1}
+html:not(.js) .bahn{-webkit-mask-image:none;mask-image:none}
+.bahn::-webkit-scrollbar{display:none}
+.bahn:focus-visible{outline-offset:-3px}
+.kachel{flex:0 0 calc((100% - 2*var(--fq-luecke)) / 3);scroll-snap-align:start;background:var(--creme-2);border-radius:18px;
+  padding:22px 24px;display:flex;flex-direction:column;min-height:clamp(340px,27vw,400px)}
+.kachel header{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;color:var(--text-3)}
+.kachel header b{font-weight:600;color:var(--text)}
+.kachel header span{font-variant-numeric:tabular-nums}
+.kachel h3{font-size:clamp(19px,1.5vw,21px);line-height:1.3;font-weight:600;letter-spacing:-.01em;margin-top:20px}
+.kachel > p{font-size:clamp(17.5px,1.38vw,19.5px);line-height:1.45;margin-top:10px;letter-spacing:-.005em}
+.chips{display:flex;flex-wrap:wrap;align-items:center;margin-top:auto;padding-top:20px;gap:6px}
+.chips li{display:inline-flex;align-items:center;font-size:13px;line-height:1.2;padding:6px 10px;border-radius:8px;background:#ECE2CC;font-weight:500}
+.kachel.kachel-start{flex-basis:var(--start);
+  background:linear-gradient(172deg,#D7E6BD 0%,#E8F0D8 38%,#F4F2E6 72%,#F6F0E3 100%)}
+.kachel-start .riesig{font-size:clamp(46px,4vw,60px);line-height:1;letter-spacing:-.03em;font-weight:400;margin-top:0}
+.kachel-start .riesig small{display:block;font-size:15px;letter-spacing:0;color:var(--text-2);margin-top:10px;font-weight:450}
+.kachel-start > p:not(.riesig){margin-top:auto;font-size:14.5px;line-height:1.45;color:var(--text-2)}
+/* Knopf über die ganze Kartenbreite (Vorlage „View All Reviews“) */
+.kachel-start .knopf-dunkel{margin-top:16px;display:flex;width:100%;padding:6px}
+.kachel-start .knopf-dunkel > span:last-child{flex:1;text-align:center;padding-right:36px}
+/* Handy: kompakte „Fragen?“-Karte unter den Fragen statt erster Karte in der Reihe */
+.fragen-kompakt{display:none}
+.punkte{display:flex;justify-content:center;margin-top:20px;min-height:24px}
+.punkte button{width:24px;height:24px;padding:0;border:0;background:none;cursor:pointer;display:grid;place-items:center}
+/* kleine Rechtecke statt Kapseln; inaktiv mit mind. 3:1 Kontrast auf Weiß */
+.punkte button::before{content:"";width:7px;height:5px;border-radius:1px;background:#9C8B72;transition:width .3s ease,background .3s}
+.punkte button:hover::before{background:var(--text-2)}
+.punkte button[aria-current="true"]{width:44px}
+.punkte button[aria-current="true"]::before{width:32px;background:var(--text)}
+@media (prefers-reduced-motion:reduce){
+  .bahn{transition:none}
+  .pfeil svg,.kreis,.knopf-dunkel,.knopf-weiss,.weiter,.weiter svg,.punkte button::before{transition:none}
+  .pfeil:hover svg,.knopf-dunkel:hover,.knopf-weiss:hover,.knopf-dunkel:hover .kreis,.knopf-weiss:hover .kreis,.weiter:hover,.weiter:hover svg{transform:none}
+}
+
+/* 04 Video-Block */
+/* Die Themen liegen nebeneinander und laufen als echter Bildlauf: So hängt die Karte in jedem Browser am Finger */
+/* Die Bühne regelt nur die sichtbare Höhe. Der Bildlauf liegt darin und behält seine Höhe: Änderte sie sich, spränge Chrome zur vorigen Karte zurück */
+html.js .buehne{padding:0;overflow:hidden;transition:height .25s ease}
+html.js .karten-bahn{position:relative;display:flex;align-items:flex-start;overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+html.js .karten-bahn::-webkit-scrollbar{display:none}
+html.js .tafel{flex:0 0 100%;min-width:0;padding:clamp(24px,2.6vw,38px);scroll-snap-align:start;scroll-snap-stop:always}
+.buehne img{-webkit-user-drag:none;-webkit-touch-callout:none}
+@media (hover:hover) and (pointer:fine){html.js .karten-bahn,.bahn{cursor:grab}}
+html.js .karten-bahn.zieht,.bahn.zieht{scroll-snap-type:none;cursor:grabbing;user-select:none;-webkit-user-select:none}
+@media (prefers-reduced-motion:reduce){html.js .buehne{transition:none}}
+.film-block{position:relative;isolation:isolate;overflow:hidden;border-radius:var(--block-r);color:#fff;
+  margin-top:clamp(64px,8vw,120px);min-height:500px;display:grid;place-items:end center;text-align:center;
+  padding-bottom:clamp(64px,15vh,150px);
+  height:calc(100vh - 2*(var(--mv) + var(--b)));height:calc(100svh - 2*(var(--mv) + var(--b)));background:#6d8f4a}
+/* minimal größer: die oberste Videozeile ist dunkler und wäre sonst als Haarlinie zu sehen */
+.film-block .film video{object-position:50% 50%;transform:scale(1.005)}
+.film-block-schleier{position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(38% 34% at 0% 0%,rgba(10,18,30,.52) 0%,rgba(10,18,30,0) 100%),
+    linear-gradient(180deg,rgba(10,18,30,.2) 0%,rgba(10,18,30,.04) 30%,rgba(10,18,30,.1) 60%,rgba(10,18,30,.26) 100%)}
+/* Dunkler Hof wandert mit dem Text mit (auch bei niedrigen Fenstern, wo der Text höher steht) */
+.film-block-text{position:relative;z-index:0}
+.film-block-text::before{content:"";position:absolute;z-index:-1;inset:-8% -4% 6%;pointer-events:none;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(22,28,12,.72) 0%,rgba(22,28,12,.66) 60%,rgba(22,28,12,0) 100%);filter:blur(20px)}
+.film-block-text{padding:0 var(--pad);display:flex;flex-direction:column;align-items:center}
+.film-block h2{font-size:clamp(40px,5.5vw,84px);line-height:1.04;letter-spacing:-.013em;font-weight:500;text-wrap:balance;
+  text-shadow:0 1px 4px rgba(8,14,6,.4),0 2px 30px rgba(8,14,6,.5)}
+.film-block-text > p{margin-top:20px;font-size:clamp(16px,1.3vw,19px);max-width:34em;text-wrap:balance;
+  text-shadow:0 1px 2px rgba(8,14,6,.65),0 0 10px rgba(8,14,6,.6),0 1px 22px rgba(8,14,6,.5)}
+.film-block .knopf-weiss{margin-top:32px}
+
+/* 05 Preis */
+.preis-raster{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:clamp(36px,4vw,56px)}
+.preis-karte{border-radius:18px;padding:clamp(22px,2.4vw,32px);background:var(--creme-2);display:flex;flex-direction:column}
+.preis-karte.voll{background:
+    radial-gradient(80% 70% at 100% 0%,rgba(255,255,255,.4) 0%,rgba(255,255,255,0) 60%),
+    linear-gradient(175deg,#EFB04B 0%,#F4C877 45%,#FAE5BA 100%)}
+.preis-karte h3{font-size:16px;font-weight:600;display:flex;justify-content:space-between;gap:12px}
+.preis-karte h3 span{font-weight:500;font-size:13px;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.6);color:var(--text-2)}
+.betrag{font-size:clamp(48px,4.4vw,66px);line-height:1;letter-spacing:-.04em;font-weight:380;margin-top:22px;font-variant-numeric:tabular-nums}
+.betrag-unter{font-size:15px;color:var(--text-2);margin-top:8px}
+.haken{margin-top:22px;display:grid;gap:10px;font-size:15.5px;line-height:1.45}
+.haken li{display:flex;gap:10px}
+.haken svg{width:18px;height:18px;flex:none;margin-top:2px;color:var(--wiese-tief)}
+.preis-karte.voll .haken svg{color:var(--text)}
+.preis-karte .knopf-dunkel{margin-top:auto;align-self:flex-start}
+/* solange die App in keinem Store ist: gleiche Kapsel wie die übrigen Knöpfe, aber ohne Link */
+.preis-karte .haken{margin-bottom:28px}
+.preis-hinweis{margin-top:14px;font-size:14px;color:var(--text-3)}
+
+/* 06 Kontakt + Fuß */
+.fuss{padding:clamp(64px,8.4vw,128px) var(--pad) 0;container-type:inline-size}
+.knopf-reihe{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.wortmarke{display:flex;align-items:center;justify-content:center;gap:.1em;font-weight:800;line-height:1;letter-spacing:-.02em;white-space:nowrap;
+  font-size:13vw;font-size:16.4cqi;margin:clamp(48px,6vw,96px) 0 0;padding-bottom:.08em;user-select:none}
+.wortmarke svg{width:1.1em;height:1.1em;flex:none;margin-left:-.1em}
+.wortmarke span{background:linear-gradient(180deg,#EDAA41 0%,#F4CB80 55%,#FBEFD8 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.fuss-leiste{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px 28px;
+  border-top:1px solid var(--linie);padding:22px 0 clamp(22px,2.4vw,32px);font-size:14.5px;color:var(--text-3)}
+.fuss-leiste nav{display:flex;flex-wrap:wrap;gap:6px 22px}
+.fuss-leiste nav a{color:var(--text);text-decoration:none}
+.fuss-leiste nav a:hover{text-decoration:underline;text-underline-offset:4px}
+.fuss-leiste .knopf-dunkel{min-height:42px;padding:5px 16px 5px 5px;font-size:14.5px}
+.fuss-leiste .kreis{width:32px;height:32px}
+
+/* ---------- Einblenden beim Scrollen (nur mit JS und ohne „weniger Bewegung“) ---------- */
+@media (prefers-reduced-motion:no-preference){
+  html.js [data-zeigen]{transition:opacity .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1),filter .9s ease;
+    transition-delay:calc(var(--v,0) * 90ms)}
+  html.js [data-zeigen]:not(.sichtbar){opacity:0;transform:translateY(28px)}
+  html.js [data-zeigen="weich"]:not(.sichtbar){transform:translateY(16px) scale(.985);filter:blur(14px)}
+}
+
+/* ---------- mittlere Breiten ---------- */
+@media (max-width:1360px){
+  :root{--spalte:256px;--handy-b:262px}
+  .reiter{font-size:15px;column-gap:11px;grid-template-columns:36px minmax(0,1fr)}
+  .reiter .reiter-zahl{display:none}
+}
+@media (max-width:1100px){
+  .tafel-kopf{display:block}
+  .tafel-kopf .meta{margin-top:14px;justify-content:flex-start}
+  .kachel{flex-basis:calc((100% - var(--fq-luecke)) / 2)}
+  .bahn.am-anfang{--aus:calc(var(--pad) + var(--start) + (100% - 2*var(--pad) - var(--fq-luecke)) / 2 + var(--fq-luecke) + 2px)}
+}
+/* Zwei-Spalten-Menü: bleibt innerhalb des Heros */
+@media (max-width:1320px){.dd-feld.breit{left:-110px;width:min(600px,62vw)}}
+@media (max-width:1100px){.dd-feld.breit{left:-150px;width:min(560px,64vw)}}
+/* ---------- Tablet ---------- */
+@media (max-width:1080px){
+  .menue{gap:18px;font-size:14.5px}
+  .menue .nur-breit{display:none}
+}
+@media (max-width:1000px){
+  .kopf{gap:12px}
+  .menue{gap:12px;font-size:14px}
+  .logo{font-size:18px}
+}
+/* ---------- bis 1180 px: Funktionen mit Themen als waagerechter Leiste (daneben wäre die Liste zu schmal) ---------- */
+@media (max-width:1180px){
+  /* Funktionen: Themen als waagerecht wischbare Leiste */
+  .kopf-raster,.themen{display:block}
+  .block-links{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;flex-wrap:wrap;margin-bottom:22px}
+  .block-links .knopf-weiss{margin-top:0}
+  .reiter-spalte{position:static}
+  .reiter-leiste{margin:0 calc(-1*var(--pad));position:relative}
+  .reiter-hinweis{display:flex;align-items:center;gap:7px;padding:0 var(--pad);margin-bottom:6px;font-size:13.5px;font-weight:600;color:var(--text-2)}
+  .reiter-hinweis svg{flex:none;transition:transform .25s ease}
+  .reiter-leiste.am-ende .reiter-hinweis svg{transform:rotate(180deg)}
+  .reiter-liste{flex-direction:row;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;
+    padding:6px var(--pad) 8px;scrollbar-width:none;
+    --l:0px;--r:44px;
+    -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.1) 0,#000 var(--l),#000 calc(100% - var(--r)),rgba(0,0,0,.1) 100%);
+            mask-image:linear-gradient(90deg,rgba(0,0,0,.1) 0,#000 var(--l),#000 calc(100% - var(--r)),rgba(0,0,0,.1) 100%)}
+  .reiter-liste.weg-vom-anfang{--l:36px}
+  .reiter-liste.am-ende{--r:0px}
+  .reiter-liste::-webkit-scrollbar{display:none}
+  .reiter{flex:none;grid-template-columns:30px auto;column-gap:9px;min-height:48px;padding:6px 14px 6px 7px;
+    font-size:15px;white-space:nowrap;background:rgba(255,255,255,.34)}
+  .reiter-ic{width:30px;height:30px;border-radius:8px}
+  .reiter-ic svg{width:18px;height:18px}
+  /* kleine Laufleiste unter den Reitern: zeigt, dass es weitergeht und wo man ist */
+  html.js .reiter-spur{display:block;height:4px;margin:2px var(--pad) 12px;border-radius:2px;background:rgba(70,40,5,.2);overflow:hidden}
+  .reiter-spur i{display:block;height:100%;width:30%;border-radius:2px;background:var(--text);transform:translateX(var(--x,0))}
+  .reiter-spalte .light-info{display:none}
+  .handy-info{display:block;margin-top:14px}
+  .buehne{margin-top:8px}
+}
+/* Mit Maus gibt es kein Wischen: Dort brechen die Reiter in mehrere Zeilen um, alle sind direkt sichtbar */
+@media (max-width:1180px) and (hover:hover) and (pointer:fine){
+  .reiter-liste{flex-wrap:wrap;overflow:visible;-webkit-mask-image:none;mask-image:none}
+  .reiter-hinweis,html.js .reiter-spur{display:none}
+  .reiter-liste{padding-bottom:14px}
+}
+/* Niedrige Fenster: Die mitlaufende Reiter-Spalte muss ganz ins Fenster passen */
+@media (min-width:1181px) and (max-height:820px){
+  .reiter-spalte .light-info{display:none}
+  /* in der rechten Spalte unter der Bühne, sonst fährt die mitlaufende Themenliste darüber */
+  .handy-info{display:block;margin-top:14px;grid-column:2}
+}
+@media (min-width:1181px) and (max-height:640px){
+  .reiter-liste{gap:2px}
+  .reiter{min-height:46px;padding-block:5px}
+}
+@media (min-width:1181px) and (max-height:530px){
+  .reiter-spalte{position:static}
+}
+@media (max-width:900px){
+  .menue,.kopf-aktionen{display:none}
+  .mobil{display:block}
+  .raster{display:block}
+  .rechts{margin-top:18px}
+  .satz{margin-top:18px}
+  .praxis-band{display:block}
+  .praxis-text{margin-top:22px}
+  .zahlen{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));column-gap:20px}
+}
+@media (max-width:900px) and (min-width:641px){
+  :root{--handy-b:236px}
+}
+/* Schmal: Handy-Bild über der Liste, sonst bleibt für die Funktionen zu wenig Breite */
+@media (max-width:720px){
+  .tafel{display:block}
+  .geraet{width:min(250px,72%);margin:26px auto 0}
+  .tafel-liste{margin-top:28px;padding-top:22px;border-top:1px solid rgba(70,40,5,.14)}
+}
+
+/* Niedrige Fenster: Überschrift etwas kleiner, damit sie nicht am Menü klebt */
+@media (min-width:641px) and (max-height:800px){
+  .hero h1{font-size:clamp(32px,min(5.8vw,7.2vh),88px)}
+}
+/* Breite Fenster: Im Video-Abschnitt sitzt die Biene links neben der Mitte. Text kleiner und tiefer,
+   Bildausschnitt etwas nach unten – so bleibt sie frei. */
+@media (min-width:901px) and (min-aspect-ratio:3/2){
+  .film-block{padding-bottom:clamp(40px,7.5vh,90px)}
+  .film-block .film video{object-position:50% 72%}
+  .film-block h2{font-size:clamp(38px,min(4.7vw,8.4vh),84px)}
+  .film-block-text > p{margin-top:clamp(10px,1.8vh,20px)}
+  .film-block .knopf-weiss{margin-top:clamp(14px,2.6vh,30px)}
+}
+
+/* ---------- Handy ---------- */
+@media (max-width:640px){
+  body{font-size:16px}
+  .kopf{padding:14px 14px 0}
+  /* eigenes Hochformat-Video: Biene (Flügelspitzen) ab ca. 60 % der Höhe, Text darüber im Himmel */
+  .hero{min-height:520px;--kopf-h:56px;--himmel:58%}
+  .hero .film video{object-position:50% 50%}
+  .hero-schleier{background:
+    radial-gradient(100% 26% at 50% 36%,rgba(66,112,182,.62) 0%,rgba(66,112,182,.42) 62%,rgba(66,112,182,0) 100%),
+    linear-gradient(180deg,rgba(66,104,160,.42) 0%,rgba(66,104,160,.3) 30%,rgba(66,104,160,.22) 46%,rgba(66,104,160,0) 58%)}
+  .hero h1{font-size:clamp(26px,8.7vw,46px)}
+  .hero-text > p{font-size:16px;max-width:22em;margin-top:12px}
+  .hero-text .knopf-weiss{margin-top:18px}
+  .zahlen{grid-template-columns:1fr;row-gap:34px}
+  .praxis{padding-top:52px}
+  .praxis-logo{width:212px}
+  .praxis-satz{font-size:19px}
+  .zahl{font-size:64px}
+  /* Funktionen */
+  .honig-block{padding-top:34px;padding-bottom:22px;background:
+    linear-gradient(180deg,rgba(252,243,226,0) 0%,rgba(252,243,226,0) 12%,rgba(252,243,226,.8) 30%,#FCF3E2 46%),
+    linear-gradient(115deg,#F4C978 0%,#EDA940 38%,#EEAD46 62%,#F6D394 100%)}
+  .gross{font-size:29px}
+  .unter{font-size:16px}
+  .themen{margin-top:24px}
+  .buehne{margin:4px calc(-1*var(--pad) + 8px) 0;padding:22px 16px 18px;border-radius:16px}
+  html.js .tafel{padding:22px 16px 18px}
+  .tafel-kopf h3{font-size:26px}
+  .handy{border-radius:38px;padding:8px}
+  .bildschirm{border-radius:30px}
+  .funktionen{gap:16px}
+  .fn-name{display:block;margin-bottom:2px}
+  .fn-name strong{font-size:15.5px}
+  .punkt{display:none}
+  .tafel-fuss{align-items:stretch;margin-top:24px}
+  .weiter{justify-content:center;min-height:48px}
+  /* Fragen: erster Schritt zeigt sofort die erste Frage; die nächste Karte schaut heraus */
+  .steuerung{margin-top:30px;gap:14px;justify-content:space-between}
+  .pfeil{width:48px;height:48px}
+  .bahn{margin-top:14px;--aus:84%;--rm:.7;--r0:.06}
+  .bahn.am-anfang{--l0:1;--lm:1;--rm:.7;--r0:.06;--aus:84%}
+  .bahn::after{content:"";flex:0 0 calc(16% - var(--fq-luecke))}
+  .kachel{flex-basis:84%;min-height:340px}
+  .kachel > p{font-size:17.5px}
+  .kachel.kachel-start{display:none}
+  .fragen-kompakt{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 14px;margin-top:18px;padding:16px;border-radius:16px;
+    background:linear-gradient(120deg,#D7E6BD 0%,#E8F0D8 55%,#F4F2E6 100%)}
+  .fragen-kompakt .fk-titel{flex:1 1 100%;font-size:14.5px;line-height:1.45;color:var(--text-2)}
+  .fragen-kompakt .fk-titel b{display:block;font-size:26px;line-height:1.1;letter-spacing:-.02em;font-weight:500;color:var(--text);margin-bottom:6px}
+  .punkte{margin-top:12px}
+  /* Video-Abschnitt, Preis, Fuß */
+  .film-block{min-height:540px;padding-bottom:clamp(56px,12vh,110px)}
+  .film-block-schleier{background:
+    radial-gradient(60% 40% at 0% 0%,rgba(10,18,30,.42) 0%,rgba(10,18,30,0) 100%),
+    linear-gradient(180deg,rgba(10,18,30,.2) 0%,rgba(10,18,30,.04) 30%,rgba(10,18,30,.14) 60%,rgba(10,18,30,.34) 100%)}
+  .film-block h2{font-size:clamp(30px,9vw,44px)}
+  /* Handy: Text oben im Himmel, darunter Biene und Bienenstock (eigener Hochformat-Ausschnitt) */
+  .film-block{place-items:start center;padding-top:clamp(44px,8vh,84px);padding-bottom:0}
+  .film-block .film video{object-position:50% 100%}
+  .film-block-text::before{background:radial-gradient(closest-side,rgba(10,30,70,.42) 0%,rgba(10,30,70,.34) 60%,rgba(10,30,70,0) 100%)}
+  .preis-raster{grid-template-columns:1fr}
+  .knopf-weiss,.knopf-dunkel{font-size:15px}
+  .fuss-leiste{flex-direction:column;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<a class="sprung" href="#ueber">Zum Inhalt springen</a>
+
+<!-- wiederkehrende Symbole der Funktionen-Liste -->
+<svg class="sr" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-haken" viewBox="0 0 16 16"><path d="m3.6 8.4 2.9 2.9 5.9-6.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-status" viewBox="0 0 54 12"><g fill="currentColor"><rect x="0" y="8" width="3" height="4" rx=".8"/><rect x="4.5" y="6" width="3" height="6" rx=".8"/><rect x="9" y="3.5" width="3" height="8.5" rx=".8"/><rect x="13.5" y="1" width="3" height="11" rx=".8"/></g><path d="M22.5 5.2a7.2 7.2 0 0 1 9.6 0M24.6 7.6a4.2 4.2 0 0 1 5.4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="27.3" cy="10.2" r="1.3" fill="currentColor"/><rect x="36.5" y="1.2" width="15" height="9.6" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".55"/><rect x="38.2" y="2.9" width="11.6" height="6.2" rx="1.4" fill="currentColor"/><path d="M52.9 4.6v2.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".55"/></symbol>
+</defs></svg>
+
+<!-- Verschwommener Hintergrund: liegt über dem Inhalt, in der Mitte als Kartenfenster ausgestanzt.
+     Videos: nahtlose Vorwärts-Schleifen (der Übergang vom Ende zum Anfang ist ins Video eingearbeitet) – normales „loop“ reicht.
+     Auf dem Handy wird kein Hintergrund-Video geladen (der Rand ist dort nur 2 px breit) – bewusst nur Farbverlauf. -->
+<div class="kulisse" aria-hidden="true">
+  <div class="kulisse-film">
+    <video muted loop playsinline disablepictureinpicture preload="none" tabindex="-1" data-film="kulisse">
+      <source src="media/hintergrund-flug.mp4#t=0.01" type="video/mp4" media="(min-width: 701px)">
+    </video>
+  </div>
+  <div class="rahmen-linie"></div>
+</div>
+
+<div class="karte">
+<div class="innen">
+
+  <!-- ===================== HERO ===================== -->
+  <header class="hero" id="top">
+    <div class="film">
+      <video muted loop playsinline disablepictureinpicture preload="metadata" aria-hidden="true" tabindex="-1" data-film="hero">
+        <source src="media/hero-flug-1280.mp4#t=0.01" type="video/mp4" media="(min-width: 701px)">
+        <source src="media/hero-flug-handy.mp4#t=0.01" type="video/mp4">
+      </video>
+    </div>
+    <div class="hero-schleier"></div>
+
+    <nav class="kopf" aria-label="Hauptmenü">
+      <a class="logo" href="#top" aria-label="ImkerBuch – zum Seitenanfang"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="wabe-kopf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7C64F"/><stop offset="1" stop-color="#DC8A07"/></linearGradient></defs><path d="M20.4 10.8 29.9 16.2 29.9 27.2 20.4 32.8 10.9 27.2 10.9 16.2Z" fill="url(#wabe-kopf)"/><path d="M43.6 10.8 53.1 16.2 53.1 27.2 43.6 32.8 34.1 27.2 34.1 16.2Z" fill="url(#wabe-kopf)"/><path d="M32 31.3 41.5 36.8 41.5 47.8 32 53.3 22.5 47.8 22.5 36.8Z" fill="url(#wabe-kopf)"/></svg><span>ImkerBuch</span></a>
+
+      <ul class="menue">
+        <li>
+          <details class="dd" name="menue">
+            <summary>Funktionen <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="dd-feld breit">
+              <a href="#thema-1"><b>Am Bienenstand</b><span>Durchsicht, Stockkarte, Stände</span></a>
+              <a href="#thema-2"><b>Völker &amp; Königinnen</b><span>Verlauf, Stammbaum, Bewertung</span></a>
+              <a href="#thema-3"><b>Gesundheit &amp; Fütterung</b><span>Varroa, Behandlungen, Futter-Rechner</span></a>
+              <a href="#thema-4"><b>Wetter &amp; Tracht</b><span>Wetter am Stand, Trachtkalender</span></a>
+              <a href="#thema-5"><b>Honig</b><span>Ernte, Chargen, Abfüllen, Etiketten</span></a>
+              <a href="#thema-6"><b>Verkauf, Geld &amp; Lager</b><span>Kassenbuch, Rechnungen, Material</span></a>
+              <a href="#thema-7"><b>Aufgaben, Zeit &amp; Fahrten</b><span>Aufgaben, Zeiterfassung, Fahrtenbuch</span></a>
+              <a href="#thema-8"><b>Auswertung &amp; Unterlagen</b><span>Statistiken, Meldungen, PDF und Excel</span></a>
+              <a href="#thema-9"><b>Bio &amp; Hygiene</b><span>Bio-Unterlagen, Hygieneplan, Landbedeckung</span></a>
+              <a href="#thema-10"><b>Imme &amp; deine Daten</b><span>Assistent, Sicherung, Hell und Dunkel</span></a>
+            </div>
+          </details>
+        </li>
+        <li>
+          <details class="dd" name="menue">
+            <summary>Für wen <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="dd-feld">
+              <a href="#thema-1"><b>Hobby-Imkerei</b><span>Bis 2 Völker dauerhaft kostenlos in der Light-Version</span></a>
+              <a href="#thema-6"><b>Imkereibetrieb</b><span>Honig, Chargen, Kassenbuch, Rechnungen, Fahrtenbuch</span></a>
+              <a href="#thema-9"><b>Bio-Imkerei</b><span>Bio-Unterlagen, Hygieneplan, Landbedeckung der Stände</span></a>
+            </div>
+          </details>
+        </li>
+        <li>
+          <details class="dd" name="menue">
+            <summary>Über ImkerBuch <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+            <div class="dd-feld">
+              <a href="#ueber"><b>Was ist ImkerBuch?</b><span>Die App für deine ganze Imkerei – offline, ohne Konto</span></a>
+              <a href="#preise"><b>Preis &amp; Testphase</b><span>30 Tage testen, dann Light oder Vollversion</span></a>
+              <a href="../datenschutz.html"><b>Datenschutz</b><span>Deine Daten bleiben auf deinem Gerät</span></a>
+            </div>
+          </details>
+        </li>
+        <li><a href="#fragen">FAQ</a></li>
+        <li><a href="#kontakt">Kontakt</a></li>
+      </ul>
+
+      <div class="kopf-aktionen">
+        <a class="anmelden" href="anmelden-entwurf.html" hidden data-anmelden><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.2" r="2.7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.8 14c.6-2.7 2.7-4.3 5.2-4.3s4.6 1.6 5.2 4.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>Anmelden</a>
+        <a class="knopf-glas" href="#preise" data-app>Bald erhältlich</a>
+      </div>
+
+      <details class="mobil" name="menue">
+        <summary class="knopf-glas" aria-label="Menü öffnen">Menü</summary>
+        <div class="mobil-feld">
+          <p>Funktionen</p>
+          <a href="#thema-1">Am Bienenstand</a>
+          <a href="#thema-2">Völker &amp; Königinnen</a>
+          <a href="#thema-3">Gesundheit &amp; Fütterung</a>
+          <a href="#thema-4">Wetter &amp; Tracht</a>
+          <a href="#thema-5">Honig</a>
+          <a href="#thema-6">Verkauf, Geld &amp; Lager</a>
+          <a href="#thema-7">Aufgaben, Zeit &amp; Fahrten</a>
+          <a href="#thema-8">Auswertung &amp; Unterlagen</a>
+          <a href="#thema-9">Bio &amp; Hygiene</a>
+          <a href="#thema-10">Imme &amp; deine Daten</a>
+          <p>Für wen</p>
+          <a href="#thema-1">Hobby-Imkerei</a>
+          <a href="#thema-6">Imkereibetrieb</a>
+          <a href="#thema-9">Bio-Imkerei</a>
+          <p>Über ImkerBuch</p>
+          <a href="#ueber">Was ist ImkerBuch?</a>
+          <a href="#preise">Preis &amp; Testphase</a>
+          <a href="#fragen">FAQ</a>
+          <a href="#kontakt">Kontakt</a>
+          <div class="mobil-aktionen">
+            <a class="knopf-rand" href="anmelden-entwurf.html" hidden data-anmelden>Anmelden</a>
+            <a class="knopf-dunkel" href="#preise" data-app>Bald erhältlich</a>
+          </div>
+        </div>
+      </details>
+    </nav>
+
+    <div class="hero-text">
+      <h1 data-zeigen="weich">Deine ganze Imkerei.<br> In einer App.</h1>
+      <p data-zeigen style="--v:2">Völker, Königinnen, Honig, Kassenbuch und alle Unterlagen fürs Amt – offline auf deinem Handy. Deine Daten bleiben bei dir.</p>
+      <a class="knopf-weiss kapsel" href="#preise" data-app data-zeigen style="--v:4">
+        <span class="kreis kreis-honig"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="bald-text"><span>Bald im App Store</span> <span>&amp; bei Google Play</span></span>
+      </a>
+    </div>
+
+    <button class="knopf-pause film-pause" type="button" aria-pressed="false" aria-label="Videos anhalten">
+      <svg class="aus" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+      <svg class="an" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4c0 .6.6.9 1.1.6l8-5.2c.5-.3.5-.9 0-1.2l-8-5.2c-.5-.3-1.1 0-1.1.6z" fill="currentColor"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <!-- ===================== 01 ÜBER ===================== -->
+    <section class="abschnitt" id="ueber" aria-labelledby="ueber-titel">
+      <div class="raster">
+        <h2 class="etikett" id="ueber-titel" data-zeigen>Über ImkerBuch</h2>
+        <p class="satz rechts" data-zeigen style="--v:1">ImkerBuch begleitet dich durchs ganze Bienenjahr – von der Durchsicht am Stand über Königinnen und Honigernte bis zu Kassenbuch, Rechnungen und den Meldungen ans Amt. Komplett auf Deutsch, offline und ohne Konto.</p>
+      </div>
+      <ul class="raster zahlen">
+        <li data-zeigen>
+          <p class="zahl"><span data-zahl="30">30</span></p>
+          <h3>Tage alles testen</h3>
+          <p>Alle Funktionen kostenlos testen – ohne Abo.</p>
+        </li>
+        <li data-zeigen style="--v:2">
+          <p class="zahl"><span data-zahl="2">2</span></p>
+          <h3>Völker dauerhaft kostenlos</h3>
+          <p>In der Light-Version: Durchsicht, Stockkarte, Varroa-Kontrolle und Königinnen.</p>
+        </li>
+        <li data-zeigen style="--v:4">
+          <p class="zahl">0<small>€</small></p>
+          <h3>Abo</h3>
+          <p>Einmal kaufen: 14,99 € Einführungspreis, keine automatische Abbuchung.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- ===================== AUS DER PRAXIS ===================== -->
+    <section class="praxis" id="praxis" aria-labelledby="praxis-titel">
+      <div class="praxis-band" data-zeigen>
+        <div class="praxis-logo-feld">
+          <span class="praxis-logo"><img src="media/partner/pfau-honig-logo-braun.png" alt="PFAU-Honig Logo" width="951" height="191" decoding="async"></span>
+        </div>
+        <div class="praxis-text">
+          <h2 class="praxis-titel" id="praxis-titel">Entwickelt mit Imkern aus der Praxis</h2>
+          <p class="praxis-satz">Steffen Pfau, Imkerei PFAU-Honig aus Utting am Ammersee, war maßgeblich an der Entwicklung von ImkerBuch beteiligt.</p>
+          <p class="praxis-zeile">
+            <span class="praxis-schild">Naturland-Bio-Imkerei</span>
+            <a class="praxis-link" href="https://www.pfauhonig.de/" target="_blank" rel="noopener noreferrer">pfauhonig.de<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 11l6-6M6 4.5h5.5V10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sr"> (öffnet in neuem Fenster)</span></a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 02 FUNKTIONEN ===================== -->
+    <section class="block honig-block" id="funktionen" aria-labelledby="funktionen-titel">
+      <div class="kopf-raster">
+        <div class="block-links">
+          <h2 class="etikett" id="funktionen-titel" data-zeigen>Funktionen</h2>
+          <a class="knopf-weiss kapsel" href="#themen" data-zeigen style="--v:1">
+            <span class="kreis kreis-wiese"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            Alle Funktionen
+          </a>
+        </div>
+        <div class="f-rechts">
+          <p class="gross" data-zeigen>Nicht nur ein Stockbuch. <span class="zeile">Alles, was deine Imkerei braucht.</span></p>
+          <p class="unter" data-zeigen style="--v:1">Über 130 Funktionen in 10 Themen – vom Bienenstand über Honig und Verkauf bis zu den Unterlagen fürs Amt. Wähle ein Thema – dazu siehst du ein echtes Bild aus der App.</p>
+        </div>
+      </div>
+      <div class="themen" id="themen">
+      <div class="reiter-spalte">
+        <nav class="reiter-leiste" aria-label="Themen">
+          <p class="reiter-hinweis" aria-hidden="true"><span>Wische für alle 10 Themen</span><svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></p>
+          <div class="reiter-liste" role="tablist" aria-label="Themen der App">
+            <a class="reiter" role="tab" id="reiter-1" href="#thema-1" aria-controls="thema-1" aria-selected="true"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10 12 4.5l8.5 5.5"/><rect x="5.5" y="10" width="13" height="10" rx="1.6"/><path d="M5.5 14.5h13"/><path d="M10.3 20v-2.1a1.7 1.7 0 0 1 3.4 0V20"/></svg></span><span class="reiter-name">Am Bienenstand</span><span class="reiter-zahl" aria-label="15 Funktionen">15</span></a><a class="reiter" role="tab" id="reiter-2" href="#thema-2" aria-controls="thema-2" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 17 3.5 8.5l4.6 3.6L12 6l3.9 6.1 4.6-3.6-1 8.5z"/><path d="M5.5 20h13"/></svg></span><span class="reiter-name">Völker &amp; Königinnen</span><span class="reiter-zahl" aria-label="14 Funktionen">14</span></a><a class="reiter" role="tab" id="reiter-3" href="#thema-3" aria-controls="thema-3" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 18.5 6v5.3c0 4.2-2.8 7.4-6.5 8.8-3.7-1.4-6.5-4.6-6.5-8.8V6z"/><path d="M12 9.2v5.6M9.2 12h5.6"/></svg></span><span class="reiter-name">Gesundheit &amp; Fütterung</span><span class="reiter-zahl" aria-label="12 Funktionen">12</span></a><a class="reiter" role="tab" id="reiter-4" href="#thema-4" aria-controls="thema-4" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4.2c-.2 3.6.9 6.6 4 7.6 3.1-1 4.2-4 4-7.6l-2.2 1.9L12 3.5l-1.8 2.6z"/><path d="M12 11.8V20.5"/><path d="M12 17.6c-1.6-2.4-3.7-3.2-5.6-3 .3 2.4 2.5 3.7 5.6 3zM12 15.6c1.3-1.9 3-2.5 4.6-2.4-.3 1.9-2 3-4.6 2.4z"/></svg></span><span class="reiter-name">Wetter &amp; Tracht</span><span class="reiter-zahl" aria-label="9 Funktionen">9</span></a><a class="reiter" role="tab" id="reiter-5" href="#thema-5" aria-controls="thema-5" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7.5" y="3.5" width="9" height="3" rx="1"/><path d="M7.2 6.5h9.6A1.7 1.7 0 0 1 18.5 8.2v10.6a1.7 1.7 0 0 1-1.7 1.7H7.2a1.7 1.7 0 0 1-1.7-1.7V8.2a1.7 1.7 0 0 1 1.7-1.7z"/><path d="M5.5 11h13M5.5 16.5h13"/></svg></span><span class="reiter-name">Honig</span><span class="reiter-zahl" aria-label="10 Funktionen">10</span></a><a class="reiter" role="tab" id="reiter-6" href="#thema-6" aria-controls="thema-6" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><path d="M9 8h6M9 11.5h6M9 15h3.5"/></svg></span><span class="reiter-name">Verkauf, Geld &amp; Lager</span><span class="reiter-zahl" aria-label="16 Funktionen">16</span></a><a class="reiter" role="tab" id="reiter-7" href="#thema-7" aria-controls="thema-7" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9.5h16M8.5 3v4M15.5 3v4"/><path d="m9 14.6 2.1 2.1 4-4"/></svg></span><span class="reiter-name">Aufgaben, Zeit &amp; Fahrten</span><span class="reiter-zahl" aria-label="12 Funktionen">12</span></a><a class="reiter" role="tab" id="reiter-8" href="#thema-8" aria-controls="thema-8" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><rect x="5.8" y="11" width="3.2" height="6.5" rx=".9"/><rect x="10.4" y="6.5" width="3.2" height="11" rx=".9"/><rect x="15" y="13" width="3.2" height="4.5" rx=".9"/></svg></span><span class="reiter-name">Auswertung &amp; Unterlagen</span><span class="reiter-zahl" aria-label="14 Funktionen">14</span></a><a class="reiter" role="tab" id="reiter-9" href="#thema-9" aria-controls="thema-9" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 18.5C5.5 10.5 10.5 5.5 19 4.5c0 8.8-5 14-13.5 14z"/><path d="m5.5 18.5 7.5-7.5"/></svg></span><span class="reiter-name">Bio &amp; Hygiene</span><span class="reiter-zahl" aria-label="12 Funktionen">12</span></a><a class="reiter" role="tab" id="reiter-10" href="#thema-10" aria-controls="thema-10" aria-selected="false"><span class="reiter-ic"><svg class="" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.2 5.5h13.6a1.7 1.7 0 0 1 1.7 1.7v8.2a1.7 1.7 0 0 1-1.7 1.7H10.5L6.5 20.5v-3.4H5.2a1.7 1.7 0 0 1-1.7-1.7V7.2a1.7 1.7 0 0 1 1.7-1.7z"/><path d="M8.6 11.3h.01M12 11.3h.01M15.4 11.3h.01" stroke-width="2.6"/></svg></span><span class="reiter-name">Imme &amp; deine Daten</span><span class="reiter-zahl" aria-label="19 Funktionen">19</span></a>
+          </div>
+          <div class="reiter-spur" aria-hidden="true"><i></i></div>
+        </nav>
+        <aside class="light-info" aria-label="Light und Vollversion">
+          <h3>Light und Vollversion</h3>
+          <p>30 Tage kannst du alles testen. Danach geht es kostenlos als Light weiter – mit bis zu 2 aktiven Völkern. Die Vollversion ist ein Einmalkauf, kein Abo. Was du eingetragen hast, bleibt in Light sichtbar und lässt sich ausdrucken und exportieren.</p>
+        </aside>
+      </div>
+      <div class="buehne"><div class="karten-bahn">
+        
+        <div class="tafel" role="tabpanel" id="thema-1" aria-labelledby="reiter-1" tabindex="-1">
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 01 von 10</p>
+            <h3>Am Bienenstand</h3>
+            <p class="intro">Durchsicht direkt am Volk – schnell, mit großen Knöpfen, auch mit Handschuhen.</p>
+            <p class="meta"><span class="schild">15 Funktionen</span><span class="schild schild-gruen">12 davon auch in Light</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-01-bienenstand.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Durchsicht am Stand bei Volk Anna: Frage „Volksstärke“ mit fünf großen Knöpfen, beim letzten Mal war es „sehr stark“." decoding="async"></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Am Bienenstand">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Durchsicht am Stand<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Eine Frage pro Bildschirm mit großen Knöpfen: Volksstärke, Brutbild, Sanftmut, Futter, Weiselzellen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Volk für Volk durch den Stand<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Pfeile führen zum nächsten Volk am Stand, am Ende steht eine Zusammenfassung zum Prüfen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>„Zuletzt“-Hinweis<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Bei jeder Frage siehst du, was du beim letzten Mal geantwortet hast.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Startseiten-Kachel „Durchsicht am Stand“<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Zeigt je Stand, wann zuletzt durchgesehen wurde, mit Start-Knopf und „Weiter bei …“.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Stockkarte<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Jede Durchsicht mit Sternen <span class="nw">1–5</span>, Futter, Weiselzellen und Notiz, nach Jahr filterbar.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Durchsicht-Vorlagen<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Häufige Eingaben als Vorlage speichern und mit einem Tipp wieder nutzen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Eigene Stockkarten-Felder<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Eigene Felder wie „Baurahmen“ oder „Drohnenbrut“ anlegen; Ja/Nein- und Bewertungsfelder erscheinen auch am Stand.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sammel-Erfassung<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Durchsicht oder Varroa-Zählung für viele Völker mit einem Formular.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sprachnotizen<span class="punkt">.</span></strong></span> Am Volk oder bei der Durchsicht eine Sprachnotiz aufnehmen und später anhören.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Fotos und Dokumente<span class="punkt">.</span></strong></span> Fotos mit der Kamera und Dokumente an Volk, Durchsicht, Stand, Königin, Behandlung, Beleg und Kontakt hängen, mit eigenen Dokumententypen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>QR-Aufkleber fürs Beutendach<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Je Volk einen QR-Code als Etikettenbogen (PDF) erzeugen.</p></li>
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Aufkleber scannen<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Knopf auf der Startseite und bei den Völkern: Kamera auf den QR-Aufkleber halten, und die Durchsicht für dieses Volk öffnet sich – auch ohne Internet.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bienenstände<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Stand mit Anschrift, Gemarkung, Flurnummer und Koordinaten, die das Handy per Knopf übernimmt; dazu Links zu Google Maps und OpenStreetMap.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Stand-Seite<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Völker, Fahrten, Wetter und was hier blüht – alles zum Stand auf einer Seite. <span class="hinweis">Fahrten, Wetter und Tracht: Vollversion.</span></p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wanderungen und Wanderbuch<span class="punkt">.</span></strong></span> Völker Schritt für Schritt von Stand zu Stand umsetzen, mit Grund; Wanderbuch als PDF.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Mit <span class="light">Light</span> markiert: auch in der kostenlosen Light-Version. Alles andere gehört zur Vollversion.</p>
+            <a class="weiter" href="#thema-2" data-thema-weiter="2">Weiter: Völker &amp; Königinnen <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-2" aria-labelledby="reiter-2" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 02 von 10</p>
+            <h3>Völker &amp; Königinnen</h3>
+            <p class="intro">Jedes Volk mit Verlauf, jede Königin mit Herkunft, Stammbaum und Bewertung.</p>
+            <p class="meta"><span class="schild">14 Funktionen</span><span class="schild schild-gruen">Alles auch in Light</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-02-voelker-koeniginnen.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Königin IK-25-005 mit Zeichenfarbe Blau, Herkunft, Mutter, Anpaarung und Vatervolk." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Völker &amp; Königinnen">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Völkerliste<span class="punkt">.</span></strong></span> Suche, Reiter je Stand, Filter nach Funktion wie Ableger oder Wirtschaftsvolk, dazu ein Archiv.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Volk-Seite mit Historie<span class="punkt">.</span></strong></span> Stand- und Königinwechsel landen automatisch mit Datum in der Historie.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Duplizieren, vereinigen, auflösen<span class="punkt">.</span></strong></span> Völker kopieren, zusammenlegen oder auflösen – alles bleibt nachvollziehbar.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Gewichtsverlauf<span class="punkt">.</span></strong></span> Wiegungen eintragen und als Kurve sehen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Königinnen mit Zeichenfarbe<span class="punkt">.</span></strong></span> Der Jahrgang ergibt automatisch die Zeichenfarbe; Status aktiv, verloren oder umgeweiselt mit Archiv.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Herkunft und Anpaarung<span class="punkt">.</span></strong></span> Eigene Nachzucht, Zukauf, Schwarm oder Nachschaffung; Standbegattung, Belegstelle oder Besamung; Mutter und Vatervolk.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Stammbaum und Ahnentafel<span class="punkt">.</span></strong></span> Vorfahren beider Seiten über bis zu vier Generationen; gemeinsame Vorfahren werden markiert.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Pedigree-Zeile<span class="punkt">.</span></strong></span> Die App schreibt die Abstammung in der Schreibweise des Kehrle-Registers und liest solche Zeilen auch ein.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Zuchtbuch-Kennung erkennen<span class="punkt">.</span></strong></span> Erkennt BeeBreed- und Buckfast-Kennungen und verlinkt zum passenden Register.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bewertung nach Zuchtmerkmalen<span class="punkt">.</span></strong></span> 13 Kernmerkmale plus VSH und HYG, Noten <span class="nw">1–6</span>, mit Datum und Verlauf.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bewertungs-Runde<span class="punkt">.</span></strong></span> Mehrere Königinnen nacheinander bewerten.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sammel-Umweiseln<span class="punkt">.</span></strong></span> Mehreren Völkern auf einmal neue Königinnen zuordnen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Stockkarte der Königin (PDF)<span class="punkt">.</span></strong></span> Merkmale, Bewertungen und Abstammung als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Belegstellen<span class="punkt">.</span></strong></span> Belegstellen mit Drohnenlinie und Ort anlegen und bei der Königin auswählen.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alles in diesem Thema ist auch in der kostenlosen Light-Version dabei.</p>
+            <a class="weiter" href="#thema-3" data-thema-weiter="3">Weiter: Gesundheit &amp; Fütterung <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-3" aria-labelledby="reiter-3" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 03 von 10</p>
+            <h3>Gesundheit &amp; Fütterung</h3>
+            <p class="intro">Varroa im Blick, Behandlungen sauber dokumentiert, Futter richtig geplant.</p>
+            <p class="meta"><span class="schild">12 Funktionen</span><span class="schild schild-gruen">2 davon auch in Light</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-03-gesundheit.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Varroa-Kontrolle eines Volks: Ampel „unkritisch“, Verlaufskurve und die letzten Zählungen." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Gesundheit &amp; Fütterung">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Varroa-Kontrolle mit Ampel<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Zählung mit Bodenschieber, Puderzucker, Auswaschen oder Gemüll; beim Milbenfall richtet sich die Ampel nach der Jahreszeit; mit Verlaufskurve.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Behandlungen und Bestandsbuch<span class="punkt">.</span></strong></span> Jede Behandlung mit Mittel, Menge, Anwendungsart und Wartezeit – das Bestandsbuch nach TAMG als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Behandlung für viele Völker<span class="punkt">.</span></strong></span> Stand und Funktion wählen, dann die Völker abhaken und alle auf einmal eintragen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Erinnerung ans Ende der Wartezeit<span class="punkt">.</span></strong></span> Bei Wartezeit legt die App automatisch eine Aufgabe zum Ende an.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Mittel vom Lager abziehen<span class="punkt">.</span></strong></span> Das Behandlungsmittel wird vom Verbrauchsmaterial abgebucht.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Dosierungsrechner<span class="punkt">.</span></strong></span> Richtwerte für Oxalsäure (träufeln, verdampfen), Ameisensäure 60 % und Milchsäure 15 %.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Fütterung für viele Völker<span class="punkt">.</span></strong></span> Stand und Funktion wählen, die Fütterung landet bei jedem Volk; mit Zucker-, Sirup- und Winterfutter-Summe.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Futter-Rechner mit Plan<span class="punkt">.</span></strong></span> Bedarf rechnen, auf mehrere Gaben verteilen und als Fütterung übernehmen, die weiteren Gaben auf Wunsch als Aufgaben.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sirup in Litern<span class="punkt">.</span></strong></span> Liter und Kilo werden umgerechnet, der reine Zucker wird mitgezählt.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Fütterung je Volk<span class="punkt">.</span></strong></span> Reiter im Volk und Übersicht je Volk, dazu Fütterungsliste als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wiedervorlage<span class="punkt">.</span></strong></span> „Erneut prüfen in X Tagen“ legt eine Aufgabe an.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Saisonaler Tipp<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Kachel für die Startseite, auf Wunsch einschaltbar: ein Tipp zum Monat – bei hohem Varroa-Befall zuerst die Warnung, in der Vollversion auch bei fehlender Auffütterung – mit Sprung in den passenden Bereich.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Mit <span class="light">Light</span> markiert: auch in der kostenlosen Light-Version. Alles andere gehört zur Vollversion.</p>
+            <a class="weiter" href="#thema-4" data-thema-weiter="4">Weiter: Wetter &amp; Tracht <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-4" aria-labelledby="reiter-4" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 04 von 10</p>
+            <h3>Wetter &amp; Tracht</h3>
+            <p class="intro">Was das Wetter macht und was an deinen Ständen blüht – passend für deinen Ort.</p>
+            <p class="meta"><span class="schild">9 Funktionen</span><span class="schild schild-honig">Vollversion</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-04-wetter-tracht.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Trachtkalender 2026 mit Obstblüte, Raps, Robinie und Linde und ihren Blütezeiten." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Wetter &amp; Tracht">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wetter am Stand<span class="punkt">.</span></strong></span> Aktuelles Wetter vom Deutschen Wetterdienst kommt beim Öffnen von selbst: höchstens alle 30 Minuten und nur mit Internet.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wetterverlauf<span class="punkt">.</span></strong></span> Grafik über 30 Tage, das Jahr oder alles; Werte auch von Hand eintragen und exportieren.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wetter-Kachel<span class="punkt">.</span></strong></span> Das Wetter am Stand direkt auf der Startseite.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Trachtkalender<span class="punkt">.</span></strong></span> Eintragen, was blüht; die Blütezeit für deinen Stand rechnet die App aus Beobachtungen des Wetterdienstes in der Nähe – auch offline.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Jahreskalender der Trachten<span class="punkt">.</span></strong></span> Alle Trachten des Jahres auf einen Blick, auf Wunsch jedes Jahr wiederkehrend.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Kachel „Tracht“<span class="punkt">.</span></strong></span> Was gerade blüht und was in zwei Wochen kommt, mit „Als Aufgabe“ zum Vorbereiten.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>„Was hier blüht“ am Stand<span class="punkt">.</span></strong></span> Jeder Stand zeigt seine Trachten mit Blühstatus.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Erinnerung vor Blühbeginn<span class="punkt">.</span></strong></span> Auf Wunsch kommt rechtzeitig eine Aufgabe.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Ernte je Tracht<span class="punkt">.</span></strong></span> Die App schlägt bei der Ernte die passende Tracht vor; die Statistik zeigt den Ertrag je Tracht.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alle Funktionen dieses Themas gehören zur Vollversion.</p>
+            <a class="weiter" href="#thema-5" data-thema-weiter="5">Weiter: Honig <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-5" aria-labelledby="reiter-5" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 05 von 10</p>
+            <h3>Honig: von der Ernte bis zum Etikett</h3>
+            <p class="intro">Jedes Glas lässt sich zurückverfolgen – von der Ernte über die Charge bis zum Volk.</p>
+            <p class="meta"><span class="schild">10 Funktionen</span><span class="schild schild-honig">Vollversion</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-05-honig.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Honig-Bestand: Gebinde zum Verkauf, Honig im Eimer und die Chargen mit Losnummer." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Honig: von der Ernte bis zum Etikett">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Ernte erfassen<span class="punkt">.</span></strong></span> Je Volk oder Stand: Honig, Wabenhonig, Pollen oder Propolis, mit Sorte, Menge, Wassergehalt und Schleuderung.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sorten und Laborergebnisse<span class="punkt">.</span></strong></span> Laborwerte eintragen und den Ernten zuordnen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Chargen mit Losnummer<span class="punkt">.</span></strong></span> Losnummern mit Rückverfolgung Charge → Ernte → Volk.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Abfüllen<span class="punkt">.</span></strong></span> In mehrere Gebindegrößen von 20 kg bis 50 g oder eigene Größen abfüllen – mit MHD-Vorschlag und eigener Losnummer, auch direkt aus der Ernte.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Gläser, Deckel und Etiketten abbuchen<span class="punkt">.</span></strong></span> Beim Abfüllen gehen Gläser, Deckel und Etiketten vom Lager ab.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Verlust und Eigenverbrauch<span class="punkt">.</span></strong></span> Bruch, Rest im Eimer, Verschenktes oder selbst Gegessenes buchen – so stimmt der Bestand.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bestand<span class="punkt">.</span></strong></span> Eine Zeile je Charge mit Gläsern im Regal und Rest im Eimer, dazu eine Übersicht nach Sorte und Glasgröße.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>MHD-Wächter<span class="punkt">.</span></strong></span> Kurz vor Ablauf des MHD legt die App eine Aufgabe an.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Honig-Etiketten<span class="punkt">.</span></strong></span> Druckfertige Etiketten mit den Pflichtangaben, MHD, Los und Bio-Logo – 10 pro A4-Blatt.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Lohnverarbeitung<span class="punkt">.</span></strong></span> Honig lose an einen Verarbeiter abgeben, zum Beispiel für Met oder Essig; die Charge merkt sich das.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alle Funktionen dieses Themas gehören zur Vollversion.</p>
+            <a class="weiter" href="#thema-6" data-thema-weiter="6">Weiter: Verkauf, Geld &amp; Lager <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-6" aria-labelledby="reiter-6" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 06 von 10</p>
+            <h3>Verkauf, Geld &amp; Lager</h3>
+            <p class="intro">Verkaufen, kassieren, Rechnungen schreiben – Bestand und Kassenbuch buchen sich mit.</p>
+            <p class="meta"><span class="schild">16 Funktionen</span><span class="schild schild-honig">Vollversion</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-06-verkauf.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Kassenbuch-Auswertung mit Jahresverlauf der Einnahmen und Ausgaben und Summen nach Kategorien." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Verkauf, Geld &amp; Lager">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Verkauf erfassen<span class="punkt">.</span></strong></span> Ein Verkauf mindert den Bestand und bucht die Einnahme im Kassenbuch; mit Rabatt, Storno und Liste als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Marktverkauf-Kasse<span class="punkt">.</span></strong></span> Gläser antippen, Warenkorb, Wechselgeld, Kassieren – für den Wochenmarkt.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Kassenbuch<span class="punkt">.</span></strong></span> Einnahmen und Ausgaben mit Kategorie, Steuersatz und Kunde oder Lieferant.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Belegarchiv<span class="punkt">.</span></strong></span> Fotos und PDFs der Belege direkt an die Buchung hängen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>An- und Verkauf buchen<span class="punkt">.</span></strong></span> Einkauf, Verkauf oder Verlust für Material, Inventar, Produkte und Honig an einer Stelle.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Geschäftskosten<span class="punkt">.</span></strong></span> Laufende allgemeine Kosten in einem eigenen Reiter.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Auswertung und Ernteprognose<span class="punkt">.</span></strong></span> Jahresverlauf, Summen nach Kategorien und eine Schätzung der Ernte aus eigenen Vorjahren.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Rechnungen<span class="punkt">.</span></strong></span> Fortlaufende Nummer, Positionen aus dem Honigbestand, Pfand, Rabatt und Skonto; Festschreiben und Stornieren.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Rechnung als PDF<span class="punkt">.</span></strong></span> Geschäftsbrief für das Fensterkuvert mit deinem Logo und optional eigenem Bezahl-QR-Code.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Drei Besteuerungsarten<span class="punkt">.</span></strong></span> Regelbesteuerung, Kleinunternehmer § 19 oder Pauschalierung § 24 – wählbar je Rechnung.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Abnehmer und Lieferanten<span class="punkt">.</span></strong></span> Kunden, Lieferanten und Bio-Partner an einem Ort, mit Suche und Filter.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Verbrauchsmaterial<span class="punkt">.</span></strong></span> Mittel, Futter, Gläser und Etiketten mit Mindestbestand, MHD und Kilopreis.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Inventar<span class="punkt">.</span></strong></span> Beuten, Geräte und Anhänger mit Anschaffung und Wert.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Weitere Produkte<span class="punkt">.</span></strong></span> Met, Kerzen, Propolis, Honigessig und mehr einkaufen und verkaufen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Pfand für Mehrweggläser<span class="punkt">.</span></strong></span> Zeigt, wie viele Gläser bei Kunden sind; Rücknahme mit einem Knopf.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Niedrige Bestände<span class="punkt">.</span></strong></span> Kachel und automatische Aufgabe, wenn Material knapp wird.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alle Funktionen dieses Themas gehören zur Vollversion.</p>
+            <a class="weiter" href="#thema-7" data-thema-weiter="7">Weiter: Aufgaben, Zeit &amp; Fahrten <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-7" aria-labelledby="reiter-7" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 07 von 10</p>
+            <h3>Aufgaben, Zeit &amp; Fahrten</h3>
+            <p class="intro">Nichts vergessen, Arbeitszeit und Kilometer mit einem Tipp erfassen.</p>
+            <p class="meta"><span class="schild">12 Funktionen</span><span class="schild schild-honig">Vollversion</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-07-aufgaben.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Aufgaben sortiert nach überfällig, heute und diese Woche – mit automatischer MHD- und Bestands-Aufgabe." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Aufgaben, Zeit &amp; Fahrten">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Aufgaben und Kalender<span class="punkt">.</span></strong></span> Überfällig, heute, diese Woche, später – dazu ein Monatskalender.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Typische Aufgaben im Bienenjahr<span class="punkt">.</span></strong></span> Fast 90 typische Arbeiten zur Auswahl, dazu Vorschläge für den Monat und deine häufigen Aufgaben.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Aufgabe mit Volk, Stand und Uhrzeit<span class="punkt">.</span></strong></span> Aufgaben gehören zu einem Volk oder Stand und können eine Uhrzeit haben.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Automatische Aufgaben<span class="punkt">.</span></strong></span> Aufgaben zu Wartezeit, Futter-Wiedervorlage, MHD, knappem Material und Tracht entstehen von selbst.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Erinnerung aufs Handy<span class="punkt">.</span></strong></span> Mitteilung zur fälligen Aufgabe, auch bei geschlossener App – Uhrzeit und Vorlauf einstellbar.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Aufgaben in den Kalender<span class="punkt">.</span></strong></span> Offene Aufgaben als .ics-Datei für Apple- oder Google-Kalender.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Abhaken auf der Startseite<span class="punkt">.</span></strong></span> Erledigtes direkt abhaken; die App fragt die Dauer mit deiner üblichen Zeit vorbelegt.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Zeit buchen mit einem Tipp<span class="punkt">.</span></strong></span> Häufige Arbeiten mit üblicher Dauer buchen, mit „Rückgängig“ und eigenen Schnellzugriffen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Zeiterfassung<span class="punkt">.</span></strong></span> Stunden je Tätigkeit als Kreisdiagramm, aufklappbar bis zu den Arbeitsschritten.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Zeit nachtragen<span class="punkt">.</span></strong></span> Arbeiten ohne Aufgabe nachträglich erfassen, mit Vorschlägen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Fahrtenbuch<span class="punkt">.</span></strong></span> Fahrten zu Ständen und sonstige Fahrten mit Kilometern, Pauschale und PDF für das Finanzamt.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Häufige Fahrten<span class="punkt">.</span></strong></span> Fahrt zum Stand mit einem Tipp buchen – Hin- und Rückweg werden vorbelegt, eigene Strecken als Vorlage.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alle Funktionen dieses Themas gehören zur Vollversion.</p>
+            <a class="weiter" href="#thema-8" data-thema-weiter="8">Weiter: Auswertung &amp; Unterlagen <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-8" aria-labelledby="reiter-8" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 08 von 10</p>
+            <h3>Auswertung &amp; Unterlagen</h3>
+            <p class="intro">Statistik mit Vorjahresvergleich und jede Unterlage fürs Amt an einem Ort.</p>
+            <p class="meta"><span class="schild">14 Funktionen</span><span class="schild schild-gruen">9 davon auch in Light</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-08-unterlagen.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Unterlagen: Anzeige nach § 1a, Meldung an die Tierseuchenkasse, Wanderschild und Bestandsbuch zum Ausdrucken." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Auswertung &amp; Unterlagen">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Unterlagen an einem Ort<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Alles zum Ausdrucken: Jahr wählen, suchen, nach Themen sortiert – als PDF, Excel oder CSV.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Anzeige nach § 1a<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Anmeldung beim Veterinäramt mit Ständen, Lage und Koordinaten.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Meldung an die Tierseuchenkasse<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Stichtag und Inhalt passend zu deinem Bundesland.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wanderschild<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Schild nach § 5a mit Name, Anschrift und Völkerzahl zum Ausdrucken.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Österreich und Schweiz<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Registrierung im VIS bzw. beim Kanton, Völkermeldung und Standschild passend zum Land.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Volksakte<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Ein Volk komplett – jeder Teil einzeln als PDF oder CSV, alles zusammen als PDF oder Excel.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Komplettausdruck<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Alle Bereiche in einem PDF oder Excel; Bereiche und Jahr wählbar.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Export für deutsches Excel<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Datum als TT.MM.JJJJ, Komma bei Zahlen, Umlaute korrekt, Filter in der Kopfzeile.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Jahresbericht<span class="punkt">.</span></strong><span class="light" title="Auch in der kostenlosen Light-Version">Light</span></span> Das Wichtigste des Jahres auf wenigen Seiten als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Statistiken<span class="punkt">.</span></strong></span> Sechs Bereiche: Völker, Honig, Futter, Gesundheit, Finanzen und Arbeit – mit Vergleich zum Vorjahr und Hinweisen auf Auffälliges.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Kennzahlen<span class="punkt">.</span></strong></span> Zum Beispiel Winterverluste, Ertrag je Volk, Erlös je kg Honig, Kosten je Volk und Honig je Arbeitsstunde.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Imker-Rechner<span class="punkt">.</span></strong></span> 11 Rechner, unter anderem für Selbstkosten je Glas, Wassergehalt, Varroa-Befall, Oxalsäure- und Ameisensäure-Lösung, Rähmchenbedarf, Wachs, Kerzen und Propolis.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Aus anderer App übernehmen<span class="punkt">.</span></strong></span> Daten aus BeeManager, iBeekeeper und anderen Apps als CSV oder Excel übernehmen; die Spalten ordnet die App fast selbst zu.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>PDF auslesen<span class="punkt">.</span></strong></span> Ein altes Bestandsbuch als PDF einlesen; erkannte Einträge lassen sich übernehmen.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Mit <span class="light">Light</span> markiert: auch in der kostenlosen Light-Version. Alles andere gehört zur Vollversion.</p>
+            <a class="weiter" href="#thema-9" data-thema-weiter="9">Weiter: Bio &amp; Hygiene <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-9" aria-labelledby="reiter-9" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 09 von 10</p>
+            <h3>Bio &amp; Hygiene</h3>
+            <p class="intro">Hygieneplan und Unterlagen für die Öko-Kontrolle – fertig für die Kontrollstelle.</p>
+            <p class="meta"><span class="schild">12 Funktionen</span><span class="schild schild-honig">Vollversion</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-09-bio-hygiene.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Hygieneplan mit Bereichen wie Abfüllbehälter, Arbeitsflächen und Arbeitskleidung." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Bio &amp; Hygiene">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Hygieneplan<span class="punkt">.</span></strong></span> Mit Assistent anlegen oder einen vorhandenen Plan als PDF einlesen; Ausdruck als PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Reinigungen<span class="punkt">.</span></strong></span> Durchgeführte Reinigungen mit Kurzwahlen und Checkliste nachweisen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Eigenkontrollen<span class="punkt">.</span></strong></span> Honigverarbeitung, Abfüllung, Honiglager (Temperatur, Feuchte), Schädlinge, Waage und Maßnahmenplan.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Gefahren und Grenzwerte<span class="punkt">.</span></strong></span> Was schiefgehen kann, wo die Grenze liegt und was dann zu tun ist.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Nachweise hochladen<span class="punkt">.</span></strong></span> Zertifikate und Sicherheitsdatenblätter als Datei aufbewahren.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Betriebsbeschreibung<span class="punkt">.</span></strong></span> Mit Assistent ausfüllen; eigene Formulare von Verband und Kontrollstelle hochladen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Landbedeckung im Umkreis<span class="punkt">.</span></strong></span> Anteile von Tracht, Bebauung und Sonstigem um jeden Stand – auf Knopfdruck aus amtlichen Karten, sonst OpenStreetMap.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Vorsorgekonzept<span class="punkt">.</span></strong></span> Maßnahmen gegen Verunreinigung für deinen Betrieb nach EU-Öko-Verordnung, mit Assistent.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bio-Partner<span class="punkt">.</span></strong></span> Öko-Kontrollnummer und Gültigkeit des Zertifikats; die App warnt vor Ablauf.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Förderung<span class="punkt">.</span></strong></span> Förderanträge von geplant bis abgerechnet verfolgen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bio-Unterlagen als PDF<span class="punkt">.</span></strong></span> Betriebsbeschreibung, Standorte und Nachweise gesammelt für die Kontrolle; das Vorsorgekonzept als eigenes PDF.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Bio-Logo aufs Etikett<span class="punkt">.</span></strong></span> Offizielle Logos hochladen; sie erscheinen auf dem Honig-Etikett.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alle Funktionen dieses Themas gehören zur Vollversion.</p>
+            <a class="weiter" href="#thema-10" data-thema-weiter="10">Weiter: Imme &amp; deine Daten <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+        <div class="tafel" role="tabpanel" id="thema-10" aria-labelledby="reiter-10" tabindex="-1" data-zu>
+          <div class="tafel-kopf">
+            <p class="kicker">Thema 10 von 10</p>
+            <h3>Imme, Startseite &amp; deine Daten</h3>
+            <p class="intro">Einfach zu bedienen, mit Hilfe an Bord – und deine Daten bleiben bei dir.</p>
+            <p class="meta"><span class="schild">19 Funktionen</span><span class="schild schild-gruen">Alles auch in Light</span></p>
+          </div>
+          <figure class="geraet">
+            <div class="handy"><div class="bildschirm"><div class="statusleiste" aria-hidden="true"><span class="uhr">9:41</span><i class="kamera"></i><svg class="status-ic" viewBox="0 0 54 12"><use href="#i-status"/></svg></div><img src="media/app-bilder/b-10-imme.webp" width="640" height="1385" loading="lazy" alt="App-Bild: Imme beantwortet die Frage „Wie sichere ich meine Daten?“ und bietet an, Schritt für Schritt zu zeigen." decoding="async" ></div></div>
+            <figcaption>Echtes Bild aus der App · Beispieldaten</figcaption>
+          </figure>
+          <div class="tafel-liste">
+            <ul class="funktionen" aria-label="Funktionen: Imme, Startseite &amp; deine Daten">
+              <li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Imme – dein Assistent<span class="punkt">.</span></strong></span> Beantwortet Fragen zur App und zur Imkerei sofort, auch ohne Internet.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>„Zeig’s mir“<span class="punkt">.</span></strong></span> Imme öffnet den richtigen Bereich und führt Schritt für Schritt durch die Eingabe.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Einführung<span class="punkt">.</span></strong></span> Beim Start zeigt Imme das Wichtigste: umschauen, Stand und Volk anlegen, erste Durchsicht, sichern.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Startseite nach Wunsch<span class="punkt">.</span></strong></span> 16 Kacheln zur Auswahl, verschieben durch Gedrückthalten und Ziehen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Eigene Leiste unten<span class="punkt">.</span></strong></span> Start und bis zu drei Lieblingsbereiche unten, alle anderen unter „Mehr“.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Wischen in Listen<span class="punkt">.</span></strong></span> Eine Zeile zur Seite wischen zeigt „Bearbeiten“ und „Löschen“.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Lernende Vorschläge<span class="punkt">.</span></strong></span> Felder schlagen vor, was du schon einmal eingetragen hast.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Offline und ohne Konto<span class="punkt">.</span></strong></span> Alle Daten liegen nur auf deinem Gerät.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Sicherung<span class="punkt">.</span></strong></span> Sicherung speichern in iCloud Drive, Google Drive oder per Mail und wieder einspielen (zusammenführen oder ersetzen).</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Erinnerung ans Sichern<span class="punkt">.</span></strong></span> Hinweis in der App ab 7 Tagen, auf Wunsch eine Mitteilung nach 14 Tagen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Zwischenstände<span class="punkt">.</span></strong></span> Die App merkt sich die letzten 10 Stände zum Zurückholen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Papierkorb<span class="punkt">.</span></strong></span> Gelöschtes bleibt 30 Tage im Papierkorb; wiederherstellen geht in Light für alles, was in Light frei ist.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Alle Daten löschen<span class="punkt">.</span></strong></span> Zum Beispiel vor dem Verkauf des Handys.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Eigenes Logo und Imkereidaten<span class="punkt">.</span></strong></span> Erscheinen auf deinen PDFs und Rechnungen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Listen anpassen<span class="punkt">.</span></strong></span> Dokumententypen, Tätigkeiten, Arbeitsschritte und Honigsorten selbst festlegen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Hell und Dunkel<span class="punkt">.</span></strong></span> Automatisch, hell oder dunkel.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Hilfe und Kontakt<span class="punkt">.</span></strong></span> Fehler melden, Frage stellen oder Idee vorschlagen – direkt per E-Mail an den Entwickler.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Was ist neu?</strong></span> Nach jedem Update zeigt die App die Neuerungen.</p></li><li><span class="fn-haken"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#i-haken"/></svg></span><p><span class="fn-name"><strong>Light und Vollversion<span class="punkt">.</span></strong></span> 30 Tage alles testen, danach kostenlos als Light weiter; Vollversion als Einmalkauf, Käufe wiederherstellen, Code einlösen.</p></li>
+            </ul>
+          </div>
+          <div class="tafel-fuss">
+            <p class="legende">Alles in diesem Thema ist auch in der kostenlosen Light-Version dabei.</p>
+            <a class="weiter" href="#thema-1" data-thema-weiter="1">Weiter: Am Bienenstand <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+          </div>
+        </div>
+      </div></div>
+      <aside class="light-info handy-info" aria-label="Light und Vollversion">
+        <h3>Light und Vollversion</h3>
+        <p>30 Tage kannst du alles testen. Danach geht es kostenlos als Light weiter – mit bis zu 2 aktiven Völkern. Die Vollversion ist ein Einmalkauf, kein Abo. Was du eingetragen hast, bleibt in Light sichtbar und lässt sich ausdrucken und exportieren.</p>
+      </aside>
+    </div>
+    </section>
+
+    <!-- ===================== 03 FRAGEN ===================== -->
+    <section class="abschnitt" id="fragen" aria-labelledby="fragen-titel">
+      <div class="raster">
+        <h2 class="etikett" id="fragen-titel" data-zeigen>Häufige Fragen</h2>
+        <p class="satz rechts" data-zeigen style="--v:1">Kurz beantwortet: was Imkerinnen und Imker vor dem Start wissen wollen</p>
+      </div>
+
+      <div class="slider" role="group" aria-roledescription="Karussell" aria-label="Häufige Fragen" data-zeigen style="--v:2">
+        <div class="steuerung">
+          <p class="stand"><b>7 Fragen</b></p>
+          <div class="pfeile">
+            <button class="pfeil" type="button" data-zurueck aria-controls="fragen-bahn" aria-label="Zurück zur vorherigen Frage" aria-disabled="true">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3.5M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="pfeil" type="button" data-weiter aria-controls="fragen-bahn" aria-label="Weiter zur nächsten Frage">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="bahn am-anfang" id="fragen-bahn" tabindex="0" role="region" aria-label="Fragen-Karten – mit Pfeiltasten oder Wischen blättern">
+          <div class="kachel kachel-start">
+            <p class="riesig">Fragen?<small>Antworten auf einen Blick</small></p>
+            <p>Mehr steht auf der Hilfe-Seite. Oder schreib mir direkt aus der App über „Hilfe &amp; Kontakt“.</p>
+            <a class="knopf-dunkel kapsel" href="../support.html">
+              <span class="kreis kreis-weiss"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              <span>Alle Fragen</span>
+            </a>
+          </div>
+          <article class="kachel">
+            <header><b>Technik</b><span>01 / 07</span></header>
+            <h3>Brauche ich Internet?</h3>
+            <p>Nein. ImkerBuch läuft offline, auch am Stand ohne Netz. Eine Verbindung braucht nur, was Daten von außen holt – etwa Wetter, Adresssuche, die Landbedeckung im Umkreis (Bio) und der Kauf im Store.</p>
+            <ul class="chips"><li>Offline</li><li>Am Stand</li></ul>
+          </article>
+          <article class="kachel">
+            <header><b>Datenschutz</b><span>02 / 07</span></header>
+            <h3>Wo liegen meine Daten?</h3>
+            <p>Deine Einträge liegen nur auf deinem Gerät. Es gibt kein Konto und keinen Server bei uns – keine Werbung, kein Tracking. Nur für das Wetter und wenige Zusatzfunktionen gehen Koordinaten oder Suchbegriffe an die in der Datenschutzerklärung genannten Dienste.</p>
+            <ul class="chips"><li>Kein Konto</li><li>Kein Tracking</li></ul>
+          </article>
+          <article class="kachel">
+            <header><b>Preis</b><span>03 / 07</span></header>
+            <h3>Was kostet die Vollversion?</h3>
+            <p>Einmalig 14,99 € (Einführungspreis). Vorher testest du 30 Tage alle Funktionen kostenlos. Danach läuft ImkerBuch kostenlos als Light weiter – mit bis zu 2 Völkern.</p>
+            <ul class="chips"><li>Einmalkauf</li><li>Light</li></ul>
+          </article>
+          <article class="kachel">
+            <header><b>Preis</b><span>04 / 07</span></header>
+            <h3>Gibt es ein Abo?</h3>
+            <p>Nein. Die Vollversion ist ein Einmalkauf – keine automatische Abbuchung. Was du eingetragen hast, bleibt sichtbar und sicherbar.</p>
+            <ul class="chips"><li>Kein Abo</li></ul>
+          </article>
+          <article class="kachel">
+            <header><b>Geräte</b><span>05 / 07</span></header>
+            <h3>Funktioniert es auf iPhone und Android?</h3>
+            <p>Ja – auf iPhone und Android, auf Handy und Tablet. Auf einem neuen Gerät holst du die Vollversion über „Käufe wiederherstellen“ zurück – mit derselben Apple-ID bzw. demselben Google-Konto.</p>
+            <ul class="chips"><li>iPhone</li><li>Android</li><li>Tablet</li></ul>
+          </article>
+          <article class="kachel">
+            <header><b>Sicherung</b><span>06 / 07</span></header>
+            <h3>Kann ich meine Daten sichern?</h3>
+            <p>Ja. Über das Teilen-Menü, z. B. in iCloud Drive, Google Drive oder per Mail an dich selbst. Ab einer Woche ohne Sicherung erinnert dich die App, auf Wunsch nach zwei Wochen auch per Mitteilung. Alle Einträge gibt es auch als Excel oder CSV, auch in der Light-Version. Fotos und Sprachnotizen stecken in der Sicherung.</p>
+            <ul class="chips"><li>Sicherung</li><li>Erinnerung</li><li>Excel</li><li>CSV</li></ul>
+          </article>
+          <article class="kachel" id="frage-geraete">
+            <header><b>Geräte</b><span>07 / 07</span></header>
+            <h3>Kann ich ImkerBuch auf mehreren Geräten nutzen?</h3>
+            <p>Heute sicherst du deine Daten über das Teilen-Menü (z. B. in iCloud, Google Drive oder per Mail) und liest sie auf dem anderen Gerät ein. Eine freiwillige Cloud-Synchronisierung mit Servern in der EU ist in Planung – einen Termin gibt es noch nicht.</p>
+            <ul class="chips"><li>Teilen-Menü</li><li>Mehrere Geräte</li></ul>
+          </article>
+        </div>
+        <!-- Punkte: nur für Maus/Finger; per Tastatur übernehmen die Pfeile das Gleiche -->
+        <div class="punkte" aria-hidden="true" hidden></div>
+
+        <div class="fragen-kompakt">
+          <p class="fk-titel"><b>Fragen?</b>Mehr steht auf der Hilfe-Seite. Oder schreib mir direkt aus der App über „Hilfe &amp; Kontakt“.</p>
+          <a class="knopf-dunkel kapsel" href="../support.html">
+            <span class="kreis kreis-weiss"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            Alle Fragen
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 04 VIDEO ===================== -->
+    <section class="film-block" id="bienenjahr" aria-labelledby="bienenjahr-titel">
+      <div class="film">
+        <video muted loop playsinline disablepictureinpicture preload="none" aria-hidden="true" tabindex="-1" data-film="block">
+          <source src="media/bienenjahr-flug-1280.mp4#t=0.01" type="video/mp4" media="(min-width: 641px)">
+          <source src="media/bienenjahr-flug-handy.mp4#t=0.01" type="video/mp4">
+        </video>
+      </div>
+      <div class="film-block-schleier"></div>
+      <div class="film-block-text">
+        <h2 id="bienenjahr-titel" data-zeigen="weich">Vom Bienenstand<br> bis zum Honigglas.</h2>
+        <p data-zeigen style="--v:2">Von der ersten Durchsicht bis zur Rechnung für deinen Honig – alles in einer App.</p>
+        <a class="knopf-weiss kapsel" href="#preise" data-app data-zeigen style="--v:3">
+          <span class="kreis kreis-honig"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="bald-text"><span>Bald im App Store</span> <span>&amp; bei Google Play</span></span>
+        </a>
+      </div>
+      <button class="knopf-pause film-pause" type="button" aria-pressed="false" aria-label="Videos anhalten">
+        <svg class="aus" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/><rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor"/></svg>
+        <svg class="an" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4c0 .6.6.9 1.1.6l8-5.2c.5-.3.5-.9 0-1.2l-8-5.2c-.5-.3-1.1 0-1.1.6z" fill="currentColor"/></svg>
+      </button>
+    </section>
+
+    <!-- ===================== 05 PREIS ===================== -->
+    <section class="abschnitt" id="preise" aria-labelledby="preise-titel">
+      <div class="raster">
+        <h2 class="etikett" id="preise-titel" data-zeigen>Preis</h2>
+        <div class="rechts">
+          <p class="satz" data-zeigen style="--v:1">Einmal zahlen, dauerhaft nutzen. Erst 30 Tage alles testen – dann entscheidest du.</p>
+          <div class="preis-raster">
+            <article class="preis-karte" data-zeigen style="--v:2">
+              <h3>Light <span>nach der Testphase</span></h3>
+              <p class="betrag">0 €</p>
+              <p class="betrag-unter">dauerhaft kostenlos</p>
+              <ul class="haken">
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Bis zu 2 Völker</li>
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Durchsicht, Stockkarte, Varroa-Kontrolle und Königinnen</li>
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Alle Einträge als Excel oder CSV</li>
+              </ul>
+            </article>
+            <article class="preis-karte voll" data-zeigen style="--v:3">
+              <h3>Vollversion <span>Einmalkauf</span></h3>
+              <p class="betrag">14,99 €</p>
+              <p class="betrag-unter">Einführungspreis, einmalig – kein Abo, keine automatische Abbuchung</p>
+              <ul class="haken">
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Alle Bereiche zum Eintragen – beliebig viele Völker</li>
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Kassenbuch, Behandlungen, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen</li>
+                <li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Neues Gerät: „Käufe wiederherstellen“ (gleiche Apple-ID bzw. gleiches Google-Konto)</li>
+              </ul>
+              <p class="knopf-dunkel kapsel ohne-klick" data-app><span class="kreis kreis-honig"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 4.8V8l2.2 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="bald-text"><span>Bald im App Store</span> <span>&amp; bei Google Play</span></span></p>
+            </article>
+          </div>
+          <p class="preis-hinweis">Preis in Deutschland und Österreich, in der Schweiz 14,00 CHF. Gekauft wird über den App Store bzw. Google Play.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== 06 KONTAKT + FUSS ===================== -->
+  <footer class="fuss" id="kontakt" aria-labelledby="kontakt-titel">
+    <div class="raster">
+      <h2 class="etikett" id="kontakt-titel" data-zeigen>Kontakt</h2>
+      <div class="rechts">
+        <p class="satz" data-zeigen style="--v:1">Fragen oder Wünsche? Schreib mir – ich antworte persönlich, meist innerhalb von <span style="white-space:nowrap">1–2 Werktagen</span>.</p>
+        <div class="knopf-reihe" data-zeigen style="--v:2">
+          <a class="knopf-dunkel kapsel" href="../support.html">
+            <span class="kreis kreis-honig"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            Hilfe &amp; Support
+          </a>
+          <a class="knopf-rand" href="#preise" data-app>Bald erhältlich</a>
+        </div>
+      </div>
+    </div>
+    <p class="wortmarke" aria-hidden="true"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="wabe-fuss" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F7C64F"/><stop offset="1" stop-color="#DC8A07"/></linearGradient></defs><path d="M20.4 10.8 29.9 16.2 29.9 27.2 20.4 32.8 10.9 27.2 10.9 16.2Z" fill="url(#wabe-fuss)"/><path d="M43.6 10.8 53.1 16.2 53.1 27.2 43.6 32.8 34.1 27.2 34.1 16.2Z" fill="url(#wabe-fuss)"/><path d="M32 31.3 41.5 36.8 41.5 47.8 32 53.3 22.5 47.8 22.5 36.8Z" fill="url(#wabe-fuss)"/></svg><span>ImkerBuch</span></p>
+    <div class="fuss-leiste">
+      <span>© 2026 Julian Köhler · ImkerBuch · Videos KI-generiert</span>
+      <nav aria-label="Rechtliches">
+        <a href="../impressum.html">Impressum</a>
+        <a href="../datenschutz.html">Datenschutz</a>
+        <a href="../agb.html">AGB</a>
+        <a href="../support.html">Support</a>
+      </nav>
+      <a class="knopf-dunkel kapsel" href="#preise" data-app>
+        <span class="kreis kreis-weiss"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        Bald erhältlich
+      </a>
+    </div>
+  </footer>
+
+</div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const html = document.documentElement;
+  const ruhig = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const handy = matchMedia('(max-width: 700px)').matches;
+  const $ = (s, w = document) => w.querySelector(s);
+  const $$ = (s, w = document) => [...w.querySelectorAll(s)];
+
+  /* ---------- App-Knöpfe (alle mit data-app) ----------
+     Solange ImkerBuch in keinem Store ist, zeigen die Knöpfe „Bald …“ und führen zum Abschnitt „Preis“.
+     Vor dem Store-Start: echte Links (App Store / Google Play) und Texte im HTML eintragen. */
+
+  /* ---------- ?anmelden=1 zeigt den Knopf „Anmelden“ (führt zum Entwurf der Anmeldeseite) ---------- */
+  if (new URLSearchParams(location.search).get('anmelden') === '1') {
+    $$('[data-anmelden]').forEach((a) => { a.hidden = false; });
+  }
+
+  /* ---------- Rahmen: Kulisse über dem Inhalt, Kartenfenster mit Außenradius ausgestanzt ----------
+     Das Fenster reicht bis an die Außenkante der Karte: Beim Scrollen läuft der Inhalt oben und
+     unten bündig bis an den Rand (wie in der Vorlage). Der weiße Rand links/rechts ist Teil des Inhalts. */
+  const kulisse = $('.kulisse');
+  const linie = $('.rahmen-linie');
+  function rahmen() {
+    html.classList.add('rahmen-an');
+    const k = kulisse.getBoundingClientRect();
+    const l = linie.getBoundingClientRect();
+    const R = parseFloat(getComputedStyle(linie).borderTopLeftRadius) || 0;
+    const f = (n) => Math.round(n * 100) / 100;
+    const x = l.left - k.left, y = l.top - k.top, w = l.width, h = l.height;
+    const r = Math.max(0, Math.min(R, w / 2, h / 2));
+    const W = f(k.width), H = f(k.height);
+    const p = `M0 0H${W}V${H}H0Z` +
+      `M${f(x + r)} ${f(y)}H${f(x + w - r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + w)} ${f(y + r)}` +
+      `V${f(y + h - r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + w - r)} ${f(y + h)}` +
+      `H${f(x + r)}A${f(r)} ${f(r)} 0 0 1 ${f(x)} ${f(y + h - r)}` +
+      `V${f(y + r)}A${f(r)} ${f(r)} 0 0 1 ${f(x + r)} ${f(y)}Z`;
+    const wert = `path(evenodd, "${p}")`;
+    kulisse.style.clipPath = wert;
+    kulisse.style.webkitClipPath = wert;
+  }
+  try {
+    if (CSS.supports('clip-path', 'path(evenodd, "M0 0H1V1Z")')) {
+      rahmen();
+      addEventListener('resize', rahmen);
+      if (window.visualViewport) visualViewport.addEventListener('resize', rahmen);
+    }
+  } catch (e) { html.classList.remove('rahmen-an'); }
+
+  /* ---------- Videos ----------
+     Jede Datei ist schon eine nahtlose Vorwärts-Schleife (nur vorwärts, Übergang im Video), daher reicht „loop“.
+     Welche Datei geladen wird (Computer oder Handy), entscheidet der Browser über <source media>.
+     Videos laufen nur, solange sie zu sehen sind; bei „weniger Bewegung“ bleibt das erste Bild stehen. */
+  let angehalten = false;
+  const filme = [];
+  function film(v) {
+    const f = { v, sichtbar: false };
+    f.abspielen = () => { if (!ruhig && !angehalten && f.sichtbar && !document.hidden) v.play().catch(() => {}); };
+    f.halt = () => { if (!v.paused) v.pause(); };
+    filme.push(f);
+    return f;
+  }
+  // Hintergrund: nur auf größeren Bildschirmen (auf dem Handy ist der Rand nur 2 px breit → Farbverlauf statt Video)
+  const kulisseVideo = $('.kulisse video');
+  if (kulisseVideo && html.classList.contains('rahmen-an') && !handy) {
+    const kf = film(kulisseVideo);
+    kulisseVideo.preload = ruhig ? 'metadata' : 'auto';   // „weniger Bewegung“: nur das erste Bild laden
+    kulisseVideo.load();
+    kf.sichtbar = true;
+    kf.abspielen();
+  }
+  // Hero: im HTML nur preload="metadata" (ohne JS / bei „weniger Bewegung“ reicht das erste Bild) – sonst ganz laden
+  if (!ruhig) $$('.hero video').forEach((v) => { v.preload = 'auto'; });
+  // Hero + großer Video-Block: laufen nur, solange sie zu sehen sind
+  const sichtFilme = $$('.hero video, .film-block video').map(film);
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((eintraege) => {
+      eintraege.forEach((e) => {
+        const f = sichtFilme.find((x) => x.v.parentElement === e.target);
+        if (!f) return;
+        f.sichtbar = e.isIntersecting;
+        if (f.sichtbar) f.abspielen(); else f.halt();
+      });
+    }, { threshold: 0.02 });
+    sichtFilme.forEach((f) => io.observe(f.v.parentElement));
+    // Video-Abschnitt: erst laden, wenn er höchstens eine Bildschirmhöhe entfernt ist (preload="none" im HTML)
+    const vorladen = new IntersectionObserver((eintraege) => {
+      eintraege.forEach((e) => {
+        if (!e.isIntersecting) return;
+        const v = e.target.querySelector('video');
+        v.preload = ruhig ? 'metadata' : 'auto';         // Chrome/Safari laden daraufhin nach
+        // Rückfall: lädt ein Browser trotzdem nicht, einmal anstoßen – aber nie während der Wiedergabe
+        setTimeout(() => {
+          if (v.paused && v.readyState === 0 && v.networkState === HTMLMediaElement.NETWORK_IDLE) v.load();
+        }, 600);
+        vorladen.unobserve(e.target);
+      });
+    }, { rootMargin: '100% 0px 100% 0px' });
+    $$('.film-block .film').forEach((el) => vorladen.observe(el));
+  } else {
+    sichtFilme.forEach((f) => { f.sichtbar = true; f.abspielen(); });
+  }
+
+  // Knöpfe „Videos anhalten“ (WCAG 2.2.2) – im Hero und im Video-Abschnitt, beide steuern alle Videos
+  const pausen = $$('.film-pause');
+  if (ruhig) pausen.forEach((p) => { p.hidden = true; });
+  pausen.forEach((p) => p.addEventListener('click', () => {
+    angehalten = !angehalten;
+    pausen.forEach((q) => {
+      q.setAttribute('aria-pressed', String(angehalten));
+      q.setAttribute('aria-label', angehalten ? 'Videos abspielen' : 'Videos anhalten');
+    });
+    filme.forEach((f) => (angehalten ? f.halt() : f.abspielen()));
+  }));
+  document.addEventListener('visibilitychange', () => {
+    filme.forEach((f) => (document.hidden ? f.halt() : f.abspielen()));
+  });
+
+  /* ---------- Menü: nur ein Feld offen, Esc / Klick daneben schließt ---------- */
+  const felder = $$('details.dd, details.mobil');
+  felder.forEach((d) => d.addEventListener('toggle', () => {
+    if (d.open) felder.forEach((o) => { if (o !== d) o.open = false; });
+  }));
+  document.addEventListener('click', (e) => {
+    felder.forEach((d) => { if (d.open && !d.contains(e.target)) d.open = false; });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    felder.forEach((d) => { if (d.open) { d.open = false; d.querySelector('summary').focus(); } });
+  });
+  $$('.dd-feld a, .mobil-feld a').forEach((a) => a.addEventListener('click', () => {
+    felder.forEach((d) => { d.open = false; });
+  }));
+
+  /* ---------- Funktionen: Reiter je Thema (Maus, Tippen, Pfeiltasten) ----------
+     Ohne JavaScript stehen alle Themen untereinander, die Reiter springen per Anker dorthin. */
+  const reiterListe = $('.reiter-liste');
+  const reiter = $$('.reiter');
+  const tafeln = $$('.tafel');
+  const buehne = $('.buehne');
+  const karten = $('.karten-bahn');
+  const themen = $('#themen');
+  const leisteAn = () => getComputedStyle(reiterListe).flexDirection === 'row';
+  const stickyAbstand = () => parseFloat(getComputedStyle($('.reiter-spalte')).top) || 0;
+
+  const themaJetzt = () => reiter.findIndex((r) => r.getAttribute('aria-selected') === 'true');
+  let leisteFaehrt = false, karteZiel = null, karteUhr = 0;
+  // Höhe der Bühne: beim Wechsel die größere der beiden Karten, sonst würde etwas abgeschnitten
+  function hoehe() {
+    const p = Math.max(0, Math.min(tafeln.length - 1, karten.scrollLeft / (karten.clientWidth || 1)));
+    const r = Math.abs(p - Math.round(p)) < 0.01 ? Math.round(p) : p;
+    buehne.style.height = `${Math.max(tafeln[Math.floor(r)].offsetHeight, tafeln[Math.ceil(r)].offsetHeight)}px`;
+  }
+  function karteZeigen(i, sofort) {
+    const links = tafeln[i].offsetLeft;
+    if (Math.abs(karten.scrollLeft - links) < 2) { hoehe(); return; }
+    karteZiel = i;
+    clearTimeout(karteUhr);
+    karteUhr = setTimeout(() => { karteZiel = null; }, 1200);
+    karten.scrollTo({ left: links, behavior: sofort || ruhig ? 'auto' : 'smooth' });
+    hoehe();
+  }
+  function zeigeThema(i, { fokus = false, nachOben = false, leisteLassen = false, karteLassen = false, sofort = false } = {}) {
+    // Beim Nachbarn gleitet die Karte hinüber, weite Sprünge zeigen das Thema direkt
+    const weit = sofort || Math.abs(i - themaJetzt()) > 1;
+    reiter.forEach((r, k) => {
+      const an = k === i;
+      r.setAttribute('aria-selected', an ? 'true' : 'false');
+      r.tabIndex = an ? 0 : -1;
+    });
+    tafeln.forEach((t, k) => {
+      t.classList.remove('neu');
+      t.inert = k !== i;
+      if (k === i) { t.removeAttribute('data-zu'); if (weit && !karteLassen) { void t.offsetWidth; t.classList.add('neu'); } }
+      else t.setAttribute('data-zu', '');
+    });
+    if (!karteLassen) karteZeigen(i, weit);
+    if (fokus) reiter[i].focus({ preventScroll: true });
+    // waagerechte Leiste: Jedes Thema hat seine Stelle, Wischen und Tippen rechnen mit derselben Einteilung
+    if (leisteAn() && !leisteLassen) {
+      const links = (i / (reiter.length - 1)) * (reiterListe.scrollWidth - reiterListe.clientWidth);
+      if (Math.abs(reiterListe.scrollLeft - links) > 2) {
+        leisteFaehrt = true;   // diese Fahrt kommt von uns und darf das Thema nicht wieder umstellen
+        reiterListe.scrollTo({ left: links, behavior: ruhig ? 'auto' : 'smooth' });
+      }
+    }
+    // Liegt der Anfang des neuen Themas schon oberhalb des Bildschirms, dorthin zurück
+    if (nachOben) {
+      const ziel = leisteAn() ? reiterListe : buehne;
+      const oben = ziel.getBoundingClientRect().top + scrollY - stickyAbstand();
+      if (oben < scrollY - 4) scrollTo({ top: oben, behavior: ruhig ? 'auto' : 'smooth' });
+    }
+  }
+  const themaAusHash = (h) => { const m = /^#thema-(\d+)$/.exec(h || ''); return m && reiter[+m[1] - 1] ? +m[1] - 1 : -1; };
+
+  // Tabulator-Reihenfolge erst hier festlegen: Ohne JavaScript bleibt jeder Reiter per Tab erreichbar
+  reiter.forEach((r, k) => { r.tabIndex = k === 0 ? 0 : -1; });
+  tafeln.forEach((t, k) => { t.inert = k !== 0; });
+  reiter.forEach((r, i) => {
+    r.addEventListener('click', (ev) => { ev.preventDefault(); zeigeThema(i, { nachOben: true }); });
+    r.addEventListener('keydown', (ev) => {
+      if (ev.key === ' ' || ev.key === 'Spacebar') { ev.preventDefault(); zeigeThema(i, { fokus: true, nachOben: true }); return; }
+      const n = reiter.length;
+      const ziel = { ArrowDown: i + 1, ArrowRight: i + 1, ArrowUp: i - 1, ArrowLeft: i - 1, Home: 0, End: n - 1 }[ev.key];
+      if (ziel === undefined) return;
+      ev.preventDefault();
+      zeigeThema((ziel + n) % n, { fokus: true });
+    });
+  });
+  $$('[data-thema-weiter]').forEach((a) => a.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    zeigeThema(+a.dataset.themaWeiter - 1, { nachOben: true });
+  }));
+  // Menü-Einträge (Funktionen, Für wen): Reiter öffnen und zum Abschnitt scrollen
+  $$('.dd-feld a[href^="#thema-"], .mobil-feld a[href^="#thema-"]').forEach((a) => a.addEventListener('click', (ev) => {
+    const i = themaAusHash(a.getAttribute('href'));
+    if (i < 0) return;
+    ev.preventDefault();
+    zeigeThema(i);
+    themen.scrollIntoView({ behavior: ruhig ? 'auto' : 'smooth', block: 'start' });
+    reiter[i].focus({ preventScroll: true });
+    try { history.replaceState(null, '', a.getAttribute('href')); } catch (e) { /* z. B. in Vorschauen */ }
+  }));
+  addEventListener('hashchange', () => { const i = themaAusHash(location.hash); if (i >= 0) { zeigeThema(i, { sofort: true }); themen.scrollIntoView({ block: 'start' }); } });
+  // Start-Thema aus der Adresse (#thema-3): Der Browser kennt das Ziel erst, wenn es sichtbar ist
+  {
+    const i = themaAusHash(location.hash);
+    if (i >= 0) { zeigeThema(i, { sofort: true }); addEventListener('load', () => themen.scrollIntoView({ block: 'start' })); }
+  }
+
+  // Leiste am Handy: weiche Kanten nur dort, wo noch Reiter versteckt sind; Laufleiste zeigt die Stelle
+  const spur = $('.reiter-spur'), spurI = spur && spur.firstElementChild, reiterLeiste = $('.reiter-leiste');
+  const kante = () => {
+    const max = reiterListe.scrollWidth - reiterListe.clientWidth;
+    const amEnde = reiterListe.scrollLeft >= max - 4;
+    reiterListe.classList.toggle('am-ende', amEnde);
+    reiterListe.classList.toggle('weg-vom-anfang', reiterListe.scrollLeft > 4);
+    reiterLeiste.classList.toggle('am-ende', amEnde && max > 4);
+    if (spurI && spur.clientWidth) {
+      const anteil = Math.min(1, reiterListe.clientWidth / reiterListe.scrollWidth);
+      spurI.style.width = `${anteil * 100}%`;
+      spurI.style.setProperty('--x', `${max > 0 ? (reiterListe.scrollLeft / max) * (spur.clientWidth * (1 - anteil)) : 0}px`);
+    }
+  };
+  reiterListe.addEventListener('scroll', kante, { passive: true });
+
+  /* ---------- Wischen wechselt das Thema: Leiste und Karte sind echte Bildläufe ----------
+     Der Browser bewegt sie selbst, wir merken nur, wo sie zur Ruhe gekommen sind. Fingersignale kommen beim Scrollen je nach Browser nicht zuverlässig an. */
+  {
+    let ruhe = 0;
+    // Steht die Leiste schon richtig, gibt es keine Fahrt: Der Finger hebt die Merkung immer auf
+    reiterListe.addEventListener('touchstart', () => { leisteFaehrt = false; }, { passive: true });
+    reiterListe.addEventListener('scroll', () => {
+      clearTimeout(ruhe);
+      ruhe = setTimeout(() => {
+        if (leisteFaehrt) { leisteFaehrt = false; return; }
+        const max = reiterListe.scrollWidth - reiterListe.clientWidth;
+        if (max <= 0 || !leisteAn()) return;
+        const i = Math.round((reiterListe.scrollLeft / max) * (reiter.length - 1));
+        if (i !== themaJetzt()) zeigeThema(i, { leisteLassen: true });
+      }, 120);
+    }, { passive: true });
+  }
+  {
+    let ruhe = 0, bild = 0;
+    const angekommen = () => {
+      if (karten.classList.contains('zieht')) return;
+      const i = Math.round(karten.scrollLeft / (karten.clientWidth || 1));
+      if (!tafeln[i] || Math.abs(karten.scrollLeft - tafeln[i].offsetLeft) > 2) return;   // Finger hält die Karte noch zwischen zwei Themen
+      if (karteZiel !== null) { if (i === karteZiel) { karteZiel = null; clearTimeout(karteUhr); } return; }
+      if (i !== themaJetzt()) zeigeThema(i, { nachOben: true, karteLassen: true });
+    };
+    karten.addEventListener('scroll', () => {
+      cancelAnimationFrame(bild);
+      bild = requestAnimationFrame(hoehe);
+      clearTimeout(ruhe);
+      ruhe = setTimeout(angekommen, 90);
+    }, { passive: true });
+    karten.addEventListener('touchstart', () => { karteZiel = null; }, { passive: true });
+    new ResizeObserver(hoehe).observe(karten);
+    tafeln.forEach((t) => new ResizeObserver(hoehe).observe(t));
+    addEventListener('resize', () => { karten.scrollLeft = tafeln[themaJetzt()].offsetLeft; hoehe(); });
+    hoehe();
+  }
+  // Mit der Maus gibt es keinen Bildlauf per Ziehen: Das übernehmen wir, das Ziel bestimmt der jeweilige Slider
+  function mitMausZiehen(el, loslassen) {
+    let an = false, gezogen = false, x0 = 0, links0 = 0;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      an = true; gezogen = false; x0 = e.clientX; links0 = el.scrollLeft; karteZiel = null;
+    });
+    addEventListener('pointermove', (e) => {
+      if (!an) return;
+      const dx = e.clientX - x0;
+      if (!gezogen && Math.abs(dx) < 6) return;
+      if (!gezogen) { gezogen = true; el.classList.add('zieht'); getSelection()?.removeAllRanges(); }
+      el.scrollLeft = links0 - dx;
+    });
+    const fertig = (e) => {
+      if (!an) return;
+      an = false;
+      if (!gezogen) return;
+      const dx = e.clientX - x0;
+      loslassen(Math.abs(dx) < 40 ? 0 : (dx < 0 ? 1 : -1));
+      // Erst am Ziel rastet der Slider wieder ein, sonst springt er
+      let uhr = 0;
+      const einrasten = () => { clearTimeout(uhr); el.removeEventListener('scrollend', einrasten); el.classList.remove('zieht'); };
+      el.addEventListener('scrollend', einrasten);
+      uhr = setTimeout(einrasten, 900);
+    };
+    addEventListener('pointerup', fertig);
+    addEventListener('pointercancel', fertig);
+    // Nach dem Ziehen darf kein Klick auf einen Link durchgehen
+    el.addEventListener('click', (e) => { if (gezogen) { gezogen = false; e.preventDefault(); e.stopPropagation(); } }, true);
+    el.addEventListener('dragstart', (e) => e.preventDefault());
+  }
+  mitMausZiehen(karten, (schritt) => {
+    const jetzt = themaJetzt(), i = Math.max(0, Math.min(reiter.length - 1, jetzt + schritt));
+    if (i === jetzt) karteZeigen(jetzt, false);
+    else zeigeThema(i, { nachOben: true });
+  });
+  addEventListener('resize', kante);
+  kante();
+
+  /* ---------- Zähler + Einblenden beim Scrollen ---------- */
+  const zahlen = $$('[data-zahl]');
+  const fmt = (n) => n.toLocaleString('de-DE');
+  function zaehlen(el) {
+    const ziel = +el.dataset.zahl;
+    if (ruhig) { el.textContent = fmt(ziel); return; }
+    const t0 = performance.now(), dauer = 1700;
+    const schritt = (t) => {
+      const p = Math.min(1, (t - t0) / dauer);
+      el.textContent = fmt(Math.round(ziel * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) requestAnimationFrame(schritt);
+    };
+    requestAnimationFrame(schritt);
+  }
+  const zeigen = $$('[data-zeigen]');
+  if ('IntersectionObserver' in window && !ruhig) {
+    zahlen.forEach((z) => { z.textContent = '0'; });
+    const io2 = new IntersectionObserver((liste) => {
+      liste.forEach((e) => {
+        if (!e.isIntersecting) return;
+        e.target.classList.add('sichtbar');
+        e.target.querySelectorAll('[data-zahl]').forEach(zaehlen);
+        io2.unobserve(e.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -6% 0px' });
+    zeigen.forEach((el) => io2.observe(el));
+  } else {
+    zeigen.forEach((el) => el.classList.add('sichtbar'));
+  }
+
+  /* ---------- Häufige Fragen: Karten-Reihe mit Pfeilen, Zähler, Punkten, Wischen und Pfeiltasten ---------- */
+  {
+    const slider = $('.slider');
+    const bahn = $('#fragen-bahn');
+    const alleKarten = [...bahn.children];
+    const fragen = alleKarten.filter((k) => k.tagName === 'ARTICLE');
+    const zurueck = $('[data-zurueck]', slider);
+    const weiter = $('.pfeil[data-weiter]', slider);
+    const stand = $('.stand', slider);
+    const punkte = $('.punkte', slider);
+    const zwei = (n) => String(n).padStart(2, '0');
+    let stellen = [0];      // Halte-Stellen (scrollLeft) – eine pro sichtbarer Karte, am Ende zusammengefasst
+    let ziel = null;        // Stelle, zu der gerade gefahren wird
+    let ruhe = 0;
+    const rand = () => parseFloat(getComputedStyle(bahn).scrollPaddingLeft) || 0;
+
+    function messen() {
+      const pad = rand();
+      const max = bahn.scrollWidth - bahn.clientWidth;
+      stellen = [];
+      // am Handy ist die „Fragen?“-Karte ausgeblendet und zählt nicht mit
+      for (const k of alleKarten) {
+        if (!k.offsetWidth) continue;
+        const x = Math.min(max, Math.max(0, k.offsetLeft - pad));
+        if (!stellen.length || x - stellen[stellen.length - 1] > 2) stellen.push(x);
+      }
+      punkte.textContent = '';
+      stellen.forEach((_, i) => {
+        const p = document.createElement('button');
+        p.type = 'button';
+        p.tabIndex = -1;
+        p.addEventListener('mousedown', (e) => e.preventDefault());   // Fokus bleibt, wo er ist
+        p.addEventListener('click', () => gehe(i));
+        punkte.appendChild(p);
+      });
+      punkte.hidden = stellen.length < 2;
+      zustand();
+    }
+    function jetzt() {
+      const x = bahn.scrollLeft;
+      let best = 0;
+      stellen.forEach((s, i) => { if (Math.abs(s - x) < Math.abs(stellen[best] - x)) best = i; });
+      return best;
+    }
+    function gehe(i) {
+      i = Math.max(0, Math.min(stellen.length - 1, i));
+      if (Math.abs(bahn.scrollLeft - stellen[i]) < 1) { ziel = null; zustand(); return; }
+      ziel = i;
+      bahn.scrollTo({ left: stellen[i], behavior: ruhig ? 'auto' : 'smooth' });
+      zustand();
+    }
+    const schritt = (r) => gehe((ziel ?? jetzt()) + r);
+    function zustand() {
+      const i = ziel ?? jetzt();
+      const n = stellen.length;
+      const anfang = i === 0, ende = i === n - 1;
+      zurueck.setAttribute('aria-disabled', String(anfang));
+      weiter.setAttribute('aria-disabled', String(ende));
+      bahn.classList.toggle('am-anfang', anfang);
+      bahn.classList.toggle('am-ende', ende);
+      [...punkte.children].forEach((p, j) => p.setAttribute('aria-current', String(j === i)));
+      // Zähler: welche Fragen an dieser Stelle ganz zu sehen sind
+      const pad = rand(), x = stellen[i] || 0;
+      const links = x + pad - 2, rechts = x + bahn.clientWidth - pad + 2;
+      const sicht = [];
+      fragen.forEach((f, j) => { if (f.offsetLeft >= links && f.offsetLeft + f.offsetWidth <= rechts) sicht.push(j + 1); });
+      const gesamt = zwei(fragen.length);
+      let text;
+      if (!sicht.length) text = `<b>${fragen.length} Fragen</b>`;
+      else {
+        const a = zwei(sicht[0]), b = zwei(sicht[sicht.length - 1]);
+        text = `<span class="sr">${a === b ? 'Frage' : 'Fragen'} </span><b>${a === b ? a : a + '–' + b}</b>` +
+               `<span aria-hidden="true"> / </span><span class="sr"> von </span>${gesamt}`;
+      }
+      if (stand.innerHTML !== text) stand.innerHTML = text;
+    }
+    zurueck.addEventListener('click', () => schritt(-1));
+    weiter.addEventListener('click', () => schritt(1));
+    // Pfeiltasten (und Pos1/Ende auf der Karten-Reihe)
+    slider.addEventListener('keydown', (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      let ok = true;
+      if (e.key === 'ArrowRight') schritt(1);
+      else if (e.key === 'ArrowLeft') schritt(-1);
+      else if (e.key === 'Home' && e.target === bahn) gehe(0);
+      else if (e.key === 'End' && e.target === bahn) gehe(stellen.length - 1);
+      else ok = false;
+      if (ok) e.preventDefault();
+    });
+    // Wischen/Scrollen: Anzeige mitführen; wenn die Bewegung steht, Ziel vergessen
+    let bild = 0;
+    bahn.addEventListener('scroll', () => {
+      if (ziel === null) { cancelAnimationFrame(bild); bild = requestAnimationFrame(zustand); }
+      clearTimeout(ruhe);
+      ruhe = setTimeout(() => { ziel = null; zustand(); }, 160);
+    }, { passive: true });
+    bahn.addEventListener('scrollend', () => { clearTimeout(ruhe); ziel = null; zustand(); });
+    let groesse = 0;
+    addEventListener('resize', () => {
+      clearTimeout(groesse);
+      groesse = setTimeout(() => { const i = jetzt(); messen(); bahn.scrollLeft = stellen[Math.min(i, stellen.length - 1)]; zustand(); }, 120);
+    });
+    mitMausZiehen(bahn, (schritt) => gehe(Math.max(0, Math.min(stellen.length - 1, jetzt() + schritt))));
+    messen();
+    // erst nach dem Aufbau ansagen lassen (sonst liest der Bildschirmleser beim Laden vor)
+    stand.setAttribute('aria-live', 'polite');
+    stand.setAttribute('aria-atomic', 'true');
+  }
+
+  /* ---------- Entwickler-Schalter für Vorschaubilder: #y=900 bzw. #y=ende ---------- */
+  const y = location.hash.match(/^#y=(\d+|ende)$/);
+  if (y) {
+    const gehe = () => {
+      html.style.scrollBehavior = 'auto';
+      scrollTo(0, y[1] === 'ende' ? document.documentElement.scrollHeight : +y[1]);
+    };
+    gehe();
+    addEventListener('load', gehe);
+  }
+})();
+</script>
+</body>
+</html>
