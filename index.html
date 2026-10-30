@@ -5664,6 +5664,7 @@ const DASH_WIDGETS = {
       ${years.length ? UI.chart({ type: 'bars', labels: years, series: [{ name: 'kg', values: years.map((y) => U.sum(byYear.get(y), (e) => e.mengeKg)) }], height: 160, unit: 'kg' }) : '<div class="muted small">Noch keine Ernten erfasst.</div>'}</div>`;
   }},
   prognose: { label: 'Ernteprognose', ic: 'rechner', ziel: 'rechner', async html() {
+    if (Lizenz.light()) return `<div class="card" style="margin:0"><div class="card-title">${icon('rechner')}<h2>Ernteprognose</h2></div><div class="muted small">Die Ernteprognose gibt es in der Vollversion.</div></div>`;
     const ep = await ernteprognoseBasis();
     const kg = ep.voelker * ep.jeVolk;
     if (!ep.voelker) return `<div class="card" style="margin:0"><div class="card-title">${icon('rechner')}<h2>Ernteprognose</h2></div><div class="muted small">Noch keine aktiven Wirtschaftsvölker erfasst.</div></div>`;
@@ -6043,7 +6044,7 @@ function startAdresse() { return location.pathname + location.search; }
    einfacher Weg, den Entwickler zu erreichen). App-Version und Gerät stehen
    schon in der Mail, Imkerei-Daten bewusst NICHT (Datenschutz).
    ===================================================================== */
-const SUPPORT_MAIL = 'juliankhler+imkerbuch@googlemail.com';
+const SUPPORT_MAIL = 'support@imkerbuch.app';
 /* In der App öffnen Links „in neuem Tab“ gar nichts – es gibt keine Tabs.
    Eigene Seiten (Datenschutz, Impressum, AGB, Support) zeigen wir dort in
    einem Fenster innerhalb der App; Apple verlangt, dass die Datenschutz-
@@ -6919,6 +6920,7 @@ async function openBelegstelleForm(bs, onDone) {
     return passend.length ? [...new Set(passend)] : [];
   };
   const m = UI.formModal({
+    lizenzBereich: false,   // gehört zu den Königinnen und ist Light, egal welcher Reiter offen ist
     title: bs ? 'Belegstelle bearbeiten' : 'Neue Belegstelle',
     fields: belegstelleFormFields(rasseOpts, gelernteLinien, eigeneNamen), values: bs || {},
     async onSave(v) {
@@ -7151,7 +7153,7 @@ Views.stand = {
     if (!$('#wetter-box') || $('#wetter-box').dataset.stand !== id) return;   // inzwischen weg-navigiert
     const neueste = [...liste].sort((a, b) => String(b.datum).localeCompare(String(a.datum)) || Wetter.zeitpunkt(b) - Wetter.zeitpunkt(a));
     const akt = neueste[0];
-    const an = S.get('features').wetter;
+    const an = S.get('features').wetter && !Lizenz.light();   // in Light ruft die App kein Wetter ab
     const heute = U.todayIso();
     const wann = (w) => {
       const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -8342,6 +8344,7 @@ Views.koeniginnen = {
     const qm = q ? new Map([...andereQueens, q].map((k) => [k.id, k])) : null;
     const vorschlagPedigree = q ? pedigreeGdeB({ ...q, kennung: q.kennung || kennungVorschlag }, qm) : '';
     const m = UI.formModal({
+      lizenzBereich: false,   // Königinnen sind Light, egal welcher Reiter offen ist
       title: q ? 'Königin bearbeiten' : 'Neue Königin', wide: true, // breiter, damit lange Einträge (Belegstelle/Vatervolk unter „Anpaarung“) komplett sichtbar sind
       fields: [
         { key: 'kennung', label: 'Kennung', placeholder: 'z. B. JK-26-014', hint: 'Eindeutige Zuchtbuch-Kennung – Vorschlag automatisch, frei änderbar.' },
@@ -15898,6 +15901,7 @@ Views.bio = {
       } finally { knopf.disabled = false; }
     };
     const rechnen = async (art) => {
+      if (Lizenz.nurVoll('Die Bio-Kontrolle')) return;
       const knoepfe = $$('#bio-amtlich, #bio-osm, #bio-suchen, #bio-geo', m.el);
       knoepfe.forEach((k) => { k.disabled = true; });
       try {
@@ -16225,6 +16229,7 @@ Views.honig = {
      Erfasst werden Ernten UND Chargen mit eigener Sorte (Honig aus dem
      Lagerbestand), denn beide stehen in der Tabelle. */
   async sorteBearbeiten(sorte) {
+    if (Lizenz.nurVoll('Ernte und Abfüllung')) return;
     const name = String(sorte || '').trim();
     if (!name) return;
     const gleich = (x) => String(x || '').trim() === name;
@@ -17049,7 +17054,7 @@ Views.markt = {
       const entfernen = e.target.closest('[data-korb-entfernen]');
       if (entfernen) { delete korb[entfernen.dataset.korbEntfernen]; return renderRoute(); }
       if (e.target.closest('#leeren')) { Views.markt._korb = {}; return renderRoute(); }
-      if (e.target.closest('#wechsel')) return Views.markt.wechselgeld(summe);
+      if (e.target.closest('#wechsel')) return Lizenz.nurVoll('Der Marktverkauf') ? null : Views.markt.wechselgeld(summe);
       if (e.target.closest('#kassieren')) return Views.markt.kassieren(korb, abf, preis, summe);
     });
   },
@@ -17151,7 +17156,7 @@ async function kassenbuchLoeschen(k) {
   const w = await frageJaNein({ titel: 'Buchung löschen?', ja: 'Auch dort löschen', nein: 'Nur im Kassenbuch löschen',
     text: `Diese Buchung gehört zu: ${vk.text}. Soll der Eintrag dort auch gelöscht werden? Dann gehen Bestand${vk.folge ? ', Honig' : ''} und Kassenbuch zusammen zurück.${vk.folge} Alles wandert in den Papierkorb.` });
   if (!w) return false;
-  if (w === 'ja') { await vk.loeschen(); UI.toast('Buchung und Eintrag im Bereich gelöscht'); }
+  if (w === 'ja') { if (Lizenz.nurVoll('Das Kassenbuch')) return false; await vk.loeschen(); UI.toast('Buchung und Eintrag im Bereich gelöscht'); }
   else { await loescheMitMaterial('kassenbuch', k); UI.toast('Nur die Buchung gelöscht – der Eintrag im Bereich bleibt'); }
   renderRoute();
   return true;
@@ -17476,7 +17481,7 @@ Views.kassenbuch = {
     });
     const klapp = $('#ep-klapp', box); if (klapp) klapp.addEventListener('toggle', () => { Views.kassenbuch._prognoseOffen = klapp.open; });
     ernteprognoseRechnen(box, ep);
-    box.addEventListener('input', (e) => { if (e.target.closest('[data-ep]')) ernteprognoseRechnen(box, ep); });
+    box.addEventListener('input', (e) => { if (e.target.closest('[data-ep]') && !Lizenz.nurVoll('Die Ernteprognose')) ernteprognoseRechnen(box, ep); });
   },
 };
 
@@ -24315,7 +24320,7 @@ const Lizenz = {
   STORE_VOLL: { fuetterungen: 'Die Fütterung', behandlungen: 'Behandlungen und Bestandsbuch', trachten: 'Trachten', wanderungen: 'Wanderungen', ernten: 'Ernte und Abfüllung', chargen: 'Ernte und Abfüllung',
     abfuellungen: 'Ernte und Abfüllung', honigabgaenge: 'Ernte und Abfüllung', verkaeufe: 'Der Honigverkauf', fahrten: 'Das Fahrtenbuch', kontakte: 'Abnehmer & Lieferanten', kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen',
     inventar: 'Lager und Material', materialzugaenge: 'Lager und Material', materialabgaenge: 'Lager und Material', pfandbewegungen: 'Lager und Material', aufgaben: 'Aufgaben und Erinnerungen', bioeintraege: 'Die Bio-Kontrolle',
-    anhaenge: 'Fotos und Dokumente', zuchtserien: 'Die Zucht', belegstellen: 'Die Zucht' },
+    anhaenge: 'Fotos und Dokumente', zuchtserien: 'Die Zucht' },
   VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
   light() { return this.aktiv() && this.status() === 'abgelaufen'; },
   /** Name des Bereichs, wenn die aktuelle Seite in Light nur zum Ansehen ist – sonst null. */
@@ -24690,6 +24695,7 @@ const Xlsx = {
       inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await alle('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await alle('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
+      belegstellen: { blatt: 'Belegstellen', rows: async () => (await alle('belegstellen')).map((b) => ({ Name: b.name || '', Herkunft: b.rasse || '', 'Aktuelle Drohnenlinie': b.drohnenlinie || '', Ort: b.ort || '', Betreiber: b.betreiber || '' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await alle('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       varroa: { blatt: 'Varroa', rows: async () => (await alle('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
       wetter: { blatt: 'Wetter', rows: async () => U.sortBy(await alle('wetter'), (w) => (w.datum || '') + (w.abgerufen || ''), true).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), Uhrzeit: w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '', 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
@@ -25717,7 +25723,7 @@ const Pdf = {
         const adr = [nameOben ? '' : imk.name, imk.strasse, plzOrt].filter(Boolean).join(', ');
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
         if (doc.splitTextToSize(adr, LW - 12).length > 2
-          && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz) oder lass den QR-Code weg.', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
+          && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz).', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
       }
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);

@@ -116,13 +116,13 @@ const AUFNAHMEN = [
   // --- Endgültige Bilder für Variante B ---
   { name: 'b-01-bienenstand', route: 'durchsicht/{anna}' },
   { name: 'b-02-voelker-koeniginnen', route: 'koenigin/{kg2}' },
-  { name: 'b-03-gesundheit', route: 'volk/{anna}', schritt: `klick(/^Varroa$/); await warte(900);`, scroll: `zu(/^Varroa-Kontrolle$/, 150)` },
+  { name: 'b-03-gesundheit', route: 'volk/{anna}', schritt: `klick(/^Varroa$/); await warte(900);`, scroll: `zu(/^Varroa-Kontrolle$/, 176)` },
   { name: 'b-04-wetter-tracht', route: 'trachten' },
   { name: 'b-05-honig', route: 'honig', schritt: `klick(/^Bestand$/); await warte(900);` },
   { name: 'b-06-verkauf', route: 'kassenbuch', schritt: `klick(/^Auswertung$/); await warte(900);` },
   { name: 'b-07-aufgaben', route: 'aufgaben' },
   { name: 'b-08-unterlagen', route: 'meldungen' },
-  { name: 'b-09-bio-hygiene', route: 'hygiene', schritt: `const b = document.querySelector('[data-plan-vorschlag]'); if (b) b.click(); await warte(1200);`, scroll: `zu(/^Hygieneplan$/, 70, 1)` },
+  { name: 'b-09-bio-hygiene', route: 'hygiene', schritt: `const b = document.querySelector('[data-plan-vorschlag]'); if (b) b.click(); await warte(1200);`, scroll: `zu(/^Hygieneplan$/, 40, 1)` },
   { name: 'b-10-imme', route: 'assistent', mitImme: true, schritt: `const i = document.querySelector('#bini-in'); i.value = 'Wie sichere ich meine Daten?'; document.querySelector('#bini-form').requestSubmit(); await warte(1800);`, scroll: `const b = [...document.querySelectorAll('#bini-chat > *')].pop(); if (b) scrollTo(0, b.getBoundingClientRect().bottom + scrollY - innerHeight + 150)` },
   // --- Runde 3 ---
   { name: 'durchsicht-anna', route: 'durchsicht/{anna}' },

@@ -102,7 +102,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 ## F · Hilfe, Recht, Sicherung
 
-- [ ] **F1** Menü → „Hilfe & Kontakt“ → „Fehler melden“. → **Mail-App** öffnet sich mit fertiger Nachricht an juliankhler+imkerbuch@googlemail.com (nicht absenden).
+- [ ] **F1** Menü → „Hilfe & Kontakt“ → „Fehler melden“. → **Mail-App** öffnet sich mit fertiger Nachricht an support@imkerbuch.app (nicht absenden).
 - [ ] **F2** Einstellungen → Rechtliches → Datenschutz / Impressum / Support öffnen. → Öffnet sich **in der App**, Schließen-Knopf führt zurück; auf der Support-Seite den Mail-Link antippen → Mail-App.
 - [ ] **F3** Einstellungen → Sicherung → „Sicherung speichern“ → „In Dateien sichern“. → Datei liegt in der Dateien-App.
 - [ ] **F4** „Backup importieren“ → dieselbe Datei wählen → **„Zusammenführen“**. → Meldung, nichts doppelt.
