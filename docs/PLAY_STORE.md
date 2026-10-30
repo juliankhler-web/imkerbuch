@@ -117,3 +117,14 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 - Fragebogen IARC: keine Gewalt, kein Glücksspiel, keine Nutzerinhalte für andere → voraussichtlich USK 0 / PEGI 3.
 - Zielgruppe: **18+** (Imker, Geschäftsfunktionen) – nicht „für Kinder“ (sonst strenge Familien-Regeln).
 - Werbung: **Nein**. Behörden-/Gesundheits-App: Nein.
+
+## Organisationskonto mit D-U-N-S (Recherche 30.10.2026, offizielle Google-Hilfe)
+
+- **D-U-N-S 317388588** (vergeben 29.10.2026): „Julian Konstantin Köhler“, Trade Style „ImkerBuch“, Reichenberger Str. 15, 85221 Dachau – im Google-Zahlungsprofil **genau so** eintragen (Dokumente müssen „exactly“ passen; bei Fehlermeldung zuerst Schreibweise prüfen).
+- **Ablauf:** Konto anlegen, 25 $ einmalig (Kredit-/Debitkarte, keine Prepaid) → Zahlungsprofil Organisation mit D-U-N-S → Ausweis (farbig, ungeschwärzt) + Gewerbeschein (Bestätigung der Gewerbeanzeige Stadt Dachau 20.10.2026) → **Website bestätigen (Pflicht seit 02/2024)** über Google Search Console, am besten mit demselben Google-Konto → Telefon (Code per SMS/Anruf) und E-Mails (Code per Mail) bestätigen.
+- **Dauer:** Für neue Konten nennt Google keine Prüfdauer („a few days“ steht nur bei alten Konten); Zahlungsweg bis 5 Tage. Eine frische D-U-N-S einfach eingeben.
+- **Testpflicht 12 Tester × 14 Tage:** laut Google nur für persönliche Konten (nach 13.11.2023) → gleich als Organisation anlegen (ob eine spätere Umwandlung die Pflicht aufhebt, ist nicht belegt).
+- **Öffentlich im Store:** rechtlicher Name, Adresse, Entwickler-E-Mail, Entwickler-Telefon. Ab November 2026 zusätzlich Händlerstatus in der Play Console angeben (Einzelheiten noch offen).
+- **Website:** Startseite ohne Anmeldung erreichbar, keine Social-Media-Seite; Kontakt-E-Mail „should“ zur Website-Domain passen (z. B. support@imkerbuch.app). Impressum (§ 5 DDG) ohnehin Pflicht.
+- **Unsicher:** Ob Google ein nicht eingetragenes Einzelunternehmen als Organisation annimmt, steht nirgends – zeigt erst die Prüfung (oder Google-Support fragen). Keine Google-Seite verlangt eine USt-IdNr.
+
