@@ -14688,6 +14688,114 @@ test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen
   } finally { Object.assign(L, echt); w.history.replaceState(null, '', hashVorher || '#/dashboard'); w.Views.volk._tab = undefined; }
 }));
 
+/* Fund 30.10.2026: Die Sperre schaute nur auf die Seite – von der Völkerliste, der Stand-Seite und
+   der Seite „Meldungen“ aus ließen sich Fütterung, Trachten, Behandlungen und Ernten trotzdem speichern. */
+test('Light: Sammel-Fütterung, Tracht vom Stand und PDF-Übernahme speichern nichts, Vollversion bleibt offen', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, tag = 864e5;
+  const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };
+  const fenster = []; L.aktiv = () => true; L.fenster = (o) => { fenster.push((o && o.grund) || 'start'); };
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+  const hashVorher = w.location.hash;
+  const warte = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+  const formOffen = (titel) => [...w.document.querySelectorAll('#modal-root .modal-back')].find((m) => m.querySelector('[data-save]') && titel.test(m.textContent));
+  const sammel = async (voelker, art) => {
+    w.sammelErfassung(voelker);
+    await warte(100);
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    m.querySelector('#se-art').value = art;
+    m.querySelector('[data-next]').click();
+    await warte();
+  };
+  /* kleinste PDF-Datei, die pdf.js liest – damit läuft der echte Knopf „Übernehmen“ */
+  const pdfDatei = () => {
+    const inhalt = 'BT /F1 12 Tf 20 200 Td (12.05.2026 Behandlung Ernte) Tj ET';
+    return new w.File([`%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length ${inhalt.length}>>stream
+${inhalt}
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+trailer<</Root 1 0 R>>`], 'test.pdf', { type: 'application/pdf' });
+  };
+  const aus = w.document.createElement('div');
+  w.document.body.appendChild(aus);
+  try {
+    dialogeSchliessen(w);
+    for (const v of await w.DB.getAll('voelker')) await w.DB.del('voelker', v.id);
+    for (const t of await w.DB.getAll('trachten')) await w.DB.del('trachten', t.id);
+    const st = await w.DB.put('staende', { name: 'Light-Stand' });
+    const a = await w.DB.put('voelker', { name: 'A', status: 'aktiv', standId: st.id }), b = await w.DB.put('voelker', { name: 'B', status: 'aktiv', standId: st.id });
+    const fuetterungenVorher = (await w.DB.getAll('fuetterungen')).length, behandlungenVorher = (await w.DB.getAll('behandlungen')).length;
+
+    // Völkerliste: Fütterung gesperrt, Durchsicht bleibt frei (Grenze hängt am Inhalt, nicht an der Seite)
+    w.history.replaceState(null, '', '#/voelker');
+    await sammel([a, b], 'fuetterung');
+    assert(fenster.some((f) => /Fütterung/.test(f)), 'Sammel-Fütterung: Kauf-Fenster');
+    assert(!formOffen(/Sammel-Fütterung/), 'Sammel-Fütterung: kein Formular');
+    assertEq((await w.DB.getAll('fuetterungen')).length, fuetterungenVorher, 'keine Fütterung gespeichert');
+    dialogeSchliessen(w); fenster.length = 0;
+    await sammel([a, b], 'stockkarte');
+    assert(formOffen(/Sammel-Durchsicht/), 'Sammel-Durchsicht bleibt in Light offen');
+    assertEq(fenster.length, 0, 'Sammel-Durchsicht: kein Kauf-Fenster');
+    dialogeSchliessen(w);
+
+    // Stand-Seite: neue Tracht sofort gesperrt, vorhandene lässt sich ansehen, aber nicht ändern
+    w.history.replaceState(null, '', '#/stand/' + st.id);
+    assertEq(await w.Views.trachten.formular(null, { standIds: [st.id] }), null, 'neue Tracht: kein Formular');
+    assert(fenster.some((f) => /Trachten/.test(f)), 'neue Tracht: Kauf-Fenster');
+    assert(!formOffen(/Neue Tracht/), 'neue Tracht: nichts offen');
+    fenster.length = 0;
+    const tr = await w.DB.put('trachten', { pflanze: 'Raps', standIds: [st.id], notiz: 'alt', erinnernTage: 0 });
+    await w.Views.trachten.formular(await w.DB.get('trachten', tr.id));
+    const trForm = formOffen(/Tracht bearbeiten/);
+    assert(trForm, 'vorhandene Tracht lässt sich ansehen');
+    const notiz = trForm.querySelector('#f-notiz'); notiz.value = 'neu'; notiz.dispatchEvent(new w.Event('input', { bubbles: true }));
+    trForm.querySelector('[data-save]').click();
+    await warte();
+    assertEq((await w.DB.get('trachten', tr.id)).notiz, 'alt', 'Tracht nicht geändert');
+    assert(fenster.some((f) => /Trachten/.test(f)), 'Tracht ändern: Kauf-Fenster');
+    w.FormGuard.dirty = false; dialogeSchliessen(w); fenster.length = 0;
+
+    // Seite „Meldungen“: PDF lesen ist frei, Übernehmen nicht
+    w.history.replaceState(null, '', '#/meldungen');
+    await w.PdfImport.read(pdfDatei(), aus);
+    const knoepfe = [...aus.querySelectorAll('[data-take]')];
+    assertEq(knoepfe.length, 2, 'PDF gelesen: Behandlung und Ernte erkannt');
+    knoepfe[0].click(); await warte();
+    assert(fenster.some((f) => /Behandlungen/.test(f)), 'Behandlung übernehmen: Kauf-Fenster');
+    assert(!formOffen(/Behandlung/), 'Behandlung übernehmen: kein Formular');
+    fenster.length = 0;
+    knoepfe[1].click(); await warte();
+    assert(fenster.some((f) => /Ernte/.test(f)), 'Ernte übernehmen: Kauf-Fenster');
+    assert(!formOffen(/Ernte übernehmen/), 'Ernte übernehmen: kein Formular');
+    // Ein schon offenes Formular wird beim Speichern gestoppt, auch auf dieser Seite
+    fenster.length = 0;
+    await w.Views.behandlungen.form({ zielTyp: 'volk', zielId: a.id, datum: w.U.todayIso(), mittel: 'Testmittel', menge: 1 });
+    formOffen(/Behandlung/).querySelector('[data-save]').click();
+    await warte();
+    assertEq((await w.DB.getAll('behandlungen')).length, behandlungenVorher, 'keine Behandlung gespeichert');
+    assert(fenster.some((f) => /Behandlungen/.test(f)), 'Behandlung speichern: Kauf-Fenster');
+    w.FormGuard.dirty = false; dialogeSchliessen(w); fenster.length = 0;
+
+    // Vollversion: alle Wege bleiben offen
+    L.speicher = () => ({ voll: true, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+    w.history.replaceState(null, '', '#/voelker');
+    await sammel([a, b], 'fuetterung');
+    assert(formOffen(/Sammel-Fütterung/), 'Vollversion: Sammel-Fütterung öffnet');
+    dialogeSchliessen(w);
+    w.history.replaceState(null, '', '#/stand/' + st.id);
+    await w.Views.trachten.formular(null, { standIds: [st.id] });
+    assert(formOffen(/Neue Tracht/), 'Vollversion: neue Tracht öffnet');
+    dialogeSchliessen(w);
+    w.history.replaceState(null, '', '#/meldungen');
+    aus.querySelector('[data-take]').click(); await warte();
+    assert(formOffen(/Behandlung/), 'Vollversion: Behandlung übernehmen öffnet');
+    assertEq(fenster.length, 0, 'Vollversion: kein Kauf-Fenster');
+  } finally { Object.assign(L, echt); aus.remove(); w.FormGuard.dirty = false; dialogeSchliessen(w); w.history.replaceState(null, '', hashVorher || '#/dashboard'); }
+}));
+
 test('Standort: in der App über die Erweiterung (eine Frage statt zwei), verständliche Fehler', async (w) => {
   const echtNativ = w.IST_NATIVE_APP;
   const quelle = await (await w.fetch('index.html')).text();

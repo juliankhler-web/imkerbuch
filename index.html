@@ -1560,8 +1560,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.01';
+const APP_VERSION = '3.02';
 const CHANGELOG = [
+  { version: '3.02', datum: '2026-10-30', punkte: [
+    '<b>Light-Version:</b> Fütterung, Trachten, Behandlungen und Ernten gehören zur Vollversion. Über die Sammel-Erfassung in der Völkerliste, die Stand-Seite und die Übernahme aus einem PDF ließen sie sich bisher trotzdem speichern. Jetzt erscheint auch dort der Hinweis auf die Vollversion. Ansehen und PDF-Lesen bleiben frei, an der Vollversion ändert sich nichts.',
+  ] },
   { version: '3.01', datum: '2026-10-27', punkte: [
     '<b>„Anpassen“ verständlicher:</b> Bei „Zeit buchen“ und „Häufige Fahrten“ ist jetzt angehakt, was gerade in der Liste steht. Abhaken blendet aus, anhaken holt dazu, ohne etwas zu verdrängen – vorher ersetzte eine neue Auswahl die ganze Liste, und alles andere verschwand. Nach dem Speichern steht genau das Angehakte in der Liste; es rückt nichts ungefragt nach. Im nächsten Monat kommen dessen Vorschläge wieder von selbst. „Zurücksetzen“ macht die Liste wieder automatisch.',
     '<b>Vorschläge gekennzeichnet:</b> Typische Arbeiten des Monats, die du nie eingetragen hast, tragen in „Zeit buchen“ das Schild „Vorschlag“. In „Neue Aufgabe“ stehen sie in einer eigenen Zeile „Vorschläge für …“, getrennt von dem, was du oft machst.',
@@ -3557,7 +3560,7 @@ const UI = {
 
   /** Generisches Formular-Modal mit Validierung, Dezimalkomma und Dirty-Guard.
       Feld: {key,label,type:text|number|date|textarea|select|check|rating|multicheck|static,required,options:[{v,l}],hint,placeholder,showIf} */
-  formModal({ title, fields, values = {}, onSave, onDelete, saveText = 'Speichern', wide = false, lizenzFrei = false }) {
+  formModal({ title, fields, values = {}, onSave, onDelete, saveText = 'Speichern', wide = false, lizenzFrei = false, lizenzBereich = null }) {
     const nurLoeschen = UI._nurLoeschen; UI._nurLoeschen = null;   // siehe UI.nurLoeschen
     if (nurLoeschen) nurLoeschen.genutzt = true;
     const fid = (k) => `f-${k}`;
@@ -3696,7 +3699,7 @@ const UI = {
       /* Nach der Testphase: Eintragen/Ändern über Formulare gesperrt (Nur-Lesen).
          Bewusst HIER und nicht in der Datenbank: dort hätte die Sperre auch die
          internen Umstellungen beim Start blockiert – die App blieb dann hängen. */
-      try { Lizenz.pruefeSchreiben(['formular']); await Lizenz.pruefeLight({ frei: lizenzFrei }); } catch (e) { if (!e.leise) UI.toast(e.message, 'err'); return; }
+      try { Lizenz.pruefeSchreiben(['formular']); await Lizenz.pruefeLight({ frei: lizenzFrei, bereich: lizenzBereich }); } catch (e) { if (!e.leise) UI.toast(e.message, 'err'); return; }
       try { await onSave(v); FormGuard.dirty = false; m.close(true); }
       catch (e) {
         if (e && e.leise) return;        // z. B. Rückfrage mit „Abbrechen“ beantwortet – Formular bleibt offen
@@ -7442,6 +7445,7 @@ function sammelErfassung(voelker) {
     const ids = boxes().filter((b) => b.checked).map((b) => b.value);
     if (!ids.length) return UI.toast('Bitte mindestens ein Volk wählen', 'err');
     const art = $('#se-art', m.el).value;
+    if (art === 'fuetterung' && Lizenz.nurVoll('Die Fütterung')) return;   // Light: die Völkerliste selbst ist frei, die Fütterung nicht (v3.02)
     m.close(true);
     await sammelFormular(art, ids, voelker);
   };
@@ -7464,7 +7468,7 @@ async function sammelFormular(art, volkIds, voelker) {
     });
   } else if (art === 'fuetterung') {
     verdrahteSirupLiter(UI.formModal({
-      title: 'Sammel-Fütterung', wide: true,
+      title: 'Sammel-Fütterung', wide: true, lizenzBereich: 'Die Fütterung',
       fields: [hinweis,
         { key: 'futterart', label: 'Futterart', type: 'suggest', required: true, options: await gelernteWerte(VORSCHLAEGE.futterart, 'fuetterungen', 'futterart') },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
@@ -9767,7 +9771,7 @@ Views.behandlungen = {
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
     const mittelPosten = await verbrauchsPosten(VERBRAUCH_EINHEITEN, { kategorien: ['Behandlungsmittel'] });
     const m = UI.formModal({
-      title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true,
+      title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true, lizenzBereich: 'Behandlungen und Bestandsbuch',
       fields: [
         ...ziel,
         { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
@@ -10953,10 +10957,11 @@ Views.trachten = {
   },
   /** Formular für eine Tracht. vorgabe: z. B. { standIds: [standId] } vom Stand aus. */
   async formular(t, vorgabe = {}) {
+    if (!t && Lizenz.nurVoll('Trachten')) return null;   // Light: auch vom Stand aus (v3.02)
     const staendeArr = await DB.getAll('staende');
     const werte = t ? { ...t, jaehrlich: !!t.jaehrlich, erinnernTage: String(t.erinnernTage || 0) } : { jaehrlich: true, standIds: [], erinnernTage: '0', ...vorgabe };
     const m = UI.formModal({
-      title: t ? 'Tracht bearbeiten' : 'Neue Tracht', wide: true,
+      title: t ? 'Tracht bearbeiten' : 'Neue Tracht', wide: true, lizenzBereich: 'Trachten',
       fields: [
         { key: 'pflanze', label: 'Trachtpflanze', type: 'suggest', options: await gelernteWerte(TRACHT_PFLANZEN.map((p) => p.name), 'trachten', 'pflanze'), placeholder: 'z. B. Raps, Robinie, Linde' },
         { key: 'bezeichnung', label: 'Eigener Name (freiwillig)', placeholder: 'z. B. Raps am Feldrand – leer = Name der Pflanze' },
@@ -24098,10 +24103,11 @@ const Lizenz = {
     setTimeout(() => this.fenster({ grund: text }), 0);
     const e = new Error(text); e.lizenz = true; e.leise = true; throw e;
   },
-  /** Light-Grenzen beim Speichern (Formulare, Durchsicht am Stand). frei = immer erlaubt (z. B. Völker vereinigen). */
-  async pruefeLight({ frei = false } = {}) {
+  /** Light-Grenzen beim Speichern (Formulare, Durchsicht am Stand). frei = immer erlaubt (z. B. Völker vereinigen).
+      bereich = das Formular gehört selbst zur Vollversion, egal auf welcher Seite es offen ist (v3.02: Tracht vom Stand, Sammel-Fütterung, PDF-Übernahme). */
+  async pruefeLight({ frei = false, bereich = null } = {}) {
     if (!this.light() || frei) return;
-    const b = this.sperrBereich();
+    const b = bereich || this.sperrBereich();
     if (b) this._sperre(`${b} ist Teil der Vollversion.`);
     const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     if (n > this.LIGHT_VOELKER) this._sperre(`ImkerBuch Light gilt für bis zu ${this.LIGHT_VOELKER} Völker – du hast ${n} aktive. Löse überzählige Völker auf oder hol dir die Vollversion.`);
@@ -26528,6 +26534,7 @@ const PdfImport = {
         : `<div class="hint">Keine Behandlungs- oder Ernteeinträge automatisch erkannt.</div>`}`;
       outEl.querySelectorAll('[data-take]').forEach((b) => b.onclick = () => {
         const v = vorschlaege[+b.dataset.take];
+        if (Lizenz.nurVoll(v.typ === 'behandlung' ? 'Behandlungen und Bestandsbuch' : 'Ernte und Abfüllung')) return;   // Light: Lesen bleibt frei, Übernehmen nicht (v3.02)
         if (v.typ === 'behandlung') Views.behandlungen.form({ datum: v.datum, mittel: v.stichwort, notiz: `Aus PDF übernommen: ${v.kontext.slice(0, 140)}` });
         else PdfImport.ernteQuickForm({ datum: v.datum, sorte: v.stichwort, notiz: `Aus PDF übernommen: ${v.kontext.slice(0, 140)}` });
       });
@@ -26554,7 +26561,7 @@ const PdfImport = {
   async ernteQuickForm(prefill) {
     const ziel = await zielFelder({}, 'Geerntet wurde');
     UI.formModal({
-      title: 'Ernte übernehmen', wide: true,
+      title: 'Ernte übernehmen', wide: true, lizenzBereich: 'Ernte und Abfüllung',
       fields: [
         ...ziel,
         { key: 'datum', label: 'Erntedatum', type: 'date', required: true },
