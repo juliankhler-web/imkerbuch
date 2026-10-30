@@ -1582,7 +1582,7 @@ const CHANGELOG = [
   { version: '3.07', datum: '2026-10-30', punkte: [
     '<b>Sammel-Varroazählung:</b> Bei Auswaschen und Puderzucker fragt die App jetzt nach den Bienen in der Probe. Vorher zählte die rohe Milbenzahl als Wert je 100 Bienen, die Ampel warnte dadurch zu streng.',
     '<b>Varroa-Kurve:</b> Sie zeigt nur noch Zählungen mit derselben Messart. Andere Methoden stehen weiter in der Tabelle.',
-    '<b>Light-Version:</b> Imker-Rechner, Honig-Etikett, Stornos und einige Ein-Tipp-Wege in Bio und Hygiene gehören zur Vollversion und öffnen jetzt das Kauf-Fenster. Was schon eingetragen ist, bleibt sichtbar und lässt sich ausdrucken.',
+    '<b>Light-Version:</b> Imker-Rechner, Honig-Etikett, Stornos, das Wiederherstellen von Vollversions-Einträgen aus dem Papierkorb und einige Ein-Tipp-Wege in Bio und Hygiene gehören zur Vollversion und öffnen jetzt das Kauf-Fenster. Was schon eingetragen ist, bleibt sichtbar und lässt sich ausdrucken.',
     'Behoben: In Light ließ sich ein Volk auf manchen Reitern nicht bearbeiten, und bei mehr als 2 Völkern ließen sich die Imkereidaten nicht speichern.',
     'Behoben: Der Komplettausdruck bot „Zucht“ an, obwohl es den Bereich noch nicht gibt. Aufgaben zu niedrigem Bestand tragen jetzt das Schild „Bestand“ statt „MHD“.',
   ] },
@@ -5333,7 +5333,7 @@ const Anhang = {
         ${ocrOn ? `<button class="btn btn-ghost" data-ocr>${icon('doc')} Text aus Foto übernehmen</button>` : ''}
         <button class="btn btn-ghost" data-oeffnen>${icon('download')} ${a.art === 'foto' ? 'Öffnen/Laden' : 'Öffnen / bearbeiten'}</button>`,
     });
-    $('[data-typ]', m.el).onchange = async (e) => { a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
+    $('[data-typ]', m.el).onchange = async (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value = a.dokumentTyp || ''; return; } a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
     $('[data-oeffnen]', m.el).onclick = () => dateiOeffnen(a.blob, a.name, a.mime);
     $('[data-del]', m.el).onclick = async () => {
       if (!(await UI.confirm({ title: 'Anhang löschen?', text: 'Der Anhang wandert in den Papierkorb (30 Tage wiederherstellbar).' }))) return;
@@ -5522,7 +5522,7 @@ const Sprachnotiz = {
       $('[data-rec]', el).onclick = () => (recorder ? stopRec() : (Lizenz.nurVoll('Sprachnotizen') ? null : startRec()));
       $('[data-list]', el).addEventListener('click', async (e) => {
         const take = e.target.closest('[data-take]');
-        if (take && onText) { const a = items.find((x) => x.id === take.dataset.take); await onText(a.transkript); UI.toast('In Notiz übernommen'); return; }
+        if (take && onText) { if (Lizenz.nurVoll('Sprachnotizen')) return; const a = items.find((x) => x.id === take.dataset.take); await onText(a.transkript); UI.toast('In Notiz übernommen'); return; }
         const row = e.target.closest('.audio-row'); if (!row) return;
         const a = items.find((x) => x.id === row.dataset.id);
         if (e.target.closest('[data-del]')) {
@@ -6327,8 +6327,10 @@ const Demo = {
     let vi = 0;
     for (const nm of ['Anna', 'Clara', 'Emma', 'Frida', 'Greta', 'Ida']) {
       const v = V[nm];
-      await DB.put('varroa', { volkId: v.id, datum: d(-30 + vi), methode: 'Bodenschieber (natürlicher Fall)', milben: 2 + vi * 3, tageZaehl: 3, probeBienen: 0 });
-      await DB.put('varroa', { volkId: v.id, datum: d(-8 + vi), methode: 'Puderzuckermethode', milben: 1 + vi, tageZaehl: 0, probeBienen: 300 });
+      await DB.put('varroa', { volkId: v.id, datum: d(-52 + vi), methode: 'Puderzuckermethode', milben: 1 + vi, tageZaehl: 0, probeBienen: 300 });
+      await DB.put('varroa', { volkId: v.id, datum: d(-38 + vi), methode: 'Bodenschieber (natürlicher Fall)', milben: 1 + vi * 3, tageZaehl: 3, probeBienen: 0 });
+      await DB.put('varroa', { volkId: v.id, datum: d(-22 + vi), methode: 'Bodenschieber (natürlicher Fall)', milben: 2 + vi * 3, tageZaehl: 3, probeBienen: 0 });
+      await DB.put('varroa', { volkId: v.id, datum: d(-8 + vi), methode: 'Bodenschieber (natürlicher Fall)', milben: 3 + vi * 3, tageZaehl: 3, probeBienen: 0 });
       vi++;
     }
     for (const nm of ['Anna', 'Berta', 'Dora', 'Emma', 'Greta']) await DB.put('fuetterungen', { volkId: V[nm].id, datum: d(-9), futterart: 'Zuckersirup 3:2', mengeKg: 5, winterfutter: false });
@@ -6729,6 +6731,7 @@ async function schnellSchluesselWeg(praefix, key) {
  * vorher ersetzte eine neue Auswahl die ganze Liste („alles andere verschwindet“, Julian 27.10.2026).
  */
 async function fahrtWidgetKonfig() {
+  if (Lizenz.nurVoll('Das Fahrtenbuch')) return;
   const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
   const vorlagen = S.get('fahrtvorlagen') || [];
   if (!staende.length && !vorlagen.length) return UI.toast('Lege zuerst einen Bienenstand oder eine eigene Fahrt an (Fahrtenbuch → „+ Fahrt“ → „Als häufige Fahrt merken“).', 'err');
@@ -14476,6 +14479,7 @@ Views.bio = {
     $$('[data-eigen-neu]', box).forEach((b) => { b.onclick = () => Views.bio.eigenNeu('vorsorge'); });
     $('#vs-pdf', box).onclick = () => Pdf.bioVorsorge();
     $('#vs-geprueft', box).onclick = async () => {
+      if (Lizenz.nurVoll('Die Bio-Kontrolle')) return;
       const s = vorsorgeLaden(); s.geprueftAm = U.todayIso(); await S.set('bioVorsorge', s);
       UI.toast('Als heute überprüft vermerkt'); renderRoute();
     };
@@ -15119,6 +15123,7 @@ Views.bio = {
     liste.parentNode.insertBefore(zeile, liste.nextSibling);
     const eingabe = $('[data-neu-punkt]', zeile);
     const hinzu = async () => {
+      if (Lizenz.nurVoll('Der Hygieneplan')) return;
       const text = String(eingabe.value || '').trim();
       if (!text) return;
       const vorhanden = $$('label span', liste).some((sp) => sp.textContent.trim().toLowerCase() === text.toLowerCase());
@@ -16455,7 +16460,7 @@ Views.honig = {
     const add = () => Views.honig.chargeForm(null);
     bindAdd(add, box);
     const ordnenBtn = $('#ordnen', box);
-    if (ordnenBtn) ordnenBtn.onclick = () => { Views.honig._chargenOrdnen = !ordnen; renderRoute(); };
+    if (ordnenBtn) ordnenBtn.onclick = () => { if (Lizenz.nurVoll('Chargen')) return; Views.honig._chargenOrdnen = !ordnen; renderRoute(); };
     if (ordnen) {
       for (const id of ['chargen-offen', 'chargen-archiv']) {
         const el = $('#' + id, box);
@@ -16484,6 +16489,7 @@ Views.honig = {
      Werte überein (etwa nach einem Jahreswechsel im Filter), entscheidet die
      Chargennummer – die Liste springt also nie wild herum. */
   async chargenReihenfolge(ids) {
+    if (Lizenz.nurVoll('Chargen')) return;
     for (let i = 0; i < ids.length; i++) {
       const c = await DB.get('chargen', ids[i]);
       if (!c || c.sortIndex === i) continue;
@@ -18189,6 +18195,7 @@ async function renderInventarBereich(main, cfg) {
     main.addEventListener('click', async (e) => {
       const zeile = e.target.closest('[data-pfandweg]');
       if (!zeile) return;
+      if (Lizenz.nurVoll('Lager und Material')) return;
       const b = bewegungen.find((x) => x.id === zeile.dataset.pfandweg);
       if (!b) return;
       const kb = await kasseBuchungZu(b.kassenbuchId);
@@ -19670,6 +19677,7 @@ async function zeitSchnellSpeichern(e, kategorie, schritte, minuten, datum = U.t
  * neue häufige Arbeiten und Vorschläge des Monats kommen weiter von selbst, solange man sie nicht abhakt.
  */
 async function zeitSchnellKonfig() {
+  if (Lizenz.nurVoll('Die Zeiterfassung')) return;
   const alle = await DB.getAll('aufgaben');
   const heute = U.todayIso(), monat = +heute.slice(5, 7);
   const { eintraege, arbeiten } = await zeitSchnellEintraege(alle, heute);
@@ -19782,6 +19790,7 @@ function zeitVorlagenManager() {
 }
 /** Eigenen Schnellzugriff anlegen/ändern: Arbeit, Bereich, Arbeitsschritte, übliche Dauer. */
 async function zeitVorlageForm(z) {
+  if (Lizenz.nurVoll('Die Zeiterfassung')) return;
   const alle = await DB.getAll('aufgaben');
   const kats = [...(S.get('taetigkeiten') || [])];
   if (z && z.kategorie && !kats.includes(z.kategorie)) kats.push(z.kategorie);
@@ -22013,6 +22022,11 @@ Views.papierkorb = {
     main.addEventListener('click', async (e) => {
       const rs = e.target.closest('[data-restore]');
       if (rs) {
+        /* Wiederherstellen schreibt wieder in den Bereich: in Light nur, wo auch Neues erlaubt wäre. Endgültig löschen bleibt frei. */
+        const eintrag = (await DB.getAll('papierkorb')).find((x) => x.id === rs.dataset.restore);
+        const bereich = eintrag && Lizenz.STORE_VOLL[eintrag.store];
+        if (bereich && Lizenz.nurVoll(bereich)) return;
+        if (eintrag && eintrag.store === 'voelker' && !(await Lizenz.neuesVolkErlaubt())) return;
         try {
           const wiederhergestellt = await DB.trashRestore(rs.dataset.restore);
           UI.toast(wiederhergestellt ? 'Wiederhergestellt' : 'Der Eintrag ist nicht mehr im Papierkorb.');
@@ -23228,6 +23242,7 @@ Views.fahrten = {
 
   /** Vorlage anlegen/bearbeiten: zwischen zwei Ständen oder freie Fahrt. */
   async vorlageForm(vl) {
+    if (Lizenz.nurVoll('Das Fahrtenbuch')) return;
     const staende = await DB.getAll('staende');
     const standOpts = staende.map((s) => ({ v: s.id, l: s.name }));
     const typ = vl ? (vl.standId ? 'stand' : (/ → /.test(vl.freiZiel || '') ? 'zwischen' : 'frei')) : 'zwischen';
@@ -24297,6 +24312,10 @@ const Lizenz = {
     behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen',
     markt: 'Der Marktverkauf', bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
     trachten: 'Trachten', reporting: 'Statistiken', rechner: 'Der Imker-Rechner', zucht: 'Die Zucht' },
+  STORE_VOLL: { fuetterungen: 'Die Fütterung', behandlungen: 'Behandlungen und Bestandsbuch', trachten: 'Trachten', wanderungen: 'Wanderungen', ernten: 'Ernte und Abfüllung', chargen: 'Ernte und Abfüllung',
+    abfuellungen: 'Ernte und Abfüllung', honigabgaenge: 'Ernte und Abfüllung', verkaeufe: 'Der Honigverkauf', fahrten: 'Das Fahrtenbuch', kontakte: 'Abnehmer & Lieferanten', kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen',
+    inventar: 'Lager und Material', materialzugaenge: 'Lager und Material', materialabgaenge: 'Lager und Material', pfandbewegungen: 'Lager und Material', aufgaben: 'Aufgaben und Erinnerungen', bioeintraege: 'Die Bio-Kontrolle',
+    anhaenge: 'Fotos und Dokumente', zuchtserien: 'Die Zucht', belegstellen: 'Die Zucht' },
   VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
   light() { return this.aktiv() && this.status() === 'abgelaufen'; },
   /** Name des Bereichs, wenn die aktuelle Seite in Light nur zum Ansehen ist – sonst null. */
@@ -24559,7 +24578,7 @@ const Notif = {
   /** Badge setzen + höchstens 1× täglich (bzw. bei mehr Fälligen) benachrichtigen */
   async check(erzwingen = false) {
     const f = S.get('features');
-    if (!f.benachrichtigungen) { this.badge(0); return 0; }
+    if (!f.benachrichtigungen || Lizenz.light()) { this.badge(0); return 0; }   // Erinnerungen sind Vollversion
     const faellig = this.faellige(await DB.getAll('aufgaben'));
     this.badge(faellig.length);
     if (Erinnerung.plugin()) { Erinnerung.spaeterPlanen(); return faellig.length; }   // App: Gerät plant selbst
@@ -29155,6 +29174,7 @@ Views.einstellungen = {
     const rqrFile = $('#rqr-file');
     if (rqrFile) rqrFile.onchange = async (e) => {
       const file = e.target.files[0]; if (!file) return;
+      if (Lizenz.nurVoll('Rechnungen')) { e.target.value = ''; return; }
       try { await S.set('rechnungQr', await U.blobToDataURL(await U.resizeImage(file, 512, 0.92))); UI.toast('QR-Code gespeichert'); renderRoute(); }
       catch (err) { UI.toast('QR-Code konnte nicht verarbeitet werden: ' + err.message, 'err'); }
     };

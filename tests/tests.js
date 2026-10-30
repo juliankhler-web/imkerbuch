@@ -14936,6 +14936,18 @@ test('Light: Etikett, Rechner, Automatiken und Ein-Tipp-Wege öffnen das Kauf-Fe
     assert(/edit-imkerei'\)\.onclick = \(\) => \{ const m = UI\.formModal\(\{\s+lizenzFrei: true/.test(quelle), 'Imkereidaten sind in Light frei');
     assert(/edit-profil'\)\.onclick = \(\) => UI\.formModal\(\{\s+lizenzFrei: true/.test(quelle), 'Profil ist in Light frei');
     assert(/const m = UI\.formModal\(\{\s+lizenzBereich: false,[^\n]*\n\s+title: volk \?/.test(quelle), 'Volk bearbeiten wertet den Reiter nicht');
+    fenster.length = 0;
+    await w.fahrtWidgetKonfig(); assert(fenster.some((f) => /Fahrtenbuch/.test(f)), 'Häufige Fahrten anpassen: Kauf-Fenster');
+    fenster.length = 0;
+    await w.zeitSchnellKonfig(); assert(fenster.some((f) => /Zeiterfassung/.test(f)), 'Schnellzugriffe anpassen: Kauf-Fenster');
+    fenster.length = 0;
+    await w.Views.honig.chargenReihenfolge([]); assert(fenster.some((f) => /Chargen/.test(f)), 'Chargen anordnen: Kauf-Fenster');
+    assertEq(L.STORE_VOLL.verkaeufe, 'Der Honigverkauf', 'Papierkorb kennt die Vollversions-Bereiche');
+    assertEq(L.STORE_VOLL.voelker, undefined, 'Völker gehören nicht dazu');
+    assert(quelle.includes("Lizenz.STORE_VOLL[eintrag.store]"), 'Wiederherstellen prüft den Bereich');
+    for (const stelle of ["vs-geprueft', box).onclick = async () => {\n      if (Lizenz.nurVoll", "const hinzu = async () => {\n      if (Lizenz.nurVoll", "if (!zeile) return;\n      if (Lizenz.nurVoll('Lager", "if (Lizenz.nurVoll('Sprachnotizen')) return; const a = items", "if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value", "if (Lizenz.nurVoll('Rechnungen')) { e.target.value"]) {
+      assert(quelle.includes(stelle), 'gesperrt: ' + stelle.slice(0, 30));
+    }
     for (const stelle of ["data-ohne]', box).onclick = async () => {\n      if (Lizenz.nurVoll", "data-mv]', box).forEach((b) => { b.onclick = async () => {\n      if (Lizenz.nurVoll", "data-speichern]', m.el).onclick = async () => {\n      if (Lizenz.nurVoll", "st.onclick = async () => {\n      if (Lizenz.nurVoll('Rechnungen')", "if (st) {\n        if (Lizenz.nurVoll('Der Honigverkauf')", "async planAusFoto(datei) {\n    if (Lizenz.nurVoll"]) {
       assert(quelle.includes(stelle), 'gesperrt: ' + stelle.slice(0, 30));
     }
