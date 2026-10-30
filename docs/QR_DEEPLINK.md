@@ -7,7 +7,7 @@ Stand 30.10.2026, v3.03. Eingebaut, aber **erst nutzbar, wenn imkerbuch.app onli
 1. Die Store-App druckt `https://imkerbuch.app/v/<kennung>` auf den Aufkleber.
 2. iPhone und Android fragen die Website, ob diese Adresse zur App gehört. Dafür liegen zwei Dateien auf der Website.
 3. Wenn ja, öffnet das Handy beim Scannen die App (`VolkLink` in `index.html`) in der Durchsicht am Stand.
-4. Wer die App nicht hat, sieht die Hinweisseite `website-neu/v/index.html`.
+4. Wer die App nicht hat, sieht die Hinweisseite `website-neu/v/index.html` (Aussehen und Text von Julian am 30.10.2026 freigegeben: „Passt so“).
 
 Die Web-Version druckt weiter ihre eigene Adresse. Im Aufkleber steht nur eine zufällige Kennung, kein Name und keine Adresse.
 
