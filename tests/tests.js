@@ -14874,6 +14874,86 @@ test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen
 
 /* Fund 30.10.2026: Die Sperre schaute nur auf die Seite – von der Völkerliste, der Stand-Seite und
    der Seite „Meldungen“ aus ließen sich Fütterung, Trachten, Behandlungen und Ernten trotzdem speichern. */
+test('Light: Marktverkauf und Wetter von Hand speichern nichts, Vollversion bleibt offen', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, tag = 864e5;
+  const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher, confirm: w.UI.confirm };
+  const fenster = []; L.aktiv = () => true; L.fenster = (o) => { fenster.push((o && o.grund) || 'start'); };
+  const alsLight = () => { L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() }); };
+  const alsVoll = () => { L.speicher = () => ({ voll: true }); };
+  w.UI.confirm = async () => true;   // ohne Sperre würde sofort gebucht, der Test schlägt dann an
+  const warte = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+  const formOffen = (titel) => [...w.document.querySelectorAll('#modal-root .modal-back')].find((m) => m.querySelector('[data-save]') && titel.test(m.textContent));
+  try {
+    dialogeSchliessen(w);
+    alsLight();
+    const st = await w.DB.put('staende', { name: 'Light-Stand' });
+    const c = await w.DB.put('chargen', { losnummer: 'T1', sorte: 'Blüte', menge: 30 });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, gebindeG: 500, bestand: 52, anzahl: 52, datum: w.U.todayIso() });
+
+    // Marktverkauf: Seite bleibt lesbar, Preis und Kassieren öffnen das Kauf-Fenster
+    assertEq(L.sperrBereich('markt'), 'Der Marktverkauf', 'Marktverkauf gehört zur Vollversion');
+    w.location.hash = '#/markt';
+    await warteBis(() => w.document.body.dataset.route === 'markt' && w.document.querySelector('[data-tile]'));
+    assert(await warteBis(() => /Marktverkauf ist Teil der Vollversion/.test(w.document.querySelector('.light-hinweis')?.textContent || '')), 'Hinweis-Leiste auf der Seite');
+    w.Views.markt.preisSetzen(a, c);
+    assert(fenster.some((f) => /Marktverkauf/.test(f)), 'Preis eintragen: Kauf-Fenster');
+    assert(!formOffen(/Verkaufspreis/), 'Preis eintragen: kein Formular');
+    fenster.length = 0;
+    await w.Views.markt.kassieren({ [a.id]: 1 }, [a], () => 6, 6);
+    assert(fenster.some((f) => /Marktverkauf/.test(f)), 'Kassieren: Kauf-Fenster');
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 52, 'Light: Bestand unverändert');
+    assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'Light: keine Buchung im Kassenbuch');
+    assertEq((await w.DB.getAll('verkaeufe')).length, 0, 'Light: kein Verkauf');
+    alsVoll(); fenster.length = 0;
+    await w.Views.markt.kassieren({ [a.id]: 1 }, [a], () => 6, 6);
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 51, 'Vollversion: Bestand gemindert');
+    assertEq((await w.DB.getAll('kassenbuch')).length, 1, 'Vollversion: Buchung im Kassenbuch');
+    assertEq(fenster.length, 0, 'Vollversion: kein Kauf-Fenster');
+    w.Views.markt._korb = {};
+
+    // Wetter von Hand: Knopf gesperrt, ein schon offenes Formular wird beim Speichern gestoppt
+    alsLight();
+    w.location.hash = '#/stand/' + st.id;
+    await warteBis(() => w.document.querySelector('#wMan'));
+    w.document.querySelector('#wMan').click();
+    assert(fenster.some((f) => /Wetter/.test(f)), 'Wetter erfassen: Kauf-Fenster');
+    assert(!formOffen(/Wetter erfassen/), 'Wetter erfassen: kein Formular');
+    alsVoll(); fenster.length = 0;
+    w.document.querySelector('#wMan').click();
+    const form = formOffen(/Wetter erfassen/);
+    assert(form, 'Vollversion: Formular offen');
+    const temp = form.querySelector('#f-tempC'); temp.value = '12'; temp.dispatchEvent(new w.Event('input', { bubbles: true }));
+    alsLight();
+    form.querySelector('[data-save]').click();
+    await warte();
+    assertEq((await w.DB.getAll('wetter')).length, 0, 'Light: offenes Formular speichert nicht');
+    assert(fenster.some((f) => /Wetter/.test(f)), 'Light: Kauf-Fenster beim Speichern');
+    alsVoll();
+    form.querySelector('[data-save]').click();
+    await warteBis(async () => (await w.DB.getAll('wetter')).length === 1);
+    assertEq((await w.DB.getAll('wetter'))[0].tempC, 12, 'Vollversion: Wetter gespeichert');
+  } finally {
+    Object.assign(L, { aktiv: echt.aktiv, fenster: echt.fenster, speicher: echt.speicher }); w.UI.confirm = echt.confirm;
+    w.Views.markt._korb = {}; w.FormGuard.dirty = false; dialogeSchliessen(w);
+    w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard');
+  }
+}));
+test('Tipp-Kachel: Warnungen gehen vor dem Monats-Tipp, sonst bleibt der Monats-Tipp', async (w) => isolierteDaten(w, async () => {
+  const kachel = w.DASH_WIDGETS.lerntipp, monat = new Date().getMonth() + 1;
+  const saison = w.SAISON_EMPFEHLUNGEN.find((e) => e.monate.includes(monat));
+  assert((await kachel.html()).includes(w.U.esc(saison.titel)), 'ohne Warnung: Monats-Tipp');
+  const st = await w.DB.put('staende', { name: 'S' });
+  const v = await w.DB.put('voelker', { name: 'Rotes Volk', status: 'aktiv', standId: st.id });
+  await w.DB.put('varroa', { volkId: v.id, datum: w.U.todayIso(), methode: 'puderzucker', milben: 50, bienen: 300, wert: 50 });
+  const html = await kachel.html();
+  assert(/Varroa-Befall hoch/.test(html) && html.includes('Rotes Volk'), 'hoher Befall: Warnung statt Monats-Tipp');
+  assert(html.includes(`#/volk/${v.id}`), 'Warnung führt zum Volk');
+  assert(!html.includes(w.U.esc(saison.titel)), 'Monats-Tipp tritt zurück');
+  // Fehlende Auffütterung gibt es nur im August und September – deshalb hier mit vorgegebener Liste
+  const echt = w.jitEmpfehlungen;
+  w.jitEmpfehlungen = async () => [{ typ: 'saison', ...saison }, { typ: 'fuetterung', ziel: 'fuetterung', zielText: 'Zur Fütterung', titel: 'Noch keine Auffütterung eingetragen', text: 'x', icon: 'flask' }];
+  try { assert(/Noch keine Auffütterung/.test(await kachel.html()), 'fehlende Auffütterung: Warnung zuerst'); } finally { w.jitEmpfehlungen = echt; }
+}));
 test('Light: Sammel-Fütterung, Tracht vom Stand und PDF-Übernahme speichern nichts, Vollversion bleibt offen', async (w) => isolierteDaten(w, async () => {
   const L = w.Lizenz, tag = 864e5;
   const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };

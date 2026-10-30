@@ -1576,8 +1576,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.04';
+const APP_VERSION = '3.05';
 const CHANGELOG = [
+  { version: '3.05', datum: '2026-10-30', punkte: [
+    '<b>Tipp-Kachel:</b> Bei hohem Varroa-Befall oder fehlender Auffütterung zeigt die Kachel „Saisonaler Tipp“ jetzt zuerst die Warnung. Sonst kommt wie bisher der Tipp zum Monat.',
+    '<b>Light-Version:</b> Marktverkauf und Wetter von Hand eintragen gehören zur Vollversion. Sie ließen sich bisher trotzdem nutzen. Jetzt erscheint auch dort das Kauf-Fenster. Was schon eingetragen ist, bleibt sichtbar.',
+  ] },
   { version: '3.04', datum: '2026-10-30', punkte: [
     '<b>Aufkleber scannen:</b> Auf der Startseite und bei den Völkern gibt es den neuen Knopf „Aufkleber scannen“. Halte die Kamera auf den QR-Aufkleber an der Beute, und die Durchsicht am Stand für dieses Volk öffnet sich von selbst. Das geht auch ganz ohne Internet.',
   ] },
@@ -5687,7 +5691,7 @@ const DASH_WIDGETS = {
   lerntipp: { label: 'Saisonaler Tipp', ic: 'buch', ziel: '', async html() {
     const tips = await jitEmpfehlungen();
     if (!tips.length) return '';
-    const t = tips[0];
+    const t = tips.find((x) => x.typ !== 'saison') || tips[0];   // Warnungen vor dem Monats-Tipp (Julian, v3.05) – den gibt es jeden Monat, sonst käme nie eine Warnung dran
     return `<div class="card" style="margin:0;background:${t.danger ? 'rgba(179,54,43,.06)' : 'rgba(233,162,28,.06)'}" data-ziel="${U.esc(t.ziel || '')}">
       <div style="display:flex;gap:10px;align-items:flex-start">
         <span style="font-size:20px;color:${t.danger ? '#B3362B' : '#E9A21C'};flex-shrink:0">${icon(t.icon)}</span>
@@ -7109,8 +7113,8 @@ Views.stand = {
       const b = e.target.closest('[data-wber]'); if (b) { Views.stand._wetterBereich = b.dataset.wber; Views.stand.wetterZeichnen(); return; }
       if (e.target.closest('[data-wexport]')) Export.oeffnen({ bereich: 'wetter', stand: id });
     });
-    $('#wMan').onclick = () => UI.formModal({
-      title: 'Wetter erfassen',
+    $('#wMan').onclick = () => Lizenz.nurVoll('Das Wetter am Stand') || UI.formModal({   // Light: wie „Aktualisieren“ (v3.05)
+      title: 'Wetter erfassen', lizenzBereich: 'Das Wetter am Stand',
       fields: [
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'tempC', label: 'Temperatur (°C)', type: 'number', required: true },
@@ -17038,6 +17042,7 @@ Views.markt = {
     });
   },
   preisSetzen(a, c) {
+    if (Lizenz.nurVoll('Der Marktverkauf')) return;   // Light: die Kasse bleibt nur zum Ansehen (v3.05)
     UI.formModal({
       title: 'Verkaufspreis je Gebinde',
       fields: [{ key: 'preis', label: `Preis für Charge ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: (S.get('marktpreise') || {})[a.id] || '' }],
@@ -17065,6 +17070,7 @@ Views.markt = {
     };
   },
   async kassieren(korb, abf, preis, summe) {
+    if (Lizenz.nurVoll('Der Marktverkauf')) return;   // Light: buchte sonst Bestand und Kassenbuch (v3.05)
     const posten = Object.entries(korb);
     if (!posten.length) return;
     if (!(await UI.confirm({ title: 'Verkauf kassieren?', text: `${posten.reduce((a, [, n]) => a + n, 0)} Gebinde für ${U.fmtEur(summe)} – Bestand wird gemindert und im Kassenbuch gebucht.`, confirmText: 'Kassieren', danger: false }))) return;
@@ -24279,7 +24285,7 @@ const Lizenz = {
   NUR_VOLL: { kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
     inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
     behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen',
-    bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
+    markt: 'Der Marktverkauf', bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
     trachten: 'Trachten', reporting: 'Statistiken', rechner: 'Der Imker-Rechner', zucht: 'Die Zucht' },
   VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
   light() { return this.aktiv() && this.status() === 'abgelaufen'; },
