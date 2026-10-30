@@ -14875,6 +14875,7 @@ test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen
     assert(await L.lightErinnerung(Date.now()), 'erste Erinnerung');
     assert(!(await L.lightErinnerung(Date.now() + 2 * tag)), 'nach 2 Tagen nicht erneut');
     assert(await L.lightErinnerung(Date.now() + 4 * tag), 'nach 4 Tagen wieder');
+    await new Promise((r) => setTimeout(r, 1600));   // die Erinnerung öffnet verzögert: nicht in den nächsten Test hineinlaufen lassen
     await w.S.set('wizardDone', wiz, { auto: true });
     // In der Testphase ist alles offen (Julian: man soll sehen, wie gut es ist)
     L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 5 * tag).toISOString() });
@@ -14884,6 +14885,78 @@ test('Light (nach 30 Tagen): bis 2 Völker frei, Vollversions-Bereiche nur lesen
 
 /* Fund 30.10.2026: Die Sperre schaute nur auf die Seite – von der Völkerliste, der Stand-Seite und
    der Seite „Meldungen“ aus ließen sich Fütterung, Trachten, Behandlungen und Ernten trotzdem speichern. */
+/* Website-Prüfung 30.10.2026: Vollversions-Funktionen waren in Light noch nutzbar, Light-Funktionen an zwei Stellen gesperrt. */
+test('Light: Etikett, Rechner, Automatiken und Ein-Tipp-Wege öffnen das Kauf-Fenster und schreiben nichts', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, tag = 864e5;
+  const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher };
+  const fenster = []; L.aktiv = () => true; L.fenster = (o) => { fenster.push((o && o.grund) || 'start'); };
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * tag).toISOString() });
+  const zaehle = async () => (await w.DB.getAll('aufgaben')).length + (await w.DB.getAll('bioeintraege')).length;
+  try {
+    dialogeSchliessen(w);
+    assert(L.light(), 'der Test läuft als Light');
+    const c = await w.DB.put('chargen', { losnummer: 'L1', sorte: 'Raps', mengeKg: 10 });
+    const abf = await w.DB.put('abfuellungen', { chargeId: c.id, gebindeG: 500, anzahl: 5, bestand: 5, datum: w.U.todayIso(), mhd: w.U.addDays(w.U.todayIso(), 5) });
+    const t = await w.DB.put('trachten', { name: 'Raps', von: w.U.addDays(w.U.todayIso(), 5), bis: w.U.addDays(w.U.todayIso(), 20), erinnernTage: 7 });
+    const vorher = await zaehle();
+    const faelle = [
+      ['Honig-Etikett', () => w.honigEtikettForm(abf, c)],
+      ['Futter-Rechner', () => w.Views.fuetterung.rechnerBlatt()],
+      ['Aufgaben', () => w.Tracht.vorbereitenAufgabe(t.id)],
+      ['Hygieneplan', () => w.Views.bio.planStandardUebernehmen()],
+      ['Hygieneplan', () => w.Views.bio.kurzwahlenStandard()],
+      ['Hygieneplan', () => w.Views.bio.kurzwahlenAusPlan()],
+      ['Bio-Kontrolle', () => w.Views.bio.vorsorgeEinlesen(new w.File(['x'], 'x.txt'))],
+      ['Rechnungen', () => w.Views.rechnung.festschreiben({ id: 'x', positionen: [] }, [])],
+    ];
+    for (const [name, los] of faelle) {
+      fenster.length = 0;
+      await los();
+      assert(fenster.some((f) => f.includes(name)), `${name}: Kauf-Fenster`);
+      assert(!w.document.querySelector('#modal-root [data-save]'), `${name}: kein Formular offen`);
+    }
+    await w.pruefeMhd(); await w.Tracht.allePflegen();
+    assertEq(await zaehle(), vorher, 'Light legt nichts an, auch nicht die Automatiken');
+
+    // Rechner-Seite: Aufklappen sperrt, Vollversion klappt auf
+    w.location.hash = '#/rechner';
+    await warteBis(() => w.document.body.dataset.route === 'rechner' && w.document.querySelector('main .rk-head'));
+    fenster.length = 0;
+    w.document.querySelector('main .rk-head').click();
+    assert(fenster.some((f) => /Imker-Rechner/.test(f)), 'Rechner: Kauf-Fenster');
+    assert(!w.document.querySelector('main .rk-head').classList.contains('open'), 'Rechner bleibt zu');
+
+    // Volk bearbeiten geht auf jedem Reiter, Imkereidaten auch mit mehr als 2 Völkern
+    assertEq(await L.pruefeLight({ bereich: false }), undefined, 'bereich: false wertet den offenen Reiter nicht');
+    for (let i = 0; i < 3; i++) await w.DB.put('voelker', { name: 'V' + i, status: 'aktiv' });
+    let gesperrt = false;
+    try { await L.pruefeLight({ frei: true }); } catch (e) { gesperrt = true; }
+    assert(!gesperrt, 'frei bleibt frei');
+    const quelle = await (await w.fetch('index.html')).text();
+    assert(/edit-imkerei'\)\.onclick = \(\) => \{ const m = UI\.formModal\(\{\s+lizenzFrei: true/.test(quelle), 'Imkereidaten sind in Light frei');
+    assert(/edit-profil'\)\.onclick = \(\) => UI\.formModal\(\{\s+lizenzFrei: true/.test(quelle), 'Profil ist in Light frei');
+    assert(/const m = UI\.formModal\(\{\s+lizenzBereich: false,[^\n]*\n\s+title: volk \?/.test(quelle), 'Volk bearbeiten wertet den Reiter nicht');
+    for (const stelle of ["data-ohne]', box).onclick = async () => {\n      if (Lizenz.nurVoll", "data-mv]', box).forEach((b) => { b.onclick = async () => {\n      if (Lizenz.nurVoll", "data-speichern]', m.el).onclick = async () => {\n      if (Lizenz.nurVoll", "st.onclick = async () => {\n      if (Lizenz.nurVoll('Rechnungen')", "if (st) {\n        if (Lizenz.nurVoll('Der Honigverkauf')", "async planAusFoto(datei) {\n    if (Lizenz.nurVoll"]) {
+      assert(quelle.includes(stelle), 'gesperrt: ' + stelle.slice(0, 30));
+    }
+  } finally { L.aktiv = echt.aktiv; L.fenster = echt.fenster; L.speicher = echt.speicher; dialogeSchliessen(w); w.location.hash = '#/dashboard'; }
+}));
+
+test('Sammel-Varroazählung fragt die Probengröße ab; Kurve mischt keine Kennzahlen; Schild „Bestand“', async (w) => isolierteDaten(w, async () => {
+  const v1 = await w.DB.put('voelker', { name: 'S1', status: 'aktiv' }), v2 = await w.DB.put('voelker', { name: 'S2', status: 'aktiv' });
+  const quelle = await (await w.fetch('index.html')).text();
+  assert(/Gezählte Milben je Volk/.test(quelle) && /delete val\.tageZaehl/.test(quelle), 'Sammel-Formular kennt beide Messarten');
+  const m9 = w.varroaMetrik({ methode: 'Auswaschmethode', milben: 9, probeBienen: 300, datum: '2026-08-01' });
+  assertEq(m9.wert, 3, '9 Milben auf 300 Bienen sind 3 je 100');
+  assertEq(m9.ampel.text, 'beobachten', 'und nicht „Behandlung prüfen“');
+  await w.DB.put('varroa', { volkId: v1.id, datum: '2026-08-01', methode: w.VARROA_METHODEN.find((m) => !/Puder|Auswasch/.test(m)), milben: 7, tageZaehl: 7 });
+  await w.DB.put('varroa', { volkId: v1.id, datum: '2026-09-01', methode: 'Puderzuckermethode', milben: 3, probeBienen: 300 });
+  assert(/kurve = list\.filter\(\(x\) => varroaMetrik\(x\)\.einheit === kurvenEinheit\)/.test(quelle), 'Kurve filtert nach Kennzahl');
+  assert(/Bestand niedrig\/\.test\(a\.titel/.test(quelle), 'Schild unterscheidet Bestand und MHD');
+  assert(/KOMPLETT_KAPITEL\.filter\(\(k\) => defs\[k\] && \(ZUCHT_AN \|\| k !== 'zuchtserien'\)\)/.test(quelle), 'Komplettausdruck ohne Zucht in der Store-Version');
+  assert(v2);
+}));
+
 test('Light: Marktverkauf und Wetter von Hand speichern nichts, Vollversion bleibt offen', async (w) => isolierteDaten(w, async () => {
   const L = w.Lizenz, tag = 864e5;
   const echt = { aktiv: L.aktiv, fenster: L.fenster, speicher: L.speicher, confirm: w.UI.confirm };

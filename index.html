@@ -790,6 +790,7 @@ html[data-theme="dark"] .ios-switch:not(:checked){background:#39393D}
 .bini-aktion{margin-top:6px}
 .bini-chips{display:flex;flex-wrap:wrap;gap:6px}
 .bini-form{display:flex;gap:8px;position:sticky;bottom:calc(var(--nav-h) + 22px + env(safe-area-inset-bottom));padding:6px 0;background:var(--bg)}
+.bini-form::after{content:"";position:absolute;left:0;right:0;top:100%;height:calc(22px + env(safe-area-inset-bottom));background:var(--bg)}
 .bini-form .inp{flex:1}
 .bini-faq{background:var(--card2);border-radius:10px;padding:6px 10px;margin:4px 0;font-size:13.5px}.bini-faq summary{cursor:pointer;font-weight:600}
 @keyframes biniPuls{0%,100%{box-shadow:0 0 0 0 rgba(233,162,28,.85)}50%{box-shadow:0 0 0 12px rgba(233,162,28,0)}}
@@ -1576,8 +1577,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.06';
+const APP_VERSION = '3.07';
 const CHANGELOG = [
+  { version: '3.07', datum: '2026-10-30', punkte: [
+    '<b>Sammel-Varroazählung:</b> Bei Auswaschen und Puderzucker fragt die App jetzt nach den Bienen in der Probe. Vorher zählte die rohe Milbenzahl als Wert je 100 Bienen, die Ampel warnte dadurch zu streng.',
+    '<b>Varroa-Kurve:</b> Sie zeigt nur noch Zählungen mit derselben Messart. Andere Methoden stehen weiter in der Tabelle.',
+    '<b>Light-Version:</b> Imker-Rechner, Honig-Etikett, Stornos und einige Ein-Tipp-Wege in Bio und Hygiene gehören zur Vollversion und öffnen jetzt das Kauf-Fenster. Was schon eingetragen ist, bleibt sichtbar und lässt sich ausdrucken.',
+    'Behoben: In Light ließ sich ein Volk auf manchen Reitern nicht bearbeiten, und bei mehr als 2 Völkern ließen sich die Imkereidaten nicht speichern.',
+    'Behoben: Der Komplettausdruck bot „Zucht“ an, obwohl es den Bereich noch nicht gibt. Aufgaben zu niedrigem Bestand tragen jetzt das Schild „Bestand“ statt „MHD“.',
+  ] },
   { version: '3.06', datum: '2026-10-30', punkte: [
     '<b>Honig-Etiketten</b> gibt es jetzt unter Unterlagen ▸ Honig & Verkauf: Abfüllung wählen, ausfüllen, PDF erzeugen. Imme erklärt dir den Weg, wenn du sie nach dem Etikett fragst.',
     'Der <b>QR-Code bei der Charge</b> und auf dem Honig-Etikett ist entfallen. Der QR-Aufkleber fürs Volk bleibt unverändert.',
@@ -6419,7 +6427,7 @@ const Demo = {
       { id: U.uuid(), name: 'Imkerbedarf Müller', km: 34, zweck: 'Einkauf/Besorgung', standId: null, freiZiel: 'Imkerbedarf Müller' },
     ]);
 
-    for (const [t, f] of [['Varroa-Kontrolle alle Völker', d(1)], ['Honigräume aufsetzen (Linde)', d(3)], ['Winterfütterung einplanen', d(10)], ['Mittelwände einlöten', d(6)]])
+    for (const [t, f] of [['Varroa-Kontrolle alle Völker', d(1)], ['Beuten und Rähmchen reinigen', d(3)], ['Winterfütterung einplanen', d(10)], ['Mittelwände einlöten', d(6)]])
       await DB.put('aufgaben', { titel: t, faellig: f, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
     for (const [t, m, k] of [
       ['Frühjahrsdurchsicht alle Völker', 180, 'Durchsicht & Völkerpflege'], ['Honig geschleudert (Raps)', 210, 'Ernte & Schleudern'],
@@ -7198,6 +7206,7 @@ async function openVolkForm(volk, defaults = {}, onDone) {
   const beutenOpts = await gelernteWerte(VORSCHLAEGE.beutentyp, 'voelker', 'beutentyp');
   const funktionOpts = await gelernteWerte(VORSCHLAEGE.volksfunktion, 'voelker', 'funktion');
   const m = UI.formModal({
+    lizenzBereich: false,   // Volk bearbeiten ist Light, auch wenn gerade ein Vollversions-Reiter offen ist
     title: volk ? 'Volk bearbeiten' : 'Neues Volk',
     fields: [
       { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Volk 3' },
@@ -7683,11 +7692,16 @@ async function sammelFormular(art, volkIds, voelker) {
       fields: [hinweis,
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso() },
         { key: 'methode', label: 'Methode', type: 'select', required: true, default: VARROA_METHODEN[0], options: VARROA_METHODEN.map((mm) => ({ v: mm, l: mm })) },
-        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7 },
+        { key: 'tageZaehl', label: 'Zähldauer (Tage)', type: 'number', default: 7, showIf: (f) => !VARROA_BEFALL_METHODEN.includes(f.methode) },
+        { key: 'probeBienen', label: 'Bienen in der Probe', type: 'number', default: 300, hint: 'Milben je 100 Bienen = Milben ÷ Bienen × 100 (übliche Probe: 300 Bienen ≈ 3 Becher).', showIf: (f) => VARROA_BEFALL_METHODEN.includes(f.methode) },
         { key: 'milben', label: 'Gezählte Milben je Volk', type: 'number', required: true, hint: 'Bei stark unterschiedlichem Milbenfall besser einzeln je Volk erfassen.' },
       ],
       saveText: `Für ${volkIds.length} Völker speichern`,
-      async onSave(val) { val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1; for (const id of volkIds) await DB.put('varroa', { volkId: id, ...val }); UI.toast(`Varroa-Zählung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
+      async onSave(val) {
+        /* Ohne Probengröße zählte die rohe Milbenzahl als Wert je 100 Bienen: 9 Milben ergaben „Behandlung prüfen“ statt „beobachten“. */
+        if (VARROA_BEFALL_METHODEN.includes(val.methode)) { val.probeBienen = val.probeBienen > 0 ? val.probeBienen : 300; delete val.tageZaehl; }
+        else { val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1; delete val.probeBienen; }
+        for (const id of volkIds) await DB.put('varroa', { volkId: id, ...val }); UI.toast(`Varroa-Zählung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
     });
   }
 }
@@ -7944,10 +7958,14 @@ Views.volk = {
     const mLetzt = letzte ? varroaMetrik(letzte) : null;
     const F = jahrFilterLeiste(Views.volk._filter, 'varroa', alle, (x) => (x.datum || '').slice(0, 4));
     const list = alle.filter(F.passt);
+    /* Milben/Tag und Milben je 100 Bienen sind verschiedene Kennzahlen – auf einer Linie täuschte die Kurve einen Verlauf vor. */
+    const kurvenEinheit = list.length ? varroaMetrik(list[list.length - 1]).einheit : '';
+    const kurve = list.filter((x) => varroaMetrik(x).einheit === kurvenEinheit);
     box.innerHTML = `${F.html}<div class="card">
       <div class="card-title">${icon('varroa')}<h2>Varroa-Kontrolle${F.jahr && F.jahr !== '__ohne' ? ' ' + F.jahr : ''}</h2><button class="btn btn-primary btn-sm no-print" id="vAdd">${icon('plus')} Zählung</button></div>
       ${letzte ? `<div class="flex-wrap mb12"><span class="badge ${mLetzt.ampel.badge}">${U.fmtNum(mLetzt.wert, 1)} Milben${mLetzt.einheit} · ${mLetzt.ampel.text}</span><span class="small muted">letzte Zählung ${U.fmtDate(letzte.datum)}</span></div>` : ''}
-      ${list.length ? UI.chart({ type: 'line', labels: list.map(kurvenDatum(list)), series: [{ name: 'Milben', values: list.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
+      ${list.length ? UI.chart({ type: 'line', labels: kurve.map(kurvenDatum(kurve)), series: [{ name: 'Milben' + kurvenEinheit, values: kurve.map((x) => varroaMetrik(x).wert), color: '#B3362B' }], height: 180 }) : ''}
+      ${kurve.length < list.length ? `<div class="hint mt8">Die Kurve zeigt nur Milben${U.esc(kurvenEinheit)}. Zählungen mit anderer Methode stehen in der Tabelle darunter.</div>` : ''}
       ${list.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Datum</th><th>Methode</th><th class="num">Milben</th><th class="num">Kennzahl</th><th>Bewertung</th><th class="no-print"></th></tr></thead>
         <tbody>${[...list].reverse().map((x) => { const m = varroaMetrik(x);
           return `<tr class="tr-klick" data-ve="${U.esc(x.id)}" title="Antippen zum Bearbeiten"><td>${U.fmtDate(x.datum)}</td><td>${U.esc(x.methode || '')}</td><td class="num">${U.fmtNum(x.milben, 0)}</td><td class="num"><b>${U.fmtNum(m.wert, 1)}</b> ${U.esc(m.einheit)}</td><td><span class="badge ${m.ampel.badge}">${m.ampel.text}</span></td>
@@ -9921,6 +9939,7 @@ Views.behandlungen = {
     main.addEventListener('click', (e) => {
       const head = e.target.closest('.rk-head');
       if (head) {
+        if (Lizenz.nurVoll('Der Dosierungsrechner')) return;   // Light: rechnet nichts Gespeichertes, bleibt aber Vollversion (v3.07)
         const body = head.nextElementSibling;
         if (body?.classList.contains('rk-body')) { const isOpen = head.classList.contains('open'); head.classList.toggle('open'); body.style.display = isOpen ? 'none' : ''; if (!isOpen) { rechneEB(); head.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }
         return;
@@ -10678,6 +10697,7 @@ Views.fuetterung = {
       Fütterung übernehmen. So landet die wirklich verbrauchte Zuckermenge im
       Eintrag – und damit in der Jahres-PDF und im Excel-Export. */
   async rechnerBlatt(vorgabe = null) {
+    if (Lizenz.nurVoll('Der Futter-Rechner')) return;
     const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     const m = UI.modal({
       title: 'Fütterung mit Futter-Rechner', wide: true,
@@ -11054,10 +11074,12 @@ const Tracht = {
   },
   /** Beim Start: für „jedes Jahr“ die Erinnerung des nächsten Jahres anlegen, sobald die diesjährige Blüte vorbei ist. */
   async allePflegen() {
+    if (Lizenz.light()) return;   // Aufgaben sind Vollversion (v3.07)
     for (const t of await DB.getAll('trachten')) if (Number(t.erinnernTage) > 0) await this.aufgabePflegen(t, { auto: true });
   },
   /** „Als Aufgabe“ in der Startseiten-Kachel: einmal je Tracht und Jahr. */
   async vorbereitenAufgabe(id) {
+    if (Lizenz.nurVoll('Aufgaben und Erinnerungen')) return;
     const t = await DB.get('trachten', id);
     const l = t ? this.lage(t) : null;
     if (!l || !['bald', 'spaeter', 'jetzt'].includes(l.status)) return;
@@ -11490,6 +11512,7 @@ function wartezeitText(b, langform) {
 
 /** Etikett-Dialog: Pflichtangaben sammeln → druckfertiges Etiketten-PDF (je Abfüllung/Gebinde) */
 async function honigEtikettForm(a, c) {
+  if (Lizenz.nurVoll('Das Honig-Etikett')) return;
   const ernten = await idMap('ernten');
   const sorte = chargeSorten(c, ernten)[0] || '';
   const imk = S.get('imkerei');
@@ -14317,6 +14340,7 @@ Views.bio = {
 
   /** Hygieneplan übernehmen: Foto oder PDF → Text → Durchsicht → Einträge. */
   async planAusFoto(datei) {
+    if (Lizenz.nurVoll('Der Hygieneplan')) return;
     const gelesen = await Views.bio.dateiZuText(datei, 'Hygieneplan wird gelesen', 5);
     if (!gelesen) return;
     const zeilen = hygieneplanParsen(gelesen.text);
@@ -14540,6 +14564,7 @@ Views.bio = {
   /** Eigenes Vorsorgekonzept: Datei aufbewahren, Text lesen, Abschnitte den Bereichen zuordnen, Durchsicht. */
   async vorsorgeEinlesen(datei, opt = null) {
     if (!datei) return;
+    if (Lizenz.nurVoll('Die Bio-Kontrolle')) return;
     opt = opt || { anker: 'vorsorge', titel: 'Vorsorgekonzept wird gelesen', bereiche: vorsorgeAlle(), stichworte: VORSORGE_STICHWORTE, cfg: null,
       leer: 'Die Bereiche kannst du über „Assistent starten“ oder von Hand ausfüllen.' };
     // Erst die Datei sichern – so ist sie da, auch wenn man die Durchsicht abbricht.
@@ -15042,6 +15067,7 @@ Views.bio = {
     };
   },
   async planStandardUebernehmen() {
+    if (Lizenz.nurVoll('Der Hygieneplan')) return;
     const hat = new Set((await DB.getAll('bioeintraege')).filter((e) => e.bereich === 'hygieneplan').map((e) => String(e.bereichName || '').trim().toLowerCase()));
     const neu = [];
     for (const b of HYGIENE_ASSISTENT_BEREICHE) {
@@ -15216,6 +15242,7 @@ Views.bio = {
         <span class="r-main"><span class="r-title" style="white-space:normal">${U.esc(x.massnahme)}</span><span class="r-sub">${U.esc(x.bereich_)}${x.frist ? ' · bis ' + U.fmtDate(x.frist) : ''}</span></span>
         <button class="btn btn-primary btn-xs no-print" data-mv="${i}">${icon('plus')} Übernehmen</button></div>`).join('')}</div>`;
     $$('[data-mv]', box).forEach((b) => { b.onclick = async () => {
+      if (Lizenz.nurVoll('Der Hygieneplan')) return;
       const x = offen[+b.dataset.mv]; b.disabled = true;
       await DB.put('bioeintraege', { bereich: 'massnahmen', datum: heute, bereich_: x.bereich_, massnahme: x.massnahme, frist: x.frist || U.addDays(heute, 14), erledigt: '', notiz: '', quelleKey: x.key });
       UI.toast('In den Maßnahmenplan übernommen'); renderRoute();
@@ -15259,6 +15286,7 @@ Views.bio = {
   },
   /** Übernimmt alle Zeilen des Hygieneplans, die noch keine Kurzwahl haben. Gibt die Anzahl der neuen zurück. */
   async kurzwahlenAusPlan() {
+    if (Lizenz.nurVoll('Der Hygieneplan')) return;
     const plan = (await DB.getAll('bioeintraege')).filter((x) => x.bereich === 'hygieneplan' && String(x.bereichName || '').trim());
     const liste = Views.bio.hygieneKurzwahlen();
     const hat = new Set(liste.map((k) => k.bereichName.trim().toLowerCase()));
@@ -15271,6 +15299,7 @@ Views.bio = {
   },
   /** Legt die typischen Reinigungen aus den Vorschlägen als Kurzwahlen an (Mittel inklusive). */
   async kurzwahlenStandard() {
+    if (Lizenz.nurVoll('Der Hygieneplan')) return;
     const liste = Views.bio.hygieneKurzwahlen();
     const hat = new Set(liste.map((k) => k.bereichName.trim().toLowerCase()));
     const neu = HYGIENE_ASSISTENT_BEREICHE.filter((b) => HYGIENE_KURZ_STANDARD.includes(b.key) && !hat.has(b.bereichName.toLowerCase()))
@@ -15446,6 +15475,7 @@ Views.bio = {
     box.innerHTML = `<div class="hint mb8"><b>Vorbeugen:</b> Mottenfallen im Wabenlager · Fliegengitter vor den Fenstern · Köderfallen gegen Schadnager (Betriebsbereitschaft prüfen) · Zulauf von Ameisen verhindern. Kontrolle einmal im Monat, bei Befall häufiger.</div>
       <div class="flex-wrap no-print mb12" style="gap:8px"><button class="btn btn-primary btn-sm" data-ohne>${icon('check')} Kontrolle heute: kein Befund</button></div>`;
     $('[data-ohne]', box).onclick = async () => {
+      if (Lizenz.nurVoll('Der Hygieneplan')) return;
       const e = await DB.put('bioeintraege', { bereich: 'schaedlinge', datum: U.todayIso(), befall: 'nein', verantwortlich: (letzte && letzte.verantwortlich) || '' });
       UI.toast('Gebucht: Kontrolle heute, kein Befund', 'ok', { text: 'Rückgängig', fn: async () => { await DB.del('bioeintraege', e.id); renderRoute(); } });
       renderRoute();
@@ -15914,6 +15944,7 @@ Views.bio = {
     zeichneZeilen(); rechne();
     $('[data-zu]', m.el).onclick = () => m.close();
     $('[data-speichern]', m.el).onclick = async () => {
+      if (Lizenz.nurVoll('Die Bio-Kontrolle')) return;
       let position = null;
       try { position = koordinatenAusFeldern(); } catch (e) { return UI.toast(e.message, 'err'); }
       if (!position && koord) position = koord;
@@ -16005,6 +16036,7 @@ Views.honig = {
       if (H.filterKlick(e)) return;
       const st = e.target.closest('[data-storno]');
       if (st) {
+        if (Lizenz.nurVoll('Der Honigverkauf')) return;
         const vk = list.find((x) => x.id === st.dataset.storno);
         const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
         let kasse = true;
@@ -17816,6 +17848,7 @@ Views.rechnung = {
     }
     const st = $('#storno');
     if (st) st.onclick = async () => {
+      if (Lizenz.nurVoll('Rechnungen')) return;
       if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: 'Der Honigbestand wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
       try { await rechnungStornieren(r.id); UI.toast('Rechnung storniert'); renderRoute(); }
       catch (e) { UI.toast(e.message, 'err'); }
@@ -17877,6 +17910,7 @@ Views.rechnung = {
     return m;
   },
   async festschreiben(r, abf) {
+    if (Lizenz.nurVoll('Rechnungen')) return;
     const vorab = await DB.get('rechnungen', r.id);
     if (!vorab || vorab.status !== 'entwurf' || vorab.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben oder nicht mehr vorhanden.', 'err');
     if (!r.kundeId) { springeZuElement($('#r-kunde')); return UI.toast('Bitte zuerst einen Kunden wählen', 'err'); }
@@ -18589,7 +18623,7 @@ Views.aufgaben = {
       else if (U.daysBetween(heute, a.faellig) <= 7) grp.woche.push(a);
       else grp.spaeter.push(a);
     }
-    const quelleBadge = (a) => a.quelle === 'zucht' ? '<span class="badge b-violet">Zucht</span>' : a.quelle === 'behandlung' ? '<span class="badge b-blue">Behandlung</span>' : a.quelle === 'fuetterung' ? '<span class="badge b-honey">Fütterung</span>' : a.quelle === 'mhd' ? '<span class="badge b-warn">MHD</span>' : '';
+    const quelleBadge = (a) => a.quelle === 'zucht' ? '<span class="badge b-violet">Zucht</span>' : a.quelle === 'behandlung' ? '<span class="badge b-blue">Behandlung</span>' : a.quelle === 'fuetterung' ? '<span class="badge b-honey">Fütterung</span>' : a.quelle === 'mhd' ? `<span class="badge b-warn">${/^Bestand niedrig/.test(a.titel || '') ? 'Bestand' : 'MHD'}</span>` : '';
     /* Volk und Stand stehen NICHT im gespeicherten Text, sondern werden hier
        frisch gelesen – deshalb ist die Zeile nach einer Wanderung sofort aktuell. */
     const bezugZeile = (a) => {
@@ -19752,7 +19786,7 @@ async function zeitVorlageForm(z) {
   const kats = [...(S.get('taetigkeiten') || [])];
   if (z && z.kategorie && !kats.includes(z.kategorie)) kats.push(z.kategorie);
   const m = UI.formModal({
-    title: z ? 'Schnellzugriff bearbeiten' : 'Neuer Schnellzugriff',
+    title: z ? 'Schnellzugriff bearbeiten' : 'Neuer Schnellzugriff', lizenzBereich: 'Die Zeiterfassung',
     fields: [
       { key: 'titel', label: 'Arbeit', type: 'suggest', required: true, options: await aufgabenVorschlaege(alle, { mitNachtrag: true }), placeholder: 'z. B. Futterkontrolle' },
       { key: 'kategorie', label: 'Tätigkeitsbereich', type: 'select', options: kats.map((t) => ({ v: t, l: t })) },
@@ -20455,6 +20489,7 @@ Views.rechner = {
 
     main.addEventListener('click', (e) => {
       const head = e.target.closest('.rk-head');
+      if (head && Lizenz.nurVoll('Der Imker-Rechner')) return;   // Light: die Rechner speichern nichts, die Sperre beim Speichern griff nie (v3.07)
       if (!head) return;
       const body = head.nextElementSibling;
       if (!body || !body.classList.contains('rk-body')) return;
@@ -23197,7 +23232,7 @@ Views.fahrten = {
     const standOpts = staende.map((s) => ({ v: s.id, l: s.name }));
     const typ = vl ? (vl.standId ? 'stand' : (/ → /.test(vl.freiZiel || '') ? 'zwischen' : 'frei')) : 'zwischen';
     UI.formModal({
-      title: vl ? 'Vorlage bearbeiten' : 'Neue Fahrt-Vorlage', wide: true,
+      title: vl ? 'Vorlage bearbeiten' : 'Neue Fahrt-Vorlage', wide: true, lizenzBereich: 'Das Fahrtenbuch',
       fields: [
         { key: 'typ', label: 'Art der Fahrt', type: 'select', required: true, default: typ, options: [{ v: 'zwischen', l: 'Zwischen zwei Ständen' }, { v: 'stand', l: 'Zu einem Stand' }, { v: 'frei', l: 'Andere Fahrt (Einkauf, Schulung …)' }] },
         { key: 'vonStandId', label: 'Von Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'zwischen' },
@@ -24026,6 +24061,7 @@ function backupRingStart() {
    datum einer Charge mit Restbestand näher rückt oder überschritten ist.
    ===================================================================== */
 async function pruefeMhd() {
+  if (Lizenz.light()) return;   // legt Aufgaben an, und die sind Vollversion (v3.07)
   const offeneMhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && !a.erledigt);
   const heute = U.todayIso();
   const schonErinnert = (refId) => offeneMhdAufgaben.some((a) => a.refId === refId);
@@ -24277,7 +24313,7 @@ const Lizenz = {
       bereich = das Formular gehört selbst zur Vollversion, egal auf welcher Seite es offen ist (v3.02: Tracht vom Stand, Sammel-Fütterung, PDF-Übernahme). */
   async pruefeLight({ frei = false, bereich = null } = {}) {
     if (!this.light() || frei) return;
-    const b = bereich || this.sperrBereich();
+    const b = bereich === false ? null : (bereich || this.sperrBereich());   // false: das Formular gehört nicht zum gerade offenen Reiter
     if (b) this._sperre(`${b} ist Teil der Vollversion.`);
     const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     if (n > this.LIGHT_VOELKER) this._sperre(`ImkerBuch Light gilt für bis zu ${this.LIGHT_VOELKER} Völker – du hast ${n} aktive. Löse überzählige Völker auf oder hol dir die Vollversion.`);
@@ -24719,7 +24755,7 @@ const Xlsx = {
     try {
       await this.lib();
       const defs = await this.defs(opt.jahr ? { filter: Export.filter({ jahr: opt.jahr }) } : {});
-      const keys = (opt.kapitel && opt.kapitel.length ? opt.kapitel : Object.keys(defs)).filter((k) => defs[k]);
+      const keys = (opt.kapitel && opt.kapitel.length ? opt.kapitel : Object.keys(defs)).filter((k) => defs[k] && (ZUCHT_AN || k !== 'zuchtserien'));
       const blaetter = [];
       for (const key of keys) blaetter.push({ name: defs[key].blatt, rows: await defs[key].rows() });
       xlsxSpeichern(this.mappe(blaetter), `imkerbuch-export-${opt.jahr || 'alle-jahre'}-${U.todayIso()}.xlsx`);
@@ -26566,7 +26602,7 @@ const Pdf = {
   /** Auswahl vor dem Komplettausdruck: Zeitraum + Bereiche, mit Seitenschätzung. Große Mengen → Hinweis auf Excel. */
   async komplettAuswahl(vor = {}) {
     const defs = await Xlsx.defs();
-    const K = this.KOMPLETT_KAPITEL.filter((k) => defs[k]);
+    const K = this.KOMPLETT_KAPITEL.filter((k) => defs[k] && (ZUCHT_AN || k !== 'zuchtserien'));
     const roh = {};
     for (const k of K) roh[k] = await DB.getAll(k);
     const datumVon = (k, r) => String(r[this.KOMPLETT_DATUM[k] || 'datum'] || '').slice(0, 4);
@@ -26628,7 +26664,7 @@ const Pdf = {
       const toc = [];
       /* Zeitraum über dasselbe Datumsfeld wie die Seitenschätzung und der Export je Bereich (v2.78) */
       const defs = await Xlsx.defs(opt.jahr ? { filter: Export.filter({ jahr: opt.jahr }) } : {});
-      const kapitel = (opt.kapitel && opt.kapitel.length ? opt.kapitel : this.KOMPLETT_KAPITEL).filter((k) => defs[k]);
+      const kapitel = (opt.kapitel && opt.kapitel.length ? opt.kapitel : this.KOMPLETT_KAPITEL).filter((k) => defs[k] && (ZUCHT_AN || k !== 'zuchtserien'));
       for (const key of kapitel) {
         const def = defs[key];
         const rows = await def.rows();
@@ -27044,7 +27080,7 @@ async function jitEmpfehlungen() {
         tips.push({ typ: 'varroa', ziel: 'volk/' + v.id, zielText: 'Zum Volk', titel: `Varroa-Befall hoch bei „${v.name}"`, text: `${m.wert} Milben${m.einheit} – jetzt behandeln.`, kapitelId: 10, icon: 'alert-triangle', danger: true });
       }
     }
-    if (aktive.length > 0 && [8, 9].includes(monat)) {
+    if (aktive.length > 0 && [8, 9].includes(monat) && !Lizenz.light()) {   // Light kann keine Fütterung eintragen
       const fuetterungen = await DB.getAll('fuetterungen');
       const diesesSaison = fuetterungen.filter((f) => { const m = +(f.datum || '').slice(5, 7); return m >= 7 && m <= 9 && (f.datum || '').slice(0, 4) === String(new Date().getFullYear()); });
       if (!diesesSaison.length) {
@@ -29042,10 +29078,12 @@ Views.einstellungen = {
 
     /* Profil / Imkerei */
     $('#edit-profil').onclick = () => UI.formModal({
+      lizenzFrei: true,
       title: 'Profil', fields: [{ key: 'vorname', label: 'Vorname', required: true }], values: profil,
       async onSave(v) { await S.set('profil', v); UI.toast('Gespeichert'); renderRoute(); },
     });
     $('#edit-imkerei').onclick = () => { const m = UI.formModal({
+      lizenzFrei: true,
       title: 'Imkereidaten', wide: true,
       fields: [
         { key: 'name', label: 'Name der Imkerei' },
@@ -29099,6 +29137,7 @@ Views.einstellungen = {
     const bioFile = $('#biologo-file');
     if (bioFile) bioFile.onchange = async (e) => {
       const file = e.target.files[0]; if (!file) return;
+      if (Lizenz.nurVoll('Das Bio-Logo')) { e.target.value = ''; return; }
       try {
         // immer rastern (auch SVG) → sicher aufs PDF druckbar
         const dataUrl = await U.blobToDataURL(await U.resizeImage(file, 400, 0.92));
