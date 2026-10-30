@@ -7479,6 +7479,80 @@ test('fahrtWidgetKonfig: speichert die Auswahl, ohne Stände meldet sie sich', a
   }
 });
 
+/* Fund 30.10.2026: In der Store-App führte der Aufkleber ins Leere (capacitor://localhost). */
+test('QR-Aufkleber: nur die echte Adresse zählt, öffnet die Durchsicht, schützt offene Formulare', async (w) => isolierteDaten(w, async () => {
+  const L = w.VolkLink, hashVorher = w.location.hash, wiz = w.S.get('wizardDone');
+  const warte = (ms = 150) => new Promise((r) => setTimeout(r, ms));
+  try {
+    dialogeSchliessen(w);
+    await w.S.set('wizardDone', true, { auto: true });
+    const v = await w.DB.put('voelker', { name: 'Link-Volk', status: 'aktiv' });
+
+    // Store-App druckt die Website-Adresse, Web-Version ihre eigene
+    assertEq(L.adresse(v.id, true), 'https://imkerbuch.app/v/' + v.id);
+    assert(L.adresse(v.id, false).endsWith('#/durchsicht/' + v.id), 'Web-Version bleibt bei der eigenen Adresse');
+
+    // Auslesen: nur genau diese Adresse
+    assertEq(L.volkId('https://imkerbuch.app/v/' + v.id), v.id);
+    assertEq(L.volkId('https://imkerbuch.app/v/' + v.id + '/'), v.id, 'Schrägstrich am Ende ist egal');
+    assertEq(L.volkId('https://imkerbuch.app/v/id-123-abc'), 'id-123-abc', 'Kennung ohne crypto.randomUUID');
+    for (const falsch of ['http://imkerbuch.app/v/x', 'https://imkerbuch.app.boese.de/v/x', 'https://boese.de/v/x', 'https://imkerbuch.app:8443/v/x',
+      'https://imkerbuch.app/v/', 'https://imkerbuch.app/v/x/y', 'https://imkerbuch.app/x', 'https://imkerbuch.app/v/a%2Fb', 'capacitor://localhost/#/durchsicht/x', 'kein link', '', null, undefined]) {
+      assertEq(L.volkId(falsch), null, 'abgelehnt: ' + falsch);
+    }
+
+    // Öffnet die Durchsicht und schließt ein Fenster ohne Eingaben
+    w.history.replaceState(null, '', '#/dashboard');
+    L._zuletzt = null;
+    w.UI.modal({ title: 'Probe', body: '<p>x</p>' });
+    assert(await L.oeffnen('https://imkerbuch.app/v/' + v.id), 'Link öffnet');
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v.id), 'Durchsicht dieses Volks');
+    await warte(400);
+    assertEq(w.document.querySelectorAll('#modal-root .modal-back').length, 0, 'offenes Fenster ist zu');
+
+    // Derselbe Link kurz danach (Kaltstart meldet ihn doppelt) zählt nicht, später schon – auch ohne Seitenwechsel
+    assertEq(await L.oeffnen('https://imkerbuch.app/v/' + v.id), false, 'doppelte Meldung übergangen');
+    assertEq(await L.oeffnen('https://imkerbuch.app/v/' + v.id, Date.now() + 6000), true, 'erneuter Scan später');
+
+    // Fremdes oder gelöschtes Volk: Hinweis statt Absturz
+    L._zuletzt = null;
+    assert(await L.oeffnen('https://imkerbuch.app/v/gibt-es-nicht'), 'unbekanntes Volk');
+    assert(await warteBis(() => /auf diesem Gerät nicht/.test(w.document.querySelector('main').textContent)), 'Hinweis erscheint');
+
+    // Falsche Adresse ändert nichts
+    w.history.replaceState(null, '', '#/dashboard'); L._zuletzt = null;
+    assertEq(await L.oeffnen('https://boese.de/v/' + v.id), false, 'fremde Adresse: nichts');
+    assertEq(w.location.hash, '#/dashboard', 'Seite bleibt');
+
+    // Offenes Formular mit Eingaben geht nicht verloren
+    w.FormGuard.dirty = true; L._zuletzt = null;
+    assertEq(await L.oeffnen('https://imkerbuch.app/v/' + v.id), false, 'Formular mit Eingaben: kein Sprung');
+    assertEq(w.location.hash, '#/dashboard', 'Seite bleibt');
+    w.FormGuard.dirty = false;
+
+    // Vor der Einrichtung passiert nichts
+    await w.S.set('wizardDone', false, { auto: true }); L._zuletzt = null;
+    assertEq(await L.oeffnen('https://imkerbuch.app/v/' + v.id), false, 'vor der Einrichtung: nichts');
+    await w.S.set('wizardDone', true, { auto: true });
+
+    // Beide Wege der App: Kaltstart und App läuft schon
+    L._zuletzt = null;
+    let hoerer = null;
+    await L.start({ addListener: (name, f) => { assertEq(name, 'appUrlOpen'); hoerer = f; }, getLaunchUrl: async () => ({ url: 'https://imkerbuch.app/v/' + v.id }) });
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v.id), 'Kaltstart öffnet die Durchsicht');
+    w.history.replaceState(null, '', '#/dashboard'); L._zuletzt = null;
+    hoerer({ url: 'https://imkerbuch.app/v/' + v.id });
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v.id), 'laufende App öffnet die Durchsicht');
+    await L.start(false);   // Browser: kein Plugin, kein Fehler
+    await L.start({ addListener: () => {}, getLaunchUrl: async () => { throw new Error('kaputt'); } });   // Fehler stoppt den Start nicht
+  } finally {
+    w.FormGuard.dirty = false; L._zuletzt = null; dialogeSchliessen(w);
+    await w.S.set('wizardDone', wiz, { auto: true });
+    w.location.hash = hashVorher || '#/dashboard';
+    await warte(200);
+  }
+}));
+
 test('QR am Volk: Code wird erzeugt, der Druckbogen trägt sechs Etiketten', async (w) => {
   dialogeSchliessen(w);
   const echtPrint = w.print;
@@ -13130,7 +13204,7 @@ test('Schnell-Durchsicht: Einstiege an Stand, Volk und QR-Aufkleber; Imme kennt 
     await w.Views.durchsicht.render(host, alt.id);
     assert(/nicht mehr aktiv/.test(host.textContent), 'aufgelöstes Volk per altem Aufkleber: freundlicher Hinweis');
     await w.Views.durchsicht.render(host, 'gibt-es-nicht');
-    assert(/gibt es nicht/.test(host.textContent));
+    assert(/gibt es auf diesem Gerät nicht/.test(host.textContent));
     const erst = (q) => { const a = w.Assistent.antwort(q); return a.art === 'app' ? a.haupt.id : a.art; };
     assertEq(erst('Wie mache ich die Durchsicht mit Handschuhen?'), 'schnell-durchsicht');
     assertEq(erst('Durchsicht am Stand'), 'schnell-durchsicht');

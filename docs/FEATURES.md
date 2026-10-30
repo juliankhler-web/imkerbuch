@@ -89,7 +89,7 @@
 
 ## v0.33: Volk-QR, Varroa-Kontrolle & Sammel-Erfassung (Nachtrag 2026-07-04, von BeeInTouch/iBeekeeper inspiriert)
 
-- ✅ **QR-Code je Volk** (Volk → QR-Code): kodiert den Direktlink `…#/volk/<id>`, druckbarer Etikettenbogen (`qrEtikettDruck`) fürs Beutendach – Kamera-Scan öffnet die Stockkarte des Volks
+- ✅ **QR-Code je Volk** (Volk → QR-Code): druckbarer Etikettenbogen (`qrEtikettDruck`) fürs Beutendach. Seit v3.03: Store-App kodiert `https://imkerbuch.app/v/<id>`, Kamera-Scan öffnet die App in der Durchsicht am Stand (`VolkLink`, Stand und offene Schritte in `docs/QR_DEEPLINK.md`); die Web-Version kodiert ihre eigene Adresse `…#/durchsicht/<id>`
 - ✅ **Varroa-Kontrolle** (Volk → Tab „Varroa“): Zählung mit Methode (Bodenschieber/Puderzucker/Auswaschen/Gemüll) + Zähltage → Milben/Tag, Verlaufsdiagramm, **Ampel gegen saisonale Schwellen** (`VARROA_SCHWELLEN`, natürlicher Totenfall, ohne Gewähr); eigener Store `varroa` (DB v4), in Excel/Backup/Komplett-PDF
 - ✅ **Sammel-Erfassung** (Völker-Liste → Sammel-Erfassung): Durchsicht / Fütterung / Varroa-Zählung mit einem Formular für mehrere ausgewählte Völker gleichzeitig
 - Bewusst NICHT übernommen: Team-/Mitarbeiterfunktionen und Community-Statistiken der Wettbewerber (bräuchten Server/Konto und würden das 100-%-lokal-Prinzip aufgeben)

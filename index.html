@@ -1560,8 +1560,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.02';
+const APP_VERSION = '3.03';
 const CHANGELOG = [
+  { version: '3.03', datum: '2026-10-30', punkte: [
+    '<b>QR-Aufkleber am Volk:</b> Scannst du den Aufkleber mit der Handy-Kamera, öffnet sich die App direkt in der Durchsicht am Stand für dieses Volk. Das klappt nur mit neu gedruckten Aufklebern. Aufkleber, die du vorher in der App gedruckt hast, bitte neu drucken (Volk ▸ „QR-Code“).',
+  ] },
   { version: '3.02', datum: '2026-10-30', punkte: [
     '<b>Light-Version:</b> Fütterung, Trachten, Behandlungen und Ernten gehören zur Vollversion. Über die Sammel-Erfassung in der Völkerliste, die Stand-Seite und die Übernahme aus einem PDF ließen sie sich bisher trotzdem speichern. Jetzt erscheint auch dort der Hinweis auf die Vollversion. Ansehen und PDF-Lesen bleiben frei, an der Vollversion ändert sich nichts.',
   ] },
@@ -7226,14 +7229,54 @@ async function openVolkForm(volk, defaults = {}, onDone) {
   }
 }
 
-/** QR-Code eines Volks: kodiert den Direktlink zur Stockkarte, druckbar fürs Beutendach */
+/* QR-AUFKLEBER → APP (v3.03, Julian 30.10.2026: „Scannen einbauen“). Die Store-App hat keine Adresse, die von
+   außen erreichbar ist (capacitor://localhost zeigt aufs Handy selbst). Der Aufkleber trägt deshalb eine echte
+   Website-Adresse; iPhone und Android öffnen damit die App, sobald imkerbuch.app sie bestätigt (docs/QR_DEEPLINK.md).
+   Der Link kommt von außen: Nur genau diese Adresse zählt, und es wird nur die Kennung des Volks übernommen. */
+const VolkLink = {
+  BASIS: 'https://imkerbuch.app/v/',
+  _zuletzt: null,
+  /** Web-Version: eigene Adresse wie bisher – dort liegen auch die Daten dieses Browsers. */
+  adresse(volkId, nativ = IST_NATIVE_APP) { return nativ ? this.BASIS + volkId : location.origin + location.pathname + '#/durchsicht/' + volkId; },
+  /** Kennung des Volks aus einem Aufkleber-Link – sonst null. */
+  volkId(url) {
+    try {
+      const u = new URL(url);
+      if (u.protocol !== 'https:' || u.host !== 'imkerbuch.app') return null;
+      const t = /^\/v\/([A-Za-z0-9-]{1,80})\/?$/.exec(u.pathname);
+      return t ? t[1] : null;
+    } catch (e) { return null; }
+  },
+  /** Öffnet die Durchsicht zum Aufkleber. Ein unbekanntes Volk zeigt die Durchsicht-Seite selbst als Hinweis. */
+  async oeffnen(url, jetzt = Date.now()) {
+    const id = this.volkId(url);
+    if (!id || !S.get('wizardDone')) return false;   // vor der Einrichtung gibt es noch keine Völker
+    const z = this._zuletzt;
+    if (z && z.url === url && jetzt - z.zeit < 5000) return false;   // Kaltstart meldet denselben Link auf zwei Wegen
+    this._zuletzt = { url, zeit: jetzt };
+    if (FormGuard.dirty) { UI.toast('Bitte erst das offene Formular speichern oder schließen. Dann den Aufkleber noch einmal scannen.', 'err'); return false; }
+    for (const m of $$('#modal-root .modal-back')) { const x = m.querySelector('[data-close]'); if (x) x.click(); else m.remove(); }
+    if (Assistent.tour) Assistent.beendeTour();
+    const r = currentRoute(), schonDa = r.route === 'durchsicht' && r.param === id;
+    Views.durchsicht.starten(id);
+    if (schonDa) await renderRoute();   // gleiche Adresse: kein Seitenwechsel, also selbst neu zeichnen
+    return true;
+  },
+  /** Kaltstart: getLaunchUrl. App lief schon: appUrlOpen. */
+  async start(A = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+    if (!A) return;
+    A.addListener('appUrlOpen', (ev) => { this.oeffnen(ev && ev.url); });
+    try { const l = await A.getLaunchUrl(); if (l && l.url) await this.oeffnen(l.url); } catch (e) { console.warn('Start-Link nicht lesbar:', e.message); }
+  },
+};
+/** QR-Code eines Volks: führt in die Durchsicht am Stand, druckbar fürs Beutendach */
 async function volkQrAnzeigen(v) {
   /* Der Aufkleber führt direkt in die Durchsicht am Stand – dort ist auch die Stockkarte nur einen Tipp entfernt.
-     Ältere Aufkleber (…#/volk/…) öffnen weiter das Volk; dort steht der Knopf „Durchsicht am Stand“. */
-  const url = location.origin + location.pathname + '#/durchsicht/' + v.id;
+     Ältere Aufkleber aus dem Browser (…#/volk/…) öffnen weiter das Volk; dort steht der Knopf „Durchsicht am Stand“. */
+  const url = VolkLink.adresse(v.id);
   const m = UI.modal({
     title: `QR-Code · ${v.name}`,
-    body: `<p class="small muted mb12">Drucken, laminieren und ans Beutendach kleben. Mit der Handy-Kamera scannen öffnet direkt die Durchsicht am Stand für dieses Volk – große Knöpfe, auch mit Handschuhen bedienbar.</p>
+    body: `<p class="small muted mb12">Drucken, laminieren und ans Beutendach kleben. Mit der Handy-Kamera scannen öffnet auf diesem Handy direkt die Durchsicht am Stand für dieses Volk – große Knöpfe, auch mit Handschuhen bedienbar.</p>
       <div id="vqr-zone" style="text-align:center"><span class="muted small">QR-Code wird erzeugt …</span></div>`,
     footer: `<button class="btn btn-ghost" data-close2>Schließen</button><button class="btn btn-primary" data-print id="vqr-print" disabled>${icon('print')} ${IST_NATIVE_APP ? 'Etiketten als PDF' : 'Etikett drucken'}</button>`,
   });
@@ -7929,7 +7972,7 @@ Views.durchsicht = {
   async render(main, volkId) {
     if (this._aufnahme && this._aufnahme.volkId !== volkId) await this.aufnahmeBeenden();
     const volk = volkId ? await DB.get('voelker', volkId) : null;
-    if (!volk) { main.innerHTML = emptyState('warn', 'Dieses Volk gibt es nicht (mehr).', `<button class="btn btn-ghost mt12" onclick="navTo('voelker')">Zu den Völkern</button>`); return; }
+    if (!volk) { main.innerHTML = emptyState('warn', 'Dieses Volk gibt es auf diesem Gerät nicht (mehr).',`<button class="btn btn-ghost mt12" onclick="navTo('voelker')">Zu den Völkern</button>`); return; }
     if (volk.status !== 'aktiv') {
       main.innerHTML = emptyState('volk', `„${U.esc(volk.name)}“ ist nicht mehr aktiv (${U.esc(volk.status)}).`, `<button class="btn btn-ghost mt12" onclick="navTo('volk/${U.esc(volk.id)}')">Stockkarte ansehen</button>`);
       return;
@@ -27303,7 +27346,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Völker, das Volk antippen', '„Bearbeiten“ antippen', 'Neuen Bienenstand wählen, speichern'] },
   { id: 'qr-code', titel: 'QR-Code für ein Volk oder eine Beute', route: 'voelker', zeige: '',
     stichw: ['qr code', 'qr', 'schild', 'beute kennzeichnen', 'aufkleber volk', 'code scannen', 'stock beschriften', 'volk nummer drucken', 'kennzeichnung volk'],
-    antwort: 'Im Volk gibt es den Knopf „QR-Code“. Den druckst du aus und klebst ihn an die Beute – beim Scannen öffnet sich direkt das Volk.',
+    antwort: 'Im Volk gibt es den Knopf „QR-Code“. Den druckst du aus und klebst ihn an die Beute – beim Scannen mit der Handy-Kamera öffnet sich direkt die Durchsicht am Stand für dieses Volk.',
     schritte: ['Menü ▸ Völker, das Volk antippen', '„QR-Code“ antippen', 'Drucken oder als PDF speichern'] },
   { id: 'gewicht', titel: 'Gewicht eintragen (Stockwaage)', route: 'voelker', zeige: '',
     stichw: ['gewicht', 'stockwaage', 'waage', 'wiegen', 'wie schwer', 'kilo', 'stock wiegen', 'gewicht eintragen', 'honigzuwachs', 'gewichtsverlauf', 'zunahme', 'waage daten', 'waagendaten', 'stockwaage daten', 'wie viel wiegt', 'wiegt', 'kilo zugenommen', 'zugenommen', 'abgenommen', 'gewicht volk', 'volk gewogen'],
@@ -29522,6 +29565,7 @@ async function boot() {
   }
   await renderRoute();
   Splash.weg(); // App ist gezeichnet – Startbildschirm ausblenden
+  VolkLink.start();   // QR-Aufkleber: App über den Link geöffnet oder Link kommt, während sie läuft
   if (S.get('wizardDone') && Lizenz.gesperrt()) setTimeout(() => Lizenz.fenster(), 1200);
   Backup.updateBanners();
   zeigeUpdateFenster();
@@ -29536,7 +29580,7 @@ Object.assign(window, {
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead, leistePlatz,
   verkaufErfassen, verkaufStornieren, VORSCHLAEGE, CDN, APP_VERSION, CHANGELOG, KM_PAUSCHALE,
-  varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, sammelErfassung,
+  varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, VolkLink, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginAhnen, koeniginLabel,
   gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, DASH_WIDGETS, fahrtSchnellBuchen,
   rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
