@@ -10,10 +10,10 @@ Stand 2026-10-21 (v2.83). Alles hier ist zum Kopieren in App Store Connect gedac
 - **Bundle-ID:** `de.imkerbuch.app`
 - **Altersfreigabe:** Fragebogen überall „Nein“ → voraussichtlich 4+
 - **Länder:** Deutschland, Österreich, Schweiz
-- **Support-URL:** `https://juliankhler-web.github.io/imkerbuch/support.html`
-- **Datenschutz-URL:** `https://juliankhler-web.github.io/imkerbuch/datenschutz.html`
-- **Marketing-URL (optional):** `https://juliankhler-web.github.io/imkerbuch/landing.html`
-- **Copyright:** `2026 Julian Köhler`
+- **Support-URL:** `https://imkerbuch.app/support.html`
+- **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
+- **Marketing-URL (optional):** `https://imkerbuch.app/`
+- **Copyright:** `2026 Julian Konstantin Köhler`
 
 ## Stichwörter (max. 100 Zeichen, Komma ohne Leerzeichen)
 
@@ -29,7 +29,7 @@ Das digitale Stockbuch für Imker: Durchsicht am Stand auch mit Handschuhen, all
 
 (2502 von 4000 Zeichen)
 
-ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Gerät.
+ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Einträge bleiben auf deinem Gerät.
 
 DURCHSICHT AM STAND
 • Eine Frage pro Bildschirm, große Knöpfe – auch mit Handschuhen
@@ -38,7 +38,7 @@ DURCHSICHT AM STAND
 
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum und Bewertung
-• Bienenstände mit aktuellem Wetter – kommt beim Öffnen der App von selbst – und Verlauf als Grafik
+• Bienenstände mit Wetter auf Wunsch (ab Werk aus) und Verlauf als Grafik
 • Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner
 
@@ -83,7 +83,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 | Produkt-ID | Typ | Referenzname | Anzeigename (de) | Preis |
 |---|---|---|---|---|
 | `de.imkerbuch.app.testphase30` | Nicht verbrauchbar | 30-day Trial | 30-Tage-Testphase | 0,00 € |
-| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € (Einführung), später 24,99 € |
+| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € |
 
 Beschreibung Testphase: „30 Tage alle Funktionen gratis – keine Abbuchung.“ (Apple erlaubt nur 55 Zeichen)
 Beschreibung Vollversion: „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“
@@ -98,7 +98,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 - After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time.
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Volk"), or follow the built-in tour by the assistant "Imme".
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
-- Weather for stands with coordinates is fetched automatically on app start (Deutscher Wetterdienst via Bright Sky, coordinates only, no personal data); it can be switched off under Einstellungen → Funktionen.
+- Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
 - Permissions are only requested when used: camera (photos), microphone (voice notes), location (stand position), notifications (task reminders, local only).
 - Support and privacy pages are reachable in the app under Einstellungen → Rechtliches and "Hilfe & Kontakt".
 

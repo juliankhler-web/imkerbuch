@@ -33,7 +33,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
    - **Mindest-WebView 98** (`capacitor.config.json`): ältere „Android System WebView“ → Hinweisseite `webview-veraltet.html` mit Link zum Play Store.
    - Geprüft 20.10.2026 im Emulator „ImkerBuch_Alt“ (Android 10, WebView 91): Hinweisseite erscheint statt leerer App, der Knopf öffnet den Play Store. Die App selbst auf Android 10 mit aktueller WebView ließe sich nur mit Google-Anmeldung im Emulator prüfen (nicht gemacht) – Android-Version ist für die App zweitrangig, entscheidend ist die WebView (≥ 98; auf Geräten mit Play Store aktualisiert sie sich selbst).
 4. **Geschlossener Test:** 12 Tester, **14 Tage am Stück** (Julians Imker). Erst danach Freigabe für alle.
-5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 € Einführung, später 24,99 €), Länder DE/AT/CH.
+5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 €), Länder DE/AT/CH.
 6. Android-Test: Fotos, Sprachnotiz, Standort, Erinnerungen, Teilen-Menü (PDF/Sicherung), Kauf/Wiederherstellen, Zurück-Taste, Tablet.
 
 ## Store-Eintrag
@@ -43,7 +43,7 @@ Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.m
 - **Vollständige Beschreibung (2686 von 4000 Zeichen, Stand v2.83) – zum Einfügen:**
 
 ```text
-ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Handy.
+ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Einträge bleiben auf deinem Handy.
 
 DURCHSICHT AM STAND
 • Eine Frage pro Bildschirm, große Knöpfe – auch mit Handschuhen
@@ -52,7 +52,7 @@ DURCHSICHT AM STAND
 
 VÖLKER, KÖNIGINNEN, STÄNDE
 • Alle Völker mit Verlauf, Königinnen mit Stammbaum, Generation und Bewertung
-• Bienenstände mit aktuellem Wetter – kommt beim Öffnen der App von selbst – und Verlauf als Grafik
+• Bienenstände mit Wetter auf Wunsch (ab Werk aus) und Verlauf als Grafik
 • Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner (auch Sirup in Litern)
 
@@ -97,8 +97,8 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
 - **Kaufprodukt:** `de.imkerbuch.app.vollversion` (Einmalkauf, „Verwaltetes Produkt“), Name „ImkerBuch Vollversion“, Beschreibung „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“, 14,99 € (DE/AT), Schweiz 14,00 CHF wie bei Apple. Kein Testphase-Produkt (Google kennt keinen 0-€-Kauf; Testphase läuft auf dem Gerät).
 - **Länder:** Deutschland, Österreich, Schweiz.
-- **Kontakt:** juliankhler+imkerbuch@googlemail.com · Website: `https://juliankhler-web.github.io/imkerbuch/landing.html`
-- **Datenschutz-URL:** `https://juliankhler-web.github.io/imkerbuch/datenschutz.html`
+- **Kontakt:** support@imkerbuch.app · Website: `https://imkerbuch.app/`
+- **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
 - **Grafiken:** App-Symbol 512×512, Vorzeige-Grafik 1024×500: **`store-bilder/play/titelgrafik.png`** (dunkel, Android-Handy; `node tools/store-bilder.mjs --play-titel`), **Handy-Bilder: `store-bilder/play/01–07-dunkel.png` (1080×1920 = 9:16, Android-Handy mit Kamera-Loch)** – erzeugt mit `node tools/store-bilder.mjs --play` aus denselben Bühnen wie die Apple-Bilder (Google erlaubt höchstens 2:1, die Apple-Bilder 1320×2868 sind zu lang). 7″-/10″-Tablet-Bilder optional.
 
 ## Datensicherheit („Data safety“-Formular)
