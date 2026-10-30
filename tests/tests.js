@@ -7553,6 +7553,116 @@ test('QR-Aufkleber: nur die echte Adresse zählt, öffnet die Durchsicht, schüt
   }
 }));
 
+/* Julian 30.10.2026: „soll grundsätzlich immer ohne Internet funktionieren, auch beim ersten Mal“ */
+test('Aufkleber scannen: echtes Kamerabild öffnet die Durchsicht, falscher Code nicht, Kamera geht aus, Foto als zweiter Weg', async (w) => isolierteDaten(w, async () => {
+  const VS = w.VolkScanner, VL = w.VolkLink, hashVorher = w.location.hash, wiz = w.S.get('wizardDone');
+  const warte = (ms = 150) => new Promise((r) => setTimeout(r, ms));
+  const echtMedien = Object.getOwnPropertyDescriptor(w.navigator, 'mediaDevices');
+  const kamera = (f) => Object.defineProperty(w.navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: f } });
+  /* „Kamera“: eine Leinwand mit QR-Code als Videostrom */
+  const qrBild = async (text) => { const i = new w.Image(); i.src = await w.makeQr(text); await i.decode(); return i; };
+  const strom = async (text) => {
+    const i = await qrBild(text), c = w.document.createElement('canvas');
+    c.width = 640; c.height = 480;
+    const ctx = c.getContext('2d');
+    const malen = () => { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 640, 480); ctx.drawImage(i, 170, 90, 300, 300); };
+    malen();
+    const s = c.captureStream(10), t = w.setInterval(malen, 100);
+    s.__ende = () => w.clearInterval(t);
+    return s;
+  };
+  const bildDatei = async (text) => {
+    const i = await qrBild(text), c = w.document.createElement('canvas');
+    c.width = 400; c.height = 400;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 400, 400); ctx.drawImage(i, 50, 50, 300, 300);
+    return new Promise((r) => c.toBlob((b) => r(new w.File([b], 'foto.png', { type: 'image/png' })), 'image/png'));
+  };
+  try {
+    dialogeSchliessen(w);
+    await w.S.set('wizardDone', true, { auto: true });
+    const v = await w.DB.put('voelker', { name: 'Scan-Volk', status: 'aktiv' });
+
+    // Was als Aufkleber zählt: Store-App-Adresse und die eigene Adresse dieser Web-Version
+    assertEq(VL.ausAufkleber('https://imkerbuch.app/v/' + v.id), v.id);
+    assertEq(VL.ausAufkleber(VL.adresse(v.id, false)), v.id);
+    for (const falsch of ['Charge 2026-01, Rapshonig', 'https://boese.de/v/x', w.location.origin + w.location.pathname + '#/durchsicht/a/b', '', null]) assertEq(VL.ausAufkleber(falsch), null, 'kein Aufkleber: ' + falsch);
+
+    // Echter Durchlauf: Kamerabild → Code erkannt → Durchsicht, Kamera aus, Fenster zu
+    w.history.replaceState(null, '', '#/dashboard');
+    let s1 = await strom('https://imkerbuch.app/v/' + v.id);
+    kamera(async () => s1);
+    await VS.oeffnen();
+    assert(w.document.querySelector('.volk-scan'), 'Scanner ist offen');
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v.id, 8000), 'Code erkannt, Durchsicht offen');
+    assert(!w.document.querySelector('.volk-scan'), 'Scanner ist zu');
+    assert(s1.getTracks().every((t) => t.readyState === 'ended'), 'Kamera ist aus');
+    s1.__ende();
+
+    // Etikett vom Honigglas: Meldung, Scanner bleibt offen; Abbrechen schließt und stoppt die Kamera
+    w.history.replaceState(null, '', '#/dashboard');
+    s1 = await strom('Charge 2026-01, Rapshonig');
+    kamera(async () => s1);
+    await VS.oeffnen();
+    assert(await warteBis(() => { const m = w.document.querySelector('.vs-meldung'); return m && !m.classList.contains('hidden') && /kein Aufkleber/.test(m.textContent); }, 8000), 'Meldung bei falschem Code');
+    assertEq(w.location.hash, '#/dashboard', 'kein Sprung');
+    assert(w.document.querySelector('.volk-scan'), 'Scanner bleibt offen');
+    w.document.querySelector('.vs-abbruch').click();
+    assert(!w.document.querySelector('.volk-scan'), 'Abbrechen schließt');
+    assert(s1.getTracks().every((t) => t.readyState === 'ended'), 'Abbrechen stoppt die Kamera');
+    s1.__ende();
+
+    // Seitenwechsel und Hintergrund: Kamera bleibt nicht offen
+    s1 = await strom('Charge');
+    kamera(async () => s1);
+    await VS.oeffnen();
+    w.location.hash = '#/voelker';
+    assert(await warteBis(() => !w.document.querySelector('.volk-scan')), 'Seitenwechsel schließt');
+    assert(s1.getTracks().every((t) => t.readyState === 'ended'), 'Seitenwechsel stoppt die Kamera');
+    s1.__ende();
+    await warte(300);
+
+    // Kamera verboten: Hinweis + Foto; Foto liest den Aufkleber
+    w.history.replaceState(null, '', '#/dashboard');
+    kamera(async () => { const e = new Error('nein'); e.name = 'NotAllowedError'; throw e; });
+    await VS.oeffnen();
+    assert(/nicht erlaubt/.test(w.document.querySelector('.vs-meldung').textContent), 'Hinweis: Kamera nicht erlaubt');
+    assert(!w.document.querySelector('.vs-foto').classList.contains('hidden'), 'Foto-Knopf sichtbar');
+    await VS.fotoLesen(new w.File([new Uint8Array([1, 2, 3])], 'kaputt.png', { type: 'image/png' }));
+    assert(/kein Code/.test(w.document.querySelector('.vs-meldung').textContent), 'unlesbares Foto: Meldung, kein Absturz');
+    await VS.fotoLesen(await bildDatei('Charge'));
+    assert(w.document.querySelector('.volk-scan') && /kein Aufkleber/.test(w.document.querySelector('.vs-meldung').textContent), 'Foto vom falschen Code');
+    await VS.fotoLesen(await bildDatei('https://imkerbuch.app/v/' + v.id));
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + v.id), 'Foto vom Aufkleber öffnet die Durchsicht');
+    assert(!w.document.querySelector('.volk-scan'), 'danach ist der Scanner zu');
+
+    // Keine Kamera-Schnittstelle: kein Absturz, Foto bleibt
+    w.history.replaceState(null, '', '#/dashboard');
+    Object.defineProperty(w.navigator, 'mediaDevices', { configurable: true, value: undefined });
+    await VS.oeffnen();
+    assert(!w.document.querySelector('.vs-foto').classList.contains('hidden'), 'ohne Kamera: Foto-Knopf');
+    VS.schliessen();
+
+    // Die Knöpfe: Völkerliste und Kachel „Durchsicht am Stand“
+    w.history.replaceState(null, '', '#/voelker');
+    const host = w.document.createElement('div');
+    w.document.body.appendChild(host);
+    await w.Views.voelker.render(host);
+    assert(host.querySelector('#scanVolk'), 'Völker: Knopf ist da');
+    host.remove();
+    assert(/Aufkleber scannen/.test(await w.DASH_WIDGETS.durchsicht.html()), 'Kachel: Knopf ist da');
+    w.history.replaceState(null, '', '#/dashboard');
+    await warte(100);
+  } finally {
+    VS.schliessen();
+    if (echtMedien) Object.defineProperty(w.navigator, 'mediaDevices', echtMedien); else delete w.navigator.mediaDevices;
+    dialogeSchliessen(w);
+    await w.S.set('wizardDone', wiz, { auto: true });
+    w.location.hash = hashVorher || '#/dashboard';
+    await warte(200);
+  }
+}));
+
 test('QR am Volk: Code wird erzeugt, der Druckbogen trägt sechs Etiketten', async (w) => {
   dialogeSchliessen(w);
   const echtPrint = w.print;

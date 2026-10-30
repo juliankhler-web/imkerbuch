@@ -158,6 +158,7 @@ Installation über den geschlossenen Test im Play Store (Link kommt von Julian).
 - [ ] **K5 Teilen:** Bestandsbuch-PDF und Sicherung → Android-Teilen-Menü (Drive, Dateien, Mail).
 - [ ] **K6 Mitteilungen:** erste Aufgaben-Erinnerung → Android fragt nach Mitteilungen → Erlauben; danach erklärt die App „Minutengenau erinnern?“ → „Einstellung öffnen“ → bei ImkerBuch „Wecker und Erinnerungen“ einschalten → Zurück. Einstellungen → Funktionen zeigt „Minutengenau: an“. Aufgabe in 3 Minuten → Erinnerung kommt auf die Minute.
 - [ ] **K7 Etiketten:** Volk → QR-Code → „Etiketten als PDF“ → Teilen-Menü mit dem Etikettenbogen.
+- [ ] **K8 Aufkleber scannen (neu 3.04):** Flugmodus an. Startseite oder Völker → „Aufkleber scannen“. → **Eine** Frage nach der Kamera, Live-Bild erscheint, Aufkleber in den Rahmen halten: Die Durchsicht dieses Volks öffnet sich von selbst. Honigglas-Etikett scannen: rote Meldung, Scanner bleibt offen. „Abbrechen“ schließt, die Kamera ist aus. Kamera in den Handy-Einstellungen verbieten: Hinweis und Knopf „Foto vom Aufkleber machen“.
 
 ---
 

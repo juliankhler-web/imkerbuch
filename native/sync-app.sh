@@ -9,7 +9,7 @@ echo "→ Kopiere App-Dateien nach www/ …"
 cp ../index.html ../service-worker.js ../manifest.json www/
 cp ../icon-180.png ../icon-192.png ../icon-512.png www/
 cp ../impressum.html ../datenschutz.html ../agb.html ../support.html ../webview-veraltet.html www/   # webview-veraltet: Hinweis bei zu altem Android-WebView (capacitor.config.json)
-mkdir -p www/libs && cp ../libs/*.js www/libs/   # PDF/Excel/QR offline
+mkdir -p www/libs && cp ../libs/*.js ../libs/jsQR-LICENSE.txt www/libs/   # PDF/Excel/QR offline
 rm -rf www/assets/bini && mkdir -p www/assets/bini && cp ../assets/bini/* www/assets/bini/   # Assistent Imme (animierte WebP) – vorher leeren, sonst bleiben alte Bilder im App-Paket
 mkdir -p www/assets/bienen && cp ../assets/bienen/* www/assets/bienen/   # Tagesbienen (24 Bilder) – ohne sie bleibt im Dashboard ein leeres Bild
 
