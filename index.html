@@ -1549,8 +1549,15 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.08';
+const APP_VERSION = '3.09';
 const CHANGELOG = [
+  { version: '3.09', datum: '2026-10-30', punkte: [
+    '<b>Wetter:</b> Die Startseite ruft nur noch ab, wenn „Wetter von selbst abrufen“ an ist. Klappt ein Abruf nicht, versucht es die App erst nach 30 Minuten wieder.',
+    '<b>Imme:</b> Antworten zu Datenschutz, Schwarm, Steuer, Nachbarrecht und Pfand sind richtiggestellt. Bei der Behandlung zeigt die Führung jetzt das Feld Wartezeit.',
+    '<b>Honig-Etikett:</b> Mehrere Ursprungsländer mit Prozentangabe erkennt die App jetzt richtig. Passt die Angabe nicht aufs Etikett, fragt sie vorher.',
+    '<b>Mengenrechner:</b> Steht in der Beilage ein Bereich wie 7–8, bittet die App um einen einzelnen Wert.',
+    'Links auf den Rechtsseiten öffnen sich jetzt auch in der App richtig.',
+  ] },
   { version: '3.08', datum: '2026-10-30', punkte: [
     '<b>Wetter ist ab Werk aus.</b> Die App fragt dich einmal, wenn du zum ersten Mal Koordinaten an einem Stand speicherst. Ein- und ausschalten kannst du es jederzeit unter Einstellungen → Funktionen. Die Koordinaten gehen nur noch gerundet an den Wetterdienst.',
     '<b>Mengenrechner statt fester Mengen:</b> Du trägst den Wert aus deiner Packungsbeilage ein, die App rechnet ihn auf deine Völker hoch. Die Rechner zum Selbstmischen sind vorerst entfallen.',
@@ -5353,7 +5360,7 @@ const Voice = {
 function mikrofonFehlerText(e) {
   const n = e && e.name;
   if (n === 'NotAllowedError' || n === 'SecurityError') return IST_NATIVE_APP
-    ? 'Mikrofon ist für ImkerBuch nicht erlaubt. Einschalten: iPhone-Einstellungen → Apps → ImkerBuch → Mikrofon.'
+    ? `Mikrofon ist für ImkerBuch nicht erlaubt. Einschalten: ${Lizenz.android() ? 'Android-Einstellungen → Apps → ImkerBuch → Berechtigungen → Mikrofon' : 'iPhone-Einstellungen → Apps → ImkerBuch → Mikrofon'}.`
     : 'Mikrofon ist für diese Seite nicht erlaubt. In den Browser-Einstellungen für diese Seite das Mikrofon erlauben und neu laden.';
   if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'Kein Mikrofon gefunden.';
   if (n === 'NotReadableError' || n === 'AbortError') return 'Das Mikrofon wird gerade von einer anderen App benutzt (z. B. Telefonat). Bitte kurz warten und erneut versuchen.';
@@ -5575,10 +5582,11 @@ const DASH_WIDGETS = {
         const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
         b.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${w.windKmh != null ? U.fmtNum(w.windKmh, 0) : '–'} km/h · Regen ${w.niederschlagMm != null ? U.fmtNum(w.niederschlagMm, 1) : '–'} mm</div><div class="small muted">${w.datum === U.todayIso() ? 'heute' : U.fmtDate(w.datum)}${uhr ? ' ' + uhr : ''} · ${U.esc(WETTER_QUELLE)}${zusatz}</div>`;
       };
-      try { zeigen((await Wetter.aktuell(stand)).rec); }
+      const vonSelbst = Wetter.darfAuto();   // Schalter „Wetter von selbst abrufen“: sonst nur den gespeicherten Wert zeigen
+      try { if (!vonSelbst) throw new Error('aus'); zeigen((await Wetter.aktuell(stand)).rec); }
       catch (e) {
         const alt = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((x, y) => Wetter.zeitpunkt(y) - Wetter.zeitpunkt(x))[0];
-        if (alt) zeigen(alt, ' · gerade offline'); else box.innerHTML = `<div class="muted small">Wetter nicht abrufbar (offline?).</div>`;
+        if (alt) zeigen(alt, vonSelbst ? ' · gerade offline' : ''); else box.innerHTML = `<div class="muted small">${vonSelbst ? 'Wetter nicht abrufbar (offline?).' : 'Noch kein Wert. Am Stand holt „Aktualisieren“ ihn.'}</div>`;
       }
     }, 50);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2><a href="#/stand/${stand.id}" class="small">${U.esc(stand.name)}</a></div><div id="dash-wetter">${inner}</div></div>`;
@@ -5933,8 +5941,21 @@ const SUPPORT_MAIL = 'support@imkerbuch.app';
    einem Fenster innerhalb der App; Apple verlangt, dass die Datenschutz-
    erklärung in der App erreichbar ist (Regel 5.1.1). */
 function seiteInApp(href, titel) {
-  UI.modal({ title: titel || 'ImkerBuch', wide: true,
+  const m = UI.modal({ title: titel || 'ImkerBuch', wide: true,
     body: `<iframe class="seite-in-app" src="${U.esc(href)}" title="${U.esc(titel || '')}"></iframe>` });
+  /* Fremde Ziele (https:, mailto:) sperrt die Schutzregel im Fenster: Sie gehen wie überall in der App ans System */
+  const rahmen = $('iframe', m.el);
+  rahmen.addEventListener('load', () => {
+    rahmen.contentDocument?.addEventListener('click', (e) => {
+      const a = e.target.closest && e.target.closest('a[href]');
+      const ziel = a && a.getAttribute('href');
+      if (!ziel || !/^[a-z]+:/i.test(ziel)) return;
+      e.preventDefault();
+      const l = document.createElement('a');
+      l.href = ziel; l.target = '_blank'; l.rel = 'noopener';
+      l.click();
+    });
+  });
 }
 /* Android: Zurück-Taste / Zurück-Wischen wie erwartet – erst Fenster schließen
    (mit der üblichen Warnung bei ungespeicherten Eingaben), dann Hilfe-Tour
@@ -6373,7 +6394,7 @@ const Wetter = {
   async fragen() {
     await S.set('wetterGefragt', true, { auto: true });
     const m = UI.modal({ title: 'Wetter für deine Stände anzeigen?',
-      body: '<p class="small" data-wetter-frage>Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Der Abruf läuft dann auch von selbst beim App-Start, höchstens alle 30 Minuten. Du kannst das jederzeit unter Einstellungen → Funktionen ausschalten.</p>',
+      body: '<p class="small" data-wetter-frage>Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Der Abruf läuft dann auch von selbst: beim App-Start, bei der Rückkehr in die App, auf der Startseite und beim Öffnen eines Standes, höchstens alle 30 Minuten. Du kannst das jederzeit unter Einstellungen → Funktionen ausschalten.</p>',
       footer: '<button class="btn btn-ghost" data-wetter-ja>Wetter einschalten</button><button class="btn btn-ghost" data-wetter-nein>Nein danke</button>' });
     $('[data-wetter-nein]', m.el).onclick = () => m.close(true);
     $('[data-wetter-ja]', m.el).onclick = async () => {
@@ -6406,6 +6427,7 @@ const Wetter = {
      Deshalb: höchstens alle 30 Minuten neu holen, und pro Stand und Tag nur EIN abgerufener Wert –
      der neueste ersetzt den von vorhin. Von Hand erfasste Werte bleiben unberührt. */
   FRISCH_MIN: 30,
+  _versuche: new Map(),
   hatOrt(stand) { return !!stand && stand.lat != null && stand.lng != null && stand.lat !== '' && stand.lng !== ''; },
   zeitpunkt(w) { return Date.parse(w.abgerufen || w.lastModified || w.createdAt || w.datum) || 0; },
   /* `alle` = schon gelesene Wetterwerte: Großbestand-Probe (21.10.2026) – 50 Stände lasen beim Start je ALLE 15.000
@@ -6424,10 +6446,17 @@ const Wetter = {
     if (!erzwingen) {
       const letzter = (alle || await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a))[0];
       if (letzter && Date.now() - this.zeitpunkt(letzter) < this.FRISCH_MIN * 60000) return { rec: letzter, neu: false };
+      /* Auch ein fehlgeschlagener Versuch zählt: Sonst ginge bei jeder Rückkehr in die App ein neuer Abruf hinaus */
+      const versuch = this._versuche.get(stand.id);
+      if (versuch && Date.now() - versuch < this.FRISCH_MIN * 60000) {
+        if (letzter) return { rec: letzter, neu: false };
+        throw new Error('Wetter gerade nicht abrufbar');
+      }
     }
+    this._versuche.set(stand.id, Date.now());
     return { rec: await this.speichern(stand, await this.fetchCurrent(stand), alle), neu: true };
   },
-  /** Darf die App von selbst abrufen? Einwilligung, Schalter „Wetter beim App-Start“, Vollversion, online – und nie im Testlauf. */
+  /** Darf die App von selbst abrufen? Einwilligung, Schalter „Wetter von selbst abrufen“, Vollversion, online – und nie im Testlauf. */
   darfAuto() {
     const f = S.get('features') || {};
     return this.erlaubt() && f.wetterStart !== false && !TEST_MODE && !Lizenz.light() && !Lizenz.gesperrt() && navigator.onLine !== false;
@@ -7040,7 +7069,7 @@ Views.stand = {
       loeschen: async (r) => { if (await volkAufloesen(volkVon(r))) renderRoute(); }, loeschenText: 'Auflösen',
     });
     await Views.stand.wetterZeichnen();
-    /* Beim Öffnen von selbst aktualisieren, wenn der letzte Wert älter als 30 Minuten ist (Schalter „Wetter beim App-Start“) */
+    /* Beim Öffnen von selbst aktualisieren, wenn der letzte Wert älter als 30 Minuten ist (Schalter „Wetter von selbst abrufen“) */
     if (Wetter.hatOrt(s) && Wetter.darfAuto()) Wetter.aktuell(s).then((r) => { if (r.neu) Views.stand.wetterZeichnen(); }).catch(() => {});
     const wAuto = $('#wAuto');
     if (wAuto) wAuto.onclick = async () => {
@@ -7086,7 +7115,7 @@ Views.stand = {
       const tag = w.datum === heute ? 'heute' : (w.datum === U.addDays(heute, -1) ? 'gestern' : U.fmtDate(w.datum));
       return `${tag}${uhr ? ' ' + uhr : ''} · ${w.quelle === 'manuell' ? 'von Hand erfasst' : 'Deutscher Wetterdienst'}`;
     };
-    const ohneOrt = !Wetter.hatOrt(s) ? `<div class="muted small">${an ? 'Trage beim Stand unter „Bearbeiten“ die Koordinaten ein – dann holt die App das Wetter von selbst.' : 'Der Wetter-Abruf ist ausgeschaltet (Einstellungen → Funktionen).'}</div>` : '';
+    const ohneOrt = !Wetter.hatOrt(s) ? `<div class="muted small">${an ? (S.get('features').wetterStart !== false ? 'Trage beim Stand unter „Bearbeiten“ die Koordinaten ein – dann holt die App das Wetter von selbst.' : 'Trage beim Stand unter „Bearbeiten“ die Koordinaten ein – dann holt „Aktualisieren“ das Wetter.') : 'Der Wetter-Abruf ist ausgeschaltet (Einstellungen → Funktionen).'}</div>` : '';
     let html = akt ? `<div class="w-jetzt"><b>${U.fmtNum(akt.tempC, 1)} °C</b><span class="small muted">${U.esc(wann(akt))}</span></div>
       <div class="stat-grid w-werte-kurz mb12">
         <div class="stat"><div class="s-label">Wind</div><div class="s-value">${akt.windKmh != null && akt.windKmh !== '' ? U.fmtNum(akt.windKmh, 0) + ' km/h' : '–'}</div></div>
@@ -9847,6 +9876,11 @@ function mengenrechnerZeichnen(box) {
   const anzahlFeld = $('[data-mr-anzahl]', box);
   anzahlFeld.style.display = bezug === 'volk' ? 'none' : '';
   $('[data-mr-anzahl-text]', box).textContent = (MENGEN_BEZUG[bezug] || MENGEN_BEZUG.volk)[1];
+  /* „7-8“ oder „30 bis 40“: Die Zahlenerkennung nähme still den unteren Wert. Den Bereich entscheidet der Imker. */
+  if (/\d\s*(-|–|—|bis)\s*\d/i.test(wert('menge'))) {
+    $('[data-mr-aus]', box).innerHTML = '<div class="small muted">Trag einen einzelnen Wert ein. Steht in der Beilage ein Bereich, entscheide dich anhand der Beilage für einen Wert.</div>';
+    return;
+  }
   const r = mengenRechnen({ menge: U.parseNum(wert('menge')), bezug, jeVolk: U.parseNum(wert('jeVolk')), voelker: U.parseNum(wert('voelker')) });
   const aus = $('[data-mr-aus]', box);
   if (r.fehlt === 'menge') { aus.innerHTML = '<div class="small muted">Trag zuerst den Wert aus deiner Packungsbeilage ein. Erst dann rechnet die App.</div>'; return; }
@@ -11411,7 +11445,8 @@ const EU_LAENDER = ['Deutschland', 'Österreich', 'Belgien', 'Bulgarien', 'Däne
 function oekoHerkunft(ursprung) {
   const t = String(ursprung || '').trim();
   if (!t) return 'EU-/Nicht-EU-Landwirtschaft';
-  const teile = t.split(/\s*[,/·]\s*|\s+und\s+/).map((x) => x.trim()).filter(Boolean);
+  /* „Deutschland 60 %, Österreich 40 %“: Die Prozentangaben gehören nicht zum Ländernamen */
+  const teile = t.split(/\s*[,/·;]\s*|\s+und\s+/).map((x) => x.replace(/\(?\s*\d+(?:[.,]\d+)?\s*(?:%|Prozent)\s*\)?/gi, '').replace(/^\d+(?:[.,]\d+)?\s*/, '').trim()).filter(Boolean);
   const inEu = teile.some((x) => EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
   const ausserEu = teile.some((x) => !EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
   if (inEu && ausserEu) return 'EU-/Nicht-EU-Landwirtschaft';
@@ -22085,7 +22120,7 @@ async function bereichAlsPdf(store, jahr) {
   const defs = await Xlsx.defs({ filter: Export.filter({ jahr }) });
   const def = defs[store]; if (!def) return;
   const titel = `${def.blatt}${jahr ? ' ' + jahr : ''}`;
-  return Pdf.abschnitte({ titel, untertitel: `${jahr ? 'Jahr ' + jahr : 'alle Jahre'} · Datenstand ${U.fmtDate(U.todayIso())}`, teile: [{ titel: def.blatt, rows: await def.rows() }], datei: Export._datei(['imkerbuch', def.blatt, jahr || 'alle-jahre', U.todayIso()]) + '.pdf' });
+  return Pdf.abschnitte({ titel, untertitel: `${jahr ? 'Jahr ' + jahr : 'alle Jahre'} · Datenstand ${U.fmtDate(U.todayIso())}`, teile: [{ titel: def.blatt, rows: await def.rows() }], vorlage: store === 'bioeintraege', datei: Export._datei(['imkerbuch', def.blatt, jahr || 'alle-jahre', U.todayIso()]) + '.pdf' });
 }
 /** Alle Unterlagen der App. jahr: richtet sich nach dem gewählten Jahr · nurJahr: PDF gibt es nur für ein einzelnes Jahr ·
     tab: Bereich für Excel/CSV (und Tabellen-PDF, wenn kein eigenes) · wahl: vorher etwas auswählen (Volk, Königin …) · ziel: Ort in der App */
@@ -22378,11 +22413,12 @@ const Importer = {
       { key: 'menge', label: 'Menge', type: 'num', aliases: ['menge', 'dosis', 'amount', 'dose'] },
       { key: 'einheit', label: 'Einheit', aliases: ['einheit', 'unit'] },
       { key: 'anwendungsart', label: 'Anwendungsart', aliases: ['anwendung', 'anwendungsart', 'methode', 'method'] },
+      { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'num', aliases: ['wartezeit', 'wartezeit tage', 'wartezeit (tage)', 'withdrawal'] },
       { key: 'lieferant', label: 'Lieferant', aliases: ['lieferant', 'supplier'] },
       { key: 'behandelndePerson', label: 'Behandelnde Person', aliases: ['behandelt von', 'behandelnde person', 'person'] },
       { key: 'tierarzt', label: 'Tierarzt', aliases: ['tierarzt', 'veterinaer', 'vet'] },
       { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
-    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: 0, lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', notiz: v.notiz || '' }) },
+    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: v.wartezeitTage ?? 0, lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', notiz: v.notiz || '' }) },
     ernten: { label: 'Ernten', store: 'ernten', refs: { volk: 'voelker' }, felder: [
       { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive'] },
       { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'erntedatum'] },
@@ -24934,7 +24970,7 @@ const Pdf = {
   /** Mehrere Tabellen in einem PDF (Querformat) – Export je Bereich und Volksakte (v2.78). Jeder Teil mit
       allen Spalten; ein einzelner Datensatz mit vielen Feldern (Stammdaten, Königin) erscheint als
       „Feld | Wert“-Liste, damit nichts abgeschnitten wird. */
-  async abschnitte({ titel, untertitel = '', teile, datei }) {
+  async abschnitte({ titel, untertitel = '', teile, datei, vorlage = false }) {
     try {
       UI.toast('PDF wird erstellt …');
       const jsPDF = await this.lib();
@@ -24971,7 +25007,7 @@ const Pdf = {
           y = this.tabelleGeteilt(doc, { head: kopf, body: t.rows.map((r) => kopf.map((k) => zelle(r[k], k))), startY: y });
         }
       }
-      this.finish(doc, datei);
+      this.finish(doc, datei, { vorlage });
     } catch (e) { console.error(e); UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
   /** Archiv eines Bereichs (Einträge älter als 2 Jahre) als PDF. */
@@ -25584,6 +25620,10 @@ const Pdf = {
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
         if (doc.splitTextToSize(adr, LW - 12).length > 2
           && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz).', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
+        /* Mischungen: Alle Länder sind Pflicht (§ 3 Abs. 4 HonigV). Passt die Zeile nicht, würde sie still gekürzt. */
+        doc.setFont('helvetica', 'normal').setFontSize(6.5);
+        if (doc.getTextWidth(`Ursprungsland: ${opts.ursprung || ''}`) > LW - 12
+          && !(await UI.confirm({ title: 'Ursprungsland zu lang', text: 'Die Länderangabe passt nicht vollständig aufs Etikett und würde gekürzt. Bei Mischungen sind alle Länder mit Anteil Pflicht. Kürze sie oder gestalte das Etikett selbst.', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
       }
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);
@@ -26772,7 +26812,7 @@ const ISchule = {
 /* Zusätze zu Imme-Antworten (v3.08): bei Mitteln der Warntext, bei Recht und Steuern der Hinweis auf den Einzelfall. */
 const IMME_ZUSATZ_RECHT = 'Allgemeine Auskunft, keine Beratung für deinen Einzelfall.';
 const IMME_MITTEL_IDS = new Set(['behandlung', 'bestandsbuch', 'rechner', 'varroa-wert']);
-const IMME_RECHT_IDS = new Set(['steuer', 'rechnung', 'rechnung-festschreiben', 'rechnung-zahlung', 'rechnung-pdf', 'kassenbuch', 'kassenbuch-auswertung', 'geschaeftskosten', 'an-verkauf', 'fahrten', 'fahrtenbuch-pdf', 'anmeldung-amt', 'export', 'bestandsbuch', 'wanderbuch', 'bio', 'bio-landbedeckung', 'bio-foerderung', 'bio-partner', 'hygiene', 'hygiene-check', 'honig-etikett']);
+const IMME_RECHT_IDS = new Set(['pfand', 'steuer', 'rechnung', 'rechnung-festschreiben', 'rechnung-zahlung', 'rechnung-pdf', 'kassenbuch', 'kassenbuch-auswertung', 'geschaeftskosten', 'an-verkauf', 'fahrten', 'fahrtenbuch-pdf', 'anmeldung-amt', 'export', 'bestandsbuch', 'wanderbuch', 'bio', 'bio-landbedeckung', 'bio-foerderung', 'bio-partner', 'hygiene', 'hygiene-check', 'honig-etikett']);
 /** Zusatz zu einer App-Antwort von Imme (Eintrag aus APP_WISSEN). */
 function immeZusatzApp(e) {
   return [IMME_MITTEL_IDS.has(e.id) ? MENGEN_WARNUNG : '', IMME_RECHT_IDS.has(e.id) ? IMME_ZUSATZ_RECHT : ''].filter(Boolean);
@@ -26780,7 +26820,7 @@ function immeZusatzApp(e) {
 /** Zusatz zu einer Praxis-Antwort (FAQ): erkannt am Thema und am Inhalt, damit neue Fragen nicht durchrutschen. */
 function immeZusatzFaq(fq, themaId) {
   const t = `${fq.f} ${fq.a}`;
-  return [/behandl|säure|thymol|restentmilb/i.test(t) ? MENGEN_WARNUNG : '', themaId === 'recht' || /§|steuer|etikett/i.test(t) ? IMME_ZUSATZ_RECHT : ''].filter(Boolean);
+  return [/behandl|säure|thymol|restentmilb/i.test(t) ? MENGEN_WARNUNG : '', themaId === 'recht' || /§|steuer|etikett|rechtlich|anzeigepflicht|ist pflicht/i.test(t) ? IMME_ZUSATZ_RECHT : ''].filter(Boolean);
 }
 const immeZusatzHtml = (liste) => (liste || []).map((z) => `<p class="small muted mt8" data-imme-zusatz>${U.esc(z)}</p>`).join('');
 
@@ -26807,7 +26847,7 @@ const FAQ_THEMEN = [
     { f: 'Was ist eine Schwarmvorwegnahme?', a: 'Du simulierst den Schwarm selbst: Die alte Königin kommt mit Flugbienen in eine neue Beute (= „Kunstschwarm"), das Restvolk zieht sich eine neue Königin. Kein unkontrollierter Schwarmabgang.' },
     { f: 'Wann ist Schwarmzeit?', a: 'Typisch Mai bis Ende Juni, manchmal bis Mitte Juli. Bei warmem Wetter und starken Völkern kann es aber auch früher losgehen. In der Schwarmzeit wöchentlich kontrollieren!' },
     { f: 'Was ist ein Vorschwarm vs. Nachschwarm?', a: 'Der Vorschwarm geht mit der alten, begatteten Königin ab – er ist groß und stark. Nachschwärme gehen mit jungen, unbegatteten Königinnen ab, sind kleiner und weniger überlebensfähig.' },
-    { f: 'Darf ich einen fremden Schwarm einfangen?', a: 'Rechtlich: Ja, ein herrenloser Schwarm darf eingefangen werden. Aber: Erst den Besitzer ermitteln (Nachbar-Imker fragen), der hat 2 Tage Vorrang. Melde den Fund im Verein oder bei der Feuerwehr.' },
+    { f: 'Darf ich einen fremden Schwarm einfangen?', a: 'Rechtlich gilt § 961 BGB: Ein Schwarm wird herrenlos, wenn der Eigentümer ihn nicht unverzüglich verfolgt oder die Verfolgung aufgibt. Frag deshalb zuerst in der Nachbarschaft und bei Imkern nach, ob ihn jemand verfolgt. Melde den Fund im Verein oder bei der Feuerwehr.' },
     { f: 'Wie vermeide ich Schwarmverluste in meiner Abwesenheit?', a: 'Vor dem Urlaub: Schwarmkontrolle, alle Weiselzellen brechen (Notlösung!), Raum geben, Ableger bilden. Idealerweise einen Imkerkollegen bitten, in der Schwarmzeit wöchentlich reinzuschauen.' },
   ] },
   { id: 'koenigin', label: 'Königin', icon: 'crown', fragen: [
@@ -26890,11 +26930,11 @@ const FAQ_THEMEN = [
     { f: 'Was muss am Wanderstand stehen?', a: 'In Deutschland ein gut sichtbares, haltbares Schild mit deinem Namen, deiner Anschrift und der Zahl der Völker (§ 5a Bienenseuchen-Verordnung). In Österreich gehört an jeden Stand die VIS-Nummer, in der Schweiz die Standnummer vom Kanton. ImkerBuch druckt dir das Schild beim Stand („Wanderschild“ bzw. „Standschild“).' },
     { f: 'Ich imkere in Österreich – was muss ich melden?', a: 'Jede Bienenhaltung ab dem ersten Volk wird im VIS der Statistik Austria registriert, selbst oder über die Ortsgruppe. Zweimal im Jahr meldest du die Zahl deiner Völker: Stichtag 30. April (bis 30. Juni) und 31. Oktober (bis 31. Dezember) – auch ohne Änderung und auch bei 0. Neue oder aufgegebene Standorte, auch Wander- und Ablegerstände, trägst du binnen 7 Tagen ein. Jeder Stand braucht ein Schild mit deiner VIS-Nummer. Einen Faulbrut-Verdacht meldest du sofort der Bezirkshauptmannschaft. Dazu kommen Landesregeln, z. B. Wandermeldung bei der Gemeinde.', link: 'meldungen' },
     { f: 'Ich imkere in der Schweiz – was muss ich melden?', a: 'Jeden Bienenstand – auch einen leeren – meldest du innert 3 Arbeitstagen bei der kantonalen Stelle, ebenso einen Imkerwechsel oder die Auflösung. Die Standnummer gehört gut sichtbar an den Stand. Bringst du Völker in einen anderen Inspektionskreis, informierst du vorher die Bieneninspektoren am alten und am neuen Ort (z. B. mit BeeTraffic). Je Stand führst du eine Bestandeskontrolle und bewahrst sie 3 Jahre auf. Schon der Verdacht auf Faulbrut, Sauerbrut oder Kleinen Beutenkäfer geht sofort an den Bieneninspektor. Fristen und Formulare unterscheiden sich je Kanton.', link: 'meldungen' },
-    { f: 'Bin ich Landwirt oder Gewerbetreibender?', a: 'Imkerei bis ca. 30 Völker gilt steuerlich als Landwirtschaft (Urproduktion). Darüber hinaus oder bei stark verarbeiteten Produkten (Kerzen, Kosmetik) kann Gewerbe anfallen. Tipp: § 24 UStG Pauschalierung nutzen.' },
-    { f: 'Was ist § 24 UStG (Pauschalierung)?', a: 'Landwirte/Imker können die Umsatzsteuer pauschal abrechnen: Du berechnest 7,8 % USt auf deine Verkäufe, behältst sie aber – ohne Vorsteuerabzug, ohne USt-Erklärung. Gilt automatisch, solange du Landwirt bist.' },
+    { f: 'Bin ich Landwirt oder Gewerbetreibender?', a: 'Imkerei zählt steuerlich in der Regel zur Landwirtschaft. Bei zugekauften oder stark verarbeiteten Produkten (Kerzen, Kosmetik) kann Gewerbe anfallen. Wie das bei dir ist und welche Regelung zur Umsatzsteuer passt, klärst du am besten mit deinem Steuerberater.' },
+    { f: 'Was ist § 24 UStG (Pauschalierung)?', a: 'Land- und Forstwirte können die Umsatzsteuer unter bestimmten Bedingungen pauschal abrechnen: Du berechnest den Pauschalsatz auf deine Verkäufe (in der App voreingestellt 7,8 %) und behältst ihn, ohne Vorsteuerabzug. Ob das oder die Kleinunternehmerregelung für dich gilt, klärst du mit deinem Steuerberater oder Finanzamt.' },
     { f: 'Brauche ich eine Betriebshaftpflicht?', a: 'Dringend empfohlen: Wenn deine Bienen einen Verkehrsunfall oder Sachschaden verursachen, haftest du. Viele Imkervereine (z. B. DIB-Mitglieder) haben eine Gruppenversicherung inklusive.' },
     { f: 'Was ist bei einem Faulbrut-Sperrgebiet?', a: 'Deine Völker werden amtlich untersucht (Futterkranzprobe). Du darfst keine Völker ein- oder ausführen und keinen Honig verfüttern. Kann Monate dauern. Entschädigt wird je nach Land über die Tierseuchenkasse oder vom Land selbst (in Bayern vom Freistaat).' },
-    { f: 'Darf ich in der Stadt/im Garten imkern?', a: 'Grundsätzlich ja – Bienenhaltung ist ein Grundrecht (Urproduktion). Aber: Nachbarschaftsrecht beachten (Flugbahn nicht über Gehweg/Terrasse), Bebauungsplan prüfen, Vermieter fragen. 3 Meter Abstand zur Grundstücksgrenze einhalten.' },
+    { f: 'Darf ich in der Stadt/im Garten imkern?', a: 'In der Regel ja. Beachte aber das Nachbarrecht (Flugbahn nicht über Gehweg oder Terrasse), prüfe den Bebauungsplan und frag deinen Vermieter. Abstände zur Grenze regeln nicht überall dieselben Vorschriften: Frag im Verein oder bei der Gemeinde nach den Regeln vor Ort.' },
   ] },
   { id: 'vermehrung', label: 'Vermehrung & Zucht', icon: 'egg', fragen: [
     { f: 'Wie vermehre ich meine Völker?', a: 'Am einfachsten durch Ableger: Brutwabe mit Bienen und einer Weiselzelle in eine eigene Beute. Das Jungvolk zieht sich eine eigene Königin heran. So wächst dein Bestand ohne Zukauf.' },
@@ -27064,7 +27104,8 @@ const APP_WISSEN = [
       { feld: 'Arzneimittel', text: 'Welches Mittel hast du benutzt? Gegen Varroa zum Beispiel Ameisensäure oder Oxalsäure.' },
       { feld: 'Datum', text: 'An welchem Tag hast du behandelt?' },
       { feld: 'Menge je Volk', text: 'Wie viel hat jedes Volk bekommen? Die Einheit steht daneben.' },
-      { speichern: true, text: 'Tippe auf „Speichern“. Die Wartezeit rechnet die App für dich mit.' }] },
+      { feld: 'Wartezeit', text: 'Trag die Wartezeit aus der Packungsbeilage ein. Die App kennt sie nicht. Ist sie größer als 0, legt die App eine Erinnerung an.' },
+      { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'fuetterung', titel: 'Fütterung eintragen', route: 'fuetterung', zeige: 'Fütterung',
     stichw: ['fuetterung', 'futter', 'sirup', 'zucker', 'fuettern', 'auffuettern', 'winterfutter', 'futterteig', 'futterrechner', 'zuckerloesung', 'gefuettert', 'sirup gefuettert', 'liter sirup gefuettert', 'winterfuetterung', 'winterfuetterung dokumentieren', 'futter gegeben', 'sirup gegeben', 'futterteig gegeben', 'zucker gegeben', 'aufgefuettert', 'eingefuettert'],
     antwort: 'Fütterungen trägst du pro Volk oder für mehrere Völker auf einmal ein. Der Futter-Rechner sagt dir, wie viel Sirup du ansetzen musst; das Material wird vom Lager abgezogen.',
@@ -27283,7 +27324,7 @@ const APP_WISSEN = [
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
   { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'material', zeige: '',
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
-    antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position, Pfand-Buchungen laufen ohne Umsatzsteuer.',
+    antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position. Wie das Pfand steuerlich behandelt wird, stellst du unter Einstellungen → Steuer & Rechnungen ein.',
     schritte: ['Menü ▸ Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
   /* Kein einzelnes „anmelden“ als Stichwort: das zog „Muss ich mich bei der App anmelden?“ vom Datenschutz weg
      (Code-Prüfung 23.10.2026) – dafür Wendungen und eine Regel in ASSISTENT_REGELN. */
@@ -27300,7 +27341,7 @@ const APP_WISSEN = [
       { abschluss: '#ul-reiter', text: 'Oder du gehst über die Kategorien: Ämter & Pflicht, Völker, Honig & Verkauf, Geld & Steuer, Auswertungen sowie Alles & Daten. Jede Unterlage hat ihre Knöpfe für PDF, Excel und CSV.' }] },
   { id: 'sicherung', titel: 'Datensicherung', route: 'einstellungen', zeige: 'Sicherung',
     stichw: ['sicherung', 'backup', 'datensicherung', 'daten sichern', 'wiederherstellen', 'import', 'zwischenstand', 'zwischenstaende', 'snapshot', 'snapshots', 'frueheren stand', 'stand zurueckholen', 'versehentlich geloescht alles', 'daten verloren', 'umzug', 'neues handy', 'sichern', 'retten', 'daten retten', 'meine daten sind weg', 'daten sind weg', 'daten auf anderes handy', 'daten auf ein anderes handy', 'daten uebertragen', 'daten umziehen', 'daten auf neues handy', 'handy gewechselt', 'backup machen', 'backup erstellen', 'daten exportieren sichern'],
-    antwort: 'Alle Daten bleiben nur auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen. Zusätzlich merkt sich die App nach jeder Änderung einen Zwischenstand (die letzten 10, Einstellungen → „Zwischenstände“); damit holst du nach einem Versehen einen früheren Stand zurück – das ersetzt aber keine Sicherung.',
+    antwort: 'Deine Einträge liegen auf deinem Gerät. Sichere sie deshalb regelmäßig in den Einstellungen – damit kannst du sie auch auf ein neues Gerät übernehmen. Zusätzlich merkt sich die App nach jeder Änderung einen Zwischenstand (die letzten 10, Einstellungen → „Zwischenstände“); damit holst du nach einem Versehen einen früheren Stand zurück – das ersetzt aber keine Sicherung.',
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Sicherung“', 'Sicherung erstellen, Datei an sicherem Ort ablegen'],
     tour: [{ abschnitt: 'Sicherung & Daten', text: 'Tippe auf „Sicherung & Datensicherheit“, damit sich der Bereich öffnet.' },
       { knopf: 'Sicherung s', weiter: true, text: 'Mit diesem Knopf erzeugst du eine Datei mit allen deinen Daten. Lege sie an einem sicheren Ort ab, zum Beispiel in deinem Cloud-Speicher oder per Mail an dich selbst.' },
@@ -27533,7 +27574,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Statistiken', 'Reiter und Jahr wählen', 'Oben „Jahresbericht (PDF)“ antippen'] },
   { id: 'stand-wetter', titel: 'Wetter und Lage eines Standes', route: 'staende', zeige: '',
     stichw: ['wetter stand', 'wetter abrufen', 'standort wetter', 'temperatur stand', 'regen stand', 'koordinaten', 'karte', 'lage stand', 'wo steht', 'gps', 'standort eintragen', 'breitengrad', 'wetter am stand', 'wetter fuer stand', 'stand wetter'],
-    antwort: 'Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein. Das Wetter ist ab Werk aus: Beim ersten Speichern von Koordinaten fragt dich die App einmal, später schaltest du es unter Einstellungen → Funktionen ein oder aus. Ist es an, gehen die gerundeten Koordinaten und technisch deine IP-Adresse an den Wetterdienst Bright Sky. Die App holt das Wetter dann von selbst – beim Start und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Von Hand eintragen kannst du Werte auch ohne Abruf.',
+    antwort: 'Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein. Das Wetter ist ab Werk aus: Beim ersten Speichern von Koordinaten fragt dich die App einmal, später schaltest du es unter Einstellungen → Funktionen ein oder aus. Ist es an, gehen die gerundeten Koordinaten und technisch deine IP-Adresse an den Wetterdienst Bright Sky. Die App holt das Wetter dann von selbst – beim Start, bei der Rückkehr in die App, auf der Startseite und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Von Hand eintragen kannst du Werte auch ohne Abruf.',
     schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“: aktuelles Wetter und Verlauf ansehen', 'Ist das Wetter an, holt „Aktualisieren“ sofort neu; „Manuell“ trägt einen eigenen Wert ein'] },
   { id: 'bestandsbuch', titel: 'Bestandsbuch für Arzneimittel (PDF)', route: 'behandlungen', zeige: 'Bestandsbuch',
     stichw: ['bestandsbuch', 'arzneimittelbuch', 'bestandsbuch pdf', 'dokumentation behandlung', 'tierarzt nachweis', 'behandlungsnachweis', 'kontrolle veterinaer', 'behandlungsliste', 'nachweis arzneimittel', 'kontrolle amt', 'arzneimittelbuch', 'tierarzneimittelbuch', 'nachweis behandlungen', 'nachweis ueber behandlungen', 'behandlungen drucken', 'behandlungen als pdf', 'pdf behandlungen'],
@@ -27562,7 +27603,7 @@ APP_WISSEN.push(
     antwort: 'Ja. ImkerBuch arbeitet komplett offline – auch am Bienenstand im Funkloch. Nur das Abrufen von Wetter und Landbedeckung braucht Internet.', schritte: [] },
   { id: 'datenschutz', persona: true, titel: 'Wo liegen meine Daten?',
     stichw: ['datenschutz', 'wo sind meine daten', 'cloud', 'server', 'daten sicher', 'wer sieht meine daten', 'speicherort', 'privatsphaere', 'weitergabe', 'dsgvo', 'daten verkauft', 'anmeldung', 'konto', 'passwort', 'login', 'wohin gehen meine daten', 'wohin gehen', 'daten gehen', 'daten an', 'brauch ich ein passwort', 'kein passwort'],
-    antwort: 'Alle Daten bleiben nur auf deinem Gerät. Es gibt kein Konto und keine Cloud, deshalb sieht sie niemand außer dir. Dafür bist du für die Sicherung selbst zuständig – sichere regelmäßig in den Einstellungen.', schritte: [] },
+    antwort: 'Deine Einträge liegen auf deinem Gerät. Es gibt kein Konto und keine Speicherung bei uns. Nur wenn du Wetter, Adresssuche oder die Bio-Umgebungsprüfung nutzt, gehen Koordinaten oder Suchbegriffe an die Dienste, die in der Datenschutzerklärung stehen. Für die Sicherung bist du selbst zuständig – sichere regelmäßig in den Einstellungen.', schritte: [] },
   { id: 'mehrere-geraete', persona: true, titel: 'Mehrere Geräte benutzen',
     stichw: ['mehrere geraete', 'zwei handys', 'tablet und handy', 'synchronisieren', 'sync', 'auf anderem geraet', 'neues handy', 'handy gewechselt', 'computer und handy', 'abgleichen', 'gemeinsam nutzen', 'zu zweit', 'partner', 'familie', 'mitarbeiten', 'mitarbeiter', 'gemeinsam arbeiten', 'zusammen nutzen', 'mein partner', 'meine frau', 'mein mann', 'helfer', 'kann meine frau', 'app auch benutzen', 'mit meiner frau', 'mit meinem mann', 'familie nutzt', 'gemeinsames konto'],
     antwort: 'Weil die Daten nur auf dem Gerät liegen, gibt es keine automatische Synchronisation. Zum Wechseln oder Übertragen erstellst du in den Einstellungen unter „Sicherung & Datensicherheit“ eine Sicherung und spielst sie auf dem anderen Gerät mit „Backup importieren“ ein.', schritte: [] },
@@ -28693,7 +28734,7 @@ Views.einstellungen = {
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
 
       <div class="card"><div class="card-title">${icon('share')}<h2>Sicherung & Datensicherheit</h2></div>
-        <p class="small muted mb12">${Backup.nativTeilenMoeglich() ? 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig: „Sicherung speichern“ legt eine Datei an – ' + (Lizenz.android() ? 'in Google Drive, „Dateien“, per Mail oder an ein anderes Gerät' : 'in iCloud Drive („In Dateien sichern“), Google Drive, per Mail oder AirDrop') + '. Wird die App gelöscht, sind die Daten sonst weg.' : 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.'}</p>
+        <p class="small muted mb12">${Backup.nativTeilenMoeglich() ? 'Deine Einträge liegen auf diesem Gerät. Sichere regelmäßig: „Sicherung speichern“ legt eine Datei an – ' + (Lizenz.android() ? 'in Google Drive, „Dateien“, per Mail oder an ein anderes Gerät' : 'in iCloud Drive („In Dateien sichern“), Google Drive, per Mail oder AirDrop') + '. Wird die App gelöscht, sind die Daten sonst weg.' : 'Alle Daten liegen ausschließlich auf diesem Gerät. Sichere regelmäßig extern – per „Sicherung senden“ direkt an deine E-Mail oder deinen Messenger.'}</p>
         <div class="flex-wrap mb12 no-print">
           <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button>
           ${Backup.nativTeilenMoeglich() ? '' : `<button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>`}
@@ -28821,8 +28862,8 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
         <label class="check-line"><input type="checkbox" id="feat-wetter" ${Wetter.erlaubt() ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
-        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter beim App-Start für alle Stände abrufen (höchstens alle 30 Minuten, nur mit Internet)</span></label>
-        <div class="small muted mt4" id="wetter-hinweis">Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Mit dem Einschalten stimmst du dem zu. Ausschalten kannst du es hier jederzeit, das gilt dann für alle künftigen Abrufe.${Wetter.erlaubt() ? ` Zugestimmt am ${U.esc(U.fmtDate(S.get('wetterEinwilligung').zeit.slice(0, 10)))}.` : ''}</div>
+        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter von selbst abrufen: beim App-Start, bei der Rückkehr in die App, auf der Startseite und am Stand (höchstens alle 30 Minuten, nur mit Internet)</span></label>
+        <div class="small muted mt4" id="wetter-hinweis">Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Mit dem Einschalten stimmst du dem zu. Ausschalten kannst du es hier jederzeit, das gilt dann für alle künftigen Abrufe.${Wetter.erlaubt() ? ` Zugestimmt am ${U.esc(new Date(S.get('wetterEinwilligung').zeit).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }))}.` : ''}</div>
         <h3 class="mt16 mb8">Erinnerungen</h3>
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>
         ${f.benachrichtigungen ? `<div class="mt8">
