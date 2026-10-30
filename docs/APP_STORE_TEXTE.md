@@ -1,6 +1,6 @@
 # App Store – Texte und Angaben (Entwurf zum Einfügen)
 
-Stand 2026-10-21 (v2.83). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
+Stand 2026-10-30 (v3.09). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
 
 ## App-Informationen
 
@@ -14,6 +14,16 @@ Stand 2026-10-21 (v2.83). Alles hier ist zum Kopieren in App Store Connect gedac
 - **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
 - **Marketing-URL (optional):** `https://imkerbuch.app/`
 - **Copyright:** `2026 Julian Konstantin Köhler`
+
+## Eintragen in App Store Connect (Stand 30.10.2026)
+
+1. **App-Informationen:** Datenschutzrichtlinie-URL `https://imkerbuch.app/datenschutz.html`.
+2. **Version:** Support-URL `https://imkerbuch.app/support.html`, Marketing-URL `https://imkerbuch.app/`, Copyright `2026 Julian Konstantin Köhler`.
+3. **App-Prüfung, Kontakt:** E-Mail `support@imkerbuch.app`, Hinweise aus dem Abschnitt unten.
+4. **Lizenzvertrag:** unter App-Informationen → „Lizenzvertrag“ den eigenen Vertrag wählen und den Text aus `agb.html` einsetzen (Rechtsprüfung 1.1, Apple Exhibit D).
+5. **App-Datenschutz:** siehe Abschnitt unten. Standort, genau, App-Funktionalität, kein Tracking.
+6. **Beschreibung und Werbetext:** aus dieser Datei übernehmen.
+7. **Händlerstatus (Julian):** „Händler“; Adresse, Telefon und E-Mail werden in der EU sichtbar.
 
 ## Stichwörter (max. 100 Zeichen, Komma ohne Leerzeichen)
 
@@ -98,8 +108,8 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 - After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time.
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Volk"), or follow the built-in tour by the assistant "Imme".
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
-- Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
-- Permissions are only requested when used: camera (photos), microphone (voice notes), location (stand position), notifications (task reminders, local only).
+- Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
+- Permissions are only requested when used: camera (photos), microphone and speech recognition (voice notes with live transcription), location (stand position), notifications (task reminders, local only).
 - Support and privacy pages are reachable in the app under Einstellungen → Rechtliches and "Hilfe & Kontakt".
 
 ## App-Datenschutz („Datenschutz-Nährwerttabelle“)
