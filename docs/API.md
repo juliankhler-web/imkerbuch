@@ -212,7 +212,7 @@ U.zahl(v, ersatz=0)              // erzwingt eine Zahl – Importwerte sind kein
 U.bildQuelle(v)                  // nur data:image/… und https, sonst ''
 U.download(blob, name)  U.blobToDataURL(blob)  U.dataURLToBlob(durl)
 U.resizeImage(file, maxPx=1600, quality=0.8)
-U.loadScript(...urls)            // erste erreichbare Quelle gewinnt (lokal vor CDN)
+U.loadScript(...urls)            // lädt ein mitgeliefertes Skript aus ./libs/
 U.mapsLinks(lat, lng)
 ```
 
@@ -338,7 +338,7 @@ backupRingHtml() / backupRestText(ms)   // Countdown-Ring in den Einstellungen
 
 ## 9. Ausgabe: `Pdf`, `Xlsx`
 
-`Pdf` baut auf jsPDF + AutoTable (lokal in `libs/`, CDN als Rückfall).
+`Pdf` baut auf jsPDF + AutoTable (lokal in `libs/`).
 
 ```js
 await Pdf.newDoc(titel, untertitel)   // → { doc, y }
@@ -604,18 +604,17 @@ Alles Folgende ist **optional**; ohne Netz funktioniert die App vollständig wei
 
 | Dienst | Adresse | Wofür |
 | --- | --- | --- |
-| Open-Meteo | `api.open-meteo.com` | Wetter am Stand |
+| Bright Sky | `api.brightsky.dev` | Wetter am Stand, nur mit Einwilligung |
+| ImkerBuch | `imkerbuch.app/dienste.json` | Fern-Schalter der Adresssuche |
 | Nominatim | `nominatim.openstreetmap.org` | Adresssuche |
-| Overpass | `overpass-api.de` (+2 Spiegel) | Landbedeckung (Rückfall) |
+| Overpass | `overpass-api.de` | Landbedeckung (Rückfall) |
 | BKG CLC5 | `sgx.geodatenzentrum.de` | Landbedeckung (Rückfall) |
 | GeoService RLP | `geoservice.rlp.de` | amtliche Landbedeckung (erste Wahl) |
-| Hugging Face | `huggingface.co` | Whisper-Modell für das Diktat |
 
 Diese Hosts stehen in `BYPASS_HOSTS` des Service Workers und werden **nie** zwischengespeichert.
 
-Bibliotheken (jsPDF, AutoTable, pdf.js, QRCode, SheetJS) liegen unter `libs/` und werden nur
-im Notfall vom CDN geholt – `CDN` listet je Bibliothek die Reihenfolge, `U.loadScript` nimmt
-die erste erreichbare Quelle.
+Bibliotheken (jsPDF, AutoTable, pdf.js, QRCode, jsQR, SheetJS) liegen unter `libs/`. `CDN` nennt
+je Bibliothek nur den lokalen Pfad, Fremd-Server werden nicht mehr gefragt (ab v3.08).
 
 ---
 
@@ -627,7 +626,6 @@ die erste erreichbare Quelle.
 | --- | --- |
 | HTML-Seite | **network-first** – online immer die neueste Fassung, offline aus dem Cache |
 | übrige App-Dateien | stale-while-revalidate |
-| CDN-Bibliotheken | cache-first (Versionen sind unveränderlich) |
 | `BYPASS_HOSTS` | network-only |
 | `?testdb`, `/tests/`, `?update`, `service-worker.js` | gehen ganz am Cache vorbei |
 
@@ -729,8 +727,7 @@ Schreibsperre. `freieKoeniginKennung` berechnet aus dem gesperrten Bestand.
 Der Hygieneplan-Parser liefert weiterhin ein Array; `gekuerzt: true` signalisiert
 mehr als 60 Ergebniszeilen. Die Durchsicht zeigt die Begrenzung an. PDF-Text wird
 bis fünf Seiten, 50.000 Textobjekten pro Seite und 500.000 Textzeichen verarbeitet;
-OCR-Layout bis 50.000 Wörtern, Eingabedateien bis 20 MB. Scanrendering wird auf
-vier Millionen Pixel begrenzt. Dies sind Verarbeitungsbudgets, keine Garantie
+Eingabedateien bis 20 MB. Dies sind Verarbeitungsbudgets, keine Garantie
 gegen jede fehlerhafte Fremdbibliothek. PDF-Ressourcen werden freigegeben.
 Planübernahme sperrt Doppelklicks und schreibt Einträge sowie optionalen
 Beschreibungstext gemeinsam. Bei Abbruch bleiben Formular und Ausgangsdaten erhalten.

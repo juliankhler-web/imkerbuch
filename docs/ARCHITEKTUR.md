@@ -9,7 +9,7 @@
 |---|---|
 | `index.html` | Gesamte App: eingebettetes CSS + Vanilla JS in klar getrennten Modul-Abschnitten (s. u.) |
 | `manifest.json` | PWA-Manifest (Icons 192/512, any + maskable, standalone) |
-| `service-worker.js` | Offline-Cache: App-Shell stale-while-revalidate, CDN-Bibliotheken cache-first, APIs + `/tests/` + `?testdb` network-only |
+| `service-worker.js` | Offline-Cache: App-Shell stale-while-revalidate, APIs + `/tests/` + `?testdb` network-only |
 | `icon-*.png` | App-Icons, erzeugt aus `icons.py` (Pillow, Dev-Werkzeug) |
 | `tests/test.html`, `tests/tests.js` | Testsuite (läuft gegen die App im iframe, eigene Test-DB) – siehe [TESTFAELLE.md](TESTFAELLE.md) |
 | `docs/` | Diese Dokumentation ([FEATURES.md](FEATURES.md), [TESTFAELLE.md](TESTFAELLE.md)) |
@@ -36,9 +36,9 @@ exportiert (const-Deklarationen landen sonst nicht am `window` – wichtig für 
 | `UI` | `toast`, `modal`, `confirm` (inkl. Tipp-Bestätigung), `formModal` (generisches Formular mit Validierung, Dezimalkomma, Dirty-Guard; Feldtyp `suggest` = Datalist-Vorschläge + Eigeneingabe), `tabs`, `chart` (SVG Linie/Balken), `pie` (SVG-Donut mit Legende) |
 | Router | Hash-Routing `#/route/param`, `Views`-Registry, `renderRoute()`, `navTo()`, `NAV`-Definition, App-Chrome (Sidebar/Bottom-Nav/Mehr-Sheet), `applyTheme()` |
 | DRY-Helfer | `bindAdd` (Neu-Buttons), `zielIdAus` + `zielFormValues` (Volk/Stand-Formulare), `papierkorbDelete` (Standard-onDelete), `emptyState`, `pageHead` (Titel + `.ph-actions`-Buttonblock; responsiv: `.ph-text{min-width:min(100%,14rem)}` erzwingt bei Platzmangel den Umbruch der Aktionen in eine eigene Zeile statt Titel-Overlap), `idMap` |
-| `Anhang` | Foto-/Dokument-Anhänge: Galerie, Viewer, Dokumententypen, OCR-Anbindung |
+| `Anhang` | Foto-/Dokument-Anhänge: Galerie, Viewer, Dokumententypen |
 | `Ocr` | Tesseract.js (deu), lazy |
-| `Voice`, `Sprachnotiz` | MediaRecorder, Web-Speech-Live-Diktat, Whisper offline (transformers.js, 16-kHz-Resampling) |
+| `Voice`, `Sprachnotiz` | MediaRecorder, Web-Speech-Live-Diktat |
 | `Views.*` | Ein Eintrag je Modul: dashboard, staende/stand, voelker/volk, koeniginnen, zucht, behandlungen, trachten, wanderungen, honig (inkl. Verkäufe-Tab), kassenbuch, rechnungen/rechnung, inventar, aufgaben, imkerschule (Lernmodul), zeiten (Zeiterfassung mit Torte), meldungen, reporting, einstellungen, papierkorb |
 | Imkerschule | `LERN_KAPITEL` (Lektions-Daten), `ISchule` (Fortschritt via `S`), `Views.imkerschule` (interner State `_open/_phase/_step`, re-rendert per `renderRoute()`). Geführte Aktion = Lektion ruft eine echte App-Funktion (z. B. `openVolkForm(null,{},onDone)`); `onDone` hakt die Lektion ab. Fortschritt in Settings-Key `imkerschule` (kein eigener Store). |
 | `verkaufErfassen`/`verkaufStornieren`, `verkaufForm` | Verkaufslogik: Bestandsprüfung → Chargen-Abzug → Kassenbuch-Einnahme (Storno kehrt beides um) |
@@ -63,7 +63,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | Store | Wichtigste Felder |
 |---|---|
 | `staende` | name, lat, lng, kmEntfernung (einfache Strecke fürs Fahrtenbuch), notizen |
-| `wetter` | standId, datum, tempC, windKmh, niederschlagMm, bemerkung, quelle (`manuell`/`open-meteo`) |
+| `wetter` | standId, datum, tempC, windKmh, niederschlagMm, bemerkung, quelle (`manuell`/`dwd`) |
 | `voelker` | name, standId, koeniginId, funktion, beutentyp, beutenkennung, status (`aktiv`/`aufgeloest`/`vereinigt`), historie[{datum,text}], notizen |
 | `stockkarten` | volkId, datum, volksstaerke/brutbild/sanftmut (1–5), futter, weiselzellen, notiz, zusatz{} (eigene Felder aus Setting `stockkartenFelder`) |
 | `fuetterungen` | volkId, datum, futterart, mengeKg, winterfutter |
@@ -96,7 +96,7 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 - **Rechnung festschreiben** ist die einzige Stelle, die Chargen-Bestand mindert und Kassenbuch bucht; Storno ist die Umkehrung (negative Einnahme-Buchung).
 - **Merge-Regel** (Import „Zusammenführen“): pro UUID gewinnt der neuere `lastModified`; Anhänge ohne Binärdaten werden übersprungen.
 
-## Bibliotheken (CDN, lazy geladen, danach im SW-Cache offline)
+## Bibliotheken (nur lokal in `libs/`, ab v3.08 ohne CDN; die Adressen unten sind die Herkunft der Dateien)
 
 | Bibliothek | Zweck | URL |
 |---|---|---|
@@ -104,13 +104,12 @@ Im Testmodus (`?testdb`) heißt die Datenbank `imkerbuch-test`. **DB-Versionen**
 | jsPDF 2.5.2 + AutoTable 3.8.4 | PDFs | `cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/…`, `…/jspdf-autotable/3.8.4/…` |
 | pdf.js 3.11.174 | PDF lesen | `cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js` (+ worker) |
 | qrcode-generator 1.4.4 | QR-Codes | `cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js` ⚠️ das npm-Paket „qrcode“ hat **kein** CDN-Bundle (404) |
-| Tesseract.js 5.1.1 | OCR deu | `cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js` |
-| @xenova/transformers 2.17.2 | Whisper offline | ESM-`import()` von jsDelivr; Modell `Xenova/whisper-small` (quantisiert) |
-| Open-Meteo | Wetter | `api.open-meteo.com/v1/forecast` (kein Key, network-only) |
+| Bright Sky | Wetter (Deutscher Wetterdienst) | `api.brightsky.dev`, nur mit Einwilligung, Koordinaten auf 0,025 Grad gerundet |
+| Nominatim | Adresssuche | vorher Fern-Schalter `https://imkerbuch.app/dienste.json` (`Dienste`), höchstens 1 Suche/s |
 
 Diagramme: **eigener SVG-Chart-Helfer** (`UI.chart`, Linie/Balken) – keine Bibliothek.
 
-**CDN-Robustheit:** Alle Bibliotheks-URLs liegen zentral in der Konstante `CDN` mit je 2–3 Ausweichquellen (jsdelivr/unpkg/cdnjs); `U.loadScript(...urls)` probiert sie der Reihe nach und liefert die funktionierende URL zurück (pdf.js bezieht seinen Worker vom Gewinner-CDN). Grund: cdnjs führt jsPDF 2.5.2 NICHT (404 → PDF-Fehler am iPhone am 2026-07-03). `warmupBibliotheken()` lädt jsPDF/SheetJS/QR nach dem Start im Hintergrund vor → nach der ersten Online-Sitzung dauerhaft offline verfügbar.
+**Bibliotheken:** Die Konstante `CDN` nennt je Bibliothek nur noch den lokalen Pfad unter `./libs/`. Lizenzen stehen in `lizenzen.html`.
 
 ## Konventionen
 
@@ -122,7 +121,7 @@ Diagramme: **eigener SVG-Chart-Helfer** (`UI.chart`, Linie/Balken) – keine Bib
 ## Design-Entscheidungen
 
 - **Single-File bleibt** (Anforderung „eine index.html“): Modularität über Namespaces, Banner-Abschnitte und expliziten window-Export statt ES-Module/Dateisplit. Tests greifen über das iframe-`window` auf die Namespaces zu.
-- **CDN lazy**: App-Start lädt keine Bibliothek; erst Funktionsnutzung (Excel/PDF/OCR/QR/Whisper) lädt einmalig, der SW cached danach für offline. Konsequenz: Spezialfunktionen brauchen bei ihrer allerersten Nutzung Internet.
+- **Bibliotheken lazy**: App-Start lädt keine Bibliothek; erst die Funktionsnutzung (Excel/PDF/QR) lädt sie aus `./libs/`.
 - **Snapshots ohne Blobs**, externe JSON-Backups mit allem (Base64) – Kompromiss aus Speicher und „keine Daten verlieren“.
 - **Rechnungspreise sind Bruttopreise**; USt wird für die Ausweisung herausgerechnet (B2C-üblich, 7 % Honig). §19 blendet USt komplett aus.
 - **Storno** als negative Einnahme-Buchung, damit Jahressummen stimmen.

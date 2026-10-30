@@ -104,8 +104,8 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 
 ## App-Datenschutz („Datenschutz-Nährwerttabelle“)
 
-- **Erfasst ihr Daten von dieser App?** → **Nein, wir erfassen keine Daten.**
-  Begründung: Alle Inhalte bleiben auf dem Gerät. Wetter-, Karten- und Geodienste bekommen nur Koordinaten/Suchbegriffe ohne Personenbezug und speichern nichts für uns; Kauf läuft über Apple. Support-Mails schickt der Nutzer selbst aktiv (zählt nicht als Erfassung durch die App).
+- **Erfasst ihr Daten von dieser App?** → **Ja: Standort → Genauer Standort.** Zweck: App-Funktionalität. Kein Tracking. „Mit dem Nutzer verknüpft“: Entwurf Nein, die Frage ist offen (Anwalt).
+  Begründung: Die Inhalte bleiben auf dem Gerät. Wetter (nur wenn eingeschaltet), Adresssuche und Bio-Umgebungsprüfung senden Koordinaten oder Suchbegriffe an die in der Datenschutzerklärung genannten Dienste. Die Antwort muss zu Googles „Ja, Standort“ passen. Kauf läuft über Apple. Support-Mails schickt der Nutzer selbst aktiv (zählt nicht als Erfassung durch die App).
 - **Tracking:** Nein.
 
 ## Exportkonformität

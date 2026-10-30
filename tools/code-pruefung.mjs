@@ -37,7 +37,7 @@ export async function codePruefung({ leise = false } = {}) {
     overrideConfig: {
       languageOptions: {
         ecmaVersion: 2024, sourceType: 'script',
-        globals: { ...globals.browser, jspdf: 'readonly', XLSX: 'readonly', pdfjsLib: 'readonly', QRCode: 'readonly', Tesseract: 'readonly', JsBarcode: 'readonly' },
+        globals: { ...globals.browser, jspdf: 'readonly', XLSX: 'readonly', pdfjsLib: 'readonly', QRCode: 'readonly', JsBarcode: 'readonly' },
       },
       rules: {
         'no-undef': 'error',            // Name nirgends definiert (der Königinnen-Fehler)

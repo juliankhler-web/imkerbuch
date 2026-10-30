@@ -94,8 +94,7 @@ Nach größeren Umbauten einmal am echten Gerät durchgehen:
 
 - [ ] **PWA**: „Zum Home-Bildschirm“ installieren, offline öffnen (Flugmodus), Icon/Splash korrekt
 - [ ] **Kamera**: Foto-Anhang am Smartphone öffnet direkt die Kamera; Bild landet verkleinert in der Galerie
-- [ ] **Mikrofon**: Sprachnotiz aufnehmen/abspielen; Live-Diktat in Chrome; Whisper-Transkription (einmalig ~250 MB Download)
-- [ ] **OCR**: „Text aus Foto übernehmen“ mit Etikett/Druckschrift
+- [ ] **Mikrofon**: Sprachnotiz aufnehmen/abspielen; Live-Diktat in Chrome
 - [ ] **Sicherung senden**: Teilen-Dialog mit Datei (Mobil); Desktop-Fallback = Download + mailto
 - [ ] **Auto-Backup-Ordner**: Chrome/Edge Desktop – Ordner wählen, Intervall „täglich“, Datei erscheint
 - [ ] **Import**: Backup auf zweitem Gerät „Zusammenführen“ → keine Duplikate; „Ersetzen“ → Doppel-Bestätigung inkl. „ERSETZEN“-Tippen

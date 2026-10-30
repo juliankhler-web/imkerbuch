@@ -4083,7 +4083,7 @@ test('Rechner: keine Futter-Rechner mehr – die stehen bei der Fütterung', asy
     assertEq(/Winterfutter planen|Zucker → Sirup/.test(host.textContent), false, 'auch die alten Karten sind weg');
     // die übrigen Rechner müssen aber noch da sein
     assert(host.querySelector('[data-sk="voelker"]'), 'Selbstkosten-Rechner');
-    assert(host.querySelector('#beh-mittel'), 'Behandlungsrechner');
+    assert(host.querySelector('[data-mr="menge"]'), 'Mengenrechner');
   } finally { host.remove(); }
 });
 
@@ -4977,7 +4977,7 @@ test('brandLogoSvg: neues Homescreen-Logo, eigenes Nutzer-Logo bleibt unberührt
 
 /* ---------- Rechtstexte (Veröffentlichung) ---------- */
 test('Rechtstexte: Impressum/Datenschutz/AGB erreichbar & ohne offene Platzhalter', async (w) => {
-  const pflicht = { 'impressum.html': 'Impressum', 'datenschutz.html': 'Datenschutzerklärung', 'agb.html': 'Widerruf' };
+  const pflicht = { 'impressum.html': 'Impressum', 'datenschutz.html': 'Datenschutzerklärung', 'agb.html': 'Widerruf', 'lizenzen.html': 'Capacitor' };
   for (const file in pflicht) {
     const r = await w.fetch(file, { cache: 'no-store' });
     assert(r.ok, file + ' erreichbar (HTTP ' + r.status + ')');
@@ -6952,8 +6952,9 @@ test('osmAdresseSuchen: Treffer, kein Treffer, Serverfehler, leere Eingabe', asy
     assertEq(t.lat, 49.5, 'Breitengrad als Zahl, nicht als Text');
     assertEq(t.lon, 8.4);
     assertEq(t.name, 'Musterweg 1, Musterstadt');
-    assert(/nominatim/.test(rufe[0].url), 'gefragt wird Nominatim');
-    assert(!/[<>]/.test(rufe[0].url), 'die Suche ist kodiert');
+    const suche = rufe.find((r) => /nominatim/.test(r.url));
+    assert(suche, 'gefragt wird Nominatim');
+    assert(!/[<>]/.test(suche.url), 'die Suche ist kodiert');
   });
   await mitFetch(w, async () => new Response('[]', { status: 200 }), async () => {
     let m = ''; try { await w.osmAdresseSuchen('Gibt es nicht'); } catch (e) { m = e.message; }
@@ -12056,7 +12057,7 @@ test('Export: Volksakte enthält alles zum Volk, jeder Teil einzeln, PDF/Excel/C
     const pdfText = (d) => d.internal.pages.map((p) => (p || []).join('\n')).join('\n').replace(/\\([()\\])/g, '$1');   // Seiteninhalt vor dem Komprimieren, Klammern entmaskiert
     const text = pdfText(doc);
     for (const t of ['Volksakte 2026', 'Stammdaten (1)', 'Durchsichten (1)', 'Behandlungen (1)', 'Varroa-Kontrollen (0)', 'Ernten (1)', 'Schwarmstimmung', '12,5', 'Feld', 'Wert']) assert(text.includes(t), `PDF enthält „${t}“`);
-    assert(!text.includes('12.5'), 'Kommazahl mit Komma');
+    assert(!/\(12\.5\)/.test(text), 'Kommazahl mit Komma');   // nur Textbausteine: Koordinaten im PDF dürfen „12.5“ enthalten
     host.querySelector('[data-exaus="xlsx"]').click(); await warte(400);
     assert(mappe && /volksakte-exptest-volk-2026/.test(mappe.name), `Excel-Datei mit Volk und Jahr im Namen (${mappe && mappe.name})`);
     assert(mappe.wb.SheetNames.includes('Durchsichten') && mappe.wb.SheetNames.includes('Stammdaten'), 'ein Blatt je Teil');
@@ -15236,7 +15237,7 @@ test('Sicherheit: Kauf lässt sich weder per Sicherungsdatei noch per altem Spei
   // 0) PDF-Leser: präparierte PDFs dürfen keinen Code ausführen (CVE-2024-4367) – jeder Aufruf mit isEvalSupported:false
   const quelle = await (await w.fetch('index.html')).text();
   const aufrufe = quelle.match(/pdfjsLib\.getDocument\(\{[^}]*\}\)/g) || [];
-  assert(aufrufe.length >= 4 && aufrufe.every((x) => /isEvalSupported: false/.test(x)), 'alle PDF-Öffnungen gehärtet: ' + aufrufe.length);
+  assert(aufrufe.length >= 3 && aufrufe.every((x) => /isEvalSupported: false/.test(x)), 'alle PDF-Öffnungen gehärtet: ' + aufrufe.length);
   // 1) Manipulierte Sicherung mit „Vollversion gekauft“ und Teststart → Zeilen werden verworfen
   for (const key of ['lizenz', 'testStartGeraet', 'bewertung']) {
     assertEq(w.Backup._saeubereZeile('settings', { key, value: { voll: true, testStart: '2099-01-01' } }), null, key + ' kommt nicht aus einer Datei');
@@ -15267,20 +15268,22 @@ test('App: Datei-Ausgaben laufen über das Teilen-Menü, kein nachgeladener Code
 test('Wetter: Deutscher Wetterdienst – Messstation, sonst Vorhersage (z. B. Wien)', async (w) => {
   const echt = w.fetch, urls = [];
   const antwort = (status, daten) => Promise.resolve({ ok: status === 200, status, json: async () => daten });
+  const vorher = { f: w.S.get('features'), e: w.S.get('wetterEinwilligung') };
+  await w.Wetter.einwilligen();
   try {
     w.fetch = (u) => { urls.push(u); return /current_weather/.test(u) ? antwort(200, { weather: { temperature: 12.5, wind_speed_10: 9, precipitation_60: 0.4 } }) : antwort(500, {}); };
     let x = await w.Wetter.fetchCurrent({ lat: 51.3, lng: 9.5 });
     assertEq([x.tempC, x.windKmh, x.niederschlagMm, x.quelle], [12.5, 9, 0.4, 'Deutscher Wetterdienst']);
-    assert(/^https:\/\/api\.brightsky\.dev\/current_weather\?lat=51\.3&lon=9\.5$/.test(urls[0]), 'richtige Adresse: ' + urls[0]);
+    assert(/^https:\/\/api\.brightsky\.dev\/current_weather\?lat=51\.300&lon=9\.500$/.test(urls[0]), 'richtige Adresse: ' + urls[0]);
     urls.length = 0;
     w.fetch = (u) => { urls.push(u); return /current_weather/.test(u) ? antwort(404, {}) : antwort(200, { weather: [{ temperature: 15, wind_speed: 11, precipitation: 0 }] }); };
     x = await w.Wetter.fetchCurrent({ lat: 48.21, lng: 16.37 });
     assertEq([x.tempC, x.quelle], [15, 'Deutscher Wetterdienst (Vorhersage)'], 'keine Station in der Nähe → Vorhersage');
-    assert(/\/weather\?lat=48\.21&lon=16\.37&date=/.test(urls[1]), 'Vorhersage-Abruf: ' + urls[1]);
+    assert(/\/weather\?lat=48\.200&lon=16\.375&date=/.test(urls[1]), 'Vorhersage-Abruf, gerundet: ' + urls[1]);
     w.fetch = () => antwort(503, {});
     let fehler = null; try { await w.Wetter.fetchCurrent({ lat: 1, lng: 1 }); } catch (e) { fehler = e; }
     assert(fehler, 'Dienst weg → Fehler (Kachel zeigt „nicht abrufbar“)');
-  } finally { w.fetch = echt; }
+  } finally { w.fetch = echt; await w.S.set('features', vorher.f, { auto: true }); await w.S.set('wetterEinwilligung', vorher.e, { auto: true }); }
 });
 
 test('Lizenz Android: Testphase startet auf dem Gerät (kein 0-€-Kauf), Datum bleibt gerätebezogen', async (w) => isolierteDaten(w, async () => {
@@ -16912,3 +16915,306 @@ test('Häufige Fahrten anpassen: abhaken blendet aus, wieder anhaken holt zurüc
     assertEq([...host.querySelectorAll('.fahrt-row .r-title')].map((x) => x.textContent).sort(), ['Anger', 'Buche', 'Chaussee'], 'wieder da');
   } finally { w.renderRoute = echtRender; host.remove(); dialogeSchliessen(w); }
 }));
+
+/* ---------- v3.08: Rechtsprüfung vom 30.10.2026 (docs/RECHT_PRUEFUNG_2026-10-30.md) ---------- */
+test('Wetter: ab Werk aus, ohne Einwilligung geht nichts raus – auch nicht auf alten Geräten mit wetter:true', async (w) => isolierteDaten(w, async () => {
+  const W = w.Wetter, echtFetch = w.fetch, rufe = [];
+  w.fetch = async (u) => { rufe.push(String(u)); return { ok: true, status: 200, json: async () => ({ weather: { temperature: 10 } }) }; };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    assertEq(w.S.defaults.features.wetter, false, 'ab Werk aus');
+    assertEq(w.S.defaults.features.wetterStart, false, 'Autoabruf ab Werk aus');
+    assert(w.S.GERAET.has('wetterEinwilligung') && w.S.GERAET.has('wetterGefragt'), 'Einwilligung reist nicht in Sicherungen mit');
+    // Altes Gerät: Schalter steht noch an, aber es gibt keine Einwilligung
+    await w.S.set('features', { ...w.S.get('features'), wetter: true, wetterStart: true }, { auto: true });
+    assertEq(W.erlaubt(), false, 'ohne Einwilligung nicht erlaubt');
+    assertEq(W.darfAuto(), false, 'kein Autoabruf');
+    let fehler = null; try { await W.fetchCurrent({ lat: 48.137, lng: 11.575 }); } catch (e) { fehler = e; }
+    assert(fehler, 'fetchCurrent verweigert'); assertEq(rufe.length, 0, 'kein Netzabruf');
+    const st = await w.DB.put('staende', { name: 'Wetterfrei', lat: 48.137, lng: 11.575 });
+    assertEq(await w.DASH_WIDGETS.wetter.html(), '', 'keine Kachel');
+    w.Views.stand._test = true;
+    await w.Views.stand.render(host, st.id);
+    assertEq(host.querySelector('#wAuto'), null, 'kein Aktualisieren-Knopf');
+    assert(host.querySelector('#wMan'), 'von Hand eintragen bleibt');
+    // Zustimmung: Zeit und Version
+    await W.einwilligen();
+    assertEq(W.erlaubt(), true, 'nach der Zustimmung erlaubt');
+    const e = w.S.get('wetterEinwilligung');
+    assert(e.zeit && !isNaN(Date.parse(e.zeit)), 'Zeitpunkt gespeichert'); assertEq(e.version, w.WETTER_EINWILLIGUNG_VERSION, 'Textversion gespeichert');
+    assertEq(w.S.get('features').wetterStart, true, 'Autoabruf gehört zur Zustimmung');
+    host.innerHTML = ''; await w.Views.stand.render(host, st.id);
+    assert(host.querySelector('#wAuto'), 'Aktualisieren-Knopf da');
+    await W.fetchCurrent({ lat: 48.137, lng: 11.575 });
+    assert(/lat=48\.125&lon=11\.575/.test(rufe[0]), 'gerundet gesendet: ' + rufe[0]);
+    assert(!/48\.137/.test(rufe[0]), 'genaue Breite geht nicht raus');
+    assert(!/name|Wetterfrei/i.test(rufe[0]), 'kein Name');
+    // Widerruf
+    await W.widerrufen();
+    assertEq(W.erlaubt(), false, 'nach dem Ausschalten wieder aus');
+    assertEq(w.S.get('wetterEinwilligung'), null, 'Einwilligung entfernt');
+  } finally { w.fetch = echtFetch; host.remove(); delete w.Views.stand._test; }
+}));
+
+test('Wetter: runden auf 0,025 Grad', (w) => {
+  const g = w.Wetter.gerundet;
+  assertEq(g(48.137), '48.125'); assertEq(g(11.575), '11.575'); assertEq(g('51,3'), '51.300');
+  assertEq(g(9.99), '10.000'); assertEq(g(16.37), '16.375');
+});
+
+test('Wetter: Frage genau einmal, zwei gleich große Knöpfe, nicht in Light und nicht im Testlauf', async (w) => isolierteDaten(w, async () => {
+  const W = w.Wetter, L = w.Lizenz, echt = { aktiv: L.aktiv, speicher: L.speicher, render: w.renderRoute, abrufen: W.alleAbrufen };
+  const warte = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+  w.renderRoute = async () => {}; W.alleAbrufen = () => Promise.resolve(0);
+  try {
+    dialogeSchliessen(w);
+    const mit = { lat: 48.1, lng: 11.5 };
+    assertEq(W.frageFaellig(mit), false, 'im Testlauf nie');
+    assertEq(W.frageFaellig(mit, { imTest: false }), true, 'erstes Speichern mit Koordinaten: fällig');
+    assertEq(W.frageFaellig({ lat: null, lng: null }, { imTest: false }), false, 'ohne Koordinaten nicht');
+    L.aktiv = () => true; L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * 864e5).toISOString() });
+    assertEq(W.frageFaellig(mit, { imTest: false }), false, 'in Light nicht');
+    L.aktiv = echt.aktiv; L.speicher = echt.speicher;
+    // „Nein danke“
+    const m = await W.fragen(); await warte();
+    const text = m.el.textContent;
+    assert(/Wetter für deine Stände anzeigen\?/.test(text), 'Überschrift');
+    assert(/gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky/.test(text) && /IP-Adresse/.test(text) && /Namen gehen nicht mit/.test(text) && /höchstens alle 30 Minuten/.test(text) && /Einstellungen → Funktionen ausschalten/.test(text), 'Wortlaut');
+    const ja = m.el.querySelector('[data-wetter-ja]'), nein = m.el.querySelector('[data-wetter-nein]');
+    assertEq(ja.textContent, 'Wetter einschalten'); assertEq(nein.textContent, 'Nein danke');
+    assertEq(ja.className, nein.className, 'gleich aussehende Knöpfe');
+    nein.click(); await warte();
+    assertEq(W.erlaubt(), false, 'Nein: bleibt aus');
+    assertEq(W.frageFaellig(mit, { imTest: false }), false, 'kein zweites Mal');
+    // „Wetter einschalten“
+    const m2 = await W.fragen(); await warte();
+    m2.el.querySelector('[data-wetter-ja]').click(); await warte(120);
+    assertEq(W.erlaubt(), true, 'Ja: eingeschaltet');
+    assert(w.S.get('wetterEinwilligung').zeit, 'mit Zeitpunkt');
+  } finally { L.aktiv = echt.aktiv; L.speicher = echt.speicher; w.renderRoute = echt.render; W.alleAbrufen = echt.abrufen; dialogeSchliessen(w); }
+}));
+
+test('Wetter: Einstellungen – Einschalten ist die Einwilligung, Ausschalten genauso einfach, Light gesperrt', async (w) => isolierteDaten(w, async () => {
+  const W = w.Wetter, L = w.Lizenz, echt = { render: w.renderRoute, abrufen: W.alleAbrufen, aktiv: L.aktiv, speicher: L.speicher, fenster: L.fenster };
+  const warte = (ms = 80) => new Promise((r) => setTimeout(r, ms));
+  w.renderRoute = async () => {}; W.alleAbrufen = () => Promise.resolve(0);
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.einstellungen.render(host);
+    const box = host.querySelector('#feat-wetter');
+    assert(box && !box.checked, 'ab Werk nicht angehakt');
+    assert(host.querySelector('[data-feat="wetterStart"]').disabled, 'Autoabruf erst nach dem Einschalten wählbar');
+    const hinweis = host.querySelector('#wetter-hinweis').textContent;
+    assert(/gerundeten Koordinaten/.test(hinweis) && /Bright Sky/.test(hinweis) && /IP-Adresse/.test(hinweis), 'Hinweis sagt, was gesendet wird');
+    assertEq(host.querySelector('[data-feat="ocr"]'), null, 'kein OCR-Schalter'); assertEq(host.querySelector('[data-feat="whisper"]'), null, 'kein Whisper-Schalter');
+    box.checked = true; box.dispatchEvent(new w.Event('change')); await warte();
+    assertEq(W.erlaubt(), true, 'Einschalten = Einwilligung');
+    assert(w.S.get('wetterEinwilligung').zeit && w.S.get('wetterEinwilligung').version, 'Zeit und Version');
+    box.checked = false; box.dispatchEvent(new w.Event('change')); await warte();
+    assertEq(W.erlaubt(), false, 'Ausschalten wirkt');
+    // Light: Einschalten öffnet das Kauf-Fenster und speichert nichts
+    const fenster = []; L.fenster = (o) => { fenster.push(o); };
+    L.aktiv = () => true; L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * 864e5).toISOString() });
+    box.checked = true; box.dispatchEvent(new w.Event('change')); await warte();
+    assertEq(W.erlaubt(), false, 'Light: bleibt aus'); assertEq(box.checked, false, 'Haken zurück'); assertEq(fenster.length, 1, 'Kauf-Fenster');
+  } finally { L.aktiv = echt.aktiv; L.speicher = echt.speicher; L.fenster = echt.fenster; w.renderRoute = echt.render; W.alleAbrufen = echt.abrufen; host.remove(); }
+}));
+
+test('Mengenrechner: rechnet nur mit dem Wert der Beilage, startet leer, keine fest eingebauten Mengen', async (w) => {
+  const mr = w.mengenRechnen;
+  assertEq(mr({ menge: 0, voelker: 3 }).fehlt, 'menge', 'ohne Wert keine Rechnung');
+  assertEq(mr({ menge: NaN, voelker: 3 }).fehlt, 'menge');
+  assertEq(mr({ menge: 2, bezug: 'zarge', voelker: 3 }).fehlt, 'anzahl', 'ohne Anzahl je Volk keine Rechnung');
+  const r = mr({ menge: 2.5, bezug: 'zarge', jeVolk: 2, voelker: 3 });
+  assertEq([r.proVolk, r.gesamt, r.voelker], [5, 15, 3], 'nur multipliziert');
+  assertEq(mr({ menge: 7, bezug: 'volk', voelker: 2 }).gesamt, 14, 'je Volk');
+  for (const zeichnen of ['rechner', 'behandlungen']) {
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      await w.Views[zeichnen].render(host);
+      const box = host.querySelector('[data-mengenrechner]');
+      assert(box, zeichnen + ': Mengenrechner da');
+      const menge = box.querySelector('[data-mr="menge"]');
+      assertEq(menge.value, '', zeichnen + ': Eingabe startet leer');
+      assertEq(box.querySelector('[data-mr="menge"]').previousElementSibling.textContent, 'Menge laut Packungsbeilage', zeichnen + ': Beschriftung');
+      w.mengenrechnerZeichnen(box);
+      assert(/Wert aus deiner Packungsbeilage/.test(box.querySelector('[data-mr-aus]').textContent), zeichnen + ': Hinweis ohne Eingabe');
+      assert(box.querySelector('[data-mr-warnung]').textContent === w.MENGEN_WARNUNG, zeichnen + ': Warntext');
+      menge.value = '3,5'; box.querySelector('[data-mr="voelker"]').value = '4';
+      w.mengenrechnerZeichnen(box);
+      assert(/3,5/.test(box.querySelector('[data-mr-aus]').textContent) && /14/.test(box.querySelector('[data-mr-aus]').textContent), zeichnen + ': rechnet');
+      assert(!/Dosierungsrechner|Behandlungsrechner|OS-Lösung|Ameisensäure verdünnen|Oxalsäure|Milchsäure/.test(host.textContent.replace(w.MENGEN_WARNUNG, '')) || zeichnen === 'behandlungen', zeichnen + ': keine Mittel fest im Rechner');
+      assertEq(host.querySelector('[data-osl]') || host.querySelector('[data-asv]'), null, zeichnen + ': Selbstmischen entfernt');
+    } finally { host.remove(); }
+  }
+});
+
+test('Rechtsprüfung: feste Mengen und falsche Zusagen stehen nirgends mehr im Programm', async (w) => {
+  const q = await (await w.fetch('index.html', { cache: 'no-store' })).text();
+  for (const wort of ['ml/Gasse', 'g/Zarge', '5 ml', '35 g', 'OS-Dihydrat', '1× pro Winter', 'Wirksamkeit', 'verschreibungspflichtig', 'Sofort behandeln', 'jetzt behandeln', 'beliebig wiederholbar', 'Dosierungsrechner', 'Behandlungsrechner', 'Ameisensäure 85', 'GoBD', 'finanzamtssicher', 'revisionssicher', 'E-Rechnung', 'so verlangt es das Finanzamt', 'Nachweis fürs Finanzamt', "hint: 'Verkehrsbezeichnung", 'overpass.kumi', 'overpass.private', 'huggingface', 'Tesseract', 'unpkg.com', 'cdn.jsdelivr', 'cdnjs.cloudflare', 'weil Kontrollstellen']) {
+    assert(!q.includes(wort), `„${wort}“ darf nicht mehr vorkommen`);
+  }
+  for (const f of ['service-worker.js']) {
+    const t = await (await w.fetch(f, { cache: 'no-store' })).text();
+    assert(t.includes('./lizenzen.html'), 'Service Worker hält die Lizenzseite offline bereit');
+    assert(!/unpkg|jsdelivr|cdnjs|huggingface/.test(t), 'keine fremden Bibliotheks-Server im Service Worker');
+  }
+  assertEq(w.OSM_OVERPASS_SERVER.length, 1, 'nur noch ein Overpass-Server');
+  assert(/overpass-api\.de/.test(w.OSM_OVERPASS_SERVER[0]));
+  for (const v of Object.values(w.CDN)) assert(v.length === 1 && v[0].startsWith('./libs/'), 'nur lokale Bibliotheken: ' + v);
+});
+
+test('Imme: Warntext bei Mitteln, Zusatz bei Recht und Steuern, keine OS-Formel', async (w) => {
+  assert(w.immeZusatzApp({ id: 'behandlung' }).includes(w.MENGEN_WARNUNG), 'Behandlung: Warntext');
+  assert(w.immeZusatzApp({ id: 'steuer' }).includes(w.IMME_ZUSATZ_RECHT), 'Steuer: Zusatz');
+  assert(w.immeZusatzApp({ id: 'rechnung-festschreiben' }).includes(w.IMME_ZUSATZ_RECHT), 'Festschreiben: Zusatz');
+  assertEq(w.immeZusatzApp({ id: 'volk' }).length, 0, 'sonst nichts');
+  const treffer = w.Assistent.antwort('Wie funktioniert die Oxalsäure-Behandlung?');
+  const alle = (treffer.faq || []);
+  const os = alle.find((f) => /Oxalsäure-Behandlung/.test(f.f));
+  assert(os, 'die Frage wird gefunden');
+  assert(os.zusatz.includes(w.MENGEN_WARNUNG), 'mit Warntext');
+  assert(!/35 g|500 ml|1 g|5 ml/.test(os.a), 'keine Formel und keine Menge');
+  const welche = w.FAQ_THEMEN.flatMap((t) => t.fragen).find((f) => f.f === 'Welche Behandlungsmittel gibt es?');
+  assertEq(welche.a, 'Alle Anwendungen musst du dokumentieren. Welche Mittel in deinem Land gerade zugelassen sind, steht in der amtlichen Liste oder sagt dir dein Bienengesundheitsdienst.', 'ganze Antwort ersetzt');
+  const recht = w.FAQ_THEMEN.find((t) => t.id === 'recht');
+  assert(w.immeZusatzFaq(recht.fragen[0], 'recht').includes(w.IMME_ZUSATZ_RECHT), 'Recht: Zusatz');
+  const fest = w.APP_WISSEN.find((e) => e.id === 'rechnung-festschreiben');
+  assert(/nicht mehr ändern, nur stornieren/.test(fest.antwort) && !/Finanzamt/.test(fest.antwort), 'Festschreiben neutral');
+  const standWetter = w.APP_WISSEN.find((e) => e.id === 'stand-wetter');
+  assert(/ab Werk aus/.test(standWetter.antwort), 'Imme sagt: Wetter ab Werk aus');
+});
+
+test('dienste.json: Sperre, Zwischenspeicher, Fehler und Zeitüberschreitung, eine Suche pro Sekunde', async (w) => {
+  const S = 'imkerbuch-dienste', leeren = () => w.localStorage.removeItem(S);
+  const nom = '[{"lat":"49.5","lon":"8.4","display_name":"Musterweg 1"}]';
+  const tritt = (u) => /dienste\.json/.test(u);
+  leeren();
+  try {
+    // Gesperrt: freundliche Meldung, keine Suche
+    await mitFetch(w, async (u) => tritt(u) ? new Response('{"nominatim":false}', { status: 200 }) : new Response(nom, { status: 200 }), async (rufe) => {
+      let m = ''; try { await w.osmAdresseSuchen('Musterweg 1'); } catch (e) { m = e.message; }
+      assert(/gerade nicht verfügbar/.test(m), 'freundliche Meldung: ' + m);
+      assert(!rufe.some((r) => /nominatim\.openstreetmap/.test(r.url)), 'keine Suche an Nominatim');
+      assertEq(rufe[0].url, w.DIENSTE_ADRESSE, 'richtige Adresse');
+      assertEq(rufe[0].opt.credentials, 'omit', 'ohne Cookies');
+      assert(rufe[0].opt.signal, 'mit Zeitlimit');
+      // Zwischenspeicher: am selben Tag kein zweiter Abruf
+      try { await w.osmAdresseSuchen('Musterweg 1'); } catch (e) { /* weiter gesperrt */ }
+      assertEq(rufe.filter((r) => tritt(r.url)).length, 1, 'höchstens einmal je Tag');
+    });
+    // Anderer Tag: wird neu gefragt
+    w.localStorage.setItem(S, JSON.stringify({ tag: '2000-01-01', nominatim: false }));
+    await mitFetch(w, async (u) => tritt(u) ? new Response('{"nominatim":true}', { status: 200 }) : new Response(nom, { status: 200 }), async (rufe) => {
+      const t = await w.osmAdresseSuchen('Musterweg 1');
+      assertEq(t.name, 'Musterweg 1', 'wieder frei');
+      assertEq(rufe.filter((r) => tritt(r.url)).length, 1, 'am neuen Tag neu gefragt');
+    });
+    // Netzfehler und kaputte Antwort: normal weiter
+    for (const antwort of [async () => { throw new Error('Netz weg'); }, async () => new Response('kein json', { status: 200 }), async () => new Response('', { status: 404 })]) {
+      leeren();
+      await mitFetch(w, async (u, o) => tritt(u) ? antwort() : new Response(nom, { status: 200 }), async () => {
+        assertEq((await w.osmAdresseSuchen('Musterweg 1')).name, 'Musterweg 1', 'bei Fehlern wird normal gesucht');
+      });
+    }
+    // Zeitüberschreitung: nach der Wartezeit normal weiter
+    leeren();
+    const D = w.Dienste, alt = D.WARTEZEIT_MS; D.WARTEZEIT_MS = 40;
+    try {
+      await mitFetch(w, (u, o) => tritt(u) ? new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(new Error('abgebrochen')))) : Promise.resolve(new Response(nom, { status: 200 })), async () => {
+        assertEq((await w.osmAdresseSuchen('Musterweg 1')).name, 'Musterweg 1', 'Zeitüberschreitung: normal weiter');
+      });
+    } finally { D.WARTEZEIT_MS = alt; }
+    // Höchstens eine Suche pro Sekunde
+    leeren();
+    const zeiten = [];
+    await mitFetch(w, async (u) => { if (tritt(u)) return new Response('{"nominatim":true}', { status: 200 }); zeiten.push(Date.now()); return new Response(nom, { status: 200 }); }, async () => {
+      await Promise.all([w.osmAdresseSuchen('A'), w.osmAdresseSuchen('B')]);
+    });
+    assertEq(zeiten.length, 2, 'beide gesucht');
+    assert(Math.abs(zeiten[1] - zeiten[0]) >= 950, 'mindestens eine Sekunde Abstand: ' + (zeiten[1] - zeiten[0]));
+  } finally { leeren(); }
+});
+
+test('Bestandsbuch: neue Felder freiwillig, alte Einträge gehen weiter, PDF und Export ziehen mit', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const v = await w.DB.put('voelker', { name: 'BB-Volk', status: 'aktiv' });
+  const alt = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-05-01', mittel: 'Altmittel', menge: 2, einheit: 'ml', anwendungsart: 'Träufeln', wartezeitTage: 0, notiz: '' });
+  const n = await w.behandlungFuerVoelker([v.id], { datum: '2026-06-01', mittel: 'Neumittel', menge: 3, einheit: 'ml', anwendungsart: '', behandlungBis: '2026-06-08', lieferant: 'Imkerbedarf Beispiel', behandelndePerson: 'Max', tierarzt: 'Dr. Beispiel', kaufbeleg: true });
+  assertEq(n, 1);
+  const neu = (await w.DB.getAll('behandlungen')).find((b) => b.mittel === 'Neumittel');
+  assertEq([neu.behandlungBis, neu.lieferant, neu.behandelndePerson, neu.tierarzt, neu.kaufbeleg], ['2026-06-08', 'Imkerbedarf Beispiel', 'Max', 'Dr. Beispiel', true], 'neue Felder gespeichert');
+  // Formular: Felder da, keines Pflicht
+  await w.Views.behandlungen.form(alt); await new Promise((r) => setTimeout(r, 200));
+  const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+  for (const k of ['behandlungBis', 'lieferant', 'behandelndePerson', 'tierarzt', 'kaufbeleg']) {
+    const el = m.querySelector('#f-' + k); assert(el, k + ' im Formular'); assert(!el.required, k + ' ist keine Pflicht');
+  }
+  dialogeSchliessen(w);
+  // PDF
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  await w.Pdf.bestandsbuch('2026');
+  const doc = w.Pdf.lastDocForTest; assert(doc, 'PDF entsteht');
+  const text = doc.internal.pages.map((p) => (p || []).join('\n')).join('\n');
+  for (const t of ['Aufzeichnung', 'Lieferant', 'Tierarzt', 'Behandelnde', 'Kaufbeleg', 'Imkerbedarf', 'Dr.', 'Altmittel', 'Vorlage aus deinen Eingaben']) assert(text.includes(t), `PDF enthält „${t}“`);
+  assert(!text.includes('TAMG'), 'keine Konformitäts-Aussage im Kopf');
+  // Export
+  const defs = await w.Xlsx.defs({});
+  const rows = await defs.behandlungen.rows();
+  const zeile = rows.find((r) => r.Mittel === 'Neumittel');
+  assertEq([zeile.Lieferant, zeile['Behandelnde Person'], zeile.Tierarzt, zeile['Kaufbeleg vorhanden']], ['Imkerbedarf Beispiel', 'Max', 'Dr. Beispiel', 'ja'], 'Export hat die neuen Spalten');
+  // Sicherung: Felder gehen mit
+  const daten = await w.Backup.buildData(true);
+  assert(JSON.stringify(daten.stores.behandlungen).includes('Imkerbedarf Beispiel'), 'Sicherung enthält die neuen Felder');
+}));
+
+test('Hinweise: Kaufknopf, Rechtliches, Geld, Ämter, Etikett, Quellenangaben', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const warte = (ms = 200) => new Promise((r) => setTimeout(r, ms));
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const L = w.Lizenz, echt = { aktiv: L.aktiv, preise: L.preise };
+  try {
+    // Kauf-Fenster
+    L.aktiv = () => true; L.preise = async () => ({ geladen: true, voll: '14,99 €' });
+    L.fenster(); await warte();
+    const m = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    const h = m.querySelector('[data-agb-hinweis]');
+    assert(h, 'Hinweis am Kaufknopf');
+    assertEq(h.textContent.trim(), 'Mit dem Start der Testphase oder dem Kauf gelten die Nutzungsbedingungen (AGB). Bitte vorher lesen.', 'Wortlaut');
+    assertEq(h.querySelector('a').getAttribute('href'), 'agb.html', 'führt zu den AGB');
+    assert(!h.nextElementSibling, 'steht zuletzt, direkt über den Knöpfen');
+    dialogeSchliessen(w); L._offen = false;
+    L.aktiv = echt.aktiv; L.preise = echt.preise;
+    // Rechtliches
+    await w.Views.einstellungen.render(host);
+    const links = [...host.querySelectorAll('a[href]')].map((a) => [a.getAttribute('href'), a.textContent.trim()]);
+    assert(links.some(([x, t]) => x === 'agb.html' && t === 'Nutzungsbedingungen (AGB)'), 'Beschriftung einheitlich');
+    assert(links.some(([x, t]) => x === 'lizenzen.html' && t === 'Lizenzen'), 'Knopf Lizenzen');
+    host.innerHTML = '';
+    // Kassenbuch
+    await w.Views.kassenbuch.render(host);
+    assertEq(host.querySelector('[data-geld-hinweis]').textContent, w.GELD_HINWEIS, 'Kassenbuch-Hinweis');
+    host.innerHTML = '';
+    // Unterlagen
+    w.Views.meldungen._kat = 'amt'; await w.Views.meldungen.render(host); await warte();
+    assertEq(host.querySelector('[data-vorlage-hinweis]').textContent, w.VORLAGE_HINWEIS, 'Ämter-Hinweis');
+    host.innerHTML = '';
+    w.Views.meldungen._kat = 'geld'; await w.Views.meldungen.render(host); await warte();
+    assertEq(host.querySelector('[data-geld-hinweis]').textContent, w.GELD_HINWEIS, 'Geld-Hinweis');
+    w.Views.meldungen._kat = 'amt'; host.innerHTML = '';
+    // Etikett
+    const charge = await w.DB.put('chargen', { losnummer: 'H-1', ernteIds: [], mengeKg: 10, sorte: 'Raps', mhd: '2028-06-01' });
+    const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: w.U.todayIso(), gebindeG: 500, anzahl: 2, bestand: 2 });
+    await w.honigEtikettForm(abf, charge); await warte();
+    const e = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(/Druckhilfe: Bitte prüfe das Etikett vor dem Drucken/.test(e.querySelector('[data-etikett-druckhilfe]').textContent), 'Druckhilfe');
+    assert(/mit Anteil/.test(e.textContent), 'Mischungen: alle Länder mit Anteil');
+    assert(!/Verkehrsbezeichnung/.test(e.textContent), 'sichtbar nur „Bezeichnung“');
+    dialogeSchliessen(w);
+    // Quellen
+    assert(/© GeoBasis-DE \/ BKG/.test(w.CLC_QUELLE_KURZ), 'BKG-Quelle');
+    assertEq(w.OSM_QUELLE, '© OpenStreetMap contributors');
+    assert(w.LB_QUELLEN.find((q) => q.key === 'osm').kurz.includes(w.OSM_QUELLE), 'OSM-Quelle in den Unterlagen');
+  } finally { L.aktiv = echt.aktiv; L.preise = echt.preise; L._offen = false; host.remove(); dialogeSchliessen(w); }
+}));
+

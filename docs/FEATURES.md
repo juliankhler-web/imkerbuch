@@ -43,7 +43,7 @@
 3. ✅ **Völker**: Stammdaten (Funktion im Betrieb, Beutentyp/-kennung), Stand-/Königin-Zuordnung, Stockkarte chronologisch (Datum, Stärke/Brutbild/Sanftmut 1–5, Futter, Weiselzellen, Notiz), Fütterungen (Art, Menge, Winterfutter), Gewichtsverlauf mit Diagramm + Δ-Spalte, Duplizieren, Auflösen, Vereinigen – alles mit Historie
 4. ✅ **Königinnen**: Jahrgang → automatische Zeichnungsfarbe (international), Herkunft/Linie, Status (aktiv/verloren/umgeweiselt, mit Volk-Rückwirkung), Zuordnungshistorie
 5. ✅ **Zucht**: Serien (Startdatum, Anzahl), automatische Termine (Umlarven +0/+2, Käfigen +10, Schlupf +12, Begattung +13/+19, Kontrolle +28) als Aufgaben, Zuchtbuch-PDF
-6. ✅ **Behandlungen/Bestandsbuch (TAMG)**: pro Volk oder Stand, Mittel/Menge/Einheit/Anwendungsart/Wartezeit, Beleg-Anhang (Foto/PDF), Wartezeit-Ende als Auto-Aufgabe, Bestandsbuch-PDF-Formblatt
+6. ✅ **Behandlungen/Bestandsbuch**: pro Volk oder Stand, Mittel/Menge/Einheit/Anwendungsart/Wartezeit, Beleg-Anhang (Foto/PDF), Wartezeit-Ende als Auto-Aufgabe, Bestandsbuch-PDF-Formblatt
 7. ✅ **Trachtkalender (v2.83)**: Pflanze + Stände wählen → Blütezeit aus DWD-Phänologie (Median 2016–2025, bis 5 Stellen ≤ 40 km, offline in `BLUEHZEITEN`, `tools/bluehzeiten.mjs`), sonst Deutschland-Schnitt bzw. Richtwert; „jedes Jahr“; Jahreskalender; Kachel „Tracht“ (blüht/bald/„Als Aufgabe“); „Was hier blüht“ am Stand; Erinnerung als Aufgabe X Tage vorher (auch Folgejahr); Tracht an der Ernte (Vorschlag nach Datum + Stand, Sorte dazu); Statistik „Ertrag je Tracht“ mit Ø je Volk und Vorjahr, Kachel „Stärkste Tracht“, PDF + Excel
 8. ✅ **Wanderungen**: geführt in Schritten – Ausgangs-Stand wählen → dessen Völker einzeln oder alle auswählen → Ziel-Stand → Datum; die Völker werden automatisch dem Ziel-Stand zugeordnet (Historie-Eintrag je Volk, übrige Volk-Daten unberührt); „Grund der Wanderung" (Freitext mit Vorschlägen: Trachten, Belegstelle, Bestäubungseinsatz … – passt er auf eine angelegte Tracht, bleibt die Verknüpfung erhalten), Notiz, Wanderbuch-PDF
 9. ✅ **Honigverwaltung**: Ernten pro Volk/Stand (Datum, Sorte, kg, Tracht), Chargen mit Losnummern (Vorschlag `JJJJ-NN`), Rückverfolgung Glas → Charge → Ernte → Volk, Bestandsübersicht mit Korrektur
@@ -131,17 +131,17 @@
 - ✅ Anhänge (Fotos + Dokumente/PDF) an Völkern, Königinnen, Ständen, Behandlungen, Kassenbuch, Stockkarten-Einträgen; Größenlimit-Hinweis (>10 MB Rückfrage)
 - ✅ Individuelle Dokumententypen in den Einstellungen (anlegen/entfernen), pro Anhang zuweisbar, Typ-Filter in der Galerie
 
-## Fotos & OCR
+## Fotos
 
 - ✅ `<input type="file" accept="image/*" capture="environment">` – am Smartphone öffnet die Kamera
 - ✅ Clientseitiges Verkleinern auf max. 1600 px + JPEG ~0.8, Speicherung in IndexedDB, Galerie + Vollbild-Viewer
-- ✅ OCR mit Tesseract.js (deu): „Text aus Foto übernehmen“ mit Fortschrittsbalken, editierbares Ergebnis, Übernahme ins Notizfeld, Handschrift-Hinweis; per Feature-Schalter
+- ❌ OCR (Tesseract.js) entfernt in v3.08: lief nur in der Web-Version, die vor dem Start aus dem Netz geht; die App lud nie Code nach.
 
 ## Sprachnotizen
 
 - ✅ MediaRecorder-Aufnahme an Volk und jeder Stockkarte, Speicherung + Abspielen in der App
 - ✅ Web Speech API de-DE als Live-Diktat während der Aufnahme (mit Chrome/Edge+online-Hinweis)
-- ✅ Optional Whisper offline (@xenova/transformers, whisper-small, quantisiert) mit Ladefortschritt und Browser-Cache; per Feature-Schalter
+- ❌ Whisper entfernt in v3.08 (gleicher Grund wie OCR).
 - ✅ Transkript editierbar, Übernahme ins Notizfeld
 
 ## Einstellungen
@@ -150,7 +150,7 @@
 - ✅ Eigenes Logo: Upload PNG/JPG/SVG, Vorschau, clientseitige Skalierung (Raster ≤ 512 px), entfernbar, auf ALLEN PDFs, optional im App-Header
 - ✅ Imkereidaten (Name, Anschrift, Kontakt, Registrier-/Veterinärnummer, TSK-Nummer) → alle PDFs/Rechnungen
 - ✅ Steuerdarstellung (§19/USt) + Rechnungsnummernkreis (Präfix + nächste Nummer)
-- ✅ Feature-Schalter: OCR, Whisper, Wetter, Auto-Backup (Intervall + Ordnerwahl), Backup-Warnung beim Schließen
+- ✅ Feature-Schalter: Wetter (ab v3.08 mit Einwilligung), Auto-Backup (Intervall + Ordnerwahl), Backup-Warnung beim Schließen
 - ✅ Dark Mode (auto/hell/dunkel), Dokumententypen-Verwaltung
 
 ## Qualität
@@ -158,3 +158,13 @@
 - ✅ Formular-Validierung (Pflichtfelder, Dezimalkomma-Zahlen), Lösch-Bestätigungen überall, leere Zustände mit Hinweistexten
 - ✅ Einrichtungsassistent (Vorname*, Imkereiname, erster Stand, erstes Volk, optionale Demo-Daten)
 - ✅ Testsuite (`tests/test.html`, 20 Testfälle) – siehe [TESTFAELLE.md](TESTFAELLE.md)
+
+## v3.08: Änderungen aus der Rechtsprüfung (2026-10-30, `docs/RECHT_PRUEFUNG_2026-10-30.md`)
+
+- ✅ Kauf-Fenster: Hinweis auf die Nutzungsbedingungen (AGB) direkt über den Knöpfen; Beschriftung einheitlich.
+- ✅ Wetter ab Werk aus: Abruf nur mit Schalter und gespeicherter Einwilligung `wetterEinwilligung: { zeit, version }` (nur auf dem Gerät), einmalige Frage (`wetterGefragt`), Koordinaten auf 0,025 Grad gerundet.
+- ✅ Nur noch lokale Bibliotheken in `libs/`; OCR und Whisper entfallen; Einlesen nur noch aus PDFs mit Text.
+- ✅ Mengenrechner in Behandlungen und Imker-Rechner: keine fest eingebauten Mengen, Eingabe „Menge laut Packungsbeilage“ startet leer. Rechner „OS-Lösung ansetzen“ und „Ameisensäure verdünnen“ vorerst entfernt.
+- ✅ Warntext bei Mitteln, Hinweise bei Kassenbuch, Fahrten, Geld- und Amts-Unterlagen, Etikett, Imme; kleiner Fuß in den Amts-PDFs.
+- ✅ Bestandsbuch: freiwillige Felder Lieferant, Behandlung bis, behandelnde Person, Tierarzt, Kaufbeleg; PDF im Querformat, Export mit neuen Spalten.
+- ✅ `lizenzen.html`, Quellenangaben OSM und BKG, nur noch ein Overpass-Server, Fern-Schalter `dienste.json` für die Adresssuche, höchstens eine Suche pro Sekunde.

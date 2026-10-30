@@ -1,6 +1,6 @@
 # ImkerBuch – Test im Browser
 
-Für Tester der Web-Version. Stand: 27.10.2026, Version 3.01. Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
+Für Tester der Web-Version. Stand: 30.10.2026, Version 3.08 (neu: C1a Mengenrechner, F5 Wetter mit Frage, F8 Quellen und Lizenzen). Dauer: etwa 45–60 Minuten (gern auf zwei Tage verteilt).
 
 **So meldest du Fehler:** Bildschirmfoto machen und an Julian schicken, dazu ein Satz: *was du getan hast* und *was passiert ist*. Die Nummer des Schritts hilft (z. B. „B4 geht nicht“). Bitte auch die Versionsnummer nennen: Einstellungen → ganz unten „Version“ (z. B. „ImkerBuch v2.89“).
 
@@ -49,7 +49,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 
 ## C · Betrieb (Honig, Geld, Papiere)
 
-- [ ] **C1 Behandlung + Bestandsbuch:** Behandlungen → „+ Behandlung“ → speichern → „Bestandsbuch (PDF)“. → Am Computer öffnet sich das PDF in einem neuen Tab, am Handy das Teilen-Menü. PDF sieht ordentlich aus.
+- [ ] **C1 Behandlung + Bestandsbuch:** Behandlungen → „+ Behandlung“ → neue freiwillige Felder (Lieferant, Behandlung bis, behandelnde Person, Tierarzt, Kaufbeleg) ausfüllen → speichern → „Bestandsbuch (PDF)“. → Am Computer öffnet sich das PDF in einem neuen Tab, am Handy das Teilen-Menü. PDF sieht ordentlich aus.
+- [ ] **C1a Mengenrechner (neu 3.08):** Behandlungen → „Mengenrechner“ aufklappen. → „Menge laut Packungsbeilage“ ist leer, darunter der Hinweis, den Wert einzutragen. Wert und Völker eintragen → Pro Volk und Gesamt erscheinen. Der Warntext steht darunter. Menü → Imker-Rechner → „Mengenrechner“ verhält sich gleich; „OS-Lösung ansetzen“ und „Ameisensäure verdünnen“ gibt es nicht mehr.
 - [ ] **C2 Fütterung:** Fütterung → „+ Fütterung“ → Futterart „Futtersirup (z. B. Apiinvert)“, 10 Liter. → Darunter „10 L = 13,6 kg Sirup · 10 kg Zucker kommen beim Volk an“.
 - [ ] **C3 Ernte abfüllen:** Ernte und Abfüllung → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ eine Ernte wählen → Anzahl Gläser → Speichern. → Gläser stehen im Bestand.
 - [ ] **C3b Jahr und Sortierung (neu 2.94):** Ernte und Abfüllung → Reiter Ernte, Sorte, Abfüllung, Verkauf: oben „Jahr:“ und „Sortierung:“ wie bei Charge. → Liste und Summe passen zum Jahr; bei Verkauf druckt „Liste (PDF)“ das gewählte Jahr. Verbrauchsmaterial hat jetzt ebenfalls eine Zeile „Sortierung“.
@@ -85,7 +86,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **F2** Einstellungen → „Rechtliches“ → Datenschutz / Impressum öffnen. → Öffnet sich in einem neuen Tab.
 - [ ] **F3** Menü → **Unterlagen** → im Suchfeld „buch“ tippen. → Bestandsbuch, Wanderbuch, Kassenbuch, Fahrtenbuch erscheinen. Ein paar PDFs öffnen. → Jedes nennt das gewählte Jahr.
 - [ ] **F4** Menü → Statistiken → Reiter durchgehen. → Jeder beginnt mit „Auf einen Blick“ und „Auffällig“; eine Zahl gegen deine Einträge prüfen.
-- [ ] **F5** Einen Stand mit Koordinaten öffnen (Internet an). → Wetter steht von selbst da, darunter die Grafik.
+- [ ] **F5 Wetter (neu 3.08):** Erstmals Koordinaten an einem Stand speichern (Internet an). → Frage „Wetter für deine Stände anzeigen?“ mit zwei gleich großen Knöpfen. „Wetter einschalten“ → Wetter steht von selbst da, darunter die Grafik. Einstellungen → Funktionen → Haken weg → kein Abruf mehr.
+- [ ] **F8 Quellen und Lizenzen (neu 3.08):** Einstellungen → Rechtliches → „Lizenzen“ (Seite öffnet sich, auch offline) und „Nutzungsbedingungen (AGB)“. Bio → Standorte → Stand öffnen: unter den Knöpfen steht „© OpenStreetMap contributors“ und „© GeoBasis-DE / BKG“. Kauf-Fenster: direkt über den Knöpfen steht der Hinweis zu den Nutzungsbedingungen.
 - [ ] **F6** Imkerschule → „Frag ein Thema“ → „Schwarm“ tippen. → Treffer erscheinen, die Tastatur bleibt offen.
 - [ ] **F7 Anzeige nach § 1a:** Einstellungen → Imkereidaten → „Tierhalter (Vor- und Nachname)“, „Bundesland / Land“ und Registriernummer eintragen. Einen Stand → Bearbeiten → „Anschrift oder PLZ und Ort“, „Gemarkung“, „Flurnummer“. Dann Unterlagen → „Anzeige nach § 1a (Veterinäramt)“ → PDF. → Titel „Anzeige der Bienenhaltung … § 1a Bienenseuchen-Verordnung“, Tierhalter, Kästchen „Beginn / Änderung / Aufgabe“, Tabelle mit Lage, Koordinaten, Völker heute (seit 2.97 **ohne** „eingewintert“); Summen stimmen mit den Zahlen oben überein; unten Ort/Datum/Unterschrift.
 - [ ] **F8 Tierseuchenkasse:** In den Imkereidaten das Bundesland wechseln (z. B. Bayern, dann Thüringen). → Direkt darunter steht, was dort gilt („In Bayern werden Bienen nicht … gemeldet“ bzw. „Stichtag 03.01., Meldung innerhalb von 14 Tagen“). Unterlagen → „Meldung an die Tierseuchenkasse“ → bei Thüringen ist die Zeile „Eingewintert“ fett mit „(zu melden)“.

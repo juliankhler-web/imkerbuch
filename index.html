@@ -1457,9 +1457,7 @@ const U = {
     return { google: `https://www.google.com/maps?q=${la},${ln}`, osm: `https://www.openstreetmap.org/?mlat=${la}&mlon=${ln}#map=16/${la}/${ln}` };
   },
   _scripts: {},
-  /** CDN-Skript einmalig laden; weitere URLs dienen als Ausweich-CDNs
-      (iOS/Inhaltsblocker blockieren manchmal einzelne Hosts).
-      Promise löst mit der URL auf, die funktioniert hat. */
+  /** Mitgeliefertes Skript aus ./libs/ einmalig laden. Promise löst mit der URL auf, die funktioniert hat. */
   loadScript(...urls) {
     const key = urls[0];
     /* App: niemals Programmcode aus dem Internet nachladen (Apple-Regel 2.5.2) –
@@ -1468,10 +1466,10 @@ const U = {
     if (!urls.length) return Promise.reject(new Error('Diese Funktion gibt es in der App noch nicht.'));
     if (!U._scripts[key]) U._scripts[key] = (async () => {
       for (const url of urls) {
-        try { await U._injectScript(url); return url; } catch (e) { /* nächstes CDN */ }
+        try { await U._injectScript(url); return url; } catch (e) { /* nächste Adresse */ }
       }
       delete U._scripts[key];
-      throw new Error('Bibliothek konnte von keinem CDN geladen werden (offline? Inhaltsblocker?): ' + key.split('/').pop());
+      throw new Error('Eine Programmdatei der App konnte nicht geladen werden: ' + key.split('/').pop());
     })();
     return U._scripts[key];
   },
@@ -1534,41 +1532,15 @@ const Testmodus = {
 // Browser-Themen wie Web-Updates und PWA-Speicher-Hinweise.
 const IST_NATIVE_APP = !!window.Capacitor || location.protocol === 'capacitor:';
 
-/* Bibliotheks-CDNs mit Ausweichquellen: iOS-Inhaltsblocker oder einzelne
-   Netze blockieren manchmal einen Host – dann greift das nächste CDN. */
-/* Bibliotheken liegen SELBST GEHOSTET unter ./libs/ (100 % lokal, offline-fähig,
-   keine Fremd-Aufrufe im Normalbetrieb). Die CDN-Adressen bleiben nur als Notnagel,
-   falls der libs-Ordner mal fehlt (z. B. unvollständiger Upload). */
+/* Bibliotheken liegen nur noch SELBST GEHOSTET unter ./libs/ (v3.08): keine Fremd-Aufrufe,
+   die Datenschutzerklärung nennt keine Bibliotheks-Server mehr. Die App lädt keinen Code nach. */
 const CDN = {
-  jspdf: [
-    './libs/jspdf.umd.min.js',
-    'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
-    'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js',
-  ],
-  autotable: [
-    './libs/jspdf.plugin.autotable.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js',
-    'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
-  ],
-  pdfjs: [
-    './libs/pdf.min.js', // Worker (pdf.worker.min.js) wird aus demselben Pfad abgeleitet
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
-  ],
-  jsqr: [
-    './libs/jsQR.js',
-    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
-  ],
-  qrcode: [
-    './libs/qrcode.min.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
-    'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js',
-  ],
-  xlsx: [
-    './libs/xlsx.full.min.js',
-    'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
-    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', // ältere, API-kompatible Version als Notnagel
-  ],
+  jspdf: ['./libs/jspdf.umd.min.js'],
+  autotable: ['./libs/jspdf.plugin.autotable.min.js'],
+  pdfjs: ['./libs/pdf.min.js'], // Worker (pdf.worker.min.js) wird aus demselben Pfad abgeleitet
+  jsqr: ['./libs/jsQR.js'],
+  qrcode: ['./libs/qrcode.min.js'],
+  xlsx: ['./libs/xlsx.full.min.js'],
 };
 
 /* =====================================================================
@@ -1577,8 +1549,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.07';
+const APP_VERSION = '3.08';
 const CHANGELOG = [
+  { version: '3.08', datum: '2026-10-30', punkte: [
+    '<b>Wetter ist ab Werk aus.</b> Die App fragt dich einmal, wenn du zum ersten Mal Koordinaten an einem Stand speicherst. Ein- und ausschalten kannst du es jederzeit unter Einstellungen → Funktionen. Die Koordinaten gehen nur noch gerundet an den Wetterdienst.',
+    '<b>Mengenrechner statt fester Mengen:</b> Du trägst den Wert aus deiner Packungsbeilage ein, die App rechnet ihn auf deine Völker hoch. Die Rechner zum Selbstmischen sind vorerst entfallen.',
+    '<b>Bestandsbuch:</b> Neue freiwillige Felder für Lieferant, Behandlung bis, behandelnde Person, Tierarzt und Kaufbeleg, auch im PDF. Alte Einträge bleiben, wie sie sind.',
+    '<b>Hinweise:</b> Klarere Hinweise bei Kassenbuch, Fahrten, Etikett, Ämter-Unterlagen und bei Imme. Vor dem Kauf steht jetzt deutlich, dass die Nutzungsbedingungen gelten.',
+    '<b>Quellen und Lizenzen:</b> Unter Einstellungen → Rechtliches gibt es die Liste der mitgelieferten Bestandteile. Bei Adresssuche und Landbedeckung stehen die Quellen dabei.',
+    'Text aus Fotos und eingescannten PDFs liest die App nicht. Einlesen geht mit PDFs, die echten Text enthalten.',
+  ] },
   { version: '3.07', datum: '2026-10-30', punkte: [
     '<b>Sammel-Varroazählung:</b> Bei Auswaschen und Puderzucker fragt die App jetzt nach den Bienen in der Probe. Vorher zählte die rohe Milbenzahl als Wert je 100 Bienen, die Ampel warnte dadurch zu streng.',
     '<b>Varroa-Kurve:</b> Sie zeigt nur noch Zählungen mit derselben Messart. Andere Methoden stehen weiter in der Tabelle.',
@@ -1719,7 +1699,7 @@ const CHANGELOG = [
     '<b>Erinnerungen:</b> Ist „1 Stunde vorher“ schon vorbei, erinnert die App jetzt zur Uhrzeit der Aufgabe – vorher kam dann gar keine Mitteilung. Sind Erinnerungen ausgeschaltet oder vom Telefon nicht erlaubt, sagt die App das beim Speichern einer Aufgabe mit Datum.',
   ] },
   { version: '2.78', datum: '2026-10-20', punkte: [
-    '<b>Wetter am Stand kommt von selbst:</b> Beim App-Start (und beim Öffnen eines Standes) holt die App das aktuelle Wetter aller Stände mit Koordinaten – höchstens alle 30 Minuten, nur mit Internet. Abschaltbar unter Einstellungen → Funktionen.',
+    '<b>Wetter am Stand:</b> Ist der Wetter-Abruf eingeschaltet, holt die App beim Start (und beim Öffnen eines Standes) das aktuelle Wetter aller Stände mit Koordinaten – höchstens alle 30 Minuten, nur mit Internet. Ein- und ausschalten kannst du das unter Einstellungen → Funktionen.',
     'Die Wetter-Karte zeigt oben nur das aktuelle Wetter (Temperatur, Wind, Regen, Uhrzeit), darunter den Verlauf als Grafik (30 Tage, dieses Jahr oder alles). Pro Tag wird nur noch ein Wert gespeichert – die Liste wächst nicht mehr endlos; aufgeklappt stehen die letzten 5 Werte, alle übrigen über „Alle Werte exportieren“.',
     '<b>Export je Bereich mit Volk und Jahr:</b> Unter „Export“ wählst du Bereich, ein einzelnes Volk (oder einen Stand) und das Jahr. Beim Volk entsteht die komplette <b>Volksakte</b> – Stammdaten, Königin, Durchsichten, Behandlungen, Fütterungen, Varroa, Gewichte, Ernten, Wanderungen, Aufgaben, Verlauf und Anhänge –, jeder Teil auch einzeln als PDF oder CSV, alles zusammen als PDF oder Excel.',
     '<b>Excel und CSV sauber für deutsches Excel:</b> Datum als TT.MM.JJJJ, Kommazahlen mit Komma, Umlaute korrekt, Spaltenbreite nach Inhalt und Filterknöpfe in der Kopfzeile. Vorher stand in der CSV das Datum amerikanisch und die Kommazahl mit Punkt.',
@@ -1737,7 +1717,7 @@ const CHANGELOG = [
     'Auch beim Verschieben in der unteren Leiste und unter „Alle Bereiche“ vibriert jetzt das iPhone kurz.',
   ] },
   { version: '2.75', datum: '2026-10-20', punkte: [
-    'Dosierungsrechner: Hinweis, dass die Werte Richtwerte sind – maßgeblich sind die Gebrauchsinformation des Tierarzneimittels und dein Tierarzt bzw. Bienengesundheitsdienst.',
+    'Mengenrechner: Hinweis, dass maßgeblich die Gebrauchsinformation des Tierarzneimittels und dein Tierarzt bzw. Bienengesundheitsdienst sind.',
     'Ältere Handys: Kopf- und Fußleiste behalten ihre Farbe auch dort, wo der Browser-Baustein durchscheinende Farben noch nicht kennt.',
     'Android: Ist der Browser-Baustein des Handys zu alt, erklärt die App, wie man ihn im Play Store aktualisiert – statt leer zu bleiben.',
   ] },
@@ -2243,9 +2223,9 @@ const CHANGELOG = [
     'Der <b>Offline-Speicher</b> übernimmt nur noch eine echte App-Seite. Eine Wartungs- oder Anmeldeseite des Servers konnte die App im Cache überschreiben – offline erschien dann dauerhaft sie statt des Imkerbuchs.',
   ] },
   { version: '1.63', datum: '2026-09-21', punkte: [
-    'Rechnungen erfüllen jetzt die <b>Pflichtangaben nach § 14 UStG</b>: Es gibt ein eigenes Feld für das <b>Liefer-/Leistungsdatum</b>, <b>Steuernummer bzw. USt-IdNr.</b> stehen im Kopf, und bei Regelbesteuerung wird das <b>Entgelt je Steuersatz</b> ausgewiesen – nicht mehr nur die enthaltene Steuer. Die beiden Steuernummern trägst du unter Einstellungen → Imkereidaten ein.',
+    'Rechnungen berücksichtigen jetzt die <b>Angaben aus § 14 UStG</b>: Es gibt ein eigenes Feld für das <b>Liefer-/Leistungsdatum</b>, <b>Steuernummer bzw. USt-IdNr.</b> stehen im Kopf, und bei Regelbesteuerung wird das <b>Entgelt je Steuersatz</b> ausgewiesen – nicht mehr nur die enthaltene Steuer. Die beiden Steuernummern trägst du unter Einstellungen → Imkereidaten ein.',
     'Neu einstellbar: <b>Umsatzsteuer auf Pfand</b> (Einstellungen → Steuer &amp; Rechnungen). Voreingestellt bleibt es wie bisher ohne Steuer. Welche Behandlung für deinen Betrieb richtig ist, klärt der Steuerberater – die App entscheidet das nicht mehr stillschweigend für dich.',
-    'Das <b>Honig-Etikett</b> schlägt jetzt eine echte Verkehrsbezeichnung vor („Rapshonig" statt „Raps") und nennt bei Bio die vorgeschriebene <b>Herkunft der Zutaten</b> („EU-Landwirtschaft"). Hochgeladene Bio-Logos werden nicht mehr ins Quadrat gestaucht, sondern in ihrem echten Seitenverhältnis gedruckt.',
+    'Das <b>Honig-Etikett</b> schlägt jetzt eine echte Bezeichnung vor („Rapshonig" statt „Raps") und nennt bei Bio die vorgeschriebene <b>Herkunft der Zutaten</b> („EU-Landwirtschaft"). Hochgeladene Bio-Logos werden nicht mehr ins Quadrat gestaucht, sondern in ihrem echten Seitenverhältnis gedruckt.',
     'Im <b>Bestandsbuch</b> ist eine erfasste Wartezeit von <b>0 Tagen</b> jetzt als „0 Tage" zu lesen. Vorher sah sie aus wie eine fehlende Angabe – bei einer Kontrolle ein Unterschied.',
     'Am <b>Marktstand</b> bleiben Positionen, die sich nicht buchen ließen, im Warenkorb stehen, statt mit ihm gelöscht zu werden. Du siehst sofort, was noch offen ist.',
     'Eine <b>fehlgeschlagene Sicherung in den Ordner</b> meldet sich als Fehler, statt Erfolg zu melden – und der nächste Versuch kommt bald, nicht erst ein ganzes Intervall später.',
@@ -2433,7 +2413,7 @@ const CHANGELOG = [
   ] },
   { version: '1.29', datum: '2026-08-06', punkte: [
     'Neu bei Bio → Standorte: <b>amtliche Landbedeckung auf Knopfdruck</b>. Die App holt CORINE Land Cover 5 ha vom Bundesamt für Kartographie und Geodäsie (offen lizenziert, dl-de/by-2-0) und rechnet die Anteile im Umkreis selbst aus – <b>lückenlos</b>, im Test 100,0 % des Kreises statt „ein Viertel nicht erfasst" wie bei OpenStreetMap.',
-    'Beide Quellen bleiben wählbar: „Amtlich berechnen" ist die Zahl für die Kontrollstelle, „Schnell (OpenStreetMap)" ist feiner und aktueller, aber lückenhaft. Die Quelle wird mitgeschrieben und steht in den Bio-Unterlagen.',
+    'Beide Quellen bleiben wählbar: „Amtlich berechnen" kann dir als Unterlage dienen; ob sie reicht, entscheidet deine Kontrollstelle. „Schnell (OpenStreetMap)" ist feiner und aktueller, aber lückenhaft. Die Quelle wird mitgeschrieben und steht in den Bio-Unterlagen.',
     'Gerechnet wird nicht abgetastet, sondern jede amtliche Fläche exakt mit dem Kreis verschnitten. Gegen ein unabhängiges Punktraster geprüft: Abweichung höchstens 0,5 Prozentpunkte.',
     'Grenzen stehen offen dabei: Datenstand 2018, kleinste erfasste Fläche 5 ha, nur Deutschland – und die Abfrage lädt rund 1 MB und braucht etwa eine halbe Minute.',
     'Neu beim <b>Abfüllen</b>: Gläser, Deckel und Etiketten gehen vom Verbrauchsmaterial ab. Je Gebindegröße eine eigene Auswahl (mit Vorschlag aus dem Namen), Deckel und Etiketten über alle Größen zusammen. Vorher siehst du zeilenweise, was abgeht und was übrig bleibt.',
@@ -2457,7 +2437,7 @@ const CHANGELOG = [
     '<b>Betriebsbeschreibung</b>: zwölf Abschnitte von „Betrieb und Verantwortliche" über Wachs, Fütterung und Tiergesundheit bis zu den Aufzeichnungen. Jeder Abschnitt hat einen Hinweis, was dort typischerweise hineingehört; oben siehst du, wie viele schon ausgefüllt sind.',
     '<b>Standorte</b>: je Bienenstand die Landbedeckung im Umkreis. Die Anteile rechnet der GeoBox-Viewer aus (Punkt setzen, Umkreis einstellen, rechnen lassen) – die Prozente trägst du hier ein, mit Datum und Quelle. Die Zeilen sind frei benennbar und erweiterbar, weil die Bezeichnungen im Viewer abweichen können.',
     'Dazu ein Tortendiagramm und drei Kacheln: Tracht/Vegetation, Bebauung/Verkehr/Industrie und Sonstiges. Die Summe wird geprüft und meldet sich, wenn sie nicht 100 % ergibt.',
-    'Der Umkreis ist frei einstellbar mit Schnellwahl 1,5 / 3 / 3,5 / 5 km – vorbelegt sind 3,5 km, weil Kontrollstellen das häufig verlangen.',
+    'Der Umkreis ist frei einstellbar mit Schnellwahl 1,5 / 3 / 3,5 / 5 km – vorbelegt sind 3,5 km.',
     'Verschmutzungsquellen im Umkreis (Autobahn, Industrie, Deponie, Müllverbrennung, Klärwerk, Flughafen, konventionelle Sonderkultur) lassen sich anhaken, dazu ein Feld für Abstände und Anmerkungen.',
     'Vier weitere Bereiche im Reiter Bio: <b>Hygiene</b> (Hygieneplan und die durchgeführten Reinigungen als Einzelnachweise), <b>Abnehmer &amp; Lieferanten</b> (mit Öko-Kontrollnummer des Partners und Ablauf des Zertifikats), <b>Zertifikate und Begleitpapiere</b> (Art, Aussteller, Nummer, gültig bis und wo das Original liegt) und <b>Förderverfahren</b> (Programm, Stelle, Aktenzeichen, Stand, Frist, Betrag).',
     'Läuft ein Zertifikat ab oder rückt eine Frist näher, steht das als farbige Marke direkt am Eintrag – rot, wenn das Datum vorbei ist.',
@@ -2766,7 +2746,7 @@ const CHANGELOG = [
   ] },
   { version: '0.52', datum: '2026-07-10', punkte: [
     'Updates kommen jetzt automatisch: Sobald du online bist, lädt die App beim Öffnen immer die neueste Version – kein Cache-Ärger mehr.',
-    'Imker-Rechner: 14 Rechner zum Ausklappen (Honigpreis, Varroa-Behandlung mit Dosierung, Zuckersirup, Winterfutter, Wachs, Kerzen u. v. m.).',
+    'Imker-Rechner: 14 Rechner zum Ausklappen (Honigpreis, Mengenrechner, Zuckersirup, Winterfutter, Wachs, Kerzen u. v. m.).',
     'Völker: neues Feld „Funktion im Betrieb" (Wirtschaftsvolk, Ableger, Pflegevolk …) und eine viel größere Beutentyp-Auswahl. Das alte „Rähmchenmaß" geht darin auf.',
     'Wanderung neu gedacht: Du wählst Ausgangs-Stand → Völker → Ziel-Stand, und die Völker werden automatisch umgezogen. Neues Feld „Grund der Wanderung" (Linde, Waldtracht, Belegstelle …).',
     'Honig: Ernten bekommen Schleuderung (1–3) und Wassergehalt. Neuer Tab „Sorten" mit Labor-Workflow – Laborergebnis einmal eintragen, es landet auf allen Ernten der Schleuderung. Honigsorten pflegst du in den Einstellungen.',
@@ -2815,7 +2795,7 @@ const CHANGELOG = [
     'Neue Inventar-Kategorien „Behandlungsmittel“ und „Futter“ – passend zur Betriebsmittel-Überwachung',
   ] },
   { version: '0.39', datum: '2026-07-04', punkte: [
-    'Honig-Etiketten drucken: aus jeder Charge ein druckfertiger Etikettenbogen mit allen Pflichtangaben nach Honigverordnung (Bezeichnung, Füllmenge, MHD, Los, Name+Anschrift, Ursprungsland) – optional mit QR-Code (Honig → Charge → Etikett)',
+    'Honig-Etiketten drucken: aus jeder Charge ein druckfertiger Etikettenbogen mit den üblichen Pflichtangaben (Bezeichnung, Füllmenge, MHD, Los, Name+Anschrift, Ursprungsland) – optional mit QR-Code (Honig → Charge → Etikett)',
     'Stockkarten-Vorlagen: eine Durchsicht als Vorlage speichern und per Schnell-Button vorbefüllt öffnen (z. B. „Ableger“) – weniger Tippen am Stand',
     'Königinnen-Zucht-Stammbaum: Muttertier hinterlegen und die Abstammung über Generationen samt Töchtern sehen',
   ] },
@@ -2860,7 +2840,7 @@ const CHANGELOG = [
     'Erst-Release: 15 Module von Bienenständen über Stockkarte, Behandlungen und Honigverwaltung bis Kassenbuch, Rechnungen und Reporting',
     'Backup-System: Sicherung senden, Zusammenführen über Geräte hinweg, interne Snapshots, automatische Sicherung, Erinnerungs-Banner',
     'Erinnerungen bei fälligen Aufgaben + Kalender-Export (.ics)',
-    'PDF-Dokumente, Excel-Export, OCR, Sprachnotizen, offline nutzbar als installierbare App',
+    'PDF-Dokumente, Excel-Export, Sprachnotizen, offline nutzbar als installierbare App',
   ] },
 ];
 /** Änderungsfenster anzeigen (eintraege = Changelog-Auszug) */
@@ -3022,7 +3002,7 @@ const VORSCHLAEGE = {
   // Grund einer Wanderung: Trachten zuerst (häufigster Fall), dann betriebliche Gründe
   wanderungsgrund: ['Rapsblüte', 'Obstblüte', 'Löwenzahn', 'Robinie (Akazie)', 'Linde', 'Edelkastanie', 'Sonnenblume', 'Phacelia', 'Waldtracht', 'Tannentracht', 'Heide', 'Belegstelle', 'Bestäubungseinsatz', 'Rückkehr zum Heimstand', 'Einwinterung', 'Standplatzwechsel'],
   futterart: ['Zuckerwasser 3:2', 'Zuckerwasser 1:1', 'Futtersirup (z. B. Apiinvert)', 'Futterteig', 'Eigener Honig'],
-  mittel: ['Ameisensäure 60 % ad us. vet.', 'Ameisensäure 85 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
+  mittel: ['Ameisensäure 60 % ad us. vet.', 'Oxalsäure 3,5 % (Träufeln)', 'Oxalsäure (Verdampfen)', 'Oxybee', 'VarroMed', 'Milchsäure 15 %', 'Thymol (Apiguard)', 'Thymol (Thymovar)', 'FormicPro/MAQS'],
   anwendungsart: ['Träufeln', 'Verdampfen/Sublimation', 'Verdunster (z. B. Nassenheider)', 'Sprühen', 'Streifen einhängen', 'Schale/Schwammtuch'],
   fahrtzweck: ['Durchsicht', 'Fütterung', 'Behandlung', 'Ernte/Schleudern', 'Abfüllen', 'Kontrolle', 'Wanderung', 'Materialtransport', 'Vermarktung/Verkauf', 'Einkauf/Besorgung', 'Schulung/Weiterbildung', 'Imkerverein/Versammlung', 'Werkstatt/Reparatur'],
   futter: ['ausreichend', 'gut', 'reichlich', 'knapp', 'muss gefüttert werden', '1 Futterwabe', '2 Futterwaben', '3 Futterwaben', 'verdeckelt'],
@@ -3381,11 +3361,14 @@ const S = {
     profil: { vorname: '' },
     imkerei: { name: '', tierhalter: '', bundesland: '', strasse: '', plz: '', ort: '', telefon: '', email: '', registriernummer: '', bgNummer: '', steuernummer: '', ustIdNr: '', tskPflicht: 'nein', tskNummer: '', bio: 'nein', bioKontrollstelle: '', bioVerbandJN: 'nein', bioVerband: [], bioLogos: [],
       oekoZertNummer: '', oekoZertGueltigBis: '', oekoZertAblage: '' },
+    /* Wetter ab Werk aus (v3.08): Abruf nur mit gespeicherter Einwilligung { zeit, version }, siehe Wetter.erlaubt().
+       wetterGefragt: Die Frage beim ersten Speichern von Koordinaten kommt genau einmal. */
+    wetterEinwilligung: null, wetterGefragt: false,
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
     rechnungskreis: { prefix: 'RE-', next: 1 },
-    features: { ocr: false, whisper: false, wetter: true, wetterStart: true, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false, sicherungMitteilung: true },
+    features: { wetter: false, wetterStart: false, autoBackup: { aktiv: false, intervall: 'woechentlich' }, backupBeimSchliessen: false, benachrichtigungen: false, sicherungMitteilung: true },
     dokumentTypen: ['Kaufbeleg', 'Zuchtnachweis', 'Gesundheitszeugnis', 'Rechnung', 'Zertifikat', 'Sonstiges'],
     taetigkeiten: ['Durchsicht & Völkerpflege', 'Fütterung', 'Behandlung', 'Ernte & Schleudern', 'Abfüllen & Etikettieren', 'Bau & Reparatur', 'Wanderung & Transport', 'Verkauf & Vermarktung', 'Zucht', 'Verwaltung & Büro', 'Sonstiges'],
     honigsorten: ['Frühtracht', 'Sommertracht', 'Raps', 'Linde', 'Robinie (Akazie)', 'Waldhonig', 'Tanne', 'Heide', 'Sonnenblume', 'Edelkastanie', 'Kornblume', 'Blütenhonig'],
@@ -3429,7 +3412,7 @@ const S = {
      kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
      wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
      lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
-  GERAET: new Set(['_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
+  GERAET: new Set(['wetterEinwilligung', 'wetterGefragt', '_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
     'lizenz', 'bewertung', 'erinnerungGefragt', 'sicherungMitteilungGefragt', 'sicherungBasis', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
@@ -5311,11 +5294,10 @@ const Anhang = {
     render();
     return el;
   },
-  /** Vollbild-Viewer mit Typ-Zuordnung, OCR, Download, Löschen */
+  /** Vollbild-Viewer mit Typ-Zuordnung, Download, Löschen */
   viewer(a, { onNotiz, onChange } = {}) {
     const url = URL.createObjectURL(a.blob);
     const typen = S.get('dokumentTypen');
-    const ocrOn = S.get('features').ocr && a.art === 'foto' && !IST_NATIVE_APP;   // App: kein nachgeladener Code
     const m = UI.modal({
       title: a.art === 'foto' ? 'Foto' : a.name, wide: true, onClose: () => URL.revokeObjectURL(url),
       body: `
@@ -5327,10 +5309,9 @@ const Anhang = {
           </select>
           <span class="small muted">${U.fmtDateTime(a.datum)} · ${U.fmtBytes(a.groesse)}</span>
         </div>
-        <div data-ocr-zone class="mt12"></div>`,
+        `,
       footer: `
         <button class="btn btn-danger no-flex" data-del>${icon('trash')}</button>
-        ${ocrOn ? `<button class="btn btn-ghost" data-ocr>${icon('doc')} Text aus Foto übernehmen</button>` : ''}
         <button class="btn btn-ghost" data-oeffnen>${icon('download')} ${a.art === 'foto' ? 'Öffnen/Laden' : 'Öffnen / bearbeiten'}</button>`,
     });
     $('[data-typ]', m.el).onchange = async (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value = a.dokumentTyp || ''; return; } a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
@@ -5339,68 +5320,13 @@ const Anhang = {
       if (!(await UI.confirm({ title: 'Anhang löschen?', text: 'Der Anhang wandert in den Papierkorb (30 Tage wiederherstellbar).' }))) return;
       await DB.softDel('anhaenge', a.id); m.close(true); UI.toast('In den Papierkorb verschoben'); if (onChange) onChange();
     };
-    const ob = $('[data-ocr]', m.el);
-    if (ob) ob.onclick = async () => {
-      const zone = $('[data-ocr-zone]', m.el);
-      zone.innerHTML = `<div class="small muted mb8">Texterkennung läuft … <b>Hinweis:</b> Handschrift wird nicht zuverlässig erkannt.</div><div class="progress"><div style="width:3%"></div></div>`;
-      ob.disabled = true;
-      try {
-        const text = await Ocr.run(a.blob, (p) => { $('.progress>div', zone).style.width = Math.round(p * 100) + '%'; });
-        zone.innerHTML = `<div class="field"><label>Erkannter Text (bearbeitbar)</label><textarea class="inp" data-ocr-text rows="6">${U.esc(text.trim())}</textarea></div>
-          ${onNotiz ? `<button class="btn btn-primary btn-sm" data-uebernehmen>${icon('check')} In Notizfeld übernehmen</button>` : ''}`;
-        const ub = $('[data-uebernehmen]', zone);
-        if (ub) ub.onclick = async () => { await onNotiz($('[data-ocr-text]', zone).value.trim()); UI.toast('In Notiz übernommen'); m.close(true); };
-      } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} OCR fehlgeschlagen: ${U.esc(e.message)}</div>`; }
-      ob.disabled = false;
-    };
   },
 };
 
 /* =====================================================================
-   OCR: Tesseract.js (deu), lazy geladen
-   ===================================================================== */
-const Ocr = {
-  /* Tesseract setzt zwischen zwei SPALTEN dasselbe einzelne Leerzeichen wie
-     zwischen zwei Wörtern – aus „Schleuderraum | heißes Wasser" wird dann ein
-     Satz, und eine Tabelle ist nicht mehr als Tabelle zu erkennen. Die
-     Wortkästchen wissen es aber genau: Wo eine ungewöhnlich große Lücke
-     klafft, endet eine Spalte. Diese Lücken werden hier zu drei Leerzeichen,
-     damit die Spalten so lesbar bleiben wie in einem PDF. */
-  async runMitLayout(blob, onProgress = () => {}) {
-    await this._laden();
-    const { data } = await Tesseract.recognize(blob, 'deu', {
-      logger: (m) => { if (m.status === 'recognizing text') onProgress(m.progress || 0); },
-    });
-    const zeilen = (data.lines || []).filter((z) => z.words && z.words.length);
-    if (!zeilen.length) return data.text || '';
-    return spaltenAusWorten(zeilen);
-  },
-  async _laden() {
-    await U.loadScript(
-      'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
-      'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
-    );
-  },
-  async run(blob, onProgress = () => {}) {
-    if (!navigator.onLine && !U._scripts['tesseract']) { /* SW-Cache kann trotzdem greifen */ }
-    await U.loadScript(
-      'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
-      'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js'
-    );
-    const { data } = await Tesseract.recognize(blob, 'deu', {
-      logger: (m) => { if (m.status === 'recognizing text') onProgress(m.progress || 0); },
-    });
-    return data.text || '';
-  },
-};
-
-/* =====================================================================
-   SPRACHNOTIZEN: MediaRecorder + Web Speech (live) + Whisper (offline)
+   SPRACHNOTIZEN: MediaRecorder + Web Speech (live)
    ===================================================================== */
 const Voice = {
-  _asr: null,
   webSpeechAvailable: () => !!(window.SpeechRecognition || window.webkitSpeechRecognition),
   /** Live-Diktat (de-DE) während der Aufnahme – nur Chrome/Edge, braucht Internet */
   startLive() {
@@ -5420,37 +5346,6 @@ const Voice = {
     rec.onerror = () => {};
     try { rec.start(); } catch (e) { return null; }
     return { stop: () => { try { rec.stop(); } catch (e) {} }, getText: () => finalText.trim(), onUpdate: (cb) => { this._liveCb = cb; } };
-  },
-  /** Offline-Transkription mit Whisper (whisper-small, deutsch) über transformers.js */
-  async whisper(blob, onProgress = () => {}) {
-    if (IST_NATIVE_APP) throw new Error('Offline-Transkription gibt es in der App noch nicht.');   // kein nachgeladener Code (Apple 2.5.2)
-    if (!Voice._asr) {
-      onProgress({ label: 'Whisper-Modell wird geladen (einmalig, danach im Cache) …', pct: 2 });
-      let tf;
-      try { tf = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2'); }
-      catch (e) { tf = await import('https://unpkg.com/@xenova/transformers@2.17.2/dist/transformers.min.js'); }
-      const { pipeline, env } = tf;
-      env.allowLocalModels = false;
-      Voice._asr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-small', {
-        quantized: true,
-        progress_callback: (p) => { if (p.status === 'progress' && p.total) onProgress({ label: `Modell laden: ${p.file}`, pct: Math.round((p.loaded / p.total) * 100) }); },
-      });
-    }
-    onProgress({ label: 'Audio wird vorbereitet …', pct: 100 });
-    const audio = await Voice._decodeTo16k(blob);
-    onProgress({ label: 'Transkription läuft …', pct: 100 });
-    const out = await Voice._asr(audio, { language: 'german', task: 'transcribe', chunk_length_s: 30, stride_length_s: 5 });
-    return (out.text || '').trim();
-  },
-  /** Audio-Blob → mono Float32Array mit 16 kHz (Whisper-Eingang) */
-  async _decodeTo16k(blob) {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
-    ctx.close();
-    const off = new OfflineAudioContext(1, Math.ceil(buf.duration * 16000), 16000);
-    const src = off.createBufferSource(); src.buffer = buf; src.connect(off.destination); src.start();
-    const out = await off.startRendering();
-    return out.getChannelData(0);
   },
 };
 
@@ -5501,23 +5396,20 @@ const Sprachnotiz = {
     const render = async () => {
       blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls = [];
       const items = await Anhang.list(parentTyp, parentId, ['audio']);
-      const whisperOn = S.get('features').whisper && !IST_NATIVE_APP;   // App: kein nachgeladener Code
       el.innerHTML = `
         <div class="flex-wrap mb8">
           <h3 style="flex:1">Sprachnotizen</h3>
           <button class="btn btn-sm ${recorder ? 'btn-danger' : 'btn-ghost'}" data-rec>${recorder ? `<span class="rec-pulse"></span> Aufnahme stoppen` : `${icon('mic')} Aufnehmen`}</button>
         </div>
         ${recorder ? `<div class="banner info" data-live>${icon('mic')} <span>Aufnahme läuft … ${Voice.webSpeechAvailable() ? 'Live-Diktat aktiv.' : ''}</span></div>` : ''}
-        ${!Voice.webSpeechAvailable() && !whisperOn && !IST_NATIVE_APP ? `<div class="hint small muted mb8">Live-Diktat (Web Speech) funktioniert nur in Chrome/Edge mit Internet. Alternativ in den Einstellungen die Offline-Transkription (Whisper) aktivieren.</div>` : ''}
         <div class="rows" data-list>
           ${items.map((a) => `<div class="audio-row" data-id="${U.esc(a.id)}">
             <audio controls preload="metadata"></audio>
-            ${whisperOn ? `<button class="icon-btn" data-trans title="Transkribieren (Whisper offline)">${icon('doc')}</button>` : ''}
             <button class="icon-btn" data-del title="Löschen">${icon('trash')}</button>
           </div>
           ${a.transkript ? `<div class="small muted" style="padding:0 4px 10px">„${U.esc(a.transkript)}“ ${onText ? `<button class="btn btn-xs btn-ghost" data-take="${U.esc(a.id)}">In Notiz übernehmen</button>` : ''}</div>` : ''}`).join('') || '<div class="hint small muted">Noch keine Sprachnotizen.</div>'}
         </div>
-        <div data-progress></div>`;
+`;
       for (const a of items) { const row = $(`[data-id="${U.esc(a.id)}"] audio`, el); if (row) { const u = URL.createObjectURL(a.blob); blobUrls.push(u); row.src = u; } }
       $('[data-rec]', el).onclick = () => (recorder ? stopRec() : (Lizenz.nurVoll('Sprachnotizen') ? null : startRec()));
       $('[data-list]', el).addEventListener('click', async (e) => {
@@ -5527,15 +5419,6 @@ const Sprachnotiz = {
         const a = items.find((x) => x.id === row.dataset.id);
         if (e.target.closest('[data-del]')) {
           if (await UI.confirm({ title: 'Sprachnotiz löschen?', text: 'Wandert in den Papierkorb (30 Tage).' })) { await DB.softDel('anhaenge', a.id); render(); }
-        } else if (e.target.closest('[data-trans]')) {
-          const prog = $('[data-progress]', el);
-          prog.innerHTML = `<div class="small muted mb8" data-label>Starte …</div><div class="progress"><div style="width:2%"></div></div>`;
-          try {
-            const text = await Voice.whisper(a.blob, (p) => { $('[data-label]', prog).textContent = p.label; $('.progress>div', prog).style.width = p.pct + '%'; });
-            prog.innerHTML = '';
-            a.transkript = a.transkript ? a.transkript + ' ' + text : text;
-            await DB.put('anhaenge', a); render();
-          } catch (err) { prog.innerHTML = `<div class="banner danger">${icon('warn')} Transkription fehlgeschlagen: ${U.esc(err.message)}</div>`; }
         }
       });
     };
@@ -5678,8 +5561,8 @@ const DASH_WIDGETS = {
       </div>
       <div class="hint mt8">${U.esc(ep.quelle)} · Richtwert, kein Versprechen.</div></div>`;
   }},
-  wetter: { label: 'Wetter am Stand', ic: 'wetter', ziel: 'staende', async html() {
-    if (!S.get('features').wetter) return '';
+  wetter: { get label() { return Wetter.erlaubt() ? 'Wetter am Stand' : 'Wetter am Stand (aus, siehe Einstellungen → Funktionen)'; }, ic: 'wetter', ziel: 'staende', async html() {
+    if (!Wetter.erlaubt()) return '';   // ab Werk aus: keine Kachel, kein Abruf
     if (Lizenz.light()) return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter am Stand</h2></div><div class="muted small">Wetter am Stand gibt es in der Vollversion.</div><button class="btn btn-primary btn-sm mt8" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`;
     const stand = (await DB.getAll('staende')).find((s) => s.lat && s.lng);
     if (!stand) return `<div class="card" style="margin:0"><div class="card-title">${icon('wetter')}<h2>Wetter</h2></div><div class="muted small">Lege einen Stand mit Koordinaten an, um Wetter zu sehen.</div></div>`;
@@ -6341,8 +6224,7 @@ const Demo = {
     for (const b of [
       ['volk', V['Anna'].id, ymd(Y - 1, 8, 12), 'Ameisensäure 60 %', 200, 'ml', 'Verdunster (Nassenheider)', 'Nach Abschleudern.'],
       ['stand', st1.id, ymd(Y - 1, 12, 27), 'Oxalsäure 3,5 %', 35, 'ml', 'Träufeln', 'Brutfrei, 4 °C.'],
-      ['volk', V['Frida'].id, ymd(Y, 8, 5), 'Ameisensäure 85 %', 180, 'ml', 'Schwammtuch', ''],
-      ['stand', st2.id, ymd(Y - 1, 7, 15), 'Thymol (Thymovar)', 2, 'Streifen', 'Auflegen (Rähmchen)', '2 Streifen je Volk.'],
+      ['stand', st2.id, ymd(Y - 1, 7, 15), 'Thymol (Thymovar)', 2, 'Streifen', 'Auflegen (Rähmchen)', ''],
       ['volk', V['Greta'].id, ymd(Y, 1, 3), 'Oxalsäure', 3, 'ml', 'Sprühen', 'Brutfrei.'],
     ]) await DB.put('behandlungen', { zielTyp: b[0], zielId: b[1], datum: b[2], mittel: b[3], menge: b[4], einheit: b[5], anwendungsart: b[6], wartezeitTage: 0, notiz: b[7] });
 
@@ -6462,9 +6344,52 @@ const Demo = {
    Erst die nächste Messstation (bis 50 km); ist keine nah genug (z. B. in
    Wien), die DWD-Vorhersage (MOSMIX, deckt auch AT/CH ab) für die Stunde. */
 const WETTER_QUELLE = 'Deutscher Wetterdienst';
+/* Fassung des Einwilligungstextes. Ändert sich der Text inhaltlich, hier hochzählen. */
+const WETTER_EINWILLIGUNG_VERSION = 1;
 const Wetter = {
+  /** Darf überhaupt etwas an den Wetterdienst gehen? Schalter an UND Einwilligung gespeichert (v3.08). Gilt auch für
+      vorhandene Geräte, die noch wetter:true ohne Einwilligung haben: Dort bleibt alles aus, bis zugestimmt wurde. */
+  erlaubt() {
+    const f = S.get('features') || {}, e = S.get('wetterEinwilligung');
+    return !!f.wetter && !!(e && e.zeit);
+  },
+  /** Zustimmung speichern (Art. 7 Abs. 1 DSGVO: Zeitpunkt und Textversion, nur auf dem Gerät). */
+  async einwilligen() {
+    await S.set('wetterEinwilligung', { zeit: new Date().toISOString(), version: WETTER_EINWILLIGUNG_VERSION });
+    const f = { ...(S.get('features') || {}), wetter: true, wetterStart: true };
+    await S.set('features', f);
+  },
+  /** Ausschalten ist genauso einfach wie Einschalten und gilt ab sofort für alle künftigen Abrufe. */
+  async widerrufen() {
+    await S.set('wetterEinwilligung', null);
+    await S.set('features', { ...(S.get('features') || {}), wetter: false });
+  },
+  /** Kommt die Frage jetzt? Nur wenn der Stand Koordinaten hat, noch nie gefragt wurde und nichts zugestimmt ist.
+      Nicht in Light (dort ruft die App ohnehin nichts ab) und nicht im Testlauf. */
+  frageFaellig(stand, { imTest = TEST_MODE } = {}) {
+    return !imTest && this.hatOrt(stand) && !S.get('wetterGefragt') && !this.erlaubt() && !Lizenz.light() && !Lizenz.gesperrt();
+  },
+  /** Die Frage: zwei gleich große Knöpfe, genau einmal. Wegtippen zählt wie „Nein danke“. */
+  async fragen() {
+    await S.set('wetterGefragt', true, { auto: true });
+    const m = UI.modal({ title: 'Wetter für deine Stände anzeigen?',
+      body: '<p class="small" data-wetter-frage>Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Der Abruf läuft dann auch von selbst beim App-Start, höchstens alle 30 Minuten. Du kannst das jederzeit unter Einstellungen → Funktionen ausschalten.</p>',
+      footer: '<button class="btn btn-ghost" data-wetter-ja>Wetter einschalten</button><button class="btn btn-ghost" data-wetter-nein>Nein danke</button>' });
+    $('[data-wetter-nein]', m.el).onclick = () => m.close(true);
+    $('[data-wetter-ja]', m.el).onclick = async () => {
+      await this.einwilligen();
+      m.close(true);
+      UI.toast('Wetter eingeschaltet');
+      renderRoute();
+      this.alleAbrufen();
+    };
+    return m;
+  },
+  /** Koordinaten vor dem Senden runden: Schritte von 0,025 Grad, das sind etwa 2 km (Dezimalpunkt für die Adresse). */
+  gerundet(wert) { return (Math.round(Number(String(wert).replace(',', '.')) / 0.025) * 0.025).toFixed(3); },
   async fetchCurrent(stand) {
-    const ort = `lat=${encodeURIComponent(stand.lat)}&lon=${encodeURIComponent(stand.lng)}`;
+    if (!this.erlaubt()) throw new Error('Das Wetter ist ausgeschaltet (Einstellungen → Funktionen).');
+    const ort = `lat=${encodeURIComponent(this.gerundet(stand.lat))}&lon=${encodeURIComponent(this.gerundet(stand.lng))}`;
     const r = await fetch(`https://api.brightsky.dev/current_weather?${ort}`);
     if (r.ok) {
       const w = (await r.json()).weather || {};
@@ -6502,10 +6427,10 @@ const Wetter = {
     }
     return { rec: await this.speichern(stand, await this.fetchCurrent(stand), alle), neu: true };
   },
-  /** Darf die App von selbst abrufen? Schalter „Wetter beim App-Start“, Vollversion, online – und nie im Testlauf. */
+  /** Darf die App von selbst abrufen? Einwilligung, Schalter „Wetter beim App-Start“, Vollversion, online – und nie im Testlauf. */
   darfAuto() {
     const f = S.get('features') || {};
-    return !!f.wetter && f.wetterStart !== false && !TEST_MODE && !Lizenz.light() && !Lizenz.gesperrt() && navigator.onLine !== false;
+    return this.erlaubt() && f.wetterStart !== false && !TEST_MODE && !Lizenz.light() && !Lizenz.gesperrt() && navigator.onLine !== false;
   },
   _laeuft: null,
   /** Alle Stände mit Koordinaten nacheinander (still: offline oder Dienst gestört → einfach nichts). */
@@ -6856,8 +6781,9 @@ function openStandForm(stand, onDone) {
     fields: standFormFields(), values: stand || {},
     async onSave(v) {
       const txt = (x) => String(x || '').trim();
-      await DB.put('staende', Object.assign(stand || { }, { name: v.name, ort: txt(v.ort), gemarkung: txt(v.gemarkung), flurnummer: txt(v.flurnummer), standNr: txt(v.standNr), lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
+      const gespeichert = await DB.put('staende', Object.assign(stand || { }, { name: v.name, ort: txt(v.ort), gemarkung: txt(v.gemarkung), flurnummer: txt(v.flurnummer), standNr: txt(v.standNr), lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
       UI.toast('Stand gespeichert'); if (onDone) onDone();
+      if (Wetter.frageFaellig(gespeichert)) setTimeout(() => Wetter.fragen(), 350);   // erst das Formular zu, dann die Frage
     },
   });
   bindGeoButton(m);
@@ -7087,7 +7013,7 @@ Views.stand = {
       <div class="card" id="wetter-karte">
         <div class="card-title">${icon('wetter')}<h2>Wetter</h2>
           <span class="no-print flex" style="gap:8px">
-            ${Wetter.hatOrt(s) && S.get('features').wetter ? `<button class="btn btn-ghost btn-sm" id="wAuto">${icon('wetter')} Aktualisieren</button>` : ''}
+            ${Wetter.hatOrt(s) && Wetter.erlaubt() ? `<button class="btn btn-ghost btn-sm" id="wAuto">${icon('wetter')} Aktualisieren</button>` : ''}
             <button class="btn btn-ghost btn-sm" id="wMan">${icon('plus')} Manuell</button>
           </span></div>
         <div id="wetter-box" data-stand="${U.esc(id)}"></div>
@@ -7153,7 +7079,7 @@ Views.stand = {
     if (!$('#wetter-box') || $('#wetter-box').dataset.stand !== id) return;   // inzwischen weg-navigiert
     const neueste = [...liste].sort((a, b) => String(b.datum).localeCompare(String(a.datum)) || Wetter.zeitpunkt(b) - Wetter.zeitpunkt(a));
     const akt = neueste[0];
-    const an = S.get('features').wetter && !Lizenz.light();   // in Light ruft die App kein Wetter ab
+    const an = Wetter.erlaubt() && !Lizenz.light();   // in Light ruft die App kein Wetter ab
     const heute = U.todayIso();
     const wann = (w) => {
       const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
@@ -7166,7 +7092,7 @@ Views.stand = {
         <div class="stat"><div class="s-label">Wind</div><div class="s-value">${akt.windKmh != null && akt.windKmh !== '' ? U.fmtNum(akt.windKmh, 0) + ' km/h' : '–'}</div></div>
         <div class="stat"><div class="s-label">Regen</div><div class="s-value">${akt.niederschlagMm != null && akt.niederschlagMm !== '' ? U.fmtNum(akt.niederschlagMm, 1) + ' mm' : '–'}</div></div>
       </div>${akt.bemerkung ? `<div class="small mb12">${U.esc(akt.bemerkung)}</div>` : ''}`
-      : (ohneOrt || `<div class="muted small mb12">${an ? 'Wetter wird geholt, sobald Internet da ist …' : 'Noch keine Wetterdaten erfasst.'}</div>`);
+      : (ohneOrt || `<div class="muted small mb12">${an ? (S.get('features').wetterStart !== false ? 'Wetter wird geholt, sobald Internet da ist …' : 'Noch keine Wetterdaten. „Aktualisieren“ holt sie.') : `Noch keine Wetterdaten erfasst.${Lizenz.light() ? '' : ' Der Wetter-Abruf ist aus, du kannst ihn unter Einstellungen → Funktionen einschalten.'}`}</div>`);
     if (akt && ohneOrt) html += ohneOrt;
     const tage = Wetter.jeTag(liste);
     if (tage.length > 1) {
@@ -9873,7 +9799,7 @@ Views.zucht = {
 };
 
 /* =====================================================================
-   MODUL: BEHANDLUNGEN / BESTANDSBUCH (TAMG-konform, Beleg-Anhang)
+   MODUL: BEHANDLUNGEN / BESTANDSBUCH (Aufzeichnungen, Beleg-Anhang)
    ===================================================================== */
 async function zielFelder(defaults = {}, label = 'Behandelt wurde') {
   const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
@@ -9890,6 +9816,44 @@ async function zielName(zielTyp, zielId) {
   return r ? r.name : 'gelöscht';
 }
 
+/* Mengenrechner (v3.08): Die App kennt keine Mengen. Der Imker trägt den Wert aus seiner Packungsbeilage ein, die App
+   multipliziert nur. Beide Rechner (Behandlungen und Imker-Rechner) nutzen genau diese Bausteine. */
+const MENGEN_WARNUNG = 'Nur eine Rechenhilfe. Verbindlich ist allein die aktuelle Packungsbeilage deines zugelassenen Mittels. Zulassungen unterscheiden sich je Mittel und Land und ändern sich. Prüfe vor jeder Anwendung Mittel, Menge, Zeitpunkt, Temperatur und Wartezeit. Nicht während der Honigtracht behandeln. Im Zweifel frag deinen Tierarzt oder Bienengesundheitsdienst. Säuren sind gefährlich: Schutzausrüstung laut Packungsbeilage tragen.';
+const MENGEN_BEZUG = { volk: ['je Volk', ''], gasse: ['je Wabengasse', 'Wabengassen je Volk'], zarge: ['je Zarge', 'Zargen je Volk'], wabe: ['je Wabe', 'Waben je Volk'], seite: ['je Wabenseite', 'Wabenseiten je Volk'] };
+/** Rechnet nur: Wert aus der Beilage × Anzahl je Volk × Völker. Fehlt etwas, kommt zurück, was fehlt. */
+function mengenRechnen({ menge, bezug = 'volk', jeVolk, voelker }) {
+  const m = U.zahl(menge), n = Math.max(1, Math.round(U.zahl(voelker)) || 1), a = bezug === 'volk' ? 1 : U.zahl(jeVolk);
+  if (!(m > 0)) return { fehlt: 'menge' };
+  if (!(a > 0)) return { fehlt: 'anzahl' };
+  return { proVolk: m * a, gesamt: m * a * n, voelker: n };
+}
+function mengenrechnerHtml(voelker) {
+  return `<div data-mengenrechner>
+    <div class="grid2">
+      <div class="field"><label>Die Beilage nennt die Menge</label><select class="inp rk" data-mr="bezug">${Object.entries(MENGEN_BEZUG).map(([k, [l]]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Menge laut Packungsbeilage</label><input class="inp rk" data-mr="menge" inputmode="decimal" value="" placeholder="aus der Beilage"></div>
+      <div class="field"><label>Einheit</label><select class="inp rk" data-mr="einheit">${VORSCHLAEGE.einheit.map((e) => `<option>${U.esc(e)}</option>`).join('')}</select></div>
+      <div class="field" data-mr-anzahl style="display:none"><label data-mr-anzahl-text></label><input class="inp rk" data-mr="jeVolk" inputmode="decimal" value=""></div>
+      <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-mr="voelker" inputmode="numeric" value="${Math.max(1, Math.round(voelker) || 1)}"></div>
+    </div>
+    <div data-mr-aus class="mt8"></div>
+    <div class="small muted mt8" data-mr-warnung>${U.esc(MENGEN_WARNUNG)}</div>
+  </div>`;
+}
+function mengenrechnerZeichnen(box) {
+  if (!box) return;
+  const wert = (k) => $(`[data-mr="${k}"]`, box).value;
+  const bezug = wert('bezug'), einheit = U.esc(wert('einheit'));
+  const anzahlFeld = $('[data-mr-anzahl]', box);
+  anzahlFeld.style.display = bezug === 'volk' ? 'none' : '';
+  $('[data-mr-anzahl-text]', box).textContent = (MENGEN_BEZUG[bezug] || MENGEN_BEZUG.volk)[1];
+  const r = mengenRechnen({ menge: U.parseNum(wert('menge')), bezug, jeVolk: U.parseNum(wert('jeVolk')), voelker: U.parseNum(wert('voelker')) });
+  const aus = $('[data-mr-aus]', box);
+  if (r.fehlt === 'menge') { aus.innerHTML = '<div class="small muted">Trag zuerst den Wert aus deiner Packungsbeilage ein. Erst dann rechnet die App.</div>'; return; }
+  if (r.fehlt === 'anzahl') { aus.innerHTML = `<div class="small muted">Trag noch ein: ${U.esc(MENGEN_BEZUG[bezug][1])}.</div>`; return; }
+  aus.innerHTML = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${U.fmtNum(r.proVolk, 2)} ${einheit}</div></div><div class="stat"><div class="s-label">Gesamt${r.voelker > 1 ? ` (${r.voelker} Völker)` : ''}</div><div class="s-value">${U.fmtNum(r.gesamt, 2)} ${einheit}</div></div></div>`;
+}
+
 Views.behandlungen = {
   title: 'Behandlungen',
   async render(main) {
@@ -9900,37 +9864,12 @@ Views.behandlungen = {
     const list = jahre.length > 1 ? alle.filter((b) => (b.datum || '').startsWith(jahr)) : alle;
     const voelker = await idMap('voelker'), staende = await idMap('staende');
     const zn = (b) => (b.zielTyp === 'volk' ? voelker.get(b.zielId)?.name : staende.get(b.zielId)?.name) || 'gelöscht';
-    main.innerHTML = pageHead('Behandlungen', 'Bestandsbuch nach TAMG – alle Anwendungen dokumentiert',
+    main.innerHTML = pageHead('Behandlungen', 'Deine Aufzeichnungen fürs Bestandsbuch',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.bestandsbuch()">${icon('doc')} Bestandsbuch (PDF)</button>
        <button class="btn btn-primary btn-sm" id="add">${icon('plus')} Behandlung</button></span>`) +
-      `<style>.rk-section{margin-bottom:8px;border-radius:16px;box-shadow:0 2px 4px rgba(122,80,0,.04),0 10px 24px -14px rgba(122,80,0,.22)}.rk-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:var(--card);border-radius:16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-radius .15s}.rk-head.open{border-radius:16px 16px 0 0}.rk-ic{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:10px;flex-shrink:0}.rk-ic svg{width:18px;height:18px}.rk-info{flex:1;min-width:0}.rk-label{display:block;font-weight:600;font-size:14px}.rk-desc{display:block;font-size:12px;color:var(--muted);margin-top:1px}.rk-chev{font-size:11px;color:var(--muted);transition:transform .2s}.rk-head.open .rk-chev{transform:rotate(90deg)}.rk-body{background:var(--card);border-top:1px solid var(--line);border-radius:0 0 16px 16px;padding:14px}</style>
-      <div class="rk-section" style="margin-bottom:12px"><button class="rk-head" type="button"><span class="rk-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span><span class="rk-info"><span class="rk-label">Dosierungsrechner</span><span class="rk-desc">Schnell die richtige Menge berechnen</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">
-        <div class="field"><label>Behandlungsmethode</label>
-          <select class="inp rk" id="eb-mittel">
-            <option value="os-traeufeln">Oxalsäure – Träufeln (Winter, brutfrei)</option>
-            <option value="os-verdampfen">Oxalsäure – Verdampfen (Winter, brutfrei)</option>
-            <option value="as-langzeit">Ameisensäure 60 % – Langzeit (Sommer)</option>
-            <option value="ms-spruehen">Milchsäure 15 % – Sprühen (Ableger)</option>
-          </select>
-        </div>
-        <div class="eb-grp" data-bg="os-traeufeln"><div class="grid2">
-          <div class="field"><label>Besetzte Wabengassen</label><input class="inp rk" data-eb="gassen" inputmode="numeric" value="7"></div>
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv1" inputmode="numeric" value="1"></div>
-        </div><div class="hint mt6">3,5 % OS-Dihydrat-Lösung · 5 ml/Gasse · max. 50 ml/Volk</div></div>
-        <div class="eb-grp" data-bg="os-verdampfen" style="display:none"><div class="grid2">
-          <div class="field"><label>Zargen pro Volk</label><input class="inp rk" data-eb="zargen" inputmode="numeric" value="2"></div>
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv2" inputmode="numeric" value="1"></div>
-        </div><div class="hint mt6">1 g OS-Dihydrat pro Zarge · Verdampfer · Atemschutz!</div></div>
-        <div class="eb-grp" data-bg="as-langzeit" style="display:none"><div class="grid2">
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-eb="bv3" inputmode="numeric" value="1"></div>
-          <div class="field"><label>ml pro Verdunster</label><input class="inp rk" data-eb="asfuellung" inputmode="numeric" value="200"></div>
-        </div><div class="hint mt6">60 % AS im Langzeitverdunster · nach letzter Ernte · 15–25 °C · 14 Tage</div></div>
-        <div class="eb-grp" data-bg="ms-spruehen" style="display:none"><div class="grid2">
-          <div class="field"><label>Waben (beidseitig)</label><input class="inp rk" data-eb="mswaben" inputmode="numeric" value="5"></div>
-          <div class="field"><label>Ableger-Anzahl</label><input class="inp rk" data-eb="bv4" inputmode="numeric" value="1"></div>
-        </div><div class="hint mt6">15 % Milchsäure · 7–8 ml pro Wabenseite · nur brutfreie Waben</div></div>
-        <div id="eb-out" class="mt8"></div>
-        <div class="hint mt8">Richtwerte ohne Gewähr. Maßgeblich sind die Gebrauchsinformation des zugelassenen Tierarzneimittels und dein Tierarzt bzw. Bienengesundheitsdienst.</div>
+      `<div class="small muted mb12" data-bestandsbuch-hinweis>Aufzeichnungen und Kaufbelege musst du in Deutschland mindestens fünf Jahre aufbewahren. Drucke das Bestandsbuch regelmäßig aus: Einträge in der App lassen sich ändern und liegen nur auf deinem Gerät.</div><style>.rk-section{margin-bottom:8px;border-radius:16px;box-shadow:0 2px 4px rgba(122,80,0,.04),0 10px 24px -14px rgba(122,80,0,.22)}.rk-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:var(--card);border-radius:16px;cursor:pointer;text-align:left;font:inherit;color:inherit;transition:border-radius .15s}.rk-head.open{border-radius:16px 16px 0 0}.rk-ic{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:10px;flex-shrink:0}.rk-ic svg{width:18px;height:18px}.rk-info{flex:1;min-width:0}.rk-label{display:block;font-weight:600;font-size:14px}.rk-desc{display:block;font-size:12px;color:var(--muted);margin-top:1px}.rk-chev{font-size:11px;color:var(--muted);transition:transform .2s}.rk-head.open .rk-chev{transform:rotate(90deg)}.rk-body{background:var(--card);border-top:1px solid var(--line);border-radius:0 0 16px 16px;padding:14px}</style>
+      <div class="rk-section" style="margin-bottom:12px"><button class="rk-head" type="button"><span class="rk-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span><span class="rk-info"><span class="rk-label">Mengenrechner</span><span class="rk-desc">Aus dem Wert deiner Packungsbeilage die Gesamtmenge ausrechnen</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">
+        ${mengenrechnerHtml((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length)}
       </div></div>` + (jahre.length > 1 ? '<div id="tabbar"></div>' : '') +
       `<div class="card">` + (list.length ? `<div class="rows">` + seitenweise('behandlungen', list).sichtbar.map((b) => `
         <button class="row" data-id="${U.esc(b.id)}">
@@ -9945,7 +9884,7 @@ Views.behandlungen = {
     main.addEventListener('click', (e) => {
       const head = e.target.closest('.rk-head');
       if (head) {
-        if (Lizenz.nurVoll('Der Dosierungsrechner')) return;   // Light: rechnet nichts Gespeichertes, bleibt aber Vollversion (v3.07)
+        if (Lizenz.nurVoll('Der Mengenrechner')) return;   // Light: rechnet nichts Gespeichertes, bleibt aber Vollversion (v3.07)
         const body = head.nextElementSibling;
         if (body?.classList.contains('rk-body')) { const isOpen = head.classList.contains('open'); head.classList.toggle('open'); body.style.display = isOpen ? 'none' : ''; if (!isOpen) { rechneEB(); head.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }
         return;
@@ -9959,30 +9898,7 @@ Views.behandlungen = {
       bearbeiten: (r) => Views.behandlungen.form(behVon(r)),
       loeschen: (r) => UI.nurLoeschen(() => Views.behandlungen.form(behVon(r))),
     });
-    const numEB = (sel) => U.parseNum($(sel, main)?.value);
-    const rechneEB = () => {
-      const bm = $('#eb-mittel', main)?.value;
-      if (!bm) return;
-      $$('.eb-grp', main).forEach((g) => g.style.display = g.dataset.bg === bm ? '' : 'none');
-      let bhtml = '';
-      if (bm === 'os-traeufeln') {
-        const g = Math.round(numEB('[data-eb="gassen"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv1"]') || 1));
-        const mlV = Math.min(g * 5, 50), mlG = mlV * v;
-        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${mlV} ml</div><div class="s-sub">${g} Gassen × 5 ml${g * 5 > 50 ? ' (max. 50)' : ''}</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L</div></div></div>`;
-      } else if (bm === 'os-verdampfen') {
-        const z = Math.round(numEB('[data-eb="zargen"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv2"]') || 1));
-        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${z} g</div><div class="s-sub">${z} Zargen × 1 g</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${z * v} g</div></div></div>`;
-      } else if (bm === 'as-langzeit') {
-        const v = Math.max(1, Math.round(numEB('[data-eb="bv3"]') || 1)), f = Math.round(numEB('[data-eb="asfuellung"]') || 200);
-        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${f} ml</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${f * v} ml</div><div class="s-sub">${U.fmtNum(f * v / 1000, 2)} L AS 60 %</div></div></div>`;
-      } else if (bm === 'ms-spruehen') {
-        const w = Math.round(numEB('[data-eb="mswaben"]') || 0), v = Math.max(1, Math.round(numEB('[data-eb="bv4"]') || 1));
-        const mlA = w * 2 * 8;
-        bhtml = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Ableger</div><div class="s-value">${mlA} ml</div><div class="s-sub">${w} Waben × 2 × 8 ml</div></div><div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Ableger)` : ''}</div><div class="s-value">${mlA * v} ml</div></div></div>`;
-      }
-      const out = $('#eb-out', main);
-      if (out) out.innerHTML = bhtml;
-    };
+    const rechneEB = () => mengenrechnerZeichnen($('[data-mengenrechner]', main));
     main.addEventListener('input', (e) => { if (e.target.closest('.rk-body')) rechneEB(); });
     main.addEventListener('change', (e) => { if (e.target.closest('.rk-body')) rechneEB(); });
   },
@@ -10004,12 +9920,18 @@ Views.behandlungen = {
         { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerungs-Aufgabe zum Ende angelegt.' },
         ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird die Menge oben – wähle eine Position mit passender Einheit.' }),
+        { key: '_trennBeh3', type: 'static', html: '<div class="small muted mt8" style="font-weight:600">Weitere Angaben fürs Bestandsbuch (freiwillig)</div>' },
+        { key: 'behandlungBis', label: 'Behandlung bis', type: 'date', halb: true },
+        { key: 'lieferant', label: 'Lieferant', halb: true },
+        { key: 'behandelndePerson', label: 'Behandelnde Person', halb: true },
+        { key: 'tierarzt', label: 'Tierarzt', halb: true },
+        { key: 'kaufbeleg', label: 'Kaufbeleg vorhanden', type: 'check' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
       values: zielFormValues(b),
       async onSave(v) {
         const zielId = zielIdAus(v);
-        const rec = Object.assign(b || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, mittel: v.mittel, menge: v.menge, einheit: v.einheit, anwendungsart: v.anwendungsart, wartezeitTage: v.wartezeitTage || 0, notiz: v.notiz });
+        const rec = Object.assign(b || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, mittel: v.mittel, menge: v.menge, einheit: v.einheit, anwendungsart: v.anwendungsart, wartezeitTage: v.wartezeitTage || 0, behandlungBis: v.behandlungBis || '', lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', kaufbeleg: !!v.kaufbeleg, notiz: v.notiz });
         const saved = await DB.put('behandlungen', rec);
         // Wartezeit-Aufgabe pflegen
         const alte = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'behandlung' && a.refId === saved.id);
@@ -10046,6 +9968,11 @@ Views.behandlungen = {
           <dt>Menge</dt><dd>${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}</dd>
           <dt>Anwendungsart</dt><dd>${U.esc(b.anwendungsart) || '–'}</dd>
           <dt>Wartezeit</dt><dd>${U.esc(wartezeitText(b, true))}</dd>
+          ${b.behandlungBis ? `<dt>Behandlung bis</dt><dd>${U.fmtDate(b.behandlungBis)}</dd>` : ''}
+          ${b.lieferant ? `<dt>Lieferant</dt><dd>${U.esc(b.lieferant)}</dd>` : ''}
+          ${b.behandelndePerson ? `<dt>Behandelnde Person</dt><dd>${U.esc(b.behandelndePerson)}</dd>` : ''}
+          ${b.tierarzt ? `<dt>Tierarzt</dt><dd>${U.esc(b.tierarzt)}</dd>` : ''}
+          ${b.kaufbeleg ? '<dt>Kaufbeleg</dt><dd>vorhanden</dd>' : ''}
           <dt>Bemerkung</dt><dd>${U.esc(b.notiz) || '–'}</dd>
         </div><div data-anhang></div>`,
       footer: `<button class="btn btn-ghost" data-edit>${icon('pencil')} Bearbeiten</button>`,
@@ -10055,7 +9982,7 @@ Views.behandlungen = {
   },
 
   /** Sammel-Behandlung im Fütterungs-Stil: Stand → Funktion → Völker → Mittel/Menge.
-      Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an (TAMG). */
+      Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an. */
   async sammelForm() {
     const staende = await DB.getAll('staende');
     const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
@@ -10079,6 +10006,12 @@ Views.behandlungen = {
         { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', default: 0, hint: 'Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
         ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird Menge je Volk × Anzahl der angehakten Völker.' }),
+        { key: '_trennBeh3', type: 'static', html: '<div class="small muted mt8" style="font-weight:600">Weitere Angaben fürs Bestandsbuch (freiwillig)</div>' },
+        { key: 'behandlungBis', label: 'Behandlung bis', type: 'date', halb: true },
+        { key: 'lieferant', label: 'Lieferant', halb: true },
+        { key: 'behandelndePerson', label: 'Behandelnde Person', halb: true },
+        { key: 'tierarzt', label: 'Tierarzt', halb: true },
+        { key: 'kaufbeleg', label: 'Kaufbeleg vorhanden', type: 'check' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
       values: {},
@@ -10419,7 +10352,7 @@ async function fuetterungFuerVoelker(volkIds, daten, sammle = null) {
 async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
   let n = 0;
   for (const id of volkIds || []) {
-    const rec = await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: daten.wartezeitTage || 0, notiz: daten.notiz || '' });
+    const rec = await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: daten.wartezeitTage || 0, behandlungBis: daten.behandlungBis || '', lieferant: daten.lieferant || '', behandelndePerson: daten.behandelndePerson || '', tierarzt: daten.tierarzt || '', kaufbeleg: !!daten.kaufbeleg, notiz: daten.notiz || '' });
     if (sammle) sammle.push(rec);
     n++;
   }
@@ -11526,10 +11459,11 @@ async function honigEtikettForm(a, c) {
   UI.formModal({
     title: `Honig-Etikett · Charge ${chargeUndLos(a, c)} · ${gebindeLabel(a.gebindeG)}`, wide: true,
     fields: [
-      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || verkehrsbezeichnung(sorte), options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Verkehrsbezeichnung nach Honigverordnung.' },
-      { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'] },
+      { key: 'bezeichnung', label: 'Bezeichnung', type: 'suggest', required: true, default: (c && c.etikettNotiz) || verkehrsbezeichnung(sorte), options: ['Honig', 'Blütenhonig', 'Sommerblütenhonig', 'Frühjahrsblütenhonig', 'Rapshonig', 'Lindenhonig', 'Waldhonig', 'Honigtauhonig', 'Akazienhonig', 'Cremehonig'], hint: 'Bezeichnung nach Honigverordnung.' },
+      { key: 'ursprung', label: 'Ursprungsland', type: 'suggest', required: true, default: 'Deutschland', options: ['Deutschland', 'Österreich', 'Schweiz'], hint: 'Frei beschreibbar. Stammt der Honig aus mehreren Ländern, gib alle mit Anteil an.' },
       { key: 'anzahl', label: 'Anzahl Etiketten', type: 'number', required: true, default: a.bestand || a.anzahl || 10 },
       { key: 'hinweis', type: 'static', html: `<div class="hint">Nettofüllmenge (${gebindeLabel(a.gebindeG)}), Mindesthaltbarkeitsdatum${abfMhd(a, c) ? ' (' + U.fmtDate(abfMhd(a, c)) + ')' : ' – bitte an der Abfüllung eintragen'}, Losnummer (als „L ${U.esc(abfLos(a, c))}“) und deine Imkerei-Anschrift werden automatisch ergänzt.</div>` },
+      { key: 'druckhilfe', type: 'static', html: '<div class="hint" data-etikett-druckhilfe>Druckhilfe: Bitte prüfe das Etikett vor dem Drucken. Für Bezeichnung, Sorte, Herkunft, MHD, Füllmenge und Bio-Angaben bist du verantwortlich. Sortenhonig nur angeben, wenn der Honig überwiegend aus dieser Tracht stammt und ihre Merkmale hat. In Österreich und der Schweiz können andere Regeln gelten.</div>' },
     ],
     saveText: 'Etiketten-PDF erzeugen',
     async onSave(v) {
@@ -12446,24 +12380,6 @@ async function pdfTextMitLayout(datei, maxSeiten = 5, beiSeite = null) {
   } finally { await pdf.destroy(); }
 }
 
-/** Eine PDF-Seite als Bild – für Scans, die durch die Texterkennung müssen. */
-async function pdfSeiteAlsBild(datei, seite = 1, breitePx = 1600) {
-  const gewinner = await U.loadScript(...CDN.pdfjs);
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = gewinner.replace('pdf.min.js', 'pdf.worker.min.js');
-  const pdf = await window.pdfjsLib.getDocument({ data: await datei.arrayBuffer(), isEvalSupported: false }).promise;
-  try {
-  const page = await pdf.getPage(Math.min(seite, pdf.numPages));
-  const roh = page.getViewport({ scale: 1 });
-  if (!(roh.width > 0 && roh.height > 0 && Number.isFinite(roh.width * roh.height))) throw new Error('Ungültige Seitengröße.');
-  const viewport = page.getViewport({ scale: Math.min(3, breitePx / roh.width, Math.sqrt(4000000 / (roh.width * roh.height))) });
-  const c = document.createElement('canvas');
-  c.width = Math.round(viewport.width); c.height = Math.round(viewport.height);
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, c.width, c.height);
-  await page.render({ canvasContext: ctx, viewport }).promise;
-  return { blob: await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.92)), seiten: pdf.numPages };
-  } finally { await pdf.destroy(); }
-}
 
 /** Bild (beliebiges Format) → JPEG-Data-URL mit Maßen, höchstens `maxPx` an der langen Seite. */
 async function blobZuJpeg(blob, maxPx = 1600) {
@@ -13608,14 +13524,41 @@ function bioFristStatus(datum) {
    amtliche Zahl verlangt werden; die Zeilen bleiben deshalb überschreibbar.
    --------------------------------------------------------------------- */
 const OSM_NOMINATIM = 'https://nominatim.openstreetmap.org/search';
-/* Mehrere Overpass-Server: die öffentlichen sind oft überlastet und antworten
-   dann mit 504. Nacheinander durchprobieren ist der Unterschied zwischen
-   „geht nicht" und „dauert einen Moment". */
+/* Fern-Schalter für die Adresssuche (Nominatim-Regeln: bei Apps ohne Update abschaltbar). Steht dort "nominatim": false,
+   sucht die App nicht. Fehler oder Zeitüberschreitung (2 s) zählen als „erlaubt“. Antwort höchstens einmal je Tag holen. */
+const DIENSTE_ADRESSE = 'https://imkerbuch.app/dienste.json';
+const Dienste = {
+  SPEICHER: 'imkerbuch-dienste', WARTEZEIT_MS: 2000,
+  _gemerkt() { try { return JSON.parse(localStorage.getItem(this.SPEICHER) || 'null'); } catch (e) { return null; } },
+  _merken(w) { try { localStorage.setItem(this.SPEICHER, JSON.stringify(w)); } catch (e) { /* privater Modus: nächstes Mal neu fragen */ } },
+  async nominatimErlaubt() {
+    const heute = U.todayIso(), alt = this._gemerkt();
+    if (alt && alt.tag === heute) return alt.nominatim !== false;
+    const stopp = new AbortController(), uhr = setTimeout(() => stopp.abort(), this.WARTEZEIT_MS);
+    try {
+      const r = await fetch(DIENSTE_ADRESSE, { credentials: 'omit', cache: 'no-store', signal: stopp.signal });
+      if (!r.ok) return true;
+      const d = await r.json();
+      const erlaubt = !(d && d.nominatim === false);
+      this._merken({ tag: heute, nominatim: erlaubt });
+      return erlaubt;
+    } catch (e) { return true; } finally { clearTimeout(uhr); }
+  },
+};
+/* Höchstens eine Suche pro Sekunde je Gerät. Gesucht wird nur auf Knopfdruck, nie beim Tippen. */
+let osmNaechsteSuche = 0;
+async function osmSuchAbstand() {
+  const jetzt = Date.now(), warten = osmNaechsteSuche - jetzt;
+  osmNaechsteSuche = Math.max(jetzt, osmNaechsteSuche) + 1000;
+  if (warten > 0) await new Promise((r) => setTimeout(r, warten));
+}
+/* Nur noch der Server des OpenStreetMap-Umfelds (v3.08): Die Betreiber der zwei privaten Ausweichserver waren nicht
+   geklärt. Der Server ist oft überlastet und antwortet dann mit 504, deshalb bleibt es beim zweiten Versuch. */
 const OSM_OVERPASS_SERVER = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
 ];
+const OSM_QUELLE = '© OpenStreetMap contributors';
+const BKG_QUELLE = '© GeoBasis-DE / BKG';
 const OSM_RASTER_ZIEL = 2600;          // angestrebte Rasterpunkte im Kreis
 
 /* OSM-Schlüssel → unsere Kategorie. Reihenfolge der Prüfung: erst der genauere
@@ -13661,6 +13604,8 @@ const OSM_UNBEKANNT = { name: 'Nicht in OpenStreetMap erfasst', art: 'sonstiges'
 async function osmAdresseSuchen(text) {
   const q = String(text || '').trim();
   if (!q) throw new Error('Bitte eine Adresse oder einen Ort eingeben.');
+  if (!(await Dienste.nominatimErlaubt())) throw new Error('Die Adresssuche ist gerade nicht verfügbar. Trage die Koordinaten bitte von Hand ein oder nimm den aktuellen Standort.');
+  await osmSuchAbstand();
   const url = `${OSM_NOMINATIM}?format=json&limit=1&addressdetails=0&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Adresssuche nicht erreichbar (Status ${res.status})`);
@@ -13719,7 +13664,7 @@ async function osmLandbedeckung(lat, lon, radiusM, melde = () => {}) {
   for (let versuch = 0; versuch < OSM_OVERPASS_SERVER.length * 2 && !daten; versuch++) {
     const server = OSM_OVERPASS_SERVER[versuch % OSM_OVERPASS_SERVER.length];
     const runde = Math.floor(versuch / OSM_OVERPASS_SERVER.length) + 1;
-    melde(`Flächen abfragen … (Server ${(versuch % OSM_OVERPASS_SERVER.length) + 1} von ${OSM_OVERPASS_SERVER.length}${runde > 1 ? `, ${runde}. Versuch` : ''})`);
+    melde(`Flächen abfragen …${runde > 1 ? ` (${runde}. Versuch)` : ''}`);
     const abbruch = new AbortController();
     const uhr = setTimeout(() => abbruch.abort(), 60000);
     try {
@@ -13818,7 +13763,7 @@ const CLC_WFS = 'https://sgx.geodatenzentrum.de/wfs_clc5_2018';
 const CLC_TYPENAME = 'clc5_2018:clc5';
 const CLC_MAX = 4000;                  // Obergrenze der Abfrage
 const CLC_KREIS_ECKEN = 96;            // Vieleck, an dem gekappt wird
-const CLC_QUELLE_KURZ = 'CORINE Land Cover 5 ha 2018 (BKG, dl-de/by-2-0)';
+const CLC_QUELLE_KURZ = 'CORINE Land Cover 5 ha 2018 (© GeoBasis-DE / BKG, dl-de/by-2-0)';
 
 /* Amtliche Klassenliste (CORINE / Landbedeckungsmodell Deutschland).
    Schlüssel → [amtlicher Klassenname, unsere Art].
@@ -14153,7 +14098,7 @@ async function gbvLandbedeckung(lat, lon, radiusM, melde = () => {}) {
 const LB_QUELLEN = [
   { key: 'gbv', label: 'GeoBox-Viewer (amtlich, feine Klassen)', amtlich: true, kurz: GBV_QUELLE_KURZ, fn: (...a) => gbvLandbedeckung(...a) },
   { key: 'bkg', label: 'BKG CORINE 5 ha (amtlich, Rückfall)', amtlich: true, kurz: CLC_QUELLE_KURZ, fn: (...a) => clcLandbedeckung(...a) },
-  { key: 'osm', label: 'OpenStreetMap (letzter Rückfall)', amtlich: false, kurz: 'OpenStreetMap / Overpass', fn: (...a) => osmLandbedeckung(...a) },
+  { key: 'osm', label: 'OpenStreetMap (letzter Rückfall)', amtlich: false, kurz: 'OpenStreetMap / Overpass (© OpenStreetMap contributors)', fn: (...a) => osmLandbedeckung(...a) },
 ];
 
 /** Probiert die Quellen der Reihe nach. `nur` begrenzt auf eine Quelle.
@@ -14344,7 +14289,7 @@ Views.bio = {
     else await Views.bio.tabBetrieb(box);
   },
 
-  /** Hygieneplan übernehmen: Foto oder PDF → Text → Durchsicht → Einträge. */
+  /** Hygieneplan übernehmen: PDF → Text → Durchsicht → Einträge. */
   async planAusFoto(datei) {
     if (Lizenz.nurVoll('Der Hygieneplan')) return;
     const gelesen = await Views.bio.dateiZuText(datei, 'Hygieneplan wird gelesen', 5);
@@ -14359,7 +14304,7 @@ Views.bio = {
   planNichtsErkannt(text) {
     UI.modal({
       title: 'Nichts erkannt',
-      body: `<p class="small">Es war keine verwertbare Zeile zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel: gerade von oben, gut ausgeleuchtet und nah genug, dass die Schrift scharf ist. Handschrift wird nicht zuverlässig gelesen.</p>
+      body: `<p class="small">Es war keine verwertbare Zeile zu finden. Die App liest nur PDFs, die echten Text enthalten, keine Scans und keine Handschrift.</p>
         <div class="field mt12"><label>Was gelesen wurde</label><textarea class="inp" rows="6" readonly>${U.esc(text.trim() || '(nichts)')}</textarea></div>`,
       footer: '<button class="btn btn-primary" data-zu>Verstanden</button>',
     });
@@ -14459,7 +14404,7 @@ Views.bio = {
         <button class="btn btn-ghost btn-sm" data-eigen-neu>${icon('plus')} Eigener Bereich</button>
         <button class="btn btn-ghost btn-sm" id="vs-pdf">${icon('doc')} Als PDF</button>
         <button class="btn btn-ghost btn-sm" id="vs-eigenes">${icon('upload')} Eigenes hochladen</button>
-        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('camera')} Konzept einlesen<input type="file" accept="image/*,application/pdf" hidden data-vs-lesen></label>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('doc')} Konzept einlesen<input type="file" accept="application/pdf" hidden data-vs-lesen></label>
         <button class="btn btn-ghost btn-sm" id="vs-geprueft">${icon('check')} Heute überprüft</button>
       </div>
       <div class="rows">${eintraege.map(zeile).join('')}
@@ -14467,8 +14412,8 @@ Views.bio = {
     </div>
     <div class="card" id="vs-eigenes-card">
       <div class="card-title">${icon('upload')}<h2>Eigenes Vorsorgekonzept hochladen</h2></div>
-      <p class="small muted mb8">Du hast schon ein fertiges Konzept (z. B. von deinem Verband oder als Word/PDF)? Zwei Wege: <b>Nur aufbewahren</b> – Datei über „+ Foto“ oder „+ Dokument“ unten hochladen (auch Word), sie lässt sich jederzeit wieder öffnen und beim Erstellen der PDF auf Wunsch hinten anhängen. Oder <b>einlesen</b> – ein PDF oder Foto liest die App aus, ordnet die Abschnitte den Bereichen oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
-      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('camera')} Konzept einlesen und Texte übernehmen<input type="file" accept="image/*,application/pdf" hidden data-vs-lesen></label>
+      <p class="small muted mb8">Du hast schon ein fertiges Konzept (z. B. von deinem Verband oder als Word/PDF)? Zwei Wege: <b>Nur aufbewahren</b> – Datei über „+ Foto“ oder „+ Dokument“ unten hochladen (auch Word), sie lässt sich jederzeit wieder öffnen und beim Erstellen der PDF auf Wunsch hinten anhängen. Oder <b>einlesen</b> – ein PDF mit Text liest die App aus, ordnet die Abschnitte den Bereichen oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
+      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('doc')} Konzept einlesen und Texte übernehmen<input type="file" accept="application/pdf" hidden data-vs-lesen></label>
       <div id="vs-eigenes-zone"></div>
     </div>`;
     $('#vs-eigenes-zone', box).appendChild(Anhang.section({ parentTyp: 'bio', parentId: 'vorsorge', titel: 'Hochgeladene Konzepte' }));
@@ -14531,41 +14476,25 @@ Views.bio = {
     return true;
   },
 
-  /** Datei (PDF oder Foto) → Text, mit Ladekreis. Gibt { text, quelle, gekuerzt } zurück oder null, wenn abgebrochen/fehlgeschlagen. */
+  /** PDF → Text, mit Ladekreis. Gibt { text, quelle, gekuerzt } zurück oder null, wenn abgebrochen/fehlgeschlagen.
+      Fotos und eingescannte PDFs liest die App nicht (kein nachgeladener Code, v3.08 ist die Texterkennung der Web-Version entfallen). */
   async dateiZuText(datei, titel, maxSeiten = 15) {
     if (!datei || datei.size > 20 * 1024 * 1024) { UI.toast('Die Datei ist größer als 20 MB. Bitte verkleinern oder aufteilen.', 'err'); return null; }
     const istPdf = /pdf$/i.test(datei.type || '') || /\.pdf$/i.test(datei.name || '');
-    let quelle = 'Foto';
-    if (istPdf) {
-      const kreis = ladeKreis(titel, 'Die Seiten werden ausgewertet …');
-      try {
-        kreis.unbestimmt('Die Seiten werden ausgewertet …');
-        const erg = await pdfTextMitLayout(datei, maxSeiten, (p, info) => kreis.set(p, info));
-        if (erg.ausText) {
-          kreis.set(1, 'Fertig');
-          kreis.close();
-          return { text: erg.text, quelle: `PDF · ${erg.seiten} ${erg.seiten === 1 ? 'Seite' : 'Seiten'}`, gekuerzt: erg.gekuerzt };
-        }
-        kreis.unbestimmt('Eingescanntes PDF – die Seite wird vorbereitet …');
-        const bild = await pdfSeiteAlsBild(datei);
-        kreis.close();
-        UI.toast(bild.seiten > 1 ? 'Eingescanntes PDF – nur die erste Seite wird gelesen' : 'Eingescanntes PDF – es wird gelesen');
-        datei = bild.blob; quelle = bild.seiten > 1 ? 'Scan · erste Seite' : 'Scan';
-      } catch (e) { kreis.close(); UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
-    }
-    if (IST_NATIVE_APP) { UI.toast('Text aus Fotos oder Scans lesen gibt es in der App noch nicht – bitte ein PDF mit Text wählen.', 'err'); return null; }
-    if (!S.get('features').ocr) {
-      if (!(await UI.confirm({ title: 'Texterkennung einschalten?',
-        text: 'Zum Lesen wird die Texterkennung gebraucht. Sie lädt beim ersten Mal einmalig rund 15 MB und arbeitet danach auf dem Gerät – die Fotos verlassen es nicht.',
-        confirmText: 'Einschalten', danger: false }))) return null;
-      const f = S.get('features'); f.ocr = true; await S.set('features', f);
-    }
-    const kreis = ladeKreis(titel, 'Die Erkennung wird geladen – beim ersten Mal dauert das länger …');
+    if (!istPdf) { UI.toast('Text aus Fotos lesen gibt es in der App noch nicht – bitte ein PDF mit Text wählen.', 'err'); return null; }
+    const kreis = ladeKreis(titel, 'Die Seiten werden ausgewertet …');
     try {
-      const text = await Ocr.runMitLayout(datei, (p) => kreis.set(p, 'Das Bild wird Zeile für Zeile gelesen …'));
+      kreis.unbestimmt('Die Seiten werden ausgewertet …');
+      const erg = await pdfTextMitLayout(datei, maxSeiten, (p, info) => kreis.set(p, info));
+      if (erg.ausText) {
+        kreis.set(1, 'Fertig');
+        kreis.close();
+        return { text: erg.text, quelle: `PDF · ${erg.seiten} ${erg.seiten === 1 ? 'Seite' : 'Seiten'}`, gekuerzt: erg.gekuerzt };
+      }
       kreis.close();
-      return { text, quelle };
-    } catch (e) { kreis.close(); UI.toast('Konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
+      UI.toast('Dieses PDF ist eingescannt und enthält keinen Text. Eingescannte Seiten lesen gibt es in der App noch nicht – bitte ein PDF mit Text wählen.', 'err');
+      return null;
+    } catch (e) { kreis.close(); UI.toast('Das PDF konnte nicht gelesen werden: ' + e.message, 'err'); return null; }
   },
 
   /** Eigenes Vorsorgekonzept: Datei aufbewahren, Text lesen, Abschnitte den Bereichen zuordnen, Durchsicht. */
@@ -14586,7 +14515,7 @@ Views.bio = {
     if (!abschnitte.length) {
       UI.modal({
         title: 'Nichts erkannt',
-        body: `<p class="small">Die Datei ist gespeichert, aber es war kein verwertbarer Text zu finden. Bei einem Foto liegt das meist am Licht oder am Winkel; Handschrift wird nicht zuverlässig gelesen. ${U.esc(opt.leer)}</p>
+        body: `<p class="small">Die Datei ist gespeichert, aber es war kein verwertbarer Text zu finden. Die App liest nur PDFs, die echten Text enthalten, keine Scans und keine Handschrift. ${U.esc(opt.leer)}</p>
           <div class="field mt12"><label>Was gelesen wurde</label><textarea class="inp" rows="6" readonly>${U.esc((gelesen.text || '').trim() || '(nichts)')}</textarea></div>`,
         footer: '<button class="btn btn-primary" data-zu>Verstanden</button>',
       });
@@ -14930,7 +14859,7 @@ Views.bio = {
       const label = document.createElement('label');
       label.className = 'btn btn-ghost btn-sm no-print';
       label.style.cursor = 'pointer';
-      label.innerHTML = `${icon('camera')} Plan einlesen<input type="file" accept="image/*,application/pdf" hidden>`;
+      label.innerHTML = `${icon('doc')} Plan einlesen<input type="file" accept="application/pdf" hidden>`;
       const eingabe = $('input', label);
       eingabe.onchange = async (e) => {
         const f = e.target.files && e.target.files[0];
@@ -15512,7 +15441,7 @@ Views.bio = {
       <div class="flex-wrap no-print mb12" style="gap:8px">
         <button class="btn btn-primary btn-sm" id="bb-assistent">${icon('plus')} Assistent starten</button>
         <button class="btn btn-ghost btn-sm" data-eigen-neu>${icon('plus')} Eigener Abschnitt</button>
-        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('camera')} Beschreibung einlesen<input type="file" accept="image/*,application/pdf" hidden data-bb-lesen></label>
+        <label class="btn btn-ghost btn-sm" style="cursor:pointer">${icon('doc')} Beschreibung einlesen<input type="file" accept="application/pdf" hidden data-bb-lesen></label>
         <button class="btn btn-ghost btn-sm" id="bb-pdf">${icon('doc')} Als PDF</button>
         <button class="btn btn-ghost btn-sm" id="bb-eigenes">${icon('upload')} Eigenes hochladen</button>
         <button class="btn btn-ghost btn-sm" id="edit-bb">${icon('pencil')} Alle bearbeiten</button>
@@ -15527,8 +15456,8 @@ Views.bio = {
         <button class="row no-print row-neu" data-eigen-neu><span class="r-ic">${icon('plus')}</span><span class="r-main"><span class="r-title">Eigenen Abschnitt hinzufügen</span><span class="r-sub small muted">Etwas, das in der Liste fehlt oder deine Kontrollstelle zusätzlich verlangt</span></span></button></div>
     </div>
     <div class="card" id="bb-eigenes-card"><div class="card-title">${icon('upload')}<h2>Eigene Betriebsbeschreibung und Formulare hochladen</h2></div>
-      <p class="small muted mb8">Zwei Wege: <b>Nur aufbewahren</b> – die Fassung von Verband oder Kontrollstelle (PDF, Word …) über „+ Foto“ oder „+ Dokument“ unten ablegen; sie lässt sich jederzeit wieder öffnen und beim Erstellen der PDF auf Wunsch hinten anhängen. Oder <b>einlesen</b> – ein PDF oder Foto liest die App aus, ordnet die Abschnitte den Punkten oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
-      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('camera')} Beschreibung einlesen und Texte übernehmen<input type="file" accept="image/*,application/pdf" hidden data-bb-lesen></label>
+      <p class="small muted mb8">Zwei Wege: <b>Nur aufbewahren</b> – die Fassung von Verband oder Kontrollstelle (PDF, Word …) über „+ Foto“ oder „+ Dokument“ unten ablegen; sie lässt sich jederzeit wieder öffnen und beim Erstellen der PDF auf Wunsch hinten anhängen. Oder <b>einlesen</b> – ein PDF mit Text liest die App aus, ordnet die Abschnitte den Punkten oben zu und zeigt sie dir zur Durchsicht; übernommen wird nur, was du abhakst. Die Datei wird dabei mit gespeichert.</p>
+      <label class="btn btn-primary btn-sm mb12" style="cursor:pointer">${icon('doc')} Beschreibung einlesen und Texte übernehmen<input type="file" accept="application/pdf" hidden data-bb-lesen></label>
       <div data-bio-formulare></div>
     </div>
     <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
@@ -15821,8 +15750,9 @@ Views.bio = {
             ? `Koordinaten vom Bienenstand „${U.esc(stand.name)}" übernommen – „Amtlich berechnen" drücken.`
             : 'Der Stand hat noch keine Koordinaten. Nimm sie vor Ort per Knopf vom Handy, tippe sie ein oder such über eine Adresse – beim Speichern werden sie dem Stand mitgegeben.'}</div>
           <div class="hint mt8">Gerechnet wird um die <b>Koordinaten</b>, nicht um die Adresse – bei einem Stand auf der Wiese gibt es oft keine. Sie kommen aus dem Bienenstand und lassen sich hier überschreiben; die Adresssuche füllt nur die Felder, damit du das Ergebnis vorher siehst.</div>
-          <div class="hint mt8"><b>Amtlich</b> rechnet über den Dienst, der auch hinter dem <b>GeoBox-Viewer Bienen</b> steckt: dieselbe Auswertung, die deine Kontrollstelle kennt, mit feiner Aufschlüsselung (Laub-, Nadel-, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen …), in wenigen Sekunden. Prozente rechnet die App aus den mitgelieferten Quadratmetern – auf 0,1 % statt auf ganze Prozent gerundet.<br>
+          <div class="hint mt8"><b>Amtlich</b> rechnet über den Dienst, der auch hinter dem <b>GeoBox-Viewer Bienen</b> steckt: dieselbe Auswertung wie dort, mit feiner Aufschlüsselung (Laub-, Nadel-, Mischwälder, Obst-und Beerenobstbestände, Weinbauflächen …), in wenigen Sekunden. Prozente rechnet die App aus den mitgelieferten Quadratmetern – auf 0,1 % statt auf ganze Prozent gerundet.<br>
             <b>Rückfall, automatisch:</b> ist der Dienst offline, nimmt die App CORINE Land Cover 5 ha des Bundesamtes für Kartographie und Geodäsie (bundesweit, lückenlos, Stand 2018, kleinste Fläche 5 ha, ~1 MB und ~30 s). Erst wenn auch das schweigt, OpenStreetMap – feiner und aktueller, aber nicht amtlich und lückenhaft; der nicht erfasste Rest wird dann eigens ausgewiesen. Welche Quelle geantwortet hat, steht danach im Feld „Quelle der Zahlen" und damit auch in den Unterlagen.</div>
+          <div class="small muted mt8" data-quellen>Quellen: Adresssuche und OpenStreetMap-Flächen <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">${OSM_QUELLE}</a>; CORINE Land Cover ${BKG_QUELLE}.</div>
           <div class="flex-wrap mt8">${GEOBOX_LINKS.map((l) => `<a class="btn btn-ghost btn-sm" href="${l.url}" target="_blank" rel="noopener">${icon('share')} ${U.esc(l.label)}</a>`).join('')}</div>
           <div class="hint mt8">Zum Nachsehen im Kartenbild – für die Zahlen oben brauchst du es nicht.</div>
         </div>
@@ -15981,6 +15911,7 @@ Views.bio = {
       m.close(true);
       UI.toast('Landbedeckung gespeichert' + (uebernommen ? ' · Koordinaten auch beim Stand hinterlegt' : ''));
       renderRoute();
+      if (uebernommen && Wetter.frageFaellig(stand)) setTimeout(() => Wetter.fragen(), 350);
     };
   },
 };
@@ -17176,7 +17107,7 @@ Views.kassenbuch = {
       try { history.replaceState(null, '', '#/kassenbuch'); } catch (e) { /* egal */ }
     }
     const tab = Views.kassenbuch._tab || 'buchungen';
-    main.innerHTML = pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei') + `<div id="tabbar"></div><div id="tab-content"></div>`;
+    main.innerHTML = pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei') + `<div class="small muted mb12" data-geld-hinweis>${U.esc(GELD_HINWEIS)}</div><div id="tabbar"></div><div id="tab-content"></div>`;
     bereichsReiter(main, [
       { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' },
       { id: 'geschaeftskosten', label: 'Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
@@ -20419,32 +20350,7 @@ Views.rechner = {
         <div id="wi-out" class="stat-grid mt8"></div>`) +
 
       grp('Varroa & Behandlung') +
-      rk('varroa', 'Behandlungsrechner', 'Dosierung für zugelassene Mittel',
-        `<div class="field"><label>Behandlungsmethode</label>
-          <select class="inp rk" id="beh-mittel">
-            <option value="os-traeufeln">Oxalsäure – Träufeln (Winter, brutfrei)</option>
-            <option value="os-verdampfen">Oxalsäure – Verdampfen (Winter, brutfrei)</option>
-            <option value="as-langzeit">Ameisensäure 60 % – Langzeit (Sommer)</option>
-            <option value="ms-spruehen">Milchsäure 15 % – Sprühen (Ableger)</option>
-          </select>
-        </div>
-        <div class="beh-grp" data-bg="os-traeufeln"><div class="grid2">
-          <div class="field"><label>Besetzte Wabengassen</label><input class="inp rk" data-beh="gassen" inputmode="numeric" value="7"></div>
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv1" inputmode="numeric" value="${aktiveV || 1}"></div>
-        </div><div class="hint mt6">3,5 % OS-Dihydrat-Lösung · 5 ml/Gasse · max. 50 ml/Volk · 1× pro Winter · brutfrei (Dez.)</div></div>
-        <div class="beh-grp" data-bg="os-verdampfen" style="display:none"><div class="grid2">
-          <div class="field"><label>Zargen pro Volk</label><input class="inp rk" data-beh="zargen" inputmode="numeric" value="2"></div>
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv2" inputmode="numeric" value="${aktiveV || 1}"></div>
-        </div><div class="hint mt6">1 g OS-Dihydrat pro Zarge · Verdampfer (z. B. Varrox) · Flugloch verschließen · Atemschutz!</div></div>
-        <div class="beh-grp" data-bg="as-langzeit" style="display:none"><div class="grid2">
-          <div class="field"><label>Anzahl Völker</label><input class="inp rk" data-beh="bv3" inputmode="numeric" value="${aktiveV || 1}"></div>
-          <div class="field"><label>ml pro Verdunster</label><input class="inp rk" data-beh="asfuellung" inputmode="numeric" value="200"></div>
-        </div><div class="hint mt6">60 % AS im Langzeitverdunster · nach letzter Ernte Juli/Aug · bei 15–25 °C · 14 Tage</div></div>
-        <div class="beh-grp" data-bg="ms-spruehen" style="display:none"><div class="grid2">
-          <div class="field"><label>Waben (beidseitig)</label><input class="inp rk" data-beh="mswaben" inputmode="numeric" value="5"></div>
-          <div class="field"><label>Ableger-Anzahl</label><input class="inp rk" data-beh="bv4" inputmode="numeric" value="1"></div>
-        </div><div class="hint mt6">15 % Milchsäure · 7–8 ml pro Wabenseite · nur brutfreie Waben · beliebig wiederholbar</div></div>
-        <div id="beh-out" class="mt8"></div>`) +
+      rk('varroa', 'Mengenrechner', 'Aus dem Wert deiner Packungsbeilage die Gesamtmenge ausrechnen', mengenrechnerHtml(aktiveV)) +
 
       rk('varroa', 'Varroa-Befallsrate', 'Auswaschprobe auswerten',
         `<div class="grid2">
@@ -20453,19 +20359,6 @@ Views.rechner = {
         </div>
         <div class="hint mt6">Puderzucker- oder Auswasch-Methode: ~300 Bienen (~100 ml), Milben zählen.</div>
         <div id="vb-out" class="mt8"></div>`) +
-
-      rk('flask', 'OS-Lösung ansetzen', '3,5 % Träufellösung selbst mischen',
-        `<div class="field" style="max-width:220px"><label>Gewünschte Menge (ml)</label><input class="inp rk" data-osl="menge" inputmode="numeric" value="1000"></div>
-        <div class="hint mt6">Standardrezept: 35 g OS-Dihydrat + 500 ml Wasser + 500 g Zucker = ~1000 ml. Zucker nicht weglassen – schützt die Bienen.</div>
-        <div id="osl-out" class="mt8"></div>`) +
-
-      rk('flask', 'Ameisensäure verdünnen', 'Von 85 % auf 60 % verdünnen',
-        `<div class="grid2">
-          <div class="field"><label>Gewünschte Menge 60 % (ml)</label><input class="inp rk" data-asv="menge" inputmode="numeric" value="500"></div>
-          <div class="field"><label>Ausgangskonzentration (%)</label><input class="inp rk" data-asv="konz" inputmode="decimal" value="85"></div>
-        </div>
-        <div class="hint mt6">C₁ × V₁ = C₂ × V₂ · dest. Wasser verwenden · AS zum Wasser geben, nie umgekehrt! · Handschuhe + Brille!</div>
-        <div id="asv-out" class="mt8"></div>`) +
 
       grp('Volk & Material') +
       rk('box', 'Rähmchen- & Mittelwand-Bedarf', 'Material für die Saison planen',
@@ -20553,38 +20446,7 @@ Views.rechner = {
           <div class="small muted mt8">Aufbau und Vorbelegung nach dem Kalkulationsmodell der LWG Veitshöchheim; Lohn nach Mindestlohn 2026, Lohnnebenkosten DESTATIS, Miete IW 2022, Ertrag und Verluste DEBIMO. Eigene Zahlen ergeben ein genaueres Bild.</div>`;
       }
       futterRechnerRechnen(main);
-      const bm = $('#beh-mittel', main)?.value;
-      if (bm) {
-        $$('.beh-grp', main).forEach((g) => g.style.display = g.dataset.bg === bm ? '' : 'none');
-        let bhtml = '';
-        if (bm === 'os-traeufeln') {
-          const g = Math.round(num('[data-beh="gassen"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv1"]') || 1));
-          const mlV = Math.min(g * 5, 50), mlG = mlV * v;
-          bhtml = `<div class="stat-grid">
-            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${mlV} ml</div><div class="s-sub">${g} Gassen × 5 ml${g * 5 > 50 ? ' (max. 50)' : ''}</div></div>
-            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L OS-Lösung 3,5 %</div></div></div>`;
-        } else if (bm === 'os-verdampfen') {
-          const z = Math.round(num('[data-beh="zargen"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv2"]') || 1));
-          const gV = z, gG = gV * v;
-          bhtml = `<div class="stat-grid">
-            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${gV} g</div><div class="s-sub">${z} Zargen × 1 g</div></div>
-            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${gG} g</div><div class="s-sub">OS-Dihydrat (Pulver)</div></div></div>`;
-        } else if (bm === 'as-langzeit') {
-          const v = Math.max(1, Math.round(num('[data-beh="bv3"]') || 1)), f = Math.round(num('[data-beh="asfuellung"]') || 200);
-          const mlG = f * v;
-          bhtml = `<div class="stat-grid">
-            <div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${f} ml</div><div class="s-sub">60 % AS je Verdunster</div></div>
-            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Völker)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L Ameisensäure 60 %</div></div></div>`;
-        } else if (bm === 'ms-spruehen') {
-          const w = Math.round(num('[data-beh="mswaben"]') || 0), v = Math.max(1, Math.round(num('[data-beh="bv4"]') || 1));
-          const mlA = w * 2 * 8, mlG = mlA * v;
-          bhtml = `<div class="stat-grid">
-            <div class="stat"><div class="s-label">Pro Ableger</div><div class="s-value">${mlA} ml</div><div class="s-sub">${w} Waben × 2 Seiten × 8 ml</div></div>
-            <div class="stat"><div class="s-label">Gesamt${v > 1 ? ` (${v} Ableger)` : ''}</div><div class="s-value">${mlG} ml</div><div class="s-sub">${U.fmtNum(mlG / 1000, 2)} L Milchsäure 15 %</div></div></div>`;
-        }
-        const behOut = $('#beh-out', main);
-        if (behOut) behOut.innerHTML = bhtml;
-      }
+      mengenrechnerZeichnen($('[data-mengenrechner]', main));
       const vbM = num('[data-vb="milben"]') || 0, vbB = num('[data-vb="bienen"]') || 0;
       const vbRate = vbB > 0 ? (vbM / vbB) * 100 : 0;
       const vbOut = $('#vb-out', main);
@@ -20592,18 +20454,8 @@ Views.rechner = {
         let vbb;
         if (vbRate < 1) vbb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – unkritisch. Kein akuter Handlungsbedarf.</span></div>`;
         else if (vbRate <= 3) vbb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – erhöht. Engmaschig kontrollieren.</span></div>`;
-        else vbb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – kritisch! Sofort behandeln.</span></div>`;
+        else vbb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – hoher Befall. Behandlung prüfen: nur mit zugelassenem Mittel und nicht während der Honigtracht.</span></div>`;
         vbOut.innerHTML = vbb;
-      }
-      const oslM = num('[data-osl="menge"]') || 1000;
-      const oslF = oslM / 1000;
-      const oslOut = $('#osl-out', main);
-      if (oslOut) oslOut.innerHTML = `<div class="flex-wrap"><span class="kpill">OS-Dihydrat: <b>${U.fmtNum(35 * oslF, 0)} g</b></span><span class="kpill">Zucker: <b>${U.fmtNum(500 * oslF, 0)} g</b></span><span class="kpill">Wasser: <b>${U.fmtNum(500 * oslF, 0)} ml</b></span><span class="kpill">ergibt ~${U.fmtNum(oslM, 0)} ml (3,5 %)</span></div>`;
-      const asvM = num('[data-asv="menge"]') || 500, asvK = num('[data-asv="konz"]') || 85;
-      const asvOut = $('#asv-out', main);
-      if (asvOut) {
-        if (asvK <= 60) { asvOut.innerHTML = `<div class="banner warn">${icon('info')} <span class="b-msg">Ausgangskonzentration muss über 60 % liegen.</span></div>`; }
-        else { const asvAS = (60 / asvK) * asvM, asvW = asvM - asvAS; asvOut.innerHTML = `<div class="flex-wrap"><span class="kpill">AS ${U.fmtNum(asvK, 0)} %: <b>${U.fmtNum(asvAS, 0)} ml</b></span><span class="kpill">Dest. Wasser: <b>${U.fmtNum(asvW, 0)} ml</b></span><span class="kpill">ergibt ${U.fmtNum(asvM, 0)} ml AS 60 %</span></div>`; }
       }
       const rmV = Math.round(num('[data-rm="voelker"]') || 0), rmZ = Math.round(num('[data-rm="zargen"]') || 0),
         rmPz = Math.round(num('[data-rm="proZarge"]') || 10), rmRes = num('[data-rm="reserve"]') || 0;
@@ -22225,6 +22077,8 @@ const Export = {
    oder die Statistik‘“. Oben Jahr und Suche, darunter Kategorien als Reiter.
    Die Knöpfe an den alten Stellen bleiben zusätzlich bestehen.
    ===================================================================== */
+const GELD_HINWEIS = 'Hilfe für deine Aufzeichnungen, keine Steuerberatung. Ob sie deinen steuerlichen Pflichten genügen, kann die App nicht zusagen. Das klärst du mit deinem Steuerberater oder Finanzamt. Nutzt du es bei Barverkäufen, frag dort auch nach den Regeln für Kassen.';
+const VORLAGE_HINWEIS = 'Vorlage aus deinen Eingaben. Kein amtliches Formular und keine Rechtsberatung. Bitte vor dem Absenden prüfen. Was genau verlangt wird, unterscheidet sich je Land und Behörde: Im Zweifel gilt das Formular deiner Behörde, Tierseuchenkasse oder Kontrollstelle.';
 const UNTERLAGEN_KAT = [['amt', 'Ämter & Pflicht'], ['voelker', 'Völker'], ['honig', 'Honig & Verkauf'], ['geld', 'Geld & Steuer'], ['auswertung', 'Auswertungen'], ['alles', 'Alles & Daten']];
 /** Tabelle eines Bereichs (alle Spalten, Jahr) als PDF – für Unterlagen ohne eigenes Layout */
 async function bereichAlsPdf(store, jahr) {
@@ -22251,11 +22105,11 @@ function unterlagenListe() {
           : `${l.name}: ${l.tsk.stichtag ? 'Stichtag ' + U.fmtDate(`2000-${l.tsk.stichtag}`).slice(0, 6) : 'Jahreshöchstbesatz'}`; })() },
     { id: 'wanderschild', kat: 'amt', titel: staat === 'DE' ? 'Wanderschild (§ 5a)' : 'Standschild', text: ({ AT: 'Name, Anschrift und VIS-Nummer für den Bienenstand', CH: 'Name, Anschrift und Standnummer für den Bienenstand' })[staat] || 'Name, Anschrift und Völkerzahl für den Bienenstand', stichw: 'wandern wanderstand schild beschilderung standschild',
       wahl: { label: 'Stand', optionen: async () => [...opt(U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase()), (x) => x.name), { v: '-', l: staat === 'DE' ? 'ohne Stand – Zahl von Hand eintragen' : 'ohne Stand – allgemeines Schild' }], knopf: 'PDF', los: (id) => Pdf.wanderschild(id === '-' ? null : id) } },
-    { id: 'bestandsbuch', kat: 'amt', titel: 'Bestandsbuch Arzneimittel (TAMG)', text: 'alle Behandlungen mit Mittel, Menge, Wartezeit', jahr: true, pdf: (j) => Pdf.bestandsbuch(j), ...X('behandlungen'), stichw: 'behandlung varroa medikament tierarzneimittel' },
+    { id: 'bestandsbuch', kat: 'amt', titel: 'Bestandsbuch Arzneimittel', text: 'alle Behandlungen mit Mittel, Menge, Wartezeit', jahr: true, pdf: (j) => Pdf.bestandsbuch(j), ...X('behandlungen'), stichw: 'behandlung varroa medikament tierarzneimittel' },
     { id: 'bio-betrieb', kat: 'amt', titel: 'Bio: Betriebsbeschreibung', text: 'für die Öko-Kontrolle', pdf: () => Pdf.bioBetriebsbeschreibung(), stichw: 'oeko kontrolle' },
     { id: 'bio-vorsorge', kat: 'amt', titel: 'Bio: Vorsorgekonzept', text: 'Maßnahmen gegen Verunreinigung', pdf: () => Pdf.bioVorsorge(), stichw: 'oeko kontrolle' },
     { id: 'bio-hygiene', kat: 'amt', titel: 'Hygieneplan', text: 'Reinigung, Desinfektion, Schädlinge', pdf: () => Pdf.bioHygieneplan(), stichw: 'bio reinigung' },
-    { id: 'bio-unterlagen', kat: 'amt', titel: 'Bio: Unterlagen für die Kontrolle', text: 'alle Bio-Nachweise gesammelt', pdf: () => Pdf.bioUnterlagen(), stichw: 'oeko kontrolle nachweis' },
+    { id: 'bio-unterlagen', kat: 'amt', titel: 'Bio: Unterlagen für die Kontrolle', text: 'alle Bio-Angaben gesammelt', pdf: () => Pdf.bioUnterlagen(), stichw: 'oeko kontrolle nachweis' },
     { id: 'bio-eintraege', kat: 'amt', titel: 'Hygiene- & Bio-Einträge', text: 'Liste aller Einträge', jahr: true, ...T('bioeintraege'), stichw: 'bio hygiene' },
     { id: 'bio-archiv', kat: 'amt', titel: 'Bio-Archiv eines Bereichs', text: 'Einträge älter als zwei Jahre', stichw: 'bio archiv aufbewahrung',
       wahl: { label: 'Bereich', optionen: async () => Object.entries(BIO_BEREICHE).map(([k, d]) => ({ v: k, l: d.titel })), knopf: 'PDF', los: (k) => Pdf.bioArchiv(k) } },
@@ -22376,7 +22230,7 @@ Views.meldungen = {
         return `<div class="ul-eintrag" data-ul="${U.esc(e.id)}"><div class="ul-kopf"><span class="ul-name">${U.esc(e.titel)}${katName}<small>${U.esc(e.text)}${jahrText ? ' · ' + U.esc(jahrText) : ''}${pdfAus ? ' · PDF nur für ein Jahr' : ''}</small></span><span class="ul-knoepfe">${knoepfe}</span></div>${wahl}</div>`;
       };
       const teile = []; for (const e of treffer) teile.push(await zeile(e));
-      box.innerHTML = `${!q && V._kat === 'amt' && fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für die Meldungen fehlen Angaben zur Imkerei (${U.esc(fehltListe.join(', '))}) – bitte in den <a href="#/einstellungen">Einstellungen</a> unter „Imkereidaten“ ergänzen.</span></div>` : ''}
+      box.innerHTML = `${!q && V._kat === 'amt' ? `<div class="small muted mb12" data-vorlage-hinweis>${U.esc(VORLAGE_HINWEIS)}</div>` : ''}${!q && V._kat === 'geld' ? `<div class="small muted mb12" data-geld-hinweis>${U.esc(GELD_HINWEIS)}</div>` : ''}${!q && V._kat === 'amt' && fehlt ? `<div class="banner warn mb12">${icon('warn')} <span class="b-msg">Für die Meldungen fehlen Angaben zur Imkerei (${U.esc(fehltListe.join(', '))}) – bitte in den <a href="#/einstellungen">Einstellungen</a> unter „Imkereidaten“ ergänzen.</span></div>` : ''}
         <div class="card ul-karte">${teile.join('')}</div>`;
       // Kategorie „Alles & Daten“: darunter die Übernahme aus anderen Apps und das PDF-Auslesen
       $('#ul-zusatz', main).innerHTML = !q && V._kat === 'alles' ? `
@@ -22524,8 +22378,11 @@ const Importer = {
       { key: 'menge', label: 'Menge', type: 'num', aliases: ['menge', 'dosis', 'amount', 'dose'] },
       { key: 'einheit', label: 'Einheit', aliases: ['einheit', 'unit'] },
       { key: 'anwendungsart', label: 'Anwendungsart', aliases: ['anwendung', 'anwendungsart', 'methode', 'method'] },
+      { key: 'lieferant', label: 'Lieferant', aliases: ['lieferant', 'supplier'] },
+      { key: 'behandelndePerson', label: 'Behandelnde Person', aliases: ['behandelt von', 'behandelnde person', 'person'] },
+      { key: 'tierarzt', label: 'Tierarzt', aliases: ['tierarzt', 'veterinaer', 'vet'] },
       { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
-    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: 0, notiz: v.notiz || '' }) },
+    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: 0, lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', notiz: v.notiz || '' }) },
     ernten: { label: 'Ernten', store: 'ernten', refs: { volk: 'voelker' }, felder: [
       { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive'] },
       { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'erntedatum'] },
@@ -23138,7 +22995,7 @@ Views.reporting = {
           <div class="stat"><div class="s-label">${icon('euro')} Pauschale ${jahrAkt}</div><div class="s-value">${U.fmtEur(akt.km * S.get('kmPauschale'))}</div><div class="s-sub">bei ${S.get('kmPauschale').toLocaleString('de-DE', { minimumFractionDigits: 2 })} €/km</div></div>
           <div class="stat"><div class="s-label">${icon('chart')} Kilometer gesamt</div><div class="s-value">${U.fmtNum(U.sum(jahre, (j) => j.km))}</div></div>
         </div>
-        <div class="hint mb12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt in zwei Tipps gebucht. Das Fahrtenbuch-PDF eignet sich als Nachweis für die Steuer (Pauschale ohne Gewähr, Satz je nach Fall).</div>
+        <div class="small muted mb12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt in zwei Tipps gebucht. Das PDF ist eine Aufstellung deiner Fahrten. Ob sie für deine Steuer reicht, klärst du am besten mit deinem Steuerberater (Pauschale ohne Gewähr).</div>
         ${jahre.length ? `<div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Fahrten</th><th class="num">Kilometer</th><th class="num">Pauschale</th></tr></thead>
           <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * S.get('kmPauschale'))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${proStand.size ? `<h3 class="mb8">Je Stand (${jahrAkt})</h3><div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Stand</th><th class="num">Fahrten</th><th class="num">Kilometer</th></tr></thead>
@@ -23175,7 +23032,7 @@ Views.reporting = {
 };
 
 /* =====================================================================
-   MODUL: FAHRTENBUCH (alle Fahrten – Stände + freie Fahrten, Steuer-Nachweis)
+   MODUL: FAHRTENBUCH (alle Fahrten – Stände + freie Fahrten)
    ===================================================================== */
 /** Anzeigename des Fahrtziels: Stand-Name, sonst freie Beschreibung bzw. Zweck. */
 function fahrtZielName(f, staende) {
@@ -23193,7 +23050,7 @@ Views.fahrten = {
     const kmJahr = U.sum(list, (f) => f.km);
     const kmSatz = S.get('kmPauschale');
     const schnell = await fahrtSchnellListe();
-    main.innerHTML = pageHead('Fahrtenbuch', 'Alle Fahrten – zu den Ständen und sonstige (Einkauf, Schulung, Besorgung). Als Nachweis fürs Finanzamt.',
+    main.innerHTML = pageHead('Fahrtenbuch', 'Alle Fahrten – zu den Ständen und sonstige (Einkauf, Schulung, Besorgung).',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahr}')">${icon('doc')} Fahrtenbuch ${jahr} (PDF)</button>
        <button class="btn btn-primary btn-sm" id="add">${icon('plus')} Fahrt</button></span>`) +
       (jahre.length > 1 ? '<div id="tabbar"></div>' : '') + `
@@ -23209,7 +23066,7 @@ Views.fahrten = {
           <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
           <span class="r-side"><b>${U.fmtNum(f.km)} km</b></span>${icon('chevR', 'chev')}</button>`).join('') + `</div>` + seitenweise('fahrten', list).knopf
       : emptyState('truck', 'Noch keine Fahrt erfasst. Fahrten zu den Ständen buchst du in zwei Tipps – oder trage hier Einkäufe, Schulungen und Besorgungen ein.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Fahrt</button>`)) + `</div>
-      <div class="hint mt12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt dorthin schnell gebucht. Das Fahrtenbuch-PDF eignet sich als Steuer-Nachweis (Pauschale ohne Gewähr, Satz je nach Fall).</div>`;
+      <div class="small muted mt12">Hinterlege an jedem Stand die Entfernung von zu Hause – dann ist eine Fahrt dorthin schnell gebucht. Das PDF ist eine Aufstellung deiner Fahrten. Ob sie für deine Steuer reicht, klärst du am besten mit deinem Steuerberater (Pauschale ohne Gewähr).</div>`;
     bindAdd(() => fahrtForm(null));
     jahresReiter(main, jahre, jahr, (j) => { Views.fahrten._jahr = j; });
     main.addEventListener('click', (e) => {
@@ -24501,7 +24358,8 @@ const Lizenz = {
         ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte). Alles andere geht dann mit der Vollversion – deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
-        <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen</a></p></div>`,
+        <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a></p>
+        <p class="small mt12" data-agb-hinweis><b>Mit dem Start der Testphase oder dem Kauf gelten die <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a>. Bitte vorher lesen.</b></p></div>`,
       footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>${st === 'abgelaufen' ? '<button class="btn btn-ghost" data-light>Weiter mit Light</button>' : ''}` });
     const fertig = (ok) => { if (ok) { m.close(); renderRoute(); } };
     const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => fertig(await this.kaufen('test'));
@@ -24680,7 +24538,7 @@ const Xlsx = {
         ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
         'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || ANPAARUNG_TEXT[z.anpaarung] || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
-      behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, Bemerkung: b.notiz })) },
+      behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, 'Behandlung bis': d(b.behandlungBis), Lieferant: b.lieferant || '', 'Behandelnde Person': b.behandelndePerson || '', Tierarzt: b.tierarzt || '', 'Kaufbeleg vorhanden': b.kaufbeleg ? 'ja' : '', Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },
       ernten: { blatt: 'Ernten', rows: async () => (await alle('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', Tracht: trachten.has(e.trachtId) ? Tracht.name(trachten.get(e.trachtId)) : '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
@@ -24900,9 +24758,9 @@ const Pdf = {
     return this._logoCache;
   },
   /** neues A4-Dokument mit Kopfbereich; gibt {doc, y} zurück */
-  async newDoc(titel, untertitel = '') {
+  async newDoc(titel, untertitel = '', { quer = false } = {}) {
     const jsPDF = await this.lib();
-    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true, ...(quer ? { orientation: 'landscape' } : {}) });
     const y = await this.header(doc, titel, untertitel);
     return { doc, y };
   },
@@ -25125,7 +24983,7 @@ const Pdf = {
       const imk = S.get('imkerei') || {};
       const { doc, y } = await this.newDoc(`Archiv – ${def.titel}`, [imk.name ? `Betrieb: ${imk.name}` : '', `Einträge vor dem ${U.fmtDate(archivGrenze())}`, `${list.length} ${list.length === 1 ? 'Eintrag' : 'Einträge'}`].filter(Boolean).join(' · '));
       this.table(doc, { head: def.pdf.kopf, body: list.map(def.pdf.zeile), startY: y, widths: def.pdf.widths });
-      this.finish(doc, `archiv-${bereich}-${U.todayIso()}.pdf`);
+      this.finish(doc, `archiv-${bereich}-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
   /** Tabelle eines Bio-Bereichs (Spalten aus `BIO_BEREICHE[bereich].pdf`) mit Überschrift; gibt das neue y zurück. Ohne Einträge passiert nichts. */
@@ -25240,11 +25098,13 @@ const Pdf = {
     return y + lueckeNach;
   },
   /** Fußzeile mit Seitenzahlen auf allen Seiten, dann ausgeben */
-  finish(doc, dateiname, { ohneFuss = false, ohneErstellt = false } = {}) {
+  finish(doc, dateiname, { ohneFuss = false, ohneErstellt = false, vorlage = false } = {}) {
     const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
     const n = doc.getNumberOfPages();
     for (let i = 1; i <= n && !ohneFuss; i++) {   // Etikettenbögen ohne Fußzeile – sie stünde auf dem Etikett
       doc.setPage(i);
+      /* Amts- und Bio-Unterlagen: kleiner Fuß „Vorlage, kein amtliches Formular“ (v3.08). Der Tabellenrand unten ist 14 mm hoch. */
+      if (vorlage) { doc.setFont('helvetica', 'normal').setFontSize(6).setTextColor(130); doc.text(doc.splitTextToSize(VORLAGE_HINWEIS, W - 28), 14, H - 12.4); }
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(150);
       doc.text(`Seite ${i} von ${n}`, W - 14, H - 7, { align: 'right' });
       /* Rechnungen an Kunden ohne „Erstellt mit ImkerBuch am …“ – das Datum war der Tag des PDFs, nicht das
@@ -25287,10 +25147,10 @@ const Pdf = {
       const list = U.sortBy((await DB.getAll('behandlungen')).filter((b) => !jahr || String(b.datum || '').startsWith(jahr)), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
-      const { doc, y } = await this.newDoc(`Bestandsbuch – Anwendung von Arzneimitteln${jahr ? ' ' + jahr : ''}`, `nach Tierarzneimittelgesetz (TAMG) · Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`);
-      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', wartezeitText(b), b.notiz || '']);
-      this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Wartezeit', 'Bemerkung/Charge'], body, startY: y });
-      this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
+      const { doc, y } = await this.newDoc(`Aufzeichnung über angewendete Arzneimittel${jahr ? ' ' + jahr : ''}`, `Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`, { quer: true });
+      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
+      this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Behandlung bis', 'Wartezeit', 'Lieferant', 'Behandelnde Person', 'Tierarzt', 'Kaufbeleg vorhanden', 'Bemerkung/Charge'], body, startY: y });
+      this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26050,7 +25910,7 @@ const Pdf = {
       if (yHin + 16 > H - 20) { doc.addPage(); yHin = 20; }
       doc.text('Ort, Datum: ____________________________', 14, yHin + 10);
       doc.text('Unterschrift: ____________________________', 110, yHin + 10);
-      this.finish(doc, `bestandsmeldung-${heute}.pdf`);
+      this.finish(doc, `bestandsmeldung-${heute}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26119,7 +25979,7 @@ const Pdf = {
         : staat === 'CH' ? 'Termine und Formulare unterscheiden sich je Kanton – maßgeblich sind die Vorgaben deiner kantonalen Stelle. Die Zahlen stammen aus der Völker-Historie dieser App.'
           : land ? 'Fristen und Beträge können sich ändern – maßgeblich sind Meldebogen und Bescheid deiner Tierseuchenkasse. Die Zahlen stammen aus der Völker-Historie dieser App; „eingewintert“ zählt sie als Völker am 1. Oktober – eine Näherung, weil die Länder dafür keinen Tag nennen.'
             : 'Der Stichtag ist Ländersache (z. B. 1.1., 3.1. oder 1.5.; Nordrhein-Westfalen meldet den Jahreshöchstbesatz bis 31.1.) – bitte in den Imkereidaten das Bundesland wählen, dann stimmen Stichtag und Zählweise. Ohne Angabe rechnet die App mit dem 1. Januar; die Zahlen stammen aus ihrer Völker-Historie.');
-      this.finish(doc, `tierseuchenkasse-${heute}.pdf`);
+      this.finish(doc, `tierseuchenkasse-${heute}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26168,7 +26028,7 @@ const Pdf = {
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
-  /* ---------- Fahrtenbuch (Steuer-Nachweis) ---------- */
+  /* ---------- Fahrtenbuch (Aufstellung der Fahrten) ---------- */
   /* ---------- Materialabgänge eines Jahres ---------- */
   async materialAbgaenge(jahr, typ, titel) {
     try {
@@ -26246,7 +26106,7 @@ const Pdf = {
       // Eigenkontrollen: je Bereich eine Tabelle, nur wenn Einträge da sind
       for (const b of ['honigverarbeitung', 'honigabfuellung', 'honiglager', 'schaedlinge', 'waage', 'massnahmen']) yy = this.bioListenTabelle(doc, yy, b, alle);
       if (!(await this.anhaengeAnfuegen(doc, 'hygiene'))) return;
-      this.finish(doc, `hygieneplan-${U.todayIso()}.pdf`);
+      this.finish(doc, `hygieneplan-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26301,7 +26161,7 @@ const Pdf = {
       doc.text('Ort, Datum', 14, yy + 4); doc.text('Unterschrift Betriebsleitung', 110, yy + 4);
 
       if (!(await this.anhaengeAnfuegen(doc, 'vorsorge'))) return;
-      this.finish(doc, `vorsorgekonzept-${U.todayIso()}.pdf`);
+      this.finish(doc, `vorsorgekonzept-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26337,7 +26197,7 @@ const Pdf = {
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(120);
       doc.text('Ort, Datum', 14, yy + 4); doc.text('Unterschrift Betriebsleitung', 110, yy + 4);
       if (!(await this.anhaengeAnfuegen(doc, 'formulare'))) return;
-      this.finish(doc, `betriebsbeschreibung-${U.todayIso()}.pdf`);
+      this.finish(doc, `betriebsbeschreibung-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26464,7 +26324,7 @@ const Pdf = {
       doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(130);
       doc.text(doc.splitTextToSize('Die Flächenanteile wurden mit dem GeoBox-Viewer (geobox-i.de/GBV-RLP-Bienen, Fachzentrum für Bienen und Imkerei) ermittelt und hier eingetragen. Welchen Umkreis die Kontrollstelle betrachtet, gibt sie vor.', 180), 14, yy);
       if (!(await this.anhaengeAnfuegen(doc, ['formulare', 'vorsorge', 'hygiene']))) return;
-      this.finish(doc, 'bio-unterlagen.pdf');
+      this.finish(doc, 'bio-unterlagen.pdf', { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -26875,7 +26735,7 @@ const LERN_KAPITEL = [
     { svg: `<svg viewBox="0 0 180 150" width="100%" style="max-height:150px" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Varroamilbe als Warnsymbol"><circle cx="90" cy="72" r="54" fill="none" stroke="#B3362B" stroke-width="4" stroke-dasharray="9 8"/><g stroke="#5a2610" stroke-width="4" stroke-linecap="round"><line x1="60" y1="58" x2="38" y2="46"/><line x1="57" y1="72" x2="32" y2="70"/><line x1="60" y1="86" x2="38" y2="98"/><line x1="66" y1="94" x2="54" y2="110"/><line x1="120" y1="58" x2="142" y2="46"/><line x1="123" y1="72" x2="148" y2="70"/><line x1="120" y1="86" x2="142" y2="98"/><line x1="114" y1="94" x2="126" y2="110"/></g><ellipse cx="90" cy="72" rx="34" ry="26" fill="#8a3b18"/><ellipse cx="90" cy="67" rx="25" ry="15" fill="#a4551f" opacity=".7"/><ellipse cx="80" cy="62" rx="6" ry="4" fill="#fff" opacity=".25"/></svg>`, h: 'Der wichtigste Gegner: die Varroamilbe', p: 'Die Varroamilbe ist eine winzige, rotbraune Milbe, die auf den Bienen und in der Brut sitzt und sie schwächt. Unbehandelt geht ein Volk daran im Winter fast sicher ein.', note: 'Fast jedes Volk in Deutschland hat Varroa. Die Frage ist nicht ob, sondern wie stark – und wann du behandelst.' },
     { h: 'Zählen statt raten', p: 'Wie stark der Befall ist, siehst du am „natürlichen Milbenfall": Du legst eine Bodeneinlage (Windel) ein und zählst nach ein paar Tagen die heruntergefallenen Milben pro Tag.', note: 'Steigt der tägliche Milbenfall im Sommer stark an, wird es Zeit zu handeln. ImkerBuch hat dafür sogar eine Ampel.' },
     { h: 'Behandeln nach der Ernte', p: 'Die Hauptbehandlung kommt direkt nach der letzten Honigernte im Spätsommer – meist mit Ameisensäure. Wichtig: erst ernten, dann behandeln, damit keine Säure in den Honig kommt.', note: '„Die Einwinterung beginnt im August" – die Sommerbehandlung entscheidet über den Winter.' },
-    { h: 'Die Winterbehandlung', p: 'Im brutfreien Dezember folgt die Restentmilbung, meist mit Oxalsäure. Weil dann keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden gut erreicht.', note: 'Halte dich immer genau an die Anleitung des Mittels – Dosierung und Zeitpunkt sind entscheidend. Unter „Rechner" findest du den Behandlungsrechner für die genaue Dosierung.' },
+    { h: 'Die Winterbehandlung', p: 'Im brutfreien Dezember folgt die Restentmilbung, meist mit Oxalsäure. Weil dann keine Brut da ist, sitzen fast alle Milben auf den Bienen und werden gut erreicht.', note: 'Halte dich immer genau an die Packungsbeilage des Mittels – Menge und Zeitpunkt sind entscheidend. Unter „Rechner“ rechnet dir der Mengenrechner den Wert aus der Beilage auf deine Völker hoch.' },
     { h: 'Dokumentiere die Behandlung', p: 'Jede Behandlung musst du festhalten (das schreibt auch das Arzneimittelrecht vor). Öffne „Behandlungen" und trag ein, was du wann womit gemacht hast.', note: 'Sauber dokumentiert bist du auf der sicheren Seite – und siehst nächstes Jahr, was gewirkt hat.' },
   ], aktion: { label: 'Zu Behandlungen – Varroa dokumentieren', route: 'behandlungen' } },
   { id: 11, titel: 'Einfüttern & Einwintern', steps: [
@@ -26909,6 +26769,21 @@ const ISchule = {
 };
 
 /* --- FAQ-Daten „Frag ein Thema" --- */
+/* Zusätze zu Imme-Antworten (v3.08): bei Mitteln der Warntext, bei Recht und Steuern der Hinweis auf den Einzelfall. */
+const IMME_ZUSATZ_RECHT = 'Allgemeine Auskunft, keine Beratung für deinen Einzelfall.';
+const IMME_MITTEL_IDS = new Set(['behandlung', 'bestandsbuch', 'rechner', 'varroa-wert']);
+const IMME_RECHT_IDS = new Set(['steuer', 'rechnung', 'rechnung-festschreiben', 'rechnung-zahlung', 'rechnung-pdf', 'kassenbuch', 'kassenbuch-auswertung', 'geschaeftskosten', 'an-verkauf', 'fahrten', 'fahrtenbuch-pdf', 'anmeldung-amt', 'export', 'bestandsbuch', 'wanderbuch', 'bio', 'bio-landbedeckung', 'bio-foerderung', 'bio-partner', 'hygiene', 'hygiene-check', 'honig-etikett']);
+/** Zusatz zu einer App-Antwort von Imme (Eintrag aus APP_WISSEN). */
+function immeZusatzApp(e) {
+  return [IMME_MITTEL_IDS.has(e.id) ? MENGEN_WARNUNG : '', IMME_RECHT_IDS.has(e.id) ? IMME_ZUSATZ_RECHT : ''].filter(Boolean);
+}
+/** Zusatz zu einer Praxis-Antwort (FAQ): erkannt am Thema und am Inhalt, damit neue Fragen nicht durchrutschen. */
+function immeZusatzFaq(fq, themaId) {
+  const t = `${fq.f} ${fq.a}`;
+  return [/behandl|säure|thymol|restentmilb/i.test(t) ? MENGEN_WARNUNG : '', themaId === 'recht' || /§|steuer|etikett/i.test(t) ? IMME_ZUSATZ_RECHT : ''].filter(Boolean);
+}
+const immeZusatzHtml = (liste) => (liste || []).map((z) => `<p class="small muted mt8" data-imme-zusatz>${U.esc(z)}</p>`).join('');
+
 const FAQ_THEMEN = [
   { id: 'voelker', label: 'Völkerführung', icon: 'home', fragen: [
     { f: 'Wie oft muss ich nach meinen Bienen schauen?', a: 'In der aktiven Saison (April–August) alle 7–10 Tage, in der Schwarmzeit sogar wöchentlich. Im Winter lässt du die Bienen in Ruhe – nur ein gelegentlicher Blick von außen reicht.' },
@@ -26950,13 +26825,13 @@ const FAQ_THEMEN = [
   { id: 'varroa', label: 'Varroa & Gesundheit', icon: 'varroa', fragen: [
     { f: 'Wie zähle ich den Milbenfall?', a: 'Lege die Bodeneinlage (Windel/Diagnosegitter) ein und lass sie 3 Tage liegen. Zähle die Milben und teile durch die Anzahl Tage → Milben pro Tag. ImkerBuch rechnet das automatisch.' },
     { f: 'Ab wann muss ich behandeln?', a: 'Richtwert im Hochsommer: ab ca. 5–10 Milben/Tag wird es kritisch. Im Frühjahr und Herbst gelten niedrigere Schwellen. ImkerBuch zeigt dir eine Ampel (grün/gelb/rot).' },
-    { f: 'Welche Behandlungsmittel gibt es?', a: 'Zugelassen in Deutschland: Ameisensäure 60 % (Sommer, nach Ernte – 200 ml im Verdunster oder MAQS-Streifen), Oxalsäure 3,5 % Träufeln oder Sublimation (Winter, brutfrei – 5 ml/Gasse bzw. 1 g/Zarge), Milchsäure 15 % (Sprühen für Ableger – 8 ml/Wabenseite). Thymol-Produkte (Apiguard, ApiLife Var) als Sommer-Alternative. Alle verschreibungspflichtig und dokumentationspflichtig.', link: 'rechner' },
+    { f: 'Welche Behandlungsmittel gibt es?', a: 'Alle Anwendungen musst du dokumentieren. Welche Mittel in deinem Land gerade zugelassen sind, steht in der amtlichen Liste oder sagt dir dein Bienengesundheitsdienst.' },
     { f: 'Was ist Amerikanische Faulbrut (AFB)?', a: 'Eine anzeigepflichtige Bienenseuche: Die Larven sterben ab, es riecht faulig, eine braune, fadenziehende Masse bleibt in den Zellen. Verdacht sofort dem Veterinäramt melden! Für Menschen harmlos.' },
     { f: 'Was tun bei Kalkbrut?', a: 'Kalkbrut (weiße, harte „Mumien" auf dem Bodenbrett) ist meistens ein Zeichen für ein geschwächtes oder kaltes Volk. Königin prüfen, Volk einengen, warmer Standort. Geht oft von selbst vorbei.' },
     { f: 'Was ist die Puderzucker-Methode?', a: 'Eine Diagnosemethode: Ca. 300 Bienen (½ Tasse) in ein Glas schütteln, Puderzucker drauf, schütteln – Milben lösen sich und fallen durch ein Gitter. Die Bienen kommen unversehrt zurück ins Volk.' },
     { f: 'Was ist die Auswaschmethode?', a: 'Ähnlich wie Puderzucker, aber mit Alkohol oder Spülmittel-Wasser: ½ Tasse Bienen in ein Glas mit Lösung schütteln, Milben zählen. Genauer als Puderzucker, aber die Bienen überleben nicht.' },
-    { f: 'Wie funktioniert die Ameisensäure-Behandlung?', a: 'Nach der letzten Ernte im Juli/August: 200 ml Ameisensäure 60 % im Langzeitverdunster (z. B. Nassenheider Professional) – verdunstet über 14 Tage bei 15–25 °C. Einziges Mittel, das auch in verdeckelter Brut wirkt. Alternative: MAQS-Streifen (2 Gelplatten pro Volk, 7 Tage). Flugloch ganz öffnen, nicht bei über 30 °C anwenden. Handschuhe und Schutzbrille tragen!', link: 'rechner' },
-    { f: 'Wie funktioniert die Oxalsäure-Behandlung?', a: 'Im brutfreien Dezember: Träufeln – 3,5 % OS-Dihydrat-Lösung (Fertigpräparat z. B. Oxuvar oder selbst: 35 g OS + 500 ml Wasser + 500 g Zucker), 5 ml pro besetzte Wabengasse, max. 50 ml pro Volk. Oder: Verdampfung mit Gerät (z. B. Varrox) – 1 g OS-Dihydrat pro Zarge, Flugloch 10–15 Min. verschließen, Atemschutz tragen! Nur 1× pro Winter. Wirksamkeit ca. 95 % bei Brutfreiheit.', link: 'rechner' },
+    { f: 'Wie funktioniert die Ameisensäure-Behandlung?', a: 'Nach der letzten Ernte verdunstet die Säure im Volk, zum Beispiel aus einem Verdunster oder als fertiges Präparat. Menge, Dauer und Temperaturbereich hängen von Mittel, Gerät und Zarge ab: Sie stehen in der Packungsbeilage deines zugelassenen Mittels.', link: 'rechner' },
+    { f: 'Wie funktioniert die Oxalsäure-Behandlung?', a: 'Im brutfreien Dezember, je nach zugelassenem Mittel durch Träufeln oder Verdampfen. Menge, Häufigkeit und Schutzmaßnahmen stehen in der Packungsbeilage deines Mittels.', link: 'rechner' },
     { f: 'Was ist Nosemose?', a: 'Eine Darmkrankheit durch den Einzeller Nosema. Zeichen: Kotflecken am Flugloch im Frühjahr, aufgeblähte Hinterleiber, flugunfähige Bienen. Vorbeugen: Starke Völker, frische Waben, nicht zu feucht überwintern.' },
     { f: 'Was sind Varroatoleranz und VSH?', a: 'Einige Bienenlinien (z. B. VSH = Varroa Sensitive Hygiene) erkennen befallene Zellen und räumen sie aus. Langfristiges Zuchtziel – aber aktuell kein Ersatz für die Behandlung.' },
   ] },
@@ -26964,7 +26839,7 @@ const FAQ_THEMEN = [
     { f: 'Wann ist der Honig reif?', a: 'Wenn mindestens 2/3 der Zellen verdeckelt sind und der Wassergehalt unter 18 % liegt (Refraktometer). Zu feuchter Honig kann gären.' },
     { f: 'Wie schleudere ich Honig?', a: 'Waben entdeckeln (Entdeckelungsgabel oder -messer), in die Schleuder stellen, erst langsam, dann schneller drehen. Honig läuft unten durch das Sieb in den Eimer.' },
     { f: 'Brauche ich ein Refraktometer?', a: 'Dringend empfohlen. Es kostet ca. 20–30 € und zeigt dir den Wassergehalt. Unter 18 % ist Pflicht für DIB-Honig, unter 20 % für Verkauf allgemein.' },
-    { f: 'Was muss aufs Etikett?', a: 'Pflichtangaben: „Honig" (Sorte optional), Nettofüllmenge (g), Mindesthaltbarkeitsdatum, Name und Anschrift des Imkers, Losnummer, Herkunftsland „Deutscher Honig".' },
+    { f: 'Was muss aufs Etikett?', a: 'Üblich sind die Bezeichnung „Honig“ (Sorte optional), Nettofüllmenge, Mindesthaltbarkeitsdatum, Name und Anschrift des Imkers, Losnummer und das Ursprungsland, zum Beispiel „Deutschland“. Stammt der Honig aus mehreren Ländern, stehen alle Länder absteigend mit Gewichtsanteil auf dem Etikett. In Österreich und der Schweiz können andere Regeln gelten.' },
     { f: 'Wie lagere ich Honig richtig?', a: 'Dunkel, trocken, kühl (10–18 °C) in sauberen Gläsern. Honig ist praktisch unbegrenzt haltbar – aber Licht und Wärme zerstören Enzyme und Aroma. MHD üblicherweise 2 Jahre.' },
     { f: 'Was ist Cremehonig?', a: 'Fein gerührter Honig, der durch regelmäßiges Rühren während der Kristallisation eine cremige, streichfähige Konsistenz bekommt. Gleicher Honig, nur feiner kristallisiert – kein Zusatzstoff.' },
     { f: 'Warum kristallisiert mein Honig?', a: 'Das ist natürlich und ein Qualitätsmerkmal! Honig mit hohem Traubenzuckeranteil (z. B. Raps) kristallisiert schnell, Waldhonig langsam. Durch sanftes Erwärmen (max. 40 °C) wird er wieder flüssig.' },
@@ -27069,7 +26944,7 @@ function faqSuche(query) {
     for (const fq of thema.fragen) {
       const text = (fq.f + ' ' + fq.a).toLowerCase();
       if ([...expanded].some((e) => text.includes(e))) {
-        results.push({ thema, f: fq.f, a: fq.a, link: fq.link });
+        results.push({ thema, f: fq.f, a: fq.a, link: fq.link, zusatz: immeZusatzFaq(fq, thema.id) });
       }
     }
   }
@@ -27081,10 +26956,10 @@ const SAISON_EMPFEHLUNGEN = [
   { monate: [3, 4], titel: 'Frühjahr: Zeit für die erste Durchsicht', ziel: 'voelker', zielText: 'Zu den Völkern', text: 'Sobald die Bienen fliegen und es über 12 °C ist – schau nach Futter und Brut.', kapitelId: 7, icon: 'sun' },
   { monate: [5, 6], titel: 'Schwarmzeit: Wöchentlich kontrollieren', ziel: 'voelker', zielText: 'Zu den Völkern', text: 'Jetzt unbedingt alle 7 Tage auf Weiselzellen prüfen – sonst schwärmt es.', kapitelId: 8, icon: 'alert-triangle' },
   { monate: [6, 7], titel: 'Honigernte steht an', ziel: 'honig', zielText: 'Zur Ernte', text: 'Sind die Waben verdeckelt? Dann wird es Zeit fürs Schleudern.', kapitelId: 9, icon: 'droplet' },
-  { monate: [7, 8], titel: 'Varroa behandeln', ziel: 'behandlungen', zielText: 'Zu den Behandlungen', text: 'Direkt nach der letzten Ernte: Ameisensäure-Behandlung, bevor die Winterbienen schlüpfen.', kapitelId: 10, icon: 'bug' },
+  { monate: [7, 8], titel: 'Varroa behandeln', ziel: 'behandlungen', zielText: 'Zu den Behandlungen', text: 'Nach der letzten Ernte kommt die Sommerbehandlung, bevor die Winterbienen schlüpfen. Mittel, Menge und Zeitpunkt: siehe Packungsbeilage.', kapitelId: 10, icon: 'bug' },
   { monate: [8, 9], titel: 'Jetzt auffüttern', ziel: 'fuetterung', zielText: 'Zur Fütterung', text: 'Dein Volk braucht 15–20 kg Wintervorrat. Füttere zügig auf, solange es warm genug ist.', kapitelId: 11, icon: 'flask' },
   { monate: [10, 11], titel: 'Einwintern: Mäusegitter und Ruhe', ziel: 'voelker', zielText: 'Zu den Völkern', text: 'Flugloch verkleinern, Mäusegitter rein – dann in Ruhe lassen.', kapitelId: 11, icon: 'snowflake' },
-  { monate: [12], titel: 'Restentmilbung im brutfreien Dezember', ziel: 'behandlungen', zielText: 'Zu den Behandlungen', text: 'Oxalsäure jetzt, wenn das Volk brutfrei ist – so erwischst du die letzten Milben.', kapitelId: 10, icon: 'bug' },
+  { monate: [12], titel: 'Restentmilbung im brutfreien Dezember', ziel: 'behandlungen', zielText: 'Zu den Behandlungen', text: 'Ist das Volk brutfrei, erreichst du die letzten Milben am besten. Mittel, Menge und Zeitpunkt: siehe Packungsbeilage.', kapitelId: 10, icon: 'bug' },
   { monate: [1, 2], titel: 'Winterruhe: Nicht öffnen!', ziel: 'aufgaben', zielText: 'Zu den Aufgaben', text: 'Die Bienen wärmen sich in der Traube. Lass sie in Ruhe und plane dein nächstes Bienenjahr.', kapitelId: 4, icon: 'snowflake' },
 ];
 
@@ -27102,7 +26977,7 @@ async function jitEmpfehlungen() {
       if (!letzte) continue;
       const m = varroaMetrik(letzte);
       if (m.ampel.stufe === 'rot') {
-        tips.push({ typ: 'varroa', ziel: 'volk/' + v.id, zielText: 'Zum Volk', titel: `Varroa-Befall hoch bei „${v.name}"`, text: `${m.wert} Milben${m.einheit} – jetzt behandeln.`, kapitelId: 10, icon: 'alert-triangle', danger: true });
+        tips.push({ typ: 'varroa', ziel: 'volk/' + v.id, zielText: 'Zum Volk', titel: `Varroa-Befall hoch bei „${v.name}"`, text: `${m.wert} Milben${m.einheit} – hoher Befall. Behandlung prüfen: nur mit zugelassenem Mittel und nicht während der Honigtracht.`, kapitelId: 10, icon: 'alert-triangle', danger: true });
       }
     }
     if (aktive.length > 0 && [8, 9].includes(monat) && !Lizenz.light()) {   // Light kann keine Fütterung eintragen
@@ -27342,7 +27217,7 @@ const APP_WISSEN = [
       { feld: 'Ziel', text: 'Wohin bist du gefahren?' },
       { feld: 'Datum', text: 'An welchem Tag?' },
       { feld: 'Kilometer', text: 'Die gesamte Strecke, hin und zurück.' },
-      { feld: 'Zweck der Fahrt', text: 'Wofür war die Fahrt? Das braucht das Finanzamt.' },
+      { feld: 'Zweck der Fahrt', text: 'Wofür war die Fahrt?' },
       { speichern: true, text: 'Tippe auf „Speichern“.' }] },
   { id: 'zeiten', titel: 'Arbeitszeit erfassen', route: 'zeiten', zeige: 'Zeit',
     stichw: ['zeit', 'zeiten', 'zeiterfassung', 'arbeitszeit', 'stunden', 'stoppuhr', 'arbeitsschritt', 'arbeitsschritte', 'untertaetigkeit', 'zeit aufschluesseln', 'wofuer geht meine zeit drauf', 'diagramm antippen', 'zeit genauer', 'arbeitsstunden', 'gearbeitet', 'wie lange gearbeitet', 'wie lange habe ich gearbeitet', 'zeit stoppen', 'stoppuhr starten', 'zeit messen', 'arbeitsaufwand'],
@@ -27455,17 +27330,17 @@ const APP_WISSEN = [
     antwort: 'Im Menü „Mehr“ kannst du jede Kachel etwa eine halbe Sekunde gedrückt halten und verschieben. Ziehst du eine Kachel auf die untere Leiste, ersetzt sie dort einen Eintrag.',
     schritte: ['Unten auf „Mehr“ tippen', 'Kachel gedrückt halten und ziehen', 'Auf die Leiste fallen lassen, um sie dort zu verankern'] },
   { id: 'rechner', titel: 'Rechner (Futter, Umrechnungen)', route: 'rechner', zeige: '',
-    stichw: ['rechner', 'rechnen', 'umrechnen', 'sirup rechner', 'futterrechner', 'honig umrechnen', 'dichte', 'prozent'],
-    antwort: 'Der Rechner hilft beim Umrechnen, zum Beispiel Zuckerlösung, Honigmengen und Verdünnung.',
+    stichw: ['rechner', 'rechnen', 'umrechnen', 'sirup rechner', 'futterrechner', 'honig umrechnen', 'dichte', 'prozent', 'mengenrechner', 'dosierung', 'dosierungsrechner', 'behandlungsrechner'],
+    antwort: 'Die Imker-Rechner helfen beim Umrechnen, zum Beispiel bei Zuckerlösung und Honigmengen. Der Mengenrechner rechnet den Wert aus deiner Packungsbeilage auf alle Völker hoch.',
     schritte: ['Menü ▸ Rechner', 'Werte eingeben'] },
   { id: 'anhang', titel: 'Fotos und Dokumente anhängen', route: 'voelker', zeige: '',
     stichw: ['foto', 'fotos', 'bild', 'dokument', 'datei', 'anhang', 'anhaengen', 'zertifikat', 'upload', 'pdf anhaengen', 'hochladen', 'foto machen', 'bild zum volk', 'bild zum volk hinzufuegen', 'foto hinzufuegen', 'foto zum volk', 'dokument hochladen', 'datei hochladen', 'datei anhaengen', 'datei zum volk', 'notizen', 'notiz zum volk', 'notizen zum volk', 'notiz volk'],
     antwort: 'Fotos und Dokumente hängst du direkt am Eintrag an (Volk, Kontakt, Bio-Bereich …). Beim Erzeugen eines PDFs werden die Anhänge auf Wunsch mit angefügt.',
     schritte: ['Eintrag öffnen', 'Unter „Foto“ oder „Dokument“ auf + tippen', 'Datei wählen'] },
-  { id: 'wetter', titel: 'Wetter und Tracht-Hinweise', route: 'dashboard', zeige: 'Widgets',
+  { id: 'wetter', titel: 'Wetter und Tracht-Hinweise', route: 'einstellungen', zeige: 'Funktionen',
     stichw: ['wetter', 'regen', 'temperatur', 'flugwetter', 'prognose', 'vorhersage', 'wie wird das wetter', 'wetter heute', 'regen morgen'],
-    antwort: 'Das Wetter-Widget auf dem Dashboard zeigt die Vorhersage für deinen Stand. Schalte es über „Widgets“ ein.',
-    schritte: ['Dashboard öffnen', '„Widgets“ tippen', 'Wetter einschalten'] },
+    antwort: 'Das Wetter ist ab Werk aus. Schaltest du es unter Einstellungen → Funktionen ein, zeigt die Wetter-Kachel auf dem Dashboard das aktuelle Wetter an einem deiner Stände. Dafür gehen die gerundeten Koordinaten deiner Stände und technisch deine IP-Adresse an den Wetterdienst Bright Sky.',
+    schritte: ['Einstellungen öffnen', 'Unter „Funktionen“ den Wetter-Abruf einschalten', 'Dashboard öffnen, „Widgets“ tippen und die Wetter-Kachel wählen'] },
 ];
 
 APP_WISSEN.push(
@@ -27576,7 +27451,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Honigsorten“ öffnen', 'Neue Sorte eintragen'] },
   { id: 'rechnung-festschreiben', titel: 'Rechnung festschreiben (fertig machen)', route: 'rechnungen', zeige: '',
     stichw: ['rechnung festschreiben', 'festschreiben', 'rechnung abschliessen', 'rechnung fertig', 'rechnung nicht mehr aendern', 'rechnungsnummer vergeben', 'entwurf', 'rechnung final', 'rechnung freigeben', 'nicht mehr veraendert', 'nicht mehr aendern', 'nicht mehr veraendern', 'nummer fuer die rechnung', 'rechnung final machen', 'endgueltig'],
-    antwort: 'Eine Rechnung beginnt als Entwurf und lässt sich frei ändern. Mit „Festschreiben“ bekommt sie ihre endgültige Rechnungsnummer und ist danach unveränderlich – so verlangt es das Finanzamt.',
+    antwort: 'Eine Rechnung beginnt als Entwurf und lässt sich frei ändern. Mit „Festschreiben“ bekommt sie ihre endgültige Rechnungsnummer; danach lässt sie sich in der App nicht mehr ändern, nur stornieren.',
     schritte: ['Menü ▸ Rechnungen, die Rechnung antippen', 'Positionen und Kunde prüfen', '„Festschreiben“ antippen'] },
   { id: 'rechnung-zahlung', titel: 'Rabatt, Skonto und Zahlungsziel auf der Rechnung', route: 'rechnungen', zeige: '',
     stichw: ['rabatt', 'skonto', 'zahlungsziel', 'zahlungsfrist', 'bezahlt', 'rechnung bezahlt', 'zahlung eingegangen', 'mahnung', 'faellig rechnung', 'ueberfaellig', 'nachlass', 'preisnachlass', 'rechnung offen', '14 tage', 'zahlt in', 'kunde zahlt in', 'prozent skonto', 'skonto prozent', 'skonto einstellen', 'rabatt prozent', 'rechnung ueberwiesen', 'rechnung wurde ueberwiesen', 'geld eingegangen', 'zahlungseingang'],
@@ -27596,7 +27471,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Kassenbuch', 'Reiter „Geschäftskosten“ öffnen', '„Buchung“ antippen'] },
   { id: 'fahrtenbuch-pdf', titel: 'Fahrtenbuch als PDF', route: 'fahrten', zeige: 'PDF',
     stichw: ['fahrtenbuch pdf', 'fahrtenbuch drucken', 'fahrtenbuch finanzamt', 'fahrtenbuch export', 'kilometer nachweis', 'fahrten auswerten', 'km pauschale', 'fahrtkosten abrechnen', 'fahrtenbuch jahr', 'kilometernachweis'],
-    antwort: 'Oben im Fahrtenbuch gibt es „Fahrtenbuch (PDF)“ für das gewählte Jahr – fertig zum Drucken oder für das Finanzamt.',
+    antwort: 'Oben im Fahrtenbuch gibt es „Fahrtenbuch (PDF)“ für das gewählte Jahr – fertig zum Drucken oder Weitergeben.',
     schritte: ['Menü ▸ Fahrtenbuch', '„Fahrtenbuch … (PDF)“ antippen'] },
   { id: 'fahrt-kurzwahl', titel: 'Häufige Fahrten als Kurzwahl', route: 'fahrten', zeige: 'Anpassen',
     stichw: ['kurzwahl', 'fahrt vorlage', 'immer gleiche fahrt', 'schnell fahrt buchen', 'strecke speichern', 'standardfahrt', 'wiederkehrende fahrt', 'haeufige fahrt', 'fahrt vorlagen', 'fahrt schneller buchen', 'schneller buchen', 'fahrt schneller', 'schnellbuchung', 'fahrt schnell eintragen', 'stammstrecke'],
@@ -27624,7 +27499,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Abnehmer & Lieferanten', 'Kontakt antippen, „Bio-Partner? Ja“ wählen', 'Kontrollnummer und Gültigkeit eintragen, Zertifikat anhängen'] },
   { id: 'bio-landbedeckung', titel: 'Landbedeckung und Standorte für Bio', route: 'bio', zeige: 'Standorte',
     stichw: ['landbedeckung', 'standorte bio', 'umkreis', 'drei komma fuenf kilometer', 'flugradius', 'flaechen', 'acker', 'gruenland', 'wald', 'oeko standort', 'standortpruefung', 'umgebung des stands', 'was waechst um', 'waechst um den stand', 'umgebung', 'was ist um meinen stand'],
-    antwort: 'Im Bereich „Bio“ zeigt der Reiter „Standorte“ die Landbedeckung im Umkreis jedes Stands (3,5 km). Daraus entsteht der Nachweis für die Öko-Kontrolle.',
+    antwort: 'Im Bereich „Bio“ zeigt der Reiter „Standorte“ die Landbedeckung im Umkreis jedes Stands (3,5 km). Das kann dir als Unterlage dienen; ob sie reicht, entscheidet deine Kontrollstelle.',
     schritte: ['Menü ▸ Bio', 'Reiter „Standorte“ öffnen', 'Stand wählen und Landbedeckung abrufen'] },
   { id: 'bio-foerderung', titel: 'Förderverfahren und Kontrollstelle', route: 'bio', zeige: 'Förderung',
     stichw: ['foerderverfahren', 'foerderung', 'foerderantrag', 'zuschuss', 'kontrollstelle waehlen', 'verband', 'oeko verband', 'bioland', 'naturland', 'demeter', 'anerkennung', 'kontrollstelle auswaehlen', 'kontrollstelle aussuchen', 'kontrollstelle'],
@@ -27658,15 +27533,15 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Statistiken', 'Reiter und Jahr wählen', 'Oben „Jahresbericht (PDF)“ antippen'] },
   { id: 'stand-wetter', titel: 'Wetter und Lage eines Standes', route: 'staende', zeige: '',
     stichw: ['wetter stand', 'wetter abrufen', 'standort wetter', 'temperatur stand', 'regen stand', 'koordinaten', 'karte', 'lage stand', 'wo steht', 'gps', 'standort eintragen', 'breitengrad', 'wetter am stand', 'wetter fuer stand', 'stand wetter'],
-    antwort: 'Hat ein Stand Koordinaten, holt die App das Wetter von selbst – beim Start und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein, den automatischen Abruf schaltest du unter Einstellungen → Funktionen.',
-    schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“: aktuelles Wetter und Verlauf ansehen', '„Aktualisieren“ holt sofort neu, „Manuell“ trägt einen eigenen Wert ein'] },
+    antwort: 'Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein. Das Wetter ist ab Werk aus: Beim ersten Speichern von Koordinaten fragt dich die App einmal, später schaltest du es unter Einstellungen → Funktionen ein oder aus. Ist es an, gehen die gerundeten Koordinaten und technisch deine IP-Adresse an den Wetterdienst Bright Sky. Die App holt das Wetter dann von selbst – beim Start und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Von Hand eintragen kannst du Werte auch ohne Abruf.',
+    schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“: aktuelles Wetter und Verlauf ansehen', 'Ist das Wetter an, holt „Aktualisieren“ sofort neu; „Manuell“ trägt einen eigenen Wert ein'] },
   { id: 'bestandsbuch', titel: 'Bestandsbuch für Arzneimittel (PDF)', route: 'behandlungen', zeige: 'Bestandsbuch',
     stichw: ['bestandsbuch', 'arzneimittelbuch', 'bestandsbuch pdf', 'dokumentation behandlung', 'tierarzt nachweis', 'behandlungsnachweis', 'kontrolle veterinaer', 'behandlungsliste', 'nachweis arzneimittel', 'kontrolle amt', 'arzneimittelbuch', 'tierarzneimittelbuch', 'nachweis behandlungen', 'nachweis ueber behandlungen', 'behandlungen drucken', 'behandlungen als pdf', 'pdf behandlungen'],
-    antwort: 'Oben im Bereich „Behandlungen“ gibt es „Bestandsbuch (PDF)“. Es listet alle Behandlungen und ist die Dokumentation, die das Veterinäramt sehen will.',
+    antwort: 'Oben im Bereich „Behandlungen“ gibt es „Bestandsbuch (PDF)“. Es listet alle Behandlungen. Drucke es regelmäßig aus und bewahre es mit den Kaufbelegen auf.',
     schritte: ['Menü ▸ Behandlungen', '„Bestandsbuch (PDF)“ antippen'] },
   { id: 'wanderbuch', titel: 'Wanderbuch als PDF', route: 'wanderungen', zeige: 'Wanderbuch',
     stichw: ['wanderbuch', 'wanderbuch pdf', 'wanderungen drucken', 'wanderung nachweis', 'wanderliste', 'wanderimker nachweis', 'wanderung pdf'],
-    antwort: 'Oben im Bereich „Wanderungen“ gibt es „Wanderbuch (PDF)“ mit allen Fahrten zu Trachten – als Nachweis für Behörden und Verein.',
+    antwort: 'Oben im Bereich „Wanderungen“ gibt es „Wanderbuch (PDF)“ mit allen Fahrten zu Trachten – fertig zum Drucken oder Weitergeben.',
     schritte: ['Menü ▸ Wanderungen', '„Wanderbuch (PDF)“ antippen'] },
   { id: 'futter-rechner', titel: 'Futter-Rechner für Sirup und Zucker', route: 'fuetterung', zeige: 'Futter-Rechner',
     stichw: ['futterrechner', 'sirup rechnen', 'wieviel zucker', 'wie viel zucker', 'zucker wasser verhaeltnis', 'sirup ansetzen', 'drei zu zwei', 'zuckerloesung', 'wie viel futter', 'wieviel futter', 'winterfutter menge', 'auffuettern wie viel', 'zucker kilo', 'liter sirup', 'wie viel futter pro volk', 'futterrechner', 'wie viel zucker fuer', 'zucker fuer futter', 'zucker und wasser', 'wasser und zucker', 'sirup mischen', 'sirup anruehren', 'zuckerwasser ansetzen', 'futtermenge', 'mischungsverhaeltnis', 'verhaeltnis zucker wasser', 'zuckermenge', 'zuckermenge berechnen', 'futter berechnen', 'berechnen', 'ausrechnen', 'menge berechnen', 'sirupmenge'],
@@ -27978,7 +27853,7 @@ function assistentSuche(query) {
     const marke = new Set(assistentMarken(f.f + ' ' + f.a));
     const hits = fq.filter((t) => marke.has(t)).length;
     const synHits = [...marken.keys()].filter((m) => /^f\d+$/.test(m) && marke.has(m)).length;
-    if (hits + synHits >= Math.min(2, Math.max(1, roh.length))) faq.push({ f: f.f, a: f.a, thema: th.label, link: f.link, hits: hits + synHits });
+    if (hits + synHits >= Math.min(2, Math.max(1, roh.length))) faq.push({ f: f.f, a: f.a, thema: th.label, link: f.link, zusatz: immeZusatzFaq(f, th.id), hits: hits + synHits });
   }
   faq.sort((a, b) => b.hits - a.hits);
   return { app, unsicher, faq };
@@ -28489,13 +28364,13 @@ Views.assistent = {
       if (m.art === 'gruss') h = `<p>Hallo, ich bin Imme, dein persönlicher Assistent. Schreib mir, was du tun möchtest, zum Beispiel <i>„Wie buche ich einen Honigverkauf?“</i> oder <i>„Wo trage ich eine Varroa-Behandlung ein?“</i>.</p>`;
       else if (m.art === 'app') {
         const e = m.haupt;
-        h = `<p><b>${U.esc(e.titel)}</b></p><p>${U.esc(e.antwort)}</p>`;
+        h = `<p><b>${U.esc(e.titel)}</b></p><p>${U.esc(e.antwort)}</p>${immeZusatzHtml(immeZusatzApp(e))}`;
         if (e.schritte.length) h += `<ol class="bini-schritte">${e.schritte.map((s) => `<li>${U.esc(s)}</li>`).join('')}</ol>
           <div class="bini-aktion"><button class="btn btn-primary btn-sm" data-zeige="${U.esc(e.id)}">${icon('pointer')} ${e.tour ? 'Schritt für Schritt zeigen' : 'Zeig’s mir'}</button>${e.tour ? '<div class="small muted mt8">Ich begleite dich durch die Eingabe. Mit einem Tipp auf mich beendest du die Hilfe jederzeit.</div>' : ''}</div>`;
         if (m.weitere.length) h += `<p class="small muted mt8">Meintest du auch:</p><div class="bini-chips">${m.weitere.map((w) => `<button class="chip" data-wissen="${U.esc(w.id)}">${U.esc(w.titel)}</button>`).join('')}</div>`;
-        if (m.faq.length) h += `<p class="small muted mt8">Dazu aus der Imker-Praxis:</p>${m.faq.map((f) => `<details class="bini-faq"><summary>${U.esc(f.f)}</summary><p>${U.esc(f.a)}</p></details>`).join('')}`;
+        if (m.faq.length) h += `<p class="small muted mt8">Dazu aus der Imker-Praxis:</p>${m.faq.map((f) => `<details class="bini-faq"><summary>${U.esc(f.f)}</summary><p>${U.esc(f.a)}</p>${immeZusatzHtml(f.zusatz)}</details>`).join('')}`;
       } else if (m.art === 'faq') {
-        h = `<p>Dazu habe ich Antworten aus der Imker-Praxis:</p>${m.faq.map((f) => `<details class="bini-faq" open><summary>${U.esc(f.f)}</summary><p>${U.esc(f.a)}</p></details>`).join('')}`;
+        h = `<p>Dazu habe ich Antworten aus der Imker-Praxis:</p>${m.faq.map((f) => `<details class="bini-faq" open><summary>${U.esc(f.f)}</summary><p>${U.esc(f.a)}</p>${immeZusatzHtml(f.zusatz)}</details>`).join('')}`;
         if (m.vorschlaege && m.vorschlaege.length) h += `<p class="small muted mt8">Oder meinst du etwas in der App?</p><div class="bini-chips">${m.vorschlaege.map((w) => `<button class="chip" data-wissen="${U.esc(w.id)}">${U.esc(w.titel)}</button>`).join('')}</div>`;
       } else if (m.art === 'unsicher') {
         h = `<p>Da bin ich nicht ganz sicher, was du meinst. Meinst du eins davon?</p><div class="bini-chips">${m.vorschlaege.map((w) => `<button class="chip" data-wissen="${U.esc(w.id)}">${U.esc(w.titel)}</button>`).join('')}</div><p class="small muted mt8">Sonst formuliere es gern anders – ich verstehe auch einfache Worte wie „Honig verkaufen“ oder „Rechnung schreiben“.</p>`;
@@ -28650,15 +28525,15 @@ Views.imkerschule = {
   },
   renderFaq(main) {
     const V = Views.imkerschule;
-    const faqAccHtml = (fragen, themaLabel) => fragen.map((fq, i) => `<div class="faq-acc" style="border-bottom:${i < fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
+    const faqAccHtml = (fragen, themaLabel, themaId) => fragen.map((fq, i) => `<div class="faq-acc" style="border-bottom:${i < fragen.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
       <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(fq.f)}</span>${themaLabel ? `<span class="small muted" style="flex-shrink:0">${U.esc(themaLabel)}</span>` : ''}<span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
-      <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${fq.link ? `<div class="faq-rlink" data-route="${U.esc(fq.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
+      <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(fq.a)}${immeZusatzHtml(themaId ? immeZusatzFaq(fq, themaId) : [])}${fq.link ? `<div class="faq-rlink" data-route="${U.esc(fq.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
     </div>`).join('');
     /* Treffer bzw. Themen als eigener Teil: die Suche zeichnet nur diesen neu, NIE das Suchfeld – sonst klappte auf
        dem iPhone nach jedem Buchstaben die Tastatur zu (21.10.2026). */
     const ergebnis = () => { const results = V._faqQuery ? faqSuche(V._faqQuery) : []; return `${V._faqQuery && results.length ? `<div class="small muted" style="margin-bottom:6px">${results.length} Treffer</div><div class="card" style="padding:0;overflow:hidden">${results.map((r, i) => `<div class="faq-acc" style="border-bottom:${i < results.length - 1 ? '1px solid var(--line)' : 'none'};padding:10px 15px;cursor:pointer">
         <div style="display:flex;align-items:center;gap:8px"><span style="flex:1;font-size:13.5px;font-weight:500">${U.esc(r.f)}</span><span class="small muted" style="flex-shrink:0">${U.esc(r.thema.label)}</span><span class="faq-chev" style="color:var(--muted);font-size:11px;transition:transform .2s">▼</span></div>
-        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${r.link ? `<div class="faq-rlink" data-route="${U.esc(r.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
+        <div class="faq-ans" style="display:none;margin-top:8px;font-size:13px;color:var(--muted);line-height:1.5">${U.esc(r.a)}${immeZusatzHtml(r.zusatz)}${r.link ? `<div class="faq-rlink" data-route="${U.esc(r.link)}" style="display:inline-block;margin-top:6px;font-size:12.5px;font-weight:500;color:#E9A21C;cursor:pointer">→ Zum Rechner</div>` : ''}</div>
       </div>`).join('')}</div>` : ''}
       ${V._faqQuery && !results.length ? '<div class="hint">Keine Treffer – versuch einen anderen Begriff.</div>' : ''}
       ${!V._faqQuery ? FAQ_THEMEN.map((t) => `<div class="faq-topic" data-tid="${U.esc(t.id)}" style="margin-bottom:8px">
@@ -28668,7 +28543,7 @@ Views.imkerschule = {
           <span class="small muted" style="flex-shrink:0">${t.fragen.length}</span>
           <span class="faq-topic-chev" style="color:var(--muted);font-size:12px;transition:transform .2s">▶</span>
         </div>
-        <div class="faq-topic-body" style="display:none;border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;overflow:hidden">${faqAccHtml(t.fragen)}</div>
+        <div class="faq-topic-body" style="display:none;border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;overflow:hidden">${faqAccHtml(t.fragen, '', t.id)}</div>
       </div>`).join('') : ''}`; };
     main.innerHTML = pageHead('Imkerschule · Frag ein Thema', `${FAQ_THEMEN.reduce((s, t) => s + t.fragen.length, 0)} Antworten auf häufige Imker-Fragen`) + `
       <div style="display:flex;gap:6px;margin-bottom:14px">
@@ -28945,10 +28820,9 @@ Views.einstellungen = {
       </div>
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
-        <label class="check-line"><input type="checkbox" data-feat="wetter" ${f.wetter ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
-        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${f.wetterStart !== false ? 'checked' : ''}> <span>Wetter beim App-Start für alle Stände abrufen (höchstens alle 30 Minuten, nur mit Internet)</span></label>
-        ${IST_NATIVE_APP ? '' : `<label class="check-line"><input type="checkbox" data-feat="ocr" ${f.ocr ? 'checked' : ''}> <span>OCR – Text aus Fotos (Tesseract, lädt einmalig ~15 MB Sprachpaket)</span></label>
-        <label class="check-line"><input type="checkbox" data-feat="whisper" ${f.whisper ? 'checked' : ''}> <span>Offline-Transkription für Sprachnotizen (Whisper, lädt einmalig ~250 MB Modell)</span></label>`}
+        <label class="check-line"><input type="checkbox" id="feat-wetter" ${Wetter.erlaubt() ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
+        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter beim App-Start für alle Stände abrufen (höchstens alle 30 Minuten, nur mit Internet)</span></label>
+        <div class="small muted mt4" id="wetter-hinweis">Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Mit dem Einschalten stimmst du dem zu. Ausschalten kannst du es hier jederzeit, das gilt dann für alle künftigen Abrufe.${Wetter.erlaubt() ? ` Zugestimmt am ${U.esc(U.fmtDate(S.get('wetterEinwilligung').zeit.slice(0, 10)))}.` : ''}</div>
         <h3 class="mt16 mb8">Erinnerungen</h3>
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>
         ${f.benachrichtigungen ? `<div class="mt8">
@@ -29038,11 +28912,12 @@ Views.einstellungen = {
       </div>` : ''}
 
       <div class="card"><div class="card-title">${icon('doc')}<h2>Rechtliches</h2></div>
-        <p class="small muted mb12">Impressum, Datenschutz und AGB${IST_NATIVE_APP ? '' : ' – öffnen in einem neuen Tab'}.</p>
+        <p class="small muted mb12">Impressum, Datenschutz, Nutzungsbedingungen (AGB) und Lizenzen${IST_NATIVE_APP ? '' : ' – öffnen in einem neuen Tab'}.</p>
         <div class="flex-wrap no-print">
           <a class="btn btn-ghost btn-sm" href="impressum.html" target="_blank" rel="noopener">${icon('info')} Impressum</a>
           <a class="btn btn-ghost btn-sm" href="datenschutz.html" target="_blank" rel="noopener">${icon('info')} Datenschutz</a>
-          <a class="btn btn-ghost btn-sm" href="agb.html" target="_blank" rel="noopener">${icon('doc')} AGB &amp; Widerruf</a>
+          <a class="btn btn-ghost btn-sm" href="agb.html" target="_blank" rel="noopener">${icon('doc')} Nutzungsbedingungen (AGB)</a>
+          <a class="btn btn-ghost btn-sm" href="lizenzen.html" target="_blank" rel="noopener">${icon('doc')} Lizenzen</a>
           <a class="btn btn-ghost btn-sm" href="support.html" target="_blank" rel="noopener">${icon('info')} Support-Seite</a>
           <a class="btn btn-ghost btn-sm" href="#/hilfe">${icon('mail')} Hilfe &amp; Kontakt</a>
           <button class="btn btn-ghost btn-sm" type="button" onclick="Einfuehrung.start(0)">${icon('assistent')} Einführung wiederholen</button>
@@ -29221,6 +29096,14 @@ Views.einstellungen = {
 
     /* Feature-Schalter */
     $$('[data-feat]', main).forEach((el) => el.onchange = async () => { f[el.dataset.feat] = el.checked; await saveFeatures(); });
+    /* Wetter: Einschalten ist die Einwilligung (mit Zeit und Textversion), Ausschalten der Widerruf. In Light gibt es kein Wetter. */
+    $('#feat-wetter').onchange = async (e) => {
+      if (e.target.checked && Lizenz.nurVoll('Das Wetter am Stand')) { e.target.checked = false; return; }
+      if (e.target.checked) await Wetter.einwilligen(); else await Wetter.widerrufen();
+      Object.assign(f, S.get('features'));
+      if (e.target.checked) { await S.set('wetterGefragt', true, { auto: true }); Wetter.alleAbrufen(); }
+      renderRoute();
+    };
     $('#feat-notif').onchange = async (e) => {
       f.benachrichtigungen = e.target.checked; await saveFeatures();
       if (e.target.checked) {
@@ -29762,7 +29645,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Ocr, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
+  TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead, leistePlatz,
@@ -29800,6 +29683,7 @@ Object.assign(window, {
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,
+  WETTER_EINWILLIGUNG_VERSION, Dienste, DIENSTE_ADRESSE, mengenRechnen, mengenrechnerHtml, mengenrechnerZeichnen, MENGEN_WARNUNG, immeZusatzApp, immeZusatzFaq, IMME_ZUSATZ_RECHT, VORLAGE_HINWEIS, GELD_HINWEIS, OSM_QUELLE, BKG_QUELLE,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,

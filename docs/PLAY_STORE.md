@@ -104,12 +104,12 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 ## Datensicherheit („Data safety“-Formular)
 
 - **Erfasst oder teilt die App Daten?** Ja, in geringem Umfang:
-  - **Standort (ungefähr und genau):** Koordinaten eines Bienenstands gehen an Wetter- und Geodienste (Deutscher Wetterdienst/Bright Sky, OpenStreetMap, amtliche Geodienste), wenn Wetter oder Bio-Umgebungsprüfung genutzt werden. Zweck: **App-Funktionen**. **Flüchtig verarbeitet** (nicht gespeichert, keine Zuordnung zur Person). Nicht für Werbung, nicht verkauft. Vorsichtshalber auch als **„geteilt“ (mit Wetter-/Kartendiensten, für App-Funktionen)** angeben – das Wetter aller Stände mit Koordinaten wird ab v2.78 beim App-Start automatisch geladen (abschaltbar).
+  - **Standort (ungefähr und genau):** erfasst, Zweck App-Funktionen, nicht für Werbung, nicht verkauft. Nicht als flüchtig angeben, solange die Dienste das nicht schriftlich bestätigen. Weitergabe an Wetter-, Karten- und Geodienste (Deutscher Wetterdienst über Bright Sky, OpenStreetMap, amtliche Geodienste), wenn Wetter oder Bio-Umgebungsprüfung genutzt werden. Wetter ist ab Werk aus (ab v3.08) und läuft erst nach Zustimmung, dann auch beim App-Start.
   - Adresssuche: Suchbegriff an OpenStreetMap (vom Nutzer ausgelöst).
   - Alles andere (Völker, Fotos, Audio, Buchungen, Kontakte) bleibt **nur auf dem Gerät** → nicht „erfasst“.
 - **Verschlüsselung bei der Übertragung:** Ja (HTTPS).
 - **Automatische Android-Sicherung:** ausgeschaltet (`allowBackup=false`, `data_extraction_rules.xml`) – die App-Datenbank geht nicht in Googles Gerätesicherung.
-- **Löschung:** Nutzer können alle Daten in der App löschen (Einstellungen → Sicherung & Datensicherheit → „Alle Daten löschen“). Es gibt keine Konten.
+- **Löschung:** Nutzer können alle Daten in der App löschen (Einstellungen → Sicherung & Datensicherheit → „Alle Daten löschen“). Löschen in der App wirkt nur auf dem Gerät. Es gibt keine Konten.
 - **Käufe:** werden von Google Play verarbeitet (nicht von uns erfasst).
 
 ## Inhaltsbewertung und Zielgruppe

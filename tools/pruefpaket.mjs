@@ -39,7 +39,7 @@ function docsDateien() {
 const DATEIEN = [
   'index.html', 'service-worker.js', 'manifest.json',
   'icon-192.png', 'icon-512.png', 'icon-180.png',
-  'impressum.html', 'datenschutz.html', 'agb.html',
+  'impressum.html', 'datenschutz.html', 'agb.html', 'lizenzen.html',
   'tests/tests.js', 'tests/test.html',
   'PROJEKT.md',
   /* Die Dokumente werden AUFGEZÄHLT, nicht einzeln aufgelistet. Die feste
