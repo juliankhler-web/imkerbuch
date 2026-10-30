@@ -38,6 +38,6 @@ Schritte, falls der Zusatz genutzt werden soll:
 
 ## Noch nicht geprüft
 
-- **Scanner am echten iPhone:** das Scannen eines gedruckten Aufklebers, bei Sonne und auf laminiertem Papier (`docs/GERAETETEST.md`, K8). Im Simulator läuft das Live-Bild in der App, das Erkennen ist mit künstlichem Kamerabild im Test geprüft.
+- **Scanner am echten iPhone:** Julian hat ihn am 30.10.2026 mit v3.04 aus Xcode getestet: Scannen über den Knopf geht („ok geht“). Noch offen aus `docs/GERAETETEST.md`, K8: Flugmodus, Sonne, laminiertes Papier, falscher Code, Kamera verboten.
 - **Android:** Auf dem Mac liegt derzeit kein Android-SDK, der Scanner ist dort weder gebaut noch getestet.
 - **Handy-Kamera-Weg:** Ohne Domain lässt er sich nicht testen. Auch ob die Hetzner-Einstellungen in `.htaccess` greifen, zeigt erst Schritt 2.
