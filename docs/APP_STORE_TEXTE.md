@@ -100,7 +100,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 | Produkt-ID | Typ | Referenzname | Anzeigename (de) | Preis |
 |---|---|---|---|---|
 | `de.imkerbuch.app.testphase30` | Nicht verbrauchbar | 30-day Trial | 30-Tage-Testphase | 0,00 € |
-| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 24,99 CHF (Preisänderung im Voraus planen) |
+| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € bzw. 14,95 CHF bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 24,95 CHF (Preisänderung im Voraus planen; Apple hat keine 14,99 oder 24,99 CHF) |
 
 Beschreibung Testphase: „30 Tage alle Funktionen gratis – keine Abbuchung.“ (Apple erlaubt nur 55 Zeichen)
 Beschreibung Vollversion: „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“
