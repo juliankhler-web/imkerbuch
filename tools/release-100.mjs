@@ -25,7 +25,7 @@ const setze = (p, alt, neu) => { if (alt !== neu) { aenderungen.push(p); if (!PR
 
 const HEUTE = new Date().toISOString().slice(0, 10);
 const WILLKOMMEN = `  { version: '1.00', datum: '${HEUTE}', punkte: [
-    '<b>Willkommen bei ImkerBuch 1.0!</b> Dein digitales Stockbuch – komplett auf Deutsch, offline und ohne Konto. Deine Daten bleiben auf deinem Gerät.',
+    '<b>Willkommen bei ImkerBuch 1.0!</b> Dein digitales Stockbuch – komplett auf Deutsch, offline und ohne Konto. Deine Einträge bleiben auf deinem Gerät.',
     '<b>Durchsicht am Stand</b> mit großen Knöpfen, Stockkarte, Varroa, Behandlungen, Fütterung, Königinnen, Ernte und Abfüllung, Kassenbuch und Rechnungen.',
     '<b>Imme</b>, dein Assistent, zeigt dir Schritt für Schritt, wie alles geht – frag einfach unten rechts.',
     'Fragen oder Ideen? Menü → <b>Hilfe & Kontakt</b>. Und denk ans regelmäßige <b>Sichern</b>.',
