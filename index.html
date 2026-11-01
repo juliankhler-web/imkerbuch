@@ -1555,7 +1555,7 @@ const CHANGELOG = [
     '<b>Bestandsbuch:</b> Eine leere Wartezeit bleibt „nicht erfasst“. Bisher wurde daraus „0 Tage“. Nur eine eingetragene 0 heißt „keine Wartezeit“.',
     '<b>Adresssuche und Bio-Umgebungsprüfung:</b> Die App fragt vor dem ersten Senden und nennt, wohin die Daten gehen. Ändern kannst du das unter Einstellungen → Funktionen.',
     '<b>Meine Mittel und Mengenrechner:</b> Beim Zusammenführen einer Sicherung gehen keine Mittel mehr verloren. Der Rechner rundet sauber und verlangt bei „Anzahl Völker“ eine ganze Zahl.',
-    '<b>Kleinere Korrekturen:</b> Das Kauf-Fenster nennt vor dem Teststart, was danach wegfällt. Neue Koordinaten holen das Wetter gleich neu. Das Bio-Etikett erkennt auch „60 Deutschland, 40 Österreich“.',
+    '<b>Kleinere Korrekturen:</b> Holst du das Foto einer Beilage aus dem Papierkorb, kommt das entfernte Mittel mit zurück. Das Kauf-Fenster nennt vor dem Teststart, was danach wegfällt. Neue Koordinaten holen das Wetter gleich neu. Das Bio-Etikett erkennt auch „60 Deutschland, 40 Österreich“.',
   ] },
   { version: '3.11', datum: '2026-11-01', punkte: [
     '<b>Meine Mittel:</b> Lege deine Mittel einmal mit den Werten aus der Packungsbeilage an, auf Wunsch mit Foto der Beilage. Danach rechnet der Mengenrechner mit einem Tipp, und „Als Behandlung eintragen“ füllt das Bestandsbuch vor.',
@@ -9962,6 +9962,13 @@ function alsBehandlungEintragen(box) {
   Views.behandlungen.sammelForm({ menge: r.proVolk, einheit: wert('einheit'),
     ...(x ? { mittel: x.name, anwendungsart: x.anwendungsart || '', ...(x.wartezeitTage != null ? { wartezeitTage: x.wartezeitTage } : {}) } : {}) });
 }
+/** Foto der Beilage aus dem Papierkorb geholt, das Mittel ist aber entfernt: Es kommt mit zurück, sonst wäre das Foto nirgends erreichbar. */
+async function mittelMitBeilageZurueck(eintrag) {
+  const rec = eintrag && eintrag.store === 'anhaenge' ? eintrag.daten : null;
+  if (!rec || rec.parentTyp !== 'mittel' || !rec.mittelKopie || meineMittel().some((x) => x.id === rec.parentId)) return false;
+  await S.set('meineMittel', U.sortBy([...meineMittel(), rec.mittelKopie], (x) => x.name.toLowerCase()));
+  return true;
+}
 /** Anlegen oder Ändern. Die Menge muss eine einzelne Zahl sein, wie im Mengenrechner. */
 async function mittelForm(mittel, box) {
   if (Lizenz.nurVoll('Behandlungen und Bestandsbuch')) return;
@@ -10001,7 +10008,7 @@ async function mittelForm(mittel, box) {
   $('[data-mittel-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'mittel', parentId: mittel.id, titel: 'Foto oder PDF der Beilage' }));
   $('[data-mittel-weg]', m.el).onclick = async () => {
     if (!(await UI.confirm({ title: 'Mittel entfernen?', text: 'Es verschwindet aus „Meine Mittel“. Eingetragene Behandlungen bleiben. Fotos der Beilage wandern in den Papierkorb.' }))) return;
-    for (const a of await Anhang.list('mittel', mittel.id)) await DB.softDel('anhaenge', a.id);
+    for (const a of await Anhang.list('mittel', mittel.id)) { await DB.put('anhaenge', { ...a, mittelKopie: mittel }); await DB.softDel('anhaenge', a.id); }   // die Kopie holt das Mittel beim Wiederherstellen zurück
     await S.set('meineMittel', meineMittel().filter((x) => x.id !== mittel.id));
     m.close(true);
     if (box && box.isConnected) { delete box.dataset.mittel; meineMittelZeichnen(box); }
@@ -22086,7 +22093,8 @@ Views.papierkorb = {
         if (eintrag && eintrag.store === 'voelker' && !(await Lizenz.neuesVolkErlaubt())) return;
         try {
           const wiederhergestellt = await DB.trashRestore(rs.dataset.restore);
-          UI.toast(wiederhergestellt ? 'Wiederhergestellt' : 'Der Eintrag ist nicht mehr im Papierkorb.');
+          const mittelZurueck = wiederhergestellt && await mittelMitBeilageZurueck(eintrag);
+          UI.toast(wiederhergestellt ? (mittelZurueck ? 'Wiederhergestellt, auch das Mittel unter „Meine Mittel“' : 'Wiederhergestellt') : 'Der Eintrag ist nicht mehr im Papierkorb.');
           renderRoute();
         } catch (err) { UI.toast(err.message || 'Wiederherstellen fehlgeschlagen – bitte erneut versuchen.', 'err'); }
         return;
@@ -29905,7 +29913,7 @@ Object.assign(window, {
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,
-  WETTER_EINWILLIGUNG_VERSION, Dienste, DIENSTE_ADRESSE, wartezeitWert, DIENST_FRAGEN, dienstErlaubt, mengenRechnen, mengenrechnerHtml, mengenrechnerZeichnen, meineMittel, mittelForm, amtlicheMittelListe, MENGEN_WARNUNG, immeZusatzApp, immeZusatzFaq, IMME_ZUSATZ_RECHT, VORLAGE_HINWEIS, GELD_HINWEIS, OSM_QUELLE, BKG_QUELLE,
+  WETTER_EINWILLIGUNG_VERSION, Dienste, DIENSTE_ADRESSE, wartezeitWert, DIENST_FRAGEN, dienstErlaubt, mittelMitBeilageZurueck, mengenRechnen, mengenrechnerHtml, mengenrechnerZeichnen, meineMittel, mittelForm, amtlicheMittelListe, MENGEN_WARNUNG, immeZusatzApp, immeZusatzFaq, IMME_ZUSATZ_RECHT, VORLAGE_HINWEIS, GELD_HINWEIS, OSM_QUELLE, BKG_QUELLE,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,

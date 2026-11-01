@@ -17180,6 +17180,20 @@ test('v3.12: Wartezeit bleibt leer, Mengenrechner rundet, Meine Mittel gehen bei
   assertEq(zus(zeile('2026-01-01', [m('a', 1)]), zeile('2026-02-01', [m('a', 5)])).value[0].menge, 5, 'die neuere Fassung gewinnt');
 });
 
+test('v3.12: Foto einer Beilage aus dem Papierkorb bringt das entfernte Mittel zurück', async (w) => {
+  const echt = w.S.get('meineMittel');
+  const kopie = { id: 'mz1', name: 'Zurück', menge: 2, bezug: 'volk', einheit: 'ml' };
+  const eintrag = { store: 'anhaenge', daten: { id: 'a1', parentTyp: 'mittel', parentId: 'mz1', mittelKopie: kopie } };
+  try {
+    await w.S.set('meineMittel', []);
+    assertEq(await w.mittelMitBeilageZurueck({ store: 'voelker', daten: {} }), false, 'nur bei Anhängen');
+    assertEq(await w.mittelMitBeilageZurueck(eintrag), true, 'das Mittel kommt zurück');
+    assertEq(w.meineMittel().map((x) => x.id).join(), 'mz1');
+    assertEq(await w.mittelMitBeilageZurueck(eintrag), false, 'kein zweites Mal');
+    assertEq(w.meineMittel().length, 1);
+  } finally { await w.S.set('meineMittel', echt); }
+});
+
 test('v3.12: Bio-Etikett mit Zahlen ohne Prozent, Einwilligung bleibt auf dem Gerät', (w) => {
   assertEq(w.oekoHerkunft('60 Deutschland, 40 Österreich'), 'EU-Landwirtschaft');
   assertEq(w.oekoHerkunft('Deutschland 60, Schweiz 40'), 'EU-/Nicht-EU-Landwirtschaft');

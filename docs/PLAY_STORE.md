@@ -116,7 +116,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 ## Noch zu erledigen in der Play Console (Prüfung 01.11.2026)
 
 - **Upload-Schlüssel:** am 01.11.2026 von Julian angelegt, liegt in `~/Android/schluessel/imkerbuch-upload.jks`. Passwort nur bei Julian. Zusätzlich auf USB-Stick sichern, Stand offen.
-- **Live-Diktat auf Android:** Prüfen, ob Sprache an Google geht. Falls ja, im Datensicherheits-Formular angeben oder abschalten; bis dahin gilt „Audio nur auf dem Gerät“ nicht als belegt.
+- **Live-Diktat auf Android:** Im Emulator (Android 16, 01.11.2026) gibt es die Sprach-Schnittstelle in der App (`webkitSpeechRecognition`). Sie kann über den Spracherkennungsdienst von Google laufen, die Datenschutzerklärung nennt das. Entscheidung: Im Datensicherheits-Formular vorsorglich angeben (Audio → Sprach- oder Tonaufnahmen, App-Funktion, optional) oder das Live-Diktat auf Android abschalten; auf einem echten Gerät prüfen. „Audio nur auf dem Gerät“ gilt nicht als belegt.
 - **Datensicherheit:** Adresssuche zusätzlich als Suchbegriff erfassen, IP-Adresse einordnen, Bewertungs-Schnittstelle prüfen.
 - **Genauer Standort:** Begründung vorbereiten (Stand-Koordinaten für Stand und Bio-Umgebungsprüfung) oder prüfen, ob der ungefähre Standort reicht.
 - **Formular Finanzfunktionen und Händlerstatus:** wahrheitsgemäß ausfüllen.
