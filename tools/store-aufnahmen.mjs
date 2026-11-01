@@ -133,6 +133,8 @@ const AUFNAHMEN = [
       const t = [...document.querySelectorAll('#main button')].find((b) => /^Auswertung$/.test(b.textContent.trim())); if (t) t.click(); await new Promise((r) => setTimeout(r, 900));` },
   { name: 'rechnung', route: 'rechnung/{rechnung}' },
   // Echte PDFs der App: erste Seite als Bild (für die Store-Bilder „fertig als PDF“)
+  // Bild für die App-Prüfung: das Kauf-Fenster vor dem Teststart. Nur mit --nur=pruefung-kauffenster und --kauf
+  { name: 'pruefung-kauffenster', route: 'dashboard', nurMitNamen: true, behalten: true, schritt: `Lizenz.status = () => 'ohneTest'; Lizenz.aktiv = () => true; Lizenz._offen = false; Lizenz.fenster(); await new Promise((r) => setTimeout(r, 1500));` },
   { name: 'pdf-bestandsbuch', pdf: 'Pdf.bestandsbuch()' },
   { name: 'pdf-rechnung', pdf: 'Pdf.rechnung("{rechnung}")' },
 ];
@@ -153,7 +155,7 @@ async function main() {
   await cdp.send('Storage.clearDataForOrigin', { origin: 'http://localhost:8931', storageTypes: 'cache_storage,service_workers' }).catch(() => {});
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {});
   // iPad 13″ quer: 1376×1032 pt, minus 24 pt Statusleiste, 2-fach = 2752×2016 px
-  await cdp.send('Emulation.setDeviceMetricsOverride', IPAD ? { width: 1376, height: 1008, deviceScaleFactor: 2, mobile: true } : { width: 440, height: 902, deviceScaleFactor: 3, mobile: true });
+  await cdp.send('Emulation.setDeviceMetricsOverride', IPAD ? { width: 1376, height: 1008, deviceScaleFactor: 2, mobile: true } : { width: 440, height: process.argv.includes('--kauf') ? 956 : 902, deviceScaleFactor: 3, mobile: true });
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: DUNKEL ? 'dark' : 'light' }] });
   await cdp.send('Page.navigate', { url: BASIS + '#/dashboard' });
   for (let i = 0; i < 200; i++) { try { if (await cdp.js('return !!window.appReady')) break; } catch (e) {} await schlaf(150); }
@@ -170,7 +172,7 @@ async function main() {
   const volk = await cdp.js(`return (await DB.getAll('voelker')).find((v) => v.status === 'aktiv').id`);
   const rechnung = await cdp.js(`const r = (await DB.getAll('rechnungen')).find((x) => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0]; return r ? r.id : ''`);
   const endung = `${DUNKEL ? '-dunkel' : ''}${IPAD ? '-ipad' : ''}`;
-  for (const a of AUFNAHMEN.filter((x) => !NUR.length || NUR.includes(x.name)).filter((x) => !(IPAD && x.pdf))) {
+  for (const a of AUFNAHMEN.filter((x) => NUR.includes(x.name) || (!NUR.length && !x.nurMitNamen)).filter((x) => !(IPAD && x.pdf))) {
     if (a.pdf) {
       // PDF erzeugen, abfangen und Seite 1 mit dem eingebauten PDF-Leser in ein Bild verwandeln
       const bild = await cdp.js(`window.__pdf = null; const alt = Pdf.ausgeben; Pdf.ausgeben = async (doc) => { window.__pdf = doc.output('arraybuffer'); };
