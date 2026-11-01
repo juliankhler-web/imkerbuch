@@ -1549,8 +1549,14 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.09';
+const APP_VERSION = '3.10';
 const CHANGELOG = [
+  { version: '3.10', datum: '2026-11-01', punkte: [
+    '<b>Honig-Etikett:</b> Länder mit Anteil erkennt die App jetzt auch als „60,5 %“ oder „Deutschland: 60 %“. Bei „Abbrechen“ bleibt das Formular offen.',
+    '<b>Mengenrechner:</b> Rechnet nur noch mit einer einzelnen Zahl, ohne Einheit und ohne Bereich.',
+    '<b>Wetter:</b> Die Kachel zeigt neue Werte sofort. Korrigierst du Koordinaten, versucht es die App gleich wieder.',
+    '<b>Einlesen aus anderer App:</b> Fehlt die Wartezeit, steht im Bestandsbuch nicht mehr „0 Tage“, sondern dass sie nicht erfasst ist.',
+  ] },
   { version: '3.09', datum: '2026-10-30', punkte: [
     '<b>Wetter:</b> Die Startseite ruft nur noch ab, wenn „Wetter von selbst abrufen“ an ist. Klappt ein Abruf nicht, versucht es die App erst nach 30 Minuten wieder.',
     '<b>Imme:</b> Antworten zu Datenschutz, Schwarm, Steuer, Nachbarrecht und Pfand sind richtiggestellt. Bei der Behandlung zeigt die Führung jetzt das Feld Wartezeit.',
@@ -4358,7 +4364,7 @@ function renderChrome() {
   side.innerHTML = `<div class="brand">${brandLogoSvg(30)} ImkerBuch</div>` + NAV.map((n) =>
     n.sec ? `<div class="nav-sec">${n.sec}</div>`
       : `<button class="nav-item" data-route="${U.esc(n.route)}">${iconBunt(n.ic)}<span>${n.label}</span></button>`
-  ).join('') + `<div class="side-foot">ImkerBuch v${APP_VERSION} · lokal & offline<br>Deine Daten bleiben auf dem Gerät.</div>`;
+  ).join('') + `<div class="side-foot">ImkerBuch v${APP_VERSION} · lokal & offline<br>Deine Einträge bleiben auf dem Gerät.</div>`;
   side.addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) navTo(b.dataset.route); });
   const bn = $('#bottomnav');
   renderBottomNav();
@@ -5582,7 +5588,14 @@ const DASH_WIDGETS = {
         const uhr = w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
         b.innerHTML = `<div class="s-value">${U.fmtNum(w.tempC, 1)} °C</div><div class="s-sub">${U.esc(stand.name)} · Wind ${w.windKmh != null ? U.fmtNum(w.windKmh, 0) : '–'} km/h · Regen ${w.niederschlagMm != null ? U.fmtNum(w.niederschlagMm, 1) : '–'} mm</div><div class="small muted">${w.datum === U.todayIso() ? 'heute' : U.fmtDate(w.datum)}${uhr ? ' ' + uhr : ''} · ${U.esc(WETTER_QUELLE)}${zusatz}</div>`;
       };
+      const neuster = async () => (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((x, y) => Wetter.zeitpunkt(y) - Wetter.zeitpunkt(x))[0];
+      const nachholen = async () => {
+        if (!$('#dash-wetter')) { window.removeEventListener('wetter-neu', nachholen); return; }
+        const w = await neuster(); if (w) zeigen(w);
+      };
+      window.addEventListener('wetter-neu', nachholen);
       const vonSelbst = Wetter.darfAuto();   // Schalter „Wetter von selbst abrufen“: sonst nur den gespeicherten Wert zeigen
+      if (Wetter._laeuft) await Wetter._laeuft;   // läuft der Abruf beim Start schon, dessen Ergebnis abwarten statt „nicht abrufbar“ zu melden
       try { if (!vonSelbst) throw new Error('aus'); zeigen((await Wetter.aktuell(stand)).rec); }
       catch (e) {
         const alt = (await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((x, y) => Wetter.zeitpunkt(y) - Wetter.zeitpunkt(x))[0];
@@ -6376,12 +6389,14 @@ const Wetter = {
   },
   /** Zustimmung speichern (Art. 7 Abs. 1 DSGVO: Zeitpunkt und Textversion, nur auf dem Gerät). */
   async einwilligen() {
+    this.versucheVergessen();
     await S.set('wetterEinwilligung', { zeit: new Date().toISOString(), version: WETTER_EINWILLIGUNG_VERSION });
     const f = { ...(S.get('features') || {}), wetter: true, wetterStart: true };
     await S.set('features', f);
   },
   /** Ausschalten ist genauso einfach wie Einschalten und gilt ab sofort für alle künftigen Abrufe. */
   async widerrufen() {
+    this.versucheVergessen();
     await S.set('wetterEinwilligung', null);
     await S.set('features', { ...(S.get('features') || {}), wetter: false });
   },
@@ -6394,7 +6409,7 @@ const Wetter = {
   async fragen() {
     await S.set('wetterGefragt', true, { auto: true });
     const m = UI.modal({ title: 'Wetter für deine Stände anzeigen?',
-      body: '<p class="small" data-wetter-frage>Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Der Abruf läuft dann auch von selbst: beim App-Start, bei der Rückkehr in die App, auf der Startseite und beim Öffnen eines Standes, höchstens alle 30 Minuten. Du kannst das jederzeit unter Einstellungen → Funktionen ausschalten.</p>',
+      body: '<p class="small" data-wetter-frage>Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Der Abruf läuft dann auch von selbst: beim App-Start, bei der Rückkehr in die App, wenn wieder Internet da ist, auf der Startseite und beim Öffnen eines Standes, höchstens alle 30 Minuten. Du kannst das jederzeit unter Einstellungen → Funktionen ausschalten.</p>',
       footer: '<button class="btn btn-ghost" data-wetter-ja>Wetter einschalten</button><button class="btn btn-ghost" data-wetter-nein>Nein danke</button>' });
     $('[data-wetter-nein]', m.el).onclick = () => m.close(true);
     $('[data-wetter-ja]', m.el).onclick = async () => {
@@ -6427,7 +6442,14 @@ const Wetter = {
      Deshalb: höchstens alle 30 Minuten neu holen, und pro Stand und Tag nur EIN abgerufener Wert –
      der neueste ersetzt den von vorhin. Von Hand erfasste Werte bleiben unberührt. */
   FRISCH_MIN: 30,
-  _versuche: new Map(),
+  /* Letzter Abruf-Versuch je Stand, auch über einen Neustart hinweg: So gilt „höchstens alle 30 Minuten“ auch bei gestörtem Dienst */
+  _versucheLesen() { try { return JSON.parse(localStorage.getItem('wetterVersuche') || '{}'); } catch (e) { return {}; } },
+  _versuchMerken(id, zeit) {
+    const v = this._versucheLesen();
+    if (zeit) v[id] = zeit; else delete v[id];
+    try { localStorage.setItem('wetterVersuche', JSON.stringify(v)); } catch (e) { /* ohne Speicher: dann gilt nur die Grenze aus den gespeicherten Werten */ }
+  },
+  versucheVergessen() { try { localStorage.removeItem('wetterVersuche'); } catch (e) { /* s. o. */ } },
   hatOrt(stand) { return !!stand && stand.lat != null && stand.lng != null && stand.lat !== '' && stand.lng !== ''; },
   zeitpunkt(w) { return Date.parse(w.abgerufen || w.lastModified || w.createdAt || w.datum) || 0; },
   /* `alle` = schon gelesene Wetterwerte: Großbestand-Probe (21.10.2026) – 50 Stände lasen beim Start je ALLE 15.000
@@ -6447,13 +6469,13 @@ const Wetter = {
       const letzter = (alle || await DB.getAll('wetter')).filter((x) => x.standId === stand.id && x.abgerufen).sort((a, b) => this.zeitpunkt(b) - this.zeitpunkt(a))[0];
       if (letzter && Date.now() - this.zeitpunkt(letzter) < this.FRISCH_MIN * 60000) return { rec: letzter, neu: false };
       /* Auch ein fehlgeschlagener Versuch zählt: Sonst ginge bei jeder Rückkehr in die App ein neuer Abruf hinaus */
-      const versuch = this._versuche.get(stand.id);
+      const versuch = this._versucheLesen()[stand.id];
       if (versuch && Date.now() - versuch < this.FRISCH_MIN * 60000) {
         if (letzter) return { rec: letzter, neu: false };
         throw new Error('Wetter gerade nicht abrufbar');
       }
     }
-    this._versuche.set(stand.id, Date.now());
+    this._versuchMerken(stand.id, Date.now());
     return { rec: await this.speichern(stand, await this.fetchCurrent(stand), alle), neu: true };
   },
   /** Darf die App von selbst abrufen? Einwilligung, Schalter „Wetter von selbst abrufen“, Vollversion, online – und nie im Testlauf. */
@@ -6479,7 +6501,7 @@ const Wetter = {
   init() {
     setTimeout(() => this.alleAbrufen(), 2000);   // nach dem Start, ohne ihn zu bremsen
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.alleAbrufen(); });
-    window.addEventListener('online', () => this.alleAbrufen());
+    window.addEventListener('online', () => { this.versucheVergessen(); this.alleAbrufen(); });   // das Netz ist zurück: Fehlversuche ohne Netz zählen nicht
     /* Neue Werte sofort zeigen, ohne die ganze Seite neu zu zeichnen (Formulare, Scrollstand bleiben) */
     window.addEventListener('wetter-neu', () => { if ($('#wetter-box')) Views.stand.wetterZeichnen(); });
   },
@@ -6812,6 +6834,7 @@ function openStandForm(stand, onDone) {
       const txt = (x) => String(x || '').trim();
       const gespeichert = await DB.put('staende', Object.assign(stand || { }, { name: v.name, ort: txt(v.ort), gemarkung: txt(v.gemarkung), flurnummer: txt(v.flurnummer), standNr: txt(v.standNr), lat: v.lat, lng: v.lng, kmEntfernung: v.kmEntfernung, notizen: v.notizen }));
       UI.toast('Stand gespeichert'); if (onDone) onDone();
+      Wetter._versuchMerken(gespeichert.id, 0);   // neue Koordinaten verdienen einen neuen Versuch
       if (Wetter.frageFaellig(gespeichert)) setTimeout(() => Wetter.fragen(), 350);   // erst das Formular zu, dann die Frage
     },
   });
@@ -7121,7 +7144,7 @@ Views.stand = {
         <div class="stat"><div class="s-label">Wind</div><div class="s-value">${akt.windKmh != null && akt.windKmh !== '' ? U.fmtNum(akt.windKmh, 0) + ' km/h' : '–'}</div></div>
         <div class="stat"><div class="s-label">Regen</div><div class="s-value">${akt.niederschlagMm != null && akt.niederschlagMm !== '' ? U.fmtNum(akt.niederschlagMm, 1) + ' mm' : '–'}</div></div>
       </div>${akt.bemerkung ? `<div class="small mb12">${U.esc(akt.bemerkung)}</div>` : ''}`
-      : (ohneOrt || `<div class="muted small mb12">${an ? (S.get('features').wetterStart !== false ? 'Wetter wird geholt, sobald Internet da ist …' : 'Noch keine Wetterdaten. „Aktualisieren“ holt sie.') : `Noch keine Wetterdaten erfasst.${Lizenz.light() ? '' : ' Der Wetter-Abruf ist aus, du kannst ihn unter Einstellungen → Funktionen einschalten.'}`}</div>`);
+      : (ohneOrt || `<div class="muted small mb12">${an ? (S.get('features').wetterStart !== false ? 'Noch kein Wert. Die App versucht es von selbst wieder, „Aktualisieren“ holt ihn sofort.' : 'Noch keine Wetterdaten. „Aktualisieren“ holt sie.') : `Noch keine Wetterdaten erfasst.${Lizenz.light() ? '' : ' Der Wetter-Abruf ist aus, du kannst ihn unter Einstellungen → Funktionen einschalten.'}`}</div>`);
     if (akt && ohneOrt) html += ohneOrt;
     const tage = Wetter.jeTag(liste);
     if (tage.length > 1) {
@@ -9876,9 +9899,10 @@ function mengenrechnerZeichnen(box) {
   const anzahlFeld = $('[data-mr-anzahl]', box);
   anzahlFeld.style.display = bezug === 'volk' ? 'none' : '';
   $('[data-mr-anzahl-text]', box).textContent = (MENGEN_BEZUG[bezug] || MENGEN_BEZUG.volk)[1];
-  /* „7-8“ oder „30 bis 40“: Die Zahlenerkennung nähme still den unteren Wert. Den Bereich entscheidet der Imker. */
-  if (/\d\s*(-|–|—|bis)\s*\d/i.test(wert('menge'))) {
-    $('[data-mr-aus]', box).innerHTML = '<div class="small muted">Trag einen einzelnen Wert ein. Steht in der Beilage ein Bereich, entscheide dich anhand der Beilage für einen Wert.</div>';
+  /* „7-8“, „7 ml“ oder „7 oder 8“: Die Zahlenerkennung nähme still einen Teil davon. Gerechnet wird nur mit einer einzelnen Zahl. */
+  const einzeln = (t) => !String(t).trim() || /^\d+(?:[.,]\d+)?$/.test(String(t).trim());
+  if (![wert('menge'), wert('jeVolk'), wert('voelker')].every(einzeln)) {
+    $('[data-mr-aus]', box).innerHTML = '<div class="small muted">Trag nur eine einzelne Zahl ein, ohne Einheit. Steht in der Beilage ein Bereich, entscheide dich anhand der Beilage für einen Wert.</div>';
     return;
   }
   const r = mengenRechnen({ menge: U.parseNum(wert('menge')), bezug, jeVolk: U.parseNum(wert('jeVolk')), voelker: U.parseNum(wert('voelker')) });
@@ -11446,7 +11470,8 @@ function oekoHerkunft(ursprung) {
   const t = String(ursprung || '').trim();
   if (!t) return 'EU-/Nicht-EU-Landwirtschaft';
   /* „Deutschland 60 %, Österreich 40 %“: Die Prozentangaben gehören nicht zum Ländernamen */
-  const teile = t.split(/\s*[,/·;]\s*|\s+und\s+/).map((x) => x.replace(/\(?\s*\d+(?:[.,]\d+)?\s*(?:%|Prozent)\s*\)?/gi, '').replace(/^\d+(?:[.,]\d+)?\s*/, '').trim()).filter(Boolean);
+  const ohneAnteil = t.replace(/\(?\s*\d+(?:[.,]\d+)?\s*(?:%|Prozent)\s*\)?/gi, ' ');   // vor dem Trennen, sonst zerfällt „60,5 %“ am Komma
+  const teile = ohneAnteil.split(/\s*[,/·;:+]\s*|\s+und\s+/).map((x) => x.trim()).filter(Boolean);
   const inEu = teile.some((x) => EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
   const ausserEu = teile.some((x) => !EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
   if (inEu && ausserEu) return 'EU-/Nicht-EU-Landwirtschaft';
@@ -11514,7 +11539,8 @@ async function honigEtikettForm(a, c) {
       if (fehlt.length && !(await UI.confirm({ title: 'Pflichtangaben fehlen', text: fehlt.join(' '), confirmText: 'Trotzdem erzeugen', danger: false }))) {
         throw Object.assign(new Error('Etiketten nicht erzeugt – bitte Pflichtangaben ergänzen'), /honig/i.test(v.bezeichnung || '') ? {} : { feld: 'bezeichnung' });
       }
-      await Pdf.honigEtikett(a, c, v);
+      /* Abbrechen in den Rückfragen des PDFs: Das Formular bleibt offen, die Eingaben bleiben erhalten */
+      if ((await Pdf.honigEtikett(a, c, v)) === false) throw new Error('Etiketten nicht erzeugt');
     },
   });
 }
@@ -22418,7 +22444,7 @@ const Importer = {
       { key: 'behandelndePerson', label: 'Behandelnde Person', aliases: ['behandelt von', 'behandelnde person', 'person'] },
       { key: 'tierarzt', label: 'Tierarzt', aliases: ['tierarzt', 'veterinaer', 'vet'] },
       { key: 'notiz', label: 'Notiz', aliases: ['notiz', 'bemerkung', 'note'] },
-    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: v.wartezeitTage ?? 0, lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', notiz: v.notiz || '' }) },
+    ], build: (v, refs) => ({ zielTyp: 'volk', zielId: refs.volk, datum: v.datum, mittel: v.mittel, menge: v.menge ?? null, einheit: v.einheit || '', anwendungsart: v.anwendungsart || '', wartezeitTage: v.wartezeitTage >= 0 ? v.wartezeitTage : null, lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', notiz: v.notiz || '' }) },
     ernten: { label: 'Ernten', store: 'ernten', refs: { volk: 'voelker' }, felder: [
       { key: 'volk', label: 'Volk (Name)', required: true, aliases: ['volk', 'name', 'colony', 'hive'] },
       { key: 'datum', label: 'Datum', required: true, type: 'date', aliases: ['datum', 'date', 'tag', 'erntedatum'] },
@@ -24391,7 +24417,7 @@ const Lizenz = {
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
     const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte). Alles andere geht dann mit der Vollversion – deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann mit der Vollversion – deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a></p>
@@ -25600,7 +25626,7 @@ const Pdf = {
         const ergaenzt = await UI.confirm({ title: 'EU-Bio-Logo fehlt auf diesem Etikett',
           text: 'Für vorverpackten Bio-Honig aus der EU ist das EU-Bio-Logo vorgeschrieben. Dieses Etikett enthält kein druckbares Bio-Logo. Bitte in den Einstellungen ergänzen. Nur fortfahren, wenn das EU-Bio-Logo mit Kontrollstellencode und Herkunft bereits an anderer Stelle auf der Verpackung angebracht wird.',
           confirmText: 'Als Zusatzetikett erzeugen', danger: false });
-        if (!ergaenzt) return;
+        if (!ergaenzt) return false;
       }
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       const anzahl = Math.max(1, Math.round(opts.anzahl || 1));
@@ -25619,11 +25645,11 @@ const Pdf = {
         const adr = [nameOben ? '' : imk.name, imk.strasse, plzOrt].filter(Boolean).join(', ');
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
         if (doc.splitTextToSize(adr, LW - 12).length > 2
-          && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz).', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
+          && !(await UI.confirm({ title: 'Name und Anschrift zu lang', text: 'Name und Anschrift deiner Imkerei passen nicht vollständig aufs Etikett und würden gekürzt – sie sind aber Pflicht. Kürze sie in den Einstellungen (z. B. ohne Rechtsform-Zusatz).', confirmText: 'Trotzdem erzeugen', danger: false }))) return false;
         /* Mischungen: Alle Länder sind Pflicht (§ 3 Abs. 4 HonigV). Passt die Zeile nicht, würde sie still gekürzt. */
         doc.setFont('helvetica', 'normal').setFontSize(6.5);
         if (doc.getTextWidth(`Ursprungsland: ${opts.ursprung || ''}`) > LW - 12
-          && !(await UI.confirm({ title: 'Ursprungsland zu lang', text: 'Die Länderangabe passt nicht vollständig aufs Etikett und würde gekürzt. Bei Mischungen sind alle Länder mit Anteil Pflicht. Kürze sie oder gestalte das Etikett selbst.', confirmText: 'Trotzdem erzeugen', danger: false }))) return;
+          && !(await UI.confirm({ title: 'Ursprungsland zu lang', text: 'Die Länderangabe passt nicht vollständig aufs Etikett und würde gekürzt. Bei Mischungen sind alle Länder mit Anteil Pflicht. Kürze sie oder gestalte das Etikett selbst.', confirmText: 'Trotzdem erzeugen', danger: false }))) return false;
       }
       for (let i = 0; i < anzahl; i++) {
         const posOnPage = i % (cols * rows);
@@ -27574,7 +27600,7 @@ APP_WISSEN.push(
     schritte: ['Menü ▸ Statistiken', 'Reiter und Jahr wählen', 'Oben „Jahresbericht (PDF)“ antippen'] },
   { id: 'stand-wetter', titel: 'Wetter und Lage eines Standes', route: 'staende', zeige: '',
     stichw: ['wetter stand', 'wetter abrufen', 'standort wetter', 'temperatur stand', 'regen stand', 'koordinaten', 'karte', 'lage stand', 'wo steht', 'gps', 'standort eintragen', 'breitengrad', 'wetter am stand', 'wetter fuer stand', 'stand wetter'],
-    antwort: 'Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein. Das Wetter ist ab Werk aus: Beim ersten Speichern von Koordinaten fragt dich die App einmal, später schaltest du es unter Einstellungen → Funktionen ein oder aus. Ist es an, gehen die gerundeten Koordinaten und technisch deine IP-Adresse an den Wetterdienst Bright Sky. Die App holt das Wetter dann von selbst – beim Start, bei der Rückkehr in die App, auf der Startseite und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Von Hand eintragen kannst du Werte auch ohne Abruf.',
+    antwort: 'Die Koordinaten trägst du beim Stand unter „Bearbeiten“ ein. Das Wetter ist ab Werk aus: Beim ersten Speichern von Koordinaten fragt dich die App einmal, später schaltest du es unter Einstellungen → Funktionen ein oder aus. Ist es an, gehen die gerundeten Koordinaten und technisch deine IP-Adresse an den Wetterdienst Bright Sky. Die App holt das Wetter dann von selbst – beim Start, bei der Rückkehr in die App, wenn wieder Internet da ist, auf der Startseite und beim Öffnen des Standes, höchstens alle 30 Minuten. Oben siehst du das aktuelle Wetter, darunter den Verlauf als Grafik; die letzten 5 Werte lassen sich aufklappen, alle Werte exportierst du mit Jahr-Auswahl. Von Hand eintragen kannst du Werte auch ohne Abruf.',
     schritte: ['Menü ▸ Bienenstände, Stand antippen', 'Bereich „Wetter“: aktuelles Wetter und Verlauf ansehen', 'Ist das Wetter an, holt „Aktualisieren“ sofort neu; „Manuell“ trägt einen eigenen Wert ein'] },
   { id: 'bestandsbuch', titel: 'Bestandsbuch für Arzneimittel (PDF)', route: 'behandlungen', zeige: 'Bestandsbuch',
     stichw: ['bestandsbuch', 'arzneimittelbuch', 'bestandsbuch pdf', 'dokumentation behandlung', 'tierarzt nachweis', 'behandlungsnachweis', 'kontrolle veterinaer', 'behandlungsliste', 'nachweis arzneimittel', 'kontrolle amt', 'arzneimittelbuch', 'tierarzneimittelbuch', 'nachweis behandlungen', 'nachweis ueber behandlungen', 'behandlungen drucken', 'behandlungen als pdf', 'pdf behandlungen'],
@@ -28862,7 +28888,7 @@ Views.einstellungen = {
 
       <div class="card"><div class="card-title">${icon('gear')}<h2>Funktionen</h2></div>
         <label class="check-line"><input type="checkbox" id="feat-wetter" ${Wetter.erlaubt() ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
-        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter von selbst abrufen: beim App-Start, bei der Rückkehr in die App, auf der Startseite und am Stand (höchstens alle 30 Minuten, nur mit Internet)</span></label>
+        <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter von selbst abrufen: beim App-Start, bei der Rückkehr in die App, wenn wieder Internet da ist, auf der Startseite und am Stand (höchstens alle 30 Minuten, nur mit Internet)</span></label>
         <div class="small muted mt4" id="wetter-hinweis">Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Mit dem Einschalten stimmst du dem zu. Ausschalten kannst du es hier jederzeit, das gilt dann für alle künftigen Abrufe.${Wetter.erlaubt() ? ` Zugestimmt am ${U.esc(new Date(S.get('wetterEinwilligung').zeit).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }))}.` : ''}</div>
         <h3 class="mt16 mb8">Erinnerungen</h3>
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>

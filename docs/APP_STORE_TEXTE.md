@@ -1,6 +1,6 @@
 # App Store – Texte und Angaben (Entwurf zum Einfügen)
 
-Stand 2026-10-30 (v3.09). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
+Stand 2026-11-01 (v3.10). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
 
 ## App-Informationen
 
@@ -97,7 +97,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 | Produkt-ID | Typ | Referenzname | Anzeigename (de) | Preis |
 |---|---|---|---|---|
 | `de.imkerbuch.app.testphase30` | Nicht verbrauchbar | 30-day Trial | 30-Tage-Testphase | 0,00 € |
-| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 23,00 CHF (Preisänderung im Voraus planen) |
+| `de.imkerbuch.app.vollversion` | Nicht verbrauchbar | Vollversion | ImkerBuch Vollversion | 14,99 € bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 24,99 CHF (Preisänderung im Voraus planen) |
 
 Beschreibung Testphase: „30 Tage alle Funktionen gratis – keine Abbuchung.“ (Apple erlaubt nur 55 Zeichen)
 Beschreibung Vollversion: „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“
@@ -112,7 +112,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 - After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time.
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Volk"), or follow the built-in tour by the assistant "Imme".
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
-- Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
+- Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, when the connection returns, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
 - Permissions are only requested when used: camera (photos), microphone and speech recognition (voice notes with live transcription), location (stand position), notifications (task reminders, local only).
 - Support and privacy pages are reachable in the app under Einstellungen → Rechtliches and "Hilfe & Kontakt".
 
