@@ -1,6 +1,6 @@
 # Google Play – Vorbereitung (Entwurf zum Einfügen)
 
-Stand 2026-10-20. Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.md`. Julian prüft und gibt frei.
+Stand 2026-11-01 (v3.12). Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE_TEXTE.md`. Julian prüft und gibt frei.
 
 ## Technik (im Projekt erledigt)
 
@@ -72,7 +72,7 @@ STATISTIK, DIE ETWAS SAGT
 • Winterverluste, Erlös je kg Honig, Kosten je Volk
 
 ERINNERUNGEN
-• Aufgaben mit Datum und Uhrzeit – die App erinnert dich pünktlich, auch wenn sie geschlossen ist
+• Aufgaben mit Datum und Uhrzeit – die App erinnert dich auch, wenn sie geschlossen ist (minutengenau mit der Android-Erlaubnis „Wecker & Erinnerungen“)
 
 FÜR BIO-IMKEREIEN
 • Bio-Unterlagen, Hygieneplan, Umgebungsprüfung der Stände
@@ -88,15 +88,16 @@ DEINE DATEN GEHÖREN DIR
 • Sicherung über das Teilen-Menü in Google Drive, „Dateien“ oder per Mail
 • Alle Daten jederzeit als Excel oder CSV – auch in der kostenlosen Light-Version
 • Keine automatische Übertragung in fremde Clouds
+• Wetter, Adresssuche und Bio-Umgebungsprüfung nutzen Internetdienste, aber erst nach deiner Zustimmung
 
-30 Tage alle Funktionen kostenlos testen – die Testphase beginnt beim ersten Start auf deinem Gerät. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
+30 Tage alle Funktionen kostenlos testen – die Testphase startest du selbst in der App, sie läuft dann auf diesem Gerät. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
 
 Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“.
 ```
 
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
 - **Kaufprodukt:** `de.imkerbuch.app.vollversion` (Einmalkauf, „Verwaltetes Produkt“), Name „ImkerBuch Vollversion“, Beschreibung „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“, 14,99 € (DE/AT), Schweiz 14,95 CHF wie bei Apple. Kein Testphase-Produkt (Google kennt keinen 0-€-Kauf; Testphase läuft auf dem Gerät).
-- **Länder:** Deutschland, Österreich, Schweiz.
+- **Länder:** zum Start Deutschland und Österreich. Die Schweiz erst nach Klärung mit dem Steuerberater, weil Google die Schweizer Mehrwertsteuer dem Entwickler zuweist (Entscheidung 01.11.2026).
 - **Kontakt:** support@imkerbuch.app · Website: `https://imkerbuch.app/`
 - **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
 - **Grafiken:** App-Symbol 512×512, Vorzeige-Grafik 1024×500: **`store-bilder/play/titelgrafik.png`** (dunkel, Android-Handy; `node tools/store-bilder.mjs --play-titel`), **Handy-Bilder: `store-bilder/play/01–07-dunkel.png` (1080×1920 = 9:16, Android-Handy mit Kamera-Loch)** – erzeugt mit `node tools/store-bilder.mjs --play` aus denselben Bühnen wie die Apple-Bilder (Google erlaubt höchstens 2:1, die Apple-Bilder 1320×2868 sind zu lang). 7″-/10″-Tablet-Bilder optional.
@@ -111,6 +112,15 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 - **Automatische Android-Sicherung:** ausgeschaltet (`allowBackup=false`, `data_extraction_rules.xml`) – die App-Datenbank geht nicht in Googles Gerätesicherung.
 - **Löschung:** Nutzer können alle Daten in der App löschen (Einstellungen → Sicherung & Datensicherheit → „Alle Daten löschen“). Löschen in der App wirkt nur auf dem Gerät. Es gibt keine Konten.
 - **Käufe:** werden von Google Play verarbeitet (nicht von uns erfasst).
+
+## Noch zu erledigen in der Play Console (Prüfung 01.11.2026)
+
+- **Upload-Schlüssel:** Julian legt ihn selbst an (`native/android-schluessel-anlegen.sh`), ohne ihn entsteht keine hochladbare Datei.
+- **Live-Diktat auf Android:** Prüfen, ob Sprache an Google geht. Falls ja, im Datensicherheits-Formular angeben oder abschalten; bis dahin gilt „Audio nur auf dem Gerät“ nicht als belegt.
+- **Datensicherheit:** Adresssuche zusätzlich als Suchbegriff erfassen, IP-Adresse einordnen, Bewertungs-Schnittstelle prüfen.
+- **Genauer Standort:** Begründung vorbereiten (Stand-Koordinaten für Stand und Bio-Umgebungsprüfung) oder prüfen, ob der ungefähre Standort reicht.
+- **Formular Finanzfunktionen und Händlerstatus:** wahrheitsgemäß ausfüllen.
+- **App-Links:** Nach dem ersten Upload den SHA-256-Wert aus „App-Signatur“ in `website-neu/.well-known/assetlinks.json` eintragen und hochladen.
 
 ## Inhaltsbewertung und Zielgruppe
 
