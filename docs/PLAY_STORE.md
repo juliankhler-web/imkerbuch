@@ -120,6 +120,8 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 
 ## Organisationskonto mit D-U-N-S (Recherche 30.10.2026, offizielle Google-Hilfe)
 
+- **Stand 01.11.2026:** Website `imkerbuch.app` in der Google Search Console als Domain bestätigt (TXT-Eintrag bei Hetzner, Inhaber juliankhler@googlemail.com). Entscheidung: Konto als „Organisation oder Unternehmen“, Julian legt es selbst an. Lehnt Google das Einzelunternehmen ab, privates Konto mit 12 Testern über 14 Tage.
+
 - **D-U-N-S 317388588** (vergeben 29.10.2026): „Julian Konstantin Köhler“, Trade Style „ImkerBuch“, Reichenberger Str. 15, 85221 Dachau – im Google-Zahlungsprofil **genau so** eintragen (Dokumente müssen „exactly“ passen; bei Fehlermeldung zuerst Schreibweise prüfen).
 - **Ablauf:** Konto anlegen, 25 $ einmalig (Kredit-/Debitkarte, keine Prepaid) → Zahlungsprofil Organisation mit D-U-N-S → Ausweis (farbig, ungeschwärzt) + Gewerbeschein (Bestätigung der Gewerbeanzeige Stadt Dachau 20.10.2026) → **Website bestätigen (Pflicht seit 02/2024)** über Google Search Console, am besten mit demselben Google-Konto → Telefon (Code per SMS/Anruf) und E-Mails (Code per Mail) bestätigen.
 - **Dauer:** Für neue Konten nennt Google keine Prüfdauer („a few days“ steht nur bei alten Konten); Zahlungsweg bis 5 Tage. Eine frische D-U-N-S einfach eingeben.
