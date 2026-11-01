@@ -41,8 +41,9 @@ Stand 01.11.2026:
 
 - Erledigt: Developer-Program-Vereinbarung angenommen, App-Datenschutz veröffentlicht (Genauer Standort, nicht verknüpft, nur App-Funktion), Vertrag für kostenlose Apps aktiv (bis 20.10.2027).
 - Händlerstatus: eingereicht, Status „In Prüfung“.
-- Offen: Vertrag „Paid Apps“ (Julian stimmt selbst zu), danach Steuerformular und Bankkonto.
-- Falsch angezeigt: Name „Kohler“ und Adresse „Strae“. Korrekturanfrage an den Apple-Support steht noch aus.
+- Vertrag „Paid Apps“: zugestimmt, gültig bis 20.10.2027, Status „Benutzerinfos ausstehend“ (es fehlen Steuerformular und Bankkonto).
+- Offen: Steuerfragebogen. Frage 1 „in den USA steuerlich ansässig?“ = Nein. Nach „Weiter“ erscheint in der von Claude gesteuerten Ansicht nichts, Julian öffnet ihn selbst.
+- Falsch angezeigt: Name „Kohler“ und Adresse „Strae“. Korrekturbitte am 01.11.2026 an den Apple Developer Support geschickt, Fallnummer 103015763944, Antwort kommt per E-Mail.
 
 ## Preis zum 01.01.2027
 
