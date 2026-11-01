@@ -17020,6 +17020,30 @@ test('Wetter: Einstellungen – Einschalten ist die Einwilligung, Ausschalten ge
   } finally { L.aktiv = echt.aktiv; L.speicher = echt.speicher; L.fenster = echt.fenster; w.renderRoute = echt.render; W.alleAbrufen = echt.abrufen; host.remove(); }
 }));
 
+test('Meine Mittel: anlegen, wählen, rechnen, ins Formular übernehmen', async (w) => {
+  const main = w.document.querySelector('main') || w.document.body;
+  main.insertAdjacentHTML('beforeend', w.mengenrechnerHtml(3));
+  const b = [...main.querySelectorAll('[data-mengenrechner]')].pop();
+  try {
+    await w.S.set('meineMittel', [{ id: 'm1', name: 'Testmittel', menge: 12.5, bezug: 'volk', jeVolk: null, einheit: 'ml', wartezeitTage: 7, anwendungsart: 'Träufeln' }]);
+    w.mengenrechnerZeichnen(b);
+    const knopf = b.querySelector('[data-mr-wahl="m1"]');
+    assert(knopf, 'das Mittel steht als Knopf da');
+    assert(!b.querySelector('[data-mr-eintragen]'), 'ohne Wert noch kein Eintragen');
+    knopf.click();
+    assertEq(b.querySelector('[data-mr="menge"]').value, '12,5', 'der Wert aus der Beilage ist übernommen');
+    assert(b.querySelector('[data-mr-aus]').textContent.includes('37,5'), '3 Völker × 12,5');
+    const echt = w.Views.behandlungen.sammelForm;
+    let vor = null;
+    w.Views.behandlungen.sammelForm = async (v) => { vor = v; };
+    b.querySelector('[data-mr-eintragen]').click();
+    w.Views.behandlungen.sammelForm = echt;
+    assertEq(vor.mittel, 'Testmittel'); assertEq(vor.menge, 12.5); assertEq(vor.einheit, 'ml'); assertEq(vor.wartezeitTage, 7); assertEq(vor.anwendungsart, 'Träufeln');
+    assert(!w.mengenrechnerHtml(1).match(/value="\d+"[^>]*data-mr="menge"|data-mr="menge"[^>]*value="\d/), 'die App belegt keine Menge vor');
+    assert(/^https:/.test(w.amtlicheMittelListe()[0]), 'Verweis auf die amtliche Liste');
+  } finally { b.remove(); await w.S.set('meineMittel', []); }
+});
+
 test('Mengenrechner: rechnet nur mit dem Wert der Beilage, startet leer, keine fest eingebauten Mengen', async (w) => {
   const mr = w.mengenRechnen;
   assertEq(mr({ menge: 0, voelker: 3 }).fehlt, 'menge', 'ohne Wert keine Rechnung');

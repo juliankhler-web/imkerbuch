@@ -50,6 +50,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 ## C · Betrieb (Honig, Geld, Papiere)
 
 - [ ] **C1 Behandlung + Bestandsbuch:** Behandlungen → „+ Behandlung“ → neue freiwillige Felder (Lieferant, Behandlung bis, behandelnde Person, Tierarzt, Kaufbeleg) ausfüllen → speichern → „Bestandsbuch (PDF)“. → Am Computer öffnet sich das PDF in einem neuen Tab, am Handy das Teilen-Menü. PDF sieht ordentlich aus.
+- [ ] **C1b Meine Mittel (neu 3.11):** Behandlungen → „Mengenrechner“ → „Mittel aus der Beilage anlegen“ mit einem Wert aus deiner Beilage. → Das Mittel steht als Knopf da, ein Tipp füllt den Rechner, „Als Behandlung eintragen“ füllt das Formular vor. Bearbeiten: Foto der Beilage anhängen, Mittel entfernen.
 - [ ] **C1a Mengenrechner (neu 3.08):** Behandlungen → „Mengenrechner“ aufklappen. → „Menge laut Packungsbeilage“ ist leer, darunter der Hinweis, den Wert einzutragen. Wert und Völker eintragen → Pro Volk und Gesamt erscheinen. Der Warntext steht darunter. Menü → Imker-Rechner → „Mengenrechner“ verhält sich gleich; „OS-Lösung ansetzen“ und „Ameisensäure verdünnen“ gibt es nicht mehr.
 - [ ] **C2 Fütterung:** Fütterung → „+ Fütterung“ → Futterart „Futtersirup (z. B. Apiinvert)“, 10 Liter. → Darunter „10 L = 13,6 kg Sirup · 10 kg Zucker kommen beim Volk an“.
 - [ ] **C3 Ernte abfüllen:** Ernte und Abfüllung → Reiter „Abfüllung“ → „+“ → bei „Woraus abfüllen?“ eine Ernte wählen → Anzahl Gläser → Speichern. → Gläser stehen im Bestand.

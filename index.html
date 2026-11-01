@@ -1549,8 +1549,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.10';
+const APP_VERSION = '3.11';
 const CHANGELOG = [
+  { version: '3.11', datum: '2026-11-01', punkte: [
+    '<b>Meine Mittel:</b> Lege deine Mittel einmal mit den Werten aus der Packungsbeilage an, auf Wunsch mit Foto der Beilage. Danach rechnet der Mengenrechner mit einem Tipp, und „Als Behandlung eintragen“ füllt das Bestandsbuch vor.',
+  ] },
   { version: '3.10', datum: '2026-11-01', punkte: [
     '<b>Honig-Etikett:</b> Länder mit Anteil erkennt die App jetzt auch als „60,5 %“ oder „Deutschland: 60 %“. Bei „Abbrechen“ bleibt das Formular offen.',
     '<b>Mengenrechner:</b> Rechnet nur noch mit einer einzelnen Zahl, ohne Einheit und ohne Bereich.',
@@ -3377,6 +3380,7 @@ const S = {
     /* Wetter ab Werk aus (v3.08): Abruf nur mit gespeicherter Einwilligung { zeit, version }, siehe Wetter.erlaubt().
        wetterGefragt: Die Frage beim ersten Speichern von Koordinaten kommt genau einmal. */
     wetterEinwilligung: null, wetterGefragt: false,
+    meineMittel: [],   // vom Imker aus der Packungsbeilage: { id, name, menge, bezug, jeVolk, einheit, wartezeitTage, anwendungsart }
     logo: null, logoImHeader: false,
     steuer: { kleinunternehmer: true, art: 'klein', pauschalsatz: 7.8, saetze: [7, 19], pfandSteuersatz: 0 }, // art: 'regel' | 'klein' (§19) | 'pauschal24' (§24 Land-/Forstwirtschaft)
     kmPauschale: KM_PAUSCHALE, // €/km fürs Fahrtenbuch – anpassbar in den Einstellungen
@@ -9881,6 +9885,7 @@ function mengenRechnen({ menge, bezug = 'volk', jeVolk, voelker }) {
 }
 function mengenrechnerHtml(voelker) {
   return `<div data-mengenrechner>
+    <div data-mr-mittel class="mb12"></div>
     <div class="grid2">
       <div class="field"><label>Die Beilage nennt die Menge</label><select class="inp rk" data-mr="bezug">${Object.entries(MENGEN_BEZUG).map(([k, [l]]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
       <div class="field"><label>Menge laut Packungsbeilage</label><input class="inp rk" data-mr="menge" inputmode="decimal" value="" placeholder="aus der Beilage"></div>
@@ -9892,8 +9897,105 @@ function mengenrechnerHtml(voelker) {
     <div class="small muted mt8" data-mr-warnung>${U.esc(MENGEN_WARNUNG)}</div>
   </div>`;
 }
+/* Meine Mittel (v3.11): Der Imker legt seine Mittel einmal an, die Werte stammen aus seiner Packungsbeilage.
+   Die App merkt sie sich und rechnet damit, sie schlägt selbst keine Menge vor und hilft nicht beim Selbstmischen. */
+const AMTLICHE_MITTEL = { CH: ['https://www.tierarzneimittel.ch/', 'Tierarzneimittel-Verzeichnis (Schweiz)'], EU: ['https://medicines.health.europa.eu/veterinary/de', 'Tierarzneimittel-Datenbank der EU'] };
+function amtlicheMittelListe() {
+  const land = BUNDESLAENDER.find((b) => b.k === (S.get('imkerei') || {}).bundesland);
+  return (land && land.staat === 'CH') ? AMTLICHE_MITTEL.CH : AMTLICHE_MITTEL.EU;
+}
+const meineMittel = () => S.get('meineMittel') || [];
+function meineMittelZeichnen(box) {
+  const zone = $('[data-mr-mittel]', box);
+  if (!zone) return;
+  const wahl = box.dataset.mittel || '';
+  const [adresse, name] = amtlicheMittelListe();
+  zone.innerHTML = `<div class="small" style="font-weight:600">Meine Mittel</div>
+    <div class="flex-wrap mt4">${meineMittel().map((x) => `<button type="button" class="btn ${x.id === wahl ? 'btn-primary' : 'btn-ghost'} btn-sm" data-mr-wahl="${U.esc(x.id)}" aria-pressed="${x.id === wahl}">${U.esc(x.name)}</button>`).join('')}
+      <button type="button" class="btn btn-ghost btn-sm" data-mr-neu>${icon('plus')} Mittel aus der Beilage anlegen</button>
+      ${wahl ? '<button type="button" class="btn btn-ghost btn-sm" data-mr-bearbeiten>Bearbeiten</button>' : ''}</div>
+    <div class="small muted mt4"><a href="${U.esc(adresse)}" target="_blank" rel="noopener">${U.esc(name)}</a> öffnen, um dein Mittel und die Beilage zu finden.</div>`;
+}
+function meineMittelBinden(box) {
+  if (box.dataset.mittelGebunden) return;
+  box.dataset.mittelGebunden = '1';
+  box.addEventListener('click', (e) => {
+    if (e.target.closest('[data-mr-neu]')) { mittelForm(null, box); return; }
+    if (e.target.closest('[data-mr-bearbeiten]')) { mittelForm(meineMittel().find((x) => x.id === box.dataset.mittel) || null, box); return; }
+    if (e.target.closest('[data-mr-eintragen]')) { alsBehandlungEintragen(box); return; }
+    const w = e.target.closest('[data-mr-wahl]');
+    if (!w) return;
+    const x = meineMittel().find((y) => y.id === w.dataset.mrWahl);
+    if (!x) return;
+    box.dataset.mittel = x.id;
+    $('[data-mr="bezug"]', box).value = x.bezug || 'volk';
+    $('[data-mr="menge"]', box).value = String(x.menge).replace('.', ',');
+    const einheit = $('[data-mr="einheit"]', box);
+    if (![...einheit.options].some((o) => o.value === x.einheit)) einheit.add(new Option(x.einheit, x.einheit));
+    einheit.value = x.einheit;
+    $('[data-mr="jeVolk"]', box).value = x.jeVolk ? String(x.jeVolk).replace('.', ',') : '';
+    mengenrechnerZeichnen(box);
+  });
+}
+function alsBehandlungEintragen(box) {
+  if (Lizenz.nurVoll('Behandlungen und Bestandsbuch')) return;
+  const wert = (k) => $(`[data-mr="${k}"]`, box).value;
+  const r = mengenRechnen({ menge: U.parseNum(wert('menge')), bezug: wert('bezug'), jeVolk: U.parseNum(wert('jeVolk')), voelker: 1 });
+  if (r.fehlt) return;
+  const x = meineMittel().find((y) => y.id === box.dataset.mittel);
+  Views.behandlungen.sammelForm({ menge: r.proVolk, einheit: wert('einheit'),
+    ...(x ? { mittel: x.name, anwendungsart: x.anwendungsart || '', ...(x.wartezeitTage != null ? { wartezeitTage: x.wartezeitTage } : {}) } : {}) });
+}
+/** Anlegen oder Ändern. Die Menge muss eine einzelne Zahl sein, wie im Mengenrechner. */
+async function mittelForm(mittel, box) {
+  if (Lizenz.nurVoll('Behandlungen und Bestandsbuch')) return;
+  const [namen, arten] = await Promise.all([gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel'), gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart')]);
+  const zahl = (x) => (x == null || x === '' ? '' : String(x).replace('.', ','));
+  const m = UI.formModal({
+    title: mittel ? 'Mittel bearbeiten' : 'Mittel aus der Beilage anlegen', wide: true, lizenzBereich: 'Behandlungen und Bestandsbuch',
+    fields: [
+      { key: '_hinweis', type: 'static', html: `<div class="hint" data-mittel-hinweis>Schreib die Werte aus der aktuellen Packungsbeilage deines zugelassenen Mittels ab. Die App prüft sie nicht und schlägt keine Menge vor. Sie hilft auch nicht beim Selbstmischen: Nimm zugelassene Fertigpräparate.</div>` },
+      { key: 'name', label: 'Mittel', type: 'suggest', required: true, options: namen },
+      { key: 'bezug', label: 'Die Beilage nennt die Menge', type: 'select', default: 'volk', options: Object.entries(MENGEN_BEZUG).map(([k, [l]]) => ({ v: k, l })), halb: true },
+      { key: 'menge', label: 'Menge laut Packungsbeilage', required: true, halb: true, hint: 'Eine einzelne Zahl, ohne Einheit.' },
+      { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit, halb: true },
+      { key: 'jeVolk', label: 'Anzahl je Volk (zum Beispiel Wabengassen)', halb: true, hint: 'Nur, wenn die Menge nicht je Volk gilt. Kannst du auch später eintragen.' },
+      { key: 'wartezeitTage', label: 'Wartezeit (Tage) laut Beilage', halb: true },
+      { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: arten, halb: true },
+      ...(mittel ? [{ key: '_anhang', type: 'static', html: '<div data-mittel-anhang></div>' }, { key: '_weg', type: 'static', html: '<button type="button" class="btn btn-ghost btn-sm" data-mittel-weg>Mittel entfernen</button>' }] : []),
+    ],
+    values: mittel ? { ...mittel, menge: zahl(mittel.menge), jeVolk: zahl(mittel.jeVolk), wartezeitTage: zahl(mittel.wartezeitTage) } : {},
+    async onSave(v) {
+      const einzeln = (t) => !String(t || '').trim() || /^\d+(?:[.,]\d+)?$/.test(String(t).trim());
+      const menge = U.parseNum(v.menge);
+      if (!einzeln(v.menge) || !(menge > 0)) throw Object.assign(new Error('Trag bei der Menge eine einzelne Zahl ein, ohne Einheit.'), { feld: 'menge' });
+      if (!einzeln(v.jeVolk)) throw Object.assign(new Error('Trag hier eine einzelne Zahl ein.'), { feld: 'jeVolk' });
+      if (!/^\d*$/.test(String(v.wartezeitTage || '').trim())) throw Object.assign(new Error('Trag die Wartezeit in ganzen Tagen ein.'), { feld: 'wartezeitTage' });
+      const rec = { id: (mittel && mittel.id) || U.uuid(), name: String(v.name).trim(), menge, bezug: v.bezug || 'volk', einheit: String(v.einheit || '').trim() || 'ml',
+        jeVolk: String(v.jeVolk || '').trim() ? U.parseNum(v.jeVolk) : null,
+        wartezeitTage: String(v.wartezeitTage || '').trim() ? Number(v.wartezeitTage) : null, anwendungsart: String(v.anwendungsart || '').trim() };
+      const liste = meineMittel().filter((x) => x.id !== rec.id);
+      liste.push(rec);
+      await S.set('meineMittel', U.sortBy(liste, (x) => x.name.toLowerCase()));
+      UI.toast(mittel ? 'Mittel gespeichert' : 'Mittel gespeichert. Ein Foto der Beilage ergänzt du über „Bearbeiten“.');
+      if (box && box.isConnected) { box.dataset.mittel = rec.id; meineMittelZeichnen(box); $(`[data-mr-wahl="${rec.id}"]`, box)?.click(); }
+    },
+  });
+  if (!mittel) return;
+  $('[data-mittel-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'mittel', parentId: mittel.id, titel: 'Foto oder PDF der Beilage' }));
+  $('[data-mittel-weg]', m.el).onclick = async () => {
+    if (!(await UI.confirm({ title: 'Mittel entfernen?', text: 'Es verschwindet aus „Meine Mittel“. Eingetragene Behandlungen bleiben. Fotos der Beilage wandern in den Papierkorb.' }))) return;
+    for (const a of await Anhang.list('mittel', mittel.id)) await DB.softDel('anhaenge', a.id);
+    await S.set('meineMittel', meineMittel().filter((x) => x.id !== mittel.id));
+    m.close(true);
+    if (box && box.isConnected) { delete box.dataset.mittel; meineMittelZeichnen(box); }
+    UI.toast('Mittel entfernt');
+  };
+}
 function mengenrechnerZeichnen(box) {
   if (!box) return;
+  meineMittelBinden(box);
+  meineMittelZeichnen(box);
   const wert = (k) => $(`[data-mr="${k}"]`, box).value;
   const bezug = wert('bezug'), einheit = U.esc(wert('einheit'));
   const anzahlFeld = $('[data-mr-anzahl]', box);
@@ -9910,6 +10012,7 @@ function mengenrechnerZeichnen(box) {
   if (r.fehlt === 'menge') { aus.innerHTML = '<div class="small muted">Trag zuerst den Wert aus deiner Packungsbeilage ein. Erst dann rechnet die App.</div>'; return; }
   if (r.fehlt === 'anzahl') { aus.innerHTML = `<div class="small muted">Trag noch ein: ${U.esc(MENGEN_BEZUG[bezug][1])}.</div>`; return; }
   aus.innerHTML = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${U.fmtNum(r.proVolk, 2)} ${einheit}</div></div><div class="stat"><div class="s-label">Gesamt${r.voelker > 1 ? ` (${r.voelker} Völker)` : ''}</div><div class="s-value">${U.fmtNum(r.gesamt, 2)} ${einheit}</div></div></div>`;
+  aus.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-ghost btn-sm mt8" data-mr-eintragen>Als Behandlung eintragen</button>');
 }
 
 Views.behandlungen = {
@@ -10040,8 +10143,8 @@ Views.behandlungen = {
   },
 
   /** Sammel-Behandlung im Fütterungs-Stil: Stand → Funktion → Völker → Mittel/Menge.
-      Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an. */
-  async sammelForm() {
+      Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an. vorbelegung: aus „Meine Mittel“. */
+  async sammelForm(vorbelegung = {}) {
     const staende = await DB.getAll('staende');
     const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
     if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann behandelst du sie hier gesammelt.', 'err');
@@ -10072,7 +10175,7 @@ Views.behandlungen = {
         { key: 'kaufbeleg', label: 'Kaufbeleg vorhanden', type: 'check' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
-      values: {},
+      values: vorbelegung,
       async onSave(v) {
         const angelegt = [];
         const n = await behandlungFuerVoelker(v.volkIds, v, angelegt);
@@ -26837,7 +26940,7 @@ const ISchule = {
 /* --- FAQ-Daten „Frag ein Thema" --- */
 /* Zusätze zu Imme-Antworten (v3.08): bei Mitteln der Warntext, bei Recht und Steuern der Hinweis auf den Einzelfall. */
 const IMME_ZUSATZ_RECHT = 'Allgemeine Auskunft, keine Beratung für deinen Einzelfall.';
-const IMME_MITTEL_IDS = new Set(['behandlung', 'bestandsbuch', 'rechner', 'varroa-wert']);
+const IMME_MITTEL_IDS = new Set(['meine-mittel', 'behandlung', 'bestandsbuch', 'rechner', 'varroa-wert']);
 const IMME_RECHT_IDS = new Set(['pfand', 'steuer', 'rechnung', 'rechnung-festschreiben', 'rechnung-zahlung', 'rechnung-pdf', 'kassenbuch', 'kassenbuch-auswertung', 'geschaeftskosten', 'an-verkauf', 'fahrten', 'fahrtenbuch-pdf', 'anmeldung-amt', 'export', 'bestandsbuch', 'wanderbuch', 'bio', 'bio-landbedeckung', 'bio-foerderung', 'bio-partner', 'hygiene', 'hygiene-check', 'honig-etikett']);
 /** Zusatz zu einer App-Antwort von Imme (Eintrag aus APP_WISSEN). */
 function immeZusatzApp(e) {
@@ -27396,6 +27499,10 @@ const APP_WISSEN = [
     stichw: ['menue', 'untere leiste', 'leiste', 'verschieben', 'reihenfolge', 'schnellzugriff', 'kacheln verschieben', 'mehr', 'navigation', 'sortieren', 'menue anpassen', 'menue aendern', 'menue sortieren', 'menue verschieben', 'reihenfolge aendern', 'bereiche sortieren', 'leiste unten'],
     antwort: 'Im Menü „Mehr“ kannst du jede Kachel etwa eine halbe Sekunde gedrückt halten und verschieben. Ziehst du eine Kachel auf die untere Leiste, ersetzt sie dort einen Eintrag.',
     schritte: ['Unten auf „Mehr“ tippen', 'Kachel gedrückt halten und ziehen', 'Auf die Leiste fallen lassen, um sie dort zu verankern'] },
+  { id: 'meine-mittel', titel: 'Meine Mittel im Mengenrechner', route: 'behandlungen', zeige: '',
+    stichw: ['meine mittel', 'mittel anlegen', 'mittel speichern', 'packungsbeilage', 'beilage', 'beipackzettel', 'mengenrechner', 'mittel merken', 'oxalsaeure menge', 'ameisensaeure menge', 'wie viel oxalsaeure', 'wie viel ameisensaeure', 'selbst mischen', 'mischen', 'verduennen', 'ansetzen'],
+    antwort: 'Im Mengenrechner legst du unter „Meine Mittel“ dein Mittel einmal an: Die Werte schreibst du aus der Packungsbeilage ab, auf Wunsch mit Foto der Beilage. Danach reicht ein Tipp, und die App rechnet die Gesamtmenge für deine Völker. „Als Behandlung eintragen“ füllt das Bestandsbuch vor. Die App schlägt keine Menge vor und hilft nicht beim Selbstmischen: Nimm zugelassene Fertigpräparate.',
+    schritte: ['Menü ▸ Behandlungen', '„Mengenrechner“ aufklappen', '„Mittel aus der Beilage anlegen“ tippen'] },
   { id: 'rechner', titel: 'Rechner (Futter, Umrechnungen)', route: 'rechner', zeige: '',
     stichw: ['rechner', 'rechnen', 'umrechnen', 'sirup rechner', 'futterrechner', 'honig umrechnen', 'dichte', 'prozent', 'mengenrechner', 'dosierung', 'dosierungsrechner', 'behandlungsrechner'],
     antwort: 'Die Imker-Rechner helfen beim Umrechnen, zum Beispiel bei Zuckerlösung und Honigmengen. Der Mengenrechner rechnet den Wert aus deiner Packungsbeilage auf alle Völker hoch.',
@@ -29750,7 +29857,7 @@ Object.assign(window, {
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,
-  WETTER_EINWILLIGUNG_VERSION, Dienste, DIENSTE_ADRESSE, mengenRechnen, mengenrechnerHtml, mengenrechnerZeichnen, MENGEN_WARNUNG, immeZusatzApp, immeZusatzFaq, IMME_ZUSATZ_RECHT, VORLAGE_HINWEIS, GELD_HINWEIS, OSM_QUELLE, BKG_QUELLE,
+  WETTER_EINWILLIGUNG_VERSION, Dienste, DIENSTE_ADRESSE, mengenRechnen, mengenrechnerHtml, mengenrechnerZeichnen, meineMittel, mittelForm, amtlicheMittelListe, MENGEN_WARNUNG, immeZusatzApp, immeZusatzFaq, IMME_ZUSATZ_RECHT, VORLAGE_HINWEIS, GELD_HINWEIS, OSM_QUELLE, BKG_QUELLE,
   osmAdresseSuchen, osmLandbedeckung, osmKategorie, osmRingFlaeche, osmImRing, OSM_KARTE, OSM_OVERPASS_SERVER,
   osmFlaechenAusElementen, osmAnteileAusFlaechen,
   fuetterungsPlanAufgaben, verdrahteVolkFilter,
