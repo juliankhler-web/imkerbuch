@@ -1558,7 +1558,7 @@ const U = {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
   },
   istBlob: (x) => !!x && typeof x.size === 'number' && typeof x.arrayBuffer === 'function',   // auch fensterübergreifend; {} aus alten Sicherungen ist keiner
-  blobToDataURL: (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }),
+  blobToDataURL: (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error || new Error('Datei nicht lesbar')); r.readAsDataURL(blob); }),
   dataURLToBlob(durl) { const [h, b64] = durl.split(','); const mime = h.match(/data:(.*?);/)[1]; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); },
   /** Bild clientseitig verkleinern (max. Kante) und als JPEG komprimieren */
   resizeImage(file, maxPx = 1600, quality = 0.8) {
@@ -3301,7 +3301,7 @@ const DB = {
          Abbruch, der danach immer folgt: Sonst hieße es bei vollem Speicher nur „Schreibvorgang fehlgeschlagen“. */
       let ursache = null;
       tx.onerror = (ev) => { ursache = ursache || (ev.target && ev.target.error) || tx.error; };
-      tx.onabort = () => { const e = ursache || tx.error; if (this._tot(e)) this._verbindungWeg(db); rej(this._klar(e) || new Error('Schreibvorgang abgebrochen')); };
+      tx.onabort = () => { const e = tx.error || (ursache && ursache.name !== 'AbortError' ? ursache : null); if (this._tot(e)) this._verbindungWeg(db); rej(this._klar(e) || new Error('Schreibvorgang abgebrochen')); };
     });
     try {
       this._auftraege(tx, liste);
@@ -20763,7 +20763,8 @@ Views.rechner = {
       const vbOut = $('#vb-out', main);
       if (vbOut) {
         let vbb;
-        if (vbRate <= 1) vbb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – gering. Kein akuter Handlungsbedarf, die jährliche Behandlung bleibt aber nötig.</span></div>`;
+        if (vbB <= 0) vbb = `<div class="banner info">${icon('info')} <span class="b-msg">Bitte die Zahl der Bienen in der Probe eintragen.</span></div>`;
+        else if (vbRate <= 1) vbb = `<div class="banner info">${icon('check')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – gering. Kein akuter Handlungsbedarf, die jährliche Behandlung bleibt aber nötig.</span></div>`;
         else if (vbRate <= 3) vbb = `<div class="banner warn">${icon('info')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – erhöht. Engmaschig kontrollieren.</span></div>`;
         else vbb = `<div class="banner danger">${icon('warn')} <span class="b-msg"><b>${U.fmtNum(vbRate, 1)} %</b> – hoher Befall. Behandlung prüfen: nur mit zugelassenem Mittel und nicht während der Honigtracht.</span></div>`;
         vbOut.innerHTML = vbb;
@@ -23506,30 +23507,34 @@ const Backup = {
   },
   _dateistaende: new WeakMap(),
   /* Stückweise statt als ein einziger Text (v3.13): Viele Fotos hätten sonst den Arbeitsspeicher gesprengt, und die Sicherung
-     ist der einzige Schutz des Kunden. Die Datei ist Zeichen für Zeichen dieselbe wie JSON.stringify(buildData(true)). */
-  TEIL_ZEICHEN: 8 * 1024 * 1024,
-  async buildBlob() {
+     ist der einzige Schutz des Kunden. Zusammen ergeben die Stücke Zeichen für Zeichen JSON.stringify(buildData(true)). */
+  TEIL_ZEICHEN: 4 * 1024 * 1024,
+  async _inStuecken(senke) {
     const { daten, stand } = await this._lesen();
-    const teile = [];
     let puffer = [], laenge = 0;
-    const schreibe = (t) => {
+    const schreibe = async (t) => {
       puffer.push(t); laenge += t.length;
-      if (laenge >= this.TEIL_ZEICHEN) { teile.push(new Blob(puffer)); puffer = []; laenge = 0; }
+      if (laenge >= this.TEIL_ZEICHEN) { const stueck = puffer.join(''); puffer = []; laenge = 0; await senke(stueck); }
     };
-    schreibe(JSON.stringify(this._kopf()).slice(0, -2));
+    await schreibe(JSON.stringify(this._kopf()).slice(0, -2));
     let ersterStore = true;
     for (const store of DB.DATA_STORES) {
-      schreibe((ersterStore ? '' : ',') + JSON.stringify(store) + ':[');
+      await schreibe((ersterStore ? '' : ',') + JSON.stringify(store) + ':[');
       ersterStore = false;
       let ersteZeile = true;
       for (const r of daten[store]) {
-        schreibe((ersteZeile ? '' : ',') + JSON.stringify(await this._zeile(store, r, true)));
+        await schreibe((ersteZeile ? '' : ',') + JSON.stringify(await this._zeile(store, r, true)));
         ersteZeile = false;
       }
-      schreibe(']');
+      await schreibe(']');
     }
-    schreibe('}}');
-    teile.push(new Blob(puffer));
+    puffer.push('}}');
+    await senke(puffer.join(''));
+    return stand;
+  },
+  async buildBlob() {
+    const teile = [];
+    const stand = await this._inStuecken(async (t) => { teile.push(new Blob([t])); });
     const blob = new Blob(teile, { type: 'application/json' });
     this._dateistaende.set(blob, stand);
     return blob;
@@ -23574,28 +23579,26 @@ const Backup = {
      schreiben und das System-Teilen-Menü öffnen – mit „In Dateien sichern“
      (iCloud Drive), Google Drive, Dropbox, AirDrop, Mail … */
   nativTeilenMoeglich() { const P = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins; return !!(P && P.Filesystem && P.Share); },
-  /* Stückweise in die Datei (v3.13), sonst läge die ganze Sicherung mehrfach als Text im Speicher. Die Stücke sind durch 3
-     teilbar, damit jedes für sich sauber kodiert ist. Die Datei bleibt bis zum nächsten Sichern oder Start liegen: Ein
-     langsames Hochladen in die Cloud darf nicht ins Leere greifen. */
-  DATEI_STUECK: 3 * 1024 * 1024,
+  /* Direkt in die Datei (v3.13), ohne Umweg über den Zwischenspeicher des Browsers: Dessen Platz ist auf Android begrenzt, im
+     Test scheiterten dort 1000 Fotos. Die Datei bleibt bis zum nächsten Sichern oder Start liegen: Ein langsames Hochladen
+     in die Cloud darf nicht ins Leere greifen. Gibt { stand } zurück, bei Abbruch null. */
   _dateiLaeuft: false,
-  async dateiTeilen(blob, name) {
+  async dateiTeilen(name) {
     const P = window.Capacitor.Plugins;
-    if (this._dateiLaeuft) return false;   // Zwei Läufe würden in dieselbe Datei schreiben und sie zerstören
+    if (this._dateiLaeuft) return null;   // Zwei Läufe würden in dieselbe Datei schreiben und sie zerstören
     this._dateiLaeuft = true;
     try {
       await this.tempAufraeumen(true);
       let uri = null;
-      for (let von = 0; von === 0 || von < blob.size; von += this.DATEI_STUECK) {
-        const data = (await U.blobToDataURL(blob.slice(von, von + this.DATEI_STUECK, 'application/octet-stream'))).split(',')[1] || '';
-        if (von === 0) uri = (await P.Filesystem.writeFile({ path: name, data, directory: 'CACHE' })).uri;
-        else await P.Filesystem.appendFile({ path: name, data, directory: 'CACHE' });
-      }
+      const stand = await this._inStuecken(async (data) => {
+        if (!uri) uri = (await P.Filesystem.writeFile({ path: name, data, directory: 'CACHE', encoding: 'utf8' })).uri;
+        else await P.Filesystem.appendFile({ path: name, data, directory: 'CACHE', encoding: 'utf8' });
+      });
       await P.Share.share({ title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}`, files: [uri], dialogTitle: 'Sicherung speichern' });
-      return true;
+      return { stand };
     } catch (e) {
       P.Filesystem.deleteFile({ path: name, directory: 'CACHE' }).catch(() => {});   // abgebrochen oder halb geschrieben: nichts liegen lassen
-      if (/cancel/i.test(String(e && (e.message || e)))) return false;   // im Teilen-Menü abgebrochen
+      if (/cancel/i.test(String(e && (e.message || e)))) return null;   // im Teilen-Menü abgebrochen
       throw e;
     } finally { this._dateiLaeuft = false; }
   },
@@ -23610,16 +23613,26 @@ const Backup = {
       }
     } catch (e) { /* nichts zu tun */ }
   },
-  async nativTeilen(blob, name) {
-    if (!(await this.dateiTeilen(blob, name))) return false;
-    await this.markExternal(blob); UI.toast('Sicherung gespeichert');
+  async nativTeilen(name) {
+    const erg = await this.dateiTeilen(name);
+    if (!erg) return false;
+    const marke = {};   // Merkt sich, welcher Datenstand in der Datei steckt, wie sonst der Blob
+    this._dateistaende.set(marke, erg.stand);
+    // Die Datei ist gespeichert. Scheitert nur das Vermerken (etwa bei vollem Speicher), darf das nicht wie eine gescheiterte Sicherung aussehen.
+    try { await this.markExternal(marke); UI.toast('Sicherung gespeichert'); }
+    catch (e) { console.error('Sicherung vermerken', e); UI.toast('Die Sicherung ist gespeichert, der Vermerk in der App ging aber nicht.', 'err'); }
     return true;
   },
+  NOTFALL_FRIST_MS: 60000,
   /** Sicherung von der Notfallseite: ohne Einstellungen und Meldungen der App, die dort womöglich fehlen. */
   async notfallSichern() {
     try {
+      if (this.nativTeilenMoeglich()) {
+        // Nur das Lesen bekommt eine Frist: Im Teilen-Menü darf der Kunde beliebig lange bleiben
+        await mitFrist(DB.leseAlles(['settings']), this.NOTFALL_FRIST_MS, 'Die Datenbank antwortet nicht.');
+        return !!(await this.dateiTeilen(this.dateiname()));
+      }
       const blob = await mitFrist(this.buildBlob(), 120000, 'Die Datenbank antwortet nicht.');
-      if (this.nativTeilenMoeglich()) return await this.dateiTeilen(blob, this.dateiname());
       U.download(blob, this.dateiname());
       return true;
     } catch (e) { throw new Error(this.fehlerText(e)); }
@@ -23632,14 +23645,13 @@ const Backup = {
     try { await this._share(); } finally { this._shareLaeuft = false; }
   },
   async _share() {
-    if (this.nativTeilenMoeglich()) UI.toast('Sicherung wird vorbereitet …');   // bei vielen Fotos dauert das ein paar Sekunden
-    let blob;
-    try { blob = await this.buildBlob(); } catch (e) { UI.toast(this.fehlerText(e), 'err'); return; }
     if (this.nativTeilenMoeglich()) {
-      try { await this.nativTeilen(blob, this.dateiname()); }
-      catch (e) { UI.toast(istSpeicherVoll(e) ? this.fehlerText(e) : 'Sicherung konnte nicht geteilt werden: ' + (e.message || e), 'err'); }
+      UI.toast('Sicherung wird vorbereitet …');   // bei vielen Fotos dauert das ein paar Sekunden
+      try { await this.nativTeilen(this.dateiname()); } catch (e) { UI.toast(this.fehlerText(e), 'err'); }
       return;
     }
+    let blob;
+    try { blob = await this.buildBlob(); } catch (e) { UI.toast(this.fehlerText(e), 'err'); return; }
     const file = new File([blob], this.dateiname(), { type: 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -23956,9 +23968,14 @@ const Backup = {
   async importFile(file) {
     let data;
     try {
-      if (file.size > this.GROSS_AB) data = await this.jsonGross(file).catch(async () => JSON.parse(await file.text()));   // anderer Aufbau: wie bisher versuchen
-      else data = JSON.parse(await file.text());
-    } catch (e) { return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Datei ist kein gültiges JSON', 'err'); }
+      if (file.size > this.GROSS_AB) {
+        data = await this.jsonGross(file).catch(async (e) => {
+          if (e.message !== 'Unerwartetes Format') throw e;   // nur ein anderer Aufbau: wie bisher versuchen
+          return JSON.parse(await file.text());
+        });
+      } else data = JSON.parse(await file.text());
+    } catch (e) {
+      if (e.message === 'Datei unvollständig') return UI.toast('Die Datei ist unvollständig. Bitte kopiere die Sicherung noch einmal auf dieses Gerät.', 'err'); return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Datei ist kein gültiges JSON', 'err'); }
     if (!data || data.app !== 'ImkerBuch' || !data.stores) return UI.toast('Das ist keine ImkerBuch-Sicherung', 'err');
     /* Nur BEKANNTE Speicher werden namentlich genannt. Ein fremder Schlüssel
        aus der Datei hat in der Anzeige nichts verloren – er landete sonst
@@ -24323,6 +24340,7 @@ const Backup = {
   },
   /** fällige Auto-Sicherung ausführen (Snapshot + extern) */
   async runAuto(quelle = 'intervall') {
+    if (this.nativTeilenMoeglich()) return;   // In der App gibt es nur das Sichern von Hand. Der Schalter kann aus einer Sicherung vom Computer stammen.
     await this.snapshotInternal('auto');
     let extern = false;
     if (S.get('backupDirHandle')) extern = await this.writeToDir();
@@ -24355,7 +24373,7 @@ const Backup = {
   initAuto() {
     const tick = async () => {
       const f = S.get('features');
-      if (!f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return;
+      if (this.nativTeilenMoeglich() || !f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return;
       const last = S.get('letzteAutoSicherung');
       const tage = f.autoBackup.intervall === 'taeglich' ? 1 : 7;
       if (!(!last || U.daysBetween(last, U.nowIso()) >= tage)) return;
@@ -24369,7 +24387,7 @@ const Backup = {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'hidden') return;
       const f = S.get('features');
-      if (f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
+      if (!this.nativTeilenMoeglich() && f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
         this.snapshotInternal('auto'); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
         // Nur ein tatsächlich geschriebenes Ordner-Backup stellt den Termin weiter.
         this.writeToDir().then((ok) => { if (ok) { S.set('letzteAutoSicherung', U.nowIso()); } });

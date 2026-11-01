@@ -10217,42 +10217,48 @@ test('Sicherung: stückweise gebaute Datei ist genau dieselbe', async (w) => {
     }
   } finally { w.Backup.TEIL_ZEICHEN = teil; await w.DB.del('anhaenge', a.id); await w.DB.del('papierkorb', p.id); }
 });
-test('Sicherung: Datei wird stückweise geschrieben und bleibt nach dem Teilen liegen', async (w) => {
-  const stuecke = []; const geloescht = []; let geteilt = null; let abbrechen = false;
+test('Sicherung: In der App wird direkt in die Datei geschrieben, die Datei bleibt nach dem Teilen liegen', async (w) => {
+  const stuecke = []; const geloescht = []; let geteilt = null; let abbrechen = false; let teilenFehler = null;
   const P = {
     Filesystem: {
-      writeFile: async (o) => { stuecke.push(o.data); assert(!o.encoding, 'ohne Kodierung = Bytes'); return { uri: 'file:///' + o.path }; },
-      appendFile: async (o) => { stuecke.push(o.data); assert(!o.encoding, 'ohne Kodierung = Bytes'); },
+      writeFile: async (o) => { stuecke.length = 0; stuecke.push(o.data); assertEq(o.encoding, 'utf8'); return { uri: 'file:///' + o.path }; },
+      appendFile: async (o) => { stuecke.push(o.data); assertEq(o.encoding, 'utf8'); },
       deleteFile: async (o) => { geloescht.push(o.path); },
       readdir: async () => ({ files: [] }),
     },
-    Share: { share: async (o) => { geteilt = o; if (abbrechen) throw new Error('Share canceled'); } },
+    Share: { share: async (o) => { geteilt = o; if (teilenFehler) throw teilenFehler; if (abbrechen) throw new Error('Share canceled'); } },
   };
-  const cap = w.Capacitor; w.Capacitor = { Plugins: P };
-  const stueck = w.Backup.DATEI_STUECK; w.Backup.DATEI_STUECK = 30;
+  const a = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'x', art: 'foto', name: 'ä€😀.jpg', mime: 'image/jpeg', blob: new w.Blob([new Uint8Array(5000).fill(9)], { type: 'image/jpeg' }), groesse: 5000, datum: w.U.nowIso() });
+  const cap = w.Capacitor, teil = w.Backup.TEIL_ZEICHEN, dfd = w.Backup.nativTeilenMoeglich;
+  w.Capacitor = { Plugins: P }; w.Backup.TEIL_ZEICHEN = 1000;
   try {
-    const roh = new TextEncoder().encode('{"text":"Überschuss äöü ' + 'x'.repeat(200) + '"}');
-    assertEq(await w.Backup.dateiTeilen(new w.Blob([roh], { type: 'application/json' }), 'imkerbuch-backup-test.json'), true);
+    const name = 'imkerbuch-backup-test.json';
+    const erg = await w.Backup.dateiTeilen(name);
+    assert(erg, 'fertig');
     assert(stuecke.length > 1, 'mehrere Stücke');
-    const bytes = stuecke.flatMap((b) => [...atob(b)].map((c) => c.charCodeAt(0)));
-    assertEq(bytes.join(), [...roh].join(), 'Bytes unverändert');
-    assertEq(geteilt.files[0], 'file:///imkerbuch-backup-test.json');
+    const soll = await w.Backup.buildData(true);
+    assertEq(stuecke.join('').replace(/"exportiert":"[^"]*"/, ''), JSON.stringify(soll).replace(/"exportiert":"[^"]*"/, ''), 'zusammen dieselbe Datei');
+    assertEq(erg.stand, soll._stand, 'Datenstand der Datei');
+    assertEq(geteilt.files[0], 'file:///' + name);
     assertEq(geloescht.length, 0, 'Datei bleibt liegen, damit langsames Hochladen fertig wird');
-    const doppelt = w.Backup.buildBlob; let gebaut = 0;
+    const zwei = [w.Backup.dateiTeilen(name), w.Backup.dateiTeilen(name)];
+    const [eins, doppelt] = await Promise.all(zwei);
+    assert(eins && doppelt === null, 'zweiter Lauf unterbleibt');
+    abbrechen = true;
+    assertEq(await w.Backup.dateiTeilen(name), null, 'Abbruch im Menü');
+    assert(geloescht.includes(name), 'bei Abbruch sofort gelöscht');
+    assertEq(w.Backup._dateiLaeuft, false, 'nach dem Abbruch frei');
+    abbrechen = false; geloescht.length = 0; teilenFehler = new Error('kaputt');
+    assert(await w.Backup.dateiTeilen(name).then(() => false, (e) => e.message === 'kaputt'), 'anderer Fehler kommt an');
+    assert(geloescht.includes(name), 'bei Fehler sofort gelöscht');
+    teilenFehler = null;
+    const doppeltBau = w.Backup.buildBlob; let gebaut = 0;
     w.Backup.buildBlob = async () => { gebaut++; await new Promise((r) => setTimeout(r, 20)); throw new Error('Probe'); };
     const toastAlt = w.UI.toast; w.UI.toast = () => {};
     await Promise.all([w.Backup.share(), w.Backup.share()]);
-    w.Backup.buildBlob = doppelt; w.UI.toast = toastAlt;
+    w.Backup.buildBlob = doppeltBau; w.UI.toast = toastAlt;
     assertEq(gebaut, 1, 'Doppeltippen baut nur einmal');
-    stuecke.length = 0;
-    const zwei = [w.Backup.dateiTeilen(new w.Blob(['abc']), 'imkerbuch-backup-test.json'), w.Backup.dateiTeilen(new w.Blob(['def']), 'imkerbuch-backup-test.json')];
-    assertEq((await Promise.all(zwei)).join(), 'true,false', 'zweiter Lauf wartet nicht, sondern unterbleibt');
-    assertEq(stuecke.join(), w.btoa('abc'), 'nur ein Lauf schreibt');
-    abbrechen = true;
-    assertEq(await w.Backup.dateiTeilen(new w.Blob(['x']), 'imkerbuch-backup-test.json'), false, 'Abbruch im Menü');
-    assert(geloescht.includes('imkerbuch-backup-test.json'), 'bei Abbruch sofort gelöscht');
-    assertEq(w.Backup._dateiLaeuft, false, 'nach dem Abbruch frei');
-  } finally { w.Capacitor = cap; w.Backup.DATEI_STUECK = stueck; }
+  } finally { w.Capacitor = cap; w.Backup.TEIL_ZEICHEN = teil; await w.DB.del('anhaenge', a.id); }
 });
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
@@ -10290,6 +10296,36 @@ test('Sicherung: große Datei Eintrag für Eintrag lesen ergibt dasselbe wie JSO
     try { await w.Backup.importFile(new w.File(['{"app":"Fremd","stores":{"a":[]}}'], 'x.json')); assert(meldungen.some(([m]) => /keine ImkerBuch-Sicherung/.test(m)), 'fremde Datei erkannt: ' + JSON.stringify(meldungen)); }
     finally { w.Backup.GROSS_AB = groessePruefung; w.UI.toast = toast; }
   } finally { await w.DB.del('anhaenge', a.id); await w.DB.del('staende', s1.id); }
+});
+test('Sicherung: In der App keine automatische Sicherung, Vermerk-Fehler ist keine gescheiterte Sicherung', async (w) => {
+  const B = w.Backup, alt = { m: B.nativTeilenMoeglich, bau: B.buildBlob, teilen: B.dateiTeilen, mark: B.markExternal, frist: B.NOTFALL_FRIST_MS, lese: w.DB.leseAlles, toast: w.UI.toast, snap: B.snapshotInternal, log: w.console.error };
+  const meldungen = []; let gebaut = 0;
+  w.UI.toast = (t, a) => meldungen.push([t, a]); w.console.error = () => {};
+  B.nativTeilenMoeglich = () => true;
+  try {
+    B.buildBlob = async () => { gebaut++; return new w.Blob(['x']); };
+    B.snapshotInternal = async () => { gebaut++; };
+    await B.runAuto();
+    assertEq(gebaut, 0, 'keine automatische Sicherung in der App');
+    B.dateiTeilen = async () => ({ stand: 'r1' });
+    B.markExternal = async () => { throw w.speicherVollFehler(); };
+    assertEq(await B.nativTeilen('imkerbuch-backup-x.json'), true, 'Datei gilt als gesichert');
+    assert(meldungen.some(([t, a]) => a === 'err' && /Sicherung ist gespeichert/.test(t)), 'eigene Meldung');
+    assert(!meldungen.some(([t]) => /konnte nicht gespeichert/.test(t)), 'keine Falschmeldung');
+    B.NOTFALL_FRIST_MS = 5; w.DB.leseAlles = () => new Promise(() => {});
+    let fehler = null; await B.notfallSichern().catch((e) => { fehler = e; });
+    assert(fehler && /Datenbank antwortet nicht/.test(fehler.message), 'Notfall-Sicherung hat eine Frist: ' + (fehler && fehler.message));
+  } finally {
+    B.nativTeilenMoeglich = alt.m; B.buildBlob = alt.bau; B.dateiTeilen = alt.teilen; B.markExternal = alt.mark; B.NOTFALL_FRIST_MS = alt.frist; w.DB.leseAlles = alt.lese; w.UI.toast = alt.toast; B.snapshotInternal = alt.snap; w.console.error = alt.log;
+  }
+});
+test('Sicherung: abgeschnittene große Datei wird als unvollständig gemeldet', async (w) => {
+  const groesse = w.Backup.GROSS_AB, toast = w.UI.toast, meldungen = [];
+  w.Backup.GROSS_AB = 10; w.UI.toast = (t, a) => meldungen.push([t, a]);
+  try {
+    await w.Backup.importFile(new w.File(['{"app":"ImkerBuch","formatVersion":1,"stores":{"staende":[{"id":"a"}'], 'x.json'));
+    assert(meldungen.some(([t]) => /unvollständig/.test(t)), JSON.stringify(meldungen));
+  } finally { w.Backup.GROSS_AB = groesse; w.UI.toast = toast; }
 });
 test('Start: Frist, Nebenschritte und Notfallseite', async (w) => {
   let frist = null;
