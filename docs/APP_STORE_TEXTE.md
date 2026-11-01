@@ -19,7 +19,10 @@ Stand 2026-11-01 (v3.10). Alles hier ist zum Kopieren in App Store Connect gedac
 
 Apple und Google: Alle Punkte, auf die die Prüfung achtet, müssen so genau wie möglich stimmen, damit es keine unnötigen Nachprüfungen oder Nachfragen gibt. Deshalb die aktuellen Richtlinien im Original lesen und an der fertigen Store-Fassung Punkt für Punkt prüfen, dazu ein unabhängiger Agent.
 
-## Eintragen in App Store Connect (Stand 30.10.2026)
+## Eintragen in App Store Connect (Stand 01.11.2026)
+
+Gespeichert am 01.11.2026: Adressen, Copyright, E-Mail, Beschreibung, Werbetext, Prüfer-Hinweise, eigener Lizenzvertrag für Deutschland, Österreich und die Schweiz, Datenschutz-Adresse, Standort-Angabe als Entwurf. Noch offen: Julian bestätigt das Veröffentlichen der Datenschutz-Antworten. Bei Änderung von `agb.html` den Lizenzvertrag hier mit ändern.
+
 
 1. **App-Informationen:** Datenschutzrichtlinie-URL `https://imkerbuch.app/datenschutz.html`.
 2. **Version:** Support-URL `https://imkerbuch.app/support.html`, Marketing-URL `https://imkerbuch.app/`, Copyright `2026 Julian Konstantin Köhler`.
