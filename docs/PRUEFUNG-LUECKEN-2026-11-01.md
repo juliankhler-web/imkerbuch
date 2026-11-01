@@ -6,6 +6,8 @@ Julian hat gefragt, ob die App in irgendeinem Bereich noch geprüft werden sollt
 
 ### Vor dem Hochladen der Fassung 1.00 (macht Claude)
 
+**Erledigt mit v3.13 (01.11.2026), Prüfergebnis in `docs/PRUEFUNG-APPSTORE.md`.** Offen aus diesen sieben Punkten: Geräteläufe iOS 16 und ältere Android-Fassungen, Nutzungsrecht geoservice.rlp.de (Anfrage durch Julian). Bei der Datenschutz-Nachfrage lag der Fund daneben: Die Erklärung nannte sie schon, nur die Support-Seite war ungenau.
+
 Selbst im Code nachgesehen: Punkt 1 und 2 stimmen.
 
 1. **Notfallseite beim Start:** Daten-Umstellungen beim Start laufen ohne Schutz (`index.html` ab Funktion `boot`), einen Fehlerfänger für den ganzen Start gibt es nicht. Soll: „Neu versuchen“, wenn möglich „Sicherung speichern“, und „App nicht löschen, sonst sind die Daten weg“.

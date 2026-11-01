@@ -10131,6 +10131,220 @@ async function buchungTest(w, fn) {
 async function atomRechnung(w, id = 'atom-r', menge = 2) {
   return w.DB.put('rechnungen', { id, status: 'entwurf', datum: '2026-09-22', kundeId: 'atom-k', steuerart: 'regel', positionen: [{ abfuellungId: 'atom-a', menge, einzelpreis: 5, steuersatz: 7 }] });
 }
+/* ---------- v3.13: Start, Speicher voll, Sicherung, Fachtexte ---------- */
+async function mitVollemSpeicher(w, fn) {
+  const put = w.IDBObjectStore.prototype.put;
+  w.IDBObjectStore.prototype.put = function () { throw new w.DOMException('The quota has been exceeded.', 'QuotaExceededError'); };
+  try { return await fn(); } finally { w.IDBObjectStore.prototype.put = put; }
+}
+test('Speicher voll: verständliche Meldung, nichts gespeichert', async (w) => {
+  const id = 'voll-' + w.U.uuid();
+  const fehler = await mitVollemSpeicher(w, () => w.DB.put('staende', { id, name: 'Voll' }).then(() => null, (e) => e));
+  assert(fehler, 'Speichern muss scheitern');
+  assertEq(fehler.message, w.SPEICHER_VOLL_TEXT);
+  assert(w.istSpeicherVoll(fehler), 'bleibt als Speicher voll erkennbar');
+  assert(!(await w.DB.get('staende', id)), 'nichts gespeichert');
+  await w.DB.put('staende', { id, name: 'Wieder Platz' });
+  assertEq((await w.DB.get('staende', id)).name, 'Wieder Platz', 'danach geht es wieder');
+  await w.DB.del('staende', id);
+});
+test('Speicher: Scheitert ein einzelner Auftrag, nennt die Meldung den wahren Grund', async (w) => {
+  const id = 'auftrag-' + w.U.uuid();
+  await w.DB.put('staende', { id, name: 'Eins' });
+  const put = w.IDBObjectStore.prototype.put;
+  w.IDBObjectStore.prototype.put = function (o) { return this.name === 'staende' ? this.add(o) : put.call(this, o); };   // doppelter Schlüssel: Fehler am Auftrag, tx.error dort noch leer
+  let fehler = null;
+  try { await w.DB.put('staende', { id, name: 'Zwei' }).catch((e) => { fehler = e; }); } finally { w.IDBObjectStore.prototype.put = put; }
+  assertEq(fehler && fehler.name, 'ConstraintError', 'Grund bleibt erhalten');
+  assertEq((await w.DB.get('staende', id)).name, 'Eins', 'nichts geändert');
+  await w.DB.del('staende', id);
+});
+test('Einstellungen: Scheitert das Lesen, bleibt der bisherige Stand', async (w) => {
+  const getAll = w.DB.getAll; const vorher = w.S.get('wizardDone');
+  await w.S.set('testLesen', 7, { auto: true });
+  w.DB.getAll = async (st) => { if (st === 'settings') throw new Error('Verbindung weg'); return getAll.call(w.DB, st); };
+  let fehler = null;
+  try { await w.S.load().catch((e) => { fehler = e; }); } finally { w.DB.getAll = getAll; }
+  assert(fehler, 'Fehler kommt an');
+  assertEq(w.S.get('testLesen'), 7, 'Stand ist noch da');
+  assertEq(w.S.get('wizardDone'), vorher, 'kein neues Gerät');
+  await w.DB.del('settings', 'testLesen'); await w.S.load();
+});
+test('Speicher voll: Abbruch der Transaktion und Erkennung', async (w) => {
+  assert(w.istSpeicherVoll({ name: 'QuotaExceededError' }), 'Name');
+  assert(w.istSpeicherVoll({ code: 22 }), 'alter Code');
+  assert(w.istSpeicherVoll(new Error('No space left on device')), 'Text vom Gerät');
+  assert(w.istSpeicherVoll(new Error("'writeFile' failed with: nicht genügend Speicherplatz")), 'Text vom iPhone, deutsch');
+  assert(w.istSpeicherVoll(new Error("couldn't be saved because there isn't enough space")), 'Text vom iPhone, englisch');
+  assert(!w.istSpeicherVoll(new Error('Etwas anderes')), 'andere Fehler nicht');
+  assert(!w.istSpeicherVoll(null), 'kein Fehler');
+  const f = w.DB._klar({ name: 'QuotaExceededError', message: 'x' });
+  assertEq(f.message, w.SPEICHER_VOLL_TEXT);
+  const anders = new Error('anders');
+  assertEq(w.DB._klar(anders), anders, 'andere Fehler bleiben unverändert');
+});
+test('Speicher voll: Zwischenstand meldet sich genau einmal', async (w) => {
+  const toast = w.UI.toast; const meldungen = [];
+  w.UI.toast = (m, a) => meldungen.push([m, a]);
+  const fehlerLog = w.console.error; w.console.error = () => {};
+  const vorher = w.Backup._zsVollGemeldet; w.Backup._zsVollGemeldet = false;
+  try {
+    w.Backup.zsFehler(new Error('anders'));
+    assertEq(meldungen.length, 0, 'andere Fehler nur im Protokoll');
+    w.Backup.zsFehler(w.speicherVollFehler());
+    w.Backup.zsFehler(w.speicherVollFehler());
+    assertEq(meldungen.length, 1, 'nur einmal');
+    assert(/keine Zwischenstände/.test(meldungen[0][0]), meldungen[0][0]);
+    w.unbehandelterFehler({ reason: w.speicherVollFehler() });
+    assert(meldungen.some(([m]) => m === w.SPEICHER_VOLL_TEXT), 'unbehandelter Fehler wird genannt');
+  } finally { w.UI.toast = toast; w.console.error = fehlerLog; w.Backup._zsVollGemeldet = vorher; }
+});
+test('Sicherung: stückweise gebaute Datei ist genau dieselbe', async (w) => {
+  const a = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'x', art: 'foto', name: 'ä.jpg', mime: 'image/jpeg', blob: new w.Blob([new Uint8Array([1, 2, 3, 250])], { type: 'image/jpeg' }), groesse: 4, datum: w.U.nowIso() });
+  const p = await w.DB.put('papierkorb', { store: 'anhaenge', daten: { id: 'pk-' + a.id, art: 'foto', blob: new w.Blob([new Uint8Array([9, 8])], { type: 'image/jpeg' }) }, geloescht: w.U.nowIso() });
+  const teil = w.Backup.TEIL_ZEICHEN;
+  try {
+    for (const groesse of [1, 64, teil]) {
+      w.Backup.TEIL_ZEICHEN = groesse;
+      const blob = await w.Backup.buildBlob();
+      const text = await blob.text();
+      const daten = await w.Backup.buildData(true);
+      const roh = JSON.parse(text);
+      assertEq(text.replace(/"exportiert":"[^"]*"/, ''), JSON.stringify(daten).replace(/"exportiert":"[^"]*"/, ''), 'gleicher Text bei Stückgröße ' + groesse);
+      assert(roh.stores.anhaenge.find((r) => r.id === a.id).datenUrl.includes('base64'), 'Foto dabei');
+      assert(roh.stores.papierkorb.find((r) => r.id === p.id).daten.datenUrl.includes('base64'), 'Foto im Papierkorb dabei');
+      assertEq(blob.type, 'application/json');
+    }
+  } finally { w.Backup.TEIL_ZEICHEN = teil; await w.DB.del('anhaenge', a.id); await w.DB.del('papierkorb', p.id); }
+});
+test('Sicherung: Datei wird stückweise geschrieben und bleibt nach dem Teilen liegen', async (w) => {
+  const stuecke = []; const geloescht = []; let geteilt = null; let abbrechen = false;
+  const P = {
+    Filesystem: {
+      writeFile: async (o) => { stuecke.push(o.data); assert(!o.encoding, 'ohne Kodierung = Bytes'); return { uri: 'file:///' + o.path }; },
+      appendFile: async (o) => { stuecke.push(o.data); assert(!o.encoding, 'ohne Kodierung = Bytes'); },
+      deleteFile: async (o) => { geloescht.push(o.path); },
+      readdir: async () => ({ files: [] }),
+    },
+    Share: { share: async (o) => { geteilt = o; if (abbrechen) throw new Error('Share canceled'); } },
+  };
+  const cap = w.Capacitor; w.Capacitor = { Plugins: P };
+  const stueck = w.Backup.DATEI_STUECK; w.Backup.DATEI_STUECK = 30;
+  try {
+    const roh = new TextEncoder().encode('{"text":"Überschuss äöü ' + 'x'.repeat(200) + '"}');
+    assertEq(await w.Backup.dateiTeilen(new w.Blob([roh], { type: 'application/json' }), 'imkerbuch-backup-test.json'), true);
+    assert(stuecke.length > 1, 'mehrere Stücke');
+    const bytes = stuecke.flatMap((b) => [...atob(b)].map((c) => c.charCodeAt(0)));
+    assertEq(bytes.join(), [...roh].join(), 'Bytes unverändert');
+    assertEq(geteilt.files[0], 'file:///imkerbuch-backup-test.json');
+    assertEq(geloescht.length, 0, 'Datei bleibt liegen, damit langsames Hochladen fertig wird');
+    const doppelt = w.Backup.buildBlob; let gebaut = 0;
+    w.Backup.buildBlob = async () => { gebaut++; await new Promise((r) => setTimeout(r, 20)); throw new Error('Probe'); };
+    const toastAlt = w.UI.toast; w.UI.toast = () => {};
+    await Promise.all([w.Backup.share(), w.Backup.share()]);
+    w.Backup.buildBlob = doppelt; w.UI.toast = toastAlt;
+    assertEq(gebaut, 1, 'Doppeltippen baut nur einmal');
+    stuecke.length = 0;
+    const zwei = [w.Backup.dateiTeilen(new w.Blob(['abc']), 'imkerbuch-backup-test.json'), w.Backup.dateiTeilen(new w.Blob(['def']), 'imkerbuch-backup-test.json')];
+    assertEq((await Promise.all(zwei)).join(), 'true,false', 'zweiter Lauf wartet nicht, sondern unterbleibt');
+    assertEq(stuecke.join(), w.btoa('abc'), 'nur ein Lauf schreibt');
+    abbrechen = true;
+    assertEq(await w.Backup.dateiTeilen(new w.Blob(['x']), 'imkerbuch-backup-test.json'), false, 'Abbruch im Menü');
+    assert(geloescht.includes('imkerbuch-backup-test.json'), 'bei Abbruch sofort gelöscht');
+    assertEq(w.Backup._dateiLaeuft, false, 'nach dem Abbruch frei');
+  } finally { w.Capacitor = cap; w.Backup.DATEI_STUECK = stueck; }
+});
+test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
+  const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
+  w.UI.toast = (m, a) => meldungen.push([m, a]);
+  try {
+    w.Backup.buildBlob = async () => { throw new RangeError('Invalid string length'); };
+    await w.Backup.share();
+    assert(meldungen.some(([m, a]) => a === 'err' && /zu groß/.test(m)), 'zu groß gemeldet');
+    meldungen.length = 0;
+    w.Backup.buildBlob = async () => { throw w.speicherVollFehler(); };
+    await w.Backup.exportDownload();
+    assert(meldungen.some(([m, a]) => a === 'err' && /Speicher voll/.test(m)), 'Speicher voll gemeldet');
+    assert(/konnte nicht erstellt/.test(w.Backup.fehlerText(new Error('xy'))), 'sonstiger Fehler');
+  } finally { w.Backup.buildBlob = bau; w.UI.toast = toast; }
+});
+test('Sicherung: große Datei Eintrag für Eintrag lesen ergibt dasselbe wie JSON.parse', async (w) => {
+  const a = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'x', art: 'foto', name: 'Klammer ]}{[ " \\ ä€😀.jpg', mime: 'image/jpeg', blob: new w.Blob([new Uint8Array(3000).fill(200)], { type: 'image/jpeg' }), groesse: 3000, datum: w.U.nowIso() });
+  const s1 = await w.DB.put('staende', { name: 'Stand "Süd" {x} [y] \\ 😀', notiz: 'a\nb', tiefe: { a: [1, { b: 2 }], c: '}' } });
+  try {
+    const text = await (await w.Backup.buildBlob()).text();
+    const soll = JSON.parse(text);
+    for (const stueck of [1, 7, 64, 4096, 4 * 1024 * 1024]) {
+      const ist = await w.Backup.jsonGross(new w.Blob([text]), stueck);
+      assertEq(JSON.stringify(ist), JSON.stringify(soll), 'gleich bei Stückgröße ' + stueck);
+    }
+    assertEq(JSON.stringify(await w.Backup.jsonGross(new w.Blob([JSON.stringify(soll, null, 2)]), 512)), JSON.stringify(soll), 'eingerückte Datei');
+    const leer = { app: 'ImkerBuch', formatVersion: 1, exportiert: 'x', stores: { a: [], b: [{ c: 1 }] } };
+    assertEq(JSON.stringify(await w.Backup.jsonGross(new w.Blob([JSON.stringify(leer)]), 3)), JSON.stringify(leer), 'leerer Bereich');
+    for (const kaputt of ['', 'keine Datei', text.slice(0, text.length - 5), '{"app":"ImkerBuch","stores":{"a":[1]}}', '{"app":"ImkerBuch","stores":{"a":{}}}', '{"app":"ImkerBuch"}', '{"app":"x","stores":{"a":[]},"b":1}', '{"stores":{}}x']) {
+      const fehler = await w.Backup.jsonGross(new w.Blob([kaputt]), 16).then(() => null, (e) => e);
+      assert(fehler, 'beschädigt erkannt: ' + kaputt.slice(0, 40));
+    }
+    const groessePruefung = w.Backup.GROSS_AB; w.Backup.GROSS_AB = 10;
+    const toast = w.UI.toast, meldungen = []; w.UI.toast = (m, t) => meldungen.push([m, t]);
+    try { await w.Backup.importFile(new w.File(['{"app":"Fremd","stores":{"a":[]}}'], 'x.json')); assert(meldungen.some(([m]) => /keine ImkerBuch-Sicherung/.test(m)), 'fremde Datei erkannt: ' + JSON.stringify(meldungen)); }
+    finally { w.Backup.GROSS_AB = groessePruefung; w.UI.toast = toast; }
+  } finally { await w.DB.del('anhaenge', a.id); await w.DB.del('staende', s1.id); }
+});
+test('Start: Frist, Nebenschritte und Notfallseite', async (w) => {
+  let frist = null;
+  await w.mitFrist(new Promise(() => {}), 5, 'zu lang').catch((e) => { frist = e.message; });
+  assertEq(frist, 'zu lang');
+  assertEq(await w.mitFrist(Promise.resolve(7), 50, 'x'), 7);
+  const fehlerLog = w.console.error; w.console.error = () => {};
+  const vorher = w.STARTHINWEISE.length;
+  try {
+    assertEq(await w.nebenbei('geht', () => 5), 5);
+    await w.nebenbei('wirft', () => { throw new Error('a'); });
+    await w.nebenbei('lehnt ab', async () => { throw new Error('b'); });
+    assertEq(w.STARTHINWEISE.slice(vorher).join(), 'wirft,lehnt ab');
+    assert(decodeURIComponent(w.supportMailLink('fehler')).includes('Beim Start gescheitert: wirft, lehnt ab'), 'Support-Mail nennt es');
+  } finally { w.console.error = fehlerLog; w.STARTHINWEISE.length = vorher; }
+  w.ibNotfall(new Error('Testfehler'));
+  try {
+    const n = w.document.getElementById('notfall');
+    assert(n, 'Seite da');
+    assert(/nicht löschen|nicht gelöscht|Websitedaten nicht/.test(n.textContent), 'warnt vor dem Löschen');
+    assert(/Neu versuchen/.test(n.textContent) && /Sicherung speichern/.test(n.textContent) && /Hilfe per E-Mail/.test(n.textContent), 'alle Knöpfe');
+    assert(/Testfehler/.test(n.textContent), 'nennt den Fehler');
+    assert(decodeURIComponent(n.querySelector('a').href).includes('Testfehler'), 'Mail nennt den Fehler');
+    w.ibNotfall(new Error('zweiter'));
+    assertEq(w.document.querySelectorAll('#notfall').length, 1, 'nur eine Seite');
+  } finally { w.ibNotfallWeg(); }
+  assert(!w.document.getElementById('notfall'), 'wieder weg');
+});
+test('Fachtexte: Varroa-Meldung, Behandlungspflicht, Ampel, Etikett, Quellen', async (w) => {
+  const fragen = w.FAQ_THEMEN.flatMap((t) => t.fragen || t.eintraege || t.items || []);
+  const antwort = (f) => (fragen.find((x) => x.f === f) || {}).a || '';
+  assert(/Bayern/.test(antwort('Muss ich Varroa melden?')), 'Ausnahme Bayern');
+  assert(/§ 15/.test(antwort('Ab wann muss ich behandeln?')) && /jährlich/.test(antwort('Ab wann muss ich behandeln?')), 'Behandlungspflicht');
+  assertEq(w.varroaAmpel(0, '2026-07-01').text, 'gering');
+  assertEq(w.varroaAmpelBefall(0.5).text, 'gering');
+  const imk = w.S.get('imkerei');
+  const charge = await w.DB.put('chargen', { losnummer: 'H-Land', ernteIds: [], mengeKg: 10, sorte: 'Raps', mhd: '2028-06-01' });
+  const abf = await w.DB.put('abfuellungen', { chargeId: charge.id, datum: w.U.todayIso(), gebindeG: 500, anzahl: 2, bestand: 2 });
+  try {
+    for (const [bundesland, land] of [['BY', 'Deutschland'], ['', 'Deutschland'], ['AT', 'Österreich'], ['CH', 'Schweiz']]) {
+      await w.S.set('imkerei', { ...imk, bundesland }, { auto: true });
+      await w.honigEtikettForm(abf, charge); await new Promise((r) => setTimeout(r, 60));
+      const e = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+      assertEq(e.querySelector('[data-field="ursprung"] input').value, land, 'Ursprungsland bei ' + (bundesland || 'ohne Angabe'));
+      dialogeSchliessen(w);
+    }
+  } finally { await w.S.set('imkerei', imk, { auto: true }); await w.DB.del('chargen', charge.id); await w.DB.del('abfuellungen', abf.id); }
+  const liz = await (await w.fetch('lizenzen.html')).text();
+  assert(/CC BY 4\.0/.test(liz) && /dl-de\/by-2-0/.test(liz) && /geoservice\.rlp\.de/.test(liz), 'Datenquellen mit Lizenz');
+  const ds = await (await w.fetch('datenschutz.html')).text();
+  assert(/fragt die App kurz bei unserer Website nach/.test(ds), 'Nachfrage beim eigenen Server genannt');
+  assert(/Zwischenspeicher der App/.test(ds), 'Kopie beim Teilen genannt');
+  assert(!/keinen Server bei uns/.test(await (await w.fetch('support.html')).text()), 'Support-Seite genau');
+});
+
 async function mitAbbruch(w, store, fn) {
   const put = w.IDBObjectStore.prototype.put; let injected = false;
   w.IDBObjectStore.prototype.put = function (o, ...args) {

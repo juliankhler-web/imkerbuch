@@ -108,6 +108,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **G4 Dunkel:** Oben das Halbkreis-Symbol (oder das Gerät auf Dunkelmodus). → App wird dunkel, alles lesbar.
 - [ ] **G5 Quer / schmal:** Handy drehen bzw. am Computer das Fenster schmal ziehen. → Nichts ragt über den Rand.
 
+- [ ] **G-N Sicherung groß (neu 3.13):** Sicherung mit vielen Fotos erstellen und in einem anderen Browser einspielen. → Gleiche Anzahl, Fotos öffnen sich.
+
 ## Zusatz · Light-Version ansehen (nur mit `?testmodus=1`)
 
 - [ ] **L1** Einstellungen → „Lizenz-Vorschau“ → „Light (nach 30 Tagen)“. → Hinweis „Du nutzt ImkerBuch Light“, gesperrte Bereiche tragen das Schild „Voll“.

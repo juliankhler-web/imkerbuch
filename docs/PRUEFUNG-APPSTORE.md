@@ -1,5 +1,23 @@
 # Prüfung vor der Einreichung
 
+## Stand 01.11.2026 abends, App v3.13 (Store-Fassung aus `native/www`)
+
+| Prüfung | Ergebnis |
+|---|---|
+| `npm test` | 826 von 826 grün |
+| `tools/gesamtpruefung.mjs` | 160 Seiten, 0 Auffälligkeiten |
+| `tools/angriffstest.mjs` | 32 Seiten, 0 Auffälligkeiten |
+| `tools/pdf-pruefung.mjs` | 1 PDF mit Hinweis wie zuvor |
+| `tools/touren-pruefung.mjs`, auch `TIPPEN=1` | keine Befunde |
+| `tools/start-pruefung.mjs` (neu) | keine Befunde: Datenbank scheitert oder hängt, Hauptteil defekt, Umstellung scheitert, Einstellungen nicht lesbar, Update von niedrigster Datenbank-Stufe aus v1.61 bis v1.64 |
+| Update ohne Löschen, iPhone-Simulator | v3.12 → v3.13 mit 300 Völkern und 50 Ständen: alles da |
+| Update ohne Löschen, Android-Emulator | v3.12 → v3.13: alle Zählungen gleich, Foto Byte für Byte gleich |
+| Sicherung, iPhone-Simulator | 21,8 MB, 120 Fotos, gültig, Abbruch im Teilen-Menü löscht die Kopie |
+| Sicherung und Einspielen, Android-Emulator | 164 MB, 300 Fotos: gültig, alles zurück |
+| Android mit Drei-Tasten-Leiste | Formular bis „Speichern“ sichtbar. Tastatur im Emulator nicht geprüft |
+
+Nicht geprüft: iOS 16 (Simulator-Stand fehlt), Android 7 bis 15 mit aktueller WebView, Speicher wirklich voll auf einem Gerät. Das steht in `docs/GERAETETEST.md` G7 bis G9, K5a, K5b.
+
 ## Stand 01.11.2026, App v3.12 (Store-Fassung aus `native/www`)
 
 Vor dem Hochladen mit der Fassung 1.00 noch einmal laufen lassen.

@@ -133,6 +133,10 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **G5 Quer:** iPhone drehen. → Nichts ragt über den Rand.
 - [ ] **G6 Großbestand (nur auf einem Testgerät!):** Erst eine eigene Sicherung machen. Dann Einstellungen → „Backup importieren“ → in iCloud Drive den Ordner „ImkerBuch-Test“ → Datei `imkerbuch-backup-grossbestand.json` (50 Stände, 325 Völker, erfundene Daten). → Einspielen dauert wenige Sekunden; Völkerliste, Statistik und Stand-Seiten öffnen ohne Warten. Unterlagen → einige PDFs erzeugen (Bestandsbuch, Königinnen, Hygieneplan, Komplettausdruck, Honig-Etiketten). → Keine Buchstaben untereinander, keine Wörter mitten getrennt, kein Tabellenkopf allein unten, Etiketten ganz auf dem Blatt. Danach die eigene Sicherung wieder einspielen. *(Am Mac geprüft mit `tools/pdf-pruefung.mjs`: alle 57 PDFs.)*
 
+- [ ] **G7 Update ohne Löschen (neu 3.13):** Eine Fassung aus TestFlight bzw. dem geschlossenen Test mit Einträgen, Fotos und einer Sprachnotiz füllen, Völker zählen. Die nächste Fassung darüber installieren, **nicht vorher löschen**. → Gleiche Zahl Völker, Fotos und Ton öffnen sich.
+- [ ] **G8 Sicherung groß (neu 3.13):** Bestand mit vielen Fotos sichern, in iCloud Drive bzw. Google Drive ablegen, **von dort** auf einem frisch installierten Gerät einspielen. → Gleiche Anzahl, Fotos öffnen sich. Dauer und Fotoanzahl notieren.
+- [ ] **G9 Speicher voll (neu 3.13):** Handy mit Videos bis auf den letzten Rest füllen, Foto an ein Volk hängen. → Meldung „Speicher voll …“, nichts geht verloren, nach dem Freigeben klappt es.
+
 ## H · Kaufen
 
 - [ ] **H1** Einstellungen → „ImkerBuch Vollversion“ → „Vollversion kaufen“. → Testkauf, danach „Vollversion freigeschaltet ✓“.
@@ -163,6 +167,8 @@ Installation über den geschlossenen Test im Play Store (Link kommt von Julian).
 - [ ] **K3 Kauf:** „Vollversion kaufen“ → Google-Play-Kauffenster (Testkauf über die Testerliste, kein Geld). Danach „Vollversion freigeschaltet ✓“.
 - [ ] **K4 Code einlösen:** öffnet den Play Store zum Einlösen; danach in der App „Käufe wiederherstellen“.
 - [ ] **K5 Teilen:** Bestandsbuch-PDF und Sicherung → Android-Teilen-Menü (Drive, Dateien, Mail).
+- [ ] **K5a Bestätigung des Kaufs (neu 3.13):** Als Lizenz-Tester kaufen, App offen lassen, **mindestens 10 Minuten warten** (Google erstattet unbestätigte Käufe bei Testern schon nach 3 bis 5 Minuten, sonst nach 3 Tagen). In der Play Console unter „Bestellungen“ nachsehen. → Nicht erstattet. Dasselbe mit Promo-Code und Testkarte „Slow test card“.
+- [ ] **K5b Andere Geräte (neu 3.13):** Falls möglich ein älteres Handy (Android 8 bis 12) und eines mit Drei-Tasten-Leiste: Start, langes Formular mit offener Tastatur bis „Speichern“, Kopfleiste, Dunkelmodus. Nach dem ersten Upload den Vorabbericht der Play Console ansehen.
 - [ ] **K6 Mitteilungen:** erste Aufgaben-Erinnerung → Android fragt nach Mitteilungen → Erlauben; danach erklärt die App „Minutengenau erinnern?“ → „Einstellung öffnen“ → bei ImkerBuch „Wecker und Erinnerungen“ einschalten → Zurück. Einstellungen → Funktionen zeigt „Minutengenau: an“. Aufgabe in 3 Minuten → Erinnerung kommt auf die Minute.
 - [ ] **K7 Etiketten:** Volk → QR-Code → „Etiketten als PDF“ → Teilen-Menü mit dem Etikettenbogen.
 - [ ] **K8 Aufkleber scannen (neu 3.04):** Flugmodus an. Startseite oder Völker → „Aufkleber scannen“. → **Eine** Frage nach der Kamera, Live-Bild erscheint, Aufkleber in den Rahmen halten: Die Durchsicht dieses Volks öffnet sich von selbst. Honigglas-Etikett scannen: rote Meldung, Scanner bleibt offen. „Abbrechen“ schließt, die Kamera ist aus. Kamera in den Handy-Einstellungen verbieten: Hinweis und Knopf „Foto vom Aufkleber machen“.

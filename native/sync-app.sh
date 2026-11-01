@@ -76,6 +76,16 @@ node -e '
   console.log("→ iPhone-Fassung der Rechtstexte ohne Android-Teile");
 ' || exit 1
 
+# Die interne Adresse darf sich nie ändern: Eine andere Adresse wirkt wie ein Umzug, die App fände ihre Daten nicht mehr.
+node -e '
+  const fs = require("fs");
+  for (const k of ["ios/App/App/capacitor.config.json", "android/app/src/main/assets/capacitor.config.json"]) {
+    const s = JSON.parse(fs.readFileSync(k, "utf8")).server || {};
+    if (s.androidScheme !== "https" || s.iosScheme !== "capacitor" || s.hostname !== "localhost") { console.error("✗ Interne Adresse in " + k + " fehlt oder ist geändert"); process.exit(1); }
+  }
+  console.log("→ Interne Adresse festgeschrieben");
+' || exit 1
+
 VERSION=$(grep -o "APP_VERSION = '[^']*'" www/index.html | head -1 | cut -d"'" -f2)
 echo "✓ Fertig – App-Stand v${VERSION} ist jetzt in ios/ und android/."
 echo "  iOS bauen:     npx cap open ios      (Xcode)"
