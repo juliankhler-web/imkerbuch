@@ -71,7 +71,7 @@ In der App → Version **1.0**:
 1. **Bildschirmfotos**: iPhone 6,9″ → die Bilder aus `store-bilder/iphone/` (die dunklen `…-dunkel.png`); iPad 13″ → `store-bilder/ipad/`.
 2. **Werbetext, Beschreibung, Stichwörter, Support-URL, Marketing-URL**: aus `docs/APP_STORE_TEXTE.md` kopieren.
 3. **App-Informationen** (links): Untertitel, Kategorie Produktivität / Lifestyle, Datenschutz-URL, Altersfreigabe-Fragebogen (überall „Nein“).
-4. **App-Datenschutz**: „Nein, wir erfassen keine Daten“ (Begründung in `APP_STORE_TEXTE.md`).
+4. **App-Datenschutz**: Standort → Genauer Standort, nicht verknüpft, App-Funktion, kein Tracking (am 01.11.2026 veröffentlicht, Begründung in `APP_STORE_TEXTE.md`).
 5. **Preis und Verfügbarkeit**: App **kostenlos** (verdient wird über den Kauf in der App), Länder DE/AT/CH.
 6. **Informationen für die App-Prüfung**: Kontakt (Name, Telefon, E-Mail), „Anmeldung erforderlich“ **aus**, Notizen aus `APP_STORE_TEXTE.md` („Hinweise für Apples Prüfer“).
 
