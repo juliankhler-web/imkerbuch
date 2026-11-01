@@ -64,7 +64,9 @@ node -e '
     const t = fs.readFileSync(d + f + ".html", "utf8").replace(/<!--nur-android-->[\s\S]*?<!--\/nur-android-->/g, "");
     const rest = t.match(/.{0,30}(Google Play|Play Store|Android).{0,30}/);
     if (rest) { console.error("✗ " + f + ".html nennt noch: " + rest[0]); process.exit(1); }
-    fs.writeFileSync(d + f + ".html", t);
+    // In den AGB fällt § 12 (Zusatz für Google Play) weg: Die Folgenden rücken auf, damit keine Lücke bleibt.
+    const fertig = f === "agb" ? t.replace(/<h2>§ (13|14|15) /g, (m, n) => "<h2>§ " + (n - 1) + " ") : t;
+    fs.writeFileSync(d + f + ".html", fertig);
   }
   fs.rmSync(d + "webview-veraltet.html", { force: true });
   console.log("→ iPhone-Fassung der Rechtstexte ohne Android-Teile");
