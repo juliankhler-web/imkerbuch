@@ -15,6 +15,10 @@ Stand 2026-10-30 (v3.09). Alles hier ist zum Kopieren in App Store Connect gedac
 - **Marketing-URL (optional):** `https://imkerbuch.app/`
 - **Copyright:** `2026 Julian Konstantin Köhler`
 
+## Vor jeder Einreichung (Julian, 01.11.2026)
+
+Apple und Google: Alle Punkte, auf die die Prüfung achtet, müssen so genau wie möglich stimmen, damit es keine unnötigen Nachprüfungen oder Nachfragen gibt. Deshalb die aktuellen Richtlinien im Original lesen und an der fertigen Store-Fassung Punkt für Punkt prüfen, dazu ein unabhängiger Agent.
+
 ## Eintragen in App Store Connect (Stand 30.10.2026)
 
 1. **App-Informationen:** Datenschutzrichtlinie-URL `https://imkerbuch.app/datenschutz.html`.
