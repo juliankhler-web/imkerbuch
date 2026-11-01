@@ -52,7 +52,7 @@ Stand 01.11.2026:
 
 ## Preis zum 01.01.2027
 
-- **Apple:** im Voraus planbar unter In-App-Käufe → Vollversion → Price Schedule → Custom Price Change. Apples Liste hat für die Schweiz keine 14,99 und keine 24,99 CHF, nur 14,95 und 24,95 CHF. Julian wollte denselben Betrag wie in Euro, deshalb der nächste Preis: 14,95 CHF (bei Apple am 01.11.2026 eingestellt), ab 01.01.2027 24,95 CHF.
+- **Apple:** im Voraus planbar unter In-App-Käufe → Vollversion → Price Schedule → Custom Price Change. Apples Liste hat für die Schweiz keine 14,99 und keine 24,99 CHF, nur 14,95 und 24,95 CHF. Julian wollte denselben Betrag wie in Euro, deshalb der nächste Preis: 14,95 CHF (bei Apple am 01.11.2026 eingestellt), ab 01.01.2027 24,95 CHF. **Bei Apple am 01.11.2026 für den 01.01.2027 eingeplant:** Deutschland und Österreich 24,99 €, Schweiz 24,95 CHF.
 - **Google:** keine Planung für den normalen Preis gefunden, also am 01.01.2027 von Hand ändern, einige Stunden Vorlauf einplanen.
 
 Der Apple-Name „30-Tage-Testphase“: Richtlinie 3.1.1 nennt das Muster „XX-day Trial“, Referenzname ist schon so. Vor dem Einreichen prüfen.
