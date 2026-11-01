@@ -17194,6 +17194,31 @@ test('v3.12: Foto einer Beilage aus dem Papierkorb bringt das entfernte Mittel z
   } finally { await w.S.set('meineMittel', echt); }
 });
 
+test('v3.12: Foto im Papierkorb übersteht die Sicherung, kaputte Einträge stoppen sie nicht', async (w) => isolierteDaten(w, async () => {
+  const foto = new w.Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+  const a = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'v1', art: 'foto', name: 'p.jpg', mime: 'image/jpeg', blob: foto });
+  await w.DB.softDel('anhaenge', a.id);
+  const kaputt = await w.DB.put('papierkorb', { id: 'kaputt1', store: 'anhaenge', daten: { id: 'k1', parentTyp: 'volk', parentId: 'v1', art: 'foto', blob: {} }, geloeschtAm: w.U.nowIso() });
+  const daten = await w.Backup.buildData(true);
+  const zeile = daten.stores.papierkorb.find((r) => r.daten && r.daten.id === a.id);
+  assert(zeile.daten.datenUrl && !('blob' in zeile.daten), 'die Datei steht als Text in der Sicherung');
+  const ohne = daten.stores.papierkorb.find((r) => r.id === 'kaputt1');
+  assert(!ohne.daten.datenUrl && !('blob' in ohne.daten), 'ein Eintrag ohne echte Datei wird ohne Datei gesichert');
+  const zurueck = w.Backup._rowsAusImport('papierkorb', JSON.parse(JSON.stringify(daten.stores.papierkorb)));
+  assert(w.U.istBlob(zurueck.find((r) => r.daten && r.daten.id === a.id).daten.blob), 'beim Einlesen wird daraus wieder eine Datei');
+  const alt = w.Backup._rowsAusImport('papierkorb', [{ id: 'alt1', store: 'anhaenge', daten: { id: 'x', blob: {} } }]);
+  assert(!('blob' in alt[0].daten), 'alte Sicherungen: blob {} fällt weg');
+  assertEq(w.U.istBlob({}), false); assertEq(w.U.istBlob(foto), true);
+}));
+
+test('v3.12: Herkunft auf dem Bio-Etikett in vielen Schreibweisen', (w) => {
+  for (const t of ['Deutschland (60), Österreich (40)', 'Deutschland 60 Österreich 40', '60 % Deutschland 40 % Österreich', 'Deutschland & Österreich', 'Deutschland und Österreich', 'Deutschland: 60,5 %, Österreich: 39,5 %'])
+    assertEq(w.oekoHerkunft(t), 'EU-Landwirtschaft', t);
+  assertEq(w.oekoHerkunft('60, 40'), 'EU-/Nicht-EU-Landwirtschaft', 'nur Zahlen: die vorsichtige Angabe');
+  assertEq(w.oekoHerkunft('Deutschland 60 %, Schweiz 40 %'), 'EU-/Nicht-EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Schweiz (100 %)'), 'Nicht-EU-Landwirtschaft');
+});
+
 test('v3.12: Bio-Etikett mit Zahlen ohne Prozent, Einwilligung bleibt auf dem Gerät', (w) => {
   assertEq(w.oekoHerkunft('60 Deutschland, 40 Österreich'), 'EU-Landwirtschaft');
   assertEq(w.oekoHerkunft('Deutschland 60, Schweiz 40'), 'EU-/Nicht-EU-Landwirtschaft');
@@ -17211,7 +17236,7 @@ test('v3.12: Rechtstexte: Android-Teile sind sauber markiert und die Sätze blei
     const t = await (await w.fetch(f + '.html')).text();
     assertEq((t.match(/<!--nur-android-->/g) || []).length, (t.match(/<!--\/nur-android-->/g) || []).length, f + ': Marken paarweise');
     const ios = t.replace(/<!--nur-android-->[\s\S]*?<!--\/nur-android-->/g, '');
-    assert(!/Google Play|Play Store|Android/.test(ios), f + ': die iPhone-Fassung nennt keine andere Plattform');
+    assert(!/google|android|play[ -]?store/i.test(ios.replace(/Google Gmail|Google Ireland Limited|Google kann Daten|Google LLC/g, '')), f + ': die iPhone-Fassung nennt keine andere Plattform');   // Support-Postfach bei Gmail: Dienstleister, kein Store
     assert(/App Store|Apple|iPhone/.test(ios), f + ': der eigene Store bleibt genannt');
   }
 });

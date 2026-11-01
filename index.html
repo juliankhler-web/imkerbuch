@@ -1490,6 +1490,7 @@ const U = {
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
   },
+  istBlob: (x) => !!x && typeof x.size === 'number' && typeof x.arrayBuffer === 'function',   // auch fensterübergreifend; {} aus alten Sicherungen ist keiner
   blobToDataURL: (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); }),
   dataURLToBlob(durl) { const [h, b64] = durl.split(','); const mime = h.match(/data:(.*?);/)[1]; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); },
   /** Bild clientseitig verkleinern (max. Kante) und als JPEG komprimieren */
@@ -1555,6 +1556,8 @@ const CHANGELOG = [
     '<b>Bestandsbuch:</b> Eine leere Wartezeit bleibt „nicht erfasst“. Bisher wurde daraus „0 Tage“. Nur eine eingetragene 0 heißt „keine Wartezeit“.',
     '<b>Adresssuche und Bio-Umgebungsprüfung:</b> Die App fragt vor dem ersten Senden und nennt, wohin die Daten gehen. Ändern kannst du das unter Einstellungen → Funktionen.',
     '<b>Meine Mittel und Mengenrechner:</b> Beim Zusammenführen einer Sicherung gehen keine Mittel mehr verloren. Der Rechner rundet sauber und verlangt bei „Anzahl Völker“ eine ganze Zahl.',
+    '<b>Sicherung:</b> Fotos im Papierkorb bleiben in der Sicherung erhalten. Ein Eintrag ohne Datei aus einer älteren Sicherung stoppt sie nicht mehr.',
+    '<b>Bio:</b> Die Warnung zur Wartezeit prüft alle Behandlungen vor der Ernte, und das Etikett erkennt mehr Schreibweisen der Herkunft. Mengen werden genau angezeigt.',
     '<b>Kleinere Korrekturen:</b> Holst du das Foto einer Beilage aus dem Papierkorb, kommt das entfernte Mittel mit zurück. Das Kauf-Fenster nennt vor dem Teststart, was danach wegfällt. Neue Koordinaten holen das Wetter gleich neu. Das Bio-Etikett erkennt auch „60 Deutschland, 40 Österreich“.',
   ] },
   { version: '3.11', datum: '2026-11-01', punkte: [
@@ -5290,7 +5293,7 @@ const Anhang = {
         </div>
         <div class="hint small muted">Anhänge werden lokal gespeichert. Fotos werden automatisch verkleinert; Dokumente möglichst unter 5 MB halten, sonst werden Backups groß.</div>`;
       // Thumbnails über Blob-URLs; nach dem Laden freigeben, sonst leckt jeder Re-Render Speicher
-      for (const a of items) if (a.art === 'foto') { const img = $(`[data-thumb="${U.esc(a.id)}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
+      for (const a of items) if (a.art === 'foto' && U.istBlob(a.blob)) { const img = $(`[data-thumb="${U.esc(a.id)}"]`, el); if (img) { const u = URL.createObjectURL(a.blob); img.onload = () => URL.revokeObjectURL(u); img.src = u; } }
       const ff = $('[data-filter]', el); if (ff) ff.onchange = () => { filter = ff.value; render(); };
       // Light: Fotos und Dokumente sind Vollversion – schon das Auswahlfenster nicht öffnen
       ['[data-add-foto]', '[data-add-doc]'].forEach((sel) => { const inp = $(sel, el); if (inp) inp.addEventListener('click', (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) e.preventDefault(); }); });
@@ -5320,6 +5323,7 @@ const Anhang = {
   },
   /** Vollbild-Viewer mit Typ-Zuordnung, Download, Löschen */
   viewer(a, { onNotiz, onChange } = {}) {
+    if (!U.istBlob(a.blob)) { UI.toast('Die Datei zu diesem Eintrag ist nicht mehr vorhanden.', 'err'); return; }
     const url = URL.createObjectURL(a.blob);
     const typen = S.get('dokumentTypen');
     const m = UI.modal({
@@ -6850,7 +6854,7 @@ function openStandForm(stand, onDone) {
       UI.toast('Stand gespeichert'); if (onDone) onDone();
       if (ortNeu) {   // nur neue Koordinaten verdienen einen neuen Versuch, dann auch ohne 30-Minuten-Grenze
         Wetter._versuchMerken(gespeichert.id, 0);
-        if (Wetter.erlaubt() && Wetter.hatOrt(gespeichert)) Wetter.aktuell(gespeichert, { erzwingen: true }).then(() => window.dispatchEvent(new Event('wetter-neu'))).catch(() => {});
+        if (Wetter.darfAuto() && Wetter.hatOrt(gespeichert)) Wetter.aktuell(gespeichert, { erzwingen: true }).then(() => window.dispatchEvent(new Event('wetter-neu'))).catch(() => {});
       }
       if (Wetter.frageFaellig(gespeichert)) setTimeout(() => Wetter.fragen(), 350);   // erst das Formular zu, dann die Frage
     },
@@ -9965,8 +9969,8 @@ function alsBehandlungEintragen(box) {
 /** Foto der Beilage aus dem Papierkorb geholt, das Mittel ist aber entfernt: Es kommt mit zurück, sonst wäre das Foto nirgends erreichbar. */
 async function mittelMitBeilageZurueck(eintrag) {
   const rec = eintrag && eintrag.store === 'anhaenge' ? eintrag.daten : null;
-  if (!rec || rec.parentTyp !== 'mittel' || !rec.mittelKopie || meineMittel().some((x) => x.id === rec.parentId)) return false;
-  await S.set('meineMittel', U.sortBy([...meineMittel(), rec.mittelKopie], (x) => x.name.toLowerCase()));
+  if (!rec || rec.parentTyp !== 'mittel' || !rec.mittelKopie || typeof rec.mittelKopie.name !== 'string' || typeof rec.parentId !== 'string' || meineMittel().some((x) => x.id === rec.parentId)) return false;   // auch Daten aus einer fremden Sicherung
+  await S.set('meineMittel', U.sortBy([...meineMittel(), { ...rec.mittelKopie, id: rec.parentId }], (x) => x.name.toLowerCase()));
   return true;
 }
 /** Anlegen oder Ändern. Die Menge muss eine einzelne Zahl sein, wie im Mengenrechner. */
@@ -10009,6 +10013,7 @@ async function mittelForm(mittel, box) {
   $('[data-mittel-weg]', m.el).onclick = async () => {
     if (!(await UI.confirm({ title: 'Mittel entfernen?', text: 'Es verschwindet aus „Meine Mittel“. Eingetragene Behandlungen bleiben. Fotos der Beilage wandern in den Papierkorb.' }))) return;
     for (const a of await Anhang.list('mittel', mittel.id)) { await DB.put('anhaenge', { ...a, mittelKopie: mittel }); await DB.softDel('anhaenge', a.id); }   // die Kopie holt das Mittel beim Wiederherstellen zurück
+    for (const e of await DB.getAll('papierkorb')) if (e.store === 'anhaenge' && e.daten && e.daten.parentTyp === 'mittel' && e.daten.parentId === mittel.id) await DB.put('papierkorb', { ...e, daten: { ...e.daten, mittelKopie: mittel } });   // schon vorher gelöschte Fotos ebenso
     await S.set('meineMittel', meineMittel().filter((x) => x.id !== mittel.id));
     m.close(true);
     if (box && box.isConnected) { delete box.dataset.mittel; meineMittelZeichnen(box); }
@@ -10038,7 +10043,7 @@ function mengenrechnerZeichnen(box) {
   const aus = $('[data-mr-aus]', box);
   if (r.fehlt === 'menge') { aus.innerHTML = '<div class="small muted">Trag zuerst den Wert aus deiner Packungsbeilage ein. Erst dann rechnet die App.</div>'; return; }
   if (r.fehlt === 'anzahl') { aus.innerHTML = `<div class="small muted">Trag noch ein: ${U.esc(MENGEN_BEZUG[bezug][1])}.</div>`; return; }
-  aus.innerHTML = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${U.fmtNum(r.proVolk, 2)} ${einheit}</div></div><div class="stat"><div class="s-label">Gesamt${r.voelker > 1 ? ` (${r.voelker} Völker)` : ''}</div><div class="s-value">${U.fmtNum(r.gesamt, 2)} ${einheit}</div></div></div>`;
+  aus.innerHTML = `<div class="stat-grid"><div class="stat"><div class="s-label">Pro Volk</div><div class="s-value">${U.fmtNum(r.proVolk, 6)} ${einheit}</div></div><div class="stat"><div class="s-label">Gesamt${r.voelker > 1 ? ` (${r.voelker} Völker)` : ''}</div><div class="s-value">${U.fmtNum(r.gesamt, 6)} ${einheit}</div></div></div>`;
   aus.insertAdjacentHTML('beforeend', '<button type="button" class="btn btn-ghost btn-sm mt8" data-mr-eintragen>Als Behandlung eintragen</button>');
 }
 
@@ -10063,7 +10068,7 @@ Views.behandlungen = {
         <button class="row" data-id="${U.esc(b.id)}">
           <span class="r-ic" style="background:var(--violet-bg);color:var(--violet)">${icon('flask')}</span>
           <span class="r-main"><span class="r-title">${U.esc(b.mittel)}</span>
-          <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${U.esc(b.wartezeitTage)} Tage` : ''}</span></span>
+          <span class="r-sub">${U.fmtDate(b.datum)} · ${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(zn(b))}“ · ${U.fmtNum(b.menge, 6)} ${U.esc(b.einheit || '')}${b.wartezeitTage ? ` · Wartezeit ${U.esc(b.wartezeitTage)} Tage` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`).join('') + `</div>` + seitenweise('behandlungen', list).knopf
       : emptyState('flask', 'Noch keine Behandlung dokumentiert. Jede Anwendung gehört ins Bestandsbuch – inklusive Mittel, Menge und Wartezeit.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Behandlung</button>`)) + `</div>`;
     const add = () => Views.behandlungen.sammelForm();
@@ -10153,7 +10158,7 @@ Views.behandlungen = {
       title: `${b.mittel} – ${U.fmtDate(b.datum)}`, wide: true,
       body: `<div class="detail-kv mb12">
           <dt>Behandelt</dt><dd>${b.zielTyp === 'volk' ? 'Volk' : 'Stand'} „${U.esc(ziel)}“</dd>
-          <dt>Menge</dt><dd>${U.fmtNum(b.menge)} ${U.esc(b.einheit || '')}</dd>
+          <dt>Menge</dt><dd>${U.fmtNum(b.menge, 6)} ${U.esc(b.einheit || '')}</dd>
           <dt>Anwendungsart</dt><dd>${U.esc(b.anwendungsart) || '–'}</dd>
           <dt>Wartezeit</dt><dd>${U.esc(wartezeitText(b, true))}</dd>
           ${b.behandlungBis ? `<dt>Behandlung bis</dt><dd>${U.fmtDate(b.behandlungBis)}</dd>` : ''}
@@ -11599,12 +11604,15 @@ const EU_LAENDER = ['Deutschland', 'Österreich', 'Belgien', 'Bulgarien', 'Däne
 function oekoHerkunft(ursprung) {
   const t = String(ursprung || '').trim();
   if (!t) return 'EU-/Nicht-EU-Landwirtschaft';
-  /* „Deutschland 60 %, Österreich 40 %“: Die Prozentangaben gehören nicht zum Ländernamen */
-  const ohneAnteil = t.replace(/\(?\s*\d+(?:[.,]\d+)?\s*(?:%|Prozent)\s*\)?/gi, ' ');   // vor dem Trennen, sonst zerfällt „60,5 %“ am Komma
-  const teile = ohneAnteil.split(/\s*[,/·;:+]\s*|\s+und\s+/).map((x) => x.replace(/^\d+(?:[.,]\d+)?\s*|\s*\d+(?:[.,]\d+)?$/g, '').trim()).filter(Boolean);   // auch „60 Deutschland“ und „Deutschland 60“
-  const inEu = teile.some((x) => EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
-  const ausserEu = teile.some((x) => !EU_LAENDER.some((l) => l.toLowerCase() === x.toLowerCase()));
-  if (inEu && ausserEu) return 'EU-/Nicht-EU-Landwirtschaft';
+  /* Länder im Text suchen statt am Trennzeichen zu zerlegen: „Deutschland (60), Österreich (40)“, „60 % Deutschland 40 % Österreich“, „Deutschland & Österreich“ */
+  let rest = ` ${t.toLowerCase().replace(/\d+(?:[.,]\d+)?|%|prozent/g, ' ').replace(/[(),/·;:+&.-]/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  let inEu = false;
+  for (const l of [...EU_LAENDER].sort((x, y) => y.length - x.length)) {
+    const name = ` ${l.toLowerCase()} `;
+    while (rest.includes(name)) { inEu = true; rest = rest.replace(name, ' '); }
+  }
+  const ausserEu = !!rest.replace(/ (und|sowie|aus) /g, ' ').trim();
+  if ((inEu && ausserEu) || (!inEu && !ausserEu)) return 'EU-/Nicht-EU-Landwirtschaft';   // gemischt oder nur Zahlen: die vorsichtige Angabe
   return inEu ? 'EU-Landwirtschaft' : 'Nicht-EU-Landwirtschaft';
 }
 
@@ -13434,7 +13442,8 @@ async function ernteFuerVerarbeitung(ernteId) {
   // letzte Behandlung des Volkes bzw. Standes vor der Ernte (Bestandsbuch)
   const passt = (b) => (b.zielTyp === 'volk' ? volk && b.zielId === volk.id : stand && b.zielId === stand.id) && (b.datum || '') <= (e.datum || '9999');
   const letzte = U.sortBy(behandlungen.filter(passt), (b) => b.datum || '', true)[0] || null;
-  const wartezeitBis = letzte && Number(letzte.wartezeitTage) > 0 ? U.addDays(letzte.datum, Math.round(Number(letzte.wartezeitTage))) : '';
+  // Das späteste Ende aller Behandlungen zählt: Eine neuere ohne Wartezeit beendet die laufende einer älteren nicht
+  const wartezeitBis = behandlungen.filter(passt).reduce((max, b) => { const t = Number(b.wartezeitTage); if (!(t > 0)) return max; const ende = U.addDays(b.datum, Math.round(t)); return ende > max ? ende : max; }, '');
   const chs = chargen.filter((c) => (c.ernteIds || []).includes(e.id));
   const abfs = abf.filter((a) => chs.some((c) => c.id === a.chargeId)).sort((a, b) => (a.datum || '').localeCompare(b.datum || ''));
   return { ernte: e, honig: e.sorte || 'Honig', geschleudert: e.datum || '', wasser: zahlOderLeer(e.wassergehalt) === '' ? null : Number(e.wassergehalt),
@@ -13796,7 +13805,7 @@ const OSM_UNBEKANNT = { name: 'Nicht in OpenStreetMap erfasst', art: 'sonstiges'
 /** Adresse oder Ort → {lat, lon, name}. Wirft, wenn nichts gefunden wird. */
 /* Vor dem ersten Senden fragen, wie beim Wetter (Apple 5.1.2, v3.12). Ein Nein wird nicht gemerkt, denn die Funktion löst der Nutzer jedes Mal selbst aus. */
 const DIENST_FRAGEN = {
-  adresssucheErlaubt: { titel: 'Adresssuche nutzen?', ja: 'Adresssuche nutzen', text: 'Dafür schickt ImkerBuch deinen Suchbegriff an OpenStreetMap. Dabei wird technisch auch deine IP-Adresse übertragen. Trag deshalb keine Namen ein. Ändern kannst du das unter Einstellungen → Funktionen.' },
+  adresssucheErlaubt: { titel: 'Adresssuche nutzen?', ja: 'Adresssuche nutzen', text: 'Dafür schickt ImkerBuch deinen Suchbegriff an OpenStreetMap. Dabei wird technisch auch deine IP-Adresse übertragen. Trag deshalb keine Namen ein. Vorher fragt die App kurz bei imkerbuch.app nach, ob der Dienst gerade nutzbar ist. Ändern kannst du das unter Einstellungen → Funktionen.' },
   geodiensteErlaubt: { titel: 'Umgebung berechnen?', ja: 'Berechnen', text: 'Dafür schickt ImkerBuch die Koordinaten dieses Stands an amtliche Geodienste, ersatzweise an OpenStreetMap. Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Ändern kannst du das unter Einstellungen → Funktionen.' },
 };
 async function dienstErlaubt(key) {
@@ -13809,7 +13818,7 @@ async function dienstErlaubt(key) {
 async function osmAdresseSuchen(text) {
   const q = String(text || '').trim();
   if (!q) throw new Error('Bitte eine Adresse oder einen Ort eingeben.');
-  if (!(await dienstErlaubt('adresssucheErlaubt'))) throw new Error('Ohne deine Zustimmung sucht die App keine Adresse. Trag die Koordinaten von Hand ein oder nimm den aktuellen Standort.');
+  if (!(await dienstErlaubt('adresssucheErlaubt'))) throw Object.assign(new Error('Ohne deine Zustimmung sucht die App keine Adresse. Trag die Koordinaten von Hand ein oder nimm den aktuellen Standort.'), { abgelehnt: true });
   if (!(await Dienste.nominatimErlaubt())) throw new Error('Die Adresssuche ist gerade nicht verfügbar. Trage die Koordinaten bitte von Hand ein oder nimm den aktuellen Standort.');
   await osmSuchAbstand();
   const url = `${OSM_NOMINATIM}?format=json&limit=1&addressdetails=0&q=${encodeURIComponent(q)}`;
@@ -14258,9 +14267,15 @@ async function gbvLandbedeckung(lat, lon, radiusM, melde = () => {}) {
     features: [{ geometry: { x: punkt.x, y: punkt.y, spatialReference: { wkid: 102100, latestWkid: 3857 } }, attributes: { OBJECTID: 1 } }],
   };
   const hole = async (url, opt = {}) => {
-    const res = await fetch(url, opt);
-    if (!res.ok) throw new Error(`Status ${res.status}`);
-    return res;
+    const stopp = new AbortController(), uhr = setTimeout(() => stopp.abort(), 30000);   // hängt der Dienst, greift die Rückfall-Ebene
+    try {
+      const res = await fetch(url, { ...opt, signal: stopp.signal });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      return res;
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Der Rechendienst hat nicht rechtzeitig geantwortet.');
+      throw e;
+    } finally { clearTimeout(uhr); }
   };
   melde('Amtliche Auswertung beim GeoBox-Dienst anfordern …');
   const auftrag = await (await hole(`${GBV_GP}/submitJob`, {
@@ -14311,7 +14326,7 @@ const LB_QUELLEN = [
     Gibt zusätzlich zurück, welche Quelle geantwortet hat und was zuvor
     schiefging – das gehört in die Unterlagen, nicht in eine Logdatei. */
 async function landbedeckungErmitteln(lat, lon, radiusM, melde = () => {}, nur = null) {
-  if (!(await dienstErlaubt('geodiensteErlaubt'))) throw new Error('Ohne deine Zustimmung berechnet die App die Umgebung nicht. Du kannst die Flächen von Hand eintragen.');
+  if (!(await dienstErlaubt('geodiensteErlaubt'))) throw Object.assign(new Error('Ohne deine Zustimmung berechnet die App die Umgebung nicht. Du kannst die Flächen von Hand eintragen.'), { abgelehnt: true });
   const kette = nur ? LB_QUELLEN.filter((q) => q.key === nur) : LB_QUELLEN;
   const gescheitert = [];
   for (const quelle of kette) {
@@ -16034,7 +16049,7 @@ Views.bio = {
         koord = treffer;
         melde(`Gefunden: ${treffer.name}. Koordinaten übernommen – jetzt „Amtlich berechnen" drücken.`);
       } catch (e) {
-        melde('Adresssuche fehlgeschlagen: ' + (e.message || 'unbekannter Fehler'));
+        melde(e.abgelehnt ? e.message : 'Adresssuche fehlgeschlagen: ' + (e.message || 'unbekannter Fehler'));
       } finally { knopf.disabled = false; }
     };
     const rechnen = async (art) => {
@@ -16066,7 +16081,7 @@ Views.bio = {
           + ` Ort: ${koord.name}`);
         $('#bio-datum', m.el).value = U.todayIso();
       } catch (e) {
-        melde('Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
+        melde(e.abgelehnt ? e.message : 'Fehlgeschlagen: ' + (e.message || 'unbekannter Fehler') + ' – du kannst die Werte weiter von Hand eintragen.');
       } finally { knoepfe.forEach((k) => { k.disabled = false; }); }
     };
     $('#bio-amtlich', m.el).onclick = () => rechnen('amtlich');
@@ -22091,6 +22106,7 @@ Views.papierkorb = {
         const bereich = eintrag && Lizenz.STORE_VOLL[eintrag.store];
         if (bereich && Lizenz.nurVoll(bereich)) return;
         if (eintrag && eintrag.store === 'voelker' && !(await Lizenz.neuesVolkErlaubt())) return;
+        if (eintrag && eintrag.store === 'anhaenge' && !U.istBlob(eintrag.daten && eintrag.daten.blob)) { UI.toast('Die Datei fehlt in diesem Eintrag, er stammt aus einer älteren Sicherung. Du kannst ihn endgültig löschen.', 'err'); return; }
         try {
           const wiederhergestellt = await DB.trashRestore(rs.dataset.restore);
           const mittelZurueck = wiederhergestellt && await mittelMitBeilageZurueck(eintrag);
@@ -23374,8 +23390,17 @@ const Backup = {
         out.stores[store] = [];
         for (const r of rows) {
           const { blob, ...rest } = r;
-          if (mitAnhaengen && blob) rest.datenUrl = await U.blobToDataURL(blob);
+          if (mitAnhaengen && U.istBlob(blob)) rest.datenUrl = await U.blobToDataURL(blob);
           out.stores[store].push(rest);
+        }
+      } else if (store === 'papierkorb') {
+        /* Auch ein Anhang im Papierkorb trägt seine Datei. JSON machte daraus {}: Das Foto war verloren, und nach dem Wiederherstellen brach jede weitere Sicherung ab (v3.12). */
+        out.stores[store] = [];
+        for (const r of rows) {
+          if (r.store !== 'anhaenge' || !r.daten || !('blob' in r.daten)) { out.stores[store].push(r); continue; }
+          const { blob, ...rest } = r.daten;
+          if (mitAnhaengen && U.istBlob(blob)) rest.datenUrl = await U.blobToDataURL(blob);
+          out.stores[store].push({ ...r, daten: rest });
         }
       } else out.stores[store] = rows;
     }
@@ -23823,6 +23848,10 @@ const Backup = {
       const sauber = this._saeubereZeile(store, r);
       if (!sauber) return null;
       if (store === 'anhaenge' && sauber.datenUrl) { const { datenUrl, ...rest } = sauber; rest.blob = U.dataURLToBlob(datenUrl); return rest; }
+      if (store === 'papierkorb' && sauber.store === 'anhaenge' && S.istObjekt(sauber.daten)) {
+        const { datenUrl, blob, ...rest } = sauber.daten;   // alte Sicherungen enthalten hier blob: {}
+        return { ...sauber, daten: datenUrl ? { ...rest, blob: U.dataURLToBlob(datenUrl) } : rest };
+      }
       return sauber;
     }).filter(Boolean);
   },
@@ -23885,9 +23914,10 @@ const Backup = {
     const lmL = String(lokal.lastModified || ''), lmF = String(fremd.lastModified || '');
     /* Meine Mittel je Mittel zusammenführen: Sonst ersetzte die neuere Liste die andere, und Mittel gingen still verloren.
        Bei gleicher Kennung gewinnt die neuere Liste. Ein entferntes Mittel kann so wiederkommen, das ist der kleinere Schaden. */
-    if (lokal.key === 'meineMittel' && Array.isArray(lokal.value) && Array.isArray(fremd.value)) {
+    if (lokal.key === 'meineMittel') {
+      if (!Array.isArray(fremd.value)) return null;   // kein gültiger Wert aus der Sicherung: die eigene Liste bleibt
       const [alt, neu] = lmF > lmL ? [lokal, fremd] : [fremd, lokal];
-      const je = new Map([...alt.value, ...neu.value].filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string').map((x) => [x.id, x]));
+      const je = new Map([...(Array.isArray(alt.value) ? alt.value : []), ...(Array.isArray(neu.value) ? neu.value : [])].filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string').map((x) => [x.id, x]));
       const wert = U.sortBy([...je.values()], (x) => x.name.toLowerCase());
       return JSON.stringify(wert) === JSON.stringify(lokal.value) ? null : { ...neu, value: wert };
     }
@@ -24572,7 +24602,7 @@ const Lizenz = {
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
     const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und beliebig viele Völker gehen dann nur mit der Vollversion. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann nur mit der Vollversion, zum Beispiel Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr Völker. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a></p>
@@ -25365,7 +25395,7 @@ const Pdf = {
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
       const { doc, y } = await this.newDoc(`Aufzeichnung über angewendete Arzneimittel${jahr ? ' ' + jahr : ''}`, `Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`, { quer: true });
-      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
+      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge, 6)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Behandlung bis', 'Wartezeit', 'Lieferant', 'Behandelnde Person', 'Tierarzt', 'Kaufbeleg vorhanden', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -29049,7 +29079,7 @@ Views.einstellungen = {
         <label class="check-line"><input type="checkbox" id="feat-wetter" ${Wetter.erlaubt() ? 'checked' : ''}> <span>Wetter-Abruf vom Deutschen Wetterdienst (über Bright Sky, kostenlos, ohne Schlüssel)</span></label>
         <label class="check-line" style="margin-left:26px"><input type="checkbox" data-feat="wetterStart" ${Wetter.erlaubt() && f.wetterStart !== false ? 'checked' : ''} ${Wetter.erlaubt() ? '' : 'disabled'}> <span>Wetter von selbst abrufen: beim App-Start, bei der Rückkehr in die App, wenn wieder Internet da ist, auf der Startseite und am Stand (höchstens alle 30 Minuten, nur mit Internet)</span></label>
         <div class="small muted mt4" id="wetter-hinweis">Dafür schickt ImkerBuch die gerundeten Koordinaten deiner Stände an den Wetterdienst Bright Sky (Daten vom Deutschen Wetterdienst). Dabei wird technisch auch deine IP-Adresse übertragen. Namen gehen nicht mit. Mit dem Einschalten stimmst du dem zu. Ausschalten kannst du es hier jederzeit, das gilt dann für alle künftigen Abrufe.${Wetter.erlaubt() ? ` Zugestimmt am ${U.esc(new Date(S.get('wetterEinwilligung').zeit).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }))}.` : ''}</div>
-        <label class="check-line mt8"><input type="checkbox" id="feat-adresse" ${S.get('adresssucheErlaubt') === true ? 'checked' : ''}> <span>Adresssuche: Suchbegriff und IP-Adresse gehen an OpenStreetMap</span></label>
+        <label class="check-line mt8"><input type="checkbox" id="feat-adresse" ${S.get('adresssucheErlaubt') === true ? 'checked' : ''}> <span>Adresssuche: Suchbegriff und IP-Adresse gehen an OpenStreetMap, vorher kurze Nachfrage bei imkerbuch.app</span></label>
         <label class="check-line"><input type="checkbox" id="feat-geodienste" ${S.get('geodiensteErlaubt') === true ? 'checked' : ''}> <span>Bio-Umgebungsprüfung: Koordinaten des Stands und IP-Adresse gehen an amtliche Geodienste, ersatzweise an OpenStreetMap</span></label>
         <h3 class="mt16 mb8">Erinnerungen</h3>
         <label class="check-line"><input type="checkbox" id="feat-notif" ${f.benachrichtigungen ? 'checked' : ''}> <span>${Erinnerung.plugin() ? 'An fällige Aufgaben erinnern (Mitteilung aufs Gerät, auch bei geschlossener App)' : 'Bei fälligen Aufgaben benachrichtigen (Systemmeldung + Zähler am App-Icon)'}</span></label>

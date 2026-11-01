@@ -33,7 +33,7 @@ Stand 2026-11-01 (v3.12). Gegenstück zu `APP_STORE_EINREICHUNG.md` / `APP_STORE
    - **Mindest-WebView 98** (`capacitor.config.json`): ältere „Android System WebView“ → Hinweisseite `webview-veraltet.html` mit Link zum Play Store.
    - Geprüft 20.10.2026 im Emulator „ImkerBuch_Alt“ (Android 10, WebView 91): Hinweisseite erscheint statt leerer App, der Knopf öffnet den Play Store. Die App selbst auf Android 10 mit aktueller WebView ließe sich nur mit Google-Anmeldung im Emulator prüfen (nicht gemacht) – Android-Version ist für die App zweitrangig, entscheidend ist die WebView (≥ 98; auf Geräten mit Play Store aktualisiert sie sich selbst).
 4. **Geschlossener Test:** 12 Tester, **14 Tage am Stück** (Julians Imker). Erst danach Freigabe für alle.
-5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 € bzw. 14,95 CHF bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 24,95 CHF, gleich wie bei Apple; Preisänderung rechtzeitig einstellen), Länder DE/AT/CH.
+5. Kaufprodukt `de.imkerbuch.app.vollversion` in der Play Console anlegen (14,99 € bzw. 14,95 CHF bis 31.12.2026, ab 01.01.2027 24,99 € bzw. 24,95 CHF, gleich wie bei Apple, zum Start nur DE/AT; Preisänderung rechtzeitig einstellen), Länder DE/AT/CH.
 6. Android-Test: Fotos, Sprachnotiz, Standort, Erinnerungen, Teilen-Menü (PDF/Sicherung), Kauf/Wiederherstellen, Zurück-Taste, Tablet.
 
 ## Store-Eintrag
@@ -87,7 +87,8 @@ DEINE DATEN GEHÖREN DIR
 • Kein Konto, keine Werbung, kein Tracking
 • Sicherung über das Teilen-Menü in Google Drive, „Dateien“ oder per Mail
 • Alle Daten jederzeit als Excel oder CSV – auch in der kostenlosen Light-Version
-• Keine automatische Übertragung in fremde Clouds
+• Keine Sicherung in fremde Clouds ohne dein Zutun
+• Bei Sprachnotizen wandelt das Betriebssystem Sprache je nach Gerät über den Dienst des Herstellers in Text um
 • Wetter, Adresssuche und Bio-Umgebungsprüfung nutzen Internetdienste, aber erst nach deiner Zustimmung
 
 30 Tage alle Funktionen kostenlos testen – die Testphase startest du selbst in der App, sie läuft dann auf diesem Gerät. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar.
@@ -96,7 +97,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 ```
 
 - **Kategorie:** Produktivität · **Tags:** Landwirtschaft, Notizen, Organisation
-- **Kaufprodukt:** `de.imkerbuch.app.vollversion` (Einmalkauf, „Verwaltetes Produkt“), Name „ImkerBuch Vollversion“, Beschreibung „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“, 14,99 € (DE/AT), Schweiz 14,95 CHF wie bei Apple. Kein Testphase-Produkt (Google kennt keinen 0-€-Kauf; Testphase läuft auf dem Gerät).
+- **Kaufprodukt:** `de.imkerbuch.app.vollversion` (Einmalkauf, „Verwaltetes Produkt“), Name „ImkerBuch Vollversion“, Beschreibung „Alle Funktionen dauerhaft – Einmalkauf, kein Abo.“, 14,99 € (DE/AT), Schweiz erst nach Klärung, dann 14,95 CHF bzw. ab 01.01.2027 24,95 CHF wie bei Apple; DE/AT ab 01.01.2027 24,99 €. Kein Testphase-Produkt (Google kennt keinen 0-€-Kauf; Testphase läuft auf dem Gerät).
 - **Länder:** zum Start Deutschland und Österreich. Die Schweiz erst nach Klärung mit dem Steuerberater, weil Google die Schweizer Mehrwertsteuer dem Entwickler zuweist (Entscheidung 01.11.2026).
 - **Kontakt:** support@imkerbuch.app · Website: `https://imkerbuch.app/`
 - **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
@@ -107,7 +108,7 @@ Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“
 - **Erfasst oder teilt die App Daten?** Ja, in geringem Umfang:
   - **Standort (ungefähr und genau):** erfasst, Zweck App-Funktionen, nicht für Werbung, nicht verkauft. Nicht als flüchtig angeben, solange die Dienste das nicht schriftlich bestätigen. Weitergabe an Wetter-, Karten- und Geodienste (Deutscher Wetterdienst über Bright Sky, OpenStreetMap, amtliche Geodienste), wenn Wetter oder Bio-Umgebungsprüfung genutzt werden. Wetter ist ab Werk aus (ab v3.08) und läuft erst nach Zustimmung, dann auch beim App-Start.
   - Adresssuche: Suchbegriff an OpenStreetMap (vom Nutzer ausgelöst).
-  - Alles andere (Völker, Fotos, Audio, Buchungen, Kontakte) bleibt **nur auf dem Gerät** → nicht „erfasst“.
+  - Alles andere (Völker, Fotos, Aufnahmen, Buchungen, Kontakte) bleibt auf dem Gerät → nicht „erfasst“. Ausnahme Live-Diktat, siehe unten.
 - **Verschlüsselung bei der Übertragung:** Ja (HTTPS).
 - **Automatische Android-Sicherung:** ausgeschaltet (`allowBackup=false`, `data_extraction_rules.xml`) – die App-Datenbank geht nicht in Googles Gerätesicherung.
 - **Löschung:** Nutzer können alle Daten in der App löschen (Einstellungen → Sicherung & Datensicherheit → „Alle Daten löschen“). Löschen in der App wirkt nur auf dem Gerät. Es gibt keine Konten.

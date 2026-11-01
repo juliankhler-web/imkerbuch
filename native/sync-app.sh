@@ -62,13 +62,17 @@ node -e '
   const fs = require("fs"), d = "ios/App/App/public/";
   for (const f of ["agb","support","impressum","datenschutz","lizenzen"]) {
     const t = fs.readFileSync(d + f + ".html", "utf8").replace(/<!--nur-android-->[\s\S]*?<!--\/nur-android-->/g, "");
-    const rest = t.match(/.{0,30}(Google Play|Play Store|Android).{0,30}/);
+    // Das Support-Postfach bei Gmail muss im Datenschutz stehen: Dienstleister, kein Store
+    const rest = t.replace(/Google Gmail|Google Ireland Limited|Google kann Daten|Google LLC/g, "").match(/.{0,30}(google|android|play[ -]?store).{0,30}/i);
     if (rest) { console.error("✗ " + f + ".html nennt noch: " + rest[0]); process.exit(1); }
     // In den AGB fällt § 12 (Zusatz für Google Play) weg: Die Folgenden rücken auf, damit keine Lücke bleibt.
     const fertig = f === "agb" ? t.replace(/<h2>§ (13|14|15) /g, (m, n) => "<h2>§ " + (n - 1) + " ") : t;
     fs.writeFileSync(d + f + ".html", fertig);
   }
   fs.rmSync(d + "webview-veraltet.html", { force: true });
+  const k = "ios/App/App/capacitor.config.json", kon = JSON.parse(fs.readFileSync(k, "utf8"));   // die Hinweisseite gibt es nur für alte Android-WebViews
+  if (kon.server) delete kon.server.errorPath;
+  fs.writeFileSync(k, JSON.stringify(kon, null, "\t"));
   console.log("→ iPhone-Fassung der Rechtstexte ohne Android-Teile");
 ' || exit 1
 

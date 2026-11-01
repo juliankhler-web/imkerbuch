@@ -27,7 +27,7 @@ Gespeichert am 01.11.2026: Adressen, Copyright, E-Mail, Beschreibung, Werbetext,
 1. **App-Informationen:** Datenschutzrichtlinie-URL `https://imkerbuch.app/datenschutz.html`.
 2. **Version:** Support-URL `https://imkerbuch.app/support.html`, Marketing-URL `https://imkerbuch.app/`, Copyright `2026 Julian Konstantin Köhler`.
 3. **App-Prüfung, Kontakt:** E-Mail `support@imkerbuch.app`, Hinweise aus dem Abschnitt unten.
-4. **Lizenzvertrag:** unter App-Informationen → „Lizenzvertrag“ den eigenen Vertrag wählen und den Text aus `agb.html` einsetzen (Rechtsprüfung 1.1, Apple Exhibit D).
+4. **Lizenzvertrag:** unter App-Informationen → „Lizenzvertrag“ den eigenen Vertrag wählen und den Text aus `native/ios/App/App/public/agb.html` einsetzen (iPhone-Fassung ohne Google-Teile) (Rechtsprüfung 1.1, Apple Exhibit D).
 5. **App-Datenschutz:** siehe Abschnitt unten. Standort, genau, App-Funktionalität, kein Tracking.
 6. **Beschreibung und Werbetext:** aus dieser Datei übernehmen.
 7. **Händlerstatus (Julian):** „Händler“; Adresse, Telefon und E-Mail werden in der EU sichtbar.
@@ -90,9 +90,10 @@ DEINE DATEN GEHÖREN DIR
 • Kein Konto, keine Werbung, kein Tracking
 • Sicherung über das Teilen-Menü in iCloud Drive oder per Mail
 • Wetter, Adresssuche und Bio-Umgebungsprüfung nutzen Internetdienste, aber erst nach deiner Zustimmung
+• Bei Sprachnotizen wandelt das Betriebssystem Sprache je nach Gerät über den Dienst des Herstellers in Text um
 • Alle Daten jederzeit als Excel oder CSV – auch in der kostenlosen Light-Version
 
-30 Tage alle Funktionen kostenlos testen. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar. Für den Start der Testphase und den Kauf muss das Gerät einmal online sein, danach läuft alles offline. Viele der genannten Bereiche gehören zur Vollversion.
+30 Tage alle Funktionen kostenlos testen. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar. Für den Start der Testphase und den Kauf muss das Gerät einmal online sein, danach läuft alles offline. Alles außer den genannten Light-Funktionen gehört zur Vollversion.
 
 Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“.
 
@@ -118,7 +119,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
 - Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, when the connection returns, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
 - Address search and the organic land-cover check ask for consent before their first use and name the recipient (OpenStreetMap, official German geo services). Consent can be withdrawn under Einstellungen → Funktionen.
-- The quantity calculator under Behandlungen and "Meine Mittel" contains no dosage data and suggests no amounts. It only multiplies values the beekeeper copies from the package leaflet of an approved veterinary medicine for bee colonies. It is not for humans.
+- The quantity calculator under Behandlungen and Rechner, and "Meine Mittel", contain no dosage data and suggest no amounts. They only multiply values the beekeeper copies from the package leaflet of an approved veterinary medicine for bee colonies. It is not for humans.
 - Permissions are only requested when used: camera (photos, scanning QR stickers), photo library (saving on request), microphone and speech recognition (voice notes with live transcription), location (stand position), notifications (task and backup reminders, local only).
 - Support and privacy pages are reachable in the app under Einstellungen → Rechtliches and "Hilfe & Kontakt".
 
