@@ -17158,6 +17158,49 @@ test('dienste.json: Sperre, Zwischenspeicher, Fehler und Zeitüberschreitung, ei
     assertEq(zeiten.length, 2, 'beide gesucht');
     assert(Math.abs(zeiten[1] - zeiten[0]) >= 950, 'mindestens eine Sekunde Abstand: ' + (zeiten[1] - zeiten[0]));
   } finally { leeren(); }
+
+test('v3.12: Wartezeit bleibt leer, Mengenrechner rundet, Meine Mittel gehen beim Zusammenführen nicht verloren', async (w) => {
+  assertEq(w.wartezeitWert(''), null); assertEq(w.wartezeitWert(undefined), null); assertEq(w.wartezeitWert(null), null);
+  assertEq(w.wartezeitWert(0), 0, 'eine eingetragene 0 bleibt 0'); assertEq(w.wartezeitWert(14), 14);
+  assertEq(w.wartezeitText({ datum: '2026-06-01', wartezeitTage: w.wartezeitWert('') }, true), 'nicht erfasst');
+  const r = w.mengenRechnen({ menge: 1.1, bezug: 'gasse', jeVolk: 3, voelker: 3 });
+  assertEq(r.proVolk, 3.3, '1,1 × 3 ohne Rundungsrest'); assertEq(r.gesamt, 9.9);
+  // Sicherung mit kaputtem Wert bricht den Rechner nicht
+  const echt = w.S.get('meineMittel');
+  try {
+    await w.S.set('meineMittel', 'kaputt'); assertEq(w.meineMittel().length, 0, 'kein Array: leere Liste');
+    await w.S.set('meineMittel', [null, { id: 'a' }, { id: 'b', name: 'Gut' }]); assertEq(w.meineMittel().map((x) => x.id).join(), 'b', 'nur gültige Einträge');
+  } finally { await w.S.set('meineMittel', echt); }
+  const zus = w.Backup.einstellungZusammen.bind(w.Backup);
+  const zeile = (lm, value) => ({ key: 'meineMittel', lastModified: lm, value });
+  const m = (id, menge) => ({ id, name: id, menge });
+  const beide = zus(zeile('2026-01-01', [m('a', 1)]), zeile('2026-02-01', [m('b', 2)]));
+  assertEq(beide.value.map((x) => x.id).join(), 'a,b', 'beide Mittel bleiben');
+  assertEq(zus(zeile('2026-02-01', [m('a', 5)]), zeile('2026-01-01', [m('a', 1)])), null, 'die ältere Fassung ändert nichts');
+  assertEq(zus(zeile('2026-01-01', [m('a', 1)]), zeile('2026-02-01', [m('a', 5)])).value[0].menge, 5, 'die neuere Fassung gewinnt');
+});
+
+test('v3.12: Bio-Etikett mit Zahlen ohne Prozent, Einwilligung bleibt auf dem Gerät', (w) => {
+  assertEq(w.oekoHerkunft('60 Deutschland, 40 Österreich'), 'EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Deutschland 60, Schweiz 40'), 'EU-/Nicht-EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Deutschland: 60 %'), 'EU-Landwirtschaft');
+  assertEq(w.oekoHerkunft('Deutschland 60,5 %, Österreich 39,5 %'), 'EU-Landwirtschaft');
+  for (const k of ['adresssucheErlaubt', 'geodiensteErlaubt']) {
+    assert(w.DIENST_FRAGEN[k].text.includes('IP-Adresse'), 'die Frage nennt die IP-Adresse');
+    assert(w.S.GERAET.has(k), 'die Einwilligung wandert nicht mit einer Sicherung');
+  }
+  assert(/OpenStreetMap/.test(w.DIENST_FRAGEN.adresssucheErlaubt.text) && /Geodienste/.test(w.DIENST_FRAGEN.geodiensteErlaubt.text), 'die Frage nennt den Empfänger');
+});
+
+test('v3.12: Rechtstexte: Android-Teile sind sauber markiert und die Sätze bleiben ohne sie vollständig', async (w) => {
+  for (const f of ['agb', 'support', 'impressum', 'datenschutz', 'lizenzen']) {
+    const t = await (await w.fetch(f + '.html')).text();
+    assertEq((t.match(/<!--nur-android-->/g) || []).length, (t.match(/<!--\/nur-android-->/g) || []).length, f + ': Marken paarweise');
+    const ios = t.replace(/<!--nur-android-->[\s\S]*?<!--\/nur-android-->/g, '');
+    assert(!/Google Play|Play Store|Android/.test(ios), f + ': die iPhone-Fassung nennt keine andere Plattform');
+    assert(/App Store|Apple|iPhone/.test(ios), f + ': der eigene Store bleibt genannt');
+  }
+});
 });
 
 test('Bestandsbuch: neue Felder freiwillig, alte Einträge gehen weiter, PDF und Export ziehen mit', async (w) => isolierteDaten(w, async () => {

@@ -56,6 +56,20 @@ fi
 echo "→ Übertrage in die iOS- und Android-Projekte …"
 npx cap copy
 
+# iPhone-Fassung: Apple verbietet die Nennung anderer Plattformen und Stores (Regel 2.3.10). Die Seiten bleiben für
+# Website und Android vollständig, nur die Kopie im iOS-Paket verliert die markierten Teile. Danach Gegenprobe.
+node -e '
+  const fs = require("fs"), d = "ios/App/App/public/";
+  for (const f of ["agb","support","impressum","datenschutz","lizenzen"]) {
+    const t = fs.readFileSync(d + f + ".html", "utf8").replace(/<!--nur-android-->[\s\S]*?<!--\/nur-android-->/g, "");
+    const rest = t.match(/.{0,30}(Google Play|Play Store|Android).{0,30}/);
+    if (rest) { console.error("✗ " + f + ".html nennt noch: " + rest[0]); process.exit(1); }
+    fs.writeFileSync(d + f + ".html", t);
+  }
+  fs.rmSync(d + "webview-veraltet.html", { force: true });
+  console.log("→ iPhone-Fassung der Rechtstexte ohne Android-Teile");
+' || exit 1
+
 VERSION=$(grep -o "APP_VERSION = '[^']*'" www/index.html | head -1 | cut -d"'" -f2)
 echo "✓ Fertig – App-Stand v${VERSION} ist jetzt in ios/ und android/."
 echo "  iOS bauen:     npx cap open ios      (Xcode)"
