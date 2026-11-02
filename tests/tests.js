@@ -10673,6 +10673,35 @@ test('Android: Kamerafotos im App-Ordner werden entfernt, nichts anderes', async
     await w.Backup.kameraResteLoeschen();   // wirft nicht
   } finally { w.Capacitor = altC; }
 });
+test('Sprachnotiz: Telefon sperrt oder Mikrofon fällt weg, die Aufnahme wird gesichert', async (w) => {
+  const altM = w.MediaRecorder, altG = Object.getOwnPropertyDescriptor(w.navigator, 'mediaDevices'), altV = Object.getOwnPropertyDescriptor(w.document, 'visibilityState');
+  const altSp = w.Voice.startLive, altW = Object.getOwnPropertyDescriptor(w.navigator, 'wakeLock');
+  let spur = null, freigegeben = 0;
+  const neueSpur = () => { const l = {}; return spur = { addEventListener: (n, f) => { l[n] = f; }, removeEventListener: (n) => { delete l[n]; }, stop: () => {}, feuer: (n) => l[n] && l[n]() }; };
+  w.MediaRecorder = function () { this.state = 'recording'; this.start = () => {}; this.stop = () => { this.state = 'inactive'; this.ondataavailable({ data: new w.Blob(['ton']) }); this.onstop(); }; };
+  Object.defineProperty(w.navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [spur || neueSpur()] }) } });
+  Object.defineProperty(w.navigator, 'wakeLock', { configurable: true, value: { request: async () => ({ release: async () => { freigegeben++; } }) } });
+  w.Voice.startLive = () => null;
+  try {
+    let n = 0; spur = null;
+    const a = await w.Sprachnotiz.aufnehmen({ onUnterbrochen: () => { n++; } });
+    Object.defineProperty(w.document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    w.document.dispatchEvent(new w.Event('visibilitychange'));
+    assertEq(n, 1, 'Sperren gemeldet');
+    spur.feuer('ended');
+    assertEq(n, 2, 'Mikrofon weg gemeldet');
+    const erg = await a.stop();
+    assertEq(erg.blob.size, 3, 'Ton da');
+    assertEq(freigegeben, 1, 'Display wieder frei');
+    w.document.dispatchEvent(new w.Event('visibilitychange'));
+    assertEq(n, 2, 'nach dem Ende keine Meldung mehr');
+  } finally {
+    w.MediaRecorder = altM; w.Voice.startLive = altSp;
+    if (altV) Object.defineProperty(w.document, 'visibilityState', altV); else delete w.document.visibilityState;
+    if (altG) Object.defineProperty(w.navigator, 'mediaDevices', altG); else delete w.navigator.mediaDevices;
+    if (altW) Object.defineProperty(w.navigator, 'wakeLock', altW); else delete w.navigator.wakeLock;
+  }
+});
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
   w.UI.toast = (m, a) => meldungen.push([m, a]);

@@ -1641,6 +1641,7 @@ const CHANGELOG = [
     '<b>CSV-Dateien:</b> Umlaute aus Dateien von Handy-Apps kommen beim Übernehmen richtig an.',
     '<b>Standort:</b> Die Meldungen nennen den richtigen Grund. Ist die Angabe nur ungefähr, sagt die App das, statt sie als genau zu übernehmen.',
     '<b>Kauf-Fenster:</b> Es geht auch ohne Netz schnell auf. Ein eingelöster Code schaltet frei und schließt das Fenster von selbst.',
+    '<b>Sprachnotiz:</b> Das Display bleibt während der Aufnahme an. Sperrt das Telefon doch, wird die Aufnahme beendet und gesichert, statt still abzubrechen.',
     '<b>Speicher:</b> Auf Android bleiben Kamerafotos nicht mehr zusätzlich in voller Größe liegen.',
   ] },
   { version: '3.18', datum: '2026-11-02', punkte: [
@@ -5590,20 +5591,30 @@ function mikrofonFehlerText(e) {
   if (!navigator.mediaDevices || !window.MediaRecorder) return 'Dieses Gerät kann hier keine Sprachnotizen aufnehmen.';
   return 'Mikrofon nicht verfügbar' + (e && e.message ? ': ' + e.message : '.');
 }
+const AUFNAHME_UNTERBROCHEN_TEXT = 'Aufnahme beendet, weil das Telefon gesperrt wurde oder ImkerBuch im Hintergrund war. Das Bisherige bleibt erhalten.';
 const Sprachnotiz = {
   /* Eine Aufnahme starten – ohne sie schon zu speichern. stop() liefert
      { blob, transkript }; wohin die Notiz gehört, entscheidet der Aufrufer.
      Die Durchsicht am Stand braucht das: Dort wird die Notiz erst zusammen mit
      der Durchsicht gespeichert, damit nie eine Aufnahme ohne Eintrag übrig bleibt. */
-  async aufnehmen({ onLive = null } = {}) {
+  async aufnehmen({ onLive = null, onUnterbrochen = null } = {}) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const chunks = [];
-    let live = null, liveText = '';
+    let live = null, liveText = '', wach = null;
     const recorder = new MediaRecorder(stream);
     recorder.ondataavailable = (e) => chunks.push(e.data);
+    /* Mit Handschuhen sperrt das Telefon leicht von selbst, und im Hintergrund schaltet das System das Mikrofon stumm.
+       Display wach halten, und wenn es doch passiert: beenden und sichern, statt still weiter „Aufnahme läuft“ zu zeigen. */
+    try { if (navigator.wakeLock) wach = await navigator.wakeLock.request('screen'); } catch (_) { /* dann ohne */ }
+    const unterbrochen = () => { if (recorder.state !== 'inactive' && onUnterbrochen) onUnterbrochen(); };
+    const versteckt = () => { if (document.visibilityState === 'hidden') unterbrochen(); };
+    document.addEventListener('visibilitychange', versteckt);
+    stream.getTracks().forEach((t) => t.addEventListener('ended', unterbrochen));
     const fertig = new Promise((res) => {
       recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
+        document.removeEventListener('visibilitychange', versteckt);
+        if (wach) wach.release().catch(() => {});
+        stream.getTracks().forEach((t) => { t.removeEventListener('ended', unterbrochen); t.stop(); });
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         const transkript = live ? live.getText() || liveText : liveText;
         if (live) live.stop();
@@ -5655,7 +5666,10 @@ const Sprachnotiz = {
     };
     const startRec = async () => {
       try {
-        recorder = await Sprachnotiz.aufnehmen({ onLive: (t) => { const lv = $('[data-live] span', el); if (lv) lv.textContent = t || 'Aufnahme läuft …'; } });
+        recorder = await Sprachnotiz.aufnehmen({
+          onLive: (t) => { const lv = $('[data-live] span', el); if (lv) lv.textContent = t || 'Aufnahme läuft …'; },
+          onUnterbrochen: () => { UI.toast(AUFNAHME_UNTERBROCHEN_TEXT); stopRec(); },
+        });
         wache = setInterval(() => { if (!el.isConnected) stopRec(); }, 1000);   // Seite verlassen oder Fenster zu: Aufnahme nicht verlieren, Mikrofon frei
         render();
       } catch (e) { recorder = null; UI.toast(mikrofonFehlerText(e), 'err'); }
@@ -8475,7 +8489,10 @@ Views.durchsicht = {
         if (this._aufnahme) { await this.aufnahmeBeenden(); return renderRoute(); }
         if (Lizenz.nurVoll('Sprachnotizen')) return;
         try {
-          const r = await Sprachnotiz.aufnehmen({ onLive: (txt) => { const l = $('[data-sd-live]', main); if (l) l.textContent = txt || 'Aufnahme läuft …'; } });
+          const r = await Sprachnotiz.aufnehmen({
+            onLive: (txt) => { const l = $('[data-sd-live]', main); if (l) l.textContent = txt || 'Aufnahme läuft …'; },
+            onUnterbrochen: async () => { UI.toast(AUFNAHME_UNTERBROCHEN_TEXT); await this.aufnahmeBeenden(); if (currentRoute().route === 'durchsicht') renderRoute(); },
+          });
           this._aufnahme = { volkId: volk.id, stop: r.stop };
         } catch (err) { UI.toast(mikrofonFehlerText(err), 'err'); }
         return renderRoute();
