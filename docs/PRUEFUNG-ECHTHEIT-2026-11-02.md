@@ -118,4 +118,5 @@ Echte Funde und behoben: alter Entwurf speicherte heutige Befunde still mit alte
 | iOS 27 | 3.19 | Aufnahme beim Verlassen gesichert, Meldung beim Zurückkommen, Endstand startet |
 | Android 16 | 3.20 | Sicherung im Willkommen-Fenster, Aus Galerie, Entwurf nach hartem Beenden samt Ton, Rückfrage bei altem Entwurf, Kamera verboten und Gegenprobe mit erlaubter Kamera |
 | iOS 27 | 3.20 | Sicherung im Willkommen-Fenster, Aus Galerie, Entwurf nach hartem Beenden samt Ton und Text. Endstand startet. Rückfrage bei altem Entwurf nur am Emulator gelaufen |
+| Julians iPhone (echtes Gerät) | 3.20 | Julian 02.11.: Testkauf über Xcode, Rückerstattung und erneuter Kauf klappen, „das passt“. Noch kein Sandbox-Kauf bei Apple |
 | Archiv iOS | 3.19 | mit Testmodus Abbruch, ohne Testmodus erfolgreich |
