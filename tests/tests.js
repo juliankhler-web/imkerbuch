@@ -10600,6 +10600,79 @@ test('Durchsicht: Grenze wird schon beim Start geprüft', async (w) => {
     assert(/navTo\('durchsicht\/' \+ volkId\);\n    this\.grenzeVorab\(\);/.test(quelle), 'starten ruft die Prüfung');
   } finally { L.pruefeLight = altL; L.pruefeSchreiben = altS; }
 });
+test('CSV: Umlaute kommen in UTF-8 ohne Kennung, mit Kennung und im Windows-Zeichensatz richtig an, Datum bleibt', async (w) => {
+  const XLSX = await w.Xlsx.lib();
+  const zeile = (wb) => XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false })[0];
+  const utf8 = new w.TextEncoder().encode('Name;Größe;Datum\nVölker äöü ß;3;15.03.2024\n');
+  let z = zeile(w.tabelleLesen(XLSX, utf8.buffer));
+  assertEq(z.Name, 'Völker äöü ß', 'ohne Kennung'); assert('Größe' in z, 'Kopfzeile');
+  assert(/15|2024/.test(z.Datum), 'Datum vorhanden: ' + z.Datum);
+  const mitBom = new w.Uint8Array([0xef, 0xbb, 0xbf, ...utf8]);
+  assertEq(zeile(w.tabelleLesen(XLSX, mitBom.buffer)).Name, 'Völker äöü ß', 'mit Kennung');
+  const latin = w.Uint8Array.from('Name;Wert\nVölker;3\n', (c) => c.charCodeAt(0));
+  assertEq(zeile(w.tabelleLesen(XLSX, latin.buffer)).Name, 'Völker', 'Windows-Zeichensatz wie bisher');
+  const ws = XLSX.utils.aoa_to_sheet([['Name'], ['Völker']]); const neu = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(neu, ws, 'A');
+  const xl = XLSX.write(neu, { type: 'array', bookType: 'xlsx' });
+  assertEq(zeile(w.tabelleLesen(XLSX, xl)).Name, 'Völker', 'Excel-Datei unverändert');
+});
+test('Standort: Meldungen nennen den richtigen Grund, grobe Angabe wird gesagt', async (w) => {
+  const t = (m) => w.standortFehlerText(new Error(m));
+  assert(/ausgeschaltet/.test(t('Request to enable location was denied.')), 'Einschalten abgelehnt');
+  assert(/ausgeschaltet/.test(t('device has both Network and Location turned off')));
+  assert(/ausgeschaltet/.test(t('Location services are not enabled')));
+  assert(/eingeschränkt/.test(t('use of location services was restricted')));
+  assert(/nicht erlaubt/.test(t('User denied location permission')));
+  assert(/nicht ermittelbar/.test(t('Google Play Services error.')), 'nicht „ausgeschaltet“');
+  assertEq(w.standortGenauText(undefined), 'Standort übernommen ✓');
+  assertEq(w.standortGenauText(25), 'Standort übernommen ✓');
+  assert(/etwa 800 m genau/.test(w.standortGenauText(800)));
+  assert(/etwa 2,5 km genau/.test(w.standortGenauText(2500)));
+});
+test('Kauf-Fenster: hängende Preisabfrage hält es nicht auf, Android nimmt den ersten Preis, Code schließt das Fenster', async (w) => {
+  const L = w.Lizenz, altP = L.plugin, altA = L.android, altF = L.PREIS_FRIST_MS, altW = L._preise, toast = w.UI.toast, vor = w.S.get('lizenz'), warn = w.console.warn;
+  w.UI.toast = () => {}; w.console.warn = () => {};
+  try {
+    L.PREIS_FRIST_MS = 20; L._preise = null;
+    L.plugin = () => ({ getProducts: () => new Promise(() => {}) });
+    const p = await L.preise();
+    assertEq(p.geladen, false, 'ohne Antwort weiter');
+    L.plugin = () => ({ getProducts: async () => ({ products: [{ identifier: w.LIZENZ_PRODUKTE.voll, priceString: '24,99 €' }, { identifier: w.LIZENZ_PRODUKTE.voll, priceString: '9,99 €' }] }) });
+    assertEq((await L.preise()).voll, '24,99 €', 'erster Eintrag gilt');
+    L._preise = null;
+    L.android = () => false;
+    await w.S.set('lizenz', { voll: false, testStart: null, geprueft: null }, { auto: true });
+    let zu = 0; L._fensterOffen = { close: () => { zu++; } };
+    L.plugin = () => ({ getPurchases: async () => ({ purchases: [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '1' }] }) });
+    const aktiv = L.aktiv; L.aktiv = () => true;
+    try { await L.vonAussenPruefen(); } finally { L.aktiv = aktiv; }
+    assertEq(zu, 1, 'Fenster geschlossen');
+  } finally { L.plugin = altP; L.android = altA; L.PREIS_FRIST_MS = altF; L._preise = altW; L._fensterOffen = null; w.UI.toast = toast; w.console.warn = warn; await w.S.set('lizenz', vor, { auto: true }); }
+});
+test('Start-Link öffnet nach einem Neuladen nicht noch einmal', async (w) => {
+  const V = w.VolkLink, alt = V.oeffnen; let geoeffnet = 0;
+  V.oeffnen = async () => { geoeffnet++; };
+  w.sessionStorage.removeItem('ibStartLink');
+  const A = { addListener: () => {}, getLaunchUrl: async () => ({ url: 'https://imkerbuch.app/v/abc' }) };
+  try {
+    await V.start(A); assertEq(geoeffnet, 1, 'erster Start');
+    await V.start(A); assertEq(geoeffnet, 1, 'Neuladen');
+    await V.start({ addListener: () => {}, getLaunchUrl: async () => ({ url: 'https://imkerbuch.app/v/xyz' }) });
+    assertEq(geoeffnet, 2, 'anderer Link');
+  } finally { V.oeffnen = alt; w.sessionStorage.removeItem('ibStartLink'); }
+});
+test('Android: Kamerafotos im App-Ordner werden entfernt, nichts anderes', async (w) => {
+  const altC = w.Capacitor, weg = [];
+  w.Capacitor = { getPlatform: () => 'android', Plugins: { Filesystem: {
+    readdir: async (o) => { assertEq(o, { path: 'Pictures', directory: 'EXTERNAL' }); return { files: [{ name: 'JPEG_20261102_1_123.jpg' }, { name: 'anders.jpg' }] }; },
+    deleteFile: async (o) => { weg.push(o.path); },
+  } } };
+  try {
+    await w.Backup.kameraResteLoeschen();
+    assertEq(weg, ['Pictures/JPEG_20261102_1_123.jpg']);
+    w.Capacitor.Plugins.Filesystem.readdir = async () => { throw new Error('gibt es nicht'); };
+    await w.Backup.kameraResteLoeschen();   // wirft nicht
+  } finally { w.Capacitor = altC; }
+});
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
   w.UI.toast = (m, a) => meldungen.push([m, a]);
