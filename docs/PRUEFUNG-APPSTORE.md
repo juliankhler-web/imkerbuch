@@ -1,16 +1,16 @@
 # Prüfung vor der Einreichung
 
-## Stand 02.11.2026, App v3.19 (Commit 0920459, Store-Fassung aus `native/www`)
+## Stand 02.11.2026, App v3.20 (Commit 17235a8, Store-Fassung aus `native/www`)
 
 | Prüfung | Ergebnis |
 |---|---|
-| `npm test` | 853 von 853 grün |
+| `npm test` | 859 von 859 grün |
 | `tools/gesamtpruefung.mjs` gegen `native/www` | 160 Seiten, 0 Auffälligkeiten |
 | `tools/angriffstest.mjs` | 32 Seiten, 0 Auffälligkeiten |
 | `tools/pdf-pruefung.mjs` | 69 PDFs, 1 Hinweis wie zuvor |
 | `tools/touren-pruefung.mjs`, auch `TIPPEN=1` | keine Befunde |
 | `tools/start-pruefung.mjs` | keine Befunde |
-| iPhone-Archiv (Release, ohne Hochladen) | erfolgreich, bricht mit Testmodus ab |
+| iPhone-Archiv (Release, ohne Hochladen) | mit 3.19 geprüft: erfolgreich, bricht mit Testmodus ab |
 
 Geräte und alle Funde: `docs/PRUEFUNG-ECHTHEIT-2026-11-02.md`. Vor dem Hochladen mit der Fassung 1.00 noch einmal laufen lassen.
 

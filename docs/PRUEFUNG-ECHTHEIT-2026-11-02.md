@@ -40,10 +40,10 @@ Ablauf: 7 Prüfer fanden 103 Punkte (`pruefung-echtheit/befunde.json`). 6 Prüfe
 | 15 | bestaetigt | Teil behoben in 3.19 (Fenster sagt „Internet nötig“). Offline-Testphase: Entscheidung Julian | Ohne Netz eine vorläufige lokale Testphase erlauben, die beim nächsten erfolgreichen Abgleich durch den Store-Stand ersetzt wird, oder zumindest im Fenster klar 'Internet nötig' sagen. |
 | 17 | bestaetigt | behoben in 3.19 | Die Meldung wie bei n=8 korrigieren und zusätzlich auf Android beim Zurückkehren in die App abgleichen, solange _ausstehend gesetzt ist. |
 | 22 | nur am Geraet klaerbar | behoben in 3.18 | Die Änderung aus n=11 (kein 60-s-Löschen, Aufräumen beim nächsten Start) nimmt das Risiko mit, ohne dass die Frage am Gerät geklärt sein muss. |
-| 27 | bestaetigt | nicht gebaut, Entscheidung Julian | Bei Android und verweigerter Erlaubnis capture weglassen oder beim sofortigen Abbruch einen Hinweis auf die Einstellungen zeigen. |
+| 27 | bestaetigt | behoben in 3.20, am Emulator geprüft | Bei Android und verweigerter Erlaubnis capture weglassen oder beim sofortigen Abbruch einen Hinweis auf die Einstellungen zeigen. |
 | 30 | nur am Geraet klaerbar | behoben in 3.19 | Am Gerät prüfen; dann Track-Ende und Sichtbarkeit abfangen und die Aufnahme sauber beenden, dazu das Display während der Aufnahme wach halten. |
 | 32 | bestaetigt | behoben in 3.19 | In planen() zuerst die Liste aus der Datenbank berechnen und erst unmittelbar vor schedule die alten Mitteilungen löschen, möglichst nur die, die nicht mehr in der Liste stehen. |
-| 33 | bestaetigt | nicht gebaut, Entscheidung Julian | Durchsicht-Entwurf samt Ton laufend in die Datenbank schreiben und beim nächsten Start anbieten. |
+| 33 | bestaetigt | behoben in 3.20, auf iPhone und Android nach hartem Beenden geprüft | Durchsicht-Entwurf samt Ton laufend in die Datenbank schreiben und beim nächsten Start anbieten. |
 | 35 | bestaetigt | behoben in 3.19 | Im catch SyntaxError und Lesefehler trennen und für beide die verständliche Meldung 'unvollständig oder nicht lesbar, bitte Datei noch einmal auf dieses Gerät laden' zeigen. |
 | 36 | nur am Geraet klaerbar | behoben in 3.19 | Zusammen mit n=12 lösen: bei leerer Liste nach gemerktem Vollkauf verzögert zurückstufen und auf das Store-Konto hinweisen. |
 | 38 | nur am Geraet klaerbar | behoben in 3.18 | Mit der Behebung aus n10 erledigt sich der Hauptteil; zusätzlich /cancel/i nur auf den Fehler von Share.share anwenden, nicht auf das Schreiben der Datei. |
@@ -56,7 +56,7 @@ Ablauf: 7 Prüfer fanden 103 Punkte (`pruefung-echtheit/befunde.json`). 6 Prüfe
 | 52 | bestaetigt | behoben in 3.19 | Die Völker-Grenze schon beim Start der Durchsicht prüfen (Views.durchsicht.starten bzw. erstes render) und das Kauf-Fenster dort zeigen, statt erst am Ende. |
 | 59 | bestaetigt | behoben in 3.19 | Beide Handler in try/catch mit UI.toast legen und bei der Sprachnotiz im Fehlerfall neu zeichnen, möglichst mit Angebot, erneut zu speichern. |
 | 61 | bestaetigt | behoben in 3.19 | Mit der Behebung aus n35 erledigt. |
-| 62 | bestaetigt | nicht gebaut, Entscheidung Julian | Einen zweiten Knopf „Aus Galerie“ ohne capture ergänzen, der über denselben Verkleinerungs-Weg als Foto speichert. |
+| 62 | bestaetigt | behoben in 3.20, auf iPhone und Android geprüft | Einen zweiten Knopf „Aus Galerie“ ohne capture ergänzen, der über denselben Verkleinerungs-Weg als Foto speichert. |
 | 64 | nur am Geraet klaerbar | offen, am Gerät zu klären | Mit „Aktivitäten nicht behalten“ prüfen; dauerhaft nur mit nativem Kamera-Plugin und Wiederherstellung über appRestoredResult lösbar. |
 | 66 | bestaetigt | behoben in 3.19 | In rec.onerror die Anzeige auf „Aufnahme läuft, kein Live-Text ohne Netz“ umstellen. |
 | 67 | bestaetigt | behoben in 3.19 | In stopRec bei leerem Blob nicht speichern und „Aufnahme war leer“ melden. |
@@ -93,13 +93,17 @@ Behoben in 3.19: 48 (Android meldet später bezahlten Kauf), 50 (Kauf-Fenster h�
 
 Bewusst nicht geändert: 81 (Schreiben auf den Datenträger erzwingen, kann lange Schreibreihen auf schwachen Handys stark bremsen, nur bei Stromausfall oder Systemabsturz relevant), 80 (andere Fehler beim Zwischenstand nur im Protokoll, per Test so festgelegt).
 
-Noch offen, nur am Gerät oder nur Wortwahl: 37, 65, 68, 75, 79, 82, 83, 84, 90, 91, 95, 97, 98, 99, 100, 101, 102. Zu 102 liegt ein Vorschlag bei Julian (Sicherung im Willkommen-Fenster einspielen). Die Punkte 18, 19, 20, 51, 53, 55, 56, 58 beschreiben Lücken der Tests. Dafür gibt es seit 3.18 und 3.19 die Geräteläufe unten und mehr Kauf-Tests.
+Noch offen, nur am Gerät oder nur Wortwahl: 37, 65, 68, 75, 79, 82, 83, 84, 90, 91, 95, 97, 98, 99, 100, 101, 102. 102 ist in 3.20 behoben (Sicherung im Willkommen-Fenster einspielen, auf iPhone und Android geprüft). Die Punkte 18, 19, 20, 51, 53, 55, 56, 58 beschreiben Lücken der Tests. Dafür gibt es seit 3.18 und 3.19 die Geräteläufe unten und mehr Kauf-Tests.
 
 ## Unabhängige Durchsichten von 3.19
 
 Zwei Runden nur lesender Prüfer mit Gegenprobe. Echte Funde und behoben: iOS-Testphase ging bei anderem Konto verloren (alter Fehler, hart gesperrt statt Light), Programmcode im Kauf-Fenster für Light-Nutzer (Fehler aus 3.18, nie veröffentlicht), Uhr vorstellen gab ewige Testphase, Doppeltipp startete zwei Aufnahmen, Meldung bei gesperrtem Telefon war beim Zurückkommen weg, Sprachnotiz ging bei Speicherfehler verloren, falsche Meldung nach Kauf ohne Abgleich, „Erneut laden“ zwei Fenster, Fehlalarm beim Rechnungskreis.
 
 Bewusst gelassen: Android-Rückerstattung behält die Vollversion bis zu 7 Tage (Google nennt keine Rückerstattung, die Liste ist nur leer). Der Filter für „of null“-Fehler meldet solche Fehler nur im Protokoll. Geteiltes Bild auf Android mit gleicher Breite und aktivem Feld kann als Tastatur gelten. Ein Hinweis zum Live-Text geht beim Neuzeichnen verloren.
+
+## Unabhängige Durchsicht von 3.20
+
+Echte Funde und behoben: alter Entwurf speicherte heutige Befunde still mit altem Datum (fragt jetzt beim Öffnen), „Überspringen“ war während des Einspielens bedienbar (Warteanzeige), Kamera-Hinweis lag hinter dem Scanner, gespeicherte Völker waren nach Neustart wieder offen, Entwurf und Stockkarte wurden getrennt geschrieben (jetzt ein Schreibvorgang), Entwurf von Völkern im Papierkorb ging verloren (bleibt 30 Tage), leere Sicherung schloss das Willkommen-Fenster, durchsichtige Bilder wurden schwarz, Testlauf: `--nur` meldete fälschlich Abbruch.
 
 ## Geräte
 
@@ -112,4 +116,6 @@ Bewusst gelassen: Android-Rückerstattung behält die Vollversion bis zu 7 Tage 
 | Android 16 | 3.19 | erste Tastatur richtig, Aufnahme beim Sperren gesichert, Kamerareste weg, Light-Fenster ohne Programmcode, Schrift 130 und 200 % |
 | Android 13 | 3.19 Endstand | startet, Fassung 3.19 |
 | iOS 27 | 3.19 | Aufnahme beim Verlassen gesichert, Meldung beim Zurückkommen, Endstand startet |
+| Android 16 | 3.20 | Sicherung im Willkommen-Fenster, Aus Galerie, Entwurf nach hartem Beenden samt Ton, Rückfrage bei altem Entwurf, Kamera verboten und Gegenprobe mit erlaubter Kamera |
+| iOS 27 | 3.20 | Sicherung im Willkommen-Fenster, Aus Galerie, Entwurf nach hartem Beenden samt Ton und Text. Endstand startet. Rückfrage bei altem Entwurf nur am Emulator gelaufen |
 | Archiv iOS | 3.19 | mit Testmodus Abbruch, ohne Testmodus erfolgreich |
