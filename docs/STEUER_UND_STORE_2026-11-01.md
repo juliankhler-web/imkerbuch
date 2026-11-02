@@ -48,7 +48,7 @@ Stand 01.11.2026:
 - Ziel laut Julian: Einreichen Montag oder Dienstag (02./03.11.2026), hängt an der Namenskorrektur.
 - Vertrag „Paid Apps“: zugestimmt, gültig bis 20.10.2027, Status „Benutzerinfos ausstehend“ (es fehlen Steuerformular und Bankkonto).
 - Offen: Steuerfragebogen. Frage 1 „in den USA steuerlich ansässig?“ = Nein. Nach „Weiter“ erscheint in der von Claude gesteuerten Ansicht nichts, Julian öffnet ihn selbst.
-- **Reihenfolge (Julian 02.11.2026):** erst die Namensänderung, danach Steuerformular, Bankkonto und Small Business Program.
+- **Reihenfolge (Julian 02.11.2026):** erst die Namensänderung, danach Steuerformular und Bankkonto. Der Antrag für das Small Business Program ist schon am 02.11.2026 abgeschickt, Antwort per E-Mail offen.
 - Falsch angezeigt: Name „Kohler“ und Adresse „Strae“. Korrekturbitte am 01.11.2026 an den Apple Developer Support geschickt, Fallnummer 103015763944, Antwort kommt per E-Mail.
 
 ## Preis zum 01.01.2027
