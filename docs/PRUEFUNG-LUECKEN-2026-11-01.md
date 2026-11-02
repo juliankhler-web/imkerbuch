@@ -25,7 +25,7 @@ Selbst im Code nachgesehen: Punkt 1 und 2 stimmen.
 3. **Google-Gebühr in der Play Console ansehen:** für den EWR stehen dort seit 30.06.2026 wohl 20 % + 5 %, nicht 15 %.
 4. **Kauftest Google:** Kauf, Promo-Code und Testkarte „Slow test card“, jeweils mindestens 10 Minuten warten, dann in „Bestellungen“ prüfen, ob erstattet wurde.
 5. **Versicherung fragen:** Deckt die Betriebshaftpflicht Software? Neue Produkthaftung für Produkte ab 09.12.2026.
-6. **Steffen oder ein anderer Fachmann liest die Imkerschule, Imme und die Bio-Unterlagen gegen.**
+6. **Steffen oder ein anderer Fachmann liest die Imkerschule, Imme und die Bio-Unterlagen gegen.** Julian 02.11.2026: entfällt, die Fachtexte wurden in der Entwicklung laufend berücksichtigt.
 7. **USB-Kopie des Android-Schlüssels** (war schon offen).
 
 ### Anwalt und Steuerberater
