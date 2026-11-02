@@ -10314,6 +10314,24 @@ test('Sicherung: Eine .json.txt-Datei lässt sich einspielen wie .json', async (
   const f = new w.File([text], 'imkerbuch-backup.json.txt', { type: 'text/plain' });
   assertEq(JSON.stringify(await w.Backup.jsonGross(f, 4096)), JSON.stringify(JSON.parse(text)), 'Inhalt gleich');
 });
+test('iPhone-Tastatur: Fenster schrumpft auf die sichtbare Höhe, Zoom und Android bleiben unberührt', (w) => {
+  const h = w.document.documentElement, voll = h.clientHeight, alt = Object.getOwnPropertyDescriptor(w, 'visualViewport');
+  const vv = (height, offsetTop = 0, scale = 1) => Object.defineProperty(w, 'visualViewport', { value: { height, offsetTop, scale }, configurable: true });
+  try {
+    vv(voll - 300, 40); w.tastaturFolgen();
+    assert(h.classList.contains('tastatur-offen'), 'offen erkannt');
+    assertEq(h.style.getPropertyValue('--vv-h'), Math.round(voll - 300) + 'px', 'sichtbare Höhe');
+    assertEq(h.style.getPropertyValue('--vv-top'), '40px', 'Versatz');
+    assertEq(h.style.getPropertyValue('--vv-unten'), '260px', 'Platz für die Tastatur');
+    vv(voll); w.tastaturFolgen();
+    assert(!h.classList.contains('tastatur-offen'), 'zu erkannt');
+    assertEq(h.style.getPropertyValue('--vv-h'), '', 'Werte entfernt');
+    vv(voll - 300, 0, 2); w.tastaturFolgen();
+    assert(!h.classList.contains('tastatur-offen'), 'Zoomen ist keine Tastatur');
+    vv(voll - 30); w.tastaturFolgen();
+    assert(!h.classList.contains('tastatur-offen'), 'kleine Änderung ist keine Tastatur');
+  } finally { if (alt) Object.defineProperty(w, 'visualViewport', alt); h.classList.remove('tastatur-offen'); ['--vv-h', '--vv-top', '--vv-unten'].forEach((k) => h.style.removeProperty(k)); }
+});
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
   w.UI.toast = (m, a) => meldungen.push([m, a]);

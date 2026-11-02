@@ -674,6 +674,9 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 .modal-foot{display:flex;gap:10px;padding:13px 20px calc(13px + env(safe-area-inset-bottom));border-top:1px solid var(--line);flex-wrap:wrap}
 .modal-foot .btn{flex:1}
 .modal-foot .btn.no-flex{flex:0 0 auto}
+html.tastatur-offen .modal-back{padding-top:var(--vv-top,0px);padding-bottom:var(--vv-unten,0px);align-items:flex-end}
+html.tastatur-offen .modal{max-height:calc(var(--vv-h,100dvh) - env(safe-area-inset-top) - 8px)}
+html.tastatur-offen .modal-foot{padding-bottom:10px}
 @media(max-width:640px){
   .modal-back{align-items:flex-end;padding:0}
   .modal{border-radius:22px 22px 0 0;max-height:92vh;max-height:92dvh;animation:sheetIn .26s cubic-bezier(.2,.9,.3,1)}
@@ -1617,8 +1620,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.15';
+const APP_VERSION = '3.16';
 const CHANGELOG = [
+  { version: '3.16', datum: '2026-11-02', punkte: [
+    '<b>iPhone:</b> Bei offener Tastatur steht „Speichern“ jetzt direkt darüber. Das Fenster macht Platz, das Feld, in dem du tippst, bleibt sichtbar.',
+  ] },
   { version: '3.15', datum: '2026-11-02', punkte: [
     '<b>Sicherung senden im Browser:</b> Chrome und ähnliche Browser lehnten das Teilen immer ab, die App meldete nur „Teilen abgebrochen“. Die Sicherung lässt sich jetzt teilen. Sie heißt dabei „….json.txt“ und lässt sich genauso wieder einspielen.',
     'Dauert das Vorbereiten länger, fragt die App noch einmal nach: „Jetzt teilen“ oder „Herunterladen“. Du kommst immer an deine Datei.',
@@ -4238,6 +4244,33 @@ function kopfHoeheMerken() {
   document.documentElement.style.setProperty('--kopf-h', (tb && getComputedStyle(tb).position === 'sticky' ? tb.offsetHeight : 0) + 'px');
 }
 window.addEventListener('resize', () => kopfHoeheMerken());
+/* iPhone: Die Tastatur legt sich über die Seite, Fenster behalten ihre volle Höhe und „Speichern“ liegt dahinter
+   (Gerätetest 02.11.2026). Android verkleinert die Seite selbst, dort bleibt die Lücke 0. Zoomen mit zwei Fingern zählt nicht. */
+const TASTATUR_AB = 40;   // auch die Leiste allein, wenn eine Bluetooth-Tastatur verbunden ist
+function tastaturFolgen() {
+  const vv = window.visualViewport; if (!vv) return;
+  const h = document.documentElement;
+  const offen = Math.abs((vv.scale || 1) - 1) < 0.02 && h.clientHeight - vv.height > TASTATUR_AB;
+  const vorher = h.classList.contains('tastatur-offen');
+  h.classList.toggle('tastatur-offen', offen);
+  if (offen) {
+    h.style.setProperty('--vv-h', Math.round(vv.height) + 'px');
+    h.style.setProperty('--vv-top', Math.round(vv.offsetTop) + 'px');
+    h.style.setProperty('--vv-unten', Math.max(0, Math.round(h.clientHeight - vv.height - vv.offsetTop)) + 'px');
+    if (!vorher) tastaturFeldZeigen();
+  } else if (vorher) { h.style.removeProperty('--vv-h'); h.style.removeProperty('--vv-top'); h.style.removeProperty('--vv-unten'); }
+}
+function tastaturFeldZeigen() {
+  const f = document.activeElement;
+  if (f && f.closest && f.closest('.modal-body') && document.documentElement.classList.contains('tastatur-offen')) setTimeout(() => f.scrollIntoView({ block: 'nearest' }), 60);
+}
+if (window.visualViewport) {
+  let tastaturWartet = false;
+  const tastaturTakt = () => { if (tastaturWartet) return; tastaturWartet = true; requestAnimationFrame(() => { tastaturWartet = false; tastaturFolgen(); }); };
+  visualViewport.addEventListener('resize', tastaturTakt);
+  visualViewport.addEventListener('scroll', tastaturTakt);
+  document.addEventListener('focusin', tastaturFeldZeigen);
+}
 
 /* Angeheftete Reiterleisten (Hygiene, Volk, Bio, Ernte und Abfüllung, Kassenbuch).
    Julian: Reiter sollen umbrechen statt seitlich zu scrollen, und jede Zeile soll sauber
@@ -30292,7 +30325,7 @@ Object.assign(window, {
   ABGANG_ARTEN, abgangErloes, 
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
   VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, bioImArchiv, archivGrenze, kassenBereich, KASSE_BEREICHE, lagerBereichVon, PRODUKT_KATEGORIEN, chargeVerarbeitetKg, lohnIndexNeu, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
-  bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
+  tastaturFolgen, TASTATUR_AB, bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,
