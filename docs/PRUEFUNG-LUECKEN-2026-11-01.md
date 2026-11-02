@@ -200,6 +200,8 @@ Urteil Q = Skeptiker Quellen, P = Skeptiker Projektstand. Doppelt laufen: „Sti
 
 ### Herkunft von Startanimation und Tagesbienen ist nicht belegt
 
+- **Stand 02.11.2026, Julian:** „es ist alles mit ki erstellt“ (Imme, Tagesbienen, Store-Grafiken; Werkzeug nicht genannt). Bei Google entsprechend gekennzeichnet. Offen bleibt, mit welchem Werkzeug und ob dessen Bedingungen den Verkauf erlauben, sowie die Lizenz von „Load HIVE“.
+
 - **Wann / wer:** vor Verkaufsstart, Julian (plausibel)
 - **Warum:** Die Ladeanimation ist laut Code aus einer fremden Vorlage nachgezeichnet. Bei freien LottieFiles-Animationen ist gewerbliche Nutzung erlaubt, aber nur für die freie Lizenz; Bearbeitungen unterliegen laut wiedergegebenem Lizenztext denselben Bedingungen. Ob „Load HIVE“ darunter fällt, ist nicht festgehalten. Die 24 Tagesbienen stammen aus „Julians Blatt“, ohne Angabe, woher dieses Blatt kommt. Bei Apple wurden die Inhaltsrechte am 01.11.2026 bestätigt, die Notizen dazu nennen aber nur Daten. Ein echter Verstoß ist nicht belegt, es fehlt nur der Nachweis.
 - **Stand:** index.html:906-907 („Nachgezeichnet aus „Load HIVE“ (LottieFiles)“), Originaldatei assets/load-hive.lottie. Quelle der Bienen: PROJEKT.md:457 und tools/bienen-schneiden.py:2. docs/APP_STORE_EINREICHUNG.md:270 nennt bei den Inhaltsrechten nur Wetter und Karten. lizenzen.html erwähnt keine Bilder oder Animationen. Bei den Website-Videos ist die Lage geklärt (siehe geprüft ohne Fund).
