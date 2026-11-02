@@ -91,3 +91,7 @@ Aus dem Arbeitsordner des Hauptchats gerettet, der vergänglich ist. Einzelne Sk
 ## Beim Hauptchat bleibt
 
 Belege und Steuer zu ImkerBuch (Hetzner-Rechnungen, AVV-Kopie nach `Familie/Gewerbe ImkerBuch/`, Betriebsausgaben), Fristen im Kalender, ELSTER-Post. Der Hauptchat wird nur dafür gebraucht.
+
+## Bereich „Ideen“ mit Abstimmung (02.11.2026)
+
+Vier Ideen mit Knopf „Das will ich“. `stimme.php` zählt je Idee, ohne IP-Adresse, Name oder Zeitpunkt. Die Stimmen liegen in `imkerbuch-daten/stimmen.json`, zu lesen über WebFTP. Öffentlich angezeigt werden sie nicht. `.htaccess` sperrt alle anderen PHP-Dateien. Auf dem Server geprüft: GET 400, fremde Herkunft 400, falsche Idee 400, Plus und Minus 200, andere PHP-Datei 403. WebFTP überschreibt beim Hochladen nicht, sondern legt „Name (1)“ an. Zum Ersetzen: Zip hochladen, „Entpacken“, Zip danach von Hand löschen.
