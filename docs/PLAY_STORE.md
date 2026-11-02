@@ -51,7 +51,7 @@ DURCHSICHT AM STAND
 • Sprachnotizen direkt am Bienenstand
 
 VÖLKER, KÖNIGINNEN, STÄNDE
-• Alle Völker mit Verlauf, Königinnen mit Stammbaum, Generation und Bewertung
+• Alle Völker mit Verlauf, Königinnen mit Stammbaum und Bewertung
 • Bienenstände mit Wetter auf Wunsch (ab Werk aus) und Verlauf als Grafik
 • Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner (auch Sirup in Litern)
