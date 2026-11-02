@@ -1,5 +1,21 @@
 # Prüfung vor der Einreichung
 
+## Stand 02.11.2026, App v3.19 (Commit 0920459, Store-Fassung aus `native/www`)
+
+| Prüfung | Ergebnis |
+|---|---|
+| `npm test` | 853 von 853 grün |
+| `tools/gesamtpruefung.mjs` gegen `native/www` | 160 Seiten, 0 Auffälligkeiten |
+| `tools/angriffstest.mjs` | 32 Seiten, 0 Auffälligkeiten |
+| `tools/pdf-pruefung.mjs` | 69 PDFs, 1 Hinweis wie zuvor |
+| `tools/touren-pruefung.mjs`, auch `TIPPEN=1` | keine Befunde |
+| `tools/start-pruefung.mjs` | keine Befunde |
+| iPhone-Archiv (Release, ohne Hochladen) | erfolgreich, bricht mit Testmodus ab |
+
+Geräte und alle Funde: `docs/PRUEFUNG-ECHTHEIT-2026-11-02.md`. Vor dem Hochladen mit der Fassung 1.00 noch einmal laufen lassen.
+
+Nicht geprüft: iOS 16 bis 18, Android 7 bis 12 nach WebView-Update, echte Ablage in Drive oder Gmail (kein Konto im Emulator), echter Kauf, echtes Handy. Das steht in `docs/GERAETETEST.md`.
+
 ## Stand 01.11.2026 abends, App v3.13 (Store-Fassung aus `native/www`)
 
 | Prüfung | Ergebnis |

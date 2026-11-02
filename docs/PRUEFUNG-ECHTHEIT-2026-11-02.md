@@ -41,7 +41,7 @@ Ablauf: 7 Prüfer fanden 103 Punkte (`pruefung-echtheit/befunde.json`). 6 Prüfe
 | 17 | bestaetigt | behoben in 3.19 | Die Meldung wie bei n=8 korrigieren und zusätzlich auf Android beim Zurückkehren in die App abgleichen, solange _ausstehend gesetzt ist. |
 | 22 | nur am Geraet klaerbar | behoben in 3.18 | Die Änderung aus n=11 (kein 60-s-Löschen, Aufräumen beim nächsten Start) nimmt das Risiko mit, ohne dass die Frage am Gerät geklärt sein muss. |
 | 27 | bestaetigt | nicht gebaut, Entscheidung Julian | Bei Android und verweigerter Erlaubnis capture weglassen oder beim sofortigen Abbruch einen Hinweis auf die Einstellungen zeigen. |
-| 30 | nur am Geraet klaerbar | offen, am Gerät zu klären | Am Gerät prüfen; dann Track-Ende und Sichtbarkeit abfangen und die Aufnahme sauber beenden, dazu das Display während der Aufnahme wach halten. |
+| 30 | nur am Geraet klaerbar | behoben in 3.19 | Am Gerät prüfen; dann Track-Ende und Sichtbarkeit abfangen und die Aufnahme sauber beenden, dazu das Display während der Aufnahme wach halten. |
 | 32 | bestaetigt | behoben in 3.19 | In planen() zuerst die Liste aus der Datenbank berechnen und erst unmittelbar vor schedule die alten Mitteilungen löschen, möglichst nur die, die nicht mehr in der Liste stehen. |
 | 33 | bestaetigt | nicht gebaut, Entscheidung Julian | Durchsicht-Entwurf samt Ton laufend in die Datenbank schreiben und beim nächsten Start anbieten. |
 | 35 | bestaetigt | behoben in 3.19 | Im catch SyntaxError und Lesefehler trennen und für beide die verständliche Meldung 'unvollständig oder nicht lesbar, bitte Datei noch einmal auf dieses Gerät laden' zeigen. |
@@ -64,7 +64,7 @@ Ablauf: 7 Prüfer fanden 103 Punkte (`pruefung-echtheit/befunde.json`). 6 Prüfe
 | 74 | nur am Geraet klaerbar | offen, am Gerät zu klären | Reale Probe mit einem Xiaomi- oder Samsung-Gerät; je nach Ergebnis einen Hilfetext zu Akku-Einstellungen und Autostart ergänzen und die Zusage im Text leicht einschränken. |
 | 76 | bestaetigt | behoben in 3.19 | Am Ende von Backup.nachImport: Ist features.benachrichtigungen an und die Erlaubnis noch nicht erteilt, einmal fragen und Notif.anfordern() aufrufen. |
 | 77 | nur am Geraet klaerbar | offen, am Gerät zu klären | Einmal im iPhone-Simulator mit Store-Build prüfen und nach dem Erzeugen einen Toast zeigen, wenn die Liste 'nicht' Einträge enthält, zum Beispiel 'N Unterlagen nicht angehängt'. |
-| 78 | nur am Geraet klaerbar | offen, am Gerät zu klären | Zuerst den Emulator-Test bei maximaler Schrift machen; bricht das Layout, den Text-Zoom in MainActivity begrenzen oder die betroffenen Leisten umbrechen lassen, und eine eigene Schriftgrößen-Einstellung für iPhone nach dem Start planen. |
+| 78 | nur am Geraet klaerbar | geprüft 3.19: Android 16 bei 200 % Schrift ohne seitliches Überlaufen, bedienbar; „Voll“-Schilder überdecken dann die Leisten-Symbole | Zuerst den Emulator-Test bei maximaler Schrift machen; bricht das Layout, den Text-Zoom in MainActivity begrenzen oder die betroffenen Leisten umbrechen lassen, und eine eigene Schriftgrößen-Einstellung für iPhone nach dem Start planen. |
 
 ## kann warten (7)
 
@@ -87,4 +87,29 @@ Ablauf: 7 Prüfer fanden 103 Punkte (`pruefung-echtheit/befunde.json`). 6 Prüfe
 
 ## Die übrigen 42 Funde
 
-Nicht gegengeprüft, weil leichter eingestuft. Stehen in `pruefung-echtheit/befunde.json` (ab Nr. 61). Vor neuen Runden dort nachsehen.
+Nicht gegengeprüft, weil leichter eingestuft (alle Nummern, die oben fehlen, in `pruefung-echtheit/befunde.json`).
+
+Behoben in 3.19: 48 (Android meldet später bezahlten Kauf), 50 (Kauf-Fenster hängt ohne Netz), 60 (CSV-Umlaute), 71 und 72 (Standort), 85 (Foto-Endung), 86 und 87 (Kauf von außen sichtbar), 88 (erster Preis), 89 (Archiv-Sperre im iOS-Projekt), 92 (Sprachnotiz ohne Datei), 93 (Kamerafotos bleiben liegen), 94 (Start-Link nach Neuladen), 96 (Erlaubnis nach Rückkehr).
+
+Bewusst nicht geändert: 81 (Schreiben auf den Datenträger erzwingen, kann lange Schreibreihen auf schwachen Handys stark bremsen, nur bei Stromausfall oder Systemabsturz relevant), 80 (andere Fehler beim Zwischenstand nur im Protokoll, per Test so festgelegt).
+
+Noch offen, nur am Gerät oder nur Wortwahl: 37, 65, 68, 75, 79, 82, 83, 84, 90, 91, 95, 97, 98, 99, 100, 101, 102. Zu 102 liegt ein Vorschlag bei Julian (Sicherung im Willkommen-Fenster einspielen). Die Punkte 18, 19, 20, 51, 53, 55, 56, 58 beschreiben Lücken der Tests. Dafür gibt es seit 3.18 und 3.19 die Geräteläufe unten und mehr Kauf-Tests.
+
+## Unabhängige Durchsichten von 3.19
+
+Zwei Runden nur lesender Prüfer mit Gegenprobe. Echte Funde und behoben: iOS-Testphase ging bei anderem Konto verloren (alter Fehler, hart gesperrt statt Light), Programmcode im Kauf-Fenster für Light-Nutzer (Fehler aus 3.18, nie veröffentlicht), Uhr vorstellen gab ewige Testphase, Doppeltipp startete zwei Aufnahmen, Meldung bei gesperrtem Telefon war beim Zurückkommen weg, Sprachnotiz ging bei Speicherfehler verloren, falsche Meldung nach Kauf ohne Abgleich, „Erneut laden“ zwei Fenster, Fehlalarm beim Rechnungskreis.
+
+Bewusst gelassen: Android-Rückerstattung behält die Vollversion bis zu 7 Tage (Google nennt keine Rückerstattung, die Liste ist nur leer). Der Filter für „of null“-Fehler meldet solche Fehler nur im Protokoll. Geteiltes Bild auf Android mit gleicher Breite und aktivem Feld kann als Tastatur gelten. Ein Hinweis zum Live-Text geht beim Neuzeichnen verloren.
+
+## Geräte
+
+| Gerät | Fassung | Ergebnis |
+|---|---|---|
+| Android 13, 14, 15, 16 | 3.18 | Liste, Formular mit Tastatur, Kamera, Sicherung, Rückfrage, PDF bestanden; Fehler erste Tastatur gefunden |
+| Android 7 bis 12 | 3.18 | vorinstallierte WebView unter 108: Hinweisseite. Nach WebView-Update ungeprüft |
+| iOS 26.2, 27 | 3.18 | Liste, Formular, Imme, Kamera, Sicherung, Abbruch, Einspielen bis Auswahl, PDF bestanden |
+| iOS 16 bis 18 | - | ohne Anmeldung nicht ladbar. Nur Code-Durchsicht: keine Sprachmittel gefunden, die iOS 16 fehlen |
+| Android 16 | 3.19 | erste Tastatur richtig, Aufnahme beim Sperren gesichert, Kamerareste weg, Light-Fenster ohne Programmcode, Schrift 130 und 200 % |
+| Android 13 | 3.19 Endstand | startet, Fassung 3.19 |
+| iOS 27 | 3.19 | Aufnahme beim Verlassen gesichert, Meldung beim Zurückkommen, Endstand startet |
+| Archiv iOS | 3.19 | mit Testmodus Abbruch, ohne Testmodus erfolgreich |
