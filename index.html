@@ -677,6 +677,13 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 html.tastatur-offen .modal-back{padding-top:var(--vv-top,0px);padding-bottom:var(--vv-unten,0px);align-items:flex-end}
 html.tastatur-offen .modal{max-height:calc(var(--vv-h,100dvh) - env(safe-area-inset-top) - 8px)}
 html.tastatur-offen .modal-foot{padding-bottom:10px}
+html.tastatur-offen body{padding-bottom:var(--vv-unten,0px)}
+html.tastatur-offen .bottomnav,html.tastatur-offen .bini-fab{visibility:hidden!important;pointer-events:none}
+html.tastatur-offen #toast-root{top:calc(12px + env(safe-area-inset-top));bottom:auto}
+html.tastatur-offen .bini-form{bottom:calc(var(--vv-unten,0px) + 8px)}
+html.tastatur-offen .bini-form::after{display:none}
+html.tastatur-offen .tester-sperre{padding-bottom:calc(var(--vv-unten,0px) + 24px);align-items:flex-start}
+html.tastatur-offen main input,html.tastatur-offen main textarea{scroll-margin-top:calc(var(--kopf-h,60px) + 10px)}
 @media(max-width:640px){
   .modal-back{align-items:flex-end;padding:0}
   .modal{border-radius:22px 22px 0 0;max-height:92vh;max-height:92dvh;animation:sheetIn .26s cubic-bezier(.2,.9,.3,1)}
@@ -1620,8 +1627,12 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.16';
+const APP_VERSION = '3.17';
 const CHANGELOG = [
+  { version: '3.17', datum: '2026-11-02', punkte: [
+    '<b>Tastatur auf allen Seiten:</b> Suchen, Rechner, Notizen, Rechnungen, Einstellungen und der Chat mit Imme machen ihr Platz. Treffer und Ergebnisse stehen darüber, die untere Leiste ist solange ausgeblendet, Meldungen erscheinen oben.',
+    'Auch der Einrichtungs-Assistent zeigt „Weiter“ über der Tastatur, und Imme setzt ihre Sprechblase darüber.',
+  ] },
   { version: '3.16', datum: '2026-11-02', punkte: [
     '<b>iPhone:</b> Bei offener Tastatur steht „Speichern“ jetzt direkt darüber. Das Fenster macht Platz, das Feld, in dem du tippst, bleibt sichtbar.',
   ] },
@@ -4244,13 +4255,25 @@ function kopfHoeheMerken() {
   document.documentElement.style.setProperty('--kopf-h', (tb && getComputedStyle(tb).position === 'sticky' ? tb.offsetHeight : 0) + 'px');
 }
 window.addEventListener('resize', () => kopfHoeheMerken());
-/* iPhone: Die Tastatur legt sich über die Seite, Fenster behalten ihre volle Höhe und „Speichern“ liegt dahinter
-   (Gerätetest 02.11.2026). Android verkleinert die Seite selbst, dort bleibt die Lücke 0. Zoomen mit zwei Fingern zählt nicht. */
+/* Tastatur: Auf dem iPhone legt sie sich über die Seite, Fenster behalten ihre volle Höhe und „Speichern“ liegt dahinter
+   (Gerätetest 02.11.2026). Android verkleinert die Seite selbst, dort stünde aber die untere Leiste über der Tastatur.
+   Beide Fälle setzen dieselbe Klasse, die Regeln stehen im CSS bei .modal-foot. Zoomen mit zwei Fingern zählt nicht. */
 const TASTATUR_AB = 40;   // auch die Leiste allein, wenn eine Bluetooth-Tastatur verbunden ist
+const TASTATUR_ANDROID_AB = 120;
+const tastaturBasis = { breite: 0, hoehe: 0 };
+function tastaturFeldAktiv() {
+  const f = document.activeElement;
+  return !!f && (f.tagName === 'TEXTAREA' || (f.tagName === 'INPUT' && !/^(button|checkbox|color|file|radio|range|reset|submit)$/i.test(f.type)));
+}
 function tastaturFolgen() {
   const vv = window.visualViewport; if (!vv) return;
   const h = document.documentElement;
-  const offen = Math.abs((vv.scale || 1) - 1) < 0.02 && h.clientHeight - vv.height > TASTATUR_AB;
+  if (tastaturBasis.breite !== window.innerWidth) { tastaturBasis.breite = window.innerWidth; tastaturBasis.hoehe = 0; }
+  tastaturBasis.hoehe = Math.max(tastaturBasis.hoehe, h.clientHeight);
+  const iphone = h.clientHeight - vv.height > TASTATUR_AB;
+  /* Nur mit aktivem Feld: Auch das geteilte Bild verkleinert die Seite, ohne dass eine Tastatur da ist. */
+  const android = tastaturBasis.hoehe - h.clientHeight > TASTATUR_ANDROID_AB && tastaturFeldAktiv();
+  const offen = Math.abs((vv.scale || 1) - 1) < 0.02 && (iphone || android);
   const vorher = h.classList.contains('tastatur-offen');
   h.classList.toggle('tastatur-offen', offen);
   if (offen) {
@@ -4258,11 +4281,28 @@ function tastaturFolgen() {
     h.style.setProperty('--vv-top', Math.round(vv.offsetTop) + 'px');
     h.style.setProperty('--vv-unten', Math.max(0, Math.round(h.clientHeight - vv.height - vv.offsetTop)) + 'px');
     if (!vorher) tastaturFeldZeigen();
-  } else if (vorher) { h.style.removeProperty('--vv-h'); h.style.removeProperty('--vv-top'); h.style.removeProperty('--vv-unten'); }
+  } else if (vorher) { ['--vv-h', '--vv-top', '--vv-unten'].forEach((k) => h.style.removeProperty(k)); }
+  if (offen !== vorher && typeof Assistent !== 'undefined' && Assistent._tipPlatz) Assistent._tipPlatz();
 }
+/* Im Fenster nur das Feld zeigen. Fehlt der Fuß (Einrichtungs-Assistent), auch den Knopf am Ende.
+   Auf Seiten rückt das Feld nach oben, damit Treffer und Ergebnisse darunter über der Tastatur stehen. */
 function tastaturFeldZeigen() {
   const f = document.activeElement;
-  if (f && f.closest && f.closest('.modal-body') && document.documentElement.classList.contains('tastatur-offen')) setTimeout(() => f.scrollIntoView({ block: 'nearest' }), 60);
+  if (!f || !f.closest || !tastaturFeldAktiv() || !document.documentElement.classList.contains('tastatur-offen')) return;
+  const zeigen = () => {
+    if (document.activeElement !== f) return;
+    const fenster = f.closest('.modal');
+    if (fenster) {
+      f.scrollIntoView({ block: 'nearest' });
+      const liste = f.closest('.combo') && f.closest('.combo').querySelector('.combo-list');
+      if (liste && liste.style.display !== 'none') liste.scrollIntoView({ block: 'nearest' });
+      if (!fenster.querySelector('.modal-foot')) { const k = [...fenster.querySelectorAll('.btn-primary')].pop(); if (k) k.scrollIntoView({ block: 'nearest' }); }
+    } else if (f.closest('main') && !f.closest('.bini-form')) {
+      const kopf = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--kopf-h')) || 60;
+      window.scrollTo({ top: window.scrollY + f.getBoundingClientRect().top - kopf - 10 - (window.visualViewport ? visualViewport.offsetTop : 0) });
+    }
+  };
+  [120, 450, 900].forEach((ms) => setTimeout(zeigen, ms));   // das iPhone scrollt beim Öffnen der Tastatur selbst, danach noch einmal
 }
 if (window.visualViewport) {
   let tastaturWartet = false;
@@ -28525,6 +28565,7 @@ const Assistent = {
     tip.innerHTML = `${Assistent.img('point', 'bini-tip-av')}<div><b>${U.esc(e.titel)}</b><br>${U.esc(e.schritte[e.schritte.length - 1])}</div><button type="button" aria-label="Schließen">${icon('x')}</button>`;
     document.body.appendChild(tip);
     const platz = () => Assistent.tipSetzen(el, tip);
+    Assistent._tipPlatz = platz;
     setTimeout(platz, 350);
     const weg = () => Assistent.markeWeg();
     tip.querySelector('button').onclick = weg;
@@ -28683,6 +28724,7 @@ const Assistent = {
     document.body.appendChild(tip);
     tip.querySelector('[data-x]').onclick = () => Assistent.beendeTour();
     const platz = () => Assistent.tipSetzen(el, tip);
+    Assistent._tipPlatz = platz;
     setTimeout(platz, 380); setTimeout(platz, 900);
     return tip;
   },
@@ -28720,7 +28762,8 @@ const Assistent = {
     const r = el.getBoundingClientRect(), s = Assistent.sicherRand();
     const bn = document.getElementById('bottomnav');
     const leiste = bn && getComputedStyle(bn).display !== 'none' ? bn.getBoundingClientRect().top : innerHeight;
-    const minOben = s.oben + 8, maxUnten = Math.min(leiste, innerHeight - s.unten) - 8;
+    const vv = window.visualViewport, sichtbarOben = vv ? vv.offsetTop : 0, sichtbarUnten = vv ? vv.offsetTop + vv.height : innerHeight;   // über der Tastatur bleiben
+    const minOben = Math.max(s.oben, sichtbarOben) + 8, maxUnten = Math.min(leiste, innerHeight - s.unten, sichtbarUnten) - 8;
     const h = tip.offsetHeight, w = tip.offsetWidth;
     const platzOben = r.top - 12 - minOben, platzUnten = maxUnten - (r.bottom + 12);
     let top = h <= platzOben ? r.top - 12 - h : h <= platzUnten ? r.bottom + 12 : platzOben > platzUnten ? minOben : maxUnten - h;
@@ -30325,7 +30368,7 @@ Object.assign(window, {
   ABGANG_ARTEN, abgangErloes, 
   GDEB_GRUPPEN, GDEB_MERKMALE, GDEB_SKALA, GDEB_KERN, GDEB_MINDEST,
   VORSORGE_BEREICHE, vorsorgeAlle, bbAbschnitte, eigeneListe, blobZuJpeg, migriereDokTypZertifikat, bioImArchiv, archivGrenze, kassenBereich, KASSE_BEREICHE, lagerBereichVon, PRODUKT_KATEGORIEN, chargeVerarbeitetKg, lohnIndexNeu, chargeFuerVerarbeitung, ernteFuerVerarbeitung, ABFUELLUNG_PUNKTE, hygieneBekannt, HYGIENE_KURZ_STANDARD, BB_STICHWORTE, BB_ASSISTENT, bbBereiche, VARROA_ZUGELASSEN, VARROA_PRODUKTE, HYGIENE_ASSISTENT_BEREICHE,
-  tastaturFolgen, TASTATUR_AB, bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
+  tastaturFolgen, tastaturBasis, TASTATUR_AB, bioAnteile, bioSummen, BIO_ABSCHNITTE, BIO_KLASSEN, BIO_UMKREIS_VORGABE, GEOBOX_URL, GEOBOX_LINKS, BIO_BEREICHE, bioFristStatus,
   CLC_KLASSEN, CLC_NAME_ART, clcNameSchluessel, clcArtAusName, CLC_WFS, CLC_QUELLE_KURZ, CLC_MAX,
   clcKreis, clcKappen, clcRingFlaeche, clcAnteileAusFeatures,
   GBV_GP, GBV_QUELLE_KURZ, webMercator, gbvZeilenAusTabelle, gbvLandbedeckung, LB_QUELLEN, landbedeckungErmitteln,

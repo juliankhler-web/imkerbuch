@@ -10263,6 +10263,33 @@ test('Sicherung: In der App wird direkt in die Datei geschrieben, die Datei blei
     assertEq(gebaut, 1, 'Doppeltippen baut nur einmal');
   } finally { w.Capacitor = cap; w.Backup.TEIL_ZEICHEN = teil; await w.DB.del('anhaenge', a.id); }
 });
+test('Tastatur Android: Die Seite wird kleiner, Klasse nur mit aktivem Feld, geteiltes Bild zählt nicht', (w) => {
+  const h = w.document.documentElement, voll = h.clientHeight, alt = Object.getOwnPropertyDescriptor(w, 'visualViewport');
+  const feld = w.document.createElement('input'); w.document.body.appendChild(feld);
+  const stelle = (hoehe) => { Object.defineProperty(h, 'clientHeight', { value: hoehe, configurable: true }); Object.defineProperty(w, 'visualViewport', { value: { height: hoehe, offsetTop: 0, scale: 1 }, configurable: true }); };
+  try {
+    w.tastaturBasis.breite = 0; stelle(voll); w.tastaturFolgen();
+    assert(!h.classList.contains('tastatur-offen'), 'volle Höhe: zu');
+    stelle(voll - 300); w.document.activeElement && w.document.activeElement.blur(); w.tastaturFolgen();
+    assert(!h.classList.contains('tastatur-offen'), 'kleiner ohne Feld, zum Beispiel geteiltes Bild: zu');
+    feld.focus();
+    if (w.document.activeElement === feld) {
+      w.tastaturFolgen();
+      assert(h.classList.contains('tastatur-offen'), 'kleiner mit aktivem Feld: offen');
+      assertEq(h.style.getPropertyValue('--vv-unten'), '0px', 'Android braucht keinen Platz unten');
+      stelle(voll); w.tastaturFolgen();
+      assert(!h.classList.contains('tastatur-offen'), 'wieder groß: zu');
+    }
+  } finally {
+    delete h.clientHeight; if (alt) Object.defineProperty(w, 'visualViewport', alt); feld.remove(); w.tastaturBasis.breite = 0;
+    h.classList.remove('tastatur-offen'); ['--vv-h', '--vv-top', '--vv-unten'].forEach((k) => h.style.removeProperty(k));
+  }
+});
+test('Tastatur: CSS deckt Seite, Leiste, Meldungen und Imme-Chat ab', async (w) => {
+  const q = await (await w.fetch('index.html')).text();
+  for (const r of ['html.tastatur-offen body{padding-bottom', 'html.tastatur-offen .bottomnav', 'html.tastatur-offen #toast-root', 'html.tastatur-offen .bini-form{bottom', 'html.tastatur-offen .tester-sperre'])
+    assert(q.includes(r), 'Regel fehlt: ' + r);
+});
 test('Sicherung senden im Browser: Chrome bekommt .txt, Ablehnung führt zur Nachfrage', async (w) => {
   const nav = w.navigator; const altS = nav.share, altC = nav.canShare, bau = w.Backup.buildBlob, nativ = w.Backup.nativTeilenMoeglich, toast = w.UI.toast, mark = w.Backup.markExternal;
   const def = (k, v) => Object.defineProperty(nav, k, { value: v, configurable: true, writable: true });
