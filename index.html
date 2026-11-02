@@ -1641,7 +1641,7 @@ const CHANGELOG = [
     '<b>CSV-Dateien:</b> Umlaute aus Dateien von Handy-Apps kommen beim Übernehmen richtig an.',
     '<b>Standort:</b> Die Meldungen nennen den richtigen Grund. Ist die Angabe nur ungefähr, sagt die App das, statt sie als genau zu übernehmen.',
     '<b>Kauf-Fenster:</b> Es geht auch ohne Netz schnell auf. Ein eingelöster Code schaltet frei und schließt das Fenster von selbst.',
-    '<b>Sprachnotiz:</b> Das Display bleibt während der Aufnahme an. Sperrt das Telefon doch, wird die Aufnahme beendet und gesichert, statt still abzubrechen.',
+    '<b>Sprachnotiz:</b> Das Display bleibt während der Aufnahme an. Sperrt das Telefon doch, endet die Aufnahme sauber, und die App sagt es beim Zurückkommen. Scheitert das Speichern, kannst du es wiederholen.',
     '<b>Speicher:</b> Auf Android bleiben Kamerafotos nicht mehr zusätzlich in voller Größe liegen.',
   ] },
   { version: '3.18', datum: '2026-11-02', punkte: [
@@ -5512,7 +5512,7 @@ const Anhang = {
         try {
           await DB.put('anhaenge', { parentTyp, parentId, art: 'dokument', name: f.name, mime: f.type || 'application/octet-stream', blob: f, groesse: f.size, datum: U.nowIso(), dokumentTyp: '' });
           UI.toast('Dokument gespeichert'); render();
-        } catch (err) { if (!err.lizenz) UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Dokument konnte nicht gespeichert werden. Bitte noch einmal versuchen.', 'err'); }
+        } catch (err) { e.target.value = ''; if (!err.lizenz) UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Dokument konnte nicht gespeichert werden. Bitte noch einmal versuchen.', 'err'); }
       };
       $('[data-gal]', el).addEventListener('click', (e) => {
         const b = e.target.closest('.g-item[data-id]'); if (!b) return;
@@ -5574,7 +5574,7 @@ const Voice = {
       if (this._liveCb) this._liveCb((finalText + interim).trim());
     };
     let aufFehler = null;
-    rec.onerror = (e) => { if (aufFehler && e && !['no-speech', 'aborted'].includes(e.error)) aufFehler(); };   // die Aufnahme selbst läuft weiter
+    rec.onerror = (e) => { if (aufFehler && e && !['no-speech', 'aborted'].includes(e.error)) aufFehler(e.error); };   // die Aufnahme selbst läuft weiter
     try { rec.start(); } catch (e) { return null; }
     return { stop: () => { try { rec.stop(); } catch (e) {} }, getText: () => finalText.trim(), onUpdate: (cb) => { this._liveCb = cb; }, onFehler: (cb) => { aufFehler = cb; } };
   },
@@ -5591,7 +5591,15 @@ function mikrofonFehlerText(e) {
   if (!navigator.mediaDevices || !window.MediaRecorder) return 'Dieses Gerät kann hier keine Sprachnotizen aufnehmen.';
   return 'Mikrofon nicht verfügbar' + (e && e.message ? ': ' + e.message : '.');
 }
-const AUFNAHME_UNTERBROCHEN_TEXT = 'Aufnahme beendet, weil das Telefon gesperrt wurde oder ImkerBuch im Hintergrund war. Das Bisherige bleibt erhalten.';
+const AUFNAHME_UNTERBROCHEN_TEXT = 'Aufnahme beendet, weil das Telefon gesperrt wurde oder ImkerBuch im Hintergrund war. Sie ist gespeichert.';
+const AUFNAHME_UNTERBROCHEN_DURCHSICHT = 'Aufnahme beendet, weil das Telefon gesperrt wurde oder ImkerBuch im Hintergrund war. Bitte die Durchsicht jetzt speichern, erst dann ist sie sicher.';
+const AUFNAHME_LEER_TEXT = 'Die Aufnahme war leer. Bitte noch einmal aufnehmen.';
+/** Meldungen, die entstehen, während das Telefon gesperrt ist, wären beim Zurückkommen schon wieder weg. */
+function wennSichtbar(fn) {
+  if (document.visibilityState !== 'hidden') return fn();
+  const da = () => { if (document.visibilityState === 'hidden') return; document.removeEventListener('visibilitychange', da); setTimeout(fn, 300); };
+  document.addEventListener('visibilitychange', da);
+}
 const Sprachnotiz = {
   /* Eine Aufnahme starten – ohne sie schon zu speichern. stop() liefert
      { blob, transkript }; wohin die Notiz gehört, entscheidet der Aufrufer.
@@ -5605,13 +5613,15 @@ const Sprachnotiz = {
     recorder.ondataavailable = (e) => chunks.push(e.data);
     /* Mit Handschuhen sperrt das Telefon leicht von selbst, und im Hintergrund schaltet das System das Mikrofon stumm.
        Display wach halten, und wenn es doch passiert: beenden und sichern, statt still weiter „Aufnahme läuft“ zu zeigen. */
-    try { if (navigator.wakeLock) wach = await navigator.wakeLock.request('screen'); } catch (_) { /* dann ohne */ }
+    let beendet = false;
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then((w) => { if (beendet) w.release().catch(() => {}); else wach = w; }, () => {}); } catch (_) { /* dann ohne */ }
     const unterbrochen = () => { if (recorder.state !== 'inactive' && onUnterbrochen) onUnterbrochen(); };
     const versteckt = () => { if (document.visibilityState === 'hidden') unterbrochen(); };
     document.addEventListener('visibilitychange', versteckt);
     stream.getTracks().forEach((t) => t.addEventListener('ended', unterbrochen));
     const fertig = new Promise((res) => {
       recorder.onstop = () => {
+        beendet = true;
         document.removeEventListener('visibilitychange', versteckt);
         if (wach) wach.release().catch(() => {});
         stream.getTracks().forEach((t) => { t.removeEventListener('ended', unterbrochen); t.stop(); });
@@ -5624,7 +5634,7 @@ const Sprachnotiz = {
     recorder.start();
     live = Voice.startLive();
     if (live) live.onUpdate((t) => { liveText = t; if (onLive) onLive(t); });
-    if (live) live.onFehler(() => { if (onLive && !liveText) onLive('Aufnahme läuft, ohne Netz gibt es keinen Live-Text.'); });
+    if (live) live.onFehler((grund) => { if (onLive && !liveText) onLive(grund === 'network' ? 'Aufnahme läuft, ohne Netz gibt es keinen Live-Text.' : 'Aufnahme läuft, Live-Text ist gerade nicht möglich.'); });
     return { stop: () => { if (recorder.state !== 'inactive') recorder.stop(); return fertig; } };
   },
   anhang(parentTyp, parentId, { blob, transkript }) {
@@ -5664,25 +5674,40 @@ const Sprachnotiz = {
         }
       });
     };
+    let startet = false;
     const startRec = async () => {
+      if (startet) return;   // Doppeltipp: Eine zweite Aufnahme liefe unbemerkt weiter
+      startet = true;
       try {
         recorder = await Sprachnotiz.aufnehmen({
           onLive: (t) => { const lv = $('[data-live] span', el); if (lv) lv.textContent = t || 'Aufnahme läuft …'; },
-          onUnterbrochen: () => { UI.toast(AUFNAHME_UNTERBROCHEN_TEXT); stopRec(); },
+          onUnterbrochen: () => stopRec(true),
         });
         wache = setInterval(() => { if (!el.isConnected) stopRec(); }, 1000);   // Seite verlassen oder Fenster zu: Aufnahme nicht verlieren, Mikrofon frei
         render();
       } catch (e) { recorder = null; UI.toast(mikrofonFehlerText(e), 'err'); }
+      finally { startet = false; }
     };
-    const stopRec = async () => {
+    /* Scheitert das Speichern, wäre das Gesprochene sonst unwiederbringlich weg */
+    const sichern = async (aufnahme) => {
+      for (;;) {
+        try { await DB.put('anhaenge', Sprachnotiz.anhang(parentTyp, parentId, aufnahme)); return true; }
+        catch (err) {
+          if (err.lizenz) return false;
+          const nochmal = await UI.confirm({ title: 'Sprachnotiz nicht gespeichert', text: `${istSpeicherVoll(err) ? 'Der Speicher ist voll. Gib auf dem Gerät Platz frei.' : 'Das Speichern hat nicht geklappt.'} Brichst du ab, ist die Aufnahme weg.`, confirmText: 'Noch einmal' });
+          if (!nochmal) return false;
+        }
+      }
+    };
+    const stopRec = async (unterbrochen = false) => {
       const r = recorder; if (!r) return;
       recorder = null;                 // vor dem Warten: ein zweiter Tipp speichert nicht doppelt
       clearInterval(wache);
       try {
         const aufnahme = await r.stop();
-        if (!aufnahme.blob || !aufnahme.blob.size) UI.toast('Die Aufnahme war leer. Bitte noch einmal aufnehmen.', 'err');
-        else { await DB.put('anhaenge', Sprachnotiz.anhang(parentTyp, parentId, aufnahme)); UI.toast('Sprachnotiz gespeichert'); }
-      } catch (err) { if (!err.lizenz) UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Sprachnotiz konnte nicht gespeichert werden.', 'err'); }
+        if (!aufnahme.blob || !aufnahme.blob.size) wennSichtbar(() => UI.toast(AUFNAHME_LEER_TEXT, 'err'));
+        else if (await sichern(aufnahme)) wennSichtbar(() => (unterbrochen ? UI.toast(AUFNAHME_UNTERBROCHEN_TEXT, 'err') : UI.toast('Sprachnotiz gespeichert')));
+      } catch (err) { wennSichtbar(() => UI.toast('Sprachnotiz konnte nicht gespeichert werden.', 'err')); }
       render();
     };
     render();
@@ -7564,7 +7589,7 @@ const VolkLink = {
   /** Kaltstart: getLaunchUrl. App lief schon: appUrlOpen. */
   async start(A = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
     if (!A) return;
-    A.addListener('appUrlOpen', (ev) => { this.oeffnen(ev && ev.url); });
+    A.addListener('appUrlOpen', (ev) => { if (ev && ev.url) this.startLinkSchonDa(ev.url); this.oeffnen(ev && ev.url); });   // getLaunchUrl nennt danach diesen Link
     try {
       const l = await A.getLaunchUrl();
       if (l && l.url && !this.startLinkSchonDa(l.url)) await this.oeffnen(l.url);
@@ -8378,7 +8403,9 @@ Views.durchsicht = {
     const a = this._aufnahme; if (!a) return;
     this._aufnahme = null;
     const ergebnis = await a.stop();
-    if (ergebnis && ergebnis.blob && ergebnis.blob.size) this.entwurf(a.volkId).audio.push(ergebnis);
+    if (ergebnis && ergebnis.blob && ergebnis.blob.size) { this.entwurf(a.volkId).audio.push(ergebnis); return true; }
+    wennSichtbar(() => UI.toast(AUFNAHME_LEER_TEXT, 'err'));
+    return false;
   },
   /** Speichert die Durchsicht samt Sprachnotizen in EINEM Schreibvorgang. Gibt false zurück, wenn nichts erfasst war. */
   async speichern(volk, e) {
@@ -8487,23 +8514,34 @@ Views.durchsicht = {
       if (t.hasAttribute('data-sd-karte')) { await this.aufnahmeBeenden(); return navTo('volk/' + volk.id); }
       if (t.hasAttribute('data-sd-mic')) {
         if (this._aufnahme) { await this.aufnahmeBeenden(); return renderRoute(); }
-        if (Lizenz.nurVoll('Sprachnotizen')) return;
+        if (Lizenz.nurVoll('Sprachnotizen') || this._aufnahmeStartet) return;   // Doppeltipp: Eine zweite Aufnahme liefe unbemerkt weiter
+        this._aufnahmeStartet = true;
         try {
           const r = await Sprachnotiz.aufnehmen({
             onLive: (txt) => { const l = $('[data-sd-live]', main); if (l) l.textContent = txt || 'Aufnahme läuft …'; },
-            onUnterbrochen: async () => { UI.toast(AUFNAHME_UNTERBROCHEN_TEXT); await this.aufnahmeBeenden(); if (currentRoute().route === 'durchsicht') renderRoute(); },
+            onUnterbrochen: async () => {
+              if (await this.aufnahmeBeenden()) wennSichtbar(() => UI.toast(AUFNAHME_UNTERBROCHEN_DURCHSICHT, 'err'));
+              if (currentRoute().route === 'durchsicht') renderRoute();
+            },
           });
           this._aufnahme = { volkId: volk.id, stop: r.stop };
         } catch (err) { UI.toast(mikrofonFehlerText(err), 'err'); }
+        finally { this._aufnahmeStartet = false; }
         return renderRoute();
       }
       if (t.hasAttribute('data-sd-speichern')) {
         t.disabled = true;
+        const liefAufnahme = !!this._aufnahme;
         await this.aufnahmeBeenden();
         const naechstes = offeneNach();
         let gespeichert = false;
         try { gespeichert = await this.speichern(volk, e); }
-        catch (err) { t.disabled = false; if (err.lizenz) return; return UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Speichern fehlgeschlagen: ' + err.message, 'err'); }
+        catch (err) {
+          t.disabled = false;
+          if (liefAufnahme) renderRoute();   // sonst zeigt der Knopf weiter „Aufnahme stoppen“
+          if (err.lizenz) return;
+          return UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Speichern fehlgeschlagen: ' + err.message, 'err');
+        }
         if (gespeichert) UI.toast(`Gespeichert · ${volk.name}`);
         else this._entwuerfe.delete(volk.id);
         if (naechstes) return navTo('durchsicht/' + naechstes.id);
@@ -24191,7 +24229,7 @@ const Backup = {
         });
       } else data = JSON.parse(await file.text());
     } catch (e) {
-      if (e.message === 'Datei unvollständig') return UI.toast('Die Datei ist unvollständig. Bitte kopiere die Sicherung noch einmal auf dieses Gerät.', 'err'); return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Die Datei ist unvollständig oder nicht lesbar. Bitte lade sie noch einmal auf dieses Gerät.', 'err'); }
+      if (e.message === 'Datei unvollständig') return UI.toast('Die Datei ist unvollständig. Bitte kopiere die Sicherung noch einmal auf dieses Gerät.', 'err'); return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Das ist keine lesbare ImkerBuch-Sicherung. Bitte wähle die richtige Datei. Ist sie es, lade sie noch einmal auf dieses Gerät, sie ist dann unvollständig.', 'err'); }
     if (!data || data.app !== 'ImkerBuch' || !data.stores) return UI.toast('Das ist keine ImkerBuch-Sicherung', 'err');
     /* Nur BEKANNTE Speicher werden namentlich genannt. Ein fremder Schlüssel
        aus der Datei hat in der Anzeige nichts verloren – er landete sonst
@@ -24248,7 +24286,7 @@ const Backup = {
         await this.applyReplace(data, { blobsBehalten: false });
       } catch (e) { return UI.toast(e.message, 'err'); }              // Bestand ist unangetastet
       await this.nachImportSicher(data);
-      await S.set('startDaten', null, { auto: true });                // ab jetzt echte Daten
+      await S.set('startDaten', null, { auto: true }).catch((e) => console.warn('Startdaten', e));   // ab jetzt echte Daten
       UI.toast('Sicherung übernommen');
       await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
     };
@@ -24988,10 +25026,12 @@ const Lizenz = {
     if (l === undefined) { const v = this.vorschau(); if (v) return v; l = this.speicher(); }
     if (l.voll) return 'voll';
     if (!l.testStart) return 'ohneTest';
-    return jetzt < Date.parse(l.testStart) + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
+    const start = Date.parse(l.testStart);
+    if (start > jetzt + 864e5) return 'abgelaufen';   // Start in der Zukunft geht nur mit verstellter Uhr: nicht als ewige Testphase werten
+    return jetzt < start + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
   },
   restTage(l = this.speicher(), jetzt = Date.now()) {
-    return l.testStart ? Math.max(0, Math.ceil((Date.parse(l.testStart) + this.TAGE * 864e5 - jetzt) / 864e5)) : this.TAGE;
+    return l.testStart ? Math.min(this.TAGE, Math.max(0, Math.ceil((Date.parse(l.testStart) + this.TAGE * 864e5 - jetzt) / 864e5))) : this.TAGE;
   },
   gesperrt() {
     if (!this.aktiv()) return false;
@@ -25044,10 +25084,11 @@ const Lizenz = {
       this._kaufFehlt = false;
       if (!voll && vorher.voll && !erstattet) {
         kaufFehltSeit = vorher.kaufFehltSeit || U.nowIso();
-        voll = this._kaufFehlt = Date.now() - new Date(kaufFehltSeit).getTime() < this.KAUF_FEHLT_TAGE * 86400000;
+        const fehlt = Date.now() - new Date(kaufFehltSeit).getTime();
+        voll = this._kaufFehlt = fehlt >= 0 && fehlt < this.KAUF_FEHLT_TAGE * 86400000;   // Uhr zurückgestellt: keine endlose Frist
       }
       const test = this.android() ? (S.get('testStartGeraet') || null)
-        : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
+        : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || vorher.testStart || null;   // anderes Konto angemeldet: Die gelaufene Testphase beginnt nicht neu, Light bleibt Light
       await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso(), kaufFehltSeit: voll ? kaufFehltSeit : null }, { auto: true });
     } catch (e) { this._abgleichFehler = true; console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
@@ -25105,6 +25146,7 @@ const Lizenz = {
       return false;
     } finally { clearTimeout(freigabe); this._kaufLaeuft = false; }
     const st = this.status(await this.abgleichen());
+    if (this._abgleichFehler && st !== 'voll' && st !== 'test') { UI.toast('Der Kauf ist abgeschickt, konnte aber gerade nicht geprüft werden. Bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
     if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
     else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.restTage()} Tage alles frei.`);
     else if (st === 'abgelaufen') UI.toast(`Zu ${this.android() ? 'diesem Gerät' : 'dieser Apple-ID'} lief die Testphase schon. Neues eintragen geht mit der Vollversion.`, 'err');
@@ -25139,14 +25181,19 @@ const Lizenz = {
     if (this._offen || !this.aktiv()) return;
     this._offen = true;
     let zu; const geschlossen = new Promise((r) => { zu = r; });
+    let neuLaden = false;
     const pr = await this.preise();
     const st = this.status();
     const kopf = st === 'abgelaufen' ? (grund ? 'Das gibt es in der Vollversion' : 'ImkerBuch Light läuft weiter') : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
     const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : `als Einmalkauf (Preis siehe ${this.android() ? 'Google Play' : 'App Store'})`;
     const text = st === 'abgelaufen'
-      ? `${grund ? U.esc(grund) + ' ' : 'Deine Testphase ist vorbei – ImkerBuch läuft kostenlos als <b>Light</b> weiter: bis zu ' + this.LIGHT_VOELKER + ' Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. '}Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr als ' + this.LIGHT_VOELKER + ' Völker gibt es mit der Vollversion – ${preis}, kein Abo. Alles, was du eingetragen hast, bleibt sichtbar.`
+      ? `${grund ? U.esc(grund) + ' ' : 'Deine Testphase ist vorbei – ImkerBuch läuft kostenlos als <b>Light</b> weiter: bis zu ' + this.LIGHT_VOELKER + ' Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. '}Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr als ${this.LIGHT_VOELKER} Völker gibt es mit der Vollversion – ${preis}, kein Abo. Alles, was du eingetragen hast, bleibt sichtbar.`
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
-    const m = this._fensterOffen = UI.modal({ title: '', onClose: () => { this._offen = false; this._fensterOffen = null; zu(); },
+    const m = this._fensterOffen = UI.modal({ title: '', onClose: () => {
+        this._offen = false; this._fensterOffen = null;
+        if (neuLaden) setTimeout(() => this.fenster({ grund }).then(zu), 300);   // Wer auf das Fenster wartet, wartet weiter
+        else zu();
+      },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
         ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann nur mit der Vollversion, zum Beispiel Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr Völker. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">' + (st === 'ohneTest' && !this.android() ? 'Zum Start der Testphase braucht ImkerBuch einmal kurz Internet. Bist du online?' : 'Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online?') + ' <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
@@ -25160,7 +25207,7 @@ const Lizenz = {
     m.el.querySelector('[data-voll]').onclick = async () => fertig(await this.kaufen('voll'));
     m.el.querySelector('[data-wieder]').onclick = async () => { await this.wiederherstellen(); if (['voll', 'test'].includes(this.status())) fertig(true); };
     m.el.querySelector('[data-code]').onclick = () => this.codeEinloesen();
-    const nl = m.el.querySelector('[data-neu-laden]'); if (nl) nl.onclick = () => { m.close(); this._offen = false; setTimeout(() => this.fenster(), 300); };
+    const nl = m.el.querySelector('[data-neu-laden]'); if (nl) nl.onclick = () => { neuLaden = true; m.close(); };
     return geschlossen;
   },
   async init() {
@@ -25169,9 +25216,7 @@ const Lizenz = {
     try { P.addListener('transactionUpdated', () => this.vonAussenPruefen()); } catch (_) {}
     /* Android: Später bezahlte Käufe (Barzahlung im Laden) melden sich nicht von selbst, deshalb beim Zurückkehren nachsehen */
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.ausstehendePruefen(); });
-    const vorher = this.status();
-    await this.abgleichen();
-    if (this.status() !== vorher && S.get('wizardDone')) renderRoute();   // Schilder und Hinweise zeigten noch den alten Stand
+    await this.vonAussenPruefen();   // Schilder und Hinweise zeigten noch den alten Stand
     if (this._kaufFehlt) UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err');
   },
   async ausstehendePruefen() {
@@ -25183,7 +25228,7 @@ const Lizenz = {
     const st = this.status(await this.abgleichen());
     if (st === vorher) return;
     if (st === 'voll') { UI.toast('Danke! Die Vollversion ist freigeschaltet.'); if (this._fensterOffen) this._fensterOffen.close(); }
-    renderRoute();
+    if (S.get('wizardDone')) renderRoute();
   },
 };
 
@@ -25284,7 +25329,7 @@ const Notif = {
       if (Erinnerung.plugin()) Erinnerung.plugin().checkPermissions().then((p) => {   // in den Telefon-Einstellungen erlaubt? Das soll gleich stimmen
         const anders = p.display !== this._nativ;
         this._nativ = p.display;
-        if (anders && currentRoute().route === 'einstellungen') renderRoute();
+        if (anders && currentRoute().route === 'einstellungen') renderRoute({ scrollBehalten: true });
       }, () => {});
     });
   },
@@ -25339,7 +25384,7 @@ async function makeQr(text) {
 function tabelleLesen(XLSX, puffer) {
   const opt = { cellDates: true, dateNF: 'yyyy-mm-dd' };   // sonst liefert die Bibliothek amerikanisch M/T/JJ
   const b = new Uint8Array(puffer);
-  const istExcel = (b[0] === 0x50 && b[1] === 0x4b) || (b[0] === 0xd0 && b[1] === 0xcf);
+  const istExcel = (b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4) || (b[0] === 0xd0 && b[1] === 0xcf);
   if (!istExcel) {
     let text = null;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(b); } catch (_) { /* anderer Zeichensatz */ }
@@ -29922,6 +29967,7 @@ Views.einstellungen = {
     const stKm = $('#st-km');
     if (stKm) stKm.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { await S.set('kmPauschale', v); UI.toast('Kilometerpauschale gespeichert'); } else { e.target.value = U.fmtNum(S.get('kmPauschale'), 2); UI.toast('Bitte einen gültigen Betrag eingeben', 'err'); } };
     const saveKreis = U.debounce(async () => {
+      if (!$('#rk-prefix')) return;   // Seite schon verlassen
       kreis.prefix = $('#rk-prefix').value;
       const n = parseInt($('#rk-next').value, 10);
       if (!isNaN(n) && n > 0) kreis.next = n;
@@ -30446,6 +30492,7 @@ function unbehandelterFehler(ev) {
   }
   console.error('Unbehandelter Fehler', grund);
   if (!grund || grund.name === 'AbortError' || grund.lizenz || grund.leise) return;   // abgebrochen, oder das Kauf-Fenster ist schon offen
+  if (/of null|null is not an object/.test(String(grund.message))) return;   // verzögerte Arbeit auf einer Seite, die schon verlassen wurde: Für den Kunden ist nichts schiefgegangen
   if (jetzt - letzterTipp > FEHLER_NACH_TIPP_MS || jetzt - fehlerZuletzt < 30000) return;
   fehlerZuletzt = jetzt;
   UI.toast(UNBEHANDELT_TEXT, 'err');
@@ -30545,7 +30592,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT,
+  wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT,
   TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,

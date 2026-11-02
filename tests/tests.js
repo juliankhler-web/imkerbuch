@@ -10466,7 +10466,58 @@ test('Kauf: leere Liste nimmt einen bezahlten Kauf nicht sofort weg, Rückerstat
     kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, revocationDate: '2026-10-05T00:00:00Z' }];
     l = await L.abgleichen();
     assertEq(l.voll, false, 'ausdrückliche Rückerstattung gilt sofort');
+    // anderes Konto: Die gelaufene Testphase bleibt, Light bleibt Light statt Sperre
+    const start = new Date(Date.now() - 40 * tag).toISOString();
+    await w.S.set('lizenz', { voll: false, testStart: start, geprueft: null }, { auto: true });
+    kaeufe = [];
+    l = await L.abgleichen();
+    assertEq(l.testStart, start, 'Teststart nicht gelöscht');
+    assertEq(L.status(l), 'abgelaufen');
+    await w.S.set('lizenz', { voll: true, testStart: start, geprueft: null, kaufFehltSeit: new Date(Date.now() - 8 * tag).toISOString() }, { auto: true });
+    l = await L.abgleichen();
+    assertEq(L.status(l), 'abgelaufen', 'nach der Frist Light, keine Sperre');
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null, kaufFehltSeit: new Date(Date.now() + 400 * tag).toISOString() }, { auto: true });
+    assertEq((await L.abgleichen()).voll, false, 'zurückgestellte Uhr verlängert die Frist nicht');
   } finally { L.plugin = altP; L.android = altA; L._kaufFehlt = false; w.UI.toast = toast; await w.S.set('lizenz', vor, { auto: true }); }
+});
+test('Testphase: Start in der Zukunft zählt nicht als ewige Testphase', async (w) => {
+  const L = w.Lizenz, t0 = Date.now(), tag = 864e5;
+  const zukunft = new Date(t0 + 20000 * tag).toISOString();
+  assertEq(L.status({ voll: false, testStart: zukunft }, t0), 'abgelaufen');
+  assertEq(L.restTage({ testStart: new Date(t0 + 5 * tag).toISOString() }, t0), 30, 'nie mehr als 30 Tage');
+  assertEq(L.status({ voll: false, testStart: new Date(t0 + 3600000).toISOString() }, t0), 'test', 'kleine Abweichung der Uhr schadet nicht');
+});
+test('Kauf-Fenster in Light: kein Programmcode im Text, Erneut laden lässt den Wartenden warten', async (w) => {
+  const L = w.Lizenz, echt = { aktiv: L.aktiv, speicher: L.speicher, preise: L.preise, status: L.status };
+  L.aktiv = () => true;
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 31 * 864e5).toISOString() });
+  L.preise = async () => ({ voll: '24,99 €', test: null, geladen: true });
+  try {
+    for (const grund of ['', 'Bio ist Teil der Vollversion.']) {
+      L._offen = false;
+      const zu = L.fenster({ grund });
+      await new Promise((r) => w.setTimeout(r, 30));
+      const text = w.document.querySelector('#modal-root .modal-back:last-child').textContent;
+      assert(!/' \+|\+ '|\$\{|this\./.test(text), 'Programmcode im Text: ' + text);
+      assert(/mehr als 2 Völker/.test(text), text);
+      L._fensterOffen.close();
+      await zu;
+    }
+    L.preise = async () => ({ voll: null, test: null, geladen: false });
+    L._offen = false;
+    let fertig = false;
+    const zu = L.fenster().then(() => { fertig = true; });
+    await new Promise((r) => w.setTimeout(r, 30));
+    w.document.querySelector('#modal-root [data-neu-laden]').click();
+    await new Promise((r) => w.setTimeout(r, 60));
+    assertEq(fertig, false, 'der Wartende wartet weiter');
+    await new Promise((r) => w.setTimeout(r, 400));
+    assert(L._fensterOffen, 'neues Fenster offen');
+    assertEq(fertig, false);
+    L._fensterOffen.close();
+    await zu;
+    assertEq(fertig, true);
+  } finally { Object.assign(L, echt); L._offen = false; L._fensterOffen = null; dialogeSchliessen(w); }
 });
 test('Kauf: Android erkennt einen später bezahlten Kauf, Billing-Fehler wird verständlich', async (w) => {
   const L = w.Lizenz, altP = L.plugin, altA = L.android, altF = L.fenster, toast = w.UI.toast, vor = w.S.get('lizenz'), route = w.renderRoute;
@@ -10531,7 +10582,7 @@ test('Dokument, Sprachnotiz, Datei öffnen und PDF melden ihren Fehler', async (
     // Sicherung: kaputte Datei bekommt die verständliche Meldung
     ms.length = 0;
     await w.Backup.importFile(new w.File(['{"app":"ImkerBuch","stores":{"voe'], 'kaputt.json', { type: 'application/json' }));
-    assert(ms.some(([m, a]) => a === 'err' && /unvollständig/.test(m)), 'Import: ' + JSON.stringify(ms));
+    assert(ms.some(([m, a]) => a === 'err' && /keine lesbare ImkerBuch-Sicherung/.test(m)), 'Import: ' + JSON.stringify(ms));
     assert(!ms.some(([m]) => /JSON/.test(m)), 'kein Fachwort');
   } finally { w.UI.toast = toast; w.console.warn = warn; }
 });
@@ -10609,6 +10660,7 @@ test('CSV: Umlaute kommen in UTF-8 ohne Kennung, mit Kennung und im Windows-Zeic
   assert(/15|2024/.test(z.Datum), 'Datum vorhanden: ' + z.Datum);
   const mitBom = new w.Uint8Array([0xef, 0xbb, 0xbf, ...utf8]);
   assertEq(zeile(w.tabelleLesen(XLSX, mitBom.buffer)).Name, 'Völker äöü ß', 'mit Kennung');
+  assertEq(zeile(w.tabelleLesen(XLSX, new w.TextEncoder().encode('PK-Nr;Name\n1;Größe\n').buffer)).Name, 'Größe', 'CSV, die mit PK beginnt');
   const latin = w.Uint8Array.from('Name;Wert\nVölker;3\n', (c) => c.charCodeAt(0));
   assertEq(zeile(w.tabelleLesen(XLSX, latin.buffer)).Name, 'Völker', 'Windows-Zeichensatz wie bisher');
   const ws = XLSX.utils.aoa_to_sheet([['Name'], ['Völker']]); const neu = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(neu, ws, 'A');
@@ -10693,11 +10745,15 @@ test('Sprachnotiz: Telefon sperrt oder Mikrofon fällt weg, die Aufnahme wird ge
     const erg = await a.stop();
     assertEq(erg.blob.size, 3, 'Ton da');
     assertEq(freigegeben, 1, 'Display wieder frei');
+    let spaeter = 0;
+    w.wennSichtbar(() => { spaeter++; });
+    assertEq(spaeter, 0, 'versteckt: Meldung wartet');
     w.document.dispatchEvent(new w.Event('visibilitychange'));
     assertEq(n, 2, 'nach dem Ende keine Meldung mehr');
   } finally {
     w.MediaRecorder = altM; w.Voice.startLive = altSp;
     if (altV) Object.defineProperty(w.document, 'visibilityState', altV); else delete w.document.visibilityState;
+    w.document.dispatchEvent(new w.Event('visibilitychange'));
     if (altG) Object.defineProperty(w.navigator, 'mediaDevices', altG); else delete w.navigator.mediaDevices;
     if (altW) Object.defineProperty(w.navigator, 'wakeLock', altW); else delete w.navigator.wakeLock;
   }
