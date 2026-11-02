@@ -402,5 +402,17 @@ Die **reinen Serverkosten** sind also bei jedem der Preise schnell gedeckt. Ents
 
 Zahlen (nicht einheitlich, verschiedene Jahre): laut DBIB-Papier 2023 rund 1 % Berufsimker mit etwa 23 % der Völker, DBIB-Mitglieder 1.122 mit im Schnitt 200 Völkern, dazu rund 5.400 weitere mit mehr als 25 Völkern (im Schnitt 30). Laut Statista halten etwa 1 % der Imker mehr als 50 Völker, Schnitt 6,7. DIB 135.730 Mitglieder, rund 80 % aller Imker. Quellen: berufsimker.de/wp-content/uploads/2023/12/DBIB-Positionspapier-231204.pdf, de.statista.com/infografik/32433/daten-zur-imkerei-in-deutschland, lebensmittelpraxis.de/industrie-aktuell/32869-honigproduktion-zahl-der-imkereien-nimmt-zu.html.
 
-Einschätzung: nicht in 1.00 einbauen. Passt zum späteren Cloud-Abo mit mehreren Geräten und Mitarbeiter-Zugängen. Offen, Entscheidung Julian.
+**Entscheidung Julian 02.11.2026:** Nicht in 1.00. Der Einmalkauf bleibt ohne Völkergrenze. Großbetriebe sollen aber nicht dauerhaft Nutznießer sein: Mitarbeiter-Zugänge, mehrere Geräte und Zeiten kommen mit dem Abo in einem eigenen Betriebs-Tarif. Bestehende Käufer behalten, was sie gekauft haben.
+
+Listenpreise vergleichbarer Programme (Anbieterseiten, gelesen 02.11.2026, US-Markt, Listenpreis sagt nichts darüber, wer ihn zahlt):
+
+| Anbieter | Tarif | Preis | Umfang |
+|---|---|---|---|
+| HiveMasterPro | Premium | 12,99 $/Monat oder 119,99 $/Jahr | 250 Völker |
+| HiveMasterPro | Commercial | 44,99 $/Monat oder 439,99 $/Jahr | 2.500 Völker |
+| HiveMate | Professional | 49 $/Monat | 15 Stände, Team |
+| HiveMate | Enterprise | 99 $/Monat | unbegrenzt, Team |
+| PollenOps (eigene Werbeseite) | Einstieg / Commercial | 49 $ / 89 $/Monat | 50 Völker / unbegrenzt |
+
+Deutschland: Preise für Berufsimker-Software nicht belegt gefunden; die Imker-App des Imkerbunds und die Varroa-App der LWG sind kostenlos. Der Preis für den Betriebs-Tarif ist offen, vorher fünf bis zehn Berufsimker fragen.
 
