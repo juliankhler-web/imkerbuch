@@ -5698,7 +5698,7 @@ const Sprachnotiz = {
         catch (err) {
           if (err.lizenz) return false;
           const nochmal = await UI.confirm({ title: 'Sprachnotiz nicht gespeichert', text: `${istSpeicherVoll(err) ? 'Der Speicher ist voll. Gib auf dem Gerät Platz frei.' : 'Das Speichern hat nicht geklappt.'} Brichst du ab, ist die Aufnahme weg.`, confirmText: 'Noch einmal' });
-          if (!nochmal) return false;
+          if (!nochmal) { wennSichtbar(() => UI.toast('Die Sprachnotiz wurde nicht gespeichert.', 'err')); return false; }
         }
       }
     };
@@ -8535,7 +8535,7 @@ Views.durchsicht = {
       if (t.hasAttribute('data-sd-speichern')) {
         t.disabled = true;
         const liefAufnahme = !!this._aufnahme;
-        await this.aufnahmeBeenden();
+        if (!(await this.aufnahmeBeenden()) && liefAufnahme) return renderRoute();   // Aufnahme leer: hierbleiben, sonst lässt sich nichts neu aufnehmen
         const naechstes = offeneNach();
         let gespeichert = false;
         try { gespeichert = await this.speichern(volk, e); }
@@ -25030,7 +25030,7 @@ const Lizenz = {
     if (l.voll) return 'voll';
     if (!l.testStart) return 'ohneTest';
     const start = Date.parse(l.testStart);
-    if (start > jetzt + 864e5) return 'abgelaufen';   // Start in der Zukunft geht nur mit verstellter Uhr: nicht als ewige Testphase werten
+    if (start > jetzt + this.TAGE * 864e5) return 'abgelaufen';   // Start weit in der Zukunft geht nur mit verstellter Uhr: nicht als ewige Testphase werten. Bis dahin schadet es niemandem, dessen Uhr nur falsch geht
     return jetzt < start + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
   },
   restTage(l = this.speicher(), jetzt = Date.now()) {
@@ -25062,6 +25062,7 @@ const Lizenz = {
   },
   _abgleichFehler: false,
   _kaufFehlt: false,
+  _testNurGemerkt: false,
   KAUF_FEHLT_TAGE: 7,
   async _abgleichen() {
     const P = this.plugin(); if (!P) return this.speicher();
@@ -25087,11 +25088,12 @@ const Lizenz = {
       this._kaufFehlt = false;
       if (!voll && vorher.voll && !erstattet) {
         kaufFehltSeit = vorher.kaufFehltSeit || U.nowIso();
-        const fehlt = Date.now() - new Date(kaufFehltSeit).getTime();
-        voll = this._kaufFehlt = fehlt >= 0 && fehlt < this.KAUF_FEHLT_TAGE * 86400000;   // Uhr zurückgestellt: keine endlose Frist
+        if (new Date(kaufFehltSeit).getTime() > Date.now()) kaufFehltSeit = U.nowIso();   // Die Uhr ging vor und stimmt jetzt: Ein Zahlender behält seine Frist
+        voll = this._kaufFehlt = Date.now() - new Date(kaufFehltSeit).getTime() < this.KAUF_FEHLT_TAGE * 86400000;
       }
-      const test = this.android() ? (S.get('testStartGeraet') || null)
-        : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || vorher.testStart || null;   // anderes Konto angemeldet: Die gelaufene Testphase beginnt nicht neu, Light bleibt Light
+      const testImStore = gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
+      this._testNurGemerkt = !this.android() && !testImStore && !!vorher.testStart;
+      const test = this.android() ? (S.get('testStartGeraet') || null) : testImStore || vorher.testStart || null;   // anderes Konto angemeldet: Die gelaufene Testphase beginnt nicht neu, Light bleibt Light
       await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso(), kaufFehltSeit: voll ? kaufFehltSeit : null }, { auto: true });
     } catch (e) { this._abgleichFehler = true; console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
@@ -25164,6 +25166,7 @@ const Lizenz = {
     if (st !== vorher) renderRoute();
     if (this._abgleichFehler && st !== 'voll') { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }   // nicht behaupten, es gebe keinen Kauf
     if (this._kaufFehlt) { UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err'); return; }
+    if (st === 'test' && this._testNurGemerkt) { UI.toast(`Kein Kauf zu dieser Apple-ID gefunden. Deine Testphase läuft weiter, noch ${this.restTage()} Tage.`, 'err'); return; }
     UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
   },
   async codeEinloesen() {
@@ -25227,7 +25230,7 @@ const Lizenz = {
   },
   /** Kauf oder Code außerhalb des Kauf-Fensters: bezahlt melden und das Fenster schließen. */
   async vonAussenPruefen() {
-    const vorher = this.status();
+    const vorher = this.status(this.speicher());   // echter Stand, nicht die Vorschau im Testbau
     const st = this.status(await this.abgleichen());
     if (st === vorher) return;
     if (st === 'voll') { UI.toast('Danke! Die Vollversion ist freigeschaltet.'); if (this._fensterOffen) this._fensterOffen.close(); }
@@ -30495,7 +30498,7 @@ function unbehandelterFehler(ev) {
   }
   console.error('Unbehandelter Fehler', grund);
   if (!grund || grund.name === 'AbortError' || grund.lizenz || grund.leise) return;   // abgebrochen, oder das Kauf-Fenster ist schon offen
-  if (/of null|null is not an object/.test(String(grund.message))) return;   // verzögerte Arbeit auf einer Seite, die schon verlassen wurde: Für den Kunden ist nichts schiefgegangen
+  if (/of null|null is not an object/.test(String(grund.message))) return;   // fast immer verzögerte Arbeit auf einer Seite, die schon verlassen wurde: Für den Kunden ist nichts schiefgegangen, deshalb nur im Protokoll
   if (jetzt - letzterTipp > FEHLER_NACH_TIPP_MS || jetzt - fehlerZuletzt < 30000) return;
   fehlerZuletzt = jetzt;
   UI.toast(UNBEHANDELT_TEXT, 'err');

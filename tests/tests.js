@@ -10477,13 +10477,21 @@ test('Kauf: leere Liste nimmt einen bezahlten Kauf nicht sofort weg, Rückerstat
     l = await L.abgleichen();
     assertEq(L.status(l), 'abgelaufen', 'nach der Frist Light, keine Sperre');
     await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null, kaufFehltSeit: new Date(Date.now() + 400 * tag).toISOString() }, { auto: true });
-    assertEq((await L.abgleichen()).voll, false, 'zurückgestellte Uhr verlängert die Frist nicht');
+    l = await L.abgleichen();
+    assertEq(l.voll, true, 'Uhr ging vor: Der Zahlende behält seine Frist');
+    assert(Date.parse(l.kaufFehltSeit) <= Date.now(), 'Frist beginnt neu');
+    // laufende Testphase, anderes Konto: keine erfundene Wiederherstellung
+    await w.S.set('lizenz', { voll: false, testStart: new Date(Date.now() - 5 * tag).toISOString(), geprueft: null }, { auto: true });
+    ms.length = 0; await L.wiederherstellen();
+    assert(ms.some(([m]) => /Kein Kauf zu dieser Apple-ID.*Testphase läuft weiter/.test(m)), JSON.stringify(ms));
+    assert(!ms.some(([m]) => /wiederhergestellt/.test(m)));
   } finally { L.plugin = altP; L.android = altA; L._kaufFehlt = false; w.UI.toast = toast; await w.S.set('lizenz', vor, { auto: true }); }
 });
 test('Testphase: Start in der Zukunft zählt nicht als ewige Testphase', async (w) => {
   const L = w.Lizenz, t0 = Date.now(), tag = 864e5;
   const zukunft = new Date(t0 + 20000 * tag).toISOString();
   assertEq(L.status({ voll: false, testStart: zukunft }, t0), 'abgelaufen');
+  assertEq(L.status({ voll: false, testStart: new Date(t0 + 3 * tag).toISOString() }, t0), 'test', 'Uhr ging nur falsch: nicht bestrafen');
   assertEq(L.restTage({ testStart: new Date(t0 + 5 * tag).toISOString() }, t0), 30, 'nie mehr als 30 Tage');
   assertEq(L.status({ voll: false, testStart: new Date(t0 + 3600000).toISOString() }, t0), 'test', 'kleine Abweichung der Uhr schadet nicht');
 });
