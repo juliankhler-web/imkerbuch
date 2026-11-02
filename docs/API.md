@@ -560,6 +560,14 @@ await landbedeckungErmitteln(lat, lon, radiusM, melde)
 meldet ihre Quelle mit, damit in der Auswertung steht, woher die Zahlen stammen.
 Umkreis-Vorgabe: 3,5 km.
 
+**Regelmäßig prüfen, ob es Neueres gibt** (Julian, 02.11.2026; bei Arbeit am Bio-Bereich und vor größeren Fassungen):
+
+1. Produktseite BKG, `gdz.bkg.bund.de`, Suche „LBM-DE“: Steht ein neueres Referenzjahr als 2021 da? Fortführung laut BKG alle 3 Jahre. Lizenz weiter CC BY 4.0?
+2. Portal `geoservice.rlp.de/portal/sharing/rest/search?q=LBM&f=json`: Gibt es einen neuen Dienst statt `LBMBienen2025`? Nutzt die neueste Karte `WM_DE_Bienen_ExB_<Jahr>` eine neuere Ebene als `MIL_DE_LBM_DE2021_DB`? Steht jetzt eine Lizenz am Dienst (`licenseInfo`)?
+3. BKG-Dienst: Gibt es `wfs_clc5_<neueres Jahr>` statt `wfs_clc5_2018`?
+
+Stand 02.11.2026: nichts Neueres. Andere Dienstnamen wie `LBMBienen2026` antworten mit „Token Required“; daraus lässt sich nicht ablesen, ob es sie gibt. Einen Fund erst Julian zeigen, weil sich die Zahlen in den Unterlagen ändern.
+
 ---
 
 ## 17. Anhänge, Sprache, Import

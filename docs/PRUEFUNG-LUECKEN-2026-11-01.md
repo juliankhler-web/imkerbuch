@@ -6,7 +6,7 @@ Julian hat gefragt, ob die App in irgendeinem Bereich noch geprüft werden sollt
 
 ### Vor dem Hochladen der Fassung 1.00 (macht Claude)
 
-**Erledigt mit v3.13 (01.11.2026), Prüfergebnis in `docs/PRUEFUNG-APPSTORE.md`.** Offen aus diesen sieben Punkten: Geräteläufe iOS 16 und ältere Android-Fassungen, Nutzungsrecht geoservice.rlp.de (Anfrage durch Julian). Bei der Datenschutz-Nachfrage lag der Fund daneben: Die Erklärung nannte sie schon, nur die Support-Seite war ungenau.
+**Erledigt mit v3.13 (01.11.2026), Prüfergebnis in `docs/PRUEFUNG-APPSTORE.md`.** Offen aus diesen sieben Punkten: Geräteläufe iOS 16 und ältere Android-Fassungen, Nutzungsrecht geoservice.rlp.de (Entscheidung 02.11.2026 siehe `PROJEKT.md`: bleibt, keine Anfrage). Bei der Datenschutz-Nachfrage lag der Fund daneben: Die Erklärung nannte sie schon, nur die Support-Seite war ungenau.
 
 Selbst im Code nachgesehen: Punkt 1 und 2 stimmen.
 

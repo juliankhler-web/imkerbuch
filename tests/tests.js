@@ -10373,8 +10373,10 @@ test('Fachtexte: Varroa-Meldung, Behandlungspflicht, Ampel, Etikett, Quellen', a
       dialogeSchliessen(w);
     }
   } finally { await w.S.set('imkerei', imk, { auto: true }); await w.DB.del('chargen', charge.id); await w.DB.del('abfuellungen', abf.id); }
+  const quelltext = await (await w.fetch('index.html')).text();
+  assert(!quelltext.includes('ermittelt und hier eingetragen'), 'das Bio-PDF behauptet keine feste Quelle mehr');
   const liz = await (await w.fetch('lizenzen.html')).text();
-  assert(/CC BY 4\.0/.test(liz) && /dl-de\/by-2-0/.test(liz) && /geoservice\.rlp\.de/.test(liz), 'Datenquellen mit Lizenz');
+  assert(/CC BY 4\.0/.test(liz) && /dl-de\/by-2-0/.test(liz) && /geoservice\.rlp\.de/.test(liz) && /LBM-DE: © BKG/.test(liz), 'Datenquellen mit Lizenz');
   const ds = await (await w.fetch('datenschutz.html')).text();
   assert(/fragt die App kurz bei unserer Website nach/.test(ds), 'Nachfrage beim eigenen Server genannt');
   assert(/Zwischenspeicher der App/.test(ds), 'Kopie beim Teilen genannt');
