@@ -10249,7 +10249,7 @@ test('Sicherung: In der App wird direkt in die Datei geschrieben, die Datei blei
     assert(eins && doppelt === null, 'zweiter Lauf unterbleibt');
     abbrechen = true;
     assertEq(await w.Backup.dateiTeilen(name), null, 'Abbruch im Menü');
-    assert(geloescht.includes(name), 'bei Abbruch sofort gelöscht');
+    assert(!geloescht.includes(name), 'bei Abbruch bleibt die Datei liegen: Android meldet ihn auch, wenn das Ziel noch liest');
     assertEq(w.Backup._dateiLaeuft, false, 'nach dem Abbruch frei');
     abbrechen = false; geloescht.length = 0; teilenFehler = new Error('kaputt');
     assert(await w.Backup.dateiTeilen(name).then(() => false, (e) => e.message === 'kaputt'), 'anderer Fehler kommt an');
@@ -10358,6 +10358,84 @@ test('iPhone-Tastatur: Fenster schrumpft auf die sichtbare Höhe, Zoom und Andro
     vv(voll - 30); w.tastaturFolgen();
     assert(!h.classList.contains('tastatur-offen'), 'kleine Änderung ist keine Tastatur');
   } finally { if (alt) Object.defineProperty(w, 'visualViewport', alt); h.classList.remove('tastatur-offen'); ['--vv-h', '--vv-top', '--vv-unten'].forEach((k) => h.style.removeProperty(k)); }
+});
+test('Sicherung Android: ohne gewähltes Ziel kein Erfolg, mit Ziel erst nach der Rückfrage vermerkt', async (w) => {
+  const cap = w.Capacitor, conf = w.UI.confirm, mark = w.Backup.markExternal, toast = w.UI.toast;
+  let ziel = '', antwort = true, markiert = 0, gefragt = 0;
+  w.Capacitor = { getPlatform: () => 'android', Plugins: {
+    Filesystem: { writeFile: async (o) => ({ uri: 'file:///' + o.path }), appendFile: async () => {}, deleteFile: async () => {}, readdir: async () => ({ files: [] }) },
+    Share: { share: async () => ({ activityType: ziel }) },
+  } };
+  w.UI.confirm = async () => { gefragt++; return antwort; }; w.UI.toast = () => {}; w.Backup.markExternal = async () => { markiert++; };
+  try {
+    assertEq(await w.Backup.dateiTeilen('imkerbuch-backup-a.json'), null, 'leeres Ziel: Home-Taste und zurück zählt nicht als Erfolg');
+    assertEq(await w.Backup.nativTeilen('imkerbuch-backup-a.json'), false, 'nichts vermerkt');
+    assertEq([gefragt, markiert], [0, 0], 'ohne Ziel keine Rückfrage');
+    ziel = 'com.google.android.apps.docs/.Upload'; antwort = false;
+    assertEq(await w.Backup.nativTeilen('imkerbuch-backup-a.json'), false, 'Nein: nicht erledigt');
+    assertEq([gefragt, markiert], [1, 0], 'gefragt, nicht vermerkt');
+    antwort = true;
+    assertEq(await w.Backup.nativTeilen('imkerbuch-backup-a.json'), true, 'Ja: erledigt');
+    assertEq([gefragt, markiert], [2, 1], 'jetzt vermerkt');
+  } finally { w.Capacitor = cap; w.UI.confirm = conf; w.Backup.markExternal = mark; w.UI.toast = toast; }
+});
+test('Excel einlesen: echte Datumszelle kommt deutsch an, Unmögliches wird nicht übernommen', async (w) => {
+  const XLSX = await w.Xlsx.lib();
+  const heft = XLSX.utils.book_new(), blatt = XLSX.utils.aoa_to_sheet([['Datum'], [45366], [45385]]);
+  blatt.A2.t = 'n'; blatt.A2.z = 'm/d/yy'; blatt.A3.t = 'n'; blatt.A3.z = 'm/d/yy';
+  XLSX.utils.book_append_sheet(heft, blatt, 'A');
+  const roh = XLSX.write(heft, { type: 'array', bookType: 'xlsx' });
+  const wb = XLSX.read(roh, { cellDates: true, dateNF: 'yyyy-mm-dd' });
+  const zeilen = XLSX.utils.sheet_to_json(wb.Sheets.A, { defval: '', raw: false });
+  assertEq(w.Importer.parseDate(zeilen[0].Datum), '2024-03-15', '15. März');
+  assertEq(w.Importer.parseDate(zeilen[1].Datum), '2024-04-03', '3. April');
+  assert(!/XLSX\.read\(await file\.arrayBuffer\(\), \{ cellDates: true \}\)/.test(await (await w.fetch('index.html')).text()), 'der Einlese-Weg nutzt dateNF');
+  assertEq(w.Importer.parseDate('15.03.2024'), '2024-03-15', 'deutsch');
+  assertEq(w.Importer.parseDate('3/15/24'), null, 'kein 15. Monat');
+  assertEq(w.Importer.parseDate('31.02.2024'), null, 'kein 31. Februar');
+  assertEq(w.Importer.parseDate('2024-13-01'), null, 'kein 13. Monat');
+});
+test('Leerer Anhang: Umwandeln bricht das Einspielen nicht ab', async (w) => {
+  assertEq(w.U.dataURLToBlob('data:').size, 0, 'nur data:');
+  assertEq(w.U.dataURLToBlob('data:audio/mp4;base64,').size, 0, 'leer mit Typ');
+  assertEq(w.U.dataURLToBlob('data:audio/mp4;base64,').type, 'audio/mp4', 'Typ bleibt');
+  assertEq(await w.U.dataURLToBlob('data:text/plain;base64,SGk=').text(), 'Hi', 'normaler Inhalt');
+});
+test('Kauf: fehlende Bestätigung wird nachgeholt, Doppeltippen, ausstehend und Netzfehler richtig gemeldet', async (w) => {
+  const L = w.Lizenz, altP = L.plugin, altA = L.android, toast = w.UI.toast, ms = [];
+  const bestaetigt = []; let kaeufe = [], fehler = null, kaufFehler = null, kaufAufrufe = 0, auf = null;
+  L.android = () => true; w.UI.toast = (m, a) => ms.push([m, a]);
+  L.plugin = () => ({
+    restorePurchases: async () => {},
+    getPurchases: async () => { if (fehler) throw fehler; return { purchases: kaeufe }; },
+    acknowledgePurchase: async (o) => { bestaetigt.push(o.purchaseToken); },
+    purchaseProduct: async () => { kaufAufrufe++; if (auf) await auf; if (kaufFehler) throw kaufFehler; },
+  });
+  const lizenzVor = w.S.get('lizenz');
+  try {
+    kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '1', isAcknowledged: false, purchaseToken: 'tok1' }, { productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '1', isAcknowledged: true, purchaseToken: 'tok2' }];
+    await L.abgleichen();
+    assertEq(bestaetigt, ['tok1'], 'nur die fehlende Bestätigung');
+    const gleichzeitig = await Promise.all([L.abgleichen(), L.abgleichen()]);
+    assertEq(gleichzeitig.length, 2, 'zwei Aufrufe, ein Lauf');
+
+    let frei; auf = new Promise((r) => { frei = r; });
+    const k1 = L.kaufen('voll'), k2 = await L.kaufen('voll');
+    assertEq(k2, false, 'zweiter Tipp tut nichts'); frei(); await k1; auf = null;
+    assertEq(kaufAufrufe, 1, 'nur ein Kauf gestartet');
+
+    ms.length = 0; kaufFehler = new Error('Purchase is pending');
+    assertEq(await L.kaufen('voll'), false, 'ausstehend');
+    assert(ms.some(([m]) => /noch bestätigt/.test(m)) && !ms.some(([m]) => /nicht erreichbar/.test(m)), 'richtige Meldung: ' + JSON.stringify(ms));
+    assertEq(L._kaufLaeuft, false, 'Sperre wieder frei'); kaufFehler = null;
+
+    ms.length = 0; kaeufe = []; await L.abgleichen();
+    fehler = new Error('offline');
+    const stVor = w.S.get('lizenz'); await w.S.set('lizenz', { ...stVor, voll: false }, { auto: true });
+    await L.wiederherstellen();
+    assert(ms.some(([m]) => /bist du online/.test(m)), 'Netzfehler genannt: ' + JSON.stringify(ms));
+    assert(!ms.some(([m]) => /Kein Kauf/.test(m)), 'nicht behauptet, es gebe keinen Kauf');
+  } finally { L.plugin = altP; L.android = altA; w.UI.toast = toast; await w.S.set('lizenz', lizenzVor, { auto: true }); }
 });
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];

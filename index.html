@@ -1569,7 +1569,7 @@ const U = {
   },
   istBlob: (x) => !!x && typeof x.size === 'number' && typeof x.arrayBuffer === 'function',   // auch fensterübergreifend; {} aus alten Sicherungen ist keiner
   blobToDataURL: (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error || new Error('Datei nicht lesbar')); r.readAsDataURL(blob); }),
-  dataURLToBlob(durl) { const [h, b64] = durl.split(','); const mime = h.match(/data:(.*?);/)[1]; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); },
+  dataURLToBlob(durl) { const [h, b64 = ''] = String(durl).split(','); const mime = (h.match(/data:(.*?)(;|$)/) || [])[1] || 'application/octet-stream'; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); },
   /** Bild clientseitig verkleinern (max. Kante) und als JPEG komprimieren */
   resizeImage(file, maxPx = 1600, quality = 0.8) {
     return new Promise((res, rej) => {
@@ -1627,8 +1627,17 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.17';
+const APP_VERSION = '3.18';
 const CHANGELOG = [
+  { version: '3.18', datum: '2026-11-02', punkte: [
+    '<b>Sicherung auf Android:</b> Android meldet nicht zuverlässig, ob das Speichern geklappt hat. Die App fragt deshalb nach, bevor sie die Sicherung als erledigt zählt, und die Datei bleibt liegen, bis das Hochladen Zeit hatte.',
+    '<b>Sicherung einspielen auf Android:</b> Jede Datei lässt sich auswählen, die App prüft den Inhalt selbst.',
+    '<b>Excel einlesen:</b> Datumsspalten kommen richtig an, ein unmögliches Datum wird nicht mehr übernommen.',
+    '<b>PDF und Excel teilen:</b> Zweimal hintereinander teilen löscht die Datei nicht mehr, während das Menü offen ist.',
+    '<b>Kauf:</b> Die App holt fehlende Kaufbestätigungen bei Google nach, verhindert doppeltes Kaufen, nennt ausstehende Zahlungen richtig und sagt nicht mehr „kein Kauf gefunden“, wenn nur das Netz fehlte.',
+    '<b>Sprachnotiz:</b> Verlässt du beim Aufnehmen die Seite, wird die Aufnahme gespeichert.',
+    '<b>Android:</b> Die Zurück-Taste schließt den Einrichtungs-Assistenten nicht mehr, und „+ Foto“ öffnet die Kamera zuverlässig.',
+  ] },
   { version: '3.17', datum: '2026-11-02', punkte: [
     '<b>Tastatur auf allen Seiten:</b> Suchen, Rechner, Notizen, Rechnungen, Einstellungen und der Chat mit Imme machen ihr Platz. Treffer und Ergebnisse stehen darüber, die untere Leiste ist solange ausgeblendet, Meldungen erscheinen oben.',
     'Auch der Einrichtungs-Assistent zeigt „Weiter“ über der Tastatur, und Imme setzt ihre Sprechblase darüber.',
@@ -5390,17 +5399,23 @@ function dateiname(name, ersatz = 'datei') {
   return /\.[A-Za-z0-9]{1,5}$/.test(e) ? e : e + endung;
 }
 function nativTeilenBereit() { const P = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins; return !!(P && P.Filesystem && P.Share); }
+const NATIV_TEILEN_ORDNER = 'teilen';
+let nativTeilenLaeuft = false;
+/* Jede Ausgabe bekommt einen eigenen Ordner: Der gleiche Name am selben Tag darf eine Datei nicht treffen, die ein Ziel noch liest.
+   Aufgeräumt wird beim nächsten Start (Backup.tempAufraeumen), langsames Hochladen hat also Zeit. */
 async function nativDateiTeilen(blob, name, titel) {
   if (!nativTeilenBereit()) return false;
+  if (nativTeilenLaeuft) return true;   // Doppeltippen: Das Menü ist schon offen
+  nativTeilenLaeuft = true;
   const P = window.Capacitor.Plugins;
-  const durl = await U.blobToDataURL(blob);
-  const pfad = dateiname(name);
-  const r = await P.Filesystem.writeFile({ path: pfad, data: durl.slice(durl.indexOf(',') + 1), directory: 'CACHE' });   // ohne encoding = base64
   try {
+    const durl = await U.blobToDataURL(blob);
+    const pfad = dateiname(name);
+    const r = await P.Filesystem.writeFile({ path: `${NATIV_TEILEN_ORDNER}/${Date.now()}/${pfad}`, data: durl.slice(durl.indexOf(',') + 1), directory: 'CACHE', recursive: true });   // ohne encoding = base64
     await P.Share.share({ title: titel || pfad, files: [r.uri], dialogTitle: titel || pfad });
   } catch (e) {
     if (!/cancel/i.test(String(e && (e.message || e)))) throw e;   // abgebrochen ist kein Fehler
-  } finally { setTimeout(() => P.Filesystem.deleteFile({ path: pfad, directory: 'CACHE' }).catch(() => {}), 60000); }
+  } finally { nativTeilenLaeuft = false; }
   return true;
 }
 /** Excel-Arbeitsmappe speichern – im Browser als Download, in der App übers Teilen-Menü. */
@@ -5589,7 +5604,7 @@ const Sprachnotiz = {
   /** Sprachnotiz-Bereich: Aufnahme, Liste, Transkription, Übernahme in Notiz */
   section({ parentTyp, parentId, onText = null }) {
     const el = document.createElement('div');
-    let recorder = null;
+    let recorder = null, wache = null;
     let blobUrls = []; // beim Re-Render alte Audio-URLs freigeben (sonst Speicherleck)
     const render = async () => {
       blobUrls.forEach((u) => URL.revokeObjectURL(u)); blobUrls = [];
@@ -5623,12 +5638,14 @@ const Sprachnotiz = {
     const startRec = async () => {
       try {
         recorder = await Sprachnotiz.aufnehmen({ onLive: (t) => { const lv = $('[data-live] span', el); if (lv) lv.textContent = t || 'Aufnahme läuft …'; } });
+        wache = setInterval(() => { if (!el.isConnected) stopRec(); }, 1000);   // Seite verlassen oder Fenster zu: Aufnahme nicht verlieren, Mikrofon frei
         render();
       } catch (e) { recorder = null; UI.toast(mikrofonFehlerText(e), 'err'); }
     };
     const stopRec = async () => {
       const r = recorder; if (!r) return;
       recorder = null;                 // vor dem Warten: ein zweiter Tipp speichert nicht doppelt
+      clearInterval(wache);
       const aufnahme = await r.stop();
       await DB.put('anhaenge', Sprachnotiz.anhang(parentTyp, parentId, aufnahme));
       UI.toast('Sprachnotiz gespeichert'); render();
@@ -6165,6 +6182,7 @@ if (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Cap
   window.Capacitor.Plugins.App.addListener('backButton', () => {
     if (VolkScanner._el) { VolkScanner.schliessen(); return; }
     const m = [...document.querySelectorAll('#modal-root .modal-back')].pop();
+    if (m && m.querySelector('#wz-body')) { const z = m.querySelector('#wz-back'); if (z) z.click(); return; }   // Einrichtung nicht halb wegwerfen
     if (m) { const x = m.querySelector('[data-close]'); if (x) x.click(); else m.remove(); return; }
     if (typeof Assistent !== 'undefined' && Assistent.tour) { Assistent.beendeTour(); return; }
     if (currentRoute().route !== 'dashboard') { if (history.length > 1) history.back(); else navTo('dashboard'); return; }
@@ -22810,8 +22828,9 @@ const Importer = {
     if (v === null || v === undefined || v === '') return null;
     if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
     const s = String(v).trim();
-    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+    const echt = (j, mo, ta) => { const d = new Date(Date.UTC(+j, +mo - 1, +ta)); return d.getUTCMonth() === +mo - 1 && d.getUTCDate() === +ta ? `${j}-${String(mo).padStart(2, '0')}-${String(ta).padStart(2, '0')}` : null; };   // kein 15. Monat, kein 31.02.
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); if (m) return echt(m[1], m[2], m[3]);
+    m = s.match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/); if (m) return echt(m[3].length === 2 ? '20' + m[3] : m[3], m[2], m[1]);
     if (/^\d{4,5}$/.test(s)) { const d = new Date(Date.UTC(1899, 11, 30) + Number(s) * 86400000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`; }
     return null;
   },
@@ -22836,7 +22855,7 @@ const Importer = {
     let rows;
     try {
       const XLSX = await Xlsx.lib();
-      const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+      const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true, dateNF: 'yyyy-mm-dd' });   // sonst liefert die Bibliothek amerikanisch M/T/JJ
       const ws = wb.Sheets[wb.SheetNames[0]];
       rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
     } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} <span class="b-msg">Datei konnte nicht gelesen werden: ${U.esc(e.message)}</span></div>`; return; }
@@ -23677,17 +23696,23 @@ const Backup = {
         if (!uri) uri = (await P.Filesystem.writeFile({ path: name, data, directory: 'CACHE', encoding: 'utf8' })).uri;
         else await P.Filesystem.appendFile({ path: name, data, directory: 'CACHE', encoding: 'utf8' });
       });
-      await P.Share.share({ title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}`, files: [uri], dialogTitle: 'Sicherung speichern' });
+      /* Android: „Share canceled“ kommt auch, wenn das Ziel gespeichert hat und die App sichtbar blieb. Die Datei bleibt deshalb
+         liegen, bis tempAufraeumen sie beim nächsten Sichern oder Start entfernt. Ohne gewähltes Ziel ist activityType leer. */
+      let geteilt;
+      try { geteilt = await P.Share.share({ title: 'ImkerBuch-Sicherung', files: [uri], dialogTitle: 'Sicherung speichern' }); }
+      catch (e) { if (/cancel/i.test(String(e && (e.message || e)))) return null; throw e; }
+      if (this.androidApp() && !(geteilt && geteilt.activityType)) return null;
       return { stand };
     } catch (e) {
-      P.Filesystem.deleteFile({ path: name, directory: 'CACHE' }).catch(() => {});   // abgebrochen oder halb geschrieben: nichts liegen lassen
-      if (/cancel/i.test(String(e && (e.message || e)))) return null;   // im Teilen-Menü abgebrochen
+      P.Filesystem.deleteFile({ path: name, directory: 'CACHE' }).catch(() => {});   // halb geschrieben oder nicht geteilt: nichts liegen lassen
       throw e;
     } finally { this._dateiLaeuft = false; }
   },
+  androidApp() { return !!(window.Capacitor && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android'); },
   async tempAufraeumen(jetzt = false) {
     if (!this.nativTeilenMoeglich() || (this._dateiLaeuft && !jetzt)) return;
     const P = window.Capacitor.Plugins;
+    if (!jetzt) await P.Filesystem.rmdir({ path: NATIV_TEILEN_ORDNER, directory: 'CACHE', recursive: true }).catch(() => {});   // geteilte PDF und Tabellen vom letzten Mal
     try {
       const { files } = await P.Filesystem.readdir({ path: '', directory: 'CACHE' });
       for (const f of files) {
@@ -23699,6 +23724,10 @@ const Backup = {
   async nativTeilen(name) {
     const erg = await this.dateiTeilen(name);
     if (!erg) return false;
+    if (this.androidApp() && !(await UI.confirm({ title: 'Liegt die Sicherung jetzt dort?', text: 'Android meldet nicht, ob das Speichern geklappt hat. Nur wenn du Ja sagst, gilt die Sicherung als erledigt.', confirmText: 'Ja, sie ist da', cancelText: 'Nein, noch nicht', danger: false }))) {
+      UI.toast('Die Sicherung zählt noch nicht als erledigt.');
+      return false;
+    }
     const marke = {};   // Merkt sich, welcher Datenstand in der Datei steckt, wie sonst der Blob
     this._dateistaende.set(marke, erg.stand);
     // Die Datei ist gespeichert. Scheitert nur das Vermerken (etwa bei vollem Speicher), darf das nicht wie eine gescheiterte Sicherung aussehen.
@@ -24894,7 +24923,13 @@ const Lizenz = {
   },
   /** Käufe beim App Store abfragen und den Stand merken (offline: letzter bekannter Stand). */
   async abgleichen() {
+    if (!this._abgleich) this._abgleich = this._abgleichen().finally(() => { this._abgleich = null; });   // Nur ein Lauf: Jeder Aufruf des Plugins schließt die Verbindung des vorigen
+    return this._abgleich;
+  },
+  _abgleichFehler: false,
+  async _abgleichen() {
     const P = this.plugin(); if (!P) return this.speicher();
+    this._abgleichFehler = false;
     try {
       // Ohne Netz kann die Abfrage hängen – nach 6 s mit dem letzten Stand weiter
       // Android: Käufe von außerhalb des Kauf-Fensters (Gutschein im Play Store, später bezahlt)
@@ -24904,11 +24939,15 @@ const Lizenz = {
       // Nur wirklich bezahlte Käufe zählen (Android: purchaseState „1“; „2“ = noch ausstehend)
       const gueltig = (purchases || []).filter((t) => !t.revocationDate && (t.purchaseState == null || String(t.purchaseState) === '1'));
       this._ausstehend = (purchases || []).some((t) => String(t.purchaseState) === '2');
+      /* Das Plugin stößt die Bestätigung nur an und schließt gleich danach die Verbindung. Geht sie verloren, erstattet Google nach 3 Tagen. */
+      if (this.android() && P.acknowledgePurchase) for (const t of gueltig) {
+        if (t.isAcknowledged === false && t.purchaseToken) await P.acknowledgePurchase({ purchaseToken: t.purchaseToken }).catch((e) => console.warn('Kauf nicht bestätigt', e));
+      }
       const voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll);
       const test = this.android() ? (S.get('testStartGeraet') || null)
         : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
       await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso() }, { auto: true });
-    } catch (e) { console.warn('Käufe nicht abrufbar', e); }
+    } catch (e) { this._abgleichFehler = true; console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
   },
   _preise: null,
@@ -24933,10 +24972,15 @@ const Lizenz = {
       UI.toast(this.status() === 'test' ? `Testphase läuft – noch ${this.restTage()} Tage alles frei.` : 'Die Testphase auf diesem Gerät ist schon abgelaufen.');
       return this.status() === 'test';
     }
+    if (this._kaufLaeuft) return false;   // Doppeltippen: Ein zweiter Aufruf würde die Verbindung des ersten schließen
+    this._kaufLaeuft = true;
+    const freigabe = setTimeout(() => { this._kaufLaeuft = false; }, 180000);
     try {
+      if (this._abgleich) await this._abgleich.catch(() => {});
       await P.purchaseProduct({ productIdentifier: LIZENZ_PRODUKTE[art], productType: 'inapp' });
     } catch (e) {
       const code = String(e && e.code || '');
+      if (/pending/i.test(String(e && (e.message || e)))) { this._ausstehend = true; UI.toast('Der Kauf wird noch bestätigt – sobald die Zahlung durch ist, wird die Vollversion freigeschaltet.'); return false; }
       if (code === 'ITEM_ALREADY_OWNED') { await this.wiederherstellen(); return this.status() === 'voll'; }
       if (code === 'USER_CANCELED' || /cancel/i.test(String(e && (e.message || e)))) return false;   // abgebrochen: still
       /* Keine englischen Technik-Meldungen zeigen („Cannot find product for id …“): Das Angebot kam nicht vom Store
@@ -24948,7 +24992,7 @@ const Lizenz = {
         : `Kauf nicht möglich – ${store} ist gerade nicht erreichbar. Bist du online?`, 'err');
       console.warn('Kauf fehlgeschlagen', e);
       return false;
-    }
+    } finally { clearTimeout(freigabe); this._kaufLaeuft = false; }
     const st = this.status(await this.abgleichen());
     if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
     else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.restTage()} Tage alles frei.`);
@@ -24960,6 +25004,7 @@ const Lizenz = {
     const P = this.plugin(); if (!P) return;
     try { await P.restorePurchases(); } catch (e) { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }
     const st = this.status(await this.abgleichen());
+    if (this._abgleichFehler && st !== 'voll') { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }   // nicht behaupten, es gebe keinen Kauf
     UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
   },
   async codeEinloesen() {
@@ -29342,7 +29387,7 @@ Views.einstellungen = {
         <div class="flex-wrap mb12 no-print">
           <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button>
           ${Backup.nativTeilenMoeglich() ? '' : `<button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>`}
-          <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept=".json,application/json,.txt,text/plain" class="hidden" id="imp-file"></label>
+          <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept="${Backup.androidApp() ? '*/*' : '.json,application/json,.txt,text/plain'}" class="hidden" id="imp-file"></label>
         </div>
         <div class="detail-kv mb12">
           <dt>Letzte externe Sicherung</dt><dd data-backup-stand>${S.get('letzteExterneSicherung') ? U.fmtDateTime(S.get('letzteExterneSicherung')) : '<span class="badge b-danger">noch nie</span>'}</dd>
