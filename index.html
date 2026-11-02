@@ -1580,7 +1580,9 @@ const U = {
           let { width: w, height: h } = img;
           if (Math.max(w, h) > maxPx) { const f = maxPx / Math.max(w, h); w = Math.round(w * f); h = Math.round(h * f); }
           const c = document.createElement('canvas'); c.width = w; c.height = h;
-          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);   // JPEG kennt keine Transparenz: Durchsichtiges würde schwarz
+          ctx.drawImage(img, 0, 0, w, h);
           c.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht verarbeitet werden'))), 'image/jpeg', quality);
         } catch (e) { rej(new Error('Bild konnte nicht verarbeitet werden')); }
         URL.revokeObjectURL(img.src);
@@ -1635,7 +1637,7 @@ const CHANGELOG = [
   { version: '3.20', datum: '2026-11-02', punkte: [
     '<b>Neues Handy:</b> Im Willkommen-Fenster lässt sich gleich eine Sicherung einspielen.',
     '<b>Foto aus der Galerie:</b> Neben „+ Foto“ gibt es die Kachel „Aus Galerie“.',
-    '<b>Durchsicht am Stand:</b> Angefangene Antworten und Sprachnotizen bleiben erhalten, auch wenn die App geschlossen wird. Beim nächsten Start kannst du weitermachen oder sie verwerfen. Das Datum bleibt das des Beginns.',
+    '<b>Durchsicht am Stand:</b> Angefangene Antworten und Sprachnotizen bleiben erhalten, auch wenn die App geschlossen wird. Beim nächsten Start kannst du weitermachen oder sie verwerfen. Liegt der Beginn an einem anderen Tag, fragt die App, ob du neu beginnen willst.',
     '<b>Android:</b> Ist die Kamera verboten, sagt die App, wo man sie erlaubt.',
   ] },
   { version: '3.19', datum: '2026-11-02', punkte: [
@@ -3581,7 +3583,7 @@ const S = {
      kommt es aus ihr: der gewählte Backup-Ordner (ein Datei-Griff – als JSON
      wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
      lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
-  GERAET: new Set(['sdEntwuerfe', 'wetterEinwilligung', 'wetterGefragt', 'adresssucheErlaubt', 'geodiensteErlaubt', '_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
+  GERAET: new Set(['sdEntwuerfe', 'sdErledigt', 'wetterEinwilligung', 'wetterGefragt', 'adresssucheErlaubt', 'geodiensteErlaubt', '_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
     'lizenz', 'bewertung', 'erinnerungGefragt', 'sicherungMitteilungGefragt', 'sicherungBasis', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
@@ -5509,7 +5511,7 @@ const Anhang = {
       const ff = $('[data-filter]', el); if (ff) ff.onchange = () => { filter = ff.value; render(); };
       // Light: Fotos und Dokumente sind Vollversion – schon das Auswahlfenster nicht öffnen
       ['[data-add-foto]', '[data-add-galerie]', '[data-add-doc]'].forEach((sel) => { const inp = $(sel, el); if (inp) inp.addEventListener('click', (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) e.preventDefault(); }); });
-      kameraWache($('[data-add-foto]', el), KAMERA_VERBOTEN_TEXT + ' Oder das Foto über „Aus Galerie“ wählen.');
+      kameraWache($('[data-add-foto]', el), () => UI.toast(KAMERA_VERBOTEN_TEXT + ' Oder das Foto über „Aus Galerie“ wählen.', 'err'));
       $('[data-add-foto]', el).onchange = $('[data-add-galerie]', el).onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;
         try {
@@ -5596,14 +5598,14 @@ const Voice = {
 const KAMERA_VERBOTEN_TEXT = 'Die Kamera ist für ImkerBuch nicht erlaubt. Einschalten: Android-Einstellungen → Apps → ImkerBuch → Berechtigungen → Kamera.';
 /* Android: Ist die Kamera verboten, tut der Tipp sonst einfach nichts. Die Kamera-App schickt ImkerBuch in den Hintergrund.
    Kommt der Abbruch, ohne dass das passiert ist, ging sie gar nicht auf. */
-function kameraWache(inp, text) {
+function kameraWache(inp, melden) {
   if (!IST_NATIVE_APP || !Lizenz.android()) return;
   let weg = false;
   const versteckt = () => { if (document.visibilityState === 'hidden') weg = true; };
   inp.addEventListener('click', () => { weg = false; document.addEventListener('visibilitychange', versteckt); });
   inp.addEventListener('cancel', () => {
     document.removeEventListener('visibilitychange', versteckt);
-    if (!weg) UI.toast(text, 'err');
+    if (!weg) melden();
   });
   inp.addEventListener('change', () => document.removeEventListener('visibilitychange', versteckt));
 }
@@ -7660,7 +7662,7 @@ const VolkScanner = {
     if (SB) { SB.setStyle({ style: 'DARK' }); if (SB.setBackgroundColor) SB.setBackgroundColor({ color: '#14130F' }).catch(() => {}); }
     $('.vs-abbruch', el).onclick = () => this.schliessen();
     const foto = $('.vs-foto input', el);
-    kameraWache(foto, KAMERA_VERBOTEN_TEXT);
+    kameraWache(foto, () => this._meldung(KAMERA_VERBOTEN_TEXT, { bleibt: true }));   // Hinweise am Bildschirmrand lägen hinter dem Scanner
     foto.onclick = () => { this._fotoOffen = true; };   // die System-Kamera schickt die App kurz in den Hintergrund
     foto.oncancel = () => { this._fotoOffen = false; };
     foto.onchange = () => { this._fotoOffen = false; const f = foto.files[0]; foto.value = ''; if (f) this.fotoLesen(f); };
@@ -8437,31 +8439,63 @@ Views.durchsicht = {
   /* Am Stand kann das System die App jederzeit beenden. Angefangenes liegt deshalb auch in der Datenbank, nur auf diesem Gerät
      (S.GERAET, nicht in Sicherungen). Scheitert das Schreiben, bleibt der Entwurf wie bisher im Speicher: nie die Durchsicht aufhalten. */
   _entwurfStand: '[]',
-  async entwurfMerken() {
+  _entwurfRest: [],        // Entwürfe von Völkern, die gerade nicht aktiv sind, aber zurückkommen können (Papierkorb)
+  _alteGefragt: new Set(),
+  _entwurfListe() {
     const liste = [];
     for (const [volkId, e] of this._entwuerfe) {
       if (!this._hatInhalt(e)) continue;
       if (!e.datum) e.datum = U.todayIso();
       liste.push({ volkId, id: e.id, schritt: e.schritt, antworten: e.antworten, datum: e.datum, audio: e.audio, zuletzt: volkId === this._zuletzt });
     }
-    const stand = JSON.stringify(liste.map((x) => ({ ...x, audio: x.audio.length })));
-    if (stand === this._entwurfStand) return;
-    this._entwurfStand = stand;
-    try { await S.set('sdEntwuerfe', liste, { auto: true }); }
-    catch (err) { console.warn('Entwurf nicht gesichert', err); this._entwurfStand = ''; }
+    return [...liste, ...this._entwurfRest];
   },
-  /** Beim Start: Was angefangen war, kommt zurück. Völker, die es nicht mehr gibt, fallen weg. */
+  async entwurfMerken() {
+    const liste = this._entwurfListe();
+    const erledigt = this._entwuerfe.size ? [...this._erledigt] : [];
+    const stand = JSON.stringify([liste.map((x) => ({ ...x, audio: x.audio.length })), erledigt]);
+    if (stand === this._entwurfStand) return true;
+    this._entwurfStand = stand;
+    try { await S.set('sdEntwuerfe', liste, { auto: true }); await S.set('sdErledigt', erledigt, { auto: true }); return true; }
+    catch (err) { console.warn('Entwurf nicht gesichert', err); this._entwurfStand = ''; return false; }
+  },
+  /** Beim Start: Was angefangen war, kommt zurück. Wurde die Durchsicht schon gespeichert oder ist das Volk endgültig weg, fällt der Entwurf weg. */
   async entwuerfeLaden() {
     const liste = S.get('sdEntwuerfe');
     if (!Array.isArray(liste) || !liste.length) return;
     this._entwurfStand = '';   // Fällt alles weg, muss auch das gespeichert werden
-    const aktiv = new Set((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').map((v) => v.id));
+    const voelker = new Map((await DB.getAll('voelker')).map((v) => [v.id, v]));
+    const imPapierkorb = new Set((await DB.getAll('papierkorb')).filter((t) => t.store === 'voelker' && t.daten).map((t) => t.daten.id));
+    const grenze = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);   // so lange hält auch der Papierkorb
     for (const x of liste) {
-      if (!x || !aktiv.has(x.volkId) || this._entwuerfe.has(x.volkId)) continue;
+      if (!x || this._entwuerfe.has(x.volkId) || await DB.get('stockkarten', x.id)) continue;
+      const volk = voelker.get(x.volkId);
+      if (!volk || volk.status !== 'aktiv') {
+        if ((volk || imPapierkorb.has(x.volkId)) && x.datum && x.datum >= grenze) this._entwurfRest.push(x);
+        continue;
+      }
       this._entwuerfe.set(x.volkId, { id: x.id, schritt: x.schritt || 0, antworten: x.antworten || {}, audio: (x.audio || []).filter((a) => a && U.istBlob(a.blob)), datum: x.datum });
       if (x.zuletzt || !this._zuletzt) this._zuletzt = x.volkId;
     }
+    const erledigt = S.get('sdErledigt');
+    if (this._entwuerfe.size && Array.isArray(erledigt)) this._erledigt = new Set(erledigt);
     await this.entwurfMerken();
+  },
+  /* Ein Entwurf von einem anderen Tag darf heutige Befunde nicht still mit dem alten Datum speichern. Das gilt für jeden Weg hierher (Aufkleber, Starten, nächstes Volk). */
+  alterEntwurfFragen(volk, e) {
+    const anzahl = Object.keys(e.antworten).length, ton = e.audio.length;
+    const was = [anzahl ? `${anzahl} ${anzahl === 1 ? 'Antwort' : 'Antworten'}` : '', ton ? `${ton} ${ton === 1 ? 'Sprachnotiz' : 'Sprachnotizen'}` : ''].filter(Boolean).join(' und ');
+    const m = UI.modal({ title: 'Durchsicht von einem anderen Tag',
+      body: `<p>Bei ${U.esc(volk.name)} liegt eine angefangene Durchsicht vom ${U.fmtDate(e.datum)} (${was}). Weitermachen behält dieses Datum. Für eine neue Durchsicht von heute beginne neu.</p>`,
+      footer: `<button class="btn btn-danger" data-sd-neu>Neu beginnen</button><button class="btn btn-primary" data-sd-alt>Weitermachen</button>` });
+    $('[data-sd-alt]', m.el).onclick = () => m.close();
+    $('[data-sd-neu]', m.el).onclick = async () => {
+      if (ton && !(await UI.confirm({ title: 'Wirklich neu beginnen?', text: 'Die Antworten und Sprachnotizen vom ' + U.fmtDate(e.datum) + ' sind dann weg.', confirmText: 'Neu beginnen' }))) return;
+      m.close();
+      this._entwuerfe.delete(volk.id);
+      await this.entwurfMerken();
+      renderRoute();
+    };
   },
   /** Fragt beim Start nach, was mit dem Angefangenen passieren soll. Ohne Antwort bleibt es liegen. */
   async entwurfAnbieten() {
@@ -8479,12 +8513,12 @@ Views.durchsicht = {
       body: `<p>${wer}${beginn ? `, begonnen am ${U.fmtDate(beginn)}` : ''}: ${was} ${antworten + ton === 1 ? 'ist' : 'sind'} noch nicht gespeichert.</p>`,
       footer: `<button class="btn btn-danger" data-sd-verwerfen>Verwerfen</button><button class="btn btn-ghost" data-close2>Später</button><button class="btn btn-primary" data-sd-weitermachen>Weitermachen</button>` });
     $('[data-close2]', m.el).onclick = () => m.close();
-    $('[data-sd-weitermachen]', m.el).onclick = () => { m.close(); navTo('durchsicht/' + ziel); };
+    $('[data-sd-weitermachen]', m.el).onclick = () => { offen.forEach(([id]) => this._alteGefragt.add(id)); m.close(); navTo('durchsicht/' + ziel); };   // Das Fenster hat das Datum genannt
     $('[data-sd-verwerfen]', m.el).onclick = async () => {
       if (!(await UI.confirm({ title: 'Wirklich verwerfen?', text: 'Die Antworten und Sprachnotizen dieser Durchsicht sind dann weg.', confirmText: 'Verwerfen' }))) return;
       m.close();
       this._entwuerfe.clear();
-      await this.entwurfMerken();
+      if (!(await this.entwurfMerken())) UI.toast('Das Verwerfen ließ sich nicht speichern. Beim nächsten Start kommt der Entwurf vielleicht wieder.', 'err');
       renderRoute({ scrollBehalten: true });
     };
   },
@@ -8518,10 +8552,14 @@ Views.durchsicht = {
       if (f.zusatz) rec.zusatz[f.zusatz] = e.antworten[f.key]; else rec[f.key] = e.antworten[f.key];
     }
     rec.notiz = e.audio.map((a) => String(a.transkript || '').trim()).filter(Boolean).join('\n');
-    await DB.schreibeAlles([{ store: 'stockkarten', obj: rec }, ...e.audio.map((a) => ({ store: 'anhaenge', obj: Sprachnotiz.anhang('stockkarte', rec.id, a) }))]);
+    /* Im selben Schreibvorgang: Sonst könnte ein gespeicherter Entwurf nach einem Absturz wiederkommen und alles doppelt anlegen */
+    const rest = this._entwurfListe().filter((x) => x.volkId !== volk.id);
+    const satz = S.satz(S.gespeichert('sdEntwuerfe'), 'sdEntwuerfe', rest, true);
+    await DB.schreibeAlles([{ store: 'stockkarten', obj: rec }, ...e.audio.map((a) => ({ store: 'anhaenge', obj: Sprachnotiz.anhang('stockkarte', rec.id, a) })), { store: 'settings', obj: satz, keepStamp: true, auto: true }]);
+    S.data.sdEntwuerfe = rest; S._merke(satz);
     this._entwuerfe.delete(volk.id);
-    await this.entwurfMerken();
     this._erledigt.add(volk.id);
+    await this.entwurfMerken();
     Bewertung.nachErfolg();
     return rec;
   },
@@ -8542,6 +8580,7 @@ Views.durchsicht = {
     const e = this.entwurf(volk.id);
     if (e.schritt > fragen.length) e.schritt = fragen.length;
     this.entwurfMerken();   // auch der Schritt: Nach einem Neustart geht es dort weiter
+    if (e.datum && e.datum !== U.todayIso() && this._hatInhalt(e) && !this._alteGefragt.has(volk.id)) { this._alteGefragt.add(volk.id); this.alterEntwurfFragen(volk, e); }
     const offeneNach = () => {
       for (let i = 1; i <= reihe.length; i++) { const v = reihe[(pos + i) % reihe.length]; if (v.id !== volk.id && !this._erledigt.has(v.id)) return v; }
       return null;
@@ -24320,6 +24359,14 @@ const Backup = {
   },
 
   /* ---------- Import (Datei): Ersetzen / Zusammenführen ---------- */
+  /* Das Einspielen kann bei vielen Fotos lange dauern. Darunter darf sich nichts bedienen lassen: Im Willkommen-Fenster würde „Überspringen“ sonst die Angaben überschreiben. */
+  _warteAnzeige() {
+    const w = document.createElement('div');
+    w.className = 'modal-back';
+    w.innerHTML = `<div class="modal"><div class="modal-body" style="text-align:center;padding:26px 24px">${logoSvg(56)}<p class="mt12"><b>Sicherung wird eingespielt …</b></p><p class="small muted mt8">Bitte die App nicht schließen.</p></div></div>`;
+    $('#modal-root').appendChild(w);
+    return () => w.remove();
+  },
   beiEingespielt: null,   // Einrichtungs-Fenster: schließt sich erst, wenn eine Sicherung wirklich übernommen ist
   async importFile(file) {
     let data;
@@ -24383,11 +24430,13 @@ const Backup = {
         text: `Die Sicherung vom ${U.fmtDateTime(data.exportiert)} wird 1:1 auf dieses Gerät übernommen. Vorher wird automatisch eine interne Kopie angelegt.`,
         confirmText: 'Übernehmen', danger: false });             // hier geht nichts Eigenes verloren
       if (!ok) return;
+      const fertig = this._warteAnzeige();
       try {
         await this.snapshotInternal('vor-import');
         await this.applyReplace(data, { blobsBehalten: false });
-      } catch (e) { return UI.toast(e.message, 'err'); }              // Bestand ist unangetastet
+      } catch (e) { fertig(); return UI.toast(e.message, 'err'); }    // Bestand ist unangetastet
       await this.nachImportSicher(data);
+      fertig();
       await S.set('startDaten', null, { auto: true }).catch((e) => console.warn('Startdaten', e));   // ab jetzt echte Daten
       UI.toast('Sicherung übernommen');
       await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
@@ -24395,9 +24444,11 @@ const Backup = {
     $('[data-merge]', m.el).onclick = async () => {
       m.close(true);
       let erg;
+      const fertig = this._warteAnzeige();
       try { erg = await this.applyMerge(data); }
-      catch (e) { UI.toast('Zusammenführen fehlgeschlagen – nichts wurde übernommen: ' + e.message, 'err'); return; }
+      catch (e) { fertig(); UI.toast('Zusammenführen fehlgeschlagen – nichts wurde übernommen: ' + e.message, 'err'); return; }
       await this.nachImportSicher(data);
+      fertig();
       const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
@@ -24426,13 +24477,16 @@ const Backup = {
       if (!ok1) return;
       const ok2 = await UI.confirm({ title: 'Letzte Bestätigung', text: 'Zum Schutz vor Versehen bitte bestätigen.', confirmText: 'Endgültig ersetzen', requirePhrase: 'ERSETZEN' });
       if (!ok2) return;
+      const fertig = this._warteAnzeige();
       try {
         await this.snapshotInternal('vor-import');
         await this.applyReplace(data, { blobsBehalten: false });
       } catch (e) {
+        fertig();
         return UI.toast(e.message, 'err');                // Bestand ist unangetastet
       }
       await this.nachImportSicher(data);
+      fertig();
       UI.toast('Sicherung wiederhergestellt');
       await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
     };
@@ -24581,7 +24635,9 @@ const Backup = {
   async nachImportSicher(data) {
     try { await this.nachImport(data); }
     catch (e) { console.error('Nachlauf der Sicherung', e); await S.load().catch(() => {}); }
-    if (this.beiEingespielt) await this.beiEingespielt().catch((e) => console.error('Nach dem Einspielen', e));
+    /* Eine leere Sicherung ersetzt die Einrichtung nicht: Dann bleibt das Willkommen-Fenster offen */
+    const hatDaten = DB.DATA_STORES.some((st) => st !== 'settings' && data && data.stores && Array.isArray(data.stores[st]) && data.stores[st].length);
+    if (this.beiEingespielt && hatDaten) await this.beiEingespielt().catch((e) => console.error('Nach dem Einspielen', e));
     this.mitteilungenNachImport();
   },
   /* Erinnerungen kommen mit der Sicherung an, die Erlaubnis des Telefons aber nicht: sonst wäre der Schalter an und es käme nichts. */

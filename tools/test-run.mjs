@@ -176,8 +176,7 @@ async function main() {
   console.log(`Gelaufen: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`);
   console.log(`\n${erg.pass} von ${erg.gesamt} Tests grün${erg.fail ? ` – ${erg.fail} FEHLGESCHLAGEN` : ' ✓'}`);
   /* Ein Fehler beim Laden der Testdatei beendet sie mittendrin: Die restlichen Tests fehlen dann, und alles sähe grün aus. */
-  const erwartet = ((await readFile(join(WURZEL, 'tests/tests.js'), 'utf8')).match(/^test\(/gm) || []).length;
-  if (erg.gesamt < erwartet) { console.error(`✖ Nur ${erg.gesamt} von mindestens ${erwartet} Tests sind gelaufen: Die Testdatei ist beim Laden abgebrochen.`); aufraeumen(); process.exit(1); }
+  if (!(await cdp.js('return window.TESTS_VOLLSTAENDIG_GELADEN === true'))) { console.error(`✖ Nur ${erg.gesamt} Tests sind gelaufen: Die Testdatei ist beim Laden abgebrochen.`); aufraeumen(); process.exit(1); }
 
   if (COVERAGE) {
     const html = await readFile(join(WURZEL, 'index.html'), 'utf8');

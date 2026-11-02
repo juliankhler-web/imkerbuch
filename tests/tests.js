@@ -10807,6 +10807,59 @@ test('Durchsicht-Entwurf: übersteht den Neustart samt Ton und Datum, reist nich
     assertEq(S.get('sdEntwuerfe').length, 0);
   } finally { D._entwuerfe.clear(); D._entwurfStand = ''; D._zuletzt = vorherZuletzt; await S.set('sdEntwuerfe', [], { auto: true }); dialogeSchliessen(w); }
 }));
+test('Durchsicht-Entwurf: alter Entwurf fragt beim Öffnen, gespeicherte Völker bleiben gespeichert, Volk im Papierkorb behält den Entwurf', async (w) => isolierteDaten(w, async () => {
+  const D = w.Views.durchsicht, S = w.S;
+  const vorherZuletzt = D._zuletzt; D._entwuerfe.clear(); D._alteGefragt.clear(); D._erledigt = new w.Set();
+  const a = await w.DB.put('voelker', { name: 'Altes Datum', status: 'aktiv', standId: '' });
+  const b = await w.DB.put('voelker', { name: 'Gespeichert', status: 'aktiv', standId: '' });
+  const c = await w.DB.put('voelker', { name: 'Ruht', status: 'aufgeloest', standId: '' });
+  const main = w.document.createElement('main');
+  try {
+    const e = D.entwurf(a.id); e.antworten.volksstaerke = 2; e.datum = '2026-10-01';
+    await D.render(main, a.id);
+    const fenster = () => [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(/vom 01\.10\.2026/.test(fenster().textContent) && fenster().querySelector('[data-sd-neu]'), 'fragt: ' + fenster().textContent);
+    const zahl = w.document.querySelectorAll('#modal-root .modal-back').length;
+    await D.render(main, a.id);
+    assertEq(w.document.querySelectorAll('#modal-root .modal-back').length, zahl, 'nur einmal');
+    fenster().querySelector('[data-sd-neu]').click();
+    await new Promise((r) => w.setTimeout(r, 40));
+    assert(!D._entwuerfe.has(a.id) || !Object.keys(D._entwuerfe.get(a.id).antworten).length, 'neu begonnen');
+    // gespeichertes Volk übersteht den Neustart, wenn noch ein Entwurf offen ist
+    D._erledigt.add(b.id);
+    const e2 = D.entwurf(a.id); e2.antworten.volksstaerke = 3; e2.datum = w.U.todayIso();
+    await D.entwurfMerken();
+    D._entwuerfe.clear(); D._erledigt = new w.Set();
+    await D.entwuerfeLaden();
+    assert(D._erledigt.has(b.id), 'erledigt wieder da');
+    // schon gespeicherter Entwurf kommt nicht wieder, auch wenn er noch in der Liste steht
+    await w.DB.put('stockkarten', { id: e2.id, volkId: a.id, datum: e2.datum });
+    await D.entwurfMerken();
+    D._entwuerfe.clear(); D._entwurfRest = [];
+    await D.entwuerfeLaden();
+    assert(!D._entwuerfe.has(a.id), 'nicht doppelt');
+    await w.DB.del('stockkarten', e2.id);
+    // Volk ruht: Entwurf bleibt liegen und kommt zurück, wenn es wieder aktiv ist
+    D._entwuerfe.clear(); D._entwurfRest = []; D._entwurfStand = '';
+    await S.set('sdEntwuerfe', [{ volkId: c.id, id: 'k1', schritt: 0, antworten: { a: 1 }, datum: w.U.todayIso(), audio: [] }], { auto: true });
+    await D.entwuerfeLaden();
+    assertEq(D._entwuerfe.size, 0, 'nicht angeboten');
+    assertEq(S.get('sdEntwuerfe').length, 1, 'nicht gelöscht');
+    await w.DB.put('voelker', { ...c, status: 'aktiv' });
+    D._entwurfRest = [];
+    await D.entwuerfeLaden();
+    assert(D._entwuerfe.has(c.id), 'wieder da');
+  } finally { D._entwuerfe.clear(); D._entwurfRest = []; D._entwurfStand = ''; D._alteGefragt.clear(); D._erledigt = new w.Set(); D._zuletzt = vorherZuletzt; await S.set('sdEntwuerfe', [], { auto: true }); await S.set('sdErledigt', [], { auto: true }); dialogeSchliessen(w); }
+}));
+test('Foto: Durchsichtiges wird weiß, nicht schwarz', async (w) => {
+  const c = w.document.createElement('canvas'); c.width = c.height = 4;
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const jpg = await w.U.resizeImage(blob, 4, 0.9);
+  const bild = await w.createImageBitmap(jpg);
+  const k = w.document.createElement('canvas'); k.width = k.height = 4;
+  const x = k.getContext('2d'); x.drawImage(bild, 0, 0);
+  assert(x.getImageData(1, 1, 1, 1).data[0] > 240, 'weiß');
+});
 test('Durchsicht-Entwurf: Fenster beim Start bietet Weitermachen, Später und Verwerfen', async (w) => isolierteDaten(w, async () => {
   const D = w.Views.durchsicht;
   const vorherZuletzt = D._zuletzt; D._entwuerfe.clear();
@@ -10846,10 +10899,15 @@ test('Willkommen-Fenster: Sicherung einspielen schließt es erst, wenn übernomm
   B.nachImport = async () => {};
   B.beiEingespielt = async () => { n++; B.beiEingespielt = null; };
   try {
-    await B.nachImportSicher({});
+    await B.nachImportSicher({ stores: { settings: [{}], voelker: [] } });
+    assertEq(n, 0, 'leere Sicherung: Fenster bleibt offen');
+    await B.nachImportSicher({ stores: { voelker: [{ id: 'a' }] } });
     assertEq(n, 1, 'nach dem Übernehmen');
-    await B.nachImportSicher({});
+    await B.nachImportSicher({ stores: { voelker: [{ id: 'a' }] } });
     assertEq(n, 1, 'nur einmal');
+    const fertig = B._warteAnzeige();
+    assert(w.document.querySelector('#modal-root .modal-back:last-child').textContent.includes('wird eingespielt'), 'Anzeige über allem');
+    fertig();
   } finally { B.nachImport = altN; B.beiEingespielt = altE; }
 });
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
@@ -18168,3 +18226,4 @@ test('Hinweise: Kaufknopf, Rechtliches, Geld, Ämter, Etikett, Quellenangaben', 
   } finally { L.aktiv = echt.aktiv; L.preise = echt.preise; L._offen = false; host.remove(); dialogeSchliessen(w); }
 }));
 
+window.TESTS_VOLLSTAENDIG_GELADEN = true;   // tools/test-run.mjs: Ohne diese Zeile ist die Datei beim Laden abgebrochen
