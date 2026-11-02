@@ -1,0 +1,490 @@
+[
+ {
+  "n": 0,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Die Logik stimmt. SharePlugin.java:78-79 meldet Abbruch nur bei RESULT_CANCELED && !stopped, handleOnStop setzt stopped. index.html:23699-23707 meldet dann ohne weitere Prüfung 'Sicherung gespeichert', markExternal (23790-23802) setzt Revision und Datum. Das Banner schweigt 7 Tage (reminderInfo), die Mitteilung kommt erst nach 14 Tagen (sicherungTermine, 24669). Es gibt keine übersehene Absicherung. Die Zeilen sind um rund 70 verschoben. Sicher trifft es jedes Ziel, das die App voll verdeckt, etwa Gmail. Ob das auch für Drive gilt, ist offen: Bleibt dessen Fenster durchscheinend, greift stattdessen n10. Abschwächend: Wer selbst abbricht, weiß das meist, und die App-Daten bleiben unberührt. Es ist also kein direkter Datenverlust, sondern eine falsche Sicherheit, deshalb nicht blockierend. Ein Hochladefehler in Drive ist über ACTION_SEND grundsätzlich nicht erkennbar. iPhone: Bei 'Kopieren' ist completed wahr, Abbruch in Dateien oder Mail wird korrekt erkannt, das ist also ein Randfall. Gleicher Fehler wie n2 und n4.",
+  "behebung": "Auf Android activityType auswerten und leer als Abbruch behandeln, danach ehrlich 'an Drive übergeben' melden und erst nach einer Rückfrage ('Liegt die Datei dort?') markExternal aufrufen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 2,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Gleicher Kern wie n0, aber am genauesten beschrieben. dateiTeilen verwirft den Rückgabewert von Share.share (index.html:23680-23681). activityType ist leer, wenn kein Ziel gewählt wurde (SharePlugin.java:81), was die App nie prüft. Der Weg 'Menü offen, Home oder Sperre, zurück, Menü schließen' ergibt sich direkt aus dem Code: stopped=true und RESULT_CANCELED ergeben Erfolg, obwohl nie ein Ziel gewählt wurde. launchMode=singleTask steht im AndroidManifest; dass das App-Symbol das Zielprogramm schließt, ist übliches Android-Verhalten, zeigt aber erst das Gerät. Die Testlücke stimmt: Die Attrappe steht bei tests.js:10232, der Test bei tests.js:10411 prüft nativTeilen nur mit 'Datei gilt als gesichert'. Die Zeilenangaben sind um rund 70 verschoben. Kein direkter Datenverlust, daher nicht blockierend.",
+  "behebung": "In dateiTeilen das Ergebnis von Share.share prüfen: Auf Android gilt leerer activityType als Abbruch, das behebt den Home- und Sperr-Weg mit wenigen Zeilen, den Abbruch im Ziel aber nur zusammen mit der Rückfrage aus n0.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 4,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Derselbe Fehler wie n0 und n2. Auch die Zusatzaussage stimmt: IST_NATIVE_APP ist eine Konstante (index.html:1611), die beim Laden gesetzt wird. w.Capacitor im Test (tests.js:10236) ändert sie nicht. Das Doppeltippen im Test landet deshalb im Web-Weg über buildBlob (tests.js:10259-10262). Die echte Verdrahtung läuft in keinem Test. Das Android-Protokoll (docs/PRUEFUNG-APPSTORE.md:16) nennt nur den Erfolgsfall. Das Löschen bei gemeldetem Abbruch steht heute bei 23683, siehe n10. 'Kritisch' ist überzogen: Die Daten bleiben auf dem Gerät, falsch ist nur die Quittung.",
+  "behebung": "Behebung wie n0 und n2, dazu ein Testfall, der activityType leer und gefüllt durch nativTeilen schickt.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 10,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Die Code-Seite stimmt: SharePlugin.java:78-79 liefert 'Share canceled', wenn die App nicht gestoppt wurde. index.html:23683-23684 löscht die Datei dann sofort, schweigt und vermerkt nichts. Der Kommentar bei 23665-23667 will genau dieses Ins-Leere-Greifen verhindern, Test und Protokoll schreiben das sofortige Löschen aber fest (tests.js 'bei Abbruch sofort gelöscht', PRUEFUNG-APPSTORE.md:15). Offen ist, welche Ziele ein durchscheinendes Fenster nutzen und ob sie schon gelesen haben: Eine bereits geöffnete Datei überlebt das Löschen, nur ein späteres Öffnen über die Adresse scheitert. Abschwächend: Die App-Daten bleiben erhalten und die Mahnung läuft weiter, der Fehler liegt also auf der sicheren Seite. Trotzdem vor der Einreichung, weil die App auf Android ausdrücklich Drive empfiehlt (23819, 24672). Zeigt Drive seinen Speichern-Dialog durchscheinend, wäre der empfohlene Hauptweg betroffen. Die Android-Prüfung im Protokoll nennt kein Ziel.",
+  "behebung": "Beim gemeldeten Abbruch die Datei nicht sofort löschen, sondern dem vorhandenen tempAufraeumen beim nächsten Sichern oder Start überlassen, und Test und Protokoll anpassen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 23,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Filter ist belegt: BridgeWebChromeClient.java:380-385 setzt EXTRA_MIME_TYPES, und zwar application/json und text/plain, weil accept (index.html:29345) beide ausdrücklich nennt. Die Sorge, .json werde auf alten Android-Fassungen nicht aufgelöst, trägt für die Filterliste deshalb nicht. Offen bleibt, welchen Typ das Handy einer Datei zuordnet. Eine von der App nach Drive geteilte Datei läuft wohl als application/json und wäre wählbar, der Normalfall ist also vermutlich gesund. Zum Test stimmt der Fund: Die Tests übergeben eine selbst gebaute File, G8 in docs/GERAETETEST.md ist offen und deckt das Einspielen aus der Cloud bereits ab. iPhone: Der Code zeigt dort keinen Filter, Sorge nur Spekulation. Gleicher Fehler wie n28 und n39. Fehlgriff selten, aber dann sitzt der Kunde ohne Meldung vor seiner einzigen Sicherung, und die Behebung ist klein.",
+  "behebung": "Auf Android die Filterung öffnen, indem accept um */* ergänzt wird (nur auf Android, iPhone unverändert lassen); importFile prüft den Inhalt ohnehin selbst.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 28,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Die Stelle stimmt, siehe n23: BridgeWebChromeClient.java:380-386 und getValidTypes (411-421). Es gibt keine Option 'alle Dateien', und ohne Auswahl läuft onchange (index.html:29586) nie, die App kann also nichts melden. Eine als application/octet-stream geführte Datei wäre nach üblichem Android-Verhalten nicht wählbar. Wie oft das vorkommt, zeigt nur der Test: Lokale Dateien bekommen den Typ meist über die Endung. Risiko vor allem auf alten Android-Fassungen (minSdk 24), falls dort die Endung .json nicht bekannt ist. Android 7 bis 15 mit aktueller WebView sind laut PRUEFUNG-APPSTORE.md ungeprüft. Der gleiche Filter bei .csv und .tsv (22638, im Fund als 22565) betrifft nur Datenübernahme, nicht die Rettung.",
+  "behebung": "Wie n23: */* auf Android in accept aufnehmen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 39,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Gleicher Fehler wie n23 und n28, Code wie dort. Der Zusatz stimmt: SharePlugin.java setzt */*, wenn getMimeType nichts liefert (shareFiles, rund Zeile 178-182). Das wäre nur auf Fassungen mit unbekannter Endung relevant und stört das Teilen selbst nicht, könnte aber den Typ am Ziel verschlechtern. Die Tests rufen importFile direkt auf, das Auswahlfenster läuft nie. Die Häufigkeit ist unklar, vermutlich gering.",
+  "behebung": "Wie n23: */* auf Android in accept aufnehmen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 11,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Kern stimmt. Der Pfad hängt nur am Namen (index.html:5397-5398), und jeder Aufruf startet im finally einen eigenen 60-s-Löschtimer ohne Abgleich (5403). Ein Timer aus dem ersten Teilen löscht also die neu geschriebene Datei, während das zweite Menü offen ist. Auch der Doppeltipp stimmt: #pdf hat keine Sperre (18192), beide Plugins lehnen mit 'Can't share while sharing is in progress' ab (SharePlugin.java, SharePlugin.swift), das passt nicht auf /cancel/, und das finally läuft trotzdem. Dabei erscheint aber der Toast 'PDF konnte nicht geteilt werden', und das erste Menü müsste über 60 s offen bleiben. Übertrieben ist 'hoch': Es trifft nur, wer dieselbe Datei innerhalb von 60 s erneut ausgibt und dann noch beim Zielwählen trödelt, also selten. Die Quelldaten bleiben in der App, die Ausgabe lässt sich wiederholen, also kein Datenverlust. Der Teil zum Timer nach der Rückkehr ist dasselbe Thema wie n=22 und auf dem iPhone unkritisch. Liegen gebliebene PDFs stimmen: tempAufraeumen betrifft nur imkerbuch-backup-* (23693), es trifft aber nur den Cache. Die Testlücke stimmt: nur typeof und Regex (tests.js:15612-15614).",
+  "behebung": "Jede Ausgabe in einen eigenen Unterordner des Caches schreiben (oder Timer je Pfad abbrechen) und wie bei der Sicherung erst beim nächsten Start aufräumen, statt nach 60 s zu löschen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 25,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Selbst mit libs/xlsx.full.min.js (0.20.3) nachgestellt, mit denselben Optionen wie index.html:22839-22841 (cellDates:true, raw:false). Datumszellen mit Excel-Format 14 liefern '3/15/24' und '4/3/24'. parseDate (index.html:22809, Regex liest T/M/J) macht daraus 2024-15-03 und 2024-03-04. Format 14 ist nach meiner Kenntnis das, was deutsches Excel beim normalen Datumseintippen speichert; eine echte Excel-Datei habe ich nicht gelesen. Einschränkung zum Fund: Eigene Formate wie dd\\.mm\\.yyyy, [$-407]dd\\.mm\\.yyyy;@ und dd/mm/yyyy kommen richtig an, und CSV (15.03.2024, 2024-03-15, 15/03/2024) ist nicht betroffen. Das Ergebnis wird nicht auf Gültigkeit geprüft (22890, nur Pflichtfeld-Prüfung), und es gibt keine Vorschau, die Abschlussmeldung nennt nur die Zeilenzahl. Trifft Kassenbuch, Behandlungen, Ernten und Durchsichten. Tests geben nur den fertigen Text '3/7/26' in parseDate (tests.js:1810). Es ist eine einmalige Übernahme, nur in Voll- oder Testversion (22649), und die Quelldatei bleibt erhalten, also kein Verlust vorhandener Daten. Aber still falsche Daten in amtsnahen Aufzeichnungen.",
+  "behebung": "In Importer.start XLSX.read mit der Option dateNF:'yyyy-mm-dd' aufrufen (im Lauf bestätigt: liefert 2024-03-15 und 2024-04-03) und in parseDate Monat 1-12 und Tag 1-31 prüfen, sonst null.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 31,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "autoVerify steht in AndroidManifest.xml:25. website-upload/.well-known enthält nur die Apple-Datei, im Quellordner steht der Platzhalter (website-neu/.well-known/assetlinks.json). Abruf heute: assetlinks.json 404, apple-app-site-association 200. Abgeschwächt: Das ist bewusst und dokumentiert, nicht übersehen (tools/website/hochladen-vorbereiten.mjs:22 'erst mit dem echten Fingerabdruck', docs/PLAY_STORE.md:124, docs/QR_DEEPLINK.md:25). Der Wert entsteht erst mit dem ersten Upload, kann also gar nicht vorher eingetragen werden. Der Hauptweg geht weiter: Das Fenster in der App sagt ausdrücklich, zum Scannen in ImkerBuch auf 'Aufkleber scannen' zu tippen (volkQrAnzeigen, index.html:7615ff), und dieser Scanner ist nicht betroffen. Folge nur: Handy-Kamera auf Android landet auf der Hinweisseite mit Store-Knöpfen, auch bei App-Besitzern. Kein Daten- oder Kaufverlust. Dass Android 12 und neuer den Link dann im Browser öffnet, stammt aus meiner Kenntnis.",
+  "behebung": "Nach dem ersten AAB-Upload und vor der Produktionsfreigabe den SHA-256 aus der Play-App-Signatur eintragen, die Datei in hochladen-vorbereiten.mjs mitkopieren und hochladen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 34,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Absturz im Code stimmt: dataURLToBlob (index.html:1572) greift ohne Prüfung auf h.match(...)[1] zu, _vorbereiten (24251) bricht dann alles ab, und applyReplace und applyMerge laufen über dieselbe Stelle. Die Annahme dahinter ist aber für Chromium widerlegt: Im Browser-Fenster (Chrome 152) liefert readAsDataURL für einen leeren Blob 'data:application/octet-stream;base64,', für eine leere Datei 'data:text/plain;base64,', und der Regex wirft dabei nicht. Offen bleiben WebKit (iPhone) und ältere WebViews (minWebViewVersion 108), beides nicht ausgeführt. Leere Anhänge sind selten, aber möglich: + Dokument ohne Größenprüfung (5482), stopRec ohne Größenprüfung (5633); die Durchsicht am Stand prüft (8300). Falls WebKit nur 'data:' liefert, wäre die Wirkung schwer (ganze Sicherung nicht einspielbar, bei weggegebenem Althandy Datenverlust), aber sehr selten. Deshalb nicht blockierend.",
+  "behebung": "dataURLToBlob absichern: Regex-Treffer prüfen, leeres b64 als leeren Blob behandeln; dazu ein Roundtrip-Test mit leerem Blob, oder zuerst der 2-Minuten-Test im iPhone-Simulator.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 70,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Wizard.run baut sein Fenster ohne data-close (index.html:6229-6234), der Handler ruft dann m.remove() auf (6168). Das ist praktisch der einzige Fall: Die Treffer für das Anlegen von modal-back sind UI.modal mit data-close (3670-3672) und der Assistent. wizardDone bleibt falsch, Testphase-Angebot und Einführung hängen an finish (6289-6300) und entfallen, QR-Links werden verworfen (7476), beim nächsten Start kommt der Assistent wieder (30312). Kein Test löst backButton aus (siehe Fund 57). Kein Datenverlust, auf einem frischen Gerät gibt es noch nichts außer den Eingaben im Assistenten. Vom Fund übersehen: Solange wizardDone falsch ist, liefert Lizenz.gesperrt() false (24881) und light() ebenfalls, die Sitzung läuft also ohne Testphase und ohne Sperre mit vollem Umfang, und das lässt sich bei jedem Start wiederholen (nur aus dem Code gelesen, nicht ausgeführt). Auf Android ist das eine kleine Lizenzlücke. Ein Zurück im Assistenten ist naheliegend, weil Nutzer auf Schritt 2 damit einen Schritt zurück erwarten.",
+  "behebung": "Im backButton-Handler: Steht #wz-body im Fenster, den Knopf #wz-back klicken, falls vorhanden, sonst nichts tun; also nie m.remove() beim Assistenten.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 24,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Code stimmt: recorder.start, direkt danach Voice.startLive (index.html:5581-5582), und rec.onerror ist leer (5544). Der einzige Test prüft den Fehlertext (tests/tests.js:15527). B5 (docs/GERAETETEST.md:45) ist offen und kennt keinen Flugmodus. Eine stumme Aufnahme ist nicht belegt, die Quellen sind alt (PRUEFUNG-LUECKEN:268). Träte sie auf, wäre das Datenverlust an einer beworbenen Funktion (APP_STORE_TEXTE.md:54) und würde die Einreichung blockieren. Die Hälfte zum Plattformwechsel steht in Fund 69, die zum stillen Diktat in Fund 66.",
+  "behebung": "B5 um Flugmodus und Anhören von Anfang bis Ende ergänzen; bleibt die Aufnahme stumm, das Live-Diktat in der App abschalten.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 26,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Code stimmt: Das Manifest hat kein <queries>, die zusammengeführten Manifeste vom 20.10. und 30.10. nennen nur Billing-Einträge. Die Plugin-Quellen enthalten IMAGE_CAPTURE nicht, targetSdk ist 36 (variables.gradle:4). Capacitor fällt bei null von resolveActivity still auf die Dateiauswahl zurück (BridgeWebChromeClient.java:322-324, 331). file_paths.xml deckt den Kamerapfad ab, das ist also nicht die Ursache. Laut den Regeln zur Paket-Sichtbarkeit ab Android 11 ist null sehr wahrscheinlich, beobachtet ist es nicht. PLAY_STORE.md:25 nennt keine Kamera-Prüfung. Blockiert nicht: Die Auswahl funktioniert, nichts geht verloren, und der Store-Text bewirbt keine Fotos. Betroffen wären aber wohl alle Android-Kunden ab Version 11. Hängt mit 62, 63 und 64 zusammen.",
+  "behebung": "Im Manifest <queries><intent><action android:name=\"android.media.action.IMAGE_CAPTURE\"/></intent></queries> ergänzen und B6 im Emulator prüfen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 29,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Stimmt: Sprachnotiz.section hält recorder lokal (index.html:5592), und es gibt weder isConnected noch hashchange oder ein Modal-onClose. Eingebunden ist der Bereich in der Stockkarte (8054) und auf der Volk-Seite (8224). Der Schutz bei 8452 gilt nur für die Durchsicht, der Scanner hat einen eigenen (7524-7525, 7603). Nach dem Verlassen läuft das Mikrofon weiter, und die Aufnahme lässt sich nicht mehr stoppen oder speichern. Blockiert nicht, weil der Kunde die sichtbare Stopp-Taste übergehen muss. Vor der Einreichung trotzdem beheben: unbemerkt offenes Mikrofon und verlorene Aufnahme, bei wenig Aufwand.",
+  "behebung": "Beim Verschwinden des Elements (hashchange und Modal schließen) die Aufnahme wie in aufnahmeBeenden stoppen und speichern.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 1,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Wettlauf ist echt, ein Verlust aber nicht belegt. handlePurchase startet die Bestätigung (Plugin :414, :487), direkt danach folgt closeBillingClient (:606). Im Bytecode von Billing 9.1.0 läuft die Bestätigung auf einem Worker-Thread. Ist endConnection schneller, antwortet sie nur mit SERVICE_DISCONNECTED, und das wird nur geloggt (:498). Auto-Reconnect ist im Plugin nicht aktiv. Meist dürfte der Worker gewinnen, denn der Hauptthread baut vorher noch das Ergebnis und ruft resolve. Der Nachholweg (index.html:24902, Plugin :958-959, :509) läuft nach dem Kauf und bei jedem Start, ist aber selbst ein Wettlauf. Bei Promo-Code und später bezahlten Käufen ist er der einzige Weg. isAcknowledged wertet die App nicht aus (index.html:24905). Der Fund nennt :24829/:24832, richtig sind :24902/:24905. Gleicher Fehler wie n=3. K5a prüft den Normalfall, ein Timing-Fehler kann dabei aber unentdeckt bleiben. Zeigt K5a eine Erstattung, wird daraus ein Blocker.",
+  "behebung": "In abgleichen nach getPurchases für jeden Kauf mit purchaseState '1' und isAcknowledged===false nacheinander await P.acknowledgePurchase({purchaseToken}) aufrufen, denn diese Plugin-Methode schließt erst nach der Antwort (:1497-1516).",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 3,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Derselbe Fehler wie n=1, die Stellen stimmen: Plugin :414, :606, :498, :958-959, :509 und index.html:24902 (nicht :24829). Auch die Folge ist im Code richtig: 'Danke' kommt unabhängig von isAcknowledged (index.html:24953), und nach einer Erstattung setzt eine leere Liste voll:false (:24910). Der Test mit sofortigem Beenden der App bringt wenig Neues, weil die Bestätigung beim Wischen meist längst abgeschickt ist. Der entscheidende Abstand liegt im Bereich von Millisekunden vor dem Schließen. Einen Tatnachweis gibt es nicht.",
+  "behebung": "Wie bei n=1: fehlende Bestätigungen in abgleichen über P.acknowledgePurchase nachholen und abwarten.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 16,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "vor Einreichung beheben",
+  "grund": "Der Kern stimmt: [data-voll] hat keine Sperre und keine Rückmeldung (index.html:25000), und purchaseProduct hat keine Zeitgrenze (:24937). Jeder Aufruf schließt den vorigen Client (Plugin :509), und Rückrufe schließen immer den aktuellen (:296-312, :803). Zwei Punkte sind übertrieben. Solange das Kaufblatt offen ist, kommt man kaum an den Knopf, das Fenster liegt also zwischen Tippen und Öffnen des Blatts. Dort entsteht eher eine falsche Meldung 'Angebot nicht geladen', weil der geschlossene Client eine leere Liste liefert (:801-804). Der Absturz ist für :882 unwahrscheinlich: Die Abfrage-Rückrufe laufen im Bytecode auf dem Worker-Thread, die Ausnahme verschwindet dort, und das Promise hängt stattdessen. Das entspricht auch :276-278. Bezahlt jemand so, heilt der nächste Start oder ein erneutes Tippen über ITEM_ALREADY_OWNED (:24940). Die Sperre ist minimal und liegt im Bezahlweg.",
+  "behebung": "In kaufen eine Sperre gegen Doppelaufruf einbauen, die auch einen laufenden Abgleich abwartet, den Knopf währenddessen deaktivieren und nach einer Zeitgrenze wieder freigeben.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 6,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Lücke stimmt, die Einstufung hoch ist übertrieben. unbehandelterFehler (index.html:30237-30241) meldet nur Speicher voll, und der error-Listener (:86) springt wegen ibStartLaeuft (:30245) früh zurück. Ohne Fang sind: + Dokument (:5479-5484), dateiOeffnen (:5516, nativDateiTeilen ohne catch beim writeFile :5398), stopRec (:5629-5634), #snap-now (:29588), restoreSnapshot (:23954, Klick :29587), doc.output in Pdf.ausgeben (:25754, finish wartet nicht :25748). Abgesichert ist mehr, als der Fund sagt: Speicher voll ergibt immer einen Hinweis. DB.schreibeAlles lehnt erst nach dem Abbruch ab und nennt den Grund (:3314-3336). applyReplace läuft atomar über aendereAtomar, ein gescheitertes Zurückholen lässt die Daten also stehen, und es erscheint auch keine falsche Erfolgsmeldung. Das Teilen in ausgeben ist abgefangen (:25756). Andere Fehler als Speicher voll sind selten, und meist ist nichts verloren: Die Quelldatei bleibt erhalten, nur die Meldung fehlt. Ausnahme ist die Sprachnotiz, siehe 59. Der Offline-Auslöser mit iCloud ist nicht belegt.",
+  "behebung": "In unbehandelterFehler auch bei anderen Fehlern einen allgemeinen Hinweis mit Fehlertext zeigen, gedrosselt wie bisher, und reine Hintergrundfehler vorher abfangen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 59,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Gleiche Ursache wie 6, hier eingegrenzt. Dass der Fang fehlt, stimmt: index.html:5479-5484 und 5629-5635, anders als + Foto (:5470-5477). In stopRec ist recorder schon null (:5631). Scheitert DB.put, ist der Blob weg, render unterbleibt und der Knopf zeigt weiter 'Aufnahme stoppen'. Das ist der einzige echte Datenverlust dieser Gruppe, tritt aber nur bei einem Schreibfehler auf, und das ist fast immer voller Speicher (dann erscheint der Hinweis, die Aufnahme ist trotzdem verloren). Der Auslöser beim Dokument ist unbelegt und wohl schwächer als behauptet: Die Prüfung istSpeicherVoll (:3191) enthält 'failed to write blobs'. Das ist vermutlich Chromes Meldung bei unlesbarer Datei, dann käme auf Android eher ein falscher 'Speicher voll'-Hinweis als gar nichts (nicht am Gerät geprüft). Auf dem iPhone kopiert die Dateiauswahl die Datei nach meinem Wissen vor der Rückgabe, eine Offline-Datei käme also gar nicht erst im Handler an. Die Testdatei aus dem Speicher (tests.js um 11025) stimmt. Die Quelldatei des Dokuments bleibt erhalten, der Kunde kann es erneut versuchen.",
+  "behebung": "Beide Handler in try/catch mit UI.toast legen und bei der Sprachnotiz im Fehlerfall neu zeichnen, möglichst mit Angebot, erneut zu speichern.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 32,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Reihenfolge stimmt: getPending und cancel (index.html:24698-24699), danach DB-Lesen und erst dann schedule (:24718). Die Häufigkeit ist deutlich überschätzt. Die Lücke beginnt erst 1,2 s nach dem Öffnen (spaeterPlanen :24686) und dauert nur Bruchteile einer Sekunde. Sperren oder Wechseln zählt kaum, weil JS nach dem Verlassen erfahrungsgemäß noch kurz weiterläuft und die Rückkehr neu plant (:24742). Es bleibt also ein hartes Beenden genau in dieser Lücke. Das heilt beim nächsten Öffnen. Die Ablehnung durch schedule ist kaum erreichbar, siehe 21. Plausibler, vom Fund aber nicht genannt: Scheitert DB.getAll bei der Rückkehr aus dem Hintergrund, sind die alten Mitteilungen schon gelöscht. _tx wiederholt nur das Öffnen der Transaktion einmal (:3247-3250), nicht das Lesen, und bis zum nächsten Auslöser fehlen dann alle Erinnerungen. Der Status 'Erlaubt ✓' steht tatsächlich bei :29483 und bleibt dabei stehen.",
+  "behebung": "In planen() zuerst die Liste aus der Datenbank berechnen und erst unmittelbar vor schedule die alten Mitteilungen löschen, möglichst nur die, die nicht mehr in der Liste stehen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 73,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der Befund zum Code stimmt. Der SceneDelegate (AppDelegate.swift:53-70) wertet notificationResponse nicht aus, und center.delegate wird erst in CapacitorBridge.init gesetzt (CapacitorBridge.swift:211, NotificationRouter.swift:8-12), also beim loadView des View-Controllers (CAPBridgeViewController.swift:30-48). Ob das Tippen verloren geht, zeigt der Code nicht. Gegen den Fund spricht: Auch ohne Szenen entsteht die Bridge wohl erst nach didFinishLaunching (aus UIKit-Wissen, hier nicht geprüft), und dort funktioniert das Tippen nach meinem Wissen. Dazu kommt: Das Plugin hängt seinen Handler im selben Ablauf ein (LocalNotificationsPlugin.swift:106-107) und meldet mit retainUntilConsumed (LocalNotificationsHandler.swift um Zeile 100), späte JS-Listener (index.html:24737) sind also abgesichert. Auch Capacitors eigener SceneDelegateProxy beachtet notificationResponse nicht. Ein Test fehlt wirklich: localNotificationActionPerformed kommt in tests.js nicht vor, und GERAETETEST hat dem Augenschein nach keinen Schritt dafür. Schlimmstenfalls öffnet die App die Startseite statt Aufgaben oder 'Jetzt sichern?'. Es geht nichts verloren.",
+  "behebung": "Erst im Simulator testen; nur falls es scheitert, in scene(_:willConnectTo:) window?.rootViewController?.loadViewIfNeeded() aufrufen oder connectionOptions.notificationResponse selbst weiterreichen, und dann erneut testen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 74,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Kein Code-Fehler, sondern eine Plattformgrenze; die Angaben stimmen weitgehend. Der Zusagetext steht in index.html:29483 und im Dialog bei erinnerungAnbieten. Der Neustart-Empfänger ist im Plugin vorhanden (AndroidManifest.xml, LocalNotificationRestoreReceiver.kt): Er plant neu und holt Verpasstes 15 Sekunden später nach. Die Erlaubnis RECEIVE_BOOT_COMPLETED steht im Plugin-Manifest, die App muss nichts weiter tun. Der Status prüft tatsächlich nur areNotificationsEnabled (LocalNotificationsPlugin.kt:516), ein abgeschalteter Kanal bleibt also 'Erlaubt ✓'. Abmildernd: allowWhileIdle ist gesetzt, und jedes Öffnen plant neu (:24742), die Lage heilt sich also. Neustart, Kanal aus und Erzwungener Stopp gehen im Emulator. Der Kern des Funds, das Verhalten von Xiaomi oder Samsung, nur am echten Gerät. Die v2.80-Probe im Emulator belegt nur die Zustellung, nicht Neustart oder Herstellerverhalten.",
+  "behebung": "Reale Probe mit einem Xiaomi- oder Samsung-Gerät; je nach Ergebnis einen Hilfetext zu Akku-Einstellungen und Autostart ergänzen und die Zusage im Text leicht einschränken.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 38,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Gleicher Kern wie n10, hier für Quick Share und Bluetooth, also Nebenwege. Ob diese Ziele die App sichtbar lassen und was sie zurückmelden, zeigt der Code nicht. Die Zusätze stimmen im Code: /cancel/i wertet jeden Fehler im gemeinsamen try von Schreiben und Teilen als Abbruch (index.html:23684), praktisch trifft das aber nur Fehlertexte, die dieses Wort enthalten, also selten. tempAufraeumen läuft 5 Sekunden nach dem Start (30281) und löscht jede Sicherungsdatei, das setzt aber voraus, dass Android die App während des Teilens beendet und der Nutzer sie neu öffnet. Die App-Daten bleiben erhalten, die Mahnung läuft weiter.",
+  "behebung": "Mit der Behebung aus n10 erledigt sich der Hauptteil; zusätzlich /cancel/i nur auf den Fehler von Share.share anwenden, nicht auf das Schreiben der Datei.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 47,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Übergabe stimmt: index.html:23680 gibt text und files zusammen. SharePlugin.swift:23-25 und :33-37 machen daraus zwei Einträge, auf Android stehen EXTRA_TEXT und EXTRA_STREAM nebeneinander (SharePlugin.java:115-117), der Typ wird danach von shareFiles auf den Dateityp gesetzt. PDF und Excel geben keinen Text mit (5401). Auswirkung offen: Am wahrscheinlichsten entsteht auf dem iPhone neben der Sicherung eine kleine Textdatei; die Sicherung selbst läge trotzdem dort. Heikel wäre nur ein Ziel, das allein den Text nimmt, dann meldet die App fälschlich Erfolg. Das Protokoll nennt nur 'gültig', zu einer zweiten Datei steht nichts in den Prüfunterlagen.",
+  "behebung": "Den Parameter text in index.html:23680 streichen, title reicht als Betreff.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 7,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: nachImport steht außerhalb des try (index.html:24143, 24153, 24188), dahinter kommen Meldung, S.load und renderRoute. Die Fenster sind schon zu. importFile wird ohne catch aufgerufen (29586), und unbehandelterFehler (30237) meldet nur vollen Speicher, sonst bleibt es still. Auch geraetNeu (24101) steht ungeschützt vor dem Dialog. Abschwächend: Die Daten sind da, nichts geht verloren. Beim Start laufen dieselben Umstellungen über nebenbei geschützt erneut, falls ihr Merker fehlt. Erneutes Einspielen schadet nicht. Der Fehler braucht eine scheiternde Umstellung: Bei einer aktuellen Sicherung läuft fest nur migriereInventarTyp (24340), die übrigen vor allem bei alten Sicherungen. Voller Speicher bekommt eine Meldung. Also selten und selbstheilend.",
+  "behebung": "nachImport in den drei Wegen in ein eigenes try/catch legen, das den Fehler protokolliert und die folgenden Schritte samt Meldung trotzdem ausführt.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 35,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt, die Stelle ist heute index.html:24086-24087. Alles außer 'Datei unvollständig' und Speichermangel führt zu 'Datei ist kein gültiges JSON'. 'Datei unvollständig' entsteht nur in jsonGross (24070), also ab 150 MB. Eine abgeschnittene kleinere Datei läuft über JSON.parse und bekommt den Fachbegriff. Formal ist die Meldung richtig, für den Imker aber unverständlich und entmutigend. Die Tests prüfen die Meldung 'unvollständig' nur mit GROSS_AB=10 (tests.js:10421-10427). Es geht nichts verloren, und abgeschnittene Dateien sind selten, weil die App selbst halb geschriebene Dateien nicht teilt (23683).",
+  "behebung": "Im catch SyntaxError und Lesefehler trennen und für beide die verständliche Meldung 'unvollständig oder nicht lesbar, bitte Datei noch einmal auf dieses Gerät laden' zeigen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 61,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Teilmenge von n35, gleiche Stelle (index.html:24087). Der catch unterscheidet Lesefehler nicht, ein scheiterndes file.text() bekommt also dieselbe Meldung. Der genannte Ablauf kommt aber vermutlich seltener vor als behauptet: Das Auswahlfenster dürfte eine nicht geladene Cloud-Datei offline oft schon selbst ablehnen, besonders auf dem iPhone. Ob die App überhaupt erreicht wird, zeigt nur das Gerät. Es geht nichts verloren.",
+  "behebung": "Mit der Behebung aus n35 erledigt.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 22,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Fakten stimmen: Der Testschalter steigt vor ausgeben aus (index.html:25747), und der 60-s-Timer steht in 5403. Die Sicherung lässt ihre Datei dagegen bewusst liegen (Kommentar um 23665). Das ist aber vor allem eine Testlücke, kein belegter Fehler. Für das iPhone ist die Sorge weitgehend widerlegt: Der Timer startet erst nach completionWithItemsHandler (SharePlugin.swift), also nachdem die Aktivität fertig ist, und ein Speichern in Dateien sollte die Datei bis dahin übernommen haben (am Gerät nicht geprüft). Offen bleibt nur Android: Das Ergebnis der Auswahl kommt, wenn die Ziel-Activity endet (SharePlugin.java activityResult). Ob Drive danach noch aus dem Cache liest, zeigt nur ein Versuch. Vermutlich kopieren die meisten Ziele vorher, weil die URI-Freigabe ohnehin an die Activity gebunden ist. Dass nur das Etiketten-PDF belegt sei, gilt für Android (PLAY_STORE.md:25). Auf dem iPhone hat Julian PDFs laut PROJEKT.md:120 ausführlich geprüft. C1, C7, K7 und PLAY_STORE.md:37 stehen schon auf der Liste. Überschneidung mit n=11, dieselbe Behebung reicht.",
+  "behebung": "Die Änderung aus n=11 (kein 60-s-Löschen, Aufräumen beim nächsten Start) nimmt das Risiko mit, ohne dass die Frage am Gerät geklärt sein muss.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 43,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der stumme Weg stimmt: finish ruft ausgeben ohne await und ohne return auf (index.html:25748). doc.output steht in 25754 außerhalb des try (25756) und wird in der async-Funktion zur Ablehnung. Der globale Handler verwirft alles außer Speicher voll (30237-30241). Übertrieben ist die Häufigkeit: Ein Werfen von doc.output braucht etwa eine Stringgrenze oder eine scheiternde Speicheranforderung, also ein extrem großes PDF. Ein schwaches Gerät dürfte eher den ganzen Prozess verlieren, das wäre n=45. Ein return allein genügt nicht, weil Aufrufer finish ohne await nutzen, zum Beispiel bioArchiv (um 25618). Nur der Test-Seam-Teil ist unstrittig eine Lücke.",
+  "behebung": "In Pdf.ausgeben doc.output in ein try ziehen und im Fehlerfall den Toast 'PDF fehlgeschlagen' zeigen, damit es für alle Aufrufer ohne deren await gilt.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 44,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Das stimmt: index.html:5516 ruft dateiOeffnen ohne catch auf, und das ist der einzige Aufrufer. In der App scheitert es in nativDateiTeilen (5418 mit await, ohne try). Der Handler in 30237-30241 verwirft alles außer Speicher voll. Volle Speicher bekommen also doch eine Meldung, der Fund übersieht das, wenn der Fehlertext auf istSpeicherVoll (3191) passt. Der Abbruch im Menü ist abgefangen (5402). Stumm bleiben nur seltene Fälle wie ein nicht lesbarer Blob aus IndexedDB, Schreibfehler oder ein Doppeltipp während eines offenen Menüs. Dann ist der Doppeltipp sogar harmlos, weil das erste Menü steht. Kein Datenverlust, aber ein toter Knopf ohne Erklärung.",
+  "behebung": "In 5516 ein .catch ergänzen, das wie U.download 'Datei konnte nicht geöffnet werden' als Toast zeigt.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 46,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der Code stimmt: In der App wird window.print durch ein PDF ersetzt (index.html:7637-7640), und Android teilt nur per ACTION_SEND (SharePlugin.java, um Zeile 116), es gibt keinen ACTION_VIEW und keinen PrintManager. 'Drucken' erscheint dort also nur, wenn eine installierte App sich dafür anmeldet. Die genannte Stelle 5303 (heute 5376) ist nur ein Kommentar und verspricht dem Nutzer nichts. Sichtbare Texte stehen aber in 7621, 28050, 28105 und 1917. Kein Fehler im Hauptweg: Das PDF entsteht, und der Umweg über Drive oder Dateien besteht. Ob 'Drucken' fehlt, hängt von Hersteller und installierten Druck-Apps ab. Für einen Imker, der Etiketten druckt, ist das ärgerlich, aber kein Datenverlust.",
+  "behebung": "Nach der Probe am Gerät die Android-Texte auf 'über Drive, Dateien oder eine Drucker-App drucken' ändern; ein eigener Druckweg kann später folgen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 77,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Weggabelung stimmt (libs/pdf.min.js isSameOrigin, createCDNWrapper), aber der Fund übersieht, wie gut sie abgesichert ist. Alle drei Wege sollten nach Code und CSP zum Ziel führen. Direkter Worker: worker-src 'self' und JS-MIME-Typ passen (sync-app.sh:20, WebViewAssetHandler.swift:317). Blob-Worker: worker-src erlaubt blob:. Scheitert er, greift onWorkerError, dann terminateEarly und _setupFakeWorker, und das lädt den Worker per script-Tag unter script-src 'self' im Hauptthread. Schlimmstenfalls wird es also langsam, ein Ausfall ist unwahrscheinlich. Welcher Zweig läuft, habe ich nicht ausgeführt, das bleibt offen. Belegt ist das Fehlerbild: Der Grund wird verworfen (25679), es gibt keinen Toast, und nur die letzte Seite nennt die Datei (25685). Das gilt auch für beschädigte oder verschlüsselte PDFs, also unabhängig vom Worker. Ein Punkt für 'Mit Unterlagen' fehlt in GERAETETEST.md tatsächlich.",
+  "behebung": "Einmal im iPhone-Simulator mit Store-Build prüfen und nach dem Erzeugen einen Toast zeigen, wenn die Liste 'nicht' Einträge enthält, zum Beispiel 'N Unterlagen nicht angehängt'.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 52,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Views.durchsicht.speichern prüft erst am Ende (index.html:8304-8305). Davor gibt es im Ablauf der Durchsicht nur die Sperre am Mikrofon-Knopf (8409), und der Entwurf liegt nur in der Map _entwuerfe (8266). Der Toast 'Speichern fehlgeschlagen: …' erscheint trotz e.leise (Fangzweig in der Klick-Behandlung, ca. 8418-8421, plus _sperre 24822). Abgeschwächt: 1) 'samt Sprachnotiz' stimmt in Light nicht, die Aufnahme ist vorher gesperrt, es gehen nur angetippte Antworten verloren. 2) Der Entwurf bleibt beim Fehlschlag erhalten, solange die App lebt; 'üblich beim Wechsel zum Kaufblatt' ist nicht belegt und vermutlich zu stark, nach dem Kauf geht Speichern dann. 3) Frühestens 30 Tage nach Start, nur für Nichtkäufer mit mehr als 2 aktiven Völkern. Erinnerungen in Light gestrichen: stimmt (24713), so gewollt. Ärgerlich im Feld, aber kein Verlust gespeicherter Daten.",
+  "behebung": "Die Völker-Grenze schon beim Start der Durchsicht prüfen (Views.durchsicht.starten bzw. erstes render) und das Kauf-Fenster dort zeigen, statt erst am Ende.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 76,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "features steht nicht in S.GERAET (index.html:3553-3556) und kommt mit der Sicherung. planen() bricht ohne Erlaubnis still ab (24711), Backup.nachImport (24333) fragt nicht. Zusätzlich vom Fund nicht genannt: Der Hinweis in den Einstellungen sagt bei Status default nur 'Die Berechtigung wird beim Aktivieren abgefragt' (ca. 29484), obwohl der Schalter schon an ist, also keine Warnung. Auswege: Schalter aus und an (29757), Probe-Benachrichtigung (29783), mitteilungAnbieten nach der ersten Sicherung von Hand (23806; sicherungMitteilungGefragt ist Gerätedaten, also fragt die App dort wirklich) oder der Toast bei neuer Aufgabe mit Termin (24755). Abgeschwächt: Auf Android bis Version 12 ist die Erlaubnis nach meiner Kenntnis vorab erteilt, dort tritt es wohl nicht auf; nicht geprüft. Trifft Handywechsel und Umsteiger von der Web-Fassung mit eingeschalteten Erinnerungen und Vollversion. Daten bleiben erhalten, nur die Erinnerung fehlt still, was bei Behandlungsterminen unangenehm ist. Ob auf dem iPhone ohne Anfrage ein Eintrag unter Mitteilungen steht, bleibt am Gerät zu klären.",
+  "behebung": "Am Ende von Backup.nachImport: Ist features.benachrichtigungen an und die Erlaubnis noch nicht erteilt, einmal fragen und Notif.anfordern() aufrufen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 78,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Code-Fakten stimmen: MainActivity leer, kein setTextZoom in Capacitor oder in der App, kein text-size-adjust in index.html, viewport mit user-scalable=no in native/www/index.html:7 (bewusst laut sync-app.sh:25-27, Julian 20.10.2026), Capacitor schaltet die Zoom-Geste ab (WebViewDelegationHandler.swift, scrollViewWillBeginZooming), keine eigene Schriftgrößen-Einstellung, nichts dazu in GERAETETEST. Ob etwas tatsächlich abgeschnitten wird, zeigt nur der Lauf. Nach meiner Kenntnis (nicht ausgeführt) übernimmt der Android-WebView den System-Schriftfaktor als Text-Zoom, das iPhone ignoriert die Textgröße ohne -apple-system-Schriften. Layoutfehler sind damit auf Android bei den größten Stufen möglich, auf dem iPhone gibt es schlicht keine Vergrößerung. Für die eher ältere Zielgruppe ist das relevant, aber weder Datenverlust noch Kauf noch Hauptweg bei normaler Schrift. Bei großer Schrift könnte Speichern unerreichbar sein; dann wäre die Einstufung neu zu treffen.",
+  "behebung": "Zuerst den Emulator-Test bei maximaler Schrift machen; bricht das Layout, den Text-Zoom in MainActivity begrenzen oder die betroffenen Leisten umbrechen lassen, und eine eigene Schriftgrößen-Einstellung für iPhone nach dem Start planen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 27,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: Bei verweigerter Erlaubnis ruft Capacitor onReceiveValue(null) auf (BridgeWebChromeClient.java:289-295), der Handler bei index.html:5470-5471 läuft nicht oder endet ohne Datei. Der Scanner rät bei NotAllowedError zum Foto (7543-7545), dieser Knopf hängt an derselben Erlaubnis. Der Test ruft nur VS.fotoLesen auf (tests/tests.js:7632-7636). Abschwächung: Android fragt meist zweimal, still wird es erst nach dauerhafter Ablehnung. Der Scanner nennt zudem die Handy-Einstellungen, ganz ohne Hinweis ist also nur + Foto. Es trifft wenige Kunden, und nichts geht verloren.",
+  "behebung": "Bei Android und verweigerter Erlaubnis capture weglassen oder beim sofortigen Abbruch einen Hinweis auf die Einstellungen zeigen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 30,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Lücke stimmt: kein UIBackgroundModes in Info.plist, kein Foreground-Service im Manifest, kein wakeLock in index.html. Aufnehmen und Stoppen (5566-5584, 5629-5635) reagieren weder auf Sichtbarkeit noch auf Track-Ende oder recorder.onerror. Abschwächung: Das Stoppen speichert auch danach, das Gesagte vor der Sperre bleibt also voraussichtlich erhalten, sofern die Datei gültig ist. Was im Hintergrund genau passiert, zeigt nur das Gerät. Die Durchsicht nutzt dieselbe Aufnahme. Verwandt mit 41 und 67.",
+  "behebung": "Am Gerät prüfen; dann Track-Ende und Sichtbarkeit abfangen und die Aufnahme sauber beenden, dazu das Display während der Aufnahme wach halten.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 33,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der Kern stimmt: _entwuerfe ist eine Map im Speicher (index.html:8266), die Hintergrund-Handler betreffen nur Sicherungen (24496, 30280). iOS lädt still neu (WebViewDelegationHandler.swift:164-167), Android gibt ohne Listener false zurück (BridgeWebViewClient.java:92-103), MainActivity ist leer. Übertrieben ist der Foto-Teil: capture gibt es nur bei 5460 und 7513, die Durchsicht selbst hat keinen Foto-Knopf. Anhang.section hängt fast nur an gespeicherten Datensätzen, die Volk-Notiz speichert nach 600 ms (8220). Der Schaden trifft die offene Durchsicht eines Volks samt Ton, gespeicherte Daten bleiben. Häufigkeit unbekannt, PRUEFUNG-LUECKEN:315 stuft es ebenfalls als bald danach ein. Foto-Verlust siehe 64.",
+  "behebung": "Durchsicht-Entwurf samt Ton laufend in die Datenbank schreiben und beim nächsten Start anbieten.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 41,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt im Code: Kein recorder.onerror (5570-5584), keine Prüfung von blob.size und kein try/catch in stopRec (5629-5635). Der globale Handler meldet nur Speicher voll (30238-30242), die Einschränkung im Fund trifft also zu. Ob eine Unterbrechung wirklich einen leeren Blob erzeugt, zeigt nur das Gerät; das bleibt offen. Die Größenprüfung ist derselbe Fehler wie 67, die Unterbrechung hängt mit 30 zusammen.",
+  "behebung": "In stopRec try/catch und eine Größenprüfung ergänzen, bei Fehler oder leerer Aufnahme eine ehrliche Meldung zeigen statt gespeichert.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 62,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: + Foto hat fest capture=\"environment\" (index.html:5460), das führt auf dem iPhone nach bekanntem WebKit-Verhalten direkt zur Kamera. Android schaltet bei capture auf den Kamera-Weg (BridgeWebChromeClient.java:283-287). Der Umweg + Dokument speichert unverkleinert (5482) und zeigt nur ein Symbol statt des Bildes (5456, 5502). Es ist eine Funktionslücke, kein Datenverlust, und ein Umweg besteht. Greift Fund 26, hat Android bis zur Behebung umgekehrt nur die Auswahl. Der Kamera-Weg auf dem iPhone braucht ein echtes Gerät, der Rest geht im Simulator und Emulator.",
+  "behebung": "Einen zweiten Knopf „Aus Galerie“ ohne capture ergänzen, der über denselben Verkleinerungs-Weg als Foto speichert.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 64,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der Mechanismus stimmt: activityListener und filePathCallback liegen im Speicher (BridgeWebChromeClient.java:70-74, 344-350), Bridge.saveInstanceState sichert nur Plugins, MainActivity ist leer. Zwei Korrekturen: Die Aussage, ohne Kamera-Weg trete das nicht auf, ist falsch, denn die Dateiauswahl nutzt denselben Listener (388-402). Der Formularverlust ist übertrieben, die Stockkarten-Ansicht hat kein Textfeld zum Tippen (8050-8054), die Volk-Notiz speichert nach 600 ms (8220). Real weg ist also das Foto, und die App steht wohl wieder auf der Startseite. Das trifft vor allem schwache Android-Handys. Dasselbe beschreiben 33 und 42 in Teilen.",
+  "behebung": "Mit „Aktivitäten nicht behalten“ prüfen; dauerhaft nur mit nativem Kamera-Plugin und Wiederherstellung über appRestoredResult lösbar.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 66,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: Die Texte hängen nur am Vorhandensein der Schnittstelle (index.html:5528, 5602, 8380), rec.onerror ist leer (5544), ein onend fehlt ebenfalls. Der Code-Kommentar „nur Chrome/Edge“ (5529) ist überholt. Folge ist in erster Linie falsche Anzeige und kein Text, der Ton wird unabhängig davon gespeichert, sofern das Mikrofon nicht gestört wird. Der gravierende Fall, die stumme Aufnahme, ist unbelegt und wird unter 24 bewertet. Im Simulator ließe sich nur der Text ansehen, nicht der Mikrofon-Konflikt.",
+  "behebung": "In rec.onerror die Anzeige auf „Aufnahme läuft, kein Live-Text ohne Netz“ umstellen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 67,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: Die Durchsicht prüft blob.size (index.html:8300), Sprachnotiz.section nicht (5632-5634). Die App würde eine 0-Byte-Datei speichern und „gespeichert“ melden. Ob das am Gerät vorkommt, ist offen, also vermutlich selten. Teilmenge von 41, die Unterbrechung hängt an 30. Im Simulator lässt sich kein Anruf auslösen, der Fall geht dort nur mit einem Stub.",
+  "behebung": "In stopRec bei leerem Blob nicht speichern und „Aufnahme war leer“ melden.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 8,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der catch in kaufen (index.html:24938-24950) wertet nur ITEM_ALREADY_OWNED und Abbruch aus. 'Purchase is pending' (Plugin :467) und 'Transaction pending' (PurchaseHandling.swift:31) ergeben deshalb 'nicht erreichbar. Bist du online?'. Der Text bei :24956 wird auf diesem Weg nie erreicht. Auch :24961 und :24973 melden jede Ablehnung als Online-Problem. Geld oder Kauf gehen nicht verloren: Der Kauf läuft weiter, iOS meldet ihn über transactionUpdated (:25009), Android beim nächsten Start. Ausstehende Käufe sind bei erwachsenen Imkern in Deutschland selten. Gleicher Kern wie n=14, n=17 und n=49.",
+  "behebung": "Im catch /pending/i prüfen und dann den vorhandenen Text 'Der Kauf wird noch bestätigt' zeigen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 12,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der Code-Weg stimmt: Eine leere Liste schreibt voll:false und auf iOS testStart:null (index.html:24905-24910). Das ergibt 'ohneTest' und gesperrt()=true (:24876-24882). Übertrieben ist der Fall 'offline': Das Plugin lehnt bei Abfragefehlern ab (Plugin :1328-1342), und abgleichen behält dann den alten Stand (:24911). iOS liest Transaction.all lokal. Der zitierte Kommentar bei :1328 begründet nur diese Ablehnung und warnt nicht vor dem Aufrufer. Es bleiben abgemeldete Apple-ID, gewechseltes Play-Konto und Neuinstallation offline, also seltene Lagen. Daten gehen nicht verloren: Lesen bleibt möglich, das Formular bleibt offen (:3864), und der nächste Abgleich mit dem richtigen Konto heilt den Stand. Normales Offline deckt G1 ab. Überschneidet sich mit n=36 und n=15.",
+  "behebung": "Einen gemerkten Vollkauf erst zurücknehmen, wenn die Liste über mehrere Tage leer bleibt, und bis dahin einen Hinweis auf das Store-Konto zeigen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 13,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Die Falschmeldung ist möglich, aber enger als beschrieben. abgleichen schluckt Fehler (index.html:24911), danach meldet :24963 'Kein Kauf gefunden'. Scheitert auf Android der Billing-Aufbau, lehnt aber schon restorePurchases ab (Plugin :558), und es kommt die richtige Online-Meldung (:24961). Der Weg '5 s x 2 + 1 s reißt die 6 s' führt also nicht zur Falschmeldung. Offline liefert Play meist seinen lokalen Stand, und ein gemerkter Stand voll:true bleibt erhalten. Übrig bleibt: kein gemerkter Kauf (Neuinstallation) und getPurchases scheitert nach erfolgreichem Aufbau oder braucht länger als 6 s. Dass kein Test wiederherstellen abdeckt, stimmt.",
+  "behebung": "abgleichen merkt sich das Scheitern der Abfrage, und wiederherstellen zeigt dann 'konnte gerade nicht geprüft werden' statt 'Kein Kauf'.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 14,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt: Plugin :467 und PurchaseHandling.swift:31 lehnen ohne Code ab, der catch in index.html:24938-24950 meldet ein Netzproblem, und _ausstehend wird nur in abgleichen gesetzt (:24906). tests.js:15667 prüft nur abgleichen mit purchaseState '2', nie eine Ablehnung durch purchaseProduct. Es entsteht kein Kaufverlust, nur eine falsche Meldung in einem seltenen Fall. Gleicher Fehler wie n=8 und n=17.",
+  "behebung": "Wie bei n=8: Ablehnung mit 'pending' erkennen und 'Der Kauf wird noch bestätigt' zeigen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 15,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Stimmt für iOS: Die Testphase startet nur über den Store (index.html:24936-24937), 'ohneTest' mit wizardDone sperrt Formulare (:24876-24882, :3864) und die Durchsicht am Stand (:8304). 'lizenz' reist nicht in Sicherungen mit (:3556). Android startet lokal (:24930-24931). Daten gehen nicht verloren, das Formular bleibt offen (:3864). Die Sperre ist gewollt und durch einen Test festgelegt (tests.js:14519). Der erste Start ganz ohne Netz nach dem Laden der App ist selten, trifft dann aber die Kernnutzung am Stand. Die Stellenangabe :24808 ist falsch. Der Fall 'Neuinstallation eines Käufers' überschneidet sich mit n=12.",
+  "behebung": "Ohne Netz eine vorläufige lokale Testphase erlauben, die beim nächsten erfolgreichen Abgleich durch den Store-Stand ersetzt wird, oder zumindest im Fenster klar 'Internet nötig' sagen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 17,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Der erste Teil ist derselbe Fehler wie n=8 und n=14. Der Android-Zusatz stimmt ebenfalls: Die Plugin-Java-Datei enthält kein notifyListeners, also feuert transactionUpdated (index.html:25009, nicht :24936) dort nie. Einen Abgleich beim Zurückkehren in die App gibt es auch nicht (kein appStateChange oder resume in index.html). Eine später bezahlte Zahlung schaltet auf Android erst beim nächsten Start oder über 'Käufe wiederherstellen' frei. iOS meldet sie über Transaction.updates (NativePurchasesPlugin.swift:53-74). Der Kauf bleibt erhalten.",
+  "behebung": "Die Meldung wie bei n=8 korrigieren und zusätzlich auf Android beim Zurückkehren in die App abgleichen, solange _ausstehend gesetzt ist.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 36,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "bald nach Start",
+  "grund": "Index.html:24905-24910 überschreibt bei leerer Antwort ohne Rückfrage und ohne Meldung, das stimmt. Es ist dieselbe Stelle wie n=12, und laut Kommentar-Absicht sollen so Erstattungen greifen. Auf Android liefert ein erstatteter Kauf meist gar keinen Eintrag mehr, eine Unterscheidung über revocationDate gibt es dort also nicht. Ob Play und StoreKit bei Kontowechsel oder Abmeldung wirklich leer antworten, zeigt nur das Gerät. Zweite Google-Konten sind verbreitet. Die Folge ist vorübergehend: Android fällt auf Light oder Test zurück, iOS sperrt das Schreiben, und das richtige Konto heilt den Stand beim nächsten Start.",
+  "behebung": "Zusammen mit n=12 lösen: bei leerer Liste nach gemerktem Vollkauf verzögert zurückstufen und auf das Store-Konto hinweisen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 49,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "bald nach Start",
+  "grund": "kaufen wertet nur ITEM_ALREADY_OWNED und Abbruch aus (index.html:24940-24941), der Rest wird zu 'nicht erreichbar' (:24948). Die Vertauschung stimmt: rejectBillingSetupCall ruft reject(code, message) auf (Plugin :363), die Signatur lautet aber reject(msg, code) (PluginCall.java:114). Ein Unterschied: Android 'Product not found' (:804) trifft den eigenen Text bei :24945-24947, der aber ebenfalls nach dem Netz fragt. loggingBehavior none steht in capacitor.config.json. Reale Kunden trifft das selten, doch es erschwert Julians Gerätetest und den Support.",
+  "behebung": "e.code und e.message in der Meldung kurz mitgeben und BILLING_UNAVAILABLE als 'Google-Play-Konto prüfen' übersetzen, dabei auch die vertauschte Meldung berücksichtigen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 21,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "kann warten",
+  "grund": "Nur teilweise richtig. Stimmt: Die Tests nutzen eine Attrappe (tests.js:14429-14432, 15007, 15032), und Fehler gehen nur an console.warn (index.html:24686 spaeterPlanen). Falsch ist 'kein Beleg für eine zugestellte Mitteilung': PROJEKT.md v2.55 nennt für Simulator iOS 27 'Probe-Mitteilung im Hintergrund zugestellt', v2.80 für den Emulator 'Mitteilung 18:56:00,3 (geplant 18:56)'. Der Ablehnungsfall ist kaum erreichbar. iOS lehnt schedule nur bei fehlerhaftem Inhalt ab; Titel und Text sind nie leer (:24663, :24680), und ein Fehler aus center.add käme erst nach call.resolve (LocalNotificationsPlugin.swift:208-228). Android lehnt nur ab, wenn Mitteilungen aus sind, das fängt erlaubt() vorher ab (:24700); isExactNotification kommt aus genau(), isExactMandatory setzt die App nicht. Die Geräteprüfung steht schon in GERAETETEST D0, D2 und K6. Das Löschen vor dem Planen behandelt 32.",
+  "behebung": "Keine eigene Änderung nötig; wird mit der Behebung von 32 erledigt, die Prüfung läuft über D0, D2 und K6.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 45,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "kann warten",
+  "grund": "Der Code stimmt: Die ganze Datei geht als ein Base64-Text in writeFile (index.html:5396-5398), die Sicherung dagegen in Stücken (23677-23680). Ein Dokument hat keine Obergrenze, nur die Nachfrage ab 10 MB (um 5482). MainActivity ist leer, und onRenderProcessGone liefert ohne Listener false (BridgeWebViewClient.java); eine Suche in den Capacitor-Plugin-Quellen und im App-Code fand keinen Listener. Unter Android wird die App also beendet. Auf dem iPhone lädt Capacitor nur neu (WebViewDelegationHandler.swift:164). Der Fund fordert aber Extremfälle: Die App rät selbst zu unter 5 MB, und 15 PDFs mit je 40 Seiten kommen bei einem Imker kaum vor. Bei den Bio-Unterlagen dürften jsPDF und die Canvas-Schritte zuerst an Grenzen stoßen. Daten gehen nicht verloren, der Anhang liegt schon in der Datenbank. Die Grenze ist nirgends gemessen.",
+  "behebung": "nativDateiTeilen wie die Sicherung schreiben: writeFile plus appendFile in Base64-Stücken, deren Rohgröße durch 3 teilbar ist.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 40,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "kann warten",
+  "grund": "Das stimmt, ist aber kosmetisch. U.download gibt nichts zurück (index.html:1564), und die Meldungen kommen sofort danach (22454, 25129, 25278; ebenso 'Export erstellt' und 'Excel-Datei erstellt', die der Fund nicht nennt). Der Fund übersieht, dass U.download selbst ein .catch mit Fehler-Toast hat. Scheitert writeFile, sieht der Nutzer also eine Fehlermeldung nach der Erfolgsmeldung, es bleibt nichts verschwiegen. Beim Abbruch im Menü weiß der Nutzer selbst, dass er abgebrochen hat. Nichts wird als erledigt vermerkt: Der Backup-Vermerk markExternal hängt nicht an diesem Weg (nativTeilen vermerkt erst nach erfolgreicher Datei, 23706).",
+  "behebung": "U.download in der App das Promise zurückgeben lassen und die Erfolgsmeldung dort weglassen, oder den Text zu 'Excel-Datei bereit' ändern.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 57,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "kann warten",
+  "grund": "Das ist eine Prüflücke, kein belegter Fehler. Stimmt: Listener nur nativ (index.html:6164-6172), kein Treffer für backButton in tests, tools oder docs, Hülle mit leerem addListener und getPlatform 'ios' (tools/gesamtpruefung.mjs). Emulator-Beleg nur v2.73/2.74 (docs/PLAY_STORE.md:25). Beim Lesen wirkt der Scanner-Zweig sauber: schliessen stoppt Kamera, Listener und Uhren (ca. 7600-7610). Der einzige echte Fehler in diesem Handler ist der Assistent, siehe Fund 70. K1 steht schon in docs/GERAETETEST.md:165 und wird im geschlossenen Test ohnehin abgehakt; es fehlen dort und in K8 nur Zurück im Scanner und bei laufender Aufnahme. Der Emulator liegt laut Doku bereit.",
+  "behebung": "K1 um Zurück bei offenem Scanner, Imme-Führung und laufender Aufnahme ergänzen und einmal im Emulator mit aktueller Fassung durchgehen; kein Code nötig.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 42,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "kann warten",
+  "grund": "Stimmt: In img.onload (index.html:1577-1584) steht kein try/catch, eine Ausnahme lässt das Versprechen offen und der Handler bei 5470-5477 meldet nichts. Der globale error-Handler schweigt nach dem Start (85-86). Sehr selten: Die Leinwand ist höchstens 1600 Pixel lang, ein null-Ergebnis von toBlob ist schon abgefangen. Der behauptete Formularverlust ist übertrieben, siehe 33. Der Kamera-Verlust ist Fund 64, HEIC ist Fund 63 und meldet ehrlich. Der eigentliche Fehler lässt sich im Simulator nicht auslösen.",
+  "behebung": "Den Inhalt von img.onload in try/catch setzen und im Fehlerfall rej aufrufen.",
+  "simulator_pruefbar": false
+ },
+ {
+  "n": 63,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "kann warten",
+  "grund": "Stimmt: Kein HEIC-Treffer in index.html, resizeImage und createImageBitmap verlassen sich auf die WebView (1574-1587, 7571). Das Bio-Logo meldet ehrlich einen Fehler (29690-29692), nur der Scanner sagt irreführend „kein Code erkannt“ (7574-7575). Der Weg ist schmal: Logo und QR-Code der Rechnung erlauben teils nur PNG und JPEG (29417, 29459), + Dokument dekodiert nicht, und der Kamera-Weg liefert per EXTRA_OUTPUT eine .jpg-Datei. Nach Behebung von 26 bleibt im Wesentlichen das Bio-Logo. Der Fund zeigt selbst, dass dies nur am Gerät sicher ist; mit einer HEIC-Beispieldatei geht es im Emulator.",
+  "behebung": "Am Gerät prüfen; im Fehlerfall die Meldung um den Hinweis auf JPEG ergänzen, im Scanner „Foto nicht lesbar“ getrennt von „kein Code“ melden.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 69,
+  "urteil": "nur am Geraet klaerbar",
+  "wichtig_neu": "kann warten",
+  "grund": "Der Code stimmt: Kein mimeType beim Aufnehmen (5570), Name immer .webm (5587), kein Fehlerweg am Audio-Element (5605, 5611). Ob das iPhone die Android-Datei abspielt, ist offen, PRUEFUNG-LUECKEN:289 widerlegt die Grenze iOS 17.4 als Beleg. Es trifft nur Plattformwechsler mit alten Sprachnotizen auf älteren Systemen. Die Daten und Transkripte bleiben erhalten, nur das Abspielen scheitert. Teil des Tests aus 24. Im Simulator geht es mit vorbereiteter Datei, die Android-Aufnahme selbst nur am Gerät (Mikrofon lässt den Emulator hängen, laut PRUEFUNG-LUECKEN:267).",
+  "behebung": "Einmal Android-Sicherung auf dem iPhone abspielen; im Fehlerfall audio.onerror mit Hinweis und richtige Dateiendung nach mime ergänzen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 54,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "kein Fehler",
+  "grund": "Als Testlücke richtig: Die Tests nutzen Canvas und Blob (tests/tests.js:7575, 10233), die Kamera läuft nie, PLAY_STORE.md:25 nennt sie nicht, B6 (GERAETETEST.md:46) ist offen. Das ist aber kein eigener Fehler und B6 steht schon auf der Liste. Die Angabe „echtes Handy nötig“ ist für Android zu streng, der Emulator hat eine virtuelle Kamera. Nur das iPhone braucht ein echtes Gerät. Die konkreten Risiken stehen in 26, 27 und 64.",
+  "behebung": "B6 um Kamera verweigern und mehrere Fotos in Folge ergänzen.",
+  "simulator_pruefbar": true
+ },
+ {
+  "n": 5,
+  "urteil": "bestaetigt",
+  "wichtig_neu": "kein Fehler",
+  "grund": "Die Sachlage stimmt: gesamtpruefung.mjs und angriffstest.mjs melden fest die Vollversion, tests.js nutzt nur Attrappen, und PRUEFUNG-APPSTORE.md führt den echten Kauftest als offen. Das ist aber nur die Testlücke, die Julian ohnehin auf seiner Liste hat (GERAETETEST A4, H1-H3, K2-K5a), und kein eigener Fehler. Eine echte Beobachtung bleibt: Das iOS-Plugin setzt originalPurchaseDate nur bei Abos (TransactionHelpers.swift:20, :101-104). index.html:24909 nimmt für die Testphase also immer purchaseDate. Ob sich dieser Wert beim Wiederherstellen ändert, zeigt nur das Gerät.",
+  "behebung": "In GERAETETEST den Schritt ergänzen: iPhone, App löschen, neu installieren, Käufe wiederherstellen, und die Testphase darf nicht neu beginnen.",
+  "simulator_pruefbar": false
+ }
+]

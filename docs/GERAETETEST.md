@@ -42,8 +42,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **B3 Durchsicht:** Volk öffnen → „+ Durchsicht“ → ausfüllen, speichern. → Eintrag steht in der Stockkarte.
 - [ ] **B3b Jahr im Volk (neu 2.94):** Ein Volk mit Einträgen aus mehreren Jahren → Reiter Stockkarte, Fütterung, Varroa, Gewicht: oben „Jahr: Alle · 2026 · 2025 …“. Ein Jahr antippen. → Nur Einträge dieses Jahres; bei Varroa/Gewicht steht unter der Kurve bei „Alle“ die Jahreszahl mit dran (z. B. „12.05.25“). Die Wahl bleibt beim Wechsel zum nächsten Volk.
 - [ ] **B4 Durchsicht am Stand:** Volk → „Durchsicht am Stand“. → Eine Frage pro Bildschirm, große Knöpfe; probier es mal mit **Handschuhen**. Am Ende „Speichern“.
-- [ ] **B5 Sprachnotiz:** In der Durchsicht am Stand „Sprachnotiz“ (oder Volk → „Notizen & Anhänge“ → „Aufnehmen“). → **Eine** Frage nach dem Mikrofon. Aufnahme läuft (roter Punkt), Stoppen, abspielen.
-- [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → **Eine** Frage nach der Kamera, Kamera öffnet sich, Foto erscheint als Bild.
+- [ ] **B5 Sprachnotiz:** In der Durchsicht am Stand „Sprachnotiz“ (oder Volk → „Notizen & Anhänge“ → „Aufnehmen“). → **Eine** Frage nach dem Mikrofon. Aufnahme läuft (roter Punkt), Stoppen, abspielen. **Noch einmal im Flugmodus (neu 3.19):** Aufnahme läuft, die Anzeige sagt „ohne Netz gibt es keinen Live-Text“, beim Abspielen ist alles von Anfang bis Ende zu hören. Bleibt sie stumm, Julian sagen: Dann muss das Live-Diktat in der App aus.
+- [ ] **B6 Foto:** Volk → „Notizen & Anhänge“ → „+ Foto“. → **Eine** Frage nach der Kamera, Kamera öffnet sich, Foto erscheint als Bild. Dann drei Fotos direkt hintereinander, und einmal die Kamera in den Telefon-Einstellungen verbieten und erneut tippen: Es darf nichts abstürzen.
 - [ ] **A0 Kein Tester-Code in der App (neu 2.93):** Die App aus Xcode/Android Studio bzw. aus dem Store startet ohne Frage nach einem Tester-Code – die Sperre gilt nur für die Web-Version im Browser.
 - [ ] **B7 Königin:** Königinnen → „+“ → Generation z. B. „F1“ eintragen. → Wird in der Königin angezeigt.
 - [ ] **B7a Königin-Formular (neu):** Eine Königin bearbeiten. → Die Felder heißen „Herkunft / Linie“, „Woher stammt die Königin?“ (Vorschläge: Eigene Nachzucht, Zukauf Züchter, Schwarm, Nachschaffung – **kein** „Belegstelle“ mehr) und „Anpaarung“. Bei „Anpaarung: Belegstelle“ gibt es darunter die Belegstelle **und** das Feld „Vatervolk (4a)“.
@@ -142,6 +142,8 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **H1** Einstellungen → „ImkerBuch Vollversion“ → „Vollversion kaufen“. → Testkauf, danach „Vollversion freigeschaltet ✓“.
 - [ ] **H2** „Käufe wiederherstellen“. → Meldung, Status bleibt „Vollversion“.
 - [ ] **H3** „Code einlösen“. → Apple-Fenster für Codes erscheint (nicht einlösen).
+- [ ] **H4 Neu installieren (neu 3.19):** App löschen, neu installieren, „Käufe wiederherstellen“. → Die Vollversion ist wieder da, die Testphase beginnt nicht neu.
+- [ ] **H5 Anderes Konto (neu 3.19):** Nach dem Kauf im App Store oder Play Store mit einem anderen Konto anmelden und die App neu starten. → Die Vollversion bleibt, die App sagt „Dein Kauf wurde gerade nicht gefunden“. Danach wieder das richtige Konto anmelden.
 
 ## I · Light-Version ansehen (Test-Build)
 
@@ -163,10 +165,13 @@ Für diesen Teil brauchst du den **Test-Build** (mit Beispieldaten und Vorschau-
 Installation über den geschlossenen Test im Play Store (Link kommt von Julian). Dann wie A–H, zusätzlich:
 
 - [ ] **K1 Zurück-Taste/-Wischen:** offenes Fenster schließt sich (bei Eingaben erst „Änderungen verwerfen?“), sonst eine Seite zurück; auf der Startseite wird die App nur verkleinert. → Nie ungewollt Daten weg.
+- [ ] **K1a Zurück in besonderen Lagen (neu 3.19):** Zurück bei offenem Aufkleber-Scanner, während einer Imme-Führung und während einer laufenden Sprachnotiz. Danach Zurück im Einrichtungs-Assistenten. → Nichts geht verloren, die Sprachnotiz wird gespeichert, der Assistent geht einen Schritt zurück.
 - [ ] **K2 Testphase:** „30 Tage kostenlos starten“ → Meldung „Testphase läuft – noch 30 Tage“ (bei Google läuft sie ab dem Start auf dem Gerät).
 - [ ] **K3 Kauf:** „Vollversion kaufen“ → Google-Play-Kauffenster (Testkauf über die Testerliste, kein Geld). Danach „Vollversion freigeschaltet ✓“.
 - [ ] **K4 Code einlösen:** öffnet den Play Store zum Einlösen; danach in der App „Käufe wiederherstellen“.
-- [ ] **K5 Teilen:** Bestandsbuch-PDF und Sicherung → Android-Teilen-Menü (Drive, Dateien, Mail).
+- [ ] **K5 Teilen:** Bestandsbuch-PDF und Sicherung → Android-Teilen-Menü (Drive, Dateien, Mail). Nach dem Teilen der Sicherung fragt die App „Liegt die Sicherung jetzt dort?“ (neu 3.18). Erst nach „Ja“ zählt sie als erledigt. Das Teilen-Menü abbrechen: keine Erfolgsmeldung.
+- [ ] **K5c Tastatur (neu 3.17):** Langes Formular, Feld ganz unten antippen. → Feld und „Speichern“ bleiben sichtbar. Auch im Assistenten, in der Völker-Suche und im Imme-Fragefenster.
+- [ ] **K5d Später bezahlter Kauf (neu 3.19):** Als Lizenz-Tester mit der Testkarte „Slow“ kaufen. → „Der Kauf wird noch bestätigt“. In den Play Store wechseln, warten bis bezahlt, zurück in die App. → „Vollversion ist freigeschaltet“.
 - [ ] **K5a Bestätigung des Kaufs (neu 3.13):** Als Lizenz-Tester kaufen, App offen lassen, **mindestens 10 Minuten warten** (Google erstattet unbestätigte Käufe bei Testern schon nach 3 bis 5 Minuten, sonst nach 3 Tagen). In der Play Console unter „Bestellungen“ nachsehen. → Nicht erstattet. Dasselbe mit Promo-Code und Testkarte „Slow test card“.
 - [ ] **K5b Andere Geräte (neu 3.13):** Falls möglich ein älteres Handy (Android 8 bis 12) und eines mit Drei-Tasten-Leiste: Start, langes Formular mit offener Tastatur bis „Speichern“, Kopfleiste, Dunkelmodus. Nach dem ersten Upload den Vorabbericht der Play Console ansehen.
 - [ ] **K6 Mitteilungen:** erste Aufgaben-Erinnerung → Android fragt nach Mitteilungen → Erlauben; danach erklärt die App „Minutengenau erinnern?“ → „Einstellung öffnen“ → bei ImkerBuch „Wecker und Erinnerungen“ einschalten → Zurück. Einstellungen → Funktionen zeigt „Minutengenau: an“. Aufgabe in 3 Minuten → Erinnerung kommt auf die Minute.

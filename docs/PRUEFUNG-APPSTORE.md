@@ -12,7 +12,7 @@
 | `tools/start-pruefung.mjs` (neu) | keine Befunde: Datenbank scheitert oder hängt, Hauptteil defekt, Umstellung scheitert, Einstellungen nicht lesbar, Update von niedrigster Datenbank-Stufe aus v1.61 bis v1.64 |
 | Update ohne Löschen, iPhone-Simulator | v3.12 → v3.13 mit 300 Völkern und 50 Ständen: alles da |
 | Update ohne Löschen, Android-Emulator | v3.12 → v3.13: alle Zählungen gleich, Foto Byte für Byte gleich |
-| Sicherung, iPhone-Simulator | 21,8 MB, 120 Fotos, gültig, Abbruch im Teilen-Menü löscht die Kopie |
+| Sicherung, iPhone-Simulator | 21,8 MB, 120 Fotos, gültig. Galt nur für v3.13: Seit v3.18 bleibt die Kopie nach einem Abbruch liegen, bis sie beim nächsten Sichern oder Start entfernt wird |
 | Sicherung und Einspielen, Android-Emulator | 1000 Fotos, 546 MB: in 40 s gesichert, in 20 s eingespielt, alle 1001 Dateien zurück |
 | Android 10 mit WebView 91 | Hinweisseite „Bitte einmal aktualisieren“ erscheint |
 | Android mit Drei-Tasten-Leiste | Formular bis „Speichern“ sichtbar. Tastatur im Emulator nicht geprüft |
