@@ -8,7 +8,7 @@ Stand 2026-11-01 (v3.12). Alles hier ist zum Kopieren in App Store Connect gedac
 - **Untertitel (max. 30):** `Bienenvölker offline verwalten`
 - **Kategorie:** Produktivität (Haupt), Lifestyle (Neben)
 - **Bundle-ID:** `de.imkerbuch.app`
-- **Altersfreigabe:** Fragebogen überall „Nein“ → voraussichtlich 4+
+- **Altersfreigabe (in App Store Connect gespeichert am 02.11.2026):** 13+. „Medizinische oder Behandlungsinformationen“ = Selten wegen des Allergie-Hinweises in der Imkerschule; alles andere Nein/Nie, Alkohol Nie (Met und Honiglikör sind nur Produktnamen). Brasilien A12, Südkorea und Vietnam 12+.
 - **Länder:** Deutschland, Österreich, Schweiz
 - **Support-URL:** `https://imkerbuch.app/support.html`
 - **Datenschutz-URL:** `https://imkerbuch.app/datenschutz.html`
