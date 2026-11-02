@@ -10766,6 +10766,92 @@ test('Sprachnotiz: Telefon sperrt oder Mikrofon fällt weg, die Aufnahme wird ge
     if (altW) Object.defineProperty(w.navigator, 'wakeLock', altW); else delete w.navigator.wakeLock;
   }
 });
+test('Durchsicht-Entwurf: übersteht den Neustart samt Ton und Datum, reist nicht in Sicherungen, verschwindet nach dem Speichern', async (w) => isolierteDaten(w, async () => {
+  const D = w.Views.durchsicht, S = w.S;
+  const vorherZuletzt = D._zuletzt; D._entwuerfe.clear();
+  const volk = await w.DB.put('voelker', { name: 'Entwurf-Volk', status: 'aktiv', standId: '' });
+  const weg = await w.DB.put('voelker', { name: 'Altes Volk', status: 'aufgeloest', standId: '' });
+  try {
+    const e = D.entwurf(volk.id);
+    await D.entwurfMerken();
+    assertEq((S.get('sdEntwuerfe') || []).length, 0, 'leerer Entwurf wird nicht gespeichert');
+    e.antworten.volksstaerke = 3; e.schritt = 1;
+    e.audio.push({ blob: new w.Blob(['ton'], { type: 'audio/webm' }), transkript: 'Hallo' });
+    D._zuletzt = volk.id;
+    await D.entwurfMerken();
+    assert(!(await (await w.Backup.buildBlob()).text()).includes('sdEntwuerfe'), 'nicht in der Sicherung');
+    assertEq(w.Backup._saeubereZeile('settings', { key: 'sdEntwuerfe', value: [] }), null, 'nicht aus einer Datei');
+    // Neustart nachstellen
+    D._entwuerfe.clear(); D._entwurfStand = '';
+    await S.load();
+    await D.entwuerfeLaden();
+    const z = D._entwuerfe.get(volk.id);
+    assert(z, 'Entwurf wieder da');
+    assertEq(z.id, e.id, 'gleiche Kennung'); assertEq(z.schritt, 1); assertEq(z.antworten.volksstaerke, 3);
+    assertEq(await z.audio[0].blob.text(), 'ton', 'Ton vollständig'); assertEq(z.audio[0].transkript, 'Hallo');
+    assertEq(D._zuletzt, volk.id);
+    // Datum des Beginns bleibt
+    z.datum = '2026-10-30';
+    const toastAlt = w.Bewertung.nachErfolg; w.Bewertung.nachErfolg = () => {};
+    try {
+      const rec = await D.speichern(volk, z);
+      assertEq(rec.datum, '2026-10-30', 'Datum der Durchsicht');
+      assertEq((await w.DB.getAll('anhaenge')).filter((a) => a.parentId === rec.id).length, 1, 'Sprachnotiz gespeichert');
+    } finally { w.Bewertung.nachErfolg = toastAlt; }
+    assertEq(S.get('sdEntwuerfe').length, 0, 'nach dem Speichern weg');
+    // Volk nicht mehr aktiv: fällt weg
+    await S.set('sdEntwuerfe', [{ volkId: weg.id, id: 'x', schritt: 0, antworten: { a: 1 }, audio: [] }], { auto: true });
+    D._entwuerfe.clear(); D._entwurfStand = '[]';
+    await D.entwuerfeLaden();
+    assertEq(D._entwuerfe.size, 0);
+    assertEq(S.get('sdEntwuerfe').length, 0);
+  } finally { D._entwuerfe.clear(); D._entwurfStand = ''; D._zuletzt = vorherZuletzt; await S.set('sdEntwuerfe', [], { auto: true }); dialogeSchliessen(w); }
+}));
+test('Durchsicht-Entwurf: Fenster beim Start bietet Weitermachen, Später und Verwerfen', async (w) => isolierteDaten(w, async () => {
+  const D = w.Views.durchsicht;
+  const vorherZuletzt = D._zuletzt; D._entwuerfe.clear();
+  const volk = await w.DB.put('voelker', { name: 'Fenster-Volk', status: 'aktiv', standId: '' });
+  const confirm = w.UI.confirm;
+  try {
+    const e = D.entwurf(volk.id); e.antworten.volksstaerke = 3; e.datum = '2026-10-30'; D._zuletzt = volk.id;
+    await D.entwurfAnbieten();
+    const fenster = () => [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(/Fenster-Volk, begonnen am 30\.10\.2026: 1 Antwort ist noch nicht gespeichert/.test(fenster().textContent), fenster().textContent);
+    fenster().querySelector('[data-close2]').click();
+    await new Promise((r) => w.setTimeout(r, 30));
+    assert(D._entwuerfe.has(volk.id), 'Später: bleibt');
+    await D.entwurfAnbieten();
+    w.UI.confirm = async () => false;
+    fenster().querySelector('[data-sd-verwerfen]').click();
+    await new Promise((r) => w.setTimeout(r, 30));
+    assert(D._entwuerfe.has(volk.id), 'Rückfrage verneint: bleibt');
+    w.UI.confirm = async () => true;
+    fenster().querySelector('[data-sd-verwerfen]').click();
+    await new Promise((r) => w.setTimeout(r, 60));
+    assertEq(D._entwuerfe.size, 0, 'verworfen');
+    assertEq(w.S.get('sdEntwuerfe').length, 0);
+    await D.entwurfAnbieten();   // nichts offen: kein Fenster
+  } finally { w.UI.confirm = confirm; D._entwuerfe.clear(); D._entwurfStand = ''; D._zuletzt = vorherZuletzt; dialogeSchliessen(w); }
+}));
+test('Anhänge: Kachel Aus Galerie ohne Kamera-Zwang, Kamera-Wache meldet Verbot nur ohne Kamera-App', async (w) => {
+  const quelle = await (await w.fetch('index.html')).text();
+  assert(/accept="image\/\*" class="hidden" data-add-galerie/.test(quelle), 'Galerie ohne capture');
+  assert(/\$\('\[data-add-foto\]', el\)\.onchange = \$\('\[data-add-galerie\]', el\)\.onchange/.test(quelle), 'gleicher Verkleinerungs-Weg');
+  assert(/capture="environment" class="hidden" data-add-foto/.test(quelle), 'Foto weiter mit Kamera');
+  assert(/id="wz-sicherung"/.test(quelle), 'Sicherung im Willkommen-Fenster');
+});
+test('Willkommen-Fenster: Sicherung einspielen schließt es erst, wenn übernommen ist', async (w) => {
+  const B = w.Backup, altN = B.nachImport, altE = B.beiEingespielt;
+  let n = 0;
+  B.nachImport = async () => {};
+  B.beiEingespielt = async () => { n++; B.beiEingespielt = null; };
+  try {
+    await B.nachImportSicher({});
+    assertEq(n, 1, 'nach dem Übernehmen');
+    await B.nachImportSicher({});
+    assertEq(n, 1, 'nur einmal');
+  } finally { B.nachImport = altN; B.beiEingespielt = altE; }
+});
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
   w.UI.toast = (m, a) => meldungen.push([m, a]);
