@@ -10437,6 +10437,169 @@ test('Kauf: fehlende Bestätigung wird nachgeholt, Doppeltippen, ausstehend und 
     assert(!ms.some(([m]) => /Kein Kauf/.test(m)), 'nicht behauptet, es gebe keinen Kauf');
   } finally { L.plugin = altP; L.android = altA; w.UI.toast = toast; await w.S.set('lizenz', lizenzVor, { auto: true }); }
 });
+test('Kauf: leere Liste nimmt einen bezahlten Kauf nicht sofort weg, Rückerstattung schon', async (w) => {
+  const L = w.Lizenz, altP = L.plugin, altA = L.android, toast = w.UI.toast, vor = w.S.get('lizenz'), tag = 86400000;
+  const ms = []; w.UI.toast = (m, a) => ms.push([m, a]);
+  L.android = () => false;
+  let kaeufe = [];
+  L.plugin = () => ({ getPurchases: async () => ({ purchases: kaeufe }), restorePurchases: async () => {} });
+  try {
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null }, { auto: true });
+    let l = await L.abgleichen();
+    assertEq(l.voll, true, 'erster leerer Abgleich sperrt nicht');
+    assert(l.kaufFehltSeit, 'Beginn der Frist gemerkt');
+    assertEq(L._kaufFehlt, true);
+    const seit = l.kaufFehltSeit;
+    l = await L.abgleichen();
+    assertEq(l.kaufFehltSeit, seit, 'die Frist läuft weiter, sie beginnt nicht neu');
+    ms.length = 0; await L.wiederherstellen();
+    assert(ms.some(([m]) => /nicht gefunden/.test(m)) && !ms.some(([m]) => /wiederhergestellt/.test(m)), 'behauptet keine Wiederherstellung: ' + JSON.stringify(ms));
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null, kaufFehltSeit: new Date(Date.now() - 8 * tag).toISOString() }, { auto: true });
+    l = await L.abgleichen();
+    assertEq(l.voll, false, 'nach der Frist fällt der Kauf weg');
+    assertEq(L._kaufFehlt, false);
+    assertEq(l.kaufFehltSeit, null);
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null, kaufFehltSeit: new Date().toISOString() }, { auto: true });
+    kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '1' }];
+    l = await L.abgleichen();
+    assertEq(l.voll, true); assertEq(l.kaufFehltSeit, null, 'Kauf wieder da: Frist vorbei');
+    kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, revocationDate: '2026-10-05T00:00:00Z' }];
+    l = await L.abgleichen();
+    assertEq(l.voll, false, 'ausdrückliche Rückerstattung gilt sofort');
+  } finally { L.plugin = altP; L.android = altA; L._kaufFehlt = false; w.UI.toast = toast; await w.S.set('lizenz', vor, { auto: true }); }
+});
+test('Kauf: Android erkennt einen später bezahlten Kauf, Billing-Fehler wird verständlich', async (w) => {
+  const L = w.Lizenz, altP = L.plugin, altA = L.android, altF = L.fenster, toast = w.UI.toast, vor = w.S.get('lizenz'), route = w.renderRoute;
+  const ms = []; w.UI.toast = (m, a) => ms.push([m, a]);
+  L.android = () => true;
+  let kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '2' }], kaufFehler = null;
+  L.plugin = () => ({ restorePurchases: async () => {}, getPurchases: async () => ({ purchases: kaeufe }), acknowledgePurchase: async () => {},
+    purchaseProduct: async () => { if (kaufFehler) throw kaufFehler; } });
+  try {
+    await w.S.set('lizenz', { voll: false, testStart: null, geprueft: null }, { auto: true });
+    await L.abgleichen();
+    assertEq(L._ausstehend, true);
+    await L.ausstehendePruefen();
+    assertEq(ms.length, 0, 'noch nicht bezahlt: keine Meldung');
+    kaeufe = [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, purchaseState: '1', isAcknowledged: true }];
+    await L.ausstehendePruefen();
+    assert(ms.some(([m]) => /freigeschaltet/.test(m)), 'jetzt bezahlt: ' + JSON.stringify(ms));
+    assertEq(L._ausstehend, false);
+    ms.length = 0; await L.ausstehendePruefen();
+    assertEq(ms.length, 0, 'nichts mehr ausstehend: kein weiterer Lauf');
+    // vertauscht: das Plugin liefert den Code als Text
+    for (const f of [Object.assign(new Error('Billing service unavailable'), { code: 'x' }), new Error('BILLING_UNAVAILABLE')]) {
+      ms.length = 0; kaufFehler = f;
+      assertEq(await L.kaufen('voll'), false);
+      assert(ms.some(([m, a]) => a === 'err' && /Play Store/.test(m)), JSON.stringify(ms));
+      assert(!ms.some(([m]) => /nicht erreichbar/.test(m)));
+    }
+    ms.length = 0; kaufFehler = Object.assign(new Error('Oops'), { code: 'ERROR_7' });
+    await L.kaufen('voll');
+    assert(ms.some(([m]) => /nicht erreichbar.*ERROR_7/.test(m)), 'Code für die Hilfe genannt: ' + JSON.stringify(ms));
+  } finally { L.plugin = altP; L.android = altA; L.fenster = altF; L._ausstehend = false; w.UI.toast = toast; await w.S.set('lizenz', vor, { auto: true }); }
+});
+test('Fehler ohne eigene Behandlung: Meldung nur nach einem Tipp, nie bei Abbruch oder Kauf-Fenster', async (w) => {
+  const toast = w.UI.toast, fehlerLog = w.console.error, ms = [];
+  w.UI.toast = (m, a) => ms.push([m, a]); w.console.error = () => {};
+  const tippen = () => w.document.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
+  const ohneFrist = () => w.eval('fehlerZuletzt = 0; letzterTipp = 0;');
+  try {
+    w.window.removeEventListener('unhandledrejection', w.unbehandelterFehler);
+    ohneFrist();
+    w.unbehandelterFehler({ reason: new Error('Hintergrund') });
+    assertEq(ms.length, 0, 'ohne Tipp still');
+    tippen();
+    w.unbehandelterFehler({ reason: Object.assign(new Error('x'), { name: 'AbortError' }) });
+    w.unbehandelterFehler({ reason: Object.assign(new Error('x'), { lizenz: true }) });
+    assertEq(ms.length, 0, 'Abbruch und Kauf-Fenster still');
+    w.unbehandelterFehler({ reason: new Error('kaputt') });
+    assertEq(ms.length, 1); assertEq(ms[0][0], w.UNBEHANDELT_TEXT); assertEq(ms[0][1], 'err');
+    assert(!/kaputt/.test(ms[0][0]), 'keine Technik-Meldung');
+    w.unbehandelterFehler({ reason: new Error('nochmal') });
+    assertEq(ms.length, 1, 'gedrosselt');
+  } finally { w.window.addEventListener('unhandledrejection', w.unbehandelterFehler); ohneFrist(); w.UI.toast = toast; w.console.error = fehlerLog; }
+});
+test('Dokument, Sprachnotiz, Datei öffnen und PDF melden ihren Fehler', async (w) => {
+  const quelle = await (await w.fetch('index.html')).text();
+  assert(/data-oeffnen\]', m\.el\)\.onclick = \(\) => dateiOeffnen\(a\.blob, a\.name, a\.mime\)\.catch/.test(quelle), 'Datei öffnen fängt ab');
+  const toast = w.UI.toast, warn = w.console.warn, ms = [];
+  w.UI.toast = (m, a) => ms.push([m, a]); w.console.warn = () => {};
+  try {
+    await w.Pdf.ausgeben({ output: () => { throw new Error('zu groß'); } }, 'x.pdf');
+    assert(ms.some(([m, a]) => a === 'err' && /PDF fehlgeschlagen/.test(m)), 'PDF: ' + JSON.stringify(ms));
+    // Sicherung: kaputte Datei bekommt die verständliche Meldung
+    ms.length = 0;
+    await w.Backup.importFile(new w.File(['{"app":"ImkerBuch","stores":{"voe'], 'kaputt.json', { type: 'application/json' }));
+    assert(ms.some(([m, a]) => a === 'err' && /unvollständig/.test(m)), 'Import: ' + JSON.stringify(ms));
+    assert(!ms.some(([m]) => /JSON/.test(m)), 'kein Fachwort');
+  } finally { w.UI.toast = toast; w.console.warn = warn; }
+});
+test('Sicherung: Scheitert der Nachlauf, geht es trotzdem weiter; Erinnerungen fragen einmal nach der Erlaubnis', async (w) => {
+  const B = w.Backup, altN = B.nachImport, N = w.Notif, altS = N.status, altA = N.anfordern, fehlerLog = w.console.error, toast = w.UI.toast, ms = [];
+  const fVor = JSON.parse(JSON.stringify(w.S.get('features')));
+  w.console.error = () => {}; w.UI.toast = (m, a) => ms.push([m, a]);
+  let gefragt = 0;
+  N.anfordern = async () => { gefragt++; return 'denied'; };
+  try {
+    w.__erinnerungTest = true;
+    await w.S.set('features', { ...fVor, benachrichtigungen: true }, { auto: true });
+    B.nachImport = async () => { throw new Error('Umbau gescheitert'); };
+    N.status = () => 'default';
+    await B.nachImportSicher({});   // wirft nicht
+    await new Promise((r) => w.setTimeout(r, 0));
+    assertEq(gefragt, 1, 'Erlaubnis erfragt');
+    assert(ms.some(([m, a]) => a === 'err' && /nicht erlaubt/.test(m)), 'Ablehnung gesagt');
+    N.status = () => 'granted'; await B.nachImportSicher({}); assertEq(gefragt, 1, 'schon erlaubt: keine Frage');
+    N.status = () => 'denied'; await B.nachImportSicher({}); assertEq(gefragt, 1, 'abgelehnt: keine zweite Frage');
+    N.status = () => 'default';
+    await w.S.set('features', { ...fVor, benachrichtigungen: false }, { auto: true });
+    await B.nachImportSicher({}); assertEq(gefragt, 1, 'Erinnerungen aus: keine Frage');
+  } finally { B.nachImport = altN; N.status = altS; N.anfordern = altA; delete w.__erinnerungTest; w.console.error = fehlerLog; w.UI.toast = toast; await w.S.set('features', fVor, { auto: true }); }
+});
+test('Erinnerungen: Scheitert das Berechnen, bleiben die alten Mitteilungen stehen', async (w) => {
+  const E = w.Erinnerung, altP = E.plugin, altT = E.termine, altL = w.Lizenz.light, fVor = JSON.parse(JSON.stringify(w.S.get('features')));
+  const ablauf = [];
+  E.plugin = () => ({ checkPermissions: async () => ({ display: 'granted' }), checkExactNotificationSetting: async () => ({ exact_alarm: 'granted' }),
+    getPending: async () => { ablauf.push('lesen'); return { notifications: [{ id: 7 }] }; }, cancel: async () => { ablauf.push('löschen'); }, schedule: async () => { ablauf.push('planen'); } });
+  w.Lizenz.light = () => false;
+  try {
+    await w.S.set('features', { ...fVor, benachrichtigungen: true }, { auto: true });
+    E.termine = () => { throw new Error('kaputt'); };
+    let fehler = null;
+    try { await E.planen(); } catch (e) { fehler = e; }
+    assert(fehler, 'Fehler kommt an');
+    assertEq(ablauf, [], 'nichts gelöscht');
+    E.termine = () => [{ id: 1, title: 't', body: 'b', at: new Date(Date.now() + 86400000) }];
+    await E.planen();
+    assertEq(ablauf, ['lesen', 'löschen', 'planen'], 'erst berechnen, dann tauschen');
+  } finally { E.plugin = altP; E.termine = altT; w.Lizenz.light = altL; await w.S.set('features', fVor, { auto: true }); }
+});
+test('Sprachnotiz: Ohne Netz sagt die Anzeige, dass es keinen Live-Text gibt, Stille bleibt still', async (w) => {
+  const V = w.Voice, altS = w.SpeechRecognition, altW = w.webkitSpeechRecognition;
+  let inst = null;
+  w.SpeechRecognition = function () { inst = this; this.start = () => {}; this.stop = () => {}; };
+  try {
+    const live = V.startLive(); let n = 0;
+    live.onFehler(() => n++);
+    inst.onerror({ error: 'no-speech' }); inst.onerror({ error: 'aborted' });
+    assertEq(n, 0, 'normale Pausen melden nichts');
+    inst.onerror({ error: 'network' });
+    assertEq(n, 1, 'kein Netz wird gemeldet');
+  } finally { w.SpeechRecognition = altS; w.webkitSpeechRecognition = altW; }
+});
+test('Durchsicht: Grenze wird schon beim Start geprüft', async (w) => {
+  const D = w.Views.durchsicht, L = w.Lizenz, altL = L.pruefeLight, altS = L.pruefeSchreiben, nav = location.hash;
+  const aufrufe = [];
+  L.pruefeSchreiben = () => { aufrufe.push('schreiben'); };
+  L.pruefeLight = async (o) => { aufrufe.push(o && o.bereich === false ? 'light-ohne-bereich' : 'light'); const e = new Error('x'); e.lizenz = true; throw e; };
+  try {
+    await D.grenzeVorab();   // wirft nicht, das Kauf-Fenster ist Sache von _sperre
+    assertEq(aufrufe, ['schreiben', 'light-ohne-bereich']);
+    const quelle = await (await w.fetch('index.html')).text();
+    assert(/navTo\('durchsicht\/' \+ volkId\);\n    this\.grenzeVorab\(\);/.test(quelle), 'starten ruft die Prüfung');
+  } finally { L.pruefeLight = altL; L.pruefeSchreiben = altS; }
+});
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
   w.UI.toast = (m, a) => meldungen.push([m, a]);

@@ -1575,11 +1575,13 @@ const U = {
     return new Promise((res, rej) => {
       const img = new Image();
       img.onload = () => {
-        let { width: w, height: h } = img;
-        if (Math.max(w, h) > maxPx) { const f = maxPx / Math.max(w, h); w = Math.round(w * f); h = Math.round(h * f); }
-        const c = document.createElement('canvas'); c.width = w; c.height = h;
-        c.getContext('2d').drawImage(img, 0, 0, w, h);
-        c.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht verarbeitet werden'))), 'image/jpeg', quality);
+        try {
+          let { width: w, height: h } = img;
+          if (Math.max(w, h) > maxPx) { const f = maxPx / Math.max(w, h); w = Math.round(w * f); h = Math.round(h * f); }
+          const c = document.createElement('canvas'); c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          c.toBlob((b) => (b ? res(b) : rej(new Error('Bild konnte nicht verarbeitet werden'))), 'image/jpeg', quality);
+        } catch (e) { rej(new Error('Bild konnte nicht verarbeitet werden')); }
         URL.revokeObjectURL(img.src);
       };
       img.onerror = () => rej(new Error('Bild konnte nicht gelesen werden'));
@@ -1627,8 +1629,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.18';
+const APP_VERSION = '3.19';
 const CHANGELOG = [
+  { version: '3.19', datum: '2026-11-02', punkte: [
+    '<b>Klare Meldungen:</b> Wenn nach einem Tipp etwas schiefgeht, sagt die App das jetzt, auch beim Speichern von Dokumenten und Sprachnotizen, beim Öffnen von Dateien und beim Erstellen von PDFs. Eine leere Aufnahme wird nicht mehr als gespeichert gemeldet.',
+    '<b>Sicherung einspielen:</b> Eine unvollständige Datei wird verständlich gemeldet. Geht danach ein Aufräum-Schritt schief, kommt die Meldung trotzdem und die Seite wird neu gezeichnet.',
+    '<b>Erinnerungen:</b> Beim Neu-Planen bleiben die alten Mitteilungen stehen, bis die neue Liste fertig berechnet ist. Kommt eine Sicherung mit eingeschalteten Erinnerungen auf ein neues Gerät, fragt die App nach der Erlaubnis.',
+    '<b>Kauf:</b> Findet der Store einen bezahlten Kauf gerade nicht (zum Beispiel anderes Konto angemeldet), bleibt die Vollversion 7 Tage erhalten und die App sagt, was zu prüfen ist. Auf Android wird ein später bezahlter Kauf beim Zurückkehren erkannt.',
+    '<b>Durchsicht am Stand:</b> Das Kauf-Fenster kommt schon beim Start, falls am Ende nicht gespeichert werden könnte, nicht erst nach allen Antworten.',
+    '<b>Sprachnotiz ohne Netz:</b> Die Anzeige sagt, dass die Aufnahme läuft und es gerade keinen Live-Text gibt.',
+  ] },
   { version: '3.18', datum: '2026-11-02', punkte: [
     '<b>Sicherung auf Android:</b> Android meldet nicht zuverlässig, ob das Speichern geklappt hat. Die App fragt deshalb nach, bevor sie die Sicherung als erledigt zählt, und die Datei bleibt liegen, bis das Hochladen Zeit hatte.',
     '<b>Sicherung einspielen auf Android:</b> Jede Datei lässt sich auswählen, die App prüft den Inhalt selbst.',
@@ -5494,8 +5504,10 @@ const Anhang = {
       if (ad) ad.onchange = async (e) => {
         const f = e.target.files[0]; if (!f) return;
         if (f.size > 10 * 1048576 && !(await UI.confirm({ title: 'Große Datei', text: `Die Datei ist ${U.fmtBytes(f.size)} groß. Große Anhänge blähen Backups stark auf. Trotzdem speichern?`, confirmText: 'Speichern', danger: false }))) return;
-        await DB.put('anhaenge', { parentTyp, parentId, art: 'dokument', name: f.name, mime: f.type || 'application/octet-stream', blob: f, groesse: f.size, datum: U.nowIso(), dokumentTyp: '' });
-        UI.toast('Dokument gespeichert'); render();
+        try {
+          await DB.put('anhaenge', { parentTyp, parentId, art: 'dokument', name: f.name, mime: f.type || 'application/octet-stream', blob: f, groesse: f.size, datum: U.nowIso(), dokumentTyp: '' });
+          UI.toast('Dokument gespeichert'); render();
+        } catch (err) { if (!err.lizenz) UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Dokument konnte nicht gespeichert werden. Bitte noch einmal versuchen.', 'err'); }
       };
       $('[data-gal]', el).addEventListener('click', (e) => {
         const b = e.target.closest('.g-item[data-id]'); if (!b) return;
@@ -5528,7 +5540,7 @@ const Anhang = {
         <button class="btn btn-ghost" data-oeffnen>${icon('download')} ${a.art === 'foto' ? 'Öffnen/Laden' : 'Öffnen / bearbeiten'}</button>`,
     });
     $('[data-typ]', m.el).onchange = async (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value = a.dokumentTyp || ''; return; } a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
-    $('[data-oeffnen]', m.el).onclick = () => dateiOeffnen(a.blob, a.name, a.mime);
+    $('[data-oeffnen]', m.el).onclick = () => dateiOeffnen(a.blob, a.name, a.mime).catch((e) => { console.warn('Datei öffnen', e); UI.toast('Datei konnte nicht geöffnet werden.', 'err'); });
     $('[data-del]', m.el).onclick = async () => {
       if (!(await UI.confirm({ title: 'Anhang löschen?', text: 'Der Anhang wandert in den Papierkorb (30 Tage wiederherstellbar).' }))) return;
       await DB.softDel('anhaenge', a.id); m.close(true); UI.toast('In den Papierkorb verschoben'); if (onChange) onChange();
@@ -5556,9 +5568,10 @@ const Voice = {
       }
       if (this._liveCb) this._liveCb((finalText + interim).trim());
     };
-    rec.onerror = () => {};
+    let aufFehler = null;
+    rec.onerror = (e) => { if (aufFehler && e && !['no-speech', 'aborted'].includes(e.error)) aufFehler(); };   // die Aufnahme selbst läuft weiter
     try { rec.start(); } catch (e) { return null; }
-    return { stop: () => { try { rec.stop(); } catch (e) {} }, getText: () => finalText.trim(), onUpdate: (cb) => { this._liveCb = cb; } };
+    return { stop: () => { try { rec.stop(); } catch (e) {} }, getText: () => finalText.trim(), onUpdate: (cb) => { this._liveCb = cb; }, onFehler: (cb) => { aufFehler = cb; } };
   },
 };
 
@@ -5596,6 +5609,7 @@ const Sprachnotiz = {
     recorder.start();
     live = Voice.startLive();
     if (live) live.onUpdate((t) => { liveText = t; if (onLive) onLive(t); });
+    if (live) live.onFehler(() => { if (onLive && !liveText) onLive('Aufnahme läuft, ohne Netz gibt es keinen Live-Text.'); });
     return { stop: () => { if (recorder.state !== 'inactive') recorder.stop(); return fertig; } };
   },
   anhang(parentTyp, parentId, { blob, transkript }) {
@@ -5646,9 +5660,12 @@ const Sprachnotiz = {
       const r = recorder; if (!r) return;
       recorder = null;                 // vor dem Warten: ein zweiter Tipp speichert nicht doppelt
       clearInterval(wache);
-      const aufnahme = await r.stop();
-      await DB.put('anhaenge', Sprachnotiz.anhang(parentTyp, parentId, aufnahme));
-      UI.toast('Sprachnotiz gespeichert'); render();
+      try {
+        const aufnahme = await r.stop();
+        if (!aufnahme.blob || !aufnahme.blob.size) UI.toast('Die Aufnahme war leer. Bitte noch einmal aufnehmen.', 'err');
+        else { await DB.put('anhaenge', Sprachnotiz.anhang(parentTyp, parentId, aufnahme)); UI.toast('Sprachnotiz gespeichert'); }
+      } catch (err) { if (!err.lizenz) UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Sprachnotiz konnte nicht gespeichert werden.', 'err'); }
+      render();
     };
     render();
     return el;
@@ -8290,6 +8307,12 @@ Views.durchsicht = {
   starten(volkId) {
     this._erledigt = new Set(); this._ende = false;
     navTo('durchsicht/' + volkId);
+    this.grenzeVorab();
+  },
+  /** Kann am Ende nicht gespeichert werden, soll das Kauf-Fenster gleich kommen und nicht erst nach allen Antworten. */
+  async grenzeVorab() {
+    try { Lizenz.pruefeSchreiben(['stockkarten']); await Lizenz.pruefeLight({ bereich: false }); }
+    catch (e) { if (!e.lizenz) console.warn('Durchsicht vorab prüfen', e); }
   },
   /** Neuer Durchgang an einem Stand ('' = Völker ohne Stand), beginnend beim ersten Volk der Reihe. */
   async standStarten(standId) {
@@ -8437,7 +8460,7 @@ Views.durchsicht = {
         const naechstes = offeneNach();
         let gespeichert = false;
         try { gespeichert = await this.speichern(volk, e); }
-        catch (err) { t.disabled = false; return UI.toast('Speichern fehlgeschlagen: ' + err.message, 'err'); }
+        catch (err) { t.disabled = false; if (err.lizenz) return; return UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Speichern fehlgeschlagen: ' + err.message, 'err'); }
         if (gespeichert) UI.toast(`Gespeichert · ${volk.name}`);
         else this._entwuerfe.delete(volk.id);
         if (naechstes) return navTo('durchsicht/' + naechstes.id);
@@ -23990,7 +24013,7 @@ const Backup = {
     await this.snapshotInternal('vor-wiederherstellung');
     const data = JSON.parse(await this.snapshotText(snap));
     await this.applyReplace(data, { blobsBehalten: true });
-    await this.nachImport(data);
+    await this.nachImportSicher(data);
     UI.toast('Zwischenstand zurückgeholt');
     await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
   },
@@ -24113,7 +24136,7 @@ const Backup = {
         });
       } else data = JSON.parse(await file.text());
     } catch (e) {
-      if (e.message === 'Datei unvollständig') return UI.toast('Die Datei ist unvollständig. Bitte kopiere die Sicherung noch einmal auf dieses Gerät.', 'err'); return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Datei ist kein gültiges JSON', 'err'); }
+      if (e.message === 'Datei unvollständig') return UI.toast('Die Datei ist unvollständig. Bitte kopiere die Sicherung noch einmal auf dieses Gerät.', 'err'); return UI.toast(e instanceof RangeError || /out of memory|string length|allocation/i.test(String(e && e.message)) ? 'Die Sicherung ist zu groß für den Arbeitsspeicher dieses Geräts. Bitte schreib uns über Menü → Hilfe & Kontakt.' : 'Die Datei ist unvollständig oder nicht lesbar. Bitte lade sie noch einmal auf dieses Gerät.', 'err'); }
     if (!data || data.app !== 'ImkerBuch' || !data.stores) return UI.toast('Das ist keine ImkerBuch-Sicherung', 'err');
     /* Nur BEKANNTE Speicher werden namentlich genannt. Ein fremder Schlüssel
        aus der Datei hat in der Anzeige nichts verloren – er landete sonst
@@ -24169,7 +24192,7 @@ const Backup = {
         await this.snapshotInternal('vor-import');
         await this.applyReplace(data, { blobsBehalten: false });
       } catch (e) { return UI.toast(e.message, 'err'); }              // Bestand ist unangetastet
-      await this.nachImport(data);
+      await this.nachImportSicher(data);
       await S.set('startDaten', null, { auto: true });                // ab jetzt echte Daten
       UI.toast('Sicherung übernommen');
       await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
@@ -24179,7 +24202,7 @@ const Backup = {
       let erg;
       try { erg = await this.applyMerge(data); }
       catch (e) { UI.toast('Zusammenführen fehlgeschlagen – nichts wurde übernommen: ' + e.message, 'err'); return; }
-      await this.nachImport(data);
+      await this.nachImportSicher(data);
       const teile = Object.entries(erg.jeStore).sort((a, b) => b[1] - a[1]);
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
@@ -24214,7 +24237,7 @@ const Backup = {
       } catch (e) {
         return UI.toast(e.message, 'err');                // Bestand ist unangetastet
       }
-      await this.nachImport(data);
+      await this.nachImportSicher(data);
       UI.toast('Sicherung wiederhergestellt');
       await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
     };
@@ -24359,6 +24382,18 @@ const Backup = {
      und beim Zusammenführen nie, weil dieses Gerät sie längst als erledigt
      vermerkt hatte. Jetzt laufen sie gleich nach dem Import für alles, was
      die Sicherung noch nicht umgestellt hatte. */
+  /** Die Daten sind da. Scheitert danach ein Aufräum-Schritt, darf das die Meldung und das Neuzeichnen nicht verhindern. */
+  async nachImportSicher(data) {
+    try { await this.nachImport(data); }
+    catch (e) { console.error('Nachlauf der Sicherung', e); await S.load().catch(() => {}); }
+    this.mitteilungenNachImport();
+  },
+  /* Erinnerungen kommen mit der Sicherung an, die Erlaubnis des Telefons aber nicht: sonst wäre der Schalter an und es käme nichts. */
+  mitteilungenNachImport() {
+    if (!S.get('features').benachrichtigungen || Lizenz.light() || (TEST_MODE && !window.__erinnerungTest)) return;
+    if (Notif.status() !== 'default') return;
+    Notif.anfordern().then((st) => { if (st !== 'granted') UI.toast('Mitteilungen sind nicht erlaubt – in den Telefon-Einstellungen bei ImkerBuch einschaltbar.', 'err'); }).catch((e) => console.warn('Mitteilungen', e));
+  },
   async nachImport(data) {
     const erledigt = new Map(((data && data.stores && data.stores.settings) || []).filter((r) => r && typeof r.key === 'string').map((r) => [r.key, r.value]));
     const offen = (flag) => !erledigt.get(flag);
@@ -24735,22 +24770,23 @@ const Erinnerung = {
   },
   async planen() {
     const LN = this.plugin(); if (!LN) return 0;
-    const offen = await LN.getPending();
-    if (offen.notifications && offen.notifications.length) await LN.cancel({ notifications: offen.notifications.map((n) => ({ id: n.id })) });
-    if (!(await this.erlaubt())) return 0;
+    /* Erst alles berechnen, dann tauschen: Scheitert das Lesen, bleiben die alten Mitteilungen stehen, statt dass gar keine mehr kommt. */
+    const erlaubt = await this.erlaubt();
     const liste = [];
-    if (!Lizenz.light() && S.get('features').benachrichtigungen) {   // Aufgaben-Erinnerungen sind Vollversion
+    if (erlaubt && !Lizenz.light() && S.get('features').benachrichtigungen) {   // Aufgaben-Erinnerungen sind Vollversion
       const namen = {};
       for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
       liste.push(...this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen));
     }
-    if (this.sicherungAn()) {
+    if (erlaubt && this.sicherungAn()) {
       // Ältere Installationen kennen kein Einrichtungsdatum: dann ab dem ersten Planen zählen (sonst käme nie eine Mitteilung)
       if (!S.get('letzteExterneSicherung') && !S.get('eingerichtetAm') && !S.get('sicherungBasis')) await S.set('sicherungBasis', U.nowIso(), { auto: true });
       liste.push(...this.sicherungTermine());   // höchstens 60 + 3 – unter der iOS-Grenze von 64
     }
     /* exakt nur, wenn erlaubt – sonst würde das Plugin bei jedem Planen ungefragt die Android-Einstellung öffnen */
     const genau = await this.genau();
+    const offen = await LN.getPending();
+    if (offen.notifications && offen.notifications.length) await LN.cancel({ notifications: offen.notifications.map((n) => ({ id: n.id })) });
     if (liste.length) await LN.schedule({ notifications: liste.map((t) => ({ id: t.id, title: t.title, body: t.body, schedule: { at: t.at, allowWhileIdle: true }, isExactNotification: genau, extra: t.extra })) });
     return liste.length;
   },
@@ -24927,6 +24963,8 @@ const Lizenz = {
     return this._abgleich;
   },
   _abgleichFehler: false,
+  _kaufFehlt: false,
+  KAUF_FEHLT_TAGE: 7,
   async _abgleichen() {
     const P = this.plugin(); if (!P) return this.speicher();
     this._abgleichFehler = false;
@@ -24943,10 +24981,19 @@ const Lizenz = {
       if (this.android() && P.acknowledgePurchase) for (const t of gueltig) {
         if (t.isAcknowledged === false && t.purchaseToken) await P.acknowledgePurchase({ purchaseToken: t.purchaseToken }).catch((e) => console.warn('Kauf nicht bestätigt', e));
       }
-      const voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll);
+      /* Eine leere Liste heißt oft nur: anderes Konto angemeldet oder Store gerade unvollständig. Ein bezahlter Kauf fällt erst nach
+         einer Frist weg. Eine ausdrückliche Rückerstattung gilt sofort. */
+      const vorher = this.speicher();
+      const erstattet = (purchases || []).some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll && t.revocationDate);
+      let voll = gueltig.some((t) => t.productIdentifier === LIZENZ_PRODUKTE.voll), kaufFehltSeit = null;
+      this._kaufFehlt = false;
+      if (!voll && vorher.voll && !erstattet) {
+        kaufFehltSeit = vorher.kaufFehltSeit || U.nowIso();
+        voll = this._kaufFehlt = Date.now() - new Date(kaufFehltSeit).getTime() < this.KAUF_FEHLT_TAGE * 86400000;
+      }
       const test = this.android() ? (S.get('testStartGeraet') || null)
         : gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
-      await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso() }, { auto: true });
+      await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso(), kaufFehltSeit: voll ? kaufFehltSeit : null }, { auto: true });
     } catch (e) { this._abgleichFehler = true; console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
   },
@@ -24983,13 +25030,19 @@ const Lizenz = {
       if (/pending/i.test(String(e && (e.message || e)))) { this._ausstehend = true; UI.toast('Der Kauf wird noch bestätigt – sobald die Zahlung durch ist, wird die Vollversion freigeschaltet.'); return false; }
       if (code === 'ITEM_ALREADY_OWNED') { await this.wiederherstellen(); return this.status() === 'voll'; }
       if (code === 'USER_CANCELED' || /cancel/i.test(String(e && (e.message || e)))) return false;   // abgebrochen: still
+      /* Das Plugin vertauscht bei der Einrichtung Code und Text, deshalb beide ansehen */
+      if (/BILLING_UNAVAILABLE|BILLING_SETUP|billing.{0,20}(unavailable|setup|not supported)/i.test(code + ' ' + String(e && (e.message || e)))) {
+        console.warn('Kauf fehlgeschlagen', e);
+        UI.toast('Google Play kann den Kauf auf diesem Gerät gerade nicht starten. Bitte prüfe im Play Store, ob du angemeldet bist, und versuche es noch einmal.', 'err');
+        return false;
+      }
       /* Keine englischen Technik-Meldungen zeigen („Cannot find product for id …“): Das Angebot kam nicht vom Store
          (offline, Store gestört oder – beim Entwickeln – App nicht über Xcode gestartet). */
       const store = this.android() ? 'Google Play' : 'Apple';
       const nichtGefunden = /cannot find product|product.*not found|no product|unknown product/i.test(String(e && (e.message || e)));
       UI.toast(nichtGefunden
         ? `Das Angebot konnte gerade nicht von ${store} geladen werden. Bist du online? Bitte gleich noch einmal versuchen.`
-        : `Kauf nicht möglich – ${store} ist gerade nicht erreichbar. Bist du online?`, 'err');
+        : `Kauf nicht möglich – ${store} ist gerade nicht erreichbar. Bist du online?${code ? ` (Code: ${U.esc(code)})` : ''}`, 'err');
       console.warn('Kauf fehlgeschlagen', e);
       return false;
     } finally { clearTimeout(freigabe); this._kaufLaeuft = false; }
@@ -25005,6 +25058,7 @@ const Lizenz = {
     try { await P.restorePurchases(); } catch (e) { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }
     const st = this.status(await this.abgleichen());
     if (this._abgleichFehler && st !== 'voll') { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }   // nicht behaupten, es gebe keinen Kauf
+    if (this._kaufFehlt) { UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err'); return; }
     UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
   },
   async codeEinloesen() {
@@ -25034,7 +25088,7 @@ const Lizenz = {
     const m = UI.modal({ title: '', onClose: () => { this._offen = false; zu(); },
       body: `<div class="einf-start">${logoSvg(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
         ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann nur mit der Vollversion, zum Beispiel Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr Völker. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
-        ${pr.geladen ? '' : '<p class="small mt8">Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online? <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
+        ${pr.geladen ? '' : '<p class="small mt8">' + (st === 'ohneTest' && !this.android() ? 'Zum Start der Testphase braucht ImkerBuch einmal kurz Internet. Bist du online?' : 'Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online?') + ' <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a></p>
         <p class="small mt12" data-agb-hinweis><b>Mit dem Start der Testphase oder dem Kauf gelten die <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a>. Bitte vorher lesen.</b></p></div>`,
@@ -25052,7 +25106,18 @@ const Lizenz = {
     const P = this.plugin(); if (!P || !this.aktiv()) return;
     // Eingelöste Codes und Käufe, die außerhalb der App abgeschlossen wurden, kommen hier an
     try { P.addListener('transactionUpdated', () => this.abgleichen().then(() => renderRoute())); } catch (_) {}
+    /* Android: Später bezahlte Käufe (Barzahlung im Laden) melden sich nicht von selbst, deshalb beim Zurückkehren nachsehen */
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.ausstehendePruefen(); });
     await this.abgleichen();
+    if (this._kaufFehlt) UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err');
+  },
+  async ausstehendePruefen() {
+    if (!this.android() || !this._ausstehend) return;
+    const vorher = this.status();
+    const st = this.status(await this.abgleichen());
+    if (st === vorher) return;
+    if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
+    renderRoute();
   },
 };
 
@@ -25796,7 +25861,9 @@ const Pdf = {
       Mobil/App: System-Teilen (Öffnen/Sichern/Teilen). Desktop: im neuen Tab ansehen ODER dort speichern. */
   async ausgeben(doc, name) {
     const dateiname = window.dateiname(name, 'imkerbuch.pdf');
-    const blob = doc.output('blob');
+    let blob;
+    try { blob = doc.output('blob'); }
+    catch (e) { console.warn('PDF', e); UI.toast('PDF fehlgeschlagen. Bitte noch einmal versuchen.', 'err'); return; }
     if (nativTeilenBereit()) {
       try { await nativDateiTeilen(blob, dateiname); } catch (e) { UI.toast('PDF konnte nicht geteilt werden: ' + (e.message || e), 'err'); }
       return;
@@ -30277,12 +30344,24 @@ async function nebenbei(name, fn) {
   try { return await fn(); }
   catch (e) { console.error('Start: ' + name, e); STARTHINWEISE.push(name); }
 }
-/* Speicher voll an einer Stelle ohne eigene Fehlerbehandlung: wenigstens sagen, was los ist */
-let speicherVollZuletzt = 0;
+/* Fehler an einer Stelle ohne eigene Fehlerbehandlung: wenigstens sagen, dass es nicht geklappt hat.
+   Speicher voll immer, alles andere nur kurz nach einem Tipp, damit Hintergrundarbeit niemanden stört. */
+let speicherVollZuletzt = 0, fehlerZuletzt = 0, letzterTipp = 0;
+const FEHLER_NACH_TIPP_MS = 8000;
+const UNBEHANDELT_TEXT = 'Das hat gerade nicht geklappt. Bitte noch einmal versuchen. Kommt es wieder, schreib uns über Menü → Hilfe & Kontakt.';
 function unbehandelterFehler(ev) {
-  if (!istSpeicherVoll(ev.reason) || Date.now() - speicherVollZuletzt < 30000) return;
-  speicherVollZuletzt = Date.now();
-  UI.toast(SPEICHER_VOLL_TEXT, 'err');
+  const grund = ev.reason, jetzt = Date.now();
+  if (istSpeicherVoll(grund)) {
+    if (jetzt - speicherVollZuletzt < 30000) return;
+    speicherVollZuletzt = jetzt;
+    UI.toast(SPEICHER_VOLL_TEXT, 'err');
+    return;
+  }
+  console.error('Unbehandelter Fehler', grund);
+  if (!grund || grund.name === 'AbortError' || grund.lizenz || grund.leise) return;   // abgebrochen, oder das Kauf-Fenster ist schon offen
+  if (jetzt - letzterTipp > FEHLER_NACH_TIPP_MS || jetzt - fehlerZuletzt < 30000) return;
+  fehlerZuletzt = jetzt;
+  UI.toast(UNBEHANDELT_TEXT, 'err');
 }
 /* Ab dieser Dauer sieht der Kunde die Notfallseite. Läuft der Start danach doch noch durch, verschwindet sie von selbst. */
 const START_FRIST_MS = 35000;   // länger als die zwei Versuche von startDatenbank, damit deren Fehler genannt wird
@@ -30290,6 +30369,7 @@ async function boot() {
   window.ibStartLaeuft = true;
   window.ibNotfallSichern = () => Backup.notfallSichern();
   window.addEventListener('unhandledrejection', unbehandelterFehler);
+  document.addEventListener('pointerdown', () => { letzterTipp = Date.now(); }, true);
   Splash.init();
   let wache = null;
   const wacheAn = () => { wache = setTimeout(() => window.ibNotfall('Der Start dauert ungewöhnlich lange.'), START_FRIST_MS); };
@@ -30378,7 +30458,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler,
+  istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT,
   TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
