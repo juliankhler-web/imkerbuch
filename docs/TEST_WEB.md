@@ -72,7 +72,7 @@ Hinter jedem Schritt steht, **was du sehen solltest**. Weicht etwas ab, ist das 
 - [ ] **D1e Häufige Fahrten (neu 2.99):** Startseite → Kachel „Fahrten“ und Fahrtenbuch → „Häufige Fahrten“ zeigen dieselbe Liste. „Fahrt buchen“ → **eine** Fahrt im Fahrtenbuch; „Fahrtenbuch (PDF)“ enthält sie mit km und Summe.
 - [ ] **D1f Anpassen mit Haken (neu 3.01):** „Zeit buchen“ → „Anpassen“: Sichtbares ist angehakt. Einen Eintrag dazu anhaken, einen abhaken → speichern. → Der neue ist da, der abgehakte fehlt, der Rest bleibt. Vorschläge tragen das Schild „Vorschlag“; nach dem Abhaken rückt nichts nach. Bei „Fahrten“ → „Anpassen“ genauso. In „+ Neue Aufgabe“ stehen die Vorschläge des Monats in eigener Zeile. Zwei eigene Schnellzugriffe „Fütterung: Stand Wald“ und „Fütterung: Stand Berg“ anlegen, einen davon buchen → beide bleiben in der Liste.
 - [ ] **D2 Zwischenstände:** Einen Eintrag ändern, 1 Minute warten. Einstellungen → „Sicherung & Datensicherheit“ → „Zwischenstände“. → Oben „Heute, …“ mit „Nach deinen Änderungen“.
-- [ ] **D3 Sicherung:** Einstellungen → „Sicherung & Datensicherheit“ → „Backup herunterladen“ (am Handy „Sicherung senden“). → Eine Datei `imkerbuch-backup-….json` wird gespeichert bzw. geteilt.
+- [ ] **D3 Sicherung:** Einstellungen → „Sicherung & Datensicherheit“ → „Backup herunterladen“ (am Handy „Sicherung senden“). → Eine Datei `imkerbuch-backup-….json` wird gespeichert bzw. geteilt, in Chrome am Handy `….json.txt`. **Am echten Handy-Browser ausführen**, die automatischen Tests lösen echtes Teilen nicht aus.
 - [ ] **D4 Sicherung einspielen:** „Backup importieren“ → dieselbe Datei wählen → „Zusammenführen“. → Meldung, nichts doppelt.
 
 ## E · Einrichten

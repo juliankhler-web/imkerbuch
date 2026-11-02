@@ -1617,8 +1617,13 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.14';
+const APP_VERSION = '3.15';
 const CHANGELOG = [
+  { version: '3.15', datum: '2026-11-02', punkte: [
+    '<b>Sicherung senden im Browser:</b> Chrome und ähnliche Browser lehnten das Teilen immer ab, die App meldete nur „Teilen abgebrochen“. Die Sicherung lässt sich jetzt teilen. Sie heißt dabei „….json.txt“ und lässt sich genauso wieder einspielen.',
+    'Dauert das Vorbereiten länger, fragt die App noch einmal nach: „Jetzt teilen“ oder „Herunterladen“. Du kommst immer an deine Datei.',
+    '<b>Speicher voll:</b> Auch Fotos und einzelne Seiten melden das nun verständlich statt mit englischem Fehlertext.',
+  ] },
   { version: '3.14', datum: '2026-11-02', punkte: [
     '<b>Bio-Unterlagen:</b> Das PDF behauptete immer, die Flächenanteile kämen vom GeoBox-Viewer, auch wenn eine andere Quelle geantwortet hatte. Jetzt verweist es auf die Quelle, die je Stand eingetragen ist.',
     '<b>Quellen:</b> Das Landbedeckungsmodell des Bundesamtes für Kartographie und Geodäsie ist nun mit Lizenz genannt.',
@@ -3166,7 +3171,7 @@ async function gelernteWerte(presets, store, feld) {
    ===================================================================== */
 /* Speicher voll (v3.13): Das Speichern ist sicher, weil alles in einem Schritt geschieht. Der Browser meldet aber nur
    technischen, oft englischen Text. Die Meldung sagt nun, was passiert ist und was zu tun bleibt. */
-function istSpeicherVoll(e) { return !!e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota|no space|enough space|enospc|speicherplatz|disk.{0,10}full/i.test(String(e.message || ''))); }
+function istSpeicherVoll(e) { return !!e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota|no.?space|enough space|enospc|speicherplatz|disk.{0,10}full|full.{0,10}disk|failed to write blobs/i.test(String(e.message || ''))); }
 const SPEICHER_VOLL_TEXT = 'Speicher voll: Das konnte nicht gespeichert werden. Gib auf dem Gerät Platz frei und versuche es noch einmal.';
 function speicherVollFehler(e) { const f = new Error(SPEICHER_VOLL_TEXT); f.name = 'QuotaExceededError'; f.ursache = e; return f; }
 const DB = {
@@ -4452,7 +4457,7 @@ async function renderRoute(opt = {}) {
   } catch (e) {
     if (ueberholt()) return;   // Fehler einer verlassenen Seite gehört nicht auf die neue
     console.error('Render-Fehler', route, e);
-    main.innerHTML = `<div class="card"><div class="card-title">${icon('warn')}<h2>Da ist etwas schiefgelaufen</h2></div><p class="muted small">${U.esc(e.message)}</p><button class="btn btn-ghost mt12" onclick="renderRoute()">Neu laden</button></div>`;
+    main.innerHTML = `<div class="card"><div class="card-title">${icon('warn')}<h2>Da ist etwas schiefgelaufen</h2></div><p class="muted small">${U.esc(istSpeicherVoll(e) ? 'Speicher voll: Diese Seite lässt sich gerade nicht öffnen. Deine Daten sind noch da. Gib auf dem Gerät Platz frei und lade die Seite neu.' : e.message)}</p><button class="btn btn-ghost mt12" onclick="renderRoute()">Neu laden</button></div>`;
   }
   if (ueberholt()) return;     // nicht die inzwischen geöffnete Seite nach oben reißen
   Lizenz.kennzeichnen();
@@ -23657,12 +23662,17 @@ const Backup = {
     }
     let blob;
     try { blob = await this.buildBlob(); } catch (e) { UI.toast(this.fehlerText(e), 'err'); return; }
-    const file = new File([blob], this.dateiname(), { type: 'application/json' });
+    /* Chrome (auch Android, Edge, Samsung) lehnt .json beim Teilen immer mit „Permission denied“ ab, obwohl canShare
+       „geht“ meldet (am 02.11.2026 im echten Android-Chrome geprüft). .txt geht, das Einspielen nimmt beides. */
+    const chromium = /Chrom(e|ium)\//.test(navigator.userAgent);
+    const file = new File([blob], chromium ? this.dateiname() + '.txt' : this.dateiname(), { type: chromium ? 'text/plain' : 'application/json' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}` });
-        await this.markExternal(blob); UI.toast('Sicherung geteilt');
-      } catch (e) { if (e.name !== 'AbortError') UI.toast('Teilen abgebrochen', 'err'); }
+      const teilen = () => navigator.share({ files: [file], title: 'ImkerBuch-Sicherung', text: `ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}` });
+      try { await teilen(); } catch (e) {
+        if (e.name !== 'AbortError') this._teilenNachfragen(blob, teilen);
+        return;
+      }
+      await this.markExternal(blob); UI.toast('Sicherung geteilt');
     } else {
       U.download(blob, this.dateiname());
       await this.markExternal(blob);
@@ -23676,6 +23686,27 @@ const Backup = {
       });
       $$('[data-close2]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
     }
+  },
+  /* Teilen braucht ein frisches Antippen: Nach längerem Vorbereiten lehnt der Browser ab. Die fertige Datei geht dabei nie verloren. */
+  _teilenNachfragen(blob, teilen) {
+    const m = UI.modal({
+      title: 'Sicherung ist fertig',
+      body: `<p>Das Handy braucht zum Teilen noch einen Tipp von dir.</p>
+        <p class="mt8 small muted">Klappt das nicht, lade die Datei herunter und häng sie an eine E-Mail oder Nachricht an.</p>`,
+      footer: `<button class="btn btn-ghost" data-laden>${icon('download')} Herunterladen</button><button class="btn btn-primary" data-teilen>${icon('share')} Jetzt teilen</button>`,
+    });
+    const knopf = $('[data-teilen]', m.el);
+    knopf.onclick = async () => {
+      try { await teilen(); } catch (e) {
+        if (e.name !== 'AbortError') { knopf.remove(); UI.toast('Teilen geht hier nicht. Lade die Datei herunter und häng sie an eine E-Mail oder Nachricht an.', 'err'); }
+        return;
+      }
+      m.close(true); await this.markExternal(blob); UI.toast('Sicherung geteilt');
+    };
+    $('[data-laden]', m.el).onclick = async () => {
+      U.download(blob, this.dateiname());
+      m.close(true); await this.markExternal(blob); UI.toast('Sicherung heruntergeladen');
+    };
   },
   async leseAenderungsstand() {
     const d = await DB.leseAlles(['settings']);
@@ -29235,7 +29266,7 @@ Views.einstellungen = {
         <div class="flex-wrap mb12 no-print">
           <button class="btn btn-primary" onclick="Backup.share()">${icon('share')} ${Backup.nativTeilenMoeglich() ? 'Sicherung speichern' : 'Sicherung senden'}</button>
           ${Backup.nativTeilenMoeglich() ? '' : `<button class="btn btn-ghost" onclick="Backup.exportDownload()">${icon('download')} Backup herunterladen</button>`}
-          <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept=".json,application/json" class="hidden" id="imp-file"></label>
+          <label class="btn btn-ghost">${icon('upload')} Backup importieren<input type="file" accept=".json,application/json,.txt,text/plain" class="hidden" id="imp-file"></label>
         </div>
         <div class="detail-kv mb12">
           <dt>Letzte externe Sicherung</dt><dd data-backup-stand>${S.get('letzteExterneSicherung') ? U.fmtDateTime(S.get('letzteExterneSicherung')) : '<span class="badge b-danger">noch nie</span>'}</dd>

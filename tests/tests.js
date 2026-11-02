@@ -10176,6 +10176,9 @@ test('Speicher voll: Abbruch der Transaktion und Erkennung', async (w) => {
   assert(w.istSpeicherVoll(new Error('No space left on device')), 'Text vom Gerät');
   assert(w.istSpeicherVoll(new Error("'writeFile' failed with: nicht genügend Speicherplatz")), 'Text vom iPhone, deutsch');
   assert(w.istSpeicherVoll(new Error("couldn't be saved because there isn't enough space")), 'Text vom iPhone, englisch');
+  assert(w.istSpeicherVoll(new Error('FILE_ERROR_NO_SPACE')), 'Text aus dem Android-Test');
+  assert(w.istSpeicherVoll(new Error('Failed to write blobs (IOError)')), 'Foto auf vollem Android');
+  assert(w.istSpeicherVoll(new Error('Encountered full disk while opening backing store for indexedDB.open.')), 'Datenbank auf vollem Android');
   assert(!w.istSpeicherVoll(new Error('Etwas anderes')), 'andere Fehler nicht');
   assert(!w.istSpeicherVoll(null), 'kein Fehler');
   const f = w.DB._klar({ name: 'QuotaExceededError', message: 'x' });
@@ -10259,6 +10262,57 @@ test('Sicherung: In der App wird direkt in die Datei geschrieben, die Datei blei
     w.Backup.buildBlob = doppeltBau; w.UI.toast = toastAlt;
     assertEq(gebaut, 1, 'Doppeltippen baut nur einmal');
   } finally { w.Capacitor = cap; w.Backup.TEIL_ZEICHEN = teil; await w.DB.del('anhaenge', a.id); }
+});
+test('Sicherung senden im Browser: Chrome bekommt .txt, Ablehnung führt zur Nachfrage', async (w) => {
+  const nav = w.navigator; const altS = nav.share, altC = nav.canShare, bau = w.Backup.buildBlob, nativ = w.Backup.nativTeilenMoeglich, toast = w.UI.toast, mark = w.Backup.markExternal;
+  const def = (k, v) => Object.defineProperty(nav, k, { value: v, configurable: true, writable: true });
+  const meldungen = []; let geteilt = []; let antwort = () => {}; let markiert = 0;
+  w.UI.toast = (m, a) => meldungen.push([m, a]);
+  w.Backup.buildBlob = async () => new w.Blob(['{"a":1}']);
+  w.Backup.nativTeilenMoeglich = () => false;
+  w.Backup.markExternal = async () => { markiert++; };
+  def('canShare', () => true);
+  def('share', async (d) => { geteilt.push(d.files[0]); return antwort(); });
+  const fenster = () => [...w.document.querySelectorAll('.modal-back')].find((x) => /Sicherung ist fertig/.test(x.textContent));
+  try {
+    await w.Backup.share();
+    assert(/\.json\.txt$/.test(geteilt[0].name) && geteilt[0].type === 'text/plain', 'Testbrowser ist Chrome: .txt statt .json: ' + geteilt[0].name);
+    assertEq(markiert, 1, 'Erfolg wird vermerkt'); assert(!fenster(), 'keine Nachfrage bei Erfolg');
+
+    markiert = 0; antwort = () => { throw new w.DOMException('abgebrochen', 'AbortError'); };
+    await w.Backup.share();
+    assert(!fenster(), 'Selbst abgebrochen: keine Nachfrage'); assertEq(markiert, 0, 'nichts vermerkt');
+
+    antwort = () => { throw new w.DOMException('Must be handling a user gesture', 'NotAllowedError'); };
+    await w.Backup.share();
+    const f = fenster(); assert(f, 'Abgelehnt: Nachfrage erscheint');
+    assert(!meldungen.some(([m]) => /Teilen abgebrochen/.test(m)), 'die alte irreführende Meldung ist weg');
+    assertEq(markiert, 0, 'noch nichts vermerkt');
+    f.querySelector('[data-teilen]').click(); await new Promise((r) => setTimeout(r, 30));
+    assert(!f.querySelector('[data-teilen]'), 'scheitert es wieder, bleibt nur Herunterladen');
+    assert(meldungen.some(([m, a]) => a === 'err' && /Herunterladen|herunter/.test(m)), 'Hinweis auf Herunterladen');
+    assertEq(markiert, 0, 'immer noch nichts vermerkt');
+
+    const dl = w.U.download; let geladen = '';
+    w.U.download = (b, n) => { geladen = n; };
+    f.querySelector('[data-laden]').click(); await new Promise((r) => setTimeout(r, 30));
+    w.U.download = dl;
+    assert(/\.json$/.test(geladen), 'Herunterladen liefert .json: ' + geladen); assertEq(markiert, 1, 'jetzt vermerkt'); assert(!fenster(), 'Fenster zu');
+
+    markiert = 0; await w.Backup.share();
+    antwort = () => {}; fenster().querySelector('[data-teilen]').click(); await new Promise((r) => setTimeout(r, 30));
+    assertEq(markiert, 1, 'zweiter Tipp klappt: vermerkt'); assert(!fenster(), 'Fenster zu');
+  } finally {
+    def('share', altS); def('canShare', altC); w.Backup.buildBlob = bau; w.Backup.nativTeilenMoeglich = nativ; w.UI.toast = toast; w.Backup.markExternal = mark;
+    if (fenster()) fenster().remove();
+  }
+});
+test('Sicherung: Eine .json.txt-Datei lässt sich einspielen wie .json', async (w) => {
+  const q = await (await w.fetch('index.html')).text();
+  assert(/Backup importieren<input type="file" accept="[^"]*\.txt/.test(q), 'die Dateiauswahl nimmt .txt');
+  const text = await (await w.Backup.buildBlob()).text();
+  const f = new w.File([text], 'imkerbuch-backup.json.txt', { type: 'text/plain' });
+  assertEq(JSON.stringify(await w.Backup.jsonGross(f, 4096)), JSON.stringify(JSON.parse(text)), 'Inhalt gleich');
 });
 test('Sicherung: Scheitert das Bauen, erscheint eine Meldung', async (w) => {
   const bau = w.Backup.buildBlob; const toast = w.UI.toast; const meldungen = [];
