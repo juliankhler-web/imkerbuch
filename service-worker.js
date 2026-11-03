@@ -2,10 +2,12 @@
    Strategie: HTML-Seite NETWORK-FIRST (online immer frisch → Updates erscheinen
    sofort, offline aus Cache), übrige App-Dateien stale-while-revalidate,
    APIs network-only. Bibliotheken liegen nur noch unter ./libs/ (v3.08). */
-const CACHE = 'imkerbuch-v332';
+const CACHE = 'imkerbuch-v333';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-180.png', './impressum.html', './datenschutz.html', './agb.html', './support.html', './lizenzen.html',
   // selbst gehostete Bibliotheken (PDF/Excel/QR) – einmal geladen = komplett offline nutzbar
   './libs/jspdf.umd.min.js', './libs/jspdf.plugin.autotable.min.js', './libs/pdf.min.js', './libs/pdf.worker.min.js', './libs/qrcode.min.js', './libs/jsQR.js', './libs/xlsx.full.min.js',
+  // Startbildschirm: drehende 3D-Waben und das Standbild für „Bewegung reduzieren“
+  './assets/start/start-waben.webp', './assets/start/start-waben-ruhe.webp',
   // die 24 Tagesbienen: einmal geladen = auch offline im Dashboard da
   ...Array.from({ length: 24 }, (_, h) => `./assets/bienen/biene-${String(h).padStart(2, '0')}.webp`),
   // Assistent Imme: Stehen und Winken je Tageszeit, dazu Zeigen/Denken/Freuen

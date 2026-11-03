@@ -806,7 +806,7 @@ test('PdfImport.parse: dedupliziert gleiche Treffer', (w) => {
 });
 
 /* ---------- Startbildschirm (Waben-Ladeanimation) ---------- */
-test('Startbildschirm: 7 Waben als Ring, im Uhrzeigersinn versetzt', (w) => {
+test('Startbildschirm: drehende 3D-Waben mittig, Standbild bei „Bewegung reduzieren“', async (w) => {
   // Im Testbetrieb entfernt Splash.init() den Startbildschirm sofort – darum aus der
   // ausgelieferten Vorlage neu aufbauen und im echten Dokument der App vermessen.
   const roh = w.__splashHtmlFuerTest;
@@ -816,23 +816,31 @@ test('Startbildschirm: 7 Waben als Ring, im Uhrzeigersinn versetzt', (w) => {
   w.document.body.appendChild(huelle);
   try {
     const el = huelle.querySelector('#splash');
-    const waben = [...el.querySelectorAll('.sp-wabe')];
-    assertEq(waben.length + 1, 7, 'Mittelwabe + 6 außen');
     // Aufbau: Logo + Name oben, Animation mittig, Statuszeile unten (beim Start leer)
     assert(el.querySelector('.splash-kopf svg'), 'Logo im Kopf');
     assertEq(el.querySelector('.splash-wort').textContent, 'ImkerBuch');
     assertEq(el.querySelector('.splash-status').textContent, '', 'Statuszeile beim normalen Start leer');
-    const mitte = (n) => { const r = n.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; };
-    const c = mitte(el.querySelector('.sp-mitte'));
-    const abstaende = waben.map((x) => Math.hypot(...mitte(x).map((v, i) => v - c[i])));
-    // 2 px Spielraum: die Original-Vorlage ist selbst minimal asymmetrisch (Mitte liegt bei x=499, der Ring bei 498.8)
-    assert(Math.max(...abstaende) - Math.min(...abstaende) < 2.5, 'alle 6 etwa gleich weit von der Mitte: ' + abstaende.map((a) => a.toFixed(1)));
-    const winkel = waben.map((x) => { const p = mitte(x); return Math.round((Math.atan2(p[1] - c[1], p[0] - c[0]) * 180 / Math.PI + 450) % 360); });
-    assertEq(winkel, [360, 60, 120, 180, 240, 300], 'im 60°-Abstand rundherum, beginnend oben');
-    const verzoegerung = waben.map((x) => Math.round(parseFloat(w.getComputedStyle(x).animationDelay) * 1000));
-    assertEq(verzoegerung, [0, 333, 667, 1000, 1333, 1667], 'Leuchten wandert im Uhrzeigersinn, 2 s pro Runde');
-    assertEq(w.getComputedStyle(waben[0]).animationDuration, '2s');
-    assertEq(w.Splash.MIN_MS, 2000, 'Mindestanzeige = eine volle Runde');
+    const bild = el.querySelector('img.sp-waben');
+    assert(bild, 'Waben-Animation vorhanden');
+    assertEq(bild.getAttribute('src'), 'assets/start/start-waben.webp');
+    assertEq(bild.getAttribute('alt'), '', 'reines Schmuckbild, der Startbildschirm hat schon eine Beschriftung');
+    const ruhe = el.querySelector('picture source[media="(prefers-reduced-motion: reduce)"]');
+    assert(ruhe && ruhe.getAttribute('srcset') === 'assets/start/start-waben-ruhe.webp', 'Standbild bei „Bewegung reduzieren“');
+    assertEq(el.querySelectorAll('.sp-wabe, .sp-glanz, .sp-blume').length, 0, 'alte Nachzeichnung ist raus');
+    // beide Dateien liegen wirklich da und sind WebP (animiert bzw. Standbild)
+    for (const datei of ['assets/start/start-waben.webp', 'assets/start/start-waben-ruhe.webp']) {
+      const antwort = await w.fetch(datei);
+      assert(antwort.ok, datei + ' lädt');
+      const kopf = new Uint8Array(await antwort.arrayBuffer());
+      assertEq(String.fromCharCode(...kopf.slice(8, 12)), 'WEBP', datei + ' ist WebP');
+    }
+    // Animation sitzt mittig im Bildschirm
+    if (!bild.complete) await new Promise((r) => { bild.onload = r; bild.onerror = r; });
+    const r = bild.getBoundingClientRect();
+    assert(r.width > 100 && r.width <= 221, 'sinnvolle Größe: ' + Math.round(r.width) + ' px');
+    assert(Math.abs(r.x + r.width / 2 - w.innerWidth / 2) < 2, 'waagerecht mittig');
+    assert(Math.abs(r.y + r.height / 2 - w.innerHeight / 2) < 2, 'senkrecht mittig');
+    assertEq(w.Splash.MIN_MS, 2200, 'Mindestanzeige = eine volle Drehung (2,2 s)');
   } finally { huelle.remove(); }
 });
 test('Startbildschirm: verschwindet frühestens nach einer vollen Runde', async (w) => {
@@ -882,7 +890,7 @@ test('Startbildschirm: kommt beim Update zurück und meldet die neue Version', a
     assertEq(el.querySelector('.splash-status').textContent, 'Neue Version wird geladen …');
     assertEq(el.classList.contains('weg'), false, 'wird sichtbar eingeblendet, nicht ausgeblendet');
     assert(el.getAttribute('aria-label').includes('Neue Version'), 'auch für Screenreader');
-    assertEq(el.querySelectorAll('.sp-wabe').length, 6, 'Animation ist vollständig dabei');
+    assert(el.querySelector('img.sp-waben'), 'Animation ist dabei');
     w.Splash.weg(); // darf ihn nicht wegnehmen – er soll bis zum Neuladen stehen bleiben
     await new Promise((r) => setTimeout(r, 60));
     assertEq(w.document.getElementById('splash').classList.contains('weg'), false, 'bleibt bis zum Neuladen stehen');
