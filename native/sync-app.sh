@@ -13,6 +13,7 @@ mkdir -p www/libs && cp ../libs/*.js ../libs/jsQR-LICENSE.txt www/libs/   # PDF/
 rm -rf www/assets/bini && mkdir -p www/assets/bini && cp ../assets/bini/* www/assets/bini/   # Assistent Imme (animierte WebP) – vorher leeren, sonst bleiben alte Bilder im App-Paket
 mkdir -p www/assets/bienen && cp ../assets/bienen/* www/assets/bienen/   # Tagesbienen (24 Bilder) – ohne sie bleibt im Dashboard ein leeres Bild
 rm -rf www/assets/start && mkdir -p www/assets/start && cp ../assets/start/* www/assets/start/   # Startbildschirm: drehende 3D-Waben (animierte WebP) + Standbild
+rm -rf www/assets/logo && mkdir -p www/assets/logo && cp ../assets/logo/* www/assets/logo/   # Logo (3D-Waben) für App, Rechtsseiten und PDFs
 
 # Schutzregel (Content-Security-Policy) NUR für die App: Sie darf sich ausschließlich mit
 # Wetterdienst, Adresssuche, Geodiensten und dem Fern-Schalter dienste.json auf imkerbuch.app verbinden, lädt keinen Code aus dem Internet und

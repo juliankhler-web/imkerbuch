@@ -817,7 +817,7 @@ test('Startbildschirm: drehende 3D-Waben mittig, Standbild bei „Bewegung reduz
   try {
     const el = huelle.querySelector('#splash');
     // Aufbau: Logo + Name oben, Animation mittig, Statuszeile unten (beim Start leer)
-    assert(el.querySelector('.splash-kopf svg'), 'Logo im Kopf');
+    assert(el.querySelector('.splash-kopf img[src="assets/logo/imkerbuch-logo.png"]'), 'Logo im Kopf (3D-Waben)');
     assertEq(el.querySelector('.splash-wort').textContent, 'ImkerBuch');
     assertEq(el.querySelector('.splash-status').textContent, '', 'Statuszeile beim normalen Start leer');
     const bild = el.querySelector('img.sp-waben');
@@ -4951,34 +4951,41 @@ test('Demo.create/reset: befüllt alle Module ohne Fehler (Smoke)', async (w) =>
   assert((await w.DB.getAll('aufgaben')).some((a) => a.erledigt && a.zeitMinuten > 0), 'Zeiterfassung befüllt');
 });
 
-/* ---------- Marken-Logo (Homescreen) ---------- */
-test('brandLogoSvg: neues Homescreen-Logo, eigenes Nutzer-Logo bleibt unberührt', async (w) => {
-  // neues Logo = 3 gefüllte Amber-Waben mit Verlauf
-  const a = w.brandLogoSvg(26), b = w.brandLogoSvg(26);
-  assert(/<svg/.test(a) && /linearGradient/.test(a), 'SVG mit Amber-Verlauf');
-  assertEq((a.match(/<path/g) || []).length, 3, 'genau 3 Waben');
-  // eindeutige Gradient-IDs → keine DOM-Kollision bei Header + Sidebar
-  const idA = (a.match(/id="(ibHex\d+)"/) || [])[1], idB = (b.match(/id="(ibHex\d+)"/) || [])[1];
-  assert(idA && idB && idA !== idB, 'jede Instanz eigene Gradient-ID');
-  // altes Waben-Logo bleibt für PDFs/Onboarding erhalten
-  assert(w.logoSvg().includes('#E8A013'), 'logoSvg() (PDFs) unverändert');
-
+/* ---------- Marken-Logo: überall dieselben 3D-Waben (v3.22) ---------- */
+test('logoBild: ein Logo für App, Fenster, Rechtsseiten und PDFs; eigenes Nutzer-Logo bleibt unberührt', async (w) => {
+  const a = w.logoBild(26);
+  assert(a.includes('src="assets/logo/imkerbuch-logo.png"') && a.includes('width="26"') && a.includes('alt=""'), 'Bild mit Größe, reines Schmuckbild');
+  const antwort = await w.fetch('assets/logo/imkerbuch-logo.png');
+  assert(antwort.ok, 'Logo-Datei lädt');
+  const kopf = new Uint8Array(await antwort.arrayBuffer());
+  assertEq([...kopf.slice(1, 4)].map((c) => String.fromCharCode(c)).join(''), 'PNG', 'Logo ist PNG (mit Transparenz)');
+  for (const datei of ['impressum.html', 'datenschutz.html', 'agb.html', 'support.html', 'lizenzen.html', 'webview-veraltet.html']) {
+    const t = await (await w.fetch(datei, { cache: 'no-store' })).text();
+    assert(t.includes('assets/logo/imkerbuch-logo.png'), datei + ' zeigt das neue Logo');
+    assert(!t.includes('M20.4 10.8') && !t.includes('M20 6l12 7'), datei + ' ohne altes Logo');
+  }
+  assert(w.__splashHtmlFuerTest.includes('assets/logo/imkerbuch-logo.png'), 'Startbildschirm-Kopf zeigt das neue Logo');
+  // PDFs: ohne eigenes Logo das 3D-Logo als PNG
+  const origLogo = w.S.get('logo'), origFlag = w.S.get('logoImHeader');
   const doc = w.document, brand = () => doc.getElementById('tb-brand');
   assert(brand(), '#tb-brand vorhanden');
-  const origLogo = w.S.get('logo'), origFlag = w.S.get('logoImHeader');
   try {
-    // ohne eigenes Logo: Homescreen-Header zeigt neues Marken-Logo
     await w.S.set('logo', null); await w.S.set('logoImHeader', false);
+    w.Pdf._logoCache = null;
+    const pdfLogo = await w.Pdf.logoDataUrl();
+    assert(/^data:image\/png;base64,/.test(pdfLogo) && pdfLogo.length > 2000, 'PDF-Logo ist das gerenderte 3D-Logo');
+    // ohne eigenes Logo: Kopfzeile zeigt das 3D-Logo
     w.applyHeaderLogo();
-    assert(/url\(#ibHex/.test(brand().innerHTML), 'Header nutzt neues Marken-Logo als Standard');
-    // eigenes Logo im Header: wird NICHT vom neuen Logo überschrieben
+    assert(brand().innerHTML.includes('assets/logo/imkerbuch-logo.png'), 'Kopfzeile nutzt das 3D-Logo als Standard');
+    // eigenes Logo im Header: wird NICHT vom Standard-Logo überschrieben
     const px = 'data:image/png;base64,iVBORw0KGgo=';
     await w.S.set('logo', px); await w.S.set('logoImHeader', true);
     w.applyHeaderLogo();
     const h = brand().innerHTML;
-    assert(h.includes(px) && !/url\(#ibHex/.test(h), 'eigenes Logo bleibt, Standard wird nicht drübergelegt');
+    assert(h.includes(px) && !h.includes('assets/logo/imkerbuch-logo.png'), 'eigenes Logo bleibt, Standard wird nicht drübergelegt');
   } finally {
     await w.S.set('logo', origLogo || null); await w.S.set('logoImHeader', origFlag || false);
+    w.Pdf._logoCache = null;
     w.applyHeaderLogo();
   }
 });
