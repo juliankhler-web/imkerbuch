@@ -20,7 +20,7 @@ Selbst im Code nachgesehen: Punkt 1 und 2 stimmen.
 
 ### Julian
 
-1. **Apple Small Business Program anmelden** (✅ Antrag am 02.11.2026 abgeschickt, Antwort kommt per E-Mail. Weitere Entwicklerkonten laut Julian: keine; Vertrag „Paid Apps“ ist zugestimmt, Status „Benutzerinfos ausstehend“) (15 % statt der laut Apple 26 % in der EU): wirkt erst 15 Tage nach Ende des Apple-Abrechnungsmonats der Bestätigung.
+1. **Apple Small Business Program anmelden** (✅ Antrag am 02.11.2026 abgeschickt, Antwort kommt per E-Mail. Weitere Entwicklerkonten laut Julian: keine; Vertrag „Paid Apps“ seit 03.11.2026 **aktiv**, Bankkonto aktiv, DAC7 aktiviert; Antwort zum Programm steht noch aus) (15 % statt der laut Apple 26 % in der EU): wirkt erst 15 Tage nach Ende des Apple-Abrechnungsmonats der Bestätigung.
 2. **Altersfreigabe bei Apple:** ✅ am 02.11.2026 in App Store Connect gespeichert: Medizin „Selten“, Alkohol „Nie“, Ergebnis 13+.
 3. **Google-Gebühr in der Play Console ansehen:** für den EWR stehen dort seit 30.06.2026 wohl 20 % + 5 %, nicht 15 %.
 4. **Kauftest Google:** Kauf, Promo-Code und Testkarte „Slow test card“, jeweils mindestens 10 Minuten warten, dann in „Bestellungen“ prüfen, ob erstattet wurde.
