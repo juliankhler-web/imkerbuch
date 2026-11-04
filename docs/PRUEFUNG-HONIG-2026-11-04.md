@@ -155,3 +155,9 @@ Doppelte Meldungen zweier Prüfer sind beide aufgeführt (#4=#22, #5=#21, #3=#8,
   BEISPIEL: 500 g: 10, eigenes Gebinde Anzahl 5, Größe leer. Vorschau: Deckel −15, Etiketten −15. Gespeichert: eine Abfüllung mit 10 Gebinden, Deckel und Etiketten je −10. Die 5 eigenen Gebinde fehlen ohne Hinweis. Erwartet: die Meldung, dass die Größe fehlt.
   BEGRÜNDUNG: Bestätigt. Ein leeres Zahlenfeld liefert null (3853), und null > 0 ist false. Der Posten „eigenes Gebinde“ wird also übergangen. Der Fehler in 10864 kommt nur, wenn sonst gar kein Posten eingetragen ist. Die Vorschau zählt eigenesN zu den Deckeln und Etiketten (gesamt += eigen). Beim Speichern rechnet gesamt nur über die angenommenen Posten. Einzig der Toast „10 Gebinde abgefüllt“ verrät den Unterschied indirekt. Kein Test zu eigenesN.
 
+
+## Entscheidung Julian 04.11.2026: Charge mit Abfüllungen löschen
+
+Frage: Eine Charge mit abgefüllten Gläsern lässt sich mit „Trotzdem löschen“ löschen; nach dem endgültigen Löschen (30 Tage) gilt ihre Ernte wieder als frei und ließe sich ein zweites Mal abfüllen.
+Julian: „lass es weiter löschbar aber sag das als wichtigen hinweis was dann passiert so ist dennoch jeder frei in seiner entscheidung einfach nochmal nachfragen ob wirklich gelöscht werden soll welche konsequenzen entstehen und sagen was man empfehlen würde“.
+Umsetzung: weiter löschbar, aber zweite, deutliche Rückfrage mit den Folgen (Gläser bleiben ohne Charge; nach dem endgültigen Löschen wird die Ernte wieder frei und derselbe Honig könnte doppelt gezählt werden) und der Empfehlung (Charge behalten oder zuerst die Abfüllungen löschen).
