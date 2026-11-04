@@ -4,7 +4,7 @@ Anlass: Julian 04.11.2026 „kann man diesen fehler noch auf andere bereiche leg
 
 Vorgehen: nur gelesen, parallel zur Honig-Reparatur. 4 Prüfer je Fehlerart quer durch alle Bereiche außer Honig (1 Löschen/Wiederherstellen ohne Prüfung abhängiger Einträge, 2 gespeicherte Werte, die beim Ändern nicht nachgeführt werden, 3 stumme Fehler, 4 dieselbe Zahl an verschiedenen Stellen verschieden gerechnet), je ein unabhängiger Gegenprüfer. 37 Meldungen, alle vom Gegenprüfer bestätigt. Doppelte zwischen den Fehlerarten: #1=#19, #2=#21, #3=#25, #4=#24, #7=#26 (also rund 32 verschiedene Fehler). Zeilennummern ungefähr (die Datei wurde parallel geändert).
 
-Status: NICHT repariert. Entscheidung bei Julian.
+Status: Julian 04.11.2026 „Alles reparieren (Empfohlen)“ – nach der Honig-Reparatur (docs/PRUEFUNG-HONIG-2026-11-04.md), danach alle Tests, iPhone und Android, dann /code-review ultra über beides auf einem eigenen Zweig.
 
 #1 [hoch] Materialzugang, Materialabgang und Pfand-Rücknahme: Beim Wiederherstellen wird der Bestand nicht neu gebucht, beim erneuten Löschen doppelt zurückgebucht
   BEREICH: Material/Inventar und Verbrauch (Zugang, Abgang, Bestand), Pfand/Mehrweg, Papierkorb
