@@ -325,7 +325,7 @@ Impressum, AGB, Stores und D-U-N-S brauchen denselben Namen. Laut Gewerbeanzeige
 - Kurze E-Mail von Steffen einholen: Name, Imkerei, Logo auch in Braun, der Satz „maßgeblich beteiligt“, Link, jederzeit widerrufbar. Die Angabe „Naturland-Bio-Imkerei“ bestätigen lassen.
 - Julian muss beantworten: Fließt etwas an Steffen, auch eine Gratis-Vollversion? Das Gesetz vermutet eine Gegenleistung, also festhalten, wenn keine vereinbart ist. Bei einer Gegenleistung braucht das Band einen Werbehinweis.
 - Hat nur Steffen mitgewirkt, Z. 783: „Entwickelt mit einem Imker aus der Praxis“.
-- **Stand 04.11.2026:** Band entfernt (Steffens Wunsch: „nicht so dick aufgetragen“). Im Fuß steht nur noch „Mit Imkern aus der Praxis entwickelt. · Partner-Imkerei: PFAU-Honig ↗ (Werbung)“, ohne Namen, Logo und „maßgeblich beteiligt“. Der Werbehinweis bleibt. Die Mehrzahl „Imkern“ ist Julians Wortlaut; sie stimmt nur, wenn mehr als ein Imker mitgewirkt hat (sonst Einzahl, siehe oben).
+- **Stand 04.11.2026:** Band entfernt (Steffens Wunsch: „nicht so dick aufgetragen“). Im Fuß steht nur noch „Mit Imkern aus der Praxis entwickelt. · Partner-Imkerei: PFAU-Honig ↗ (Werbung)“, ohne Namen, Logo und „maßgeblich beteiligt“. Der Werbehinweis bleibt. Die Mehrzahl „Imkern“ hat Julian bestätigt („das passt mit imkern“, 04.11.2026), es haben also mehrere Imker mitgewirkt.
 
 **2.5 Marken** ([§ 23 MarkenG](https://www.gesetze-im-internet.de/markeng/__23.html), [Apple](https://developer.apple.com/app-store/marketing/guidelines/)) [Einschätzung, geringes Risiko]
 - Überall „App Store“ statt „Apple App Store“.
