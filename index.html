@@ -1611,8 +1611,11 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.22';
+const APP_VERSION = '3.23';
 const CHANGELOG = [
+  { version: '3.23', datum: '2026-11-04', punkte: [
+    '<b>Langsamer Start:</b> Dauert das Laden länger, bleibt der Startbildschirm stehen und die Waben drehen weiter. Nach 8 Sekunden steht dort „Einen Moment noch – deine Daten werden geladen …“.',
+  ] },
   { version: '3.22', datum: '2026-11-03', punkte: [
     '<b>Ein Logo für alles:</b> Kopfzeile, Willkommen-Fenster, Einführung, Rechtsseiten und alle PDFs zeigen jetzt dieselben 3D-Waben wie das App-Symbol. Ein eigenes Logo aus den Einstellungen bleibt in den PDFs wie bisher.',
   ] },
@@ -5084,7 +5087,13 @@ const Splash = {
   el: null,
   vorlage: '', // Markup, um ihn beim Update noch einmal einzublenden
   MIN_MS: 2200,   // eine volle Drehung der Waben (danach folgt die Ruhepause)
-  MAX_MS: 8000,   // Notbremse: hängt der Start, wird trotzdem freigegeben
+  /* Bei langsamem Start bleibt der Startbildschirm stehen und die Waben drehen weiter
+     (die WebP läuft endlos). Ab HINWEIS_MS steht unten ein kurzer Hinweis. Eine feste
+     Ausblend-Grenze gibt es nicht mehr (bis v3.22: 8 s – danach sah man eine leere Seite):
+     Hängt der Start wirklich, übernimmt nach START_FRIST_MS die Notfallseite (boot()).
+     Julian 04.11.2026: „wenn es mal länger lädt, dass die Animation im Loop gespielt wird“. */
+  HINWEIS_MS: 8000,
+  HINWEIS_TEXT: 'Einen Moment noch – deine Daten werden geladen …',
   erledigt: false,
   init() {
     this.el = document.getElementById('splash');
@@ -5092,7 +5101,14 @@ const Splash = {
     this.vorlage = this.el.outerHTML;
     // Testseite: nicht im Weg – die Vorlage bleibt aber für den Geometrie-Test erhalten
     if (TEST_MODE) { window.__splashHtmlFuerTest = this.vorlage; this.el.remove(); this.el = null; return; }
-    setTimeout(() => this.weg(), this.MAX_MS);
+    setTimeout(() => this.hinweis(), this.HINWEIS_MS);
+  },
+  /** Langsamer Start: Hinweis in die Statuszeile – nur solange der Startbildschirm noch
+      fürs Laden steht und dort nichts anderes steht (z. B. „Neue Version wird geladen …“). */
+  hinweis() {
+    if (!this.el || this.erledigt) return;
+    const n = this.el.querySelector('.splash-status');
+    if (n && !n.textContent.trim()) this.text(this.HINWEIS_TEXT);
   },
   text(t) {
     if (!this.el) return;

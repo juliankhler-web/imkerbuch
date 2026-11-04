@@ -876,6 +876,29 @@ test('Startbildschirm: verschwindet frühestens nach einer vollen Runde', async 
   assert(await ausgeblendet(c), 'zweiter Aufruf schadet nicht');
   c.remove();
 });
+test('Startbildschirm: bleibt bei langsamem Start stehen, Hinweis nach 8 s', async (w) => {
+  // Julian 04.11.2026: dauert das Laden länger, sollen die Waben weiterdrehen – keine feste Ausblend-Grenze mehr
+  assert(!('MAX_MS' in w.Splash), 'keine feste Ausblend-Grenze mehr (früher 8 s → leere Seite)');
+  assertEq(w.Splash.HINWEIS_MS, 8000);
+  const attrappe = (text = '') => { const el = w.document.createElement('div'); el.innerHTML = '<div class="splash-status">' + text + '</div>'; w.document.body.appendChild(el); return el; };
+  // a) App lädt noch → Hinweis erscheint, Startbildschirm bleibt sichtbar
+  const a = attrappe();
+  Object.assign({}, w.Splash, { el: a, erledigt: false }).hinweis();
+  assertEq(a.querySelector('.splash-status').textContent, w.Splash.HINWEIS_TEXT, 'Hinweis in der Statuszeile');
+  assert(a.getAttribute('aria-label').includes('deine Daten werden geladen'), 'auch für Screenreader');
+  assertEq(a.classList.contains('weg'), false, 'bleibt sichtbar');
+  a.remove();
+  // b) Start schon fertig → kein Hinweis
+  const b = attrappe();
+  Object.assign({}, w.Splash, { el: b, erledigt: true }).hinweis();
+  assertEq(b.querySelector('.splash-status').textContent, '', 'nach dem Start kein Hinweis');
+  b.remove();
+  // c) „Neue Version wird geladen …“ wird nicht überschrieben
+  const c = attrappe('Neue Version wird geladen …');
+  Object.assign({}, w.Splash, { el: c, erledigt: false }).hinweis();
+  assertEq(c.querySelector('.splash-status').textContent, 'Neue Version wird geladen …', 'Update-Meldung bleibt');
+  c.remove();
+});
 test('Startbildschirm: kommt beim Update zurück und meldet die neue Version', async (w) => {
   // Nach einem Update lädt sich die App selbst neu – dann soll der Startbildschirm
   // wieder erscheinen, statt dass das Neuladen wie ein Aussetzer wirkt.
