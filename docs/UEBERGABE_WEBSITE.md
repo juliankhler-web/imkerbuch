@@ -95,3 +95,10 @@ Belege und Steuer zu ImkerBuch (Hetzner-Rechnungen, AVV-Kopie nach `Familie/Gewe
 ## Bereich „Ideen“ mit Abstimmung (02.11.2026)
 
 Vier Ideen mit Knopf „Das will ich“. `stimme.php` zählt je Idee, ohne IP-Adresse, Name oder Zeitpunkt. Neben dem Webordner darf PHP nicht schreiben. Deshalb liegen die Stimmen in `public_html/.imkerbuch-daten/stimmen.json`, von außen gesperrt (Abruf gibt 403), zu lesen über WebFTP. Öffentlich angezeigt werden sie nicht. `.htaccess` sperrt alle anderen PHP-Dateien. Auf dem Server geprüft: GET 400, fremde Herkunft 400, falsche Idee 400, Plus und Minus 200, andere PHP-Datei 403. WebFTP überschreibt beim Hochladen nicht, sondern legt „Name (1)“ an. Zum Ersetzen: Zip hochladen, „Entpacken“, Zip danach von Hand löschen.
+
+## Hochladen über WebFTP (04.11.2026)
+
+- Weg ohne eigenes Passwort: konsoleH (Julian meldet sich an) → Webhosting „ImkerBuch“ → WebFTP öffnen → `public_html`.
+- **WebFTP überschreibt keine Dateien**, sondern legt `name (1).ext` daneben. Darum zuerst die alten Dateien markieren und mit „Verschieben“ in einen Ordner außerhalb von `public_html` legen, dann hochladen.
+- Sicherungen vom 04.11.2026: auf dem Server `website-alt-2026-11-02/` (Stand vor dem 3D-Logo) und `website-doppelt-2026-11-04/` (versehentliche Doppel), lokal `website-live-sicherung-2026-11-04/`. Julian darf sie später selbst löschen.
+- Nach dem Hochladen jede Datei per `curl` gegen die lokale Fassung vergleichen (`cmp`), Seiten haben `Cache-Control: no-cache`.
