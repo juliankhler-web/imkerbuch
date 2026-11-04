@@ -3441,14 +3441,27 @@ const DB = {
       const verbunden = await verkaufsPapierkorbWiederherstellen(trashId);
       if (verbunden) return verbunden.bereitsErledigt ? null : verbunden;
     }
+    /* Zugang, Abgang, Pfand-Rücknahme (Fund 04.11.2026, #1/#19): Bestand erneut buchen und die Kassenbuch-Buchung mitholen –
+       vorher kam nur der Datensatz zurück, der Bestand blieb, und erneutes Löschen buchte ein zweites Mal zurück. */
+    if (LAGER_BELEGE.includes(vorab.store) || vorab.store === 'kassenbuch') {
+      const lager = await lagerPapierkorbWiederherstellen(trashId);
+      if (lager) return lager.bereitsErledigt ? null : lager;
+    }
     // Honig-Abgang: Gebinde erneut vom Bestand abziehen bzw. prüfen, ob im Eimer noch genug ist (v3.00)
     if (vorab.store === 'honigabgaenge') return honigAbgangWiederherstellen(trashId);
     if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
       throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
     /* Abfüllung und Charge (Fund 04.11.2026): Honigmenge bzw. Ernten in DERSELBEN Transaktion prüfen, siehe
-       papierkorbWiederherstellenPruefen – vorher schrieb dieser Weg sie ungeprüft zurück (überbuchte Charge, Ernte doppelt). */
-    const pruefBereiche = { abfuellungen: ['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], chargen: ['chargen'] }[vorab.store] || [];
+       papierkorbWiederherstellenPruefen – vorher schrieb dieser Weg sie ungeprüft zurück (überbuchte Charge, Ernte doppelt).
+       Position (Inventar): ihre Lohn-Zugänge zählen danach wieder als abgegebener Honig – gegen die Charge prüfen.
+       Mit Materialabzug den Papierkorb mitlesen: Ein fehlender Posten darf nur fehlen, wenn er endgültig gelöscht ist (#4/#24). */
+    const mitAbzug = Array.isArray(vorab.daten && vorab.daten.verbrauchAbzug) && vorab.daten.verbrauchAbzug.length > 0;
+    const pruefBereiche = [...new Set([...({ abfuellungen: ['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], chargen: ['chargen'],
+      inventar: ['chargen', 'abfuellungen', 'honigabgaenge', 'materialzugaenge', 'papierkorb'],
+      behandlungen: ['aufgaben', 'voelker', 'staende'],   // Behandlung: Wartezeit-Erinnerung zurück (#23)
+      koeniginnen: ['voelker', 'koeniginnen'],            // Königin: Zuordnung nur zurück, wenn das Volk frei ist (#7/#26)
+      zuchtserien: ['aufgaben'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Zuchtserie: Kalender-Aufgaben zurück (#22)
     const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store, ...pruefBereiche])], 'readwrite');
     return new Promise((resolve, reject) => {
       let ergebnis = null, ursache = null;
@@ -3492,6 +3505,9 @@ const DB = {
             const geaendert = [];
             for (const [id, menge] of mengen) {
               const pos = posten.get(id);
+              /* Endgültig gelöschter Posten (Fund 04.11.2026, #4/#24): Es gibt keinen Bestand mehr, von dem abzuziehen wäre –
+                 der Eintrag kommt ohne diesen Teil zurück. Vorher scheiterte das immer, und der Eintrag verfiel im Papierkorb. */
+              if (!pos && !materialImPapierkorb(pruefDaten, id)) continue;
               if (!pos) throw new Error('Ein benötigter Materialposten fehlt. Bitte zuerst den Materialposten wiederherstellen; der Eintrag bleibt im Papierkorb.');
               const bestand = verbrauchBestand(pos);
               if (!Number.isFinite(menge) || !Number.isFinite(bestand) || bestand < menge - 0.0000001) {
@@ -3505,6 +3521,18 @@ const DB = {
             // Alle Reads und Prüfungen sind Teil derselben Transaktion.
             // Kein await und keine Rückfrage zwischen diesen Aufträgen.
             for (const pos of geaendert) tx.objectStore('inventar').put(pos);
+            /* Behandlung (Fund 04.11.2026, #23): Das Löschen nimmt jetzt ihre Wartezeit-Erinnerung weg – das Wiederherstellen
+               bringt sie zurück (in die passende Sammel-Erinnerung oder als eigene), sofern keine mehr zu ihr gehört. */
+            if (t.store === 'behandlungen') {
+              const ziele = (t.daten.zielTyp === 'volk' ? pruefDaten.voelker : pruefDaten.staende) || [];
+              const zielText = !t.daten.zielId ? '–' : ((ziele.find((x) => x.id === t.daten.zielId) || {}).name || 'gelöscht');
+              this._auftraege(tx, wartezeitAufgabeWiederPlan(pruefDaten, t.daten, zielText));
+            }
+            /* Königin (Fund 04.11.2026, #7/#26): Das Löschen beendet ihre Zuordnung – zurück ins Volk nur, wenn es frei ist.
+               Zuchtserie (#22): Das Löschen entfernt ihre offenen Kalender-Aufgaben – das Wiederherstellen legt sie neu an
+               (ohne die schon erledigten Schritte). */
+            if (t.store === 'koeniginnen') this._auftraege(tx, koeniginWiederPlan(pruefDaten, t.daten, t.geloeschtAm));
+            if (t.store === 'zuchtserien') this._auftraege(tx, zuchtAufgabenPlan(pruefDaten.aufgaben, t.daten));
             t.daten.lastModified = U.nowIso();
             ziel.put(t.daten);
             tx.objectStore('papierkorb').delete(trashId);
@@ -3515,13 +3543,51 @@ const DB = {
       });
     });
   },
-  /** Papierkorb-Einträge älter als 30 Tage endgültig entfernen */
+  /** Papierkorb-Einträge endgültig entfernen – `welche(t)` wählt sie aus. Liefert { eintraege, anhaenge }.
+      Fotos, Sprachnotizen und Belege eines endgültig gelöschten Eintrags gehen mit (Fund 04.11.2026, #9): Vorher blieben sie
+      unsichtbar in 'anhaenge' liegen, ließen sich nirgends mehr öffnen oder löschen und reisten in jeder Sicherung mit.
+      Welche genau, entscheidet verwaisteAnhaenge – in DERSELBEN Transaktion, damit nichts wegfällt, was gerade wieder gebraucht wird. */
+  async papierkorbEndgueltig(welche) {
+    const vorab = (await this.getAll('papierkorb')).filter(welche);
+    if (!vorab.length) return { eintraege: 0, anhaenge: 0 };
+    const eltern = [...ANHANG_BEREICHE];
+    const mitAnhaengen = vorab.some((t) => ANHANG_BEREICHE.has(t.store));
+    return this.aendereAtomar(['papierkorb', ...(mitAnhaengen ? ['anhaenge', ...eltern] : [])], (d) => {
+      const weg = d.papierkorb.filter(welche);
+      const anhaenge = mitAnhaengen ? verwaisteAnhaenge(d, weg) : [];
+      return { ops: [...weg.map((t) => ({ op: 'del', store: 'papierkorb', id: t.id })), ...anhaenge.map((a) => ({ op: 'del', store: 'anhaenge', id: a.id }))],
+        wert: { eintraege: weg.length, anhaenge: anhaenge.length } };
+    });
+  },
+  /** Wie viele Anhänge gingen mit, wenn diese Papierkorb-Einträge jetzt endgültig gelöscht würden? Für die Rückfrage. */
+  async papierkorbAnhangZahl(welche) {
+    const d = await this.leseAlles(['papierkorb', 'anhaenge', ...ANHANG_BEREICHE]);
+    return verwaisteAnhaenge(d, d.papierkorb.filter(welche)).length;
+  },
+  /** Papierkorb-Einträge älter als 30 Tage endgültig entfernen (mit ihren Anhängen, siehe papierkorbEndgueltig) */
   async purgeTrash() {
-    const all = await this.getAll('papierkorb');
     const limit = Date.now() - 30 * 86400000;
-    for (const t of all) if (new Date(t.geloeschtAm).getTime() < limit) await this.del('papierkorb', t.id);
+    return this.papierkorbEndgueltig((t) => new Date(t.geloeschtAm).getTime() < limit);
   },
 };
+/* Zu welchem Bereich gehört ein Anhang (parentTyp → Bereich)? Nur Einträge mit eigenem Datensatz. Bio-Ablagen, Imkerei
+   und „Meine Mittel“ stehen nicht hier – deren Anhänge fasst das endgültige Löschen nie an (Mittel nehmen ihre Fotos
+   ohnehin selbst mit in den Papierkorb, siehe mittelForm). */
+const ANHANG_ELTERN = { stand: 'staende', volk: 'voelker', stockkarte: 'stockkarten', koenigin: 'koeniginnen', behandlung: 'behandlungen', kontakt: 'kontakte', kassenbuch: 'kassenbuch' };
+const ANHANG_BEREICHE = new Set(Object.values(ANHANG_ELTERN));
+/* Welche Anhänge verlieren ihren Eintrag, wenn die Papierkorb-Einträge `weg` endgültig verschwinden (Fund 04.11.2026, #9)?
+   Nur die, deren Eintrag danach sicher nirgends mehr steht: nicht wieder aktiv (z. B. per Zusammenführen zurückgekommen)
+   und nicht ein weiteres Mal im Papierkorb. Ein Bereich, der nicht in `d` gelesen wurde, zählt nie – lieber eine Datei
+   behalten als eine falsche löschen. Anhänge, die selbst im Papierkorb liegen, verfallen dort wie bisher. */
+function verwaisteAnhaenge(d, weg) {
+  const schluessel = (store, id) => store + '|' + id;
+  const kandidaten = new Set(weg.filter((t) => t && t.daten && t.daten.id && ANHANG_BEREICHE.has(t.store) && Array.isArray(d[t.store])).map((t) => schluessel(t.store, t.daten.id)));
+  if (!kandidaten.size) return [];
+  const wegIds = new Set(weg.map((t) => t.id));
+  for (const st of ANHANG_BEREICHE) for (const r of d[st] || []) kandidaten.delete(schluessel(st, r.id));
+  for (const t of d.papierkorb || []) if (!wegIds.has(t.id) && t.daten && t.daten.id) kandidaten.delete(schluessel(t.store, t.daten.id));
+  return (d.anhaenge || []).filter((a) => a && ANHANG_ELTERN[a.parentTyp] && kandidaten.has(schluessel(ANHANG_ELTERN[a.parentTyp], a.parentId)));
+}
 /** Hilfsmap id → Datensatz */
 async function idMap(store) { const m = new Map(); for (const r of await DB.getAll(store)) m.set(r.id, r); return m; }
 
@@ -3588,6 +3654,7 @@ const S = {
      wird daraus „{}", und das legte auf dem anderen Gerät die Ordner-Sicherung
      lahm), die Termine der letzten Sicherungen, Hinweise dieses Browsers. */
   GERAET: new Set(['sdEntwuerfe', 'sdErledigt', 'wetterEinwilligung', 'wetterGefragt', 'adresssucheErlaubt', 'geodiensteErlaubt', '_datenRevision', '_gesicherteRevision', 'backupDirHandle', 'backupDirName', 'letzteAutoSicherung', 'letzteExterneSicherung', 'persistHintDismissed', 'letzteNotif', 'startDaten',
+    'autoSicherungFehler',   // „bei jedem Schließen“ ging das Schreiben in den Ordner nicht (Fund 04.11.2026, #10)
     // Gerätebezogen, nie über eine Sicherung übertragen: Kaufstand (sonst ließe er sich per Datei „freischalten“),
     // Bewertungs-Zähler, Erinnerungs-Frage, Einführungs-Stand
     'lizenz', 'bewertung', 'erinnerungGefragt', 'sicherungMitteilungGefragt', 'sicherungBasis', 'einfuehrung', 'eingerichtetAm', 'testStartGeraet', 'lightErinnert', 'lizenzVorschau']),
@@ -3658,6 +3725,10 @@ const S = {
   },
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
   async set(key, value, { auto = false } = {}) {
+    /* Bevor sich die eigenen Angaben ändern: Rechnungen ohne Schnappschuss (z. B. gerade aus einer alten Sicherung eingespielt,
+       der Start hat sie noch nicht nachgeholt) bekommen den bisherigen Absender (Fund 04.11.2026, #2/#21). Scheitert das, holt es
+       der nächste Start nach – das Speichern selbst soll daran nicht hängen. */
+    if (key === 'imkerei') await migriereRechnungSchnappschuss().catch((e) => console.warn('Rechnungs-Schnappschuss', e));
     const rec = this.satz(this.gespeichert(key), key, value, auto);
     await DB.schreibeAlles([{ store: 'settings', obj: rec, keepStamp: true, auto }]);
     this.data[key] = value; this._merke(rec);
@@ -5308,24 +5379,38 @@ const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zi
 async function loescheMitMaterial(store, erwartet) {
   // Abfüllung: Verkäufe und Rechnungen in derselben Transaktion prüfen – die Rückfrage im Formular kann veraltet sein (Fund 04.11.2026)
   const mitVerkauf = store === 'abfuellungen';
-  return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : [])], (d) => {
+  const mitWartezeit = store === 'behandlungen';   // Wartezeit-Erinnerung entfernen bzw. die Sammel-Erinnerung verkleinern (Fund 04.11.2026, #23)
+  const mitRechnung = store === 'kassenbuch';   // Buchung einer ausgestellten Rechnung bleibt stehen – in derselben Transaktion geprüft (Fund 04.11.2026, #3/#25)
+  return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : mitRechnung ? ['rechnungen'] : []), ...(mitWartezeit ? ['aufgaben'] : [])], (d) => {
     const rec = d[store].find((x) => x.id === erwartet.id);
     if (!rec) return { ops: [], wert: 0 };
     if (JSON.stringify(rec) !== JSON.stringify(erwartet)) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
-    const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : null;
+    const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : mitRechnung ? rechnungBuchungSperre(rec, d.rechnungen, d.kassenbuch) : null;
     if (sperre) throw new Error(sperre);
     const material = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
     let menge = 0;
     for (const a of (rec.verbrauchAbzug || [])) {
       const p = material.get(a.inventarId);
-      if (!p) throw new Error('Ein Materialposten für die Rückbuchung fehlt. Bitte zuerst wiederherstellen.');
+      if (!p) { materialFehltPruefen(d, a); continue; }   // endgültig gelöscht: ohne Rückbuchung löschen (Fund 04.11.2026, #4/#24)
       const n = buchungsZahl(a.menge, 'Materialabzug'); menge += n;
       const neu = buchungsZahl(p.stueckzahl, 'Materialbestand') + n;
       p.stueckzahl = verbrauchEinheit(p) === 'Stück' ? Math.round(neu) : Math.round(neu * 1000) / 1000;
       geaendert.set(p.id, p);
     }
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(papierkorbAuftraege(store, rec)), wert: menge };
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(papierkorbAuftraege(store, rec), mitWartezeit ? wartezeitAufgabenPlan(d, rec, null) : []), wert: menge };
   });
+}
+/* Fehlt ein Materialposten, auf den ein gemerkter Abzug zeigt (Fund 04.11.2026, #4/#24)? Liegt er im Papierkorb: Fehler, erst
+   wiederherstellen – sonst käme die Menge nie in seinen Bestand zurück. Ist er endgültig gelöscht, gibt es keinen Bestand mehr:
+   dann ohne Rückbuchung weiter (wie verkaufStornieren bei endgültig gelöschter Abfüllung). Vorher warfen Löschen und Ändern immer –
+   nach dem Leeren des Papierkorbs ließen sich Fütterung und Behandlung nie mehr ändern oder löschen.
+   Ohne gelesenen Papierkorb (d.papierkorb fehlt) gilt er sicherheitshalber als „im Papierkorb“. */
+function materialImPapierkorb(d, inventarId) {
+  if (!d || !Array.isArray(d.papierkorb)) return true;
+  return d.papierkorb.some((t) => t.store === 'inventar' && t.daten && t.daten.id === inventarId);
+}
+function materialFehltPruefen(d, a) {
+  if (materialImPapierkorb(d, a && a.inventarId)) throw new Error(`Die Position „${(a && a.bezeichnung) || 'Material'}“, von der dieser Eintrag abgezogen hat, liegt im Papierkorb. Stell sie zuerst wieder her – sonst käme die Menge nie in ihren Bestand zurück. Nichts wurde geändert.`);
 }
 const papierkorbDelete = (store, rec, titel, text = 'Wandert in den Papierkorb (30 Tage wiederherstellbar).') =>
   rec ? async () => {
@@ -5585,11 +5670,20 @@ const Anhang = {
         <button class="btn btn-danger no-flex" data-del>${icon('trash')}</button>
         <button class="btn btn-ghost" data-oeffnen>${icon('download')} ${a.art === 'foto' ? 'Öffnen/Laden' : 'Öffnen / bearbeiten'}</button>`,
     });
-    $('[data-typ]', m.el).onchange = async (e) => { if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value = a.dokumentTyp || ''; return; } a.dokumentTyp = e.target.value; await DB.put('anhaenge', a); UI.toast('Typ gespeichert'); if (onChange) onChange(); };
+    /* Typ und Mülleimer (Fund 04.11.2026, #16, offen aus der Honig-Reparatur): Ein Datenbankfehler blieb hier ungefangen –
+       der Typ stand dann falsch in der Auswahl, das Löschen tat scheinbar nichts. Jetzt: Grund zeigen, nichts vortäuschen. */
+    $('[data-typ]', m.el).onchange = async (e) => {
+      if (Lizenz.nurVoll('Fotos und Dokumente')) { e.target.value = a.dokumentTyp || ''; return; }
+      const vorher = a.dokumentTyp || '';
+      try { await DB.put('anhaenge', { ...a, dokumentTyp: e.target.value }); }
+      catch (err) { e.target.value = vorher; return fehlerMelden(err, 'Der Typ ließ sich nicht speichern. Bitte noch einmal versuchen.'); }
+      a.dokumentTyp = e.target.value; UI.toast('Typ gespeichert'); if (onChange) onChange();
+    };
     $('[data-oeffnen]', m.el).onclick = () => dateiOeffnen(a.blob, a.name, a.mime).catch((e) => { console.warn('Datei öffnen', e); UI.toast('Datei konnte nicht geöffnet werden.', 'err'); });
     $('[data-del]', m.el).onclick = async () => {
       if (!(await UI.confirm({ title: 'Anhang löschen?', text: 'Der Anhang wandert in den Papierkorb (30 Tage wiederherstellbar).' }))) return;
-      await DB.softDel('anhaenge', a.id); m.close(true); UI.toast('In den Papierkorb verschoben'); if (onChange) onChange();
+      try { await DB.softDel('anhaenge', a.id); } catch (err) { return fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }
+      m.close(true); UI.toast('In den Papierkorb verschoben'); if (onChange) onChange();
     };
   },
 };
@@ -5725,7 +5819,10 @@ const Sprachnotiz = {
         const row = e.target.closest('.audio-row'); if (!row) return;
         const a = items.find((x) => x.id === row.dataset.id);
         if (e.target.closest('[data-del]')) {
-          if (await UI.confirm({ title: 'Sprachnotiz löschen?', text: 'Wandert in den Papierkorb (30 Tage).' })) { await DB.softDel('anhaenge', a.id); render(); }
+          if (await UI.confirm({ title: 'Sprachnotiz löschen?', text: 'Wandert in den Papierkorb (30 Tage).' })) {
+            try { await DB.softDel('anhaenge', a.id); } catch (err) { return fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16)
+            render();
+          }
         }
       });
     };
@@ -5982,11 +6079,16 @@ const DASH_WIDGETS = {
     if (!alle.length) return `<div class="card" style="margin:0">${kopf('Rechnungen')}<div class="muted small">Noch keine Rechnung erstellt.</div></div>`;
     const jahr = String(new Date().getFullYear());
     const entwuerfe = alle.filter((r) => r.status === 'entwurf');
-    const jahrRe = alle.filter((r) => (r.datum || '').startsWith(jahr));
+    /* Nur festgeschriebene, nicht stornierte Rechnungen zählen (Fund 04.11.2026, #30): Vorher standen Entwürfe und stornierte
+       mit vollem Betrag in der Summe – 400 € statt 120 €, obwohl das Kassenbuch 120 € zeigt. Der Betrag ist der Gesamtbetrag
+       nach Rabatt (rechnungSummen), genau das, was beim Festschreiben ins Kassenbuch geht. */
+    const imJahr = alle.filter((r) => (r.datum || '').startsWith(jahr));
+    const jahrRe = imJahr.filter((r) => r.status === 'festgeschrieben');
+    const storniert = imJahr.filter((r) => r.status === 'storniert').length;
     const umsatz = U.sum(jahrRe, (r) => rechnungSummen(r).brutto);
     return `<div class="card" style="margin:0">${kopf('Rechnungen ' + jahr)}
       <div class="flex-wrap"><span class="badge ${entwuerfe.length ? 'b-warn' : 'b-ok'}">${entwuerfe.length} ${entwuerfe.length === 1 ? 'Entwurf' : 'Entwürfe'}</span><span class="spacer"></span><b>${U.fmtEur(umsatz)}</b></div>
-      <div class="hint mt8">${jahrRe.length} ${jahrRe.length === 1 ? 'Rechnung' : 'Rechnungen'} dieses Jahr.</div></div>`;
+      <div class="hint mt8">${jahrRe.length} ${jahrRe.length === 1 ? 'festgeschriebene Rechnung' : 'festgeschriebene Rechnungen'} dieses Jahr${storniert ? ` · ${storniert} storniert, ${storniert === 1 ? 'zählt' : 'zählen'} nicht mit` : ''}.</div></div>`;
   }},
   /* Tracht (v2.83): was an den Ständen gerade blüht und was in den nächsten 14 Tagen kommt. Ohne Trachten unsichtbar. */
   tracht: { label: 'Tracht (was blüht)', ic: 'flower', ziel: 'trachten', async html() {
@@ -7354,22 +7456,71 @@ Views.staende = {
   },
 };
 
+/* Nachweise, die den Stand beim Namen nennen (Fund 04.11.2026, #5): Behandlungen „Ganzer Stand“ (Bestandsbuch), Ernten vom
+   ganzen Stand (Herkunft im Verarbeitungsnachweis) und Wanderungen (Wanderbuch). Sie speichern nur die Kennung des Stands –
+   gelöscht druckte das Bestandsbuch „Stand ?“, das Wanderbuch „–“. Julians Linie: Solange ein Nachweis auf den Stand zeigt,
+   lässt er sich nicht löschen (wie Völker, die nie gelöscht werden). Fahrten zählen nicht: Das Fahrtenbuch schreibt bewusst
+   „gelöschter Stand“. → null, wenn nichts dranhängt; sonst der Text für die Meldung. */
+function standNachweisSperre(d, s) {
+  const id = s && s.id;
+  const beh = (d.behandlungen || []).filter((b) => b.zielTyp === 'stand' && b.zielId === id).length;
+  const ern = (d.ernten || []).filter((e) => e.zielTyp === 'stand' && e.zielId === id).length;
+  const wan = (d.wanderungen || []).filter((w) => w.vonStandId === id || w.nachStandId === id || (w.zielTyp === 'stand' && w.zielId === id)).length;
+  if (!beh && !ern && !wan) return null;
+  const teile = [
+    ...(beh ? [`${beh} ${beh === 1 ? 'Behandlung' : 'Behandlungen'} im Bestandsbuch`] : []),
+    ...(ern ? [`${ern} ${ern === 1 ? 'Ernte' : 'Ernten'} vom ganzen Stand`] : []),
+    ...(wan ? [`${wan} ${wan === 1 ? 'Wanderung' : 'Wanderungen'} im Wanderbuch`] : []),
+  ];
+  const und = teile.length > 1 ? `${teile.slice(0, -1).join(', ')} und ${teile[teile.length - 1]}` : teile[0];
+  const beispiel = beh ? 'im Bestandsbuch stünde nur „Stand ?“' : wan ? 'im Wanderbuch stünde nur „–“' : 'bei der Ernte fehlte die Herkunft';
+  return `„${s.name || 'Dieser Stand'}“ steht in deinen Nachweisen: ${und}. Ohne den Stand fehlte dort sein Name – ${beispiel}. `
+    + 'Darum lässt sich der Stand nicht löschen. Er kann stehen bleiben, auch ohne Völker. Gehören die Einträge gar nicht zu diesem Stand, ändere sie zuerst – dann kannst du ihn löschen.';
+}
 /** Stand in den Papierkorb. Seine aktiven Völker bleiben erhalten und verlieren nur die Standzuordnung. */
 async function standLoeschen(s) {
-  const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === s.id && v.status === 'aktiv');
-  const nv = voelker.length;
+  const nachweise = ['behandlungen', 'ernten', 'wanderungen'];
+  const lesen = async () => Object.fromEntries(await Promise.all(nachweise.map(async (st) => [st, await DB.getAll(st)])));
+  const sperre = standNachweisSperre(await lesen(), s);
+  if (sperre) { await UI.confirm({ title: 'Der Stand wird noch gebraucht', text: sperre, confirmText: 'Verstanden', danger: false }); return false; }
+  const nv = (await DB.getAll('voelker')).filter((v) => v.standId === s.id && v.status === 'aktiv').length;
   if (!(await UI.confirm({ title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${nv ? ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.` : ''}` }))) return false;
-  /* Datiert vermerken, sonst reißt die Rückrechnung „Stand am Stichtag“ hier ab und frühere Stände würden in den
-     Meldungen zu „ohne Standort“ (Code-Prüfung 23.10.2026). */
-  for (const v of voelker) { (v.historie = v.historie || []).push({ datum: U.todayIso(), text: `Stand „${s.name}“ gelöscht – Volk ohne Stand`, standVon: s.id, standNach: null }); v.standId = null; await DB.put('voelker', v); }
-  await DB.softDel('staende', s.id); UI.toast('Stand in den Papierkorb verschoben');
-  return true;
+  try {
+    // In EINER Transaktion noch einmal prüfen: Während die Rückfrage offen war, kann ein Nachweis dazugekommen sein
+    const weg = await DB.aendereAtomar(['staende', 'voelker', 'papierkorb', ...nachweise], (d) => {
+      const st = d.staende.find((x) => x.id === s.id);
+      if (!st) return { ops: [], wert: null };   // schon gelöscht (anderes Fenster)
+      const nochGesperrt = standNachweisSperre(d, st);
+      if (nochGesperrt) throw new Error(nochGesperrt);
+      /* Datiert vermerken, sonst reißt die Rückrechnung „Stand am Stichtag“ hier ab und frühere Stände würden in den
+         Meldungen zu „ohne Standort“ (Code-Prüfung 23.10.2026). */
+      const voelker = d.voelker.filter((v) => v.standId === st.id && v.status === 'aktiv').map((v) => ({ ...v, standId: null,
+        historie: [...(v.historie || []), { datum: U.todayIso(), text: `Stand „${st.name}“ gelöscht – Volk ohne Stand`, standVon: st.id, standNach: null }] }));
+      return { ops: voelker.map((obj) => ({ store: 'voelker', obj })).concat(papierkorbAuftraege('staende', st)), wert: true };
+    });
+    if (weg) UI.toast('Stand in den Papierkorb verschoben');
+    return weg !== false;
+  } catch (e) { fehlerMelden(e); return false; }
 }
 /** Volk auflösen (bleibt im Archiv). Völker werden nie gelöscht – ihre Stockkarte gehört zum Bestandsbuch. */
 async function volkAufloesen(v) {
   if (!(await UI.confirm({ title: 'Volk auflösen?', text: 'Das Volk wird als aufgelöst markiert (bleibt im Archiv erhalten). Die Königinnen-Zuordnung endet heute.', confirmText: 'Auflösen' }))) return false;
-  await endQueenAssignment(v); v.status = 'aufgeloest'; (v.historie = v.historie || []).push({ datum: U.todayIso(), text: 'Volk aufgelöst' });
-  await DB.put('voelker', v); UI.toast('Volk aufgelöst');
+  /* In EINER Transaktion, Fehler mit Grund (Fund 04.11.2026, #16): Vorher endete erst die Zuordnung der Königin, dann
+     scheiterte das Speichern des Volks – es blieb aktiv mit seiner Königin, ein zweiter Versuch schrieb „Volk aufgelöst“
+     doppelt in die Historie, und über den Knopf kam keine eigene Meldung. Gemeldet wird hier, damit das Wischen
+     (das selbst meldet) nichts doppelt zeigt. */
+  try {
+    await DB.aendereAtomar(['voelker', 'koeniginnen'], (d) => {
+      const volk = d.voelker.find((x) => x.id === v.id);
+      if (!volk || volk.status === 'aufgeloest') return { ops: [] };   // schon aufgelöst (anderes Fenster)
+      const heute = U.todayIso(), ops = [];
+      const q = volk.koeniginId ? d.koeniginnen.find((x) => x.id === volk.koeniginId) : null;
+      if (q) { (q.historie || []).forEach((h) => { if (h.volkId === volk.id && !h.bis) h.bis = heute; }); ops.push({ store: 'koeniginnen', obj: q }); }
+      volk.koeniginId = null; volk.status = 'aufgeloest'; (volk.historie = volk.historie || []).push({ datum: heute, text: 'Volk aufgelöst' });
+      return { ops: [...ops, { store: 'voelker', obj: volk }] };
+    });
+  } catch (e) { fehlerMelden(e, 'Das Auflösen hat nicht geklappt. Bitte noch einmal versuchen.'); return false; }
+  UI.toast('Volk aufgelöst');
   return true;
 }
 
@@ -7442,7 +7593,10 @@ Views.stand = {
     main.addEventListener('click', async (e) => {
       const v = e.target.closest('[data-volk]'); if (v) return navTo('volk/' + v.dataset.volk);
       const wd = e.target.closest('[data-wdel]');
-      if (wd && (await UI.confirm({ title: 'Wettereintrag löschen?', text: 'Wandert in den Papierkorb.' }))) { await DB.softDel('wetter', wd.dataset.wdel); Views.stand._wetterOffen = true; Views.stand.wetterZeichnen(); }
+      if (wd && (await UI.confirm({ title: 'Wettereintrag löschen?', text: 'Wandert in den Papierkorb.' }))) {
+        try { await DB.softDel('wetter', wd.dataset.wdel); } catch (err) { return fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16)
+        Views.stand._wetterOffen = true; Views.stand.wetterZeichnen();
+      }
     });
     const volkVon = (r) => voelker.find((x) => x.id === r.dataset.volk);
     Wisch.liste(main, '.row[data-volk]', {
@@ -8103,7 +8257,9 @@ Views.volk = {
       if (!(await Lizenz.neuesVolkErlaubt())) return;
       if (!(await UI.confirm({ title: 'Volk duplizieren?', text: 'Es wird eine Kopie der Stammdaten angelegt (ohne Stockkarte und ohne Königin).', confirmText: 'Duplizieren', danger: false }))) return;
       const copy = { name: v.name + ' (Kopie)', standId: v.standId, koeniginId: null, funktion: v.funktion || '', beutentyp: v.beutentyp, beutenkennung: '', status: 'aktiv', historie: [{ datum: U.todayIso(), text: `Als Kopie von „${v.name}“ angelegt` }], notizen: '' };
-      const nv = await DB.put('voelker', copy); UI.toast('Kopie angelegt'); navTo('volk/' + nv.id);
+      let nv;
+      try { nv = await DB.put('voelker', copy); } catch (e) { return fehlerMelden(e, 'Die Kopie ließ sich nicht anlegen. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16) sonst still
+      UI.toast('Kopie angelegt'); navTo('volk/' + nv.id);
     };
     const dis = $('#dissolve');
     if (dis) dis.onclick = async () => { if (await volkAufloesen(v)) renderRoute(); };
@@ -8379,7 +8535,10 @@ Views.volk = {
     box.addEventListener('click', async (e) => {
       if (jahrFilterKlick(Views.volk._filter, e)) return;
       const b = e.target.closest('[data-gd]');
-      if (b && (await UI.confirm({ title: 'Wiegung löschen?', text: 'Wandert in den Papierkorb.' }))) { await DB.softDel('gewichte', b.dataset.gd); renderRoute(); }
+      if (b && (await UI.confirm({ title: 'Wiegung löschen?', text: 'Wandert in den Papierkorb.' }))) {
+        try { await DB.softDel('gewichte', b.dataset.gd); } catch (err) { return fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16)
+        renderRoute();
+      }
     });
   },
 
@@ -8520,7 +8679,8 @@ Views.durchsicht = {
       if (ton && !(await UI.confirm({ title: 'Wirklich neu beginnen?', text: 'Die Antworten und Sprachnotizen vom ' + U.fmtDate(e.datum) + ' sind dann weg.', confirmText: 'Neu beginnen' }))) return;
       m.close();
       this._entwuerfe.delete(volk.id);
-      await this.entwurfMerken();
+      // Wie beim „Verwerfen“ (Fund 04.11.2026, #15): Scheitert das Speichern, käme der alte Entwurf nach einem Neustart wieder – das sagt der Hinweis
+      if (!(await this.entwurfMerken())) UI.toast('Das Neu-Beginnen ließ sich nicht speichern. Beim nächsten Start kommt die alte Durchsicht vielleicht wieder.', 'err');
       renderRoute();
     };
   },
@@ -8741,6 +8901,43 @@ async function endQueenAssignment(v) {
   if (q) { (q.historie || []).forEach((h) => { if (h.volkId === v.id && !h.bis) h.bis = U.todayIso(); }); await DB.put('koeniginnen', q); }
   v.koeniginId = null;
 }
+/** Königin in den Papierkorb (Fund 04.11.2026, #7/#26): Völker lösen UND ihre offene Zuordnung beenden – in einer
+    Transaktion. Vorher wurde nur das Volk gelöst; die Königin blieb in ihrer Historie „aktuell“ im Volk. Nach dem
+    Wiederherstellen zeigten Liste, Detailseite und Excel sie dann „in A“, obwohl A sie nicht führte – nach einem
+    Umweiseln standen sogar zwei Königinnen „aktuell“ in A. endeDurchLoeschen merkt sich, welche Zuordnung das Löschen
+    beendet hat; koeniginWiederPlan holt genau die zurück, wenn das Volk noch frei ist. */
+async function koeniginLoeschen(id) {
+  return DB.aendereAtomar(['koeniginnen', 'voelker', 'papierkorb'], (d) => {
+    const q = d.koeniginnen.find((x) => x.id === id);
+    if (!q) return { ops: [] };   // schon gelöscht (anderes Fenster)
+    const tag = U.todayIso();
+    for (const h of q.historie || []) if (!h.bis) { h.bis = tag; h.endeDurchLoeschen = true; }
+    const voelker = d.voelker.filter((v) => v.koeniginId === id).map((v) => ({ store: 'voelker', obj: Object.assign(v, { koeniginId: null }) }));
+    return { ops: [...voelker, ...papierkorbAuftraege('koeniginnen', q)] };
+  });
+}
+/** Königin aus dem Papierkorb (Fund 04.11.2026, #7/#26), läuft in DB.trashRestore in derselben Transaktion.
+    Die Zuordnung, die das Löschen beendet hat (bei älteren Einträgen: die noch offene), kommt nur zurück, wenn die Königin
+    aktiv ist und das Volk noch aktiv und frei ist – sonst säßen zwei Königinnen in einem Volk. Dann bleibt sie zum
+    Löschtag beendet. Mutiert q.historie; liefert die Aufträge für das Volk. */
+function koeniginWiederPlan(d, q, geloeschtAm) {
+  const zeit = new Date(geloeschtAm || Date.now());   // Löschtag als Ortsdatum wie U.todayIso (geloeschtAm steht in UTC)
+  const tag = Number.isNaN(zeit.getTime()) ? U.todayIso() : `${zeit.getFullYear()}-${String(zeit.getMonth() + 1).padStart(2, '0')}-${String(zeit.getDate()).padStart(2, '0')}`;
+  const ops = [];
+  let zurueck = false;
+  for (const h of q.historie || []) {
+    if (h.bis && !h.endeDurchLoeschen) continue;
+    const volk = (d.voelker || []).find((v) => v.id === h.volkId);
+    const belegt = !volk || (volk.koeniginId && volk.koeniginId !== q.id)
+      || (d.koeniginnen || []).some((k) => k.id !== q.id && (k.historie || []).some((x) => x.volkId === volk.id && !x.bis));
+    if (!zurueck && q.status === 'aktiv' && volk && volk.status === 'aktiv' && !belegt) {
+      h.bis = null; zurueck = true;
+      if (volk.koeniginId !== q.id) ops.push({ store: 'voelker', obj: Object.assign(volk, { koeniginId: q.id }) });
+    } else h.bis = h.bis || tag;
+    delete h.endeDurchLoeschen;
+  }
+  return ops;
+}
 
 /* =====================================================================
    MODUL: KÖNIGINNEN (Jahrgang → Zeichenfarbe, Status, Historie)
@@ -8865,8 +9062,7 @@ Views.koeniginnen = {
       },
       onDelete: q ? async () => {
         if (!(await UI.confirm({ title: 'Königin löschen?', text: 'Wandert in den Papierkorb (30 Tage). Völker verlieren die Zuordnung.' }))) return false;
-        for (const volk of await DB.getAll('voelker')) if (volk.koeniginId === q.id) { volk.koeniginId = null; await DB.put('voelker', volk); }
-        await DB.softDel('koeniginnen', q.id); UI.toast('Gelöscht');
+        await koeniginLoeschen(q.id); UI.toast('Gelöscht');
         if (currentRoute().route === 'koenigin') navTo('koeniginnen'); else renderRoute();
         return true;
       } : null,
@@ -9983,11 +10179,30 @@ Views.koenigin = {
 function zuchtTermine(startdatum) {
   return ZUCHT_KALENDER.map((z) => ({ tag: z.tag, titel: z.titel, datum: U.addDays(startdatum, z.tag) }));
 }
-/** offene Auto-Aufgaben einer Serie ersetzen */
+/** offene Auto-Aufgaben einer Serie ersetzen – in einer Transaktion */
 async function syncZuchtAufgaben(serie) {
-  const alte = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'zucht' && a.refId === serie.id && !a.erledigt);
-  for (const a of alte) await DB.del('aufgaben', a.id);
-  for (const t of serie.termine) await DB.put('aufgaben', { titel: `${serie.name}: ${t.titel}`, faellig: t.datum, erledigt: false, quelle: 'zucht', refId: serie.id, notiz: `Tag ${t.tag} der Zuchtserie` });
+  return DB.aendereAtomar(['aufgaben'], (d) => ({ ops: zuchtAufgabenPlan(d.aufgaben, serie) }));
+}
+/** Aufträge: offene Zucht-Aufgaben der Serie weg, je Kalenderschritt eine neue – außer für schon erledigte Schritte
+    (Fund 04.11.2026, #22). Vorher legte jedes Speichern der Serie, etwa das Nachtragen von „Angenommene Zellen“, alle
+    9 Schritte neu an: Aus 2 erledigten + 7 offenen wurden 2 erledigte + 9 offene, „Umlarven“ stand wieder überfällig da.
+    Auch für das Wiederherstellen aus dem Papierkorb (DB.trashRestore) – das Löschen entfernt die offenen Aufgaben. */
+function zuchtAufgabenPlan(aufgaben, serie) {
+  const eigene = (aufgaben || []).filter((a) => a.quelle === 'zucht' && a.refId === serie.id);
+  const erledigt = new Set(eigene.filter((a) => a.erledigt).map(zuchtAufgabeTag).filter((tag) => tag != null));
+  return [
+    ...eigene.filter((a) => !a.erledigt).map((a) => ({ op: 'del', store: 'aufgaben', id: a.id })),
+    ...(serie.termine || []).filter((t) => !erledigt.has(t.tag)).map((t) => ({ store: 'aufgaben',
+      obj: { titel: `${serie.name}: ${t.titel}`, faellig: t.datum, erledigt: false, quelle: 'zucht', refId: serie.id, zuchtTag: t.tag, notiz: `Tag ${t.tag} der Zuchtserie` } })),
+  ];
+}
+/** Welcher Kalenderschritt ist diese Zucht-Aufgabe? zuchtTag (seit 04.11.2026), sonst aus Notiz oder Titel älterer Aufgaben. */
+function zuchtAufgabeTag(a) {
+  if (Number.isFinite(a.zuchtTag)) return a.zuchtTag;
+  const m = /Tag (-?\d+) der Zuchtserie/.exec(a.notiz || '');
+  if (m) return +m[1];
+  const k = ZUCHT_KALENDER.find((z) => String(a.titel || '').endsWith(': ' + z.titel));
+  return k ? k.tag : null;
 }
 /** Erzeugt n Töchter-Königinnen aus einer Serie: erben Mutter(2a)/Anpaarung(4a)/Linie/Jahrgang,
     bekommen fortlaufende Kennungen und eine Rückreferenz auf die Serie. Gibt die Anzahl zurück. */
@@ -10474,9 +10689,13 @@ async function mittelForm(mittel, box) {
   $('[data-mittel-anhang]', m.el).appendChild(Anhang.section({ parentTyp: 'mittel', parentId: mittel.id, titel: 'Foto oder PDF der Beilage' }));
   $('[data-mittel-weg]', m.el).onclick = async () => {
     if (!(await UI.confirm({ title: 'Mittel entfernen?', text: 'Es verschwindet aus „Meine Mittel“. Eingetragene Behandlungen bleiben. Fotos der Beilage wandern in den Papierkorb.' }))) return;
-    for (const a of await Anhang.list('mittel', mittel.id)) { await DB.put('anhaenge', { ...a, mittelKopie: mittel }); await DB.softDel('anhaenge', a.id); }   // die Kopie holt das Mittel beim Wiederherstellen zurück
-    for (const e of await DB.getAll('papierkorb')) if (e.store === 'anhaenge' && e.daten && e.daten.parentTyp === 'mittel' && e.daten.parentId === mittel.id) await DB.put('papierkorb', { ...e, daten: { ...e.daten, mittelKopie: mittel } });   // schon vorher gelöschte Fotos ebenso
-    await S.set('meineMittel', meineMittel().filter((x) => x.id !== mittel.id));
+    /* Scheitert das (Fund 04.11.2026, #16), steht der Grund da und das Mittel bleibt in der Liste. Ein zweiter Versuch ist
+       unschädlich: Schon verschobene Fotos bekommen ihre Kopie im Papierkorb nur noch einmal. */
+    try {
+      for (const a of await Anhang.list('mittel', mittel.id)) { await DB.put('anhaenge', { ...a, mittelKopie: mittel }); await DB.softDel('anhaenge', a.id); }   // die Kopie holt das Mittel beim Wiederherstellen zurück
+      for (const e of await DB.getAll('papierkorb')) if (e.store === 'anhaenge' && e.daten && e.daten.parentTyp === 'mittel' && e.daten.parentId === mittel.id) await DB.put('papierkorb', { ...e, daten: { ...e.daten, mittelKopie: mittel } });   // schon vorher gelöschte Fotos ebenso
+      await S.set('meineMittel', meineMittel().filter((x) => x.id !== mittel.id));
+    } catch (err) { return fehlerMelden(err, 'Das Entfernen hat nicht geklappt. Bitte noch einmal versuchen.'); }
     m.close(true);
     if (box && box.isConnected) { delete box.dataset.mittel; meineMittelZeichnen(box); }
     UI.toast('Mittel entfernt');
@@ -10562,6 +10781,12 @@ Views.behandlungen = {
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
     const anwendungOpts = await gelernteWerte(VORSCHLAEGE.anwendungsart, 'behandlungen', 'anwendungsart');
     const mittelPosten = await verbrauchsPosten(VERBRAUCH_EINHEITEN, { kategorien: ['Behandlungsmittel'] });
+    /* Bearbeiten (Fund 04.11.2026, #17): Die Auswahl steht auf der Position, von der abgezogen wurde – wie bei der Fütterung.
+       Vorher stand sie auf „–“, und schon „Tierarzt ändern“ buchte das Mittel still in den Bestand zurück und vergaß den Abzug.
+       Wird die Position nicht angeboten (Papierkorb, endgültig gelöscht), heißt „–“ „nicht angefasst“. */
+    const bestehend = !!(b && b.id);
+    const bisherId = bestehend ? ((b.verbrauchAbzug || [])[0] || {}).inventarId || '' : '';
+    const bisherAngeboten = !!bisherId && mittelPosten.some((p) => p.id === bisherId);
     const m = UI.formModal({
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true, lizenzBereich: 'Behandlungen und Bestandsbuch',
       fields: [
@@ -10583,17 +10808,28 @@ Views.behandlungen = {
         { key: 'kaufbeleg', label: 'Kaufbeleg vorhanden', type: 'check' },
         { key: 'notiz', label: 'Bemerkung / Charge des Mittels', type: 'textarea' },
       ],
-      values: zielFormValues(b),
+      values: bestehend ? { ...zielFormValues(b), _verbrauchId: bisherId } : zielFormValues(b),
       async onSave(v) {
         const zielId = zielIdAus(v);
-        const rec = Object.assign(b || {}, { zielTyp: v.zielTyp, zielId, datum: v.datum, mittel: v.mittel, menge: v.menge, einheit: v.einheit, anwendungsart: v.anwendungsart, wartezeitTage: wartezeitWert(v.wartezeitTage), behandlungBis: v.behandlungBis || '', lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', kaufbeleg: !!v.kaufbeleg, notiz: v.notiz });
+        const werte = { zielTyp: v.zielTyp, zielId, datum: v.datum, mittel: v.mittel, menge: v.menge, einheit: v.einheit, anwendungsart: v.anwendungsart, wartezeitTage: wartezeitWert(v.wartezeitTage), behandlungBis: v.behandlungBis || '', lieferant: v.lieferant || '', behandelndePerson: v.behandelndePerson || '', tierarzt: v.tierarzt || '', kaufbeleg: !!v.kaufbeleg, notiz: v.notiz };
+        if (bestehend) {
+          // Mittel-Abzug und Wartezeit-Erinnerung in EINER Transaktion nachführen (Fund 04.11.2026, #17/#23)
+          const erg = await behandlungAendern(b, { ...werte, _verbrauchId: !v._verbrauchId && bisherId && !bisherAngeboten ? undefined : v._verbrauchId },
+            await zielName(v.zielTyp, zielId));
+          if (erg.materialGeaendert) pruefeMhd();
+          if (erg.wartezeitGeaendert) Notif.check();
+          UI.toast(erg.gefehlt > 0 ? `Behandlung gespeichert – ${U.fmtNum(erg.gefehlt, 2)} ${erg.einheit} fehlten im Bestand` : 'Behandlung gespeichert', erg.gefehlt > 0 ? 'err' : undefined);
+          renderRoute();
+          return;
+        }
+        const rec = Object.assign(b || {}, werte);
         const saved = await DB.put('behandlungen', rec);
         // Wartezeit-Aufgabe pflegen
         const alte = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'behandlung' && a.refId === saved.id);
         for (const a of alte) if (!a.erledigt) await DB.del('aufgaben', a.id);
         if (saved.wartezeitTage > 0) {
-          const ende = U.addDays(saved.datum, saved.wartezeitTage);
-          await DB.put('aufgaben', { titel: `Wartezeit endet: ${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, volkId: saved.zielTyp === 'volk' ? saved.zielId : null, notiz: '' });
+          const ende = wartezeitEnde(saved);   // ganze Tage wie bei der Sammel-Behandlung – dieselbe Rechnung wie beim späteren Nachführen
+          await DB.put('aufgaben', { titel: `${WARTEZEIT_TITEL}${saved.mittel} (${await zielName(saved.zielTyp, saved.zielId)})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: saved.id, volkId: saved.zielTyp === 'volk' ? saved.zielId : null, notiz: '' });
         }
         await verbrauchZurueckbuchen((b || {}).verbrauchAbzug, { pruefen: false });
         const buchung = await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0));
@@ -10613,7 +10849,8 @@ Views.behandlungen = {
         return true;
       } : null,
     });
-    verdrahteVerbrauch(m, mittelPosten, () => { const el = $('#f-menge', m.el); return el ? U.parseNum(el.value) : 0; });
+    verdrahteVerbrauch(m, mittelPosten, () => { const el = $('#f-menge', m.el); return el ? U.parseNum(el.value) : 0; },
+      bestehend ? { start: bisherId, angeboten: bisherAngeboten, menge: Math.max(0, Number(b.menge) || 0), abzug: b.verbrauchAbzug || [] } : null);
   },
   detail(b, ziel) {
     const m = UI.modal({
@@ -10674,13 +10911,14 @@ Views.behandlungen = {
         const angelegt = [];
         const n = await behandlungFuerVoelker(v.volkIds, v, angelegt);
         const buchung = await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0) * Math.max(1, n));
-        for (const rec of angelegt) {
-          rec.verbrauchAbzug = abzugAnteil(buchung, n);
+        for (const [i, rec] of angelegt.entries()) {
+          rec.verbrauchAbzug = abzugAnteil(buchung, n, i);   // je Datensatz sein Teil, zusammen genau der Abzug (Fund 04.11.2026, #34)
           await DB.put('behandlungen', rec);
         }
         if (v.wartezeitTage > 0) {
           const ende = U.addDays(v.datum, Math.round(v.wartezeitTage));
-          await DB.put('aufgaben', { titel: `Wartezeit endet: ${v.mittel} (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
+          /* refIds: die Behandlungen dieser Erinnerung (Fund 04.11.2026, #23) – damit Ändern und Löschen sie nachführen können */
+          await DB.put('aufgaben', { titel: wartezeitSammelTitel(v.mittel, n), faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, refIds: angelegt.map((r) => r.id), notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
           Notif.check();
         }
         UI.toast(`Behandlung für ${n} ${n === 1 ? 'Volk' : 'Völker'} dokumentiert`);
@@ -10931,7 +11169,7 @@ async function abfuellungenAnlegen(v) {
   });
 }
 async function abfuellungAendern(erwartet, v) {
-  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge', 'verkaeufe', 'rechnungen'], (d) => {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge', 'verkaeufe', 'rechnungen', 'papierkorb'], (d) => {
     const a = d.abfuellungen.find((x) => x.id === erwartet.id);
     if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf oder Verlust. Bitte erneut öffnen.');
     const alteAnzahl = buchungsZahl(a.anzahl, 'Bisherige Anzahl'), anzahl = Math.round(buchungsZahl(v.anzahl, 'Anzahl')), gebindeG = Math.round(buchungsZahl(v.gebindeG, 'Gebindegröße'));
@@ -10959,8 +11197,8 @@ async function abfuellungAendern(erwartet, v) {
       const alt = a.verbrauchAbzug || [];
       const positionen = alt.map((x) => {
         const pos = d.inventar.find((p) => p.id === x.inventarId);
-        if (!pos) throw new Error('Ein gebuchter Materialposten fehlt. Bitte zuerst wiederherstellen.');
-        return pos;
+        if (!pos) materialFehltPruefen(d, x);   // im Papierkorb: erst wiederherstellen; endgültig gelöscht: bleibt, wie gemerkt (Fund 04.11.2026, #4/#24)
+        return pos || null;
       });
       const anteile = alt.map((x) => buchungsZahl(x.menge, 'Gemerkter Verbrauch') * anzahl / alteAnzahl);
       const ziele = anteile.map((n) => Math.round(n * 1000) / 1000);
@@ -10969,7 +11207,7 @@ async function abfuellungAendern(erwartet, v) {
          gerechnet wird, was auch die Abzugskette zusammennimmt (Gläser einer Größe, Deckel, Etiketten), damit jede Art stimmt. */
       const gruppen = new Map();
       positionen.forEach((pos, i) => {
-        if (verbrauchEinheit(pos) !== 'Stück') return;
+        if (!pos || verbrauchEinheit(pos) !== 'Stück') return;
         const k = materialArt(pos);
         gruppen.set(k, [...(gruppen.get(k) || []), i]);
       });
@@ -10977,17 +11215,30 @@ async function abfuellungAendern(erwartet, v) {
         const ganz = ganzeStueckeVerteilen(idx.map((i) => anteile[i]));
         idx.forEach((i, j) => { ziele[i] = ganz[j]; });
       }
-      a.verbrauchAbzug = alt.map((x, i) => {
+      /* Mehr Gebinde: was der gemerkte Posten nicht mehr hat, über die Abzugskette nachziehen (Fund 04.11.2026, Honig-Reparatur offen) –
+         wie beim Anlegen. Vorher blieb es beim gemerkten Posten: Karton A leer, Karton B voll → „2 Stück fehlten“, obwohl B genug hatte.
+         Mengen werden ADDIERT, weil die Kette auf einen Posten treffen kann, der selbst noch an der Reihe ist. */
+      const neu = alt.map((x) => ({ ...x }));
+      alt.forEach((x, i) => {
         const pos = positionen[i];
-        const bisher = buchungsZahl(x.menge, 'Gemerkter Verbrauch');
-        const ziel = ziele[i];
+        if (!pos) return;
+        const diff = buchungsZahl(x.menge, 'Gemerkter Verbrauch') - ziele[i];   // > 0: zurück ins Lager, < 0: mehr abziehen
         const vorher = buchungsZahl(pos.stueckzahl, 'Materialbestand');
-        const diff = bisher - ziel;
         const wirklich = diff >= 0 ? diff : -Math.min(vorher, -diff);
         pos.stueckzahl = Math.round((vorher + wirklich) * 1000) / 1000;
-        geaendert.set(pos.id, pos); gefehlt += Math.max(0, wirklich - diff);
-        return { ...x, menge: Math.round((bisher - wirklich) * 1000) / 1000 };
+        geaendert.set(pos.id, pos);
+        neu[i].menge = Math.round((neu[i].menge - wirklich) * 1000) / 1000;
+        const offen = Math.round((wirklich - diff) * 1000) / 1000;
+        if (offen <= 0) return;
+        const plan = materialAbzugPlan(d.inventar, pos.id, offen, geaendert);   // der eigene Posten ist jetzt leer → die Kette springt ein
+        for (const y of plan.abzug) {
+          const da = neu.find((z) => z.inventarId === y.inventarId);
+          if (da) da.menge = Math.round((da.menge + y.menge) * 1000) / 1000;
+          else neu.push(y);
+        }
+        gefehlt += plan.gefehlt;
       });
+      a.verbrauchAbzug = neu;
     }
     Object.assign(a, { anzahl, gebindeG, bestand, datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim() });
     // Gebindegröße korrigiert: die Abgänge dieser Abfüllung zeigen sonst weiter die alte Größe (Durchsicht v3.00)
@@ -10998,18 +11249,20 @@ async function abfuellungAendern(erwartet, v) {
 /** Dasselbe aus den Feldern eines offenen Formulars. */
 async function fuetterungAendern(erwartet, werte) {
   const eingabe = { ...werte };
-  return DB.aendereAtomar(['fuetterungen', 'inventar'], (d) => {
+  return DB.aendereAtomar(['fuetterungen', 'inventar', 'papierkorb'], (d) => {
     const alt = d.fuetterungen.find((f) => f.id === erwartet.id);
     if (!alt || JSON.stringify(alt) !== JSON.stringify(erwartet)) throw new Error('Diese Fütterung wurde inzwischen geändert. Bitte erneut öffnen.');
     const posten = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
     const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : Math.round(n * 1000) / 1000;
     for (const a of (alt.verbrauchAbzug || [])) {
       const p = posten.get(a.inventarId);
-      if (!p) throw new Error('Ein bisher gebuchter Materialposten fehlt. Bitte zuerst wiederherstellen.');
+      if (!p) { materialFehltPruefen(d, a); continue; }   // endgültig gelöscht: kein Bestand mehr, nichts zurückzubuchen (Fund 04.11.2026, #4/#24)
       p.stueckzahl = runden(p, buchungsZahl(p.stueckzahl, 'Materialbestand') + buchungsZahl(a.menge, 'Materialabzug'));
       geaendert.set(p.id, p);
     }
-    const id = eingabe._verbrauchId !== undefined ? eingabe._verbrauchId : alt.verbrauchAbzug?.[0]?.inventarId;
+    let id = eingabe._verbrauchId !== undefined ? eingabe._verbrauchId : alt.verbrauchAbzug?.[0]?.inventarId;
+    // Ohne eigene Wahl bleibt der bisherige Posten – ist er endgültig gelöscht, gibt es nichts mehr abzuziehen (Fund 04.11.2026, #4/#24)
+    if (eingabe._verbrauchId === undefined && id && !posten.has(id)) id = '';
     const v = { ...alt, ...eingabe, _verbrauchId: id };
     buchungsZahl(v.mengeKg, 'Futtermenge');
     const abzug = [];
@@ -11054,6 +11307,137 @@ async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
     n++;
   }
   return n;
+}
+
+/* Behandlung ändern (Fund 04.11.2026, #17): Mittel-Abzug, Datensatz und Wartezeit-Erinnerung in EINER Transaktion.
+   Vorher buchte das Formular den gemerkten Abzug immer zurück und zog nur ab, wenn die Auswahl stand – die stand aber auf „–“:
+   Ameisensäure 1000 ml, Sammel-Behandlung 2 × 50 ml → 900 ml; nur „Tierarzt“ geändert → 950 ml, Abzug vergessen.
+   Jetzt wie beim Anlegen, aber nur der Unterschied: Gleiche Position → Menge 50 → 60 zieht 10 nach (über die Kette),
+   50 → 40 gibt 10 zurück (zuletzt Abgezogenes zuerst), sonst bleibt der Abzug, wie er ist – auch ein Sammel-Anteil, der
+   kleiner ist als die Menge, weil damals Bestand fehlte. Andere Position oder „–“ gewählt: alles zurück, neu abziehen.
+   `werte._verbrauchId` undefined heißt „Auswahl nicht angefasst“ (die bisherige Position wurde nicht angeboten).
+   Fehlende Menge wird wie beim Anlegen gemeldet, nicht abgewiesen: verbraucht ist verbraucht. */
+async function behandlungAendern(erwartet, werte, zielText = '') {
+  const eingabe = { ...werte };
+  return DB.aendereAtomar(['behandlungen', 'inventar', 'papierkorb', 'aufgaben'], (d) => {
+    const alt = d.behandlungen.find((x) => x.id === erwartet.id);
+    if (!alt || JSON.stringify(alt) !== JSON.stringify(erwartet)) throw new Error('Diese Behandlung wurde inzwischen geändert. Bitte erneut öffnen.');
+    const posten = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
+    const r3 = (n) => Math.round(n * 1000) / 1000;
+    const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : r3(n);
+    const altAbzug = (alt.verbrauchAbzug || []).map((a) => ({ ...a }));
+    const altStart = altAbzug.length ? altAbzug[0].inventarId : '';
+    const id = eingabe._verbrauchId !== undefined ? (eingabe._verbrauchId || '') : altStart;
+    const altMenge = Math.max(0, Number(alt.menge) || 0), neuMenge = Math.max(0, Number(eingabe.menge) || 0);
+    let abzug = altAbzug, gefehlt = 0, einheit = '';
+    const zurueck = (a, n) => {
+      const p = posten.get(a.inventarId);
+      if (!p) { materialFehltPruefen(d, a); return; }   // Papierkorb: erst wiederherstellen; endgültig gelöscht: kein Bestand mehr (#4/#24)
+      p.stueckzahl = runden(p, buchungsZahl(p.stueckzahl, 'Materialbestand') + n);
+      geaendert.set(p.id, p);
+    };
+    const abziehen = (start, menge) => {
+      const plan = materialAbzugPlan(d.inventar, start, menge, geaendert);
+      gefehlt = r3(gefehlt + plan.gefehlt); einheit = plan.einheit || einheit;
+      return plan.abzug;
+    };
+    if (id && id === altStart) {
+      const diff = r3(neuMenge - altMenge);
+      if (diff > 0) {
+        if (!posten.has(id)) materialFehltPruefen(d, altAbzug[0]);   // im Papierkorb: Meldung; endgültig gelöscht: nichts mehr abzuziehen
+        else for (const y of abziehen(id, diff)) {
+          const da = abzug.find((z) => z.inventarId === y.inventarId);
+          if (da) da.menge = r3(da.menge + y.menge); else abzug.push(y);
+        }
+      } else if (diff < 0) {
+        let rest = -diff;
+        for (let i = abzug.length - 1; i >= 0 && rest > 0.0000001; i--) {
+          const a = abzug[i], p = posten.get(a.inventarId);
+          const ganz = (p ? verbrauchEinheit(p) : a.einheit) === 'Stück';
+          const n = Math.min(buchungsZahl(a.menge, 'Materialabzug'), ganz ? Math.round(rest) : rest);
+          if (n <= 0) break;
+          zurueck(a, n);
+          a.menge = r3(a.menge - n); rest = r3(rest - n);
+        }
+        abzug = abzug.filter((a) => a.menge > 0);
+      }
+    } else {
+      for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+      abzug = id ? abziehen(id, neuMenge) : [];
+    }
+    const neu = { ...alt, ...eingabe, verbrauchAbzug: abzug };
+    delete neu._verbrauchId;
+    const aufgaben = wartezeitAufgabenPlan(d, alt, neu, zielText);
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'behandlungen', obj: neu }, aufgaben),
+      wert: { rec: neu, gefehlt, einheit, materialGeaendert: geaendert.size > 0, wartezeitGeaendert: aufgaben.length > 0 } };
+  });
+}
+
+/* Wartezeit-Erinnerung einer Behandlung nachführen (Fund 04.11.2026, #23) – beim Ändern, Löschen und Wiederherstellen.
+   Fast alle Behandlungen entstehen über die Sammel-Behandlung, und die legt EINE Erinnerung für alle Völker an. Das Bearbeiten
+   suchte aber nur eine eigene (refId): Oxalsäure am 01.08. für 3 Völker, Wartezeit 14 → „… (3 Völker)“ zum 15.08.; das Datum
+   bei Volk A auf 03.08. → eine zweite Erinnerung zum 17.08., die alte blieb. Wartezeit 0 oder alle gelöscht → sie blieb auch.
+   Jetzt kennt die Sammel-Erinnerung ihre Behandlungen (refIds). Passt eine nicht mehr dazu (anderes Ende, anderes Mittel, keine
+   Wartezeit, gelöscht), scheidet sie aus; bleibt keine übrig, entfällt die Erinnerung. Ein neues Ende bekommt eine eigene.
+   Erledigte Erinnerungen bleiben, wie sie sind. Ältere Sammel-Erinnerungen ohne Liste erkennt die App an Mittel und Fälligkeit. */
+const WARTEZEIT_TITEL = 'Wartezeit endet: ';
+function wartezeitEnde(b) { const t = Number(b && b.wartezeitTage); return b && b.datum && t > 0 ? U.addDays(b.datum, Math.round(t)) : null; }
+function wartezeitSammelTitel(mittel, n) { return `${WARTEZEIT_TITEL}${mittel} (${n} ${n === 1 ? 'Volk' : 'Völker'})`; }
+const wartezeitGleichesMittel = (a, mittel) => String((a && a.titel) || '').startsWith(`${WARTEZEIT_TITEL}${mittel} (`);
+/** Erinnerungen, zu denen Behandlung b gehört: [{ a, mitglieder }] – mitglieder null bei der eigenen Erinnerung, sonst die übrigen Behandlungen. */
+function wartezeitAufgabenVon(d, b) {
+  const liste = (d.aufgaben || []).filter((a) => a.quelle === 'behandlung').sort((x, y) => (!!x.erledigt) - (!!y.erledigt));   // offene zuerst
+  const zugeordnet = new Set(liste.flatMap((a) => (a.refId ? [a.refId] : Array.isArray(a.refIds) ? a.refIds : [])));
+  const ende = wartezeitEnde(b), treffer = [];
+  let alteGefunden = false;
+  for (const a of liste) {
+    if (a.refId) { if (a.refId === b.id) treffer.push({ a, mitglieder: null }); continue; }
+    if (Array.isArray(a.refIds)) { if (a.refIds.includes(b.id)) treffer.push({ a, mitglieder: a.refIds.filter((x) => x !== b.id) }); continue; }
+    // Sammel-Erinnerung von vor dieser Fassung: höchstens eine, und nur für Behandlungen ohne eigene Zuordnung
+    if (alteGefunden || zugeordnet.has(b.id) || !ende || a.faellig !== ende || !wartezeitGleichesMittel(a, b.mittel)) continue;
+    alteGefunden = true;
+    treffer.push({ a, mitglieder: (d.behandlungen || []).filter((x) => x.id !== b.id && !zugeordnet.has(x.id) && x.mittel === b.mittel && wartezeitEnde(x) === ende).map((x) => x.id) });
+  }
+  return treffer;
+}
+/** Zählt die Völker im Titel einer Sammel-Erinnerung neu („(3 Völker)“ → „(2 Völker)“); ein selbst geänderter Titel bleibt. */
+const wartezeitTitelZahl = (titel, n) => String(titel || '').replace(/\(\d+ (Volk|Völker)\)$/, `(${n} ${n === 1 ? 'Volk' : 'Völker'})`);
+/** Aufträge für die Erinnerungen, wenn aus Behandlung `alt` die Behandlung `neu` wird (neu = null: gelöscht). */
+function wartezeitAufgabenPlan(d, alt, neu, zielText = '') {
+  const ops = [], endeNeu = wartezeitEnde(neu);
+  const titelNeu = neu ? `${WARTEZEIT_TITEL}${neu.mittel} (${zielText})` : '';
+  const treffer = wartezeitAufgabenVon(d, alt);
+  let bleibt = false;
+  for (const { a, mitglieder } of treffer) {
+    // Die eigene gehört über refId dazu, die Sammel-Erinnerung über das Mittel im Titel
+    const passt = !!endeNeu && a.faellig === endeNeu && (!mitglieder || wartezeitGleichesMittel(a, neu.mittel));
+    if (a.erledigt) { if (passt) bleibt = true; continue; }   // erledigt ist erledigt
+    if (!mitglieder) {   // eigene Erinnerung: anpassen bzw. entfernen
+      if (!endeNeu) { ops.push({ op: 'del', store: 'aufgaben', id: a.id }); continue; }
+      bleibt = true;
+      if (a.faellig === endeNeu && a.titel === titelNeu) continue;
+      const obj = { ...a, titel: titelNeu, faellig: endeNeu, volkId: neu.zielTyp === 'volk' ? neu.zielId : null };
+      if (neu.zielTyp !== alt.zielTyp || neu.zielId !== alt.zielId) { delete obj.kontext; delete obj.standId; }   // neuer Bezug: aufgabenAbgleich merkt ihn sich neu
+      ops.push({ store: 'aufgaben', obj });
+      continue;
+    }
+    if (passt) { bleibt = true; continue; }   // gehört weiter zur Sammel-Erinnerung
+    ops.push(mitglieder.length ? { store: 'aufgaben', obj: { ...a, refIds: mitglieder, titel: wartezeitTitelZahl(a.titel, mitglieder.length) } } : { op: 'del', store: 'aufgaben', id: a.id });
+  }
+  /* Eine eigene Erinnerung entsteht, wenn die Behandlung eine hatte, die nicht mehr passt, oder wenn Ende bzw. Mittel neu sind.
+     Hatte sie keine (selbst gelöscht, importiert) und es ändert sich nur z. B. der Tierarzt, kommt auch keine dazu. */
+  const neuesEnde = endeNeu && (endeNeu !== wartezeitEnde(alt) || neu.mittel !== alt.mittel);
+  if (endeNeu && !bleibt && (treffer.length || neuesEnde)) ops.push({ store: 'aufgaben', obj: { titel: titelNeu, faellig: endeNeu, erledigt: false, quelle: 'behandlung', refId: neu.id, volkId: neu.zielTyp === 'volk' ? neu.zielId : null, notiz: '' } });
+  return ops;
+}
+/** Wiederhergestellte Behandlung: Erinnerung zurück, sofern keine mehr zu ihr gehört – in eine offene Sammel-Erinnerung mit
+    gleichem Mittel und gleichem Ende, sonst als eigene. */
+function wartezeitAufgabeWiederPlan(d, b, zielText = '') {
+  const ende = wartezeitEnde(b);
+  if (!ende || wartezeitAufgabenVon(d, b).length) return [];
+  const gruppe = (d.aufgaben || []).find((a) => a.quelle === 'behandlung' && !a.erledigt && Array.isArray(a.refIds) && a.faellig === ende && wartezeitGleichesMittel(a, b.mittel));
+  if (gruppe) { const refIds = [...gruppe.refIds, b.id]; return [{ store: 'aufgaben', obj: { ...gruppe, refIds, titel: wartezeitTitelZahl(gruppe.titel, refIds.length) } }]; }
+  return [{ store: 'aufgaben', obj: { titel: `${WARTEZEIT_TITEL}${b.mittel} (${zielText})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: b.id, volkId: b.zielTyp === 'volk' ? b.zielId : null, notiz: '' } }];
 }
 
 /** Verdrahtet Stand-/Funktions-Filter + „Alle/Keine“ + Live-Zähler auf einem
@@ -11107,11 +11491,13 @@ async function kontaktForm(c, { typ, onSaved, oeko = false } = {}) {
     ],
     values: c ? { ...c, bio: kontaktIstBio(c) ? 'ja' : 'nein' } : { ...(typ ? { typ } : {}), bio: oeko ? 'ja' : 'nein' },
     async onSave(v) {
+      // Vor der Änderung: alten Rechnungen ohne Schnappschuss die bisherige Anschrift festhalten (Fund 04.11.2026, #2/#21)
+      if (c) await migriereRechnungSchnappschuss();
       const gespeichert = await DB.put('kontakte', Object.assign(c || {}, v));
       UI.toast('Kontakt gespeichert');
       if (onSaved) await onSaved(gespeichert); else renderRoute();
     },
-    onDelete: papierkorbDelete('kontakte', c, 'Kontakt löschen?', 'Wandert in den Papierkorb.'),
+    onDelete: c ? () => kontaktLoeschen(c) : null,
   });
   // Zertifikat öffnen / in der EU-Datenbank suchen
   const auf = $('[data-oeko-open]', m.el);
@@ -11126,6 +11512,20 @@ async function kontaktForm(c, { typ, onSaved, oeko = false } = {}) {
   const anhangZone = $('[data-kontakt-anhang]', m.el);
   if (anhangZone && c) anhangZone.appendChild(Anhang.section({ parentTyp: 'kontakt', parentId: c.id, arten: ['dokument', 'foto'], titel: 'Zertifikate und Begleitpapiere' }));
   return m;
+}
+/* Kontakt löschen (Fund 04.11.2026, #2/#21): Ausgestellte Rechnungen tragen jetzt ihren Empfänger selbst – ein gelöschter Kontakt
+   verändert sie nicht mehr. Die Rückfrage sagt, wie viele Rechnungen an den Kontakt gehen und was mit Entwürfen ist. Fehlt einer
+   alten Rechnung der Schnappschuss noch (z. B. gerade eingespielt), wird er vorher angelegt, solange der Kontakt noch da ist. */
+async function kontaktLoeschen(c) {
+  const re = (await DB.getAll('rechnungen')).filter((r) => r.kundeId === c.id);
+  const fest = re.filter((r) => r.status === 'festgeschrieben' || r.status === 'storniert').length, entw = re.filter((r) => r.status === 'entwurf').length;
+  const hinweis = (fest ? ` An „${c.name}“ ${fest === 1 ? 'geht 1 ausgestellte Rechnung. Sie behält' : `gehen ${fest} ausgestellte Rechnungen. Sie behalten`} Name und Anschrift, wie sie beim Festschreiben waren.` : '')
+    + (entw ? ` ${entw === 1 ? '1 Entwurf ist' : `${entw} Entwürfe sind`} an diesen Kontakt gerichtet – dort wählst du vor dem Festschreiben einen anderen Kunden.` : '');
+  if (!(await UI.confirm({ title: 'Kontakt löschen?', text: 'Wandert in den Papierkorb.' + hinweis }))) return false;
+  if (fest) await migriereRechnungSchnappschuss();
+  await loescheMitMaterial('kontakte', c);
+  UI.toast('In den Papierkorb verschoben');
+  renderRoute(); return true;
 }
 
 /** Hängt unter ein Kontakt-Auswahlfeld einen Knopf „Neuer Kunde". Der neue
@@ -11455,8 +11855,8 @@ Views.fuetterung = {
         /* Der Abzug gilt für alle Völker zusammen – jeder Datensatz merkt sich
            seinen Anteil, damit das Löschen einer einzelnen Fütterung genau
            diesen Anteil zurückgibt. */
-        for (const rec of angelegt) {
-          rec.verbrauchAbzug = abzugAnteil(buchung, n);
+        for (const [i, rec] of angelegt.entries()) {
+          rec.verbrauchAbzug = abzugAnteil(buchung, n, i);   // je Datensatz sein Teil, zusammen genau der Abzug (Fund 04.11.2026, #34)
           await DB.put('fuetterungen', rec);
         }
         let aufgaben = 0;
@@ -11918,9 +12318,13 @@ function wanderungPruefen({ vonStandId, nachStandId, volkIds }) {
     `erlaubteQuellen` (Liste von Stand-IDs) begrenzt den Umzug auf Völker, die noch auf einem
     dieser Stände stehen. Beim Bearbeiten sind das der Ausgangs-Stand und das bisherige Ziel –
     ein Volk, das inzwischen ganz woanders steht, wird so nie zurückgeholt.
-    Alle übrigen Volk-Daten (Königin, Beutentyp, Stockkarte …) bleiben unberührt. */
-async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, nachName, erlaubteQuellen) {
+    Alle übrigen Volk-Daten (Königin, Beutentyp, Stockkarte …) bleiben unberührt.
+    `nachtrag` ({ wanderung, bearbeitet, spaeter: [] }): die gespeicherte Wanderung. Hat ein Volk danach noch einmal den Stand
+    gewechselt (spätere Wanderung oder Stand-Wechsel im Volk), bestimmt sie nicht mehr seinen heutigen Stand – es bleibt,
+    wo es steht, und sein Name kommt in `spaeter` (Fund 04.11.2026, #20). */
+async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, nachName, erlaubteQuellen, nachtrag = null) {
   const quellen = erlaubteQuellen && erlaubteQuellen.length ? new Set(erlaubteQuellen) : null;
+  const andere = nachtrag && nachtrag.wanderung ? await DB.getAll('wanderungen') : [];
   let bewegt = 0;
   const text = `Gewandert: „${vonName}“ → „${nachName}“`;
   for (const id of volkIds) {
@@ -11930,6 +12334,13 @@ async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, na
     // Ein Volk ohne Stand (z. B. weil sein Stand gelöscht wurde) darf immer mitwandern.
     // Nur wer bewusst auf einem anderen Stand steht, bleibt unangetastet.
     if (quellen && volk.standId && !quellen.has(volk.standId)) continue;
+    /* Nachgetragene oder bearbeitete ältere Wanderung (Fund 04.11.2026, #20): W1 20.04. Heim → Raps, W2 05.06. Raps → Heim,
+       das Volk steht wieder in Heim – also auf einer erlaubten Quelle. Ohne diese Prüfung setzte das Ergänzen eines
+       vergessenen Volks in W1 es zurück auf Raps, und alle Meldungen danach nannten Raps. */
+    if (nachtrag && nachtrag.wanderung && spaetererStandWechsel(volk, { ...nachtrag.wanderung, datum }, andere, nachtrag.bearbeitet)) {
+      (nachtrag.spaeter = nachtrag.spaeter || []).push(volk.name || 'Volk');
+      continue;
+    }
     volk.standId = nachStandId;
     volk.historie = volk.historie || [];
     if (!volk.historie.some((h) => h.datum === datum && h.text === text)) volk.historie.push({ datum, text });
@@ -11937,6 +12348,17 @@ async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, na
     bewegt++;
   }
   return bewegt;
+}
+/** Hat das Volk nach dieser Wanderung noch einmal den Stand gewechselt? Dann bestimmt sie nicht seinen heutigen Stand
+    (Fund 04.11.2026, #20). Zählt wie standAmStichtag: andere Wanderungen mit diesem Volk und Stand-Wechsel aus seiner
+    Historie (standNach). Am selben Tag gibt es keine Uhrzeit: Eine andere Wanderung zählt als später, wenn sie später
+    erfasst wurde (createdAt); ein Stand-Wechsel im Volk nur beim Bearbeiten – beim Anlegen war er schon vorher da. */
+function spaetererStandWechsel(volk, w, wanderungen, bearbeitet) {
+  const tag = String(w.datum || '');
+  if (!tag) return false;
+  const wanderung = (wanderungen || []).some((x) => x.id !== w.id && (x.volkIds || []).includes(volk.id) && x.datum && x.nachStandId
+    && (x.datum > tag || (x.datum === tag && String(x.createdAt || '') > String(w.createdAt || ''))));
+  return wanderung || (volk.historie || []).some((h) => 'standNach' in h && h.datum && (h.datum > tag || (bearbeitet && h.datum === tag)));
 }
 
 Views.wanderungen = {
@@ -12034,8 +12456,13 @@ Views.wanderungen = {
           // Das bisherige Ziel zählt nur dann als erlaubte Quelle, wenn der Ausgangs-Stand
           // unverändert blieb. Sonst würde ein Stand-Wechsel fremde Völker mitverschleppen.
           const quellen = w && v.vonStandId === vonUrspruenglich ? [v.vonStandId, zielVorher].filter(Boolean) : [v.vonStandId];
-          const bewegt = nurMetadaten ? 0 : await wanderungVoelkerUmziehen(v.volkIds, v.nachStandId, v.datum, vonName, nachName, quellen);
-          UI.toast(bewegt ? `Wanderung gespeichert · ${bewegt} ${bewegt === 1 ? 'Volk' : 'Völker'} stehen jetzt auf „${nachName}“` : 'Wanderung gespeichert');
+          // Völker, die danach schon wieder den Stand gewechselt haben, bleiben, wo sie stehen (Fund 04.11.2026, #20)
+          const nachtrag = { wanderung: rec, bearbeitet: !!w, spaeter: [] };
+          const bewegt = nurMetadaten ? 0 : await wanderungVoelkerUmziehen(v.volkIds, v.nachStandId, v.datum, vonName, nachName, quellen, nachtrag);
+          const n = nachtrag.spaeter.length;
+          const spaeterText = !n ? '' : n === 1 ? ` · „${nachtrag.spaeter[0]}“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.`
+            : ` · ${n} Völker bleiben, wo sie stehen: Sie haben danach schon wieder den Stand gewechselt.`;
+          UI.toast((bewegt ? `Wanderung gespeichert · ${bewegt} ${bewegt === 1 ? 'Volk' : 'Völker'} stehen jetzt auf „${nachName}“` : 'Wanderung gespeichert') + spaeterText);
           renderRoute();
         },
         onDelete: papierkorbDelete('wanderungen', w, 'Wanderung löschen?', 'Wandert in den Papierkorb. Die Völker bleiben, wo sie stehen.'),
@@ -12702,7 +13129,22 @@ function papierkorbWiederherstellenPruefen(t, d) {
     const belegt = ernteBelegung(d.chargen, x.id);
     const andere = [...new Set((x.ernteIds || []).filter((id) => belegt.has(id)).map((id) => belegt.get(id)))];
     if (andere.length) throw new Error(`Die Charge${x.losnummer ? ' ' + x.losnummer : ''} lässt sich nicht wiederherstellen: ${andere.length === 1 ? 'Eine ihrer Ernten steckt' : 'Ihre Ernten stecken'} inzwischen in ${andere.length === 1 ? 'der Charge' : 'den Chargen'} ${andere.join(', ')}. Eine Ernte darf nur in einer Charge stehen. Nimm die Ernte dort heraus, dann versuch es noch einmal. Der Eintrag bleibt im Papierkorb.`);
+  } else if (t.store === 'inventar') {
+    /* Position (Fund 04.11.2026, Honig #4 Lohn-Teil): LOHN_KG zählt nur Lohn-Zugänge, deren Position es gibt. Kommt sie zurück,
+       gilt ihr Honig wieder als abgegeben – war die Charge inzwischen neu abgefüllt, wäre sie überbucht. */
+    const jeCharge = new Map();
+    for (const z of d.materialzugaenge || []) if (z.inventarId === x.id && z.lohn && z.chargeId && Number(z.honigKg) > 0) jeCharge.set(z.chargeId, (jeCharge.get(z.chargeId) || 0) + Number(z.honigKg));
+    for (const [chargeId, kg] of jeCharge) lohnHonigPruefen(d, chargeId, kg, `Die Position „${x.bezeichnung || 'Material'}“`);
   }
+}
+/** Reicht der Honig im Eimer für lose abgegebenen Honig (Lohnverarbeitung), der beim Wiederherstellen wieder zählt? Wirft sonst.
+    Charge endgültig gelöscht: nichts zu prüfen (keine Menge, die sich überbuchen ließe). */
+function lohnHonigPruefen(d, chargeId, kg, wer) {
+  const c = (d.chargen || []).find((y) => y.id === chargeId);
+  if (!c) return;
+  const kgAbf = (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000;
+  const rest = Math.round(((Number(c.mengeKg) || 0) - U.sum((d.abfuellungen || []).filter((y) => y.chargeId === c.id), kgAbf) - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+  if (kg > rest + 0.0001) throw new Error(`${wer} lässt sich nicht wiederherstellen: Dafür wurden ${U.fmtNum(kg, 2)} kg Honig aus der Charge${c.losnummer ? ' ' + c.losnummer : ''} zur Verarbeitung abgegeben, frei ${rest > 0 ? `sind dort nur noch ${U.fmtNum(rest, 2)} kg` : 'ist dort nichts mehr'}. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.`);
 }
 /**
  * Formular „Eigenverbrauch / Verlust · Honig“ – aus dem Kassenbuch, dem Bestand, der Charge oder zum Bearbeiten.
@@ -16027,7 +16469,8 @@ Views.bio = {
     $$('[data-mv]', box).forEach((b) => { b.onclick = async () => {
       if (Lizenz.nurVoll('Der Hygieneplan')) return;
       const x = offen[+b.dataset.mv]; b.disabled = true;
-      await DB.put('bioeintraege', { bereich: 'massnahmen', datum: heute, bereich_: x.bereich_, massnahme: x.massnahme, frist: x.frist || U.addDays(heute, 14), erledigt: '', notiz: '', quelleKey: x.key });
+      try { await DB.put('bioeintraege', { bereich: 'massnahmen', datum: heute, bereich_: x.bereich_, massnahme: x.massnahme, frist: x.frist || U.addDays(heute, 14), erledigt: '', notiz: '', quelleKey: x.key }); }
+      catch (err) { b.disabled = false; return fehlerMelden(err, 'Das Übernehmen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16) sonst blieb der Knopf gesperrt
       UI.toast('In den Maßnahmenplan übernommen'); renderRoute();
     }; });
   },
@@ -16259,7 +16702,9 @@ Views.bio = {
       <div class="flex-wrap no-print mb12" style="gap:8px"><button class="btn btn-primary btn-sm" data-ohne>${icon('check')} Kontrolle heute: kein Befund</button></div>`;
     $('[data-ohne]', box).onclick = async () => {
       if (Lizenz.nurVoll('Der Hygieneplan')) return;
-      const e = await DB.put('bioeintraege', { bereich: 'schaedlinge', datum: U.todayIso(), befall: 'nein', verantwortlich: (letzte && letzte.verantwortlich) || '' });
+      let e;
+      try { e = await DB.put('bioeintraege', { bereich: 'schaedlinge', datum: U.todayIso(), befall: 'nein', verantwortlich: (letzte && letzte.verantwortlich) || '' }); }
+      catch (err) { return fehlerMelden(err, 'Die Kontrolle ließ sich nicht speichern. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16)
       UI.toast('Gebucht: Kontrolle heute, kein Befund', 'ok', { text: 'Rückgängig', fn: async () => { await DB.del('bioeintraege', e.id); renderRoute(); } });
       renderRoute();
     };
@@ -17947,10 +18392,10 @@ async function kassenbuchVerknuepft(k) {
   const bereichName = (typ) => (KASSE_BEREICHE.find(([key]) => key === lagerBereichVon(typ)) || [])[1] || 'Lager';
   const z = zug.find((x) => x.kassenbuchId === k.id);
   if (z) return { text: `${z.lohn ? 'Lohnverarbeitung' : 'Einkauf'} „${z.bezeichnung}“ (+${U.fmtNum(z.menge, 2)} ${z.einheit || ''}) im Bereich ${bereichName(z.typ)}`, folge: z.lohn && z.honigKg > 0 ? ` Der abgegebene Honig (${U.fmtNum(z.honigKg, 1)} kg) kommt zur Charge zurück.` : '',
-    loeschen: async () => { await zugangZurueckbuchen(z, { kasse: true }); await DB.softDel('materialzugaenge', z.id); } };
+    loeschen: async () => { await zugangZurueckbuchen(z, { kasse: true, loeschen: true }); } };
   const a = abg.find((x) => x.kassenbuchId === k.id);
   if (a) return { text: `Verkauf „${a.bezeichnung}“ (${U.fmtNum(a.menge, 2)} ${a.einheit || ''}) im Bereich ${bereichName(a.typ)}`, folge: '',
-    loeschen: async () => { await abgangZurueckbuchen(a, { kasse: true }); await DB.softDel('materialabgaenge', a.id); } };
+    loeschen: async () => { await abgangZurueckbuchen(a, { kasse: true, loeschen: true }); } };
   const v = vk.find((x) => x.kassenbuchId === k.id);
   /* (Fund 04.11.2026) Ist die Abfüllung endgültig gelöscht, storniert verkaufStornieren ohne Rückbuchung – das soll
      der Hinweis danach auch sagen. Liegt sie im Papierkorb, wirft es mit Erklärung (Meldung über den Mülleimer bzw. das Wischen). */
@@ -17964,6 +18409,11 @@ async function kassenbuchVerknuepft(k) {
 }
 /** Löschen einer Kassenbuch-Buchung: gehört sie zu einem Bereich, wird gefragt, ob der Eintrag dort auch gelöscht werden soll. */
 async function kassenbuchLoeschen(k) {
+  // Buchung einer ausgestellten Rechnung: nur über das Storno der Rechnung (Fund 04.11.2026, #3/#25)
+  if (k && k.rechnungId) {
+    const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'));
+    if (sperre) { UI.toast(sperre, 'err'); return false; }
+  }
   const vk = await kassenbuchVerknuepft(k);
   if (!vk) return papierkorbDelete('kassenbuch', k, 'Buchung löschen?', 'Wandert in den Papierkorb (30 Tage).')();
   const w = await frageJaNein({ titel: 'Buchung löschen?', ja: 'Auch dort löschen', nein: 'Nur im Kassenbuch löschen',
@@ -18064,7 +18514,9 @@ Views.kassenbuch = {
     const kName = kFilter ? ((kontakte.get(kFilter) || {}).name || 'Kontakt') : '';
     const nachBereich = bFilter ? imJahr.filter((k) => kassenBereich(k, bMap) === bFilter) : imJahr;
     const list = kFilter ? nachBereich.filter((k) => k.kontaktId === kFilter) : nachBereich;
-    const wegListe = bFilter ? weg.filter((a) => lagerBereichVon(a.typ) === bFilter) : weg;
+    /* Mit Kontakt-Filter nur Zeilen dieses Kontakts (Fund 04.11.2026, #36): Vorher standen alle 0-€-Abgänge des Jahres dabei –
+       Verlust, Eigenverbrauch, Honig-Abgänge haben gar keinen Kontakt. */
+    const wegListe = (bFilter ? weg.filter((a) => lagerBereichVon(a.typ) === bFilter) : weg).filter((a) => !kFilter || a.kontaktId === kFilter);
     const ein = U.sum(list.filter((k) => k.typ === 'einnahme'), (k) => k.betrag);
     const aus = U.sum(list.filter((k) => k.typ === 'ausgabe'), (k) => k.betrag);
     const kbSeite = seitenweise('kassenbuch', U.sortBy([...list.map((k) => ({ k, d: k.datum || '' })), ...wegListe.map((a) => ({ a, d: a.datum || '' }))], (x) => x.d, true));
@@ -18143,6 +18595,11 @@ Views.kassenbuch = {
   },
   async form(k, vorgabe) {
   if (Lizenz.nurVoll('Das Kassenbuch')) return;
+    // Buchung einer ausgestellten Rechnung lässt sich nicht von Hand ändern (Fund 04.11.2026, #3/#25)
+    if (k && k.rechnungId) {
+      const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'));
+      if (sperre) return UI.toast(sperre, 'err');
+    }
     const kontakte = await DB.getAll('kontakte');
     const beschrOpts = await gelernteWerte([], 'kassenbuch', 'beschreibung');
     // Bestehende Kategorie erhalten, auch wenn sie nicht (mehr) in der Standardliste steht –
@@ -18364,6 +18821,76 @@ function naechsteRechnungsnummer(kreis, rechnungen) {
 
 /** Steuerart einer Rechnung, mit Rückwärtskompatibilität zum alten booleschen kleinunternehmer-Feld. */
 function rechnungSteuerart(r) { return r.steuerart || (r.kleinunternehmer ? 'klein' : 'regel'); }
+/* Empfänger und Absender einer ausgestellten Rechnung (Fund 04.11.2026, #2/#21): Beides las das PDF bei jedem Druck neu aus
+   dem Kontakt und den Einstellungen. Eine festgeschriebene Rechnung zeigte so nach einer Adressänderung die neue Anschrift, nach
+   dem Löschen des Kontakts „(kein Kunde ausgewählt)“ und nach einer neuen Steuernummer diese – die App ist aber das einzige
+   Archiv der Rechnung. Deshalb hält das Festschreiben beides als Schnappschuss an der Rechnung fest; PDF, Liste und Excel
+   nehmen ihn. Entwürfe lesen weiter live. Kontakte haben kein Feld für eine USt-IdNr., beim Empfänger gibt es deshalb keine.
+   Die Bio-Logos (Bilder) und das eigene Logo bleiben aus den Einstellungen – festgehalten werden die Textangaben samt Code der
+   Kontrollstelle. */
+const RECHNUNG_EMPFAENGER_FELDER = ['name', 'strasse', 'plz', 'ort'];
+const RECHNUNG_ABSENDER_FELDER = ['name', 'strasse', 'plz', 'ort', 'telefon', 'email', 'bundesland', 'registriernummer', 'ustIdNr', 'steuernummer', 'bio', 'bioKontrollstelle', 'bioVerbandJN', 'bioVerband'];
+/** Kopie der genannten Felder; jedes Feld steht drin (leer als ''), damit ein später gesetzter Wert nicht durchscheint. */
+function rechnungSchnappschuss(quelle, felder) {
+  const s = {};
+  for (const f of felder) { const v = quelle ? quelle[f] : undefined; s[f] = Array.isArray(v) ? [...v] : (v ?? ''); }
+  return s;
+}
+/** Setzt fehlende Schnappschüsse einer ausgestellten Rechnung (Empfänger nur, wenn es den Kontakt gibt). true = geändert. */
+function rechnungSchnappschussErgaenzen(r, kontakt, imk) {
+  let neu = false;
+  if (!r.absender) { r.absender = rechnungSchnappschuss(imk, RECHNUNG_ABSENDER_FELDER); neu = true; }
+  if (!r.empfaenger && kontakt) { r.empfaenger = rechnungSchnappschuss(kontakt, RECHNUNG_EMPFAENGER_FELDER); neu = true; }
+  return neu;
+}
+/** Imkerei-Angaben aus den in einer Transaktion gelesenen Einstellungen (sonst der geladene Stand). */
+function imkereiAusSaetzen(settings) { const s = (settings || []).find((x) => x.key === 'imkerei'); return (s && s.value) || S.get('imkerei') || {}; }
+/** Absender einer Rechnung: bei ausgestellten der Schnappschuss (Logos weiter aus den Einstellungen), sonst die Einstellungen. */
+function rechnungAbsender(r, imk = S.get('imkerei') || {}) { return r && r.absender ? { ...imk, ...r.absender } : imk; }
+/** Empfänger: Schnappschuss der ausgestellten Rechnung, sonst der Kontakt (null = keiner). */
+function rechnungEmpfaenger(r, kontakt) { return (r && r.empfaenger) || kontakt || null; }
+/** Kundenname für Liste, Ansicht und Excel ('' = keiner). */
+function rechnungKundeName(r, kontakte) { const e = rechnungEmpfaenger(r, kontakte && kontakte.get(r.kundeId)); return (e && e.name) || ''; }
+/* Einmalig je Rechnung (Fund 04.11.2026, #2/#21): Rechnungen, die vor dieser Version festgeschrieben wurden, haben noch keinen
+   Schnappschuss. Er entsteht aus dem heutigen Stand – einen besseren gibt es nicht. Ein gelöschter Kontakt wird aus dem
+   Papierkorb gelesen; ist er endgültig weg, bleibt es beim bisherigen Platzhalter, und der nächste Lauf versucht es erneut
+   (kommt der Kontakt über eine Sicherung zurück, wird er dann übernommen). Läuft beim Start – nicht beim Einspielen, das bleibt
+   eine genaue Kopie –, dazu direkt bevor ein Kontakt oder die eigenen Angaben geändert oder ein Kontakt gelöscht wird. Ändert
+   nur Rechnungen ohne Schnappschuss, deshalb kein Merker. */
+async function migriereRechnungSchnappschuss() {
+  // Meist ist nichts zu tun – dann ohne Schreibsperre gleich weiter (der Start soll nicht warten)
+  const fehlt = (r) => (r.status === 'festgeschrieben' || r.status === 'storniert') && (!r.absender || (!r.empfaenger && r.kundeId));
+  if (!(await DB.getAll('rechnungen')).some(fehlt)) return 0;
+  return DB.aendereAtomar(['rechnungen', 'kontakte', 'papierkorb'], (d) => {
+    const imk = imkereiAusSaetzen(d.settings);
+    const kontakte = new Map(d.kontakte.map((k) => [k.id, k]));
+    for (const t of d.papierkorb) if (t.store === 'kontakte' && t.daten && t.daten.id && !kontakte.has(t.daten.id)) kontakte.set(t.daten.id, t.daten);
+    const ops = [];
+    for (const r of d.rechnungen) {
+      if (r.status !== 'festgeschrieben' && r.status !== 'storniert') continue;
+      if (rechnungSchnappschussErgaenzen(r, r.kundeId ? kontakte.get(r.kundeId) : null, imk)) ops.push({ store: 'rechnungen', obj: r, auto: true });
+    }
+    return { ops, wert: ops.length };
+  });
+}
+/* Kassenbuch-Buchungen einer Rechnung (Fund 04.11.2026, #3/#25): Die Einnahme „Rechnung RE-…“ und die Storno-Gegenbuchung ließen
+   sich wie freie Buchungen löschen und ändern. Dann zeigte die Rechnungsliste 120 €, das Kassenbuch 0 €, und ein späteres
+   Storno ergab −120 €. Korrigiert wird eine ausgestellte Rechnung nur über ihr Storno. */
+/** Saldo aller Kassenbuch-Zeilen einer Rechnung (Einnahme positiv). */
+function rechnungKassenSaldo(rechnungId, kassenbuch) {
+  return U.sum((kassenbuch || []).filter((k) => k.rechnungId === rechnungId), (k) => (k.typ === 'ausgabe' ? -1 : 1) * (Number(k.betrag) || 0));
+}
+/** Darf diese Buchung gelöscht oder geändert werden? Meldung, wenn nicht – sonst null. Bei einer stornierten Rechnung bleiben
+    Einnahme und Storno stehen, solange sie sich aufheben. Heben sie sich nicht auf (alte Daten: eine der beiden wurde früher
+    gelöscht), bleibt die übrige Zeile änderbar – sonst bliebe das Kassenbuch für immer falsch. */
+function rechnungBuchungSperre(k, rechnungen, kassenbuch) {
+  if (!k || !k.rechnungId) return null;
+  const r = (rechnungen || []).find((x) => x.id === k.rechnungId);
+  if (!r) return null;
+  if (r.status === 'festgeschrieben') return `Diese Buchung gehört zur Rechnung ${r.nummer}. Storniere stattdessen die Rechnung.`;
+  if (r.status === 'storniert' && Math.abs(rechnungKassenSaldo(r.id, kassenbuch)) < 0.005) return `Diese Buchung gehört zur Rechnung ${r.nummer}, die schon storniert ist. Einnahme und Storno heben sich auf und bleiben deshalb beide stehen.`;
+  return null;
+}
 /** Pflicht-/Rechtshinweis unter dem Rechnungsbetrag (null = Regelbesteuerung, dort nur die USt-Zeilen). */
 function rechnungHinweis(r) {
   const art = rechnungSteuerart(r);
@@ -18513,23 +19040,40 @@ async function rechnungEntwurfSpeichern(neu, erwartet) {
     return { ops: [{ store: 'rechnungen', obj: kopie }], wert: kopie };
   });
 }
+const STORNO_RE_ABF_IM_PAPIERKORB = 'Eine Abfüllung dieser Rechnung liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.';
+/** Rechnung stornieren. Ergebnis: false = war schon storniert, sonst { abfuellungFehlt, ohneGegenbuchung } für den Hinweis danach. */
 async function rechnungStornieren(id) {
-  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch'], (d) => {
+  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
     const r = d.rechnungen.find((x) => x.id === id);
     if (!r || r.status === 'storniert') return { ops: [], wert: false };
     if (r.status !== 'festgeschrieben') throw new Error('Nur eine festgeschriebene Rechnung kann storniert werden.');
+    const imKorb = (store, pruef) => d.papierkorb.some((t) => t.store === store && t.daten && pruef(t.daten));
     const ops = [], geaendert = new Map();
+    let abfuellungFehlt = false;
     for (const p of r.positionen) if (p.abfuellungId) {
       const a = geaendert.get(p.abfuellungId) || d.abfuellungen.find((x) => x.id === p.abfuellungId);
-      if (!a) throw new Error('Eine Abfüllung fehlt. Bitte zuerst wiederherstellen; nichts wurde storniert.');
+      /* Fehlende Abfüllung (Fund 04.11.2026, #6): Bisher scheiterte das Storno dann immer mit „zuerst wiederherstellen“ – nach dem
+         endgültigen Löschen ging das nie mehr, die Rechnung blieb für immer festgeschrieben. Wie bei verkaufStornieren: Liegt sie
+         im Papierkorb, erst sie wiederherstellen (sonst kämen die Gläser nie in ihren Bestand zurück). Ist sie endgültig weg, gibt
+         es keinen Bestand mehr – dann ohne Rückbuchung stornieren und das danach sagen. */
+      if (!a) {
+        if (imKorb('abfuellungen', (x) => x.id === p.abfuellungId)) throw new Error(STORNO_RE_ABF_IM_PAPIERKORB);
+        abfuellungFehlt = true; continue;
+      }
       a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(p.menge, 'Menge');
       geaendert.set(a.id, a);
     }
     for (const a of geaendert.values()) ops.push({ store: 'abfuellungen', obj: a });
-    const { brutto } = rechnungSummen(r);
-    ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -brutto, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
+    /* Gegenbuchung nur über das, was zu dieser Rechnung wirklich im Kassenbuch steht (Fund 04.11.2026, #3/#25). Vorher immer
+       −Brutto – fehlte die Einnahme (früher frei löschbar), ergab das −120 € statt 0 €. Normalfall: die Einnahme steht da,
+       gebucht wird genau −Brutto. Fehlt sie und liegt im Papierkorb: erst wiederherstellen. Ist sie endgültig weg: keine
+       Gegenbuchung, das Kassenbuch steht für diese Rechnung schon auf 0. */
+    const saldo = rechnungKassenSaldo(r.id, d.kassenbuch);
+    const ohneGegenbuchung = saldo < 0.005;
+    if (ohneGegenbuchung && imKorb('kassenbuch', (x) => x.rechnungId === r.id)) throw new Error(`Die Einnahme zur Rechnung ${r.nummer} liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.`);
+    if (!ohneGegenbuchung) ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -saldo, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
     r.status = 'storniert'; ops.push({ store: 'rechnungen', obj: r });
-    return { ops, wert: true };
+    return { ops, wert: { abfuellungFehlt, ohneGegenbuchung } };
   });
 }
 Views.rechnungen = {
@@ -18545,7 +19089,7 @@ Views.rechnungen = {
         return `<button class="row" data-id="${U.esc(r.id)}">
           <span class="r-ic">${icon('rechnung')}</span>
           <span class="r-main"><span class="r-title">${r.nummer ? U.esc(r.nummer) : 'Entwurf'} <span class="badge ${statusBadge[r.status]}">${U.esc(r.status)}</span></span>
-          <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(kontakte.get(r.kundeId)?.name || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
+          <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(rechnungKundeName(r, kontakte) || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('rechnungen', list).knopf : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
     const add = async () => {
@@ -18559,6 +19103,7 @@ Views.rechnungen = {
     main.addEventListener('click', (e) => { const b = e.target.closest('.row[data-id]'); if (b) navTo('rechnung/' + b.dataset.id); });
   },
 };
+const RECHNUNG_KUNDE_FEHLT = 'Der Kunde dieser Rechnung ist gelöscht. Wähle einen Kunden aus oder stell ihn aus dem Papierkorb wieder her. Nichts wurde festgeschrieben.';
 Views.rechnung = {
   title: 'Rechnung',
   async render(main, id) {
@@ -18588,7 +19133,7 @@ Views.rechnung = {
               <select class="inp" id="r-kunde" style="flex:1 1 160px;min-width:0"><option value="">– wählen –</option>${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
               <button class="btn btn-ghost btn-sm no-print" id="r-kunde-neu" style="flex:0 0 auto">${icon('plus')} Neuer Kunde</button></div>
             <div class="hint">Neuen Kunden gleich hier anlegen – er wird sofort für diese Rechnung übernommen.</div>`
-            : `<div class="kpill">${U.esc(kunden.find((k) => k.id === r.kundeId)?.name || '–')}</div>`}</div>
+            : `<div class="kpill">${U.esc((rechnungEmpfaenger(r, kunden.find((k) => k.id === r.kundeId)) || {}).name || '–')}</div>`}</div>
           <div class="field"><label>Rechnungsdatum</label>${entwurf ? `<input class="inp" type="date" id="r-datum" value="${U.esc(r.datum)}">` : `<div class="kpill">${U.fmtDate(r.datum)}</div>`}</div>
           <div class="field"><label>Liefer-/Leistungsdatum</label>${entwurf
             ? `<input class="inp" type="date" id="r-lieferdatum" value="${U.esc(r.lieferdatum || '')}">
@@ -18689,8 +19234,13 @@ Views.rechnung = {
     if (st) st.onclick = async () => {
       if (Lizenz.nurVoll('Rechnungen')) return;
       if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: 'Der Honigbestand wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
-      try { await rechnungStornieren(r.id); UI.toast('Rechnung storniert'); renderRoute(); }
-      catch (e) { UI.toast(e.message, 'err'); }
+      try {
+        const erg = await rechnungStornieren(r.id);
+        // Was nicht ging, sagt der Hinweis dazu (Fund 04.11.2026, #6 und #3/#25)
+        const zusatz = [erg && erg.abfuellungFehlt ? 'Die Gläser konnten nicht zurück in den Bestand, weil ihre Abfüllung endgültig gelöscht ist.' : '',
+          erg && erg.ohneGegenbuchung ? 'Im Kassenbuch wurde nichts gegengebucht, weil dort keine Einnahme zu dieser Rechnung mehr steht.' : ''].filter(Boolean).join(' ');
+        UI.toast('Rechnung storniert' + (zusatz ? '. ' + zusatz : '')); renderRoute();
+      } catch (e) { fehlerMelden(e, 'Das Stornieren hat nicht geklappt. Bitte noch einmal versuchen.'); }
     };
     $('#pdf').onclick = () => Pdf.rechnung(r.id);
   },
@@ -18753,6 +19303,9 @@ Views.rechnung = {
     const vorab = await DB.get('rechnungen', r.id);
     if (!vorab || vorab.status !== 'entwurf' || vorab.nummer) return UI.toast('Diese Rechnung ist bereits festgeschrieben oder nicht mehr vorhanden.', 'err');
     if (!r.kundeId) { springeZuElement($('#r-kunde')); return UI.toast('Bitte zuerst einen Kunden wählen', 'err'); }
+    /* Gelöschter Kunde (Fund 04.11.2026, #2/#21): Das Auswahlfeld zeigte „– wählen –“, die Rechnung bekam trotzdem eine Nummer –
+       ohne Empfänger. */
+    if (!(await DB.get('kontakte', r.kundeId))) { springeZuElement($('#r-kunde')); return UI.toast(RECHNUNG_KUNDE_FEHLT, 'err'); }
     if (!r.positionen.length) { springeZuElement($('#addPos')); return UI.toast('Die Rechnung hat keine Positionen', 'err'); }
     const vorBestand = await DB.getAll('abfuellungen'), vorMengen = new Map();
     for (const p of r.positionen) if (p.abfuellungId) vorMengen.set(p.abfuellungId, (vorMengen.get(p.abfuellungId) || 0) + Number(p.menge));
@@ -18762,11 +19315,13 @@ Views.rechnung = {
     }
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
     try {
-      const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings'], (d) => {
+      const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings', 'kontakte'], (d) => {
         const aktuell = d.rechnungen.find((x) => x.id === r.id);
         if (!aktuell || aktuell.status !== 'entwurf' || aktuell.nummer) throw new Error('Diese Rechnung ist nicht mehr als Entwurf vorhanden. Bitte erneut öffnen.');
         if (JSON.stringify(aktuell) !== JSON.stringify(r)) throw new Error('Die Rechnung wurde inzwischen geändert. Bitte erneut öffnen und prüfen.');
         if (!aktuell.kundeId) throw new Error('Bitte zuerst einen Kunden wählen.');
+        const kunde = d.kontakte.find((x) => x.id === aktuell.kundeId);
+        if (!kunde) throw new Error(RECHNUNG_KUNDE_FEHLT);
         if (!aktuell.positionen.length) throw new Error('Die Rechnung hat keine Positionen.');
         const gebraucht = new Map();
         for (const p of aktuell.positionen) {
@@ -18792,6 +19347,8 @@ Views.rechnung = {
         const { brutto } = rechnungSummen(aktuell);
         if (!Number.isFinite(brutto)) throw new Error('Der Rechnungsbetrag ist ungültig.');
         aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
+        // Empfänger und Absender festhalten, wie sie jetzt sind – das PDF druckt sie später genau so (Fund 04.11.2026, #2/#21)
+        rechnungSchnappschussErgaenzen(aktuell, kunde, imkereiAusSaetzen(d.settings));
         ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } },
           { store: 'rechnungen', obj: aktuell });
         const kreisSatz = S.satz(kreisVorher, 'rechnungskreis', kreis);
@@ -18991,7 +19548,7 @@ async function renderInventarBereich(main, cfg) {
   if (pfandPosten.length) {
     const abfAlle = await DB.getAll('abfuellungen');
     const bewegungen = U.sortBy(await DB.getAll('pfandbewegungen'), (b) => b.datum, true);
-    const umlauf = pfandPosten.map((i) => ({ pos: i, u: pfandUmlauf(i, abfAlle, bewegungen) }));
+    const umlauf = pfandPosten.map((i) => ({ pos: i, u: pfandUmlauf(i, abfAlle, bewegungen, pfandPosten) }));   // jede Abfüllung nur einmal (Fund 04.11.2026, #29)
     const offenGesamt = U.sum(umlauf, (r) => r.u.offen);
     const letzte = bewegungen.filter((b) => b.typ === cfg.typ).slice(0, 8);
     main.insertAdjacentHTML('beforeend', `<div class="card mt16" id="inv-pfand">
@@ -19058,6 +19615,15 @@ async function renderInventarBereich(main, cfg) {
   const ab2 = $('#abgang2', main); if (ab2) ab2.onclick = abgangOeffnen;
   const abPdf = $('#abgang-pdf', main); if (abPdf) abPdf.onclick = () => Pdf.materialAbgaenge(abgangJahr, cfg.typ, cfg.titel);
   const pdfBtn = $('#pdf', main); if (pdfBtn) pdfBtn.onclick = () => Pdf.inventar(jahr, art, cfg.typ, cfg.titel);
+  /* Löschen einer Position, von der Einträge abgezogen haben (Fund 04.11.2026, #4/#24): vorher sagen, was das heißt. Solange sie
+     im Papierkorb liegt, lassen sich diese Einträge nicht ändern oder löschen (ihr Bestand käme sonst nie zurück); ist sie
+     endgültig gelöscht, geht es wieder – nur ohne Rückbuchung. */
+  const positionLoeschText = async (i) => {
+    if (!i) return 'Wandert in den Papierkorb.';
+    const [fue, beh, abf] = await Promise.all(['fuetterungen', 'behandlungen', 'abfuellungen'].map((st) => DB.getAll(st)));
+    const n = [...fue, ...beh, ...abf].filter((x) => (x.verbrauchAbzug || []).some((a) => a.inventarId === i.id)).length;
+    return 'Wandert in den Papierkorb.' + (n ? ` ${n} ${n === 1 ? 'Eintrag (Fütterung, Behandlung oder Abfüllung) hat' : 'Einträge (Fütterung, Behandlung oder Abfüllung) haben'} davon abgezogen. Solange die Position im Papierkorb liegt, lassen sich diese Einträge nicht ändern oder löschen – stell sie dafür wieder her.` : '');
+  };
   /* Nur noch BEARBEITEN: angelegt wird über „Zugang / Einkauf" (Julian: „neue
      position weg, alle funktionen von neue position ersetzen mit Zugang /
      einkauf"). Damit lebt die Einkaufs-Buchung an einer einzigen Stelle. */
@@ -19132,8 +19698,13 @@ async function renderInventarBereich(main, cfg) {
       v.packEinheit = mitPackung ? aussen : '';
       v.inhaltMenge = mitPackung ? inhalt : 0;
       const gesamt = mitPackung ? gezaehlt * inhalt : gezaehlt;
+      /* Packungszahl unverändert (Fund 04.11.2026, #27): Das Feld zeigt den Bestand auf 0,01 Packung gerundet, zurückgerechnet
+         wurde daraus – schon beim bloßen Ändern von MHD oder Notiz wurden aus 147,4 kg im Sack à 25 kg „5,9 Sack“ = 147,5 kg.
+         Steht noch genau der angezeigte Wert da und Packung und Einheiten sind gleich, bleibt der gespeicherte Bestand. */
+      const unveraendert = i && mitPackung && inPackungen(i) && inhalt === Number(i.inhaltMenge) && aussen === String(i.packEinheit || '').trim()
+        && innen === verbrauchEinheit(i) && Math.abs(gezaehlt - bestandInPackungen(i)) < 0.0000001;
       // nur Stückgut wird gerundet – kg, Liter, ml dürfen Kommastellen haben
-      v.stueckzahl = v.einheit === 'Stück' ? Math.round(gesamt) : Math.round(gesamt * 1000) / 1000;
+      v.stueckzahl = unveraendert ? verbrauchBestand(i) : (v.einheit === 'Stück' ? Math.round(gesamt) : Math.round(gesamt * 1000) / 1000);
       delete v._bestand;
       v.gebindeG = gebindeGrammAus(v.gebindeG);      // „500 g" / „0,5 kg" → Gramm
       if (!v._hatMhd) v.ablauf = null;               // Häkchen weg heißt: kein MHD, auch kein altes
@@ -19151,7 +19722,7 @@ async function renderInventarBereich(main, cfg) {
       UI.toast('Gespeichert');
       pruefeMhd(); renderRoute();
     },
-    onDelete: papierkorbDelete('inventar', i, 'Position löschen?', 'Wandert in den Papierkorb.'),
+    onDelete: papierkorbDelete('inventar', i, 'Position löschen?', await positionLoeschText(i)),
   }), false);
   /* Der Knopf im Leerzustand führt ins Zugangs-Formular: dort legt man die
      Position an UND bucht, was man gekauft hat – in einem Schritt. */
@@ -19274,7 +19845,10 @@ async function aufgabeWidgetAbhaken(inp) {
   const a = await DB.get('aufgaben', inp.dataset.wcheck);
   if (!a) { UI.toast('Diese Aufgabe gibt es nicht mehr.', 'err'); return renderRoute({ scrollBehalten: true }); }
   a.erledigt = !!inp.checked;
-  await DB.put('aufgaben', a); Notif.check();
+  // Scheitert das Speichern (Fund 04.11.2026, #16): Häkchen zurück, wieder antippbar, Grund zeigen – sonst blieb es gesperrt und gesetzt
+  try { await DB.put('aufgaben', a); }
+  catch (err) { inp.checked = !inp.checked; inp.disabled = false; return fehlerMelden(err, 'Das Abhaken hat nicht geklappt. Bitte noch einmal versuchen.'); }
+  Notif.check();
   let dlg = null, zurueck = false;
   UI.toast(a.erledigt ? `Erledigt: ${a.titel}` : `Wieder offen: ${a.titel}`, 'ok', a.erledigt ? { text: 'Rückgängig', fn: async () => {
     zurueck = true;   // falls die Startseite noch neu zeichnet: danach KEINE Dauer-Abfrage mehr öffnen (Durchsicht v2.99)
@@ -19561,8 +20135,12 @@ Views.aufgaben = {
         // Light: Abhaken gehört zur Vollversion (Julian 26.10.2026) – Häkchen zurück, Kauf-Fenster
         if (Lizenz.nurVoll('Aufgaben und Erinnerungen')) { chk.checked = !chk.checked; return; }
         const a = all.find((x) => x.id === chk.dataset.check);
+        /* Scheitert das Speichern (Fund 04.11.2026, #16), Häkchen zurück und Grund zeigen – vorher blieb es sichtbar gesetzt, obwohl nichts gespeichert war */
+        const vorher = a.erledigt;
         a.erledigt = chk.checked;
-        await DB.put('aufgaben', a); Notif.check(); renderRoute();
+        try { await DB.put('aufgaben', a); }
+        catch (err) { a.erledigt = vorher; chk.checked = !chk.checked; return fehlerMelden(err, 'Das Abhaken hat nicht geklappt. Bitte noch einmal versuchen.'); }
+        Notif.check(); renderRoute();
         if (a.erledigt && !a.zeitMinuten) zeitDialog(a); // Zeiterfassung beim Erledigen
         return;
       }
@@ -21184,7 +21762,13 @@ function selbstkostenGlas(e) {
 Views.rechner = {
   title: 'Imker-Rechner',
   async render(main) {
-    const aktiveV = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
+    const aktivAlle = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
+    const aktiveV = aktivAlle.length;
+    /* Selbstkosten je Glas rechnen mit Wirtschaftsvölkern (LWG-Modell) – wie Kassenbuch-Auswertung und Ernteprognose
+       (ernteprognoseBasis, /^Wirtschaftsvolk/, ohne Funktion = Wirtschaftsvolk). Vorher zählten Begattungsvölker und
+       Ableger mit: 10 + 8 + 2 ergaben 20 statt 10, die Fixkosten je kg halbierten sich (Fund 04.11.2026, #37).
+       Futter-, Varroa- und die übrigen Rechner brauchen weiter alle aktiven Völker. */
+    const wirtschaftsV = aktivAlle.filter((v) => /^Wirtschaftsvolk/.test(v.funktion || 'Wirtschaftsvolk')).length;
     const grp = (l) => `<div class="rk-grp">${l}</div>`;
     const skGrp = (l) => `<div class="small muted mt16 mb8" style="font-weight:600;text-transform:uppercase;letter-spacing:.5px;font-size:11px">${l}</div>`;
     const rk = (ic, label, desc, body) => `<div class="rk-section"><button class="rk-head" type="button"><span class="rk-ic">${icon(ic)}</span><span class="rk-info"><span class="rk-label">${label}</span><span class="rk-desc">${desc}</span></span><span class="rk-chev">▶</span></button><div class="rk-body" style="display:none">${body}</div></div>`;
@@ -21196,7 +21780,7 @@ Views.rechner = {
         `<div class="small muted mb12">Alle Zahlen sind Vorbelegungen und überschreibbar. Aufbau und Vorbelegung nach dem Kalkulationsmodell der LWG Veitshöchheim (Stand 12.03.2026).</div>
         ${skGrp('Betrieb & Ertrag')}
         <div class="grid2">
-          <div class="field"><label>Anzahl Wirtschaftsvölker</label><input class="inp rk" data-sk="voelker" inputmode="numeric" value="${aktiveV || 6}"></div>
+          <div class="field"><label>Anzahl Wirtschaftsvölker</label><input class="inp rk" data-sk="voelker" inputmode="numeric" value="${wirtschaftsV || 6}"></div>
           <div class="field"><label>Honigertrag (kg je Volk und Jahr)</label><input class="inp rk" data-sk="ertragKg" inputmode="decimal" value="35">
             <span class="small muted">Ø 38,4 kg (DEBIMO 2010–2024)</span></div>
           <div class="field"><label>Gebindegröße (g)</label><input class="inp rk" data-sk="gebindeG" inputmode="decimal" value="500"></div>
@@ -21575,7 +22159,9 @@ function verdrahteEinheit(m, istNeu, lieferanten) {
         teile.push(`${U.fmtEur(proPack)} je ${U.esc(a)} = <b>${U.fmtEur(jeEinheit)} je ${U.esc(b)}</b>`);
       }
       const stueckpreis = U.parseNum(preis ? preis.value : '') || 0;
-      if (gesamt > 0 && stueckpreis > 0) teile.push(`Warenwert <b>${U.fmtEur(gesamt * stueckpreis)}</b>`);
+      // Mit Packungspreis: was bezahlt wurde (Packungen × Packungspreis), nicht Menge × gerundeter Stückpreis (Fund 04.11.2026, #35)
+      const warenwert = jeEinheit !== null ? anzahl * proPack : gesamt * stueckpreis;   // beim Speichern gewinnt der Packungspreis
+      if (gesamt > 0 && warenwert > 0) teile.push(`Warenwert <b>${U.fmtEur(warenwert)}</b>`);
       teile.push(`<span class="muted">Verbraucht wird in ${U.esc(b)} – Fütterung, Behandlung und Abfüllen ziehen davon ab.</span>`);
     } else {
       const stueckpreis = U.parseNum(preis ? preis.value : '') || 0;
@@ -21735,10 +22321,11 @@ function lagerBewertung(pos, zugaenge) {
   };
 }
 
-/** Kosten eines Zugangs – nur ein Einkauf kostet Geld. */
+/** Kosten eines Zugangs – nur ein Einkauf kostet Geld. Steht ein Gesamtbetrag am Zugang (Lohnverarbeitung, Kauf mit
+    Packungspreis – Fund 04.11.2026, #35), gilt der; sonst Menge × Preis. */
 function zugangKosten(rec) {
   if (!rec || rec.art !== 'Einkauf') return 0;
-  if (rec.lohn && Number(rec.kostenGesamt) > 0) return Math.round(Number(rec.kostenGesamt) * 100) / 100;
+  if (Number(rec.kostenGesamt) > 0) return Math.round(Number(rec.kostenGesamt) * 100) / 100;
   return Math.round((Math.max(0, Number(rec.menge) || 0) * Math.max(0, Number(rec.preis) || 0)) * 100) / 100;
 }
 
@@ -21758,22 +22345,122 @@ function frageJaNein({ titel, text, ja, nein }) {
 /** Die Kassenbuch-Buchung zu einem Datensatz – oder null, wenn es keine (mehr) gibt. */
 async function kasseBuchungZu(kassenbuchId) { return kassenbuchId ? ((await DB.get('kassenbuch', kassenbuchId)) || null) : null; }
 
-/** Nimmt einen gebuchten Zugang zurück – für Bearbeiten und Löschen. Abgezogen
-    wird genau das, was damals draufgekommen ist. */
-async function zugangZurueckbuchen(rec, { kasse = true } = {}) {
-  if (!rec) return;
-  const drauf = Math.max(0, (Number(rec.bestandNachher) || 0) - (Number(rec.bestandVorher) || 0));
-  if (drauf > 0) await verbrauchAbziehen(rec.inventarId, drauf, { pruefen: false });
-  const kosten = zugangKosten(rec);
-  if (!kasse) return;
-  if (rec.kassenbuchId) {
-    try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
-  } else if (kosten > 0) {
-    const treffer = (await DB.getAll('kassenbuch')).find((k) => k.typ === 'ausgabe' && k.datum === rec.datum
-      && Math.abs((Number(k.betrag) || 0) - kosten) < 0.005
-      && String(k.beschreibung || '').includes(String(rec.bezeichnung || '')));
-    if (treffer) await DB.softDel('kassenbuch', treffer.id);
+/* ---------------------------------------------------------------------
+   Lagerbelege: Zugang, Abgang, Pfand-Rücknahme (Fund 04.11.2026, #1/#18/#19)
+
+   Jeder dieser Belege hat den Bestand einer Position verändert: der Zugang um
+   bestandNachher − bestandVorher nach oben, der Abgang um bestandVorher −
+   bestandNachher nach unten, die Pfand-Rücknahme um ihre Anzahl nach oben.
+   Zurücknehmen (Ändern, Löschen) und Wiederherstellen buchen genau diese Wirkung
+   – in EINER Transaktion mit der Kassenbuch-Buchung und dem Papierkorb.
+
+   Nie unter 0: Ist von einem Zugang schon etwas verbraucht, lässt er sich nicht
+   mehr ganz zurücknehmen. Vorher wurde still auf 0 gekappt – das vernichtete
+   Bestand aus anderen Einkäufen, und beim Ändern entstand Bestand aus nichts
+   (Zucker 25 kg gekauft, 20 verfüttert, nur den Preis geändert → 25 statt 5 kg).
+   --------------------------------------------------------------------- */
+const LAGER_BELEGE = ['materialzugaenge', 'materialabgaenge', 'pfandbewegungen'];
+/** Wirkung eines Lagerbelegs auf den Bestand seiner Position: + kam ins Lager, − ging hinaus. */
+function lagerWirkung(store, x) {
+  if (store === 'materialabgaenge') return -Math.max(0, (Number(x.bestandVorher) || 0) - (Number(x.bestandNachher) || 0));
+  if (store === 'pfandbewegungen') return Math.max(0, Number(x.anzahl) || 0);
+  return Math.max(0, (Number(x.bestandNachher) || 0) - (Number(x.bestandVorher) || 0));
+}
+const lagerRunden = (pos, n) => verbrauchEinheit(pos) === 'Stück' ? Math.round(n) : Math.round(n * 1000) / 1000;
+/** Meldung, wenn eine Rücknahme mehr abziehen müsste, als im Bestand ist. */
+function lagerReichtNichtText(pos, braucht, da) {
+  const e = verbrauchEinheit(pos);
+  return `Von „${pos.bezeichnung || 'Material'}“ sind nur noch ${U.fmtNum(da, 2)} ${e} im Bestand – zurücknehmen müsste die App ${U.fmtNum(braucht, 2)} ${e}. `
+    + 'Der Rest ist schon verbraucht oder abgegeben (Fütterung, Behandlung, Abfüllung oder Abgang). Lösch oder ändere zuerst diese Einträge. Soll nur der Bestand stimmen, buche stattdessen einen Abgang „Korrektur“. Nichts wurde geändert.';
+}
+/** Bestand einer Position in einer laufenden Transaktion um `delta` ändern. Fehlt die Position: im Papierkorb → Fehler,
+    endgültig gelöscht → null (es gibt keinen Bestand mehr). Reicht der Bestand für einen Abzug nicht, wirft `reichtNicht()`. */
+function lagerBuchen(d, inventarId, delta, geaendert, { bezeichnung = '', reichtNicht = (pos, braucht, da) => new Error(lagerReichtNichtText(pos, braucht, da)) } = {}) {
+  const pos = d.inventar.find((p) => p.id === inventarId);
+  if (!delta) return pos ? { pos, vorher: verbrauchBestand(pos), nachher: verbrauchBestand(pos) } : null;   // nichts zu buchen – auch ohne Position kein Fehler
+  if (!pos) {
+    if (materialImPapierkorb(d, inventarId)) throw new Error(`Die Position „${bezeichnung || 'Material'}“ liegt im Papierkorb. Stell sie zuerst wieder her, dann geht es hier weiter – sonst stimmte ihr Bestand danach nicht. Nichts wurde geändert.`);
+    return null;
   }
+  const vorher = verbrauchBestand(pos);
+  if (vorher + delta < -0.0000001) throw reichtNicht(pos, -delta, vorher);
+  pos.stueckzahl = Math.max(0, lagerRunden(pos, vorher + delta));
+  geaendert.set(pos.id, pos);
+  return { pos, vorher, nachher: pos.stueckzahl };
+}
+/** Die Kassenbuch-Buchung eines Belegs in den Papierkorb – über die gemerkte Nummer, bei Altdaten über `altSuche`. */
+function lagerKasseAuftraege(d, x, altSuche) {
+  const k = x.kassenbuchId ? d.kassenbuch.find((y) => y.id === x.kassenbuchId) : (altSuche ? d.kassenbuch.find(altSuche) : null);
+  return k ? papierkorbAuftraege('kassenbuch', k) : [];
+}
+
+/** Nimmt einen gebuchten Zugang zurück – für Bearbeiten und Löschen. Abgezogen
+    wird genau das, was damals draufgekommen ist, nie mehr als im Bestand ist
+    (Fund 04.11.2026, #18). Eine Transaktion für Bestand, Kassenbuch und Papierkorb.
+    `loeschen`: der Zugang wandert mit in den Papierkorb.
+    `neu` ({ inventarId, menge }): Bearbeiten – die neue Menge wird gleich gebucht. Auf derselben Position zählt nur der
+    Unterschied: ein schon verbrauchter Teil bleibt verbraucht. Gibt dann { vorher, nachher } für den Datensatz zurück
+    (vorher = Bestand ohne diesen Zugang; kann negativ sein, wenn mehr verbraucht ist, als ohne ihn da gewesen wäre). */
+async function zugangZurueckbuchen(rec, { kasse = true, loeschen = false, neu = null } = {}) {
+  if (!rec) return null;
+  return DB.aendereAtomar(['inventar', 'materialzugaenge', 'kassenbuch', 'papierkorb'], (d) => {
+    const frisch = rec.id ? d.materialzugaenge.find((y) => y.id === rec.id) : null;
+    if (rec.id && !frisch && loeschen) return { ops: [], wert: null };   // schon gelöscht (z. B. in einem anderen Fenster)
+    if (rec.id && !frisch && neu) throw new Error('Dieser Zugang wurde inzwischen gelöscht. Bitte die Ansicht neu öffnen; nichts wurde geändert.');
+    const x = frisch || rec;
+    const drauf = lagerWirkung('materialzugaenge', x), geaendert = new Map();
+    const reichtNicht = (pos, braucht, da) => (neu ? feldFehler('menge', lagerReichtNichtText(pos, braucht, da)) : new Error(lagerReichtNichtText(pos, braucht, da)));
+    let buchung = null;
+    const pos = neu && neu.inventarId === x.inventarId ? d.inventar.find((p) => p.id === x.inventarId) : null;
+    if (pos) {
+      const bestand = verbrauchBestand(pos), basis = Math.round((bestand - drauf) * 1000) / 1000, roh = basis + Math.max(0, Number(neu.menge) || 0);
+      if (roh < -0.0000001) throw reichtNicht(pos, drauf - Math.max(0, Number(neu.menge) || 0), bestand);
+      pos.stueckzahl = Math.max(0, lagerRunden(pos, roh));
+      geaendert.set(pos.id, pos);
+      buchung = { vorher: basis, nachher: pos.stueckzahl };
+    } else {
+      lagerBuchen(d, x.inventarId, -drauf, geaendert, { bezeichnung: x.bezeichnung, reichtNicht });
+      if (neu) {
+        const b = lagerBuchen(d, neu.inventarId, Math.max(0, Number(neu.menge) || 0), geaendert);
+        buchung = b && { vorher: b.vorher, nachher: b.nachher };
+      }
+    }
+    const kosten = zugangKosten(x);
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
+    if (kasse) ops.push(...lagerKasseAuftraege(d, x, kosten > 0 ? (k) => k.typ === 'ausgabe' && k.datum === x.datum
+      && Math.abs((Number(k.betrag) || 0) - kosten) < 0.005 && String(k.beschreibung || '').includes(String(x.bezeichnung || '')) : null));
+    if (loeschen && frisch) ops.push(...papierkorbAuftraege('materialzugaenge', frisch));
+    return { ops, wert: neu ? buchung : x };
+  });
+}
+
+/** Aus dem Papierkorb: Zugang, Abgang oder Pfand-Rücknahme mit ihrer Kassenbuch-Buchung zurückholen und den Bestand erneut
+    buchen (Fund 04.11.2026, #1/#19) – auch, wenn die Kassenbuch-Buchung angeklickt wurde (wie beim Verkauf). Abgang: nur,
+    wenn der Bestand noch reicht. Lohn-Zugang: nur, wenn der Honig dafür noch in der Charge ist. Gibt null zurück, wenn der
+    Eintrag kein Lagerbeleg ist (eigenständige Kassenbuch-Buchung → allgemeiner Weg). */
+async function lagerPapierkorbWiederherstellen(trashId) {
+  return DB.aendereAtomar(['papierkorb', 'inventar', 'kassenbuch', ...LAGER_BELEGE, 'chargen', 'abfuellungen', 'honigabgaenge'], (d) => {
+    const angeklickt = d.papierkorb.find((t) => t.id === trashId);
+    if (!angeklickt) return { ops: [], wert: { bereitsErledigt: true } };
+    const t = LAGER_BELEGE.includes(angeklickt.store) ? angeklickt
+      : d.papierkorb.find((y) => LAGER_BELEGE.includes(y.store) && y.daten && y.daten.kassenbuchId && y.daten.kassenbuchId === (angeklickt.daten || {}).id);
+    if (!t) return { ops: [], wert: null };
+    const x = t.daten;
+    if (!x || !x.id) throw new Error('Der Papierkorb-Eintrag ist beschädigt. Bitte die Ansicht neu öffnen.');
+    if (d[t.store].some((y) => y.id === x.id)) throw new Error('Ein Datensatz mit dieser Kennung ist bereits vorhanden. Er wurde nicht überschrieben.');
+    // Die Buchung kommt mit, wenn sie im Papierkorb liegt; steht sie noch im Kassenbuch („Nur hier löschen“), bleibt sie, wie sie ist
+    const k = x.kassenbuchId ? d.papierkorb.find((y) => y.store === 'kassenbuch' && y.daten && y.daten.id === x.kassenbuchId) : null;
+    if (k && d.kassenbuch.some((y) => y.id === x.kassenbuchId)) throw new Error('Die Kassenbuch-Buchung dazu ist bereits vorhanden. Bitte die Buchungen prüfen; nichts wurde geändert.');
+    if (t.store === 'materialzugaenge' && x.lohn && x.chargeId && Number(x.honigKg) > 0 && d.inventar.some((p) => p.id === x.inventarId)) {
+      if (d.papierkorb.some((y) => y.store === 'chargen' && y.daten && y.daten.id === x.chargeId)) throw new Error('Die Charge zu dieser Lohnverarbeitung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann den Zugang. Nichts wurde geändert.');
+      lohnHonigPruefen(d, x.chargeId, Number(x.honigKg), `Der Zugang „${x.bezeichnung || 'Lohnverarbeitung'}“`);
+    }
+    const geaendert = new Map();
+    lagerBuchen(d, x.inventarId, lagerWirkung(t.store, x), geaendert, { bezeichnung: x.bezeichnung,
+      reichtNicht: (pos, braucht, da) => new Error(`Material reicht nicht: ${pos.bezeichnung || 'Materialposten'} – ${U.fmtNum(braucht)} ${verbrauchEinheit(pos)} benötigt, ${U.fmtNum(da)} vorhanden. Bestand prüfen; der Eintrag bleibt im Papierkorb.`) });
+    return { ops: [...[...geaendert.values()].map((obj) => ({ store: 'inventar', obj })), { store: t.store, obj: x }, ...(k ? [{ store: 'kassenbuch', obj: k.daten }] : []),
+      { op: 'del', store: 'papierkorb', id: t.id }, ...(k ? [{ op: 'del', store: 'papierkorb', id: k.id }] : [])], wert: t };
+  });
 }
 
 /** Der EINE Weg, auf dem etwas ins Lager kommt – auch beim ersten Mal.
@@ -21923,6 +22610,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       const lohnKosten = lohnArt ? Math.round(Math.max(0, Number(v.kostenGesamt) || 0) * 100) / 100 : 0;
       let pos = istNeu ? null : posten.find((i) => i.id === v.inventarId);
       let menge = 0;
+      let packKosten = null;   // bezahlter Betrag bei Packungspreis (Fund 04.11.2026, #35)
       if (istNeu) {
         /* Steckbrief anlegen – gerechnet wie im Positions-Formular: gespeichert
            wird die INNERE Menge (kg, Stück), denn an ihr hängen alle Abzüge
@@ -21943,6 +22631,9 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         if (lohnArt) v.preis = gesamt > 0 ? Math.round((lohnKosten / gesamt) * 10000) / 10000 : 0;
         const jeEinheit = mitPackung && !lohnArt ? preisJeEinheit(inhalt, v.packPreis) : null;
         const preis = art === 'Einkauf' ? (jeEinheit !== null ? jeEinheit : Math.max(0, Number(v.preis) || 0)) : 0;
+        /* Bezahlt wurden Packungen × Packungspreis (Fund 04.11.2026, #35): Aus Menge × auf 4 Stellen gerundetem Stückpreis buchte
+           das Kassenbuch 5 Rollen à 1.000 Etiketten zu 12,99 € als 65,00 € statt 64,95 €. Der Betrag steht deshalb am Zugang. */
+        if (jeEinheit !== null && art === 'Einkauf') packKosten = Math.round(gezaehlt * Math.max(0, Number(v.packPreis) || 0) * 100) / 100;
         pos = await DB.put('inventar', {
           typ: cfg.typ, bezeichnung: name, kategorie: (v.kategorie || '').trim(),
           einheit, packEinheit: mitPackung ? aussen : '', inhaltMenge: mitPackung ? inhalt : 0,
@@ -21970,16 +22661,19 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         menge = Math.max(0, Number(v.menge) || 0);
         if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
         if (lohnArt) v.preis = Math.round((lohnKosten / menge) * 10000) / 10000;
+        // Bezahlter Betrag aus dem Packungspreis bleibt, solange Menge und Preis nicht geändert wurden (sonst neu: Menge × Preis)
+        else if (rec && !rec.lohn && Number(rec.kostenGesamt) > 0 && art === 'Einkauf' && menge === Number(rec.menge) && Math.max(0, Number(v.preis) || 0) === Number(rec.preis)) packKosten = Number(rec.kostenGesamt);
       }
-      if (rec) await zugangZurueckbuchen(rec);
-      const buchung = await verbrauchZugang(pos.id, menge, { pruefen: false });
+      /* Bearbeiten: alte Wirkung und neue Menge in EINER Buchung, geprüft (Fund 04.11.2026, #18) – vorher erst bis 0 gekappt
+         zurückgenommen, dann voll draufgebucht: Zucker 25 kg gekauft, 20 verfüttert, nur den Preis geändert → 25 statt 5 kg. */
+      const buchung = rec ? await zugangZurueckbuchen(rec, { neu: { inventarId: pos.id, menge } }) : await verbrauchZugang(pos.id, menge, { pruefen: false });
       const gespeichert = await DB.put('materialzugaenge', Object.assign(rec || {}, {
         inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, kategorie: pos.kategorie || '',
         einheit: verbrauchEinheit(pos), datum: v.datum, menge, art,
         preis: art === 'Einkauf' ? Math.max(0, Number(v.preis) || 0) : 0,
         kontaktId: art === 'Einkauf' ? ((lohnArt ? v.verarbeiterId : v.kontaktId) || null) : null,
         belegNr: art === 'Einkauf' ? (v.belegNr || '').trim() : '',
-        lohn: lohnArt, kostenGesamt: lohnArt ? lohnKosten : null,
+        lohn: lohnArt, kostenGesamt: lohnArt ? lohnKosten : packKosten,
         honigKg: lohnArt ? Math.max(0, Number(v.honigKg) || 0) : 0, chargeId: lohnArt ? (v.chargeId || null) : null,
         bestandVorher: buchung ? buchung.vorher : verbrauchBestand(pos),
         bestandNachher: buchung ? buchung.nachher : verbrauchBestand(pos),
@@ -22032,8 +22726,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         if (!w) return false;
         kasse = w === 'ja';
       } else if (!(await UI.confirm({ title: 'Zugang löschen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Löschen', danger: true }))) return false;
-      await zugangZurueckbuchen(rec, { kasse });
-      await DB.softDel('materialzugaenge', rec.id);
+      await zugangZurueckbuchen(rec, { kasse, loeschen: true });   // Bestand, Kassenbuch und Papierkorb in einer Buchung (Fund 04.11.2026, #18)
       UI.toast(kasse ? 'Zugang zurückgenommen – Bestand und Kassenbuch angepasst' : 'Zugang zurückgenommen – die Buchung bleibt im Kassenbuch');
       await pruefeMhd();
       renderRoute();
@@ -22085,7 +22778,10 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       const mitPack = jePack > 0 && aussen !== innen;
       const gesamt = mitPack ? anzahl * jePack : anzahl;
       const lohnK = Math.max(0, U.parseNum((feld('kostenGesamt') || {}).value) || 0);
-      const kosten = art === 'Lohnverarbeitung' ? Math.round(lohnK * 100) / 100 : (art === 'Einkauf' ? Math.round(gesamt * preis * 100) / 100 : 0);
+      // Mit Packungspreis wird gebucht, was bezahlt wurde: Packungen × Packungspreis (Fund 04.11.2026, #35) – wie beim Speichern
+      const packPreis = Math.max(0, U.parseNum((feld('packPreis') || {}).value) || 0);
+      const kosten = art === 'Lohnverarbeitung' ? Math.round(lohnK * 100) / 100
+        : (art === 'Einkauf' ? Math.round((mitPack && packPreis > 0 ? anzahl * packPreis : gesamt * preis) * 100) / 100 : 0);
       const kat = art === 'Lohnverarbeitung' ? 'Lohnverarbeitung' : kasseKategorieFuer((feld('kategorie') || {}).value || '');
       info.innerHTML = gesamt > 0
         ? `Neue Position mit <b>${U.fmtNum(gesamt, 2)} ${U.esc(mitPack ? innen : aussen)}</b> Anfangsbestand`
@@ -22130,20 +22826,22 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     Eine dazu gebuchte Kassenbuch-Einnahme wandert in den Papierkorb. Bei
     Datensätzen aus der Zeit vor `kassenbuchId` wird sie über Datum, Betrag und
     Bezeichnung gesucht – lieber gefunden als stehengelassen. */
-async function abgangZurueckbuchen(rec, { kasse = true } = {}) {
-  if (!rec) return;
-  const zurueck = Math.max(0, (Number(rec.bestandVorher) || 0) - (Number(rec.bestandNachher) || 0));
-  if (zurueck > 0) await verbrauchZugang(rec.inventarId, zurueck, { pruefen: false });
-  const erloes = abgangErloes(rec);
-  if (!kasse) return;
-  if (rec.kassenbuchId) {
-    try { await DB.softDel('kassenbuch', rec.kassenbuchId); } catch (e) { console.warn('Kassenbuch-Buchung nicht gefunden', e); }
-  } else if (erloes > 0) {
-    const treffer = (await DB.getAll('kassenbuch')).find((k) => (k.kategorie === 'Materialverkauf' || k.kategorie === 'Weitere Produkte')
-      && k.datum === rec.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005
-      && String(k.beschreibung || '').startsWith(String(rec.bezeichnung || '')));
-    if (treffer) await DB.softDel('kassenbuch', treffer.id);
-  }
+async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {}) {
+  if (!rec) return null;
+  /* Eine Transaktion für Bestand, Kassenbuch und (mit `loeschen`) Papierkorb (Fund 04.11.2026, #1/#19). Liegt die Position im
+     Papierkorb, erst sie wiederherstellen – vorher ging die Menge dann still verloren. */
+  return DB.aendereAtomar(['inventar', 'materialabgaenge', 'kassenbuch', 'papierkorb'], (d) => {
+    const frisch = rec.id ? d.materialabgaenge.find((y) => y.id === rec.id) : null;
+    if (rec.id && !frisch && loeschen) return { ops: [], wert: null };   // schon gelöscht
+    const x = frisch || rec, geaendert = new Map();
+    lagerBuchen(d, x.inventarId, -lagerWirkung('materialabgaenge', x), geaendert, { bezeichnung: x.bezeichnung });
+    const erloes = abgangErloes(x);
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
+    if (kasse) ops.push(...lagerKasseAuftraege(d, x, erloes > 0 ? (k) => (k.kategorie === 'Materialverkauf' || k.kategorie === 'Weitere Produkte')
+      && k.datum === x.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005 && String(k.beschreibung || '').startsWith(String(x.bezeichnung || '')) : null));
+    if (loeschen && frisch) ops.push(...papierkorbAuftraege('materialabgaenge', frisch));
+    return { ops, wert: x };
+  });
 }
 
 /** Formular für einen Abgang. cfg.typ begrenzt die Auswahl auf einen Bereich.
@@ -22228,8 +22926,7 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
         if (!w) return false;
         kasse = w === 'ja';
       } else if (!(await UI.confirm({ title: 'Abgang löschen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Löschen', danger: true }))) return false;
-      await abgangZurueckbuchen(rec, { kasse });
-      await DB.softDel('materialabgaenge', rec.id);
+      await abgangZurueckbuchen(rec, { kasse, loeschen: true });   // Bestand, Kassenbuch und Papierkorb in einer Buchung
       UI.toast(kasse ? 'Abgang zurückgenommen – Bestand und Kassenbuch angepasst' : 'Abgang zurückgenommen – die Buchung bleibt im Kassenbuch');
       await pruefeMhd();
       renderRoute();
@@ -22395,7 +23092,7 @@ function pfandPositionen(alle) {
 
 /** Umlauf einer Pfand-Position: verkauft, zurück, draußen, offene Pfandsumme.
     Reine Rechnung ohne Netz und Datenbank, damit sie prüfbar bleibt. */
-function pfandUmlauf(pos, abfuellungen, bewegungen) {
+function pfandUmlauf(pos, abfuellungen, bewegungen, allePfand = null) {
   const groesse = gebindeGrammAus(pos && pos.gebindeG);
   const pfand = Math.max(0, Number(pos && pos.pfand) || 0);
   const seit = (pos && pos.pfandSeit) || '';
@@ -22404,9 +23101,21 @@ function pfandUmlauf(pos, abfuellungen, bewegungen) {
 
      Und: nur Abfüllungen ab dem Tag, seit dem Pfand erhoben wird. Sonst zählt
      die App jedes Glas mit, das je verkauft wurde – bei einer Umstellung mitten
-     im Jahr käme eine Phantomzahl heraus (beim Prüfen: 190 statt 40). */
+     im Jahr käme eine Phantomzahl heraus (beim Prüfen: 190 statt 40).
+
+     Mehrere Pfand-Positionen derselben Größe (Fund 04.11.2026, #29): Jede zählte ALLE Abfüllungen dieser Größe, die
+     Summe stand doppelt da (2 × „Mehrwegglas 500 g“: 70 statt 30 beim Kunden). `allePfand` (alle Pfand-Positionen) gibt
+     jede Abfüllung genau EINER Position: der, von der ihre Gläser abgezogen wurden, sonst der ältesten, deren Pfand an
+     dem Tag schon galt. Ohne `allePfand` wie bisher (eine Position). */
+  const kandidaten = [...(allePfand || []).filter((p) => p && p.id !== (pos || {}).id), pos];
+  const gleicheGroesse = groesse ? U.sortBy(kandidaten.filter((p) => p && gebindeGrammAus(p.gebindeG) === groesse), (p) => `${p.pfandSeit || ''}|${p.id || ''}`) : [];
+  const besitzer = (a) => {
+    const aus = gleicheGroesse.find((p) => (a.verbrauchAbzug || []).some((x) => x.inventarId === p.id));
+    return aus || gleicheGroesse.find((p) => !p.pfandSeit || String(a.datum || '') >= p.pfandSeit) || null;
+  };
   const passend = groesse
-    ? (abfuellungen || []).filter((a) => gebindeGrammAus(a.gebindeG) === groesse && (!seit || String(a.datum || '') >= seit))
+    ? (abfuellungen || []).filter((a) => gebindeGrammAus(a.gebindeG) === groesse && (!seit || String(a.datum || '') >= seit)
+      && (gleicheGroesse.length < 2 || (besitzer(a) || {}).id === pos.id))
     : [];
   // Als Verlust oder Eigenverbrauch gebuchte Gebinde sind nicht beim Kunden (v3.00)
   const verkauft = U.sum(passend, (a) => Math.max(0, (Number(a.anzahl) || 0) - (Number(a.bestand) || 0) - glasAbgangVon(a.id)));
@@ -22419,16 +23128,20 @@ function pfandUmlauf(pos, abfuellungen, bewegungen) {
     bleibt als eigener Datensatz nachvollziehbar. */
 /** Nimmt eine Pfand-Rücknahme zurück: Gläser wieder vom Bestand ab, auf Wunsch auch die Erstattung aus dem Kassenbuch. */
 async function pfandRuecknahmeZurueck(b, { kasse = true } = {}) {
-  await verbrauchAbziehen(b.inventarId, b.anzahl, { pruefen: false });
-  if (kasse) {
-    if (b.kassenbuchId) { try { await DB.softDel('kassenbuch', b.kassenbuchId); } catch (err) { console.warn(err); } }
-    else if (b.betrag > 0) {
-      const treffer = (await DB.getAll('kassenbuch')).find((k) => k.kategorie === PFAND_KATEGORIE
-        && k.datum === b.datum && Math.abs((Number(k.betrag) || 0) - (Number(b.betrag) || 0)) < 0.005);
-      if (treffer) await DB.softDel('kassenbuch', treffer.id);
-    }
-  }
-  await DB.softDel('pfandbewegungen', b.id);
+  /* Nie mehr abziehen, als da ist (Fund 04.11.2026, #18): Gläser 0, Rücknahme 12 → 12, Abgang 12 → 0 – das Zurücknehmen
+     kappte bei 0 und „verschluckte“ die 12, ein späteres Löschen des Abgangs ergab dann 12 Gläser aus nichts. Jetzt eine
+     klare Meldung und eine Transaktion für Bestand, Kassenbuch und Papierkorb. */
+  return DB.aendereAtomar(['inventar', 'pfandbewegungen', 'kassenbuch', 'papierkorb'], (d) => {
+    const x = d.pfandbewegungen.find((y) => y.id === b.id);
+    if (!x) return { ops: [], wert: null };   // schon zurückgenommen
+    const geaendert = new Map();
+    lagerBuchen(d, x.inventarId, -lagerWirkung('pfandbewegungen', x), geaendert, { bezeichnung: x.bezeichnung });
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
+    if (kasse) ops.push(...lagerKasseAuftraege(d, x, Number(x.betrag) > 0 ? (k) => k.kategorie === PFAND_KATEGORIE
+      && k.datum === x.datum && Math.abs((Number(k.betrag) || 0) - (Number(x.betrag) || 0)) < 0.005 : null));
+    ops.push(...papierkorbAuftraege('pfandbewegungen', x));
+    return { ops, wert: x };
+  });
 }
 async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
   const posten = pfandPositionen((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ));
@@ -22443,7 +23156,7 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
     fields: [
       { key: 'inventarId', label: 'Welches Gebinde kommt zurück?', type: 'select', required: true, default: vorPositionId,
         options: posten.map((i) => {
-          const u = pfandUmlauf(i, abfuellungen, bewegungen);
+          const u = pfandUmlauf(i, abfuellungen, bewegungen, posten);
           return { v: i.id, l: `${i.bezeichnung} · ${U.fmtEur(u.pfand)} Pfand · ${U.fmtNum(u.draussen, 0)} draußen` };
         }) },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
@@ -22490,7 +23203,7 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
     const pos = posten.find((i) => i.id === (($('#f-inventarId', m.el) || {}).value));
     if (!pos || !info) return;
     const anzahl = Math.max(0, Math.round(U.parseNum(($('#f-anzahl', m.el) || {}).value) || 0));
-    const u = pfandUmlauf(pos, abfuellungen, bewegungen);
+    const u = pfandUmlauf(pos, abfuellungen, bewegungen, posten);
     const bestand = verbrauchBestand(pos);
     info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 0)}</b> → nach der Rücknahme <b>${U.fmtNum(bestand + anzahl, 0)}</b>`
       + (anzahl > 0 ? ` · Pfand <b>${U.fmtEur(anzahl * u.pfand)}</b> wird als Ausgabe gebucht` : '')
@@ -22514,18 +23227,32 @@ function verbrauchFelder(posten, { label = 'Vom Verbrauchsmaterial abziehen', hi
 }
 
 /** Verdrahtet den Live-Hinweis: was wird abgezogen, was bleibt übrig.
-    mengeFn() liefert die aktuell zu buchende Menge aus dem Formular. */
-function verdrahteVerbrauch(m, posten, mengeFn) {
+    mengeFn() liefert die aktuell zu buchende Menge aus dem Formular.
+    bisher (nur beim Bearbeiten einer Behandlung): { start, angeboten, menge, abzug } – dann nennt der Hinweis, was das
+    Speichern wirklich bucht: nur den Unterschied zur gespeicherten Menge (Fund 04.11.2026, #17). Vorher stand dort
+    „Kein Abzug – der Bestand bleibt unverändert“, während der Bestand stieg. */
+function verdrahteVerbrauch(m, posten, mengeFn, bisher = null) {
   const sel = $('#f-_verbrauchId', m.el), info = $('[data-verbrauch-info]', m.el);
   if (!sel || !info) return m;
+  const zurueckText = bisher ? (bisher.abzug || []).map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ') : '';
   const zeige = () => {
     const pos = posten.find((i) => i.id === sel.value);
-    if (!pos) { info.textContent = 'Kein Abzug – der Bestand bleibt unverändert.'; return; }
+    if (!pos) { info.textContent = zurueckText && bisher.angeboten ? `Kein Abzug mehr – ${zurueckText} gehen zurück in den Bestand.` : 'Kein Abzug – der Bestand bleibt unverändert.'; return; }
     const menge = Math.max(0, Number(mengeFn()) || 0);
     const bestand = verbrauchBestand(pos), e = verbrauchEinheit(pos);
+    if (bisher && pos.id === bisher.start) {
+      const diff = Math.round((menge - bisher.menge) * 1000) / 1000;
+      const weg = Math.min(-diff, U.sum(bisher.abzug || [], (a) => Number(a.menge) || 0));
+      if (diff > 0) info.innerHTML = `Schon abgezogen: ${U.esc(zurueckText)}. Dazu kommen <b>${U.fmtNum(diff, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(Math.max(0, bestand - diff), 2)} ${e}</b>`
+        + (diff > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(diff - bestand, 2)} ${e} fehlen)</span>` : '');
+      else if (diff < 0 && weg > 0) info.innerHTML = `<b>${U.fmtNum(weg, 2)} ${e}</b> gehen zurück in den Bestand → <b>${U.fmtNum(bestand + weg, 2)} ${e}</b>`;
+      else info.innerHTML = `Schon abgezogen: ${U.esc(zurueckText)}. Der Bestand bleibt bei <b>${U.fmtNum(bestand, 2)} ${e}</b>.`;
+      return;
+    }
     const rest = Math.max(0, bestand - menge);
     info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
-      + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '');
+      + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '')
+      + (zurueckText && bisher.angeboten ? `. Dafür gehen ${U.esc(zurueckText)} zurück in den Bestand.` : '');
   };
   sel.addEventListener('change', zeige);
   m.el.addEventListener('input', zeige);
@@ -22802,15 +23529,37 @@ async function verbrauchBuchen(v, menge) {
   return buchung;
 }
 
-/** Anteil eines Sammel-Abzugs für EINEN Datensatz. Bei einer Fütterung für
-    zwölf Völker trägt jeder Datensatz ein Zwölftel – dann gibt das Löschen
-    einer einzelnen Fütterung auch nur deren Anteil zurück. */
-function abzugAnteil(buchung, n) {
-  if (!buchung || !buchung.abzug.length || n < 1) return [];
-  return buchung.abzug.map((a) => ({ ...a, menge: Math.round((a.menge / n) * 1000) / 1000 }));
+/** Anteil eines Sammel-Abzugs für den Datensatz Nummer `i` (0 … n−1). Bei einer
+    Fütterung für zwölf Völker trägt jeder Datensatz ein Zwölftel – dann gibt das
+    Löschen einer einzelnen Fütterung auch nur deren Anteil zurück.
+    Verteilt nach dem größten Rest (Fund 04.11.2026, #34): Stück ganz, sonst auf
+    1 g/1 ml genau, und die Anteile aller n Datensätze ergeben zusammen GENAU den
+    Abzug. Vorher bekam jeder a.menge / n auf 3 Stellen: Apivar 5 Stück auf 3 Völker
+    = 3 × 1,667, und jedes Löschen rundete Stück auf ganze → 6 statt 5 zurück; 10 kg
+    auf 3 Völker kamen als 9,999 kg zurück. Bei der Kette (Karton A, dann B) bekommt
+    jeder Datensatz seinen Teil der Reihe nach – erst aus A, dann aus B. */
+function abzugAnteil(buchung, n, i = 0) {
+  if (!buchung || !buchung.abzug.length || n < 1 || i < 0 || i >= n) return [];
+  const faktor = buchung.abzug.every((a) => a.einheit === 'Stück') ? 1 : 1000;
+  const teile = buchung.abzug.map((a) => Math.round((Number(a.menge) || 0) * faktor));
+  const gesamt = teile.reduce((s, x) => s + x, 0);
+  const je = Math.floor(gesamt / n), extra = gesamt - je * n;   // die ersten `extra` Datensätze bekommen eine Einheit mehr
+  const von = i * je + Math.min(i, extra), bis = von + je + (i < extra ? 1 : 0);
+  const anteil = [];
+  let lauf = 0;
+  buchung.abzug.forEach((a, k) => {
+    const n2 = Math.max(0, Math.min(bis, lauf + teile[k]) - Math.max(von, lauf));
+    if (n2 > 0) anteil.push({ ...a, menge: n2 / faktor });
+    lauf += teile[k];
+  });
+  return anteil;
 }
 
 const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', honigabgaenge: 'Honig-Abgang', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', settings: 'Einstellung' };
+/** Zusatz zur Rückfrage beim endgültigen Löschen: welche Dateien mitgehen (Fund 04.11.2026, #9). */
+function papierkorbAnhangText(n) {
+  return n ? ` ${n === 1 ? 'Die zugehörige Datei (Foto, Sprachnotiz oder Beleg) wird' : `Die ${n} zugehörigen Dateien (Fotos, Sprachnotizen, Belege) werden`} mitgelöscht.` : '';
+}
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
@@ -22843,13 +23592,25 @@ Views.papierkorb = {
         } catch (err) { UI.toast(err.message || 'Wiederherstellen fehlgeschlagen – bitte erneut versuchen.', 'err'); }
         return;
       }
+      /* Endgültig löschen und Leeren nehmen die Fotos, Sprachnotizen und Belege des Eintrags mit (Fund 04.11.2026, #9) – das sagt
+         die Rückfrage. Scheitert das Löschen, steht der Grund da (#16), vorher blieb es still. */
       const kl = e.target.closest('[data-kill]');
-      if (kl && (await UI.confirm({ title: 'Endgültig löschen?', text: 'Dieser Eintrag kann danach NICHT mehr wiederhergestellt werden.', confirmText: 'Endgültig löschen' }))) { await DB.del('papierkorb', kl.dataset.kill); renderRoute(); }
+      if (kl) {
+        try {
+          const id = kl.dataset.kill;
+          const n = await DB.papierkorbAnhangZahl((t) => t.id === id);
+          if (!(await UI.confirm({ title: 'Endgültig löschen?', text: 'Dieser Eintrag kann danach NICHT mehr wiederhergestellt werden.' + papierkorbAnhangText(n), confirmText: 'Endgültig löschen' }))) return;
+          await DB.papierkorbEndgueltig((t) => t.id === id); renderRoute();
+        } catch (err) { fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }
+      }
     });
     const emp = $('#empty');
     if (emp) emp.onclick = async () => {
-      if (!(await UI.confirm({ title: 'Papierkorb leeren?', text: `Alle ${list.length} Einträge werden ENDGÜLTIG gelöscht.`, confirmText: 'Alles löschen' }))) return;
-      await DB.clear('papierkorb'); renderRoute();
+      try {
+        const n = await DB.papierkorbAnhangZahl(() => true);
+        if (!(await UI.confirm({ title: 'Papierkorb leeren?', text: `Alle ${list.length} Einträge werden ENDGÜLTIG gelöscht.` + papierkorbAnhangText(n), confirmText: 'Alles löschen' }))) return;
+        await DB.papierkorbEndgueltig(() => true); renderRoute();
+      } catch (err) { fehlerMelden(err, 'Das Leeren hat nicht geklappt. Bitte noch einmal versuchen.'); }
     };
   },
 };
@@ -23420,11 +24181,21 @@ const Importer = {
     preview();
     zone.addEventListener('change', (e) => { if (e.target.matches('[data-map]')) preview(); });
     $('#imp-cancel', zone).onclick = () => { zone.innerHTML = ''; };
-    $('#imp-go', zone).onclick = async () => {
+    const knopf = $('#imp-go', zone);
+    knopf.onclick = async () => {
+      if (knopf.disabled) return;   // Doppeltipp: Der Import liefe sonst zweimal und legte alles doppelt an (Fund 04.11.2026, #14)
       const map = readMap();
       const fehlend = ent.felder.filter((f) => f.required && !map[f.key]);
       if (fehlend.length) return UI.toast('Bitte Pflichtfelder zuordnen: ' + fehlend.map((f) => f.label).join(', '), 'err');
-      await Importer.run(entityKey, rows, map, zone);
+      knopf.disabled = true;
+      try { await Importer.run(entityKey, rows, map, zone); }
+      catch (e) {
+        /* run speichert alles in EINER Transaktion: Scheitert sie, ist nichts importiert – noch einmal tippen legt nichts doppelt an. */
+        fehlerMelden(e, 'Der Import hat nicht geklappt. Bitte noch einmal versuchen.');
+        let hinweis = $('#imp-fehler', zone);
+        if (!hinweis) { hinweis = document.createElement('div'); hinweis.id = 'imp-fehler'; hinweis.className = 'banner danger mb12'; knopf.parentElement.before(hinweis); }
+        hinweis.innerHTML = `${icon('warn')} <span class="b-msg"><b>Nichts wurde importiert.</b> ${U.esc(istSpeicherVoll(e) ? 'Der Speicher ist voll: Gib auf dem Gerät Platz frei.' : (e && e.message) || 'Bitte noch einmal versuchen.')} Danach kannst du es noch einmal versuchen – es entsteht nichts doppelt.</span>`;
+      } finally { knopf.disabled = false; }
     };
   },
   /** Namens-Index für Referenzauflösung (Stand/Volk per Name → id) */
@@ -23434,6 +24205,10 @@ const Importer = {
     const refIdx = {};
     for (const rk of Object.keys(ent.refs || {})) refIdx[rk] = await Importer._nameIndex(ent.refs[rk]);
     let ok = 0, uebersprungen = 0, doppelt = 0; const probleme = [], neu = [];
+    /* Alles in EINER Transaktion (Fund 04.11.2026, #14): Vorher speicherte jede Zeile für sich. Scheiterte Zeile 301 von 500
+       (Speicher voll), blieben 300 stehen, ohne Ergebnis-Meldung – und erneutes Tippen legte sie doppelt an. Jetzt werden
+       die Zeilen (und neu nötige Stände) erst gesammelt und dann zusammen gespeichert: alles oder nichts. */
+    const ops = [];
     if (ent.schonDa) ent._kennungen = null;
     for (const r of rows) {
       // Rohwerte je Zielfeld ziehen + typisieren
@@ -23457,7 +24232,7 @@ const Importer = {
         const key = Importer._norm(name);
         let id = refIdx[rk].get(key);
         if (!id) {
-          if (rk === 'stand') { const st = await DB.put('staende', { name, lat: null, lng: null, notizen: '' }); id = st.id; refIdx[rk].set(key, id); }
+          if (rk === 'stand') { const st = { id: U.uuid(), name, lat: null, lng: null, notizen: '' }; ops.push({ store: 'staende', obj: st }); id = st.id; refIdx[rk].set(key, id); }
           else { // Volk-Referenz fehlt → Zeile überspringen (Volk muss existieren)
             skip = true; if (!probleme.includes(name)) probleme.push(name);
           }
@@ -23467,14 +24242,19 @@ const Importer = {
       if (skip) { uebersprungen++; continue; }
       if (ent.schonDa && await ent.schonDa(v)) { doppelt++; continue; }
       const rec = ent.build(v, refs);
-      const saved = await DB.put(ent.store, rec);
-      neu.push({ rec: saved, v });
+      ops.push({ store: ent.store, obj: rec });   // bekommt beim Speichern seine id (für nachImport)
+      neu.push({ rec, v });
       // neu angelegte Stände/Völker sofort in den Namensindex (für Folgezeilen)
       if (entityKey === 'staende' || entityKey === 'voelker') { /* eigener Index nicht nötig hier */ }
       ok++;
     }
     if (entityKey === 'staende' || entityKey === 'voelker') { /* Referenz-Caches anderer Importe veralten – egal, sie werden je Import neu gebaut */ }
-    const nachher = ent.nachImport && neu.length ? await ent.nachImport(neu) : '';
+    await DB.schreibeAlles(ops);   // wirft → nichts gespeichert (der Knopf sagt das und bleibt stehen)
+    /* Das Verknüpfen danach (Mutter, Vaterseite) darf nicht so aussehen, als sei nichts importiert: Die Zeilen sind gespeichert,
+       ein zweiter Import legte sie doppelt an. Deshalb hier abfangen und im Ergebnis nennen. */
+    let nachher = '';
+    try { nachher = ent.nachImport && neu.length ? await ent.nachImport(neu) : ''; }
+    catch (e) { console.error('Import: Verknüpfen', e); nachher = `Das Verknüpfen von Mutter und Vaterseite hat nicht geklappt (${istSpeicherVoll(e) ? 'Speicher voll' : (e && e.message) || 'unbekannter Fehler'}). Die Zeilen sind importiert – trag die Verknüpfung bei Bedarf von Hand nach.`; }
     let msg = `${ok} ${ent.label} importiert`;
     if (uebersprungen) msg += `, ${uebersprungen} übersprungen`;
     if (doppelt) msg += `, ${doppelt} schon vorhanden (gleiche Kennung, nicht überschrieben)`;
@@ -23576,10 +24356,15 @@ const Reporting = {
       .map((z) => ({ k: z.k, kg: z.kg, n: z.n, voelker: z.voelker.size, schnitt: z.voelker.size ? z.kgVolk / z.voelker.size : null, vorjahr: jahr && z.nV && z.k !== 'ohne Tracht' ? z.kgV : null }))
       .sort((a, b) => ((a.k === 'ohne Tracht') - (b.k === 'ohne Tracht')) || b.kg - a.kg);
   },
+  /* Je Jahr, Mittel UND Einheit eine Zeile (Fund 04.11.2026, #33): Vorher lief alles unter der Einheit des ersten Eintrags –
+     Oxalsäure 2 × 30 ml geträufelt und 1 × 2 g verdampft ergab „3 · 62 ml“. Jetzt „2 · 60 ml“ und „1 · 2 g“.
+     Groß-/Kleinschreibung und Leerzeichen der Einheit zählen nicht („ml“ = „ML “). */
   async behandlungsUebersicht() {
     const list = await DB.getAll('behandlungen');
-    const g = U.groupBy(list, (b) => `${(b.datum || '').slice(0, 4)}|${b.mittel}`);
-    return [...g.entries()].map(([key, items]) => { const [jahr, mittel] = key.split('|'); return { jahr, mittel, n: items.length, menge: U.sum(items, (b) => b.menge), einheit: items[0].einheit || '' }; }).sort((a, b) => b.jahr.localeCompare(a.jahr));
+    const einheitKey = (b) => String(b.einheit || '').trim().toLowerCase();
+    const g = U.groupBy(list, (b) => JSON.stringify([(b.datum || '').slice(0, 4), String(b.mittel ?? ''), einheitKey(b)]));
+    return [...g.entries()].map(([key, items]) => { const [jahr, mittel] = JSON.parse(key); return { jahr, mittel, n: items.length, menge: U.sum(items, (b) => b.menge), einheit: String(items[0].einheit || '').trim() }; })
+      .sort((a, b) => b.jahr.localeCompare(a.jahr) || String(a.mittel || '').localeCompare(String(b.mittel || '')) || a.einheit.localeCompare(b.einheit));
   },
   /** Fahrten → Kilometer und Anzahl je Jahr (absteigend) */
   fahrtStatistik(fahrten) {
@@ -23644,7 +24429,8 @@ const Statistik = {
   async daten() {
     const d = {};
     // rechnungen: per Rechnung verkaufter Honig zählt beim Verkauf mit (Fund 04.11.2026, #10)
-    for (const st of ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten', 'rechnungen']) d[st] = await DB.getAll(st);
+    // wanderungen: Stand eines Volks am Tag einer Behandlung (Fund 04.11.2026, #32)
+    for (const st of ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten', 'rechnungen', 'wanderungen']) d[st] = await DB.getAll(st);
     d.volkMap = new Map(d.voelker.map((v) => [v.id, v]));
     return d;
   },
@@ -23801,7 +24587,9 @@ const Statistik = {
       for (const x of rot.slice(0, 4)) { const m = varroaMetrik(x); auff.push({ art: 'x', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} Milben${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – Behandlung prüfen.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
       for (const x of gelb.slice(0, 3)) { const m = varroaMetrik(x); auff.push({ art: 'w', titel: `${name(d.volkMap.get(x.volkId))}: ${U.fmtNum(m.wert, 1)} Milben${m.einheit}`, text: `Letzte Kontrolle am ${U.fmtDate(x.datum)} – beobachten.`, href: this.volkLink(d.volkMap.get(x.volkId)) }); }
       if (!laufend || monat >= 9) {
-        const behandelt = (vk) => b.some((x) => (x.zielTyp === 'volk' && x.zielId === vk.id) || (x.zielTyp === 'stand' && vk.standId && x.zielId === vk.standId));
+        /* Stand-Behandlung: zählt für die Völker, die AN DIESEM TAG dort standen (Fund 04.11.2026, #32) – vorher galt der heutige
+           Stand: Anna am 10.08. am Wald mitbehandelt, am 20.09. nach Raps gewandert → „ohne eingetragene Behandlung“. */
+        const behandelt = (vk) => b.some((x) => (x.zielTyp === 'volk' && x.zielId === vk.id) || (x.zielTyp === 'stand' && !!x.zielId && standAmStichtag(vk, x.datum, d.wanderungen || []) === x.zielId));
         const ohne = aktiv.filter((vk) => !behandelt(vk));
         if (ohne.length) auff.push({ art: 'w', titel: `${ohne.length} ${ohne.length === 1 ? 'Volk' : 'Völker'} ohne eingetragene Behandlung ${j}`, text: `${ohne.slice(0, 4).map(name).join(', ')}${ohne.length > 4 ? ' …' : ''} – nachtragen oder Varroa-Lage prüfen.`, href: ohne.length === 1 ? this.volkLink(ohne[0]) : '#/behandlungen' });
       }
@@ -23959,8 +24747,12 @@ Views.reporting = {
       const jahre = Reporting.fahrtStatistik(fahrten);
       const jahrAkt = jahr || U.todayIso().slice(0, 4);
       const akt = jahre.find((j) => j.jahr === jahrAkt) || { km: 0, anzahl: 0 };
-      const proStand = U.groupBy(fahrten.filter((f) => (f.datum || '').startsWith(jahrAkt)), (f) => f.standId);
+      /* Freie Fahrten (Einkauf, Schulung …) haben keinen Stand (Fund 04.11.2026, #31): Sie standen hier als „gelöscht“ und unter
+         „Letzte Fahrten“ als „–“. Jetzt eine eigene Zeile ganz unten bzw. ihr Ziel – wie Fahrtenbuch, Excel und Report-PDF (fahrtZielName). */
+      const OHNE_STAND = 'Ohne Stand / freies Ziel';
+      const proStand = U.groupBy(U.sortBy(fahrten.filter((f) => (f.datum || '').startsWith(jahrAkt)), (f) => (f.standId ? 0 : 1)), (f) => f.standId || null);
       const letzte = U.sortBy(fahrten, (f) => f.datum, true).slice(0, 25);
+      const letzteTitel = (f) => { const ziel = fahrtZielName(f, staende), zweck = f.zweck || 'Fahrt'; return zweck === ziel ? ziel : `${ziel} · ${zweck}`; };
       box.innerHTML = zeitKarte + `<div class="card"><div class="card-title">${icon('truck')}<h2>Fahrten & Kilometer</h2>
           <span class="no-print flex" style="gap:8px">
             <button class="btn btn-ghost btn-sm" onclick="Pdf.fahrtenbuch('${jahrAkt}')">${icon('doc')} Fahrtenbuch ${jahrAkt} (PDF)</button>
@@ -23974,9 +24766,9 @@ Views.reporting = {
         ${jahre.length ? `<div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Fahrten</th><th class="num">Kilometer</th><th class="num">Pauschale</th></tr></thead>
           <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * S.get('kmPauschale'))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${proStand.size ? `<h3 class="mb8">Je Stand (${jahrAkt})</h3><div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Stand</th><th class="num">Fahrten</th><th class="num">Kilometer</th></tr></thead>
-          <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(staende.get(sid)?.name || 'gelöscht')}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
+          <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(sid ? staende.get(sid)?.name || 'gelöschter Stand' : OHNE_STAND)}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${letzte.length ? `<h3 class="mb8">Letzte Fahrten</h3><div class="rows">${letzte.map((f) => `<div class="row" style="min-height:46px">
-          <span class="r-main"><span class="r-title">${U.esc(staende.get(f.standId)?.name || '–')} · ${U.esc(f.zweck || 'Fahrt')}</span>
+          <span class="r-main"><span class="r-title">${U.esc(letzteTitel(f))}</span>
           <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
           <span class="badge b-blue">${U.fmtNum(f.km)} km</span>
           <button class="btn btn-xs btn-ghost no-print" data-fdel="${U.esc(f.id)}">${icon('trash')}</button></div>`).join('')}</div>`
@@ -23984,7 +24776,10 @@ Views.reporting = {
       </div>`;
       box.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-fdel]');
-        if (b && (await UI.confirm({ title: 'Fahrt löschen?', text: 'Wandert in den Papierkorb (30 Tage).' }))) { await DB.softDel('fahrten', b.dataset.fdel); renderRoute(); }
+        if (b && (await UI.confirm({ title: 'Fahrt löschen?', text: 'Wandert in den Papierkorb (30 Tage).' }))) {
+          try { await DB.softDel('fahrten', b.dataset.fdel); } catch (err) { return fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026, #16)
+          renderRoute();
+        }
       });
     } else {
       const rows = await Reporting.finanzen();
@@ -24225,14 +25020,27 @@ const Backup = {
     let blob;
     try { blob = await this.buildBlob(); } catch (e) { UI.toast(this.fehlerText(e), 'err'); return; }
     if (handle) {
-      const w = await handle.createWritable();
-      await w.write(blob);
-      await w.close();
-      await this.markExternal(blob); UI.toast('Backup gespeichert');
+      try {
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+      } catch (e) { console.error('Backup speichern', e); UI.toast(this.fehlerText(e), 'err'); return; }   // die Datei selbst ging nicht: das ist eine gescheiterte Sicherung
+      await this.vermerken(blob, 'Backup gespeichert');
       return;
     }
     U.download(blob, name);
-    await this.markExternal(blob); UI.toast('Backup heruntergeladen (Ordner „Downloads“)');
+    await this.vermerken(blob, 'Backup heruntergeladen (Ordner „Downloads“)');
+  },
+  /* Die Datei ist gespeichert, geteilt oder heruntergeladen. Scheitert danach nur der Vermerk „zuletzt gesichert“ (etwa bei
+     vollem Speicher), darf das nicht wie eine gescheiterte Sicherung aussehen (Fund 04.11.2026, #12) – in der App war das schon
+     so (nativTeilen), im Browser kam stattdessen „Das konnte nicht gespeichert werden …“, und das Fenster mit dem E-Mail-Knopf
+     fehlte. Gibt true zurück, wenn der Vermerk geklappt hat; okText (falls gesetzt) erscheint nur dann. */
+  VERMERK_FEHLT_TEXT: 'Die Sicherung ist gespeichert, der Vermerk in der App ging aber nicht.',
+  async vermerken(blob, okText = '') {
+    try { await this.markExternal(blob); }
+    catch (e) { console.error('Sicherung vermerken', e); UI.toast(this.VERMERK_FEHLT_TEXT, 'err'); return false; }
+    if (okText) UI.toast(okText);
+    return true;
   },
   /* In der iPhone/Android-App gibt es weder Downloads noch (verlässlich) das
      Teilen von Dateien aus der WebView. Darum dort: Datei in den App-Cache
@@ -24301,8 +25109,7 @@ const Backup = {
     const marke = {};   // Merkt sich, welcher Datenstand in der Datei steckt, wie sonst der Blob
     this._dateistaende.set(marke, erg.stand);
     // Die Datei ist gespeichert. Scheitert nur das Vermerken (etwa bei vollem Speicher), darf das nicht wie eine gescheiterte Sicherung aussehen.
-    try { await this.markExternal(marke); UI.toast('Sicherung gespeichert'); }
-    catch (e) { console.error('Sicherung vermerken', e); UI.toast('Die Sicherung ist gespeichert, der Vermerk in der App ging aber nicht.', 'err'); }
+    await this.vermerken(marke, 'Sicherung gespeichert');
     return true;
   },
   NOTFALL_FRIST_MS: 60000,
@@ -24344,10 +25151,10 @@ const Backup = {
         if (e.name !== 'AbortError') this._teilenNachfragen(blob, teilen);
         return;
       }
-      await this.markExternal(blob); UI.toast('Sicherung geteilt');
+      await this.vermerken(blob, 'Sicherung geteilt');
     } else {
       U.download(blob, this.dateiname());
-      await this.markExternal(blob);
+      await this.vermerken(blob);   // das Fenster mit dem E-Mail-Knopf kommt auch, wenn nur der Vermerk scheitert (Fund 04.11.2026, #12)
       const subject = encodeURIComponent(`ImkerBuch-Sicherung vom ${U.fmtDate(U.todayIso())}`);
       const body = encodeURIComponent('Anbei die aktuelle ImkerBuch-Sicherung.\n\nHinweis: Die soeben heruntergeladene Datei bitte manuell als Anhang hinzufügen.');
       UI.modal({
@@ -24373,11 +25180,11 @@ const Backup = {
         if (e.name !== 'AbortError') { knopf.remove(); UI.toast('Teilen geht hier nicht. Lade die Datei herunter und häng sie an eine E-Mail oder Nachricht an.', 'err'); }
         return;
       }
-      m.close(true); await this.markExternal(blob); UI.toast('Sicherung geteilt');
+      m.close(true); await this.vermerken(blob, 'Sicherung geteilt');
     };
     $('[data-laden]', m.el).onclick = async () => {
       U.download(blob, this.dateiname());
-      m.close(true); await this.markExternal(blob); UI.toast('Sicherung heruntergeladen');
+      m.close(true); await this.vermerken(blob, 'Sicherung heruntergeladen');
     };
   },
   async leseAenderungsstand() {
@@ -24469,6 +25276,14 @@ const Backup = {
       html += `<div class="banner warn b-sicherung">${icon('info')} <span class="b-msg">Letzte externe Sicherung: ${wann}. Zeit für ein Backup.</span>
         <span class="spacer"></span><button class="btn btn-ghost btn-sm" onclick="Backup.share()">Sichern</button>${weg}</div>`;
     }
+    /* „Bei jedem Schließen“ legt gerade keine Datei an (Fund 04.11.2026, #10). Kein ✕: Das ist kein Erinnern, sondern eine
+       Sicherung, die nicht stattfindet – der Hinweis geht, sobald Ordner, Erlaubnis oder Takt stimmen. */
+    const fa = S.get('features').autoBackup || {};
+    const zu = fa.aktiv && fa.intervall === 'schliessen' ? this.schliessenText(this._schliessenProblem) : null;
+    if (zu) {
+      html += `<div class="banner danger b-schliessen">${icon('warn')} <span class="b-msg"><b>Automatische Sicherung:</b> ${U.esc(zu.text)}</span>
+        <span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.schliessenBeheben()">${U.esc(zu.knopf)}</button></div>`;
+    }
     // Als installierte App (Home-Bildschirm) ist der Speicher ohnehin geschützt –
     // WebKit lehnt persist() dort trotzdem oft still ab, der Hinweis wäre nur Lärm.
     const installiert = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true || IST_NATIVE_APP;
@@ -24557,9 +25372,19 @@ const Backup = {
     if (!ok1) return;
     const ok2 = await UI.confirm({ title: 'Wirklich sicher?', text: 'Letzte Bestätigung: aktuelle Daten werden überschrieben.', confirmText: 'Zurückholen', danger: true });
     if (!ok2) return;
-    await this.snapshotInternal('vor-wiederherstellung');
-    const data = JSON.parse(await this.snapshotText(snap));
-    await this.applyReplace(data, { blobsBehalten: true });
+    /* Fehler beim Zurückholen (Fund 04.11.2026, #13) – wie beim Einspielen einer Sicherung: klar sagen, dass nichts
+       zurückgeholt wurde. applyReplace ist eine Transaktion, die Daten bleiben bei jedem Fehler, wie sie waren. Vorher
+       kam nur der allgemeine Satz vom Fangnetz, und 30 s nach einem früheren Fehler gar nichts. */
+    let data;
+    try {
+      await this.snapshotInternal('vor-wiederherstellung');
+      data = JSON.parse(await this.snapshotText(snap));
+      await this.applyReplace(data, { blobsBehalten: true });
+    } catch (e) {
+      console.error('Zwischenstand zurückholen', e);
+      UI.toast('Nichts wurde zurückgeholt, deine Daten sind unverändert. ' + (istSpeicherVoll(e) ? SPEICHER_VOLL_TEXT : (e && e.message) || 'Bitte noch einmal versuchen.'), 'err');
+      return false;
+    }
     await this.nachImportSicher(data);
     UI.toast('Zwischenstand zurückgeholt');
     await S.load(); applyTheme(); applyHeaderLogo(); renderRoute(); this.updateBanners();
@@ -24772,7 +25597,8 @@ const Backup = {
                <span class="r-main"><span class="r-title" style="font-weight:400">${U.esc(STORE_LABELS[store] || store)}</span></span>
                <span class="r-side"><b>${n}</b></span></div>`).join('')}</div>`
           : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Stände, die du schon hast (oder ältere).</p>')
-          + (erg.bestandKorrigiert ? `<p class="small mt12">Bei <b>${erg.bestandKorrigiert}</b> ${erg.bestandKorrigiert === 1 ? 'Abfüllung wurde der Bestand' : 'Abfüllungen wurden die Bestände'} nachgerechnet: Verkäufe aus beiden Geräten sind jetzt abgezogen.</p>` : ''),
+          + (erg.bestandKorrigiert ? `<p class="small mt12">Bei <b>${erg.bestandKorrigiert}</b> ${erg.bestandKorrigiert === 1 ? 'Abfüllung wurde der Bestand' : 'Abfüllungen wurden die Bestände'} nachgerechnet: Verkäufe aus beiden Geräten sind jetzt abgezogen.</p>` : '')
+          + (erg.imPapierkorb ? `<p class="small mt12"><b>${erg.imPapierkorb}</b> ${erg.imPapierkorb === 1 ? 'Eintrag aus der Sicherung liegt' : 'Einträge aus der Sicherung liegen'} bei dir im Papierkorb und ${erg.imPapierkorb === 1 ? 'wurde' : 'wurden'} nicht zurückgeholt. Brauchst du ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} wieder, stell ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} im Papierkorb wieder her – dann stimmen auch Bestand und Kassenbuch.</p>` : ''),
         footer: '<button class="btn btn-primary" data-fertig>Fertig</button>',
       });
       $$('[data-fertig]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
@@ -24979,8 +25805,13 @@ const Backup = {
   async applyMerge(data) {
     const vorbereitet = this._vorbereiten(data); // vollständig prüfen, bevor eine Transaktion schreibt
     return DB.aendereAtomar(DB.DATA_STORES, (d) => {
-      let gesamt = 0;
+      let gesamt = 0, imPapierkorb = 0;
       const jeStore = {}, ops = [];
+      /* Hier Gelöschtes bleibt gelöscht (Fund 04.11.2026, #8): Ein Eintrag, der in DIESEM Papierkorb liegt, fehlt im Bereich –
+         die ältere Kopie aus der Sicherung kam deshalb zurück, ohne dass ihr Bestand (Zugang, Abgang, Fütterung …) neu
+         gebucht wurde, und lag zugleich im Papierkorb; erneutes Löschen buchte doppelt zurück. Zurückholen geht über den
+         Papierkorb – der bucht dabei richtig. Gelesen wird der Papierkorb VOR dem Zusammenführen (lokaler Stand). */
+      const geloescht = new Set((d.papierkorb || []).filter((t) => t && t.daten && t.daten.id).map((t) => `${t.store}|${t.daten.id}`));
       for (const store of DB.DATA_STORES) {
         const key = (r) => store === 'settings' ? r.key : r.id;
         const map = new Map(d[store].map((r) => [key(r), r]));
@@ -24993,6 +25824,7 @@ const Backup = {
             if (zusammen) { map.set(r.key, zusammen); neu.set(r.key, zusammen); }
             continue;
           }
+          if (!alt && geloescht.has(`${store}|${r.id}`)) { imPapierkorb++; continue; }
           if (!alt || (r.lastModified || '') > (alt.lastModified || '')) { map.set(key(r), r); neu.set(key(r), r); }
         }
         for (const r of neu.values()) ops.push({ store, obj: r, keepStamp: true });
@@ -25001,7 +25833,7 @@ const Backup = {
       }
       const korrekturen = this.bestandAbgleichPlan(d);
       ops.push(...korrekturen);
-      return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length } };
+      return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length, imPapierkorb } };
     });
   },
 
@@ -25051,22 +25883,27 @@ const Backup = {
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       await S.set('backupDirHandle', handle);
       await S.set('backupDirName', handle.name);
-      UI.toast(`Backup-Ordner „${handle.name}“ gewählt`); return true;
+      UI.toast(`Backup-Ordner „${handle.name}“ gewählt`);
     } catch (e) { return false; }
+    // Neuer Ordner: Ein Fehler mit dem alten zählt nicht mehr (Fund 04.11.2026, #10)
+    if (S.get('autoSicherungFehler')) await S.set('autoSicherungFehler', null, { auto: true }).catch((e) => console.warn('Sicherungs-Hinweis', e));
+    return true;
   },
   async writeToDir() {
     const handle = S.get('backupDirHandle');
     if (!handle) return false;
+    let blob;
     try {
       if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted' &&
           (await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return false;
       const fh = await handle.getFileHandle(this.dateiname(), { create: true });
       const w = await fh.createWritable();
-      const blob = await this.buildBlob();
+      blob = await this.buildBlob();
       await w.write(blob); await w.close();
-      await this.markExternal(blob);
-      return true;
     } catch (e) { console.error('Ordner-Backup fehlgeschlagen', e); return false; }
+    // Die Datei liegt im Ordner. Scheitert nur der Vermerk (Speicher voll), ist das keine gescheiterte Sicherung (Fund 04.11.2026, #11/#12).
+    await this.vermerken(blob);
+    return true;
   },
   /** Zeitpunkt der nächsten fälligen Auto-Sicherung (ISO) – null, wenn nicht aktiv/„beim Schließen“. */
   naechsteSicherung() {
@@ -25080,11 +25917,22 @@ const Backup = {
   /** fällige Auto-Sicherung ausführen (Snapshot + extern) */
   async runAuto(quelle = 'intervall') {
     if (this.nativTeilenMoeglich()) return;   // In der App gibt es nur das Sichern von Hand. Der Schalter kann aus einer Sicherung vom Computer stammen.
-    await this.snapshotInternal('auto');
+    /* Scheitert der Zwischenstand (Speicher voll), entsteht die Datei trotzdem – gerade dann hilft sie am meisten
+       (Fund 04.11.2026, #11). Vorher brach die Sicherung hier ab: keine Datei, keine eigene Meldung, der Termin blieb
+       stehen. Der Zwischenstand-Fehler wird unten getrennt gemeldet. Die Datei bauen und herunterladen schreibt nichts
+       in die Datenbank, geht also auch bei vollem Speicher. */
+    let zsFehler = null, dateiFehler = null;
+    try { await this.snapshotInternal('auto'); }
+    catch (e) { zsFehler = e; console.error('Zwischenstand bei der automatischen Sicherung', e); }
+    const ordner = !!S.get('backupDirHandle');
     let extern = false;
-    if (S.get('backupDirHandle')) extern = await this.writeToDir();
-    else { const blob = await this.buildBlob(); U.download(blob, this.dateiname()); await this.markExternal(blob); extern = true; }
+    if (ordner) extern = await this.writeToDir();
+    else {
+      try { const blob = await this.buildBlob(); U.download(blob, this.dateiname()); extern = true; await this.vermerken(blob); }
+      catch (e) { dateiFehler = e; console.error('Automatische Sicherung', e); }
+    }
     const jetzt = U.nowIso();
+    const zsVoll = zsFehler && istSpeicherVoll(zsFehler) ? ' Der Speicher ist voll: Gib auf dem Gerät Platz frei.' : '';
     /* Scheitert das Schreiben in den Ordner (Recht entzogen, Ordner gelöscht,
        Platte voll), darf das NICHT als Erfolg durchgehen: sonst meldet die App
        „gesichert", und weil `letzteAutoSicherung` weitergestellt würde, käme
@@ -25094,15 +25942,23 @@ const Backup = {
        versucht. */
     if (!extern) {
       this._letzterFehlversuch = jetzt;
-      UI.toast('Sicherung in den Ordner fehlgeschlagen – nur die interne Kopie wurde angelegt', 'err');
+      const was = ordner ? 'Sicherung in den Ordner fehlgeschlagen' : this.fehlerText(dateiFehler);
+      UI.toast(zsFehler ? `${was} – auch der Zwischenstand in der App ging nicht.${zsVoll}` : `${was} – nur die interne Kopie wurde angelegt`, 'err');
       Notif.zeigen('🐝 Sicherung fehlgeschlagen',
-        'Die Datei konnte nicht in den Backup-Ordner geschrieben werden. Bitte den Ordner in den Einstellungen neu wählen.',
+        ordner ? 'Die Datei konnte nicht in den Backup-Ordner geschrieben werden. Bitte den Ordner in den Einstellungen neu wählen.'
+          : 'Die Sicherungsdatei konnte nicht erstellt werden. Bitte in den Einstellungen von Hand sichern.',
         'imkerbuch-backup', '/einstellungen');
       return null;
     }
-    await S.set('letzteAutoSicherung', jetzt);
-    await this.markExternal(); // Ordner-/Downloadweg hat seinen konkreten Dateistand bereits bestätigt.
+    /* Termin weiterstellen. Bei vollem Speicher geht auch das nicht: Dann merkt sich die App den Lauf bis zum Neustart
+       (_letzteAutoLauf), sonst käme alle 30 Minuten eine neue Datei. */
+    this._letzteAutoLauf = jetzt;
+    try {
+      await S.set('letzteAutoSicherung', jetzt);
+      await this.markExternal(); // Ordner-/Downloadweg hat seinen konkreten Dateistand bereits bestätigt.
+    } catch (e) { console.error('Termin der automatischen Sicherung', e); }
     UI.toast(quelle === 'aktivierung' ? 'Erste Sicherung erstellt' : 'Automatische Sicherung erstellt');
+    if (zsFehler) UI.toast('Die Datei ist gesichert, nur der Zwischenstand in der App ging nicht.' + zsVoll, 'err');
     const naechste = this.naechsteSicherung();
     Notif.zeigen('🐝 Sicherung erstellt',
       `${U.fmtDateTime(jetzt)} · als Datei gesichert${naechste ? `\nNächste: ${U.fmtDateTime(naechste)}` : ''}`,
@@ -25113,28 +25969,85 @@ const Backup = {
     const tick = async () => {
       const f = S.get('features');
       if (this.nativTeilenMoeglich() || !f.autoBackup.aktiv || f.autoBackup.intervall === 'schliessen') return;
-      const last = S.get('letzteAutoSicherung');
+      const last = [S.get('letzteAutoSicherung'), this._letzteAutoLauf].filter(Boolean).sort().pop();   // ISO-Zeiten: die jüngere zählt
       const tage = f.autoBackup.intervall === 'taeglich' ? 1 : 7;
       if (!(!last || U.daysBetween(last, U.nowIso()) >= tage)) return;
       // Nach einem Fehlversuch nicht im Halbstundentakt nerven – frühestens nach einer Stunde erneut.
       const fehl = this._letzterFehlversuch;
       if (fehl && (Date.now() - new Date(fehl).getTime()) < 3600000) return;
-      await this.runAuto();
+      await this.runAuto().catch((e) => console.error('Automatische Sicherung', e));   // runAuto meldet selbst, was der Kunde wissen muss
     };
     setTimeout(tick, 4000);
     setInterval(tick, 30 * 60 * 1000);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'hidden') return;
-      const f = S.get('features');
-      if (!this.nativTeilenMoeglich() && f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' && window._changedSinceBackup) {
-        this.snapshotInternal('auto'); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
-        // Nur ein tatsächlich geschriebenes Ordner-Backup stellt den Termin weiter.
-        this.writeToDir().then((ok) => { if (ok) { S.set('letzteAutoSicherung', U.nowIso()); } });
-      }
+      if (document.visibilityState === 'hidden') this.beimSchliessen().catch((e) => console.error('Sicherung beim Schließen', e));
+      else this.schliessenPruefen();   // zurück in der App: Ging das Sichern beim Schließen nicht, steht es jetzt oben (#10)
     });
     window.addEventListener('beforeunload', (e) => {
       if (S.get('features').backupBeimSchliessen && window._changedSinceBackup) { e.preventDefault(); e.returnValue = ''; }
     });
+    this.schliessenPruefen();
+  },
+  /** „Bei jedem Schließen“: beim Verlassen der App in den Ordner sichern. Nur ein tatsächlich geschriebenes Ordner-Backup
+      stellt den Termin weiter. Ohne Ordner entsteht keine Datei (ein Herunterladen beim Wechseln des Fensters ginge nicht
+      verlässlich und legte bei jedem Wechsel eine Datei ab). Beim Schließen kann die App nichts mehr sagen – darum merkt
+      sie sich einen Fehler und meldet ihn beim nächsten Öffnen (Fund 04.11.2026, #10, siehe schliessenZustand). */
+  async beimSchliessen() {
+    const f = S.get('features');
+    if (this.nativTeilenMoeglich() || !f.autoBackup.aktiv || f.autoBackup.intervall !== 'schliessen' || !window._changedSinceBackup) return null;
+    this.snapshotInternal('auto').catch((e) => this.zsFehler(e)); // Ordner-Schreiben ist beim Schließen nicht zuverlässig, Snapshot schon
+    if (!S.get('backupDirHandle')) return false;
+    const ok = await this.writeToDir();
+    try {
+      if (ok) { await S.set('letzteAutoSicherung', U.nowIso()); if (S.get('autoSicherungFehler')) await S.set('autoSicherungFehler', null, { auto: true }); }
+      else await S.set('autoSicherungFehler', { datum: U.nowIso() }, { auto: true });
+    } catch (e) { console.error('Sicherung beim Schließen vermerken', e); }
+    return ok;
+  },
+  /** Kann „bei jedem Schließen“ gerade eine Datei anlegen? → null (ja oder nicht gewählt) oder { grund, datum }:
+      'browser' (kann keinen Ordner wählen: Firefox, Safari), 'kein-ordner', 'erlaubnis' (Chrome fragt nach einem Neustart
+      wieder – ohne Antippen darf die App dann nicht schreiben), 'fehler' (das letzte Schreiben ging nicht). */
+  async schliessenZustand() {
+    const f = S.get('features');
+    if (this.nativTeilenMoeglich() || !f.autoBackup || !f.autoBackup.aktiv || f.autoBackup.intervall !== 'schliessen') return null;
+    const handle = S.get('backupDirHandle');
+    if (!handle || typeof handle.queryPermission !== 'function') return { grund: window.showDirectoryPicker ? 'kein-ordner' : 'browser' };
+    try { if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') return { grund: 'erlaubnis' }; }
+    catch (e) { return { grund: 'erlaubnis' }; }
+    const fehler = S.get('autoSicherungFehler');
+    return fehler ? { grund: 'fehler', datum: fehler.datum || null } : null;
+  },
+  _schliessenProblem: null,
+  /** Zustand neu bestimmen und oben anzeigen (Banner). */
+  async schliessenPruefen() {
+    this._schliessenProblem = await this.schliessenZustand().catch((e) => { console.warn('Sicherung beim Schließen', e); return null; });
+    this.updateBanners();
+    return this._schliessenProblem;
+  },
+  /** Text und Knopf zum Zustand – für das Banner oben und die Einstellungen. */
+  schliessenText(p) {
+    if (!p) return null;
+    const ordner = `„${S.get('backupDirName') || 'Backup-Ordner'}“`;
+    if (p.grund === 'browser') return { text: 'Dieser Browser kann nicht in einen Ordner schreiben – beim Schließen entsteht deshalb keine Datei. Stell die automatische Sicherung auf „täglich“ oder „wöchentlich“, dann lädt die App die Datei herunter.', knopf: 'Zu den Einstellungen' };
+    if (p.grund === 'kein-ordner') return { text: 'Es ist kein Backup-Ordner gewählt – beim Schließen entsteht deshalb keine Datei. Wähle einen Ordner.', knopf: 'Ordner wählen' };
+    if (p.grund === 'erlaubnis') return { text: `Die App darf gerade nicht in den Ordner ${ordner} schreiben – beim Schließen entsteht deshalb keine Datei. Tipp auf „Ordner erlauben“.`, knopf: 'Ordner erlauben' };
+    return { text: `${p.datum ? `Am ${U.fmtDateTime(p.datum)}` : 'Beim letzten Mal'} ging das Schreiben in den Ordner ${ordner} nicht – es entstand keine Datei. Wähle den Ordner neu.`, knopf: 'Ordner wählen' };
+  },
+  /** Knopf im Banner: zur Ordnerwahl bzw. um Erlaubnis bitten (braucht genau diesen Tipp). */
+  async schliessenBeheben() {
+    const p = this._schliessenProblem;
+    if (!p || p.grund === 'browser') return navTo('einstellungen');
+    const handle = S.get('backupDirHandle');
+    if (p.grund === 'erlaubnis' && handle && typeof handle.requestPermission === 'function') {
+      let erlaubt = false;
+      try { erlaubt = (await handle.requestPermission({ mode: 'readwrite' })) === 'granted'; } catch (e) { console.warn('Ordner erlauben', e); }
+      if (erlaubt) {
+        if (S.get('autoSicherungFehler')) await S.set('autoSicherungFehler', null, { auto: true }).catch((e) => console.warn('Sicherungs-Hinweis', e));
+        UI.toast('Danke – beim Schließen sichert die App wieder in den Ordner.');
+      } else UI.toast('Ohne Erlaubnis entsteht keine Datei. Wähle den Ordner neu.', 'err');
+    } else if (!(await this.chooseDir())) return this.schliessenPruefen();
+    await this.schliessenPruefen();
+    if (currentRoute().route === 'einstellungen') renderRoute();
   },
 };
 
@@ -25900,7 +26813,7 @@ const Xlsx = {
       fahrten: { blatt: 'Fahrten', rows: async () => (await alle('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await alle('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
-      rechnungen: { blatt: 'Rechnungen', rows: async () => (await alle('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: kontakte.get(r.kundeId)?.name || '', Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
+      rechnungen: { blatt: 'Rechnungen', rows: async () => (await alle('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: rechnungKundeName(r, kontakte), Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
       inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await alle('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await alle('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
@@ -27057,8 +27970,9 @@ const Pdf = {
   async rechnung(id) {
     try {
       const r = await DB.get('rechnungen', id);
-      const kunde = r.kundeId ? await DB.get('kontakte', r.kundeId) : null;
-      const imk = S.get('imkerei');
+      /* Ausgestellte Rechnung: Empfänger und Absender aus dem Schnappschuss beim Festschreiben, nicht live (Fund 04.11.2026, #2/#21) */
+      const kunde = rechnungEmpfaenger(r, !r.empfaenger && r.kundeId ? await DB.get('kontakte', r.kundeId) : null);
+      const imk = rechnungAbsender(r);
       const jsPDF = await this.lib();
       const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
       // Falz- und Lochmarken (DIN 676) fürs Fensterkuvert – Falten bei 105/210 mm, Lochung bei 148,5 mm
@@ -27700,6 +28614,10 @@ const Pdf = {
       const zOffen = zucker.filter((z) => !z).length;
       const zeigtZucker = list.some((f, i) => zucker[i] && Math.abs(zucker[i].kg - (f.mengeKg || 0)) > 0.01);
       const zeigtLiter = liter.some((l) => l != null);
+      /* „davon Winterfutter“ in Zucker wie die Zahl davor und wie die Kachel am Bildschirm (Fund 04.11.2026, #28) – vorher die
+         Futtermenge: Apiinvert 20 kg Winterfutter → „Zucker ≈ 14,6 kg … davon Winterfutter 20 kg“, mehr als das Ganze. */
+      const winter = list.map((f, i) => (f.winterfutter ? zucker[i] : null)).filter(Boolean);
+      const wZucker = U.sum(winter, (z) => z.kg), wGesch = winter.some((z) => z.geschaetzt);
       const kopf = ['Datum', 'Volk', 'Futterart', 'kg'];
       if (zeigtZucker) kopf.push('davon Zucker kg');
       if (zeigtLiter) kopf.push('Sirup L');
@@ -27707,7 +28625,7 @@ const Pdf = {
       const { doc, y } = await this.newDoc(`Fütterungen ${jahr}`,
         `${list.length} Fütterungen · Zucker ${zGesch ? '≈ ' : ''}${U.fmtNum(zKg, 1)} kg`
         + (zeigtLiter ? ` · angesetzt ${U.fmtNum(lSumme, 1)} L Sirup` : '')
-        + ` · davon Winterfutter ${U.fmtNum(U.sum(list.filter((f) => f.winterfutter), (f) => f.mengeKg))} kg`);
+        + ` · davon Winterfutter ${wGesch ? '≈ ' : ''}${U.fmtNum(wZucker, 1)} kg`);
       const body = list.map((f, i) => {
         const zeile = [U.fmtDate(f.datum), voelker.get(f.volkId)?.name || 'gelöscht', f.futterart || '', U.fmtNum(f.mengeKg)];
         if (zeigtZucker) zeile.push(zucker[i] ? (zucker[i].geschaetzt ? '~ ' : '') + U.fmtNum(zucker[i].kg, 1) : '-');
@@ -30054,6 +30972,7 @@ Views.einstellungen = {
     const rechnungenAlle = await DB.getAll('rechnungen');   // für die Vorschau der nächsten Rechnungsnummer
     const belegstellen = U.sortBy(await DB.getAll('belegstellen'), (b) => b.name.toLowerCase());
     const typen = S.get('dokumentTypen');
+    const schliessenProblem = await Backup.schliessenPruefen();   // zeichnet auch das Banner oben neu (Takt oder Ordner eben geändert)
     main.innerHTML = pageHead('Einstellungen', 'Profil, Imkerei, Sicherung und Funktionen') + `
 
       <div class="card"><div class="card-title">${icon('share')}<h2>Sicherung & Datensicherheit</h2></div>
@@ -30076,10 +30995,20 @@ Views.einstellungen = {
             <option value="schliessen" ${f.autoBackup.intervall === 'schliessen' ? 'selected' : ''}>bei jedem Schließen</option>
           </select>
           <button class="btn btn-ghost btn-sm" id="ab-dir">${icon('download')} Backup-Ordner wählen</button>
-          <span class="small muted">${S.get('backupDirName') ? `Ordner: „${U.esc(S.get('backupDirName'))}“` : 'Kein Ordner gewählt → Datei wird automatisch heruntergeladen.'}</span>
+          <span class="small muted">${S.get('backupDirName') ? `Ordner: „${U.esc(S.get('backupDirName'))}“` : f.autoBackup.intervall === 'schliessen' ? 'Kein Ordner gewählt → beim Schließen entsteht keine Datei.' : 'Kein Ordner gewählt → Datei wird automatisch heruntergeladen.'}</span>
         </div>
         ${backupRingHtml()}
-        <div class="hint mt8">Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop. Zusätzlich behält die App die letzten 10 Zwischenstände (siehe unten).</div>
+        ${f.autoBackup.aktiv && f.autoBackup.intervall === 'schliessen' ? (() => {
+          /* „Bei jedem Schließen“ hat keinen Ring: Hier steht, ob es gerade klappt (Fund 04.11.2026, #10) */
+          const zu = Backup.schliessenText(schliessenProblem), last = S.get('letzteAutoSicherung');
+          return `<div class="mt12" data-schliessen-stand>
+            <div class="small muted">Zuletzt beim Schließen gesichert: ${last ? U.fmtDateTime(last) : '<span class="badge b-danger">noch nie</span>'}</div>
+            ${zu ? `<div class="banner danger mt8">${icon('warn')} <span class="b-msg">${U.esc(zu.text)}</span><span class="spacer"></span><button class="btn btn-primary btn-sm" onclick="Backup.schliessenBeheben()">${U.esc(zu.knopf)}</button></div>` : ''}
+          </div>`;
+        })() : ''}
+        <div class="hint mt8">${f.autoBackup.intervall === 'schliessen'
+          ? '„Bei jedem Schließen“ schreibt die Sicherung in den gewählten Ordner, sobald du die App schließt oder in ein anderes Fenster wechselst. Das geht nur mit Ordner, also in Chrome/Edge am Desktop.'
+          : 'Beim Aktivieren wird sofort eine Sicherung erstellt, danach läuft der Timer. Ordner-Sicherung (File System Access API) funktioniert in Chrome/Edge am Desktop.'} Zusätzlich behält die App die letzten 10 Zwischenstände (siehe unten).</div>
         <label class="check-line mt8"><input type="checkbox" id="ab-frage" ${f.backupBeimSchliessen ? 'checked' : ''}> <span>Beim Schließen warnen, wenn seit der letzten Sicherung Änderungen bestehen</span></label>
         `}
         <label class="check-line mt8"><input type="checkbox" id="ab-erinnerung" ${S.get('backupErinnerung') === false ? '' : 'checked'}> <span>Oben an eine fällige Sicherung erinnern</span></label>
@@ -30303,8 +31232,13 @@ Views.einstellungen = {
 
     /* Sicherung */
     $('#imp-file').onchange = (e) => { if (e.target.files[0]) Backup.importFile(e.target.files[0]); e.target.value = ''; };
-    main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap); });
-    $('#snap-now').onclick = async () => { await Backup.snapshotInternal('manuell'); UI.toast('Zwischenstand angelegt'); renderRoute(); };
+    // Zwischenstände (Fund 04.11.2026, #13): Fehler mit Grund melden statt sie dem Fangnetz zu überlassen
+    main.addEventListener('click', (e) => { const b = e.target.closest('[data-snap]'); if (b) Backup.restoreSnapshot(b.dataset.snap).catch((err) => fehlerMelden(err)); });
+    $('#snap-now').onclick = async () => {
+      try { await Backup.snapshotInternal('manuell'); }
+      catch (err) { return fehlerMelden(err, 'Der Zwischenstand ließ sich nicht anlegen. Bitte noch einmal versuchen.'); }
+      UI.toast('Zwischenstand angelegt'); renderRoute();
+    };
     $('#alles-loeschen').onclick = () => alleDatenLoeschen();
 
     /* Belegstellen */
@@ -31002,7 +31936,7 @@ async function boot() {
     await TesterSperre.durchlassen();   // Web-Version: ohne Einrichtung nur mit Tester-Code (wartet, bis er stimmt)
     wacheAn();
     for (const [name, fn] of Object.entries({ lohnIndexNeu, migriereRaehmchenmass, migriereDokTypZertifikat, migriereChargenAbfuellung, migriereInventarTyp,
-      migriereBioPartner, migriereBelegstellen, migriereChargeDatumUndMhd, migriereFahrtAuswahl, migriereSchnellzugriffe })) await nebenbei(name, fn);
+      migriereBioPartner, migriereBelegstellen, migriereChargeDatumUndMhd, migriereFahrtAuswahl, migriereSchnellzugriffe, migriereRechnungSchnappschuss })) await nebenbei(name, fn);
     await nebenbei('Durchsicht-Entwürfe', () => Views.durchsicht.entwuerfeLaden());
     applyTheme();
     renderChrome();
@@ -31090,7 +32024,7 @@ Object.assign(window, {
   varroaAmpel, varroaAmpelBefall, varroaMetrik, VARROA_SCHWELLEN, VARROA_METHODEN, volkQrAnzeigen, VolkLink, VolkScanner, sammelErfassung,
   pruefeMhd, BIENENPRODUKTE, MHD_WARN_TAGE, Importer, honigEtikettForm, koeniginAhnen, koeniginLabel,
   gelernteWerte, INVENTAR_KATEGORIEN, MATERIAL_KATEGORIEN, inventarTyp, DASH_WIDGETS, fahrtSchnellBuchen,
-  rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN,
+  rechnungSummen, rechnungSteuerart, rechnungHinweis, STEUERARTEN, RECHNUNG_KUNDE_FEHLT, STORNO_RE_ABF_IM_PAPIERKORB, RECHNUNG_ABSENDER_FELDER, RECHNUNG_EMPFAENGER_FELDER,
   Bluehzeit, Tracht, TRACHT_PFLANZEN, BLUEHZEITEN, tagMonat, zwischenstandZeit,
   Seitenweise, seitenweise, LISTE_SCHRITT,
   AUFGABEN_VORLAGEN, ZEIT_SAISON, MONATSNAMEN, migriereFahrtAuswahl, migriereSchnellzugriffe, HONIG_ABGANG_ARTEN, chargeVerlustKg, glasAbgangVon, chargeRestKg, ARBEITSSCHRITT_START, ARBEITSSCHRITT_VORGABE, schritteFuer, schrittErkennen, schritteErkennen, schritteGewaehlt, schrittAusTitel, schrittVon, zeitSchritte, schrittMerken, schrittKnoepfe, zeitFaecher, zeitDialog,

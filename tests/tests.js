@@ -10092,20 +10092,23 @@ test('F06: Wiederherstellung summiert wiederholte Abzüge desselben Postens', as
     assertEq((await w.DB.get('inventar', 'restore-a')).stueckzahl, 30, 'anschließende Rückgabe stimmt');
   } finally { await restoreTestAufraeumen(w); }
 });
-for (const [name, abzug, bestaende] of [
+for (const [name, abzug, bestaende, imKorb] of [
   ['zu wenig Material', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30, 'restore-b': 5 }],
-  ['Materialposten fehlt', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30 }],
+  /* Fund 04.11.2026, #4/#24: Nur ein Posten, der IM PAPIERKORB liegt, sperrt das Wiederherstellen noch. Ein endgültig gelöschter
+     nicht mehr – sonst verfiel der Eintrag im Papierkorb (eigener Test im Lager-Paket R1). */
+  ['Materialposten im Papierkorb', [{ inventarId: 'restore-a', menge: 10 }, { inventarId: 'restore-b', menge: 15 }], { 'restore-a': 30 }, 'restore-b'],
   ['ungültige Menge', [{ inventarId: 'restore-a', menge: 'kein Betrag' }], { 'restore-a': 30 }],
 ]) test('F05: Wiederherstellung abgelehnt bei ' + name, async (w) => {
   try {
     await restoreTestDaten(w, abzug, bestaende);
+    if (imKorb) await w.DB.put('papierkorb', { id: 'restore-korb-pos', store: 'inventar', daten: { id: imKorb, typ: 'verbrauch', einheit: 'kg', stueckzahl: 20, bezeichnung: imKorb }, geloeschtAm: w.U.nowIso() });
     const vorher = await w.DB.get('papierkorb', 'restore-test'); let fehler;
     try { await w.DB.trashRestore('restore-test'); } catch (e) { fehler = e; }
     assert(fehler, 'Fehler wird gemeldet');
     assertEq(await w.DB.get('papierkorb', 'restore-test'), vorher, 'vollständiger Originaleintrag bleibt erhalten');
     assertEq(await w.DB.get('fuetterungen', 'restore-futter'), undefined, 'kein halber wiederhergestellter Datensatz');
     for (const [id, n] of Object.entries(bestaende)) assertEq((await w.DB.get('inventar', id)).stueckzahl, n, 'Bestand unverändert');
-  } finally { await restoreTestAufraeumen(w); }
+  } finally { await w.DB.del('papierkorb', 'restore-korb-pos'); await restoreTestAufraeumen(w); }
 });
 test('Papierkorb: vorhandener Datensatz wird beim Wiederherstellen nicht überschrieben', async (w) => {
   try {
@@ -10156,8 +10159,11 @@ async function buchungTest(w, fn) {
   try {
     await w.DB.put('chargen', { id: 'atom-c', losnummer: 'ATOM', mengeKg: 5 });
     await w.DB.put('abfuellungen', { id: 'atom-a', chargeId: 'atom-c', anzahl: 10, bestand: 10, gebindeG: 500 });
+    // Den Kunden der Test-Rechnung gibt es wirklich: Festschreiben weist einen gelöschten Kunden seit Fund #2/#21 (04.11.2026) ab
+    await w.DB.put('kontakte', { id: 'atom-k', typ: 'kunde', name: 'Atom-Kunde' });
     await fn();
   } finally {
+    await w.DB.del('kontakte', 'atom-k');
     w.UI.confirm = confirm; w.renderRoute = render;
     for (const store of ['rechnungen', 'verkaeufe', 'kassenbuch', 'papierkorb']) for (const x of await w.DB.getAll(store)) {
       if (x.id?.startsWith('atom-') || x.abfuellungId === 'atom-a' || x.rechnungId?.startsWith('atom-') || x.daten?.abfuellungId === 'atom-a' || x.daten?.rechnungId?.startsWith('atom-')) await w.DB.del(store, x.id);
@@ -12369,12 +12375,21 @@ test('Weitere Produkte: Lohnverarbeitung (Honig lose abgeben) und Verkauf buchen
     const kb2 = await w.DB.get('kassenbuch', ab.kassenbuchId); neu.push(['kassenbuch', kb2.id]);
     assertEq([ab.typ, kb2.typ, kb2.kategorie, kb2.betrag], ['produkt', 'einnahme', 'Weitere Produkte', 108], 'Verkauf: Einnahme 108 € unter „Weitere Produkte“');
     assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 62, 'Bestand 80 − 18 = 62');
-    // Zugang zurücknehmen: der Honig gilt bei der Charge wieder als offen
+    /* Zugang zurücknehmen: Seit Fund 04.11.2026 (#18) nie über das Vorhandene hinaus – 18 der 80 Flaschen sind verkauft,
+       das Zurücknehmen würde 80 abziehen und wird abgewiesen (vorher still auf 0 gekappt). Erst den Verkauf zurücknehmen. */
+    let fehler = null; try { await w.zugangZurueckbuchen(zug); } catch (e) { fehler = e; }
+    assert(fehler && /nur noch 62 Stück im Bestand – zurücknehmen müsste die App 80 Stück/.test(fehler.message), 'Zurücknehmen bei verkauftem Teil abgewiesen: ' + (fehler && fehler.message));
+    assertEq([(await w.DB.get('inventar', pos.id)).stueckzahl, w.chargeVerarbeitetKg(ch.id)], [62, 20], 'nichts geändert');
+    await w.abgangZurueckbuchen(ab, { kasse: true, loeschen: true });
+    // Der Honig gilt bei der Charge wieder als offen
     await w.zugangZurueckbuchen(zug); await w.DB.softDel('materialzugaenge', zug.id); neu.splice(neu.findIndex((x) => x[1] === zug.id), 1);
     assertEq(w.chargeVerarbeitetKg(ch.id), 0, 'nach dem Zurücknehmen sind die 20 kg wieder offen');
+    assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 0, 'Bestand 80 − 80 = 0');
   } finally {
     dialogeSchliessen(w);
+    const ids = new Set(neu.map((x) => x[1]));
     for (const [st, id] of neu.reverse()) { try { await w.DB.del(st, id); } catch (e) { /* schon weg */ } }
+    for (const t of await w.DB.getAll('papierkorb')) if (t.daten && ids.has(t.daten.id)) await w.DB.del('papierkorb', t.id);   // Abgang und Einnahme aus dem Papierkorb
     await w.lohnIndexNeu();
   }
 });
@@ -19196,6 +19211,1408 @@ test('Material-Paket 04.11.2026 (#28): Eigenes Gebinde mit Anzahl, aber ohne Gr�
   m.querySelector('[data-save]').click(); await w99(700);
   assertEq((await w.DB.getAll('abfuellungen')).map((a) => [a.gebindeG, a.anzahl]).sort((x, y) => y[0] - x[0]), [[500, 10], [30, 5]], 'beide Größen abgefüllt');
   assertEq([(await w.DB.get('inventar', D.id)).stueckzahl, (await w.DB.get('inventar', E.id)).stueckzahl], [85, 85], 'Deckel und Etiketten je −15');
+})));
+
+/* =====================================================================
+   Reparatur 04.11.2026, Paket R1 – Material/Inventar und Pfand.
+   Quelle: docs/PRUEFUNG-AEHNLICHE-FEHLER-2026-11-04.md, Funde #1/#19, #18, #4/#24, #27, #34, #35, #29, #8;
+   dazu aus der Honig-Reparatur: Lohn-Zugang/Position gegen die Charge, abfuellungAendern zieht über die Kette nach.
+   Zahlen aus der Doku. Selektoren nur innerhalb des jeweiligen Fensters bzw. des eigenen Hosts.
+   ===================================================================== */
+const lagerPaketCfg = (w, typ = 'verbrauch') => { const cfg = w.bereichCfg(typ); cfg.view._suche = ''; cfg.view._jahr = ''; cfg.view._art = ''; return cfg; };
+const lagerPosten = (w, bezeichnung, stueckzahl, extra = {}) => w.DB.put('inventar', Object.assign({ typ: 'verbrauch', bezeichnung, kategorie: 'Futter', einheit: 'kg', stueckzahl, preis: 1, anschaffung: '2026-01-01' }, extra));
+const lagerBestand = async (w, pos) => (await w.DB.get('inventar', pos.id)).stueckzahl;
+const lagerKorb = async (w, store, id) => (await w.DB.getAll('papierkorb')).find((t) => t.store === store && t.daten && t.daten.id === id);
+/** Formular öffnen und wie ein Mensch bedienen: setz löst input und change aus, speichern/loeschen tippen den Knopf. */
+async function lagerFormular(w, oeffnen) {
+  dialogeSchliessen(w);
+  await oeffnen(); await w99(300);
+  const m = letztesModal(w);
+  assert(m, 'das Formular steht offen');
+  const setz = (id, wert) => { const e = m.querySelector('#f-' + id); assert(e, 'Feld ' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+  return { m, setz, speichern: async () => { m.querySelector('[data-save]').click(); await w99(700); },
+    loeschen: async () => { m.querySelector('[data-del]').click(); await w99(700); } };
+}
+
+test('Lager-Paket R1 (#1/#19): Abgang aus dem Papierkorb bucht den Bestand erneut und holt die Einnahme mit – auch über die Buchung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #1: Zucker 100 kg, Verkauf 30 kg → 70 kg und +30 €
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker R1', 100);
+  const f = await lagerFormular(w, () => w.materialAbgangForm(cfg, pos.id));
+  f.setz('art', 'Verkauf'); f.setz('menge', '30'); f.setz('preis', '1'); await f.speichern();
+  const abg = (await w.DB.getAll('materialabgaenge'))[0];
+  assertEq([await lagerBestand(w, pos), (await w.DB.get('kassenbuch', abg.kassenbuchId)).betrag], [70, 30], 'Abgang gebucht: 70 kg, Einnahme 30 €');
+  const loeschen = async () => { const g = await lagerFormular(w, async () => w.materialAbgangForm(cfg, pos.id, await w.DB.get('materialabgaenge', abg.id))); await g.loeschen(); };
+  await loeschen();   // „Auch aus dem Kassenbuch löschen“
+  assertEq([await lagerBestand(w, pos), await w.DB.get('kassenbuch', abg.kassenbuchId)], [100, undefined], 'Abgang samt Buchung gelöscht → 100 kg');
+  // Wiederherstellen: Bestand wieder 70, Einnahme wieder da, beides aus dem Papierkorb
+  await w.DB.trashRestore((await lagerKorb(w, 'materialabgaenge', abg.id)).id);
+  assertEq(await lagerBestand(w, pos), 70, 'Bestand 70 statt 100');
+  assertEq((await w.DB.get('kassenbuch', abg.kassenbuchId) || {}).betrag, 30, 'die Einnahme kommt mit zurück');
+  assertEq((await w.DB.getAll('papierkorb')).length, 0, 'Papierkorb leer');
+  // Erneut löschen: 100 statt 130
+  await loeschen();
+  assertEq(await lagerBestand(w, pos), 100, 'erneutes Löschen bucht nicht doppelt zurück (100 statt 130)');
+  // Die Buchung im Papierkorb angetippt: der Abgang kommt mit – wie beim Honig-Verkauf
+  await w.DB.trashRestore((await lagerKorb(w, 'kassenbuch', abg.kassenbuchId)).id);
+  assert(await w.DB.get('materialabgaenge', abg.id), 'Abgang wieder da');
+  assertEq([await lagerBestand(w, pos), (await w.DB.getAll('papierkorb')).length], [70, 0], 'Bestand 70, nichts bleibt im Papierkorb');
+  // Reicht der Bestand nicht mehr, bleibt der Abgang im Papierkorb
+  await loeschen();
+  await w.verbrauchAbziehen(pos.id, 90, { pruefen: false });   // inzwischen 90 kg verbraucht → 10 kg
+  let fehler = null; try { await w.DB.trashRestore((await lagerKorb(w, 'materialabgaenge', abg.id)).id); } catch (e) { fehler = e; }
+  assertEq(fehler && fehler.message, 'Material reicht nicht: Zucker R1 – 30 kg benötigt, 10 vorhanden. Bestand prüfen; der Eintrag bleibt im Papierkorb.', 'klare Meldung');
+  assert(await lagerKorb(w, 'materialabgaenge', abg.id) && await lagerKorb(w, 'kassenbuch', abg.kassenbuchId), 'Abgang und Buchung bleiben im Papierkorb');
+  assertEq(await lagerBestand(w, pos), 10, 'Bestand unverändert');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung beim Bedienen: ' + JSON.stringify(toasts));
+})));
+
+test('Lager-Paket R1 (#1/#19): Zugang und Pfand-Rücknahme aus dem Papierkorb buchen den Bestand erneut – mit Kassenbuch', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Doku #1: Zucker 0 kg, Einkauf 100 kg à 0,80 € → 100 kg, Ausgabe 80 €
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker R1-Z', 0);
+  const einkauf = async (menge) => { const f = await lagerFormular(w, () => w.materialZugangForm(cfg, pos.id)); f.setz('menge', String(menge)); f.setz('preis', '0,8'); await f.speichern(); };
+  await einkauf(100);
+  const zug = (await w.DB.getAll('materialzugaenge'))[0];
+  assertEq([await lagerBestand(w, pos), (await w.DB.get('kassenbuch', zug.kassenbuchId)).betrag], [100, 80], 'Einkauf gebucht');
+  const loeschen = async (z) => { const g = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', z.id))); await g.loeschen(); };
+  await loeschen(zug);
+  assertEq(await lagerBestand(w, pos), 0, 'gelöscht → 0 kg');
+  await w.DB.trashRestore((await lagerKorb(w, 'materialzugaenge', zug.id)).id);
+  assertEq(await lagerBestand(w, pos), 100, 'wiederhergestellt → 100 kg statt 0');
+  assertEq((await w.DB.get('kassenbuch', zug.kassenbuchId) || {}).betrag, 80, 'die Ausgabe kommt mit zurück');
+  // Danach Einkauf 40 kg → 140; den wiederhergestellten Zugang löschen → 40 (vorher max(0, 40 − 100) = 0, die 40 kg waren weg)
+  await einkauf(40);
+  assertEq(await lagerBestand(w, pos), 140, '100 + 40');
+  await loeschen(zug);
+  assertEq(await lagerBestand(w, pos), 40, 'die 40 kg des zweiten Einkaufs bleiben');
+  // Pfand – Doku #1: Rücknahme 10 Gläser (50 → 60), löschen → 50, wiederherstellen → 60
+  const glas = await lagerPosten(w, 'Mehrwegglas 500 g R1', 50, { kategorie: 'Gläser/Deckel', einheit: 'Stück', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' });
+  const p = await lagerFormular(w, () => w.pfandRuecknahmeForm(cfg, glas.id));
+  p.setz('anzahl', '10'); await p.speichern();
+  const b = (await w.DB.getAll('pfandbewegungen'))[0];
+  assertEq([await lagerBestand(w, glas), (await w.DB.get('kassenbuch', b.kassenbuchId)).betrag], [60, 5], 'Rücknahme: 60 Gläser, 5 € erstattet');
+  await w.pfandRuecknahmeZurueck(b, { kasse: true });
+  assertEq([await lagerBestand(w, glas), await w.DB.get('pfandbewegungen', b.id)], [50, undefined], 'zurückgenommen → 50');
+  await w.DB.trashRestore((await lagerKorb(w, 'pfandbewegungen', b.id)).id);
+  assertEq(await lagerBestand(w, glas), 60, 'wiederhergestellt → 60 Gläser statt 50');
+  assertEq((await w.DB.get('kassenbuch', b.kassenbuchId) || {}).betrag, 5, 'die Erstattung kommt mit zurück');
+  assertEq(w.pfandUmlauf(glas, [], await w.DB.getAll('pfandbewegungen')).zurueck, 10, 'Umlauf und Bestand passen wieder zusammen');
+})));
+
+test('Lager-Paket R1 (#18): Zugang ändern nach Verbrauch erzeugt keinen Phantom-Bestand, Zurücknehmen nie über das Vorhandene hinaus', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #18: Zucker 0, Einkauf 25 kg (vorher 0, nachher 25), Fütterung 20 kg → 5
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker R1-18', 0);
+  let f = await lagerFormular(w, () => w.materialZugangForm(cfg, pos.id));
+  f.setz('menge', '25'); f.setz('preis', '1'); await f.speichern();
+  const zugId = (await w.DB.getAll('materialzugaenge'))[0].id;
+  await w.verbrauchAbziehen(pos.id, 20, { pruefen: false });   // die Fütterung
+  assertEq(await lagerBestand(w, pos), 5, 'nach der Fütterung 5 kg');
+  const bearbeiten = async () => lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', zugId)));
+  // Nur den Preis ändern: 5 kg bleiben (vorher max(0, 5 − 25) = 0, dann +25 → 25 kg, 20 kg aus nichts)
+  f = await bearbeiten(); f.setz('preis', '1,1'); await f.speichern();
+  assertEq(await lagerBestand(w, pos), 5, 'Preis geändert: Bestand bleibt 5 kg');
+  const kasse = (await w.DB.getAll('kassenbuch')).filter((k) => k.typ === 'ausgabe');
+  assertEq(kasse.map((k) => k.betrag), [27.5], 'genau eine Ausgabe, neu gerechnet: 25 × 1,10 €');
+  // Menge erhöhen: nur der Unterschied kommt dazu
+  f = await bearbeiten(); f.setz('menge', '30'); await f.speichern();
+  assertEq(await lagerBestand(w, pos), 10, '25 → 30 kg: Bestand 5 + 5');
+  // Menge senken unter das Verbrauchte: abgewiesen, am Feld, nichts geändert
+  toasts.length = 0;
+  f = await bearbeiten(); f.setz('menge', '10'); await f.speichern();
+  assert(f.m.isConnected, 'Formular bleibt offen');
+  assert(f.m.querySelector('[data-field="menge"]').classList.contains('invalid'), 'das Feld Menge ist markiert');
+  assert(toasts.some((t) => t.typ === 'err' && t.msg.startsWith('Von „Zucker R1-18“ sind nur noch 10 kg im Bestand – zurücknehmen müsste die App 20 kg.')), 'Meldung: ' + JSON.stringify(toasts));
+  assertEq([await lagerBestand(w, pos), (await w.DB.get('materialzugaenge', zugId)).menge], [10, 30], 'Bestand und Zugang unverändert');
+  dialogeSchliessen(w);
+  // Löschen geht ebenso nicht – vorher: 0 kg, und die Fütterung gab beim Löschen später 20 kg aus nichts zurück
+  toasts.length = 0;
+  f = await bearbeiten(); await f.loeschen();
+  assert(toasts.some((t) => t.typ === 'err' && /nur noch 10 kg im Bestand – zurücknehmen müsste die App 30 kg/.test(t.msg) && /Nichts wurde geändert\.$/.test(t.msg)), 'Löschen abgewiesen: ' + JSON.stringify(toasts));
+  assert(await w.DB.get('materialzugaenge', zugId), 'Zugang bleibt');
+  assertEq([await lagerBestand(w, pos), (await w.DB.getAll('kassenbuch')).filter((k) => k.typ === 'ausgabe').length], [10, 1], 'Bestand und Ausgabe bleiben');
+  dialogeSchliessen(w);
+  // Ist die Fütterung gelöscht (20 kg zurück), lässt sich der Zugang löschen
+  await w.verbrauchZugang(pos.id, 20, { pruefen: false });
+  f = await bearbeiten(); await f.loeschen();
+  assertEq([await lagerBestand(w, pos), await w.DB.get('materialzugaenge', zugId)], [0, undefined], 'jetzt gelöscht → 0 kg');
+  // Pfand – Doku #18: Gläser 0, Rücknahme 12 → 12, Abgang 12 → 0, Rücknahme zurücknehmen → abgewiesen (vorher still 0)
+  const glas = await lagerPosten(w, 'Mehrwegglas R1-18', 0, { kategorie: 'Gläser/Deckel', einheit: 'Stück', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' });
+  const p = await lagerFormular(w, () => w.pfandRuecknahmeForm(cfg, glas.id));
+  p.setz('anzahl', '12'); await p.speichern();
+  const b = (await w.DB.getAll('pfandbewegungen'))[0];
+  await w.verbrauchAbziehen(glas.id, 12, { pruefen: false });
+  let fehler = null; try { await w.pfandRuecknahmeZurueck(b, { kasse: true }); } catch (e) { fehler = e; }
+  assert(fehler && fehler.message.startsWith('Von „Mehrwegglas R1-18“ sind nur noch 0 Stück im Bestand – zurücknehmen müsste die App 12 Stück.'), 'Meldung: ' + (fehler && fehler.message));
+  assert(await w.DB.get('pfandbewegungen', b.id) && await w.DB.get('kassenbuch', b.kassenbuchId), 'Rücknahme und Erstattung bleiben');
+  assertEq(await lagerBestand(w, glas), 0, 'Bestand bleibt 0');
+})));
+
+test('Lager-Paket R1 (#4/#24): Endgültig gelöschte Position sperrt Fütterung und Behandlung nicht mehr – im Papierkorb klare Meldung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen }) => {
+  // Doku #4: „Zucker 2025“, Fütterungen mit gemerktem Abzug; Position löschen, Papierkorb leeren
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker 2025', 0);
+  const mittel = await lagerPosten(w, 'Oxalsäure R1', 100, { kategorie: 'Behandlungsmittel', einheit: 'ml' });
+  const volk = await w.DB.put('voelker', { name: 'R1-Volk', status: 'aktiv' });
+  const abzug = (p, menge) => [{ inventarId: p.id, bezeichnung: p.bezeichnung, menge, einheit: w.verbrauchEinheit(p) }];
+  let fue = await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2025-09-10', futterart: 'Zuckerwasser 3:2', mengeKg: 10, verbrauchAbzug: abzug(pos, 10) });
+  const fue2 = await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2025-09-12', futterart: 'Zuckerwasser 3:2', mengeKg: 10, verbrauchAbzug: abzug(pos, 10) });
+  const beh = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: volk.id, datum: '2025-12-12', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', verbrauchAbzug: abzug(pos, 2) });
+  // Position über ihr Formular löschen: die Rückfrage sagt, was das heißt
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.renderInventarBereich(host, cfg);
+    host.querySelector(`[data-edit="${pos.id}"]`).click(); await w99(400);
+    letztesModal(w).querySelector('[data-del]').click(); await w99(500);
+  } finally { host.remove(); dialogeSchliessen(w); }
+  assert(fragen.some((q) => /3 Einträge \(Fütterung, Behandlung oder Abfüllung\) haben davon abgezogen\. Solange die Position im Papierkorb liegt, lassen sich diese Einträge nicht ändern oder löschen/.test(q.text)), 'Rückfrage nennt die Einträge: ' + JSON.stringify(fragen.map((q) => q.text)));
+  assert(await lagerKorb(w, 'inventar', pos.id), 'Position im Papierkorb');
+  // Im Papierkorb: klare Meldung, nichts geändert
+  const IM_KORB = 'Die Position „Zucker 2025“, von der dieser Eintrag abgezogen hat, liegt im Papierkorb. Stell sie zuerst wieder her – sonst käme die Menge nie in ihren Bestand zurück. Nichts wurde geändert.';
+  let fehler = null; try { await w.fuetterungAendern(fue, { mengeKg: 8 }); } catch (e) { fehler = e; }
+  assertEq(fehler && fehler.message, IM_KORB, 'Ändern: Meldung');
+  fehler = null; try { await w.loescheMitMaterial('fuetterungen', fue); } catch (e) { fehler = e; }
+  assertEq(fehler && fehler.message, IM_KORB, 'Löschen: Meldung');
+  assertEq((await w.DB.get('fuetterungen', fue.id)).mengeKg, 10, 'Fütterung unverändert');
+  // Papierkorb leeren → Fütterung ändern und löschen, Behandlung löschen geht (vorher: für immer gesperrt)
+  await w.DB.clear('papierkorb');
+  fue = await w.fuetterungAendern(fue, { mengeKg: 8 });
+  assertEq([fue.mengeKg, fue.verbrauchAbzug], [8, []], 'geändert, ohne Abzug von der gelöschten Position');
+  assertEq(await w.loescheMitMaterial('fuetterungen', fue2), 0, 'zweite Fütterung gelöscht, nichts zurückzubuchen');
+  assertEq(await w.loescheMitMaterial('behandlungen', beh), 0, 'Behandlung gelöscht');
+  assertEq([await w.DB.get('fuetterungen', fue2.id), await w.DB.get('behandlungen', beh.id)], [undefined, undefined], 'beide im Papierkorb');
+  // Eine Behandlung mit Abzug auf die gelöschte Position kommt aus dem Papierkorb zurück (vorher verfiel sie dort)
+  const gemischt = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: volk.id, datum: '2025-12-13', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', verbrauchAbzug: [...abzug(pos, 2), ...abzug(mittel, 30)] });
+  await w.loescheMitMaterial('behandlungen', gemischt);
+  assertEq(await lagerBestand(w, mittel), 130, 'vorhandenes Mittel kam beim Löschen zurück');
+  await w.DB.trashRestore((await lagerKorb(w, 'behandlungen', gemischt.id)).id);
+  assert(await w.DB.get('behandlungen', gemischt.id), 'Behandlung wiederhergestellt');
+  assertEq(await lagerBestand(w, mittel), 100, 'das vorhandene Mittel wird wieder abgezogen, die gelöschte Position übersprungen');
+  await w.DB.trashRestore((await lagerKorb(w, 'behandlungen', beh.id)).id);
+  assert(await w.DB.get('behandlungen', beh.id), 'auch die Behandlung nur mit gelöschter Position kommt zurück');
+})));
+
+test('Lager-Paket R1 (#27): Position in Packungen bearbeiten lässt den Bestand genau – auch bei 147,4 kg im Sack à 25 kg', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const cfg = lagerPaketCfg(w);
+  // Doku #27: 147,4 kg im Sack à 25 → Feld 5,9; 96,667 kg → 3,87; 4934 ml im Kanister à 1000 → 4,93; 1001 Etiketten in Rollen à 200 → 5,01
+  const faelle = [['Zucker Sack R1', 147.4, 'Sack', 25, 'kg', '5,9'], ['Futterteig Sack R1', 96.667, 'Sack', 25, 'kg', '3,87'], ['Ameisensäure Kanister R1', 4934, 'Kanister', 1000, 'ml', '4,93'], ['Etiketten Rolle R1', 1001, 'Rolle', 200, 'Stück', '5,01']];
+  const oeffne = async (pos) => {
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    await w.renderInventarBereich(host, cfg);
+    host.querySelector(`[data-edit="${pos.id}"]`).click(); await w99(400);
+    host.remove();
+    const m = letztesModal(w);
+    const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+    return { m, setz };
+  };
+  for (const [bez, menge, pack, inhalt, einheit, feld] of faelle) {
+    const pos = await lagerPosten(w, bez, menge, { packEinheit: pack, inhaltMenge: inhalt, einheit });
+    const { m, setz } = await oeffne(pos);
+    assertEq(m.querySelector('#f-_bestand').value, feld, `${bez}: das Feld zeigt gerundet ${feld}`);
+    setz('notiz', 'nur die Notiz geändert'); m.querySelector('[data-save]').click(); await w99(500);
+    const nach = await w.DB.get('inventar', pos.id);
+    assertEq([nach.stueckzahl, nach.notiz], [menge, 'nur die Notiz geändert'], `${bez}: Bestand bleibt genau ${menge}`);
+    dialogeSchliessen(w);
+  }
+  // Wer die Zahl der Packungen ändert, setzt den Bestand weiter neu
+  const sack = (await w.DB.getAll('inventar')).find((i) => i.bezeichnung === 'Zucker Sack R1');
+  const { m, setz } = await oeffne(sack);
+  setz('_bestand', '6'); m.querySelector('[data-save]').click(); await w99(500);
+  assertEq(await lagerBestand(w, sack), 150, '6 Sack × 25 kg');
+})));
+
+test('Lager-Paket R1 (#34): Sammel-Behandlung und -Fütterung – die Anteile ergeben genau den Abzug, Löschen gibt genau ihn zurück', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Hilfsfunktion: Doku #34 – Apivar 5 Stück auf 3 Völker, Kette A 1 + B 3 auf 4, 10 kg auf 3
+  const teile = (buchung, n) => Array.from({ length: n }, (_, i) => w.abzugAnteil(buchung, n, i).map((a) => [a.inventarId, a.menge]));
+  assertEq(teile({ abzug: [{ inventarId: 'A', menge: 5, einheit: 'Stück' }] }, 3), [[['A', 2]], [['A', 2]], [['A', 1]]], 'Apivar: 2 + 2 + 1 = 5');
+  assertEq(teile({ abzug: [{ inventarId: 'A', menge: 1, einheit: 'Stück' }, { inventarId: 'B', menge: 3, einheit: 'Stück' }] }, 4), [[['A', 1]], [['B', 1]], [['B', 1]], [['B', 1]]], 'Kette: erst A, dann B – je Eintrag ein Stück');
+  assertEq(teile({ abzug: [{ inventarId: 'Z', menge: 10, einheit: 'kg' }] }, 3), [[['Z', 3.334]], [['Z', 3.333]], [['Z', 3.333]]], '10 kg: 3,334 + 3,333 + 3,333');
+  const vk = [];
+  for (const name of ['R1-A', 'R1-B', 'R1-C', 'R1-D']) vk.push(await w.DB.put('voelker', { name, status: 'aktiv' }));
+  const speichern = async (oeffnen) => { const f = await lagerFormular(w, oeffnen); await f.speichern(); };
+  const alleLoeschen = async (store) => { for (const r of await w.DB.getAll(store)) await w.loescheMitMaterial(store, r); };
+  // Apivar (Stück), Bestand 5: 3 Völker × 2 Stück → 5 abgezogen; alle drei löschen → 5 (vorher 0 → 2 → 4 → 6)
+  const apivar = await lagerPosten(w, 'Apivar R1', 5, { kategorie: 'Behandlungsmittel', einheit: 'Stück' });
+  await speichern(() => w.Views.behandlungen.sammelForm({ volkIds: vk.slice(0, 3).map((v) => v.id), mittel: 'Apivar', menge: 2, einheit: 'Stück', _verbrauchId: apivar.id }));
+  assertEq([await lagerBestand(w, apivar), (await w.DB.getAll('behandlungen')).length], [0, 3], '3 Behandlungen, Bestand 0');
+  assertEq(w.U.sum(await w.DB.getAll('behandlungen'), (b) => w.U.sum(b.verbrauchAbzug, (a) => a.menge)), 5, 'gemerkt zusammen genau 5');
+  await alleLoeschen('behandlungen');
+  assertEq(await lagerBestand(w, apivar), 5, 'zurück genau 5 statt 6');
+  // Kette: A = 1, B = 10, 4 Völker × 1 Stück → A gibt 1, B 3; alle löschen → A 1, B 10 (vorher A 0, B 11)
+  const kA = await lagerPosten(w, 'Apivar R1 Packung A', 1, { kategorie: 'Behandlungsmittel', einheit: 'Stück', anschaffung: '2025-01-01' });
+  const kB = await lagerPosten(w, 'Apivar R1 Packung B', 10, { kategorie: 'Behandlungsmittel', einheit: 'Stück', anschaffung: '2026-02-01' });
+  await w.DB.put('inventar', { ...(await w.DB.get('inventar', apivar.id)), kategorie: 'Behandlungsmittel alt' });   // die erste Position springt hier nicht ein
+  await speichern(() => w.Views.behandlungen.sammelForm({ volkIds: vk.map((v) => v.id), mittel: 'Apivar', menge: 1, einheit: 'Stück', _verbrauchId: kA.id }));
+  assertEq([await lagerBestand(w, kA), await lagerBestand(w, kB)], [0, 7], 'A gibt 1, B 3');
+  await alleLoeschen('behandlungen');
+  assertEq([await lagerBestand(w, kA), await lagerBestand(w, kB)], [1, 10], 'A wieder 1, B wieder 10');
+  // Fütterung in kg: Zucker 10 kg, 3 Völker × 5 kg → 10 abgezogen (5 fehlten); alle löschen → 10 (vorher 9,999)
+  const zucker = await lagerPosten(w, 'Zucker R1-34', 10);
+  await speichern(() => w.Views.fuetterung.sammelForm({ volkIds: vk.slice(0, 3).map((v) => v.id), futterart: 'Zuckerwasser 3:2', mengeKg: 5, _verbrauchId: zucker.id }));
+  assertEq([await lagerBestand(w, zucker), (await w.DB.getAll('fuetterungen')).length], [0, 3], '3 Fütterungen, Zucker aufgebraucht');
+  await alleLoeschen('fuetterungen');
+  assertEq(await lagerBestand(w, zucker), 10, 'zurück genau 10 kg statt 9,999');
+})));
+
+test('Lager-Paket R1 (#35): Neue Position mit Packungspreis bucht den bezahlten Betrag ins Kassenbuch', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const cfg = lagerPaketCfg(w);
+  // Doku #35: 5 Rollen à 1.000 Etiketten zu 12,99 € → 64,95 € (vorher 65,00); 10 × 1.000 zu 49,99 € → 499,90; 3 × 500 Deckel zu 7,99 € → 23,97
+  const anlegen = async (bez, packungen, inhalt, packPreis, kategorie) => {
+    const f = await lagerFormular(w, () => w.materialZugangForm(cfg));
+    f.setz('inventarId', '__neu'); f.setz('bezeichnung', bez); f.setz('kategorie', kategorie);
+    f.setz('_bestand', String(packungen)); f.setz('packEinheit', 'Rolle'); f.setz('inhaltMenge', String(inhalt)); f.setz('einheit', 'Stück'); f.setz('packPreis', packPreis);
+    await w99(100);
+    const info = f.m.querySelector('[data-zugang-info]').textContent;
+    await f.speichern();
+    const z = (await w.DB.getAll('materialzugaenge')).find((x) => x.bezeichnung === bez);
+    return { z, info, kb: await w.DB.get('kassenbuch', z.kassenbuchId) };
+  };
+  const e = await anlegen('Etiketten R1-35', 5, 1000, '12,99', 'Etiketten');
+  assertEq([e.z.menge, e.kb.betrag, w.zugangKosten(e.z)], [5000, 64.95, 64.95], '5000 Stück, gebucht 64,95 €');
+  assert(/Kosten 64,95/.test(e.info.replace(/\s+/g, ' ')), 'die Vorschau nennt schon 64,95 €: ' + e.info);
+  assertEq((await anlegen('Etiketten groß R1-35', 10, 1000, '49,99', 'Etiketten')).kb.betrag, 499.9, '499,90 €');
+  assertEq((await anlegen('Deckel R1-35', 3, 500, '7,99', 'Gläser/Deckel')).kb.betrag, 23.97, '23,97 €');
+  // Zugang bearbeiten, nur die Notiz: der bezahlte Betrag bleibt; neue Menge → neu gerechnet aus Menge × Preis
+  const pos = await w.DB.get('inventar', e.z.inventarId);
+  let f = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', e.z.id)));
+  f.setz('notiz', 'Rechnung abgeheftet'); await f.speichern();
+  let z = await w.DB.get('materialzugaenge', e.z.id);
+  assertEq([(await w.DB.get('kassenbuch', z.kassenbuchId)).betrag, await lagerBestand(w, pos)], [64.95, 5000], 'Notiz geändert: weiter 64,95 €, Bestand 5000');
+  f = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', e.z.id)));
+  f.setz('menge', '4000'); await f.speichern();
+  z = await w.DB.get('materialzugaenge', e.z.id);
+  assertEq([(await w.DB.get('kassenbuch', z.kassenbuchId)).betrag, await lagerBestand(w, pos)], [52, 4000], 'Menge geändert: 4000 × 0,013 € = 52 €');
+  assertEq((await w.DB.getAll('kassenbuch')).filter((k) => k.typ === 'ausgabe').length, 3, 'je Zugang genau eine Ausgabe');
+})));
+
+test('Lager-Paket R1 (#29): Zwei Pfand-Positionen gleicher Größe zählen jede Abfüllung nur einmal', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Doku #29: A und B „Mehrwegglas 500 g“, je 0,50 €, Pfand seit 01.01.2026; Abfüllung 60 × 500 g, 40 verkauft, 10 bei A zurück
+  const A = { id: 'r1-pA', bezeichnung: 'Mehrwegglas 500 g A', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' };
+  const B = { id: 'r1-pB', bezeichnung: 'Mehrwegglas 500 g B', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' };
+  const abf = [{ id: 'r1-a1', gebindeG: 500, datum: '2026-03-01', anzahl: 60, bestand: 20 }];
+  const bew = [{ inventarId: A.id, anzahl: 10 }];
+  const uA = w.pfandUmlauf(A, abf, bew, [A, B]), uB = w.pfandUmlauf(B, abf, bew, [A, B]);
+  assertEq([uA.verkauft, uA.zurueck, uA.draussen, uA.offen], [40, 10, 30, 15], 'A: 40 verkauft, 10 zurück, 30 draußen, 15 €');
+  assertEq([uB.verkauft, uB.draussen, uB.offen], [0, 0, 0], 'B zählt dieselbe Abfüllung nicht noch einmal');
+  // Wurden die Gläser beim Abfüllen von B abgezogen, gehört die Abfüllung zu B
+  const abfB = [{ ...abf[0], verbrauchAbzug: [{ inventarId: B.id, menge: 60 }] }];
+  assertEq([w.pfandUmlauf(A, abfB, [], [A, B]).verkauft, w.pfandUmlauf(B, abfB, [], [A, B]).verkauft], [0, 40], 'Zuordnung über den Glas-Abzug');
+  // Eine Pfand-Position allein: wie bisher
+  assertEq(w.pfandUmlauf(A, abf, bew).draussen, 30, 'ohne Liste wie bisher');
+  // Im Lager: Summenzeile und Schild „offen“
+  const cfg = lagerPaketCfg(w);
+  await lagerPosten(w, A.bezeichnung, 20, { id: A.id, kategorie: 'Gläser/Deckel', einheit: 'Stück', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' });
+  await lagerPosten(w, B.bezeichnung, 0, { id: B.id, kategorie: 'Gläser/Deckel', einheit: 'Stück', gebindeG: 500, pfand: 0.5, pfandSeit: '2026-01-01' });
+  await w.DB.put('abfuellungen', { id: 'r1-a1', chargeId: null, datum: '2026-03-01', gebindeG: 500, anzahl: 60, bestand: 20 });
+  await w.DB.put('pfandbewegungen', { inventarId: A.id, bezeichnung: A.bezeichnung, typ: 'verbrauch', datum: '2026-04-01', anzahl: 10, pfand: 0.5, betrag: 5, bestandVorher: 10, bestandNachher: 20 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.renderInventarBereich(host, cfg);
+    const karte = host.querySelector('#inv-pfand');
+    const schild = karte.querySelector('.card-title').textContent.replace(/\s+/g, ' ');
+    assert(/15,00 € offen/.test(schild), 'Schild „15,00 € offen“ statt 35,00 €: ' + schild);
+    const summe = [...karte.querySelector('table tbody').querySelectorAll('tr')].pop().textContent.replace(/\s+/g, ' ');   // erste Tabelle: Umlauf
+    assert(/Summe 40 10 30 15,00 €/.test(summe), 'Summenzeile: 40 verkauft, 10 zurück, 30 beim Kunden: ' + summe);
+  } finally { host.remove(); }
+})));
+
+test('Lager-Paket R1 (#8): Zusammenführen holt Einträge, die hier im Papierkorb liegen, nicht still zurück', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Doku #8: Sicherung S1 enthält den Abgang „Zucker 30 kg“ und +30 €; danach Abgang samt Buchung löschen (70 → 100 kg)
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker R1-8', 100);
+  const f = await lagerFormular(w, () => w.materialAbgangForm(cfg, pos.id));
+  f.setz('art', 'Verkauf'); f.setz('menge', '30'); f.setz('preis', '1'); await f.speichern();
+  const abg = (await w.DB.getAll('materialabgaenge'))[0];
+  const s1 = await w.Backup.buildData(true);
+  await w99(20);
+  const g = await lagerFormular(w, async () => w.materialAbgangForm(cfg, pos.id, await w.DB.get('materialabgaenge', abg.id))); await g.loeschen();
+  assertEq(await lagerBestand(w, pos), 100, 'nach dem Löschen 100 kg');
+  const erg = await w.Backup.applyMerge(s1);
+  assertEq([await w.DB.get('materialabgaenge', abg.id), await w.DB.get('kassenbuch', abg.kassenbuchId)], [undefined, undefined], 'Abgang und Einnahme bleiben gelöscht');
+  assertEq(erg.imPapierkorb, 2, 'das Ergebnis nennt die zwei Einträge');
+  assertEq(await lagerBestand(w, pos), 100, 'Bestand bleibt 100');
+  // Über den Papierkorb zurückgeholt: Bestand und Kassenbuch stimmen
+  await w.DB.trashRestore((await lagerKorb(w, 'materialabgaenge', abg.id)).id);
+  assertEq([await lagerBestand(w, pos), (await w.DB.get('kassenbuch', abg.kassenbuchId) || {}).betrag], [70, 30], 'Papierkorb bucht richtig: 70 kg, +30 €');
+  // Gegenprobe: was hier nicht gelöscht ist, kommt wie bisher aus der Sicherung (neuer Kontakt)
+  const kontakt = { id: 'r1-kontakt', name: 'Imkerei Sicherung', typ: 'kunde', lastModified: '2026-01-01T00:00:00.000Z' };
+  assertEq((await w.Backup.applyMerge({ stores: { kontakte: [kontakt] } })).gesamt, 1, 'neuer Eintrag wird übernommen');
+})));
+
+test('Lager-Paket R1 (Honig #4, Lohn): Lohn-Zugang und Position wiederherstellen prüfen den Honig der Charge', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Charge 10 kg, Lohnverarbeitung: 6 kg lose abgegeben → frei 4 kg
+  const c = await loeschPaketCharge(w, 'R1-LOHN', 10);
+  const cfg = lagerPaketCfg(w, 'produkt');
+  const pos = await lagerPosten(w, 'Honigessig R1', 12, { typ: 'produkt', kategorie: w.PRODUKT_KATEGORIEN[0], einheit: 'Stück' });
+  const zug = await w.DB.put('materialzugaenge', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'produkt', kategorie: pos.kategorie, einheit: 'Stück', datum: '2026-07-05', menge: 12, art: 'Einkauf', preis: 2.5,
+    lohn: true, kostenGesamt: 30, honigKg: 6, chargeId: c.id, bestandVorher: 0, bestandNachher: 12, kassenbuchId: null });
+  await w.lohnIndexNeu();
+  const frei = async () => w.chargeRestKg(await w.DB.get('chargen', c.id), await w.DB.getAll('abfuellungen'));
+  assertEq(await frei(), 4, 'frei 4 kg');
+  // Zugang löschen → Honig zurück (frei 10); danach 16 × 500 g abfüllen → frei 2
+  const f = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', zug.id))); await f.loeschen();
+  assertEq([await frei(), await lagerBestand(w, pos)], [10, 0], 'Zugang gelöscht: Honig zurück, Bestand 0');
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-06', g_500: 16 })).recs[0];
+  assertEq(await frei(), 2, 'nach dem Abfüllen frei 2 kg');
+  // Wiederherstellen: 6 kg passen nicht mehr → abgewiesen (vorher: Charge mit −4 kg)
+  let fehler = null; try { await w.DB.trashRestore((await lagerKorb(w, 'materialzugaenge', zug.id)).id); } catch (e) { fehler = e; }
+  assertEq(fehler && fehler.message, 'Der Zugang „Honigessig R1“ lässt sich nicht wiederherstellen: Dafür wurden 6 kg Honig aus der Charge R1-LOHN zur Verarbeitung abgegeben, frei sind dort nur noch 2 kg. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.', 'Meldung');
+  assertEq([await frei(), await lagerBestand(w, pos)], [2, 0], 'Charge und Bestand unverändert');
+  // Abfüllung weg → passt wieder: Zugang kommt zurück, Bestand 12, frei 4
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id));
+  await w.DB.trashRestore((await lagerKorb(w, 'materialzugaenge', zug.id)).id);
+  assertEq([await frei(), await lagerBestand(w, pos)], [4, 12], 'wiederhergestellt: frei 4 kg, Bestand 12');
+  // Position löschen → ihr Lohn-Honig zählt nicht mehr (frei 10); 16 × 500 g abfüllen; Position wiederherstellen → abgewiesen
+  await w.loescheMitMaterial('inventar', await w.DB.get('inventar', pos.id));
+  assertEq(await frei(), 10, 'Position im Papierkorb: Honig frei');
+  await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-07', g_500: 16 });
+  fehler = null; try { await w.DB.trashRestore((await lagerKorb(w, 'inventar', pos.id)).id); } catch (e) { fehler = e; }
+  assert(fehler && fehler.message.startsWith('Die Position „Honigessig R1“ lässt sich nicht wiederherstellen: Dafür wurden 6 kg Honig aus der Charge R1-LOHN zur Verarbeitung abgegeben, frei sind dort nur noch 2 kg.'), 'Meldung: ' + (fehler && fehler.message));
+  assertEq([await frei(), await w.DB.get('inventar', pos.id)], [2, undefined], 'Charge unverändert, Position bleibt im Papierkorb');
+})));
+
+test('Lager-Paket R1 (Honig-Reparatur offen): Abfüllung vergrößern zieht die Mehrmenge über die Abzugskette nach', async (w) => isolierteDaten(w, async () => {
+  // Karton A 3, Karton B 100 (gleiche Größe); 10 Gläser → A 3 + B 7, A ist leer
+  const c = await loeschPaketCharge(w, 'R1-KETTE', 20);
+  const A = await materialPaketPosten(w, 'Gläser 500 g Karton A R1', 3, { gebindeG: 500 });
+  const B = await materialPaketPosten(w, 'Gläser 500 g Karton B R1', 100, { gebindeG: 500, anschaffung: '2026-02-01' });
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 10, gl_500: A.id })).recs[0];
+  assertEq([await lagerBestand(w, A), await lagerBestand(w, B)], [0, 93], 'A leer, B 93');
+  // 10 → 15: A soll 2 mehr tragen, hat aber nichts – B springt ein (vorher: „2 Stück fehlten“)
+  const r = await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 15, bestand: 15, gebindeG: 500, datum: '2026-07-02' });
+  assertEq(r.gefehlt, 0, 'nichts fehlt');
+  assertEq([await lagerBestand(w, A), await lagerBestand(w, B)], [0, 88], 'B gibt die 5 Gläser');
+  assertEq(r.rec.verbrauchAbzug.map((x) => [x.inventarId, x.menge]), [[A.id, 3], [B.id, 12]], 'gemerkt: A 3, B 12 – zusammen 15');
+  // Löschen gibt genau das zurück
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id));
+  assertEq([await lagerBestand(w, A), await lagerBestand(w, B)], [3, 100], 'alles zurück');
+}));
+
+/* =====================================================================
+   Reparatur 04.11.2026, Paket R2 – Behandlungen, Bestandsbuch, Fütterung.
+   Quelle: docs/PRUEFUNG-AEHNLICHE-FEHLER-2026-11-04.md, Funde #17, #23, #5, #33, #28, #32. Zahlen aus der Doku.
+   Formulare werden wie von Hand bedient (lagerFormular aus Paket R1), Selektoren nur im jeweiligen Fenster.
+   ===================================================================== */
+const r2Volk = (w, name, extra = {}) => w.DB.put('voelker', Object.assign({ name, status: 'aktiv', historie: [{ datum: '2025-04-01', text: 'angelegt' }] }, extra));
+const r2Mittel = (w, bezeichnung, stueckzahl, einheit = 'ml') => lagerPosten(w, bezeichnung, stueckzahl, { kategorie: 'Behandlungsmittel', einheit });
+const r2Beh = async (w, volk) => (await w.DB.getAll('behandlungen')).find((b) => b.zielId === volk.id);
+const r2Abzug = (b) => (b.verbrauchAbzug || []).map((a) => [a.inventarId, a.menge]);
+const r2Erinnerungen = async (w) => w.U.sortBy((await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'behandlung'), (a) => a.faellig + a.titel);
+
+test('Behandlungs-Paket R2 (#17): Behandlung bearbeiten bucht nur den Unterschied – „Tierarzt ändern“ lässt Bestand und Abzug stehen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #17: Ameisensäure 1000 ml, Sammel-Behandlung 2 × 50 ml mit Abzug → 900 ml, jeder Eintrag merkt 50 ml
+  const A = await r2Volk(w, 'R2-A'), B = await r2Volk(w, 'R2-B');
+  const as = await r2Mittel(w, 'Ameisensäure R2', 1000);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm({ volkIds: [A.id, B.id], mittel: 'Ameisensäure', menge: 50, einheit: 'ml', datum: '2026-08-01', _verbrauchId: as.id }));
+  await f.speichern();
+  assertEq(await lagerBestand(w, as), 900, 'angelegt: 900 ml');
+  const bearbeite = async (volk, fn) => { const g = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, volk))); await fn(g); await g.speichern(); return r2Beh(w, volk); };
+  // Formular öffnen: die Auswahl steht auf der Position (vorher „–“), der Hinweis sagt, dass schon abgezogen ist
+  f = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, A)));
+  assertEq(f.m.querySelector('#f-_verbrauchId').value, as.id, 'Auswahl steht auf „Ameisensäure R2“');
+  const hinweis = () => f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/Schon abgezogen: 50 ml Ameisensäure R2/.test(hinweis()) && !/Kein Abzug/.test(hinweis()), 'Hinweis: ' + hinweis());
+  f.setz('menge', '60');
+  assert(/Dazu kommen 10 ml von 900 ml → Rest 890 ml/.test(hinweis()), 'Hinweis nennt den Unterschied: ' + hinweis());
+  dialogeSchliessen(w);
+  // Nur „Tierarzt“ ändern: 900 bleibt (vorher 950), der Abzug bleibt gemerkt (vorher [])
+  let a = await bearbeite(A, (g) => g.setz('tierarzt', 'Dr. R2'));
+  assertEq([await lagerBestand(w, as), a.tierarzt, r2Abzug(a)], [900, 'Dr. R2', [[as.id, 50]]], 'A: Tierarzt geändert, Bestand 900, Abzug 50');
+  const b = await bearbeite(B, (g) => g.setz('tierarzt', 'Dr. R2'));
+  assertEq([await lagerBestand(w, as), r2Abzug(b)], [900, [[as.id, 50]]], 'B ebenso: 900 statt 1000');
+  // Menge ändern: nur der Unterschied
+  a = await bearbeite(A, (g) => g.setz('menge', '60'));
+  assertEq([await lagerBestand(w, as), r2Abzug(a)], [890, [[as.id, 60]]], '50 → 60: 10 ml nachgezogen');
+  a = await bearbeite(A, (g) => g.setz('menge', '40'));
+  assertEq([await lagerBestand(w, as), r2Abzug(a)], [910, [[as.id, 40]]], '60 → 40: 20 ml zurück');
+  // Abwählen gibt alles zurück, neu wählen zieht die volle Menge ab – wie beim Anlegen
+  a = await bearbeite(A, (g) => g.setz('_verbrauchId', ''));
+  assertEq([await lagerBestand(w, as), r2Abzug(a)], [950, []], 'abgewählt: 40 ml zurück');
+  a = await bearbeite(A, (g) => g.setz('_verbrauchId', as.id));
+  assertEq([await lagerBestand(w, as), r2Abzug(a)], [910, [[as.id, 40]]], 'wieder gewählt: 40 ml ab');
+  // Löschen gibt genau das Gemerkte zurück
+  for (const v of [A, B]) { const g = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, v))); await g.loeschen(); }
+  assertEq(await lagerBestand(w, as), 1000, 'beide gelöscht: wieder 1000 ml');
+  // Sammel-Anteil kleiner als die Menge (Bestand fehlte): Bestand 80, 2 × 50 → je 40 gemerkt; „Tierarzt“ ändern lässt es so
+  const knapp = await lagerPosten(w, 'Ameisensäure R2 knapp', 80, { kategorie: 'Säuren', einheit: 'ml' });   // eigene Art: die Kette springt nicht auf die erste Position über
+  f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm({ volkIds: [A.id, B.id], mittel: 'Ameisensäure', menge: 50, einheit: 'ml', datum: '2026-08-02', _verbrauchId: knapp.id }));
+  await f.speichern();
+  a = await bearbeite(A, (g) => g.setz('tierarzt', 'Dr. R2'));
+  assertEq([await lagerBestand(w, knapp), r2Abzug(a)], [0, [[knapp.id, 40]]], 'Bestand bleibt 0 (vorher 40), Abzug 40 bleibt');
+  assert(!toasts.some((t) => t.typ === 'err' && !/fehlten im Bestand/.test(t.msg)), 'keine Fehlermeldung: ' + JSON.stringify(toasts.filter((t) => t.typ === 'err')));
+})));
+
+test('Behandlungs-Paket R2 (#17): Position im Papierkorb – Bearbeiten behält den Abzug, Mehrmenge wird mit klarer Meldung abgewiesen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const A = await r2Volk(w, 'R2-P');
+  const pos = await r2Mittel(w, 'Oxalsäure R2', 100);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm({ volkIds: [A.id], mittel: 'Oxalsäure', menge: 30, einheit: 'ml', datum: '2026-08-01', _verbrauchId: pos.id }));
+  await f.speichern();
+  assertEq(await lagerBestand(w, pos), 70, 'angelegt: 70 ml');
+  await w.DB.softDel('inventar', pos.id);   // Position liegt im Papierkorb
+  f = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, A)));
+  f.setz('tierarzt', 'Dr. P'); await f.speichern();
+  let a = await r2Beh(w, A);
+  assertEq([a.tierarzt, r2Abzug(a)], ['Dr. P', [[pos.id, 30]]], 'gespeichert, der Abzug bleibt gemerkt (vorher still vergessen)');
+  // Mehr Menge ließe sich nicht von der Position abziehen → Meldung, nichts geändert
+  toasts.length = 0;
+  f = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, A)));
+  f.setz('menge', '40'); await f.speichern();
+  assert(toasts.some((t) => t.typ === 'err' && /liegt im Papierkorb\. Stell sie zuerst wieder her/.test(t.msg)), 'Meldung: ' + JSON.stringify(toasts));
+  a = await r2Beh(w, A);
+  assertEq([a.menge, r2Abzug(a)], [30, [[pos.id, 30]]], 'nichts geändert');
+  dialogeSchliessen(w);
+  // Position zurück, Behandlung löschen → 100 ml (vorher blieb es bei 70)
+  await w.DB.trashRestore((await lagerKorb(w, 'inventar', pos.id)).id);
+  await w.loescheMitMaterial('behandlungen', await r2Beh(w, A));
+  assertEq(await lagerBestand(w, pos), 100, 'die 30 ml kommen zurück');
+})));
+
+test('Behandlungs-Paket R2 (#23): Wartezeit-Erinnerung folgt beim Ändern, Löschen und Wiederherstellen – ohne Doppelte', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #23: Oxalsäure am 01.08. für 3 Völker, Wartezeit 14 → „Wartezeit endet: Oxalsäure (3 Völker)“ zum 15.08.
+  const A = await r2Volk(w, 'WZ-A'), B = await r2Volk(w, 'WZ-B'), C = await r2Volk(w, 'WZ-C');
+  let f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm({ volkIds: [A.id, B.id, C.id], mittel: 'Oxalsäure', menge: 30, einheit: 'ml', datum: '2026-08-01', wartezeitTage: 14 }));
+  await f.speichern();
+  let e = await r2Erinnerungen(w);
+  assertEq(e.map((a) => [a.titel, a.faellig]), [['Wartezeit endet: Oxalsäure (3 Völker)', '2026-08-15']], 'eine Erinnerung für alle drei');
+  const bearbeite = async (volk, fn) => { const g = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, volk))); await fn(g); await g.speichern(); };
+  const offen = async () => (await r2Erinnerungen(w)).filter((a) => !a.erledigt).map((a) => [a.titel, a.faellig]);
+  // Datum bei A auf 03.08.: A bekommt eine eigene zum 17.08., die Sammel-Erinnerung gilt noch für 2 (vorher blieb sie bei 3 + Doppelte)
+  await bearbeite(A, (g) => g.setz('datum', '2026-08-03'));
+  assertEq(await offen(), [['Wartezeit endet: Oxalsäure (2 Völker)', '2026-08-15'], ['Wartezeit endet: Oxalsäure (WZ-A)', '2026-08-17']], 'A eigene, Sammel für 2');
+  // Nur den Tierarzt ändern: keine weitere Erinnerung
+  await bearbeite(A, (g) => g.setz('tierarzt', 'Dr. WZ'));
+  await bearbeite(B, (g) => g.setz('tierarzt', 'Dr. WZ'));
+  assertEq((await offen()).length, 2, 'keine Doppelten');
+  // Wartezeit bei B auf 0: B scheidet aus
+  await bearbeite(B, (g) => g.setz('wartezeitTage', '0'));
+  assertEq(await offen(), [['Wartezeit endet: Oxalsäure (1 Volk)', '2026-08-15'], ['Wartezeit endet: Oxalsäure (WZ-A)', '2026-08-17']], 'Sammel nur noch für C');
+  // C und A löschen: beide Erinnerungen entfallen
+  for (const v of [C, A]) { const g = await lagerFormular(w, async () => w.Views.behandlungen.form(await r2Beh(w, v))); await g.loeschen(); }
+  assertEq(await offen(), [], 'keine veraltete Erinnerung');
+  // Wiederherstellen bringt sie zurück
+  const korb = async (volk) => (await w.DB.getAll('papierkorb')).find((t) => t.store === 'behandlungen' && t.daten.zielId === volk.id);
+  await w.DB.trashRestore((await korb(A)).id);
+  await w.DB.trashRestore((await korb(C)).id);
+  assertEq(await offen(), [['Wartezeit endet: Oxalsäure (WZ-C)', '2026-08-15'], ['Wartezeit endet: Oxalsäure (WZ-A)', '2026-08-17']], 'beide wieder da');
+  // Erledigt bleibt erledigt: nichts Neues, solange das Ende gleich bleibt
+  const bA = await r2Beh(w, A), vonA = async () => (await r2Erinnerungen(w)).filter((a) => a.refId === bA.id).map((a) => [a.erledigt, a.faellig]);
+  const eA = (await r2Erinnerungen(w)).find((a) => a.refId === bA.id);
+  assert(eA, 'A hat ihre eigene Erinnerung');
+  await w.DB.put('aufgaben', { ...eA, erledigt: true });
+  await bearbeite(A, (g) => g.setz('tierarzt', 'Dr. WZ 2'));
+  assertEq(await vonA(), [[true, '2026-08-17']], 'erledigte bleibt, keine neue');
+  await bearbeite(A, (g) => g.setz('datum', '2026-08-05'));
+  assertEq(await vonA(), [[true, '2026-08-17'], [false, '2026-08-19']], 'neues Ende: neue Erinnerung, die erledigte bleibt');
+  // Selbst gelöschte Erinnerung: „Tierarzt ändern“ legt keine neue an, ein neues Datum schon
+  const bC = await r2Beh(w, C), vonC = async () => (await r2Erinnerungen(w)).filter((a) => a.refId === bC.id).map((a) => a.faellig);
+  for (const a of await r2Erinnerungen(w)) if (a.refId === bC.id) await w.DB.del('aufgaben', a.id);
+  await bearbeite(C, (g) => g.setz('tierarzt', 'Dr. WZ'));
+  assertEq(await vonC(), [], 'keine ungefragte Erinnerung');
+  await bearbeite(C, (g) => g.setz('datum', '2026-08-02'));
+  assertEq(await vonC(), ['2026-08-16'], 'neues Ende → Erinnerung');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  // Ältere Sammel-Erinnerung ohne Liste (vor dieser Fassung): erkannt an Mittel und Fälligkeit
+  const X = await r2Volk(w, 'WZ-X'), Y = await r2Volk(w, 'WZ-Y');
+  const alt = await w.DB.put('aufgaben', { titel: 'Wartezeit endet: Thymol (2 Völker)', faellig: '2026-09-15', erledigt: false, quelle: 'behandlung', refId: null, notiz: '' });
+  for (const v of [X, Y]) await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-09-01', mittel: 'Thymol', menge: 1, einheit: 'Stück', wartezeitTage: 14, notiz: '' });
+  await w.loescheMitMaterial('behandlungen', await r2Beh(w, X));
+  const neu = await w.DB.get('aufgaben', alt.id);
+  assertEq([neu.titel, neu.refIds], ['Wartezeit endet: Thymol (1 Volk)', [(await r2Beh(w, Y)).id]], 'alte Sammel-Erinnerung: X scheidet aus');
+  await w.loescheMitMaterial('behandlungen', await r2Beh(w, Y));
+  assertEq(await w.DB.get('aufgaben', alt.id), undefined, 'Y gelöscht: Erinnerung entfällt');
+})));
+
+test('Behandlungs-Paket R2 (#5): Stand mit Nachweisen lässt sich nicht löschen – Meldung sagt, was zu tun ist', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
+  // Doku #5: Stand „Waldrand“, Behandlung „Ganzer Stand“ mit Oxalsäure am 12.12.2025, alle Völker woanders
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const beh = await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2025-12-12', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  assertEq(await w.standLoeschen(wald), false, 'nicht gelöscht');
+  assertEq(fragen.map((x) => x.title), ['Der Stand wird noch gebraucht'], 'nur die Meldung, keine Löschfrage');
+  assertEq(fragen[0].text, '„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch. Ohne den Stand fehlte dort sein Name – im Bestandsbuch stünde nur „Stand ?“. Darum lässt sich der Stand nicht löschen. Er kann stehen bleiben, auch ohne Völker. Gehören die Einträge gar nicht zu diesem Stand, ändere sie zuerst – dann kannst du ihn löschen.', 'Meldung');
+  assert(await w.DB.get('staende', wald.id), 'der Stand bleibt');
+  assertEq((await w.DB.getAll('papierkorb')).length, 0, 'nichts im Papierkorb');
+  // Das Bestandsbuch nennt ihn weiter beim Namen
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try { await w.Pdf.bestandsbuch('2025'); } finally { w.Pdf.noDownloadForTest = false; }
+  const text = w.Pdf.lastDocForTest.internal.pages.map((p) => (p || []).join('\n')).join('\n');
+  assert(text.includes('Waldrand') && !text.includes('Stand ?'), 'Bestandsbuch: „Stand Waldrand“');
+  // Ernte vom ganzen Stand und Wanderung zählen auch
+  const ern = await w.DB.put('ernten', { zielTyp: 'stand', zielId: wald.id, datum: '2026-06-01', sorte: 'Wald', mengeKg: 10 });
+  const wan = await w.DB.put('wanderungen', { datum: '2026-04-15', vonStandId: heim.id, nachStandId: wald.id, volkIds: [] });
+  fragen.length = 0;
+  assertEq(await w.standLoeschen(wald), false, 'weiter gesperrt');
+  assert(fragen[0].text.startsWith('„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch, 1 Ernte vom ganzen Stand und 1 Wanderung im Wanderbuch.'), fragen[0].text);
+  // Ohne Nachweise geht es – eine Fahrt hält den Stand nicht (Fahrtenbuch schreibt „gelöschter Stand“, gewollt)
+  for (const [st, id] of [['behandlungen', beh.id], ['ernten', ern.id]]) await w.DB.del(st, id);
+  fragen.length = 0;
+  assertEq(await w.standLoeschen(wald), false, 'die Wanderung allein hält ihn auch');
+  assert(fragen[0].text.startsWith('„Waldrand“ steht in deinen Nachweisen: 1 Wanderung im Wanderbuch. Ohne den Stand fehlte dort sein Name – im Wanderbuch stünde nur „–“.'), fragen[0].text);
+  await w.DB.del('wanderungen', wan.id);
+  await w.DB.put('fahrten', { datum: '2026-05-01', standId: wald.id, km: 12, zweck: 'Fahrt zum Stand', notiz: '' });
+  fragen.length = 0;
+  assertEq(await w.standLoeschen(wald), true, 'jetzt gelöscht');
+  assertEq(fragen.map((x) => x.title), ['Stand löschen?'], 'die übliche Rückfrage');
+  assert(!(await w.DB.get('staende', wald.id)) && await lagerKorb(w, 'staende', wald.id), 'Stand im Papierkorb');
+  // Kommt während der Rückfrage ein Nachweis dazu, prüft die Buchung noch einmal und lässt den Stand stehen
+  w.UI.confirm = async (o) => { fragen.push(o); if (o.title === 'Stand löschen?') await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: heim.id, datum: '2026-07-01', mittel: 'Thymol', menge: 1, einheit: 'Stück', notiz: '' }); return true; };
+  toasts.length = 0;
+  assertEq(await w.standLoeschen(heim), false, 'nicht gelöscht');
+  assert(await w.DB.get('staende', heim.id), 'Heim bleibt');
+  assert(toasts.some((t) => t.typ === 'err' && /^„Heim“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch/.test(t.msg)), 'Meldung: ' + JSON.stringify(toasts));
+})));
+
+test('Behandlungs-Paket R2 (#33): Behandlungsübersicht summiert je Einheit getrennt – Bildschirm und Report-PDF', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Doku #33: 2026 Oxalsäure 2 × 30 ml geträufelt und 1 × 2 g verdampft → vorher „3 · 62 ml“
+  const v = await r2Volk(w, 'R2-Ü');
+  for (const [menge, einheit, art] of [[30, 'ml', 'Träufeln'], [2, 'g', 'Verdampfen'], [30, 'ml ', 'Träufeln']]) await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-08-01', mittel: 'Oxalsäure', menge, einheit, anwendungsart: art, wartezeitTage: 0, notiz: '' });
+  await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2025-08-01', mittel: 'Oxalsäure', menge: 5, einheit: 'g', wartezeitTage: 0, notiz: '' });
+  const rows = (await w.Reporting.behandlungsUebersicht()).filter((r) => r.jahr === '2026');
+  assertEq(rows.map((r) => [r.mittel, r.n, r.menge, r.einheit]), [['Oxalsäure', 1, 2, 'g'], ['Oxalsäure', 2, 60, 'ml']], '60 ml und 2 g getrennt');
+  // Report-PDF: dieselben Zeilen
+  const echt = w.Pdf.table, tabellen = [];
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return echt.call(this, doc, o); };
+  w.Pdf.noDownloadForTest = true;
+  try { await w.Pdf.report('behandlungen', '2026'); } finally { w.Pdf.table = echt; w.Pdf.noDownloadForTest = false; }
+  const t = tabellen.find((o) => (o.head || []).includes('Gesamtmenge'));
+  assertEq(t && t.body, [['2026', 'Oxalsäure', '1', '2 g'], ['2026', 'Oxalsäure', '2', '60 ml']], 'PDF: 2 g und 60 ml');
+  // Bildschirm (Statistik → Gesundheit). Die Ansicht sucht #rep im ganzen Dokument – der eigene Host steht deshalb VOR der App
+  const host = w.document.createElement('main'); w.document.body.prepend(host);
+  const vorher = { t: w.Views.reporting._typ, j: w.Views.reporting._jahr };
+  try {
+    w.Views.reporting._typ = 'behandlungen'; w.Views.reporting._jahr = '2026';
+    await w.Views.reporting.render(host); await w99(300);
+    const zellen = [...host.querySelectorAll('#rep table.tbl tbody tr')].map((tr) => [...tr.children].map((td) => td.textContent.trim())).filter((z) => z[1] === 'Oxalsäure');
+    assertEq(zellen, [['2026', 'Oxalsäure', '1', '2 g'], ['2026', 'Oxalsäure', '2', '60 ml']], 'Bildschirm: 2 g und 60 ml');
+  } finally { host.remove(); w.Views.reporting._typ = vorher.t; w.Views.reporting._jahr = vorher.j; }
+})));
+
+test('Behandlungs-Paket R2 (#28): Fütterungsliste-PDF rechnet „davon Winterfutter“ in Zucker wie der Bildschirm', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const v = await r2Volk(w, 'R2-F');
+  const untertitel = async (jahr) => {
+    const echt = w.Pdf.newDoc; let u = null;
+    w.Pdf.newDoc = function (t, sub, o) { u = sub; return echt.call(this, t, sub, o); };
+    w.Pdf.noDownloadForTest = true;
+    try { await w.Pdf.fuetterungsliste(jahr); } finally { w.Pdf.newDoc = echt; w.Pdf.noDownloadForTest = false; }
+    return u;
+  };
+  // Doku #28: Apiinvert 20 kg Winterfutter → Zucker ≈ 14,6 kg, vorher „davon Winterfutter 20 kg“
+  await w.DB.put('fuetterungen', { volkId: v.id, datum: '2025-09-10', futterart: 'Apiinvert', mengeKg: 20, winterfutter: true });
+  const u1 = await untertitel('2025');
+  assert(/Zucker ≈ 14,6 kg/.test(u1) && /davon Winterfutter ≈ 14,6 kg$/.test(u1), 'Apiinvert: ' + u1);
+  // Testdaten der Doku: Zuckerwasser 3:2, 24,5 kg, davon Zucker 14,7 kg → davon Winterfutter 14,7 kg (vorher 24,5)
+  await w.DB.put('fuetterungen', { volkId: v.id, datum: '2026-08-15', futterart: 'Zuckerwasser 3:2', mengeKg: 24.5, zuckerKg: 14.7, winterfutter: true });
+  await w.DB.put('fuetterungen', { volkId: v.id, datum: '2026-05-15', futterart: 'Zuckerwasser 1:1', mengeKg: 3, winterfutter: false });
+  const u2 = await untertitel('2026');
+  assert(/Zucker 17,7 kg/.test(u2) && /davon Winterfutter 14,7 kg$/.test(u2), 'Zuckerwasser: ' + u2);
+  // Derselbe Wert wie die Kachel am Bildschirm
+  const host = w.document.createElement('main'); w.document.body.appendChild(host);
+  const vorher = w.Views.fuetterung._jahr;
+  try {
+    w.Views.fuetterung._jahr = '2026';
+    await w.Views.fuetterung.render(host); await w99(200);
+    const kachel = [...host.querySelectorAll('.stat')].find((s) => /davon Winterfutter/.test(s.textContent));
+    assertEq(kachel && kachel.querySelector('.s-value').textContent.trim(), '14,7 kg', 'Kachel am Bildschirm');
+  } finally { host.remove(); w.Views.fuetterung._jahr = vorher; }
+})));
+
+test('Behandlungs-Paket R2 (#32): Statistik „ohne eingetragene Behandlung“ nimmt den Stand am Tag der Behandlung', async (w) => isolierteDaten(w, async () => {
+  // Doku #32: Stand Wald, ganzer Stand behandelt am 10.08.2026; Anna stand dort und wandert am 20.09. nach Raps.
+  // Umgekehrt: Berta stand unbehandelt an Raps und wandert am 01.10. nach Wald.
+  const wald = await w.DB.put('staende', { name: 'Wald' }), raps = await w.DB.put('staende', { name: 'Raps' });
+  const anna = await r2Volk(w, 'Anna', { standId: raps.id }), berta = await r2Volk(w, 'Berta', { standId: wald.id });
+  await w.DB.put('wanderungen', { datum: '2026-09-20', vonStandId: wald.id, nachStandId: raps.id, volkIds: [anna.id] });
+  await w.DB.put('wanderungen', { datum: '2026-10-01', vonStandId: raps.id, nachStandId: wald.id, volkIds: [berta.id] });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2026-08-10', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  const erg = await w.Statistik.auswerten('behandlungen', '2026');
+  const ohne = erg.auffaellig.find((a) => /ohne eingetragene Behandlung 2026/.test(a.titel));
+  assert(ohne, 'Hinweis vorhanden: ' + JSON.stringify(erg.auffaellig.map((a) => a.titel)));
+  assertEq([ohne.titel, /Berta/.test(ohne.text), /Anna/.test(ohne.text)], ['1 Volk ohne eingetragene Behandlung 2026', true, false], 'Berta fehlt die Behandlung, Anna nicht: ' + ohne.text);
+}));
+
+/* =====================================================================
+   Paket R3 (Prüfung ähnlicher Fehler 04.11.2026): Rechnungen, Kunden, Kassenbuch.
+   Quelle: docs/PRUEFUNG-AEHNLICHE-FEHLER-2026-11-04.md, Funde #2/#21, #3/#25, #6, #30, #36.
+   ===================================================================== */
+async function r3Kunde(w, extra = {}) {
+  return w.DB.put('kontakte', { typ: 'kunde', name: 'Hofladen Berger', strasse: 'Hauptstr. 1', plz: '12345', ort: 'A-Dorf', ...extra });
+}
+async function r3Entwurf(w, kundeId, positionen = [{ text: 'Honig 500 g', abfuellungId: null, menge: 20, einzelpreis: 6, steuersatz: 0 }], extra = {}) {
+  return w.DB.put('rechnungen', { nummer: null, datum: '2026-08-01', kundeId, steuerart: 'klein', kleinunternehmer: true, status: 'entwurf', qrAufDruck: false, positionen, ...extra });
+}
+async function r3Festschreiben(w, id) {
+  await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', id), []);
+  return w.DB.get('rechnungen', id);
+}
+async function r3PdfText(w, id) {
+  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
+  try { await w.Pdf.rechnung(id); } finally { w.Pdf.noDownloadForTest = false; }
+  assert(w.Pdf.lastDocForTest, 'Rechnungs-PDF wurde gebaut');
+  return w.Pdf.lastDocForTest.internal.pages.map((p) => (p || []).join('\n')).join('\n');
+}
+const r3Kasse = async (w, rechnungId) => (await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === rechnungId);
+const r3KorbLeeren = async (w) => { for (const t of await w.DB.getAll('papierkorb')) await w.DB.del('papierkorb', t.id); };
+
+test('Rechnungs-Paket R3 (#2/#21): Ausgestellte Rechnung behält Empfänger und Absender – Kontakt ändern oder löschen verändert sie nicht', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts, host }) => {
+  // Doku #2/#21: RE-0001 an „Hofladen Berger, Hauptstr. 1, 12345 A-Dorf“ über 120 € festgeschrieben
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), name: 'Imkerei Koehler', strasse: 'Bienenweg 2', plz: '85221', ort: 'Dachau', steuernummer: '123/456/7890', ustIdNr: '' });
+  const kunde = await r3Kunde(w);
+  const r = await r3Entwurf(w, kunde.id);
+  const fest = await r3Festschreiben(w, r.id);
+  assertEq([fest.nummer, fest.status], ['RE-0001', 'festgeschrieben'], 'festgeschrieben');
+  assertEq(fest.empfaenger, { name: 'Hofladen Berger', strasse: 'Hauptstr. 1', plz: '12345', ort: 'A-Dorf' }, 'Empfänger festgehalten');
+  assertEq([fest.absender.name, fest.absender.strasse, fest.absender.steuernummer, fest.absender.ustIdNr], ['Imkerei Koehler', 'Bienenweg 2', '123/456/7890', ''], 'Absender festgehalten');
+  // Danach ändern sich Kontakt und eigene Angaben
+  await w.DB.put('kontakte', { ...(await w.DB.get('kontakte', kunde.id)), name: 'Berger GmbH', strasse: 'Neue Str. 9' });
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), strasse: 'Honigplatz 5', steuernummer: '999/999/9999' });
+  let t = await r3PdfText(w, r.id);
+  assert(t.includes('Hofladen Berger') && t.includes('Hauptstr. 1') && t.includes('12345 A-Dorf'), 'PDF: Anschrift wie beim Festschreiben');
+  assert(!t.includes('Berger GmbH') && !t.includes('Neue Str. 9'), 'PDF: nicht die neue Anschrift');
+  assert(t.includes('123/456/7890') && t.includes('Bienenweg 2') && !t.includes('999/999/9999') && !t.includes('Honigplatz 5'), 'PDF: Absender und Steuernummer wie beim Festschreiben');
+  // Ein Entwurf an denselben Kunden liest weiter live
+  const entwurf = await r3Entwurf(w, kunde.id, [{ text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 6, steuersatz: 0 }], { datum: '2026-08-02' });
+  t = await r3PdfText(w, entwurf.id);
+  assert(t.includes('Berger GmbH') && t.includes('Neue Str. 9') && t.includes('999/999/9999'), 'Entwurf: aktuelle Angaben');
+  // Kontakt löschen (Mülleimer im Kontakt-Formular): Hinweis auf die Rechnungen
+  fragen.length = 0;
+  assertEq(await w.UI.nurLoeschen(async () => w.kontaktForm(await w.DB.get('kontakte', kunde.id))), true, 'Kontakt gelöscht');
+  assertEq(fragen.map((f) => f.title), ['Kontakt löschen?'], 'eine Rückfrage');
+  assertEq(fragen[0].text, 'Wandert in den Papierkorb. An „Berger GmbH“ geht 1 ausgestellte Rechnung. Sie behält Name und Anschrift, wie sie beim Festschreiben waren. 1 Entwurf ist an diesen Kontakt gerichtet – dort wählst du vor dem Festschreiben einen anderen Kunden.', 'Hinweis beim Löschen');
+  assert(!(await w.DB.get('kontakte', kunde.id)), 'Kontakt im Papierkorb');
+  await r3KorbLeeren(w);   // Papierkorb geleert – der Kontakt ist endgültig weg
+  t = await r3PdfText(w, r.id);
+  assert(t.includes('Hofladen Berger') && !t.includes('(kein Kunde ausgew'), 'PDF nach dem Leeren: weiter mit Empfänger');
+  await w.Views.rechnungen.render(host);
+  const zeile = host.querySelector(`.row[data-id="${r.id}"]`);
+  assert(zeile && zeile.textContent.includes('Hofladen Berger') && !zeile.textContent.includes('kein Kunde'), 'Liste: ' + (zeile && zeile.textContent));
+  await w.Views.rechnung.render(host, r.id);
+  assert(host.textContent.includes('Hofladen Berger'), 'Ansicht der Rechnung nennt den Kunden');
+  const excel = (await (await w.Xlsx.defs()).rechnungen.rows()).find((x) => x.Nummer === 'RE-0001');
+  assertEq(excel && excel.Kunde, 'Hofladen Berger', 'Excel: Spalte Kunde');
+  // Entwurf, dessen Kunde gelöscht ist: Festschreiben wird abgewiesen
+  toasts.length = 0;
+  const nachher = await r3Festschreiben(w, entwurf.id);
+  assertEq([nachher.status, nachher.nummer], ['entwurf', null], 'bleibt Entwurf ohne Nummer');
+  assertEq(toasts.at(-1), { msg: w.RECHNUNG_KUNDE_FEHLT, typ: 'err' }, 'Meldung');
+  assertEq(w.RECHNUNG_KUNDE_FEHLT, 'Der Kunde dieser Rechnung ist gelöscht. Wähle einen Kunden aus oder stell ihn aus dem Papierkorb wieder her. Nichts wurde festgeschrieben.');
+  assertEq((await r3Kasse(w, entwurf.id)).length, 0, 'nichts im Kassenbuch');
+  // Auch in der Buchung selbst geprüft (Kunde verschwindet nach der Vorprüfung)
+  const echtGet = w.DB.get;
+  w.DB.get = async (st, id) => (st === 'kontakte' ? { id, name: 'Schein' } : echtGet.call(w.DB, st, id));
+  try { toasts.length = 0; await w.Views.rechnung.festschreiben(await echtGet.call(w.DB, 'rechnungen', entwurf.id), []); } finally { w.DB.get = echtGet; }
+  assertEq((await w.DB.get('rechnungen', entwurf.id)).status, 'entwurf', 'weiter Entwurf');
+  assert(toasts.some((x) => x.typ === 'err' && x.msg.includes(w.RECHNUNG_KUNDE_FEHLT)), 'Meldung aus der Buchung: ' + JSON.stringify(toasts));
+})));
+
+test('Rechnungs-Paket R3 (#2/#21): Alte festgeschriebene Rechnungen bekommen beim Start einmal einen Schnappschuss', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), name: 'Imkerei Koehler', strasse: 'Bienenweg 2', plz: '85221', ort: 'Dachau', steuernummer: '123/456/7890' });
+  const da = await r3Kunde(w), korb = await r3Kunde(w, { name: 'Cafe Linde', strasse: 'Ringweg 3' }), weg = await r3Kunde(w, { name: 'Markt Huber' });
+  const pos = [{ text: 'Honig', abfuellungId: null, menge: 2, einzelpreis: 6, steuersatz: 0 }];
+  const alt = (nr, kundeId, status = 'festgeschrieben') => w.DB.put('rechnungen', { nummer: nr, datum: '2025-08-01', kundeId, steuerart: 'klein', status, positionen: pos });
+  const r1 = await alt('RE-0001', da.id), r2 = await alt('RE-0002', korb.id, 'storniert'), r3 = await alt('RE-0003', weg.id);
+  const e = await r3Entwurf(w, da.id);
+  await w.DB.softDel('kontakte', korb.id);                 // liegt im Papierkorb
+  await w.DB.softDel('kontakte', weg.id); for (const t of await w.DB.getAll('papierkorb')) if (t.daten && t.daten.id === weg.id) await w.DB.del('papierkorb', t.id);   // endgültig weg
+  assertEq(await w.migriereRechnungSchnappschuss(), 3, 'drei Rechnungen ergänzt (der Entwurf nicht)');
+  const n1 = await w.DB.get('rechnungen', r1.id), n2 = await w.DB.get('rechnungen', r2.id), n3 = await w.DB.get('rechnungen', r3.id);
+  assertEq(n1.empfaenger, { name: 'Hofladen Berger', strasse: 'Hauptstr. 1', plz: '12345', ort: 'A-Dorf' }, 'aus dem Kontakt');
+  assertEq(n2.empfaenger && n2.empfaenger.name, 'Cafe Linde', 'gelöschter Kontakt: aus dem Papierkorb');
+  assertEq(n3.empfaenger, undefined, 'endgültig gelöschter Kontakt: kein Empfänger');
+  assertEq([n1.absender.steuernummer, n3.absender.name], ['123/456/7890', 'Imkerei Koehler'], 'Absender aus den heutigen Einstellungen');
+  assertEq((await w.DB.get('rechnungen', e.id)).absender, undefined, 'Entwurf bleibt ohne Schnappschuss');
+  assertEq(await w.migriereRechnungSchnappschuss(), 0, 'zweiter Lauf ändert nichts');
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), steuernummer: '999/999/9999' });
+  assertEq(await w.migriereRechnungSchnappschuss(), 0, 'auch nach geänderten Einstellungen nicht');
+  let t = await r3PdfText(w, r3.id);
+  assert(t.includes('(kein Kunde ausgew') && t.includes('123/456/7890') && !t.includes('999/999/9999'), 'RE-0003: bisheriger Platzhalter, Absender fest');
+  // Ein Kontakt, der gelöscht wird, solange einer alten Rechnung der Schnappschuss fehlt: vorher festgehalten
+  const neuK = await r3Kunde(w, { name: 'Laden Sommer' });
+  const r4 = await alt('RE-0004', neuK.id);
+  assertEq(await w.kontaktLoeschen(await w.DB.get('kontakte', neuK.id)), true, 'gelöscht');
+  assertEq((await w.DB.get('rechnungen', r4.id)).empfaenger.name, 'Laden Sommer', 'Schnappschuss vor dem Löschen');
+  // Gleich nach dem Einspielen einer alten Sicherung (der Start hat noch nicht nachgeholt; das Einspielen bleibt eine genaue Kopie):
+  // Wird der Kontakt oder werden die eigenen Angaben geändert, hält die App vorher den bisherigen Stand fest.
+  const k6 = await r3Kunde(w, { name: 'Hof Wagner', strasse: 'Altweg 1' });
+  const r6 = await alt('RE-0006', k6.id);
+  const m = await w.kontaktForm(await w.DB.get('kontakte', k6.id), { onSaved: async () => {} });
+  m.el.querySelector('#f-strasse').value = 'Neuweg 7';
+  m.el.querySelector('[data-save]').click();
+  assert(await warteBis(async () => (await w.DB.get('kontakte', k6.id)).strasse === 'Neuweg 7', 4000), 'Kontakt gespeichert');
+  assertEq((await w.DB.get('rechnungen', r6.id)).empfaenger.strasse, 'Altweg 1', 'Rechnung behält die Anschrift von vor der Änderung');
+  const r7 = await alt('RE-0007', k6.id);
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), steuernummer: '555/555/5555' });
+  assertEq((await w.DB.get('rechnungen', r7.id)).absender.steuernummer, '999/999/9999', 'Absender von vor der Änderung');
+  assertEq(w.S.get('imkerei').steuernummer, '555/555/5555', 'die Änderung selbst ist gespeichert');
+})));
+
+test('Rechnungs-Paket R3 (#3/#25): Kassenbuch-Buchung einer Rechnung ist gesperrt – Storno bucht nur gegen, was dort steht', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
+  const kunde = await r3Kunde(w);
+  // Doku #3: RE-0001 über 120 € festgeschrieben → Kassenbuch +120 €
+  const r = await r3Festschreiben(w, (await r3Entwurf(w, kunde.id)).id);
+  const [kb] = await r3Kasse(w, r.id);
+  assertEq(kb.betrag, 120, 'Einnahme 120 €');
+  const sperrText = 'Diese Buchung gehört zur Rechnung RE-0001. Storniere stattdessen die Rechnung.';
+  // Löschen (Wischen und Mülleimer laufen über kassenbuchLoeschen)
+  fragen.length = 0;   // die Rückfrage beim Festschreiben zählt nicht
+  assertEq(await w.kassenbuchLoeschen(kb), false, 'nicht gelöscht');
+  assertEq(toasts.at(-1), { msg: sperrText, typ: 'err' }, 'Meldung');
+  assertEq(fragen.length, 0, 'keine Löschfrage');
+  assert(await w.DB.get('kassenbuch', kb.id), 'Buchung bleibt');
+  // Auch die Buchung selbst lehnt ab (z. B. veraltete Liste)
+  let f = null; try { await w.loescheMitMaterial('kassenbuch', kb); } catch (e) { f = e; }
+  assertEq(f && f.message, sperrText, 'Sperre in der Transaktion');
+  // Ändern: das Formular öffnet gar nicht erst
+  toasts.length = 0;
+  await w.Views.kassenbuch.form(kb);
+  assert(!w.document.querySelector('.modal-back #f-betrag'), 'kein Formular');
+  assertEq(toasts.at(-1), { msg: sperrText, typ: 'err' }, 'Meldung beim Bearbeiten');
+  // Storno: genau −120 €, danach heben sich beide auf und bleiben stehen
+  assertEq(await w.rechnungStornieren(r.id), { abfuellungFehlt: false, ohneGegenbuchung: false }, 'storniert');
+  const nach = await r3Kasse(w, r.id);
+  assertEq(nach.map((k) => k.betrag).sort((a, b) => a - b), [-120, 120], 'Einnahme und Storno');
+  toasts.length = 0;
+  for (const k of nach) assertEq(await w.kassenbuchLoeschen(k), false, 'stornierte Rechnung: Zeile bleibt');
+  assertEq(toasts.map((x) => x.msg), ['Diese Buchung gehört zur Rechnung RE-0001, die schon storniert ist. Einnahme und Storno heben sich auf und bleiben deshalb beide stehen.', 'Diese Buchung gehört zur Rechnung RE-0001, die schon storniert ist. Einnahme und Storno heben sich auf und bleiben deshalb beide stehen.'], 'Meldung');
+  // Doku #25 (Altdaten): Einnahme früher gelöscht – liegt sie im Papierkorb, erst wiederherstellen
+  const r2 = await r3Festschreiben(w, (await r3Entwurf(w, kunde.id, undefined, { datum: '2026-08-05' })).id);
+  const [kb2] = await r3Kasse(w, r2.id);
+  await w.DB.softDel('kassenbuch', kb2.id);
+  f = null; try { await w.rechnungStornieren(r2.id); } catch (e) { f = e; }
+  assertEq(f && f.message, 'Die Einnahme zur Rechnung RE-0002 liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.', 'Meldung');
+  assertEq((await w.DB.get('rechnungen', r2.id)).status, 'festgeschrieben', 'nichts storniert');
+  // … ist sie endgültig weg, storniert die Rechnung ohne Gegenbuchung: Kassenbuch 0 € statt −120 €
+  await r3KorbLeeren(w);
+  assertEq(await w.rechnungStornieren(r2.id), { abfuellungFehlt: false, ohneGegenbuchung: true }, 'storniert ohne Gegenbuchung');
+  assertEq((await w.DB.get('rechnungen', r2.id)).status, 'storniert');
+  assertEq((await r3Kasse(w, r2.id)).length, 0, 'keine −120 €');
+  // Altdaten andersherum: Rechnung schon storniert, die Einnahme war früher gelöscht → nur −120 € übrig. Diese Zeile bleibt löschbar.
+  const r3 = await w.DB.put('rechnungen', { nummer: 'RE-0003', datum: '2026-08-06', kundeId: kunde.id, steuerart: 'klein', status: 'storniert', positionen: [{ text: 'Honig', abfuellungId: null, menge: 20, einzelpreis: 6, steuersatz: 0 }] });
+  const rest = await w.DB.put('kassenbuch', { datum: '2026-08-07', typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -120, steuersatz: 0, kontaktId: kunde.id, beschreibung: 'Storno Rechnung RE-0003', rechnungId: r3.id });
+  fragen.length = 0;
+  assertEq(await w.kassenbuchLoeschen(rest), true, 'übrige Storno-Zeile gelöscht');
+  assertEq(fragen.map((x) => x.title), ['Buchung löschen?'], 'mit der üblichen Rückfrage');
+  // Eine freie Buchung ohne Rechnung bleibt frei löschbar
+  const frei = await w.DB.put('kassenbuch', { datum: '2026-08-08', typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 30, steuersatz: 0, kontaktId: null, beschreibung: 'Markt', rechnungId: null });
+  assertEq(await w.kassenbuchLoeschen(frei), true, 'freie Buchung gelöscht');
+})));
+
+test('Rechnungs-Paket R3 (#6): Rechnung mit endgültig gelöschter Abfüllung lässt sich stornieren – im Papierkorb klare Meldung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  // Doku #6: Abfüllung A mit 30 × 500 g, RE-0001 mit 20 × A festgeschrieben (+120 €)
+  const kunde = await r3Kunde(w);
+  const c = await w.DB.put('chargen', { losnummer: 'R3-1', datum: '2026-07-01', ernteIds: [], lagerKg: 15, lagerHerkunft: 'Test', mengeKg: 15, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 30, bestand: 30 });
+  const r = await r3Entwurf(w, kunde.id, [{ text: 'Rapshonig 500 g', abfuellungId: a.id, menge: 20, einzelpreis: 6, steuersatz: 0 }]);
+  await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), [a]);
+  assertEq([(await w.DB.get('rechnungen', r.id)).status, (await w.DB.get('abfuellungen', a.id)).bestand], ['festgeschrieben', 10], 'festgeschrieben, 10 Gläser übrig');
+  // A liegt im Papierkorb (Altdaten – früher ließ sie sich trotz Rechnung löschen)
+  await w.DB.softDel('abfuellungen', a.id);
+  let f = null; try { await w.rechnungStornieren(r.id); } catch (e) { f = e; }
+  assertEq(f && f.message, 'Eine Abfüllung dieser Rechnung liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.', 'Meldung');
+  assertEq(w.STORNO_RE_ABF_IM_PAPIERKORB, f && f.message);
+  assertEq([(await w.DB.get('rechnungen', r.id)).status, (await r3Kasse(w, r.id)).length], ['festgeschrieben', 1], 'nichts storniert');
+  // Endgültig gelöscht: Storno per Knopf geht, ohne Bestandsrückbuchung, und sagt das
+  await r3KorbLeeren(w);
+  await w.Views.rechnung.render(host, r.id);
+  host.querySelector('#storno').click();
+  assert(await warteBis(() => toasts.some((x) => /^Rechnung storniert/.test(x.msg)), 4000), 'Hinweis kommt: ' + JSON.stringify(toasts));
+  assertEq(toasts.find((x) => /^Rechnung storniert/.test(x.msg)).msg, 'Rechnung storniert. Die Gläser konnten nicht zurück in den Bestand, weil ihre Abfüllung endgültig gelöscht ist.', 'Hinweis');
+  assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'storniert');
+  assertEq((await r3Kasse(w, r.id)).map((k) => k.betrag).sort((x, y) => x - y), [-120, 120], 'Kassenbuch: +120 und −120');
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'keine Abfüllung neu angelegt');
+})));
+
+test('Rechnungs-Paket R3 (#30): Startseiten-Kachel „Rechnungen“ zählt nur festgeschriebene, nicht stornierte – nach Rabatt', async (w) => isolierteDaten(w, async () => {
+  // Doku #30: RE-0001 über 120 € festgeschrieben, RE-0002 über 200 € storniert, ein Entwurf über 80 € (Datum heute)
+  const heute = w.U.todayIso();
+  const re = (nummer, status, positionen, extra = {}) => w.DB.put('rechnungen', { nummer, datum: heute, kundeId: null, steuerart: 'klein', status, berechnungVersion: 2, positionen, ...extra });
+  await re('RE-0001', 'festgeschrieben', [{ text: 'Honig', menge: 20, einzelpreis: 6, steuersatz: 0 }]);
+  await re('RE-0002', 'storniert', [{ text: 'Honig', menge: 40, einzelpreis: 5, steuersatz: 0 }]);
+  await re(null, 'entwurf', [{ text: 'Honig', menge: 10, einzelpreis: 8, steuersatz: 0 }]);
+  // dazu eine mit 10 % Rabatt auf 50 € → 45 €
+  await re('RE-0003', 'festgeschrieben', [{ text: 'Honig', menge: 10, einzelpreis: 5, steuersatz: 0 }], { rabattTyp: 'prozent', rabattWert: 10 });
+  const html = await w.DASH_WIDGETS.rechnungen.html();
+  assert(html.includes(`<b>${w.U.fmtEur(165)}</b>`), 'Summe 165 € (120 + 45) statt 445 €: ' + html);
+  assert(html.includes('2 festgeschriebene Rechnungen dieses Jahr · 1 storniert, zählt nicht mit.'), 'Zeile darunter: ' + html);
+  assert(html.includes('1 Entwurf'), 'Entwürfe weiter als Hinweis');
+}));
+
+test('Rechnungs-Paket R3 (#36): Kassenbuch mit Kontakt-Filter zeigt keine fremden 0-€-Zeilen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  // Doku #36: zwei Buchungen mit Meier, dazu fünf Verlust- bzw. Eigenverbrauch-Zeilen ohne Kontakt
+  const meier = await w.DB.put('kontakte', { typ: 'kunde', name: 'Meier' });
+  for (const betrag of [30, 45]) await w.DB.put('kassenbuch', { datum: '2026-05-0' + (betrag / 15), typ: 'einnahme', kategorie: 'Honigverkauf', betrag, steuersatz: 0, kontaktId: meier.id, beschreibung: 'Honig an Meier', rechnungId: null });
+  await w.DB.put('kassenbuch', { datum: '2026-05-04', typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 12, steuersatz: 0, kontaktId: null, beschreibung: 'Markt', rechnungId: null });
+  for (let i = 1; i <= 4; i++) await w.DB.put('materialabgaenge', { typ: 'verbrauch', inventarId: 'x', bezeichnung: 'Zucker', einheit: 'kg', menge: i, art: i % 2 ? 'Eigenverbrauch' : 'Verlust', datum: `2026-06-0${i}` });
+  const c = await w.DB.put('chargen', { losnummer: 'R3-K', datum: '2026-07-01', mengeKg: 5 });
+  await w.DB.put('honigabgaenge', { quelle: 'charge', chargeId: c.id, art: 'Verlust', kg: 0.5, datum: '2026-07-05' });
+  const vorher = { jahr: w.Views.kassenbuch._jahr, kontakt: w.Views.kassenbuch._kontakt, bereich: w.Views.kassenbuch._bereich };
+  try {
+    Object.assign(w.Views.kassenbuch, { _jahr: '2026', _kontakt: '', _bereich: '' });
+    await w.Views.kassenbuch.tabBuchungen(host);
+    assertEq([host.querySelectorAll('.row[data-id]').length, host.querySelectorAll('.row[data-abgang]').length], [3, 5], 'ohne Filter: alles');
+    host.innerHTML = '';
+    w.Views.kassenbuch._kontakt = meier.id;
+    await w.Views.kassenbuch.tabBuchungen(host);
+    assertEq([host.querySelectorAll('.row[data-id]').length, host.querySelectorAll('.row[data-abgang]').length], [2, 0], 'Kontakt Meier: nur seine 2 Buchungen');
+  } finally { Object.assign(w.Views.kassenbuch, { _jahr: vorher.jahr, _kontakt: vorher.kontakt, _bereich: vorher.bereich }); }
+})));
+
+/* =====================================================================
+   PAKET R4 (Fund 04.11.2026, docs/PRUEFUNG-AEHNLICHE-FEHLER-2026-11-04.md):
+   Wanderungen, Königinnen, Zucht, Fahrten-Statistik, Imker-Rechner
+   ===================================================================== */
+const r4Korb = async (w, store, id) => (await w.DB.getAll('papierkorb')).find((t) => t.store === store && t.daten && t.daten.id === id);
+
+test('Völker-Paket R4 (#20): Ältere Wanderung nachträglich ergänzen holt ein zurückgekehrtes Volk nicht wieder auf ihr Ziel', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  // Doku #20: W1 20.04. Heim → Raps mit A, W2 05.06. Raps → Heim mit A, A steht in Heim. W1 öffnen und das vergessene Volk B ergänzen.
+  const heim = await w.DB.put('staende', { name: 'R4-Heim' }), raps = await w.DB.put('staende', { name: 'R4-Raps' });
+  const a = await w.DB.put('voelker', { name: 'R4-Anna', standId: heim.id, status: 'aktiv', historie: [{ datum: '2026-03-01', text: 'Volk angelegt' }] });
+  const b = await w.DB.put('voelker', { name: 'R4-Berta', standId: heim.id, status: 'aktiv', historie: [{ datum: '2026-03-01', text: 'Volk angelegt' }] });
+  const w1 = await w.DB.put('wanderungen', { vonStandId: heim.id, nachStandId: raps.id, volkIds: [a.id], vonOrt: heim.name, nachOrt: raps.name, datum: '2026-04-20', grund: 'Raps', notiz: '' });
+  const w2 = await w.DB.put('wanderungen', { vonStandId: raps.id, nachStandId: heim.id, volkIds: [a.id], vonOrt: raps.name, nachOrt: heim.name, datum: '2026-06-05', grund: '', notiz: '' });
+  const historieVorher = (await w.DB.get('voelker', a.id)).historie.length;
+  await w.Views.wanderungen.render(host);
+  host.querySelector(`.row[data-id="${w1.id}"]`).click();
+  assert(await warteBis(() => w.document.querySelector('.modal-back #f-volkIds'), 4000), 'Formular offen');
+  const modal = w.document.querySelector('.modal-back');
+  const kastenB = modal.querySelector(`#f-volkIds input[value="${b.id}"]`);
+  assert(kastenB && kastenB.closest('label').style.display !== 'none', 'B steht zur Wahl');
+  assert(modal.querySelector(`#f-volkIds input[value="${a.id}"]`).checked, 'A ist schon angehakt');
+  kastenB.checked = true; kastenB.dispatchEvent(new w.Event('change', { bubbles: true }));
+  modal.querySelector('[data-save]').click();
+  assert(await warteBis(() => toasts.some((t) => /^Wanderung gespeichert/.test(t.msg)), 4000), 'gespeichert: ' + JSON.stringify(toasts));
+  assertEq((await w.DB.get('wanderungen', w1.id)).volkIds, [a.id, b.id], 'B steht jetzt in W1');
+  const aNach = await w.DB.get('voelker', a.id);
+  assertEq(aNach.standId, heim.id, 'A bleibt in Heim (vorher: zurück auf Raps)');
+  assertEq(aNach.historie.length, historieVorher, 'kein neuer Historien-Eintrag bei A');
+  assertEq((await w.DB.get('voelker', b.id)).standId, raps.id, 'B wandert mit nach Raps – für B ist W1 die letzte Wanderung');
+  const wand = await w.DB.getAll('wanderungen');
+  assertEq([w.standAmStichtag(aNach, w.U.todayIso(), wand), w.standAmStichtag(aNach, '2026-05-01', wand), w.standAmStichtag(aNach, '2026-04-01', wand)], [heim.id, raps.id, heim.id], 'Stand am Stichtag: heute Heim, im Mai Raps, im April Heim');
+  assertEq(toasts.find((t) => /^Wanderung gespeichert/.test(t.msg)).msg,
+    'Wanderung gespeichert · 1 Volk stehen jetzt auf „R4-Raps“ · „R4-Anna“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.', 'Meldung nennt A');
+  // Löschen und Wiederherstellen einer Wanderung bewegen keine Völker (Text: „Die Völker bleiben, wo sie stehen.“)
+  dialogeSchliessen(w);
+  assert(await w.papierkorbDelete('wanderungen', await w.DB.get('wanderungen', w2.id), 'Wanderung löschen?')(), 'W2 gelöscht');
+  assertEq((await w.DB.get('voelker', a.id)).standId, heim.id, 'nach dem Löschen von W2: A bleibt in Heim');
+  await w.DB.trashRestore((await r4Korb(w, 'wanderungen', w2.id)).id);
+  assertEq([(await w.DB.get('voelker', a.id)).standId, (await w.DB.get('voelker', b.id)).standId], [heim.id, raps.id], 'nach dem Wiederherstellen: unverändert');
+})));
+
+test('Völker-Paket R4 (#20): wanderungVoelkerUmziehen – spätere Wanderung oder späterer Stand-Wechsel hält das Volk fest', async (w) => isolierteDaten(w, async () => {
+  const heim = await w.DB.put('staende', { name: 'R4u-Heim' }), raps = await w.DB.put('staende', { name: 'R4u-Raps' }), x = await w.DB.put('staende', { name: 'R4u-X' });
+  const volk = (name, historie = []) => w.DB.put('voelker', { name, standId: heim.id, status: 'aktiv', historie });
+  const umziehen = (v, datum, nachtrag) => w.wanderungVoelkerUmziehen([v.id], raps.id, datum, 'R4u-Heim', 'R4u-Raps', [heim.id], nachtrag);
+  // a) Nachgetragene ältere Wanderung (neu angelegt): Das Volk ist am 05.06. schon von Raps zurück nach Heim gewandert
+  const a = await volk('R4u-A');
+  await w.DB.put('wanderungen', { vonStandId: raps.id, nachStandId: heim.id, volkIds: [a.id], datum: '2026-06-05' });
+  const na = { wanderung: { id: 'r4u-neu', datum: '2026-04-20', createdAt: w.U.nowIso() }, bearbeitet: false, spaeter: [] };
+  assertEq(await umziehen(a, '2026-04-20', na), 0, 'a: nichts bewegt');
+  assertEq([(await w.DB.get('voelker', a.id)).standId, na.spaeter], [heim.id, ['R4u-A']], 'a: bleibt in Heim und wird genannt');
+  assertEq(await umziehen(a, '2026-07-01', { wanderung: { id: 'r4u-neu2', datum: '2026-07-01', createdAt: w.U.nowIso() }, bearbeitet: false, spaeter: [] }), 1, 'a: eine NEUERE Wanderung bewegt wie bisher');
+  // b) Späterer Stand-Wechsel im Volk-Formular (Historie mit standNach)
+  const b = await volk('R4u-B', [{ datum: '2026-06-01', text: 'Stand gewechselt', standVon: raps.id, standNach: heim.id }]);
+  assertEq(await umziehen(b, '2026-05-01', { wanderung: { id: 'r4u-b', datum: '2026-05-01', createdAt: w.U.nowIso() }, bearbeitet: true, spaeter: [] }), 0, 'b: späterer Stand-Wechsel hält fest');
+  // c) Stand-Wechsel am selben Tag: beim Anlegen war er vorher da (Volk wandert), beim Bearbeiten zählt er als später
+  const c = await volk('R4u-C', [{ datum: '2026-07-01', text: 'Stand gewechselt', standVon: x.id, standNach: heim.id }]);
+  assertEq(await umziehen(c, '2026-07-01', { wanderung: { id: 'r4u-c1', datum: '2026-07-01', createdAt: w.U.nowIso() }, bearbeitet: true, spaeter: [] }), 0, 'c: Bearbeiten → bleibt');
+  assertEq(await umziehen(c, '2026-07-01', { wanderung: { id: 'r4u-c2', datum: '2026-07-01', createdAt: w.U.nowIso() }, bearbeitet: false, spaeter: [] }), 1, 'c: neu angelegt → wandert');
+  // d) Andere Wanderung am selben Tag: später erfasst → später
+  const d = await volk('R4u-D');
+  await w.DB.put('wanderungen', { vonStandId: raps.id, nachStandId: heim.id, volkIds: [d.id], datum: '2026-08-01', createdAt: '2026-08-01T12:00:00.000Z' }, true);
+  assertEq(await umziehen(d, '2026-08-01', { wanderung: { id: 'r4u-d1', datum: '2026-08-01', createdAt: '2026-08-01T10:00:00.000Z' }, bearbeitet: true, spaeter: [] }), 0, 'd: Rückwanderung später erfasst → bleibt');
+  assertEq(await umziehen(d, '2026-08-01', { wanderung: { id: 'r4u-d2', datum: '2026-08-01', createdAt: '2026-08-01T13:00:00.000Z' }, bearbeitet: true, spaeter: [] }), 1, 'd: selbst später erfasst → wandert');
+  // Ohne Angabe der Wanderung (bisherige Aufrufer) wie vorher
+  const e = await volk('R4u-E');
+  await w.DB.put('wanderungen', { vonStandId: raps.id, nachStandId: heim.id, volkIds: [e.id], datum: '2026-09-01' });
+  assertEq(await umziehen(e, '2026-04-01'), 1, 'ohne nachtrag: unverändertes Verhalten');
+}));
+
+test('Völker-Paket R4 (#7/#26): Königin löschen beendet ihre Zuordnung, Wiederherstellen setzt sie nicht zu einer anderen ins Volk', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const heute = w.U.todayIso();
+  // Doku #7: Q1 seit 01.04.2026 in A. Q1 löschen → A auf Q2 umweiseln → Q1 wiederherstellen
+  const a = await w.DB.put('voelker', { name: 'R4-Volk A', status: 'aktiv', historie: [] });
+  const q1 = await w.DB.put('koeniginnen', { kennung: 'R4-Q1', jahrgang: 2026, status: 'aktiv', historie: [{ volkId: a.id, von: '2026-04-01', bis: null }] });
+  const q2 = await w.DB.put('koeniginnen', { kennung: 'R4-Q2', jahrgang: 2026, status: 'aktiv', historie: [] });
+  a.koeniginId = q1.id; await w.DB.put('voelker', a);
+  await w.Views.koeniginnen.form(q1);
+  w.document.querySelector('.modal-back [data-del]').click();
+  assert(await warteBis(async () => !(await w.DB.get('koeniginnen', q1.id)), 4000), 'Q1 gelöscht');
+  assertEq((await w.DB.get('voelker', a.id)).koeniginId, null, 'A ohne Königin');
+  const korb = await r4Korb(w, 'koeniginnen', q1.id);
+  assertEq(korb.daten.historie[0].bis, heute, 'Zuordnung von Q1 ist beendet (vorher offen)');
+  assert(await w.umweiseln(a.id, q2.id, heute), 'A auf Q2 umgeweiselt');
+  await w.DB.trashRestore(korb.id);
+  const q1n = await w.DB.get('koeniginnen', q1.id);
+  assertEq(q1n.historie.filter((h) => !h.bis).length, 0, 'Q1 hat keine aktuelle Zuordnung');
+  assert(!('endeDurchLoeschen' in q1n.historie[0]), 'Merker entfernt');
+  assertEq((await w.DB.get('voelker', a.id)).koeniginId, q2.id, 'A führt Q2');
+  const offenInA = (await w.DB.getAll('koeniginnen')).filter((k) => (k.historie || []).some((h) => h.volkId === a.id && !h.bis));
+  assertEq(offenInA.map((k) => k.kennung), ['R4-Q2'], 'nur Q2 sitzt in A (vorher: Q1 und Q2)');
+  const zeilen = await (await w.Xlsx.defs()).koeniginnen.rows();
+  assertEq(zeilen.filter((r) => /^R4-Q/.test(r.Kennung)).map((r) => [r.Kennung, r['Aktuelles Volk']]).sort(), [['R4-Q1', ''], ['R4-Q2', 'R4-Volk A']], 'Excel „Aktuelles Volk“');
+  await w.Views.koeniginnen.render(host);
+  const zeileQ1 = host.querySelector(`.row[data-id="${q1.id}"]`);
+  assert(zeileQ1 && /nicht zugeordnet/.test(zeileQ1.textContent) && !/R4-Volk A/.test(zeileQ1.textContent), 'Liste: Q1 nicht zugeordnet: ' + (zeileQ1 && zeileQ1.textContent));
+  // Ohne Umweiseln: Wiederherstellen macht das Löschen rückgängig – Q3 sitzt wieder in B, B führt Q3 (vorher: B ohne Königin)
+  const b = await w.DB.put('voelker', { name: 'R4-Volk B', status: 'aktiv', historie: [] });
+  const q3 = await w.DB.put('koeniginnen', { kennung: 'R4-Q3', jahrgang: 2025, status: 'aktiv', historie: [{ volkId: a.id, von: '2025-04-01', bis: '2025-09-01' }, { volkId: b.id, von: '2025-09-01', bis: null }] });
+  b.koeniginId = q3.id; await w.DB.put('voelker', b);
+  await w.koeniginLoeschen(q3.id);
+  await w.DB.trashRestore((await r4Korb(w, 'koeniginnen', q3.id)).id);
+  const q3n = await w.DB.get('koeniginnen', q3.id);
+  assertEq(q3n.historie.map((h) => [h.volkId, h.bis]), [[a.id, '2025-09-01'], [b.id, null]], 'nur die beim Löschen beendete Zuordnung kommt zurück');
+  assertEq((await w.DB.get('voelker', b.id)).koeniginId, q3.id, 'B führt wieder Q3');
+  // Ältere Papierkorb-Einträge (vor der Korrektur gelöscht): Zuordnung noch offen, das Volk hat inzwischen eine andere Königin
+  const c = await w.DB.put('voelker', { name: 'R4-Volk C', status: 'aktiv', historie: [] });
+  const q5 = await w.DB.put('koeniginnen', { kennung: 'R4-Q5', jahrgang: 2026, status: 'aktiv', historie: [{ volkId: c.id, von: '2026-06-01', bis: null }] });
+  c.koeniginId = q5.id; await w.DB.put('voelker', c);
+  await w.DB.put('papierkorb', { id: 'r4-alt-q4', store: 'koeniginnen', geloeschtAm: '2026-05-20T08:00:00.000Z', daten: { id: 'r4-q4', kennung: 'R4-Q4', jahrgang: 2025, status: 'aktiv', historie: [{ volkId: c.id, von: '2025-05-01', bis: null }] } });
+  await w.DB.trashRestore('r4-alt-q4');
+  assertEq((await w.DB.get('koeniginnen', 'r4-q4')).historie[0].bis, '2026-05-20', 'alte offene Zuordnung endet am Löschtag');
+  assertEq((await w.DB.get('voelker', c.id)).koeniginId, q5.id, 'C behält Q5');
+})));
+
+test('Völker-Paket R4 (#22): Zuchtserie bearbeiten legt erledigte Schritte nicht neu an, Wiederherstellen legt die offenen wieder an', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const serie = await w.DB.put('zuchtserien', { name: 'R4-Serie', startdatum: '2026-06-01', anzahl: 10, termine: w.zuchtTermine('2026-06-01'), notiz: '' });
+  await w.syncZuchtAufgaben(serie);
+  const zucht = async () => (await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'zucht' && x.refId === serie.id);
+  assertEq((await zucht()).length, 9, '9 Termine als Aufgaben');
+  // Doku #22: „Umlarven“ und „Annahme kontrollieren“ abgehakt, dann nur „Angenommene Zellen 8“ nachtragen und speichern
+  for (const x of (await zucht()).filter((x) => /Umlarven$|Annahme kontrollieren$/.test(x.titel))) await w.DB.put('aufgaben', { ...x, erledigt: true });
+  await w.Views.zucht.form(serie);
+  const modal = w.document.querySelector('.modal-back');
+  const feld = modal.querySelector('#f-angenommen'); feld.value = '8'; feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+  modal.querySelector('[data-save]').click();
+  assert(await warteBis(() => toasts.some((t) => /^Zuchtserie gespeichert/.test(t.msg)), 4000), 'gespeichert');
+  assertEq((await w.DB.get('zuchtserien', serie.id)).angenommen, 8, 'Zahl nachgetragen');
+  let liste = await zucht();
+  assertEq([liste.filter((x) => x.erledigt).length, liste.filter((x) => !x.erledigt).length], [2, 7], '2 erledigte und 7 offene (vorher 2 + 9)');
+  assert(!liste.some((x) => !x.erledigt && /Umlarven$|Annahme kontrollieren$/.test(x.titel)), 'erledigte Schritte nicht erneut offen');
+  // Löschen und Wiederherstellen: die 7 offenen kommen zurück (vorher 0)
+  dialogeSchliessen(w);
+  await w.Views.zucht.form(await w.DB.get('zuchtserien', serie.id));
+  w.document.querySelector('.modal-back [data-del]').click();
+  assert(await warteBis(async () => !(await w.DB.get('zuchtserien', serie.id)), 4000), 'Serie gelöscht');
+  assertEq((await zucht()).filter((x) => !x.erledigt).length, 0, 'offene Aufgaben beim Löschen entfernt');
+  await w.DB.trashRestore((await r4Korb(w, 'zuchtserien', serie.id)).id);
+  liste = await zucht();
+  assertEq([liste.filter((x) => x.erledigt).length, liste.filter((x) => !x.erledigt).length], [2, 7], 'nach dem Wiederherstellen wieder 2 + 7');
+  // Ältere Aufgaben ohne zuchtTag: Schritt aus Notiz oder Titel
+  assertEq([w.zuchtAufgabeTag({ notiz: 'Tag 5 der Zuchtserie' }), w.zuchtAufgabeTag({ titel: 'Alt: Umlarven', notiz: 'eigene Notiz' }), w.zuchtAufgabeTag({ titel: 'frei' })], [5, 0, null], 'Schritt erkannt');
+})));
+
+test('Völker-Paket R4 (#31): Statistik → Arbeit zeigt freie Fahrten als eigene Zeile und mit ihrem Ziel', async (w) => isolierteDaten(w, async () => {
+  // Doku #31: 2026 zweimal Stand Wald à 20 km, eine freie Fahrt „Imkerbedarf Müller“, Zweck Einkauf, 60 km
+  const wald = await w.DB.put('staende', { name: 'R4-Wald' });
+  for (const tag of ['2026-05-02', '2026-05-09']) await w.DB.put('fahrten', { datum: tag, standId: wald.id, km: 20, zweck: 'Fahrt zum Stand', notiz: '' });
+  await w.DB.put('fahrten', { datum: '2026-05-20', standId: null, freiZiel: 'Imkerbedarf Müller', km: 60, zweck: 'Einkauf', notiz: '' });
+  // Die Ansicht sucht #rep im ganzen Dokument – der eigene Host steht deshalb VOR der App
+  const host = w.document.createElement('main'); w.document.body.prepend(host);
+  const vorher = { t: w.Views.reporting._typ, j: w.Views.reporting._jahr };
+  try {
+    w.Views.reporting._typ = 'arbeit'; w.Views.reporting._jahr = '2026';
+    await w.Views.reporting.render(host); await w99(200);
+    const h3 = [...host.querySelectorAll('#rep h3')].find((h) => /^Je Stand/.test(h.textContent));
+    assert(h3, 'Tabelle „Je Stand“ da');
+    const zeilen = [...h3.nextElementSibling.querySelectorAll('tbody tr')].map((tr) => [...tr.children].map((td) => td.textContent.trim()));
+    assertEq(zeilen, [['R4-Wald', '2', '40'], ['Ohne Stand / freies Ziel', '1', '60']], 'eigene Zeile statt „gelöscht“');
+    const titel = [...host.querySelectorAll('#rep .rows .r-title')].map((x) => x.textContent.trim());
+    assert(titel.includes('Imkerbedarf Müller · Einkauf'), 'Letzte Fahrten nennt das Ziel (vorher „– · Einkauf“): ' + JSON.stringify(titel));
+    assert(titel.includes('R4-Wald · Fahrt zum Stand'), 'Stand-Fahrten wie bisher');
+  } finally { host.remove(); w.Views.reporting._typ = vorher.t; w.Views.reporting._jahr = vorher.j; }
+}));
+
+test('Völker-Paket R4 (#37): Imker-Rechner belegt „Anzahl Wirtschaftsvölker“ nur mit Wirtschaftsvölkern vor', async (w) => isolierteDaten(w, async () => {
+  // Doku #37: aktiv 10 Wirtschaftsvölker, 8 Begattungsvölker, 2 Ableger (dazu 1 aufgelöstes Wirtschaftsvolk)
+  const reihe = [...Array(10).fill('Wirtschaftsvolk'), ...Array(8).fill('Begattungsvolk'), 'Ableger', 'Ableger'];
+  for (const [i, funktion] of reihe.entries()) await w.DB.put('voelker', { name: 'R4-R' + i, funktion, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'R4-R-alt', funktion: 'Wirtschaftsvolk', status: 'aufgeloest', historie: [] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.rechner.render(host);
+    assertEq(host.querySelector('[data-sk="voelker"]').value, '10', 'Selbstkosten: 10 Wirtschaftsvölker (vorher 20)');
+    assertEq([host.querySelector('[data-wi="voelker"]').value, host.querySelector('[data-rm="voelker"]').value], ['20', '20'], 'Winter- und Rähmchen-Rechner brauchen weiter alle aktiven Völker');
+    assertEq((await w.ernteprognoseBasis()).voelker, 10, 'gleich wie Kassenbuch-Auswertung und Prognose');
+  } finally { host.remove(); }
+}));
+
+/* =====================================================================
+   PAKET R5 (Fund 04.11.2026, docs/PRUEFUNG-AEHNLICHE-FEHLER-2026-11-04.md):
+   Sicherung, Import, stumme Fehler – Funde #9, #10, #11, #12, #13, #14, #15, #16. Zahlen aus der Doku.
+   ===================================================================== */
+const R5_FEHLER = 'Schreibfehler (Test R5)';
+/** Lässt put/delete auf den genannten Bereichen scheitern – mit einem Fehler, den das Fangnetz still ließe (kein Speicher voll, kein Tipp davor). */
+async function r5Schreibfehler(w, stores, fn) {
+  const P = w.IDBObjectStore.prototype, put = P.put, del = P.delete;
+  const wirf = () => { throw new Error(R5_FEHLER); };
+  P.put = function (...a) { return stores.includes(this.name) ? wirf() : put.apply(this, a); };
+  P.delete = function (...a) { return stores.includes(this.name) ? wirf() : del.apply(this, a); };
+  try { return await fn(); } finally { P.put = put; P.delete = del; }
+}
+/** Meldungen und Rückfragen mitschreiben (immer „Ja“), nichts neu zeichnen, Vollversion; zählt durchgefallene Fehler. */
+async function r5Umgebung(w, fn) {
+  dialogeSchliessen(w);
+  const echt = { toast: w.UI.toast, confirm: w.UI.confirm, render: w.renderRoute, log: w.console.error, light: w.Lizenz.light };
+  const toasts = [], fragen = [], unbehandelt = [], hosts = [];
+  const fang = (ev) => unbehandelt.push(ev.reason);
+  w.addEventListener('unhandledrejection', fang);
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); };
+  w.UI.confirm = async (o) => { fragen.push(o); return true; };
+  w.renderRoute = async () => {};
+  w.console.error = () => {};
+  w.Lizenz.light = () => false;
+  /* Jede Ansicht bekommt ein frisches <main> ganz vorn: Ansichten hängen ihre Klick-Wege an main, und $('#…') findet so zuerst unseres. */
+  const frisch = () => { const h = w.document.createElement('main'); w.document.body.prepend(h); hosts.push(h); return h; };
+  try { await fn({ toasts, fragen, unbehandelt, frisch }); }
+  finally {
+    w.UI.toast = echt.toast; w.UI.confirm = echt.confirm; w.renderRoute = echt.render; w.console.error = echt.log; w.Lizenz.light = echt.light;
+    w.removeEventListener('unhandledrejection', fang); hosts.forEach((h) => h.remove()); dialogeSchliessen(w);
+  }
+}
+const r5Fehlerzahl = (toasts) => toasts.filter((t) => t.typ === 'err' && t.msg === R5_FEHLER).length;
+
+test('Sicherungs-Paket R5 (#9): Endgültig gelöscht – Fotos, Sprachnotizen und Belege gehen mit, aber nur, wenn nichts mehr auf sie zeigt', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ fragen, frisch }) => {
+  const alt = new Date(Date.now() - 31 * 86400000).toISOString();
+  const datei = (parentTyp, parentId, art = 'foto') => w.DB.put('anhaenge', { parentTyp, parentId, art, name: art + '.jpg', mime: 'image/jpeg', blob: new w.Blob(['0123456789']), groesse: 10, datum: w.U.nowIso() });
+  const v = await w.DB.put('voelker', { name: 'R5-Volk', status: 'aktiv', historie: [] });
+  // Doku #9: Durchsicht mit 2 Sprachnotizen und 3 Fotos löschen – nach 30 Tagen ist sie weg
+  const s1 = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-10-01', notiz: 'R5-weg' });
+  for (const art of ['audio', 'audio', 'foto', 'foto', 'foto']) await datei('stockkarte', s1.id, art);
+  const k = await w.DB.put('kassenbuch', { datum: '2026-10-01', typ: 'ausgabe', kategorie: 'Sonstiges', betrag: 5, steuersatz: 0, beschreibung: 'R5-Beleg' });
+  await datei('kassenbuch', k.id, 'dokument');
+  // Bleiben müssen: aktive Durchsicht, Bio-Ablage, Beilage eines Mittels, frisch gelöscht, wieder aktiv (Zusammenführen), ein zweites Mal im Papierkorb
+  const s2 = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-10-02', notiz: 'R5-aktiv' }); await datei('stockkarte', s2.id);
+  await datei('bio', 'vorsorge', 'dokument'); await datei('mittel', 'r5-mittel');
+  const s3 = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-10-03', notiz: 'R5-frisch' }); await datei('stockkarte', s3.id);
+  const s4 = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-10-04', notiz: 'R5-wieder-da' }); await datei('stockkarte', s4.id);
+  const s5 = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-10-05', notiz: 'R5-zweimal' }); await datei('stockkarte', s5.id);
+  for (const s of [s1, s3, s4, s5]) await w.DB.softDel('stockkarten', s.id);
+  await w.DB.softDel('kassenbuch', k.id);
+  const korb = await w.DB.getAll('papierkorb'), eintrag = (id) => korb.find((t) => t.daten.id === id);
+  for (const id of [s1.id, k.id, s4.id, s5.id]) await w.DB.put('papierkorb', { ...eintrag(id), geloeschtAm: alt }, true);
+  await w.DB.put('stockkarten', { ...eintrag(s4.id).daten }, true);
+  await w.DB.put('papierkorb', { id: 'r5-zweimal', store: 'stockkarten', daten: { ...eintrag(s5.id).daten }, geloeschtAm: w.U.nowIso() }, true);
+  const anzahl = async (parentId) => (await w.DB.getAll('anhaenge')).filter((a) => a.parentId === parentId).length;
+  assertEq(await anzahl(s1.id), 5, 'vorher da');
+  const erg = await w.DB.purgeTrash();
+  assertEq([await anzahl(s1.id), await anzahl(k.id)], [0, 0], 'die 5 Anhänge der Durchsicht und der Beleg der Buchung sind mit weg (vorher blieben sie als unsichtbare Waisen)');
+  assertEq([await anzahl(s2.id), await anzahl('vorsorge'), await anzahl('r5-mittel'), await anzahl(s3.id), await anzahl(s4.id), await anzahl(s5.id)], [1, 1, 1, 1, 1, 1], 'alles andere bleibt');
+  assertEq(erg, { eintraege: 4, anhaenge: 6 }, 'Ergebnis');
+  assertEq((await w.DB.getAll('papierkorb')).map((t) => t.daten.id).sort(), [s3.id, s5.id].sort(), 'nur die frischen Einträge liegen noch im Papierkorb');
+  // „Endgültig löschen“: die Rückfrage nennt die Datei, sie geht mit
+  const t3 = (await w.DB.getAll('papierkorb')).find((t) => t.daten.id === s3.id);
+  let h = frisch(); await w.Views.papierkorb.render(h);
+  h.querySelector(`[data-kill="${t3.id}"]`).click(); await w99(300);
+  assertEq(fragen.at(-1).text, 'Dieser Eintrag kann danach NICHT mehr wiederhergestellt werden. Die zugehörige Datei (Foto, Sprachnotiz oder Beleg) wird mitgelöscht.', 'Rückfrage');
+  assertEq([await w.DB.get('papierkorb', t3.id), await anzahl(s3.id)], [undefined, 0], 'Eintrag und Datei weg');
+  // „Papierkorb leeren“: Jetzt liegt s5 nicht mehr doppelt – seine Datei geht mit; s4 ist aktiv und behält seine
+  h = frisch(); await w.Views.papierkorb.render(h);
+  h.querySelector('#empty').click(); await w99(300);
+  assertEq(fragen.at(-1).text, 'Alle 1 Einträge werden ENDGÜLTIG gelöscht. Die zugehörige Datei (Foto, Sprachnotiz oder Beleg) wird mitgelöscht.', 'Rückfrage beim Leeren');
+  assertEq([(await w.DB.getAll('papierkorb')).length, await anzahl(s5.id), await anzahl(s4.id), await anzahl(s2.id)], [0, 0, 1, 1], 'leer, Datei von s5 weg, die anderen bleiben');
+  assertEq(w.papierkorbAnhangText(3), ' Die 3 zugehörigen Dateien (Fotos, Sprachnotizen, Belege) werden mitgelöscht.', 'Mehrzahl');
+})));
+
+test('Sicherungs-Paket R5 (#10): „bei jedem Schließen“ ohne Ordner oder mit Ordnerfehler – oben ein Hinweis mit Weg zur Ordnerwahl, die Einstellungen zeigen es', async (w) => r5Umgebung(w, async ({ frisch }) => {
+  const B = w.Backup;
+  const f0 = JSON.parse(JSON.stringify(w.S.get('features')));
+  const alt = { handle: w.S.data.backupDirHandle, name: w.S.get('backupDirName'), fehler: w.S.get('autoSicherungFehler'), letzte: w.S.get('letzteAutoSicherung'), ext: w.S.get('letzteExterneSicherung'),
+    snap: B.snapshotInternal, wahl: B.chooseDir, geaendert: w._changedSinceBackup, bau: B.buildBlob, mark: B.markExternal, picker: Object.getOwnPropertyDescriptor(w, 'showDirectoryPicker') };
+  const banner = () => w.document.getElementById('banners').textContent.replace(/\s+/g, ' ');
+  const picker = (wert) => Object.defineProperty(w, 'showDirectoryPicker', { value: wert, configurable: true, writable: true });
+  B.snapshotInternal = async () => null; B.buildBlob = async () => new w.Blob(['{}']); B.markExternal = async () => {};
+  let erlaubnis = 'granted', kaputt = true, gefragt = 0, gewaehlt = 0;
+  const handle = { name: 'Sicherungen', queryPermission: async () => erlaubnis, requestPermission: async () => { gefragt++; erlaubnis = 'granted'; return 'granted'; },
+    getFileHandle: async () => { if (kaputt) throw new w.DOMException('Der Ordner ist weg.', 'NotFoundError'); return { createWritable: async () => ({ write: async () => {}, close: async () => {} }) }; } };
+  try {
+    await autoBackupAn(w, 'schliessen', null);
+    w.S.data.backupDirHandle = null; await w.S.set('backupDirName', null); await w.S.set('autoSicherungFehler', null, { auto: true });
+    w._changedSinceBackup = true;
+    // (a) Doku #10: kein Ordner → beim Schließen keine Datei. Beim Öffnen steht das oben, der Knopf führt zur Ordnerwahl
+    picker(() => {});
+    assertEq(await B.beimSchliessen(), false, 'ohne Ordner keine Datei');
+    assertEq((await B.schliessenPruefen()).grund, 'kein-ordner');
+    assert(/Automatische Sicherung: Es ist kein Backup-Ordner gewählt – beim Schließen entsteht deshalb keine Datei\. Wähle einen Ordner\. Ordner wählen/.test(banner()), 'Hinweis oben: ' + banner());
+    B.chooseDir = async () => { gewaehlt++; return false; };
+    w.document.querySelector('#banners .b-schliessen button').click(); await w99(50);
+    assertEq(gewaehlt, 1, 'der Knopf öffnet die Ordnerwahl');
+    // Firefox/Safari können keinen Ordner wählen: Hinweis auf „täglich“ oder „wöchentlich“
+    picker(undefined);
+    assertEq((await B.schliessenPruefen()).grund, 'browser');
+    assert(/Dieser Browser kann nicht in einen Ordner schreiben.*„täglich“ oder „wöchentlich“/.test(banner()), banner());
+    picker(() => {});
+    // (b) Ordner gewählt, das Schreiben scheitert (Ordner gelöscht): gemerkt und beim Öffnen gemeldet
+    w.S.data.backupDirHandle = handle; await w.S.set('backupDirName', 'Sicherungen');
+    assertEq(await B.beimSchliessen(), false, 'Schreiben scheitert');
+    assert(w.S.get('autoSicherungFehler') && w.S.get('autoSicherungFehler').datum, 'gemerkt');
+    assertEq((await B.schliessenPruefen()).grund, 'fehler');
+    assert(/ging das Schreiben in den Ordner „Sicherungen“ nicht – es entstand keine Datei\. Wähle den Ordner neu\./.test(banner()), banner());
+    // Die Einstellungen zeigen den Zustand (ohne Ring gab es dort bisher nichts)
+    const h = frisch(); await w.Views.einstellungen.render(h);
+    const stand = h.querySelector('[data-schliessen-stand]');
+    assert(stand && /Zuletzt beim Schließen gesichert: noch nie/.test(stand.textContent) && /es entstand keine Datei/.test(stand.textContent), 'Einstellungen: ' + (stand && stand.textContent));
+    assert(/„Bei jedem Schließen“ schreibt die Sicherung in den gewählten Ordner/.test(h.textContent) && !/Beim Aktivieren wird sofort eine Sicherung erstellt/.test(h.textContent), 'Hinweis passt zum Takt');
+    // Klappt es wieder, ist der Hinweis weg und der Termin weitergestellt
+    kaputt = false;
+    assertEq(await B.beimSchliessen(), true);
+    assertEq(w.S.get('autoSicherungFehler'), null, 'Fehler vergessen');
+    assert(w.S.get('letzteAutoSicherung'), 'Termin weitergestellt');
+    assertEq(await B.schliessenPruefen(), null);
+    assert(!/Automatische Sicherung:/.test(banner()), 'Hinweis weg');
+    // (c) Chrome fragt nach einem Neustart wieder: Der Knopf holt die Erlaubnis (braucht genau diesen Tipp)
+    erlaubnis = 'prompt';
+    assertEq((await B.schliessenPruefen()).grund, 'erlaubnis');
+    assert(/Die App darf gerade nicht in den Ordner „Sicherungen“ schreiben.*Ordner erlauben/.test(banner()), banner());
+    w.document.querySelector('#banners .b-schliessen button').click(); await w99(80);
+    assertEq(gefragt, 1, 'Erlaubnis erbeten');
+    assert(!/Automatische Sicherung:/.test(banner()), 'danach ist der Hinweis weg');
+  } finally {
+    B.snapshotInternal = alt.snap; B.chooseDir = alt.wahl; B.buildBlob = alt.bau; B.markExternal = alt.mark; w._changedSinceBackup = alt.geaendert;
+    if (alt.picker) Object.defineProperty(w, 'showDirectoryPicker', alt.picker); else delete w.showDirectoryPicker;
+    w.S.data.backupDirHandle = alt.handle;
+    await w.S.set('backupDirName', alt.name || null); await w.S.set('autoSicherungFehler', alt.fehler || null, { auto: true });
+    await w.S.set('letzteAutoSicherung', alt.letzte || null); await w.S.set('letzteExterneSicherung', alt.ext || null);
+    await w.S.set('features', f0); await B.schliessenPruefen();
+  }
+}));
+
+test('Sicherungs-Paket R5 (#11): Scheitert der Zwischenstand (Speicher voll), entsteht die Datei trotzdem – der Fehler wird getrennt gemeldet', async (w) => r5Umgebung(w, async ({ toasts }) => {
+  const B = w.Backup;
+  const f0 = JSON.parse(JSON.stringify(w.S.get('features')));
+  const alt = { snap: B.snapshotInternal, bau: B.buildBlob, schreib: B.writeToDir, dl: w.U.download, handle: w.S.data.backupDirHandle, letzte: w.S.get('letzteAutoSicherung'), ext: w.S.get('letzteExterneSicherung'), lauf: B._letzteAutoLauf, fehl: B._letzterFehlversuch };
+  let dateien = 0;
+  B.snapshotInternal = async () => { throw w.speicherVollFehler(); };   // Doku #11: der IndexedDB-Speicher ist voll
+  B.buildBlob = async () => new w.Blob(['{}']);
+  w.U.download = () => { dateien++; };
+  try {
+    await autoBackupAn(w, 'woechentlich', null); w.S.data.backupDirHandle = null;
+    const zeit = await B.runAuto();
+    assertEq(dateien, 1, 'die Datei wird trotzdem heruntergeladen (vorher brach die Sicherung vorher ab)');
+    assert(zeit && w.S.get('letzteAutoSicherung') === zeit, 'Termin weitergestellt');
+    assert(toasts.some((t) => t.msg === 'Automatische Sicherung erstellt' && t.typ !== 'err'), 'Erfolg gemeldet: ' + JSON.stringify(toasts));
+    assert(toasts.some((t) => t.typ === 'err' && t.msg === 'Die Datei ist gesichert, nur der Zwischenstand in der App ging nicht. Der Speicher ist voll: Gib auf dem Gerät Platz frei.'), 'Zwischenstand-Fehler getrennt gemeldet: ' + JSON.stringify(toasts));
+    // Ordner-Weg: Scheitert zusätzlich das Schreiben in den Ordner, sagt die Meldung beides – nicht „nur die interne Kopie wurde angelegt“
+    toasts.length = 0;
+    w.S.data.backupDirHandle = { name: 'Ordner' }; B.writeToDir = async () => false;
+    assertEq(await B.runAuto(), null, 'nicht erfolgt');
+    assert(toasts.some((t) => t.typ === 'err' && t.msg === 'Sicherung in den Ordner fehlgeschlagen – auch der Zwischenstand in der App ging nicht. Der Speicher ist voll: Gib auf dem Gerät Platz frei.'), JSON.stringify(toasts));
+    assert(!toasts.some((t) => /nur die interne Kopie/.test(t.msg)), 'keine falsche Beruhigung');
+  } finally {
+    B.snapshotInternal = alt.snap; B.buildBlob = alt.bau; B.writeToDir = alt.schreib; w.U.download = alt.dl; w.S.data.backupDirHandle = alt.handle;
+    B._letzteAutoLauf = alt.lauf; B._letzterFehlversuch = alt.fehl;
+    await w.S.set('letzteAutoSicherung', alt.letzte || null); await w.S.set('letzteExterneSicherung', alt.ext || null); await w.S.set('features', f0);
+  }
+}));
+
+test('Sicherungs-Paket R5 (#12): „Sicherung senden“ und „Backup herunterladen“ im Browser – scheitert nur der Vermerk, ist die Sicherung trotzdem da', async (w) => r5Umgebung(w, async ({ toasts, unbehandelt }) => {
+  const B = w.Backup, nav = w.navigator;
+  const alt = { bau: B.buildBlob, nativ: B.nativTeilenMoeglich, mark: B.markExternal, dl: w.U.download, share: nav.share, can: nav.canShare, picker: Object.getOwnPropertyDescriptor(w, 'showSaveFilePicker') };
+  const def = (k, v) => Object.defineProperty(nav, k, { value: v, configurable: true, writable: true });
+  const VERMERK = 'Die Sicherung ist gespeichert, der Vermerk in der App ging aber nicht.';
+  const fenster = () => [...w.document.querySelectorAll('.modal-back')].find((x) => /Sicherung heruntergeladen/.test(x.textContent));
+  let geladen = 0;
+  B.buildBlob = async () => new w.Blob(['{"a":1}']); B.nativTeilenMoeglich = () => false;
+  B.markExternal = async () => { throw w.speicherVollFehler(); };   // Doku #12: Speicher voll, nur der Vermerk scheitert
+  w.U.download = () => { geladen++; };
+  Object.defineProperty(w, 'showSaveFilePicker', { value: undefined, configurable: true, writable: true });
+  try {
+    // Desktop-Firefox ohne Datei-Teilen: Datei im Download-Ordner, das Fenster mit dem E-Mail-Knopf kommt trotzdem
+    def('canShare', () => false);
+    await B.share();
+    assertEq(geladen, 1, 'Datei heruntergeladen');
+    assert(fenster() && fenster().querySelector('a[href^="mailto:"]'), 'Fenster mit E-Mail-Knopf (vorher fehlte es)');
+    assertEq(toasts, [{ msg: VERMERK, typ: 'err' }], 'eigene Meldung, nicht „Das konnte nicht gespeichert werden …“');
+    fenster().remove();
+    // Android-Chrome: Teilen klappt, nur der Vermerk nicht
+    toasts.length = 0; def('canShare', () => true); def('share', async () => {});
+    await B.share();
+    assertEq(toasts, [{ msg: VERMERK, typ: 'err' }], 'statt „Sicherung geteilt“ die ehrliche Meldung');
+    // „Backup herunterladen“ verhält sich genauso
+    toasts.length = 0;
+    await B.exportDownload();
+    assertEq([geladen, toasts], [2, [{ msg: VERMERK, typ: 'err' }]], 'Backup herunterladen');
+    await w99(50);
+    assertEq(unbehandelt.length, 0, 'kein Fehler fällt durch');
+  } finally {
+    B.buildBlob = alt.bau; B.nativTeilenMoeglich = alt.nativ; B.markExternal = alt.mark; w.U.download = alt.dl; def('share', alt.share); def('canShare', alt.can);
+    if (alt.picker) Object.defineProperty(w, 'showSaveFilePicker', alt.picker); else delete w.showSaveFilePicker;
+    if (fenster()) fenster().remove();
+  }
+}));
+
+test('Sicherungs-Paket R5 (#13): Zwischenstand zurückholen und anlegen – bei einem Fehler eine klare Meldung, nichts geändert', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ toasts, frisch }) => {
+  const B = w.Backup;
+  const fremde = await w.DB.getAll('snapshots'); for (const x of fremde) await w.DB.del('snapshots', x.id);
+  try {
+    const v = await w.DB.put('voelker', { name: 'R5-Zwischenstand', status: 'aktiv', historie: [] });
+    await B.snapshotInternal('manuell');
+    const snap = (await w.DB.getAll('snapshots'))[0];
+    await w.DB.put('voelker', { ...v, name: 'R5-geändert' });
+    // Doku #13: Speicher voll, „Zurückholen“ zweimal bestätigt → der Zwischenstand „vor dem Zurückholen“ lässt sich nicht anlegen
+    let erg = null;
+    await mitVollemSpeicher(w, async () => { erg = await B.restoreSnapshot(snap.id); });
+    assertEq(erg, false, 'nichts zurückgeholt (vorher brach es ungefangen ab)');
+    assertEq(toasts.at(-1), { msg: 'Nichts wurde zurückgeholt, deine Daten sind unverändert. ' + w.SPEICHER_VOLL_TEXT, typ: 'err' }, 'klare Meldung');
+    assertEq((await w.DB.get('voelker', v.id)).name, 'R5-geändert', 'Daten unverändert');
+    // Ein beschädigter Zwischenstand nennt seinen Grund, die Daten bleiben
+    await w.DB.put('snapshots', { id: 'r5-kaputt', datum: w.U.nowIso(), grund: 'manuell', daten: '{kaputt' }, true);
+    toasts.length = 0;
+    assertEq(await B.restoreSnapshot('r5-kaputt'), false);
+    assert(toasts.length === 1 && toasts[0].typ === 'err' && /^Nichts wurde zurückgeholt, deine Daten sind unverändert\. \S/.test(toasts[0].msg), JSON.stringify(toasts));
+    assertEq((await w.DB.get('voelker', v.id)).name, 'R5-geändert', 'Daten unverändert');
+    // „Zwischenstand jetzt anlegen“ in den Einstellungen
+    const h = frisch(); await w.Views.einstellungen.render(h);
+    toasts.length = 0;
+    await mitVollemSpeicher(w, () => h.querySelector('#snap-now').onclick());
+    assertEq(toasts, [{ msg: w.SPEICHER_VOLL_TEXT, typ: 'err' }], 'Grund statt „Zwischenstand angelegt“');
+  } finally {
+    for (const x of await w.DB.getAll('snapshots')) await w.DB.del('snapshots', x.id);
+    for (const x of fremde) await w.DB.put('snapshots', x, true);
+    B._zsRevGeladen = false;
+  }
+})));
+
+test('Sicherungs-Paket R5 (#14): Import aus CSV – scheitert das Speichern, ist nichts importiert; noch einmal tippen legt nichts doppelt an', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ toasts }) => {
+  await w.DB.put('voelker', { name: 'R5-Importvolk', status: 'aktiv', historie: [] });
+  const csv = 'Volk,Datum,Notiz\n' + [1, 2, 3].map((i) => `R5-Importvolk,2026-06-0${i},R5-Import ${i}`).join('\n');
+  const zone = w.document.createElement('div'); w.document.body.appendChild(zone);
+  const importiert = async () => (await w.DB.getAll('stockkarten')).filter((s) => /^R5-Import/.test(s.notiz)).length;
+  try {
+    await w.Importer.start('stockkarten', new w.File([csv], 'durchsichten.csv', { type: 'text/csv' }), zone);
+    const knopf = zone.querySelector('#imp-go');
+    assert(knopf, 'Knopf da: ' + zone.textContent);
+    // Doku #14: mitten im Import scheitert das Speichern (hier bei Zeile 2 von 3, Speicher voll)
+    const P = w.IDBObjectStore.prototype, put = P.put; let n = 0;
+    P.put = function (...a) { if (this.name === 'stockkarten' && ++n === 2) throw new w.DOMException('The quota has been exceeded.', 'QuotaExceededError'); return put.apply(this, a); };
+    try { await knopf.onclick(); } finally { P.put = put; }
+    assertEq(await importiert(), 0, 'nichts halb importiert (vorher blieb Zeile 1 stehen, ohne Ergebnis)');
+    assert(/Nichts wurde importiert\. Der Speicher ist voll: Gib auf dem Gerät Platz frei\. Danach kannst du es noch einmal versuchen – es entsteht nichts doppelt\./.test(zone.textContent), 'Ergebnis im Import-Bereich: ' + zone.textContent);
+    assert(zone.querySelector('#imp-go') === knopf && !knopf.disabled, 'Knopf bleibt für den zweiten Versuch');
+    assert(toasts.some((t) => t.typ === 'err' && t.msg === w.SPEICHER_VOLL_TEXT), 'Meldung');
+    // Zweiter Versuch – auch mit Doppeltipp: genau 3 Durchsichten
+    await Promise.all([knopf.onclick(), knopf.onclick()]);
+    assertEq(await importiert(), 3, 'genau 3, nichts doppelt (vorher 4, mit Doppeltipp 7)');
+    assert(/3 Durchsichten \(Stockkarte\) importiert/.test(zone.textContent), zone.textContent);
+  } finally { zone.remove(); }
+})));
+
+test('Sicherungs-Paket R5 (#15): Durchsicht „Neu beginnen“ – scheitert das Speichern, kommt wie beim „Verwerfen“ ein Hinweis', async (w) => r5Umgebung(w, async ({ toasts }) => {
+  const D = w.Views.durchsicht, set = w.S.set;
+  const alt = { entwuerfe: new Map(D._entwuerfe), stand: D._entwurfStand, rest: D._entwurfRest };
+  // Doku #15: Entwurf vom 01.11.2026 mit 3 Antworten, heute „Neu beginnen“, der Speicher ist dauerhaft voll
+  const volk = { id: 'r5-sd-volk', name: 'R5-Volk' };
+  const e = { id: 'r5-sd', schritt: 1, antworten: { a: 1, b: 2, c: 3 }, audio: [], datum: '2026-11-01' };
+  D._entwuerfe.set(volk.id, e); D._entwurfStand = 'vorher';
+  w.S.set = async (k, ...r) => { if (k === 'sdEntwuerfe') throw w.speicherVollFehler(); return set.call(w.S, k, ...r); };
+  try {
+    D.alterEntwurfFragen(volk, e); await w99(50);
+    letztesModal(w).querySelector('[data-sd-neu]').click(); await w99(200);
+    assert(!D._entwuerfe.has(volk.id), 'im Speicher neu begonnen');
+    assertEq(toasts.at(-1), { msg: 'Das Neu-Beginnen ließ sich nicht speichern. Beim nächsten Start kommt die alte Durchsicht vielleicht wieder.', typ: 'err' }, 'Hinweis (vorher still)');
+  } finally { w.S.set = set; D._entwuerfe.clear(); for (const [k, x] of alt.entwuerfe) D._entwuerfe.set(k, x); D._entwurfStand = alt.stand; D._entwurfRest = alt.rest; }
+}));
+
+test('Sicherungs-Paket R5 (#16): Volk auflösen per Knopf in einer Transaktion, Duplizieren, Wiegung und Wettereintrag löschen melden Fehler', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ toasts, frisch, unbehandelt }) => {
+  const heute = w.U.todayIso();
+  const st = await w.DB.put('staende', { name: 'R5-Stand', lat: null, lng: null, notizen: '' });
+  const q = await w.DB.put('koeniginnen', { kennung: 'R5-Q', jahrgang: 2026, status: 'aktiv', historie: [] });
+  const v = await w.DB.put('voelker', { name: 'R5-Auflösen', standId: st.id, koeniginId: q.id, status: 'aktiv', historie: [] });
+  await w.DB.put('koeniginnen', { ...q, historie: [{ volkId: v.id, von: '2026-05-01', bis: null }] });
+  // Doku #16: Volk-Seite → „Auflösen“ → bestätigt; das Speichern des Volks scheitert
+  let h = frisch(); await w.Views.volk.render(h, v.id);
+  await r5Schreibfehler(w, ['voelker'], async () => { h.querySelector('#dissolve').click(); await w99(300); });
+  assertEq(r5Fehlerzahl(toasts), 1, 'Grund gemeldet (vorher still)');
+  assertEq([(await w.DB.get('voelker', v.id)).status, (await w.DB.get('koeniginnen', q.id)).historie[0].bis], ['aktiv', null], 'nichts halb: Volk aktiv, Königin noch zugeordnet (vorher Zuordnung schon beendet)');
+  h.querySelector('#dissolve').click(); await w99(300);
+  const vNach = await w.DB.get('voelker', v.id);
+  assertEq([vNach.status, vNach.koeniginId, vNach.historie.filter((x) => x.text === 'Volk aufgelöst').length, (await w.DB.get('koeniginnen', q.id)).historie[0].bis], ['aufgeloest', null, 1, heute], 'zweiter Versuch: genau einmal aufgelöst');
+  // Duplizieren
+  const anzahl = (await w.DB.getAll('voelker')).length;
+  await r5Schreibfehler(w, ['voelker'], async () => { h.querySelector('#dup').click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), (await w.DB.getAll('voelker')).length], [2, anzahl], 'Duplizieren meldet den Grund');
+  // Wiegung löschen
+  const g = await w.DB.put('gewichte', { volkId: v.id, datum: heute, gewichtKg: 30 });
+  h = frisch(); await w.Views.volk.tabGewicht(h, await w.DB.get('voelker', v.id));
+  await r5Schreibfehler(w, ['papierkorb'], async () => { h.querySelector(`[data-gd="${g.id}"]`).click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), !!(await w.DB.get('gewichte', g.id))], [3, true], 'Wiegung: Grund gemeldet, bleibt');
+  // Wettereintrag löschen (Stand-Seite)
+  const we = await w.DB.put('wetter', { standId: st.id, datum: heute, tempC: 12, quelle: 'manuell' });
+  h = frisch(); await w.Views.stand.render(h, st.id); await w99(100);
+  const wdel = h.querySelector(`[data-wdel="${we.id}"]`);
+  assert(wdel, 'Wettereintrag sichtbar');
+  await r5Schreibfehler(w, ['papierkorb'], async () => { wdel.click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), !!(await w.DB.get('wetter', we.id))], [4, true], 'Wetter: Grund gemeldet, bleibt');
+  await w99(50);
+  assertEq(unbehandelt.filter((e) => e && e.message === R5_FEHLER).length, 0, 'kein Fehler fällt durch');
+})));
+
+test('Sicherungs-Paket R5 (#16): Anhang (Typ und Mülleimer), Sprachnotiz und „Mittel entfernen“ melden Fehler, ohne etwas vorzutäuschen', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ toasts, frisch, unbehandelt }) => {
+  const a = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'r5-v', art: 'foto', name: 'foto.jpg', mime: 'image/jpeg', blob: new w.Blob(['x']), groesse: 1, datum: w.U.nowIso(), dokumentTyp: '' });
+  // Anhang: Typ ändern scheitert → Auswahl zurück, Grund steht da
+  w.Anhang.viewer(await w.DB.get('anhaenge', a.id)); await w99(50);
+  const m = letztesModal(w), typ = m.querySelector('[data-typ]');
+  typ.value = w.S.get('dokumentTypen')[0];
+  await r5Schreibfehler(w, ['anhaenge'], async () => { typ.dispatchEvent(new w.Event('change')); await w99(200); });
+  assertEq([r5Fehlerzahl(toasts), typ.value, (await w.DB.get('anhaenge', a.id)).dokumentTyp], [1, '', ''], 'Typ: Grund, Auswahl zurück');
+  // Mülleimer (offen aus der Honig-Reparatur): Grund, Fenster bleibt, Anhang bleibt
+  await r5Schreibfehler(w, ['papierkorb'], async () => { m.querySelector('[data-del]').click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), m.isConnected, !!(await w.DB.get('anhaenge', a.id))], [2, true, true], 'Anhang löschen: Grund, nichts vorgetäuscht');
+  dialogeSchliessen(w);
+  // Sprachnotiz löschen
+  const ton = await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: 'r5-v', art: 'audio', name: 'ton.webm', mime: 'audio/webm', blob: new w.Blob(['t']), groesse: 1, datum: w.U.nowIso(), transkript: '' });
+  const h = frisch(); h.appendChild(w.Sprachnotiz.section({ parentTyp: 'volk', parentId: 'r5-v' }));
+  assert(await warteBis(async () => !!h.querySelector(`.audio-row[data-id="${ton.id}"] [data-del]`), 3000), 'Sprachnotiz sichtbar');
+  await r5Schreibfehler(w, ['papierkorb'], async () => { h.querySelector(`.audio-row[data-id="${ton.id}"] [data-del]`).click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), !!(await w.DB.get('anhaenge', ton.id))], [3, true], 'Sprachnotiz: Grund, bleibt');
+  // „Mittel entfernen“
+  const mittelVorher = w.S.get('meineMittel');
+  const mittel = { id: 'r5-mittel', name: 'R5-Mittel', menge: 10, bezug: 'volk', einheit: 'ml', jeVolk: null, wartezeitTage: null, anwendungsart: '' };
+  await w.S.set('meineMittel', [mittel]);
+  try {
+    await w.mittelForm(mittel, null); await w99(100);
+    await r5Schreibfehler(w, ['settings'], async () => { letztesModal(w).querySelector('[data-mittel-weg]').click(); await w99(300); });
+    assertEq([r5Fehlerzahl(toasts), w.S.get('meineMittel').map((x) => x.id)], [4, ['r5-mittel']], 'Mittel: Grund, bleibt in der Liste');
+  } finally { dialogeSchliessen(w); await w.S.set('meineMittel', mittelVorher); }
+  await w99(50);
+  assertEq(unbehandelt.filter((e) => e && e.message === R5_FEHLER).length, 0, 'kein Fehler fällt durch');
+})));
+
+test('Sicherungs-Paket R5 (#16): Fahrt löschen, Aufgabe abhaken, Papierkorb, Hygiene „Übernehmen“ und „kein Befund“ melden Fehler', async (w) => isolierteDaten(w, async () => r5Umgebung(w, async ({ toasts, frisch, unbehandelt }) => {
+  const heute = w.U.todayIso();
+  // Fahrt löschen (Statistik → Arbeit)
+  const fa = await w.DB.put('fahrten', { datum: heute, km: 12, zweck: 'R5-Fahrt', freiZiel: 'Imkerbedarf' });
+  const rep = { t: w.Views.reporting._typ, j: w.Views.reporting._jahr };
+  let h = frisch();
+  try { w.Views.reporting._typ = 'arbeit'; w.Views.reporting._jahr = heute.slice(0, 4); await w.Views.reporting.render(h); await w99(200); }
+  finally { w.Views.reporting._typ = rep.t; w.Views.reporting._jahr = rep.j; }
+  await r5Schreibfehler(w, ['papierkorb'], async () => { h.querySelector(`[data-fdel="${fa.id}"]`).click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), !!(await w.DB.get('fahrten', fa.id))], [1, true], 'Fahrt: Grund, bleibt');
+  // Aufgabe abhaken: Häkchen zurück, nichts gespeichert (vorher blieb es sichtbar gesetzt)
+  const au = await w.DB.put('aufgaben', { titel: 'R5-Aufgabe', faellig: heute, erledigt: false, quelle: 'manuell', notiz: '' });
+  h = frisch(); await w.Views.aufgaben.render(h);
+  const chk = h.querySelector(`[data-check="${au.id}"]`);
+  await r5Schreibfehler(w, ['aufgaben'], async () => { chk.click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), chk.checked, (await w.DB.get('aufgaben', au.id)).erledigt], [2, false, false], 'Aufgaben-Seite: Häkchen zurück');
+  const inp = w.document.createElement('input'); inp.type = 'checkbox'; inp.dataset.wcheck = au.id; inp.checked = true; h.appendChild(inp);
+  await r5Schreibfehler(w, ['aufgaben'], () => w.aufgabeWidgetAbhaken(inp));
+  assertEq([r5Fehlerzahl(toasts), inp.checked, inp.disabled, (await w.DB.get('aufgaben', au.id)).erledigt], [3, false, false, false], 'Startseiten-Kachel: Häkchen zurück, wieder antippbar');
+  // Papierkorb: endgültig löschen und leeren
+  await w.DB.softDel('aufgaben', au.id);
+  const t = (await w.DB.getAll('papierkorb'))[0];
+  h = frisch(); await w.Views.papierkorb.render(h);
+  await r5Schreibfehler(w, ['papierkorb'], async () => { h.querySelector(`[data-kill="${t.id}"]`).click(); await w99(300); h.querySelector('#empty').click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), !!(await w.DB.get('papierkorb', t.id))], [5, true], 'Papierkorb: Grund, Eintrag bleibt');
+  // Hygiene: Vorschlag „Übernehmen“ – der Knopf ist danach wieder antippbar
+  h = frisch(); await w.Views.bio.massnahmenVorschlaege(h, []);
+  const mv = h.querySelector('[data-mv]');
+  assert(mv, 'Vorschlag da');
+  await r5Schreibfehler(w, ['bioeintraege'], async () => { mv.click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), mv.disabled, (await w.DB.getAll('bioeintraege')).length], [6, false, 0], 'Übernehmen: Grund, Knopf frei');
+  // Schädlinge: „Kontrolle heute: kein Befund“
+  h = frisch(); await w.Views.bio.schaedlingeOben(h);
+  await r5Schreibfehler(w, ['bioeintraege'], async () => { h.querySelector('[data-ohne]').click(); await w99(300); });
+  assertEq([r5Fehlerzahl(toasts), toasts.some((x) => /Gebucht: Kontrolle heute/.test(x.msg)), (await w.DB.getAll('bioeintraege')).length], [7, false, 0], 'kein Befund: Grund, nichts gebucht');
+  await w99(50);
+  assertEq(unbehandelt.filter((e) => e && e.message === R5_FEHLER).length, 0, 'kein Fehler fällt durch');
 })));
 
 window.TESTS_VOLLSTAENDIG_GELADEN = true;   // tools/test-run.mjs: Ohne diese Zeile ist die Datei beim Laden abgebrochen
