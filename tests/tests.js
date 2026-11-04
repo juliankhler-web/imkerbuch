@@ -18264,4 +18264,938 @@ test('Hinweise: Kaufknopf, Rechtliches, Geld, Ämter, Etikett, Quellenangaben', 
   } finally { L.aktiv = echt.aktiv; L.preise = echt.preise; L._offen = false; host.remove(); dialogeSchliessen(w); }
 }));
 
+/* =====================================================================
+   Prüfung 04.11.2026, Paket 1 – „Storno tut nichts“ (Tester Android): Fehlermeldungen und Storno.
+   Quelle: docs/PRUEFUNG-HONIG-2026-11-04.md, Abschnitt „Storno ohne Reaktion“ und Fund #25.
+   ===================================================================== */
+const STORNO_PAPIERKORB_TEXT = 'Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren.';
+/** Gemeinsame Attrappen für die Storno-Tests: Vollversion, Meldungen mitschreiben, Rückfragen beantworten, nichts neu zeichnen. */
+async function stornoUmgebung(w, fn, { jaNein = 'ja', confirm = true } = {}) {
+  dialogeSchliessen(w);
+  const echt = { light: w.Lizenz.light, toast: w.UI.toast, confirm: w.UI.confirm, jn: w.frageJaNein, render: w.renderRoute, filter: w.Views.honig._filter };
+  const toasts = [], fragen = [];
+  w.Lizenz.light = () => false;
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); };
+  w.UI.confirm = async (o) => { fragen.push(o); return confirm; };
+  w.frageJaNein = async (o) => { fragen.push(o); return typeof jaNein === 'function' ? jaNein(o) : jaNein; };
+  w.renderRoute = async () => {};
+  w.Views.honig._filter = {};
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try { await fn({ toasts, fragen, host }); }
+  finally {
+    w.Lizenz.light = echt.light; w.UI.toast = echt.toast; w.UI.confirm = echt.confirm; w.frageJaNein = echt.jn; w.renderRoute = echt.render;
+    w.Views.honig._filter = echt.filter; host.remove(); dialogeSchliessen(w);
+  }
+}
+async function stornoDaten(w, { anzahl = 10, verkauft = 4 } = {}) {
+  const c = await w.DB.put('chargen', { losnummer: 'ST-1', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl, bestand: anzahl });
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: verkauft, preisJeGlas: 6 });
+  return { c, a, v };
+}
+
+test('Storno-Paket 04.11.2026: Abfüllung im Papierkorb → klare Meldung, nichts ändert sich (Funktion und Knopf)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen, host }) => {
+  const { a, v } = await stornoDaten(w);
+  await w.DB.softDel('abfuellungen', a.id);   // Abfüllung gelöscht → liegt im Papierkorb
+  const korbVorher = (await w.DB.getAll('papierkorb')).length;
+  // 1) direkt: klare Meldung statt „Die Abfüllung fehlt …“
+  let f = null; try { await w.verkaufStornieren(v.id); } catch (e) { f = e; }
+  assertEq(f && f.message, STORNO_PAPIERKORB_TEXT, 'Meldung sagt, was zu tun ist');
+  assert(await w.DB.get('verkaeufe', v.id), 'Verkauf bleibt');
+  assert(await w.DB.get('kassenbuch', v.kassenbuchId), 'Einnahme bleibt');
+  assertEq((await w.DB.getAll('papierkorb')).length, korbVorher, 'nichts Neues im Papierkorb');
+  // 2) per Knopf in der Verkaufsliste: Meldung sofort, ohne vorher zu fragen
+  await w.Views.honig.tabVerkaeufe(host);
+  const zeile = host.querySelector(`[data-storno="${v.id}"]`).closest('.row');
+  assert(/4 × Gebinde \(Abfüllung gelöscht\)/.test(zeile.textContent), 'Zeile nennt den Grund: ' + zeile.querySelector('.r-title').textContent);
+  host.querySelector(`[data-storno="${v.id}"]`).click(); await w99(300);
+  assertEq(toasts.at(-1), { msg: STORNO_PAPIERKORB_TEXT, typ: 'err' }, 'Knopf zeigt die Meldung');
+  assertEq(fragen.length, 0, 'keine Rückfrage, die danach doch scheitert');
+  assert(await w.DB.get('verkaeufe', v.id) && await w.DB.get('kassenbuch', v.kassenbuchId), 'weiterhin nichts verändert');
+  // 3) Abfüllung wiederhergestellt → Storno klappt wie gewohnt
+  const t = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'abfuellungen' && x.daten.id === a.id);
+  await w.DB.trashRestore(t.id);
+  assertEq(await w.verkaufStornieren(v.id), { abfuellungFehlt: false }, 'Rückgabewert: Abfüllung da');
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 10, '4 Gebinde zurück im Bestand');
+  // 4) Gegenstück: Verkauf aus dem Papierkorb holen, während seine Abfüllung dort liegt → erst die Abfüllung
+  await w.DB.softDel('abfuellungen', a.id);
+  const tv = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'verkaeufe' && x.daten.id === v.id);
+  f = null; try { await w.DB.trashRestore(tv.id); } catch (e) { f = e; }
+  assertEq(f && f.message, 'Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann den Verkauf.', 'Wiederherstellen sagt, was zu tun ist');
+  assertEq(await w.DB.get('verkaeufe', v.id), undefined, 'Verkauf bleibt im Papierkorb');
+})));
+
+test('Storno-Paket 04.11.2026: endgültig gelöschte Abfüllung → Storno klappt ohne Rückbuchung, Hinweis sagt es', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen, host }) => {
+  const { a, v } = await stornoDaten(w);
+  const v2 = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 2, preisJeGlas: 6 });
+  await w.DB.del('abfuellungen', a.id);   // endgültig weg (nicht im Papierkorb)
+  // 1) direkt: Verkauf und Einnahme wandern in den Papierkorb, kein Bestand entsteht neu
+  assertEq(await w.verkaufStornieren(v.id), { abfuellungFehlt: true }, 'Aufrufer erfährt, dass nichts zurückkam');
+  assertEq(await w.DB.get('verkaeufe', v.id), undefined, 'Verkauf storniert');
+  assertEq(await w.DB.get('kassenbuch', v.kassenbuchId), undefined, 'Einnahme gelöscht');
+  const korb = await w.DB.getAll('papierkorb');
+  assert(korb.some((x) => x.store === 'verkaeufe' && x.daten.id === v.id) && korb.some((x) => x.store === 'kassenbuch' && x.daten.id === v.kassenbuchId), 'beides im Papierkorb');
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'keine Abfüllung neu angelegt');
+  // 2) per Knopf, „Nur hier stornieren“: Rückfrage und Hinweis sagen, dass keine Gebinde zurückkommen
+  await w.Views.honig.tabVerkaeufe(host);
+  assert(/2 × Gebinde \(Abfüllung gelöscht\)/.test(host.textContent), 'Zeile nennt den Grund');
+  fragen.length = 0;
+  w.frageJaNein = async (o) => { fragen.push(o); return 'nein'; };
+  host.querySelector(`[data-storno="${v2.id}"]`).click(); await w99(300);
+  assert(fragen.length === 1 && /keine Gebinde in den Bestand zurück/.test(fragen[0].text), 'Rückfrage: ' + (fragen[0] && fragen[0].text));
+  assertEq(toasts.at(-1).msg, 'Verkauf storniert – die Einnahme bleibt im Kassenbuch. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.', 'Hinweis');
+  assert(toasts.at(-1).typ !== 'err', 'kein Fehler');
+  assertEq(await w.DB.get('verkaeufe', v2.id), undefined, 'zweiter Verkauf storniert');
+  assert(await w.DB.get('kassenbuch', v2.kassenbuchId), 'Einnahme bleibt wie gewählt');
+  // 3) Rückgängig über den Papierkorb: der Verkauf kommt zurück, ohne Bestandsabzug (das Storno hat auch nichts zurückgebucht)
+  const tv = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'verkaeufe' && x.daten.id === v.id);
+  await w.DB.trashRestore(tv.id);
+  assert(await w.DB.get('verkaeufe', v.id) && await w.DB.get('kassenbuch', v.kassenbuchId), 'Verkauf und Einnahme wieder da');
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'keine Abfüllung neu angelegt');
+})));
+
+test('Storno-Paket 04.11.2026 (#25): Storno hebt den Bestand nie über die abgefüllte Anzahl', async (w) => isolierteDaten(w, async () => {
+  // Abfüllung 10 × 500 g, 4 verkauft (Bestand 6), danach Anzahl auf 6 gesenkt – über abfuellungAendern seit Paket 2 gesperrt, hier direkt geschrieben wie Altdaten
+  const { a, v } = await stornoDaten(w);
+  const x = await w.DB.get('abfuellungen', a.id);
+  assertEq(x.bestand, 6, 'Bestand nach dem Verkauf');
+  await w.DB.put('abfuellungen', Object.assign(x, { anzahl: 6, bestand: 6 }));
+  await w.verkaufStornieren(v.id);
+  const nachher = await w.DB.get('abfuellungen', a.id);
+  assertEq([nachher.anzahl, nachher.bestand], [6, 6], 'Bestand 6 statt 6 + 4 = 10 bei Anzahl 6');
+  // Normalfall unverändert: alles zurück
+  const { a: a2, v: v2 } = await stornoDaten(w);
+  await w.verkaufStornieren(v2.id);
+  assertEq((await w.DB.get('abfuellungen', a2.id)).bestand, 10, 'stimmige Daten: alle 4 zurück');
+}));
+
+test('Storno-Paket 04.11.2026: Mülleimer im Formular – Fehler beim Löschen zeigt den Grund, das Fenster bleibt offen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const echtLog = w.console.error; w.console.error = () => {};
+  try {
+    const probe = async (fehler) => {
+      toasts.length = 0;
+      const m = w.UI.formModal({ title: 'Probe', fields: [{ key: 'name', label: 'Name' }], async onSave() {}, async onDelete() { throw fehler; } });
+      m.el.querySelector('[data-del]').click(); await w99(80);
+      const offen = m.el.isConnected; await m.close(true);
+      return { offen, toasts: toasts.slice() };
+    };
+    let r = await probe(new Error('Ein Materialposten für die Rückbuchung fehlt. Bitte zuerst wiederherstellen.'));
+    assertEq(r.toasts, [{ msg: 'Ein Materialposten für die Rückbuchung fehlt. Bitte zuerst wiederherstellen.', typ: 'err' }], 'Grund wird gezeigt');
+    assert(r.offen, 'Fenster bleibt offen');
+    r = await probe(new Error(''));
+    assertEq(r.toasts, [{ msg: 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.', typ: 'err' }], 'ohne Text: Ersatztext');
+    r = await probe(Object.assign(new Error('abgebrochen'), { leise: true }));
+    assertEq(r.toasts, [], 'bewusst leise: keine Meldung');
+    // Echt: Kassenbuch-Buchung eines Verkaufs löschen, dessen Abfüllung im Papierkorb liegt („Auch dort löschen“)
+    const { a, v } = await stornoDaten(w);
+    await w.DB.softDel('abfuellungen', a.id);
+    toasts.length = 0;
+    await w.Views.kassenbuch.form(await w.DB.get('kassenbuch', v.kassenbuchId)); await w99(200);
+    const m = letztesModal(w);
+    m.querySelector('[data-del]').click(); await w99(300);
+    assertEq(toasts.at(-1), { msg: STORNO_PAPIERKORB_TEXT, typ: 'err' }, 'Kassenbuch-Mülleimer zeigt die Meldung');
+    assert(m.isConnected, 'Buchungs-Fenster bleibt offen');
+    assert(await w.DB.get('verkaeufe', v.id) && await w.DB.get('kassenbuch', v.kassenbuchId), 'nichts gelöscht');
+    dialogeSchliessen(w);
+    // Echt: Abfüllung endgültig weg → Buchung und Verkauf gehen, der Hinweis sagt, dass keine Gebinde zurückkamen
+    await w.DB.del('papierkorb', (await w.DB.getAll('papierkorb')).find((x) => x.store === 'abfuellungen').id);
+    toasts.length = 0;
+    await w.Views.kassenbuch.form(await w.DB.get('kassenbuch', v.kassenbuchId)); await w99(200);
+    letztesModal(w).querySelector('[data-del]').click(); await w99(300);
+    assertEq(toasts.at(-1).msg, 'Buchung und Eintrag im Bereich gelöscht. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.', 'Hinweis nach dem Löschen');
+    assertEq(await w.DB.get('verkaeufe', v.id), undefined, 'Verkauf storniert');
+  } finally { w.console.error = echtLog; }
+})));
+
+test('Storno-Paket 04.11.2026: Pfand-Rücknahme zurücknehmen und Aufgabe löschen – Fehler bleiben nicht mehr still', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const echtPfand = w.pfandRuecknahmeZurueck, echtLoeschen = w.loescheMitMaterial, echtLog = w.console.error;
+  w.console.error = () => {};
+  try {
+    // Pfand: Zeile unter „Letzte Rücknahmen“ antippen, Zurücknehmen scheitert
+    const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Pfandglas 500 g', kategorie: 'Gläser', stueckzahl: 20, einheit: 'Stück', pfand: 0.5, gebindeG: 500 });
+    const b = await w.DB.put('pfandbewegungen', { inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: 'verbrauch', datum: w.U.todayIso(), anzahl: 5, pfand: 0.5, betrag: 0, kontaktId: null, wer: '', notiz: '', bestandVorher: 15, bestandNachher: 20 });
+    w.pfandRuecknahmeZurueck = async () => { throw new Error('Pfand: Bestand nicht lesbar.'); };
+    const cfg = w.bereichCfg('verbrauch'); cfg.view._suche = ''; cfg.view._jahr = ''; cfg.view._art = '';
+    await w.renderInventarBereich(host, cfg);
+    host.querySelector(`[data-pfandweg="${b.id}"]`).click(); await w99(200);
+    assertEq(toasts.at(-1), { msg: 'Pfand: Bestand nicht lesbar.', typ: 'err' }, 'Pfand-Rücknahme meldet den Grund');
+    assert(await w.DB.get('pfandbewegungen', b.id), 'Rücknahme bleibt stehen');
+    // Aufgabe direkt aus der Tagesübersicht löschen, Löschen scheitert
+    host.innerHTML = '';
+    const heute = w.U.todayIso();
+    const auf = await w.DB.put('aufgaben', { titel: 'Storno-Paket-Aufgabe', faellig: heute, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+    w.loescheMitMaterial = async () => { throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.'); };
+    const ah = w.document.createElement('div'); w.document.body.appendChild(ah);
+    const calVorher = w.Views.aufgaben._cal; w.Views.aufgaben._cal = null;   // Kalender auf den heutigen Monat
+    try {
+      await w.Views.aufgaben.render(ah);
+      ah.querySelector(`.c-day[data-day="${heute}"]`).click(); await w99(250);
+      letztesModal(w).querySelector(`[data-tdel="${auf.id}"]`).click(); await w99(300);
+      assertEq(toasts.at(-1), { msg: 'Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.', typ: 'err' }, 'Aufgaben-Löschen meldet den Grund');
+      assert(await w.DB.get('aufgaben', auf.id), 'Aufgabe bleibt');
+    } finally { ah.remove(); w.Views.aufgaben._cal = calVorher; }
+  } finally { w.pfandRuecknahmeZurueck = echtPfand; w.loescheMitMaterial = echtLoeschen; w.console.error = echtLog; }
+})));
+
+test('Storno-Paket 04.11.2026: fehlerMelden schweigt bei leise, Lizenz und Abbruch, sonst Grund oder Ersatztext', async (w) => {
+  const echtToast = w.UI.toast, echtLog = w.console.error, toasts = [];
+  w.UI.toast = (msg, typ) => { toasts.push({ msg, typ }); }; w.console.error = () => {};
+  try {
+    w.fehlerMelden(Object.assign(new Error('Rückfrage abgebrochen'), { leise: true }));
+    w.fehlerMelden(Object.assign(new Error('Kauf-Fenster offen'), { lizenz: true }));
+    w.fehlerMelden(Object.assign(new Error('weg'), { name: 'AbortError' }));
+    assertEq(toasts, [], 'still bei leise, Lizenz und Abbruch');
+    w.fehlerMelden(new Error('Die Abfüllung liegt im Papierkorb.'), 'Ersatz');
+    assertEq(toasts.at(-1), { msg: 'Die Abfüllung liegt im Papierkorb.', typ: 'err' }, 'Grund aus dem Fehler');
+    w.fehlerMelden(new Error(''), 'Das Stornieren hat nicht geklappt.');
+    assertEq(toasts.at(-1), { msg: 'Das Stornieren hat nicht geklappt.', typ: 'err' }, 'Ersatztext ohne Grund');
+    w.fehlerMelden(undefined);
+    assertEq(toasts.at(-1), { msg: 'Das hat gerade nicht geklappt. Bitte noch einmal versuchen.', typ: 'err' }, 'ohne alles: Grundtext');
+    w.fehlerMelden(Object.assign(new Error('The quota has been exceeded.'), { name: 'QuotaExceededError' }), 'Ersatz');
+    assertEq(toasts.at(-1), { msg: w.SPEICHER_VOLL_TEXT, typ: 'err' }, 'Speicher voll: derselbe Text wie überall');
+    assertEq(toasts.length, 4, 'genau eine Meldung je Fehler');
+  } finally { w.UI.toast = echtToast; w.console.error = echtLog; }
+});
+
+/* =====================================================================
+   Prüfung 04.11.2026, Paket 2 – Löschen, Ändern, Wiederherstellen von Abfüllungen und Chargen.
+   Quelle: docs/PRUEFUNG-HONIG-2026-11-04.md, Funde #1, #4/#22, #5/#21, #6, #7, #25 (erster Teil). Zahlen aus der Doku.
+   ===================================================================== */
+async function loeschPaketCharge(w, losnummer, kg) {
+  return w.DB.put('chargen', { losnummer, datum: '2026-07-01', ernteIds: [], lagerKg: kg, lagerHerkunft: 'Test', mengeKg: kg, sorte: 'Raps' });
+}
+
+test('Lösch-Paket 04.11.2026 (#5/#21): Abfüllung mit Verkäufen lässt sich nicht löschen – Formular, Wischen und Transaktion', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
+  // Doku #5: Charge 10 kg, 20 × 500 g abgefüllt, alle 20 verkauft (Bestand 0)
+  const c = await loeschPaketCharge(w, 'LP-1', 10);
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 20, preisJeGlas: 6 });
+  const sperrText = 'Zu dieser Abfüllung gehören 1 Verkauf (20 Gebinde). Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst den Verkauf im Reiter „Verkauf“. Danach kannst du die Abfüllung löschen.';
+  // 1) Mülleimer im Formular: Hinweis statt Löschen
+  await w.Views.honig.abfuellEditForm(await w.DB.get('abfuellungen', a.id)); await w99(300);
+  const m = letztesModal(w);
+  m.querySelector('[data-del]').click(); await w99(400);
+  assertEq([fragen.at(-1).title, fragen.at(-1).text], ['Erst die Verkäufe stornieren', sperrText], 'Hinweis nennt Zahl und Weg');
+  assert(m.isConnected && await w.DB.get('abfuellungen', a.id), 'Abfüllung bleibt, Fenster bleibt offen');
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0, 'Charge bleibt leer (vorher wieder 10 kg „nicht abgefüllt“)');
+  let f = ''; try { await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-03', g_500: 20 }); } catch (e) { f = e.message; }
+  assert(/übersteigen/.test(f), 'keine 20 Phantom-Gebinde: ' + f);
+  dialogeSchliessen(w);
+  // 2) Wischen: derselbe Weg
+  fragen.length = 0;
+  assertEq(await w.UI.nurLoeschen(() => w.Views.honig.abfuellEditForm(a)), false, 'Wischen löscht nicht');
+  assertEq(fragen.length && fragen.at(-1).title, 'Erst die Verkäufe stornieren', 'Wischen zeigt denselben Hinweis');
+  assert(await w.DB.get('abfuellungen', a.id), 'Abfüllung bleibt');
+  // 3) Sicherheitsnetz in der Transaktion (veraltete Rückfrage, anderes Fenster)
+  f = ''; try { await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id)); } catch (e) { f = e.message; }
+  assertEq(f, sperrText, 'loescheMitMaterial sperrt genauso');
+  assertEq((await w.DB.getAll('papierkorb')).filter((t) => t.store === 'abfuellungen').length, 0, 'nichts im Papierkorb');
+  // 4) Nach dem Storno geht es: die Gebinde sind zurück, der Honig gilt wieder als „im Eimer“
+  await w.verkaufStornieren(v.id);
+  toasts.length = 0;
+  await w.Views.honig.abfuellEditForm(await w.DB.get('abfuellungen', a.id)); await w99(300);
+  letztesModal(w).querySelector('[data-del]').click(); await w99(400);
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'jetzt gelöscht');
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 10, '10 kg wieder frei');
+  // Doku #21: 15 von 20 verkauft (Bestand 5) – auch Teilverkäufe sperren
+  const c2 = await loeschPaketCharge(w, 'LP-2', 10);
+  const a2 = (await w.abfuellungenAnlegen({ chargeId: c2.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  await w.verkaufErfassen({ abfuellungId: a2.id, anzahl: 15, preisJeGlas: 6 });
+  f = ''; try { await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a2.id)); } catch (e) { f = e.message; }
+  assert(/1 Verkauf \(15 Gebinde\)/.test(f), 'Teilverkauf sperrt: ' + f);
+  assertEq(w.chargeRestKg(c2, await w.DB.getAll('abfuellungen')), 0, 'Rest 0 statt 10 kg');
+})));
+
+test('Lösch-Paket 04.11.2026 (#5): Rechnungen sperren das Löschen – Entwurf und festgeschrieben ja, storniert nicht', async (w) => isolierteDaten(w, async () => {
+  const c = await loeschPaketCharge(w, 'LP-3', 10);
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  const pos = (menge) => ({ text: 'Raps 500 g', menge, einzelpreis: 6, steuersatz: 0, abfuellungId: a.id });
+  const fest = await w.DB.put('rechnungen', { nummer: 'RE-0007', datum: '2026-07-05', kundeId: 'k', status: 'festgeschrieben', positionen: [pos(3)] });
+  const entwurf = await w.DB.put('rechnungen', { datum: '2026-07-06', kundeId: 'k', status: 'entwurf', positionen: [pos(2)] });
+  await w.DB.put('rechnungen', { nummer: 'RE-0005', datum: '2026-07-01', kundeId: 'k', status: 'storniert', positionen: [pos(1)] });
+  const sperre = w.abfuellungVerkaufSperre({ verkaeufe: [], rechnungen: await w.DB.getAll('rechnungen') }, a.id);
+  assertEq(sperre, 'Zu dieser Abfüllung gehören 1 Rechnung (RE-0007) und 1 Rechnungsentwurf. Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst die Rechnung unter „Rechnungen“. Nimm die Abfüllung aus dem Entwurf heraus oder lösche ihn. Danach kannst du die Abfüllung löschen.', 'Meldung nennt beide');
+  let f = ''; try { await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id)); } catch (e) { f = e.message; }
+  assertEq(f, sperre, 'gesperrt');
+  // nur noch der Entwurf
+  await w.DB.put('rechnungen', { ...(await w.DB.get('rechnungen', fest.id)), status: 'storniert' });
+  f = ''; try { await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id)); } catch (e) { f = e.message; }
+  assert(/1 Rechnungsentwurf\./.test(f) && !/RE-0007/.test(f), 'Entwurf allein sperrt: ' + f);
+  // Entwurf gelöscht, nur stornierte Rechnungen übrig → Löschen geht
+  await w.DB.del('rechnungen', entwurf.id);
+  assertEq(w.abfuellungVerkaufSperre({ verkaeufe: [], rechnungen: await w.DB.getAll('rechnungen') }, a.id), null, 'stornierte Rechnungen sperren nicht');
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id));
+  assertEq(await w.DB.get('abfuellungen', a.id), undefined, 'gelöscht');
+}));
+
+test('Lösch-Paket 04.11.2026 (#5/#25): Abfüllung ändern – Anzahl nicht unter verkauft + Rechnung + Abgang, Bestand passt dazu', async (w) => isolierteDaten(w, async () => {
+  // Doku #5: 30 × 500 g, 10 verkauft, Bestand 20 → Anzahl 20 und Bestand 20 darf nicht gehen
+  const c = await loeschPaketCharge(w, 'LP-4', 20);
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 30 })).recs[0];
+  await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 10, preisJeGlas: 6 });
+  const aendern = async (werte) => { try { await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { gebindeG: 500, datum: '2026-07-02', ...werte }); return null; } catch (e) { return e; } };
+  let e = await aendern({ anzahl: 20, bestand: 20 });
+  assertEq([e && e.feld, e && e.message], ['bestand', 'Von 20 abgefüllten Gebinden sind schon 10 weg (10 verkauft). „Davon noch zum Verkauf“ kann höchstens 10 sein.'], 'Bestand zu hoch');
+  assertEq([(await w.DB.get('abfuellungen', a.id)).anzahl, w.chargeRestKg(c, await w.DB.getAll('abfuellungen'))], [30, 5], 'nichts geändert, keine 5 kg zurück');
+  e = await aendern({ anzahl: 8, bestand: 0 });
+  assertEq([e && e.feld, e && e.message], ['anzahl', 'Von dieser Abfüllung sind schon 10 Gebinde weg (10 verkauft). Die abgefüllte Anzahl kann nicht kleiner sein – sonst zählte dieser Honig wieder als „nicht abgefüllt“.'], 'Anzahl unter verkauft');
+  // stimmige Korrektur geht: wirklich nur 20 abgefüllt, 10 verkauft, 10 übrig
+  assertEq(await aendern({ anzahl: 20, bestand: 10 }), null, '20 / 10 angenommen');
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 10, 'Charge: 20 − 10 kg');
+  // festgeschriebene Rechnung und Gebinde-Abgang zählen mit, ein Rechnungsentwurf nicht
+  const x = await w.DB.get('abfuellungen', a.id); x.bestand = 7; await w.DB.put('abfuellungen', x);   // Rechnung hat 3 abgezogen
+  await w.DB.put('rechnungen', { nummer: 'RE-0001', datum: '2026-07-05', kundeId: 'k', status: 'festgeschrieben', positionen: [{ text: 'Raps', menge: 3, einzelpreis: 6, steuersatz: 0, abfuellungId: a.id }] });
+  await w.DB.put('rechnungen', { datum: '2026-07-06', kundeId: 'k', status: 'entwurf', positionen: [{ text: 'Raps', menge: 50, einzelpreis: 6, steuersatz: 0, abfuellungId: a.id }] });
+  await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-07-07', menge: 2 });   // Bestand 5
+  e = await aendern({ anzahl: 19, bestand: 5 });
+  assertEq(e && e.message, 'Von 19 abgefüllten Gebinden sind schon 15 weg (10 verkauft, 3 per Rechnung, 2 als Verlust oder Eigenverbrauch). „Davon noch zum Verkauf“ kann höchstens 4 sein.', 'alles zählt mit');
+  assertEq(await aendern({ anzahl: 20, bestand: 5, mhd: '2028-07-01' }), null, 'stimmt genau: 5 + 15 = 20');
+  // Doku #25: 10 × 500 g, 4 verkauft (Bestand 6) → Anzahl 6 / Bestand 6 abgelehnt
+  const { a: b } = await stornoDaten(w);
+  let f = null; try { await w.abfuellungAendern(await w.DB.get('abfuellungen', b.id), { anzahl: 6, bestand: 6, gebindeG: 500, datum: '2026-07-02' }); } catch (err) { f = err; }
+  assert(f && /höchstens 2 sein/.test(f.message), '#25 abgelehnt: ' + (f && f.message));
+  // Altdaten mit zu hohem Bestand (10 bei 4 verkauft): MHD ändern bleibt möglich, mehr zum Verkauf nicht
+  const alt = await w.DB.get('abfuellungen', b.id); alt.bestand = 10; await w.DB.put('abfuellungen', alt);
+  f = null; try { await w.abfuellungAendern(await w.DB.get('abfuellungen', b.id), { anzahl: 10, bestand: 10, gebindeG: 500, datum: '2026-07-02', mhd: '2028-07-02' }); } catch (err) { f = err; }
+  assertEq([f, (await w.DB.get('abfuellungen', b.id)).mhd], [null, '2028-07-02'], 'Altdaten: MHD änderbar');
+  f = null; try { await w.abfuellungAendern(await w.DB.get('abfuellungen', b.id), { anzahl: 9, bestand: 9, gebindeG: 500, datum: '2026-07-02' }); } catch (err) { f = err; }
+  assert(f && /höchstens 5 sein/.test(f.message), 'weniger abgefüllt wird geprüft: ' + (f && f.message));
+}));
+
+test('Lösch-Paket 04.11.2026 (#4/#22): Abfüllung aus dem Papierkorb prüft die Chargenmenge', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  // Doku: Charge 10 kg, A = 20 × 500 g, A löschen, B = 20 × 500 g, A wiederherstellen → abgelehnt
+  const c = await loeschPaketCharge(w, 'LP-5', 10);
+  const A = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', A.id));
+  const B = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-03', g_500: 20 })).recs[0];
+  const tA = (await w.DB.getAll('papierkorb')).find((t) => t.store === 'abfuellungen' && t.daten.id === A.id);
+  const text = 'Die Abfüllung passt nicht mehr in die Charge LP-5: Sie braucht 10 kg, frei ist nichts mehr. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.';
+  let f = ''; try { await w.DB.trashRestore(tA.id); } catch (e) { f = e.message; }
+  assertEq(f, text, 'abgelehnt mit Zahlen');
+  assertEq([(await w.DB.getAll('abfuellungen')).length, !!(await w.DB.get('papierkorb', tA.id)), w.chargeRestKg(c, await w.DB.getAll('abfuellungen'))], [1, true, 0], 'nichts geändert: 20 statt 40 Gebinde, Rest 0 statt −10 kg');
+  // über den Knopf im Papierkorb: dieselbe Meldung
+  await w.Views.papierkorb.render(host);
+  host.querySelector(`[data-restore="${tA.id}"]`).click(); await w99(300);
+  assertEq(toasts.at(-1), { msg: text, typ: 'err' }, 'Papierkorb zeigt den Grund');
+  // gleiches Ergebnis mit 10 kg Eimer-Verlust statt B
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', B.id));
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Verdorben', datum: '2026-07-04', menge: 10 });
+  f = ''; try { await w.DB.trashRestore(tA.id); } catch (e) { f = e.message; }
+  assertEq(f, text, 'Eimer-Verlust zählt mit');
+  // passt es, geht es wie bisher: Verlust zurücknehmen, dann ist Platz für A (10 kg), nicht aber zusätzlich für B
+  await w.honigAbgangLoeschen((await w.DB.getAll('honigabgaenge'))[0].id);
+  await w.DB.trashRestore(tA.id);
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0, 'A wieder da, Charge voll');
+  const tB = (await w.DB.getAll('papierkorb')).find((t) => t.store === 'abfuellungen' && t.daten.id === B.id);
+  f = ''; try { await w.DB.trashRestore(tB.id); } catch (e) { f = e.message; }
+  assert(/passt nicht mehr/.test(f), 'B jetzt abgelehnt: ' + f);
+  // Teilmenge: 5 kg frei, Abfüllung braucht 10 kg → „nur noch 5 kg“
+  const c2 = await loeschPaketCharge(w, 'LP-6', 10);
+  const C = (await w.abfuellungenAnlegen({ chargeId: c2.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', C.id));
+  await w.abfuellungenAnlegen({ chargeId: c2.id, datum: '2026-07-03', g_250: 20 });   // 5 kg
+  f = ''; try { await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.daten.id === C.id).id); } catch (e) { f = e.message; }
+  assert(/Sie braucht 10 kg, frei sind nur noch 5 kg\./.test(f), 'Teilrest genannt: ' + f);
+})));
+
+test('Lösch-Paket 04.11.2026: Abfüllung wiederherstellen – Charge im Papierkorb zuerst, endgültig gelöschte Charge blockiert nicht', async (w) => isolierteDaten(w, async () => {
+  const c = await loeschPaketCharge(w, 'LP-7', 10);
+  const A = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 20 })).recs[0];
+  await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', A.id));
+  await w.DB.softDel('chargen', c.id);
+  const tA = (await w.DB.getAll('papierkorb')).find((t) => t.store === 'abfuellungen');
+  let f = ''; try { await w.DB.trashRestore(tA.id); } catch (e) { f = e.message; }
+  assertEq(f, 'Die Charge dieser Abfüllung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann die Abfüllung. Nichts wurde geändert.', 'erst die Charge');
+  assertEq(await w.DB.get('abfuellungen', A.id), undefined, 'Abfüllung bleibt im Papierkorb');
+  // Charge endgültig weg: Abfüllung kommt wie bisher ohne Charge zurück
+  await w.DB.del('papierkorb', (await w.DB.getAll('papierkorb')).find((t) => t.store === 'chargen').id);
+  await w.DB.trashRestore(tA.id);
+  assert(await w.DB.get('abfuellungen', A.id), 'wiederhergestellt');
+}));
+
+test('Lösch-Paket 04.11.2026 (#1): Charge wiederherstellen weist ab, wenn ihre Ernte inzwischen in einer anderen Charge steckt', async (w) => isolierteDaten(w, async () => {
+  // Doku #1 a: Ernte E1 20 kg, Charge 2026-01 = [E1]; gelöscht; neue Charge 2026-02 mit E1 (älterer Stand oder anderes Gerät); alte wiederherstellen
+  const e1 = await w.DB.put('ernten', { datum: '2026-06-20', sorte: 'Raps', mengeKg: 20, produktart: 'Honig', zielTyp: 'stand', zielId: 's' });
+  const alt = await w.DB.put('chargen', { losnummer: '2026-01', datum: '2026-06-21', ernteIds: [e1.id], lagerKg: 0, mengeKg: 20 });
+  await w.DB.softDel('chargen', alt.id);
+  await w.DB.put('chargen', { losnummer: '2026-02', datum: '2026-06-22', ernteIds: [e1.id], lagerKg: 0, mengeKg: 20 });
+  const t = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'chargen');
+  let f = ''; try { await w.DB.trashRestore(t.id); } catch (e) { f = e.message; }
+  assertEq(f, 'Die Charge 2026-01 lässt sich nicht wiederherstellen: Eine ihrer Ernten steckt inzwischen in der Charge 2026-02. Eine Ernte darf nur in einer Charge stehen. Nimm die Ernte dort heraus, dann versuch es noch einmal. Der Eintrag bleibt im Papierkorb.', 'Meldung nennt die Charge');
+  const chargen = await w.DB.getAll('chargen');
+  assertEq([chargen.length, chargen.reduce((s, x) => s + x.mengeKg, 0)], [1, 20], 'nur eine Charge mit E1, 20 statt 40 kg');
+  assert(await w.DB.get('papierkorb', t.id), 'bleibt im Papierkorb');
+  // ohne Überschneidung geht es wie bisher
+  await w.DB.del('chargen', chargen[0].id);
+  await w.DB.trashRestore(t.id);
+  assertEq((await w.DB.get('chargen', alt.id)).ernteIds, [e1.id], 'wiederhergestellt');
+}));
+
+test('Lösch-Paket 04.11.2026 (#1 b): Ernten einer Charge im Papierkorb bleiben belegt – Charge-Formular und Abfüllen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
+  // Doku #1 b: 2026-01 = [E1] 20 kg, 40 × 500 g abgefüllt, dann „Trotzdem löschen“
+  const e1 = await w.DB.put('ernten', { datum: '2026-06-20', sorte: 'Raps', mengeKg: 20, produktart: 'Honig', zielTyp: 'stand', zielId: 's' });
+  const c = await w.DB.put('chargen', { losnummer: '2026-01', datum: '2026-06-21', ernteIds: [e1.id], lagerKg: 0, mengeKg: 20 });
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 40 })).recs[0];
+  await w.Views.honig.chargeForm(await w.DB.get('chargen', c.id)); await w99(300);
+  letztesModal(w).querySelector('[data-del]').click(); await w99(400);
+  assert(/Die Ernten der Charge bleiben belegt, solange sie im Papierkorb liegt\./.test(fragen.at(-1).text), 'Rückfrage sagt es: ' + fragen.at(-1).text);
+  assertEq([await w.DB.get('chargen', c.id), (await w.DB.get('abfuellungen', a.id)).bestand], [undefined, 40], 'Charge im Papierkorb, Gebinde bleiben');
+  dialogeSchliessen(w);
+  assertEq([...w.ernteBelegungPapierkorb(await w.DB.getAll('papierkorb'))], [[e1.id, '2026-01']], 'Hilfsfunktion');
+  // Abfüllen: E1 wird nicht mehr als „ohne Charge“ angeboten – vorher 40 weitere Gläser aus denselben 20 kg
+  toasts.length = 0;
+  await w.Views.honig.abfuellForm(); await w99(300);
+  assertEq(toasts.at(-1) && toasts.at(-1).msg, 'Nichts zum Abfüllen: Erfasse zuerst eine Ernte (Tab „Ernte“) oder lege eine Charge an.', 'nichts frei');
+  const frei = await loeschPaketCharge(w, 'LP-8', 5);   // eine andere Charge mit Honig, damit das Formular aufgeht
+  await w.Views.honig.abfuellForm(); await w99(300);
+  const werte = [...letztesModal(w).querySelectorAll('#f-chargeId option')].map((o) => o.value);
+  assert(!werte.includes('ernte:' + e1.id) && werte.includes(frei.id), 'E1 fehlt, die freie Charge ist da: ' + werte.join(', '));
+  dialogeSchliessen(w);
+  // Charge-Formular: E1 ausgegraut mit Hinweis
+  await w.Views.honig.chargeForm(null); await w99(300);
+  const inp = letztesModal(w).querySelector(`#f-ernteIds input[value="${e1.id}"]`);
+  assert(inp && inp.disabled && !inp.checked, 'E1 nicht wählbar');
+  assert(/in gelöschter Charge 2026-01 \(Papierkorb\)/.test(inp.closest('label').textContent), 'Hinweis: ' + inp.closest('label').textContent);
+  dialogeSchliessen(w);
+  // Wiederherstellen passt (Ernte in keiner anderen Charge), die Gebinde gehören wieder dazu
+  await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.store === 'chargen').id);
+  assertEq(w.chargeRestKg(await w.DB.get('chargen', c.id), await w.DB.getAll('abfuellungen')), 0, 'Charge voll abgefüllt, kein Doppel');
+  // Endgültig gelöscht ist die Ernte wieder frei (die Charge kann nicht mehr zurückkommen)
+  await w.DB.softDel('chargen', c.id);
+  await w.DB.del('papierkorb', (await w.DB.getAll('papierkorb')).find((t) => t.store === 'chargen').id);
+  assertEq(w.ernteBelegungPapierkorb(await w.DB.getAll('papierkorb')).size, 0, 'nichts mehr belegt');
+})));
+
+test('Lösch-Paket 04.11.2026 (#6): Kachel „Nicht abgefüllt“ rechnet negative Reste überbuchter Chargen nicht gegen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  // Doku: A 20 kg, 40 × 500 g, 5 kg Lohn → −5 kg; B 10 kg, nichts abgefüllt → Kachel 10 statt 5
+  const A = await loeschPaketCharge(w, 'LP-A', 20);
+  await w.DB.put('abfuellungen', { chargeId: A.id, datum: '2026-07-02', gebindeG: 500, anzahl: 40, bestand: 40 });
+  const pos = await w.DB.put('inventar', { bezeichnung: 'Met', typ: 'produkt', einheit: 'Flasche', stueckzahl: 10 });
+  await w.DB.put('materialzugaenge', { inventarId: pos.id, typ: 'produkt', lohn: true, chargeId: A.id, honigKg: 5, menge: 10, datum: '2026-07-10' });
+  await loeschPaketCharge(w, 'LP-B', 10);
+  assertEq(w.chargeRestKg(A, await w.DB.getAll('abfuellungen')), -5, 'A ist überbucht (Altdaten)');
+  const vorher = w.Views.honig._bestandSort; w.Views.honig._bestandSort = 'nummer';
+  try { await w.Views.honig.tabBestand(host); } finally { w.Views.honig._bestandSort = vorher; }
+  const kachel = [...host.querySelectorAll('.stat')].find((s) => /Nicht abgefüllt/.test(s.textContent));
+  assertEq(kachel.querySelector('.s-value').textContent.trim(), '10', 'Kachel zeigt 10 kg im Eimer');
+})));
+
+test('Lösch-Paket 04.11.2026 (#7): Wiederhergestellter Gebinde-Abgang übernimmt die geänderte Gebindegröße', async (w) => isolierteDaten(w, async () => {
+  // Doku: 30 × 500 g, Abgang 2 × 500 g Bruch (Bestand 28) → Abgang löschen (30) → Abfüllung auf 250 g → Abgang wiederherstellen (28)
+  const { a } = await honigTestdaten(w);
+  const x = await w.honigAbgangBuchen({ quelle: 'abfuellung', abfuellungId: a.id, art: 'Bruch', datum: '2026-08-01', menge: 2 });
+  await w.honigAbgangLoeschen(x.id);
+  assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 30, 'Abgang gelöscht');
+  await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 30, gebindeG: 250, bestand: 30, datum: '2026-07-02' });
+  await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.store === 'honigabgaenge').id);
+  const y = await w.DB.get('honigabgaenge', x.id);
+  assertEq([(await w.DB.get('abfuellungen', a.id)).bestand, y.gebindeG], [28, 250], 'Bestand 28, Größe 250 g');
+  assertEq(w.honigAbgangText(y, new Map([[a.chargeId, { losnummer: 'HV-1' }]])), '2 × 250 g · Charge HV-1 · Bruch', 'Anzeige 2 × 250 g statt 2 × 500 g');
+}));
+
+/* =====================================================================
+   Prüfung 04.11.2026, Paket 3 – Mengen zwischen Ernte und Charge.
+   Quelle: docs/PRUEFUNG-HONIG-2026-11-04.md, Funde #2, #3/#8, #9. Zahlen aus der Doku.
+   ===================================================================== */
+async function mengenPaketErnte(w, mengeKg, extra = {}) {
+  let st = (await w.DB.getAll('staende'))[0];
+  if (!st) st = await w.DB.put('staende', { name: 'Mengen-Stand' });
+  return w.DB.put('ernten', { datum: w.U.todayIso(), sorte: 'Raps', mengeKg, produktart: 'Honig', zielTyp: 'stand', zielId: st.id, ...extra });
+}
+const ernteMit = async (w, id, aenderung) => w.ernteSpeichern({ ...(await w.DB.get('ernten', id)), ...aenderung });
+
+test('Mengen-Paket 04.11.2026 (#2): Ernte 250 → 25 kg korrigiert – die Charge folgt, im Formular abgewiesen, wenn schon mehr abgefüllt ist', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #2: Ernte E1 250 kg (Tippfehler), Charge 2026-01 = [E1] mit 250 kg; E1 auf 25 kg korrigiert
+  const e1 = await mengenPaketErnte(w, 250);
+  const c = await w.DB.put('chargen', { losnummer: '2026-01', datum: w.U.todayIso(), ernteIds: [e1.id], lagerKg: 0, mengeKg: 250 });
+  const formularSpeichern = async (kg) => {
+    dialogeSchliessen(w); toasts.length = 0;
+    const box = w.document.createElement('div'); w.document.body.appendChild(box);   // je Aufruf frisch: sonst hinge ein zweiter Klick-Haken dran
+    try {
+      await w.Views.honig.tabErnten(box);
+      box.querySelector(`.row[data-id="${e1.id}"]`).click();
+      await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-mengeKg'));
+    } finally { box.remove(); }
+    const m = letztesModal(w);
+    m.querySelector('#f-mengeKg').value = kg;
+    m.querySelector('[data-save]').click();
+    await warteBis(() => toasts.length);
+    return m;
+  };
+  await formularSpeichern('25');
+  assertEq((await w.DB.get('ernten', e1.id)).mengeKg, 25, 'Ernte gespeichert');
+  assertEq((await w.DB.get('chargen', c.id)).mengeKg, 25, 'Charge folgt der Ernte (vorher blieb sie auf 250 kg)');
+  assertEq(w.chargeRestKg(await w.DB.get('chargen', c.id), await w.DB.getAll('abfuellungen')), 25, '25 kg frei statt 250');
+  assertEq(toasts.at(-1), { msg: 'Ernte gespeichert. Die Charge 2026-01 hat jetzt 25 kg.', typ: 'ok' }, 'Hinweis nennt die neue Menge');
+  // Schon belegt: 30 × 500 g = 15 kg abgefüllt, 2 kg Verlust im Eimer → Ernte auf 16 kg geht nicht, auf 17 kg schon
+  await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 30 });
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Abfüllverlust', datum: '2026-07-02', menge: 2 });
+  const m = await formularSpeichern('16');
+  const text = 'Die Charge 2026-01 hätte mit dieser Ernte nur noch 16 kg. Aus ihr sind aber schon 17 kg abgefüllt, als Verlust gebucht oder abgegeben. Prüf die Menge noch einmal. Stimmt sie, ändere zuerst die Abfüllungen oder Verluste dieser Charge. Nichts wurde gespeichert.';
+  assertEq(toasts.at(-1), { msg: text, typ: 'err' }, 'klare Meldung');
+  assert(m.isConnected, 'das Formular bleibt offen');
+  assertEq([(await w.DB.get('ernten', e1.id)).mengeKg, (await w.DB.get('chargen', c.id)).mengeKg], [25, 25], 'nichts gespeichert – weder Ernte noch Charge');
+  let f = null; try { await ernteMit(w, e1.id, { mengeKg: 16 }); } catch (e) { f = e; }
+  assertEq([f && f.feld, f && f.message], ['mengeKg', text], 'dieselbe Sperre in der Transaktion, am Feld Menge');
+  const r = await ernteMit(w, e1.id, { mengeKg: 17 });
+  assertEq([r.angepasst, (await w.DB.get('chargen', c.id)).mengeKg, w.chargeRestKg(await w.DB.get('chargen', c.id), await w.DB.getAll('abfuellungen'))], [[{ losnummer: '2026-01', kg: 17 }], 17, 0], 'genau so viel wie belegt geht');
+  // Von Hand überschriebene Gesamtmenge (20 kg statt 17) bleibt, der Hinweis sagt es
+  await w.DB.put('chargen', { ...(await w.DB.get('chargen', c.id)), mengeKg: 20 });
+  await formularSpeichern('18');
+  assertEq([(await w.DB.get('ernten', e1.id)).mengeKg, (await w.DB.get('chargen', c.id)).mengeKg], [18, 20], 'Ernte geändert, Charge von Hand bleibt');
+  assertEq(toasts.at(-1), { msg: 'Ernte gespeichert. Die Charge 2026-01 bleibt bei 20 kg, weil ihre Gesamtmenge von Hand eingetragen ist oder schon vorher nicht zu den Ernten passte. Prüf sie im Reiter „Charge“.', typ: 'err' }, 'Hinweis bei Hand-Menge');
+  // Nur die Sorte geändert: nichts an der Charge, schlichte Meldung
+  const r2 = await ernteMit(w, e1.id, { sorte: 'Frühtracht' });
+  assertEq([r2.angepasst.length, r2.vonHand.length, r2.hinweis, (await w.DB.get('chargen', c.id)).mengeKg], [0, 0, 'Ernte gespeichert', 20], 'ohne Mengenänderung bleibt alles');
+})));
+
+test('Mengen-Paket 04.11.2026 (#2): Charge folgt der Ernte – Lagerbestand, zweite Ernte im Papierkorb, Charge im Papierkorb, alte 2-Stellen-Summe, neue Ernte', async (w) => isolierteDaten(w, async () => {
+  // Ernten + Lagerbestand: [E1 20, E2 10] + 5 kg Lager = 35 → E1 auf 25 → 40
+  const e1 = await mengenPaketErnte(w, 20), e2 = await mengenPaketErnte(w, 10);
+  const x = await w.DB.put('chargen', { losnummer: 'MP-1', datum: '2026-07-01', ernteIds: [e1.id, e2.id], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 35 });
+  await ernteMit(w, e1.id, { mengeKg: 25 });
+  assertEq((await w.DB.get('chargen', x.id)).mengeKg, 40, 'Ernten + Lagerbestand neu summiert');
+  // E2 im Papierkorb: ihr Honig steckt weiter in der Charge (Doku #2, „das stimmt, der Honig ist ja noch da“)
+  await w.DB.softDel('ernten', e2.id);
+  await ernteMit(w, e1.id, { mengeKg: 30 });
+  assertEq((await w.DB.get('chargen', x.id)).mengeKg, 45, 'gelöschte Ernte zählt weiter mit: 30 + 10 + 5');
+  // Charge im Papierkorb: folgt ebenfalls, sonst käme sie beim Wiederherstellen mit der alten Menge zurück
+  const e3 = await mengenPaketErnte(w, 12);
+  const y = await w.DB.put('chargen', { losnummer: 'MP-2', datum: '2026-07-01', ernteIds: [e3.id], lagerKg: 0, mengeKg: 12 });
+  await w.DB.softDel('chargen', y.id);
+  const r = await ernteMit(w, e3.id, { mengeKg: 8 });
+  assertEq(r.hinweis, 'Ernte gespeichert. Die Charge MP-2 (im Papierkorb) hat jetzt 8 kg.', 'Hinweis nennt den Papierkorb');
+  await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.store === 'chargen').id);
+  assertEq((await w.DB.get('chargen', y.id)).mengeKg, 8, 'wiederhergestellt mit der neuen Menge');
+  // Alte Charge mit auf 2 Stellen gerundeter Summe (7,125 → 7,13, Fund #3/#8) zählt nicht als „von Hand“
+  const e4 = await mengenPaketErnte(w, 7.125);
+  const z = await w.DB.put('chargen', { losnummer: 'MP-3', datum: '2026-07-01', ernteIds: [e4.id], lagerKg: 0, mengeKg: 7.13 });
+  const r4 = await ernteMit(w, e4.id, { mengeKg: 8.125 });
+  assertEq([r4.vonHand.length, (await w.DB.get('chargen', z.id)).mengeKg], [0, 8.125], 'folgt, jetzt genau');
+  // Neue Ernte: einfach gespeichert, keine Charge berührt
+  const r5 = await w.ernteSpeichern({ datum: '2026-07-05', sorte: 'Linde', mengeKg: 9, produktart: 'Honig', zielTyp: 'stand', zielId: e1.zielId });
+  assert(r5.ernte.id && (await w.DB.get('ernten', r5.ernte.id)).mengeKg === 9, 'neue Ernte gespeichert');
+  assertEq([r5.hinweis, (await w.DB.get('chargen', x.id)).mengeKg], ['Ernte gespeichert', 45], 'Chargen unberührt');
+}));
+
+test('Mengen-Paket 04.11.2026 (#3/#8): Chargen-Formular schreibt die Summe mit 3 Nachkommastellen – 7,125 bleibt 7,125', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const e = await mengenPaketErnte(w, 7.125), a = await mengenPaketErnte(w, 12.345), b1 = await mengenPaketErnte(w, 33.333), b2 = await mengenPaketErnte(w, 0.002);
+  await w.Views.honig.chargeForm(null); await w99(300);
+  const m = letztesModal(w);
+  const feld = () => m.querySelector('#f-mengeKg').value;
+  const haken = (er) => m.querySelector(`#f-ernteIds input[value="${er.id}"]`).click();
+  haken(a); assertEq(feld(), '12,345', '12,345 statt 12,35'); haken(a);
+  haken(b1); haken(b2); assertEq(feld(), '33,335', '33,333 + 0,002 = 33,335 statt 33,34'); haken(b1); haken(b2);
+  haken(e); assertEq(feld(), '7,125', '7,125 statt 7,13');
+  m.querySelector('#f-losnummer').value = 'MP-7';
+  m.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.getAll('chargen')).length === 1);
+  const c = (await w.DB.getAll('chargen'))[0];
+  assertEq(c.mengeKg, 7.125, 'gespeichert 7,125 kg');
+  await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 14 });
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0.125, 'Rest nach 14 × 500 g: 0,125 statt 0,13 kg');
+})));
+
+test('Mengen-Paket 04.11.2026 (#9): Rest 0,04 kg steht nicht als „0 kg“ da – Liste, Detail, Bestand, Abfüllen, Chargenübersicht-PDF', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  assertEq([w.restKgText(0.04), w.restKgText(0.004), w.restKgText(0.25), w.restKgText(12.34), w.restKgText(0), w.restKgText(-0.04), w.restKgText(-5)], ['0,04', '0,004', '0,3', '12,3', '0', '-0,04', '-5'], 'Hilfsfunktion: nur kleine Reste genauer');
+  // Doku #9: Charge 10 kg, 19 × 500 g abgefüllt, 0,46 kg Verlust → Rest 0,04 kg
+  const c = await loeschPaketCharge(w, 'MP-9', 10);
+  await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 19 });
+  await w.honigAbgangBuchen({ quelle: 'charge', chargeId: c.id, art: 'Abfüllverlust', datum: '2026-07-02', menge: 0.46 });
+  assertEq(w.chargeRestKg(c, await w.DB.getAll('abfuellungen')), 0.04, 'Rest 0,04 kg, Charge bleibt offen');
+  // Chargen-Liste
+  const jahrVorher = w.Views.honig._chargenJahr; w.Views.honig._chargenJahr = '';
+  try { await w.Views.honig.tabChargen(host); } finally { w.Views.honig._chargenJahr = jahrVorher; }
+  const zeile = host.querySelector(`#chargen-offen .row[data-id="${c.id}"] .r-side`);
+  assert(zeile && /^0,04 kg\s*nicht abgefüllt$/.test(zeile.textContent.trim()), 'Liste: ' + (zeile && zeile.textContent));
+  // Charge-Detail
+  await w.Views.honig.chargeDetail(await w.DB.get('chargen', c.id)); await w99(200);
+  const stat = [...letztesModal(w).querySelectorAll('.stat')].find((s) => /Nicht abgefüllt/.test(s.textContent));
+  assertEq(stat.querySelector('.s-value').textContent.trim(), '0,04', 'Detail: 0,04 statt 0');
+  dialogeSchliessen(w);
+  // Bestand: Kurzzeile, aufgeklappte Zeile, Kachel
+  host.innerHTML = '';
+  const sortVorher = w.Views.honig._bestandSort; w.Views.honig._bestandSort = 'nummer';
+  try { await w.Views.honig.tabBestand(host); } finally { w.Views.honig._bestandSort = sortVorher; }
+  const bst = host.querySelector(`details[data-charge="${c.id}"]`);
+  assert(/offen 0,04 kg/.test(bst.querySelector('.r-sub').textContent), 'Bestand-Kürzel: ' + bst.querySelector('.r-sub').textContent);
+  assert(/0,04 kg noch nicht abgefüllt/.test(bst.querySelector('.bst-auf').textContent), 'aufgeklappt: ' + bst.querySelector('.bst-auf').textContent);
+  const kachel = [...host.querySelectorAll('.stat')].find((s) => /Nicht abgefüllt/.test(s.textContent));
+  assertEq(kachel.querySelector('.s-value').textContent.trim(), '0,04', 'Kachel: 0,04 statt 0');
+  // Abfüll-Formular: Auswahl der Charge
+  await w.Views.honig.abfuellForm(c.id); await w99(300);
+  const opt = [...letztesModal(w).querySelectorAll('#f-chargeId option')].find((o) => o.value === c.id);
+  assertEq(opt && opt.textContent, 'Charge MP-9 · 0,04 kg frei', 'Abfüllen: 0,04 kg frei');
+  dialogeSchliessen(w);
+  // Chargenübersicht-PDF
+  const tabellen = [], alt = w.Pdf.table;
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return alt.call(this, doc, o); };
+  try { await pdfText(w, () => w.Pdf.chargenuebersicht('')); } finally { w.Pdf.table = alt; }
+  const kopf = tabellen[0].body.find((r) => r[0] && r[0].content === 'Charge MP-9');
+  assertEq(kopf[2].content, '0,04 kg frei · 0,46 kg Verlust', 'PDF: 0,04 kg frei statt 0 kg frei');
+})));
+
+/* ---------- Auswertungs-Paket 04.11.2026: Honig-Regel, Verkauf mit Rechnungen, Vorjahr, Kassenbuch-Anzeige ---------- */
+/** Jahresbericht bauen und Kacheln und Tabellen mitschreiben statt herunterzuladen. */
+async function jahresberichtErfassen(w, jahr) {
+  const kacheln = [], tabellen = [], altK = w.Pdf.kachel, altT = w.Pdf.table;
+  w.Pdf.kachel = function (doc, x, y, b, h, label, wert, sub) { kacheln.push({ label, wert, sub }); return altK.apply(this, arguments); };
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return altT.call(this, doc, o); };
+  try { await pdfText(w, () => w.Pdf.jahresbericht(jahr)); } finally { w.Pdf.kachel = altK; w.Pdf.table = altT; }
+  const kachel = (label) => { const k = kacheln.find((x) => x.label === label); assert(k, `Kachel „${label}“ fehlt im Jahresbericht`); return k; };
+  const zelle = (z) => (z && typeof z === 'object' ? z.content : z);
+  const tabelle = (kopf) => (tabellen.find((t) => t.head && t.head[0] === kopf) || { body: [] }).body.map((r) => r.map(zelle));
+  return { kachel, tabelle };
+}
+const wirtschaftsvolk = (w, name, extra = {}) => w.DB.put('voelker', Object.assign({ name, status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: '2020-04-01', text: 'angelegt' }] }, extra));
+
+test('Auswertungs-Paket 04.11.2026 (#11/#12): Wabenhonig zählt überall als Honig, Pollen, Propolis und Wachs nie', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  // Die Regel selbst
+  assertEq([{}, { produktart: '' }, { produktart: 'Honig' }, { produktart: 'Wabenhonig' }, { produktart: 'Pollen' }, { produktart: 'Propolis' }, { produktart: 'Wachs' }].map(w.istHonigErnte),
+    [true, true, true, true, false, false, false], 'ohne Produktart, Honig und Wabenhonig ja – Pollen, Propolis, Wachs nein');
+  const a = await wirtschaftsvolk(w, 'Anna'), b = await wirtschaftsvolk(w, 'Berta');
+  const raps = await w.DB.put('trachten', { pflanze: 'Raps', von: `${Y}-04-18`, bis: `${Y}-05-17`, jaehrlich: true });
+  const ernte = (v, produktart, kg) => w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: `${Y}-06-10`, produktart, sorte: 'Raps', mengeKg: kg, trachtId: raps.id });
+  await ernte(a, 'Honig', 20); await ernte(a, 'Pollen', 3); await ernte(a, 'Propolis', 1); await ernte(a, 'Wachs', 2); await ernte(b, 'Wabenhonig', 5);
+  // Statistik → Honig
+  const erg = await w.Statistik.auswerten('ertrag', Y);
+  const k = (l) => erg.kacheln.find((x) => x.label === l);
+  assertEq(k('Honig geerntet').wert, '25 kg', 'Honig geerntet: 20 kg Honig + 5 kg Wabenhonig');
+  assertEq([k('Ø je Volk mit Ernte').wert, k('Ø je Volk mit Ernte').sub], ['12,5 kg', '2 Völker'], 'Ø aus beiden Völkern');
+  assert(!erg.auffaellig.some((x) => /ohne eingetragene Ernte/.test(x.titel)), 'Berta mit Wabenhonig gilt nicht als „ohne Ernte“');
+  // Statistik-Tabellen „Honigertrag je …“ (Bildschirm und Report-PDF)
+  const jeVolk = await w.Reporting.ertrag('volk', Y);
+  assertEq(jeVolk.map((r) => [r.k, r.n, r.kg]), [['Anna', 1, 20], ['Berta', 1, 5]], 'je Volk ohne Pollen, Propolis, Wachs');
+  assertEq((await w.Reporting.ertrag('jahr')).map((r) => [r.k, r.kg]), [[Y, 25]], 'je Jahr');
+  const tr = (await w.Reporting.ertragJeTracht(Y)).find((x) => x.k === 'Raps');
+  assertEq([tr.kg, tr.voelker, tr.schnitt], [25, 2, 12.5], 'je Tracht mit Wabenhonig');
+  // Volk: Ertrag je Tracht (Bewertungsbogen)
+  assertEq(w.ertragJeTracht(await w.DB.getAll('ernten'), a.id, Y).gesamt, 20, 'Anna: nur ihr Honig');
+  // Startseite „Honigertrag“
+  const charts = [], altChart = w.UI.chart;
+  w.UI.chart = function (o) { charts.push(o); return altChart.apply(this, arguments); };
+  try { await w.DASH_WIDGETS.ertrag.html(); } finally { w.UI.chart = altChart; }
+  assertEq(charts[0].series[0].values, [25], 'Balken der Startseite: 25 kg');
+  // Trachten-Seite
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.trachten.render(host);
+    const seite = host.querySelector(`.row[data-id="${raps.id}"] .r-side b`);
+    assertEq(seite && seite.textContent, '25 kg', 'Trachten-Seite: Ertrag ohne Pollen');
+  } finally { host.remove(); }
+  // Jahresbericht und Prognose
+  const jb = await jahresberichtErfassen(w, Y);
+  assertEq(jb.kachel('Ernte').wert, `${w.U.fmtNum(25, 1)} kg`, 'Jahresbericht: Ernte 25 kg');
+  const ep = await w.ernteprognoseBasis();
+  assertEq(ep.historie.find((h) => String(h.jahr) === Y).kg, 25, 'Prognose: 25 kg im Vorjahr');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#13): „Ø je Volk mit Ernte“ vergleicht im laufenden Jahr nur bis zum selben Kalendertag', async (w) => {
+  const echtHeute = w.U.todayIso;
+  w.U.todayIso = () => '2026-06-15';
+  try {
+    const v = (id) => ({ id, name: id, status: 'aktiv', funktion: 'Wirtschaftsvolk', historie: [{ datum: '2024-04-01', text: 'angelegt' }] });
+    const e = (zielId, datum, mengeKg) => ({ zielTyp: 'volk', zielId, datum, mengeKg, produktart: 'Honig' });
+    const d = {
+      voelker: [v('A'), v('B')], staende: [], koeniginnen: [], stockkarten: [], fuetterungen: [], behandlungen: [], varroa: [], kassenbuch: [],
+      verkaeufe: [], abfuellungen: [], aufgaben: [], fahrten: [], trachten: [], rechnungen: [],
+      ernten: [e('A', '2026-06-01', 10), e('B', '2026-06-01', 10), e('A', '2025-06-01', 10), e('B', '2025-06-01', 10), e('A', '2025-07-10', 20), e('B', '2025-07-10', 20)],
+    };
+    d.volkMap = new Map(d.voelker.map((x) => [x.id, x]));
+    const erg = await w.Statistik.auswerten('ertrag', '2026', d);
+    const k = (l) => erg.kacheln.find((x) => x.label === l);
+    assertEq(k('Honig geerntet').vergleich.text, 'wie im Vorjahr', 'Menge: 20 gegen 20 kg bis zum 15.06.');
+    assertEq(k('Ø je Volk mit Ernte').wert, '10 kg');
+    assertEq(k('Ø je Volk mit Ernte').vergleich.text, 'wie im Vorjahr', 'Ø: 10 gegen 10 kg bis zum 15.06. – nicht gegen 30 kg aus dem ganzen Vorjahr');
+    // Abgeschlossenes Jahr: das ganze Vorjahr zählt weiter
+    const zu = await w.Statistik.auswerten('ertrag', '2025', { ...d, ernten: [...d.ernten, e('A', '2024-06-01', 15), e('B', '2024-06-01', 15)] });
+    assertEq(zu.kacheln.find((x) => x.label === 'Ø je Volk mit Ernte').vergleich.alt, '15 kg', 'Vorjahr 2024 ganz');
+  } finally { w.U.todayIso = echtHeute; }
+});
+
+test('Auswertungs-Paket 04.11.2026 (#14): Ernteprognose zählt „Wirtschaftsvolk Zuchtstoff“ in der Völkerzahl mit', async (w) => isolierteDaten(w, async () => {
+  const J = +w.U.todayIso().slice(0, 4);
+  const voelker = [];
+  for (let i = 1; i <= 6; i++) voelker.push(await wirtschaftsvolk(w, 'P' + i, { funktion: i <= 4 ? 'Wirtschaftsvolk' : 'Wirtschaftsvolk Zuchtstoff', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] }));
+  await w.DB.put('voelker', { name: 'Ableger', status: 'aktiv', funktion: 'Ableger', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  for (const v of voelker) await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: `${J - 1}-06-10`, produktart: 'Honig', mengeKg: 30 });
+  const ep = await w.ernteprognoseBasis();
+  assertEq(ep.voelker, 6, '4 Wirtschaftsvölker + 2 „Wirtschaftsvolk Zuchtstoff“, der Ableger nicht');
+  nah(ep.jeVolk, 30, 0.001, '180 kg auf 6 Völker');
+  nah(ep.voelker * ep.jeVolk, 180, 0.001, 'Prognose 180 statt 120 kg');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#15): „Honigertrag je Volk“ trennt gleichnamige Völker – Bildschirm und PDF', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const wald = await w.DB.put('staende', { name: 'Wald' }), garten = await w.DB.put('staende', { name: 'Garten' });
+  const v1 = await wirtschaftsvolk(w, 'Volk 1', { standId: wald.id }), v2 = await wirtschaftsvolk(w, 'Volk 1', { standId: garten.id }), v3 = await wirtschaftsvolk(w, 'Volk 2', { standId: wald.id });
+  const ernte = (v, kg) => w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: `${Y}-06-10`, produktart: 'Honig', mengeKg: kg });
+  await ernte(v1, 20); await ernte(v2, 15); await ernte(v3, 10);
+  const rows = await w.Reporting.ertrag('volk', Y);
+  assertEq(rows.map((r) => [r.k, r.n, r.kg, r.href]), [['Volk 1 (Wald)', 1, 20, '#/volk/' + v1.id], ['Volk 1 (Garten)', 1, 15, '#/volk/' + v2.id], ['Volk 2', 1, 10, '#/volk/' + v3.id]],
+    'zwei Zeilen für die beiden „Volk 1“, jede mit eigenem Link');
+  // Report-PDF nimmt dieselben Zeilen
+  const tabellen = [], altT = w.Pdf.table;
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return altT.call(this, doc, o); };
+  try { await pdfText(w, () => w.Pdf.report('ertrag', Y)); } finally { w.Pdf.table = altT; }
+  const t = tabellen.find((x) => x.head && x.head[0] === 'Volk');
+  assertEq(t && t.body.map((r) => r.slice(0, 2)), [['Volk 1 (Wald)', '1'], ['Volk 1 (Garten)', '1'], ['Volk 2', '1']], 'PDF: Ertrag je Volk');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#16): „Honigertrag je Stand“ nimmt den Stand am Erntetag (Wanderung hin und zurück)', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const heim = await w.DB.put('staende', { name: 'Heim' }), raps = await w.DB.put('staende', { name: 'Raps' });
+  const anna = await wirtschaftsvolk(w, 'Anna', { standId: heim.id });   // heute wieder am Heimstand
+  await w.DB.put('wanderungen', { vonStandId: heim.id, nachStandId: raps.id, volkIds: [anna.id], datum: `${Y}-04-20` });
+  await w.DB.put('wanderungen', { vonStandId: raps.id, nachStandId: heim.id, volkIds: [anna.id], datum: `${Y}-06-05` });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: anna.id, datum: `${Y}-05-25`, produktart: 'Honig', mengeKg: 20 });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: anna.id, datum: `${Y}-07-10`, produktart: 'Honig', mengeKg: 8 });
+  await w.DB.put('ernten', { zielTyp: 'stand', zielId: heim.id, datum: `${Y}-07-12`, produktart: 'Honig', mengeKg: 2 });
+  const rows = await w.Reporting.ertrag('stand', Y);
+  assertEq(rows.map((r) => [r.k, r.n, r.kg, r.href]), [['Raps', 1, 20, '#/stand/' + raps.id], ['Heim', 2, 10, '#/stand/' + heim.id]],
+    'Rapsernte beim Rapsstand, die spätere Ernte und die Stand-Ernte beim Heimstand');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#10): Jahresbericht und Statistik zählen per Rechnung verkauften Honig als verkauft', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const a = await w.DB.put('abfuellungen', { chargeId: null, datum: `${Y}-05-01`, gebindeG: 500, anzahl: 100, bestand: 70 });
+  await w.DB.put('verkaeufe', { datum: `${Y}-06-01`, abfuellungId: a.id, anzahl: 10, preisJeGlas: 6, betrag: 60 });
+  await w.DB.put('rechnungen', { nummer: 'RE-0001', datum: `${Y}-06-10`, status: 'festgeschrieben', berechnungVersion: 2, positionen: [{ text: 'Honig', abfuellungId: a.id, menge: 20, einzelpreis: 6, steuersatz: 0 }] });
+  const jb = await jahresberichtErfassen(w, Y);
+  assertEq([jb.kachel('Verkauft').wert, jb.kachel('Verkauft').sub], [`${w.U.fmtNum(15, 1)} kg`, '30 Gebinde'], 'Verkauft: 15 kg / 30 Gebinde statt 5 kg / 10');
+  assertEq(jb.kachel('Erlös Honig').wert, w.U.fmtEur(180), 'Erlös Honig 180 €');
+  assertEq(jb.tabelle('Gebinde'), [['500 g', '30', w.U.fmtEur(180)], ['Gesamt', '30', w.U.fmtEur(180)]], 'Verkauf je Gebinde mit der Rechnung');
+  const fi = await w.Statistik.auswerten('finanzen', Y);
+  const k = fi.kacheln.find((x) => x.label === 'Erlös je kg Honig');
+  assertEq([k.wert, k.sub], [w.U.fmtEur(12), '15 kg verkauft'], 'Statistik → Finanzen: 180 € auf 15 kg');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#26/#18): Jahresbericht – Rabatt abgezogen, Storno und Entwurf zählen nicht, freier Verkauf unter seiner Größe', async (w) => isolierteDaten(w, async () => {
+  const J = +w.U.todayIso().slice(0, 4), Y = String(J - 1), Y2 = String(J - 2);
+  const a = await w.DB.put('abfuellungen', { chargeId: null, datum: `${Y2}-05-01`, gebindeG: 500, anzahl: 300, bestand: 200 });
+  const pos = (menge, einzelpreis) => [{ text: 'Honig', abfuellungId: a.id, menge, einzelpreis, steuersatz: 0 }];
+  await w.DB.put('verkaeufe', { datum: `${Y}-06-01`, abfuellungId: a.id, anzahl: 20, preisJeGlas: 6, betrag: 120 });
+  const re = await w.DB.put('rechnungen', { nummer: 'RE-0002', datum: `${Y}-06-10`, status: 'festgeschrieben', berechnungVersion: 2, rabattTyp: 'prozent', rabattWert: 10, positionen: pos(50, 5) });
+  assertEq(w.rechnungSummen(re).brutto, 225, 'Rechnung: 250 € Warenwert − 25 € Rabatt');
+  await w.DB.put('rechnungen', { nummer: 'RE-0003', datum: `${Y}-06-11`, status: 'storniert', berechnungVersion: 2, positionen: pos(10, 5) });
+  await w.DB.put('rechnungen', { nummer: '', datum: `${Y}-06-12`, status: 'entwurf', positionen: pos(10, 5) });
+  let jb = await jahresberichtErfassen(w, Y);
+  assertEq(jb.kachel('Erlös Honig').wert, w.U.fmtEur(345), 'Erlös 120 € + 225 € statt 370 €');
+  assertEq([jb.kachel('Verkauft').wert, jb.kachel('Verkauft').sub], [`${w.U.fmtNum(35, 1)} kg`, '70 Gebinde'], 'Verkauft 35 kg / 70 Gebinde');
+  // Freier Verkauf ohne Abfüllung, aber mit Größe
+  await w.DB.put('verkaeufe', { datum: `${Y}-07-01`, abfuellungId: null, gebindeG: 500, sorte: 'Linde', anzahl: 5, preisJeGlas: 6, betrag: 30 });
+  jb = await jahresberichtErfassen(w, Y);
+  assertEq(jb.tabelle('Gebinde'), [['500 g', '75', w.U.fmtEur(375)], ['Gesamt', '75', w.U.fmtEur(375)]], 'der freie Verkauf steht unter 500 g, nicht unter „ohne Gebinde“');
+  assertEq([jb.kachel('Verkauft').wert, jb.kachel('Erlös Honig').wert], [`${w.U.fmtNum(37.5, 1)} kg`, w.U.fmtEur(375)], 'Kacheln passen zur Tabelle');
+  // #18: 50 % Rabatt – der Jahresbericht zeigt 60 € wie das Kassenbuch, nicht 120 €
+  await w.DB.put('rechnungen', { nummer: 'RE-0004', datum: `${Y2}-05-10`, status: 'festgeschrieben', berechnungVersion: 2, rabattTyp: 'prozent', rabattWert: 50, positionen: pos(20, 6) });
+  jb = await jahresberichtErfassen(w, Y2);
+  assertEq(jb.kachel('Erlös Honig').wert, w.U.fmtEur(60), 'Erlös nach 50 % Rabatt');
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#17): Kassenbuch → Auswertung → Honigverkauf – Storno abgezogen, Rabatt und Pfand wie in der Kopfsumme', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const a = await w.DB.put('abfuellungen', { chargeId: null, datum: `${Y}-02-01`, gebindeG: 500, anzahl: 100, bestand: 100 });
+  const text = () => letztesModal(w).textContent.replace(/\s+/g, ' ');
+  const eur = (x) => w.U.fmtEur(x).replace(/\s+/g, ' ');   // fmtEur trennt mit geschütztem Leerzeichen
+  try {
+    // RE-0001 festgeschrieben und storniert: +120 € und −120 €
+    const r1 = await w.DB.put('rechnungen', { nummer: 'RE-0001', datum: `${Y}-03-01`, status: 'storniert', berechnungVersion: 2, positionen: [{ text: 'Honig', abfuellungId: a.id, menge: 20, einzelpreis: 6, steuersatz: 0 }] });
+    const k1 = await w.DB.put('kassenbuch', { datum: `${Y}-03-01`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 120, steuersatz: 0, beschreibung: 'Rechnung RE-0001', rechnungId: r1.id });
+    const k2 = await w.DB.put('kassenbuch', { datum: `${Y}-03-05`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -120, steuersatz: 0, beschreibung: 'Storno Rechnung RE-0001', rechnungId: r1.id });
+    await w.Views.kassenbuch.kategorieDetail('einnahme', 'Honigverkauf', Y, [k1, k2]); await w99(100);
+    assert(text().includes(`0 Stück · ${eur(0)}`) && !/40 Stück/.test(text()), 'Storno hebt die Rechnung auf: ' + text());
+    dialogeSchliessen(w);
+    // RE-0002 mit 50 % Rabatt und 0,15 € Pfand je Glas: Kassenbuch 63 €
+    const r2 = await w.DB.put('rechnungen', { nummer: 'RE-0002', datum: `${Y}-04-01`, status: 'festgeschrieben', berechnungVersion: 2, rabattTyp: 'prozent', rabattWert: 50, positionen: [{ text: 'Honig', abfuellungId: a.id, menge: 20, einzelpreis: 6, pfand: 0.15, steuersatz: 0 }] });
+    assertEq(w.rechnungSummen(r2).brutto, 63, '60 € Honig + 3 € Pfand');
+    const k3 = await w.DB.put('kassenbuch', { datum: `${Y}-04-01`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 63, steuersatz: 0, beschreibung: 'Rechnung RE-0002', rechnungId: r2.id });
+    await w.Views.kassenbuch.kategorieDetail('einnahme', 'Honigverkauf', Y, [k3]); await w99(100);
+    const t = text();
+    assert(t.includes(`20 Stück · ${eur(60)}`) && !t.includes(eur(120)), 'Rabatt abgezogen: ' + t);
+    assert(/Pfand \(Rechnung\)/.test(t) && t.includes(`20 Stück · ${eur(3)}`), 'Pfand als eigene Zeile: ' + t);
+    assert(t.includes(eur(63)), 'Kopfsumme 63 €');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#19): Ernteprognose im Kassenbuch rechnet mit dem genauen Ertrag je Volk', async (w) => isolierteDaten(w, async () => {
+  const J = +w.U.todayIso().slice(0, 4);
+  const v = await wirtschaftsvolk(w, 'Prognose', { historie: [{ datum: `${J - 5}-04-01`, text: 'angelegt' }] });
+  for (const [j, kg] of [[J - 3, 20], [J - 2, 21], [J - 1, 24]]) await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: `${j}-06-10`, produktart: 'Honig', mengeKg: kg });
+  const a = await w.DB.put('abfuellungen', { chargeId: null, datum: w.U.todayIso(), gebindeG: 500, anzahl: 100, bestand: 90 });
+  await w.DB.put('verkaeufe', { datum: w.U.todayIso(), abfuellungId: a.id, anzahl: 10, preisJeGlas: 5, betrag: 50 });   // 10 €/kg
+  const ep = await w.ernteprognoseBasis();
+  nah(ep.jeVolk, 65 / 3, 0.0001, 'Mittel aus 20, 21 und 24 kg');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const altTab = w.Views.kassenbuch._tab, altJahr = w.Views.kassenbuch._ajahr;
+  try {
+    w.Views.kassenbuch._tab = 'auswertung';
+    await w.Views.kassenbuch.render(host); await w99(300);
+    const feld = (k) => host.querySelector(`[data-ep="${k}"]`), out = () => host.querySelector('#ep-out').textContent.replace(/\s+/g, ' ');
+    assertEq(feld('jeVolk').value, '21,7', 'das Feld zeigt den Wert gerundet');
+    feld('voelker').value = '50';
+    feld('voelker').dispatchEvent(new w.Event('input', { bubbles: true })); await w99(100);
+    assert(out().includes(`${w.U.fmtNum(1083, 0)} kg`) && !out().includes(`${w.U.fmtNum(1085, 0)} kg`), '50 × 21,667 = 1.083 kg wie auf der Startseite: ' + out());
+    assert(out().includes(`${w.U.fmtNum(10833, 0)} €`), 'Einnahme 10.833 €: ' + out());
+    // Wer den Ertrag selbst einträgt, bekommt seine Zahl
+    feld('jeVolk').value = '22';
+    feld('jeVolk').dispatchEvent(new w.Event('input', { bubbles: true })); await w99(100);
+    assert(out().includes(`${w.U.fmtNum(1100, 0)} kg`), '50 × 22 = 1.100 kg: ' + out());
+  } finally { host.remove(); w.Views.kassenbuch._tab = altTab; w.Views.kassenbuch._ajahr = altJahr; }
+}));
+
+test('Auswertungs-Paket 04.11.2026 (#20): Kassenbuch-Liste und PDF zeigen das Storno einer Rechnung mit Minus', async (w) => isolierteDaten(w, async () => {
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const k1 = await w.DB.put('kassenbuch', { datum: `${Y}-03-01`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 120, steuersatz: 0, beschreibung: 'Rechnung RE-0001', rechnungId: 'r1' });
+  const k2 = await w.DB.put('kassenbuch', { datum: `${Y}-03-05`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -120, steuersatz: 0, beschreibung: 'Storno Rechnung RE-0001', rechnungId: 'r1' });
+  const k3 = await w.DB.put('kassenbuch', { datum: `${Y}-03-10`, typ: 'ausgabe', kategorie: 'Gläser', betrag: 30, steuersatz: 0, beschreibung: 'Gläser' });
+  assertEq([k1, k2, k3].map(w.kassenRichtung), [1, -1, -1], 'Richtung aus Art und Betrag');
+  const box = w.document.createElement('div'); w.document.body.appendChild(box);
+  const altJahr = w.Views.kassenbuch._jahr;
+  try {
+    w.Views.kassenbuch._jahr = Y;
+    await w.Views.kassenbuch.tabBuchungen(box);
+    const seite = (k) => box.querySelector(`.row[data-id="${k.id}"] .r-side b`).textContent.replace(/\s+/g, ' ').trim();
+    assertEq([seite(k1), seite(k2), seite(k3)], [`+ ${w.U.fmtEur(120)}`, `– ${w.U.fmtEur(120)}`, `– ${w.U.fmtEur(30)}`].map((x) => x.replace(/\s+/g, ' ')), 'Liste: Storno mit Minus');
+  } finally { box.remove(); w.Views.kassenbuch._jahr = altJahr; }
+  const tabellen = [], altT = w.Pdf.table;
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return altT.call(this, doc, o); };
+  try { await pdfText(w, () => w.Pdf.kassenbuchJahr(Y)); } finally { w.Pdf.table = altT; }
+  assertEq(tabellen[0].body.map((r) => r[6]), [`+${w.U.fmtEur(120)}`, `-${w.U.fmtEur(120)}`, `-${w.U.fmtEur(30)}`], 'PDF: die Zeilen ergeben den Saldo −30 €');
+}));
+
+/* =====================================================================
+   Prüfung 04.11.2026, Paket 5 – Materialabzug beim Abfüllen (Gläser, Deckel, Etiketten).
+   Quelle: docs/PRUEFUNG-HONIG-2026-11-04.md, Funde #23, #24, #27, #28. Zahlen aus der Doku.
+   ===================================================================== */
+const materialPaketPosten = (w, bezeichnung, stueckzahl, extra = {}) => w.DB.put('inventar', Object.assign({ typ: 'verbrauch', bezeichnung, kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl, anschaffung: '2026-01-01' }, extra));
+/** Abfüll-Formular öffnen, setz(feld, wert) löst input und change aus wie ein Tippen. */
+async function materialPaketFormular(w, chargeId) {
+  await w.Views.honig.abfuellForm(chargeId); await w99(300);
+  const m = letztesModal(w);
+  assert(m, 'das Abfüllformular steht offen');
+  const setz = (id, wert) => { const e = m.querySelector('#f-' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+  const info = () => m.querySelector('[data-glas-info]').textContent.replace(/\s+/g, ' ').trim();
+  return { m, setz, info };
+}
+
+test('Material-Paket 04.11.2026 (#23): Deckel nur durch Deckel, Etiketten nur durch Etiketten – Fehlmenge wird gemeldet', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  assertEq(['Deckel TO82 gold', 'Twist-Off-Verschluss', 'Gewährverschluss-Etiketten', 'Deckeletiketten', 'Gläser 500 g', 'Zucker 2026'].map((n) => w.materialRolle({ bezeichnung: n })),
+    ['deckel', 'deckel', 'etikett', 'etikett', '', ''], 'Rolle am Namen – Etikett vor Deckel');
+  assertEq(w.materialRolle({ bezeichnung: 'Rolle 1000 Stück', kategorie: 'Etiketten' }), 'etikett', 'Kategorie „Etiketten“ zählt als Etikett');
+  // Doku #23: Gläser 500 g (gebindeG 500) 120, Deckel 20, Etiketten 200, alle in „Gläser/Deckel“; dazu Gläser ohne Größe (ältere Einträge)
+  const c = await loeschPaketCharge(w, 'MA-23', 50);
+  const G = await materialPaketPosten(w, 'Gläser 500 g', 120, { gebindeG: 500 });
+  const D = await materialPaketPosten(w, 'Deckel TO82', 20);
+  const E = await materialPaketPosten(w, 'Etiketten', 200);
+  const alt = await materialPaketPosten(w, 'Gläser alt', 40, { anschaffung: '2025-01-01' });
+  // Formular: Vorschau und Speichern zeigen dasselbe – 30 Deckel fehlen, Etiketten und alte Gläser bleiben unberührt
+  const { m, setz, info } = await materialPaketFormular(w, c.id);
+  setz('g_500', '50'); setz('gl_500', G.id); setz('gl_deckel', D.id); setz('gl_etikett', E.id); await w99(100);
+  assert(info().includes('Deckel TO82 (Deckel): −20 Stück → Rest 0 Stück – 30 Stück fehlen, der Bestand geht auf 0'), 'Vorschau Deckel: ' + info());
+  assert(info().includes('Etiketten (Etiketten): −50 Stück → Rest 150 Stück'), 'Vorschau Etiketten: ' + info());
+  assert(!/springt ein/.test(info()), 'nichts springt für die Deckel ein: ' + info());
+  m.querySelector('[data-save]').click(); await w99(700);
+  assertEq(await Promise.all([G, D, E, alt].map(async (x) => (await w.DB.get('inventar', x.id)).stueckzahl)), [70, 0, 150, 40], 'Gläser 70, Deckel 0, Etiketten 150 (vorher 120), alte Gläser 40');
+  assert(toasts.some((t) => t.typ === 'err' && t.msg === '30 Stück Material fehlten (Deckel TO82: 30) – nur der vorhandene Bestand wurde abgezogen'), 'Meldung nennt die 30 fehlenden Deckel: ' + JSON.stringify(toasts));
+  const abf = (await w.DB.getAll('abfuellungen'))[0];
+  assertEq(abf.verbrauchAbzug.map((x) => [x.bezeichnung, x.menge]), [['Gläser 500 g', 50], ['Deckel TO82', 20], ['Etiketten', 50]], 'gemerkter Abzug ohne Etiketten als Deckel');
+  // Ein zweiter Deckel-Karton springt weiter ein
+  const D2 = await materialPaketPosten(w, 'Deckel TO82 Karton 2', 100, { anschaffung: '2026-03-01' });
+  const erg = await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-03', g_500: 10, gl_500: G.id, gl_deckel: D.id, gl_etikett: E.id });
+  assertEq([erg.gefehlt, (await w.DB.get('inventar', D2.id)).stueckzahl, (await w.DB.get('inventar', E.id)).stueckzahl], [0, 90, 140], 'Deckel → Deckel geht weiter');
+  // Gläser ohne Größe: weder Deckel noch Etiketten springen für sie ein (eigenes Gebinde 30 g, 50 Stück, nur 40 alte Gläser)
+  const erg2 = await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-04', eigenesG: 30, eigenesN: 50, gl_eigen: alt.id });
+  assertEq([erg2.gefehlt, erg2.fehlend], [10, [{ bezeichnung: 'Gläser alt', menge: 10 }]], '10 Gläser fehlen');
+  assertEq(await Promise.all([alt, D, D2, E].map(async (x) => (await w.DB.get('inventar', x.id)).stueckzahl)), [0, 0, 90, 140], 'Deckel und Etiketten bleiben');
+  // verbrauchAbziehenKette (Fütterung, Behandlung) folgt derselben Regel
+  const k1 = await materialPaketPosten(w, 'Deckel Kette', 5, { kategorie: 'KetteRolle' });
+  const k2 = await materialPaketPosten(w, 'Etiketten Kette', 100, { kategorie: 'KetteRolle' });
+  const b = await w.verbrauchAbziehenKette(k1.id, 10, { pruefen: false });
+  assertEq([b.abgezogen, b.gefehlt, (await w.DB.get('inventar', k2.id)).stueckzahl], [5, 5, 100], 'Kette: keine Etiketten als Deckel');
+})));
+
+test('Material-Paket 04.11.2026 (#24): Abfüllung ändern verteilt die Stücke nach dem größten Rest – Summe passt genau zur Anzahl', async (w) => isolierteDaten(w, async () => {
+  assertEq([w.ganzeStueckeVerteilen([1.5, 3.5]), w.ganzeStueckeVerteilen([4.5, 10.5]), w.ganzeStueckeVerteilen([0.3333, 0.3333, 0.3334]), w.ganzeStueckeVerteilen([2, 3]), w.ganzeStueckeVerteilen([0.1 * 3, 0.7])],
+    [[2, 3], [5, 10], [0, 0, 1], [2, 3], [0, 1]], 'Hilfsfunktion: Summe = gerundete Gesamtmenge');
+  // Doku #24: Abzug Karton A 3 + B 7 bei 10 Gläsern; Deckel genauso aufgeteilt (zwei Kartons)
+  const c = await loeschPaketCharge(w, 'MA-24', 20);
+  const A = await materialPaketPosten(w, 'Gläser 500 g Karton A', 3, { gebindeG: 500 });
+  const B = await materialPaketPosten(w, 'Gläser 500 g Karton B', 100, { gebindeG: 500, anschaffung: '2026-02-01' });
+  const D1 = await materialPaketPosten(w, 'Deckel TO82 Karton 1', 3);
+  const D2 = await materialPaketPosten(w, 'Deckel TO82 Karton 2', 100, { anschaffung: '2026-02-01' });
+  const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 10, gl_500: A.id, gl_deckel: D1.id })).recs[0];
+  assertEq(a.verbrauchAbzug.map((x) => [x.inventarId, x.menge]), [[A.id, 3], [B.id, 7], [D1.id, 3], [D2.id, 7]], 'Ausgang: A 3 + B 7, Deckel 3 + 7');
+  const U_sum = (l) => l.reduce((n, x) => n + x, 0);
+  const bestand = async (...xs) => U_sum(await Promise.all(xs.map(async (x) => (await w.DB.get('inventar', x.id)).stueckzahl)));
+  const summe = (rec, ...xs) => U_sum(rec.verbrauchAbzug.filter((x) => xs.some((p) => p.id === x.inventarId)).map((x) => x.menge));
+  // 10 → 5: es kommen genau 5 Gläser und 5 Deckel zurück (vorher 2 + 4 = 6 gemerkt, nur 4 zurück)
+  const r1 = (await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 5, bestand: 5, gebindeG: 500, datum: '2026-07-02' })).rec;
+  assertEq([summe(r1, A, B), summe(r1, D1, D2)], [5, 5], 'gemerkter Abzug: 5 Gläser, 5 Deckel');
+  assertEq(r1.verbrauchAbzug.map((x) => x.menge), [2, 3, 2, 3], 'Gleichstand: der vordere Karton bekommt das Stück');
+  assertEq([await bestand(A, B), await bestand(D1, D2)], [98, 98], '5 Gläser und 5 Deckel zurück im Lager (93 + 5)');
+  // 10 → 15: genau 5 mehr abgezogen (vorher 5 + 11 = 16)
+  const A2 = await materialPaketPosten(w, 'Gläser 250 g Karton A', 3, { gebindeG: 250 });
+  const B2 = await materialPaketPosten(w, 'Gläser 250 g Karton B', 100, { gebindeG: 250, anschaffung: '2026-02-01' });
+  const a2 = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-03', g_250: 10, gl_250: A2.id })).recs[0];
+  await w.DB.put('inventar', { ...(await w.DB.get('inventar', A2.id)), stueckzahl: 10 });   // Karton A nachgefüllt
+  const r2 = await w.abfuellungAendern(await w.DB.get('abfuellungen', a2.id), { anzahl: 15, bestand: 15, gebindeG: 250, datum: '2026-07-03' });
+  assertEq([summe(r2.rec, A2, B2), r2.gefehlt, await bestand(A2, B2)], [15, 0, 98], '15 gemerkt, 5 mehr aus dem Lager (10 + 93 − 5)');
+}));
+
+test('Material-Paket 04.11.2026 (#27): Abfüll-Vorschau rechnet mit dem zweiten Karton wie das Speichern', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #27: Gläser 500 g – Karton A 20, Karton B 100 (gleiche Kategorie, gebindeG 500); 50 × 500 g, A gewählt
+  const c = await loeschPaketCharge(w, 'MA-27', 50);
+  const A = await materialPaketPosten(w, 'Gläser 500 g Karton A', 20, { gebindeG: 500 });
+  const B = await materialPaketPosten(w, 'Gläser 500 g Karton B', 100, { gebindeG: 500, anschaffung: '2026-02-01' });
+  const { setz, info } = await materialPaketFormular(w, c.id);
+  setz('g_500', '50'); setz('gl_500', A.id); await w99(100);
+  assert(!/fehlen/.test(info()), 'kein falsches „30 fehlen“: ' + info());
+  assert(info().includes('Gläser 500 g Karton A (500 g): −20 Stück → Rest 0 Stück'), 'Karton A: ' + info());
+  assert(info().includes('Gläser 500 g Karton B (500 g, springt ein: „Gläser 500 g Karton A“ reicht nicht): −30 Stück → Rest 70 Stück'), 'Hinweis auf den zweiten Karton: ' + info());
+  // Karton A leer: er steht trotzdem vorn, B springt ganz ein; reicht auch B nicht, steht die echte Fehlmenge da
+  await w.DB.put('inventar', { ...A, stueckzahl: 0 });
+  dialogeSchliessen(w);
+  const f2 = await materialPaketFormular(w, c.id);
+  f2.setz('g_500', '120'); f2.setz('gl_500', A.id); await w99(100);
+  assert(f2.info().includes('Gläser 500 g Karton A (500 g): leer'), 'leerer Karton A: ' + f2.info());
+  assert(f2.info().includes('−100 Stück → Rest 0 Stück – 20 Stück fehlen, der Bestand geht auf 0'), 'nur 20 fehlen wirklich: ' + f2.info());
+  dialogeSchliessen(w);
+  await w.DB.put('inventar', { ...A, stueckzahl: 20 });
+  // Gespeichert wird genau das, was die Vorschau zeigte
+  const f3 = await materialPaketFormular(w, c.id);
+  f3.setz('g_500', '50'); f3.setz('gl_500', A.id); await w99(100);
+  f3.m.querySelector('[data-save]').click(); await w99(700);
+  assertEq([(await w.DB.get('inventar', A.id)).stueckzahl, (await w.DB.get('inventar', B.id)).stueckzahl], [0, 70], 'A −20, B −30');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlmeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Material-Paket 04.11.2026 (#28): Eigenes Gebinde mit Anzahl, aber ohne Größe wird mit Feldfehler abgewiesen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku #28: 500 g: 10, eigenes Gebinde Anzahl 5, Größe leer
+  const c = await loeschPaketCharge(w, 'MA-28', 20);
+  const D = await materialPaketPosten(w, 'Deckel TO82', 100);
+  const E = await materialPaketPosten(w, 'Etiketten', 100);
+  let f = null;
+  try { await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 10, eigenesN: 5, eigenesG: null, gl_deckel: D.id, gl_etikett: E.id }); } catch (e) { f = e; }
+  assert(f && f.feld === 'eigenesG', 'Fehler steht am Feld Größe: ' + (f && f.message));
+  assertEq(f.message, 'Gib die Größe für dein eigenes Gebinde ein (in Gramm, z. B. 30). Ohne Größe weiß die App nicht, wie viel Honig in die 5 Gebinde geht – gespeichert wurde nichts.');
+  assertEq([(await w.DB.getAll('abfuellungen')).length, (await w.DB.get('inventar', D.id)).stueckzahl, (await w.DB.get('inventar', E.id)).stueckzahl], [0, 100, 100], 'nichts gespeichert, nichts abgezogen');
+  // Formular: Vorschau warnt, Speichern markiert das Feld, das Fenster bleibt offen
+  const { m, setz, info } = await materialPaketFormular(w, c.id);
+  setz('g_500', '10'); setz('eigenesN', '5'); setz('gl_deckel', D.id); setz('gl_etikett', E.id); await w99(100);
+  assert(info().includes('Für das eigene Gebinde fehlt noch die Größe (g) – ohne sie lässt sich nicht speichern.'), 'Vorschau warnt: ' + info());
+  m.querySelector('[data-save]').click(); await w99(500);
+  assert(m.isConnected, 'das Formular bleibt offen');
+  assert(m.querySelector('[data-field="eigenesG"]').classList.contains('invalid'), 'Feld Größe ist markiert');
+  assert(toasts.some((t) => t.typ === 'err' && t.msg.startsWith('Gib die Größe für dein eigenes Gebinde ein')), 'Meldung: ' + JSON.stringify(toasts));
+  assertEq((await w.DB.getAll('abfuellungen')).length, 0, 'keine Abfüllung mit nur 10 Gebinden');
+  // Mit Größe klappt es: 10 × 500 g und 5 × 30 g, Deckel und Etiketten je −15
+  setz('eigenesG', '30'); await w99(100);
+  assert(!/fehlt noch die Größe/.test(info()), 'Warnung weg: ' + info());
+  m.querySelector('[data-save]').click(); await w99(700);
+  assertEq((await w.DB.getAll('abfuellungen')).map((a) => [a.gebindeG, a.anzahl]).sort((x, y) => y[0] - x[0]), [[500, 10], [30, 5]], 'beide Größen abgefüllt');
+  assertEq([(await w.DB.get('inventar', D.id)).stueckzahl, (await w.DB.get('inventar', E.id)).stueckzahl], [85, 85], 'Deckel und Etiketten je −15');
+})));
+
 window.TESTS_VOLLSTAENDIG_GELADEN = true;   // tools/test-run.mjs: Ohne diese Zeile ist die Datei beim Laden abgebrochen

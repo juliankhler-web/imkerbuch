@@ -3160,6 +3160,14 @@ const VORSCHLAEGE = {
 };
 /* Bienenprodukte für die Ernte (Honig ist Standard) */
 const BIENENPRODUKTE = ['Honig', 'Wabenhonig', 'Pollen', 'Propolis'];
+/* Zählt eine Ernte als Honig? Julian 04.11.2026: Wabenhonig zählt überall als Honig, Pollen, Propolis und Wachs
+   (alte Ernten) nie. Ohne Produktart (alte Ernten, Import) ist es Honig – das ist auch die Vorgabe im Formular.
+   Vorher filterte jede Auswertung selbst: die Statistik ohne Wabenhonig, Startseite, Trachten und „Honigertrag
+   je Volk“ mit Pollen und Propolis. EINE Regel für alle Honigmengen (Fund 04.11.2026, #11/#12). */
+function istHonigErnte(e) {
+  const p = String((e && e.produktart) || '').trim();
+  return !p || p === 'Honig' || p === 'Wabenhonig';
+}
 /* Ab wie vielen Tagen vor MHD die App warnt */
 const MHD_WARN_TAGE = 60;
 /* Kilometerpauschale (Reisekosten) fürs Fahrtenbuch */
@@ -3438,9 +3446,15 @@ const DB = {
     if (!this.STORES.includes(vorab.store) || ['settings', 'snapshots', 'papierkorb'].includes(vorab.store)) {
       throw new Error('Dieser Papierkorb-Eintrag hat einen ungültigen Bereich und wurde nicht verändert.');
     }
-    const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store])], 'readwrite');
+    /* Abfüllung und Charge (Fund 04.11.2026): Honigmenge bzw. Ernten in DERSELBEN Transaktion prüfen, siehe
+       papierkorbWiederherstellenPruefen – vorher schrieb dieser Weg sie ungeprüft zurück (überbuchte Charge, Ernte doppelt). */
+    const pruefBereiche = { abfuellungen: ['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], chargen: ['chargen'] }[vorab.store] || [];
+    const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store, ...pruefBereiche])], 'readwrite');
     return new Promise((resolve, reject) => {
       let ergebnis = null, ursache = null;
+      // Zuerst angefordert: IndexedDB liefert die Ergebnisse einer Transaktion in dieser Reihenfolge, sie liegen also vor den Prüfungen unten vor
+      const pruefDaten = Object.create(null);
+      for (const name of pruefBereiche) { const rq = tx.objectStore(name).getAll(); rq.onsuccess = () => { pruefDaten[name] = rq.result; }; }
       tx.oncomplete = () => {
         if (ergebnis) this._aenderungMelden();
         (ergebnis && (ergebnis.store === 'materialzugaenge' || ergebnis.store === 'inventar' || ergebnis.store === 'honigabgaenge') ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
@@ -3464,6 +3478,7 @@ const DB = {
           if (vorhanden.result) throw new Error('Ein Datensatz mit dieser Kennung ist bereits vorhanden. Er wurde nicht überschrieben.');
           const abzug = t.daten.verbrauchAbzug || [];
           if (!Array.isArray(abzug)) throw new Error('Der gespeicherte Materialabzug ist beschädigt. Der Eintrag bleibt im Papierkorb.');
+          if (pruefBereiche.length) papierkorbWiederherstellenPruefen(t, pruefDaten);   // wirft → tx.abort(), nichts geändert
           const material = tx.objectStore('inventar').getAll();
           material.onsuccess = schritt(() => {
             const posten = new Map(material.result.map((p) => [p.id, p]));
@@ -3893,7 +3908,12 @@ const UI = {
         if (e && e.feld) markiere(e.feld, e.message);
       }
     };
-    if (onDelete) $('[data-del]', m.el).onclick = async () => { if (await onDelete()) m.close(true); };
+    /* Mülleimer (Fund 04.11.2026): Ein Fehler beim Löschen blieb hier ungefangen, der Knopf tat scheinbar nichts. Wie beim
+       Speichern: Grund zeigen, das Fenster bleibt offen. Gilt für alle onDelete (Zugang, Abgang, Abfüllung, Kassenbuch …). */
+    if (onDelete) $('[data-del]', m.el).onclick = async () => {
+      try { if (await onDelete()) m.close(true); }
+      catch (e) { fehlerMelden(e, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }
+    };
     if (nurLoeschen) {
       /* Unsichtbar geöffnet: nur der Mülleimer wird ausgeführt – mit allem,
          was er sonst tut (Rückfrage, Papierkorb, Rückbuchungen). Erst nach
@@ -5286,10 +5306,14 @@ const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zi
    für immer – dieselbe Fütterung über den Fütterungs-Reiter gelöscht gab ihn
    zurück. Ein Weg, ein Ergebnis. */
 async function loescheMitMaterial(store, erwartet) {
-  return DB.aendereAtomar([store, 'inventar', 'papierkorb'], (d) => {
+  // Abfüllung: Verkäufe und Rechnungen in derselben Transaktion prüfen – die Rückfrage im Formular kann veraltet sein (Fund 04.11.2026)
+  const mitVerkauf = store === 'abfuellungen';
+  return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : [])], (d) => {
     const rec = d[store].find((x) => x.id === erwartet.id);
     if (!rec) return { ops: [], wert: 0 };
     if (JSON.stringify(rec) !== JSON.stringify(erwartet)) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
+    const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : null;
+    if (sperre) throw new Error(sperre);
     const material = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
     let menge = 0;
     for (const a of (rec.verbrauchAbzug || [])) {
@@ -5392,7 +5416,7 @@ const Wisch = {
       e.stopPropagation(); e.preventDefault();
       Wisch.schliessen();
       try { await (b.dataset.wisch === 'bearbeiten' ? bearbeiten(row) : loeschen(row)); }
-      catch (err) { console.error(err); UI.toast(err.message || 'Das hat nicht geklappt', 'err'); }
+      catch (err) { fehlerMelden(err, 'Das hat nicht geklappt'); }   // wie der Mülleimer im Formular: Kauf-Fenster offen oder abgebrochen → kein zweiter Hinweis (Fund 04.11.2026)
     });
   },
 };
@@ -5846,7 +5870,8 @@ const DASH_WIDGETS = {
       ${b.length ? `<div class="rows">${b.map((x) => `<div class="row" style="min-height:44px;padding:8px 4px"><div class="r-main"><div class="r-title">${U.esc(x.mittel)}</div><div class="r-sub">${U.fmtDate(x.datum)}</div></div></div>`).join('')}</div>` : '<div class="muted small">Noch keine Behandlungen erfasst.</div>'}</div>`;
   }},
   ertrag: { label: 'Honigertrag Jahresvergleich', ic: 'honig', ziel: 'reporting', async html() {
-    const ernten = await DB.getAll('ernten');
+    // Nur Honig und Wabenhonig – Pollen und Propolis hoben den Balken über „Honig geerntet“ der Statistik (Fund 04.11.2026, #11)
+    const ernten = (await DB.getAll('ernten')).filter(istHonigErnte);
     const byYear = U.groupBy(ernten, (e) => (e.datum || '').slice(0, 4));
     const years = [...byYear.keys()].filter(Boolean).sort().slice(-5);
     return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Statistiken</a></div>
@@ -9287,6 +9312,7 @@ function ertragJeTracht(ernten, volkId, jahr) {
   const raus = { fruehtracht: 0, sommertracht: 0, spaettracht: 0, gesamt: 0 };
   for (const e of ernten || []) {
     if (e.zielTyp !== 'volk' || e.zielId !== volkId) continue;
+    if (!istHonigErnte(e)) continue;   // Pollen und Propolis sind kein Honigertrag (Fund 04.11.2026, #11)
     if (jahr && String(e.datum || '').slice(0, 4) !== String(jahr)) continue;
     const kg = U.zahl(e.mengeKg, 0);
     const t = trachtAusDatum(e.datum);
@@ -10808,16 +10834,18 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   }
   return Math.round(zucker * n * 1000) / 1000;
 }
-/** Plant einen Materialabzug auf den Kopien einer laufenden Transaktion. */
-function materialAbzugPlan(posten, inventarId, menge, geaendert) {
+/** Plant einen Materialabzug auf den Kopien einer laufenden Transaktion.
+    `rolle` ('deckel', 'etikett' oder '' für Gebinde) setzt das Abfüllen, das weiß, für welches Feld die Position gewählt ist. */
+function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
   const m = buchungsZahl(menge, 'Materialmenge');
   if (!inventarId || m === 0) return { abzug: [], gefehlt: 0 };
   const start = posten.find((p) => p.id === inventarId);
   if (!start) throw new Error('Der ausgewählte Materialposten fehlt.');
   const einheit = verbrauchEinheit(start);
-  const weitere = U.sortBy(posten.filter((p) => p.id !== start.id && inventarTyp(p) === inventarTyp(start)
-    && verbrauchEinheit(p) === einheit && (p.kategorie || '') === (start.kategorie || '')
-    && (Number(p.gebindeG) || 0) === (Number(start.gebindeG) || 0)), (p) => p.anschaffung || p.createdAt || '');
+  /* Einspringen darf nur dieselbe Art samt Rolle (Fund 04.11.2026, #23): Vorher füllten Etiketten oder Gläser ohne Größe
+     fehlende Deckel auf (Deckel 20 + Etiketten 30 bei 50 Gläsern), und „30 Stück fehlten“ wurde verschwiegen. */
+  const art = materialArt(start, rolle ?? materialRolle(start));
+  const weitere = U.sortBy(posten.filter((p) => p.id !== start.id && materialArt(p) === art), (p) => p.anschaffung || p.createdAt || '');
   const abzug = []; let offen = m;
   for (const p of [start, ...weitere]) {
     if (offen <= 0.0000001) break;
@@ -10829,7 +10857,7 @@ function materialAbzugPlan(posten, inventarId, menge, geaendert) {
     abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit });
     geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
   }
-  return { abzug, gefehlt: Math.max(0, offen), einheit };
+  return { abzug, gefehlt: Math.max(0, offen), einheit, bezeichnung: start.bezeichnung };
 }
 /** Prüft die gemeinsame Chargenkapazität aus aktuellen Transaktionsdaten. */
 function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
@@ -10860,17 +10888,23 @@ function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
 async function abfuellungenAnlegen(v) {
   return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge'], (d) => {
     const posten = GEBINDE_PRESETS.map((g) => ({ gebindeG: g, anzahl: Math.round(buchungsZahl(v['g_' + g] || 0, 'Anzahl')), feld: 'gl_' + g })).filter((p) => p.anzahl > 0);
+    /* Eigenes Gebinde mit Anzahl, aber ohne Größe abweisen (Fund 04.11.2026, #28): Vorher fiel es still weg – 10 × 500 g
+       und 5 eigene ergaben eine Abfüllung mit 10 Gebinden, die Vorschau hatte Deckel und Etiketten für 15 gezeigt. */
+    const eigenN = Math.round(Number(v.eigenesN) || 0);
+    if (eigenN > 0 && !(Math.round(Number(v.eigenesG) || 0) > 0)) throw feldFehler('eigenesG', `Gib die Größe für dein eigenes Gebinde ein (in Gramm, z. B. 30). Ohne Größe weiß die App nicht, wie viel Honig in die ${eigenN} Gebinde geht – gespeichert wurde nichts.`);
     if (v.eigenesG > 0 && v.eigenesN > 0) posten.push({ gebindeG: Math.round(buchungsZahl(v.eigenesG, 'Gebindegröße')), anzahl: Math.round(buchungsZahl(v.eigenesN, 'Anzahl')), feld: 'gl_eigen' });
     if (!posten.length || posten.some((p) => p.gebindeG <= 0 || p.anzahl <= 0)) throw feldFehler('g_' + GEBINDE_PRESETS[0], 'Bitte eine positive Gebindegröße und Anzahl eintragen.');
     pruefeAbfuellMenge(d, v.chargeId, posten);
     const geaendert = new Map(); let gefehlt = 0;
+    const fehlend = [];   // je gewählter Position, was fehlte – für die Meldung nach dem Speichern (Fund 04.11.2026, #23)
+    const merkeFehlt = (b) => { gefehlt += b.gefehlt; if (b.gefehlt > 0) fehlend.push({ bezeichnung: b.bezeichnung, menge: b.gefehlt }); };
     const recs = posten.map((p) => {
-      const b = materialAbzugPlan(d.inventar, v[p.feld], p.anzahl, geaendert); gefehlt += b.gefehlt;
+      const b = materialAbzugPlan(d.inventar, v[p.feld], p.anzahl, geaendert, ''); merkeFehlt(b);   // Gläser: nie Deckel oder Etiketten (Fund 04.11.2026, #23)
       return { id: U.uuid(), chargeId: v.chargeId, datum: v.datum, mhd: v.mhd || null, losnummer: (v.losnummer || '').trim(), gebindeG: p.gebindeG, anzahl: p.anzahl, bestand: p.anzahl, verbrauchAbzug: b.abzug };
     });
     const gesamt = posten.reduce((n, p) => n + p.anzahl, 0);
-    for (const id of [v.gl_deckel, v.gl_etikett]) {
-      const b = materialAbzugPlan(d.inventar, id, gesamt, geaendert); gefehlt += b.gefehlt;
+    for (const [id, rolle] of [[v.gl_deckel, 'deckel'], [v.gl_etikett, 'etikett']]) {
+      const b = materialAbzugPlan(d.inventar, id, gesamt, geaendert, rolle); merkeFehlt(b);   // Deckel nur durch Deckel, Etiketten nur durch Etiketten (Fund 04.11.2026, #23)
       // Ganze Stücke verteilen, nie gerundete Bruchteile mehrfach zurückgeben.
       let i = 0, frei = recs[0].anzahl;
       for (const x of b.abzug) {
@@ -10893,11 +10927,11 @@ async function abfuellungenAnlegen(v) {
       if (verlustKg > rest + 0.0001) throw feldFehler('verlustKg', rest > 0 ? `Nach dem Abfüllen sind nur noch ${U.fmtNum(rest, 2)} kg in der Charge.` : 'Nach dem Abfüllen ist kein Honig mehr in der Charge.');
       verlust = { id: U.uuid(), datum: v.datum || U.todayIso(), art: 'Abfüllverlust', quelle: 'charge', chargeId: v.chargeId, kg: verlustKg, notiz: 'beim Abfüllen' };
     }
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'abfuellungen', obj })), verlust ? [{ store: 'honigabgaenge', obj: verlust }] : []), wert: { recs, gesamt, gefehlt, verlust } };
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'abfuellungen', obj })), verlust ? [{ store: 'honigabgaenge', obj: verlust }] : []), wert: { recs, gesamt, gefehlt, fehlend, verlust } };
   });
 }
 async function abfuellungAendern(erwartet, v) {
-  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge'], (d) => {
+  return DB.aendereAtomar(['chargen', 'abfuellungen', 'inventar', 'honigabgaenge', 'verkaeufe', 'rechnungen'], (d) => {
     const a = d.abfuellungen.find((x) => x.id === erwartet.id);
     if (!a || JSON.stringify(a) !== JSON.stringify(erwartet)) throw new Error('Die Abfüllung wurde inzwischen geändert, etwa durch einen Verkauf oder Verlust. Bitte erneut öffnen.');
     const alteAnzahl = buchungsZahl(a.anzahl, 'Bisherige Anzahl'), anzahl = Math.round(buchungsZahl(v.anzahl, 'Anzahl')), gebindeG = Math.round(buchungsZahl(v.gebindeG, 'Gebindegröße'));
@@ -10905,14 +10939,48 @@ async function abfuellungAendern(erwartet, v) {
     if (gebindeG <= 0 || bestand > anzahl) throw feldFehler(gebindeG <= 0 ? 'gebindeG' : 'bestand', 'Gebindegröße muss positiv sein; verfügbarer Bestand darf die abgefüllte Anzahl nicht überschreiten.');
     const weg = glasAbgangIn(d, a.id);
     if (bestand + weg > anzahl) throw feldFehler(weg > anzahl ? 'anzahl' : 'bestand', `${weg} Gebinde sind als Verlust oder Eigenverbrauch gebucht – zusammen mit „Davon noch zum Verkauf“ darf das die abgefüllte Anzahl nicht überschreiten.`);
+    /* Verkäufe und festgeschriebene Rechnungen zählen genauso (Fund 04.11.2026, #5/#25): Vorher ließ sich die Anzahl unter die
+       verkauften Gebinde senken – die Charge bekam deren Honig zurück, „Verkauft“ zeigte 0, ein Storno hob den Bestand über die
+       Anzahl. Regel wie bestandAbgleichPlan: zum Verkauf + verkauft + per Rechnung + Abgänge ≤ abgefüllt. Rechnungsentwürfe haben
+       noch nichts abgezogen. Geprüft wird nur, wenn die Änderung es schlimmer macht (weniger abgefüllt oder mehr zum Verkauf) –
+       sonst sperrten Altdaten mit zu hohem Bestand jede Korrektur von MHD oder Los. */
+    const verkauft = U.sum(d.verkaeufe.filter((x) => x.abfuellungId === a.id), (x) => Number(x.ausBestand ?? x.anzahl) || 0);
+    const perRechnung = U.sum(d.rechnungen.filter((r) => r.status === 'festgeschrieben'), (r) => U.sum((r.positionen || []).filter((p) => p.abfuellungId === a.id), (p) => Number(p.menge) || 0));
+    const raus = verkauft + perRechnung + weg;
+    if (bestand + raus > anzahl && (anzahl < alteAnzahl || !(bestand <= Number(a.bestand)))) {
+      const teile = [...(verkauft ? [`${verkauft} verkauft`] : []), ...(perRechnung ? [`${perRechnung} per Rechnung`] : []), ...(weg ? [`${weg} als Verlust oder Eigenverbrauch`] : [])].join(', ');
+      throw anzahl < raus
+        ? feldFehler('anzahl', `Von dieser Abfüllung sind schon ${raus} Gebinde weg (${teile}). Die abgefüllte Anzahl kann nicht kleiner sein – sonst zählte dieser Honig wieder als „nicht abgefüllt“.`)
+        : feldFehler('bestand', `Von ${anzahl} abgefüllten Gebinden sind schon ${raus} weg (${teile}). „Davon noch zum Verkauf“ kann höchstens ${anzahl - raus} sein.`);
+    }
     pruefeAbfuellMenge(d, a.chargeId, [{ anzahl, gebindeG }], a.id);
     const geaendert = new Map(); let gefehlt = 0;
     if (alteAnzahl > 0 && anzahl !== alteAnzahl) {
-      a.verbrauchAbzug = (a.verbrauchAbzug || []).map((x) => {
+      const alt = a.verbrauchAbzug || [];
+      const positionen = alt.map((x) => {
         const pos = d.inventar.find((p) => p.id === x.inventarId);
         if (!pos) throw new Error('Ein gebuchter Materialposten fehlt. Bitte zuerst wiederherstellen.');
+        return pos;
+      });
+      const anteile = alt.map((x) => buchungsZahl(x.menge, 'Gemerkter Verbrauch') * anzahl / alteAnzahl);
+      const ziele = anteile.map((n) => Math.round(n * 1000) / 1000);
+      /* Stück je Art nach dem größten Rest statt jeden Teilabzug einzeln runden (Fund 04.11.2026, #24): Karton A 3 + B 7,
+         Anzahl 10 → 5 ergab 2 + 4 = 6 – es kamen 4 Gläser zurück statt 5 (10 → 15: 16 statt 15 abgezogen). Zusammen
+         gerechnet wird, was auch die Abzugskette zusammennimmt (Gläser einer Größe, Deckel, Etiketten), damit jede Art stimmt. */
+      const gruppen = new Map();
+      positionen.forEach((pos, i) => {
+        if (verbrauchEinheit(pos) !== 'Stück') return;
+        const k = materialArt(pos);
+        gruppen.set(k, [...(gruppen.get(k) || []), i]);
+      });
+      for (const idx of gruppen.values()) {
+        const ganz = ganzeStueckeVerteilen(idx.map((i) => anteile[i]));
+        idx.forEach((i, j) => { ziele[i] = ganz[j]; });
+      }
+      a.verbrauchAbzug = alt.map((x, i) => {
+        const pos = positionen[i];
         const bisher = buchungsZahl(x.menge, 'Gemerkter Verbrauch');
-        const ziel = verbrauchEinheit(pos) === 'Stück' ? Math.round(bisher * anzahl / alteAnzahl) : Math.round(bisher * anzahl / alteAnzahl * 1000) / 1000;
+        const ziel = ziele[i];
         const vorher = buchungsZahl(pos.stueckzahl, 'Materialbestand');
         const diff = bisher - ziel;
         const wirklich = diff >= 0 ? diff : -Math.min(vorher, -diff);
@@ -11677,8 +11745,8 @@ Views.trachten = {
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Tracht</button>`)
       + (trachten.length ? `<div class="card" id="tk-karte">${Views.trachten.kalender(sortiert, jahr, heute, staende)}</div>` : '')
       + `<div class="card">` + (trachten.length ? `<div class="rows">` + sortiert.map((t) => {
-        // Ertrag aller Ernten, die dieser Tracht zugeordnet sind (alle Jahre)
-        const kg = U.sum(ernten.filter((e) => e.trachtId === t.id), (e) => e.mengeKg);
+        // Ertrag aller Ernten, die dieser Tracht zugeordnet sind (alle Jahre) – nur Honig und Wabenhonig, Pollen ist kein Honigertrag (Fund 04.11.2026, #11)
+        const kg = U.sum(ernten.filter((e) => e.trachtId === t.id && istHonigErnte(e)), (e) => e.mengeKg);
         const z = t.jaehrlich ? Tracht.zeitraum(t, jahr) : Tracht.zeitraum(t, null);
         const s = Tracht.schild(lage.get(t.id));
         const sub = [t.pflanze && t.pflanze !== Tracht.name(t) ? t.pflanze : '', z ? `${tagMonat(z.von)}–${tagMonat(z.bis)}${t.jaehrlich ? ' · jedes Jahr' : ` · nur ${z.von.slice(0, 4)}`}` : 'Blütezeit fehlt', Tracht.standNamen(t, staende, 3)].filter(Boolean);
@@ -12138,7 +12206,9 @@ function fuellmengePunkt(g) { return Math.ceil(fuellmengeMm(g) / (0.717 * 0.3528
 function verkaufGebindeG(v, a) { return a ? (Number(a.gebindeG) || 0) : (Number(v && v.gebindeG) || 0); }
 function verkaufHonigText(v, a, c, ernten) {
   if (a) return `${gebindeLabel(a.gebindeG)} · ${honigName(c, ernten)}`;
-  return v && v.gebindeG ? `${gebindeLabel(v.gebindeG)} · ${v.sorte || 'Honig'} (ohne Bestand)` : 'Gebinde';
+  if (v && v.gebindeG) return `${gebindeLabel(v.gebindeG)} · ${v.sorte || 'Honig'} (ohne Bestand)`;
+  // Abfüllung gelöscht (Fund 04.11.2026): Die Zeile hieß nur „N × Gebinde“ – jetzt sieht man, warum Größe und Sorte fehlen
+  return v && v.abfuellungId ? 'Gebinde (Abfüllung gelöscht)' : 'Gebinde';
 }
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
@@ -12246,6 +12316,14 @@ function voelkerAmStichtag(voelker, tag) {
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
 /** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
 function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle) - chargeVerarbeitetKg(charge.id) - chargeVerlustKg(charge.id)) * 1000) / 1000; }
+/* Rest einer Charge als Text, ohne „kg“ (Fund 04.11.2026, #9): Mit einer Nachkommastelle wurde ein Rest unter 0,05 kg zu „0“ –
+   die Charge blieb aber offen (Schwelle 0,0001 kg wie in chargeErledigt), samt Knopf „Abfüllen“. Kleine Reste deshalb genauer:
+   „0,04“; unter 5 g mit drei Stellen, damit nie „0“ dasteht, solange noch etwas im Eimer ist. Ebenso ein kleiner negativer
+   Rest einer überbuchten Altcharge („-0,04“ statt „-0“). */
+function restKgText(kg) {
+  const n = Number(kg) || 0, b = Math.abs(n);
+  return U.fmtNum(n, b > 0.0001 && b < 0.05 ? (b < 0.005 ? 3 : 2) : 1);
+}
 /* Lose an einen Verarbeiter abgegebener Honig (Lohnverarbeitung bei „Weitere Produkte“). Die Summe je Charge wird bei jedem Schreiben
    der Zugänge neu aus den Datensätzen gebildet – so stimmt sie auch nach Ändern, Löschen und Wiederherstellen. */
 let LOHN_KG = new Map();
@@ -12322,6 +12400,53 @@ function ernteBelegung(chargen, exceptId) {
   const m = new Map();
   for (const ch of chargen || []) { if (exceptId && ch.id === exceptId) continue; for (const id of (ch.ernteIds || [])) m.set(id, ch.losnummer); }
   return m;
+}
+/* Ernten einer Charge im Papierkorb bleiben belegt (Fund 04.11.2026, #1): Vorher gab das Löschen einer Charge ihre Ernten
+   frei – man legte damit eine zweite Charge an oder füllte dieselbe Ernte direkt noch einmal ab, und nach dem Wiederherstellen
+   zählte derselbe Honig doppelt. Erst wenn die Charge endgültig gelöscht ist, ist die Ernte wieder frei.
+   → Map(ernteId → Losnummer der gelöschten Charge) */
+function ernteBelegungPapierkorb(papierkorb, exceptId) {
+  return ernteBelegung((papierkorb || []).filter((t) => t.store === 'chargen' && t.daten).map((t) => t.daten), exceptId);
+}
+/* Ernte speichern – die Charge folgt der Ernte (Fund 04.11.2026, #2). Die Gesamtmenge einer Charge ist ein gespeicherter Wert.
+   Wurde eine Ernte nachträglich korrigiert (Tippfehler 250 → 25 kg), blieb die Charge still auf 250 kg: Liste, PDF und
+   Abfüll-Formular boten Honig an, den es nicht gab. Jetzt gilt: Stand die Gesamtmenge bisher genau auf „Ernten + Lagerbestand“,
+   wird sie mit der neuen Erntemenge neu summiert – auch bei einer Charge im Papierkorb, sonst käme sie beim Wiederherstellen mit
+   der alten Menge zurück. Wurde sie von Hand überschrieben, bleibt sie, und der Hinweis sagt es. Fiele die Charge unter das, was
+   schon abgefüllt, als Verlust gebucht oder abgegeben ist, wird nichts gespeichert. Alles in EINER Transaktion, damit Ernte und
+   Charge nie auseinanderlaufen. → { ernte, angepasst: [{ losnummer, kg }], vonHand: [{ losnummer, kg }], hinweis } */
+async function ernteSpeichern(rec) {
+  return DB.aendereAtomar(['ernten', 'chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], (d) => {
+    const ops = [{ store: 'ernten', obj: rec }], angepasst = [], vonHand = [];
+    const alt = rec.id ? d.ernten.find((x) => x.id === rec.id) : null;
+    const altKg = alt ? Number(alt.mengeKg) || 0 : 0, neuKg = Number(rec.mengeKg) || 0;
+    if (alt && Math.abs(neuKg - altKg) > 0.0001) {
+      const r3 = (x) => Math.round(x * 1000) / 1000, kgText = (x) => U.fmtNum(x, 3);
+      // Mengen VOR der Änderung. Ernten im Papierkorb zählen mit: ihr Honig steckt weiter in der Charge (Doku #2)
+      const kg = new Map((d.papierkorb || []).filter((t) => t.store === 'ernten' && t.daten).map((t) => [t.daten.id, Number(t.daten.mengeKg) || 0]));
+      for (const e of d.ernten) kg.set(e.id, Number(e.mengeKg) || 0);
+      const summe = (c, dieseKg) => r3((c.ernteIds || []).reduce((s, id) => s + (id === rec.id ? dieseKg : (kg.get(id) || 0)), 0) + Math.max(0, Number(c.lagerKg) || 0));
+      const betroffen = [...d.chargen.map((c) => ({ c, t: null })),
+        ...(d.papierkorb || []).filter((t) => t.store === 'chargen' && t.daten).map((t) => ({ c: t.daten, t }))]
+        .filter(({ c }) => (c.ernteIds || []).includes(rec.id));
+      for (const { c, t } of betroffen) {
+        const ist = Number(c.mengeKg) || 0, vorher = summe(c, altKg);
+        const nr = `${c.losnummer || '?'}${t ? ' (im Papierkorb)' : ''}`;
+        /* „Nicht von Hand“ heißt: Gesamtmenge = bisherige Summe. Bis zur Korrektur von Fund #3/#8 schrieb das Charge-Formular
+           die Summe auf zwei Stellen gerundet ins Feld (7,125 → 7,13) – auch dieser Wert zählt als nicht überschrieben. */
+        if (Math.abs(ist - vorher) > 0.0001 && Math.abs(ist - U.parseNum(U.fmtNum(vorher))) > 0.0001) { vonHand.push({ losnummer: nr, kg: ist }); continue; }
+        const neu = summe(c, neuKg);
+        const belegt = r3(chargeAbgefuelltKg(c.id, d.abfuellungen) + verlustKgIn(d, c.id) + chargeVerarbeitetKg(c.id));
+        if (neu < belegt - 0.0001) throw feldFehler('mengeKg', `Die Charge ${nr} hätte mit dieser Ernte nur noch ${kgText(neu)} kg. Aus ihr sind aber schon ${kgText(belegt)} kg abgefüllt, als Verlust gebucht oder abgegeben. Prüf die Menge noch einmal. Stimmt sie, ändere zuerst die Abfüllungen oder Verluste dieser Charge. Nichts wurde gespeichert.`);
+        ops.push(t ? { store: 'papierkorb', obj: { ...t, daten: { ...c, mengeKg: neu } } } : { store: 'chargen', obj: { ...c, mengeKg: neu } });
+        angepasst.push({ losnummer: nr, kg: neu });
+      }
+    }
+    const hinweis = !angepasst.length && !vonHand.length ? 'Ernte gespeichert' : ['Ernte gespeichert.',
+      ...angepasst.map((x) => `Die Charge ${x.losnummer} hat jetzt ${U.fmtNum(x.kg, 3)} kg.`),
+      ...vonHand.map((x) => `Die Charge ${x.losnummer} bleibt bei ${U.fmtNum(x.kg, 3)} kg, weil ihre Gesamtmenge von Hand eingetragen ist oder schon vorher nicht zu den Ernten passte. Prüf sie im Reiter „Charge“.`)].join(' ');
+    return { ops, wert: { ernte: rec, angepasst, vonHand, hinweis } };
+  });
 }
 /** Welche Sorten stecken in dieser Charge?
 
@@ -12442,6 +12567,31 @@ function honigAbgangText(x, chargen) {
 function abfuellungImPapierkorb(d, abfuellungId) {
   if ((d.papierkorb || []).some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === abfuellungId)) throw new Error('Die Abfüllung liegt im Papierkorb. Bitte sie zuerst wiederherstellen – nichts wurde geändert.');
 }
+/* Verkäufe und Rechnungen einer Abfüllung sperren das Löschen (Fund 04.11.2026, #5/#21): Gelöscht zählte ihr verkaufter Honig
+   wieder als „im Eimer“ und ließ sich ein zweites Mal abfüllen. Wie die Sperre bei Gebinde-Abgängen: erst stornieren.
+   Rechnungen zählen als Entwurf und festgeschrieben (ein Entwurf ließe sich sonst nie mehr festschreiben), storniert nicht.
+   → null, wenn nichts dranhängt; sonst der Text für die Meldung. */
+function abfuellungVerkaufSperre(d, abfuellungId) {
+  const vk = (d.verkaeufe || []).filter((v) => v.abfuellungId === abfuellungId);
+  const re = (d.rechnungen || []).filter((r) => r.status !== 'storniert' && (r.positionen || []).some((p) => p.abfuellungId === abfuellungId));
+  if (!vk.length && !re.length) return null;
+  const fest = re.filter((r) => r.status === 'festgeschrieben'), entwurf = re.filter((r) => r.status !== 'festgeschrieben');
+  const gebinde = U.sum(vk, (v) => Number(v.anzahl) || 0);
+  const teile = [
+    ...(vk.length ? [`${vk.length} ${vk.length === 1 ? 'Verkauf' : 'Verkäufe'} (${gebinde} Gebinde)`] : []),
+    ...(fest.length ? [`${fest.length} ${fest.length === 1 ? 'Rechnung' : 'Rechnungen'} (${fest.map((r) => r.nummer || '?').join(', ')})`] : []),
+    ...(entwurf.length ? [`${entwurf.length} ${entwurf.length === 1 ? 'Rechnungsentwurf' : 'Rechnungsentwürfe'}`] : []),
+  ];
+  const storno = [
+    ...(vk.length ? [`${vk.length === 1 ? 'den Verkauf' : 'die Verkäufe'} im Reiter „Verkauf“`] : []),
+    ...(fest.length ? [`${fest.length === 1 ? 'die Rechnung' : 'die Rechnungen'} unter „Rechnungen“`] : []),
+  ];
+  const und = (l) => l.length > 1 ? `${l.slice(0, -1).join(', ')} und ${l[l.length - 1]}` : l[0];
+  return `Zu dieser Abfüllung gehören ${und(teile)}. Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen.`
+    + (storno.length ? ` Storniere zuerst ${und(storno)}.` : '')
+    + (entwurf.length ? ` Nimm die Abfüllung aus dem ${entwurf.length === 1 ? 'Entwurf' : 'Entwürfen'} heraus oder lösche ${entwurf.length === 1 ? 'ihn' : 'sie'}.` : '')
+    + ' Danach kannst du die Abfüllung löschen.';
+}
 async function honigAbgangBuchen(e, alt = null) {
   return DB.aendereAtomar(['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], (d) => {
     const geaendert = new Map();
@@ -12516,6 +12666,9 @@ async function honigAbgangWiederherstellen(trashId) {
       const n = buchungsZahl(x.ausBestand ?? x.anzahl, 'Abgang'), bestand = buchungsZahl(a.bestand, 'Bestand');
       if (n > bestand) throw new Error('Der Bestand reicht für diesen Abgang nicht mehr. Nichts wurde wiederhergestellt.');
       a.bestand = bestand - n; ops.push({ store: 'abfuellungen', obj: a });
+      /* Gebindegröße der Abfüllung übernehmen (Fund 04.11.2026, #7): Wurde sie geändert, während der Abgang im Papierkorb lag,
+         zeigte er sonst weiter die alte Größe (Charge, Kassenbuch, Excel) – abfuellungAendern zieht nur vorhandene Abgänge mit. */
+      x.gebindeG = a.gebindeG;
     } else if (x.quelle === 'charge') {
       const c = d.chargen.find((y) => y.id === x.chargeId);
       if (!c) throw new Error('Die Charge fehlt. Bitte zuerst die Charge wiederherstellen.');
@@ -12526,6 +12679,30 @@ async function honigAbgangWiederherstellen(trashId) {
     ops.push({ store: 'honigabgaenge', obj: x }, { op: 'del', store: 'papierkorb', id: t.id });
     return { ops, wert: t };
   });
+}
+/* Abfüllung oder Charge aus dem Papierkorb: prüfen, bevor sie zurückgeschrieben wird (Fund 04.11.2026, #1/#4/#22).
+   Läuft in DB.trashRestore in DERSELBEN Transaktion (d = frisch gelesene Bereiche); wirft, dann bleibt alles, wie es war.
+   - Abfüllung: Solange sie im Papierkorb lag, war ihr Honig in der Charge wieder frei und konnte neu abgefüllt oder als
+     Verlust gebucht werden. Reicht der Rest nicht mehr, wäre die Charge überbucht (mehr Gebinde als Honig) – wie bei
+     honigAbgangWiederherstellen abweisen.
+   - Charge: Eine Ernte darf nur in einer Charge stehen. Steckt eine ihrer Ernten inzwischen in einer anderen, abweisen. */
+function papierkorbWiederherstellenPruefen(t, d) {
+  const x = t.daten;
+  if (t.store === 'abfuellungen') {
+    const c = (d.chargen || []).find((y) => y.id === x.chargeId);
+    if (!c) {
+      if ((d.papierkorb || []).some((y) => y.store === 'chargen' && y.daten && y.daten.id === x.chargeId)) throw new Error('Die Charge dieser Abfüllung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann die Abfüllung. Nichts wurde geändert.');
+      return;   // Charge endgültig gelöscht: Die Abfüllung kommt wie bisher ohne Charge zurück – es gibt keine Menge, die sie überbuchen könnte
+    }
+    const kg = (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000;
+    const braucht = Math.round(kg(x) * 1000) / 1000;
+    const rest = Math.round(((Number(c.mengeKg) || 0) - U.sum((d.abfuellungen || []).filter((y) => y.chargeId === c.id && y.id !== x.id), kg) - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+    if (braucht > rest + 0.0001) throw new Error(`Die Abfüllung passt nicht mehr in die Charge ${c.losnummer}: Sie braucht ${U.fmtNum(braucht, 2)} kg, frei ${rest > 0 ? `sind nur noch ${U.fmtNum(rest, 2)} kg` : 'ist nichts mehr'}. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.`);
+  } else if (t.store === 'chargen') {
+    const belegt = ernteBelegung(d.chargen, x.id);
+    const andere = [...new Set((x.ernteIds || []).filter((id) => belegt.has(id)).map((id) => belegt.get(id)))];
+    if (andere.length) throw new Error(`Die Charge${x.losnummer ? ' ' + x.losnummer : ''} lässt sich nicht wiederherstellen: ${andere.length === 1 ? 'Eine ihrer Ernten steckt' : 'Ihre Ernten stecken'} inzwischen in ${andere.length === 1 ? 'der Charge' : 'den Chargen'} ${andere.join(', ')}. Eine Ernte darf nur in einer Charge stehen. Nimm die Ernte dort heraus, dann versuch es noch einmal. Der Eintrag bleibt im Papierkorb.`);
+  }
 }
 /**
  * Formular „Eigenverbrauch / Verlust · Honig“ – aus dem Kassenbuch, dem Bestand, der Charge oder zum Bearbeiten.
@@ -12613,18 +12790,26 @@ async function honigAbgangForm(vor = {}, rec = null) {
 function papierkorbAuftraege(store, rec) {
   return [{ store: 'papierkorb', obj: { id: U.uuid(), store, daten: rec, geloeschtAm: U.nowIso() } }, { op: 'del', store, id: rec.id }];
 }
+const STORNO_ABF_IM_PAPIERKORB = 'Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren.';
+/** Verkauf stornieren. Ergebnis: { abfuellungFehlt } – true, wenn die Abfüllung endgültig gelöscht ist und deshalb
+    keine Gebinde in den Bestand zurückkamen (der Aufrufer sagt das dazu). */
 async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
   return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
     const v = d.verkaeufe.find((x) => x.id === verkaufId);
-    if (!v) return { ops: [] }; // ein anderer Aufruf hat bereits storniert
+    if (!v) return { ops: [], wert: { abfuellungFehlt: false } }; // ein anderer Aufruf hat bereits storniert
     const a = v.abfuellungId ? d.abfuellungen.find((x) => x.id === v.abfuellungId) : null;
-    if (v.abfuellungId && !a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen; der Verkauf wurde nicht verändert.');
-    // Zurück ins Lager kommt nur, was auch aus dem Lager kam (bei „trotzdem buchen“ evtl. weniger)
-    if (a) a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge');
+    /* Fehlende Abfüllung (Fund 04.11.2026): Bisher scheiterte das Storno dann IMMER – auch wenn die Abfüllung endgültig
+       weg war, und dann ließ sich der Verkauf nie mehr stornieren. Jetzt: Liegt sie im Papierkorb, erst wiederherstellen
+       (sonst kämen die Gebinde nie in ihren Bestand zurück). Ist sie endgültig gelöscht, gibt es keinen Bestand mehr:
+       Verkauf (und gewählte Einnahme) wandern trotzdem in den Papierkorb, nur ohne Rückbuchung. */
+    if (v.abfuellungId && !a && d.papierkorb.some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === v.abfuellungId)) throw new Error(STORNO_ABF_IM_PAPIERKORB);
+    // Zurück ins Lager kommt nur, was auch aus dem Lager kam (bei „trotzdem buchen“ evtl. weniger) –
+    // und nie mehr, als abgefüllt wurde (Fund 04.11.2026, #25: sonst Bestand über der Anzahl, wie in honigAbgangLoeschen gedeckelt)
+    if (a) a.bestand = Math.min(buchungsZahl(a.anzahl, 'Anzahl'), buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge'));
     const kb = d.kassenbuch.find((x) => x.id === v.kassenbuchId);
     const ops = [...(a ? [{ store: 'abfuellungen', obj: a }] : []), ...papierkorbAuftraege('verkaeufe', v)];
     if (kb && kasse) ops.push(...papierkorbAuftraege('kassenbuch', kb));
-    return { ops };
+    return { ops, wert: { abfuellungFehlt: !!(v.abfuellungId && !a) } };
   });
 }
 /** Verkauf und Einnahme bilden auch im Papierkorb einen gemeinsamen Vorgang. */
@@ -12640,7 +12825,10 @@ async function verkaufsPapierkorbWiederherstellen(trashId) {
     if (!k && !einnahmeNochDa) throw new Error('Der zugehörige Kassenbucheintrag fehlt im Papierkorb. Der Verkauf wurde nicht wiederhergestellt.');
     if (d.verkaeufe.some((x) => x.id === v.id) || (k && einnahmeNochDa)) throw new Error('Verkauf oder Einnahme ist bereits vorhanden. Bitte die Buchungen prüfen.');
     const a = v.abfuellungId ? d.abfuellungen.find((x) => x.id === v.abfuellungId) : null;
-    if (v.abfuellungId && !a) throw new Error('Die Abfüllung fehlt. Bitte zuerst wiederherstellen.');
+    /* Gegenstück zum Storno ohne Abfüllung (Fund 04.11.2026): Hier stand „Bitte zuerst wiederherstellen“ – bei einer
+       endgültig gelöschten Abfüllung ging das nie. Liegt sie im Papierkorb, erst sie; ist sie endgültig weg, kommt der
+       Verkauf ohne Bestandsabzug zurück (das Storno hat dann auch nichts zurückgebucht). */
+    if (v.abfuellungId && !a && d.papierkorb.some((x) => x.store === 'abfuellungen' && x.daten && x.daten.id === v.abfuellungId)) throw new Error('Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann den Verkauf.');
     if (a) {
       const menge = buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
       if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
@@ -16635,17 +16823,27 @@ Views.honig = {
       const st = e.target.closest('[data-storno]');
       if (st) {
         if (Lizenz.nurVoll('Der Honigverkauf')) return;
-        const vk = list.find((x) => x.id === st.dataset.storno);
-        const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
-        let kasse = true;
-        if (kb) {
-          const w = await frageJaNein({ titel: 'Verkauf stornieren?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier stornieren',
-            text: `Die Gebinde wandern zurück in den Bestand. Zu diesem Verkauf gibt es im Kassenbuch eine Einnahme von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
-          if (!w) return;
-          kasse = w === 'ja';
-        } else if (!(await UI.confirm({ title: 'Verkauf stornieren?', text: 'Die Gebinde wandern zurück in den Bestand.', confirmText: 'Stornieren' }))) return;
-        await verkaufStornieren(st.dataset.storno, { kasse });
-        UI.toast(kasse ? 'Verkauf storniert' : 'Verkauf storniert – die Einnahme bleibt im Kassenbuch'); renderRoute();
+        /* (Fund 04.11.2026) Ohne catch blieb ein gescheitertes Storno still („tut nichts“, Tester Android) – jetzt immer mit Grund. */
+        try {
+          const vk = list.find((x) => x.id === st.dataset.storno);
+          /* Abfüllung nicht mehr da: Liegt sie im Papierkorb, gleich sagen, was zu tun ist – nicht erst nach der Rückfrage.
+             Ist sie endgültig gelöscht, sagt die Rückfrage, dass keine Gebinde zurückkommen. Maßgeblich bleibt die Prüfung in verkaufStornieren. */
+          const abfWeg = !!(vk && vk.abfuellungId && !abf.has(vk.abfuellungId));
+          if (abfWeg && (await DB.getAll('papierkorb')).some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === vk.abfuellungId)) { UI.toast(STORNO_ABF_IM_PAPIERKORB, 'err'); return; }
+          const basis = abfWeg ? 'Die Abfüllung zu diesem Verkauf ist gelöscht, deshalb kommen keine Gebinde in den Bestand zurück.' : 'Die Gebinde wandern zurück in den Bestand.';
+          const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
+          let kasse = true;
+          if (kb) {
+            const w = await frageJaNein({ titel: 'Verkauf stornieren?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier stornieren',
+              text: `${basis} Zu diesem Verkauf gibt es im Kassenbuch eine Einnahme von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+            if (!w) return;
+            kasse = w === 'ja';
+          } else if (!(await UI.confirm({ title: 'Verkauf stornieren?', text: basis, confirmText: 'Stornieren' }))) return;
+          const erg = await verkaufStornieren(st.dataset.storno, { kasse });
+          UI.toast((kasse ? 'Verkauf storniert' : 'Verkauf storniert – die Einnahme bleibt im Kassenbuch')
+            + (erg && erg.abfuellungFehlt ? '. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.' : ''));
+          renderRoute();
+        } catch (err) { fehlerMelden(err, 'Das Stornieren hat nicht geklappt. Bitte noch einmal versuchen.'); }
       }
     });
   },
@@ -16732,8 +16930,10 @@ Views.honig = {
         values: zielFormValues(e),
         async onSave(v) {
           const zielId = zielIdAus(v);
-          await DB.put('ernten', Object.assign(e || {}, { zielTyp: v.zielTyp, zielId, schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: v.wassergehalt ?? null, notiz: v.notiz, trachtId: v.trachtId !== undefined ? (v.trachtId || null) : (e && e.trachtId) || null }));
-          UI.toast('Ernte gespeichert'); renderRoute();
+          /* Über ernteSpeichern: Die Chargen dieser Ernte ziehen ihre Gesamtmenge in derselben Transaktion nach (Fund 04.11.2026, #2).
+             Eine Kopie statt e selbst – wird das Speichern abgewiesen, behält die Liste die alten Werte. */
+          const r = await ernteSpeichern(Object.assign({}, e || {}, { zielTyp: v.zielTyp, zielId, schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: v.wassergehalt ?? null, notiz: v.notiz, trachtId: v.trachtId !== undefined ? (v.trachtId || null) : (e && e.trachtId) || null }));
+          UI.toast(r.hinweis, r.vonHand.length ? 'err' : 'ok'); renderRoute();
         },
         onDelete: papierkorbDelete('ernten', e, 'Ernte löschen?', 'Wandert in den Papierkorb.'),
       });
@@ -16750,7 +16950,7 @@ Views.honig = {
   /* ---------- Sorten & Laborergebnisse ---------- */
   async tabSorten(box) {
     const list = await DB.getAll('ernten');
-    const alleHonig = list.filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig');
+    const alleHonig = list.filter(istHonigErnte);   // dieselbe Honig-Regel wie überall (Fund 04.11.2026, #12)
     const alleChargen = await DB.getAll('chargen');
     /* Jahr: Ernten nach Erntedatum, Chargen aus dem Lagerbestand nach Chargen-Datum – so zeigt „2025“ genau die
        Sorten dieses Honigjahres. Die Hinweise oben zählen nur die gewählte Auswahl. */
@@ -16822,8 +17022,7 @@ Views.honig = {
     const name = String(sorte || '').trim();
     if (!name) return;
     const gleich = (x) => String(x || '').trim() === name;
-    const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
-    const ernten = U.sortBy((await DB.getAll('ernten')).filter((e) => istHonig(e) && gleich(e.sorte)), (e) => e.datum || '', true);
+    const ernten = U.sortBy((await DB.getAll('ernten')).filter((e) => istHonigErnte(e) && gleich(e.sorte)), (e) => e.datum || '', true);   // Honig-Regel an einer Stelle (Fund 04.11.2026, #12)
     const chargen = (await DB.getAll('chargen')).filter((c) => gleich(c.sorte));
     if (!ernten.length && !chargen.length) { UI.toast('Diese Sorte gibt es nicht mehr.', 'err'); return renderRoute(); }
     const voelker = await idMap('voelker'), staende = await idMap('staende');
@@ -16898,7 +17097,7 @@ Views.honig = {
   },
 
   async laborForm() {
-    const alle = U.sortBy((await DB.getAll('ernten')).filter((e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig'), (e) => e.datum, true);
+    const alle = U.sortBy((await DB.getAll('ernten')).filter(istHonigErnte), (e) => e.datum, true);   // Honig-Regel an einer Stelle (Fund 04.11.2026, #12)
     if (!alle.length) return UI.toast('Erst Ernten (Schleuderungen) erfassen, dann Laborergebnisse eintragen.', 'err');
     const voelker = await idMap('voelker'), staende = await idMap('staende');
     const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
@@ -17029,7 +17228,7 @@ Views.honig = {
         <span class="r-sub">${U.fmtNum(c.mengeKg || 0)} kg gesamt · ${herkunft}${chargeVerarbeitetKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerarbeitetKg(c.id), 1)} kg zur Verarbeitung abgegeben` : ''}${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}</span></span>
         <span class="r-side">${erledigt
           ? `<b class="muted">${abfAlle.some((a) => a.chargeId === c.id) ? 'ausverkauft' : 'aufgebraucht'}</b>`
-          : `<b>${U.fmtNum(rest, 1)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;
+          : `<b>${restKgText(rest)} kg</b><br><span class="muted small">${rest > 0.0001 ? 'nicht abgefüllt' : `${glaeser} zum Verkauf`}</span>`}</span>${icon('chevR', 'chev')}</button>`;   // restKgText: kleiner Rest nicht als „0 kg“ (Fund 04.11.2026, #9)
     };
     const chip = (label, val) => `<button class="chip ${String(jahr) === String(val) ? 'active' : ''}" data-cjahr="${U.esc(val)}">${U.esc(label)}</button>`;
     const sChip = (label, val) => `<button class="chip ${sort === val ? 'active' : ''}" data-csort="${U.esc(val)}">${label}</button>`;
@@ -17099,6 +17298,7 @@ Views.honig = {
     const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
     const jahr = U.todayIso().slice(0, 4);
     const bestehende = await DB.getAll('chargen');
+    const imPapierkorb = ernteBelegungPapierkorb(await DB.getAll('papierkorb'), c && c.id);   // Fund 04.11.2026, #1
     /* Wer die App mitten in der Saison anfängt, hat Honig im Lager, dem keine
        Ernte zuzuordnen ist. Ohne Ernten in der App ist „Lagerbestand" die
        sinnvolle Vorgabe; beides zusammen ist ausdrücklich erlaubt. */
@@ -17174,7 +17374,7 @@ Views.honig = {
       },
       onDelete: c ? async () => {
         const abf = (await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id);
-        if (abf.length && !(await UI.confirm({ title: 'Charge mit Abfüllungen löschen?', text: `Zu dieser Charge gehören ${abf.length} Abfüllung(en). Nur die Charge wandert in den Papierkorb; die Abfüllungen bleiben (dann ohne Charge-Zuordnung). Lösche bei Bedarf zuerst die Abfüllungen.`, confirmText: 'Trotzdem löschen', danger: true }))) return false;
+        if (abf.length && !(await UI.confirm({ title: 'Charge mit Abfüllungen löschen?', text: `Zu dieser Charge gehören ${abf.length} Abfüllung(en). Nur die Charge wandert in den Papierkorb; die Abfüllungen bleiben (dann ohne Charge-Zuordnung). Die Ernten der Charge bleiben belegt, solange sie im Papierkorb liegt. Lösche bei Bedarf zuerst die Abfüllungen.`, confirmText: 'Trotzdem löschen', danger: true }))) return false;   // Satz zu den Ernten: Fund 04.11.2026, #1 b
         await DB.softDel('chargen', c.id); UI.toast('Charge gelöscht'); renderRoute(); return true;
       } : null,
     });
@@ -17185,11 +17385,13 @@ Views.honig = {
       const belegt = ernteBelegung(bestehende, c && c.id); // ernteId -> Losnummer der anderen Charge
       $$('label.check-line', box).forEach((lab) => {
         const inp = $('input', lab);
-        if (belegt.has(inp.value) && !eigene.has(inp.value)) {
+        // Auch Ernten einer gelöschten Charge, solange sie im Papierkorb liegt – sonst stünde dieselbe Ernte nach dem Wiederherstellen in zwei Chargen (Fund 04.11.2026)
+        if ((belegt.has(inp.value) || imPapierkorb.has(inp.value)) && !eigene.has(inp.value)) {
           inp.disabled = true; inp.checked = false;
           lab.style.opacity = '0.5';
           const span = $('span', lab);
-          if (span) span.innerHTML += ` <span class="badge b-muted">schon in Charge ${U.esc(belegt.get(inp.value))}</span>`;
+          if (span) span.innerHTML += belegt.has(inp.value) ? ` <span class="badge b-muted">schon in Charge ${U.esc(belegt.get(inp.value))}</span>`
+            : ` <span class="badge b-muted">in gelöschter Charge ${U.esc(imPapierkorb.get(inp.value))} (Papierkorb)</span>`;
         }
       });
     }
@@ -17203,7 +17405,9 @@ Views.honig = {
         const ernteSumme = (!nurLager && box) ? $$('input:checked', box).reduce((s, i) => s + (mengeMap.get(i.value) || 0), 0) : 0;
         const lager = (!ohneLager && lagerInp) ? Math.max(0, U.parseNum(lagerInp.value) || 0) : 0;
         const summe = ernteSumme + lager;
-        mengeInp.value = summe ? U.fmtNum(Math.round(summe * 1000) / 1000) : '';
+        /* Drei Nachkommastellen (Fund 04.11.2026, #3/#8): fmtNum rundet sonst auf zwei, und gespeichert wird der Feldtext –
+           aus 7,125 kg Ernte wurde eine Charge mit 7,13 kg, der Rest nach 14 × 500 g stand auf 0,13 statt 0,125 kg. */
+        mengeInp.value = summe ? U.fmtNum(Math.round(summe * 1000) / 1000, 3) : '';
         FormGuard.dirty = true;
       };
       if (box) box.addEventListener('change', rechne);
@@ -17221,7 +17425,7 @@ Views.honig = {
       const quelle = e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name;
       return { e, quelle: quelle || 'gelöscht' };
     }).filter(Boolean);
-    const rest = chargeRestKg(c, abf);
+    const rest = chargeRestKg(c, abf);   // Anzeige mit restKgText: ein kleiner Rest stand sonst als „0“ neben dem Knopf „Abfüllen“ (Fund 04.11.2026, #9)
     const glaeserGesamt = U.sum(abf, (a) => a.anzahl);
     const glaeserBestand = U.sum(abf, (a) => a.bestand);
     const abgaenge = U.sortBy((await DB.getAll('honigabgaenge')).filter((x) => x.chargeId === c.id), (x) => x.datum || '', true);
@@ -17231,7 +17435,7 @@ Views.honig = {
       body: `
         <div class="stat-grid mb12">
           <div class="stat"><div class="s-label">Gesamtmenge</div><div class="s-value">${U.fmtNum(c.mengeKg || 0, 1)}</div><div class="s-sub">kg in der Charge</div></div>
-          <div class="stat"><div class="s-label">Nicht abgefüllt</div><div class="s-value">${U.fmtNum(rest, 1)}</div><div class="s-sub">kg frei</div></div>
+          <div class="stat"><div class="s-label">Nicht abgefüllt</div><div class="s-value">${restKgText(rest)}</div><div class="s-sub">kg frei</div></div>
           <div class="stat"><div class="s-label">Angelegt</div><div class="s-value" style="font-size:16px">${U.fmtDate(c.datum) || '–'}</div></div>
         </div>
         ${(() => {
@@ -17324,7 +17528,9 @@ Views.honig = {
     /* Tester-Wunsch: auch ohne Charge direkt aus einer Ernte abfüllen. Angeboten
        werden Ernten, die noch in keiner Charge stecken; beim Speichern legt die App
        die Charge (mit Losnummer – Pflicht fürs Etikett) nach Rückfrage selbst an. */
-    const inCharge = new Set(chargen.flatMap((c) => c.ernteIds || []));
+    /* Ernten einer Charge im Papierkorb gelten weiter als belegt (Fund 04.11.2026, #1 b): Nach „Charge trotzdem löschen“ stand
+       ihre Ernte hier wieder als frei – dieselben 20 kg ließen sich ein zweites Mal abfüllen, neben den alten Gebinden. */
+    const inCharge = new Set([...chargen.flatMap((c) => c.ernteIds || []), ...ernteBelegungPapierkorb(await DB.getAll('papierkorb')).keys()]);
     const freieErnten = U.sortBy((await DB.getAll('ernten')).filter((e) => !inCharge.has(e.id) && (Number(e.mengeKg) || 0) > 0), (e) => e.datum, true);
     if (!frei.length && !freieErnten.length) return UI.toast('Nichts zum Abfüllen: Erfasse zuerst eine Ernte (Tab „Ernte“) oder lege eine Charge an.', 'err');
     const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl' }));
@@ -17358,7 +17564,7 @@ Views.honig = {
     const m = UI.formModal({
       title: 'Abfüllen', wide: true,
       fields: [
-        { key: 'chargeId', label: 'Woraus abfüllen?', type: 'select', required: true, keepOrder: true, default: vorChargeId, options: [...freieErnten.map((e) => ({ v: 'ernte:' + e.id, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })), ...frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei` }))] },
+        { key: 'chargeId', label: 'Woraus abfüllen?', type: 'select', required: true, keepOrder: true, default: vorChargeId, options: [...freieErnten.map((e) => ({ v: 'ernte:' + e.id, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })), ...frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${restKgText(chargeRestKg(c, abfAlle))} kg frei` }))] },   // restKgText: Fund 04.11.2026, #9
         { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true, default: U.todayIso() },
         { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', required: true, halb: true, default: mhdVorschlag(U.todayIso()),
           hint: 'Vorschlag: zwei Jahre ab Abfülldatum. Steht so auf dem Etikett.' },
@@ -17395,7 +17601,8 @@ Views.honig = {
         try { erg = await abfuellungenAnlegen(v); }
         catch (e) { if (neueCharge) await DB.del('chargen', neueCharge.id); if (neueCharge) v.chargeId = 'ernte:' + neueCharge.ernteIds[0]; throw e; }
         UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}${erg.verlust ? ` · ${U.fmtNum(erg.verlust.kg, 2)} kg Verlust gebucht` : ''}`);
-        if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten – nur der vorhandene Bestand wurde abgezogen`, 'err');
+        // Die Meldung nennt, wo es fehlte (Fund 04.11.2026, #23) – „30 Stück fehlten“ allein sagte nicht, ob Deckel oder Etiketten
+        if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten${(erg.fehlend || []).length ? ` (${erg.fehlend.map((f) => `${f.bezeichnung || 'ohne Namen'}: ${U.fmtNum(f.menge, 0)}`).join(', ')})` : ''} – nur der vorhandene Bestand wurde abgezogen`, 'err');
         await pruefeMhd(); renderRoute(imBestandBleiben());
       },
     });
@@ -17462,6 +17669,13 @@ Views.honig = {
           await UI.confirm({ title: 'Erst die Verluste löschen', text: `Zu dieser Abfüllung sind ${U.sum(abg, (x) => Number(x.ausBestand ?? x.anzahl) || 0)} Gebinde als Verlust oder Eigenverbrauch gebucht (${abg.map((x) => x.art).join(', ')}). Lösche diese Einträge zuerst – in der Charge unter „Verlust und Eigenverbrauch“ –, dann die Abfüllung.`, confirmText: 'Verstanden', danger: false });
           return false;
         }
+        /* Genauso bei Verkäufen und Rechnungen (Fund 04.11.2026, #5/#21): sonst zählte der verkaufte Honig wieder als
+           „im Eimer“, ließ sich ein zweites Mal abfüllen, und der Verkauf ließ sich nicht mehr sauber stornieren. */
+        const sperre = abfuellungVerkaufSperre({ verkaeufe: await DB.getAll('verkaeufe'), rechnungen: await DB.getAll('rechnungen') }, a.id);
+        if (sperre) {
+          await UI.confirm({ title: 'Erst die Verkäufe stornieren', text: sperre, confirmText: 'Verstanden', danger: false });
+          return false;
+        }
         const eimer = (await DB.getAll('honigabgaenge')).filter((x) => x.quelle === 'charge' && x.chargeId === a.chargeId && x.datum === a.datum && x.notiz === 'beim Abfüllen');
         const zurueck = (a.verbrauchAbzug || []).map((x) => `${U.fmtNum(x.menge, 0)} ${x.bezeichnung}`).join(', ');
         if (!(await UI.confirm({ title: 'Abfüllung löschen?',
@@ -17497,7 +17711,8 @@ Views.honig = {
     // Gesamtsummen (über alle Chargen)
     const totalGlaeser = U.sum(abfAlle, (a) => a.bestand);
     const totalKgGlaeser = U.sum(abfAlle, (a) => (a.bestand * a.gebindeG) / 1000);
-    const totalFreiKg = U.sum(daten, (d) => d.freiKg);
+    // Je Charge höchstens bis 0 (Fund 04.11.2026, #6): Der negative Rest einer überbuchten Charge zog sonst den Honig anderer Chargen ab – Kachel und Zeilen passten nicht zusammen
+    const totalFreiKg = U.sum(daten, (d) => Math.max(0, d.freiKg));   // Anzeige mit restKgText wie die Zeilen (Fund 04.11.2026, #9)
     const mitGebinden = daten.filter((d) => d.glaeser > 0).length;
     const SORT = [['Nummer', 'nummer'], ['Gebinde', 'gebinde'], ['Noch offen', 'offen']];
     if (!SORT.some(([, k]) => k === H._bestandSort)) H._bestandSort = 'nummer';
@@ -17515,7 +17730,7 @@ Views.honig = {
       for (const a of d.abf) { const n = Number(a.bestand) || 0, g = Number(a.gebindeG) || 0; if (n > 0) jeGroesse.set(g, (jeGroesse.get(g) || 0) + n); }
       const teile = [...jeGroesse].map(([g, n]) => `${gebindeLabel(g)}: ${U.zahl(n)}`);
       if (!teile.length) teile.push(d.abf.length ? 'keine Gebinde mehr im Bestand' : 'noch nichts abgefüllt');
-      if (d.freiKg > 0.0001) teile.push(`offen ${U.fmtNum(d.freiKg, 1)} kg`);
+      if (d.freiKg > 0.0001) teile.push(`offen ${restKgText(d.freiKg)} kg`);   // nicht „offen 0 kg“ bei kleinem Rest (Fund 04.11.2026, #9)
       return teile.join(' · ');
     };
     const auf = (d) => {
@@ -17526,7 +17741,7 @@ Views.honig = {
         <td class="num">${Math.max(0, a.anzahl - a.bestand - weg)}</td>
         <td class="no-print">${a.bestand > 0 ? `<div class="bst-knoepfe"><button class="btn btn-xs btn-ghost" data-verkauf="${U.esc(a.id)}">${icon('euro')} Verkauf</button><button class="btn btn-xs btn-ghost" data-hverlust="abf:${U.esc(a.id)}">${icon('minus')} Verlust</button></div>` : ''}</td></tr>`; }).join('');
       return `<div class="bst-auf">
-        <p class="small muted mb8">${U.fmtNum(d.c.mengeKg || 0, 1)} kg gesamt · ${kgFmt(d.gAbgefuellt)} kg abgefüllt (${U.zahl(U.sum(d.abf, (a) => a.anzahl))} Gebinde)${d.freiKg > 0.0001 ? ` · <b>${U.fmtNum(d.freiKg, 1)} kg</b> noch nicht abgefüllt` : ''}${d.c.datum ? ` · angelegt ${U.fmtDate(d.c.datum)}` : ''}</p>
+        <p class="small muted mb8">${U.fmtNum(d.c.mengeKg || 0, 1)} kg gesamt · ${kgFmt(d.gAbgefuellt)} kg abgefüllt (${U.zahl(U.sum(d.abf, (a) => a.anzahl))} Gebinde)${d.freiKg > 0.0001 ? ` · <b>${restKgText(d.freiKg)} kg</b> noch nicht abgefüllt` : ''}${d.c.datum ? ` · angelegt ${U.fmtDate(d.c.datum)}` : ''}</p>
         ${d.abf.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gebinde</th><th class="num">Im Bestand</th><th class="num">= kg</th><th class="num">Verkauft</th><th class="no-print"></th></tr></thead>
           <tbody>${zeilen}
           <tr style="border-top:2px solid var(--line);font-weight:700"><td>Summe zum Verkauf</td><td class="num">${U.zahl(d.glaeser)}</td><td class="num">${kgFmt(d.gBestand)} kg</td><td class="num"></td><td class="no-print"></td></tr>
@@ -17554,7 +17769,7 @@ Views.honig = {
     box.innerHTML = `
       <div class="stat-grid bst-kopf mb12">
         <div class="stat"><div class="s-label">${icon('honig')} Zum Verkauf</div><div class="s-value">${U.zahl(totalGlaeser)}</div><div class="s-sub">Gebinde · ${U.fmtNum(totalKgGlaeser, 1)} kg</div></div>
-        <div class="stat"><div class="s-label">${icon('gewicht')} Nicht abgefüllt</div><div class="s-value">${U.fmtNum(totalFreiKg, 1)}</div><div class="s-sub">kg im Eimer</div></div>
+        <div class="stat"><div class="s-label">${icon('gewicht')} Nicht abgefüllt</div><div class="s-value">${restKgText(totalFreiKg)}</div><div class="s-sub">kg im Eimer</div></div>
         <div class="stat"><div class="s-label">${icon('honig')} Chargen</div><div class="s-value">${chargen.length}</div><div class="s-sub">${mitGebinden} mit Gebinden</div></div>
       </div>
       ${sorten.length ? `<details class="card bst-klapp mb12" data-bst-sorten${H._bestandSortenOffen ? ' open' : ''}><summary>${icon('chevR', 'chev')}Nach Sorte und Gebinde <span class="small muted" style="font-weight:400">(${sorten.length})</span></summary>
@@ -17720,6 +17935,10 @@ async function kassenBereiche() {
   for (const x of pf) if (x.kassenbuchId) m.set(x.kassenbuchId, 'pfand');
   return m;
 }
+/* Richtung einer Kassenbuch-Zeile aus Art UND Betrag: +1 = Geld kommt rein, -1 = Geld geht raus. Das Storno einer
+   Rechnung ist eine Einnahme mit negativem Betrag – angezeigt wurde es mit „+“, und die Zeilen ergaben nicht mehr die
+   Summe darüber (Fund 04.11.2026, #20). Für Liste und Kassenbuch-PDF. */
+function kassenRichtung(k) { return (k.typ === 'einnahme' ? 1 : -1) * (Number(k.betrag) < 0 ? -1 : 1); }
 const kassenBereich = (k, map) => map.get(k.id) || ({ Honigverkauf: 'honig', 'Honig-Zukauf': 'honig', 'Pfandrückgabe': 'pfand', Materialverkauf: 'verbrauch', 'Weitere Produkte': 'produkt', Lohnverarbeitung: 'produkt' }[k.kategorie]) || 'sonstiges';
 
 /** Gehört eine Kassenbuch-Buchung zu einem Eintrag in einem Bereich (Zugang, Abgang, Honig-Verkauf, Pfand)? Beschreibung + Aktion zum Mitlöschen, sonst null. */
@@ -17733,7 +17952,12 @@ async function kassenbuchVerknuepft(k) {
   if (a) return { text: `Verkauf „${a.bezeichnung}“ (${U.fmtNum(a.menge, 2)} ${a.einheit || ''}) im Bereich ${bereichName(a.typ)}`, folge: '',
     loeschen: async () => { await abgangZurueckbuchen(a, { kasse: true }); await DB.softDel('materialabgaenge', a.id); } };
   const v = vk.find((x) => x.kassenbuchId === k.id);
-  if (v) return { text: `Honig-Verkauf (${v.anzahl} Gebinde) im Bereich Honig`, folge: '', loeschen: async () => { await verkaufStornieren(v.id, { kasse: true }); } };
+  /* (Fund 04.11.2026) Ist die Abfüllung endgültig gelöscht, storniert verkaufStornieren ohne Rückbuchung – das soll
+     der Hinweis danach auch sagen. Liegt sie im Papierkorb, wirft es mit Erklärung (Meldung über den Mülleimer bzw. das Wischen). */
+  if (v) return { text: `Honig-Verkauf (${v.anzahl} Gebinde) im Bereich Honig`, folge: '', loeschen: async () => {
+    const erg = await verkaufStornieren(v.id, { kasse: true });
+    return erg && erg.abfuellungFehlt ? '. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.' : '';
+  } };
   const b = pf.find((x) => x.kassenbuchId === k.id);
   if (b) return { text: `Pfand-Rücknahme „${b.bezeichnung}“ (${U.fmtNum(b.anzahl, 0)} Stück)`, folge: '', loeschen: async () => { await pfandRuecknahmeZurueck(b, { kasse: true }); } };
   return null;
@@ -17745,7 +17969,7 @@ async function kassenbuchLoeschen(k) {
   const w = await frageJaNein({ titel: 'Buchung löschen?', ja: 'Auch dort löschen', nein: 'Nur im Kassenbuch löschen',
     text: `Diese Buchung gehört zu: ${vk.text}. Soll der Eintrag dort auch gelöscht werden? Dann gehen Bestand${vk.folge ? ', Honig' : ''} und Kassenbuch zusammen zurück.${vk.folge} Alles wandert in den Papierkorb.` });
   if (!w) return false;
-  if (w === 'ja') { if (Lizenz.nurVoll('Das Kassenbuch')) return false; await vk.loeschen(); UI.toast('Buchung und Eintrag im Bereich gelöscht'); }
+  if (w === 'ja') { if (Lizenz.nurVoll('Das Kassenbuch')) return false; const zusatz = await vk.loeschen(); UI.toast('Buchung und Eintrag im Bereich gelöscht' + (zusatz || '')); }
   else { await loescheMitMaterial('kassenbuch', k); UI.toast('Nur die Buchung gelöscht – der Eintrag im Bereich bleibt'); }
   renderRoute();
   return true;
@@ -17865,7 +18089,7 @@ Views.kassenbuch = {
           <span class="r-ic" style="background:${k.typ === 'einnahme' ? 'var(--ok-bg)' : 'var(--danger-bg)'};color:${k.typ === 'einnahme' ? 'var(--ok)' : 'var(--danger)'}">${icon('euro')}</span>
           <span class="r-main"><span class="r-title">${U.esc(k.beschreibung || k.kategorie)}</span>
           <span class="r-sub">${U.fmtDate(k.datum)} · ${U.esc(k.kategorie)}${k.kontaktId ? ' · ' + U.esc(kontakte.get(k.kontaktId)?.name || '') : ''}${k.steuersatz ? ` · ${k.steuersatz} % USt` : ''}${vorhandeneB.length > 1 ? ` · ${(KASSE_BEREICHE.find(([key]) => key === kassenBereich(k, bMap)) || [])[1] || ''}` : ''}</span></span>
-          <span class="r-side" style="color:${k.typ === 'einnahme' ? 'var(--ok)' : 'var(--danger)'}"><b>${k.typ === 'einnahme' ? '+' : '–'} ${U.fmtEur(Math.abs(k.betrag))}</b></span>
+          <span class="r-side" style="color:${kassenRichtung(k) > 0 ? 'var(--ok)' : 'var(--danger)'}"><b>${kassenRichtung(k) > 0 ? '+' : '–'} ${U.fmtEur(Math.abs(k.betrag))}</b></span>
           ${icon('chevR', 'chev')}</button>`)(x.k)).join('') + `</div>` + kbSeite.knopf
       : emptyState('kasse', `Keine Buchungen in ${jahr}.`, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Buchung</button>`)}
       </div>`;
@@ -17982,9 +18206,18 @@ Views.kassenbuch = {
         if (v) { const a = abf.get(v.abfuellungId); posten.push({ honig: verkaufHonigText(v, a, a ? chargen.get(a.chargeId) : null, ernten), n: Number(v.anzahl) || 0, euro: Number(v.betrag) || 0, kontaktId: v.kontaktId }); continue; }
         const r = k.rechnungId ? rechnungen.get(k.rechnungId) : null;
         if (r && (r.positionen || []).length) {
+          /* Die Buchung selbst gibt die Richtung vor: Das Storno einer Rechnung ist eine Einnahme mit negativem Betrag
+             und derselben rechnungId. Vorher legte auch sie die Positionen positiv an – RE-0001 festgeschrieben und
+             storniert stand als „40 Stück · 240,00 €“ da, die Kopfzeile zeigte 0,00 €. Dazu der Rabatt anteilig auf alle
+             Positionen (wie rechnungSummen) und das Pfand als eigene Zeile: so ergibt die Aufschlüsselung genau die
+             Kopfsumme (Fund 04.11.2026, #17). */
+          const vz = Number(k.betrag) < 0 ? -1 : 1;
+          const warenwert = U.sum(r.positionen, (p) => (Number(p.menge) || 0) * (Number(p.einzelpreis) || 0));
+          const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
           for (const p of r.positionen) {
-            const a = p.abfuellungId ? abf.get(p.abfuellungId) : null;
-            posten.push({ honig: a ? verkaufHonigText({}, a, chargen.get(a.chargeId), ernten) : (p.text || 'Position'), n: Number(p.menge) || 0, euro: (Number(p.menge) || 0) * (Number(p.einzelpreis) || 0), kontaktId: r.kundeId, rechnung: r.nummer });
+            const a = p.abfuellungId ? abf.get(p.abfuellungId) : null, n = Number(p.menge) || 0;
+            posten.push({ honig: a ? verkaufHonigText({}, a, chargen.get(a.chargeId), ernten) : (p.text || 'Position'), n: vz * n, euro: vz * n * (Number(p.einzelpreis) || 0) * faktor, kontaktId: r.kundeId, rechnung: r.nummer });
+            if (Number(p.pfand) > 0) posten.push({ honig: 'Pfand (Rechnung)', n: vz * n, euro: vz * n * Number(p.pfand), kontaktId: r.kundeId, rechnung: r.nummer });
           }
           continue;
         }
@@ -18048,12 +18281,12 @@ Views.kassenbuch = {
         <div class="grid2">
           <div class="field"><label>Wirtschaftsvölker</label><input class="inp ep" data-ep="voelker" inputmode="numeric" value="${ep.voelker || 1}">
             <span class="small muted">aktive Wirtschaftsvölker</span></div>
-          <div class="field"><label>Ertrag je Volk (kg)</label><input class="inp ep" data-ep="jeVolk" inputmode="decimal" value="${U.fmtNum(ep.jeVolk, 1)}">
+          <div class="field"><label>Ertrag je Volk (kg)</label><input class="inp ep" data-ep="jeVolk" inputmode="decimal" value="${U.fmtNum(ep.jeVolk, 1)}" data-genau="${ep.jeVolk}">
             <span class="small muted">${U.esc(ep.quelle)}</span></div>
-          <div class="field"><label>Erlös je kg (€)</label><input class="inp ep" data-ep="preis" inputmode="decimal" value="${U.fmtNum(ep.erloesJeKg, 2)}">
+          <div class="field"><label>Erlös je kg (€)</label><input class="inp ep" data-ep="preis" inputmode="decimal" value="${U.fmtNum(ep.erloesJeKg, 2)}" data-genau="${ep.erloesJeKg}">
             <span class="small muted">${ep.preisQuelle ? 'aus ' + U.esc(ep.preisQuelle) : 'noch kein Verkauf erfasst – bitte selbst eintragen'}</span></div>
-          <div class="field"><label>Dieses Jahr schon geerntet (kg)</label><input class="inp ep" data-ep="geerntet" inputmode="decimal" value="${U.fmtNum(ep.geerntet, 1)}"></div>
-          <div class="field"><label>Selbstkosten je kg (€)</label><input class="inp ep" data-ep="kosten" inputmode="decimal" value="${U.fmtNum(skStart, 2)}">
+          <div class="field"><label>Dieses Jahr schon geerntet (kg)</label><input class="inp ep" data-ep="geerntet" inputmode="decimal" value="${U.fmtNum(ep.geerntet, 1)}" data-genau="${ep.geerntet}"></div>
+          <div class="field"><label>Selbstkosten je kg (€)</label><input class="inp ep" data-ep="kosten" inputmode="decimal" value="${U.fmtNum(skStart, 2)}" data-genau="${skStart}">
             <span class="small muted">Modellwert LWG bei 35 kg je Volk – im Rechner mit deinen Zahlen</span></div>
         </div>
         <div id="ep-out" class="mt12"></div>
@@ -18077,7 +18310,13 @@ Views.kassenbuch = {
 /** Zeichnet die Ergebnis-Kacheln der Ernteprognose aus den Feldern der Karte. */
 function ernteprognoseRechnen(box, ep) {
   const out = $('#ep-out', box); if (!out) return;
-  const num = (k) => Math.max(0, U.parseNum($(`[data-ep="${U.esc(k)}"]`, box)?.value) || 0);
+  /* Solange ein Feld unverändert ist, gilt der genaue Wert dahinter (data-genau), nicht der gerundete Text: 50 Völker
+     × 21,7 kg ergaben 1.085 kg, die Startseite mit 21,667 kg 1.083 kg (Fund 04.11.2026, #19). Wer tippt, bekommt seine Zahl. */
+  const num = (k) => {
+    const el = $(`[data-ep="${U.esc(k)}"]`, box); if (!el) return 0;
+    const genau = el.value === el.defaultValue && el.dataset.genau !== undefined ? Number(el.dataset.genau) : NaN;
+    return Math.max(0, (Number.isFinite(genau) ? genau : U.parseNum(el.value)) || 0);
+  };
   const voelker = Math.round(num('voelker')), jeVolk = num('jeVolk'), preis = num('preis'),
     geerntet = num('geerntet'), kosten = num('kosten');
   // Wird der Ertrag je Volk von Hand geändert, wandert die Spanne mit.
@@ -18792,18 +19031,20 @@ async function renderInventarBereich(main, cfg) {
       if (Lizenz.nurVoll('Lager und Material')) return;
       const b = bewegungen.find((x) => x.id === zeile.dataset.pfandweg);
       if (!b) return;
-      const kb = await kasseBuchungZu(b.kassenbuchId);
-      const basis = `${U.fmtNum(b.anzahl, 0)} × „${b.bezeichnung}" gehen wieder vom Bestand ab.`;
-      let kasse = true;
-      if (kb) {
-        const w = await frageJaNein({ titel: 'Rücknahme zurücknehmen?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier zurücknehmen',
-          text: `${basis} Zu dieser Rücknahme gibt es im Kassenbuch eine Erstattung von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
-        if (!w) return;
-        kasse = w === 'ja';
-      } else if (!(await UI.confirm({ title: 'Rücknahme zurücknehmen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Zurücknehmen', danger: true }))) return;
-      await pfandRuecknahmeZurueck(b, { kasse });
-      UI.toast('Rücknahme zurückgenommen');
-      renderRoute();
+      try {   // (Fund 04.11.2026) ohne catch blieb ein Fehler hier still
+        const kb = await kasseBuchungZu(b.kassenbuchId);
+        const basis = `${U.fmtNum(b.anzahl, 0)} × „${b.bezeichnung}" gehen wieder vom Bestand ab.`;
+        let kasse = true;
+        if (kb) {
+          const w = await frageJaNein({ titel: 'Rücknahme zurücknehmen?', ja: 'Auch aus dem Kassenbuch löschen', nein: 'Nur hier zurücknehmen',
+            text: `${basis} Zu dieser Rücknahme gibt es im Kassenbuch eine Erstattung von ${U.fmtEur(kb.betrag)}. Soll sie auch gelöscht werden? Beides wandert in den Papierkorb.` });
+          if (!w) return;
+          kasse = w === 'ja';
+        } else if (!(await UI.confirm({ title: 'Rücknahme zurücknehmen?', text: `${basis} Der Eintrag wandert in den Papierkorb.`, confirmText: 'Zurücknehmen', danger: true }))) return;
+        await pfandRuecknahmeZurueck(b, { kasse });
+        UI.toast('Rücknahme zurückgenommen');
+        renderRoute();
+      } catch (err) { fehlerMelden(err, 'Das Zurücknehmen hat nicht geklappt. Bitte noch einmal versuchen.'); }
     });
   }
   main.addEventListener('click', (e) => {
@@ -19353,7 +19594,8 @@ Views.aufgaben = {
             if (!t) return;
             const weg = papierkorbDelete('aufgaben', t, `„${t.titel}“ löschen?`);
             dm.close(true);
-            if (weg) await weg();
+            try { if (weg) await weg(); }
+            catch (err) { fehlerMelden(err, 'Das Löschen hat nicht geklappt. Bitte noch einmal versuchen.'); }   // (Fund 04.11.2026) sonst still
             return;
           }
           const r = ev.target.closest('[data-open]');
@@ -20816,6 +21058,31 @@ const SELBSTKOSTEN_VORGABE = {
    2010–2024 (38,4 kg je Volk und Jahr). Spanne dazu aus schwachen und guten Jahren. */
 const ERTRAG_FAUSTZAHL = 38.4;
 
+/** Verkaufter Honig als einheitliche Posten { datum, anzahl, gebindeG, kg, euro } – aus direkten Verkäufen UND aus
+    festgeschriebenen Rechnungen. Beide überschneiden sich nicht: eine Rechnung legt keinen Verkauf an, sie senkt nur
+    den Bestand. Von einer Rechnung zählen nur Positionen mit Abfüllung (nur das ist Honig), ihr Erlös NACH Rabatt –
+    derselbe Faktor wie in rechnungSummen, anteilig auf alle Positionen; Pfand ist kein Erlös. gebindeG 0 = Größe
+    unbekannt (Abfüllung gelöscht). Vorher rechnete die Prognose so, der Jahresbericht zählte Rechnungen nur beim
+    Erlös und ohne Rabatt, die Statistik gar nicht – eine Quelle für alle drei (Fund 04.11.2026, #10/#18/#26). */
+function honigVerkaufPosten(verkaeufe, rechnungen, abfMap) {
+  const posten = [];
+  for (const v of verkaeufe || []) {
+    const g = verkaufGebindeG(v, abfMap.get(v.abfuellungId)) || 0, n = Number(v.anzahl) || 0;
+    posten.push({ datum: v.datum || '', anzahl: n, gebindeG: g, kg: n * g / 1000, euro: Number(v.betrag) || 0 });
+  }
+  for (const r of rechnungen || []) {
+    if (r.status !== 'festgeschrieben') continue;   // Entwurf ist noch kein Verkauf, storniert keiner mehr
+    const warenwert = U.sum(r.positionen || [], (p) => (p.menge || 0) * (p.einzelpreis || 0));
+    const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
+    for (const p of (r.positionen || [])) {
+      if (!p.abfuellungId) continue;
+      const a = abfMap.get(p.abfuellungId), g = a ? Number(a.gebindeG) || 0 : 0, n = Number(p.menge) || 0;
+      posten.push({ datum: r.datum || '', anzahl: n, gebindeG: g, kg: n * g / 1000, euro: n * (Number(p.einzelpreis) || 0) * faktor });
+    }
+  }
+  return posten;
+}
+
 /** Grundlage für die Ernteprognose – ausschließlich aus eigenen Daten.
     kg je Volk: Mittel der letzten drei abgeschlossenen Jahre; die Spanne ist das
     schwächste und das beste dieser Jahre. Gezählt werden nur Völker, von denen in
@@ -20825,9 +21092,11 @@ const ERTRAG_FAUSTZAHL = 38.4;
     Abfüllung hängen (nur dort ist das Gewicht bekannt), Vorrang für die letzten 24 Monate. */
 async function ernteprognoseBasis() {
   const heute = U.todayIso(), jahr = +heute.slice(0, 4);
-  const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
-  const ernten = (await DB.getAll('ernten')).filter(istHonig);
-  const alleVoelker = (await DB.getAll('voelker')).filter((v) => (v.funktion || 'Wirtschaftsvolk') === 'Wirtschaftsvolk');
+  const ernten = (await DB.getAll('ernten')).filter(istHonigErnte);
+  /* „Wirtschaftsvolk Zuchtstoff“ ist auch ein Wirtschaftsvolk – wie in der Statistik (/^Wirtschaftsvolk/). Vorher fehlte
+     es in der Völkerzahl, sein Honig zählte aber in den Schnitt: 4 + 2 Völker à 30 kg ergaben 4 × 30 = 120 statt
+     180 kg (Fund 04.11.2026, #14). Ohne Funktion gilt ein Volk weiter als Wirtschaftsvolk. */
+  const alleVoelker = (await DB.getAll('voelker')).filter((v) => /^Wirtschaftsvolk/.test(v.funktion || 'Wirtschaftsvolk'));
   const voelker = alleVoelker.filter((v) => v.status === 'aktiv').length;
   /* Wie viele Wirtschaftsvölker standen mitten in der Saison eines Jahres da?
      Ein Volk ohne Ernte gehört in den Schnitt – sonst schönt die Prognose sich selbst. */
@@ -20861,26 +21130,11 @@ async function ernteprognoseBasis() {
 
   const geerntet = U.sum(ernten.filter((e) => (e.datum || '').startsWith(String(jahr))), (e) => Number(e.mengeKg) || 0);
 
-  /* Erlös je kg aus tatsächlichen Verkäufen. Verkäufe und festgeschriebene
-     Rechnungen überschneiden sich nicht: eine Rechnung legt keinen Verkauf an. */
-  const abf = await idMap('abfuellungen');
-  const posten = [];
-  for (const v of await DB.getAll('verkaeufe')) {
-    const g = verkaufGebindeG(v, abf.get(v.abfuellungId)); if (!g) continue;
-    posten.push({ datum: v.datum || '', kg: (v.anzahl || 0) * g / 1000, euro: Number(v.betrag) || 0 });
-  }
-  for (const r of await DB.getAll('rechnungen')) {
-    if (r.status !== 'festgeschrieben') continue;
-    /* Ein Rabatt mindert den Erlös. Vorher zählte der Preis VOR Rabatt – eine
-       Rechnung mit 50 % Rabatt hob den Schnitt auf das Doppelte. Gerechnet wird
-       derselbe Faktor wie in rechnungSummen: anteilig auf alle Positionen. */
-    const warenwert = U.sum(r.positionen || [], (p) => (p.menge || 0) * (p.einzelpreis || 0));
-    const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
-    for (const pos of (r.positionen || [])) {
-      const a = pos.abfuellungId ? abf.get(pos.abfuellungId) : null; if (!a || !a.gebindeG) continue;
-      posten.push({ datum: r.datum || '', kg: (pos.menge || 0) * a.gebindeG / 1000, euro: (pos.menge || 0) * (pos.einzelpreis || 0) * faktor });
-    }
-  }
+  /* Erlös je kg aus tatsächlichen Verkäufen und festgeschriebenen Rechnungen (Rabatt abgezogen: eine Rechnung
+     mit 50 % Rabatt hob den Schnitt sonst auf das Doppelte). Gezählt wird nur, wessen Gewicht bekannt ist.
+     Dieselben Posten wie Jahresbericht und Statistik (Fund 04.11.2026, #10/#18). */
+  const posten = honigVerkaufPosten(await DB.getAll('verkaeufe'), await DB.getAll('rechnungen'), await idMap('abfuellungen'))
+    .filter((x) => x.gebindeG > 0);
   const grenze = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
   const jung = posten.filter((x) => x.datum >= grenze);
   const genutzt = U.sum(jung, (x) => x.kg) > 0 ? jung : posten;
@@ -21620,7 +21874,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       { key: 'honigKg', label: 'Eigener Honig dafür, lose abgegeben (kg)', type: 'number', showIf: lohn,
         hint: 'Optional. Der Honig wird bei der Charge als „zur Verarbeitung abgegeben“ vermerkt und gilt dort nicht mehr als offen.' },
       { key: 'chargeId', label: 'Aus welcher Charge?', type: 'select', showIf: lohn,
-        options: [{ v: '', l: '–' }, ...chargenListe.map((c) => ({ v: c.id, l: `Los ${c.losnummer || '?'} · ${U.fmtNum(chargeRestKg(c, abfuellungenAlle), 1)} kg offen` }))] },
+        options: [{ v: '', l: '–' }, ...chargenListe.map((c) => ({ v: c.id, l: `Los ${c.losnummer || '?'} · ${restKgText(chargeRestKg(c, abfuellungenAlle))} kg offen` }))] },   // restKgText: Fund 04.11.2026, #9
       { key: 'preisUebernehmen', label: 'Diesen Preis als aktuellen Preis der Position merken', type: 'check', default: true,
         showIf: (f) => !neu(f) && kauf(f) && !lohn(f) && Number(f.preis) > 0,
         hint: 'Nur als Richtwert für die nächste Planung. Der Lagerwert rechnet ohnehin mit den echten Einkaufspreisen: älterer Bestand bleibt zu seinem alten Preis bewertet, neuer zu diesem.' },
@@ -22061,17 +22315,13 @@ async function verbrauchAbziehenKette(inventarId, menge, { pruefen = true } = {}
   const start = await DB.get('inventar', inventarId);
   if (!start) return null;
   const einheit = verbrauchEinheit(start);
+  /* Bereich, Einheit, Kategorie und Gebindegröße müssen stimmen – ohne die
+     GEBINDEGRÖSSE sprang der Abzug von 500-g-Gläsern auf 250-g-Gläser über.
+     Dazu die Rolle (Fund 04.11.2026, #23): Deckel nur durch Deckel, Etiketten
+     nur durch Etiketten – beide tragen keine Größe, genau wie ältere Gläser. */
+  const art = materialArt(start);
   const weitere = U.sortBy(
-    (await DB.getAll('inventar')).filter((i) => i.id !== start.id
-      && inventarTyp(i) === inventarTyp(start)
-      && verbrauchEinheit(i) === einheit
-      && (i.kategorie || '') === (start.kategorie || '')
-      /* Auch die GEBINDEGRÖSSE muss stimmen. Ohne diese Zeile sprang der Abzug
-         von 500-g-Gläsern auf 250-g-Gläser über: gleiche Kategorie, gleiche
-         Einheit „Stück" – und trotzdem das falsche Glas. Deckel und Etiketten
-         tragen keine Größe; sie bleiben untereinander austauschbar. */
-      && (Number(i.gebindeG) || 0) === (Number(start.gebindeG) || 0)
-      && verbrauchBestand(i) > 0),
+    (await DB.getAll('inventar')).filter((i) => i.id !== start.id && materialArt(i) === art && verbrauchBestand(i) > 0),
     (i) => i.anschaffung || i.createdAt || '');
   const abzug = [];
   let offen = m;
@@ -22293,6 +22543,35 @@ const DECKEL_WOERTER = /deckel|twist|to\s*82|schraubverschluss|verschluss/i;
 const ETIKETT_WOERTER = /etikett|label|banderole|gew(ä|ae)hrstreifen|siegel/i;
 const ZUBEHOER_WOERTER = new RegExp(`${DECKEL_WOERTER.source}|${ETIKETT_WOERTER.source}`, 'i');
 
+/* Rolle einer Position in der Abzugskette (Fund 04.11.2026, #23): Deckel und Etiketten tragen keine Gebindegröße, Gläser
+   aus älteren Fassungen auch nicht – mit gleicher Kategorie sprang der Abzug sonst von Deckeln auf Etiketten oder Gläser
+   über und verschwieg die Fehlmenge. Erkennbar sind sie wie beim Vorschlag nur am Namen (bzw. an der Kategorie
+   „Etiketten“). Etikett zuerst: „Gewährverschluss-Etikett“ und „Deckeletikett“ sind Etiketten, keine Deckel. */
+function materialRolle(p) {
+  const name = String((p && p.bezeichnung) || '');
+  if (ETIKETT_WOERTER.test(name) || (p && p.kategorie) === 'Etiketten') return 'etikett';
+  if (DECKEL_WOERTER.test(name)) return 'deckel';
+  return '';
+}
+/** „Dieselbe Art“ für die Abzugskette: Bereich, Einheit, Kategorie, Gebindegröße und Rolle (Deckel, Etikett, sonst '').
+    Eine Stelle für materialAbzugPlan, verbrauchAbziehenKette und das Umrechnen in abfuellungAendern. `rolle` gibt der
+    Aufrufer vor, wenn er weiß, wofür die Position gewählt ist (Feld „Deckel“ beim Abfüllen). */
+function materialArt(p, rolle = materialRolle(p)) {
+  return JSON.stringify([inventarTyp(p), verbrauchEinheit(p), p.kategorie || '', Number(p.gebindeG) || 0, rolle]);
+}
+/** Ganze Stücke nach dem größten Rest (Fund 04.11.2026, #24): jeder Anteil abgerundet, die fehlenden Stücke bekommen
+    die Anteile mit dem größten Nachkommarest (bei Gleichstand der vordere). Die Summe ist genau die gerundete Gesamtmenge –
+    einzeln gerundet wurden aus 1,5 + 3,5 sonst 2 + 4 = 6 statt 5. */
+function ganzeStueckeVerteilen(anteile) {
+  const ziel = Math.round(Math.round(anteile.reduce((n, x) => n + x, 0) * 1e6) / 1e6);
+  const ganz = anteile.map((x) => Math.floor(x + 1e-9));
+  let fehlt = ziel - ganz.reduce((n, x) => n + x, 0);
+  const rest = anteile.map((x, i) => Math.round((x - ganz[i]) * 1e9));   // ohne Rechenrauschen, sonst entschiede 0,30000000000000004 den Gleichstand
+  const reihe = anteile.map((x, i) => i).sort((i, j) => rest[j] - rest[i] || i - j);
+  for (const i of reihe) { if (fehlt <= 0) break; ganz[i]++; fehlt--; }
+  return ganz;
+}
+
 /** Gebindegröße aus einer Eingabe in Gramm. Versteht „500 g", „0,5 kg",
     „1kg", „500" und leere Eingaben. Gibt 0 zurück, wenn nichts erkennbar ist –
     dann hat die Position eben keine Gebindegröße, das ist erlaubt. */
@@ -22456,6 +22735,9 @@ function verdrahteGlasAbzug(m, posten) {
     }
   };
 
+  /* Gerechnet wird wie beim Speichern (Fund 04.11.2026, #27): materialAbzugPlan auf Kopien der Positionen, in derselben
+     Reihenfolge und mit denselben Rollen wie abfuellungenAnlegen (Größen, eigenes Gebinde, Deckel, Etiketten). Vorher
+     zählte nur die gewählte Position – Karton A 20, Karton B 100, 50 Gläser: „30 fehlen“, obwohl B beim Speichern einsprang. */
   const zeige = () => {
     if (!info) return;
     const geplant = [];
@@ -22463,28 +22745,37 @@ function verdrahteGlasAbzug(m, posten) {
     for (const g of GEBINDE_PRESETS) {
       const n = zahl(`g_${g}`);
       gesamt += n;
-      if (n > 0) geplant.push([wahl(`gl_${g}`), n, gebindeLabel(g)]);
+      if (n > 0) geplant.push([wahl(`gl_${g}`), n, gebindeLabel(g), '']);
     }
     const eigen = zahl('eigenesN');
     gesamt += eigen;
-    if (eigen > 0) geplant.push([wahl('gl_eigen'), eigen, 'eigenes Gebinde']);
+    if (eigen > 0) geplant.push([wahl('gl_eigen'), eigen, 'eigenes Gebinde', '']);
     if (gesamt > 0) {
-      geplant.push([wahl('gl_deckel'), gesamt, 'Deckel']);
-      geplant.push([wahl('gl_etikett'), gesamt, 'Etiketten']);
+      geplant.push([wahl('gl_deckel'), gesamt, 'Deckel', 'deckel']);
+      geplant.push([wahl('gl_etikett'), gesamt, 'Etiketten', 'etikett']);
     }
-    const schon = new Map();
+    const kopie = posten.map((i) => ({ ...i })), geaendert = new Map();
     const zeilen = [];
-    let ohneWahl = 0;
-    for (const [pos, n, was] of geplant) {
-      if (!pos) { ohneWahl++; continue; }
+    // Eigenes Gebinde ohne Größe: Speichern weist es ab (Fund 04.11.2026, #28) – schon hier sagen, statt still mitzuzählen
+    if (eigen > 0 && !(zahl('eigenesG') > 0)) zeilen.push('<span class="zahl-warn">Für das eigene Gebinde fehlt noch die Größe (g) – ohne sie lässt sich nicht speichern.</span>');
+    for (const [pos, n, was, rolle] of geplant) {
+      if (!pos) continue;
       const e = verbrauchEinheit(pos);
-      const vorher = Math.max(0, verbrauchBestand(pos) - (schon.get(pos.id) || 0));
-      schon.set(pos.id, (schon.get(pos.id) || 0) + n);
-      zeilen.push(`${U.esc(pos.bezeichnung)} <span class="muted">(${U.esc(was)})</span>: <b>−${U.fmtNum(n, 0)} ${e}</b> → Rest <b>${U.fmtNum(Math.max(0, vorher - n), 0)} ${e}</b>`
-        + (n > vorher ? ` <span class="zahl-warn">– ${U.fmtNum(n - vorher, 0)} ${e} fehlen, der Bestand geht auf 0</span>` : ''));
+      let plan;
+      try { plan = materialAbzugPlan(kopie, pos.id, n, geaendert, rolle); }
+      catch (err) { zeilen.push(`${U.esc(pos.bezeichnung)} <span class="muted">(${U.esc(was)})</span>: <span class="zahl-warn">${U.esc(err.message)}</span>`); continue; }
+      // Die gewählte Position steht immer vorn – auch leer, damit man sieht, warum ein zweiter Karton einspringt
+      const teile = plan.abzug[0] && plan.abzug[0].inventarId === pos.id ? plan.abzug : [{ inventarId: pos.id, menge: 0 }, ...plan.abzug];
+      teile.forEach((x, k) => {
+        const p = kopie.find((i) => i.id === x.inventarId) || pos;
+        const zweiter = x.inventarId !== pos.id;
+        zeilen.push(`${U.esc(p.bezeichnung)} <span class="muted">(${U.esc(was)}${zweiter ? `, springt ein: „${U.esc(pos.bezeichnung)}“ reicht nicht` : ''})</span>: `
+          + (x.menge > 0 ? `<b>−${U.fmtNum(x.menge, 0)} ${e}</b> → Rest <b>${U.fmtNum(verbrauchBestand(p), 0)} ${e}</b>` : '<b>leer</b>')
+          + (k === teile.length - 1 && plan.gefehlt > 0 ? ` <span class="zahl-warn">– ${U.fmtNum(plan.gefehlt, 0)} ${e} fehlen, der Bestand geht auf 0</span>` : ''));
+      });
     }
     info.innerHTML = zeilen.length ? zeilen.join('<br>')
-      : (gesamt > 0 ? `Kein Abzug gewählt${ohneWahl ? '' : ''} – der Bestand bleibt unverändert.` : '');
+      : (gesamt > 0 ? 'Kein Abzug gewählt – der Bestand bleibt unverändert.' : '');
   };
 
   vorschlaegeSetzen();
@@ -23234,31 +23525,45 @@ const Reporting = {
 
   /** Honigertrag gruppiert nach volk|stand|tracht|jahr */
   async ertrag(gruppe, jahr = '') {
-    const ernten = (await DB.getAll('ernten')).filter((e) => !jahr || String(e.datum || '').startsWith(jahr));
+    // Nur Honig und Wabenhonig – Pollen und Propolis standen sonst mit in „Honigertrag je Volk“ (Fund 04.11.2026, #11/#12)
+    const ernten = (await DB.getAll('ernten')).filter((e) => istHonigErnte(e) && (!jahr || String(e.datum || '').startsWith(jahr)));
     const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
-    const key = (e) => {
-      if (gruppe === 'jahr') return (e.datum || '').slice(0, 4) || '?';
-      if (gruppe === 'tracht') return trachten.has(e.trachtId) ? Tracht.schluessel(trachten.get(e.trachtId)) : 'ohne Tracht';
-      if (gruppe === 'sorte') return e.sorte || 'ohne Sorte';
-      if (gruppe === 'stand') { if (e.zielTyp === 'stand') return staende.get(e.zielId)?.name || 'gelöscht'; const v = voelker.get(e.zielId); return v && v.standId ? staende.get(v.standId)?.name || 'gelöscht' : 'ohne Stand'; }
-      return e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name || 'gelöscht' : `Stand: ${staende.get(e.zielId)?.name || 'gelöscht'}`;
+    const wanderungen = gruppe === 'stand' ? await DB.getAll('wanderungen') : [];
+    /* Gruppe je Ernte: id = Schlüssel zum Zusammenfassen, k = Anzeige, href = wohin ein Klick führt (Volk bzw. Stand).
+       Völker und Stände nach ihrer id, nicht nach dem Namen: zwei Völker „Volk 1“ an verschiedenen Ständen wurden
+       eine Zeile mit Link nur zum ersten (Fund 04.11.2026, #15). „Je Stand“ zählt der Stand AM ERNTETAG – nach einer
+       Wanderung zur Tracht und zurück stand die Rapsernte sonst beim Heimstand (Fund 04.11.2026, #16). */
+    const standGruppe = (sid, vorsatz = '') => (staende.has(sid)
+      ? { id: 's:' + sid, k: vorsatz + (staende.get(sid).name || 'gelöscht'), href: '#/stand/' + sid }
+      : { id: 's:?', k: vorsatz + 'gelöscht' });
+    const gruppeVon = (e) => {
+      if (gruppe === 'jahr') { const j = (e.datum || '').slice(0, 4) || '?'; return { id: j, k: j }; }
+      if (gruppe === 'tracht') { const k = trachten.has(e.trachtId) ? Tracht.schluessel(trachten.get(e.trachtId)) : 'ohne Tracht'; return { id: k, k }; }
+      if (gruppe === 'sorte') { const k = e.sorte || 'ohne Sorte'; return { id: k, k }; }
+      if (gruppe === 'stand') {
+        if (e.zielTyp === 'stand') return standGruppe(e.zielId);
+        const v = voelker.get(e.zielId), sid = v ? standAmStichtag(v, String(e.datum || U.todayIso()), wanderungen) : null;
+        return sid ? standGruppe(sid) : { id: 'ohne', k: 'ohne Stand' };
+      }
+      if (e.zielTyp !== 'volk') return standGruppe(e.zielId, 'Stand: ');
+      const v = voelker.get(e.zielId);
+      return v ? { id: 'v:' + v.id, k: v.name || 'gelöscht', href: '#/volk/' + v.id, volk: v } : { id: 'v:?', k: 'gelöscht' };
     };
-    const g = U.groupBy(ernten, key);
-    /* href: wohin ein Klick auf die Zeile führt (Volk bzw. Stand), sonst leer. */
-    const ziel = (e) => {
-      if (gruppe === 'volk') return e.zielTyp === 'volk' ? (voelker.has(e.zielId) ? '#/volk/' + e.zielId : '') : (staende.has(e.zielId) ? '#/stand/' + e.zielId : '');
-      if (gruppe === 'stand') { const sid = e.zielTyp === 'stand' ? e.zielId : voelker.get(e.zielId)?.standId; return staende.has(sid) ? '#/stand/' + sid : ''; }
-      return '';
-    };
-    const rows = [...g.entries()].map(([k, items]) => ({ k, kg: U.sum(items, (e) => e.mengeKg), n: items.length, href: ziel(items[0]) })).sort((a, b) => b.kg - a.kg);
-    return rows;
+    const g = new Map();
+    for (const e of ernten) { const x = gruppeVon(e); if (!g.has(x.id)) g.set(x.id, { ...x, items: [] }); g.get(x.id).items.push(e); }
+    const rows = [...g.values()].map((x) => ({ k: x.k, kg: U.sum(x.items, (e) => e.mengeKg), n: x.items.length, href: x.href || '', volk: x.volk }));
+    // Gleichnamige Völker: heutigen Stand dazuschreiben, sonst sind die Zeilen nicht zu unterscheiden (Fund 04.11.2026, #15)
+    for (const [, gleich] of U.groupBy(rows.filter((r) => r.volk), (r) => r.k)) {
+      if (gleich.length > 1) for (const r of gleich) r.k += ` (${staende.get(r.volk.standId)?.name || 'ohne Stand'})`;
+    }
+    return rows.map(({ volk, ...r }) => r).sort((a, b) => b.kg - a.kg);
   },
   /** Honig je Tracht (gleiche Pflanze über die Jahre zusammen) mit Ø je Volk und Vorjahr (laufendes Jahr: bis zum selben Kalendertag). */
   async ertragJeTracht(jahr = '') {
     const ernten = await DB.getAll('ernten'), trachten = await idMap('trachten');
     const je = new Map();
     for (const e of ernten) {
-      if (e.produktart && e.produktart !== 'Honig') continue;
+      if (!istHonigErnte(e)) continue;   // Wabenhonig zählt mit, Pollen und Propolis nicht (Fund 04.11.2026, #12)
       const jetzt = !jahr || Statistik.im(e.datum, jahr), vor = !!jahr && Statistik.imVorjahr(e.datum, jahr);
       if (!jetzt && !vor) continue;
       const k = trachten.has(e.trachtId) ? Tracht.schluessel(trachten.get(e.trachtId)) : 'ohne Tracht';
@@ -23338,7 +23643,8 @@ const Reporting = {
 const Statistik = {
   async daten() {
     const d = {};
-    for (const st of ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten']) d[st] = await DB.getAll(st);
+    // rechnungen: per Rechnung verkaufter Honig zählt beim Verkauf mit (Fund 04.11.2026, #10)
+    for (const st of ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten', 'rechnungen']) d[st] = await DB.getAll(st);
     d.volkMap = new Map(d.voelker.map((v) => [v.id, v]));
     return d;
   },
@@ -23363,20 +23669,23 @@ const Statistik = {
   },
   kachel(label, wert, sub, v) { return { label, wert, sub: sub || '', vergleich: v || null }; },
   volkLink: (v) => (v ? '#/volk/' + v.id : ''),
-  ernteKgJeVolk(d, j) {
+  /* pruef: Datumsprüfung wie bei honigKg (imJ bzw. imV). Vorher ein Jahr – das Vorjahr zählte dann ganz, auch im
+     laufenden Jahr statt nur bis zum selben Kalendertag (Fund 04.11.2026, #13). Wabenhonig zählt mit (#12). */
+  ernteKgJeVolk(d, pruef) {
     const je = new Map();
     for (const e of d.ernten) {
-      if (!this.im(e.datum, j) || e.zielTyp !== 'volk' || (e.produktart && e.produktart !== 'Honig')) continue;
+      if (!pruef(e.datum) || e.zielTyp !== 'volk' || !istHonigErnte(e)) continue;
       je.set(e.zielId, (je.get(e.zielId) || 0) + (Number(e.mengeKg) || 0));
     }
     return je;
   },
-  honigKg(d, pruef) { return U.sum(d.ernten.filter((e) => pruef(e.datum) && (!e.produktart || e.produktart === 'Honig')), (e) => Number(e.mengeKg) || 0); },
+  honigKg(d, pruef) { return U.sum(d.ernten.filter((e) => pruef(e.datum) && istHonigErnte(e)), (e) => Number(e.mengeKg) || 0); },   // Wabenhonig zählt mit (Fund 04.11.2026, #12)
   zucker(d, pruef) { return U.sum(d.fuetterungen.filter((f) => pruef(f.datum)), (f) => { const z = zuckerAusFuetterung(f); return z ? z.kg : 0; }); },
-  verkauftKg(d, pruef) {
-    const abf = new Map(d.abfuellungen.map((a) => [a.id, a]));
-    return U.sum(d.verkaeufe.filter((v) => pruef(v.datum)), (v) => (Number(v.anzahl) || 0) * (verkaufGebindeG(v, abf.get(v.abfuellungId)) || 0) / 1000);
+  /** Verkaufter Honig im Zeitraum – Verkäufe UND festgeschriebene Rechnungen, wie im Jahresbericht (Fund 04.11.2026, #10). */
+  verkaufPosten(d, pruef) {
+    return honigVerkaufPosten(d.verkaeufe, d.rechnungen || [], new Map(d.abfuellungen.map((a) => [a.id, a]))).filter((x) => pruef(x.datum));
   },
+  verkauftKg(d, pruef) { return U.sum(this.verkaufPosten(d, pruef), (x) => x.kg); },
   stunden(d, pruef) { return U.sum(d.aufgaben.filter((a) => a.erledigt && a.zeitMinuten > 0 && pruef(a.faellig || String(a.lastModified || '').slice(0, 10))), (a) => a.zeitMinuten) / 60; },
   /** Kennzahlen + Auffälligkeiten eines Bereichs für Jahr j. bereich: voelker | ertrag | futter | behandlungen | finanzen | arbeit */
   async auswerten(bereich, j, d = null) {
@@ -23424,18 +23733,18 @@ const Statistik = {
     } else if (bereich === 'ertrag') {
       const kg = this.honigKg(d, imJ), kgV = this.honigKg(d, imV);
       kacheln.push(this.kachel('Honig geerntet', `${U.fmtNum(kg, 1)} kg`, laufend ? 'bis heute' : '', this.vergleich(kg, kgV, { einheit: 'kg', dez: 1 })));
-      const je = this.ernteKgJeVolk(d, j), jeV = this.ernteKgJeVolk(d, String(+j - 1));
+      const je = this.ernteKgJeVolk(d, imJ), jeV = this.ernteKgJeVolk(d, imV);   // Vorjahr bis zum selben Kalendertag (Fund 04.11.2026, #13)
       const schnitt = je.size ? U.sum([...je.values()], (x) => x) / je.size : 0, schnittV = jeV.size ? U.sum([...jeV.values()], (x) => x) / jeV.size : null;
       if (je.size) kacheln.push(this.kachel('Ø je Volk mit Ernte', `${U.fmtNum(schnitt, 1)} kg`, `${je.size} ${je.size === 1 ? 'Volk' : 'Völker'}`, this.vergleich(schnitt, schnittV, { einheit: 'kg', dez: 1, prozent: false })));
-      const mitW = d.ernten.filter((e) => imJ(e.datum) && e.wassergehalt != null && e.wassergehalt !== '' && Number.isFinite(Number(e.wassergehalt)));
+      const mitW = d.ernten.filter((e) => imJ(e.datum) && istHonigErnte(e) && e.wassergehalt != null && e.wassergehalt !== '' && Number.isFinite(Number(e.wassergehalt)));   // 18-%-Grenze gilt für Honig, nicht für Pollen (Fund 04.11.2026, #11)
       const feucht = mitW.filter((e) => Number(e.wassergehalt) > 18);
       if (mitW.length) kacheln.push(this.kachel('Wassergehalt Ø', `${U.fmtNum(U.sum(mitW, (e) => Number(e.wassergehalt)) / mitW.length, 1)} %`, feucht.length ? `${feucht.length} ${feucht.length === 1 ? 'Ernte' : 'Ernten'} über 18 %` : 'alle bis 18 %'));
-      const sorten = new Map(); for (const e of d.ernten) if (imJ(e.datum) && (!e.produktart || e.produktart === 'Honig')) sorten.set(e.sorte || 'ohne Sorte', (sorten.get(e.sorte || 'ohne Sorte') || 0) + (Number(e.mengeKg) || 0));
+      const sorten = new Map(); for (const e of d.ernten) if (imJ(e.datum) && istHonigErnte(e)) sorten.set(e.sorte || 'ohne Sorte', (sorten.get(e.sorte || 'ohne Sorte') || 0) + (Number(e.mengeKg) || 0));
       const top = [...sorten.entries()].sort((a, b) => b[1] - a[1])[0];
       if (top && kg > 0) kacheln.push(this.kachel('Stärkste Sorte', top[0], `${U.fmtNum(top[1] / kg * 100, 0)} % der Menge`));
       // Ertrag je Tracht (v2.83): gleiche Pflanze über die Jahre zusammen („Raps 2025“ = „Raps“)
       const trM = new Map((d.trachten || []).map((t) => [t.id, t]));
-      const jeTr = (pruef) => { const m = new Map(); for (const e of d.ernten) { const t = trM.get(e.trachtId); if (!t || !pruef(e.datum) || (e.produktart && e.produktart !== 'Honig')) continue; const k = Tracht.schluessel(t); m.set(k, (m.get(k) || 0) + (Number(e.mengeKg) || 0)); } return m; };
+      const jeTr = (pruef) => { const m = new Map(); for (const e of d.ernten) { const t = trM.get(e.trachtId); if (!t || !pruef(e.datum) || !istHonigErnte(e)) continue; const k = Tracht.schluessel(t); m.set(k, (m.get(k) || 0) + (Number(e.mengeKg) || 0)); } return m; };
       const trJ = jeTr(imJ), trV = jeTr(imV);
       const topT = [...trJ.entries()].sort((a, b) => b[1] - a[1])[0];
       if (topT && kg > 0) {
@@ -23445,7 +23754,7 @@ const Statistik = {
         if (i >= 0) kacheln.splice(i, 1);
       }
       for (const [k, x] of trJ) { const alt = trV.get(k); if (alt > 5 && x < alt * 0.6) auff.push({ art: 'w', titel: `${k}: ${U.fmtNum(x, 1)} kg statt ${U.fmtNum(alt, 1)} kg`, text: 'Deutlich weniger als im Vorjahr – Wetter während der Blüte, Volksstärke zur Tracht und Standort prüfen.', href: '#/trachten' }); }
-      const ohneTr = d.ernten.filter((e) => imJ(e.datum) && (!e.produktart || e.produktart === 'Honig') && !trM.get(e.trachtId)).length;
+      const ohneTr = d.ernten.filter((e) => imJ(e.datum) && istHonigErnte(e) && !trM.get(e.trachtId)).length;
       if (trM.size && ohneTr) auff.push({ art: 'i', titel: `${ohneTr} ${ohneTr === 1 ? 'Ernte' : 'Ernten'} ohne Tracht`, text: 'In der Ernte die Tracht wählen – dann zeigt die Statistik den Ertrag je Tracht vollständig.', href: '#/honig' });
       if (je.size >= 3 && schnitt > 0) {
         const liste = [...je.entries()].map(([id, x]) => ({ v: d.volkMap.get(id), x })).sort((a, b) => b.x - a.x);
@@ -23504,8 +23813,11 @@ const Statistik = {
       kacheln.push(this.kachel('Einnahmen', U.fmtEur(ein), laufend ? 'bis heute' : '', this.vergleich(ein, einV, { einheit: '€', dez: 2 })));
       kacheln.push(this.kachel('Ausgaben', U.fmtEur(aus), '', this.vergleich(aus, ausV, { einheit: '€', dez: 2, gut: 'runter' })));
       kacheln.push(this.kachel('Gewinn', U.fmtEur(ein - aus), '', this.vergleich(ein - aus, einV - ausV, { einheit: '€', dez: 2, prozent: false })));
-      const kg = this.verkauftKg(d, imJ), umsatz = U.sum(d.verkaeufe.filter((v) => imJ(v.datum)), (v) => Number(v.betrag) || 0);
-      const kgV = this.verkauftKg(d, imV), umsatzV = U.sum(d.verkaeufe.filter((v) => imV(v.datum)), (v) => Number(v.betrag) || 0);
+      /* Menge und Erlös aus denselben Posten: Verkäufe und Rechnungen (Rabatt abgezogen), nur mit bekanntem Gewicht –
+         vorher fehlten Rechnungen ganz, „5 kg verkauft“ statt 15 kg (Fund 04.11.2026, #10). */
+      const erloes = (pruef) => U.sum(this.verkaufPosten(d, pruef).filter((x) => x.gebindeG > 0), (x) => x.euro);
+      const kg = this.verkauftKg(d, imJ), umsatz = erloes(imJ);
+      const kgV = this.verkauftKg(d, imV), umsatzV = erloes(imV);
       if (kg > 0) kacheln.push(this.kachel('Erlös je kg Honig', U.fmtEur(umsatz / kg), `${U.fmtNum(kg, 1)} kg verkauft`, kgV > 0 ? this.vergleich(umsatz / kg, umsatzV / kgV, { einheit: '€', dez: 2 }) : null));
       if (aktiv.length) kacheln.push(this.kachel('Kosten je Volk', U.fmtEur(aus / aktiv.length), `${aktiv.length} Völker`));
       const kat = (pruef) => { const m = new Map(); for (const k of d.kassenbuch) if (k.typ === 'ausgabe' && pruef(k.datum)) m.set(k.kategorie || 'Sonstiges', (m.get(k.kategorie || 'Sonstiges') || 0) + (Number(k.betrag) || 0)); return m; };
@@ -24913,8 +25225,8 @@ async function pruefeMhd() {
     const restKg = chargeRestKg(c, abfAlle);
     if (restKg <= 0.0001 || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
     const titel = c.mhd < heute
-      ? `MHD überschritten: Charge ${c.losnummer} (${U.fmtNum(restKg, 1)} kg nicht abgefüllt)`
-      : `MHD läuft ab: Charge ${c.losnummer} am ${U.fmtDate(c.mhd)} (${U.fmtNum(restKg, 1)} kg nicht abgefüllt)`;
+      ? `MHD überschritten: Charge ${c.losnummer} (${restKgText(restKg)} kg nicht abgefüllt)`   // nicht „(0 kg …)“ bei kleinem Rest (Fund 04.11.2026, #9)
+      : `MHD läuft ab: Charge ${c.losnummer} am ${U.fmtDate(c.mhd)} (${restKgText(restKg)} kg nicht abgefüllt)`;
     await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abfüllen oder verwerten.' });
   }
   // Betriebsmittel/Inventar: Ablaufdatum (MHD) und Mindestbestand
@@ -26360,7 +26672,7 @@ const Pdf = {
         body.push([
           { content: `Charge ${c.losnummer}`, styles: kopf },
           { content: `${U.fmtNum(c.mengeKg || 0, 1)} kg`, styles: kopf },
-          { content: `${U.fmtNum(chargeRestKg(c, abfAlle), 1)} kg frei${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}`, styles: kopf },
+          { content: `${restKgText(chargeRestKg(c, abfAlle))} kg frei${chargeVerlustKg(c.id) > 0 ? ` · ${U.fmtNum(chargeVerlustKg(c.id), 2)} kg Verlust` : ''}`, styles: kopf },   // restKgText: nicht „0 kg frei“ bei kleinem Rest (Fund 04.11.2026, #9)
           { content: U.fmtDate(c.datum) || '–', styles: kopf },
           { content: sorten, styles: kopf },
         ]);
@@ -26472,17 +26784,18 @@ const Pdf = {
         ['ernten', 'chargen', 'abfuellungen', 'verkaeufe', 'kassenbuch', 'voelker', 'fuetterungen', 'rechnungen'].map((st) => DB.getAll(st)));
       const erntenMap = new Map(ernten.map((e) => [e.id, e]));
       const chargenMap = new Map(chargen.map((c) => [c.id, c]));
-      const istHonig = (e) => !e.produktart || e.produktart === 'Honig' || e.produktart === 'Wabenhonig';
-      const ernteJ = ernten.filter((e) => istHonig(e) && imJahr(e.datum));
+      const ernteJ = ernten.filter((e) => istHonigErnte(e) && imJahr(e.datum));
       const abfJ = abf.filter((a) => imJahr(a.datum));
-      const vkJ = verkaeufe.filter((v) => imJahr(v.datum));
+      /* Verkauft = Verkäufe UND festgeschriebene Rechnungen, Erlös der Rechnungen nach Rabatt. Vorher zählten
+         Rechnungen nur beim Erlös und ohne Rabatt: „Verkauft 10 kg / 20 Gebinde“ neben 370 € statt 35 kg / 70 Gebinde
+         und 345 € (Fund 04.11.2026, #10/#18/#26). */
+      const vkJ = honigVerkaufPosten(verkaeufe, rechnungen, new Map(abf.map((a) => [a.id, a]))).filter((x) => imJahr(x.datum));
       const chargenJ = chargen.filter((c) => imJahr(c.datum) || abfJ.some((a) => a.chargeId === c.id) || (c.ernteIds || []).some((id) => ernteJ.some((e) => e.id === id)));
 
       const kgErnte = U.sum(ernteJ, (e) => Number(e.mengeKg) || 0);
       const kgAbgefuellt = U.sum(abfJ, (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000);
-      const kgVerkauft = U.sum(vkJ, (v) => (v.anzahl || 0) * verkaufGebindeG(v, abf.find((x) => x.id === v.abfuellungId)) / 1000);
-      const umsatzHonig = U.sum(vkJ, (v) => Number(v.betrag) || 0)
-        + U.sum(rechnungen.filter((r) => r.status === 'festgeschrieben' && imJahr(r.datum)), (r) => U.sum((r.positionen || []).filter((p) => p.abfuellungId), (p) => (p.menge || 0) * (p.einzelpreis || 0)));
+      const kgVerkauft = U.sum(vkJ, (x) => x.kg);
+      const umsatzHonig = U.sum(vkJ, (x) => x.euro);
       const ein = U.sum(kasse.filter((k) => k.typ === 'einnahme' && imJahr(k.datum)), (k) => k.betrag);
       const aus = U.sum(kasse.filter((k) => k.typ === 'ausgabe' && imJahr(k.datum)), (k) => k.betrag);
       const voelkerEnde = voelkerAmStichtag(voelker, `${J}-12-31` > U.todayIso() ? U.todayIso() : `${J}-12-31`).length;
@@ -26503,7 +26816,7 @@ const Pdf = {
         ['Völker', String(voelkerEnde), J === U.todayIso().slice(0, 4) ? 'Stand heute' : 'zum Jahresende'],
         ['Ernte', `${U.fmtNum(kgErnte, 1)} kg`, `${ernteJ.length} ${ernteJ.length === 1 ? 'Ernte' : 'Ernten'}`],
         ['Abgefüllt', `${U.fmtNum(kgAbgefuellt, 1)} kg`, `${U.sum(abfJ, (a) => a.anzahl || 0)} Gebinde`],
-        ['Verkauft', `${U.fmtNum(kgVerkauft, 1)} kg`, `${U.sum(vkJ, (v) => v.anzahl || 0)} Gebinde`],
+        ['Verkauft', `${U.fmtNum(kgVerkauft, 1)} kg`, `${U.sum(vkJ, (x) => x.anzahl)} Gebinde`],
       ]);
       kachelReihe([
         ['Erlös Honig', U.fmtEur(umsatzHonig), 'Verkäufe und Rechnungen'],
@@ -26550,7 +26863,7 @@ const Pdf = {
           U.fmtDate(c.datum) || '–',
           chargeSorten(c, erntenMap).join(', ') || '–',
           `${U.fmtNum(c.mengeKg || 0, 1)} kg`,
-          `${U.fmtNum(chargeRestKg(c, abf), 1)} kg`,
+          `${restKgText(chargeRestKg(c, abf))} kg`,   // kleiner Rest nicht als „0 kg“ (Fund 04.11.2026, #9)
           `${U.sum(eigene, (a) => a.bestand || 0)}`,
         ]);
         for (const a of U.sortBy(eigene, (a) => a.gebindeG, true)) {
@@ -26562,16 +26875,16 @@ const Pdf = {
           widths: { 3: { halign: 'right', cellWidth: 22 }, 4: { halign: 'right', cellWidth: 26 }, 5: { halign: 'right', cellWidth: 24 } } }) + 8;
       } else { doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(120); doc.text('Keine Chargen im Berichtsjahr.', rand, y2); y2 += 8; }
 
-      // Verkauf je Gebinde
-      const jeGebinde = [...U.groupBy(vkJ, (v) => { const a = abf.find((x) => x.id === v.abfuellungId); return a ? gebindeLabel(a.gebindeG) : 'ohne Gebinde'; }).entries()]
-        .map(([k, items]) => [k, String(U.sum(items, (v) => v.anzahl || 0)), U.fmtEur(U.sum(items, (v) => v.betrag || 0))])
+      // Verkauf je Gebinde – mit Rechnungen; ein freier Verkauf steht unter seiner eigenen Größe statt „ohne Gebinde“ (Fund 04.11.2026, #26)
+      const jeGebinde = [...U.groupBy(vkJ, (x) => (x.gebindeG > 0 ? gebindeLabel(x.gebindeG) : 'ohne Gebinde')).entries()]
+        .map(([k, items]) => [k, String(U.sum(items, (x) => x.anzahl)), U.fmtEur(U.sum(items, (x) => x.euro))])
         .sort((a, b) => U.parseNum(b[2]) - U.parseNum(a[2]));
       if (jeGebinde.length) {
         doc.setFont('helvetica', 'bold').setFontSize(11).setTextColor(38, 38, 43);
         doc.text('Verkauf je Gebinde', rand, y2); y2 += 2;
         jeGebinde.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } },
-          { content: String(U.sum(vkJ, (v) => v.anzahl || 0)), styles: { fontStyle: 'bold', halign: 'right' } },
-          { content: U.fmtEur(U.sum(vkJ, (v) => v.betrag || 0)), styles: { fontStyle: 'bold', halign: 'right' } }]);
+          { content: String(U.sum(vkJ, (x) => x.anzahl)), styles: { fontStyle: 'bold', halign: 'right' } },
+          { content: U.fmtEur(umsatzHonig), styles: { fontStyle: 'bold', halign: 'right' } }]);
         y2 = this.table(doc, { head: ['Gebinde', 'Anzahl', 'Erlös'], body: jeGebinde, startY: y2 + 2,
           widths: { 1: { halign: 'right', cellWidth: 26 }, 2: { halign: 'right', cellWidth: 30 } } }) + 8;
       }
@@ -27443,7 +27756,7 @@ const Pdf = {
       const ein = U.sum(list.filter((k) => k.typ === 'einnahme'), (k) => k.betrag);
       const aus = U.sum(list.filter((k) => k.typ === 'ausgabe'), (k) => k.betrag);
       const { doc, y } = await this.newDoc(`Kassenbuch ${jahr}`, `Einnahmen: ${U.fmtEur(ein)} · Ausgaben: ${U.fmtEur(aus)} · Saldo: ${U.fmtEur(ein - aus)}`);
-      const body = list.map((k) => [U.fmtDate(k.datum), k.typ === 'einnahme' ? 'Einnahme' : 'Ausgabe', k.kategorie, k.beschreibung || '', kontakte.get(k.kontaktId)?.name || '', k.steuersatz ? k.steuersatz + ' %' : '', (k.typ === 'einnahme' ? '+' : '-') + U.fmtEur(Math.abs(k.betrag))]);
+      const body = list.map((k) => [U.fmtDate(k.datum), k.typ === 'einnahme' ? 'Einnahme' : 'Ausgabe', k.kategorie, k.beschreibung || '', kontakte.get(k.kontaktId)?.name || '', k.steuersatz ? k.steuersatz + ' %' : '', (kassenRichtung(k) > 0 ? '+' : '-') + U.fmtEur(Math.abs(k.betrag))]);   // Storno mit „-“ (Fund 04.11.2026, #20)
       this.table(doc, { head: ['Datum', 'Art', 'Kategorie', 'Beschreibung', 'Kontakt', 'USt', 'Betrag'], body, startY: y, widths: { 6: { halign: 'right' } } });
       this.finish(doc, `kassenbuch-${jahr}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -30659,6 +30972,16 @@ function unbehandelterFehler(ev) {
   fehlerZuletzt = jetzt;
   UI.toast(UNBEHANDELT_TEXT, 'err');
 }
+/* Fehler einer Aktion melden, die gerade angetippt wurde (Fund 04.11.2026). Ohne catch landete z. B. ein gescheitertes
+   Storno bei unbehandelterFehler: dort nur der allgemeine Satz und danach 30 s lang gar nichts – der Tester sah
+   „es tut nichts“. Hier steht immer der Grund (oder der Ersatztext) da. Still bleibt, was auch dort still bleibt:
+   abgebrochen, Kauf-Fenster schon offen, bewusst leise (z. B. Rückfrage mit „Abbrechen“). */
+function fehlerMelden(e, ersatz = 'Das hat gerade nicht geklappt. Bitte noch einmal versuchen.') {
+  if (e && (e.name === 'AbortError' || e.lizenz || e.leise)) return;
+  console.error(e);
+  if (istSpeicherVoll(e)) { speicherVollZuletzt = Date.now(); UI.toast(SPEICHER_VOLL_TEXT, 'err'); return; }   // derselbe Text wie überall, und kein zweiter Hinweis gleich danach
+  UI.toast((e && e.message) || ersatz, 'err');
+}
 /* Ab dieser Dauer sieht der Kunde die Notfallseite. Läuft der Start danach doch noch durch, verschwindet sie von selbst. */
 const START_FRIST_MS = 35000;   // länger als die zwei Versuche von startDatenbank, damit deren Fehler genannt wird
 async function boot() {
@@ -30758,7 +31081,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT,
+  wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden,
   TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
