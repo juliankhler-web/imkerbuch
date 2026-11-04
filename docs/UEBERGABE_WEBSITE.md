@@ -18,7 +18,7 @@ Stand 2026-10-30. Geschrieben im Chat „Unterlagen – Hauptchat“, der dafür
 
 ### Inhalt und Aufbau
 
-Start mit Bienen-Video in Karte (verschwommener Video-Hintergrund, Vorlage „Bloom“) → Über ImkerBuch mit Zahlen → Band Steffen Pfau → Funktionen (Version B: 10 Themen als Reiter, frisches App-Bild, volle Liste, „Über 130 Funktionen“, heute 134) → Häufige Fragen (Slider mit Pfeilen, 7 Fragen) → Video „Vom Bienenstand bis zum Honigglas.“ → Preis → Kontakt/Fußzeile.
+Start mit Bienen-Video in Karte (verschwommener Video-Hintergrund, Vorlage „Bloom“) → Über ImkerBuch mit Zahlen → Funktionen (Version B: 10 Themen als Reiter, frisches App-Bild, volle Liste, „Über 130 Funktionen“, heute 134) → Häufige Fragen (Slider mit Pfeilen, 7 Fragen) → Video „Vom Bienenstand bis zum Honigglas.“ → Preis → Kontakt/Fußzeile (darin seit 04.11.2026 die kleine Zeile „Mit Imkern aus der Praxis entwickelt. · Partner-Imkerei: PFAU-Honig ↗ (Werbung)“).
 
 ### Feste Entscheidungen von Julian
 
@@ -27,7 +27,7 @@ Start mit Bienen-Video in Karte (verschwommener Video-Hintergrund, Vorlage „Bl
 - **Knopf mit rundem Pfeil-Kreis = volle Kapsel** (per Screenshot gezeigt). Alle anderen abgerundete Rechtecke, 12 px. In der App bleibt es bei „keine Pillenform“.
 - **Keine Nummern** wie „(01–06)“, keine Bezeichnung „Bienenjahr“. „Thema 01 von 10“ und der Fragen-Zähler bleiben.
 - **Keine erfundenen Zahlen oder Stimmen.** Bei Steffen kein Zitat.
-- **Steffen Pfau** (Kollege FW6, Imkerei PFAU-Honig, Utting am Ammersee, Naturland-Bio): „war maßgeblich an der Entwicklung von ImkerBuch beteiligt“, Link pfauhonig.de, sein Logo von seiner Seite (`media/partner/pfau-honig-logo-braun.png`). Er ist laut Julian einverstanden. Das Naturland-Siegel nicht verwenden.
+- **Steffen Pfau / PFAU-Honig – NEU 04.11.2026:** Steffen möchte es „nicht so dick aufgetragen“. Das große Band oben (Logo, Name, „maßgeblich beteiligt“, Bio-Schild) ist weg. Stattdessen ganz unten über der Fußleiste eine kleine Zeile (Julian wählte im Mockup Variante A): „Mit Imkern aus der Praxis entwickelt.“ – allgemein, **nicht auf ihn bezogen** – und getrennt davon „Partner-Imkerei: PFAU-Honig ↗ (Werbung)“ mit Link auf pfauhonig.de. Kein Name, kein Logo, kein Zitat. Auf dem Handy steht der Link in einer zweiten Zeile. Das Logo `media/partner/pfau-honig-logo-braun.png` bleibt nur als Datei in website-neu liegen und wird nicht mehr hochgeladen. Das Naturland-Siegel weiter nie verwenden.
 - **Knöpfe heißen „Bald im App Store & bei Google Play“ / „Bald erhältlich“,** weil die App noch nicht im Store ist und die Web-Version per Tester-Code gesperrt. Beim Store-Start echte Links eintragen.
 - **Cloud-Frage in den FAQ:** freigegebener Wortlaut („… in Planung – einen Termin gibt es noch nicht.“). In App-Store- und Play-Texten die Cloud NICHT erwähnen.
 - **Nicht versprechen:** dass die normale Handy-Kamera die App über den QR-Aufkleber öffnet (ungetestet, siehe `docs/QR_DEEPLINK.md`).
