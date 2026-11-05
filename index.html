@@ -3755,9 +3755,11 @@ const S = {
   get(key) { return this.data[key] !== undefined ? this.data[key] : structuredClone(this.defaults[key] ?? null); },
   async set(key, value, { auto = false } = {}) {
     /* Bevor sich die eigenen Angaben ändern: Rechnungen ohne Schnappschuss (z. B. gerade aus einer alten Sicherung eingespielt,
-       der Start hat sie noch nicht nachgeholt) bekommen den bisherigen Absender (Fund 04.11.2026, #2/#21). Scheitert das, holt es
-       der nächste Start nach – das Speichern selbst soll daran nicht hängen. */
-    if (key === 'imkerei') await migriereRechnungSchnappschuss().catch((e) => console.warn('Rechnungs-Schnappschuss', e));
+       der Start hat sie noch nicht nachgeholt) bekommen den bisherigen Absender (Fund 04.11.2026, #2/#21).
+       Scheitert das, wird NICHT gespeichert (Ultra-Test 2, V2): Vorher wurde der Fehler verschluckt und die neuen Angaben trotzdem
+       gespeichert – der nächste Start hätte den alten Rechnungen dann den NEUEN Absender eingetragen. Der Fehler geht an den
+       Aufrufer, wie beim Bearbeiten eines Kontakts (kontaktForm). */
+    if (key === 'imkerei') await migriereRechnungSchnappschuss();
     const rec = this.satz(this.gespeichert(key), key, value, auto);
     await DB.schreibeAlles([{ store: 'settings', obj: rec, keepStamp: true, auto }]);
     this.data[key] = value; this._merke(rec);
@@ -5434,18 +5436,27 @@ async function loescheMitMaterial(store, erwartet) {
    dann ohne Rückbuchung weiter (wie verkaufStornieren bei endgültig gelöschter Abfüllung). Vorher warfen Löschen und Ändern immer –
    nach dem Leeren des Papierkorbs ließen sich Fütterung und Behandlung nie mehr ändern oder löschen.
    Ohne gelesenen Papierkorb (d.papierkorb fehlt) gilt er sicherheitshalber als „im Papierkorb“. */
-function materialImPapierkorb(d, inventarId) {
+function materialImPapierkorb(d, inventarId) { return imPapierkorb(d, 'inventar', inventarId); }
+/* Liegt der Eintrag `id` aus dem Bereich `store` im Papierkorb (d = in der Transaktion gelesene Bereiche)? Eine Stelle statt
+   sechs von Hand geschriebener Abfragen (Ultra-Test 2, V9). Fehlt d.papierkorb (nicht mitgelesen), gilt er wie bisher bei
+   materialImPapierkorb sicherheitshalber als „im Papierkorb“: dann heißt es „erst wiederherstellen“, statt dass eine Menge
+   still verloren geht. Alle Aufrufer lesen den Papierkorb in ihrer Transaktion mit. */
+function imPapierkorb(d, store, id) {
   if (!d || !Array.isArray(d.papierkorb)) return true;
-  return d.papierkorb.some((t) => t.store === 'inventar' && t.daten && t.daten.id === inventarId);
+  return d.papierkorb.some((t) => t && t.store === store && t.daten && t.daten.id === id);
 }
 function materialFehltPruefen(d, a) {
   if (materialImPapierkorb(d, a && a.inventarId)) throw new Error(`Die Position „${(a && a.bezeichnung) || 'Material'}“, von der dieser Eintrag abgezogen hat, liegt im Papierkorb. Stell sie zuerst wieder her – sonst käme die Menge nie in ihren Bestand zurück. Nichts wurde geändert.`);
 }
+/* `text` darf auch eine (async) Funktion sein (Ultra-Test 2, V8): Dann wird der Text erst beim Tippen auf „Löschen“ gebaut.
+   positionLoeschText las vorher beim Öffnen JEDES Positionsformulars drei ganze Bereiche (Fütterungen, Behandlungen,
+   Abfüllungen) – auch wenn niemand löschen wollte. Alle anderen Aufrufer geben weiter einfach den Text. */
 const papierkorbDelete = (store, rec, titel, text = 'Wandert in den Papierkorb (30 Tage wiederherstellbar).') =>
   rec ? async () => {
     const abzug = rec.verbrauchAbzug || [];
     const zurueck = abzug.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
-    if (!(await UI.confirm({ title: titel, text: text + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') }))) return false;
+    const grund = typeof text === 'function' ? await text() : text;
+    if (!(await UI.confirm({ title: titel, text: grund + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') }))) return false;
     await loescheMitMaterial(store, rec);
     UI.toast('In den Papierkorb verschoben' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
     renderRoute(); return true;
@@ -11535,15 +11546,22 @@ function wartezeitAufgabenVon(d, b) {
   const liste = (d.aufgaben || []).filter((a) => a.quelle === 'behandlung').sort((x, y) => (!!x.erledigt) - (!!y.erledigt));   // offene zuerst
   const zugeordnet = new Set(liste.flatMap((a) => (a.refId ? [a.refId] : Array.isArray(a.refIds) ? a.refIds : [])));
   const ende = wartezeitEnde(b), treffer = [];
+  // Sammel-Erinnerung von vor dieser Fassung (ohne refId/refIds): nur für Behandlungen ohne eigene Zuordnung, erkannt an Mittel und Fälligkeit
+  const alteSammel = (a) => !a.refId && !Array.isArray(a.refIds) && !!ende && !zugeordnet.has(b.id) && a.faellig === ende && wartezeitGleichesMittel(a, b.mittel);
+  /* Nur eine EINDEUTIGE wird umgewandelt (Ultra-Test 2, V3): Zwei Sammel-Behandlungen mit gleichem Mittel am selben Tag ergaben
+     zwei solche Erinnerungen, und niemand weiß, zu welcher b gehört. Vorher schluckte die erste beim Bearbeiten beide Gruppen
+     („(4 Völker)“), die zweite blieb ohne Mitglieder ewig stehen. Passen mehrere (offen oder erledigt), bleiben alle, wie sie
+     sind; `unklar` sagt das wartezeitAufgabeWiederPlan, damit das Wiederherstellen keine doppelte dazulegt. */
+  const unklar = liste.filter(alteSammel).length > 1;
   let alteGefunden = false;
   for (const a of liste) {
     if (a.refId) { if (a.refId === b.id) treffer.push({ a, mitglieder: null }); continue; }
     if (Array.isArray(a.refIds)) { if (a.refIds.includes(b.id)) treffer.push({ a, mitglieder: a.refIds.filter((x) => x !== b.id) }); continue; }
-    // Sammel-Erinnerung von vor dieser Fassung: höchstens eine, und nur für Behandlungen ohne eigene Zuordnung
-    if (alteGefunden || zugeordnet.has(b.id) || !ende || a.faellig !== ende || !wartezeitGleichesMittel(a, b.mittel)) continue;
+    if (alteGefunden || unklar || !alteSammel(a)) continue;
     alteGefunden = true;
     treffer.push({ a, mitglieder: (d.behandlungen || []).filter((x) => x.id !== b.id && !zugeordnet.has(x.id) && x.mittel === b.mittel && wartezeitEnde(x) === ende).map((x) => x.id) });
   }
+  if (unklar) treffer.unklar = true;
   return treffer;
 }
 /** Zählt die Völker im Titel einer Sammel-Erinnerung neu („(3 Völker)“ → „(2 Völker)“); ein selbst geänderter Titel bleibt. */
@@ -11579,8 +11597,8 @@ function wartezeitAufgabenPlan(d, alt, neu, zielText = '') {
 /** Wiederhergestellte Behandlung: Erinnerung zurück, sofern keine mehr zu ihr gehört – in eine offene Sammel-Erinnerung mit
     gleichem Mittel und gleichem Ende, sonst als eigene. */
 function wartezeitAufgabeWiederPlan(d, b, zielText = '') {
-  const ende = wartezeitEnde(b);
-  if (!ende || wartezeitAufgabenVon(d, b).length) return [];
+  const ende = wartezeitEnde(b), von = wartezeitAufgabenVon(d, b);
+  if (!ende || von.length || von.unklar) return [];   // unklar: eine der alten Sammel-Erinnerungen zählt b noch mit (Ultra-Test 2, V3)
   const gruppe = (d.aufgaben || []).find((a) => a.quelle === 'behandlung' && !a.erledigt && Array.isArray(a.refIds) && a.faellig === ende && wartezeitGleichesMittel(a, b.mittel));
   if (gruppe) { const refIds = [...gruppe.refIds, b.id]; return [{ store: 'aufgaben', obj: { ...gruppe, refIds, titel: wartezeitTitelZahl(gruppe.titel, refIds.length) } }]; }
   return [{ store: 'aufgaben', obj: { titel: `${WARTEZEIT_TITEL}${b.mittel} (${zielText})`, faellig: ende, erledigt: false, quelle: 'behandlung', refId: b.id, volkId: b.zielTyp === 'volk' ? b.zielId : null, notiz: '' } }];
@@ -13198,7 +13216,7 @@ function honigAbgangText(x, chargen) {
    gingen die Gebinde verloren und würden nach dem Wiederherstellen doppelt abgezogen (Durchsicht v3.00). Ist sie endgültig
    gelöscht, gibt es nichts mehr zurückzugeben. */
 function abfuellungImPapierkorb(d, abfuellungId) {
-  if ((d.papierkorb || []).some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === abfuellungId)) throw new Error('Die Abfüllung liegt im Papierkorb. Bitte sie zuerst wiederherstellen – nichts wurde geändert.');
+  if (imPapierkorb(d, 'abfuellungen', abfuellungId)) throw new Error('Die Abfüllung liegt im Papierkorb. Bitte sie zuerst wiederherstellen – nichts wurde geändert.');
 }
 /* Verkäufe und Rechnungen einer Abfüllung sperren das Löschen (Fund 04.11.2026, #5/#21): Gelöscht zählte ihr verkaufter Honig
    wieder als „im Eimer“ und ließ sich ein zweites Mal abfüllen. Wie die Sperre bei Gebinde-Abgängen: erst stornieren.
@@ -13224,7 +13242,8 @@ function abfuellungVerkaufSperre(d, abfuellungId) {
   const einzeln = vk.length + re.length === 1;
   return `Zu dieser Abfüllung ${einzeln ? 'gehört' : 'gehören'} ${und(teile)}. Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen.`
     + (storno.length ? ` Storniere zuerst ${und(storno)}.` : '')
-    + (entwurf.length ? ` Nimm die Abfüllung aus dem ${entwurf.length === 1 ? 'Entwurf' : 'Entwürfen'} heraus oder lösche ${entwurf.length === 1 ? 'ihn' : 'sie'}.` : '')
+    // „aus dem Entwurf“, aber „aus den Entwürfen“ (Ultra-Test 2, V4 – vorher „aus dem Entwürfen“)
+    + (entwurf.length ? ` Nimm die Abfüllung aus ${entwurf.length === 1 ? 'dem Entwurf' : 'den Entwürfen'} heraus oder lösche ${entwurf.length === 1 ? 'ihn' : 'sie'}.` : '')
     + ' Danach kannst du die Abfüllung löschen.';
 }
 async function honigAbgangBuchen(e, alt = null) {
@@ -13326,7 +13345,7 @@ function papierkorbWiederherstellenPruefen(t, d) {
   if (t.store === 'abfuellungen') {
     const c = (d.chargen || []).find((y) => y.id === x.chargeId);
     if (!c) {
-      if ((d.papierkorb || []).some((y) => y.store === 'chargen' && y.daten && y.daten.id === x.chargeId)) throw new Error('Die Charge dieser Abfüllung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann die Abfüllung. Nichts wurde geändert.');
+      if (imPapierkorb(d, 'chargen', x.chargeId)) throw new Error('Die Charge dieser Abfüllung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann die Abfüllung. Nichts wurde geändert.');
       return;   // Charge endgültig gelöscht: Die Abfüllung kommt wie bisher ohne Charge zurück – es gibt keine Menge, die sie überbuchen könnte
     }
     const braucht = Math.round(buchungsZahl(x.anzahl, 'Anzahl') * buchungsZahl(x.gebindeG, 'Gebindegröße') / 1000 * 1000) / 1000;
@@ -13450,7 +13469,7 @@ async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
        weg war, und dann ließ sich der Verkauf nie mehr stornieren. Jetzt: Liegt sie im Papierkorb, erst wiederherstellen
        (sonst kämen die Gebinde nie in ihren Bestand zurück). Ist sie endgültig gelöscht, gibt es keinen Bestand mehr:
        Verkauf (und gewählte Einnahme) wandern trotzdem in den Papierkorb, nur ohne Rückbuchung. */
-    if (v.abfuellungId && !a && d.papierkorb.some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === v.abfuellungId)) throw new Error(STORNO_ABF_IM_PAPIERKORB);
+    if (v.abfuellungId && !a && imPapierkorb(d, 'abfuellungen', v.abfuellungId)) throw new Error(STORNO_ABF_IM_PAPIERKORB);
     // Zurück ins Lager kommt nur, was auch aus dem Lager kam (bei „trotzdem buchen“ evtl. weniger) –
     // und nie mehr, als abgefüllt wurde (Fund 04.11.2026, #25: sonst Bestand über der Anzahl, wie in honigAbgangLoeschen gedeckelt)
     if (a) a.bestand = Math.min(buchungsZahl(a.anzahl, 'Anzahl'), buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge'));
@@ -13476,7 +13495,7 @@ async function verkaufsPapierkorbWiederherstellen(trashId) {
     /* Gegenstück zum Storno ohne Abfüllung (Fund 04.11.2026): Hier stand „Bitte zuerst wiederherstellen“ – bei einer
        endgültig gelöschten Abfüllung ging das nie. Liegt sie im Papierkorb, erst sie; ist sie endgültig weg, kommt der
        Verkauf ohne Bestandsabzug zurück (das Storno hat dann auch nichts zurückgebucht). */
-    if (v.abfuellungId && !a && d.papierkorb.some((x) => x.store === 'abfuellungen' && x.daten && x.daten.id === v.abfuellungId)) throw new Error('Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann den Verkauf.');
+    if (v.abfuellungId && !a && imPapierkorb(d, 'abfuellungen', v.abfuellungId)) throw new Error('Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann den Verkauf.');
     if (a) {
       const menge = buchungsZahl(v.ausBestand ?? v.anzahl, 'Verkaufsmenge'), bestand = buchungsZahl(a.bestand, 'Bestand');
       if (menge > bestand) throw new Error('Der Bestand reicht für diesen Verkauf nicht mehr. Nichts wurde wiederhergestellt.');
@@ -17484,7 +17503,7 @@ Views.honig = {
           /* Abfüllung nicht mehr da: Liegt sie im Papierkorb, gleich sagen, was zu tun ist – nicht erst nach der Rückfrage.
              Ist sie endgültig gelöscht, sagt die Rückfrage, dass keine Gebinde zurückkommen. Maßgeblich bleibt die Prüfung in verkaufStornieren. */
           const abfWeg = !!(vk && vk.abfuellungId && !abf.has(vk.abfuellungId));
-          if (abfWeg && (await DB.getAll('papierkorb')).some((t) => t.store === 'abfuellungen' && t.daten && t.daten.id === vk.abfuellungId)) { UI.toast(STORNO_ABF_IM_PAPIERKORB, 'err'); return; }
+          if (abfWeg && imPapierkorb({ papierkorb: await DB.getAll('papierkorb') }, 'abfuellungen', vk.abfuellungId)) { UI.toast(STORNO_ABF_IM_PAPIERKORB, 'err'); return; }   // Ultra-Test 2, V9
           const basis = abfWeg ? 'Die Abfüllung zu diesem Verkauf ist gelöscht, deshalb kommen keine Gebinde in den Bestand zurück.' : 'Die Gebinde wandern zurück in den Bestand.';
           const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
           let kasse = true;
@@ -19068,19 +19087,35 @@ function rechnungKundeName(r, kontakte) { const e = rechnungEmpfaenger(r, kontak
    eine genaue Kopie –, dazu direkt bevor ein Kontakt oder die eigenen Angaben geändert oder ein Kontakt gelöscht wird. Ändert
    nur Rechnungen ohne Schnappschuss, deshalb kein Merker. */
 async function migriereRechnungSchnappschuss() {
-  // Meist ist nichts zu tun – dann ohne Schreibsperre gleich weiter (der Start soll nicht warten)
-  const fehlt = (r) => (r.status === 'festgeschrieben' || r.status === 'storniert') && (!r.absender || (!r.empfaenger && r.kundeId));
-  if (!(await DB.getAll('rechnungen')).some(fehlt)) return 0;
+  /* Meist ist nichts zu tun – dann ohne Schreibsperre gleich weiter (der Start soll nicht warten).
+     Unrettbarer Empfänger (Ultra-Test 2, V7): Ist der Kontakt einer alten Rechnung endgültig gelöscht, fand diese Vorprüfung
+     bei jedem Start und jedem Speichern der eigenen Angaben wieder „Arbeit“ – und öffnete eine Schreib-Transaktion, die nichts
+     schrieb. Solche Rechnungen tragen jetzt empfaengerFehlt und zählen hier nicht mehr. Nur wenn ihr Kontakt wieder da ist
+     (z. B. aus einer Sicherung), wird es erneut versucht – dafür reicht ein kurzer Blick in die Kontakte. Die Anzeige bleibt,
+     wie sie war („(kein Kunde ausgewählt)“ bzw. der wieder vorhandene Kontakt). */
+  const ausgestellt = (r) => r.status === 'festgeschrieben' || r.status === 'storniert';
+  const fehlt = (r) => ausgestellt(r) && (!r.absender || (!r.empfaenger && r.kundeId && !r.empfaengerFehlt));
+  const alle = await DB.getAll('rechnungen');
+  if (!alle.some(fehlt)) {
+    const markiert = alle.filter((r) => ausgestellt(r) && r.empfaengerFehlt && !r.empfaenger && r.kundeId);
+    if (!markiert.length) return 0;
+    const da = new Set((await DB.getAll('kontakte')).map((k) => k.id));
+    if (!markiert.some((r) => da.has(r.kundeId))) return 0;
+  }
   return DB.aendereAtomar(['rechnungen', 'kontakte', 'papierkorb'], (d) => {
     const imk = imkereiAusSaetzen(d.settings);
     const kontakte = new Map(d.kontakte.map((k) => [k.id, k]));
     for (const t of d.papierkorb) if (t.store === 'kontakte' && t.daten && t.daten.id && !kontakte.has(t.daten.id)) kontakte.set(t.daten.id, t.daten);
     const ops = [];
     for (const r of d.rechnungen) {
-      if (r.status !== 'festgeschrieben' && r.status !== 'storniert') continue;
+      if (!ausgestellt(r)) continue;
+      let geaendert = rechnungSchnappschussErgaenzen(r, r.kundeId ? kontakte.get(r.kundeId) : null, imk);
+      // Merker setzen bzw. wieder wegnehmen (V7): unrettbar = Kontakt weder bei den Kontakten noch im Papierkorb
+      if (r.empfaenger && r.empfaengerFehlt) { delete r.empfaengerFehlt; geaendert = true; }
+      else if (!r.empfaenger && r.kundeId && !r.empfaengerFehlt) { r.empfaengerFehlt = true; geaendert = true; }
       /* keepStamp wie bei den anderen Daten-Migrationen (Ultra-Test 05.11.2026, U4): Mit „jetzt“ als Änderungszeit gewann die
          ergänzte Kopie beim Zusammenführen gegen ein neueres Storno vom anderen Gerät – die Rechnung stand wieder als offen da. */
-      if (rechnungSchnappschussErgaenzen(r, r.kundeId ? kontakte.get(r.kundeId) : null, imk)) ops.push({ store: 'rechnungen', obj: r, auto: true, keepStamp: true });
+      if (geaendert) ops.push({ store: 'rechnungen', obj: r, auto: true, keepStamp: true });
     }
     return { ops, wert: ops.length };
   });
@@ -19275,7 +19310,7 @@ async function rechnungStornieren(id) {
          im Papierkorb, erst sie wiederherstellen (sonst kämen die Gläser nie in ihren Bestand zurück). Ist sie endgültig weg, gibt
          es keinen Bestand mehr – dann ohne Rückbuchung stornieren und das danach sagen. */
       if (!a) {
-        if (imKorb('abfuellungen', (x) => x.id === p.abfuellungId)) throw new Error(STORNO_RE_ABF_IM_PAPIERKORB);
+        if (imPapierkorb(d, 'abfuellungen', p.abfuellungId)) throw new Error(STORNO_RE_ABF_IM_PAPIERKORB);   // Ultra-Test 2, V9
         abfuellungFehlt = true; continue;
       }
       // nie über die abgefüllte Anzahl (Fund 04.11.2026, wie #25 bei verkaufStornieren: sonst mehr Gebinde im Bestand als je abgefüllt)
@@ -19941,7 +19976,7 @@ async function renderInventarBereich(main, cfg) {
       UI.toast('Gespeichert');
       pruefeMhd(); renderRoute();
     },
-    onDelete: papierkorbDelete('inventar', i, 'Position löschen?', await positionLoeschText(i)),
+    onDelete: papierkorbDelete('inventar', i, 'Position löschen?', () => positionLoeschText(i)),   // Text erst beim Löschen (Ultra-Test 2, V8)
   }), false);
   /* Der Knopf im Leerzustand führt ins Zugangs-Formular: dort legt man die
      Position an UND bucht, was man gekauft hat – in einem Schritt. */
@@ -22694,7 +22729,7 @@ async function lagerPapierkorbWiederherstellen(trashId) {
     const k = x.kassenbuchId ? d.papierkorb.find((y) => y.store === 'kassenbuch' && y.daten && y.daten.id === x.kassenbuchId) : null;
     if (k && d.kassenbuch.some((y) => y.id === x.kassenbuchId)) throw new Error('Die Kassenbuch-Buchung dazu ist bereits vorhanden. Bitte die Buchungen prüfen; nichts wurde geändert.');
     if (t.store === 'materialzugaenge' && x.lohn && x.chargeId && Number(x.honigKg) > 0 && d.inventar.some((p) => p.id === x.inventarId)) {
-      if (d.papierkorb.some((y) => y.store === 'chargen' && y.daten && y.daten.id === x.chargeId)) throw new Error('Die Charge zu dieser Lohnverarbeitung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann den Zugang. Nichts wurde geändert.');
+      if (imPapierkorb(d, 'chargen', x.chargeId)) throw new Error('Die Charge zu dieser Lohnverarbeitung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann den Zugang. Nichts wurde geändert.');
       lohnHonigPruefen(d, x.chargeId, Number(x.honigKg), `Der Zugang „${x.bezeichnung || 'Lohnverarbeitung'}“`);
     }
     const geaendert = new Map();
@@ -23075,6 +23110,10 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {})
   return DB.aendereAtomar(['inventar', 'materialabgaenge', 'kassenbuch', 'papierkorb'], (d) => {
     const frisch = rec.id ? d.materialabgaenge.find((y) => y.id === rec.id) : null;
     if (rec.id && !frisch && loeschen) return { ops: [], wert: null };   // schon gelöscht
+    /* Bearbeiten eines inzwischen gelöschten Abgangs (Ultra-Test 2, V5 – Sperre wie bei zugangZurueckbuchen): Ein zweites Fenster
+       hat ihn gelöscht und seine Menge schon zurückgebucht. Vorher buchte das Speichern hier mit der alten Kopie ein zweites Mal
+       zurück – der Bestand stand zu hoch. */
+    if (rec.id && !frisch) throw new Error('Dieser Abgang wurde inzwischen gelöscht. Bitte die Ansicht neu öffnen; nichts wurde geändert.');
     const x = frisch || rec, geaendert = new Map();
     lagerBuchen(d, x.inventarId, -lagerWirkung('materialabgaenge', x), geaendert, { bezeichnung: x.bezeichnung });
     const erloes = abgangErloes(x);
@@ -23516,10 +23555,16 @@ const ZUBEHOER_WOERTER = new RegExp(`${DECKEL_WOERTER.source}|${ETIKETT_WOERTER.
 /* Rolle einer Position in der Abzugskette (Fund 04.11.2026, #23): Deckel und Etiketten tragen keine Gebindegröße, Gläser
    aus älteren Fassungen auch nicht – mit gleicher Kategorie sprang der Abzug sonst von Deckeln auf Etiketten oder Gläser
    über und verschwieg die Fehlmenge. Erkennbar sind sie wie beim Vorschlag nur am Namen (bzw. an der Kategorie
-   „Etiketten“). Etikett zuerst: „Gewährverschluss-Etikett“ und „Deckeletikett“ sind Etiketten, keine Deckel. */
+   „Etiketten“). Etikett zuerst: „Gewährverschluss-Etikett“ und „Deckeletikett“ sind Etiketten, keine Deckel.
+   Danach das Wort „Deckel“ selbst: „Twist-Off-Deckel“ und „Glasdeckel“ bleiben Deckel. Erst dann das Gefäß (Ultra-Test 2, V6):
+   „Twist-Off-Glas“ und „Neutralglas TO 82“ nennen nur die Verschlussart des Glases – vorher galten sie wegen „twist“ bzw.
+   „TO 82“ als Deckel, und ohne Größe zog die Kette dann echte Deckel für sie ab (oder sie für Deckel). Ein Gefäßwort ohne
+   „Deckel“ macht eine Position deshalb nie zum Deckel. */
 function materialRolle(p) {
   const name = String((p && p.bezeichnung) || '');
   if (ETIKETT_WOERTER.test(name) || (p && p.kategorie) === 'Etiketten') return 'etikett';
+  if (/deckel/i.test(name)) return 'deckel';
+  if (GEBINDE_WOERTER.test(name)) return '';
   if (DECKEL_WOERTER.test(name)) return 'deckel';
   return '';
 }
@@ -23587,7 +23632,8 @@ function besterPosten(kandidaten, wortMuster) {
 function glasVorschlag(posten, gebindeG) {
   const g = Math.round(Number(gebindeG) || 0);
   if (!g || !Array.isArray(posten)) return '';
-  const gebinde = posten.filter((i) => !ZUBEHOER_WOERTER.test(String(i.bezeichnung || '')));
+  // Deckel und Etiketten nach derselben Rolle wie die Abzugskette (Ultra-Test 2, V6): „Twist-Off-Glas 500 g“ ist ein Glas
+  const gebinde = posten.filter((i) => !materialRolle(i));
   const gesetzt = gebinde.filter((i) => gebindeGrammAus(i.gebindeG) === g);
   if (gesetzt.length) return besterPosten(gesetzt, GEBINDE_WOERTER);
   const teile = [`${g}\\s*(?:g|gr|gramm)\\b`];
@@ -23678,7 +23724,8 @@ function verdrahteGlasAbzug(m, posten) {
     const eigen = $('#f-gl_eigen', m.el);
     if (eigen && !eigen.value) eigen.value = glasVorschlag(posten, gebindeGrammAus(zahl('eigenesG')));
     const deckel = $('#f-gl_deckel', m.el);
-    if (deckel && !deckel.value) deckel.value = zubehoerVorschlag(posten, DECKEL_WOERTER);
+    // Nur echte Deckel vorschlagen (Ultra-Test 2, V6): vorher landete „Twist-Off-Glas“ hier und wurde als Deckel abgezogen
+    if (deckel && !deckel.value) deckel.value = zubehoerVorschlag(posten.filter((i) => materialRolle(i) === 'deckel'), DECKEL_WOERTER);
     const etikett = $('#f-gl_etikett', m.el);
     if (etikett && !etikett.value) etikett.value = zubehoerVorschlag(posten, ETIKETT_WOERTER);
   };
@@ -26080,7 +26127,14 @@ const Backup = {
          die ältere Kopie aus der Sicherung kam deshalb zurück, ohne dass ihr Bestand (Zugang, Abgang, Fütterung …) neu
          gebucht wurde, und lag zugleich im Papierkorb; erneutes Löschen buchte doppelt zurück. Zurückholen geht über den
          Papierkorb – der bucht dabei richtig. Gelesen wird der Papierkorb VOR dem Zusammenführen (lokaler Stand). */
-      const geloescht = new Set((d.papierkorb || []).filter((t) => t && t.daten && t.daten.id).map((t) => `${t.store}|${t.daten.id}`));
+      const geloescht = new Map();   // `${store}|${id}` → die Papierkorb-Einträge dazu
+      for (const t of d.papierkorb || []) if (t && t.daten && t.daten.id) { const k = `${t.store}|${t.daten.id}`; geloescht.set(k, [...(geloescht.get(k) || []), t]); }
+      /* Neuere Kopie eines hier gelöschten Eintrags (Ultra-Test 2, V1): Wurde er auf dem anderen Gerät NACH dem Löschen hier noch
+         geändert, verwarf das Zusammenführen diese Änderung – „Wiederherstellen“ holte dann die alte Fassung zurück. Jetzt ersetzt
+         die neuere Kopie die Daten im Papierkorb-Eintrag. Zurückgeholt wird weiter nur über den Papierkorb (#8), der bucht dabei
+         Bestand und Kassenbuch mit der neueren Fassung richtig. Geschrieben wird nach der Schleife, auf den zusammengeführten Papierkorb. */
+      const korbNeu = new Map();   // Papierkorb-Kennung → neuere Daten
+      const neuer = (r, t) => (r.lastModified || '') > (t.geloeschtAm || '') && (r.lastModified || '') > ((t.daten && t.daten.lastModified) || '');
       for (const store of DB.DATA_STORES) {
         const key = (r) => store === 'settings' ? r.key : r.id;
         const map = new Map(d[store].map((r) => [key(r), r]));
@@ -26093,13 +26147,18 @@ const Backup = {
             if (zusammen) { map.set(r.key, zusammen); neu.set(r.key, zusammen); }
             continue;
           }
-          if (!alt && geloescht.has(`${store}|${r.id}`)) { imPapierkorb++; continue; }
+          if (!alt && geloescht.has(`${store}|${r.id}`)) {
+            imPapierkorb++;
+            for (const t of geloescht.get(`${store}|${r.id}`)) if (neuer(r, t)) korbNeu.set(t.id, r);
+            continue;
+          }
           if (!alt || (r.lastModified || '') > (alt.lastModified || '')) { map.set(key(r), r); neu.set(key(r), r); }
         }
         for (const r of neu.values()) ops.push({ store, obj: r, keepStamp: true });
         if (neu.size) { jeStore[store] = neu.size; gesamt += neu.size; }
         d[store] = [...map.values()];
       }
+      for (const t of d.papierkorb) if (korbNeu.has(t.id)) { t.daten = korbNeu.get(t.id); ops.push({ store: 'papierkorb', obj: t }); }
       const korrekturen = this.bestandAbgleichPlan(d);
       ops.push(...korrekturen);
       return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length, imPapierkorb } };

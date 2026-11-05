@@ -46,3 +46,5 @@ V6 (pre_existing) materialRolle: „Twist-Off-Glas“ ohne Größe gilt als Deck
 V7 (nit) migriereRechnungSchnappschuss findet bei Rechnungen mit endgültig gelöschtem Kontakt ewig Arbeit (leere Schreib-Transaktion bei jedem Start/Speichern). → Unrettbaren Empfänger markieren.
 V8 (nit) positionLoeschText wird beim Öffnen jedes Positionsformulars schon gelesen (3 volle Bereiche). → Erst beim Tippen auf Löschen.
 V9 (nit) „Liegt X im Papierkorb?“ an 6 Stellen von Hand → ein Helfer imPapierkorb(d, store, id).
+
+**Status zweiter Ultra-Test: alle 9 behoben** (05.11.2026), 964/964 Tests grün. Zusatz bei V6: Glas- und Deckel-Vorschläge im Abfüllformular nutzen jetzt dieselbe Rolle (Twist-Off-Glas wird als Glas vorgeschlagen, Deckel-Feld nur echte Deckel). Offen, selten: Bio-Umschalter (Auswahl bio-an) ohne Fehlermeldung; „Glas 500 g mit Deckel“ zählt weiter als Deckel (war schon so).

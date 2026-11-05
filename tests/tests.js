@@ -19299,7 +19299,8 @@ test('Ultra-Test 05.11.2026 (U2): Der zweite Karton springt auch bei „Twist-Of
   const K2 = await materialPaketPosten(w, 'Kappe 82 mm Karton 2', 100, { anschaffung: '2026-02-01' });
   const alt = await materialPaketPosten(w, 'Gläser alt', 40, { anschaffung: '2025-01-01' });
   const E = await materialPaketPosten(w, 'Etiketten', 200);
-  assertEq([A, K1].map((p) => w.materialRolle(p)), ['deckel', ''], 'der Name allein ordnet beide anders ein als ihr Feld');
+  // Seit dem zweiten Ultra-Test (V6) ist „Twist-Off-Glas“ am Namen ein Glas (vorher „deckel“); die Kappe ohne Schlüsselwort ordnet der Name weiter anders ein als ihr Feld
+  assertEq([A, K1].map((p) => w.materialRolle(p)), ['', ''], 'Rolle am Namen: Glas wie sein Feld, Kappe ohne Rolle');
   const { m, setz, info } = await materialPaketFormular(w, c.id);
   setz('g_500', '50'); setz('gl_500', A.id); setz('gl_deckel', K1.id); setz('gl_etikett', E.id); await w99(100);
   assert(!/fehlen/.test(info()), 'nichts fehlt (vorher „30 Stück fehlen“): ' + info());
@@ -20281,6 +20282,182 @@ test('Ultra-Test 05.11.2026 (G8): Ein zweites Fenster übernimmt den gemerkten N
   try { kanal.postMessage('aktualisieren'); await w99(400); } finally { kanal.close(); }
   assertEq(w.standNameAnzeige(wald.id, []), 'Waldrand (gelöscht)', 'nach dem Signal: mit Namen');
   assertEq(w.S.gespeichert('geloeschteStaende').value[wald.id].name, 'Waldrand', 'auch der gespeicherte Stand für das nächste Schreiben');
+}));
+
+/* =====================================================================
+   Zweiter Ultra-Test 05.11.2026 – Kleinigkeiten V1–V9.
+   Quelle: docs/PRUEFUNG-ULTRA-2026-11-05.md, Abschnitt „Zweiter Ultra-Test“.
+   ===================================================================== */
+test('Ultra-Test 2 (V1): Zusammenführen – eine NEUERE Kopie eines hier gelöschten Eintrags ersetzt die Daten im Papierkorb, kommt aber nicht still zurück', async (w) => isolierteDaten(w, async () => {
+  const k = await w.DB.put('kontakte', { name: 'Hof V1', typ: 'kunde', strasse: 'Altweg 1' });
+  await w.DB.softDel('kontakte', k.id);
+  const korb = async () => (await w.DB.getAll('papierkorb')).filter((t) => t.store === 'kontakte' && t.daten && t.daten.id === k.id);
+  const [t0] = await korb();
+  const um = (min) => new Date(new Date(t0.geloeschtAm).getTime() + min * 60000).toISOString();
+  // Gegenprobe: eine Kopie von VOR dem Löschen ändert am Papierkorb nichts
+  let erg = await w.Backup.applyMerge({ stores: { kontakte: [{ ...k, strasse: 'Zwischenweg 5', lastModified: um(-1) }] } });
+  assertEq([erg.imPapierkorb, (await korb())[0].daten.strasse], [1, 'Altweg 1'], 'ältere Kopie: Papierkorb bleibt');
+  // Auf dem anderen Gerät NACH dem Löschen geändert
+  erg = await w.Backup.applyMerge({ stores: { kontakte: [{ ...k, strasse: 'Neuweg 7', lastModified: um(1) }] } });
+  assertEq([erg.imPapierkorb, erg.gesamt, await w.DB.get('kontakte', k.id)], [1, 0, undefined], 'weiter nicht still zurückgeholt, Meldung wie bisher');
+  const nachher = await korb();
+  assertEq(nachher.map((t) => [t.id, t.daten.strasse]), [[t0.id, 'Neuweg 7']], 'derselbe Papierkorb-Eintrag trägt jetzt die neuere Fassung (vorher: Altweg 1)');
+  await w.DB.trashRestore(t0.id);
+  assertEq((await w.DB.get('kontakte', k.id)).strasse, 'Neuweg 7', 'Wiederherstellen bringt die neuere Fassung zurück');
+}));
+
+test('Ultra-Test 2 (V2): Eigene Angaben – scheitert die Schnappschuss-Migration, wird nichts gespeichert und der Fehler kommt beim Aufrufer an', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), name: 'Imkerei V2', steuernummer: '111/111/1111' });
+  const gespeichert = async () => ((await w.DB.get('settings', 'imkerei')) || {}).value.steuernummer;
+  const echt = w.migriereRechnungSchnappschuss;
+  w.migriereRechnungSchnappschuss = async () => { throw new Error('Test: Speicher voll'); };
+  let fehler = null;
+  try { await w.S.set('imkerei', { ...w.S.get('imkerei'), steuernummer: '222/222/2222' }); } catch (e) { fehler = e; } finally { w.migriereRechnungSchnappschuss = echt; }
+  assertEq(fehler && fehler.message, 'Test: Speicher voll', 'der Fehler kommt beim Aufrufer an (vorher verschluckt)');
+  assertEq([w.S.get('imkerei').steuernummer, await gespeichert()], ['111/111/1111', '111/111/1111'], 'die neue Steuernummer ist nicht gespeichert');
+  // Gegenprobe: ohne Fehler wird wie bisher gespeichert
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), steuernummer: '333/333/3333' });
+  assertEq(await gespeichert(), '333/333/3333', 'normal gespeichert');
+}));
+
+test('Ultra-Test 2 (V3): Mehrere alte Sammel-Erinnerungen mit gleichem Mittel und Tag – Löschen, Bearbeiten und Wiederherstellen lassen sie unverändert', async (w) => isolierteDaten(w, async () => {
+  // Zwei Sammel-Behandlungen am selben Tag (A+B und C+D), Erinnerungen von vor der refIds-Fassung
+  const [A, B, C, D] = [await r2Volk(w, 'V3-A'), await r2Volk(w, 'V3-B'), await r2Volk(w, 'V3-C'), await r2Volk(w, 'V3-D')];
+  const altErinnerung = () => w.DB.put('aufgaben', { titel: 'Wartezeit endet: Thymol (2 Völker)', faellig: '2026-09-15', erledigt: false, quelle: 'behandlung', refId: null, notiz: '' });
+  const e1 = await altErinnerung(), e2 = await altErinnerung();
+  for (const v of [A, B, C, D]) await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-09-01', mittel: 'Thymol', menge: 1, einheit: 'Stück', wartezeitTage: 14, notiz: '' });
+  const stand = async () => (await r2Erinnerungen(w)).map((a) => [a.titel, a.faellig, a.refIds || null]);
+  const vorher = await stand();
+  // Löschen: vorher wurde die erste zu „(3 Völker)“ mit B, C und D – sie schluckte die zweite Gruppe
+  await w.loescheMitMaterial('behandlungen', await r2Beh(w, A));
+  assertEq(await stand(), vorher, 'beide bleiben, wie sie sind');
+  // Wiederherstellen: keine doppelte eigene Erinnerung dazu
+  await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.store === 'behandlungen' && t.daten.zielId === A.id).id);
+  assertEq(await stand(), vorher, 'nach dem Wiederherstellen keine dritte');
+  // Neues Ende bei B: B bekommt eine eigene Erinnerung, die alten bleiben unangetastet
+  const bB = await r2Beh(w, B);
+  const ops = w.wartezeitAufgabenPlan({ aufgaben: await w.DB.getAll('aufgaben'), behandlungen: await w.DB.getAll('behandlungen') }, bB, { ...bB, datum: '2026-09-03' }, 'V3-B');
+  assertEq(ops.map((o) => [o.op || 'put', o.obj && o.obj.titel, o.obj && o.obj.faellig, o.obj && o.obj.refId === bB.id]), [['put', 'Wartezeit endet: Thymol (V3-B)', '2026-09-17', true]], 'nur die eigene neue, keine Umwandlung');
+  // Auch eine offene und eine erledigte gleiche alte sind nicht eindeutig: nichts wird umgewandelt
+  await w.DB.put('aufgaben', { ...(await w.DB.get('aufgaben', e2.id)), erledigt: true });
+  const d2 = { aufgaben: await w.DB.getAll('aufgaben'), behandlungen: await w.DB.getAll('behandlungen') };
+  assertEq(w.wartezeitAufgabenPlan(d2, bB, null).length, 0, 'offen + erledigt: Löschen ändert keine');
+  // Gegenprobe: bleibt nur eine alte übrig, wird sie wie bisher umgewandelt
+  await w.DB.del('aufgaben', e2.id);
+  const d3 = { aufgaben: await w.DB.getAll('aufgaben'), behandlungen: await w.DB.getAll('behandlungen') };
+  const eins = w.wartezeitAufgabenPlan(d3, bB, null);
+  assertEq(eins.map((o) => [o.obj && o.obj.id, o.obj && o.obj.titel, (o.obj && o.obj.refIds || []).length]), [[e1.id, 'Wartezeit endet: Thymol (3 Völker)', 3]], 'eindeutig: B scheidet aus, die übrigen drei bleiben drin');
+}));
+
+test('Ultra-Test 2 (V4): Lösch-Sperre der Abfüllung sagt „aus den Entwürfen“', (w) => {
+  const re = (id) => ({ id, status: 'entwurf', positionen: [{ abfuellungId: 'v4-a', menge: 1 }] });
+  const zwei = w.abfuellungVerkaufSperre({ verkaeufe: [], rechnungen: [re('v4-1'), re('v4-2')] }, 'v4-a');
+  assert(zwei.includes('Nimm die Abfüllung aus den Entwürfen heraus oder lösche sie.'), 'Mehrzahl (vorher „aus dem Entwürfen“): ' + zwei);
+  const einer = w.abfuellungVerkaufSperre({ verkaeufe: [], rechnungen: [re('v4-1')] }, 'v4-a');
+  assert(einer.includes('Nimm die Abfüllung aus dem Entwurf heraus oder lösche ihn.'), 'Einzahl wie bisher: ' + einer);
+});
+
+test('Ultra-Test 2 (V5): Abgang bearbeiten, den ein zweites Fenster inzwischen gelöscht hat – keine doppelte Rückbuchung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker V5', 100);
+  const f = await lagerFormular(w, () => w.materialAbgangForm(cfg, pos.id));
+  f.setz('art', 'Eigenverbrauch'); f.setz('menge', '30'); await f.speichern();
+  assertEq(await lagerBestand(w, pos), 70, 'nach dem Abgang 70 kg');
+  const abg = (await w.DB.getAll('materialabgaenge'))[0];
+  const g = await lagerFormular(w, async () => w.materialAbgangForm(cfg, pos.id, await w.DB.get('materialabgaenge', abg.id)));
+  // Das zweite Fenster löscht den Abgang: 30 kg zurück
+  await w.abgangZurueckbuchen(await w.DB.get('materialabgaenge', abg.id), { kasse: true, loeschen: true });
+  assertEq(await lagerBestand(w, pos), 100, 'dort gelöscht: 100 kg');
+  toasts.length = 0;
+  g.setz('menge', '20'); await g.speichern();
+  assertEq(await lagerBestand(w, pos), 100, 'Bestand bleibt 100 (vorher 100 + 30 − 20 = 110)');
+  assertEq((await w.DB.getAll('materialabgaenge')).length, 0, 'kein Abgang neu angelegt');
+  assert(toasts.some((t) => t.typ === 'err' && t.msg === 'Dieser Abgang wurde inzwischen gelöscht. Bitte die Ansicht neu öffnen; nichts wurde geändert.'), 'klare Meldung: ' + JSON.stringify(toasts));
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+})));
+
+test('Ultra-Test 2 (V6): „Twist-Off-Glas“ und „Neutralglas TO 82“ sind Gläser, keine Deckel – ausdrückliches „Deckel“ bleibt Deckel', async (w) => isolierteDaten(w, async () => {
+  const rolle = (bezeichnung, extra = {}) => w.materialRolle({ bezeichnung, ...extra });
+  assertEq(['Twist-Off-Glas', 'Neutralglas TO 82', 'Twist-Off-Glas 500 g', 'Eimer 12,5 kg', 'Gläser alt'].map((n) => rolle(n)), ['', '', '', '', ''], 'Gefäße ohne „Deckel“ (vorher die ersten drei „deckel“)');
+  assertEq(['Twist-Off-Deckel', 'Glasdeckel 82 mm', 'Deckel TO 82', 'Schraubverschluss 63 mm', 'TO 82 Karton', 'Kappe 82 mm'].map((n) => rolle(n)), ['deckel', 'deckel', 'deckel', 'deckel', 'deckel', ''], 'Deckel wie bisher');
+  assertEq(['Deckeletikett', 'Gewährverschluss-Etikett', 'Glas-Etikett', 'Rolle 500'].map((n, i) => rolle(n, i === 3 ? { kategorie: 'Etiketten' } : {})), ['etikett', 'etikett', 'etikett', 'etikett'], 'Etiketten wie bisher zuerst');
+  // Abzugskette ohne vorgegebene Rolle (Altdaten, Fütterung …): ein echter Deckel springt nicht für Gläser ein
+  const G1 = await materialPaketPosten(w, 'Twist-Off-Glas V6', 5);
+  const G2 = await materialPaketPosten(w, 'Twist-Off-Glas V6 Karton 2', 50, { anschaffung: '2026-02-01' });
+  const D = await materialPaketPosten(w, 'Deckel TO 82 V6', 100, { anschaffung: '2025-06-01' });
+  const plan = w.materialAbzugPlan((await w.DB.getAll('inventar')).map((p) => ({ ...p })), G1.id, 20, new Map());
+  assertEq(plan.abzug.map((x) => [x.bezeichnung, x.menge]), [['Twist-Off-Glas V6', 5], ['Twist-Off-Glas V6 Karton 2', 15]], 'Gläser durch Gläser (vorher sprang „Deckel TO 82“ mit 15 ein)');
+  const kette = await w.verbrauchAbziehenKette(G1.id, 20, { pruefen: false });
+  assertEq([kette.abzug.map((x) => [x.bezeichnung, x.menge]), (await w.DB.get('inventar', D.id)).stueckzahl], [[['Twist-Off-Glas V6', 5], ['Twist-Off-Glas V6 Karton 2', 15]], 100], 'verbrauchAbziehenKette genauso, die Deckel bleiben');
+  // Und umgekehrt: Deckel nur durch Deckel – das Glas springt nicht ein
+  const D2 = await materialPaketPosten(w, 'Twist-Off-Deckel V6', 0, { anschaffung: '2026-03-01' });
+  const plan2 = w.materialAbzugPlan((await w.DB.getAll('inventar')).map((p) => ({ ...p })), D2.id, 10, new Map(), 'deckel');
+  assertEq(plan2.abzug.map((x) => x.bezeichnung), ['Deckel TO 82 V6'], 'der Deckel-Karton springt ein, kein Glas');
+  // Vorschläge im Abfüllen: Glas-Feld nimmt das Twist-Off-Glas, das Deckel-Feld nie ein Glas
+  const posten = [{ id: 'glas', bezeichnung: 'Twist-Off-Glas 500 g', gebindeG: 500, einheit: 'Stück', stueckzahl: 40 }, { id: 'deckel', bezeichnung: 'Deckel TO 82', einheit: 'Stück', stueckzahl: 0 }];
+  assertEq(w.glasVorschlag(posten, 500), 'glas', 'Glas-Vorschlag (vorher leer)');
+  const c = await loeschPaketCharge(w, 'V6', 20);
+  await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Twist-Off-Glas 250 g V6', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 40, gebindeG: 250, anschaffung: '2024-01-01' });
+  for (const p of [G1, G2, D]) await w.DB.del('inventar', p.id);
+  try {
+    const { m } = await materialPaketFormular(w, c.id);
+    assertEq([m.querySelector('#f-gl_deckel').value, m.querySelector('#f-gl_250').value], [D2.id, (await w.DB.getAll('inventar')).find((p) => p.gebindeG === 250).id], 'Deckel-Feld: der Deckel auch ohne Bestand, nicht das Glas mit Bestand; 250-g-Feld: das Glas');
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+}));
+
+test('Ultra-Test 2 (V7): Rechnung mit endgültig gelöschtem Kontakt – die Migration merkt sich das und öffnet danach keine leere Schreib-Transaktion mehr', async (w) => isolierteDaten(w, async () => {
+  const stempel = '2026-01-10T08:00:00.000Z';
+  await w.DB.put('rechnungen', { id: 'v7-re', nummer: 'RE-V7', datum: '2026-01-10', kundeId: 'v7-weg', steuerart: 'klein', status: 'festgeschrieben',
+    positionen: [{ text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 6, steuersatz: 0 }], createdAt: stempel, lastModified: stempel }, true);
+  assertEq(await w.migriereRechnungSchnappschuss(), 1, 'erster Lauf: Absender und Merker');
+  const r = await w.DB.get('rechnungen', 'v7-re');
+  assertEq([r.empfaengerFehlt, r.empfaenger, r.lastModified, !!r.absender], [true, undefined, stempel, true], 'gekennzeichnet, ohne neue Änderungszeit');
+  assertEq(w.rechnungKundeName(r, new Map()), '', 'Anzeige unverändert: kein Kunde');
+  const echt = w.DB.aendereAtomar; let laeufe = 0;
+  w.DB.aendereAtomar = function (...a) { laeufe++; return echt.apply(this, a); };
+  try { assertEq(await w.migriereRechnungSchnappschuss(), 0, 'nichts zu tun'); } finally { w.DB.aendereAtomar = echt; }
+  assertEq(laeufe, 0, 'keine Schreib-Transaktion mehr (vorher bei jedem Start und jedem Speichern der eigenen Angaben)');
+  // Kommt der Kontakt zurück (z. B. aus einer Sicherung), wird der Empfänger doch noch festgehalten, der Merker fällt weg
+  await w.DB.put('kontakte', { id: 'v7-weg', name: 'Hof Rückkehr', typ: 'kunde', strasse: 'Weg 1', plz: '12345', ort: 'Ort' });
+  assertEq(await w.migriereRechnungSchnappschuss(), 1, 'Kontakt wieder da: einmal nachgeholt');
+  const r2 = await w.DB.get('rechnungen', 'v7-re');
+  assertEq([r2.empfaenger && r2.empfaenger.name, 'empfaengerFehlt' in r2, r2.lastModified], ['Hof Rückkehr', false, stempel], 'Empfänger festgehalten');
+  assertEq(await w.migriereRechnungSchnappschuss(), 0, 'danach wieder nichts zu tun');
+}));
+
+test('Ultra-Test 2 (V8): Position bearbeiten liest die Abzüge erst beim Tippen auf „Löschen“ – die Rückfrage nennt sie weiter', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen }) => {
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker V8', 0);
+  const volk = await w.DB.put('voelker', { name: 'V8-Volk', status: 'aktiv' });
+  await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2025-09-10', futterart: 'Zuckerwasser 3:2', mengeKg: 10, verbrauchAbzug: [{ inventarId: pos.id, bezeichnung: pos.bezeichnung, menge: 10, einheit: 'kg' }] });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echt = w.DB.getAll; let gelesen = 0;
+  try {
+    await w.renderInventarBereich(host, cfg);
+    w.DB.getAll = function (st, ...rest) { if (st === 'fuetterungen') gelesen++; return echt.call(this, st, ...rest); };
+    host.querySelector(`[data-edit="${pos.id}"]`).click(); await w99(400);
+    assertEq(gelesen, 0, 'Öffnen liest die Fütterungen nicht mehr');
+    letztesModal(w).querySelector('[data-del]').click(); await w99(500);
+    assertEq(gelesen, 1, 'erst das Löschen');
+  } finally { w.DB.getAll = echt; host.remove(); dialogeSchliessen(w); }
+  assert(fragen.some((q) => /1 Eintrag \(Fütterung, Behandlung oder Abfüllung\) hat davon abgezogen\./.test(q.text)), 'Rückfrage nennt den Eintrag: ' + JSON.stringify(fragen.map((q) => q.text)));
+  assert(await lagerKorb(w, 'inventar', pos.id), 'Position im Papierkorb');
+})));
+
+test('Ultra-Test 2 (V9): imPapierkorb – eine Stelle für „Liegt der Eintrag im Papierkorb?“', async (w) => isolierteDaten(w, async () => {
+  const korb = [{ id: 't1', store: 'abfuellungen', daten: { id: 'a1' } }, { id: 't2', store: 'chargen', daten: { id: 'c1' } }];
+  assertEq([w.imPapierkorb({ papierkorb: korb }, 'abfuellungen', 'a1'), w.imPapierkorb({ papierkorb: korb }, 'chargen', 'a1'), w.imPapierkorb({ papierkorb: korb }, 'abfuellungen', 'a2')], [true, false, false], 'nach Bereich und Kennung');
+  assertEq([w.imPapierkorb({}, 'abfuellungen', 'a1'), w.imPapierkorb(null, 'chargen', 'c1'), w.materialImPapierkorb({}, 'x')], [true, true, true], 'ohne gelesenen Papierkorb: sichere Seite');
+  let fehler = null; try { w.abfuellungImPapierkorb({ papierkorb: korb }, 'a1'); } catch (e) { fehler = e; }
+  assert(fehler && /liegt im Papierkorb/.test(fehler.message), 'abfuellungImPapierkorb meldet weiter');
+  w.abfuellungImPapierkorb({ papierkorb: korb }, 'a9');   // nicht im Papierkorb: kein Fehler
+  // Durchgehend: Verkauf stornieren, während seine Abfüllung im Papierkorb liegt – weiter gesperrt
+  const c = await w.DB.put('chargen', { losnummer: 'V9', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 4, bestand: 4 });
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 1, preisJeGlas: 6 });
+  await w.DB.softDel('abfuellungen', a.id);
+  fehler = null; try { await w.verkaufStornieren(v.id); } catch (e) { fehler = e; }
+  assertEq(fehler && fehler.message, 'Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren.', 'Storno: erst die Abfüllung wiederherstellen');
 }));
 
 test('Behandlungs-Paket R2 (#33): Behandlungsübersicht summiert je Einheit getrennt – Bildschirm und Report-PDF', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
