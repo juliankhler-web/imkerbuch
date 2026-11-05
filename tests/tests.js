@@ -18654,6 +18654,8 @@ test('Lösch-Paket 04.11.2026 (#1 b): Ernten einer Charge im Papierkorb bleiben 
   await w.Views.honig.chargeForm(await w.DB.get('chargen', c.id)); await w99(300);
   letztesModal(w).querySelector('[data-del]').click(); await w99(400);
   assert(/Die Ernten der Charge bleiben belegt, solange sie im Papierkorb liegt\./.test(fragen.at(-1).text), 'Rückfrage sagt es: ' + fragen.at(-1).text);
+  // Seit Julians Entscheidung (04.11.2026) folgt eine zweite Rückfrage mit den Folgen – hier „Ja, trotzdem löschen“
+  letztesModal(w).querySelector('[data-trotzdem]').click(); await w99(400);
   assertEq([await w.DB.get('chargen', c.id), (await w.DB.get('abfuellungen', a.id)).bestand], [undefined, 40], 'Charge im Papierkorb, Gebinde bleiben');
   dialogeSchliessen(w);
   assertEq([...w.ernteBelegungPapierkorb(await w.DB.getAll('papierkorb'))], [[e1.id, '2026-01']], 'Hilfsfunktion');
@@ -20088,7 +20090,7 @@ test('Völker-Paket R4 (#20): Ältere Wanderung nachträglich ergänzen holt ein
   const wand = await w.DB.getAll('wanderungen');
   assertEq([w.standAmStichtag(aNach, w.U.todayIso(), wand), w.standAmStichtag(aNach, '2026-05-01', wand), w.standAmStichtag(aNach, '2026-04-01', wand)], [heim.id, raps.id, heim.id], 'Stand am Stichtag: heute Heim, im Mai Raps, im April Heim');
   assertEq(toasts.find((t) => /^Wanderung gespeichert/.test(t.msg)).msg,
-    'Wanderung gespeichert · 1 Volk stehen jetzt auf „R4-Raps“ · „R4-Anna“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.', 'Meldung nennt A');
+    'Wanderung gespeichert · 1 Volk steht jetzt auf „R4-Raps“ · „R4-Anna“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.', 'Meldung nennt A');
   // Löschen und Wiederherstellen einer Wanderung bewegen keine Völker (Text: „Die Völker bleiben, wo sie stehen.“)
   dialogeSchliessen(w);
   assert(await w.papierkorbDelete('wanderungen', await w.DB.get('wanderungen', w2.id), 'Wanderung löschen?')(), 'W2 gelöscht');
@@ -20616,3 +20618,100 @@ test('Sicherungs-Paket R5 (#16): Fahrt löschen, Aufgabe abhaken, Papierkorb, Hy
 })));
 
 window.TESTS_VOLLSTAENDIG_GELADEN = true;   // tools/test-run.mjs: Ohne diese Zeile ist die Datei beim Laden abgebrochen
+
+/* =====================================================================
+   Prüfung 04.11.2026, Nachtrag Hauptchat: zweite Rückfrage beim Löschen einer Charge mit Abfüllungen
+   (Julian: „lass es weiter löschbar aber sag das als wichtigen hinweis … und sagen was man empfehlen würde“),
+   Rechnungs-Storno nie über die Anzahl, Fütterung bearbeiten zeigt nur den Unterschied.
+   ===================================================================== */
+async function chargeWarnDaten(w) {
+  const e = await w.DB.put('ernten', { datum: '2026-07-01', zielTyp: 'volk', zielId: 'cw-v', produktart: 'Honig', sorte: 'Linde', mengeKg: 20 });
+  const c = await w.DB.put('chargen', { losnummer: 'CW-03', datum: '2026-07-02', ernteIds: [e.id], lagerKg: 0, mengeKg: 20, sorte: 'Linde' });
+  const a1 = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-03', gebindeG: 500, anzahl: 20, bestand: 20 });
+  const a2 = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-04', gebindeG: 500, anzahl: 20, bestand: 14 });
+  return { e, c, abf: [a1, a2] };
+}
+test('Charge-Löschhinweis 04.11.2026: zweite Rückfrage nennt Folgen und Empfehlung, „Charge behalten“ löscht nichts', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const { c, abf } = await chargeWarnDaten(w);
+  const p = w.chargeLoeschWarnung(c, abf); await w99(200);
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assert(m, 'Fenster offen');
+  const text = m.textContent.replace(/\s+/g, ' ');
+  assert(text.includes('Wirklich löschen? Wichtiger Hinweis'), 'Titel');
+  assert(text.includes('Das kann später zu doppelt gezähltem Honig führen.'), 'Warnkasten');
+  assert(text.includes('Die 2 Abfüllungen (noch 34 Gebinde im Bestand) bleiben, aber ohne Charge.'), 'Folge 1 mit echten Zahlen: ' + text);
+  assert(text.includes('So lange bleibt ihre Ernte (Linde, 20 kg) belegt.'), 'Folge 2 nennt die Ernte');
+  assert(text.includes('Danach ist die Ernte wieder frei. Ordnest du sie neu zu oder füllst sie ab, zählt derselbe Honig doppelt.'), 'Folge 3');
+  assert(text.includes('Unsere Empfehlung: Behalte die Charge. Ist sie falsch, lösche zuerst die Abfüllungen und danach die Charge.'), 'Empfehlung');
+  const knoepfe = [...m.querySelectorAll('.modal-foot .btn')];
+  assertEq(knoepfe.map((b) => b.textContent.trim()), ['Charge behalten (empfohlen)', 'Ja, trotzdem löschen'], 'Reihenfolge der Knöpfe');
+  assert(knoepfe[0].classList.contains('btn-primary') && knoepfe[1].classList.contains('btn-danger'), 'Empfehlung hervorgehoben, Löschen rot');
+  knoepfe[0].click();
+  assertEq(await p, false, '„Charge behalten“ = nicht löschen');
+  // Fenster schließen zählt wie „behalten“
+  const p2 = w.chargeLoeschWarnung(c, abf); await w99(200);
+  [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-close], .modal-x, .modal-close')?.click() ?? dialogeSchliessen(w);
+  dialogeSchliessen(w);
+  // Ohne Ernte (nur Lager): kein Satz über doppelten Honig
+  const c2 = await w.DB.put('chargen', { losnummer: 'CW-L', datum: '2026-07-02', ernteIds: [], lagerKg: 5, mengeKg: 5, sorte: 'Raps' });
+  const a3 = await w.DB.put('abfuellungen', { chargeId: c2.id, datum: '2026-07-03', gebindeG: 500, anzahl: 10, bestand: 1 });
+  const p3 = w.chargeLoeschWarnung(c2, [a3]); await w99(200);
+  const t3 = [...w.document.querySelectorAll('.modal-back')].pop().textContent.replace(/\s+/g, ' ');
+  assert(t3.includes('Die Abfüllung (noch 1 Gebinde im Bestand) bleibt, aber ohne Charge.') && t3.includes('Die Abfüllungen verlieren ihre Charge.') && !t3.includes('doppelt'), 'Lager-Charge: passende Folgen: ' + t3);
+  [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-trotzdem]').click();
+  assertEq(await p3, true, '„Ja, trotzdem löschen“ = löschen');
+  dialogeSchliessen(w);
+  void p2;
+}));
+test('Charge-Löschhinweis 04.11.2026: über den Mülleimer erst die alte, dann die neue Rückfrage – nur beides zusammen löscht', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echt = { confirm: w.UI.confirm, render: w.renderRoute, light: w.Lizenz.light };
+  const fragen = [];
+  w.UI.confirm = async (o) => { fragen.push(o.title); return true; };
+  w.renderRoute = async () => {}; w.Lizenz.light = () => false;
+  try {
+    const { c } = await chargeWarnDaten(w);
+    // 1) erste Rückfrage ja, zweite „Charge behalten“ → Charge bleibt
+    await w.Views.honig.chargeForm(c); await w99(300);
+    [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-del]').click(); await w99(400);
+    assertEq(fragen.at(-1), 'Charge mit Abfüllungen löschen?', 'erst die bekannte Rückfrage');
+    const warn = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(warn.textContent.includes('Wichtiger Hinweis'), 'dann der wichtige Hinweis');
+    warn.querySelector('[data-behalten]').click(); await w99(400);
+    assert(await w.DB.get('chargen', c.id), 'Charge bleibt');
+    dialogeSchliessen(w); w.FormGuard.dirty = false;
+    // 2) beide Male ja → Charge im Papierkorb
+    await w.Views.honig.chargeForm(await w.DB.get('chargen', c.id)); await w99(300);
+    [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-del]').click(); await w99(400);
+    [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-trotzdem]').click(); await w99(500);
+    assertEq(await w.DB.get('chargen', c.id), undefined, 'Charge gelöscht');
+    assert((await w.DB.getAll('papierkorb')).some((t) => t.store === 'chargen' && t.daten.id === c.id), 'Charge im Papierkorb');
+  } finally { w.UI.confirm = echt.confirm; w.renderRoute = echt.render; w.Lizenz.light = echt.light; dialogeSchliessen(w); w.FormGuard.dirty = false; }
+}));
+test('Rechnungs-Storno 04.11.2026: hebt den Bestand nie über die abgefüllte Anzahl', async (w) => buchungTest(w, async () => {
+  const r = await atomRechnung(w, 'atom-rmax', 4);
+  await w.Views.rechnung.festschreiben(r, []);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 6, '10 − 4');
+  // Altdaten: Anzahl der Abfüllung wurde später auf 7 gesenkt (vor der Sperre aus Paket 2 möglich)
+  const a = await w.DB.get('abfuellungen', 'atom-a'); a.anzahl = 7; await w.DB.put('abfuellungen', a);
+  await w.rechnungStornieren(r.id);
+  assertEq((await w.DB.get('abfuellungen', 'atom-a')).bestand, 7, 'nicht 10, sondern höchstens die Anzahl');
+}));
+test('Fütterung bearbeiten 04.11.2026: der Hinweis nennt nur den Unterschied zum schon abgezogenen Zucker', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  const volk = await w.DB.put('voelker', { name: 'Hinweis-Volk', status: 'aktiv' });
+  const zucker = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker Hinweis', kategorie: 'Futter', einheit: 'kg', stueckzahl: 40, anschaffung: '2026-01-01' });
+  const b = await w.verbrauchAbziehenKette(zucker.id, 10, { pruefen: false });
+  const f = await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2026-08-01', futterart: 'Zuckerwasser 3:2', mengeKg: 10, verbrauchAbzug: b.abzug });
+  try {
+    await w.Views.fuetterung.einzelForm(f, 'Hinweis-Volk'); await w99(300);
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    const info = () => m.querySelector('[data-verbrauch-info]').textContent.replace(/\s+/g, ' ');
+    assert(/Schon abgezogen: 10 kg Zucker Hinweis\. Der Bestand bleibt bei 30 kg/.test(info()), 'unverändert: ' + info());
+    const menge = m.querySelector('#f-mengeKg'); menge.value = '12'; menge.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(100);
+    assert(/Dazu kommen 2 kg von 30 kg → Rest 28 kg/.test(info()), 'mehr: ' + info());
+    menge.value = '6'; menge.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(100);
+    assert(/4 kg gehen zurück in den Bestand → 34 kg/.test(info()), 'weniger: ' + info());
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+}));

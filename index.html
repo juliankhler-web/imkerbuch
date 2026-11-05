@@ -1611,8 +1611,19 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.23';
+const APP_VERSION = '3.24';
 const CHANGELOG = [
+  { version: '3.24', datum: '2026-11-05', punkte: [
+    '<b>Große Fehlerprüfung:</b> Alle Rechnungen mit Honigmengen und alle übrigen Bereiche wurden durchgesehen, jeder Fund unabhängig gegengeprüft und behoben.',
+    '<b>Stornieren tut nie mehr „nichts“:</b> Klappt etwas nicht, sagt die App jetzt immer, warum und was zu tun ist. Liegt die Abfüllung eines Verkaufs im Papierkorb, kommt eine klare Meldung; ist sie endgültig gelöscht, lässt sich der Verkauf trotzdem stornieren.',
+    '<b>Kein doppelt gezählter Honig:</b> Eine Abfüllung, aus der schon verkauft wurde, lässt sich nicht mehr löschen. Wiederherstellen aus dem Papierkorb prüft, ob der Honig der Charge noch reicht. Ändert sich eine Ernte, passt sich die Charge an.',
+    '<b>Charge mit Abfüllungen löschen:</b> geht weiter, aber eine zweite Rückfrage erklärt die Folgen und empfiehlt, die Charge zu behalten.',
+    '<b>Berichte stimmen:</b> Jahresbericht und Statistik zählen Rechnungen und Rabatte mit, Wabenhonig zählt als Honig, Pollen und Propolis nicht. Vorjahresvergleich bis zum selben Tag, Ernten beim Stand, an dem geerntet wurde.',
+    '<b>Material und Pfand:</b> Bestände stimmen jetzt auch beim Ändern, Löschen und Wiederherstellen; Deckel und Etiketten werden nicht mehr verwechselt; das Kassenbuch bucht den bezahlten Packungspreis.',
+    '<b>Behandlungen und Bestandsbuch:</b> Bearbeiten bucht nur den Unterschied, die Wartezeit-Erinnerung zieht mit, ein Stand mit Nachweisen lässt sich nicht mehr löschen.',
+    '<b>Rechnungen:</b> Eine ausgestellte Rechnung behält Kunde und Absender, auch wenn sich der Kontakt später ändert. Ihre Kassenbuch-Buchung lässt sich nicht mehr einzeln löschen – dafür gibt es das Storno.',
+    '<b>Wanderungen und Sicherung:</b> Eine alte Wanderung zu bearbeiten verschiebt kein Volk mehr. Die automatische Sicherung meldet, wenn kein Ordner gewählt ist.',
+  ] },
   { version: '3.23', datum: '2026-11-04', punkte: [
     '<b>Langsamer Start:</b> Dauert das Laden länger, bleibt der Startbildschirm stehen und die Waben drehen weiter. Nach 8 Sekunden steht dort „Einen Moment noch – deine Daten werden geladen …“.',
   ] },
@@ -11812,7 +11823,11 @@ Views.fuetterung = {
         return true;
       },
     }));
-    verdrahteVerbrauch(m, zuckerPosten, () => fuetterungVerbrauchAusFormular(m, zuckerPosten, 1));
+    /* Wie bei der Behandlung (Fund 04.11.2026, #17): fuetterungAendern bucht den alten Abzug zurück und zieht neu ab. Ohne
+       „bisher“ zeigte der Hinweis „Abzug 10 kg von 40 kg → Rest 30 kg“, obwohl nur der Unterschied gebucht wird. */
+    const altAbzug = f.verbrauchAbzug || [], altId = (altAbzug[0] || {}).inventarId || '';
+    verdrahteVerbrauch(m, zuckerPosten, () => fuetterungVerbrauchAusFormular(m, zuckerPosten, 1),
+      altId ? { start: altId, angeboten: zuckerPosten.some((p) => p.id === altId), menge: U.sum(altAbzug, (x) => Number(x.menge) || 0), abzug: altAbzug } : null);
   },
 
   /** Sammel-Erfassung im Wanderungs-Stil: Stand → Funktion → Völker → Futter.
@@ -12462,7 +12477,7 @@ Views.wanderungen = {
           const n = nachtrag.spaeter.length;
           const spaeterText = !n ? '' : n === 1 ? ` · „${nachtrag.spaeter[0]}“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.`
             : ` · ${n} Völker bleiben, wo sie stehen: Sie haben danach schon wieder den Stand gewechselt.`;
-          UI.toast((bewegt ? `Wanderung gespeichert · ${bewegt} ${bewegt === 1 ? 'Volk' : 'Völker'} stehen jetzt auf „${nachName}“` : 'Wanderung gespeichert') + spaeterText);
+          UI.toast((bewegt ? `Wanderung gespeichert · ${bewegt} ${bewegt === 1 ? 'Volk steht' : 'Völker stehen'} jetzt auf „${nachName}“` : 'Wanderung gespeichert') + spaeterText);
           renderRoute();
         },
         onDelete: papierkorbDelete('wanderungen', w, 'Wanderung löschen?', 'Wandert in den Papierkorb. Die Völker bleiben, wo sie stehen.'),
@@ -12742,6 +12757,36 @@ function voelkerAmStichtag(voelker, tag) {
 
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
 /** Noch nicht abgefüllte Restmenge (kg) einer Charge – wird aus den Abfüllungen berechnet. */
+/** Zweite Rückfrage beim Löschen einer Charge mit Abfüllungen. Julian 04.11.2026: „lass es weiter löschbar aber sag das
+    als wichtigen hinweis was dann passiert so ist dennoch jeder frei in seiner entscheidung einfach nochmal nachfragen ob
+    wirklich gelöscht werden soll welche konsequenzen entstehen und sagen was man empfehlen würde“ – Mockup freigegeben
+    („so ist gut“). Warum: Nach dem endgültigen Löschen (30 Tage Papierkorb) gilt die Ernte wieder als frei und ließe sich
+    ein zweites Mal abfüllen. true = trotzdem löschen, false = Charge behalten (auch beim Schließen des Fensters). */
+async function chargeLoeschWarnung(c, abf) {
+  const ernten = (await Promise.all((c.ernteIds || []).map((id) => DB.get('ernten', id)))).filter(Boolean);
+  const bestand = Math.round(U.sum(abf, (a) => Number(a.bestand) || 0));
+  const n = abf.length;
+  const abfText = `${n === 1 ? 'Die Abfüllung' : `Die ${n} Abfüllungen`} (noch ${U.fmtNum(bestand, 0)} Gebinde im Bestand) ${n === 1 ? 'bleibt' : 'bleiben'}, aber ohne Charge.`;
+  const ernteText = ernten.map((e) => `${e.sorte || 'Honig'}, ${U.fmtNum(Number(e.mengeKg) || 0, 2)} kg`).join('; ');
+  const folgen = ernten.length
+    ? [abfText,
+      `30 Tage liegt die Charge im Papierkorb. So lange ${ernten.length === 1 ? 'bleibt ihre Ernte' : 'bleiben ihre Ernten'} (${ernteText}) belegt.`,
+      `Danach ${ernten.length === 1 ? 'ist die Ernte' : 'sind die Ernten'} wieder frei. Ordnest du sie neu zu oder füllst sie ab, zählt derselbe Honig doppelt.`]
+    : [abfText, '30 Tage liegt die Charge im Papierkorb, danach ist sie endgültig weg.'];
+  const warnung = ernten.length ? 'Das kann später zu doppelt gezähltem Honig führen.' : 'Die Abfüllungen verlieren ihre Charge.';
+  return new Promise((res) => {
+    const m = UI.modal({
+      title: 'Wirklich löschen? Wichtiger Hinweis', onClose: () => res(false),
+      body: `<div class="charge-warnung" style="display:flex;gap:8px;align-items:flex-start;background:var(--danger-bg);color:var(--danger);border-radius:12px;padding:10px 12px;margin-bottom:10px"><span style="flex:0 0 20px;width:20px;height:20px;display:inline-flex" aria-hidden="true">${icon('warn')}</span><span>${U.esc(warnung)}</span></div>
+        <p>Wenn du die Charge <b>${U.esc(c.losnummer || '')}</b> löschst, passiert Folgendes:</p>
+        <ol class="charge-folgen" style="margin:6px 0 0;padding-left:20px">${folgen.map((f) => `<li style="margin-bottom:4px">${U.esc(f)}</li>`).join('')}</ol>
+        <p class="charge-empfehlung" style="margin-top:10px;background:var(--honey-soft);color:var(--honey-deep);border-radius:12px;padding:10px 12px"><b>Unsere Empfehlung:</b> Behalte die Charge. Ist sie falsch, lösche zuerst die Abfüllungen und danach die Charge.</p>`,
+      footer: `<button class="btn btn-primary" data-behalten style="flex:1 1 100%">Charge behalten (empfohlen)</button><button class="btn btn-danger" data-trotzdem style="flex:1 1 100%">Ja, trotzdem löschen</button>`,
+    });
+    $('[data-behalten]', m.el).onclick = () => m.close();
+    $('[data-trotzdem]', m.el).onclick = () => { res(true); m.close(true); };
+  });
+}
 function chargeRestKg(charge, abfAlle) { return Math.round(((charge.mengeKg || 0) - chargeAbgefuelltKg(charge.id, abfAlle) - chargeVerarbeitetKg(charge.id) - chargeVerlustKg(charge.id)) * 1000) / 1000; }
 /* Rest einer Charge als Text, ohne „kg“ (Fund 04.11.2026, #9): Mit einer Nachkommastelle wurde ein Rest unter 0,05 kg zu „0“ –
    die Charge blieb aber offen (Schwelle 0,0001 kg wie in chargeErledigt), samt Knopf „Abfüllen“. Kleine Reste deshalb genauer:
@@ -17820,6 +17865,7 @@ Views.honig = {
       onDelete: c ? async () => {
         const abf = (await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id);
         if (abf.length && !(await UI.confirm({ title: 'Charge mit Abfüllungen löschen?', text: `Zu dieser Charge gehören ${abf.length} Abfüllung(en). Nur die Charge wandert in den Papierkorb; die Abfüllungen bleiben (dann ohne Charge-Zuordnung). Die Ernten der Charge bleiben belegt, solange sie im Papierkorb liegt. Lösche bei Bedarf zuerst die Abfüllungen.`, confirmText: 'Trotzdem löschen', danger: true }))) return false;   // Satz zu den Ernten: Fund 04.11.2026, #1 b
+        if (abf.length && !(await chargeLoeschWarnung(c, abf))) return false;   // zweite, deutliche Rückfrage (Julian 04.11.2026)
         await DB.softDel('chargen', c.id); UI.toast('Charge gelöscht'); renderRoute(); return true;
       } : null,
     });
@@ -19060,7 +19106,8 @@ async function rechnungStornieren(id) {
         if (imKorb('abfuellungen', (x) => x.id === p.abfuellungId)) throw new Error(STORNO_RE_ABF_IM_PAPIERKORB);
         abfuellungFehlt = true; continue;
       }
-      a.bestand = buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(p.menge, 'Menge');
+      // nie über die abgefüllte Anzahl (Fund 04.11.2026, wie #25 bei verkaufStornieren: sonst mehr Gebinde im Bestand als je abgefüllt)
+      a.bestand = Math.min(buchungsZahl(a.anzahl, 'Anzahl'), buchungsZahl(a.bestand, 'Bestand') + buchungsZahl(p.menge, 'Menge'));
       geaendert.set(a.id, a);
     }
     for (const a of geaendert.values()) ops.push({ store: 'abfuellungen', obj: a });
@@ -32015,7 +32062,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
-  wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden,
+  wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden, chargeLoeschWarnung,
   TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
