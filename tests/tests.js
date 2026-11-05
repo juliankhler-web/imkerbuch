@@ -18485,7 +18485,7 @@ test('Lösch-Paket 04.11.2026 (#5/#21): Abfüllung mit Verkäufen lässt sich ni
   const c = await loeschPaketCharge(w, 'LP-1', 10);
   const a = (await w.abfuellungenAnlegen({ chargeId: c.id, datum: '2026-07-02', g_500: 20 })).recs[0];
   const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 20, preisJeGlas: 6 });
-  const sperrText = 'Zu dieser Abfüllung gehören 1 Verkauf (20 Gebinde). Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst den Verkauf im Reiter „Verkauf“. Danach kannst du die Abfüllung löschen.';
+  const sperrText = 'Zu dieser Abfüllung gehört 1 Verkauf (20 Gebinde). Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst den Verkauf im Reiter „Verkauf“. Danach kannst du die Abfüllung löschen.';
   // 1) Mülleimer im Formular: Hinweis statt Löschen
   await w.Views.honig.abfuellEditForm(await w.DB.get('abfuellungen', a.id)); await w99(300);
   const m = letztesModal(w);
