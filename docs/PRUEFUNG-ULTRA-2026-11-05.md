@@ -32,3 +32,17 @@ G8. Zweites offenes Fenster/Tab: gemerkter Name erst nach Neuladen (nur Anzeige)
 Status: **alle repariert** (05.11.2026), 955/955 Tests grün. U1 Belege ziehen auf die neue Buchung um (lagerKasseBuchen); U2/U3 Rolle für Start und Kandidaten gleich (materialNamensArt), Rolle im verbrauchAbzug gespeichert; U4 keepStamp; N1 chargeBelegtIn/chargeFreiKgIn; N2 rechnungRabattFaktor; N3 Abkürzung in papierkorbAnhangZahl; G1–G8 umgesetzt (G8: Name erscheint mit dem nächsten Neuzeichnen).
 Offen zur Entscheidung: Wird ein Zugang so geändert, dass kein Betrag mehr anfällt (Einkauf → Geschenk), entsteht keine neue Buchung – die Belegfotos bleiben an der alten Buchung im Papierkorb und gehen nach 30 Tagen mit ihr (wie beim Löschen einer Buchung).
 Nächster Schritt: zweiter Ultra-Test mit `/code-review ultra --max-findings all` (Julian: „so intensiv wie möglich“).
+
+## Zweiter Ultra-Test (2 von 3, `--max-findings all`) – 05.11.2026
+
+Umfang 7 Dateien, +5018/−460 (ganzer Weg v3.23 → heute). **Kein Fund der Schwere „normal“ mehr.** 7 × nit, 2 × pre_existing:
+
+V1 (nit) applyMerge nutzt den Papierkorb als Grabstein: verwirft auch eine NEUERE Kopie aus der Sicherung (auf dem anderen Gerät nach dem Löschen geändert); Wiederherstellen schreibt dann die alte Kopie mit neuem Zeitstempel. → Ist die Kopie neuer als geloeschtAm, die Papierkorb-Daten durch die neuere Kopie ersetzen (weiter nicht still zurückholen).
+V2 (nit) S.set('imkerei') verschluckt eine gescheiterte Schnappschuss-Migration und speichert die neuen Absender trotzdem → alte Rechnungen bekämen später den neuen Absender. → Fehler nicht verschlucken (wie beim Kontakt: Speichern abweisen).
+V3 (nit) Alte Gruppen-Wartezeit-Erinnerungen ohne refIds: bei zwei mit gleichem Mittel und gleichem Fälligkeitstag schluckt die erste beim Bearbeiten beide Gruppen. → Nur umwandeln, wenn eindeutig.
+V4 (nit) Grammatik „aus dem Entwürfen“ (abfuellungVerkaufSperre) → „aus den Entwürfen“.
+V5 (pre_existing) abgangZurueckbuchen: Bearbeiten eines inzwischen (zweites Fenster) gelöschten Abgangs bucht den Bestand doppelt zurück. → Sperre wie bei zugangZurueckbuchen.
+V6 (pre_existing) materialRolle: „Twist-Off-Glas“ ohne Größe gilt als Deckel und wird als Deckel abgezogen. → Gefäßwort vor Deckel-Wörtern (aber ausdrückliches „Deckel“ im Namen bleibt Deckel).
+V7 (nit) migriereRechnungSchnappschuss findet bei Rechnungen mit endgültig gelöschtem Kontakt ewig Arbeit (leere Schreib-Transaktion bei jedem Start/Speichern). → Unrettbaren Empfänger markieren.
+V8 (nit) positionLoeschText wird beim Öffnen jedes Positionsformulars schon gelesen (3 volle Bereiche). → Erst beim Tippen auf Löschen.
+V9 (nit) „Liegt X im Papierkorb?“ an 6 Stellen von Hand → ein Helfer imPapierkorb(d, store, id).
