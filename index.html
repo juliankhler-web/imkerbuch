@@ -1620,7 +1620,7 @@ const CHANGELOG = [
     '<b>Charge mit Abfüllungen löschen:</b> geht weiter, aber eine zweite Rückfrage erklärt die Folgen und empfiehlt, die Charge zu behalten.',
     '<b>Berichte stimmen:</b> Jahresbericht und Statistik zählen Rechnungen und Rabatte mit, Wabenhonig zählt als Honig, Pollen und Propolis nicht. Vorjahresvergleich bis zum selben Tag, Ernten beim Stand, an dem geerntet wurde.',
     '<b>Material und Pfand:</b> Bestände stimmen jetzt auch beim Ändern, Löschen und Wiederherstellen; Deckel und Etiketten werden nicht mehr verwechselt; das Kassenbuch bucht den bezahlten Packungspreis.',
-    '<b>Behandlungen und Bestandsbuch:</b> Bearbeiten bucht nur den Unterschied, die Wartezeit-Erinnerung zieht mit, ein Stand mit Nachweisen lässt sich nicht mehr löschen.',
+    '<b>Behandlungen und Bestandsbuch:</b> Bearbeiten bucht nur den Unterschied, die Wartezeit-Erinnerung zieht mit. Wird ein Stand gelöscht, steht in Bestandsbuch, Wanderbuch und allen Listen weiter sein Name mit dem Zusatz „(gelöscht)“.',
     '<b>Rechnungen:</b> Eine ausgestellte Rechnung behält Kunde und Absender, auch wenn sich der Kontakt später ändert. Ihre Kassenbuch-Buchung lässt sich nicht mehr einzeln löschen – dafür gibt es das Storno.',
     '<b>Wanderungen und Sicherung:</b> Eine alte Wanderung zu bearbeiten verschiebt kein Volk mehr. Die automatische Sicherung meldet, wenn kein Ordner gewählt ist.',
   ] },
@@ -3472,15 +3472,17 @@ const DB = {
       inventar: ['chargen', 'abfuellungen', 'honigabgaenge', 'materialzugaenge', 'papierkorb'],
       behandlungen: ['aufgaben', 'voelker', 'staende'],   // Behandlung: Wartezeit-Erinnerung zurück (#23)
       koeniginnen: ['voelker', 'koeniginnen'],            // Königin: Zuordnung nur zurück, wenn das Volk frei ist (#7/#26)
-      zuchtserien: ['aufgaben'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Zuchtserie: Kalender-Aufgaben zurück (#22)
+      zuchtserien: ['aufgaben'],                          // Zuchtserie: Kalender-Aufgaben zurück (#22)
+      staende: ['settings'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Stand: gemerkten Namen streichen (Julian 05.11.2026)
     const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store, ...pruefBereiche])], 'readwrite');
     return new Promise((resolve, reject) => {
-      let ergebnis = null, ursache = null;
+      let ergebnis = null, ursache = null, standMerk = null;
       // Zuerst angefordert: IndexedDB liefert die Ergebnisse einer Transaktion in dieser Reihenfolge, sie liegen also vor den Prüfungen unten vor
       const pruefDaten = Object.create(null);
       for (const name of pruefBereiche) { const rq = tx.objectStore(name).getAll(); rq.onsuccess = () => { pruefDaten[name] = rq.result; }; }
       tx.oncomplete = () => {
         if (ergebnis) this._aenderungMelden();
+        geloeschteStaendeUebernehmen(standMerk);
         (ergebnis && (ergebnis.store === 'materialzugaenge' || ergebnis.store === 'inventar' || ergebnis.store === 'honigabgaenge') ? lohnIndexNeu() : Promise.resolve()).then(() => resolve(ergebnis), () => resolve(ergebnis));
       };
       tx.onerror = () => { ursache = ursache || tx.error; };
@@ -3536,7 +3538,8 @@ const DB = {
                bringt sie zurück (in die passende Sammel-Erinnerung oder als eigene), sofern keine mehr zu ihr gehört. */
             if (t.store === 'behandlungen') {
               const ziele = (t.daten.zielTyp === 'volk' ? pruefDaten.voelker : pruefDaten.staende) || [];
-              const zielText = !t.daten.zielId ? '–' : ((ziele.find((x) => x.id === t.daten.zielId) || {}).name || 'gelöscht');
+              const zielText = !t.daten.zielId ? '–' : t.daten.zielTyp === 'volk' ? ((ziele.find((x) => x.id === t.daten.zielId) || {}).name || 'gelöscht')
+                : (standNameAnzeige(t.daten.zielId, ziele) || 'gelöscht');   // gelöschter Stand mit Namen (Julian 05.11.2026)
               this._auftraege(tx, wartezeitAufgabeWiederPlan(pruefDaten, t.daten, zielText));
             }
             /* Königin (Fund 04.11.2026, #7/#26): Das Löschen beendet ihre Zuordnung – zurück ins Volk nur, wenn es frei ist.
@@ -3544,6 +3547,9 @@ const DB = {
                (ohne die schon erledigten Schritte). */
             if (t.store === 'koeniginnen') this._auftraege(tx, koeniginWiederPlan(pruefDaten, t.daten, t.geloeschtAm));
             if (t.store === 'zuchtserien') this._auftraege(tx, zuchtAufgabenPlan(pruefDaten.aufgaben, t.daten));
+            /* Stand (Julian 05.11.2026): Er ist wieder da – sein gemerkter Name fliegt raus, die Nachweise zeigen ihn wieder ohne
+               „(gelöscht)“. Dieselbe Transaktion, damit nie ein vorhandener Stand als gelöscht gemerkt bleibt. */
+            if (t.store === 'staende') { standMerk = geloeschteStaendeAuftrag(pruefDaten.settings, { weg: [t.daten.id] }); if (standMerk) this._auftraege(tx, [standMerk.op]); }
             t.daten.lastModified = U.nowIso();
             ziel.put(t.daten);
             tx.objectStore('papierkorb').delete(trashId);
@@ -3563,12 +3569,19 @@ const DB = {
     if (!vorab.length) return { eintraege: 0, anhaenge: 0 };
     const eltern = [...ANHANG_BEREICHE];
     const mitAnhaengen = vorab.some((t) => ANHANG_BEREICHE.has(t.store));
-    return this.aendereAtomar(['papierkorb', ...(mitAnhaengen ? ['anhaenge', ...eltern] : [])], (d) => {
+    const erg = await this.aendereAtomar(['papierkorb', ...(mitAnhaengen ? ['anhaenge', ...eltern] : [])], (d) => {
       const weg = d.papierkorb.filter(welche);
       const anhaenge = mitAnhaengen ? verwaisteAnhaenge(d, weg) : [];
-      return { ops: [...weg.map((t) => ({ op: 'del', store: 'papierkorb', id: t.id })), ...anhaenge.map((a) => ({ op: 'del', store: 'anhaenge', id: a.id }))],
-        wert: { eintraege: weg.length, anhaenge: anhaenge.length } };
+      /* Endgültig weg ist nur der Datensatz des Stands, nicht sein Name in den Nachweisen (Julian 05.11.2026): Den merkt sich
+         standLoeschen schon. Für Stände aus älteren Fassungen oder einer älteren Sicherung wird er hier noch nachgetragen. */
+      const da = new Set((d.staende || []).map((s) => s.id));
+      const merk = geloeschteStaendeAuftrag(d.settings, { nurFehlende: true, merken: weg.filter((t) => t.store === 'staende' && t.daten && t.daten.id && !da.has(t.daten.id))
+        .map((t) => ({ id: t.daten.id, name: t.daten.name, geloeschtAm: t.geloeschtAm })) }, true);
+      return { ops: [...weg.map((t) => ({ op: 'del', store: 'papierkorb', id: t.id })), ...anhaenge.map((a) => ({ op: 'del', store: 'anhaenge', id: a.id })), ...(merk ? [merk.op] : [])],
+        wert: { eintraege: weg.length, anhaenge: anhaenge.length, merk } };
     });
+    geloeschteStaendeUebernehmen(erg.merk);
+    return { eintraege: erg.eintraege, anhaenge: erg.anhaenge };
   },
   /** Wie viele Anhänge gingen mit, wenn diese Papierkorb-Einträge jetzt endgültig gelöscht würden? Für die Rückfrage. */
   async papierkorbAnhangZahl(welche) {
@@ -3629,6 +3642,7 @@ const S = {
        { name, herkunft, ort, betreiber, lat, lng, drohnenlinien: [] } */
     belegstellenVerzeichnis: [],
     fahrtvorlagen: [], // wiederverwendbare Fahrt-Vorlagen: {id,name,km,zweck,standId,freiZiel}
+    geloeschteStaende: {}, // Namen gelöschter Stände für die Nachweise: { [id]: { name, geloeschtAm } } (Julian 05.11.2026, siehe standNameAnzeige)
     zeitVorlagen: [], // v2.99: eigene Schnellzugriffe „Zeit buchen“: {id,titel,kategorie,schritte,minuten}
     zeitSchnellAuswahl: [], // bis v3.00 („nur diese“) – v3.01 übernimmt sie in zeitSchnellFest
     zeitSchnellFest: [], // v3.01: zusätzlich angehakte Einträge „Zeit buchen“ ['eigen:<id>','arbeit:<Titel>']
@@ -6975,7 +6989,10 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
   const staende = await DB.getAll('staende');
   const kmVon = (standId) => { const st = staende.find((x) => x.id === standId); return st && st.kmEntfernung ? st.kmEntfernung * 2 : ''; };
   const FREI = '__frei__';
-  const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
+  /* Eine Fahrt zu einem inzwischen gelöschten Stand behält beim Bearbeiten ihr Ziel als „Name (gelöscht)“ (Julian 05.11.2026).
+     Ohne diese Zeile wählte die Pflicht-Auswahl still den ersten Stand, und das Speichern schrieb die Fahrt dorthin um. */
+  const geloeschtesZiel = bearbeiten && bearbeiten.standId && !staende.some((x) => x.id === bearbeiten.standId) ? [{ v: bearbeiten.standId, l: standNameAnzeige(bearbeiten.standId, staende) }] : [];
+  const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), ...geloeschtesZiel, { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
   // Startwerte: Bearbeiten > Vorlage-Prefill > vorgewählter Stand
   const quelle = bearbeiten || prefill;
   const startZiel = quelle ? (quelle.standId || FREI) : (vorStandId || (staende[0] ? staende[0].id : FREI));
@@ -7467,12 +7484,91 @@ Views.staende = {
   },
 };
 
+/* Gelöschte Stände in den Nachweisen (Julian 05.11.2026, wörtlich: „naja er kann sich ja löschen lassen aber es muss dann
+   überall stehen bei wanderungen etc. das der stand gelöscht ist irgendwie“). Behandlungen, Ernten, Wanderungen, Fahrten,
+   Aufgaben und Material speichern nur die Kennung des Stands. Gelöscht druckte das Bestandsbuch „Stand ?“, das Wanderbuch
+   „–“, andere Stellen „gelöscht“ oder „gelöschter Stand“ (Fund 04.11.2026, #5) – Paket R2 sperrte darum das Löschen.
+   Jetzt merkt sich standLoeschen den Namen dauerhaft in der Einstellung 'geloeschteStaende' ({ [id]: { name, geloeschtAm } }).
+   Sie reist mit jeder Sicherung, bleibt auch nach dem endgültigen Löschen aus dem Papierkorb und verschwindet nur, wenn der
+   Stand wiederhergestellt wird. Angezeigt wird überall über standNameAnzeige. */
+const STAND_GELOESCHT = 'gelöschter Stand';
+/** Gemerkter Name eines gelöschten Stands ('' = keiner). Geprüft, weil der Wert aus einer fremden Sicherung kommen kann. */
+function geloeschterStandName(id) {
+  if (!id) return '';
+  const alle = S.get('geloeschteStaende');
+  const e = S.istObjekt(alle) && Object.prototype.hasOwnProperty.call(alle, id) ? alle[id] : null;
+  return e && typeof e.name === 'string' ? e.name.trim() : '';
+}
+/** EIN Weg zum Namen eines Stands über seine Kennung – Bildschirm, PDF, Excel (Julian 05.11.2026).
+    Vorhandener Stand: sein Name, genau wie bisher. Gelöscht: „Name (gelöscht)“ mit dem gemerkten Namen; ist keiner gemerkt
+    (Altdaten), der Rückfalltext mit Zusatz – etwa „vonOrt (gelöscht)“ einer alten Wanderung –, sonst „gelöschter Stand“.
+    Ohne Kennung: '' – dann bleibt es bei dem, was die Stelle bisher zeigte. `staende`: Map (idMap) oder Liste. */
+function standNameAnzeige(id, staende, rueckfall = '') {
+  if (!id) return '';
+  // Map nicht per instanceof erkennen: Eine Map aus einem anderen Fenster (Tests, iframe) wäre sonst keine
+  const st = !staende ? null : Array.isArray(staende) ? staende.find((x) => x && x.id === id) : typeof staende.get === 'function' ? staende.get(id) : null;
+  if (st) return st.name || '';
+  const name = geloeschterStandName(id) || String(rueckfall || '').trim();
+  return name ? `${name} (gelöscht)` : STAND_GELOESCHT;
+}
+/** Name des Ziels eines Eintrags mit zielTyp/zielId (Behandlung, Ernte, alte Wanderung): Volk wie bisher, Stand über
+    standNameAnzeige. Ohne Treffer wie bisher „gelöscht“. */
+function zielNameAnzeige(r, voelker, staende) {
+  return (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : standNameAnzeige(r.zielId, staende)) || 'gelöscht';
+}
+/** Auswahlliste der Stände für ein Formular – dazu die gelöschten Stände, auf die der Eintrag schon zeigt, als
+    „Name (gelöscht)“ (Julian 05.11.2026). Sonst stünde dort „–“ oder still der erste Stand, und schon eine Korrektur der
+    Notiz hätte den Nachweis auf einen anderen Stand umgeschrieben. */
+function standOptionen(staende, ...behalten) {
+  const opts = staende.map((s) => ({ v: s.id, l: s.name }));
+  for (const id of new Set(behalten.filter(Boolean))) if (!staende.some((s) => s.id === id)) opts.push({ v: id, l: standNameAnzeige(id, staende) });
+  return opts;
+}
+/** Auftrag für die Einstellung 'geloeschteStaende' – gedacht für DIESELBE Transaktion wie das Löschen bzw. Wiederherstellen.
+    merken: [{ id, name, geloeschtAm }] eintragen (nurFehlende: vorhandene Einträge nicht überschreiben), weg: Kennungen
+    entfernen. → { op, satz, wert } oder null, wenn sich nichts ändert. Nach der Transaktion übernimmt geloeschteStaendeUebernehmen
+    den neuen Stand in S, sonst sähe die Anzeige ihn erst nach dem nächsten Start. */
+function geloeschteStaendeAuftrag(settings, { merken = [], weg = [], nurFehlende = false } = {}, auto = false) {
+  const vorher = (settings || []).find((r) => r.key === 'geloeschteStaende') || null;
+  const wert = { ...(vorher && S.istObjekt(vorher.value) ? vorher.value : {}) };
+  let geaendert = false;
+  for (const m of merken) {
+    const name = String((m && m.name) || '').trim();
+    if (!m || !m.id || !name) continue;
+    const da = Object.prototype.hasOwnProperty.call(wert, m.id) && S.istObjekt(wert[m.id]);
+    if (da && (nurFehlende || wert[m.id].name === name)) continue;
+    wert[m.id] = { name, geloeschtAm: m.geloeschtAm || U.nowIso() };
+    geaendert = true;
+  }
+  for (const id of weg) if (id && Object.prototype.hasOwnProperty.call(wert, id)) { delete wert[id]; geaendert = true; }
+  if (!geaendert) return null;
+  const satz = S.satz(vorher, 'geloeschteStaende', wert, auto);
+  return { op: { store: 'settings', obj: satz, keepStamp: true, auto }, satz, wert };
+}
+function geloeschteStaendeUebernehmen(auftrag) {
+  if (auftrag && auftrag.satz) { S.data.geloeschteStaende = auftrag.wert; S._merke(auftrag.satz); }
+}
+/* Stände, die schon vor dieser Fassung gelöscht wurden und noch im Papierkorb liegen: Namen einmal nachtragen (Start). Ohne
+   das stünde dort 30 Tage lang nur „gelöschter Stand“, obwohl der Papierkorb den Namen kennt. Kein Merker nötig – ist alles
+   eingetragen, liest der Schritt nur den Papierkorb. */
+async function migriereGeloeschteStaende() {
+  const korb = (await DB.getAll('papierkorb')).filter((t) => t && t.store === 'staende' && t.daten && t.daten.id && String(t.daten.name || '').trim());
+  if (!korb.some((t) => !geloeschterStandName(t.daten.id))) return 0;
+  const auftrag = await DB.aendereAtomar(['papierkorb', 'staende'], (d) => {
+    const da = new Set(d.staende.map((s) => s.id));
+    const merken = d.papierkorb.filter((t) => t && t.store === 'staende' && t.daten && t.daten.id && !da.has(t.daten.id))
+      .map((t) => ({ id: t.daten.id, name: t.daten.name, geloeschtAm: t.geloeschtAm }));
+    const a = geloeschteStaendeAuftrag(d.settings, { merken, nurFehlende: true }, true);
+    return { ops: a ? [a.op] : [], wert: a };
+  });
+  geloeschteStaendeUebernehmen(auftrag);
+  return auftrag ? 1 : 0;
+}
 /* Nachweise, die den Stand beim Namen nennen (Fund 04.11.2026, #5): Behandlungen „Ganzer Stand“ (Bestandsbuch), Ernten vom
-   ganzen Stand (Herkunft im Verarbeitungsnachweis) und Wanderungen (Wanderbuch). Sie speichern nur die Kennung des Stands –
-   gelöscht druckte das Bestandsbuch „Stand ?“, das Wanderbuch „–“. Julians Linie: Solange ein Nachweis auf den Stand zeigt,
-   lässt er sich nicht löschen (wie Völker, die nie gelöscht werden). Fahrten zählen nicht: Das Fahrtenbuch schreibt bewusst
-   „gelöschter Stand“. → null, wenn nichts dranhängt; sonst der Text für die Meldung. */
-function standNachweisSperre(d, s) {
+   ganzen Stand (Herkunft im Verarbeitungsnachweis) und Wanderungen (Wanderbuch). Bis 05.11.2026 sperrten sie das Löschen.
+   Julian 05.11.2026: löschbar, aber man soll vorher wissen, was dranhängt – deshalb eine eigene Rückfrage. Fahrten zählen
+   wie bisher nicht mit. → null, wenn nichts dranhängt; sonst der Text für die Rückfrage. */
+function standNachweisHinweis(d, s) {
   const id = s && s.id;
   const beh = (d.behandlungen || []).filter((b) => b.zielTyp === 'stand' && b.zielId === id).length;
   const ern = (d.ernten || []).filter((e) => e.zielTyp === 'stand' && e.zielId === id).length;
@@ -7484,33 +7580,35 @@ function standNachweisSperre(d, s) {
     ...(wan ? [`${wan} ${wan === 1 ? 'Wanderung' : 'Wanderungen'} im Wanderbuch`] : []),
   ];
   const und = teile.length > 1 ? `${teile.slice(0, -1).join(', ')} und ${teile[teile.length - 1]}` : teile[0];
-  const beispiel = beh ? 'im Bestandsbuch stünde nur „Stand ?“' : wan ? 'im Wanderbuch stünde nur „–“' : 'bei der Ernte fehlte die Herkunft';
-  return `„${s.name || 'Dieser Stand'}“ steht in deinen Nachweisen: ${und}. Ohne den Stand fehlte dort sein Name – ${beispiel}. `
-    + 'Darum lässt sich der Stand nicht löschen. Er kann stehen bleiben, auch ohne Völker. Gehören die Einträge gar nicht zu diesem Stand, ändere sie zuerst – dann kannst du ihn löschen.';
+  return `„${(s && s.name) || 'Dieser Stand'}“ steht in deinen Nachweisen: ${und}. `
+    + 'Nach dem Löschen steht dort weiter sein Name mit dem Zusatz „(gelöscht)“. Der Stand wandert in den Papierkorb.';
 }
-/** Stand in den Papierkorb. Seine aktiven Völker bleiben erhalten und verlieren nur die Standzuordnung. */
+/** Stand in den Papierkorb. Seine aktiven Völker bleiben erhalten und verlieren nur die Standzuordnung. Hängen Nachweise
+    dran, fragt eine eigene Rückfrage („Trotzdem löschen“). Der Name bleibt in 'geloeschteStaende' gemerkt. */
 async function standLoeschen(s) {
   const nachweise = ['behandlungen', 'ernten', 'wanderungen'];
-  const lesen = async () => Object.fromEntries(await Promise.all(nachweise.map(async (st) => [st, await DB.getAll(st)])));
-  const sperre = standNachweisSperre(await lesen(), s);
-  if (sperre) { await UI.confirm({ title: 'Der Stand wird noch gebraucht', text: sperre, confirmText: 'Verstanden', danger: false }); return false; }
+  const d = Object.fromEntries(await Promise.all(nachweise.map(async (st) => [st, await DB.getAll(st)])));
   const nv = (await DB.getAll('voelker')).filter((v) => v.standId === s.id && v.status === 'aktiv').length;
-  if (!(await UI.confirm({ title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${nv ? ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.` : ''}` }))) return false;
+  const voelkerText = !nv ? '' : nv === 1 ? ' 1 zugeordnetes Volk bleibt erhalten und verliert nur die Standzuordnung.' : ` ${nv} zugeordnete Völker bleiben erhalten und verlieren nur die Standzuordnung.`;
+  const hinweis = standNachweisHinweis(d, s);
+  if (!(await UI.confirm(hinweis
+    ? { title: 'Stand mit Nachweisen löschen?', text: hinweis + voelkerText, confirmText: 'Trotzdem löschen' }
+    : { title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${voelkerText}` }))) return false;
   try {
-    // In EINER Transaktion noch einmal prüfen: Während die Rückfrage offen war, kann ein Nachweis dazugekommen sein
-    const weg = await DB.aendereAtomar(['staende', 'voelker', 'papierkorb', ...nachweise], (d) => {
+    /* In EINER Transaktion: Stand in den Papierkorb, Völker lösen, Namen merken. Kommt während der Rückfrage ein Nachweis
+       dazu, ist das kein Grund mehr zum Abbruch – sein Name steht ja gemerkt dabei (Julian 05.11.2026). */
+    const erg = await DB.aendereAtomar(['staende', 'voelker', 'papierkorb'], (d) => {
       const st = d.staende.find((x) => x.id === s.id);
       if (!st) return { ops: [], wert: null };   // schon gelöscht (anderes Fenster)
-      const nochGesperrt = standNachweisSperre(d, st);
-      if (nochGesperrt) throw new Error(nochGesperrt);
       /* Datiert vermerken, sonst reißt die Rückrechnung „Stand am Stichtag“ hier ab und frühere Stände würden in den
          Meldungen zu „ohne Standort“ (Code-Prüfung 23.10.2026). */
       const voelker = d.voelker.filter((v) => v.standId === st.id && v.status === 'aktiv').map((v) => ({ ...v, standId: null,
         historie: [...(v.historie || []), { datum: U.todayIso(), text: `Stand „${st.name}“ gelöscht – Volk ohne Stand`, standVon: st.id, standNach: null }] }));
-      return { ops: voelker.map((obj) => ({ store: 'voelker', obj })).concat(papierkorbAuftraege('staende', st)), wert: true };
+      const merk = geloeschteStaendeAuftrag(d.settings, { merken: [{ id: st.id, name: st.name }] });
+      return { ops: voelker.map((obj) => ({ store: 'voelker', obj })).concat(papierkorbAuftraege('staende', st), merk ? [merk.op] : []), wert: { merk } };
     });
-    if (weg) UI.toast('Stand in den Papierkorb verschoben');
-    return weg !== false;
+    if (erg) { geloeschteStaendeUebernehmen(erg.merk); UI.toast('Stand in den Papierkorb verschoben'); }
+    return true;
   } catch (e) { fehlerMelden(e); return false; }
 }
 /** Volk auflösen (bleibt im Archiv). Völker werden nie gelöscht – ihre Stockkarte gehört zum Bestandsbuch. */
@@ -7735,7 +7833,7 @@ async function openVolkForm(volk, defaults = {}, onDone) {
          der Notiz einen Wechsel, und dessen Datum verlängerte das Volk bis heute (Code-Prüfung 23.10.2026). */
       if (volk && rec.status !== 'aktiv' && altStand && !rec.standId && !staende.some((x) => x.id === altStand)) rec.standId = altStand;
       if (volk && rec.status === 'aktiv' && altStand !== rec.standId) {
-        const n = (id) => (staende.find((x) => x.id === id) || {}).name || 'ohne Stand';
+        const n = (id) => (id && standNameAnzeige(id, staende)) || 'ohne Stand';   // gelöschter Stand mit Namen (Julian 05.11.2026)
         rec.historie = rec.historie || [];
         rec.historie.push({ datum: U.todayIso(), text: `Stand gewechselt: „${n(altStand)}“ → „${n(rec.standId)}“`, standVon: altStand, standNach: rec.standId });
       }
@@ -8107,7 +8205,7 @@ Views.voelker = {
     const trifft = (v) => {
       if (!woerter.length) return true;
       const q = queens.get(v.koeniginId);
-      const heu = [v.name, v.beutenkennung, v.funktion, v.beutentyp, staende.get(v.standId)?.name, q && q.kennung, q && q.linie].filter(Boolean).join(' ').toLowerCase();
+      const heu = [v.name, v.beutenkennung, v.funktion, v.beutentyp, standNameAnzeige(v.standId, staende), q && q.kennung, q && q.linie].filter(Boolean).join(' ').toLowerCase();
       return woerter.every((w) => heu.includes(w));
     };
     const funktion = Views.voelker._funktion || '';
@@ -8123,7 +8221,7 @@ Views.voelker = {
         return `<button class="row" data-id="${U.esc(v.id)}">
           <span class="r-ic">${icon('volk')}</span>
           <span class="r-main"><span class="r-title">${U.esc(v.name)} ${v.status !== 'aktiv' ? `<span class="badge b-muted">${v.status === 'vereinigt' ? 'vereinigt' : 'aufgelöst'}</span>` : ''}</span>
-          <span class="r-sub">${U.esc(staende.get(v.standId)?.name || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
+          <span class="r-sub">${U.esc(standNameAnzeige(v.standId, staende) || 'ohne Stand')}${v.funktion ? ' · ' + U.esc(v.funktion) : ''}${q ? ` · <span class="dot" style="background:${qc[1]}"></span> ${U.esc(koeniginKurz(q))}` : ''}</span></span>
           ${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seite.knopf
       : suchtext ? `<p class="small muted">Kein Volk passt zu „${U.esc(Views.voelker._suche.trim())}“${funktion ? ` bei „${U.esc(fName)}“ – oben „Alle“ wählen, um überall zu suchen` : ''}.</p>`
@@ -8234,7 +8332,7 @@ Views.volk = {
     const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${U.esc(v.status)}</span>`;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('voelker')">${icon('back')} Alle Völker</button>
-      ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : ''}${v.funktion ? U.esc(v.funktion) + ' · ' : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}`, `
+      ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : v.standId ? `${U.esc(standNameAnzeige(v.standId, []))} · ` : ''}${v.funktion ? U.esc(v.funktion) + ' · ' : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}`, `
         <span class="flex-wrap no-print">
           ${v.status === 'aktiv' ? `<button class="btn btn-primary btn-sm" id="sdVolk">${icon('check2')} Durchsicht am Stand</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="qr">${icon('qr')} QR-Code</button>
@@ -10570,13 +10668,13 @@ async function zielFelder(defaults = {}, label = 'Behandelt wurde') {
   return [
     { key: 'zielTyp', label, type: 'select', required: true, default: defaults.zielTyp || 'volk', options: [{ v: 'volk', l: 'Einzelnes Volk' }, { v: 'stand', l: 'Ganzer Stand' }] },
     { key: 'zielVolk', label: 'Volk', type: 'select', options: voelker.map((v) => ({ v: v.id, l: v.name })), showIf: (f) => f.zielTyp === 'volk' },
-    { key: 'zielStand', label: 'Stand', type: 'select', options: staende.map((s) => ({ v: s.id, l: s.name })), showIf: (f) => f.zielTyp === 'stand' },
+    { key: 'zielStand', label: 'Stand', type: 'select', options: standOptionen(staende, defaults.zielTyp === 'stand' && defaults.zielId), showIf: (f) => f.zielTyp === 'stand' },
   ];
 }
 async function zielName(zielTyp, zielId) {
   if (!zielId) return '–';
   const r = await DB.get(zielTyp === 'volk' ? 'voelker' : 'staende', zielId);
-  return r ? r.name : 'gelöscht';
+  return r ? r.name : zielTyp === 'volk' ? 'gelöscht' : standNameAnzeige(zielId, []);   // gelöschter Stand mit Namen (Julian 05.11.2026)
 }
 
 /* Mengenrechner (v3.08): Die App kennt keine Mengen. Der Imker trägt den Wert aus seiner Packungsbeilage ein, die App
@@ -10748,7 +10846,7 @@ Views.behandlungen = {
     const jahr = jahre.includes(Views.behandlungen._jahr) ? Views.behandlungen._jahr : jahre[0];
     const list = jahre.length > 1 ? alle.filter((b) => (b.datum || '').startsWith(jahr)) : alle;
     const voelker = await idMap('voelker'), staende = await idMap('staende');
-    const zn = (b) => (b.zielTyp === 'volk' ? voelker.get(b.zielId)?.name : staende.get(b.zielId)?.name) || 'gelöscht';
+    const zn = (b) => zielNameAnzeige(b, voelker, staende);
     main.innerHTML = pageHead('Behandlungen', 'Deine Aufzeichnungen fürs Bestandsbuch',
       `<span class="flex-wrap no-print"><button class="btn btn-ghost btn-sm" onclick="Pdf.bestandsbuch()">${icon('doc')} Bestandsbuch (PDF)</button>
        <button class="btn btn-primary btn-sm" id="add">${icon('plus')} Behandlung</button></span>`) +
@@ -12385,10 +12483,11 @@ Views.wanderungen = {
     const jahr = jahre.includes(Views.wanderungen._jahr) ? Views.wanderungen._jahr : jahre[0];
     const list = jahre.length > 1 ? alle.filter((w) => (w.datum || '').startsWith(jahr)) : alle;
     const voelker = await idMap('voelker'), staende = await idMap('staende'), trachten = await idMap('trachten');
-    // Stand-Namen live auflösen; vonOrt/nachOrt sind nur der Fallback für gelöschte Stände + Altdaten
-    const ortVon = (w) => staende.get(w.vonStandId)?.name || w.vonOrt || '?';
-    const ortNach = (w) => staende.get(w.nachStandId)?.name || w.nachOrt || '?';
-    const zn = (w) => (w.zielTyp === 'volk' ? voelker.get(w.zielId)?.name : staende.get(w.zielId)?.name) || 'gelöscht';
+    /* Stand-Namen live auflösen; vonOrt/nachOrt sind nur der Fallback für Altdaten ohne Stand-Kennung. Gelöschter Stand:
+       „Name (gelöscht)“, ohne gemerkten Namen „vonOrt (gelöscht)“ (Julian 05.11.2026). */
+    const ortVon = (w) => (w.vonStandId && standNameAnzeige(w.vonStandId, staende, w.vonOrt)) || w.vonOrt || '?';
+    const ortNach = (w) => (w.nachStandId && standNameAnzeige(w.nachStandId, staende, w.nachOrt)) || w.nachOrt || '?';
+    const zn = (w) => zielNameAnzeige(w, voelker, staende);
     const sub = (w) => {
       const teile = [U.fmtDate(w.datum)];
       if (Array.isArray(w.volkIds)) {
@@ -12412,14 +12511,20 @@ Views.wanderungen = {
       : emptyState('truck', 'Noch keine Wanderung erfasst.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Wanderung</button>`)) + `</div>`;
     const form = async (w) => {
       const staendeArr = await DB.getAll('staende');
-      if (staendeArr.length < 2) return UI.toast('Für eine Wanderung brauchst du mindestens zwei Bienenstände.', 'err');
+      /* Nur für eine NEUE Wanderung. Eine vorhandene muss sich auch dann noch ändern und löschen lassen, wenn einer ihrer
+         Stände inzwischen gelöscht ist (Julian 05.11.2026) – sonst hinge sie für immer fest. */
+      if (!w && staendeArr.length < 2) return UI.toast('Für eine Wanderung brauchst du mindestens zwei Bienenstände.', 'err');
       // Auch nicht mehr aktive Völker müssen wählbar bleiben, wenn sie zu dieser Wanderung
       // gehören – sonst fielen sie beim Speichern still aus dem Datensatz.
       const gewandert = new Set(w?.volkIds || []);
       const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv' || gewandert.has(v.id)), (v) => v.name.toLowerCase());
       const trachtenArr = await DB.getAll('trachten');
-      const standOpts = staendeArr.map((s) => ({ v: s.id, l: s.name }));
-      const namen = (id) => staendeArr.find((s) => s.id === id)?.name || '?';
+      /* Gelöschte Stände dieser Wanderung bleiben als „Name (gelöscht)“ wählbar (Julian 05.11.2026). Gespeichert wird für sie
+         weiter der Klartext von damals (vonOrt/nachOrt) – „(gelöscht)“ setzt erst die Anzeige dazu. */
+      const standOpts = standOptionen(staendeArr, w && w.vonStandId, w && w.nachStandId);
+      const vorhanden = (id) => staendeArr.some((s) => s.id === id);
+      const namen = (id) => staendeArr.find((s) => s.id === id)?.name
+        || (w && id === w.vonStandId ? w.vonOrt : w && id === w.nachStandId ? w.nachOrt : '') || geloeschterStandName(id) || '?';
       const vorbelegt = w ? altdatenVorbelegung(w, staendeArr) : {};
       const vonUrspruenglich = w ? (w.vonStandId || vorbelegt.vonStandId || '') : '';
       // Grund-Vorschläge: Standardliste + die eigenen Tracht-Bezeichnungen + bereits getippte Gründe
@@ -12452,6 +12557,9 @@ Views.wanderungen = {
           const vonName = namen(v.vonStandId), nachName = namen(v.nachStandId);
           const zielVorher = w?.nachStandId;
           const alteIds = w?.volkIds || [];
+          // Auf einen gelöschten Stand zieht kein Volk mehr – erlaubt bleibt nur, die Wanderung selbst zu berichtigen
+          const nurBerichtigt = w && zielVorher === v.nachStandId && alteIds.length === v.volkIds.length && v.volkIds.every((id) => alteIds.includes(id));
+          if (!vorhanden(v.nachStandId) && !nurBerichtigt) throw feldFehler('nachStandId', `„${nachName}“ ist gelöscht – dorthin können keine Völker mehr wandern. Wähle einen anderen Stand oder hol ihn zuerst aus dem Papierkorb zurück.`);
           // Passt der Grund auf eine angelegte Tracht, bleibt die Verknüpfung bestehen und
           // der Text wird auf deren Schreibweise normalisiert („RAPS 2026“ → „Raps 2026“).
           const eingabe = (v.grund || '').trim();
@@ -14551,9 +14659,13 @@ async function ernteFuerVerarbeitung(ernteId) {
   if (!e) return null;
   const volk = e.zielTyp === 'volk' ? voelker.find((v) => v.id === e.zielId) : null;
   const stand = e.zielTyp === 'stand' ? staende.find((x) => x.id === e.zielId) : (volk ? staende.find((x) => x.id === volk.standId) : null);
-  const herkunft = volk ? (/^volk\b/i.test(String(volk.name || '')) ? String(volk.name) : `Volk ${volk.name || volk.nummer || ''}`.trim()) + (stand ? ` · ${stand.name}` : '') : (stand ? `Stand ${stand.name}` : '');
+  /* Gelöschter Stand (Julian 05.11.2026): Herkunft „Stand Waldrand (gelöscht)“ statt leer, und seine Behandlungen zählen
+     weiter für Wartezeit und „letzte Behandlung“ – sie hängen an der Kennung, nicht am vorhandenen Datensatz. */
+  const standId = e.zielTyp === 'stand' ? e.zielId : (volk ? volk.standId : null);
+  const standName = stand ? stand.name : standId ? standNameAnzeige(standId, staende) : null;
+  const herkunft = volk ? (/^volk\b/i.test(String(volk.name || '')) ? String(volk.name) : `Volk ${volk.name || volk.nummer || ''}`.trim()) + (standName != null ? ` · ${standName}` : '') : (standName != null ? (stand ? `Stand ${standName}` : Pdf._ziel('Stand', standName)) : '');
   // letzte Behandlung des Volkes bzw. Standes vor der Ernte (Bestandsbuch)
-  const passt = (b) => (b.zielTyp === 'volk' ? volk && b.zielId === volk.id : stand && b.zielId === stand.id) && (b.datum || '') <= (e.datum || '9999');
+  const passt = (b) => (b.zielTyp === 'volk' ? volk && b.zielId === volk.id : !!standId && b.zielId === standId) && (b.datum || '') <= (e.datum || '9999');
   const letzte = U.sortBy(behandlungen.filter(passt), (b) => b.datum || '', true)[0] || null;
   // Das späteste Ende aller Behandlungen zählt: Eine neuere ohne Wartezeit beendet die laufende einer älteren nicht
   const wartezeitBis = behandlungen.filter(passt).reduce((max, b) => { const t = Number(b.wartezeitTage); if (!(t > 0)) return max; const ende = U.addDays(b.datum, Math.round(t)); return ende > max ? ende : max; }, '');
@@ -17369,7 +17481,7 @@ Views.honig = {
     const trachtenAlle = await DB.getAll('trachten');   // v2.83: Tracht an der Ernte
     const roh = await DB.getAll('ernten');
     const voelker = await idMap('voelker'), staende = await idMap('staende');
-    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
+    const zn = (e) => zielNameAnzeige(e, voelker, staende);   // gelöschter Stand mit Namen (Julian 05.11.2026)
     const H = Views.honig, F = H.filterLeiste('ernten', roh, (e) => (e.datum || '').slice(0, 4), [['Datum', 'datum'], ['Menge', 'menge'], ['Sorte', 'sorte'], ['Volk / Stand', 'ziel']]);
     const list = roh.filter(F.passt).sort({
       datum: H.nachDatum,
@@ -17518,7 +17630,8 @@ Views.honig = {
     const chargen = (await DB.getAll('chargen')).filter((c) => gleich(c.sorte));
     if (!ernten.length && !chargen.length) { UI.toast('Diese Sorte gibt es nicht mehr.', 'err'); return renderRoute(); }
     const voelker = await idMap('voelker'), staende = await idMap('staende');
-    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : 'Stand ' + (staende.get(e.zielId)?.name || '')) || 'gelöscht';
+    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name
+      : e.zielId && !staende.has(e.zielId) ? Pdf._ziel('Stand', standNameAnzeige(e.zielId, staende)) : 'Stand ' + (staende.get(e.zielId)?.name || '')) || 'gelöscht';   // gelöschter Stand mit Namen (Julian 05.11.2026)
     const wert = (w) => (w == null || w === '' ? '' : w);
     const felder = [
       { key: 'name', label: 'Name der Sorte', type: 'suggest', required: true, default: name,
@@ -17592,8 +17705,8 @@ Views.honig = {
     const alle = U.sortBy((await DB.getAll('ernten')).filter(istHonigErnte), (e) => e.datum, true);   // Honig-Regel an einer Stelle (Fund 04.11.2026, #12)
     if (!alle.length) return UI.toast('Erst Ernten (Schleuderungen) erfassen, dann Laborergebnisse eintragen.', 'err');
     const voelker = await idMap('voelker'), staende = await idMap('staende');
-    const zn = (e) => (e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name) || 'gelöscht';
-    const label = (e) => `${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' ? '' : 'Stand '}${zn(e)} · ${U.fmtNum(e.mengeKg)} kg${e.sorte ? ' · ' + e.sorte : ''}${e.wassergehalt != null ? ' · ' + U.fmtNum(e.wassergehalt, 1) + ' %' : ''}`;
+    const zn = (e) => zielNameAnzeige(e, voelker, staende);   // gelöschter Stand mit Namen (Julian 05.11.2026)
+    const label = (e) => `${U.fmtDate(e.datum)} · ${e.zielTyp === 'volk' || zn(e) === STAND_GELOESCHT ? '' : 'Stand '}${zn(e)} · ${U.fmtNum(e.mengeKg)} kg${e.sorte ? ' · ' + e.sorte : ''}${e.wassergehalt != null ? ' · ' + U.fmtNum(e.wassergehalt, 1) + ' %' : ''}`;
     const schleuderungById = new Map(alle.map((e) => [e.id, e.schleuderung || 0]));
     const anzahlJe = (n) => alle.filter((e) => (e.schleuderung || 0) === n).length;
     const hatSorte = new Map(alle.map((e) => [e.id, !!e.sorte]));
@@ -17915,8 +18028,7 @@ Views.honig = {
     const abf = U.sortBy((await DB.getAll('abfuellungen')).filter((a) => a.chargeId === c.id), (a) => a.gebindeG, true);
     const kette = (c.ernteIds || []).map((id) => {
       const e = ernten.get(id); if (!e) return null;
-      const quelle = e.zielTyp === 'volk' ? voelker.get(e.zielId)?.name : staende.get(e.zielId)?.name;
-      return { e, quelle: quelle || 'gelöscht' };
+      return { e, quelle: zielNameAnzeige(e, voelker, staende) };   // gelöschter Stand mit Namen (Julian 05.11.2026)
     }).filter(Boolean);
     const rest = chargeRestKg(c, abf);   // Anzeige mit restKgText: ein kleiner Rest stand sonst als „0“ neben dem Knopf „Abfüllen“ (Fund 04.11.2026, #9)
     const glaeserGesamt = U.sum(abf, (a) => a.anzahl);
@@ -19440,7 +19552,7 @@ async function renderInventarBereich(main, cfg) {
      ganze Ansicht – Kennzahlen und Übersicht folgen mit, damit die Zahlen zur
      angezeigten Liste passen. */
   let suchtext = (view._suche || '').trim().toLowerCase();
-  const zuordnungVon = (i) => staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '';
+  const zuordnungVon = (i) => standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '';   // gelöschter Stand mit Namen (Julian 05.11.2026)
   let list = alle.filter(passt).filter((i) => positionTrifft(i, suchtext, zuordnungVon(i)));
   /* Abgänge dieses Bereichs – gefiltert wie die Liste, damit die Jahreswahl oben
      auch für die Abgänge gilt. */
@@ -19729,7 +19841,7 @@ async function renderInventarBereich(main, cfg) {
         hint: 'Nur bei Material mit Haltbarkeit – Varroa-Mittel, Säuren, Futter. Gläser, Deckel und Eimer brauchen keins.' },
       { key: 'ablauf', label: 'Ablaufdatum / MHD', type: 'date', showIf: (f) => !!f._hatMhd,
         hint: 'Die App erinnert dich, bevor es abläuft.' },
-      { key: 'standId', label: 'Zuordnung Stand', type: 'select', halb: true, options: [...staende.values()].map((s) => ({ v: s.id, l: s.name })) },
+      { key: 'standId', label: 'Zuordnung Stand', type: 'select', halb: true, options: standOptionen([...staende.values()], i && i.standId) },   // gelöschter Stand bleibt stehen (Julian 05.11.2026)
       { key: 'volkId', label: 'Zuordnung Volk', type: 'select', halb: true, options: [...voelker.values()].filter((v) => v.status === 'aktiv').map((v) => ({ v: v.id, l: v.name })) },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
     ],
@@ -19869,7 +19981,7 @@ function aufgabeVolkId(a, voelker) {
 /** Aktueller Bezug einer Aufgabe – immer frisch aus Volk und Stand gelesen.
     Hängt die Aufgabe nur an einem Stand, steht eben nur der Stand da. */
 function aufgabeBezug(a, voelker, staende) {
-  const standName = (id) => { const st = id ? staende.get(id) : null; return st ? st.name : (id ? 'gelöschter Stand' : ''); };
+  const standName = (id) => standNameAnzeige(id, staende);   // gelöscht: „Name (gelöscht)“ bzw. „gelöschter Stand“ (Julian 05.11.2026)
   const id = aufgabeVolkId(a, voelker);
   if (!id) {
     if (!a || !a.standId) return null;
@@ -20018,7 +20130,7 @@ async function aufgabeForm(a, vorgabeDatum) {
         hint: 'Typische Aufgaben übers Bienenjahr (z. B. Futterkontrolle) und deine eigenen von früher – oder einfach frei eintippen.' },
       { key: 'faellig', label: 'Fällig am', type: 'date' },
       { key: 'uhrzeit', label: 'Uhrzeit (optional)', type: 'time', hint: 'Mit Uhrzeit erinnert die App vorher (Einstellungen → Erinnerungen), sonst morgens am Fälligkeitstag.' },
-      { key: 'standId', label: 'Bienenstand', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staendeAlle.map((st) => ({ v: st.id, l: st.name }))], hint: 'Filtert die Völker unten – und ist der Bezug, wenn du kein einzelnes Volk wählst.' },
+      { key: 'standId', label: 'Bienenstand', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...standOptionen(staendeAlle, a && a.standId)], hint: 'Filtert die Völker unten – und ist der Bezug, wenn du kein einzelnes Volk wählst.' },
       { key: 'funktion', label: 'Funktion (nur Filter)', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionenAlle.map((f) => ({ v: f, l: f }))] },
       { key: 'volkId', label: 'Volk', type: 'select', options: [{ v: '', l: 'kein einzelnes Volk' }, ...voelkerAktiv.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') }))], hint: 'Wandert das Volk, zeigt die Aufgabe von selbst den neuen Stand.' },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
@@ -23799,7 +23911,7 @@ const Export = {
       const b = st.akte ? `${st.volk.name} – Volksakte` : `${defs[st.bereich].blatt}${st.volk ? ' – ' + st.volk.name : ''}${st.stand ? ' – ' + st.stand.name : ''}`;
       return { titel: `${b}${st.jahr ? ' ' + st.jahr : ''}`, datei: this._datei(['imkerbuch', st.akte ? 'volksakte' : st.bereich, st.volk && st.volk.name, st.stand && st.stand.name, st.jahr || 'alle-jahre', U.todayIso()]) };
     };
-    const unter = () => [st.akte && st.volk.standId ? 'Stand: ' + (staende.find((x) => x.id === st.volk.standId) || {}).name : '', st.jahr ? 'Jahr ' + st.jahr : 'alle Jahre', 'Datenstand ' + U.fmtDate(U.todayIso())].filter(Boolean).join(' · ');
+    const unter = () => [st.akte && st.volk.standId ? 'Stand: ' + standNameAnzeige(st.volk.standId, staende) : '', st.jahr ? 'Jahr ' + st.jahr : 'alle Jahre', 'Datenstand ' + U.fmtDate(U.todayIso())].filter(Boolean).join(' · ');
     host.onchange = async (e) => {
       const f = e.target.closest('[data-ex]'); if (!f) return;
       if (f.dataset.ex === 'bereich') { st.bereich = f.value; st.jahr = null; }
@@ -24362,9 +24474,12 @@ const Reporting = {
        Völker und Stände nach ihrer id, nicht nach dem Namen: zwei Völker „Volk 1“ an verschiedenen Ständen wurden
        eine Zeile mit Link nur zum ersten (Fund 04.11.2026, #15). „Je Stand“ zählt der Stand AM ERNTETAG – nach einer
        Wanderung zur Tracht und zurück stand die Rapsernte sonst beim Heimstand (Fund 04.11.2026, #16). */
+    /* Gelöschter Stand (Julian 05.11.2026): eigene Zeile „Waldrand (gelöscht)“ ohne Link; ohne gemerkten Namen alle
+       zusammen als „gelöschter Stand“. */
     const standGruppe = (sid, vorsatz = '') => (staende.has(sid)
       ? { id: 's:' + sid, k: vorsatz + (staende.get(sid).name || 'gelöscht'), href: '#/stand/' + sid }
-      : { id: 's:?', k: vorsatz + 'gelöscht' });
+      : sid && geloeschterStandName(sid) ? { id: 's:' + sid, k: vorsatz + standNameAnzeige(sid, staende) }
+        : sid ? { id: 's:?', k: STAND_GELOESCHT } : { id: 's:-', k: vorsatz + 'gelöscht' });
     const gruppeVon = (e) => {
       if (gruppe === 'jahr') { const j = (e.datum || '').slice(0, 4) || '?'; return { id: j, k: j }; }
       if (gruppe === 'tracht') { const k = trachten.has(e.trachtId) ? Tracht.schluessel(trachten.get(e.trachtId)) : 'ohne Tracht'; return { id: k, k }; }
@@ -24383,7 +24498,7 @@ const Reporting = {
     const rows = [...g.values()].map((x) => ({ k: x.k, kg: U.sum(x.items, (e) => e.mengeKg), n: x.items.length, href: x.href || '', volk: x.volk }));
     // Gleichnamige Völker: heutigen Stand dazuschreiben, sonst sind die Zeilen nicht zu unterscheiden (Fund 04.11.2026, #15)
     for (const [, gleich] of U.groupBy(rows.filter((r) => r.volk), (r) => r.k)) {
-      if (gleich.length > 1) for (const r of gleich) r.k += ` (${staende.get(r.volk.standId)?.name || 'ohne Stand'})`;
+      if (gleich.length > 1) for (const r of gleich) r.k += ` (${standNameAnzeige(r.volk.standId, staende) || 'ohne Stand'})`;
     }
     return rows.map(({ volk, ...r }) => r).sort((a, b) => b.kg - a.kg);
   },
@@ -24674,7 +24789,7 @@ const Statistik = {
       if (h > 0 && kg > 0) kacheln.push(this.kachel('Honig je Arbeitsstunde', `${U.fmtNum(kg / h, 1)} kg`, 'Ernte geteilt durch Stunden'));
       const proStand = new Map(); for (const f of d.fahrten) if (imJ(f.datum) && f.standId) proStand.set(f.standId, (proStand.get(f.standId) || 0) + (Number(f.km) || 0));
       const st = [...proStand.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (st && km > 0) { const s = d.staende.find((x) => x.id === st[0]); auff.push({ art: 'i', titel: `Die meisten Kilometer: ${s ? s.name : 'gelöschter Stand'}`, text: `${U.fmtNum(st[1])} km · ${U.fmtNum(st[1] / km * 100, 0)} % aller Fahrten.`, href: s ? '#/stand/' + s.id : '' }); }
+      if (st && km > 0) { const s = d.staende.find((x) => x.id === st[0]); auff.push({ art: 'i', titel: `Die meisten Kilometer: ${s ? s.name : standNameAnzeige(st[0], d.staende)}`, text: `${U.fmtNum(st[1])} km · ${U.fmtNum(st[1] / km * 100, 0)} % aller Fahrten.`, href: s ? '#/stand/' + s.id : '' }); }
       const ohneZeit = d.aufgaben.filter((a) => a.erledigt && imJ(a.faellig) && !(a.zeitMinuten > 0)).length;
       if (ohneZeit >= 5) auff.push({ art: 'i', titel: `${ohneZeit} erledigte Aufgaben ohne Zeitangabe`, text: 'Mit Zeit erfasst wird die Stundenrechnung genauer.', href: '#/zeiten' });
     }
@@ -24815,7 +24930,7 @@ Views.reporting = {
         ${jahre.length ? `<div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Jahr</th><th class="num">Fahrten</th><th class="num">Kilometer</th><th class="num">Pauschale</th></tr></thead>
           <tbody>${jahre.map((j) => `<tr><td>${j.jahr}</td><td class="num">${j.anzahl}</td><td class="num">${U.fmtNum(j.km)}</td><td class="num">${U.fmtEur(j.km * S.get('kmPauschale'))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${proStand.size ? `<h3 class="mb8">Je Stand (${jahrAkt})</h3><div class="tbl-wrap mb16"><table class="tbl"><thead><tr><th>Stand</th><th class="num">Fahrten</th><th class="num">Kilometer</th></tr></thead>
-          <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(sid ? staende.get(sid)?.name || 'gelöschter Stand' : OHNE_STAND)}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
+          <tbody>${[...proStand.entries()].map(([sid, items]) => `<tr><td>${U.esc(sid ? standNameAnzeige(sid, staende) || STAND_GELOESCHT : OHNE_STAND)}</td><td class="num">${items.length}</td><td class="num">${U.fmtNum(U.sum(items, (f) => f.km))}</td></tr>`).join('')}</tbody></table></div>` : ''}
         ${letzte.length ? `<h3 class="mb8">Letzte Fahrten</h3><div class="rows">${letzte.map((f) => `<div class="row" style="min-height:46px">
           <span class="r-main"><span class="r-title">${U.esc(letzteTitel(f))}</span>
           <span class="r-sub">${U.fmtDate(f.datum)}${f.notiz ? ' · ' + U.esc(f.notiz) : ''}</span></span>
@@ -24855,7 +24970,7 @@ Views.reporting = {
    ===================================================================== */
 /** Anzeigename des Fahrtziels: Stand-Name, sonst freie Beschreibung bzw. Zweck. */
 function fahrtZielName(f, staende) {
-  if (f.standId) return staende.get(f.standId)?.name || 'gelöschter Stand';
+  if (f.standId) return standNameAnzeige(f.standId, staende) || STAND_GELOESCHT;   // gelöscht: „Name (gelöscht)“ (Julian 05.11.2026, vorher bewusst nur „gelöschter Stand“)
   return (f.freiZiel || '').trim() || f.zweck || 'Andere Fahrt';
 }
 Views.fahrten = {
@@ -26303,6 +26418,8 @@ const Erinnerung = {
     const liste = [];
     if (erlaubt && !Lizenz.light() && S.get('features').benachrichtigungen) {   // Aufgaben-Erinnerungen sind Vollversion
       const namen = {};
+      // Gelöschte Stände mit gemerktem Namen (Julian 05.11.2026); vorhandene überschreiben sie
+      for (const [id, e] of Object.entries(S.get('geloeschteStaende') || {})) if (e && typeof e.name === 'string' && e.name.trim()) namen[id] = `${e.name.trim()} (gelöscht)`;
       for (const st of ['voelker', 'staende']) for (const x of await DB.getAll(st)) namen[x.id] = x.name;
       liste.push(...this.termine(await DB.getAll('aufgaben'), new Date(), this.einstellung(), namen));
     }
@@ -26841,18 +26958,18 @@ const Xlsx = {
     const voelker = await idMap('voelker'), staende = await idMap('staende'), queens = await idMap('koeniginnen'),
       trachten = await idMap('trachten'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten'),
       chargenM = await idMap('chargen');
-    const ziel = (r) => (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : staende.get(r.zielId)?.name) || '';
+    const ziel = (r) => (r.zielTyp === 'volk' ? voelker.get(r.zielId)?.name : standNameAnzeige(r.zielId, staende)) || '';   // gelöschter Stand mit Namen (Julian 05.11.2026)
     const d = this._d;
     return {
       staende: { blatt: 'Stände', rows: async () => (await alle('staende')).map((s) => ({ Name: s.name, 'Anschrift/Ort': s.ort || '', Gemarkung: s.gemarkung || '', Flurnummer: s.flurnummer || '', Standnummer: s.standNr || '', Breitengrad: s.lat, Längengrad: s.lng, Notizen: s.notizen })) },
-      voelker: { blatt: 'Völker', rows: async () => (await alle('voelker')).map((v) => ({ Name: v.name, Stand: staende.get(v.standId)?.name || '', 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[v.status] || v.status, 'Angelegt am': d(U.sortBy(v.historie || [], (h) => h.datum || '')[0]?.datum || String(v.createdAt || '').slice(0, 10)), Notizen: v.notizen })) },
+      voelker: { blatt: 'Völker', rows: async () => (await alle('voelker')).map((v) => ({ Name: v.name, Stand: standNameAnzeige(v.standId, staende), 'Funktion im Betrieb': v.funktion || '', Königin: queens.get(v.koeniginId) ? `${queens.get(v.koeniginId).kennung ? queens.get(v.koeniginId).kennung + ' · ' : ''}${queens.get(v.koeniginId).jahrgang} ${queenColor(queens.get(v.koeniginId).jahrgang)[0]}` : '', Beutentyp: v.beutentyp, Beutenkennung: v.beutenkennung, Status: ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[v.status] || v.status, 'Angelegt am': d(U.sortBy(v.historie || [], (h) => h.datum || '')[0]?.datum || String(v.createdAt || '').slice(0, 10)), Notizen: v.notizen })) },
       stockkarten: { blatt: 'Stockkarten', rows: async () => (await alle('stockkarten')).map((s) => ({ Volk: voelker.get(s.volkId)?.name || '', Datum: d(s.datum), Volksstärke: s.volksstaerke, Brutbild: s.brutbild, Sanftmut: s.sanftmut, Futter: s.futter, Weiselzellen: s.weiselzellen ? 'ja' : 'nein', Notiz: s.notiz })) },
       koeniginnen: { blatt: 'Königinnen', rows: async () => { const km = await idMap('koeniginnen'); const anp = { standbegattung: 'Standbegattung', belegstelle: 'Belegstelle', besamung: 'Besamung' }; const kn = (id) => { const k = km.get(id); return k ? (k.kennung || `${k.jahrgang} ${queenColor(k.jahrgang)[0]}`) : ''; }; return (await alle('koeniginnen')).map((q) => { const aktuell = gdebAktuell(q), noten = gdebNoten(aktuell), voll = gdebVollstaendig(aktuell); return { Kennung: q.kennung || '', Jahrgang: q.jahrgang, Generation: q.generation || '', Farbe: queenColor(q.jahrgang)[0], Linie: q.linie, Herkunft: q.herkunft, 'Mutter (2a)': kn(q.mutterId), Anpaarung: anp[q.anpaarung] || '', 'Vaterseite (4a)': kn(q.vatervolkId) || q.belegstelle || '', Belegstelle: q.anpaarung === 'belegstelle' ? (q.belegstelle || '') : '', Status: q.status, Pedigree: q.pedigree || '', 'Pedigree (aus dem Stammbaum)': q.pedigree ? '' : pedigreeGdeB(q, km), 'Bewertungsskala': aktuell && aktuell.skalaAlt ? '1–4 (Altbewertung)' : '1–6', 'Bewertet am': aktuell && aktuell.datum ? d(aktuell.datum) : '',
         ...Object.fromEntries(GDEB_MERKMALE.map((mm) => [mm.label, noten[mm.key] || ''])),
         'Kernmerkmale bewertet': voll.kern || '', Mittelwert: gdebMittel(aktuell) || '', 'Aktuelles Volk': (q.historie || []).filter((h) => !h.bis).map((h) => voelker.get(h.volkId)?.name).filter(Boolean).join(', '), Notiz: q.notiz }; }); } },
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || ANPAARUNG_TEXT[z.anpaarung] || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, 'Behandlung bis': d(b.behandlungBis), Lieferant: b.lieferant || '', 'Behandelnde Person': b.behandelndePerson || '', Tierarzt: b.tierarzt || '', 'Kaufbeleg vorhanden': b.kaufbeleg ? 'ja' : '', Bemerkung: b.notiz })) },
-      wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: staende.get(w.vonStandId)?.name || w.vonOrt || '', Nach: staende.get(w.nachStandId)?.name || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
+      wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: (w.vonStandId && standNameAnzeige(w.vonStandId, staende, w.vonOrt)) || w.vonOrt || '', Nach: (w.nachStandId && standNameAnzeige(w.nachStandId, staende, w.nachOrt)) || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : ziel(w) === STAND_GELOESCHT ? '' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
       trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },
       ernten: { blatt: 'Ernten', rows: async () => (await alle('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', Tracht: trachten.has(e.trachtId) ? Tracht.name(trachten.get(e.trachtId)) : '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await alle('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), 'Verlust (kg)': chargeVerlustKg(c.id), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
@@ -26863,13 +26980,13 @@ const Xlsx = {
       kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
       kontakte: { blatt: 'Kontakte', rows: async () => (await alle('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await alle('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: rechnungKundeName(r, kontakte), Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
-      inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
+      inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await alle('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await alle('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       belegstellen: { blatt: 'Belegstellen', rows: async () => (await alle('belegstellen')).map((b) => ({ Name: b.name || '', Herkunft: b.rasse || '', 'Aktuelle Drohnenlinie': b.drohnenlinie || '', Ort: b.ort || '', Betreiber: b.betreiber || '' })) },
       gewichte: { blatt: 'Gewichte', rows: async () => (await alle('gewichte')).map((g) => ({ Volk: voelker.get(g.volkId)?.name || '', Datum: d(g.datum), 'Gewicht (kg)': g.gewichtKg })) },
       varroa: { blatt: 'Varroa', rows: async () => (await alle('varroa')).map((x) => ({ Volk: voelker.get(x.volkId)?.name || '', Datum: d(x.datum), Methode: x.methode, 'Zähltage': x.tageZaehl, Milben: x.milben, Kennzahl: varroaMetrik(x).wert, Einheit: varroaMetrik(x).einheit, Notiz: x.notiz })) },
-      wetter: { blatt: 'Wetter', rows: async () => U.sortBy(await alle('wetter'), (w) => (w.datum || '') + (w.abgerufen || ''), true).map((w) => ({ Stand: staende.get(w.standId)?.name || '', Datum: d(w.datum), Uhrzeit: w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '', 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
+      wetter: { blatt: 'Wetter', rows: async () => U.sortBy(await alle('wetter'), (w) => (w.datum || '') + (w.abgerufen || ''), true).map((w) => ({ Stand: standNameAnzeige(w.standId, staende), Datum: d(w.datum), Uhrzeit: w.abgerufen ? new Date(w.abgerufen).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '', 'Temperatur (°C)': w.tempC, 'Wind (km/h)': w.windKmh, 'Niederschlag (mm)': w.niederschlagMm, Bemerkung: w.bemerkung, Quelle: w.quelle === 'dwd' ? 'Deutscher Wetterdienst' : w.quelle })) },
       /* Lager, Hygiene und Pfand: bisher nur in der Komplett-Sicherung, jetzt auch als Tabellenblatt */
       materialzugaenge: { blatt: 'Einkäufe & Zugänge', rows: async () => (await alle('materialzugaenge')).map((z) => ({ Datum: d(z.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(z.typ)) || [])[1] || '', Position: z.bezeichnung, Art: z.lohn ? 'Lohnverarbeitung' : z.art, Menge: z.menge, Einheit: z.einheit, 'Preis je Einheit (€)': z.preis, 'Kosten (€)': zugangKosten(z), 'Lieferant/Verarbeiter': kontakte.get(z.kontaktId)?.name || '', Beleg: z.belegNr, 'Honig abgegeben (kg)': z.honigKg || '', Notiz: z.notiz })) },
       materialabgaenge: { blatt: 'Verkäufe & Abgänge', rows: async () => (await alle('materialabgaenge')).map((a) => ({ Datum: d(a.datum), Bereich: (KASSE_BEREICHE.find(([k]) => k === lagerBereichVon(a.typ)) || [])[1] || '', Position: a.bezeichnung, Grund: a.art, Menge: a.menge, Einheit: a.einheit, 'Preis je Einheit (€)': a.preis, 'Erlös (€)': abgangErloes(a), 'Käufer': a.kaeufer || kontakte.get(a.kontaktId)?.name || '', Beleg: a.belegNr, Notiz: a.notiz })) },
@@ -27454,14 +27571,18 @@ const Pdf = {
 
   /* ---------- Bestandsbuch (TAMG) ---------- */
   /** „Volk Anna“ statt „Volk Volk Anna“: das Wort nur voranstellen, wenn der Name es nicht schon hat. */
-  _ziel(art, name) { const n = String(name || '?'); return new RegExp('^' + art + '\\b', 'i').test(n.trim()) ? n : art + ' ' + n; },
+  _ziel(art, name) {
+    const n = String(name || '?');
+    if (n === STAND_GELOESCHT) return n;   // nicht „Stand gelöschter Stand“ (Julian 05.11.2026)
+    return new RegExp('^' + art + '\\b', 'i').test(n.trim()) ? n : art + ' ' + n;
+  },
   async bestandsbuch(jahr = '') {
     try {
       const list = U.sortBy((await DB.getAll('behandlungen')).filter((b) => !jahr || String(b.datum || '').startsWith(jahr)), (b) => b.datum);
       const voelker = await idMap('voelker'), staende = await idMap('staende');
       const imk = S.get('imkerei');
       const { doc, y } = await this.newDoc(`Aufzeichnung über angewendete Arzneimittel${jahr ? ' ' + jahr : ''}`, `Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`, { quer: true });
-      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', staende.get(b.zielId)?.name)), b.mittel, `${U.fmtNum(b.menge, 6)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
+      const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', standNameAnzeige(b.zielId, staende))), b.mittel, `${U.fmtNum(b.menge, 6)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
       this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Behandlung bis', 'Wartezeit', 'Lieferant', 'Behandelnde Person', 'Tierarzt', 'Kaufbeleg vorhanden', 'Bemerkung/Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -27475,8 +27596,10 @@ const Pdf = {
       const { doc, y } = await this.newDoc(`Wanderbuch${jahr ? ' ' + jahr : ''}`, jahr ? `Wanderbewegungen der Imkerei im Jahr ${jahr}` : 'Alle Wanderbewegungen der Imkerei');
       const wVoelker = (w) => Array.isArray(w.volkIds)
         ? `${w.volkIds.length}: ${w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ')}`
-        : (w.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(w.zielId)?.name) : Pdf._ziel('Stand', staende.get(w.zielId)?.name)); // Altdaten
-      const body = list.map((w) => [U.fmtDate(w.datum), staende.get(w.vonStandId)?.name || w.vonOrt || '–', staende.get(w.nachStandId)?.name || w.nachOrt || '–', wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
+        : (w.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(w.zielId)?.name) : Pdf._ziel('Stand', standNameAnzeige(w.zielId, staende))); // Altdaten
+      // Gelöschter Stand: „Name (gelöscht)“, ohne gemerkten Namen „vonOrt (gelöscht)“ (Julian 05.11.2026)
+      const ort = (id, text) => (id && standNameAnzeige(id, staende, text)) || text || '–';
+      const body = list.map((w) => [U.fmtDate(w.datum), ort(w.vonStandId, w.vonOrt), ort(w.nachStandId, w.nachOrt), wVoelker(w), wanderungGrund(w, trachten) || '–', w.notiz || '']);
       this.table(doc, { head: ['Datum', 'Von', 'Nach', 'Völker', 'Grund', 'Notiz'], body, startY: y });
       this.finish(doc, `wanderbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -27503,7 +27626,7 @@ const Pdf = {
       doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(60);
       const kopf = [
         ['Kastennummer', volk ? volk.name : '–'],
-        ['Standort des Volkes', stand ? stand.name : '–'],
+        ['Standort des Volkes', stand ? stand.name : (volk && volk.standId ? standNameAnzeige(volk.standId, []) : '–')],   // gelöscht: mit Namen (Julian 05.11.2026)
         ['Geburtsjahr der Königin', q.jahrgang ? String(q.jahrgang) : '–'],
         ['Gezeichnet', q.jahrgang ? queenColor(q.jahrgang)[0] : '–'],
       ];
@@ -27689,7 +27812,7 @@ const Pdf = {
       proArt.push([{ content: 'Gesamt', styles: { fontStyle: 'bold' } }, { content: String(list.length), styles: { fontStyle: 'bold' } }, '', { content: U.fmtEur(wert), styles: { fontStyle: 'bold' } }]);
       let yy = this.table(doc, { head: ['Art', 'Positionen', 'Bestand', 'Wert'], body: proArt, startY: y, widths: { 1: { halign: 'right' }, 2: { halign: 'right', cellWidth: 40 }, 3: { halign: 'right' } } });
       // Detailliste
-      const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), staende.get(i.standId)?.name || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
+      const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
       this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Bestand', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 22, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
       this.finish(doc, `${(titel || 'inventar').toLowerCase()}-${U.todayIso()}.pdf`);
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
@@ -28282,10 +28405,17 @@ const Pdf = {
       if (zuMelden === 'hoch') zeile(`Höchststand ${J - 1}:`, `${hoechst} (Orientierung – gemeldet wird der für ${J} erwartete Höchstbesatz)`, true);
       zeile('Völker heute:', voelker.length);
       yy += 2;
-      const jeStich = voelkerJeStandAm(alle, stichtag, wanderungen, ids), jeEin = mitEin ? voelkerJeStandAm(alle, einTag, wanderungen, ids) : new Map();
+      /* Ein Stand, der am Stichtag Völker trug und danach gelöscht wurde, steht mit seinem gemerkten Namen „(gelöscht)“ da –
+         seine Völker standen ja dort, nicht „ohne Standort“ (Julian 05.11.2026). Ohne gemerkten Namen bleibt es bei der Zeile
+         „ohne Standort erfasst“. */
+      const gemerkt = Object.keys(S.get('geloeschteStaende') || {}).filter((id) => !ids.has(id) && geloeschterStandName(id));
+      const idsMit = new Set([...ids, ...gemerkt]);
+      const jeStich = voelkerJeStandAm(alle, stichtag, wanderungen, idsMit), jeEin = mitEin ? voelkerJeStandAm(alle, einTag, wanderungen, idsMit) : new Map();
       const zahlen = (st) => (staat === 'CH' ? [String(jeEin.get(st) || 0), String(jeStich.get(st) || 0)] : mitEin ? [String(jeStich.get(st) || 0), String(jeEin.get(st) || 0)] : [String(jeStich.get(st) || 0)]);
-      const body = staende.filter((st) => (jeStich.get(st.id) || 0) + (jeEin.get(st.id) || 0) > 0)
+      const mitVoelkern = (id) => (jeStich.get(id) || 0) + (jeEin.get(id) || 0) > 0;
+      const body = staende.filter((st) => mitVoelkern(st.id))
         .map((st) => [st.name, standLage(st) || '–', ...zahlen(st.id)]);
+      for (const id of U.sortBy(gemerkt.filter(mitVoelkern), (x) => geloeschterStandName(x).toLowerCase())) body.push([standNameAnzeige(id, staende), '–', ...zahlen(id)]);
       if ((jeStich.get(null) || 0) + (jeEin.get(null) || 0) > 0) body.push(['ohne Standort erfasst', '–', ...zahlen(null)]);
       const fett = { fontStyle: 'bold' };
       const summen = staat === 'CH' ? [eingewintert.length, amStichtag.length] : mitEin ? [amStichtag.length, eingewintert.length] : [amStichtag.length];
@@ -31985,7 +32115,7 @@ async function boot() {
     await TesterSperre.durchlassen();   // Web-Version: ohne Einrichtung nur mit Tester-Code (wartet, bis er stimmt)
     wacheAn();
     for (const [name, fn] of Object.entries({ lohnIndexNeu, migriereRaehmchenmass, migriereDokTypZertifikat, migriereChargenAbfuellung, migriereInventarTyp,
-      migriereBioPartner, migriereBelegstellen, migriereChargeDatumUndMhd, migriereFahrtAuswahl, migriereSchnellzugriffe, migriereRechnungSchnappschuss })) await nebenbei(name, fn);
+      migriereBioPartner, migriereBelegstellen, migriereChargeDatumUndMhd, migriereFahrtAuswahl, migriereSchnellzugriffe, migriereRechnungSchnappschuss, migriereGeloeschteStaende })) await nebenbei(name, fn);
     await nebenbei('Durchsicht-Entwürfe', () => Views.durchsicht.entwuerfeLaden());
     applyTheme();
     renderChrome();

@@ -19725,43 +19725,186 @@ test('Behandlungs-Paket R2 (#23): Wartezeit-Erinnerung folgt beim Ändern, Lösc
   assertEq(await w.DB.get('aufgaben', alt.id), undefined, 'Y gelöscht: Erinnerung entfällt');
 })));
 
-test('Behandlungs-Paket R2 (#5): Stand mit Nachweisen lässt sich nicht löschen – Meldung sagt, was zu tun ist', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
-  // Doku #5: Stand „Waldrand“, Behandlung „Ganzer Stand“ mit Oxalsäure am 12.12.2025, alle Völker woanders
+/* Behandlungs-Paket R2 (#5) sperrte das Löschen eines Stands mit Nachweisen („Der Stand wird noch gebraucht“). Julian 05.11.2026
+   hat das umentschieden: „naja er kann sich ja löschen lassen aber es muss dann überall stehen bei wanderungen etc. das der
+   stand gelöscht ist irgendwie“. Die Tests prüfen deshalb jetzt die Rückfrage, das Löschen und den gemerkten Namen. */
+/** PDF bauen und die Tabellen mitschreiben (Zellen als Text), statt herunterzuladen. */
+async function standPdfTabellen(w, bauen) {
+  const tabellen = [], alt = w.Pdf.table;
+  w.Pdf.table = function (doc, o) { tabellen.push(o); return alt.call(this, doc, o); };
+  try { await pdfText(w, bauen); } finally { w.Pdf.table = alt; }
+  return tabellen.map((t) => ({ head: t.head, body: (t.body || []).map((r) => r.map((z) => (z && typeof z === 'object' ? z.content : z))) }));
+}
+const bestandsbuchZiele = async (w) => (await standPdfTabellen(w, () => w.Pdf.bestandsbuch('')))[0].body.map((r) => [r[0], r[1], r[2]]);
+const wanderbuchOrte = async (w) => (await standPdfTabellen(w, () => w.Pdf.wanderbuch('')))[0].body.map((r) => [r[1], r[2]]);
+
+test('Stand löschen (Julian 05.11.2026, statt der Sperre aus R2 #5): mit Nachweisen eigene Rückfrage, „Trotzdem löschen“ löscht und merkt den Namen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts }) => {
+  // Doku #5: Stand „Waldrand“, Behandlung „Ganzer Stand“ mit Oxalsäure am 12.12.2025
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const volk = await w.DB.put('voelker', { name: 'GS-Anna', standId: wald.id, status: 'aktiv', historie: [{ datum: '2025-01-01', text: 'angelegt' }] });
+  const beh = await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2025-12-12', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  // Abbrechen: nichts passiert – die Rückfrage nennt, was dranhängt, und was danach dort steht
+  w.UI.confirm = async (o) => { fragen.push(o); return false; };
+  assertEq(await w.standLoeschen(wald), false, 'abgebrochen');
+  assertEq(fragen.map((x) => [x.title, x.confirmText, x.danger !== false]), [['Stand mit Nachweisen löschen?', 'Trotzdem löschen', true]], 'eigene Rückfrage mit rotem Knopf');
+  assertEq(fragen[0].text, '„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch. Nach dem Löschen steht dort weiter sein Name mit dem Zusatz „(gelöscht)“. Der Stand wandert in den Papierkorb. 1 zugeordnetes Volk bleibt erhalten und verliert nur die Standzuordnung.', 'Text');
+  assert(await w.DB.get('staende', wald.id), 'der Stand bleibt');
+  assertEq([(await w.DB.getAll('papierkorb')).length, w.geloeschterStandName(wald.id)], [0, ''], 'nichts im Papierkorb, nichts gemerkt');
+  // Ernte vom ganzen Stand und Wanderung zählen mit
+  await w.DB.put('ernten', { zielTyp: 'stand', zielId: wald.id, datum: '2026-06-01', sorte: 'Wald', mengeKg: 10 });
+  await w.DB.put('wanderungen', { datum: '2026-04-15', vonStandId: heim.id, nachStandId: wald.id, volkIds: [], vonOrt: 'Heim', nachOrt: 'Waldrand' });
+  await w.DB.put('wanderungen', { datum: '2026-05-15', vonStandId: wald.id, nachStandId: heim.id, volkIds: [], vonOrt: 'Waldrand', nachOrt: 'Heim' });
+  fragen.length = 0;
+  assertEq(await w.standLoeschen(wald), false, 'wieder abgebrochen');
+  assertEq(fragen[0].text, '„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch, 1 Ernte vom ganzen Stand und 2 Wanderungen im Wanderbuch. Nach dem Löschen steht dort weiter sein Name mit dem Zusatz „(gelöscht)“. Der Stand wandert in den Papierkorb. 1 zugeordnetes Volk bleibt erhalten und verliert nur die Standzuordnung.', 'alle drei Arten');
+  // „Trotzdem löschen“
+  w.UI.confirm = async (o) => { fragen.push(o); return true; };
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  assert(!(await w.DB.get('staende', wald.id)) && await lagerKorb(w, 'staende', wald.id), 'Stand im Papierkorb');
+  assert(toasts.some((t) => t.msg === 'Stand in den Papierkorb verschoben'), 'Meldung');
+  const v = await w.DB.get('voelker', volk.id);
+  assertEq([v.standId, v.historie.some((h) => h.standVon === wald.id && h.standNach === null)], [null, true], 'das Volk verliert nur die Standzuordnung (wie bisher)');
+  assertEq((await w.DB.get('behandlungen', beh.id)).zielId, wald.id, 'die Behandlung zeigt weiter auf den Stand');
+  assertEq(w.geloeschterStandName(wald.id), 'Waldrand', 'Name gemerkt (im Speicher)');
+  assertEq((await w.DB.get('settings', 'geloeschteStaende')).value[wald.id].name, 'Waldrand', 'Name gemerkt (in der Datenbank)');
+  // Ohne Nachweise: die übliche Rückfrage – eine Fahrt zählt nicht als Nachweis
+  const leer = await w.DB.put('staende', { name: 'Leerstand' });
+  await w.DB.put('fahrten', { datum: '2026-05-01', standId: leer.id, km: 12, zweck: 'Fahrt zum Stand', notiz: '' });
+  fragen.length = 0;
+  assertEq(await w.standLoeschen(leer), true, 'gelöscht');
+  assertEq(fragen.map((x) => [x.title, x.text]), [['Stand löschen?', '„Leerstand" wandert in den Papierkorb.']], 'die übliche Rückfrage');
+  assertEq(w.geloeschterStandName(leer.id), 'Leerstand', 'auch ohne Nachweise gemerkt (Fahrtenbuch, Aufgaben, Material)');
+  // Kommt während der Rückfrage ein Nachweis dazu, wird trotzdem gelöscht – der Name steht ja gemerkt dabei
+  const ohne = await w.DB.put('staende', { name: 'Ohne' });
+  w.UI.confirm = async (o) => { fragen.push(o); if (o.title === 'Stand löschen?') await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: ohne.id, datum: '2026-07-01', mittel: 'Thymol', menge: 1, einheit: 'Stück', notiz: '' }); return true; };
+  fragen.length = 0; toasts.length = 0;
+  assertEq(await w.standLoeschen(ohne), true, 'gelöscht');
+  assert(!(await w.DB.get('staende', ohne.id)) && w.geloeschterStandName(ohne.id) === 'Ohne', 'gelöscht und gemerkt');
+  assert(!toasts.some((t) => t.typ === 'err'), 'kein Fehler: ' + JSON.stringify(toasts));
+  // Gleichzeitig in zwei Fenstern: der zweite Aufruf findet nichts mehr und meldet keinen Fehler
+  const zweiter = await w.DB.put('staende', { name: 'Doppelt' });
+  w.UI.confirm = async (o) => { fragen.push(o); return true; };
+  assertEq(await Promise.all([w.standLoeschen(zweiter), w.standLoeschen(zweiter)]), [true, true], 'beide fertig');
+  assertEq((await w.DB.getAll('papierkorb')).filter((t) => t.store === 'staende' && t.daten.id === zweiter.id).length, 1, 'nur einmal im Papierkorb');
+})));
+
+test('Gelöschter Stand (Julian 05.11.2026): Bestandsbuch, Wanderbuch und Listen zeigen „Waldrand (gelöscht)“ – auch nach dem endgültigen Löschen; Wiederherstellen zeigt wieder nur den Namen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), linde = await w.DB.put('staende', { name: 'Linde' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const volk = await w.DB.put('voelker', { name: 'GS-Berta', standId: heim.id, status: 'aktiv', historie: [{ datum: '2025-01-01', text: 'angelegt' }] });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2025-12-12', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: linde.id, datum: '2025-12-13', mittel: 'Oxalsäure', menge: 20, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: volk.id, datum: '2025-12-14', mittel: 'Thymol', menge: 1, einheit: 'Stück', wartezeitTage: 0, notiz: '' });
+  await w.DB.put('wanderungen', { datum: '2026-04-15', vonStandId: linde.id, nachStandId: wald.id, volkIds: [volk.id], vonOrt: 'Linde', nachOrt: 'Waldrand' });
+  const ernte = await w.DB.put('ernten', { zielTyp: 'stand', zielId: wald.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Wald', mengeKg: 10 });
+  const fahrt = await w.DB.put('fahrten', { datum: '2026-05-01', standId: wald.id, km: 12, zweck: 'Durchsicht', notiz: '' });
+  const vorher = { buch: await bestandsbuchZiele(w), wander: await wanderbuchOrte(w) };
+  assertEq(vorher.buch, [['12.12.2025', 'Stand Waldrand', 'Oxalsäure'], ['13.12.2025', 'Stand Linde', 'Oxalsäure'], ['14.12.2025', 'Volk GS-Berta', 'Thymol']], 'vorher: Bestandsbuch');
+  assertEq(vorher.wander, [['Linde', 'Waldrand']], 'vorher: Wanderbuch');
+  // Beide Stände löschen
+  for (const st of [wald, linde]) assertEq(await w.standLoeschen(st), true, st.name + ' gelöscht');
+  const nachher = [['12.12.2025', 'Stand Waldrand (gelöscht)', 'Oxalsäure'], ['13.12.2025', 'Stand Linde (gelöscht)', 'Oxalsäure'], ['14.12.2025', 'Volk GS-Berta', 'Thymol']];
+  assertEq(await bestandsbuchZiele(w), nachher, 'Bestandsbuch: Name mit „(gelöscht)“ statt „Stand ?“');
+  assertEq(await wanderbuchOrte(w), [['Linde (gelöscht)', 'Waldrand (gelöscht)']], 'Wanderbuch: Name mit „(gelöscht)“ statt „–“');
+  // Bildschirm: Behandlungen, Wanderungen, Ernten, Fahrtenbuch
+  const text = async (zeichnen) => { host.innerHTML = ''; await zeichnen(host); await w99(100); return host.textContent.replace(/\s+/g, ' '); };
+  assert((await text((h) => w.Views.behandlungen.render(h))).includes('Stand „Waldrand (gelöscht)“'), 'Behandlungen-Liste');
+  assert((await text((h) => w.Views.wanderungen.render(h))).includes('Linde (gelöscht) → Waldrand (gelöscht)'), 'Wanderungen-Liste');
+  assert((await text((h) => w.Views.honig.tabErnten(h))).includes('Stand „Waldrand (gelöscht)“'), 'Ernten-Liste');
+  const jahrVorher = w.Views.fahrten._jahr; w.Views.fahrten._jahr = '2026';
+  try { assert((await text((h) => w.Views.fahrten.render(h))).includes('Waldrand (gelöscht)'), 'Fahrtenbuch-Liste'); } finally { w.Views.fahrten._jahr = jahrVorher; }
+  assertEq(w.fahrtZielName(fahrt, await w.idMap('staende')), 'Waldrand (gelöscht)', 'Fahrtenbuch statt „gelöschter Stand“');
+  assertEq((await w.ernteFuerVerarbeitung(ernte.id)).herkunft, 'Stand Waldrand (gelöscht)', 'Herkunft der Ernte statt leer');
+  // Endgültig löschen („Papierkorb leeren“) – der Name bleibt; Linde vorher wiederherstellen
+  await w.DB.trashRestore((await lagerKorb(w, 'staende', linde.id)).id);
+  assertEq(w.geloeschterStandName(linde.id), '', 'Linde: gemerkter Name gestrichen (Speicher)');
+  assert(!((await w.DB.get('settings', 'geloeschteStaende')).value[linde.id]), 'Linde: gemerkter Name gestrichen (Datenbank)');
+  await w.DB.papierkorbEndgueltig(() => true);
+  assert(!(await lagerKorb(w, 'staende', wald.id)), 'Waldrand endgültig weg');
+  assertEq(await bestandsbuchZiele(w), [nachher[0], ['13.12.2025', 'Stand Linde', 'Oxalsäure'], nachher[2]], 'Bestandsbuch: Waldrand weiter „(gelöscht)“, Linde wieder ohne Zusatz');
+  assertEq(await wanderbuchOrte(w), [['Linde', 'Waldrand (gelöscht)']], 'Wanderbuch nach dem endgültigen Löschen');
+  // Auch nach einem Neustart (Einstellungen frisch geladen) und über die Sicherung
+  await w.S.load();
+  assertEq(w.standNameAnzeige(wald.id, await w.idMap('staende')), 'Waldrand (gelöscht)', 'nach dem Neuladen');
+  const sicherung = await w.Backup.buildData(false);
+  assert((sicherung.stores.settings || []).some((r) => r.key === 'geloeschteStaende' && r.value[wald.id] && r.value[wald.id].name === 'Waldrand'), 'steht in der Sicherung');
+  await w.DB.del('settings', 'geloeschteStaende'); await w.S.load();
+  assertEq(w.standNameAnzeige(wald.id, []), 'gelöschter Stand', 'ohne die Einstellung: nur „gelöschter Stand“');
+  await w.Backup.applyMerge(sicherung); await w.S.load();
+  assertEq(w.standNameAnzeige(wald.id, []), 'Waldrand (gelöscht)', 'Zusammenführen bringt den Namen mit');
+  await w.DB.del('settings', 'geloeschteStaende'); await w.S.load();
+  await w.Backup.applyReplace(sicherung, { blobsBehalten: false }); await w.S.load();
+  assertEq(w.standNameAnzeige(wald.id, []), 'Waldrand (gelöscht)', 'Ersetzen bringt den Namen mit');
+  assertEq(await bestandsbuchZiele(w), [nachher[0], ['13.12.2025', 'Stand Linde', 'Oxalsäure'], nachher[2]], 'Bestandsbuch nach dem Einspielen');
+})));
+
+test('Gelöschter Stand (Julian 05.11.2026): Altdaten ohne gemerkten Namen – „vonOrt (gelöscht)“ bzw. „gelöschter Stand“; vorhandene Stände unverändert', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const heim = await w.DB.put('staende', { name: 'Heim' });
+  // Wanderungen aus der Zeit vor dem Merken: Stand-Kennung weg, Klartext noch da – bzw. gar nichts
+  await w.DB.put('wanderungen', { datum: '2026-04-01', vonStandId: 'alt-weg-1', nachStandId: heim.id, volkIds: [], vonOrt: 'Alter Hof', nachOrt: 'Heim (damals)' });
+  await w.DB.put('wanderungen', { datum: '2026-04-02', vonStandId: heim.id, nachStandId: 'alt-weg-2', volkIds: [] });
+  await w.DB.put('wanderungen', { datum: '2026-04-03', vonOrt: 'Freitext von', nachOrt: 'Freitext nach' });   // ganz altes Format ohne Kennung
+  assertEq(await wanderbuchOrte(w), [['Alter Hof (gelöscht)', 'Heim'], ['Heim', 'gelöschter Stand'], ['Freitext von', 'Freitext nach']], 'Wanderbuch');
+  host.innerHTML = ''; await w.Views.wanderungen.render(host); await w99(100);
+  const titel = [...host.querySelectorAll('.r-title')].map((t) => t.textContent.trim());
+  assertEq(titel, ['Freitext von → Freitext nach', 'Heim → gelöschter Stand', 'Alter Hof (gelöscht) → Heim'], 'Wanderungen-Liste (neueste zuerst)');
+  const excel = await (await w.Xlsx.defs()).wanderungen.rows();
+  assertEq(excel.map((r) => [r.Von, r.Nach]).sort(), [['Alter Hof (gelöscht)', 'Heim'], ['Freitext von', 'Freitext nach'], ['Heim', 'gelöschter Stand']], 'Excel');
+  // Bestandsbuch: „gelöschter Stand“ statt „Stand gelöschter Stand“, ohne Kennung weiter „Stand ?“
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: 'alt-weg-2', datum: '2025-11-01', mittel: 'Oxalsäure', menge: 1, einheit: 'ml', notiz: '' });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: '', datum: '2025-11-02', mittel: 'Oxalsäure', menge: 1, einheit: 'ml', notiz: '' });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: heim.id, datum: '2025-11-03', mittel: 'Oxalsäure', menge: 1, einheit: 'ml', notiz: '' });
+  assertEq((await bestandsbuchZiele(w)).map((r) => r[1]), ['gelöschter Stand', 'Stand ?', 'Stand Heim'], 'Bestandsbuch');
+  // Der Helfer selbst: vorhanden (Map und Liste) wie bisher, gemerkt vor Rückfall, kaputte Werte aus einer Sicherung ohne Absturz
+  const map = await w.idMap('staende'), liste = await w.DB.getAll('staende');
+  assertEq([w.standNameAnzeige(heim.id, map), w.standNameAnzeige(heim.id, liste), w.standNameAnzeige(heim.id, map, 'egal'), w.standNameAnzeige('', map), w.standNameAnzeige(null, map, 'Rest')], ['Heim', 'Heim', 'Heim', '', ''], 'vorhanden und ohne Kennung');
+  await w.S.set('geloeschteStaende', { g1: { name: ' Gemerkt ', geloeschtAm: '2026-11-05' }, g2: { name: 5 }, g3: null, g4: 'kaputt' });
+  assertEq(['g1', 'g2', 'g3', 'g4', 'unbekannt'].map((id) => w.standNameAnzeige(id, map, id === 'g1' ? 'Rückfall' : '')), ['Gemerkt (gelöscht)', 'gelöschter Stand', 'gelöschter Stand', 'gelöschter Stand', 'gelöschter Stand'], 'gemerkt vor Rückfall, kaputte Einträge');
+  await w.S.set('geloeschteStaende', 'kaputt');
+  assertEq(w.standNameAnzeige('g1', map, 'Rückfall'), 'Rückfall (gelöscht)', 'kaputte Einstellung: Rückfall');
+  // Vorhandene Stände: Fahrtenbuch, Aufgaben, Ernte-Herkunft wie bisher
+  assertEq(w.fahrtZielName({ standId: heim.id }, map), 'Heim', 'Fahrt');
+  assertEq(w.aufgabeBezug({ standId: heim.id }, new Map(), map).standName, 'Heim', 'Aufgabe');
+  const e = await w.DB.put('ernten', { zielTyp: 'stand', zielId: heim.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Raps', mengeKg: 5 });
+  assertEq((await w.ernteFuerVerarbeitung(e.id)).herkunft, 'Stand Heim', 'Herkunft');
+})));
+
+test('Gelöschter Stand (Julian 05.11.2026): Formulare behalten ihn – Behandlung, Fahrt und Wanderung lassen sich berichtigen, ohne den Stand umzuschreiben', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host, toasts }) => {
   const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
   const beh = await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2025-12-12', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
-  assertEq(await w.standLoeschen(wald), false, 'nicht gelöscht');
-  assertEq(fragen.map((x) => x.title), ['Der Stand wird noch gebraucht'], 'nur die Meldung, keine Löschfrage');
-  assertEq(fragen[0].text, '„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch. Ohne den Stand fehlte dort sein Name – im Bestandsbuch stünde nur „Stand ?“. Darum lässt sich der Stand nicht löschen. Er kann stehen bleiben, auch ohne Völker. Gehören die Einträge gar nicht zu diesem Stand, ändere sie zuerst – dann kannst du ihn löschen.', 'Meldung');
-  assert(await w.DB.get('staende', wald.id), 'der Stand bleibt');
-  assertEq((await w.DB.getAll('papierkorb')).length, 0, 'nichts im Papierkorb');
-  // Das Bestandsbuch nennt ihn weiter beim Namen
-  w.Pdf.noDownloadForTest = true; w.Pdf.lastDocForTest = null;
-  try { await w.Pdf.bestandsbuch('2025'); } finally { w.Pdf.noDownloadForTest = false; }
-  const text = w.Pdf.lastDocForTest.internal.pages.map((p) => (p || []).join('\n')).join('\n');
-  assert(text.includes('Waldrand') && !text.includes('Stand ?'), 'Bestandsbuch: „Stand Waldrand“');
-  // Ernte vom ganzen Stand und Wanderung zählen auch
-  const ern = await w.DB.put('ernten', { zielTyp: 'stand', zielId: wald.id, datum: '2026-06-01', sorte: 'Wald', mengeKg: 10 });
-  const wan = await w.DB.put('wanderungen', { datum: '2026-04-15', vonStandId: heim.id, nachStandId: wald.id, volkIds: [] });
-  fragen.length = 0;
-  assertEq(await w.standLoeschen(wald), false, 'weiter gesperrt');
-  assert(fragen[0].text.startsWith('„Waldrand“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch, 1 Ernte vom ganzen Stand und 1 Wanderung im Wanderbuch.'), fragen[0].text);
-  // Ohne Nachweise geht es – eine Fahrt hält den Stand nicht (Fahrtenbuch schreibt „gelöschter Stand“, gewollt)
-  for (const [st, id] of [['behandlungen', beh.id], ['ernten', ern.id]]) await w.DB.del(st, id);
-  fragen.length = 0;
-  assertEq(await w.standLoeschen(wald), false, 'die Wanderung allein hält ihn auch');
-  assert(fragen[0].text.startsWith('„Waldrand“ steht in deinen Nachweisen: 1 Wanderung im Wanderbuch. Ohne den Stand fehlte dort sein Name – im Wanderbuch stünde nur „–“.'), fragen[0].text);
-  await w.DB.del('wanderungen', wan.id);
-  await w.DB.put('fahrten', { datum: '2026-05-01', standId: wald.id, km: 12, zweck: 'Fahrt zum Stand', notiz: '' });
-  fragen.length = 0;
-  assertEq(await w.standLoeschen(wald), true, 'jetzt gelöscht');
-  assertEq(fragen.map((x) => x.title), ['Stand löschen?'], 'die übliche Rückfrage');
-  assert(!(await w.DB.get('staende', wald.id)) && await lagerKorb(w, 'staende', wald.id), 'Stand im Papierkorb');
-  // Kommt während der Rückfrage ein Nachweis dazu, prüft die Buchung noch einmal und lässt den Stand stehen
-  w.UI.confirm = async (o) => { fragen.push(o); if (o.title === 'Stand löschen?') await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: heim.id, datum: '2026-07-01', mittel: 'Thymol', menge: 1, einheit: 'Stück', notiz: '' }); return true; };
-  toasts.length = 0;
-  assertEq(await w.standLoeschen(heim), false, 'nicht gelöscht');
-  assert(await w.DB.get('staende', heim.id), 'Heim bleibt');
-  assert(toasts.some((t) => t.typ === 'err' && /^„Heim“ steht in deinen Nachweisen: 1 Behandlung im Bestandsbuch/.test(t.msg)), 'Meldung: ' + JSON.stringify(toasts));
+  const fahrt = await w.DB.put('fahrten', { datum: '2026-05-01', standId: wald.id, km: 12, zweck: 'Durchsicht', notiz: '', freiZiel: '' });
+  const volk = await w.DB.put('voelker', { name: 'GS-Wandervolk', standId: wald.id, status: 'aktiv', historie: [{ datum: '2020-01-01', text: 'angelegt' }] });
+  const wan = await w.DB.put('wanderungen', { datum: '2026-04-15', vonStandId: heim.id, nachStandId: wald.id, volkIds: [volk.id], vonOrt: 'Heim', nachOrt: 'Waldrand', notiz: '' });
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  // Behandlung: der Stand steht als „Waldrand (gelöscht)“ in der Auswahl, Speichern behält ihn
+  let f = await lagerFormular(w, async () => w.Views.behandlungen.form(await w.DB.get('behandlungen', beh.id)));
+  assertEq(f.m.querySelector('#f-zielStand').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Behandlung: Auswahl');
+  f.setz('notiz', 'berichtigt'); await f.speichern();
+  assertEq([(await w.DB.get('behandlungen', beh.id)).zielId, (await w.DB.get('behandlungen', beh.id)).notiz], [wald.id, 'berichtigt'], 'Behandlung: Stand bleibt');
+  // Fahrt: die Pflicht-Auswahl wählt nicht still den ersten Stand
+  f = await lagerFormular(w, async () => w.fahrtForm(await w.DB.get('fahrten', fahrt.id), () => {}));
+  assertEq(f.m.querySelector('#f-ziel').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Fahrt: Auswahl');
+  f.setz('notiz', 'berichtigt'); await f.speichern();
+  assertEq((await w.DB.get('fahrten', fahrt.id)).standId, wald.id, 'Fahrt: Stand bleibt');
+  // Wanderung: öffnet trotz nur noch einem Stand, Notiz ändern behält Kennung und Klartext
+  host.innerHTML = ''; await w.Views.wanderungen.render(host); await w99(100);
+  dialogeSchliessen(w);
+  host.querySelector(`.row[data-id="${wan.id}"]`).click(); await w99(300);
+  const m = letztesModal(w);
+  assert(m, 'Wanderung: das Formular öffnet (nur noch ein Stand da)');
+  assertEq(m.querySelector('#f-nachStandId').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Wanderung: Auswahl');
+  const notiz = m.querySelector('#f-notiz'); notiz.value = 'berichtigt'; notiz.dispatchEvent(new w.Event('input', { bubbles: true }));
+  m.querySelector('[data-save]').click(); await w99(700);
+  const neu = await w.DB.get('wanderungen', wan.id);
+  assertEq([neu.vonStandId, neu.nachStandId, neu.nachOrt, neu.volkIds, neu.notiz], [heim.id, wald.id, 'Waldrand', [volk.id], 'berichtigt'], 'Wanderung: Stand, Klartext und Völker bleiben');
+  assertEq((await w.DB.get('voelker', volk.id)).standId, null, 'kein Volk wurde auf den gelöschten Stand gesetzt');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  dialogeSchliessen(w);
+  // TSK-Meldung: Völker, die am Stichtag am gelöschten Stand standen, unter seinem Namen statt „ohne Standort“
+  const v = await w.DB.put('voelker', { name: 'TSK-Volk', standId: null, status: 'aktiv', historie: [{ datum: '2020-01-01', text: 'angelegt' }, { datum: w.U.todayIso(), text: 'Stand „Waldrand“ gelöscht – Volk ohne Stand', standVon: wald.id, standNach: null }] });
+  const tsk = await standPdfTabellen(w, () => w.Pdf.tierseuchenkasse());
+  const zeilen = tsk[tsk.length - 1].body.map((r) => r[0]);
+  assert(zeilen.includes('Waldrand (gelöscht)') && !zeilen.includes('ohne Standort erfasst'), 'TSK: ' + JSON.stringify(zeilen));
+  await w.DB.del('voelker', v.id);
 })));
 
 test('Behandlungs-Paket R2 (#33): Behandlungsübersicht summiert je Einheit getrennt – Bildschirm und Report-PDF', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
