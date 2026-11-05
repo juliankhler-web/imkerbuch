@@ -48,3 +48,5 @@ V8 (nit) positionLoeschText wird beim Öffnen jedes Positionsformulars schon gel
 V9 (nit) „Liegt X im Papierkorb?“ an 6 Stellen von Hand → ein Helfer imPapierkorb(d, store, id).
 
 **Status zweiter Ultra-Test: alle 9 behoben** (05.11.2026), 964/964 Tests grün. Zusatz bei V6: Glas- und Deckel-Vorschläge im Abfüllformular nutzen jetzt dieselbe Rolle (Twist-Off-Glas wird als Glas vorgeschlagen, Deckel-Feld nur echte Deckel). Offen, selten: Bio-Umschalter (Auswahl bio-an) ohne Fehlermeldung; „Glas 500 g mit Deckel“ zählt weiter als Deckel (war schon so).
+
+**Dritter (letzter kostenloser) Ultra-Test:** Julian 05.11.2026: „wir machen es wenn alle bestätigungen von apple und google da sind“ → aufgehoben für direkt vor dem Einreichen (nach release-100 / Endstand). Ablauf: schlankes Prüf-Repo ~/ImkerBuch-Pruefung aktualisieren (Dateien aus dem Endstand als neuer Commit auf dem Zweig), Sitzung dorthin, `/code-review ultra --max-findings all`.
