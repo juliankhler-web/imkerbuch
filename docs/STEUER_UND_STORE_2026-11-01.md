@@ -60,3 +60,5 @@ Stand 01.11.2026:
 - **Google:** keine Planung für den normalen Preis gefunden, also am 01.01.2027 von Hand ändern, einige Stunden Vorlauf einplanen.
 
 Der Apple-Name „30-Tage-Testphase“: Richtlinie 3.1.1 nennt das Muster „XX-day Trial“, Referenzname ist schon so. Vor dem Einreichen prüfen.
+
+- **Stand 05.11.2026 (App Store Connect → Geschäftliches, von Claude gelesen):** Name jetzt „Julian Konstantin Koehler“, Anschrift „Reichenberger Strasse 15, 85221 Dachau“ (Namenskorrektur damit erledigt, Schreibweise mit oe wie festgelegt). Verträge kostenlos und gebührenpflichtig Aktiv (bis 20. Okt. 2027), Steuerformulare (W-8BEN, Certificate of Foreign Status) Aktiv. Compliance: „Gesetz über digitale Dienste“ (Händlerstatus) weiter **In Prüfung** (seit 1. Nov.), DAC7-Richtlinie **Aktiviert**. Small Business Program: keine Entscheidung, nur Eingangsbestätigung vom 02.11. in Gmail.
