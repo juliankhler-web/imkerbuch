@@ -3538,8 +3538,9 @@ const DB = {
                bringt sie zurück (in die passende Sammel-Erinnerung oder als eigene), sofern keine mehr zu ihr gehört. */
             if (t.store === 'behandlungen') {
               const ziele = (t.daten.zielTyp === 'volk' ? pruefDaten.voelker : pruefDaten.staende) || [];
+              // Gelöschter Stand mit seinem reinen Namen – der Titel wird gespeichert, „(gelöscht)“ setzt nur die Anzeige dazu (Ultra-Test 05.11.2026, G5 – wie zielName)
               const zielText = !t.daten.zielId ? '–' : t.daten.zielTyp === 'volk' ? ((ziele.find((x) => x.id === t.daten.zielId) || {}).name || 'gelöscht')
-                : (standNameAnzeige(t.daten.zielId, ziele) || 'gelöscht');   // gelöschter Stand mit Namen (Julian 05.11.2026)
+                : ((ziele.find((x) => x.id === t.daten.zielId) || {}).name || geloeschterStandName(t.daten.zielId) || STAND_GELOESCHT);
               this._auftraege(tx, wartezeitAufgabeWiederPlan(pruefDaten, t.daten, zielText));
             }
             /* Königin (Fund 04.11.2026, #7/#26): Das Löschen beendet ihre Zuordnung – zurück ins Volk nur, wenn es frei ist.
@@ -3585,6 +3586,9 @@ const DB = {
   },
   /** Wie viele Anhänge gingen mit, wenn diese Papierkorb-Einträge jetzt endgültig gelöscht würden? Für die Rückfrage. */
   async papierkorbAnhangZahl(welche) {
+    /* Dieselbe Abkürzung wie papierkorbEndgueltig (Ultra-Test 05.11.2026, N3): Nur Einträge aus einem Bereich mit Anhängen
+       können Dateien mitnehmen – sonst nicht bei jedem „Endgültig löschen“ alle Fotos und Eltern-Bereiche lesen. */
+    if (!(await this.getAll('papierkorb')).filter(welche).some((t) => ANHANG_BEREICHE.has(t.store))) return 0;
     const d = await this.leseAlles(['papierkorb', 'anhaenge', ...ANHANG_BEREICHE]);
     return verwaisteAnhaenge(d, d.papierkorb.filter(welche)).length;
   },
@@ -6989,12 +6993,14 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
   const staende = await DB.getAll('staende');
   const kmVon = (standId) => { const st = staende.find((x) => x.id === standId); return st && st.kmEntfernung ? st.kmEntfernung * 2 : ''; };
   const FREI = '__frei__';
-  /* Eine Fahrt zu einem inzwischen gelöschten Stand behält beim Bearbeiten ihr Ziel als „Name (gelöscht)“ (Julian 05.11.2026).
-     Ohne diese Zeile wählte die Pflicht-Auswahl still den ersten Stand, und das Speichern schrieb die Fahrt dorthin um. */
-  const geloeschtesZiel = bearbeiten && bearbeiten.standId && !staende.some((x) => x.id === bearbeiten.standId) ? [{ v: bearbeiten.standId, l: standNameAnzeige(bearbeiten.standId, staende) }] : [];
-  const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), ...geloeschtesZiel, { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
   // Startwerte: Bearbeiten > Vorlage-Prefill > vorgewählter Stand
   const quelle = bearbeiten || prefill;
+  /* Eine Fahrt zu einem inzwischen gelöschten Stand behält beim Bearbeiten ihr Ziel als „Name (gelöscht)“ (Julian 05.11.2026).
+     Ohne diese Zeile wählte die Pflicht-Auswahl still den ersten Stand, und das Speichern schrieb die Fahrt dorthin um.
+     Gilt auch für eine eigene Fahrt (Vorlage), deren Stand gelöscht ist (Ultra-Test 05.11.2026, G1): Das Formular zeigt
+     den gelöschten Stand, statt still das erste Ziel vorzuwählen – wohin die Fahrt geht, entscheidest du selbst. */
+  const geloeschtesZiel = quelle && quelle.standId && !staende.some((x) => x.id === quelle.standId) ? [{ v: quelle.standId, l: standNameAnzeige(quelle.standId, staende) }] : [];
+  const zielOpts = [...staende.map((st) => ({ v: st.id, l: st.name + (st.kmEntfernung ? ` (${U.fmtNum(st.kmEntfernung * 2)} km hin & zurück)` : '') })), ...geloeschtesZiel, { v: FREI, l: 'Andere Fahrt (Einkauf, Schulung, Besorgung …)' }];
   const startZiel = quelle ? (quelle.standId || FREI) : (vorStandId || (staende[0] ? staende[0].id : FREI));
   const m = UI.formModal({
     title: bearbeiten ? 'Fahrt bearbeiten' : 'Fahrt erfassen',
@@ -7015,7 +7021,7 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
       const rec = Object.assign(bearbeiten || {}, { datum: v.datum, standId: frei ? null : v.ziel, freiZiel: frei ? (v.freiZiel || '').trim() : '', km: v.km, zweck: v.zweck, notiz: v.notiz });
       await DB.put('fahrten', rec);
       if (v.alsVorlage) {
-        const name = frei ? (rec.freiZiel || rec.zweck || 'Fahrt') : (staende.find((s) => s.id === rec.standId)?.name || 'Fahrt');
+        const name = frei ? (rec.freiZiel || rec.zweck || 'Fahrt') : (staende.find((s) => s.id === rec.standId)?.name || geloeschterStandName(rec.standId) || 'Fahrt');   // reiner Name, ohne „(gelöscht)“ (Ultra-Test 05.11.2026, G1)
         const vorlagen = S.get('fahrtvorlagen') || [];
         const neuId = U.uuid();
         vorlagen.push({ id: neuId, name, km: rec.km, zweck: rec.zweck, standId: rec.standId, freiZiel: rec.freiZiel });
@@ -7161,6 +7167,12 @@ async function fahrtVorlageBuchen(vorlageId) {
   if (!schnellEinmal('vorlage:' + vorlageId)) return;
   const vl = (S.get('fahrtvorlagen') || []).find((x) => x.id === vorlageId);
   if (!vl) return UI.toast('Vorlage nicht gefunden', 'err');
+  /* Stand der eigenen Fahrt gelöscht (Ultra-Test 05.11.2026, G1): nicht still eine Fahrt dorthin buchen. Erst ins Formular –
+     dort steht der Stand als „Name (gelöscht)“, und du wählst bewusst ein anderes Ziel oder bleibst dabei. */
+  if (vl.standId && !(await DB.get('staende', vl.standId))) {
+    UI.toast(`Der Stand „${geloeschterStandName(vl.standId) || vl.name}“ ist gelöscht. Prüf das Ziel und speichere dann.`, 'err');
+    return fahrtForm(null, null, vl);
+  }
   if (!vl.km) return fahrtForm(null, null, vl); // ohne Kilometer erst ins Formular
   const rec = await DB.put('fahrten', { datum: U.todayIso(), standId: vl.standId || null, freiZiel: vl.freiZiel || '', km: vl.km, zweck: vl.zweck || '', notiz: '' });
   fahrtGebuchtHinweis(rec, `Fahrt gebucht: ${U.fmtNum(vl.km)} km · ${vl.name}`);
@@ -7518,10 +7530,19 @@ function zielNameAnzeige(r, voelker, staende) {
 }
 /** Auswahlliste der Stände für ein Formular – dazu die gelöschten Stände, auf die der Eintrag schon zeigt, als
     „Name (gelöscht)“ (Julian 05.11.2026). Sonst stünde dort „–“ oder still der erste Stand, und schon eine Korrektur der
-    Notiz hätte den Nachweis auf einen anderen Stand umgeschrieben. */
+    Notiz hätte den Nachweis auf einen anderen Stand umgeschrieben.
+    behalten: Kennungen – oder [id, rueckfall] mit dem Klartext von damals, genau wie bei standNameAnzeige
+    (Ultra-Test 05.11.2026, G3): Eine alte Wanderung ohne gemerkten Namen zeigte in der Liste „Alter Hof (gelöscht)“, im
+    Formular aber zweimal nur „gelöschter Stand“. */
 function standOptionen(staende, ...behalten) {
   const opts = staende.map((s) => ({ v: s.id, l: s.name }));
-  for (const id of new Set(behalten.filter(Boolean))) if (!staende.some((s) => s.id === id)) opts.push({ v: id, l: standNameAnzeige(id, staende) });
+  const dabei = new Set();
+  for (const b of behalten) {
+    const [id, rueckfall] = Array.isArray(b) ? b : [b, ''];
+    if (!id || dabei.has(id) || staende.some((s) => s.id === id)) continue;
+    dabei.add(id);
+    opts.push({ v: id, l: standNameAnzeige(id, staende, rueckfall) });
+  }
   return opts;
 }
 /** Auftrag für die Einstellung 'geloeschteStaende' – gedacht für DIESELBE Transaktion wie das Löschen bzw. Wiederherstellen.
@@ -7814,7 +7835,8 @@ async function openVolkForm(volk, defaults = {}, onDone) {
     title: volk ? 'Volk bearbeiten' : 'Neues Volk',
     fields: [
       { key: 'name', label: 'Bezeichnung', required: true, placeholder: 'z. B. Volk 3' },
-      { key: 'standId', label: 'Bienenstand', type: 'select', options: staende.map((s) => ({ v: s.id, l: s.name })) },
+      // Gelöschter Stand bleibt als „Name (gelöscht)“ stehen statt „–“ (Ultra-Test 05.11.2026, G2)
+      { key: 'standId', label: 'Bienenstand', type: 'select', options: standOptionen(staende, volk ? volk.standId : defaults.standId) },
       { key: 'funktion', label: 'Funktion im Betrieb', type: 'suggest', options: funktionOpts, placeholder: 'z. B. Wirtschaftsvolk' },
       { key: 'koeniginId', label: 'Königin', type: 'select', options: qOpts },
       { key: 'beutentyp', label: 'Beutentyp', type: 'suggest', options: beutenOpts },
@@ -7829,8 +7851,10 @@ async function openVolkForm(volk, defaults = {}, onDone) {
       rec.standId = v.standId || null; rec.koeniginId = v.koeniginId || null;
       /* Stand-Wechsel datiert festhalten – sonst stimmt „Völker je Standort am Stichtag“ in den Meldungen nicht (v2.91).
          Nur bei aktiven Völkern und nur bei echtem Wechsel: Ein aufgelöstes Volk behält die Kennung eines gelöschten
-         Stands (standLoeschen löst nur aktive), das Formular zeigt dafür „–“. Ohne diese Prüfung schrieb schon das Ändern
-         der Notiz einen Wechsel, und dessen Datum verlängerte das Volk bis heute (Code-Prüfung 23.10.2026). */
+         Stands (standLoeschen löst nur aktive). Ohne diese Prüfung schrieb schon das Ändern der Notiz einen Wechsel, und
+         dessen Datum verlängerte das Volk bis heute (Code-Prüfung 23.10.2026). Seit G2 (Ultra-Test 05.11.2026) zeigt das
+         Formular den gelöschten Stand als „Name (gelöscht)“ und gibt seine Kennung beim Speichern zurück – auch bei einem
+         aktiven Volk (z. B. nach „Duplizieren“ eines aufgelösten). Die Zeile hier bleibt als Netz für aufgelöste Völker. */
       if (volk && rec.status !== 'aktiv' && altStand && !rec.standId && !staende.some((x) => x.id === altStand)) rec.standId = altStand;
       if (volk && rec.status === 'aktiv' && altStand !== rec.standId) {
         const n = (id) => (id && standNameAnzeige(id, staende)) || 'ohne Stand';   // gelöschter Stand mit Namen (Julian 05.11.2026)
@@ -10671,10 +10695,13 @@ async function zielFelder(defaults = {}, label = 'Behandelt wurde') {
     { key: 'zielStand', label: 'Stand', type: 'select', options: standOptionen(staende, defaults.zielTyp === 'stand' && defaults.zielId), showIf: (f) => f.zielTyp === 'stand' },
   ];
 }
+/** Name des Ziels für den Titel der Wartezeit-Erinnerung – also für GESPEICHERTEN Text. Ein gelöschter Stand steht mit seinem
+    reinen Namen darin (Ultra-Test 05.11.2026, G5): „(gelöscht)“ fest im Titel ergab „Wartezeit endet: Oxalsäure (Waldrand
+    (gelöscht))“ und blieb auch stehen, wenn der Stand aus dem Papierkorb zurückkam. Ohne gemerkten Namen: „gelöschter Stand“. */
 async function zielName(zielTyp, zielId) {
   if (!zielId) return '–';
   const r = await DB.get(zielTyp === 'volk' ? 'voelker' : 'staende', zielId);
-  return r ? r.name : zielTyp === 'volk' ? 'gelöscht' : standNameAnzeige(zielId, []);   // gelöschter Stand mit Namen (Julian 05.11.2026)
+  return r ? r.name : zielTyp === 'volk' ? 'gelöscht' : (geloeschterStandName(zielId) || STAND_GELOESCHT);
 }
 
 /* Mengenrechner (v3.08): Die App kennt keine Mengen. Der Imker trägt den Wert aus seiner Packungsbeilage ein, die App
@@ -11182,7 +11209,8 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   return Math.round(zucker * n * 1000) / 1000;
 }
 /** Plant einen Materialabzug auf den Kopien einer laufenden Transaktion.
-    `rolle` ('deckel', 'etikett' oder '' für Gebinde) setzt das Abfüllen, das weiß, für welches Feld die Position gewählt ist. */
+    `rolle` ('deckel', 'etikett' oder '' für Gebinde) setzt das Abfüllen, das weiß, für welches Feld die Position gewählt ist.
+    Sie steht dann auch in jedem Abzug-Eintrag, damit abfuellungAendern sie später kennt (Ultra-Test 05.11.2026, U3). */
 function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
   const m = buchungsZahl(menge, 'Materialmenge');
   if (!inventarId || m === 0) return { abzug: [], gefehlt: 0 };
@@ -11191,8 +11219,14 @@ function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
   const einheit = verbrauchEinheit(start);
   /* Einspringen darf nur dieselbe Art samt Rolle (Fund 04.11.2026, #23): Vorher füllten Etiketten oder Gläser ohne Größe
      fehlende Deckel auf (Deckel 20 + Etiketten 30 bei 50 Gläsern), und „30 Stück fehlten“ wurde verschwiegen. */
-  const art = materialArt(start, rolle ?? materialRolle(start));
-  const weitere = U.sortBy(posten.filter((p) => p.id !== start.id && materialArt(p) === art), (p) => p.anschaffung || p.createdAt || '');
+  /* Ersatz-Kandidaten mit derselben Rolle wie der Start (Ultra-Test 05.11.2026, U2): Vorher bekam nur der Start die Rolle des
+     Felds, die Kandidaten die aus dem Namen geratene. „Twist-Off-Glas 500 g“ heißt am Namen „Deckel“ – Karton B sprang für
+     Karton A im Feld Gläser nie ein („30 Stück fehlten“), ebenso der zweite Karton bei Deckeln oder Etiketten ohne
+     Schlüsselwort im Namen. Jetzt gilt die Rolle des Felds für jede Position, die der Name genauso einordnet wie den Start
+     (materialNamensArt); alle anderen behalten ihre Rolle aus dem Namen, damit Etiketten nie Deckel auffüllen. */
+  const r = rolle ?? materialRolle(start), klasse = materialNamensArt(start);
+  const art = materialArt(start, r);
+  const weitere = U.sortBy(posten.filter((p) => p.id !== start.id && materialArt(p, materialNamensArt(p) === klasse ? r : materialRolle(p)) === art), (p) => p.anschaffung || p.createdAt || '');
   const abzug = []; let offen = m;
   for (const p of [start, ...weitere]) {
     if (offen <= 0.0000001) break;
@@ -11201,7 +11235,7 @@ function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
     p.stueckzahl = einheit === 'Stück' ? Math.round(vorher - n) : Math.round((vorher - n) * 1000) / 1000;
     const wirklich = Math.round((vorher - p.stueckzahl) * 1000) / 1000;
     if (!wirklich) continue;
-    abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit });
+    abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit, ...(rolle != null ? { rolle } : {}) });
     geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
   }
   return { abzug, gefehlt: Math.max(0, offen), einheit, bezeichnung: start.bezeichnung };
@@ -11221,11 +11255,10 @@ function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
   const altRec = ohneId ? d.abfuellungen.find((a) => a.id === ohneId) : null;
   const neuKgEigen = neue.reduce((n, a) => n + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
   if (altRec && neuKgEigen <= buchungsZahl(altRec.anzahl, 'Bisherige Anzahl') * buchungsZahl(altRec.gebindeG, 'Bisherige Gebindegröße') / 1000 + 0.0001) return;
-  const vorhandene = d.abfuellungen.filter((a) => a.chargeId === chargeId && a.id !== ohneId);
-  const kg = [...vorhandene, ...neue].reduce((sum, a) => sum + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
   /* Gebuchte Verluste aus dem Eimer und lose zur Verarbeitung abgegebener Honig stehen nicht mehr zum Abfüllen bereit
-     (vorher zählte nur die Gesamtmenge – Kartierung v3.00) */
-  const verlust = d.honigabgaenge ? verlustKgIn(d, chargeId) : chargeVerlustKg(chargeId), lohn = chargeVerarbeitetKg(chargeId);
+     (vorher zählte nur die Gesamtmenge – Kartierung v3.00). Gerechnet in chargeBelegtIn (Ultra-Test 05.11.2026, N1). */
+  const schon = chargeBelegtIn(d, chargeId, ohneId), verlust = schon.verlust, lohn = schon.lohn;
+  const kg = schon.abgefuellt + neue.reduce((sum, a) => sum + buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000, 0);
   const belegt = kg + verlust + lohn;
   if (!Number.isFinite(belegt) || belegt > buchungsZahl(c.mengeKg, 'Chargenmenge') + 0.0001) {
     const teile = [`${U.fmtNum(kg, 2)} kg abgefüllt`, ...(verlust > 0 ? [`${U.fmtNum(verlust, 2)} kg als Verlust gebucht`] : []), ...(lohn > 0 ? [`${U.fmtNum(lohn, 2)} kg zur Verarbeitung abgegeben`] : [])];
@@ -11314,10 +11347,14 @@ async function abfuellungAendern(erwartet, v) {
       /* Stück je Art nach dem größten Rest statt jeden Teilabzug einzeln runden (Fund 04.11.2026, #24): Karton A 3 + B 7,
          Anzahl 10 → 5 ergab 2 + 4 = 6 – es kamen 4 Gläser zurück statt 5 (10 → 15: 16 statt 15 abgezogen). Zusammen
          gerechnet wird, was auch die Abzugskette zusammennimmt (Gläser einer Größe, Deckel, Etiketten), damit jede Art stimmt. */
+      /* Die Rolle (Gläser, Deckel, Etiketten) steht seit dem Ultra-Test 05.11.2026 (U3) im gemerkten Abzug – vorher wurde sie
+         hier aus dem Namen geraten: Gläser ohne Größe und Deckel ohne Schlüsselwort galten als eine Art, wurden gemeinsam
+         gerundet, und beim Nachziehen sprangen Gläser für Deckel ein. Altdaten ohne gemerkte Rolle: weiter am Namen. */
+      const rolleVon = (x) => (typeof x.rolle === 'string' ? x.rolle : undefined);
       const gruppen = new Map();
       positionen.forEach((pos, i) => {
         if (!pos || verbrauchEinheit(pos) !== 'Stück') return;
-        const k = materialArt(pos);
+        const k = materialArt(pos, rolleVon(alt[i]));
         gruppen.set(k, [...(gruppen.get(k) || []), i]);
       });
       for (const idx of gruppen.values()) {
@@ -11339,7 +11376,7 @@ async function abfuellungAendern(erwartet, v) {
         neu[i].menge = Math.round((neu[i].menge - wirklich) * 1000) / 1000;
         const offen = Math.round((wirklich - diff) * 1000) / 1000;
         if (offen <= 0) return;
-        const plan = materialAbzugPlan(d.inventar, pos.id, offen, geaendert);   // der eigene Posten ist jetzt leer → die Kette springt ein
+        const plan = materialAbzugPlan(d.inventar, pos.id, offen, geaendert, rolleVon(x));   // der eigene Posten ist jetzt leer → die Kette springt ein (mit seiner Rolle, U3)
         for (const y of plan.abzug) {
           const da = neu.find((z) => z.inventarId === y.inventarId);
           if (da) da.menge = Math.round((da.menge + y.menge) * 1000) / 1000;
@@ -12169,7 +12206,8 @@ const Tracht = {
     return { klasse: '', text: 'Blütezeit fehlt' };
   },
   standNamen(t, staende, max = 2) {
-    const n = (t.standIds || []).map((id) => staende.get(id)?.name).filter(Boolean);
+    // Gelöschte Stände als „Name (gelöscht)“, statt still wegzufallen (Ultra-Test 05.11.2026, G6)
+    const n = (t.standIds || []).map((id) => standNameAnzeige(id, staende)).filter(Boolean);
     return n.length > max ? `${n.slice(0, max).join(', ')} +${n.length - max}` : n.join(', ');
   },
   /** Passende Tracht zu einer Ernte: hat bis zum Erntetag geblüht (Ernte bis 6 Wochen nach Blühende),
@@ -12332,7 +12370,9 @@ Views.trachten = {
       fields: [
         { key: 'pflanze', label: 'Trachtpflanze', type: 'suggest', options: await gelernteWerte(TRACHT_PFLANZEN.map((p) => p.name), 'trachten', 'pflanze'), placeholder: 'z. B. Raps, Robinie, Linde' },
         { key: 'bezeichnung', label: 'Eigener Name (freiwillig)', placeholder: 'z. B. Raps am Feldrand – leer = Name der Pflanze' },
-        { key: 'standIds', label: 'An welchen Ständen blüht sie?', type: 'multicheck', options: staendeArr.map((s) => ({ v: s.id, l: s.name })) },
+        /* Gelöschte Stände dieser Tracht bleiben angehakt als „Name (gelöscht)“ (Ultra-Test 05.11.2026, G6) – sonst nahm schon
+           das Ändern der Notiz die Kennung still und endgültig heraus. Abhaken entfernt sie bewusst. */
+        { key: 'standIds', label: 'An welchen Ständen blüht sie?', type: 'multicheck', options: standOptionen(staendeArr, ...((t && t.standIds) || [])) },
         { key: 'von', label: 'Beginn', type: 'date', halb: true },
         { key: 'bis', label: 'Ende', type: 'date', halb: true },
         { key: '_bluehzeit', type: 'static', html: '<div class="hint tr-hinweis" id="tr-hinweis" hidden></div>' },
@@ -12521,7 +12561,7 @@ Views.wanderungen = {
       const trachtenArr = await DB.getAll('trachten');
       /* Gelöschte Stände dieser Wanderung bleiben als „Name (gelöscht)“ wählbar (Julian 05.11.2026). Gespeichert wird für sie
          weiter der Klartext von damals (vonOrt/nachOrt) – „(gelöscht)“ setzt erst die Anzeige dazu. */
-      const standOpts = standOptionen(staendeArr, w && w.vonStandId, w && w.nachStandId);
+      const standOpts = standOptionen(staendeArr, w && [w.vonStandId, w.vonOrt], w && [w.nachStandId, w.nachOrt]);   // mit Klartext wie die Liste (Ultra-Test 05.11.2026, G3)
       const vorhanden = (id) => staendeArr.some((s) => s.id === id);
       const namen = (id) => staendeArr.find((s) => s.id === id)?.name
         || (w && id === w.vonStandId ? w.vonOrt : w && id === w.nachStandId ? w.nachOrt : '') || geloeschterStandName(id) || '?';
@@ -12917,6 +12957,19 @@ const glasAbgangVon = (abfuellungId) => GLAS_ABGANG.get(abfuellungId) || 0;
 function verlustKgIn(d, chargeId, ohneId = null) {
   return Math.round(U.sum((d.honigabgaenge || []).filter((x) => x.quelle === 'charge' && x.chargeId === chargeId && x.id !== ohneId), (x) => Number(x.kg) || 0) * 1000) / 1000;
 }
+/** Belegter Honig einer Charge innerhalb einer Transaktion: abgefüllt (ohne die Abfüllung `ohneAbfId`), als Verlust aus dem
+    Eimer gebucht, lose zur Verarbeitung abgegeben – und die Summe `kg`. Eine Stelle statt vier von Hand gerechneter
+    (Ultra-Test 05.11.2026, N1: Wiederherstellen aus dem Papierkorb, Lohn-Honig, Abfüllen, Ernte ändern). Ohne
+    d.honigabgaenge (Bereich nicht gelesen) zählt der Verlust aus dem Index. */
+function chargeBelegtIn(d, chargeId, ohneAbfId = null) {
+  const abgefuellt = U.sum((d.abfuellungen || []).filter((a) => a.chargeId === chargeId && a.id !== ohneAbfId), (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000);
+  const verlust = d.honigabgaenge ? verlustKgIn(d, chargeId) : chargeVerlustKg(chargeId), lohn = chargeVerarbeitetKg(chargeId);
+  return { abgefuellt, verlust, lohn, kg: abgefuellt + verlust + lohn };
+}
+/** Freier Honig der Charge `c` (Menge minus chargeBelegtIn), auf Gramm gerundet. */
+function chargeFreiKgIn(d, c, ohneAbfId = null) {
+  return Math.round(((Number(c.mengeKg) || 0) - chargeBelegtIn(d, c.id, ohneAbfId).kg) * 1000) / 1000;
+}
 function glasAbgangIn(d, abfuellungId, ohneId = null) {
   return U.sum((d.honigabgaenge || []).filter((x) => x.quelle === 'abfuellung' && x.abfuellungId === abfuellungId && x.id !== ohneId), (x) => Number(x.ausBestand ?? x.anzahl) || 0);
 }
@@ -13016,7 +13069,7 @@ async function ernteSpeichern(rec) {
            die Summe auf zwei Stellen gerundet ins Feld (7,125 → 7,13) – auch dieser Wert zählt als nicht überschrieben. */
         if (Math.abs(ist - vorher) > 0.0001 && Math.abs(ist - U.parseNum(U.fmtNum(vorher))) > 0.0001) { vonHand.push({ losnummer: nr, kg: ist }); continue; }
         const neu = summe(c, neuKg);
-        const belegt = r3(chargeAbgefuelltKg(c.id, d.abfuellungen) + verlustKgIn(d, c.id) + chargeVerarbeitetKg(c.id));
+        const belegt = r3(chargeBelegtIn(d, c.id).kg);   // (Ultra-Test 05.11.2026, N1)
         if (neu < belegt - 0.0001) throw feldFehler('mengeKg', `Die Charge ${nr} hätte mit dieser Ernte nur noch ${kgText(neu)} kg. Aus ihr sind aber schon ${kgText(belegt)} kg abgefüllt, als Verlust gebucht oder abgegeben. Prüf die Menge noch einmal. Stimmt sie, ändere zuerst die Abfüllungen oder Verluste dieser Charge. Nichts wurde gespeichert.`);
         ops.push(t ? { store: 'papierkorb', obj: { ...t, daten: { ...c, mengeKg: neu } } } : { store: 'chargen', obj: { ...c, mengeKg: neu } });
         angepasst.push({ losnummer: nr, kg: neu });
@@ -13276,9 +13329,8 @@ function papierkorbWiederherstellenPruefen(t, d) {
       if ((d.papierkorb || []).some((y) => y.store === 'chargen' && y.daten && y.daten.id === x.chargeId)) throw new Error('Die Charge dieser Abfüllung liegt im Papierkorb. Stell zuerst die Charge wieder her, dann die Abfüllung. Nichts wurde geändert.');
       return;   // Charge endgültig gelöscht: Die Abfüllung kommt wie bisher ohne Charge zurück – es gibt keine Menge, die sie überbuchen könnte
     }
-    const kg = (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000;
-    const braucht = Math.round(kg(x) * 1000) / 1000;
-    const rest = Math.round(((Number(c.mengeKg) || 0) - U.sum((d.abfuellungen || []).filter((y) => y.chargeId === c.id && y.id !== x.id), kg) - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+    const braucht = Math.round(buchungsZahl(x.anzahl, 'Anzahl') * buchungsZahl(x.gebindeG, 'Gebindegröße') / 1000 * 1000) / 1000;
+    const rest = chargeFreiKgIn(d, c, x.id);   // ohne die Abfüllung selbst (N1)
     if (braucht > rest + 0.0001) throw new Error(`Die Abfüllung passt nicht mehr in die Charge ${c.losnummer}: Sie braucht ${U.fmtNum(braucht, 2)} kg, frei ${rest > 0 ? `sind nur noch ${U.fmtNum(rest, 2)} kg` : 'ist nichts mehr'}. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.`);
   } else if (t.store === 'chargen') {
     const belegt = ernteBelegung(d.chargen, x.id);
@@ -13297,8 +13349,7 @@ function papierkorbWiederherstellenPruefen(t, d) {
 function lohnHonigPruefen(d, chargeId, kg, wer) {
   const c = (d.chargen || []).find((y) => y.id === chargeId);
   if (!c) return;
-  const kgAbf = (a) => buchungsZahl(a.anzahl, 'Anzahl') * buchungsZahl(a.gebindeG, 'Gebindegröße') / 1000;
-  const rest = Math.round(((Number(c.mengeKg) || 0) - U.sum((d.abfuellungen || []).filter((y) => y.chargeId === c.id), kgAbf) - verlustKgIn(d, c.id) - chargeVerarbeitetKg(c.id)) * 1000) / 1000;
+  const rest = chargeFreiKgIn(d, c);   // (Ultra-Test 05.11.2026, N1)
   if (kg > rest + 0.0001) throw new Error(`${wer} lässt sich nicht wiederherstellen: Dafür wurden ${U.fmtNum(kg, 2)} kg Honig aus der Charge${c.losnummer ? ' ' + c.losnummer : ''} zur Verarbeitung abgegeben, frei ${rest > 0 ? `sind dort nur noch ${U.fmtNum(rest, 2)} kg` : 'ist dort nichts mehr'}. Seit dem Löschen wurde aus der Charge neu abgefüllt oder Verlust gebucht. Der Eintrag bleibt im Papierkorb.`);
 }
 /**
@@ -18829,8 +18880,7 @@ Views.kassenbuch = {
              Positionen (wie rechnungSummen) und das Pfand als eigene Zeile: so ergibt die Aufschlüsselung genau die
              Kopfsumme (Fund 04.11.2026, #17). */
           const vz = Number(k.betrag) < 0 ? -1 : 1;
-          const warenwert = U.sum(r.positionen, (p) => (Number(p.menge) || 0) * (Number(p.einzelpreis) || 0));
-          const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
+          const faktor = rechnungRabattFaktor(r);
           for (const p of r.positionen) {
             const a = p.abfuellungId ? abf.get(p.abfuellungId) : null, n = Number(p.menge) || 0;
             posten.push({ honig: a ? verkaufHonigText({}, a, chargen.get(a.chargeId), ernten) : (p.text || 'Position'), n: vz * n, euro: vz * n * (Number(p.einzelpreis) || 0) * faktor, kontaktId: r.kundeId, rechnung: r.nummer });
@@ -19028,7 +19078,9 @@ async function migriereRechnungSchnappschuss() {
     const ops = [];
     for (const r of d.rechnungen) {
       if (r.status !== 'festgeschrieben' && r.status !== 'storniert') continue;
-      if (rechnungSchnappschussErgaenzen(r, r.kundeId ? kontakte.get(r.kundeId) : null, imk)) ops.push({ store: 'rechnungen', obj: r, auto: true });
+      /* keepStamp wie bei den anderen Daten-Migrationen (Ultra-Test 05.11.2026, U4): Mit „jetzt“ als Änderungszeit gewann die
+         ergänzte Kopie beim Zusammenführen gegen ein neueres Storno vom anderen Gerät – die Rechnung stand wieder als offen da. */
+      if (rechnungSchnappschussErgaenzen(r, r.kundeId ? kontakte.get(r.kundeId) : null, imk)) ops.push({ store: 'rechnungen', obj: r, auto: true, keepStamp: true });
     }
     return { ops, wert: ops.length };
   });
@@ -19067,6 +19119,12 @@ function rechnungRabatt(r, waren) {
   if (wert <= 0) return 0;
   if ((r.rabattTyp || 'prozent') === 'betrag') return Math.min(wert, waren);
   return waren * Math.min(100, wert) / 100;
+}
+/** Was nach dem Rabatt vom Warenwert bleibt, als Faktor 0 … 1 – anteilig auf alle Positionen, wie in rechnungSummen.
+    Eine Stelle für honigVerkaufPosten und die Kassenbuch-Aufschlüsselung (Ultra-Test 05.11.2026, N2). */
+function rechnungRabattFaktor(r) {
+  const warenwert = U.sum((r && r.positionen) || [], (p) => (Number(p.menge) || 0) * (Number(p.einzelpreis) || 0));
+  return warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
 }
 
 /* Rabatt und Skonto sind ausdrücklich zwei verschiedene Dinge:
@@ -21811,8 +21869,7 @@ function honigVerkaufPosten(verkaeufe, rechnungen, abfMap) {
   }
   for (const r of rechnungen || []) {
     if (r.status !== 'festgeschrieben') continue;   // Entwurf ist noch kein Verkauf, storniert keiner mehr
-    const warenwert = U.sum(r.positionen || [], (p) => (p.menge || 0) * (p.einzelpreis || 0));
-    const faktor = warenwert > 0 ? Math.max(0, warenwert - rechnungRabatt(r, warenwert)) / warenwert : 1;
+    const faktor = rechnungRabattFaktor(r);
     for (const p of (r.positionen || [])) {
       if (!p.abfuellungId) continue;
       const a = abfMap.get(p.abfuellungId), g = a ? Number(a.gebindeG) || 0 : 0, n = Number(p.menge) || 0;
@@ -22549,10 +22606,31 @@ function lagerBuchen(d, inventarId, delta, geaendert, { bezeichnung = '', reicht
   geaendert.set(pos.id, pos);
   return { pos, vorher, nachher: pos.stueckzahl };
 }
-/** Die Kassenbuch-Buchung eines Belegs in den Papierkorb – über die gemerkte Nummer, bei Altdaten über `altSuche`. */
+/** Die Kassenbuch-Buchung eines Belegs – über die gemerkte Nummer, bei Altdaten über `altSuche`. Sonst null. */
+function lagerKasseBuchung(d, x, altSuche) {
+  return (x.kassenbuchId ? d.kassenbuch.find((y) => y.id === x.kassenbuchId) : (altSuche ? d.kassenbuch.find(altSuche) : null)) || null;
+}
+/** Die Kassenbuch-Buchung eines Belegs in den Papierkorb (siehe lagerKasseBuchung). */
 function lagerKasseAuftraege(d, x, altSuche) {
-  const k = x.kassenbuchId ? d.kassenbuch.find((y) => y.id === x.kassenbuchId) : (altSuche ? d.kassenbuch.find(altSuche) : null);
+  const k = lagerKasseBuchung(d, x, altSuche);
   return k ? papierkorbAuftraege('kassenbuch', k) : [];
+}
+/** Neue Kassenbuch-Buchung eines Lager-Belegs (Zugang, Abgang) schreiben und ihre Nummer am Beleg merken – in EINER
+    Transaktion. Ersetzt sie beim Bearbeiten die Buchung `altId`, ziehen deren Belegfotos und PDFs mit auf die neue um
+    (Ultra-Test 05.11.2026, U1): Die alte Buchung liegt dann im Papierkorb, und beim endgültigen Löschen nach 30 Tagen nahm
+    verwaisteAnhaenge die Fotos sonst mit – obwohl die Ausgabe weiter im Kassenbuch steht. Auch Fotos, die selbst gerade im
+    Papierkorb liegen, zeigen danach auf die neue Buchung, damit sie beim Wiederherstellen wieder dort auftauchen. */
+async function lagerKasseBuchen(store, beleg, kb, altId) {
+  return DB.aendereAtomar(['kassenbuch', store, ...(altId ? ['anhaenge', 'papierkorb'] : [])], (d) => {
+    kb.id = kb.id || U.uuid();
+    beleg.kassenbuchId = kb.id;
+    const ops = [{ store: 'kassenbuch', obj: kb }, { store, obj: beleg }];
+    if (altId) {
+      for (const a of d.anhaenge) if (a.parentTyp === 'kassenbuch' && a.parentId === altId) ops.push({ store: 'anhaenge', obj: { ...a, parentId: kb.id } });
+      for (const t of d.papierkorb) if (t.store === 'anhaenge' && t.daten && t.daten.parentTyp === 'kassenbuch' && t.daten.parentId === altId) ops.push({ store: 'papierkorb', obj: { ...t, daten: { ...t.daten, parentId: kb.id } } });
+    }
+    return { ops, wert: kb };
+  });
 }
 
 /** Nimmt einen gebuchten Zugang zurück – für Bearbeiten und Löschen. Abgezogen
@@ -22560,8 +22638,10 @@ function lagerKasseAuftraege(d, x, altSuche) {
     (Fund 04.11.2026, #18). Eine Transaktion für Bestand, Kassenbuch und Papierkorb.
     `loeschen`: der Zugang wandert mit in den Papierkorb.
     `neu` ({ inventarId, menge }): Bearbeiten – die neue Menge wird gleich gebucht. Auf derselben Position zählt nur der
-    Unterschied: ein schon verbrauchter Teil bleibt verbraucht. Gibt dann { vorher, nachher } für den Datensatz zurück
-    (vorher = Bestand ohne diesen Zugang; kann negativ sein, wenn mehr verbraucht ist, als ohne ihn da gewesen wäre). */
+    Unterschied: ein schon verbrauchter Teil bleibt verbraucht. Gibt dann { buchung: { vorher, nachher }, kassenbuchAlt }
+    zurück (vorher = Bestand ohne diesen Zugang; kann negativ sein, wenn mehr verbraucht ist, als ohne ihn da gewesen wäre;
+    kassenbuchAlt = Nummer der Buchung, die in den Papierkorb ging – ihre Belegfotos ziehen auf die neue um, siehe
+    lagerKasseBuchen, Ultra-Test 05.11.2026, U1). */
 async function zugangZurueckbuchen(rec, { kasse = true, loeschen = false, neu = null } = {}) {
   if (!rec) return null;
   return DB.aendereAtomar(['inventar', 'materialzugaenge', 'kassenbuch', 'papierkorb'], (d) => {
@@ -22588,10 +22668,11 @@ async function zugangZurueckbuchen(rec, { kasse = true, loeschen = false, neu = 
     }
     const kosten = zugangKosten(x);
     const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
-    if (kasse) ops.push(...lagerKasseAuftraege(d, x, kosten > 0 ? (k) => k.typ === 'ausgabe' && k.datum === x.datum
-      && Math.abs((Number(k.betrag) || 0) - kosten) < 0.005 && String(k.beschreibung || '').includes(String(x.bezeichnung || '')) : null));
+    const altKb = kasse ? lagerKasseBuchung(d, x, kosten > 0 ? (k) => k.typ === 'ausgabe' && k.datum === x.datum
+      && Math.abs((Number(k.betrag) || 0) - kosten) < 0.005 && String(k.beschreibung || '').includes(String(x.bezeichnung || '')) : null) : null;
+    if (altKb) ops.push(...papierkorbAuftraege('kassenbuch', altKb));
     if (loeschen && frisch) ops.push(...papierkorbAuftraege('materialzugaenge', frisch));
-    return { ops, wert: neu ? buchung : x };
+    return { ops, wert: neu ? { buchung, kassenbuchAlt: altKb ? altKb.id : null } : x };
   });
 }
 
@@ -22827,7 +22908,8 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       }
       /* Bearbeiten: alte Wirkung und neue Menge in EINER Buchung, geprüft (Fund 04.11.2026, #18) – vorher erst bis 0 gekappt
          zurückgenommen, dann voll draufgebucht: Zucker 25 kg gekauft, 20 verfüttert, nur den Preis geändert → 25 statt 5 kg. */
-      const buchung = rec ? await zugangZurueckbuchen(rec, { neu: { inventarId: pos.id, menge } }) : await verbrauchZugang(pos.id, menge, { pruefen: false });
+      const zurueck = rec ? await zugangZurueckbuchen(rec, { neu: { inventarId: pos.id, menge } }) : null;
+      const buchung = rec ? zurueck.buchung : await verbrauchZugang(pos.id, menge, { pruefen: false });
       const gespeichert = await DB.put('materialzugaenge', Object.assign(rec || {}, {
         inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, kategorie: pos.kategorie || '',
         einheit: verbrauchEinheit(pos), datum: v.datum, menge, art,
@@ -22844,13 +22926,12 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       const kosten = zugangKosten(gespeichert);
       if (kosten > 0) {
         const wer = (lieferanten.find((k) => k.id === gespeichert.kontaktId) || {}).name || '';
-        const kb = await DB.put('kassenbuch', { datum: gespeichert.datum, typ: 'ausgabe',
+        // Buchung, Nummer am Zugang und die Belegfotos der ersetzten Buchung in einer Transaktion (Ultra-Test 05.11.2026, U1)
+        await lagerKasseBuchen('materialzugaenge', gespeichert, { datum: gespeichert.datum, typ: 'ausgabe',
           kategorie: gespeichert.lohn ? 'Lohnverarbeitung' : kasseKategorieFuer(gespeichert.kategorie), betrag: kosten, steuersatz: 0,
           kontaktId: gespeichert.kontaktId || null, rechnungId: null,
           beschreibung: `${gespeichert.lohn ? 'Lohnverarbeitung' : 'Einkauf'} ${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}`
-            + `${wer ? ` bei ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` });
-        gespeichert.kassenbuchId = kb.id;
-        await DB.put('materialzugaenge', gespeichert);
+            + `${wer ? ` bei ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` }, zurueck && zurueck.kassenbuchAlt);
       }
       /* Neuer Einkaufspreis wird der Preis der Position – sonst rechnet der
          Lagerwert weiter mit einem Preis von vorletztem Jahr. Beim Anlegen ist
@@ -22998,10 +23079,12 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {})
     lagerBuchen(d, x.inventarId, -lagerWirkung('materialabgaenge', x), geaendert, { bezeichnung: x.bezeichnung });
     const erloes = abgangErloes(x);
     const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
-    if (kasse) ops.push(...lagerKasseAuftraege(d, x, erloes > 0 ? (k) => (k.kategorie === 'Materialverkauf' || k.kategorie === 'Weitere Produkte')
-      && k.datum === x.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005 && String(k.beschreibung || '').startsWith(String(x.bezeichnung || '')) : null));
+    const altKb = kasse ? lagerKasseBuchung(d, x, erloes > 0 ? (k) => (k.kategorie === 'Materialverkauf' || k.kategorie === 'Weitere Produkte')
+      && k.datum === x.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005 && String(k.beschreibung || '').startsWith(String(x.bezeichnung || '')) : null) : null;
+    if (altKb) ops.push(...papierkorbAuftraege('kassenbuch', altKb));
     if (loeschen && frisch) ops.push(...papierkorbAuftraege('materialabgaenge', frisch));
-    return { ops, wert: x };
+    // kassenbuchAlt: die Buchung, die in den Papierkorb ging – beim Bearbeiten ziehen ihre Belegfotos auf die neue um (Ultra-Test 05.11.2026, U1)
+    return { ops, wert: { abgang: x, kassenbuchAlt: altKb ? altKb.id : null } };
   });
 }
 
@@ -23045,7 +23128,7 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
       /* Beim Bearbeiten erst die alte Buchung zurücknehmen, dann neu buchen –
          so muss keine Differenz gerechnet werden und der Bestand stimmt auch,
          wenn Position oder Menge gewechselt haben. */
-      if (rec) await abgangZurueckbuchen(rec);
+      const zurueck = rec ? await abgangZurueckbuchen(rec) : null;
       const buchung = await verbrauchAbziehen(pos.id, menge);
       const gespeichert = await DB.put('materialabgaenge', Object.assign(rec || {}, {
         inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, einheit: verbrauchEinheit(pos),
@@ -23063,11 +23146,10 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
         const wer = gespeichert.kaeufer || (kunden.find((k) => k.id === gespeichert.kontaktId) || {}).name || '';
         /* Die Nummer der Buchung merken: nur so lässt sie sich beim Bearbeiten
            oder Löschen wieder sicher entfernen. */
-        const kb = await DB.put('kassenbuch', { datum: gespeichert.datum, typ: 'einnahme', kategorie: cfg.typ === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf', betrag: erloes, steuersatz: 0,
+        // Mit den Belegfotos der ersetzten Buchung, alles in einer Transaktion (Ultra-Test 05.11.2026, U1)
+        await lagerKasseBuchen('materialabgaenge', gespeichert, { datum: gespeichert.datum, typ: 'einnahme', kategorie: cfg.typ === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf', betrag: erloes, steuersatz: 0,
           kontaktId: gespeichert.kontaktId || null, rechnungId: null,
-          beschreibung: `${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}${wer ? ` an ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` });
-        gespeichert.kassenbuchId = kb.id;
-        await DB.put('materialabgaenge', gespeichert);
+          beschreibung: `${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}${wer ? ` an ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` }, zurueck && zurueck.kassenbuchAlt);
       }
       UI.toast(`${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
         + (erloes > 0 ? ` · ${U.fmtEur(erloes)} im Kassenbuch` : '')
@@ -23440,6 +23522,13 @@ function materialRolle(p) {
   if (ETIKETT_WOERTER.test(name) || (p && p.kategorie) === 'Etiketten') return 'etikett';
   if (DECKEL_WOERTER.test(name)) return 'deckel';
   return '';
+}
+/* Wie der Name eine Position einordnet: Rolle am Namen und ob ein Gebinde-Wort (Glas, Eimer …) darin steht (Ultra-Test
+   05.11.2026, U2). Gleiche Einordnung wie die gewählte Position heißt in materialAbzugPlan: dieselbe Rolle wie sie –
+   „Twist-Off-Glas 500 g“ Karton B ist dann ein Glas wie Karton A, „Kappe 82 mm“ Karton 2 ein Deckel wie Karton 1. Das
+   Gebinde-Wort trennt „Gläser alt“ (ohne Größe) von Deckeln und Etiketten ohne Schlüsselwort, „Twist-Off-Glas“ von „Deckel TO82“. */
+function materialNamensArt(p) {
+  return materialRolle(p) + '|' + GEBINDE_WOERTER.test(String((p && p.bezeichnung) || ''));
 }
 /** „Dieselbe Art“ für die Abzugskette: Bereich, Einheit, Kategorie, Gebindegröße und Rolle (Deckel, Etikett, sonst '').
     Eine Stelle für materialAbzugPlan, verbrauchAbziehenKette und das Umrechnen in abfuellungAendern. `rolle` gibt der
@@ -23825,6 +23914,9 @@ const Export = {
   async volkTeile(volk, jahr = '') {
     const defs = await Xlsx.defs({ filter: this.filter({ volk, jahr }) });
     const stand = volk.standId ? await DB.get('staende', volk.standId) : null;
+    /* Auch ein gelöschter Stand: Seine Einträge „Ganzer Stand“ stehen über VOLK weiter in der Akte – der Hinweis dazu fehlte aber
+       (Ultra-Test 05.11.2026, G7). Jetzt mit „Name (gelöscht)“. */
+    const standName = volk.standId ? standNameAnzeige(volk.standId, stand ? [stand] : []) : '';
     const imJahr = (iso) => !jahr || !iso || String(iso).startsWith(jahr);
     const teile = [];
     for (const [k, titel] of this.TEILE) {
@@ -23838,7 +23930,7 @@ const Export = {
         if (rows.some((r) => r.Art === 'Foto' || r.Art === 'Dokument')) hinweis = 'Fotos und Dokumente selbst stehen nicht im PDF – sie liegen in der App und in der Sicherung.';
       } else if (defs[k]) {
         rows = await defs[k].rows();
-        if ((k === 'behandlungen' || k === 'ernten') && stand) hinweis = `Mit aufgeführt: Einträge für den ganzen Stand „${stand.name}“ (aktueller Standort des Volks).`;
+        if ((k === 'behandlungen' || k === 'ernten') && standName) hinweis = `Mit aufgeführt: Einträge für den ganzen Stand „${standName}“ (aktueller Standort des Volks).`;
       }
       teile.push({ k, titel, rows, hinweis });
     }
@@ -25042,13 +25134,16 @@ Views.fahrten = {
     const staende = await DB.getAll('staende');
     const standOpts = staende.map((s) => ({ v: s.id, l: s.name }));
     const typ = vl ? (vl.standId ? 'stand' : (/ → /.test(vl.freiZiel || '') ? 'zwischen' : 'frei')) : 'zwischen';
+    /* Gelöschter Stand der Vorlage als „Name (gelöscht)“ statt „–“ (Ultra-Test 05.11.2026, G1) – sonst verlor schon das
+       Ändern der Kilometer still das Ziel („Bitte einen Stand wählen“ oder ein anderer Stand). */
+    const zielOpts = standOptionen(staende, vl && vl.standId);
     UI.formModal({
       title: vl ? 'Vorlage bearbeiten' : 'Neue Fahrt-Vorlage', wide: true, lizenzBereich: 'Das Fahrtenbuch',
       fields: [
         { key: 'typ', label: 'Art der Fahrt', type: 'select', required: true, default: typ, options: [{ v: 'zwischen', l: 'Zwischen zwei Ständen' }, { v: 'stand', l: 'Zu einem Stand' }, { v: 'frei', l: 'Andere Fahrt (Einkauf, Schulung …)' }] },
         { key: 'vonStandId', label: 'Von Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'zwischen' },
         { key: 'nachStandId', label: 'Nach Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'zwischen' },
-        { key: 'standId', label: 'Stand', type: 'select', options: standOpts, showIf: (f) => f.typ === 'stand' },
+        { key: 'standId', label: 'Stand', type: 'select', options: zielOpts, showIf: (f) => f.typ === 'stand' },
         { key: 'freiZiel', label: 'Wohin / Beschreibung', placeholder: 'z. B. Imkerbedarf Müller', showIf: (f) => f.typ === 'frei' },
         { key: 'name', label: 'Name der Vorlage', hint: 'Optional – wird sonst automatisch gebildet.' },
         { key: 'km', label: 'Kilometer (gesamt)', type: 'number', required: true },
@@ -25056,7 +25151,7 @@ Views.fahrten = {
       ],
       values: vl ? { ...vl } : {},
       async onSave(v) {
-        const nm = (id) => staende.find((s) => s.id === id)?.name || '';
+        const nm = (id) => staende.find((s) => s.id === id)?.name || geloeschterStandName(id) || '';   // reiner Name, ohne „(gelöscht)“ (Ultra-Test 05.11.2026, G1)
         let standId = null, freiZiel = '', autoName = '';
         if (v.typ === 'zwischen') {
           if (!v.vonStandId || !v.nachStandId) throw feldFehler(!v.vonStandId ? 'vonStandId' : 'nachStandId', 'Bitte Von- und Nach-Stand wählen.');
@@ -25355,6 +25450,12 @@ const Backup = {
     const d = await DB.leseAlles(['settings']);
     const wert = (key) => d.settings.find((r) => r.key === key)?.value || null;
     window._changedSinceBackup = wert('_datenRevision') !== wert('_gesicherteRevision');
+    /* Gemerkte Namen gelöschter Stände gleich mit übernehmen (Ultra-Test 05.11.2026, G8): Löscht ein zweites offenes Fenster
+       einen Stand, kommt hier sein Signal an (ebenso beim Zurückwechseln ins Fenster) – vorher zeigte dieses Fenster bis zum
+       Neuladen nur „gelöschter Stand“. Die Einstellungen sind ohnehin schon gelesen; geschrieben wird nichts. Nur dieser eine
+       Wert: Er wird nie über S.set geändert, nur in derselben Transaktion wie das Löschen (geloeschteStaendeAuftrag). */
+    const gs = d.settings.find((r) => r.key === 'geloeschteStaende');
+    if (gs) { S.data.geloeschteStaende = gs.value; S._merke(gs); }
     return window._changedSinceBackup;
   },
   async markExternal(blob) {
@@ -25963,6 +26064,10 @@ const Backup = {
     if (offen('chargeDatumMigriert')) await migriereChargeDatumUndMhd(true);
     if (offen('fahrtAuswahlV299')) await migriereFahrtAuswahl(true);   // Sicherung aus v2.98 oder älter
     if (offen('schnellzugriffeV301')) await migriereSchnellzugriffe(true);   // Sicherung aus v3.00 oder älter
+    /* Gelöschte Stände aus der Sicherung, die noch in ihrem Papierkorb liegen, bekommen ihren Namen (Ultra-Test 05.11.2026, G4).
+       Lief bisher nur beim Start – nach dem Einspielen einer älteren Sicherung stand bis zum nächsten Start nur „gelöschter Stand“.
+       Ohne Merker: Ist alles eingetragen, liest der Schritt nur den Papierkorb. */
+    await migriereGeloeschteStaende();
     await S.load();
   },
   /** Merge über UUID + lastModified – neuere Einträge gewinnen */
@@ -26970,7 +27075,7 @@ const Xlsx = {
       zuchtserien: { blatt: 'Zucht', rows: async () => { const km = await idMap('koeniginnen'); return (await alle('zuchtserien')).map((z) => ({ Bezeichnung: z.name, Umlarvtag: d(z.startdatum), 'Umgelarvt': z.anzahl, Angenommen: z.angenommen ?? '', Geschlüpft: z.geschluepft ?? '', Begattet: z.begattet ?? '', Zuchtmutter: km.get(z.zuchtmutterId)?.kennung || (km.get(z.zuchtmutterId) ? km.get(z.zuchtmutterId).jahrgang : ''), Anpaarung: z.belegstelle || ANPAARUNG_TEXT[z.anpaarung] || z.anpaarung || '', Schlupf: d(z.termine.find((t) => t.tag === 12)?.datum), Notiz: z.notiz })); } },
       behandlungen: { blatt: 'Behandlungen', rows: async () => (await alle('behandlungen')).map((b) => ({ Datum: d(b.datum), 'Volk/Stand': ziel(b), Mittel: b.mittel, Menge: b.menge, Einheit: b.einheit, Anwendungsart: b.anwendungsart, 'Wartezeit (Tage)': b.wartezeitTage, 'Behandlung bis': d(b.behandlungBis), Lieferant: b.lieferant || '', 'Behandelnde Person': b.behandelndePerson || '', Tierarzt: b.tierarzt || '', 'Kaufbeleg vorhanden': b.kaufbeleg ? 'ja' : '', Bemerkung: b.notiz })) },
       wanderungen: { blatt: 'Wanderungen', rows: async () => (await alle('wanderungen')).map((w) => ({ Datum: d(w.datum), Von: (w.vonStandId && standNameAnzeige(w.vonStandId, staende, w.vonOrt)) || w.vonOrt || '', Nach: (w.nachStandId && standNameAnzeige(w.nachStandId, staende, w.nachOrt)) || w.nachOrt || '', Anzahl: Array.isArray(w.volkIds) ? w.volkIds.length : '', Völker: Array.isArray(w.volkIds) ? w.volkIds.map((id) => voelker.get(id)?.name || '?').join(', ') : (w.zielTyp ? (w.zielTyp === 'volk' ? 'Volk ' : ziel(w) === STAND_GELOESCHT ? '' : 'Stand ') + (ziel(w) || '?') : ''), Grund: wanderungGrund(w, trachten), Notiz: w.notiz })) },
-      trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => staende.get(s)?.name).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },
+      trachten: { blatt: 'Trachten', rows: async () => (await alle('trachten')).map((t) => ({ Bezeichnung: Tracht.name(t), Pflanze: t.pflanze, Beginn: d(t.von), Ende: d(t.bis), 'Jedes Jahr': t.jaehrlich ? 'ja' : 'nein', 'Erinnern (Tage vorher)': t.erinnernTage || '', Region: t.region, Stände: (t.standIds || []).map((s) => standNameAnzeige(s, staende)).filter(Boolean).join(', '), Notiz: t.notiz || '' })) },   // gelöschte als „Name (gelöscht)“ (Ultra-Test 05.11.2026, G6)
       ernten: { blatt: 'Ernten', rows: async () => (await alle('ernten')).map((e) => ({ Datum: d(e.datum), Schleuderung: e.schleuderung || '', 'Volk/Stand': ziel(e), Produkt: e.produktart || 'Honig', Sorte: e.sorte || '', Tracht: trachten.has(e.trachtId) ? Tracht.name(trachten.get(e.trachtId)) : '', 'Menge (kg)': e.mengeKg, 'Wassergehalt (%)': e.wassergehalt ?? '', Notiz: e.notiz })) },
       chargen: { blatt: 'Chargen', rows: async () => { const abf = await DB.getAll('abfuellungen'); return (await alle('chargen')).map((c) => ({ Chargennummer: c.losnummer, Angelegt: d(c.datum), 'Gesamtmenge (kg)': c.mengeKg, 'Nicht abgefüllt (kg)': chargeRestKg(c, abf), 'Verlust (kg)': chargeVerlustKg(c.id), Sorte: chargeSorten(c, ernten).join(', '), Wassergehalt: chargeWassergehalt(c, ernten), Etikett: c.etikettNotiz })); } },
       abfuellungen: { blatt: 'Abfüllungen', rows: async () => (await alle('abfuellungen')).map((a) => ({ Charge: chargenM.get(a.chargeId)?.losnummer || '', Losnummer: abfLos(a, chargenM.get(a.chargeId)), Gebinde: gebindeLabel(a.gebindeG), Abfülldatum: d(a.datum), MHD: d(abfMhd(a, chargenM.get(a.chargeId))), 'Anzahl abgefüllt': a.anzahl, 'Zum Verkauf': a.bestand, 'Verlust / Eigenverbrauch': glasAbgangVon(a.id) })) },

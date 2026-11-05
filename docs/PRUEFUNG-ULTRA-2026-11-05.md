@@ -29,4 +29,6 @@ G6. Trachten lassen gelöschte Stände still weg; Speichern einer Tracht entfern
 G7. Volksakte: Hinweis „Mit aufgeführt: Einträge für den ganzen Stand …“ fehlt beim gelöschten Stand.
 G8. Zweites offenes Fenster/Tab: gemerkter Name erst nach Neuladen (nur Anzeige).
 
-Status: Reparatur gestartet 05.11.2026, danach erneuter Ultra-Test (2 kostenlose übrig).
+Status: **alle repariert** (05.11.2026), 955/955 Tests grün. U1 Belege ziehen auf die neue Buchung um (lagerKasseBuchen); U2/U3 Rolle für Start und Kandidaten gleich (materialNamensArt), Rolle im verbrauchAbzug gespeichert; U4 keepStamp; N1 chargeBelegtIn/chargeFreiKgIn; N2 rechnungRabattFaktor; N3 Abkürzung in papierkorbAnhangZahl; G1–G8 umgesetzt (G8: Name erscheint mit dem nächsten Neuzeichnen).
+Offen zur Entscheidung: Wird ein Zugang so geändert, dass kein Betrag mehr anfällt (Einkauf → Geschenk), entsteht keine neue Buchung – die Belegfotos bleiben an der alten Buchung im Papierkorb und gehen nach 30 Tagen mit ihr (wie beim Löschen einer Buchung).
+Nächster Schritt: zweiter Ultra-Test mit `/code-review ultra --max-findings all` (Julian: „so intensiv wie möglich“).

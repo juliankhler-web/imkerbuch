@@ -19236,6 +19236,212 @@ async function lagerFormular(w, oeffnen) {
     loeschen: async () => { m.querySelector('[data-del]').click(); await w99(700); } };
 }
 
+/* =====================================================================
+   Ultra-Test 05.11.2026, Paket A – Funde U1–U4 und Vorschläge N1–N3.
+   Quelle: docs/PRUEFUNG-ULTRA-2026-11-05.md. Steht hier, weil es die Lager- und Material-Helfer von oben nutzt.
+   ===================================================================== */
+const ultraBeleg = (w, parentId) => w.DB.put('anhaenge', { parentTyp: 'kassenbuch', parentId, art: 'foto', name: 'beleg.jpg', mime: 'image/jpeg', blob: new w.Blob(['0123456789']), groesse: 10, datum: w.U.nowIso() });
+
+test('Ultra-Test 05.11.2026 (U1): Belegfotos einer Lager-Buchung ziehen beim Bearbeiten auf die neue Buchung um und überstehen das Leeren des Papierkorbs', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const cfg = lagerPaketCfg(w);
+  const pos = await lagerPosten(w, 'Zucker U1', 0);
+  // Zugang: Einkauf 25 kg à 1 € → Ausgabe 25 € mit Belegfoto; ein zweites Foto liegt selbst im Papierkorb
+  let f = await lagerFormular(w, () => w.materialZugangForm(cfg, pos.id));
+  f.setz('menge', '25'); f.setz('preis', '1'); await f.speichern();
+  const zug = (await w.DB.getAll('materialzugaenge'))[0], kb1 = zug.kassenbuchId;
+  const foto = await ultraBeleg(w, kb1), foto2 = await ultraBeleg(w, kb1);
+  await w.DB.softDel('anhaenge', foto2.id);
+  // Zugang ändern (Preis 1,20 €): die Buchung wird ersetzt – alte in den Papierkorb, neue mit neuer Nummer
+  f = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos.id, await w.DB.get('materialzugaenge', zug.id)));
+  f.setz('preis', '1,2'); await f.speichern();
+  const kb2 = (await w.DB.get('materialzugaenge', zug.id)).kassenbuchId;
+  assert(kb2 && kb2 !== kb1, 'neue Buchung');
+  assertEq([(await w.DB.get('kassenbuch', kb2)).betrag, !!(await lagerKorb(w, 'kassenbuch', kb1))], [30, true], 'Ausgabe 30 €, die alte Buchung liegt im Papierkorb');
+  assertEq((await w.DB.get('anhaenge', foto.id)).parentId, kb2, 'der Beleg hängt an der neuen Buchung (vorher an der alten im Papierkorb)');
+  assertEq((await lagerKorb(w, 'anhaenge', foto2.id)).daten.parentId, kb2, 'auch das Foto im Papierkorb zeigt auf die neue Buchung');
+  assertEq(await w.DB.papierkorbAnhangZahl(() => true), 0, 'die Rückfrage beim Leeren kündigt keine Datei an (vorher 1)');
+  await w.DB.trashRestore((await lagerKorb(w, 'anhaenge', foto2.id)).id);
+  assertEq((await w.DB.get('anhaenge', foto2.id)).parentId, kb2, 'wiederhergestellt erscheint es an der neuen Buchung');
+  // Abgang: Verkauf 5 kg à 1 € → Einnahme 5 € mit Beleg; Preis auf 2 € geändert
+  f = await lagerFormular(w, () => w.materialAbgangForm(cfg, pos.id));
+  f.setz('art', 'Verkauf'); f.setz('menge', '5'); f.setz('preis', '1'); await f.speichern();
+  const abg = (await w.DB.getAll('materialabgaenge'))[0], kbA1 = abg.kassenbuchId;
+  const foto3 = await ultraBeleg(w, kbA1);
+  f = await lagerFormular(w, async () => w.materialAbgangForm(cfg, pos.id, await w.DB.get('materialabgaenge', abg.id)));
+  f.setz('preis', '2'); await f.speichern();
+  const kbA2 = (await w.DB.get('materialabgaenge', abg.id)).kassenbuchId;
+  assertEq([kbA2 !== kbA1, (await w.DB.get('kassenbuch', kbA2)).betrag, (await w.DB.get('anhaenge', foto3.id)).parentId], [true, 10, kbA2], 'Abgang: Einnahme 10 €, der Beleg zieht mit');
+  // Altdaten: Zugang ohne gemerkte Buchungsnummer – die Buchung wird über Datum, Betrag und Text gefunden, ihr Beleg zieht mit
+  const pos2 = await lagerPosten(w, 'Zucker U1-alt', 10);
+  const kbAlt = await w.DB.put('kassenbuch', { datum: '2026-08-05', typ: 'ausgabe', kategorie: 'Futter', betrag: 10, steuersatz: 0, kontaktId: null, rechnungId: null, beschreibung: 'Einkauf Zucker U1-alt: 10,00 kg' });
+  const zugAlt = await w.DB.put('materialzugaenge', { inventarId: pos2.id, bezeichnung: 'Zucker U1-alt', typ: 'verbrauch', kategorie: 'Futter', einheit: 'kg', datum: '2026-08-05', menge: 10, art: 'Einkauf', preis: 1, bestandVorher: 0, bestandNachher: 10 });
+  const foto4 = await ultraBeleg(w, kbAlt.id);
+  f = await lagerFormular(w, async () => w.materialZugangForm(cfg, pos2.id, await w.DB.get('materialzugaenge', zugAlt.id)));
+  f.setz('preis', '1,5'); await f.speichern();
+  const kbAlt2 = (await w.DB.get('materialzugaenge', zugAlt.id)).kassenbuchId;
+  assertEq([(await w.DB.get('kassenbuch', kbAlt2)).betrag, await w.DB.get('kassenbuch', kbAlt.id), (await w.DB.get('anhaenge', foto4.id)).parentId], [15, undefined, kbAlt2], 'Altdaten: neue Ausgabe 15 €, der Beleg zieht mit');
+  // Papierkorb endgültig leeren (wie nach 30 Tagen): alle Belege bleiben – an der jeweils neuen Buchung
+  const erg = await w.DB.papierkorbEndgueltig(() => true);
+  assertEq(erg.anhaenge, 0, 'keine Datei mitgelöscht');
+  assertEq(await Promise.all([foto, foto2, foto3, foto4].map(async (a) => ((await w.DB.get('anhaenge', a.id)) || {}).parentId)), [kb2, kb2, kbA2, kbAlt2], 'alle vier Belege sind noch da');
+  assertEq((await w.DB.getAll('papierkorb')).length, 0, 'Papierkorb leer');
+  assertEq([await lagerBestand(w, pos), await lagerBestand(w, pos2)], [20, 10], 'Bestände unverändert richtig (25 − 5, 10)');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Ultra-Test 05.11.2026 (U2): Der zweite Karton springt auch bei „Twist-Off-Glas“ und bei Deckeln ohne Schlüsselwort ein – Vorschau und Speichern gleich', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  // Doku U2: „Twist-Off-Glas 500 g“ Karton A 20, Karton B 100 (gebindeG 500), 50 Gläser, A gewählt
+  const c = await loeschPaketCharge(w, 'U2', 50);
+  const A = await materialPaketPosten(w, 'Twist-Off-Glas 500 g Karton A', 20, { gebindeG: 500 });
+  const B = await materialPaketPosten(w, 'Twist-Off-Glas 500 g Karton B', 100, { gebindeG: 500, anschaffung: '2026-02-01' });
+  // Deckel ohne Schlüsselwort: Karton 1 20, Karton 2 100; dazu Gläser ohne Größe (ältere Einträge) und Etiketten – die bleiben unberührt
+  const K1 = await materialPaketPosten(w, 'Kappe 82 mm Karton 1', 20);
+  const K2 = await materialPaketPosten(w, 'Kappe 82 mm Karton 2', 100, { anschaffung: '2026-02-01' });
+  const alt = await materialPaketPosten(w, 'Gläser alt', 40, { anschaffung: '2025-01-01' });
+  const E = await materialPaketPosten(w, 'Etiketten', 200);
+  assertEq([A, K1].map((p) => w.materialRolle(p)), ['deckel', ''], 'der Name allein ordnet beide anders ein als ihr Feld');
+  const { m, setz, info } = await materialPaketFormular(w, c.id);
+  setz('g_500', '50'); setz('gl_500', A.id); setz('gl_deckel', K1.id); setz('gl_etikett', E.id); await w99(100);
+  assert(!/fehlen/.test(info()), 'nichts fehlt (vorher „30 Stück fehlen“): ' + info());
+  assert(info().includes('Twist-Off-Glas 500 g Karton A (500 g): −20 Stück → Rest 0 Stück'), 'Karton A: ' + info());
+  assert(info().includes('Twist-Off-Glas 500 g Karton B (500 g, springt ein: „Twist-Off-Glas 500 g Karton A“ reicht nicht): −30 Stück → Rest 70 Stück'), 'Karton B springt ein: ' + info());
+  assert(info().includes('Kappe 82 mm Karton 2 (Deckel, springt ein: „Kappe 82 mm Karton 1“ reicht nicht): −30 Stück → Rest 70 Stück'), 'zweiter Deckel-Karton: ' + info());
+  assert(!info().includes('Gläser alt') && info().includes('Etiketten (Etiketten): −50 Stück → Rest 150 Stück'), 'alte Gläser springen nicht für Deckel ein: ' + info());
+  m.querySelector('[data-save]').click(); await w99(700);
+  assertEq(await Promise.all([A, B, K1, K2, alt, E].map(async (x) => (await w.DB.get('inventar', x.id)).stueckzahl)), [0, 70, 0, 70, 40, 150], 'A −20, B −30, Deckel 20 + 30, alte Gläser bleiben, Etiketten −50');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlmeldung: ' + JSON.stringify(toasts));
+  // Die Rolle steht im gemerkten Abzug (für abfuellungAendern, U3)
+  const abf = (await w.DB.getAll('abfuellungen'))[0];
+  assertEq(abf.verbrauchAbzug.map((x) => [x.bezeichnung, x.menge, x.rolle]), [['Twist-Off-Glas 500 g Karton A', 20, ''], ['Twist-Off-Glas 500 g Karton B', 30, ''], ['Kappe 82 mm Karton 1', 20, 'deckel'], ['Kappe 82 mm Karton 2', 30, 'deckel'], ['Etiketten', 50, 'etikett']], 'gemerkter Abzug mit Rolle');
+  // Ohne vorgegebene Rolle (Fütterung, Behandlung) bleibt es beim Namen – und nichts wird dazugeschrieben
+  const plan = w.materialAbzugPlan((await w.DB.getAll('inventar')).map((p) => ({ ...p })), B.id, 10, new Map());
+  assertEq(plan.abzug.map((x) => [x.inventarId, x.menge, 'rolle' in x]), [[B.id, 10, false]], 'ohne Rolle: wie bisher');
+})));
+
+test('Ultra-Test 05.11.2026 (U3): Abfüllung ändern rechnet mit der gemerkten Rolle – Gläser und Deckel getrennt gerundet, Deckel nur durch Deckel', async (w) => isolierteDaten(w, async () => {
+  const c = await loeschPaketCharge(w, 'U3', 50);
+  const stk = (x) => ({ inventarId: x.p.id, bezeichnung: x.p.bezeichnung, menge: x.menge, einheit: 'Stück', ...(x.rolle !== undefined ? { rolle: x.rolle } : {}) });
+  const bestand = async (...xs) => (await Promise.all(xs.map(async (x) => (await w.DB.get('inventar', x.id)).stueckzahl))).reduce((n, x) => n + x, 0);
+  const summe = (rec, ...xs) => rec.verbrauchAbzug.filter((x) => xs.some((p) => p.id === x.inventarId)).reduce((n, x) => n + x.menge, 0);
+  // Gläser ohne Größe und Deckel ohne Schlüsselwort: am Namen dieselbe Art (Kategorie, Stück, keine Größe, Rolle '')
+  const G1 = await materialPaketPosten(w, 'Gläser alt Karton 1', 0, { anschaffung: '2025-01-01' });
+  const G2 = await materialPaketPosten(w, 'Gläser alt Karton 2', 93, { anschaffung: '2025-02-01' });
+  const K1 = await materialPaketPosten(w, 'Kappe 43 mm Karton 1', 0);
+  const K2 = await materialPaketPosten(w, 'Kappe 43 mm Karton 2', 93, { anschaffung: '2026-02-01' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 30, anzahl: 10, bestand: 10,
+    verbrauchAbzug: [stk({ p: G1, menge: 3, rolle: '' }), stk({ p: G2, menge: 7, rolle: '' }), stk({ p: K1, menge: 3, rolle: 'deckel' }), stk({ p: K2, menge: 7, rolle: 'deckel' })] });
+  // 10 → 5: genau 5 Gläser und 5 Deckel zurück (vorher eine gemeinsame Rundung: 6 Gläser und 4 Deckel gemerkt)
+  const r1 = (await w.abfuellungAendern(await w.DB.get('abfuellungen', a.id), { anzahl: 5, bestand: 5, gebindeG: 30, datum: '2026-07-02' })).rec;
+  assertEq([summe(r1, G1, G2), summe(r1, K1, K2)], [5, 5], 'gemerkt: 5 Gläser, 5 Deckel');
+  assertEq([await bestand(G1, G2), await bestand(K1, K2)], [98, 98], 'je 5 zurück ins Lager');
+  // Mehr Gebinde: der leere Deckel-Karton zieht über die Kette nach – nur Deckel, nie die älteren Gläser
+  const G3 = await materialPaketPosten(w, 'Gläser alt U3', 90, { kategorie: 'U3-Kette', anschaffung: '2025-01-01' });
+  const K3 = await materialPaketPosten(w, 'Kappe 58 mm', 0, { kategorie: 'U3-Kette' });
+  const K4 = await materialPaketPosten(w, 'Kappe 58 mm Karton 2', 100, { kategorie: 'U3-Kette', anschaffung: '2026-02-01' });
+  const a2 = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-03', gebindeG: 30, anzahl: 10, bestand: 10, verbrauchAbzug: [stk({ p: G3, menge: 10, rolle: '' }), stk({ p: K3, menge: 10, rolle: 'deckel' })] });
+  const e2 = await w.abfuellungAendern(await w.DB.get('abfuellungen', a2.id), { anzahl: 20, bestand: 20, gebindeG: 30, datum: '2026-07-03' });
+  assertEq([e2.gefehlt, await bestand(G3), await bestand(K3), await bestand(K4)], [0, 80, 0, 90], 'Gläser −10, Deckel aus Karton 2 −10 (vorher sprangen die Gläser für die Deckel ein: 70 / 100)');
+  assertEq(e2.rec.verbrauchAbzug.map((x) => [x.bezeichnung, x.menge, x.rolle]), [['Gläser alt U3', 20, ''], ['Kappe 58 mm', 10, 'deckel'], ['Kappe 58 mm Karton 2', 10, 'deckel']], 'nachgezogen mit Rolle');
+  // Altdaten ohne gemerkte Rolle: wie bisher am Namen geraten, nichts wird dazugeschrieben
+  const T1 = await materialPaketPosten(w, 'Twist-Off-Glas 500 g U3', 0, { kategorie: 'U3-Alt', gebindeG: 500 });
+  const T2 = await materialPaketPosten(w, 'Twist-Off-Glas 500 g U3 Karton 2', 100, { kategorie: 'U3-Alt', gebindeG: 500, anschaffung: '2026-02-01' });
+  const a3 = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-04', gebindeG: 500, anzahl: 10, bestand: 10, verbrauchAbzug: [stk({ p: T1, menge: 10 })] });
+  const e3 = await w.abfuellungAendern(await w.DB.get('abfuellungen', a3.id), { anzahl: 15, bestand: 15, gebindeG: 500, datum: '2026-07-04' });
+  assertEq([e3.gefehlt, await bestand(T2)], [0, 95], 'Altdaten: Karton 2 springt ein wie bisher');
+  assertEq(e3.rec.verbrauchAbzug.map((x) => [x.bezeichnung, x.menge, 'rolle' in x]), [['Twist-Off-Glas 500 g U3', 10, false], ['Twist-Off-Glas 500 g U3 Karton 2', 5, false]], 'keine geratene Rolle gespeichert');
+}));
+
+test('Ultra-Test 05.11.2026 (U4): Schnappschuss-Migration behält die Änderungszeit – ein neueres Storno vom anderen Gerät gewinnt beim Zusammenführen', async (w) => isolierteDaten(w, async () => {
+  const stempel = '2026-01-10T08:00:00.000Z';
+  const r = { id: 'u4-rechnung', nummer: 'RE-U4', datum: '2026-01-10', kundeId: null, steuerart: 'klein', status: 'festgeschrieben',
+    positionen: [{ text: 'Honig', abfuellungId: null, menge: 2, einzelpreis: 6, steuersatz: 0 }], createdAt: stempel, lastModified: stempel };
+  await w.DB.put('rechnungen', { ...r }, true);
+  assertEq(await w.migriereRechnungSchnappschuss(), 1, 'eine Rechnung ergänzt');
+  const n = await w.DB.get('rechnungen', r.id);
+  assert(n.absender, 'Absender festgehalten');
+  assertEq(n.lastModified, stempel, 'Änderungszeit bleibt (vorher: jetzt)');
+  // Auf dem anderen Gerät am 01.03. storniert, kommt per Zusammenführen herein
+  await w.Backup.applyMerge({ stores: { rechnungen: [{ ...r, status: 'storniert', lastModified: '2026-03-01T09:00:00.000Z' }] } });
+  assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'das neuere Storno gewinnt (vorher blieb die migrierte Kopie „festgeschrieben“)');
+}));
+
+test('Ultra-Test 05.11.2026 (N1): Freier Honig einer Charge aus einer Stelle – Papierkorb, Lohn-Honig, Abfüllen und Ernte rechnen mit chargeBelegtIn', async (w) => isolierteDaten(w, async () => {
+  const d = { chargen: [{ id: 'n1-c', losnummer: 'N1', mengeKg: 10 }], papierkorb: [],
+    abfuellungen: [{ id: 'n1-a', chargeId: 'n1-c', anzahl: 8, gebindeG: 500 }, { id: 'n1-b', chargeId: 'n1-c', anzahl: 4, gebindeG: 250 }, { id: 'n1-x', chargeId: 'anders', anzahl: 100, gebindeG: 500 }],
+    honigabgaenge: [{ id: 'n1-v', quelle: 'charge', chargeId: 'n1-c', kg: 0.75 }, { id: 'n1-g', quelle: 'abfuellung', abfuellungId: 'n1-a', anzahl: 1 }] };
+  assertEq(w.chargeBelegtIn(d, 'n1-c'), { abgefuellt: 5, verlust: 0.75, lohn: 0, kg: 5.75 }, '4 + 1 kg abgefüllt, 0,75 kg Verlust aus dem Eimer');
+  assertEq([w.chargeFreiKgIn(d, d.chargen[0]), w.chargeFreiKgIn(d, d.chargen[0], 'n1-a')], [4.25, 8.25], 'frei; ohne die eigene Abfüllung');
+  // Jede der vier Stellen rechnet über den Helfer und meldet dieselben Zahlen wie bisher
+  const echt = w.chargeBelegtIn; let aufrufe = 0;
+  const nutzt = async (was, fn) => { const vorher = aufrufe; await fn(); assert(aufrufe > vorher, was + ' rechnet über chargeBelegtIn'); };
+  const fehler = async (fn) => { try { await fn(); } catch (e) { return e; } return null; };
+  w.chargeBelegtIn = (...a) => { aufrufe++; return echt(...a); };
+  try {
+    await nutzt('Papierkorb', async () => {
+      const e = await fehler(() => w.papierkorbWiederherstellenPruefen({ store: 'abfuellungen', daten: { id: 'n1-neu', chargeId: 'n1-c', anzahl: 10, gebindeG: 500 } }, d));
+      assert(e && e.message.includes('Sie braucht 5 kg, frei sind nur noch 4,25 kg'), 'Papierkorb: ' + (e && e.message));
+      w.papierkorbWiederherstellenPruefen({ store: 'abfuellungen', daten: { id: 'n1-neu', chargeId: 'n1-c', anzahl: 8, gebindeG: 500 } }, d);   // 4 kg passen
+    });
+    await nutzt('Lohn-Honig', async () => {
+      const e = await fehler(() => w.lohnHonigPruefen(d, 'n1-c', 4.5, 'Der Zugang „Met“'));
+      assert(e && e.message.startsWith('Der Zugang „Met“ lässt sich nicht wiederherstellen: Dafür wurden 4,5 kg Honig aus der Charge N1') && e.message.includes('frei sind dort nur noch 4,25 kg'), 'Lohn: ' + (e && e.message));
+    });
+    await nutzt('Abfüllen', async () => {
+      const e = await fehler(() => w.pruefeAbfuellMenge(d, 'n1-c', [{ anzahl: 10, gebindeG: 500 }]));
+      assertEq(e && e.message, 'Die Abfüllungen übersteigen die verfügbare Honigmenge: 10 kg abgefüllt, 0,75 kg als Verlust gebucht – die Charge hat 10 kg.', 'Abfüllen');
+      w.pruefeAbfuellMenge(d, 'n1-c', [{ anzahl: 8, gebindeG: 500 }]);   // 9,75 kg von 10
+    });
+    await nutzt('Ernte ändern', async () => {
+      const ernte = await w.DB.put('ernten', { zielTyp: 'stand', zielId: null, datum: '2026-07-01', produktart: 'Honig', sorte: 'Raps', mengeKg: 10 });
+      const ch = await w.DB.put('chargen', { losnummer: 'N1-E', datum: '2026-07-01', ernteIds: [ernte.id], lagerKg: 0, mengeKg: 10, sorte: 'Raps' });
+      await w.DB.put('abfuellungen', { chargeId: ch.id, datum: '2026-07-02', gebindeG: 500, anzahl: 16, bestand: 16 });
+      const e = await fehler(() => w.ernteSpeichern({ ...ernte, mengeKg: 7 }));
+      assert(e && e.feld === 'mengeKg' && e.message.startsWith('Die Charge N1-E hätte mit dieser Ernte nur noch 7 kg. Aus ihr sind aber schon 8 kg abgefüllt'), 'Ernte: ' + (e && e.message));
+      await w.ernteSpeichern({ ...ernte, mengeKg: 9 });
+      assertEq((await w.DB.get('chargen', ch.id)).mengeKg, 9, 'Charge folgt der Ernte');
+    });
+  } finally { w.chargeBelegtIn = echt; }
+}));
+
+test('Ultra-Test 05.11.2026 (N2): Rabattfaktor einer Rechnung aus einer Stelle – Honig-Auswertung und Kassenbuch-Aufschlüsselung', async (w) => isolierteDaten(w, async () => {
+  const pos = [{ text: 'Honig', abfuellungId: null, menge: 2, einzelpreis: 6, steuersatz: 0 }, { text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 8, steuersatz: 0 }];
+  assertEq([{ rabattTyp: 'prozent', rabattWert: 10 }, { rabattTyp: 'betrag', rabattWert: 5 }, { rabattTyp: 'betrag', rabattWert: 50 }, {}].map((x) => w.rechnungRabattFaktor({ ...x, positionen: pos })),
+    [0.9, 0.75, 0, 1], '10 %, 5 € von 20 €, mehr als der Warenwert, ohne Rabatt');
+  assertEq(w.rechnungRabattFaktor({ rabattWert: 10, positionen: [] }), 1, 'ohne Warenwert: Faktor 1');
+  const Y = String(+w.U.todayIso().slice(0, 4) - 1);
+  const a = await w.DB.put('abfuellungen', { chargeId: null, datum: `${Y}-02-01`, gebindeG: 500, anzahl: 100, bestand: 100 });
+  const r = await w.DB.put('rechnungen', { nummer: 'RE-N2', datum: `${Y}-04-01`, status: 'festgeschrieben', berechnungVersion: 2, rabattTyp: 'prozent', rabattWert: 50,
+    positionen: [{ text: 'Honig', abfuellungId: a.id, menge: 20, einzelpreis: 6, steuersatz: 0 }] });
+  const kb = await w.DB.put('kassenbuch', { datum: `${Y}-04-01`, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 60, steuersatz: 0, beschreibung: 'Rechnung RE-N2', rechnungId: r.id });
+  const echt = w.rechnungRabattFaktor; let aufrufe = 0;
+  w.rechnungRabattFaktor = (...x) => { aufrufe++; return echt(...x); };
+  try {
+    const posten = w.honigVerkaufPosten([], [r], new Map([[a.id, a]]));
+    assertEq([aufrufe, posten.map((p) => [p.anzahl, p.euro])], [1, [[20, 60]]], 'Honig-Auswertung: 20 Gläser, 60 € nach 50 % Rabatt');
+    await w.Views.kassenbuch.kategorieDetail('einnahme', 'Honigverkauf', Y, [kb]); await w99(100);
+    const t = letztesModal(w).textContent.replace(/\s+/g, ' ');
+    assert(aufrufe >= 2 && t.includes(`20 Stück · ${w.U.fmtEur(60).replace(/\s+/g, ' ')}`), 'Kassenbuch: über den Helfer, 60 €: ' + t);
+  } finally { w.rechnungRabattFaktor = echt; dialogeSchliessen(w); }
+}));
+
+test('Ultra-Test 05.11.2026 (N3): „Endgültig löschen“ liest die Anhänge nur, wenn der Eintrag welche haben kann', async (w) => isolierteDaten(w, async () => {
+  const echt = w.DB.leseAlles, gelesen = [];
+  w.DB.leseAlles = function (stores) { gelesen.push(stores); return echt.call(this, stores); };
+  try {
+    const fu = await w.DB.put('fuetterungen', { volkId: 'n3-volk', datum: '2026-08-01', futterart: 'Zuckerwasser 3:2', mengeKg: 5 });
+    await w.DB.softDel('fuetterungen', fu.id);
+    const t = (await w.DB.getAll('papierkorb')).find((x) => x.daten.id === fu.id);
+    assertEq(await w.DB.papierkorbAnhangZahl((x) => x.id === t.id), 0, 'Fütterung: keine Datei');
+    assertEq(gelesen.filter((s) => s.includes('anhaenge')).length, 0, 'dafür wurden weder Anhänge noch Eltern-Bereiche gelesen (vorher jedes Mal)');
+    // Eine Durchsicht mit Foto zählt weiter
+    const s = await w.DB.put('stockkarten', { volkId: 'n3-volk', datum: '2026-08-02', notiz: 'N3' });
+    await w.DB.put('anhaenge', { parentTyp: 'stockkarte', parentId: s.id, art: 'foto', name: 'n3.jpg', mime: 'image/jpeg', blob: new w.Blob(['0123456789']), groesse: 10, datum: w.U.nowIso() });
+    await w.DB.softDel('stockkarten', s.id);
+    assertEq(await w.DB.papierkorbAnhangZahl(() => true), 1, 'Durchsicht: ihr Foto wird angekündigt');
+    assertEq(gelesen.filter((s2) => s2.includes('anhaenge')).length, 1, 'jetzt gelesen');
+  } finally { w.DB.leseAlles = echt; }
+}));
+
 test('Lager-Paket R1 (#1/#19): Abgang aus dem Papierkorb bucht den Bestand erneut und holt die Einnahme mit – auch über die Buchung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
   // Doku #1: Zucker 100 kg, Verkauf 30 kg → 70 kg und +30 €
   const cfg = lagerPaketCfg(w);
@@ -19906,6 +20112,176 @@ test('Gelöschter Stand (Julian 05.11.2026): Formulare behalten ihn – Behandlu
   assert(zeilen.includes('Waldrand (gelöscht)') && !zeilen.includes('ohne Standort erfasst'), 'TSK: ' + JSON.stringify(zeilen));
   await w.DB.del('voelker', v.id);
 })));
+
+/* =====================================================================
+   Ultra-Test 05.11.2026, Paket B – Lücken G1–G8 aus der Gegenprüfung des Stand-Umbaus (Commit 0e49f03).
+   Quelle: docs/PRUEFUNG-ULTRA-2026-11-05.md. Steht hier, weil es die Stand-Helfer der Tests darüber nutzt.
+   ===================================================================== */
+test('Ultra-Test 05.11.2026 (G1): Eigene Fahrt zu einem gelöschten Stand – „Fahrt buchen“ bucht nicht still, Formular und Vorlage zeigen „Name (gelöscht)“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand', kmEntfernung: 6 }); await w.DB.put('staende', { name: 'Heim', kmEntfernung: 2 });
+  const vl = { id: 'vl-g1', name: 'Waldrand', km: 12, zweck: 'Durchsicht', standId: wald.id, freiZiel: '' };
+  await w.S.set('fahrtvorlagen', [vl]);
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  // „Fahrt buchen“: keine Fahrt still dorthin, sondern Meldung und Formular mit dem gelöschten Stand
+  dialogeSchliessen(w);
+  await w.fahrtVorlageBuchen(vl.id); await w99(300);
+  assertEq((await w.DB.getAll('fahrten')).length, 0, 'keine Fahrt still gebucht');
+  assert(toasts.some((t) => t.typ === 'err' && t.msg === 'Der Stand „Waldrand“ ist gelöscht. Prüf das Ziel und speichere dann.'), 'Meldung: ' + JSON.stringify(toasts));
+  const m = letztesModal(w);
+  assert(m, 'das Formular steht offen');
+  assertEq(m.querySelector('#f-ziel').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Formular: der gelöschte Stand statt still das erste Ziel');
+  assertEq(m.querySelector('#f-km').value.replace(',', '.'), '12', 'km aus der Vorlage');
+  // Bewusst gespeichert: die Fahrt geht dorthin, wohin sie gehen soll
+  m.querySelector('[data-save]').click(); await w99(700);
+  assertEq((await w.DB.getAll('fahrten')).map((f) => [f.standId, Number(f.km)]), [[wald.id, 12]], 'bewusst gebucht');
+  // Formular mit Vorlage ohne km (der zweite Weg ins Formular): ebenfalls kein Umschalten auf ein anderes Ziel
+  let f = await lagerFormular(w, () => w.fahrtForm(null, null, { ...vl, km: '' }));
+  assertEq(f.m.querySelector('#f-ziel').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Formular mit Vorlage');
+  dialogeSchliessen(w);
+  // Vorlage bearbeiten: „Waldrand (gelöscht)“ statt „–“, km ändern behält Stand und Namen
+  f = await lagerFormular(w, () => w.Views.fahrten.vorlageForm(vl));
+  assertEq(f.m.querySelector('#f-standId').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'Vorlage: Auswahl');
+  f.setz('name', ''); f.setz('km', '14'); await f.speichern();
+  assertEq((w.S.get('fahrtvorlagen') || []).map((x) => [x.standId, x.name, Number(x.km)]), [[wald.id, 'Waldrand', 14]], 'Vorlage: Stand bleibt, Name ohne „(gelöscht)“');
+})));
+
+test('Ultra-Test 05.11.2026 (G2): Volk-Formular zeigt den gelöschten Stand und behält ihn beim Speichern – auch beim aktiven Volk nach „Duplizieren“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const alt = await w.DB.put('voelker', { name: 'G2-Alt', standId: wald.id, status: 'aufgeloest', historie: [{ datum: '2020-01-01', text: 'angelegt' }] });
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  assertEq((await w.DB.get('voelker', alt.id)).standId, wald.id, 'das aufgelöste Volk behält die Kennung (wie bisher)');
+  // Aufgelöstes Volk: „Waldrand (gelöscht)“ statt „–“
+  let f = await lagerFormular(w, async () => w.openVolkForm(await w.DB.get('voelker', alt.id), {}, () => {}));
+  assertEq(f.m.querySelector('#f-standId').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'aufgelöstes Volk: Auswahl');
+  dialogeSchliessen(w);
+  // „Duplizieren“ legt eine aktive Kopie mit derselben Stand-Kennung an (wie der Knopf auf der Volk-Seite)
+  const kopie = await w.DB.put('voelker', { name: 'G2-Alt (Kopie)', standId: wald.id, koeniginId: null, funktion: '', beutentyp: '', beutenkennung: '', status: 'aktiv', historie: [{ datum: w.U.todayIso(), text: 'Als Kopie von „G2-Alt“ angelegt' }], notizen: '' });
+  f = await lagerFormular(w, async () => w.openVolkForm(await w.DB.get('voelker', kopie.id), {}, () => {}));
+  assertEq(f.m.querySelector('#f-standId').selectedOptions[0].textContent, 'Waldrand (gelöscht)', 'aktive Kopie: Auswahl');
+  f.setz('notizen', 'nur die Notiz'); await f.speichern();
+  const v = await w.DB.get('voelker', kopie.id);
+  assertEq([v.standId, v.notizen, v.historie.some((h) => /Stand gewechselt/.test(h.text))], [wald.id, 'nur die Notiz', false], 'Notiz ändern behält den Stand und schreibt keinen Wechsel');
+  // Ein bewusster Wechsel geht weiter – mit Namen in der Historie
+  f = await lagerFormular(w, async () => w.openVolkForm(await w.DB.get('voelker', kopie.id), {}, () => {}));
+  f.setz('standId', heim.id); await f.speichern();
+  const v2 = await w.DB.get('voelker', kopie.id);
+  assertEq([v2.standId, v2.historie[v2.historie.length - 1].text], [heim.id, 'Stand gewechselt: „Waldrand (gelöscht)“ → „Heim“'], 'bewusster Wechsel');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Ultra-Test 05.11.2026 (G3): standOptionen nimmt den Klartext von damals – das Wanderung-Formular zeigt „Alter Hof (gelöscht)“ wie die Liste', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const heim = await w.DB.put('staende', { name: 'Heim' });
+  const volk = await w.DB.put('voelker', { name: 'G3-Volk', standId: heim.id, status: 'aktiv', historie: [{ datum: '2020-01-01', text: 'angelegt' }] });
+  // Der Helfer: Rückfall wie bei standNameAnzeige, gemerkter Name geht vor, jede Kennung nur einmal, vorhandene Stände unverändert
+  await w.S.set('geloeschteStaende', { 'g3-gemerkt': { name: 'Gemerkt', geloeschtAm: '2026-11-05' } });
+  assertEq(w.standOptionen([heim], ['g3-weg', 'Alter Hof'], 'g3-ohne', ['g3-weg', 'egal'], ['g3-gemerkt', 'Rückfall'], [heim.id, 'x'], null, false).map((o) => [o.v, o.l]),
+    [[heim.id, 'Heim'], ['g3-weg', 'Alter Hof (gelöscht)'], ['g3-ohne', 'gelöschter Stand'], ['g3-gemerkt', 'Gemerkt (gelöscht)']], 'Optionen');
+  await w.S.set('geloeschteStaende', {});
+  // Alte Wanderung ohne gemerkten Namen: Kennung weg, Klartext da
+  const wan = await w.DB.put('wanderungen', { datum: '2026-04-01', vonStandId: 'g3-weg', nachStandId: heim.id, volkIds: [volk.id], vonOrt: 'Alter Hof', nachOrt: 'Heim', notiz: '' });
+  host.innerHTML = ''; await w.Views.wanderungen.render(host); await w99(100);
+  assert(host.textContent.includes('Alter Hof (gelöscht) → Heim'), 'Liste: „Alter Hof (gelöscht)“');
+  dialogeSchliessen(w);
+  host.querySelector(`.row[data-id="${wan.id}"]`).click(); await w99(300);
+  const m = letztesModal(w);
+  assert(m, 'das Formular steht offen');
+  assertEq([m.querySelector('#f-vonStandId').selectedOptions[0].textContent, m.querySelector('#f-nachStandId').selectedOptions[0].textContent], ['Alter Hof (gelöscht)', 'Heim'], 'Formular: wie die Liste statt „gelöschter Stand“');
+  dialogeSchliessen(w);
+})));
+
+test('Ultra-Test 05.11.2026 (G4): Nach dem Einspielen einer Sicherung (Ersetzen und Zusammenführen) bekommen gelöschte Stände im Papierkorb ihren Namen', async (w) => isolierteDaten(w, async () => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' });
+  await w.DB.softDel('staende', wald.id);   // gelöscht wie vor dieser Fassung: im Papierkorb, Name nicht gemerkt
+  assertEq(w.geloeschterStandName(wald.id), '', 'vorher nicht gemerkt');
+  const sicherung = await w.Backup.buildData(false);
+  assert(!(sicherung.stores.settings || []).some((r) => r.key === 'geloeschteStaende'), 'die Sicherung kennt den Namen nicht');
+  // Ersetzen
+  await w.Backup.applyReplace(sicherung, { blobsBehalten: false }); await w.Backup.nachImport(sicherung);
+  assertEq([w.geloeschterStandName(wald.id), w.standNameAnzeige(wald.id, [])], ['Waldrand', 'Waldrand (gelöscht)'], 'Ersetzen: Name nachgetragen');
+  assertEq((await w.DB.get('settings', 'geloeschteStaende')).value[wald.id].name, 'Waldrand', 'Ersetzen: in der Datenbank');
+  // Zusammenführen
+  await w.DB.del('settings', 'geloeschteStaende'); await w.S.load();
+  assertEq(w.geloeschterStandName(wald.id), '', 'wieder ohne Namen');
+  await w.Backup.applyMerge(sicherung); await w.Backup.nachImport(sicherung);
+  assertEq(w.standNameAnzeige(wald.id, []), 'Waldrand (gelöscht)', 'Zusammenführen: Name nachgetragen');
+  // Ein zweites Einspielen ändert nichts mehr
+  const vorher = await w.DB.get('settings', 'geloeschteStaende');
+  await w.Backup.nachImport(sicherung);
+  assertEq(await w.DB.get('settings', 'geloeschteStaende'), vorher, 'nichts doppelt geschrieben');
+}));
+
+test('Ultra-Test 05.11.2026 (G5): Wartezeit-Erinnerung zu einem gelöschten Stand speichert den reinen Namen – keine doppelte Klammer, nichts Veraltetes nach dem Wiederherstellen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' });
+  const beh = await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2026-08-01', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  const titel = async () => (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'behandlung').map((a) => a.titel);
+  // Wartezeit nachtragen (Behandlung bearbeiten)
+  const f = await lagerFormular(w, async () => w.Views.behandlungen.form(await w.DB.get('behandlungen', beh.id)));
+  f.setz('wartezeitTage', '14'); await f.speichern();
+  assertEq(await titel(), ['Wartezeit endet: Oxalsäure (Waldrand)'], 'Bearbeiten: reiner Name statt „(Waldrand (gelöscht))“');
+  assertEq(await w.zielName('stand', wald.id), 'Waldrand', 'zielName');
+  // Behandlung löschen und zurückholen: die Erinnerung kommt mit dem reinen Namen zurück
+  await w.loescheMitMaterial('behandlungen', await w.DB.get('behandlungen', beh.id));
+  assertEq(await titel(), [], 'Erinnerung entfällt mit der Behandlung');
+  await w.DB.trashRestore((await lagerKorb(w, 'behandlungen', beh.id)).id);
+  assertEq(await titel(), ['Wartezeit endet: Oxalsäure (Waldrand)'], 'Wiederherstellen: reiner Name');
+  // Stand zurückholen: im Titel steht nichts mehr, das nicht stimmt
+  await w.DB.trashRestore((await lagerKorb(w, 'staende', wald.id)).id);
+  assert(!(await titel()).some((t) => /gelöscht/.test(t)), 'kein „(gelöscht)“ nach dem Wiederherstellen des Stands');
+  // Ohne gemerkten Namen: „gelöschter Stand“, ebenfalls ohne doppelte Klammer
+  assertEq(await w.zielName('stand', 'g5-unbekannt'), 'gelöschter Stand', 'ohne Namen');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Ultra-Test 05.11.2026 (G6): Trachten zeigen gelöschte Stände als „Name (gelöscht)“, Speichern behält die Kennung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const tr = await w.DB.put('trachten', { bezeichnung: '', pflanze: 'Linde', von: '2026-06-12', bis: '2026-07-10', jaehrlich: true, erinnernTage: 0, region: '', standIds: [heim.id, wald.id], notiz: '' });
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  assertEq(w.Tracht.standNamen(await w.DB.get('trachten', tr.id), await w.idMap('staende'), 3), 'Heim, Waldrand (gelöscht)', 'Liste');
+  assertEq((await (await w.Xlsx.defs()).trachten.rows()).map((r) => r['Stände']), ['Heim, Waldrand (gelöscht)'], 'Excel');
+  // Formular: angehakt als „Waldrand (gelöscht)“; Notiz ändern behält beide Kennungen
+  let f = await lagerFormular(w, async () => w.Views.trachten.formular(await w.DB.get('trachten', tr.id)));
+  const haken = [...f.m.querySelectorAll('#f-standIds input')].map((i) => [i.closest('label').textContent.trim(), i.checked]);
+  assertEq(haken.sort(), [['Heim', true], ['Waldrand (gelöscht)', true]], 'Formular: beide angehakt');
+  f.setz('notiz', 'berichtigt'); await f.speichern();
+  const neu = await w.DB.get('trachten', tr.id);
+  assertEq([[...neu.standIds].sort(), neu.notiz], [[heim.id, wald.id].sort(), 'berichtigt'], 'Speichern behält den gelöschten Stand');
+  // Bewusst abhaken entfernt ihn
+  f = await lagerFormular(w, async () => w.Views.trachten.formular(await w.DB.get('trachten', tr.id)));
+  const box = [...f.m.querySelectorAll('#f-standIds input')].find((i) => i.value === wald.id);
+  box.checked = false; box.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await f.speichern();
+  assertEq((await w.DB.get('trachten', tr.id)).standIds, [heim.id], 'abgehakt: weg');
+})));
+
+test('Ultra-Test 05.11.2026 (G7): Volksakte nennt auch den gelöschten Stand im Hinweis „Mit aufgeführt …“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const wald = await w.DB.put('staende', { name: 'Waldrand' }), heim = await w.DB.put('staende', { name: 'Heim' });
+  const alt = await w.DB.put('voelker', { name: 'G7-Alt', standId: wald.id, status: 'aufgeloest', historie: [{ datum: '2020-01-01', text: 'angelegt' }] });
+  const da = await w.DB.put('voelker', { name: 'G7-Da', standId: heim.id, status: 'aktiv', historie: [{ datum: '2020-01-01', text: 'angelegt' }] });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: wald.id, datum: '2026-03-01', mittel: 'Oxalsäure', menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  await w.DB.put('ernten', { zielTyp: 'stand', zielId: wald.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Wald', mengeKg: 10 });
+  assertEq(await w.standLoeschen(wald), true, 'gelöscht');
+  const teil = async (v, k) => (await w.Export.volkTeile(await w.DB.get('voelker', v.id))).find((t) => t.k === k);
+  for (const k of ['behandlungen', 'ernten']) {
+    const t = await teil(alt, k);
+    assertEq([t.rows.length, t.hinweis], [1, 'Mit aufgeführt: Einträge für den ganzen Stand „Waldrand (gelöscht)“ (aktueller Standort des Volks).'], k + ': Hinweis beim gelöschten Stand');
+  }
+  assertEq((await teil(da, 'behandlungen')).hinweis, 'Mit aufgeführt: Einträge für den ganzen Stand „Heim“ (aktueller Standort des Volks).', 'vorhandener Stand wie bisher');
+})));
+
+test('Ultra-Test 05.11.2026 (G8): Ein zweites Fenster übernimmt den gemerkten Namen beim Signal – ohne Neuladen', async (w) => isolierteDaten(w, async () => {
+  assert(w._sicherungKanal, 'das Fenster horcht auf den Kanal');
+  const wald = await w.DB.put('staende', { name: 'Waldrand' });
+  // Das ANDERE Fenster löscht den Stand: Name gemerkt und Stand weg – an den Einstellungen dieses Fensters vorbei
+  const auftrag = w.geloeschteStaendeAuftrag(await w.DB.getAll('settings'), { merken: [{ id: wald.id, name: 'Waldrand' }] });
+  await w.DB.schreibeAlles([auftrag.op, { op: 'del', store: 'staende', id: wald.id }]);
+  assertEq(w.standNameAnzeige(wald.id, []), 'gelöschter Stand', 'dieses Fenster weiß es noch nicht');
+  // Sein Signal kommt an
+  const kanal = new w.BroadcastChannel(w.DB.NAME + '-sicherung');
+  try { kanal.postMessage('aktualisieren'); await w99(400); } finally { kanal.close(); }
+  assertEq(w.standNameAnzeige(wald.id, []), 'Waldrand (gelöscht)', 'nach dem Signal: mit Namen');
+  assertEq(w.S.gespeichert('geloeschteStaende').value[wald.id].name, 'Waldrand', 'auch der gespeicherte Stand für das nächste Schreiben');
+}));
 
 test('Behandlungs-Paket R2 (#33): Behandlungsübersicht summiert je Einheit getrennt – Bildschirm und Report-PDF', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
   // Doku #33: 2026 Oxalsäure 2 × 30 ml geträufelt und 1 × 2 g verdampft → vorher „3 · 62 ml“
