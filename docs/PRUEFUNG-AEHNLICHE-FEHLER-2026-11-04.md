@@ -228,3 +228,9 @@ Status: Julian 04.11.2026 „Alles reparieren (Empfohlen)“ – nach der Honig-
   BEISPIEL: Aktiv: 10 Wirtschaftsvölker, 8 Begattungsvölkchen, 2 Ableger. Rechner: „Anzahl Wirtschaftsvölker 20“. Kassenbuch → Auswertung: 10. Mit 20 Völkern × 35 kg halbieren sich die Fixkosten je kg im Rechner.
   BEGRÜNDUNG: Selbst gelesen. Das Feld heißt „Wirtschaftsvölker“ und folgt dem LWG-Modell, vorbelegt wird es aber auch mit Begattungsvölkchen, Ablegern und Reservevölkern. Die Kassenbuch-Karte nimmt dagegen nur Wirtschaftsvölker. Abschwächend: Das ist nur eine Vorbelegung. Die Seite sagt selbst „Alle Zahlen sind Vorbelegungen und überschreibbar“, und es wird nichts gespeichert. Die Ursache auf der Kassenbuch-Seite (Fund #14) ist ausgenommen, gemeldet wird nur die Rechner-Seite. Der Unterschied bleibt aber auch nach #14 bestehen, weil Begattungsvölkchen auch dann nicht mitzählen.
 
+
+## Entscheidungen Julian 05.11.2026
+
+- **Stand mit Nachweisen (Fund #5):** In R2 zuerst als Sperre gebaut. Julian: „naja er kann sich ja löschen lassen aber es muss dann überall stehen bei wanderungen etc. das der stand gelöscht ist irgendwie“. → Stand bleibt löschbar (Rückfrage „Stand mit Nachweisen löschen?“), sein Name wird dauerhaft gemerkt und überall als „Name (gelöscht)“ gezeigt (Bestandsbuch, Wanderbuch, Ernten, Statistik, Fahrtenbuch …).
+- **Neue Meldungen aus Runde 2** (Stand, Kassenbuch-Sperre, Sicherungs-Banner, Behandlungs-Hinweis, Wanderungs-Meldung) als Bild gezeigt: „Ja, passt so“.
+- **Ultra-Test:** Diese Sitzung zieht in den Ordner ~/ImkerApp um, Julian startet /code-review ultra auf dem Zweig fehler-reparatur-2026-11-04.
