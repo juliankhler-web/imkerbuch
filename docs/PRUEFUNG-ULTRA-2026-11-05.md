@@ -1,0 +1,32 @@
+# Ultra-Test (/code-review ultra) – 05.11.2026
+
+Lauf: kostenloser Ultra-Test 1 von 3, auf einem schlanken Prüf-Projekt `~/ImkerBuch-Pruefung` (nur Code: index.html, tests, service-worker.js, PROJEKT.md, tools/test-run.mjs, die beiden Prüf-Dokus), Zweig `fehler-reparatur-2026-11-04` gegen `main` (v3.23). Grund: Das echte Repo ist mit Bildern/Videos „too large“ für den Ultra-Test, ein PR hätte Hochladen auf das öffentliche GitHub bedeutet. Umfang: 6 Dateien, +4479 / −436.
+
+## Funde (normal)
+
+U1. **Belegfotos im Kassenbuch werden nach 30 Tagen gelöscht** (index.html um 3606–3613, Stellen 3613, 22555, 22830, 23048): Bearbeiten eines Zugangs/Abgangs ersetzt die Kassenbuch-Buchung (lagerKasseAuftraege: alte in den Papierkorb, neue mit neuer id). Anhänge (parentTyp 'kassenbuch') bleiben an der alten id; das neue Aufräumen beim endgültigen Löschen (verwaisteAnhaenge über purgeTrash) löscht sie dann. Vorher blieben sie wenigstens in der Datenbank. Fix: Anhänge auf die neue Buchung umhängen (gleiche Transaktion) oder die Buchungs-id behalten.
+
+U2. **Zweiter Karton springt bei Gläsern mit „Twist-Off“/„TO“ im Namen nicht ein** (materialAbzugPlan um 11194–11195, Stellen 11249, 11254, 23653): Start bekommt die vom Aufrufer vorgegebene Rolle, Ersatz-Kandidaten die aus dem Namen geratene (materialArt(p)). „Twist-Off-Glas 500 g“ passt auf DECKEL_WOERTER → Rolle 'deckel' ≠ '' → Karton B wird nie genommen, „30 Stück fehlten“, Bestand bleibt zu hoch. Gleiches für Deckel/Etiketten ohne Schlüsselwort im Namen. Fix: Kandidaten mit derselben Rolle wie der Start vergleichen.
+
+U3. **abfuellungAendern gibt die Rolle (Deckel/Etikett) nicht weiter** (um 11320–11342): Beim Erhöhen der Anzahl rät materialAbzugPlan die Rolle aus dem Namen; ganzeStueckeVerteilen rundet Deckel und Gläser gemeinsam. Fix: Rolle beim Anlegen in jedem verbrauchAbzug-Eintrag speichern und beim Ändern an materialAbzugPlan/materialArt übergeben.
+
+U4. **Rechnungs-Schnappschuss-Migration überschreibt beim Zusammenführen ein Storno vom anderen Gerät** (migriereRechnungSchnappschuss um 19031): schreibt ohne keepStamp → lastModified = jetzt → applyMerge behält die migrierte Kopie statt des neueren Stornos. Fix: keepStamp: true wie die anderen Daten-Migrationen.
+
+## Vorschläge (nit)
+
+N1. Freie Chargenmenge (mengeKg − abgefüllt − Verlust − Verarbeitung) ist an vier Stellen von Hand gerechnet (papierkorbWiederherstellenPruefen um 13281, lohnHonigPruefen, pruefeAbfuellMenge, ernteSpeichern) → ein Helfer chargeFreiKgIn(d, chargeId, ohneAbfId).
+N2. Rabattfaktor einer Rechnung (warenwert − rechnungRabatt)/warenwert doppelt (honigVerkaufPosten um 21815, Kassenbuch-Aufschlüsselung um 18833) → rechnungRabattFaktor(r).
+N3. papierkorbAnhangZahl liest bei jedem „Endgültig löschen“ alle Anhänge und Eltern-Bereiche, auch wenn der Eintrag keine Anhänge haben kann → dieselbe Abkürzung wie papierkorbEndgueltig (nur, wenn ein Store in ANHANG_BEREICHE betroffen ist).
+
+## Zusätzlich offen aus der Gegenprüfung des Stand-Umbaus (Commit 0e49f03)
+
+G1. Fahrt-Vorlagen zu einem gelöschten Stand: „Fahrt buchen“ legt still neue Fahrten dorthin an; Formular mit Vorlage wählt still das erste Ziel; vorlageForm zeigt „–“ statt „Name (gelöscht)“.
+G2. Volk-Formular nutzt standOptionen nicht: zeigt „–“; bei aktivem Volk mit gelöschter Stand-id (z. B. nach „Duplizieren“ eines aufgelösten Volks) löscht schon Speichern der Notiz die Standzuordnung.
+G3. Wanderung-Formular: standOptionen ohne Rückfalltext → beide Optionen „gelöschter Stand“, Liste zeigt „vonOrt (gelöscht)“.
+G4. migriereGeloeschteStaende läuft nur beim Start, nicht nach Einspielen einer Sicherung.
+G5. Wartezeit-Aufgaben-Titel speichert „(gelöscht)“ fest (doppelte Klammer, bleibt nach Wiederherstellen).
+G6. Trachten lassen gelöschte Stände still weg; Speichern einer Tracht entfernt die Stand-id endgültig.
+G7. Volksakte: Hinweis „Mit aufgeführt: Einträge für den ganzen Stand …“ fehlt beim gelöschten Stand.
+G8. Zweites offenes Fenster/Tab: gemerkter Name erst nach Neuladen (nur Anzeige).
+
+Status: Reparatur gestartet 05.11.2026, danach erneuter Ultra-Test (2 kostenlose übrig).
