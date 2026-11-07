@@ -22,7 +22,7 @@ Start: Sonntag 08.11.2026 nach dem Reset des Wochenlimits (Julian: „bereite al
 ## Entschieden 07.11.2026 (Nachtrag)
 - **Alles kommt VOR dem Einreichen** (Julian: „ja das muss vor der einreichung“).
 - „Buhl kündigen“ gehört nicht hierher (Julian: „buhl vergiss es geht in einem anderen chat“).
-- Zeitschätzung erklärt: ~½–1 Tag Mockups, 2–3 Tage Bauen, 1–2 Tage Prüfen (viele Tests laufen über alte Bereiche), ½–1 Tag Store-Bilder, einige Tage Praxis bei den Imkern, dann Ultra-Test 3 + 1.00 + Einreichen; Token-Limit kann Pausen erzwingen.
+- Zeitschätzung erklärt: ~½–1 Tag Mockups, 2–3 Tage Bauen, 1–2 Tage Prüfen (viele Tests laufen über alte Bereiche), 2–3 Stunden Store-Bilder (nur betroffene neu; Hochladen einzeln mit Prüfung dauert am längsten), einige Tage Praxis bei den Imkern, dann Ultra-Test 3 + 1.00 + Einreichen; Token-Limit kann Pausen erzwingen.
 
 ## Offen (am Sonntag klären)
 - Verkauf+Rechnung im Detail: Barverkauf vs. Rechnung (Rechnung immer mit Kunde?), Rechnung aus Marktverkauf?, Lager-Artikel mit Preis/USt?, was passiert mit bestehenden Daten und Menü-Kacheln (alte Bereiche als Reiter im neuen Bereich?).
