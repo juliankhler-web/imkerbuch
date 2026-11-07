@@ -33,3 +33,8 @@ Start: Sonntag 08.11.2026 nach dem Reset des Wochenlimits (Julian: „bereite al
 2. Mockups (show_widget): Lager-Bereich, Finanzen-Bereich, Verkauf→Rechnung-Ablauf, Behandlung pro Volk.
 3. Nach Freigabe bauen, in kleinen Paketen mit Tests; danach Gesamtprüfung, Geräte, ggf. Store-Bilder; Ultra-Test 3 erst ganz am Ende vor dem Einreichen.
 4. Ebenfalls Sonntag: imkerbuch.app bei Google freischalten (siehe Memory token-sparen-bis-sonntag).
+
+## Idee festgehalten 07.11.2026: Statistik pro Volk
+Julian: „es wäre gut eine statistik über jedes einzelne volk zu haben so das man sieht welches wie perfomed in sachen honig produktion“ – Entscheidung: **„erstmal die idee nur festhalten mir reicht gerad die honig ertrag pro jahr erstmal“**.
+- **Jetzt gewünscht:** Honigertrag pro Volk und Jahr (gibt es schon als Tabelle „Honigertrag je Volk“ unter Statistik → Honig; prüfen, ob sie reicht oder pro Volk sichtbarer werden soll, z. B. in der Volksakte/Volk-Seite mit Jahresvergleich).
+- **Nur Idee, später:** Rangliste stärkste/schwächste Völker, Netto (Honig minus Zucker), Vergleich Stand-Schnitt/Vorjahr, Varroa-Verlauf und Behandlungen, Charakter (Sanftmut/Schwarmneigung/Wabensitz, Bewertung 1–4 aus der Zucht), Volksstärke im Jahresverlauf, Königin (Jahrgang/Herkunft), Erlös minus Futter- und Mittelkosten.
