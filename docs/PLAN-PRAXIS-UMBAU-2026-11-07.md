@@ -19,9 +19,12 @@ Start: Sonntag 08.11.2026 nach dem Reset des Wochenlimits (Julian: „bereite al
 4. **Verkauf und Rechnung verbunden** in beide Richtungen: aus jedem Verkauf (Honig, Lager, Produkte) direkt „Rechnung erstellen“; aus Rechnungen heraus Positionen aus allen Bereichen wählen (Honig-Gebinde, Lager-Artikel, Produkte), Bestand wird mitgebucht.
 5. **Fehler:** Kacheln im Menü verschieben → Seite scrollt beim Ziehen nicht mit (Auto-Scroll am Rand fehlt).
 
+## Entschieden 07.11.2026 (Nachtrag)
+- **Alles kommt VOR dem Einreichen** (Julian: „ja das muss vor der einreichung“).
+- „Buhl kündigen“ gehört nicht hierher (Julian: „buhl vergiss es geht in einem anderen chat“).
+- Zeitschätzung erklärt: ~½–1 Tag Mockups, 2–3 Tage Bauen, 1–2 Tage Prüfen (viele Tests laufen über alte Bereiche), ½–1 Tag Store-Bilder, einige Tage Praxis bei den Imkern, dann Ultra-Test 3 + 1.00 + Einreichen; Token-Limit kann Pausen erzwingen.
+
 ## Offen (am Sonntag klären)
-- „Buhl kündigen“: was genau? (Vermutung: ImkerBuch soll Buhl/WISO ersetzen – was macht Julian dort heute?)
-- Zeitpunkt: Julian fragte „warum verschiebt es sie dann um 1-2 wochen?“ – erklärt (Bestände/Kassenbuch/Rechnungen neu prüfen, Store-Bilder neu, Praxistest). Entscheidung offen: alles vor dem Einreichen oder teilen (Kachel-Fehler + Behandlung pro Volk vorher, Rest als erstes Update).
 - Verkauf+Rechnung im Detail: Barverkauf vs. Rechnung (Rechnung immer mit Kunde?), Rechnung aus Marktverkauf?, Lager-Artikel mit Preis/USt?, was passiert mit bestehenden Daten und Menü-Kacheln (alte Bereiche als Reiter im neuen Bereich?).
 - Behandlung: Völker am Stand einzeln abwählbar? Unterschiedliche Mengen je Volk (z. B. Ableger halbe Dosis)?
 
