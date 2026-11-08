@@ -161,7 +161,7 @@ async function main() {
   await cdp.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/tests/test.html${NUR ? '?nur=' + encodeURIComponent(NUR) : ''}` });
 
   let erg = null;
-  for (let i = 0; i < 1800; i++) {          // bis zu 6 Minuten (die Suite braucht inzwischen gut 2,5 Minuten, unter Last mehr)
+  for (let i = 0; i < 3600; i++) {          // bis zu 12 Minuten (über 1000 Tests brauchen unter Last mehr als 6 Minuten, 08.11.2026)
     try { erg = await cdp.js('return window.testErgebnis || null'); } catch (e) {}
     if (erg) break;
     await schlaf(200);
