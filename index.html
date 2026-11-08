@@ -5028,7 +5028,8 @@ function langDruckSortieren(host, sel, fertig, opt = {}) {
   };
   /* Neuen Platz für den Platzhalter bestimmen und – mit Gleiten – einsetzen */
   const einordnen = (x, y) => {
-    if (!st || !st.aktiv) return;
+    // Über einem Ziel (z. B. der unteren Leiste) wird nichts umgeordnet – auch nicht durchs Mitrollen (Prüfung 08.11.2026, P18)
+    if (!st || !st.aktiv || st.zt) return;
     if (Date.now() < st.ruheBis) {
       /* Kacheln gleiten noch: gleich danach mit der dann aktuellen Fingerposition nachholen – sonst ginge eine
          schnelle letzte Bewegung verloren (iPhone-Simulator: zurückgezogen und sofort losgelassen) */
@@ -5091,8 +5092,10 @@ function langDruckSortieren(host, sel, fertig, opt = {}) {
     if (st.y < oben + zone) v = -Math.ceil((oben + zone - st.y) / 5);
     else if (st.y > unten - zone) v = Math.ceil((st.y - (unten - zone)) / 5);
     v = Math.max(-16, Math.min(16, v));
+    if (st.zt) v = 0;   // Finger über einem Ziel: nicht mitrollen (Prüfung 08.11.2026, P18)
     if (v && box) { const vorher = box.scrollTop; box.scrollTop += v; if (box.scrollTop !== vorher) einordnen(st.x, st.y); }
-    else if (v) { const vorher = scrollY; window.scrollBy(0, v); if (scrollY !== vorher) einordnen(st.x, st.y); }
+    /* 'eltern' ohne rollbares Fenster (Menü ohne Scrollbalken): die Seite dahinter bleibt stehen (Prüfung 08.11.2026, P19) */
+    else if (v && opt.rollen !== 'eltern') { const vorher = scrollY; window.scrollBy(0, v); if (scrollY !== vorher) einordnen(st.x, st.y); }
     st.raf = requestAnimationFrame(rollen);
   };
   host.classList.add('lp-sort');
@@ -5454,11 +5457,12 @@ async function loescheMitMaterial(store, erwartet) {
   const mitVerkauf = store === 'abfuellungen';
   const mitWartezeit = store === 'behandlungen';   // Wartezeit-Erinnerung entfernen bzw. die Sammel-Erinnerung verkleinern (Fund 04.11.2026, #23)
   const mitRechnung = store === 'kassenbuch';   // Buchung einer ausgestellten Rechnung bleibt stehen – in derselben Transaktion geprüft (Fund 04.11.2026, #3/#25)
-  return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : mitRechnung ? ['rechnungen'] : []), ...(mitWartezeit ? ['aufgaben'] : [])], (d) => {
+  // Kassenbuch: auch Verkäufe und Abgänge, deren Einnahme zu einer Beleg-Rechnung gehört (Prüfung 08.11.2026, P11/P15)
+  return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : mitRechnung ? ['rechnungen', 'verkaeufe', 'materialabgaenge'] : []), ...(mitWartezeit ? ['aufgaben'] : [])], (d) => {
     const rec = d[store].find((x) => x.id === erwartet.id);
     if (!rec) return { ops: [], wert: 0 };
     if (JSON.stringify(rec) !== JSON.stringify(erwartet)) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
-    const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : mitRechnung ? rechnungBuchungSperre(rec, d.rechnungen, d.kassenbuch) : null;
+    const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : mitRechnung ? rechnungBuchungSperre(rec, d.rechnungen, d.kassenbuch, d.verkaeufe, d.materialabgaenge) : null;
     if (sperre) throw new Error(sperre);
     const material = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
     let menge = 0;
@@ -11100,7 +11104,7 @@ Views.behandlungen = {
         { key: '_jeVolkSumme', type: 'static', html: '<div class="small" style="font-weight:600" data-je-volk-summe></div>' },
         { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', hint: 'Leer = nicht erfasst, 0 = keine Wartezeit. Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
-        ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird Menge je Volk × Anzahl der angehakten Völker.' }),
+        ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird die Summe der Mengen aller angehakten Völker.' }),   // (Prüfung 08.11.2026, P4) vorher „Menge je Volk × Anzahl“
         { key: '_trennBeh3', type: 'static', html: '<div class="small muted mt8" style="font-weight:600">Weitere Angaben fürs Bestandsbuch (freiwillig)</div>' },
         { key: 'behandlungBis', label: 'Behandlung bis', type: 'date', halb: true },
         { key: 'lieferant', label: 'Lieferant', halb: true },
@@ -11129,9 +11133,21 @@ Views.behandlungen = {
     const jeVolk = verdrahteMengeJeVolk(m, $('#f-volkIds', m.el), $('#f-menge', m.el), { einheit: () => (einheitEl ? einheitEl.value.trim() : ''), summe: $('[data-je-volk-summe]', m.el) });
     /* Stand gewählt: alle Völker dieses Stands sind vorausgewählt, abwählen geht einzeln (Julian 08.11.2026) */
     const standSel = $('#f-standId', m.el);
+    /* Von Hand abgewählte Völker bleiben abgewählt (Prüfung 08.11.2026, P2): Vorher hakte ein Wechsel der Funktion alle
+       sichtbaren Völker wieder an – das abgewählte Volk bekam beim Speichern trotzdem einen Eintrag und einen Lager-Abzug. */
+    const abgewaehlt = new Set();
+    const volkBox = $('#f-volkIds', m.el), zeilenSichtbar = () => $$('label.check-line', volkBox).filter((l) => l.style.display !== 'none');
+    volkBox.addEventListener('change', (e) => {
+      const cb = e.target;
+      if (!cb || cb.type !== 'checkbox') return;
+      if (cb.checked) abgewaehlt.delete(cb.value); else abgewaehlt.add(cb.value);
+    });
+    const knopf = (sel, fn) => { const k = $(sel, m.el); if (k) k.addEventListener('click', fn); };
+    knopf('[data-alle]', () => abgewaehlt.clear());
+    knopf('[data-keine]', () => zeilenSichtbar().forEach((l) => abgewaehlt.add($('input[type=checkbox]', l).value)));
     const vorauswahl = () => {
       if (!standSel.value) return;
-      $$('#f-volkIds label.check-line', m.el).filter((l) => l.style.display !== 'none').forEach((l) => { $('input[type=checkbox]', l).checked = true; });
+      zeilenSichtbar().forEach((l) => { const cb = $('input[type=checkbox]', l); cb.checked = !abgewaehlt.has(cb.value); });
       jeVolk.auffrischen();
     };
     standSel.addEventListener('change', vorauswahl);
@@ -11282,11 +11298,15 @@ function fuetterungVerbrauch(v, posten, anzahlVoelker) {
     `rolle` ('deckel', 'etikett' oder '' für Gebinde) setzt das Abfüllen, das weiß, für welches Feld die Position gewählt ist.
     Sie steht dann auch in jedem Abzug-Eintrag, damit abfuellungAendern sie später kennt (Ultra-Test 05.11.2026, U3). */
 function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
-  const m = buchungsZahl(menge, 'Materialmenge');
-  if (!inventarId || m === 0) return { abzug: [], gefehlt: 0 };
+  const roh = buchungsZahl(menge, 'Materialmenge');
+  if (!inventarId || roh === 0) return { abzug: [], gefehlt: 0 };
   const start = posten.find((p) => p.id === inventarId);
   if (!start) throw new Error('Der ausgewählte Materialposten fehlt.');
   const einheit = verbrauchEinheit(start);
+  /* Stück gibt es nur ganz (Prüfung 08.11.2026, P1): Ableger mit halber Dosis ergeben z. B. 2,5 Stück. Vorher rundete der
+     Abzug 10 − 2,5 auf 8 und meldete „0,5 Stück fehlten“, obwohl genug da war. Jetzt wird auf ganze Stück aufgerundet
+     (ein angebrochenes Stück ist verbraucht) und das in `aufgerundet` gemeldet. */
+  const m = einheit === 'Stück' ? Math.ceil(roh - 1e-9) : roh;
   /* Einspringen darf nur dieselbe Art samt Rolle (Fund 04.11.2026, #23): Vorher füllten Etiketten oder Gläser ohne Größe
      fehlende Deckel auf (Deckel 20 + Etiketten 30 bei 50 Gläsern), und „30 Stück fehlten“ wurde verschwiegen. */
   /* Ersatz-Kandidaten mit derselben Rolle wie der Start (Ultra-Test 05.11.2026, U2): Vorher bekam nur der Start die Rolle des
@@ -11300,7 +11320,8 @@ function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
   const abzug = []; let offen = m;
   for (const p of [start, ...weitere]) {
     if (offen <= 0.0000001) break;
-    const vorher = buchungsZahl(p.stueckzahl, 'Materialbestand'), n = Math.min(vorher, offen);
+    // Altdaten ohne Bestandszahl gelten als 0, wie überall sonst (Prüfung 08.11.2026, P3) – gemeldet wird es über „fehlten“
+    const vorher = p.stueckzahl == null || p.stueckzahl === '' ? 0 : buchungsZahl(p.stueckzahl, 'Materialbestand'), n = Math.min(vorher, offen);
     if (!n) continue;
     p.stueckzahl = einheit === 'Stück' ? Math.round(vorher - n) : Math.round((vorher - n) * 1000) / 1000;
     const wirklich = Math.round((vorher - p.stueckzahl) * 1000) / 1000;
@@ -11308,7 +11329,7 @@ function materialAbzugPlan(posten, inventarId, menge, geaendert, rolle) {
     abzug.push({ inventarId: p.id, bezeichnung: p.bezeichnung, menge: wirklich, einheit, ...(rolle != null ? { rolle } : {}) });
     geaendert.set(p.id, p); offen = Math.round((offen - wirklich) * 1000) / 1000;
   }
-  return { abzug, gefehlt: Math.max(0, offen), einheit, bezeichnung: start.bezeichnung };
+  return { abzug, gefehlt: Math.max(0, offen), einheit, bezeichnung: start.bezeichnung, ...(m !== roh ? { aufgerundet: { von: roh, auf: m } } : {}) };
 }
 /** Prüft die gemeinsame Chargenkapazität aus aktuellen Transaktionsdaten. */
 function pruefeAbfuellMenge(d, chargeId, neue, ohneId) {
@@ -11540,7 +11561,9 @@ async function behandlungenJeVolkAnlegen(liste, daten) {
     const mengen = posten.map((x) => r3(buchungsZahl(x.menge, 'Menge je Volk')));
     const recs = posten.map((x, i) => ({ ...behandlungFuerVolk(x.volkId, eingabe), id: U.uuid(), menge: mengen[i] }));
     const summe = r3(mengen.reduce((s, x) => s + x, 0)), geaendert = new Map();
-    const plan = eingabe._verbrauchId ? materialAbzugPlan(d.inventar, eingabe._verbrauchId, summe, geaendert) : { abzug: [], gefehlt: 0 };
+    /* Gelöschte Lager-Position: speichern ohne Abzug wie vor dem Umbau (Prüfung 08.11.2026, P3), statt alles abzuweisen. */
+    const mitAbzug = !!eingabe._verbrauchId && d.inventar.some((p) => p.id === eingabe._verbrauchId);
+    const plan = mitAbzug ? materialAbzugPlan(d.inventar, eingabe._verbrauchId, summe, geaendert) : { abzug: [], gefehlt: 0 };
     recs.forEach((r, i) => { r.verbrauchAbzug = abzugAnteilGewichtet(plan, mengen, i); });
     const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'behandlungen', obj })));
     const wz = Number(wartezeitWert(eingabe.wartezeitTage)) || 0;
@@ -11549,7 +11572,7 @@ async function behandlungenJeVolkAnlegen(liste, daten) {
       ops.push({ store: 'aufgaben', obj: { titel: wartezeitSammelTitel(eingabe.mittel, recs.length), faellig: U.addDays(eingabe.datum, Math.round(wz)), erledigt: false, quelle: 'behandlung', refId: null, refIds: recs.map((r) => r.id),
         notiz: gleich ? `${eingabe.mittel}, ${U.fmtNum(mengen[0])} ${e} je Volk vom ${U.fmtDate(eingabe.datum)}` : `${eingabe.mittel}, zusammen ${U.fmtNum(summe)} ${e} (je Volk eigene Menge) vom ${U.fmtDate(eingabe.datum)}` } });
     }
-    return { ops, wert: { recs, summe, wartezeit: wz > 0, buchung: eingabe._verbrauchId ? { abzug: plan.abzug, gefehlt: plan.gefehlt, einheit: plan.einheit } : null } };
+    return { ops, wert: { recs, summe, wartezeit: wz > 0, buchung: mitAbzug ? { abzug: plan.abzug, gefehlt: plan.gefehlt, einheit: plan.einheit, ...(plan.aufgerundet ? { aufgerundet: plan.aufgerundet } : {}) } : null } };
   });
 }
 /* Ernte pro Volk (Julian 08.11.2026): Ernte am ganzen Stand als je ein Eintrag pro Volk (zielTyp 'volk'), damit der
@@ -18839,9 +18862,10 @@ async function kassenbuchVerknuepft(k) {
 }
 /** Löschen einer Kassenbuch-Buchung: gehört sie zu einem Bereich, wird gefragt, ob der Eintrag dort auch gelöscht werden soll. */
 async function kassenbuchLoeschen(k) {
-  // Buchung einer ausgestellten Rechnung: nur über das Storno der Rechnung (Fund 04.11.2026, #3/#25)
-  if (k && k.rechnungId) {
-    const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'));
+  // Buchung einer ausgestellten Rechnung: nur über das Storno der Rechnung (Fund 04.11.2026, #3/#25) – auch die Einnahme
+  // eines Verkaufs mit festgeschriebener Beleg-Rechnung (Prüfung 08.11.2026, P11/P15)
+  if (k) {
+    const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'), await DB.getAll('verkaeufe'), await DB.getAll('materialabgaenge'));
     if (sperre) { UI.toast(sperre, 'err'); return false; }
   }
   const vk = await kassenbuchVerknuepft(k);
@@ -19029,9 +19053,10 @@ Views.kassenbuch = {
   },
   async form(k, vorgabe) {
   if (Lizenz.nurVoll('Das Kassenbuch')) return;
-    // Buchung einer ausgestellten Rechnung lässt sich nicht von Hand ändern (Fund 04.11.2026, #3/#25)
-    if (k && k.rechnungId) {
-      const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'));
+    // Buchung einer ausgestellten Rechnung lässt sich nicht von Hand ändern (Fund 04.11.2026, #3/#25) – auch nicht die
+    // Einnahme eines Verkaufs mit festgeschriebener Beleg-Rechnung (Prüfung 08.11.2026, P11/P15)
+    if (k) {
+      const sperre = rechnungBuchungSperre(k, await DB.getAll('rechnungen'), await DB.getAll('kassenbuch'), await DB.getAll('verkaeufe'), await DB.getAll('materialabgaenge'));
       if (sperre) return UI.toast(sperre, 'err');
     }
     const kontakte = await DB.getAll('kontakte');
@@ -19334,8 +19359,15 @@ function rechnungKassenSaldo(rechnungId, kassenbuch) {
 /** Darf diese Buchung gelöscht oder geändert werden? Meldung, wenn nicht – sonst null. Bei einer stornierten Rechnung bleiben
     Einnahme und Storno stehen, solange sie sich aufheben. Heben sie sich nicht auf (alte Daten: eine der beiden wurde früher
     gelöscht), bleibt die übrige Zeile änderbar – sonst bliebe das Kassenbuch für immer falsch. */
-function rechnungBuchungSperre(k, rechnungen, kassenbuch) {
-  if (!k || !k.rechnungId) return null;
+function rechnungBuchungSperre(k, rechnungen, kassenbuch, verkaeufe = null, abgaenge = null) {
+  if (!k) return null;
+  /* Einnahme eines Verkaufs (Honig oder Lager) mit festgeschriebener Beleg-Rechnung (Prüfung 08.11.2026, P11/P15): Sie hat
+     keine rechnungId, gehört aber genauso zur Rechnung. Gesperrt wie eine Rechnungs-Buchung – sonst stünde die Rechnung
+     ohne (oder mit anderer) Einnahme da. Zurück geht sie mit dem Verkauf, dort wird die Rechnung mit storniert. */
+  if (!k.rechnungId) {
+    const re = belegRechnungZuBuchung(k, rechnungen, verkaeufe, abgaenge);
+    return re ? `Diese Buchung gehört zur Rechnung ${re.nummer}. Ändern oder löschen geht nur über den Verkauf: Nimm ihn in seiner Liste zurück (Honig: Reiter Verkauf, Lager: Abgangsliste), dann wird die Rechnung mit storniert.` : null;
+  }
   const r = (rechnungen || []).find((x) => x.id === k.rechnungId);
   if (!r) return null;
   if (r.status === 'festgeschrieben') return `Diese Buchung gehört zur Rechnung ${r.nummer}. Storniere stattdessen die Rechnung.`;
@@ -19493,6 +19525,14 @@ function rechnungKategorie(r, inventar) {
   if (!pos.length || !pos.every((p) => p.inventarId)) return 'Honigverkauf';
   const typen = pos.map((p) => { const i = (inventar || []).find((x) => x.id === p.inventarId); return i ? inventarTyp(i) : 'verbrauch'; });
   return typen.every((t) => t === 'produkt') ? 'Weitere Produkte' : 'Materialverkauf';
+}
+/* Gemischte Rechnung (Lager-Ware UND Honig oder freie Positionen, Prüfung 08.11.2026, P9/P17): Die Einnahme bleibt EINE
+   Buchung unter „Honigverkauf“ – das Storno nimmt dieselbe Kategorie, die Rechnung bleibt im Kassenbuch eine Zeile. Damit
+   das nicht überrascht, sagt es die Rückfrage beim Festschreiben. */
+const RECHNUNG_GEMISCHT_TEXT = 'Die Rechnung enthält Lager-Ware und andere Positionen: Die Einnahme steht als eine Buchung unter „Honigverkauf“ im Kassenbuch.';
+function rechnungGemischt(r) {
+  const pos = (r && r.positionen) || [];
+  return pos.some((p) => p.inventarId) && pos.some((p) => !p.inventarId);
 }
 /** Nur den unveränderten, weiterhin offenen Entwurf überschreiben. */
 async function rechnungEntwurfSpeichern(neu, erwartet) {
@@ -19808,6 +19848,8 @@ Views.rechnung = {
           if (!i) throw feldFehler('inventarId', 'Bitte eine Position aus dem Lager wählen.');
           menge = Math.round(Number(v.menge) * 1000) / 1000;
           if (!(menge > 0)) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+          // Stück-Ware nur in ganzen Stück – der Bestand zählt ganze Stück (Prüfung 08.11.2026, P8/P16)
+          if (verbrauchEinheit(i) === 'Stück' && !Number.isInteger(menge)) throw feldFehler('menge', `„${i.bezeichnung}“ zählt in Stück. Bitte eine ganze Zahl eintragen, z. B. 2 oder 3.`);
           // schon in dieser Rechnung stehende Mengen derselben Position zählen mit
           const schon = U.sum(r.positionen.filter((p) => p.inventarId === i.id), (p) => Number(p.menge) || 0);
           if (schon + menge > verbrauchBestand(i) + 1e-9) throw feldFehler('menge', `Im Lager sind nur ${U.fmtNum(verbrauchBestand(i) - schon, 2)} ${verbrauchEinheit(i)} ${i.bezeichnung}.`);
@@ -19869,11 +19911,18 @@ Views.rechnung = {
       const a = vorBestand.find((x) => x.id === id);
       if (!a || menge > a.bestand) return UI.toast('Bestand reicht nicht oder die Abfüllung fehlt.', 'err');
     }
+    // Verkauf nach dem Anlegen des Entwurfs geändert: gleich sagen, statt eine falsche Rückfrage zu zeigen (Prüfung 08.11.2026, P6/P14)
+    if (r.ausVerkauf) {
+      const geaendert = belegVerkaufGeaendert({ verkaeufe: await DB.getAll('verkaeufe'), materialabgaenge: await DB.getAll('materialabgaenge') }, r);
+      if (geaendert) return UI.toast(geaendert, 'err');
+    }
     const abw = r.ausVerkauf ? verkaufAbweichung(r) : null;
+    const gemischt = !r.ausVerkauf && rechnungGemischt(r);
     const confirmText = r.ausVerkauf
       ? (abw ? `Die Rechnung erhält die nächste fortlaufende Nummer. Ihr Betrag (${U.fmtEur(abw.neu)}) weicht vom Verkauf ab (${U.fmtEur(abw.vorher)}): Die Einnahme im Kassenbuch wird auf ${U.fmtEur(abw.neu)} gesetzt und als geändert vermerkt – es kommt keine zweite dazu. Danach ist sie nicht mehr änderbar.`
         : 'Die Rechnung erhält die nächste fortlaufende Nummer. Der Verkauf dazu ist schon gebucht – Bestand und Kassenbuch ändern sich nicht noch einmal. Danach ist sie nicht mehr änderbar.')
-      : 'Die Rechnung erhält die nächste fortlaufende Nummer, der Bestand (Honig und Lager) wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.';
+      : 'Die Rechnung erhält die nächste fortlaufende Nummer, der Bestand (Honig und Lager) wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.'
+        + (gemischt ? ` ${RECHNUNG_GEMISCHT_TEXT}` : '');
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: confirmText, confirmText: 'Festschreiben', danger: false }))) return;
     try {
       const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings', 'kontakte', 'inventar', 'papierkorb', 'verkaeufe', 'materialabgaenge'], (d) => {
@@ -19891,6 +19940,9 @@ Views.rechnung = {
         if (ausVerkauf) {
           const da = ausVerkauf.art === 'honig' ? d.verkaeufe.some((x) => x.id === ausVerkauf.id) : d.materialabgaenge.some((x) => x.id === ausVerkauf.id);
           if (!da) throw new Error('Der Verkauf zu dieser Rechnung ist storniert oder gelöscht. Lösch den Entwurf oder stell den Verkauf wieder her.');
+          // Verkauf seit dem Entwurf geändert: nicht still zurücksetzen (Prüfung 08.11.2026, P6/P14)
+          const geaendert = belegVerkaufGeaendert(d, aktuell);
+          if (geaendert) throw new Error(geaendert);
         }
         for (const p of aktuell.positionen) {
           const menge = buchungsZahl(p.menge, 'Menge');
@@ -19911,18 +19963,25 @@ Views.rechnung = {
           a.bestand = bestand - menge; ops.push({ store: 'abfuellungen', obj: a });
         }
         // Lager-Positionen: Bestand ab, in derselben Transaktion (Julian 08.11.2026, Paket 4)
-        const geaendertLager = new Map();
+        const geaendertLager = new Map(), vorherLager = new Map();
         for (const [id, { menge, text }] of gebrauchtLager) {
+          /* Stück-Ware nur in ganzen Stück (Prüfung 08.11.2026, P8/P16): Der Bestand wird bei „Stück“ gerundet – aus 2,5 wurden
+             2 abgezogen, das Storno legte aber 2,5 zurück (aufgerundet 3): Bestand aus nichts. */
+          const posVorher = d.inventar.find((x) => x.id === id);
+          if (posVorher && verbrauchEinheit(posVorher) === 'Stück' && Math.abs(menge - Math.round(menge)) > 1e-9) {
+            throw new Error(`„${text}“ zählt in Stück – dafür geht nur eine ganze Zahl (jetzt ${U.fmtNum(menge, 3)}). Lösch die Position und trag sie mit ganzer Zahl neu ein.`);
+          }
           const b = lagerBuchen(d, id, -menge, geaendertLager, { bezeichnung: text,
             reichtNicht: (pos, braucht, da) => new Error(`Bestand reicht nicht: ${U.fmtNum(braucht, 2)} ${verbrauchEinheit(pos)} ${pos.bezeichnung} verlangt, ${U.fmtNum(da, 2)} da.`) });
           if (!b) throw new Error(`Die Lager-Position „${text}“ gibt es nicht mehr.`);
+          vorherLager.set(id, b.vorher);
         }
         for (const obj of geaendertLager.values()) ops.push({ store: 'inventar', obj });
         const kreisVorher = d.settings.find((x) => x.key === 'rechnungskreis') || null;
         const kreis = structuredClone((kreisVorher && kreisVorher.value) || S.defaults.rechnungskreis);
         const nr = naechsteRechnungsnummer(kreis, d.rechnungen);
         aktuell.berechnungVersion = 2;
-        const { brutto } = rechnungSummen(aktuell);
+        const summen = rechnungSummen(aktuell), { brutto } = summen;
         if (!Number.isFinite(brutto)) throw new Error('Der Rechnungsbetrag ist ungültig.');
         aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
         // Empfänger und Absender festhalten, wie sie jetzt sind – das PDF druckt sie später genau so (Fund 04.11.2026, #2/#21)
@@ -19932,7 +19991,11 @@ Views.rechnung = {
         if (ausVerkauf) ops.push(...belegVerkaufAnpassen(d, aktuell, nr.nummer, brutto));
         /* Lager-Positionen erscheinen als Abgang „Verkauf“ in der Abgangsliste (Julian 08.11.2026). Bestand und Einnahme hat
            oben schon die Rechnung gebucht – der Abgang ist nur die Zeile dazu: ohne eigene Kassenbuch-Buchung (kassenbuchId null),
-           mit `rechnungId`. Ändern/Zurücknehmen geht nur über das Storno der Rechnung, das ihn wieder entfernt. */
+           mit `rechnungId`. Ändern/Zurücknehmen geht nur über das Storno der Rechnung, das ihn wieder entfernt.
+           Rabatt der Rechnung (Prüfung 08.11.2026, P9/P17): Er gilt anteilig für alle Waren (wie bei der Umsatzsteuer). Der
+           Erlös der Zeile ist deshalb ihr Anteil NACH Rabatt (`betragRechnung`, wie bei belegVerkaufAnpassen) – so zeigen
+           Abgangsliste, PDF und Export dasselbe wie das Kassenbuch. Der Preis je Einheit bleibt der aus der Rechnung. */
+        const rabattFaktor = summen.waren > 0 ? summen.nachRabatt / summen.waren : 1;
         for (const [id, { menge, text }] of gebrauchtLager) {
           const pos = geaendertLager.get(id);
           if (!pos) continue;   // Position endgültig gelöscht: nichts abgezogen, keine Zeile
@@ -19940,7 +20003,8 @@ Views.rechnung = {
           const summe = U.sum(ps, (p) => buchungsZahl(p.menge, 'Menge') * buchungsZahl(p.einzelpreis, 'Einzelpreis'));
           ops.push({ store: 'materialabgaenge', obj: { id: U.uuid(), inventarId: id, bezeichnung: pos.bezeichnung || text, typ: inventarTyp(pos), einheit: verbrauchEinheit(pos),
             datum: aktuell.datum, menge, art: 'Verkauf', preis: menge > 0 ? Math.round(summe / menge * 100) / 100 : 0, kontaktId: aktuell.kundeId, kaeufer: '',
-            belegNr: nr.nummer, bestandVorher: verbrauchBestand(pos) + menge, bestandNachher: verbrauchBestand(pos), notiz: '', kassenbuchId: null, rechnungId: aktuell.id } });
+            ...(rabattFaktor < 1 - 1e-9 ? { betragRechnung: Math.round(summe * rabattFaktor * 100) / 100 } : {}),
+            belegNr: nr.nummer, bestandVorher: vorherLager.has(id) ? vorherLager.get(id) : verbrauchBestand(pos) + menge, bestandNachher: verbrauchBestand(pos), notiz: '', kassenbuchId: null, rechnungId: aktuell.id } });
         }
         ops.push({ store: 'rechnungen', obj: aktuell });
         const kreisSatz = S.satz(kreisVorher, 'rechnungskreis', kreis);
@@ -20504,6 +20568,8 @@ async function lagerVerkaufBuchen({ inventarId, menge, preis, datum = U.todayIso
       if (materialImPapierkorb(d, inventarId)) throw new Error('Diese Position liegt im Papierkorb. Stell sie zuerst wieder her. Nichts wurde gebucht.');
       throw feldFehler('inventarId', 'Diese Position gibt es nicht mehr. Bitte die Ansicht neu öffnen. Nichts wurde gebucht.');
     }
+    // Stück-Ware nur in ganzen Stück: sonst ging weniger ab als verkauft, mit falscher „fehlten“-Meldung (Prüfung 08.11.2026, P8/P16)
+    if (verbrauchEinheit(pos) === 'Stück' && Math.abs(m - Math.round(m)) > 1e-9) throw feldFehler('menge', `„${pos.bezeichnung}“ zählt in Stück. Bitte eine ganze Zahl eintragen, z. B. 2 oder 3. Nichts wurde gebucht.`);
     const vorher = verbrauchBestand(pos);
     const geaendert = new Map();
     const b = lagerBuchen(d, pos.id, -Math.min(vorher, m), geaendert, { bezeichnung: pos.bezeichnung });
@@ -20635,6 +20701,16 @@ function rechnungGrundwerte() {
 function belegRechnungZu(rechnungen, art, id) {
   return (rechnungen || []).find((r) => r.status === 'festgeschrieben' && r.ausVerkauf && r.ausVerkauf.art === art && r.ausVerkauf.id === id) || null;
 }
+/** Festgeschriebene Beleg-Rechnung zu der Kassenbuch-Einnahme eines Verkaufs (Honig oder Lager) – sonst null
+    (Prüfung 08.11.2026, P11/P15). Der Verkauf merkt sich seine Einnahme in `kassenbuchId`. */
+function belegRechnungZuBuchung(k, rechnungen, verkaeufe, abgaenge) {
+  if (!k || !k.id) return null;
+  const v = (verkaeufe || []).find((x) => x.kassenbuchId === k.id);
+  const re = v ? belegRechnungZu(rechnungen, 'honig', v.id) : null;
+  if (re) return re;
+  const a = (abgaenge || []).find((x) => x.kassenbuchId === k.id);
+  return a ? belegRechnungZu(rechnungen, 'lager', a.id) : null;
+}
 /** Fehler, wenn ein Verkauf ohne Rückfrage zurückgenommen werden soll, zu dem es eine Rechnung gibt. */
 function belegRechnungFehler(re) {
   const e = new Error(`Zu diesem Verkauf gibt es Rechnung ${re.nummer}. Nimm den Verkauf in seiner Liste zurück (Honig: Reiter Verkauf, Lager: Abgangsliste) – dort wird die Rechnung mit storniert. Nichts wurde geändert.`);
@@ -20652,6 +20728,24 @@ function verkaufAbweichung(r) {
   if (!r || !r.ausVerkauf) return null;
   const vorher = Math.round((Number(r.ausVerkauf.betrag) || 0) * 100) / 100, neu = Math.round(rechnungSummen(r).brutto * 100) / 100;
   return Math.abs(neu - vorher) < 0.005 ? null : { vorher, neu };
+}
+/** Wurde der Verkauf geändert, nachdem der Rechnungsentwurf dazu angelegt wurde? Meldung oder null (Prüfung 08.11.2026, P6/P14).
+    Der Entwurf hält Menge (gesperrte Positionen) und Betrag (ausVerkauf.betrag) vom Anlegen fest. Weicht der Verkauf jetzt
+    davon ab, würde das Festschreiben Einnahme und Verkauf still auf den alten Stand zurücksetzen – darum lieber abweisen.
+    d: { verkaeufe, materialabgaenge }. */
+function belegVerkaufGeaendert(d, r) {
+  const av = r && r.ausVerkauf;
+  if (!av) return null;
+  const honig = av.art === 'honig';
+  const vk = honig ? (d.verkaeufe || []).find((x) => x.id === av.id) : (d.materialabgaenge || []).find((x) => x.id === av.id);
+  if (!vk) return null;   // fehlt der Verkauf, meldet das Festschreiben das selbst
+  const jetzt = Math.round((honig ? Number(vk.betrag) || 0 : abgangErloes(vk)) * 100) / 100;
+  const mengeJetzt = Number(honig ? vk.anzahl : vk.menge) || 0;
+  const mengeEntwurf = U.sum(r.positionen || [], (p) => Number(p.menge) || 0);
+  const betragAnders = av.betrag != null && Math.abs(jetzt - (Math.round((Number(av.betrag) || 0) * 100) / 100)) >= 0.005;
+  if (!betragAnders && Math.abs(mengeJetzt - mengeEntwurf) < 1e-9) return null;
+  return `Der Verkauf wurde geändert, nachdem diese Rechnung angelegt wurde (jetzt ${U.fmtNum(mengeJetzt, 2)}${honig ? ' Gebinde' : ' ' + (vk.einheit || '')} für ${U.fmtEur(jetzt)}). `
+    + 'Lösch diesen Entwurf und erstelle die Rechnung beim Verkauf neu. Nichts wurde gebucht.';
 }
 /** Satz im Hinweis oben auf der Rechnung zum Verkauf: im Entwurf die Abweichung, danach der Vermerk. */
 function verkaufAbweichungText(r, entwurf) {
@@ -23808,8 +23902,9 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false, mitRec
        geht beides nur über ihr Storno, sonst käme der Bestand zweimal zurück. */
     if (x.rechnungId) throw new Error(ABGANG_AUS_RECHNUNG(x));
     /* Beleg-Rechnung zum Lager-Verkauf (Julian 08.11.2026): wie bei verkaufStornieren – Zurücknehmen nur mit `mitRechnung`
-       (nach der Rückfrage), dann Rechnung storniert, Bestand und Einnahme genau einmal zurück. Bearbeiten bleibt wie bisher. */
-    const re = loeschen ? belegRechnungZu(d.rechnungen, 'lager', x.id) : null;
+       (nach der Rückfrage), dann Rechnung storniert, Bestand und Einnahme genau einmal zurück. Beim Bearbeiten genauso
+       (Prüfung 08.11.2026, P7/P13): Sonst stünde die festgeschriebene Rechnung über die alte Menge neben einem anderen Verkauf. */
+    const re = belegRechnungZu(d.rechnungen, 'lager', x.id);
     if (re && !mitRechnung) throw belegRechnungFehler(re);
     if (re) { kasse = true; re.status = 'storniert'; }
     lagerBuchen(d, x.inventarId, -lagerWirkung('materialabgaenge', x), geaendert, { bezeichnung: x.bezeichnung });
@@ -23864,11 +23959,21 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
       if (!pos) throw feldFehler('inventarId', 'Bitte eine Position wählen.');
       const menge = Math.max(0, Number(v.menge) || 0);
       if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+      /* Festgeschriebene Rechnung zum Verkauf (Prüfung 08.11.2026, P7/P13): Ändern nur mit Rückfrage wie beim Löschen –
+         Ja storniert die Rechnung, danach kann eine neue zum geänderten Verkauf erstellt werden. */
+      const re = rec ? belegRechnungZu(await DB.getAll('rechnungen'), 'lager', rec.id) : null;
+      if (re && !(await UI.confirm({ title: 'Verkauf ändern?', text: `Zu diesem Verkauf gibt es Rechnung ${re.nummer}. Rechnung stornieren und Verkauf ändern? `
+        + 'Bestand und Kassenbuch werden passend zum geänderten Verkauf gebucht. Eine neue Rechnung kannst du danach erstellen.', confirmText: 'Stornieren und ändern', danger: true }))) {
+        const e = new Error('abgebrochen'); e.leise = true; throw e;
+      }
       /* Beim Bearbeiten erst die alte Buchung zurücknehmen, dann neu buchen –
          so muss keine Differenz gerechnet werden und der Bestand stimmt auch,
          wenn Position oder Menge gewechselt haben. */
-      const zurueck = rec ? await abgangZurueckbuchen(rec) : null;
+      const zurueck = rec ? await abgangZurueckbuchen(rec, { mitRechnung: !!re }) : null;
       const buchung = await verbrauchAbziehen(pos.id, menge);
+      /* Den Betrag einer früheren Rechnung (betragRechnung, z. B. mit Rabatt) nicht mitschleppen (Prüfung 08.11.2026, P7/P13):
+         Neu gebucht wird Menge × Preis, so wie es das Formular anzeigt. Die Rechnung dazu ist storniert (oder wird es oben). */
+      if (rec) { delete rec.betragRechnung; delete rec.geaendertDurchRechnung; }
       const gespeichert = await DB.put('materialabgaenge', Object.assign(rec || {}, {
         inventarId: pos.id, bezeichnung: pos.bezeichnung, typ: cfg.typ, einheit: verbrauchEinheit(pos),
         datum: v.datum, menge, art: v.art, preis: v.art === 'Verkauf' ? (Number(v.preis) || 0) : 0,
@@ -23890,7 +23995,8 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
           kontaktId: gespeichert.kontaktId || null, rechnungId: null,
           beschreibung: `${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}${wer ? ` an ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` }, zurueck && zurueck.kassenbuchAlt);
       }
-      UI.toast(`${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
+      UI.toast((zurueck && zurueck.rechnungStorniert ? `Rechnung ${zurueck.rechnungStorniert} storniert. ` : '')
+        + `${gespeichert.art} ${rec ? 'geändert' : 'gebucht'}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit} ${gespeichert.bezeichnung}`
         + (erloes > 0 ? ` · ${U.fmtEur(erloes)} im Kassenbuch` : '')
         + (buchung && buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${gespeichert.einheit} fehlten im Bestand` : ''));
       await pruefeMhd();
@@ -23931,7 +24037,8 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     const selPos = $('#f-inventarId', m.el), preisFeld = $('#f-preis', m.el);
     const vkSetzen = () => {
       const pos = posten.find((i) => i.id === (selPos || {}).value);
-      if (preisFeld && pos && Number(pos.verkaufspreis) > 0) preisFeld.value = U.fmtNum(pos.verkaufspreis, 2);
+      // Ohne Verkaufspreis das Feld leeren – sonst bliebe der Preis der vorher gewählten Position stehen (Prüfung 08.11.2026, P10)
+      if (preisFeld && pos) preisFeld.value = Number(pos.verkaufspreis) > 0 ? U.fmtNum(pos.verkaufspreis, 2) : '';
     };
     if (selPos) selPos.addEventListener('change', vkSetzen);
     vkSetzen();
@@ -24542,7 +24649,9 @@ function verbrauchMelden(buchung) {
     /* Wurden mehrere Positionen angefasst, sagt die Meldung welche – sonst
        wundert man sich, warum bei „Zucker 2025" plötzlich weniger fehlt. */
     const teile = buchung.abzug.map((a) => `${a.bezeichnung}: −${U.fmtNum(a.menge, 2)} ${a.einheit}`);
-    UI.toast(teile.join(' · ')
+    // Aufgerundete Stück sagen (Prüfung 08.11.2026, P1): „zusammen 2,5 Stück, abgezogen 3 – angebrochene Stück zählen ganz“
+    const auf = buchung.aufgerundet ? ` (zusammen ${U.fmtNum(buchung.aufgerundet.von, 2)} Stück, aufgerundet auf ${U.fmtNum(buchung.aufgerundet.auf, 0)} – ein angebrochenes Stück zählt ganz)` : '';
+    UI.toast(teile.join(' · ') + auf
       + (buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten im Bestand` : ''),
       buchung.gefehlt > 0 ? 'err' : undefined);
   } else if (buchung) {
@@ -30062,7 +30171,8 @@ const PdfImport = {
       outEl.querySelectorAll('[data-take]').forEach((b) => b.onclick = () => {
         const v = vorschlaege[+b.dataset.take];
         if (Lizenz.nurVoll(v.typ === 'behandlung' ? 'Behandlungen und Bestandsbuch' : 'Ernte und Abfüllung')) return;   // Light: Lesen bleibt frei, Übernehmen nicht (v3.02)
-        if (v.typ === 'behandlung') Views.behandlungen.form({ datum: v.datum, mittel: v.stichwort, notiz: `Aus PDF übernommen: ${v.kontext.slice(0, 140)}` });
+        // Behandlung mit Völkerliste (Prüfung 08.11.2026, P5): vorher Einzelformular mit „Ganzer Stand“ ohne Einträge je Volk
+        if (v.typ === 'behandlung') Views.behandlungen.sammelForm({ datum: v.datum, mittel: v.stichwort, notiz: `Aus PDF übernommen: ${v.kontext.slice(0, 140)}` });
         else PdfImport.ernteQuickForm({ datum: v.datum, sorte: v.stichwort, notiz: `Aus PDF übernommen: ${v.kontext.slice(0, 140)}` });
       });
     } catch (e) { outEl.innerHTML = `<div class="banner danger">${icon('warn')} PDF konnte nicht gelesen werden: ${U.esc(e.message)}</div>`; }
@@ -30087,22 +30197,45 @@ const PdfImport = {
   },
   async ernteQuickForm(prefill) {
     const ziel = await zielFelder({}, 'Geerntet wurde');
-    UI.formModal({
+    /* „Ganzer Stand“ mit Völkerliste wie im Ernte-Formular (Prüfung 08.11.2026, P5): Vorher entstand ein Stand-Eintrag,
+       der in der Leistung pro Volk fehlte. Jetzt wird je angehaktem Volk eine Ernte mit seiner Menge angelegt. */
+    const m = UI.formModal({
       title: 'Ernte übernehmen', wide: true, lizenzBereich: 'Ernte und Abfüllung',
       fields: [
         ...ziel,
         { key: 'datum', label: 'Erntedatum', type: 'date', required: true },
         { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte'), placeholder: 'optional – ggf. später vom Labor' },
-        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true },
+        { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, showIf: (f) => f.zielTyp !== 'stand' },
+        { key: 'mengeProVolk', label: 'Menge pro Volk (kg)', type: 'number', showIf: (f) => f.zielTyp === 'stand', hint: 'Gilt für jedes angehakte Volk. Eine eigene Menge trägst du in der Liste neben dem Volk ein.' },
+        { key: '_jeVolk', type: 'static', showIf: (f) => f.zielTyp === 'stand',
+          html: '<label>Welche Völker?</label><div data-je-volk></div><div class="small mt8" style="font-weight:600" data-je-volk-summe></div><div class="err"></div>' },
         { key: 'notiz', label: 'Notiz', type: 'textarea' },
       ],
       values: prefill,
       async onSave(v) {
+        if (v.zielTyp === 'stand') {
+          const liste = mengeJeVolkPruefen(jeVolk.werte(), '_jeVolk');
+          const recs = await ernteJeVolkAnlegen(liste, { datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', wassergehalt: null, schleuderung: null, notiz: v.notiz || '' });
+          UI.toast(`Ernte für ${recs.length} ${recs.length === 1 ? 'Volk' : 'Völker'} übernommen`);
+          return;
+        }
         const zielId = zielIdAus(v);
         await DB.put('ernten', { zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: null, schleuderung: null, notiz: v.notiz });
         UI.toast('Ernte übernommen');
       },
     });
+    const jeVolkBox = $('[data-je-volk]', m.el), standSel = $('#f-zielStand', m.el);
+    const jeVolk = verdrahteMengeJeVolk(m, jeVolkBox, $('#f-mengeProVolk', m.el), { einheit: () => 'kg', summe: $('[data-je-volk-summe]', m.el) });
+    const aktiv = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name.toLowerCase());
+    const zeichnen = () => {
+      const am = standSel && standSel.value ? aktiv.filter((x) => x.standId === standSel.value) : [];
+      jeVolkBox.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}</span></label>`).join('')
+        : `<div class="hint">${standSel && standSel.value ? 'An diesem Stand steht kein aktives Volk. Wähle „Einzelnes Volk“ oder einen anderen Stand.' : 'Wähle zuerst den Stand.'}</div>`;
+      jeVolk.auffrischen();
+    };
+    if (standSel) standSel.addEventListener('change', zeichnen);
+    zeichnen();
+    return m;
   },
 };
 
@@ -31346,8 +31479,9 @@ const Assistent = {
   img(zustand, klasse) {
     return `<img class="${klasse || 'bini-av'}" src="${Assistent.bild(zustand)}" alt="Imme" onerror="this.onerror=null;this.src='./assets/bienen/biene-12.webp'">`;
   },
-  /** Tippt auf den Knopf / das Feld, das zur Antwort gehört. */
-  finde(label) {
+  /** Tippt auf den Knopf / das Feld, das zur Antwort gehört. rueckfall: false = ohne Treffer null statt des ersten
+      Hauptknopfs (Prüfung 08.11.2026, P12 – solange die Seite noch aufbaut, wäre das oft ein falscher Knopf). */
+  finde(label, { rueckfall = true } = {}) {
     const kand = [...document.querySelectorAll('#main button, #main a.btn, #main .chip, #main .tab, #main [role="tab"], #bottomnav button, #main a')];
     const sicht = kand.filter((el) => el.offsetParent !== null);
     if (label) {
@@ -31360,6 +31494,7 @@ const Assistent = {
       const kopf = [...document.querySelectorAll('#main h2, #main h3, #main .card-title')].filter((el) => el.offsetParent !== null).find((el) => assistentNorm(el.textContent).includes(l));
       if (kopf) return kopf.closest('.card') || kopf;
     }
+    if (label && !rueckfall) return null;
     return sicht.find((el) => el.matches('.btn-primary, [data-neu]')) || null;
   },
   async zeige(e) {
@@ -31367,7 +31502,10 @@ const Assistent = {
     Assistent.markeWeg();
     if (location.hash === '#/' + ziel) await renderRoute(); else navTo(ziel);
     let el = null;
-    for (let i = 0; i < 40 && !el; i++) { await new Promise((r) => setTimeout(r, 100)); if (currentRoute().route === e.route) el = Assistent.finde(e.zeige); }
+    /* Erst nur nach dem genannten Knopf suchen: Die Seite baut in Schritten auf (z. B. Lager: Kopf mit „Verkaufen“ sofort,
+       die Liste erst nach den Abfragen). Der Rückfall auf den ersten Hauptknopf kommt erst ganz am Ende (Prüfung 08.11.2026, P12). */
+    for (let i = 0; i < 40 && !el; i++) { await new Promise((r) => setTimeout(r, 100)); if (currentRoute().route === e.route) el = Assistent.finde(e.zeige, { rueckfall: false }); }
+    if (!el && currentRoute().route === e.route) el = Assistent.finde(e.zeige);
     if (!el) return UI.toast(`Ich habe „${e.titel}“ geöffnet – such dort nach: ${e.schritte[e.schritte.length - 1]}`);
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     Assistent.markieren(el);

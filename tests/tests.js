@@ -22304,3 +22304,339 @@ test('Export (Julian 08.11.2026): vom Stand oder Volk aus nur passende Bereiche,
   const alle = await bereicheVon({});
   assert(alle.includes('kontakte') && alle.includes('wetter') && alle.includes('stockkarten'), 'allgemeiner Export vollständig');
 }));
+
+/* ===== Prüfung 08.11.2026 (docs/PRUEFUNG-PRAXIS-UMBAU-2026-11-08.md), Paket A: Lager-Verkauf und Rechnung ===== */
+test('Prüfung 08.11.2026 (P6/P14): Lager-Verkauf nach dem Rechnungsentwurf geändert → Festschreiben weist mit klarer Meldung ab, nichts wird zurückgesetzt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'PA Entwurf' });
+  const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+  const r = await w.verkaufRechnungErstellen(erg);
+  // Verkauf danach von 2 auf 3 Stück geändert (geht, der Entwurf ist noch kein Beleg)
+  const f = await lagerFormular(w, async () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, await w.DB.get('materialabgaenge', erg.abgang.id)));
+  f.setz('menge', '3'); await f.speichern();
+  const kasse = async () => (await w.DB.getAll('kassenbuch')).map((k) => k.betrag);
+  assertEq(await kasse(), [13.5], 'Kassenbuch nach der Änderung: 3 × 4,50 €');
+  fragen.length = 0; toasts.length = 0;
+  await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), []);
+  assertEq((await w.DB.get('rechnungen', r.id)).status, 'entwurf', 'bleibt Entwurf');
+  assert(toasts.some((t) => t.typ === 'err' && /Verkauf wurde geändert/.test(t.msg) && /Lösch diesen Entwurf/.test(t.msg)), 'klare Meldung: ' + JSON.stringify(toasts));
+  assertEq(fragen.length, 0, 'keine (falsche) Rückfrage „Bestand und Kassenbuch ändern sich nicht“');
+  const ab = await w.DB.get('materialabgaenge', erg.abgang.id);
+  assertEq([await kasse(), ab.menge, ab.betragRechnung, w.verbrauchBestand(await w.DB.get('inventar', d.prod.id))], [[13.5], 3, undefined, 21], 'Kassenbuch, Verkauf und Bestand unverändert');
+  // Dieselbe Prüfung steckt auch in der Transaktion
+  assert(/Verkauf wurde geändert/.test(w.belegVerkaufGeaendert({ materialabgaenge: [ab] }, await w.DB.get('rechnungen', r.id)) || ''), 'Prüfung in der Transaktion');
+  assertEq(w.belegVerkaufGeaendert({ materialabgaenge: [{ ...ab, menge: 2 }] }, await w.DB.get('rechnungen', r.id)), null, 'unveränderter Verkauf: kein Einwand');
+})));
+
+test('Prüfung 08.11.2026 (P7/P13): Lager-Verkauf mit Rechnung ändern → Rückfrage, Ja storniert die Rechnung; der Rechnungsbetrag bleibt nicht hängen', async (w) => isolierteDaten(w, async () => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'PA Ändern' });
+  const kasse = async () => (await w.DB.getAll('kassenbuch')).map((k) => k.betrag);
+  const mitRabatt = async (menge) => {
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge, preis: 4.5, kontaktId: kunde.id });
+    const r = await w.verkaufRechnungErstellen(erg);
+    await stornoUmgebung(w, async () => { await w.Views.rechnung.festschreiben(await w.DB.put('rechnungen', { ...r, rabattTyp: 'betrag', rabattWert: 1 }), []); });
+    return { erg, r: await w.DB.get('rechnungen', r.id) };
+  };
+  const aendern = (id, menge, ok) => stornoUmgebung(w, async ({ fragen, toasts }) => {
+    const f = await lagerFormular(w, async () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, await w.DB.get('materialabgaenge', id)));
+    f.setz('menge', String(menge)); await f.speichern();
+    return { fragen, toasts };
+  }, { confirm: ok });
+  // a) festgeschriebene Rechnung: 2 × 4,50 € − 1 € = 8 €
+  const a = await mitRabatt(2);
+  assertEq([a.r.status, await kasse(), (await w.DB.get('materialabgaenge', a.erg.abgang.id)).betragRechnung], ['festgeschrieben', [8], 8], 'Ausgang: Rechnung 8 €');
+  let f = null; try { await w.abgangZurueckbuchen(await w.DB.get('materialabgaenge', a.erg.abgang.id)); } catch (e) { f = e; }
+  assert(f && f.message.includes(a.r.nummer), 'Bearbeiten ohne Rückfrage geht nicht still: ' + (f && f.message));
+  await aendern(a.erg.abgang.id, 5, false);
+  assertEq([(await w.DB.get('rechnungen', a.r.id)).status, await kasse(), (await w.DB.get('materialabgaenge', a.erg.abgang.id)).menge], ['festgeschrieben', [8], 2], 'Abbrechen ändert nichts');
+  await stornoUmgebung(w, async ({ fragen, toasts }) => {
+    const g = await lagerFormular(w, async () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, await w.DB.get('materialabgaenge', a.erg.abgang.id)));
+    g.setz('menge', '5'); await g.speichern();
+    assertEq(fragen.length, 1, 'genau eine Rückfrage');
+    assert(fragen[0].text.includes(`Zu diesem Verkauf gibt es Rechnung ${a.r.nummer}. Rechnung stornieren und Verkauf ändern?`), 'Text: ' + fragen[0].text);
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  });
+  let ab = await w.DB.get('materialabgaenge', a.erg.abgang.id);
+  assertEq([(await w.DB.get('rechnungen', a.r.id)).status, ab.menge, ab.betragRechnung, ab.geaendertDurchRechnung, w.abgangErloes(ab), await kasse()],
+    ['storniert', 5, undefined, undefined, 22.5, [22.5]], 'Ja: Rechnung storniert, neu gebucht 5 × 4,50 € – nicht der alte Rechnungsbetrag');
+  assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 19, 'Bestand 24 − 5');
+  // b) Rechnung zuerst storniert, danach den Verkauf geändert (Ablauf aus P7): der alte Betrag 8 € darf nicht wiederkommen
+  await w.abgangZurueckbuchen(ab, { kasse: true, loeschen: true });
+  const b = await mitRabatt(2);
+  await w.rechnungStornieren(b.r.id);
+  await aendern(b.erg.abgang.id, 3, true);
+  ab = await w.DB.get('materialabgaenge', b.erg.abgang.id);
+  assertEq([ab.betragRechnung, w.abgangErloes(ab), await kasse()], [undefined, 13.5, [13.5]], 'Kassenbuch 3 × 4,50 € statt 8 €');
+}));
+
+test('Prüfung 08.11.2026 (P11/P15): Einnahme eines Verkaufs mit festgeschriebener Rechnung ist im Kassenbuch gesperrt wie eine Rechnungs-Buchung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'PA Sperre' });
+  const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+  const rl = await w.verkaufRechnungErstellen(erg);
+  await w.Views.rechnung.festschreiben(rl, []);
+  const nrLager = (await w.DB.get('rechnungen', rl.id)).nummer;
+  const h = await p5Honig(w);
+  let rh = await w.verkaufRechnungErstellen({ verkauf: h.v, text: 'Honig' });
+  await w.Views.rechnung.festschreiben(await w.DB.put('rechnungen', { ...rh, kundeId: h.kunde.id }), [h.a]);
+  const nrHonig = (await w.DB.get('rechnungen', rh.id)).nummer;
+  const ohne = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 1, preis: 4.5 });   // Verkauf ohne Rechnung
+  const kbVorher = await w.DB.getAll('kassenbuch');
+  assertEq(kbVorher.length, 3, 'drei Einnahmen');
+  for (const [kbId, nr] of [[erg.kassenbuch.id, nrLager], [h.v.kassenbuchId, nrHonig]]) {
+    const kb = await w.DB.get('kassenbuch', kbId);
+    toasts.length = 0; fragen.length = 0;
+    assertEq(await w.kassenbuchLoeschen(kb), false, 'nicht gelöscht');
+    assert(toasts.some((t) => t.typ === 'err' && t.msg.includes(`gehört zur Rechnung ${nr}`)), 'Meldung nennt die Rechnung: ' + JSON.stringify(toasts));
+    assertEq(fragen.length, 0, 'keine Frage „Nur im Kassenbuch löschen“');
+    toasts.length = 0;
+    await w.Views.kassenbuch.form(kb);
+    assert(toasts.some((t) => t.typ === 'err' && t.msg.includes(nr)) && !w.document.querySelector('.modal-back #f-betrag'), 'Ändern gesperrt, kein Formular');
+    let f = null; try { await w.loescheMitMaterial('kassenbuch', kb); } catch (e) { f = e; }
+    assert(f && f.message.includes(nr), 'auch in der Transaktion gesperrt');
+  }
+  assertEq(w.rechnungBuchungSperre(await w.DB.get('kassenbuch', ohne.kassenbuch.id), await w.DB.getAll('rechnungen'), [], await w.DB.getAll('verkaeufe'), await w.DB.getAll('materialabgaenge')), null, 'Verkauf ohne Rechnung bleibt frei');
+  assertEq(await w.DB.getAll('kassenbuch'), kbVorher, 'Kassenbuch unverändert');
+})));
+
+test('Prüfung 08.11.2026 (P8/P16): Stück-Ware in Rechnung und Lager-Verkauf nur in ganzen Stück – kein Bestand aus nichts', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'PA Stück' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true });
+  await w.Views.rechnung.posForm(r0, [], new Map());
+  const m = letztesModal(w);
+  pvSetz(w, m.querySelector('#f-quelle'), 'lager');
+  pvSetz(w, m.querySelector('#f-inventarId'), d.prod.id);
+  pvSetz(w, m.querySelector('#f-menge'), '2,5');
+  m.querySelector('[data-save]').click(); await w99(300);
+  assertEq((await w.DB.get('rechnungen', r0.id)).positionen.length, 0, '2,5 Stück: nicht übernommen');
+  assert(/ganze Zahl/.test(m.textContent) || toasts.some((t) => /ganze Zahl/.test(t.msg)), 'Hinweis „ganze Zahl“');
+  dialogeSchliessen(w);
+  // Altbestand: Entwurf mit 2,5 Stück → Festschreiben weist ab, Bestand bleibt 24
+  const r1 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+    positionen: [{ text: d.prod.bezeichnung, inventarId: d.prod.id, menge: 2.5, einzelpreis: 4, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+  toasts.length = 0;
+  await w.Views.rechnung.festschreiben(r1, []);
+  assertEq([(await w.DB.get('rechnungen', r1.id)).status, w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), (await w.DB.getAll('kassenbuch')).length], ['entwurf', 24, 0], 'nichts gebucht');
+  assert(toasts.some((t) => t.typ === 'err' && /ganze Zahl/.test(t.msg)), 'Meldung: ' + JSON.stringify(toasts));
+  // kg-Ware darf Bruchteile haben: 2,5 kg festschreiben und stornieren → genau zurück
+  const r2 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+    positionen: [{ text: d.mat.bezeichnung, inventarId: d.mat.id, menge: 2.5, einzelpreis: 1, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+  await w.Views.rechnung.festschreiben(r2, []);
+  assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.mat.id)), 47.5, 'kg: 50 − 2,5');
+  assertEq((await w.DB.getAll('materialabgaenge')).map((a) => [a.bestandVorher, a.bestandNachher]), [[50, 47.5]], 'Abgangszeile: vorher/nachher stimmen');
+  await w.rechnungStornieren(r2.id);
+  assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.mat.id)), 50, 'Storno: genau zurück');
+  // Lager-Verkauf mit 1,5 Stück: abgewiesen statt „0,5 fehlten“
+  let f = null; try { await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 1.5, preis: 4 }); } catch (e) { f = e; }
+  assert(f && /ganze Zahl/.test(f.message), 'Lager-Verkauf 1,5 Stück abgewiesen');
+  assertEq([w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), (await w.DB.getAll('kassenbuch')).length], [24, 2], 'nichts gebucht (nur Rechnung + Storno von oben)');
+})));
+
+test('Prüfung 08.11.2026 (P9/P17): Abgangszeile aus Rechnung mit Rabatt zeigt den Erlös wie das Kassenbuch; gemischte Rechnung: Kategorie einheitlich und erklärt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'PA Rabatt' });
+  const r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, rabattTyp: 'prozent', rabattWert: 10,
+    positionen: [{ text: d.prod.bezeichnung, inventarId: d.prod.id, menge: 2, einzelpreis: 5, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+  await w.Views.rechnung.festschreiben(r, []);
+  const kb = await w.DB.getAll('kassenbuch'), ab = await w.DB.getAll('materialabgaenge');
+  assertEq(kb.map((k) => k.betrag), [9], 'Kassenbuch: 10 € − 10 %');
+  assertEq(ab.map((a) => [a.preis, w.abgangErloes(a)]), [[5, 9]], 'Abgangszeile: Preis aus der Rechnung, Erlös nach Rabatt = Kassenbuch');
+  assert(!fragen.some((q) => /Lager-Ware und andere Positionen/.test(q.text || '')), 'reine Lager-Rechnung: kein Hinweis');
+  // Gemischt (Lager + freie Position): eine Buchung „Honigverkauf“, die Rückfrage sagt es, das Storno nimmt dieselbe Kategorie
+  const r2 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+    positionen: [{ text: 'Honig 500 g', menge: 2, einzelpreis: 6, pfand: 0, steuersatz: 0, abfuellungId: null },
+      { text: d.prod.bezeichnung, inventarId: d.prod.id, menge: 1, einzelpreis: 5, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+  fragen.length = 0;
+  await w.Views.rechnung.festschreiben(r2, []);
+  assert(fragen.some((q) => (q.text || '').includes('Rechnung erhält die nächste') && q.text.includes('Lager-Ware und andere Positionen: Die Einnahme steht als eine Buchung unter „Honigverkauf“ im Kassenbuch.')), 'Rückfrage erklärt die Kategorie: ' + JSON.stringify(fragen.map((q) => q.title)));
+  await w.rechnungStornieren(r2.id);
+  const zeilen = (await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r2.id);
+  assertEq(zeilen.map((k) => [k.betrag, k.kategorie]).sort((x, y) => y[0] - x[0]), [[17, 'Honigverkauf'], [-17, 'Honigverkauf']], 'Einnahme und Storno in derselben Kategorie');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Prüfung 08.11.2026 (P10): Abgang „Verkauf“ – Position ohne Verkaufspreis leert das Preisfeld', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const prod = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'PA Kerze', einheit: 'Stück', stueckzahl: 5, verkaufspreis: 4.5 });
+  const ohne = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'PA Met', einheit: 'Stück', stueckzahl: 5 });
+  const f = await lagerFormular(w, () => w.materialAbgangForm(w.bereichCfg('produkt'), prod.id));
+  assertEq(f.m.querySelector('#f-preis').value, '4,5', 'vorbelegt');
+  f.setz('inventarId', ohne.id);
+  assertEq(f.m.querySelector('#f-preis').value, '', 'ohne Verkaufspreis: leer statt 4,50 €');
+  f.setz('inventarId', prod.id);
+  assertEq(f.m.querySelector('#f-preis').value, '4,5', 'zurück: wieder vorbelegt');
+})));
+
+test('Prüfung 08.11.2026 (P12): Imme wartet auf den genannten Knopf, statt beim Aufbau den ersten Hauptknopf zu markieren', async (w) => {
+  dialogeSchliessen(w);
+  const main = w.document.querySelector('#main');
+  const echt = { render: w.renderRoute, nav: w.navTo, route: w.currentRoute };
+  const e = { id: 'pa-test', titel: 'Test', route: 'lager', param: 'verbrauch', zeige: 'An- und Verkauf buchen', schritte: ['tippen'] };
+  const aufbau = async () => {
+    main.innerHTML = '<button class="btn btn-primary" id="pa-falsch">Verkaufen</button>';
+    setTimeout(() => main.insertAdjacentHTML('beforeend', '<a class="btn btn-primary" id="pa-richtig" href="#/x">An- und Verkauf buchen</a>'), 350);
+  };
+  w.renderRoute = aufbau; w.navTo = () => { aufbau(); };
+  w.currentRoute = () => ({ route: 'lager', param: 'verbrauch' });
+  try {
+    await w.Assistent.zeige(e);
+    assert(main.querySelector('#pa-richtig').classList.contains('bini-ziel'), 'der genannte Knopf ist markiert');
+    assert(!main.querySelector('#pa-falsch').classList.contains('bini-ziel'), '„Verkaufen“ ist nicht markiert');
+    assertEq(w.Assistent.finde('Gibt es nicht', { rueckfall: false }), null, 'ohne Rückfall: kein Ersatzknopf');
+    assert(w.Assistent.finde('Gibt es nicht'), 'mit Rückfall (wie bisher): der erste Hauptknopf');
+  } finally {
+    w.Assistent.markeWeg(); w.renderRoute = echt.render; w.navTo = echt.nav; w.currentRoute = echt.route;
+    await w.renderRoute();
+  }
+});
+
+/* ===== Prüfung 08.11.2026 (docs/PRUEFUNG-PRAXIS-UMBAU-2026-11-08.md), Paket B: pro Volk und Menü „Mehr“ ===== */
+test('Prüfung 08.11.2026 (P1): Halbe Dosis bei Stück – Abzug auf ganze Stück aufgerundet, keine falsche „fehlten“-Meldung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PB1-Stand' });
+  const A = await r2Volk(w, 'PB1-A', { standId: st.id }), B = await r2Volk(w, 'PB1-B', { standId: st.id }), C = await r2Volk(w, 'PB1-C', { standId: st.id });
+  const apivar = await r2Mittel(w, 'Apivar PB1', 10, 'Stück');
+  const erg = await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 1 }, { volkId: B.id, menge: 1 }, { volkId: C.id, menge: 0.5 }],
+    { mittel: 'Apivar', datum: '2026-08-01', einheit: 'Stück', _verbrauchId: apivar.id });
+  assertEq(await lagerBestand(w, apivar), 7, '2,5 Stück → 3 ganze Stück abgezogen (vorher 8 und „0,5 fehlten“)');
+  assertEq([erg.buchung.gefehlt, erg.buchung.aufgerundet], [0, { von: 2.5, auf: 3 }], 'nichts fehlt, Aufrunden ist vermerkt');
+  assertEq(w.U.sum(erg.recs, (r) => w.U.sum(r.verbrauchAbzug, (a) => a.menge)), 3, 'die Einträge merken zusammen genau 3 Stück');
+  toasts.length = 0;
+  w.verbrauchMelden(erg.buchung);
+  assert(toasts.length === 1 && toasts[0].typ !== 'err' && /aufgerundet auf 3/.test(toasts[0].msg) && !/fehlten/.test(toasts[0].msg), 'Meldung sagt das Aufrunden, ohne Fehlmenge: ' + JSON.stringify(toasts));
+  // Volle Stück bleiben unverändert
+  const erg2 = await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 2 }], { mittel: 'Apivar', datum: '2026-08-02', einheit: 'Stück', _verbrauchId: apivar.id });
+  assertEq([await lagerBestand(w, apivar), erg2.buchung.aufgerundet], [5, undefined], 'ganze Stück: kein Aufrunden');
+})));
+
+test('Prüfung 08.11.2026 (P2): Behandlung – abgewähltes Volk bleibt nach einem Wechsel der Funktion abgewählt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'PB2-Stand' });
+  const A = await r2Volk(w, 'PB2-A', { standId: st.id, funktion: 'Wirtschaftsvolk' }), B = await r2Volk(w, 'PB2-B', { standId: st.id, funktion: 'Wirtschaftsvolk' });
+  const C = await r2Volk(w, 'PB2-C', { standId: st.id, funktion: 'Ableger' });
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  const an = (v) => pvZeile(f.m, v).querySelector('input[type=checkbox]').checked;
+  f.setz('standId', st.id); await w99(50);
+  assertEq([an(A), an(B), an(C)], [true, true, true], 'Stand gewählt: alle angehakt');
+  pvHaken(w, pvZeile(f.m, B).querySelector('input[type=checkbox]'), false); await w99(50);
+  f.setz('funktion', 'Wirtschaftsvolk'); await w99(50);
+  assertEq([an(A), an(B)], [true, false], 'Funktion gewechselt: B bleibt abgewählt');
+  f.setz('funktion', ''); await w99(50);
+  assertEq([an(A), an(B), an(C)], [true, false, true], 'zurück auf alle Funktionen: C wieder dabei, B bleibt abgewählt');
+  f.setz('menge', '10'); f.setz('mittel', 'Oxalsäure'); f.setz('datum', '2026-08-01');
+  await f.speichern();
+  assertEq((await w.DB.getAll('behandlungen')).map((b) => b.zielId).sort(), [A.id, C.id].sort(), 'B bekommt keinen Eintrag');
+})));
+
+test('Prüfung 08.11.2026 (P3): Lager-Mittel ohne Bestandszahl oder gelöscht – Behandlung wird trotzdem gespeichert, Fehlmenge gemeldet', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PB3-Stand' });
+  const A = await r2Volk(w, 'PB3-A', { standId: st.id }), B = await r2Volk(w, 'PB3-B', { standId: st.id });
+  const alt = await r2Mittel(w, 'Oxalsäure alt PB3', null);
+  const erg = await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 30 }, { volkId: B.id, menge: 20 }], { mittel: 'Oxalsäure', datum: '2026-08-01', einheit: 'ml', _verbrauchId: alt.id });
+  assertEq([erg.recs.length, erg.buchung.abzug.length, erg.buchung.gefehlt], [2, 0, 50], 'gespeichert, ohne Bestand gilt 0, 50 ml fehlen');
+  assertEq((await w.DB.getAll('behandlungen')).length, 2, 'zwei Einträge im Bestandsbuch');
+  toasts.length = 0; w.verbrauchMelden(erg.buchung);
+  assert(toasts.some((t) => t.typ === 'err' && /50 ml fehlten/.test(t.msg)), 'Meldung nennt die Fehlmenge: ' + JSON.stringify(toasts));
+  const erg2 = await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 5 }], { mittel: 'Oxalsäure', datum: '2026-08-02', einheit: 'ml', _verbrauchId: 'gibt-es-nicht-mehr' });
+  assertEq([erg2.recs.length, erg2.buchung], [1, null], 'gelöschte Lager-Position: gespeichert ohne Abzug, wie vor dem Umbau');
+})));
+
+test('Prüfung 08.11.2026 (P4): Behandlung pro Volk – Hinweis nennt die Summe der einzelnen Mengen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  await r2Volk(w, 'PB4-A');
+  await r2Mittel(w, 'Oxalsäure PB4', 1000);
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  const text = f.m.textContent;
+  assert(/Summe der Mengen aller angehakten Völker/.test(text), 'neuer Hinweis steht da');
+  assert(!/Menge je Volk × Anzahl/.test(text), 'alter Hinweis ist weg');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+})));
+
+test('Prüfung 08.11.2026 (P5): PDF-Übernahme – Ernte „Ganzer Stand“ je Volk, Behandlung mit Völkerliste', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PB5-Stand' });
+  const A = await r2Volk(w, 'PB5-A', { standId: st.id }), B = await r2Volk(w, 'PB5-B', { standId: st.id });
+  const f = await lagerFormular(w, () => w.PdfImport.ernteQuickForm({ datum: '2026-07-01', sorte: 'Raps', notiz: 'Aus PDF übernommen: Test' }));
+  f.setz('zielTyp', 'stand'); await w99(50); f.setz('zielStand', st.id); await w99(50);
+  assert(pvZeile(f.m, A) && pvZeile(f.m, B), 'Völkerliste des Stands erscheint');
+  f.setz('mengeProVolk', '20'); await w99(50);
+  pvSetz(w, pvZeile(f.m, B).querySelector('input[data-volk-menge]'), '15'); await w99(50);
+  await f.speichern();
+  const ernten = w.U.sortBy(await w.DB.getAll('ernten'), (e) => e.mengeKg);
+  assertEq(ernten.map((e) => [e.zielTyp, e.zielId, e.mengeKg, e.sorte]), [['volk', B.id, 15, 'Raps'], ['volk', A.id, 20, 'Raps']], 'je Volk eine Ernte statt eines Stand-Eintrags: ' + JSON.stringify(toasts));
+  // Behandlung aus der PDF-Übernahme öffnet das Formular mit Völkerliste
+  const echt = { sammel: w.Views.behandlungen.sammelForm, form: w.Views.behandlungen.form, nurVoll: w.Lizenz.nurVoll };
+  let aufgerufen = '';
+  w.Views.behandlungen.sammelForm = async () => { aufgerufen = 'sammelForm'; };
+  w.Views.behandlungen.form = async () => { aufgerufen = 'form'; };
+  w.Lizenz.nurVoll = () => false;
+  const aus = w.document.createElement('div'); w.document.body.appendChild(aus);
+  try {
+    const inhalt = 'BT /F1 12 Tf 20 200 Td (12.05.2026 Behandlung) Tj ET';
+    const pdf = new w.File([`%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length ${inhalt.length}>>stream
+${inhalt}
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+trailer<</Root 1 0 R>>`], 'test.pdf', { type: 'application/pdf' });
+    await w.PdfImport.read(pdf, aus);
+    const k = aus.querySelector('[data-take]');
+    assert(k, 'Behandlung erkannt');
+    k.click(); await w99(50);
+    assertEq(aufgerufen, 'sammelForm', 'Behandlung übernehmen öffnet das Formular mit Völkerliste');
+  } finally {
+    aus.remove(); w.Views.behandlungen.sammelForm = echt.sammel; w.Views.behandlungen.form = echt.form; w.Lizenz.nurVoll = echt.nurVoll;
+  }
+})));
+
+/* P18/P19: eigener kleiner Aufbau wie das Menü „Mehr“ (festes Fenster, Kacheln, Ziel-Leiste unten), damit die Lage sicher ist */
+const pbSortierAufbau = (w, { rollbar }) => {
+  const box = w.document.createElement('div');
+  box.style.cssText = `position:fixed;top:50px;left:0;width:300px;height:300px;overflow-y:${rollbar ? 'auto' : 'hidden'};z-index:99990;background:#fff`;
+  const grid = w.document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:140px 140px;gap:0';
+  const n = rollbar ? 20 : 6;
+  for (let i = 0; i < n; i++) { const b = w.document.createElement('button'); b.type = 'button'; b.dataset.k = String(i); b.textContent = 'K' + i; b.style.cssText = 'height:80px;margin:0'; grid.appendChild(b); }
+  box.appendChild(grid); w.document.body.appendChild(box);
+  const ziel = w.document.createElement('div'); ziel.className = 'pb-ziel';
+  ziel.style.cssText = 'position:fixed;top:300px;left:0;width:300px;height:50px;z-index:99991';
+  w.document.body.appendChild(ziel);
+  const reihe = () => [...grid.querySelectorAll('button')].map((b) => b.dataset.k).join(',');
+  const opt = { bubbles: true, cancelable: true, pointerId: 41, pointerType: 'touch', isPrimary: true, button: 0 };
+  const pe = (typ, el, x, y) => el.dispatchEvent(new w.PointerEvent(typ, { ...opt, clientX: x, clientY: y }));
+  return { box, grid, ziel, reihe, pe, weg: () => { box.remove(); ziel.remove(); } };
+};
+
+test('Prüfung 08.11.2026 (P18): Ziehen über die untere Leiste – Mitrollen ordnet keine Kachel um', async (w) => {
+  const a = pbSortierAufbau(w, { rollbar: true });
+  let gespeichert = null;
+  try {
+    w.langDruckSortieren(a.grid, 'button', (els) => { gespeichert = els.map((b) => b.dataset.k).join(','); }, { ziele: '.pb-ziel', rollen: 'eltern', onZiel: () => {} });
+    const vorher = a.reihe();
+    a.pe('pointerdown', a.grid.querySelector('button'), 70, 90); await w99(480);
+    a.pe('pointermove', a.grid, 70, 320); await w99(400);
+    const rollte = a.box.scrollTop, nachher = a.reihe();
+    a.pe('pointerup', a.grid, 70, 320); await w99(50);
+    assertEq(nachher, vorher, 'keine Kachel umgeordnet, solange der Finger über der Leiste steht');
+    assertEq(rollte, 0, 'über der Leiste rollt das Menü nicht');
+    assertEq(a.reihe(), vorher, 'nach dem Loslassen auf der Leiste ist die Reihenfolge unverändert');
+    assertEq(gespeichert, null, 'nichts gespeichert');
+  } finally { a.weg(); w.document.body.classList.remove('lp-bar-hebt'); }
+});
+
+test('Prüfung 08.11.2026 (P19): Menü ohne Scrollbalken – Ziehen an den Rand rollt die Seite dahinter nicht', async (w) => {
+  const a = pbSortierAufbau(w, { rollbar: false });
+  const platz = w.document.createElement('div'); platz.style.height = '5000px'; w.document.body.appendChild(platz);
+  try {
+    w.langDruckSortieren(a.grid, 'button', () => {}, { rollen: 'eltern' });
+    w.scrollTo({ top: 200, behavior: 'instant' }); await w99(50);
+    const start = w.scrollY;
+    assert(start > 0, 'Seite lässt sich rollen (scrollY ' + start + ')');
+    const kopf = w.document.querySelector('.topbar'), oben = kopf ? Math.max(0, kopf.getBoundingClientRect().bottom) : 0;
+    a.pe('pointerdown', a.grid.querySelector('button'), 70, 90); await w99(480);
+    a.pe('pointermove', a.grid, 70, Math.max(1, oben + 5)); await w99(400);
+    const y = w.scrollY;
+    a.pe('pointerup', a.grid, 70, Math.max(1, oben + 5)); await w99(50);
+    assertEq(y, start, 'die Seite hinter dem Fenster bleibt stehen');
+  } finally { a.weg(); platz.remove(); w.scrollTo({ top: 0, behavior: 'instant' }); }
+});
