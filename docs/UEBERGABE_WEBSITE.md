@@ -102,3 +102,9 @@ Vier Ideen mit Knopf „Das will ich“. `stimme.php` zählt je Idee, ohne IP-Ad
 - **WebFTP überschreibt keine Dateien**, sondern legt `name (1).ext` daneben. Darum zuerst die alten Dateien markieren und mit „Verschieben“ in einen Ordner außerhalb von `public_html` legen, dann hochladen.
 - Sicherungen vom 04.11.2026: auf dem Server `website-alt-2026-11-02/` (Stand vor dem 3D-Logo) und `website-doppelt-2026-11-04/` (versehentliche Doppel), lokal `website-live-sicherung-2026-11-04/`. Julian darf sie später selbst löschen.
 - Nach dem Hochladen jede Datei per `curl` gegen die lokale Fassung vergleichen (`cmp`), Seiten haben `Cache-Control: no-cache`.
+
+## Für Google freigegeben (08.11.2026)
+- Julian: Website soll in die Google-Suche. noindex entfernt (Startseite, Impressum, Datenschutz, AGB, Support; .htaccess ohne X-Robots-Tag), nur lizenzen.html und /v/ bleiben noindex. robots.txt (Disallow /v/, /stimme.php, Sitemap-Link) und sitemap.xml (5 Seiten) neu. tools/website/hochladen-vorbereiten.mjs prüft jetzt umgekehrt (kein noindex außer Lizenzen) und kopiert robots.txt/sitemap.xml.
+- Funktionsliste an v3.25 angepasst (Lager, Rechnung zum Verkauf, Menge je Volk, Rangliste je Volk).
+- Hochgeladen per WebFTP: alte index.html, .htaccess und vier Rechtsseiten vorher nach `website-vor-google-2026-11-08/` (außerhalb public_html) verschoben, dann 8 Dateien hoch, per curl/cmp geprüft (alle gleich, kein X-Robots-Header).
+- Search Console (Domain-Property imkerbuch.app): Sitemap https://imkerbuch.app/sitemap.xml eingereicht („Sitemap wurde eingereicht“), Startseite per URL-Prüfung „Indexierung beantragt“. Bis Google sie zeigt: meist einige Tage.
