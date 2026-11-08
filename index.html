@@ -5040,17 +5040,27 @@ function langDruckSortieren(host, sel, fertig, opt = {}) {
   const rollen = () => {
     if (!st || !st.aktiv) return;
     if (!host.isConnected) { aufraeumen(); return; }
+    /* opt.rollen === 'eltern': nicht die Seite rollt, sondern das nächste rollbare Elternfenster (z. B. das Menü „Mehr“) –
+       Julian 06.11.2026: „Wenn ich die Kacheln im Menu verschiebe scrollt es nicht nach unten“ */
+    if (opt.rollen === 'eltern' && st.rollBox === undefined) {
+      let b = host.parentElement;
+      while (b && !(b.scrollHeight > b.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(b).overflowY))) b = b.parentElement;
+      st.rollBox = b || null;
+    }
+    const box = st.rollBox || null, boxR = box ? box.getBoundingClientRect() : null;
     const kopf = document.querySelector('.topbar');
-    const oben = kopf ? Math.max(0, kopf.getBoundingClientRect().bottom) : 0;
+    const oben = boxR ? Math.max(0, boxR.top) : (kopf ? Math.max(0, kopf.getBoundingClientRect().bottom) : 0);
     const nav = document.getElementById('bottomnav');
     const navR = nav && getComputedStyle(nav).display !== 'none' ? nav.getBoundingClientRect() : null;
-    const unten = navR && navR.height ? Math.min(innerHeight, navR.top) : innerHeight;
+    const untenSeite = navR && navR.height ? Math.min(innerHeight, navR.top) : innerHeight;
+    const unten = boxR ? Math.min(untenSeite, boxR.bottom) : untenSeite;
     const zone = 70;
     let v = 0;
     if (st.y < oben + zone) v = -Math.ceil((oben + zone - st.y) / 5);
     else if (st.y > unten - zone) v = Math.ceil((st.y - (unten - zone)) / 5);
     v = Math.max(-16, Math.min(16, v));
-    if (v) { const vorher = scrollY; window.scrollBy(0, v); if (scrollY !== vorher) einordnen(st.x, st.y); }
+    if (v && box) { const vorher = box.scrollTop; box.scrollTop += v; if (box.scrollTop !== vorher) einordnen(st.x, st.y); }
+    else if (v) { const vorher = scrollY; window.scrollBy(0, v); if (scrollY !== vorher) einordnen(st.x, st.y); }
     st.raf = requestAnimationFrame(rollen);
   };
   host.classList.add('lp-sort');
@@ -5149,7 +5159,7 @@ function openMoreSheet({ ausKreis = false } = {}) {
       <div class="sheet-hint">Zum Verschieben eine Kachel gedrückt halten und ziehen – auf die untere Leiste gezogen, ersetzt sie dort einen Eintrag${(S.get('menuOrder') || []).length ? ' · <a data-reset>Reihenfolge zurücksetzen</a>' : ''}</div>`,
   });
   langDruckSortieren($('.sheet-grid', m.el), 'button[data-route]', (els) => S.set('menuOrder', els.map((b) => b.dataset.route)), {
-    ziele: '#bottomnav button',
+    ziele: '#bottomnav button', rollen: 'eltern',
     onZiel: async (el, ziel) => {
       const neu = el.dataset.route;
       let bar = (S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);

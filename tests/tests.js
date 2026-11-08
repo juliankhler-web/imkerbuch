@@ -21411,3 +21411,28 @@ test('Fütterung bearbeiten 04.11.2026: der Hinweis nennt nur den Unterschied zu
     assert(/4 kg gehen zurück in den Bestand → 34 kg/.test(info()), 'weniger: ' + info());
   } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
 }));
+
+/* Julian 06.11.2026: „Wenn ich die Kacheln im Menu verschiebe scrollt es nicht nach unten“ – das Menü „Mehr“ rollt beim Ziehen am Rand mit */
+test('Menü „Mehr“: Kachel ziehen rollt das Fenster am unteren Rand mit', async (w) => {
+  dialogeSchliessen(w);
+  try {
+    w.openMoreSheet(); await w99(200);
+    const m = w.document.querySelector('.modal-back');
+    const grid = m.querySelector('.sheet-grid');
+    // rollbares Elternfenster suchen und klein machen, damit es sicher rollen kann
+    let box = grid.parentElement;
+    while (box && !/(auto|scroll)/.test(w.getComputedStyle(box).overflowY)) box = box.parentElement;
+    assert(box, 'rollbares Fenster gefunden');
+    box.style.maxHeight = '220px'; box.style.height = '220px'; box.scrollTop = 0; await w99(50);
+    assert(box.scrollHeight > box.clientHeight + 20, 'Fenster hat etwas zum Rollen');
+    const kachel = grid.querySelector('button[data-route]'), r = kachel.getBoundingClientRect(), br = box.getBoundingClientRect();
+    const opt = { bubbles: true, pointerId: 7, pointerType: 'touch', isPrimary: true };
+    kachel.dispatchEvent(new w.PointerEvent('pointerdown', { ...opt, clientX: r.left + 5, clientY: r.top + 5 }));
+    await w99(480);   // lang drücken (400 ms)
+    grid.dispatchEvent(new w.PointerEvent('pointermove', { ...opt, clientX: r.left + 5, clientY: br.bottom - 5 }));
+    await w99(400);
+    const gerollt = box.scrollTop;
+    grid.dispatchEvent(new w.PointerEvent('pointerup', { ...opt, clientX: r.left + 5, clientY: br.bottom - 5 }));
+    assert(gerollt > 0, 'Menü ist mitgerollt (scrollTop ' + gerollt + ')');
+  } finally { dialogeSchliessen(w); }
+});
