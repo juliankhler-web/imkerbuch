@@ -21879,6 +21879,227 @@ test('Verkauf+Rechnung (Julian 08.11.2026): Lager-Artikel in der Rechnung – Ve
   } finally { dialogeSchliessen(w); }
 })));
 
+/* ===== Rechnung zum Verkauf: Änderungen, Zurücknehmen, Steuersatz im Lager (Julian 08.11.2026) ===== */
+async function p5Honig(w, { anzahl = 4, preis = 6 } = {}) {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P5 Kunde' });
+  const c = await w.DB.put('chargen', { losnummer: 'P5-1', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 10, bestand: 10 });
+  const v = await w.verkaufErfassen({ abfuellungId: a.id, anzahl, preisJeGlas: preis, kontaktId: kunde.id });
+  return { kunde, a, v };
+}
+async function p5Stand(w, a) {
+  const kb = await w.DB.getAll('kassenbuch'), korb = await w.DB.getAll('papierkorb');
+  return { kasse: kb.length, summe: Math.round(w.U.sum(kb, (k) => Number(k.betrag) || 0) * 100) / 100, bestand: a ? (await w.DB.get('abfuellungen', a.id)).bestand : null,
+    korbKasse: korb.filter((t) => t.store === 'kassenbuch').length, korbVerkauf: korb.filter((t) => t.store === 'verkaeufe' || t.store === 'materialabgaenge').length };
+}
+
+test('Rechnung zum Verkauf (Julian 08.11.2026): Rabatt in der Rechnung geändert → Einnahme des Verkaufs wird angepasst und vermerkt, keine zweite Buchung; Storno lässt den neuen Betrag stehen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const { kunde, a, v } = await p5Honig(w);
+  const hash = w.location.hash;
+  try {
+    assertEq(await p5Stand(w, a), { kasse: 1, summe: 24, bestand: 6, korbKasse: 0, korbVerkauf: 0 }, 'Verkauf: 4 × 6 € gebucht');
+    let r = await w.verkaufRechnungErstellen({ verkauf: v, text: 'Honig' });
+    r = await w.DB.put('rechnungen', { ...r, kundeId: kunde.id, rabattTyp: 'betrag', rabattWert: 4, rabattGrund: 'Stammkunde' });
+    assertEq(w.rechnungSummen(r).brutto, 20, 'Rechnung: 24 € − 4 € Rabatt');
+    host.innerHTML = ''; await w.Views.rechnung.render(host, r.id);
+    assert(/weicht vom Verkauf ab \(vorher 24,00/.test(host.textContent), 'Entwurf sagt die Abweichung vorher an');
+    await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), [a]);
+    r = await w.DB.get('rechnungen', r.id);
+    assertEq(r.status, 'festgeschrieben', 'festgeschrieben');
+    assertEq(await p5Stand(w, a), { kasse: 1, summe: 20, bestand: 6, korbKasse: 0, korbVerkauf: 0 }, 'genau EINE Einnahme, jetzt 20 € – Bestand unverändert');
+    const kb = (await w.DB.getAll('kassenbuch'))[0];
+    assert(/gegenüber dem Verkauf geändert \(vorher 24,00/.test(kb.beschreibung) && kb.beschreibung.includes(r.nummer), 'Kassenbuch-Zeile vermerkt die Änderung: ' + kb.beschreibung);
+    const vk = await w.DB.get('verkaeufe', v.id);
+    assertEq([vk.betrag, vk.rabatt, vk.kassenbuchId, vk.geaendertDurchRechnung && vk.geaendertDurchRechnung.vorher], [20, 4, v.kassenbuchId, 24], 'Verkauf mitgeführt: Betrag und Rabatt');
+    assertEq(r.ausVerkauf.geaendertVorher, 24, 'Rechnung merkt sich den alten Betrag');
+    host.innerHTML = ''; await w.Views.rechnung.render(host, r.id);
+    assert(/Gegenüber dem Verkauf geändert \(vorher 24,00/.test((host.querySelector('[data-verkauf-vermerk]') || {}).textContent || ''), 'Vermerk auf der Rechnung');
+    // Storno der Rechnung: bucht nichts, der Verkauf bleibt mit dem Rechnungsbetrag (Kunde hat so bezahlt)
+    await w.rechnungStornieren(r.id); await w.rechnungStornieren(r.id);
+    assertEq(await p5Stand(w, a), { kasse: 1, summe: 20, bestand: 6, korbKasse: 0, korbVerkauf: 0 }, 'Storno: Kassenbuch und Bestand unverändert, kein alter Betrag zurück');
+    assertEq((await w.DB.get('verkaeufe', v.id)).betrag, 20, 'Verkauf bleibt bei 20 €');
+    // danach den Verkauf zurücknehmen: Einnahme genau einmal weg, Bestand genau einmal zurück
+    await w.verkaufStornieren(v.id);
+    assertEq(await p5Stand(w, a), { kasse: 0, summe: 0, bestand: 10, korbKasse: 1, korbVerkauf: 1 }, 'Verkauf zurück: alles genau einmal');
+    // Unveränderte Rechnung: kein Vermerk, nichts angepasst
+    const n = await p5Honig(w);
+    let r2 = await w.verkaufRechnungErstellen({ verkauf: n.v, text: 'Honig' });
+    r2 = await w.DB.put('rechnungen', { ...r2, kundeId: n.kunde.id });
+    await w.Views.rechnung.festschreiben(r2, [n.a]);
+    r2 = await w.DB.get('rechnungen', r2.id);
+    assertEq([r2.status, w.rechnungVerkaufVermerk(r2), (await w.DB.get('kassenbuch', n.v.kassenbuchId)).betrag, (await w.DB.get('kassenbuch', n.v.kassenbuchId)).geaendertDurchRechnung], ['festgeschrieben', '', 24, undefined], 'gleicher Betrag: nichts geändert');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Rechnung zum Verkauf (Julian 08.11.2026): Lager-Verkauf – geänderter Betrag zieht Einnahme und Abgang mit, genau eine Buchung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P5 Lagerkunde' });
+  const hash = w.location.hash;
+  try {
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+    let r = await w.verkaufRechnungErstellen(erg);
+    r = await w.DB.put('rechnungen', { ...r, rabattTyp: 'betrag', rabattWert: 1 });
+    await w.Views.rechnung.festschreiben(r, []);
+    const kb = await w.DB.getAll('kassenbuch'), ab = await w.DB.get('materialabgaenge', erg.abgang.id);
+    assertEq([kb.length, kb[0].betrag, kb[0].id, w.abgangErloes(ab), ab.preis, w.verbrauchBestand(await w.DB.get('inventar', d.prod.id))], [1, 8, erg.kassenbuch.id, 8, 4.5, 22], 'eine Einnahme 8 €, Abgang zeigt 8 €, Bestand einmal ab');
+    assert(/vorher 9,00/.test(kb[0].beschreibung), 'Vermerk im Kassenbuch: ' + kb[0].beschreibung);
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Rechnung zum Verkauf (Julian 08.11.2026): Honig-Verkauf mit Rechnung zurücknehmen – EINE Rückfrage, Ja storniert beides genau einmal, Abbrechen ändert nichts', async (w) => isolierteDaten(w, async () => {
+  const { kunde, a, v } = await p5Honig(w);
+  const hash = w.location.hash;
+  try {
+    let r = await w.verkaufRechnungErstellen({ verkauf: v, text: 'Honig' });
+    await stornoUmgebung(w, async () => { await w.Views.rechnung.festschreiben(await w.DB.put('rechnungen', { ...r, kundeId: kunde.id }), [a]); });
+    r = await w.DB.get('rechnungen', r.id);
+    assertEq(r.status, 'festgeschrieben', 'Rechnung festgeschrieben');
+    const vorher = await p5Stand(w, a);
+    // Ohne Rückfrage geht es nicht still
+    let f = null; try { await w.verkaufStornieren(v.id); } catch (e) { f = e; }
+    assert(f && f.message.includes(r.nummer), 'direkt: klare Meldung mit Rechnungsnummer');
+    assertEq(await p5Stand(w, a), vorher, 'nichts geändert');
+    // Abbrechen
+    await stornoUmgebung(w, async ({ fragen, host }) => {
+      await w.Views.honig.tabVerkaeufe(host);
+      host.querySelector(`[data-storno="${v.id}"]`).click(); await w99(400);
+      assertEq(fragen.length, 1, 'genau eine Rückfrage');
+      assert(fragen[0].text.includes(`Zu diesem Verkauf gibt es Rechnung ${r.nummer}. Rechnung stornieren und Verkauf zurücknehmen?`), 'Text der Rückfrage: ' + fragen[0].text);
+    }, { confirm: false });
+    assertEq([await p5Stand(w, a), (await w.DB.get('rechnungen', r.id)).status], [vorher, 'festgeschrieben'], 'Abbrechen ändert nichts');
+    // Ja
+    await stornoUmgebung(w, async ({ fragen, host, toasts }) => {
+      await w.Views.honig.tabVerkaeufe(host);
+      host.querySelector(`[data-storno="${v.id}"]`).click(); await w99(400);
+      assertEq(fragen.length, 1, 'genau eine Rückfrage, keine zweite zum Kassenbuch');
+      assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+    });
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'Rechnung storniert');
+    assertEq(await w.DB.get('verkaeufe', v.id), undefined, 'Verkauf zurückgenommen');
+    assertEq(await p5Stand(w, a), { kasse: 0, summe: 0, bestand: 10, korbKasse: 1, korbVerkauf: 1 }, 'Kassenbuch genau einmal ausgeglichen, Bestand genau einmal zurück, keine Storno-Buchung zusätzlich');
+    assertEq(await w.verkaufStornieren(v.id), { abfuellungFehlt: false }, 'zweiter Aufruf: nichts mehr zu tun');
+    assertEq(await p5Stand(w, a), { kasse: 0, summe: 0, bestand: 10, korbKasse: 1, korbVerkauf: 1 }, 'auch danach genau einmal');
+    // Entwurf zählt nicht: wie bisher (Frage zum Kassenbuch)
+    const n = await p5Honig(w);
+    await w.verkaufRechnungErstellen({ verkauf: n.v, text: 'Honig' });
+    await stornoUmgebung(w, async ({ fragen, host }) => {
+      await w.Views.honig.tabVerkaeufe(host);
+      host.querySelector(`[data-storno="${n.v.id}"]`).click(); await w99(400);
+      assert(fragen.length === 1 && !/Rechnung stornieren/.test(fragen[0].text || ''), 'Entwurf: die bisherige Rückfrage');
+    });
+    assertEq(await w.DB.get('verkaeufe', n.v.id), undefined, 'Entwurf: Verkauf wie bisher zurückgenommen');
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+}));
+
+test('Rechnung zum Verkauf (Julian 08.11.2026): Lager-Verkauf mit Rechnung zurücknehmen – eine Rückfrage, Ja storniert beides genau einmal, Abbrechen ändert nichts', async (w) => isolierteDaten(w, async () => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P5 Lager zurück' });
+  const hash = w.location.hash;
+  const stand = async () => ({ ...(await p5Stand(w)), prod: w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)) });
+  try {
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+    const r = await w.verkaufRechnungErstellen(erg);
+    await stornoUmgebung(w, async () => { await w.Views.rechnung.festschreiben(r, []); });
+    const nummer = (await w.DB.get('rechnungen', r.id)).nummer;
+    const vorher = await stand();
+    assertEq([vorher.kasse, vorher.summe, vorher.prod], [1, 9, 22], 'Verkauf einmal gebucht');
+    let f = null; try { await w.abgangZurueckbuchen(erg.abgang, { kasse: true, loeschen: true }); } catch (e) { f = e; }
+    assert(f && f.message.includes(nummer), 'direkt: klare Meldung mit Rechnungsnummer');
+    assertEq(await stand(), vorher, 'nichts geändert');
+    const loeschen = async (ok) => stornoUmgebung(w, async ({ fragen, toasts }) => {
+      await w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, await w.DB.get('materialabgaenge', erg.abgang.id));
+      await w99(300);
+      letztesModal(w).querySelector('[data-del]').click(); await w99(400);
+      assertEq(fragen.length, 1, 'genau eine Rückfrage');
+      assert(fragen[0].text.includes(`Zu diesem Verkauf gibt es Rechnung ${nummer}. Rechnung stornieren und Verkauf zurücknehmen?`), 'Text: ' + fragen[0].text);
+      assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+    }, { confirm: ok });
+    await loeschen(false);
+    assertEq([await stand(), (await w.DB.get('rechnungen', r.id)).status], [vorher, 'festgeschrieben'], 'Abbrechen ändert nichts');
+    await loeschen(true);
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'Rechnung storniert');
+    assertEq(await w.DB.get('materialabgaenge', erg.abgang.id), undefined, 'Abgang zurückgenommen');
+    assertEq(await stand(), { kasse: 0, summe: 0, bestand: null, korbKasse: 1, korbVerkauf: 1, prod: 24 }, 'Kassenbuch und Bestand genau einmal zurück');
+    assertEq(await w.abgangZurueckbuchen(erg.abgang, { kasse: true, loeschen: true, mitRechnung: true }), null, 'zweiter Aufruf: nichts mehr zu tun');
+    assertEq((await stand()).prod, 24, 'Bestand weiter genau einmal zurück');
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+}));
+
+test('Lager-Steuersatz (Julian 08.11.2026): Feld „Steuersatz (%)“ (Vorgabe 19, Auswahl 0/7/19), Rechnungspositionen aus dem Lager nehmen ihn, Kleinunternehmer 0 %', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kerze7 = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'P5 Honigbonbons', kategorie: 'Süßes', einheit: 'Stück', stueckzahl: 10, verkaufspreis: 2, steuersatz: 7 });
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P5 Steuer' });
+  const echtGet = w.S.get;
+  const hash = w.location.hash;
+  try {
+    assertEq([w.lagerSteuersatz({}), w.lagerSteuersatz({ steuersatz: 7 }), w.lagerSteuersatz({ steuersatz: 0 }), w.lagerSteuersatz({ steuersatz: 16 })], [19, 7, 0, 19], 'Vorgabe 19, erlaubt 0/7/19');
+    // Feld im Formular „Position bearbeiten“
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try {
+      w.Views.material._jahr = ''; w.Views.material._art = ''; w.Views.material._suche = '';
+      await w.Views.material.render(host);
+      const zeile = host.querySelector(`[data-edit="${d.mat.id}"]`);
+      if (zeile) {
+        zeile.click(); await w99(300);
+        const m = letztesModal(w), sel = m.querySelector('#f-steuersatz');
+        assert(sel, 'Feld Steuersatz (%) da');
+        assertEq([[...sel.options].map((o) => o.value), sel.value], [['0', '7', '19'], '19'], 'Auswahl 0/7/19, Vorgabe 19');
+        pvSetz(w, sel, '7');
+        m.querySelector('[data-save]').click(); await w99(500);
+        assertEq((await w.DB.get('inventar', d.mat.id)).steuersatz, 7, 'gespeichert');
+      } else assert(false, 'Zeile der Position nicht gefunden');
+    } finally { host.remove(); dialogeSchliessen(w); }
+    // Regelbesteuerung: Rechnung zum Lager-Verkauf nimmt den Satz des Artikels
+    w.S.get = function (k) { return k === 'steuer' ? { art: 'regel' } : echtGet.call(this, k); };
+    const r7 = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: kerze7.id, menge: 1, preis: 2, kontaktId: kunde.id }));
+    const r19 = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 1, preis: 4.5, kontaktId: kunde.id }));
+    assertEq([r7.positionen[0].steuersatz, r19.positionen[0].steuersatz], [7, 19], 'Beleg-Rechnung: Satz des Lager-Artikels');
+    // „Position“ in einer Rechnung: Lager-Artikel gewählt → sein Satz steht im Feld
+    const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id });
+    await w.Views.rechnung.posForm(r0, [], new Map());
+    const m = letztesModal(w);
+    pvSetz(w, m.querySelector('#f-quelle'), 'lager');
+    pvSetz(w, m.querySelector('#f-inventarId'), kerze7.id);
+    assertEq(m.querySelector('#f-steuersatz').value, '7', 'Satz vorbelegt');
+    pvSetz(w, m.querySelector('#f-menge'), '2');
+    m.querySelector('[data-save]').click();
+    await warteBis(async () => (await w.DB.get('rechnungen', r0.id)).positionen.length === 1);
+    assertEq((await w.DB.get('rechnungen', r0.id)).positionen[0].steuersatz, 7, 'Position mit 7 %');
+    dialogeSchliessen(w);
+    // Kleinunternehmer: weiter 0 %
+    w.S.get = function (k) { return k === 'steuer' ? { art: 'klein', kleinunternehmer: true } : echtGet.call(this, k); };
+    const rk = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: kerze7.id, menge: 1, preis: 2, kontaktId: kunde.id }));
+    assertEq(rk.positionen[0].steuersatz, 0, 'Kleinunternehmer: 0 %');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { w.S.get = echtGet; dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Rechnung mit Lager-Artikel (Julian 08.11.2026): erscheint als Abgang „Verkauf“ in der Abgangsliste – ohne eigene Buchung, zurück nur über das Storno, alles genau einmal', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P5 Abgangsliste' });
+  try {
+    let r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+      positionen: [{ text: 'LG Bienenwachskerze klein', inventarId: d.prod.id, menge: 3, einzelpreis: 4.5, pfand: 0, steuersatz: 0, abfuellungId: null },
+        { text: 'LG Bienenwachskerze klein', inventarId: d.prod.id, menge: 1, einzelpreis: 4.5, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+    await w.Views.rechnung.festschreiben(r, []);
+    r = await w.DB.get('rechnungen', r.id);
+    const ab = await w.DB.getAll('materialabgaenge');
+    assertEq(ab.map((a) => [a.art, a.inventarId, a.menge, a.preis, a.belegNr, a.rechnungId, a.kassenbuchId, a.kontaktId]), [['Verkauf', d.prod.id, 4, 4.5, r.nummer, r.id, null, kunde.id]], 'eine Abgangs-Zeile „Verkauf“ mit Rechnungsnummer');
+    assertEq([w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), (await w.DB.getAll('kassenbuch')).length, w.U.sum(await w.DB.getAll('kassenbuch'), (k) => k.betrag)], [20, 1, 18], 'Bestand und Kassenbuch genau einmal');
+    let f = null; try { await w.abgangZurueckbuchen(ab[0], { kasse: true, loeschen: true }); } catch (e) { f = e; }
+    assert(f && f.message.includes(r.nummer), 'Zurücknehmen nur über die Rechnung');
+    await w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, ab[0]);
+    assert(toasts.some((t) => t.typ === 'err' && t.msg.includes(r.nummer)), 'Antippen der Zeile: Hinweis statt Formular');
+    toasts.length = 0;
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 20, 'nichts geändert');
+    await w.rechnungStornieren(r.id); await w.rechnungStornieren(r.id);
+    assertEq([(await w.DB.getAll('materialabgaenge')).length, w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), w.U.sum(await w.DB.getAll('kassenbuch'), (k) => k.betrag)], [0, 24, 0], 'Storno: Zeile weg, Bestand genau einmal zurück, Saldo 0');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); }
+})));
+
 /* ===== Paket 3: Bereich „Finanzen“ (Julian 08.11.2026, Mockup 2) ===== */
 test('Finanzen (Julian 08.11.2026): ein Bereich im Menü statt Kassenbuch, Rechnungen und Abnehmer & Lieferanten', (w) => {
   const routen = w.NAV.filter((n) => n.route).map((n) => n.route);

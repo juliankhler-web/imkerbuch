@@ -13580,10 +13580,16 @@ function papierkorbAuftraege(store, rec) {
 const STORNO_ABF_IM_PAPIERKORB = 'Die Abfüllung zu diesem Verkauf liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren.';
 /** Verkauf stornieren. Ergebnis: { abfuellungFehlt } – true, wenn die Abfüllung endgültig gelöscht ist und deshalb
     keine Gebinde in den Bestand zurückkamen (der Aufrufer sagt das dazu). */
-async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
-  return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
+async function verkaufStornieren(verkaufId, { kasse = true, mitRechnung = false } = {}) {
+  return DB.aendereAtomar(['verkaeufe', 'abfuellungen', 'kassenbuch', 'papierkorb', 'rechnungen'], (d) => {
     const v = d.verkaeufe.find((x) => x.id === verkaufId);
     if (!v) return { ops: [], wert: { abfuellungFehlt: false } }; // ein anderer Aufruf hat bereits storniert
+    /* Festgeschriebene Rechnung zum Verkauf (Julian 08.11.2026): nicht still zurücknehmen. Nur mit `mitRechnung` (nach der
+       Rückfrage) wird sie in DERSELBEN Transaktion storniert – sie selbst hat nichts gebucht, also wird die Einnahme hier genau
+       einmal entfernt (kasse ist dann immer an) und der Bestand genau einmal zurückgelegt. */
+    const re = belegRechnungZu(d.rechnungen, 'honig', v.id);
+    if (re && !mitRechnung) throw belegRechnungFehler(re);
+    if (re) { kasse = true; re.status = 'storniert'; }
     const a = v.abfuellungId ? d.abfuellungen.find((x) => x.id === v.abfuellungId) : null;
     /* Fehlende Abfüllung (Fund 04.11.2026): Bisher scheiterte das Storno dann IMMER – auch wenn die Abfüllung endgültig
        weg war, und dann ließ sich der Verkauf nie mehr stornieren. Jetzt: Liegt sie im Papierkorb, erst wiederherstellen
@@ -13596,7 +13602,8 @@ async function verkaufStornieren(verkaufId, { kasse = true } = {}) {
     const kb = d.kassenbuch.find((x) => x.id === v.kassenbuchId);
     const ops = [...(a ? [{ store: 'abfuellungen', obj: a }] : []), ...papierkorbAuftraege('verkaeufe', v)];
     if (kb && kasse) ops.push(...papierkorbAuftraege('kassenbuch', kb));
-    return { ops, wert: { abfuellungFehlt: !!(v.abfuellungId && !a) } };
+    if (re) ops.push({ store: 'rechnungen', obj: re });
+    return { ops, wert: { abfuellungFehlt: !!(v.abfuellungId && !a), ...(re ? { rechnungStorniert: re.nummer } : {}) } };
   });
 }
 /** Verkauf und Einnahme bilden auch im Papierkorb einen gemeinsamen Vorgang. */
@@ -17633,6 +17640,15 @@ Views.honig = {
           const abfWeg = !!(vk && vk.abfuellungId && !abf.has(vk.abfuellungId));
           if (abfWeg && imPapierkorb({ papierkorb: await DB.getAll('papierkorb') }, 'abfuellungen', vk.abfuellungId)) { UI.toast(STORNO_ABF_IM_PAPIERKORB, 'err'); return; }   // Ultra-Test 2, V9
           const basis = abfWeg ? 'Die Abfüllung zu diesem Verkauf ist gelöscht, deshalb kommen keine Gebinde in den Bestand zurück.' : 'Die Gebinde wandern zurück in den Bestand.';
+          // Festgeschriebene Rechnung dazu: EINE Rückfrage, Ja nimmt beides zusammen zurück (Julian 08.11.2026)
+          const re = vk ? belegRechnungZu(await DB.getAll('rechnungen'), 'honig', vk.id) : null;
+          if (re) {
+            if (!(await belegRechnungFragen(re))) return;
+            const erg = await verkaufStornieren(st.dataset.storno, { kasse: true, mitRechnung: true });
+            UI.toast(`Rechnung ${re.nummer} storniert und Verkauf zurückgenommen`
+              + (erg && erg.abfuellungFehlt ? '. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.' : ''));
+            renderRoute(); return;
+          }
           const kb = vk ? await kasseBuchungZu(vk.kassenbuchId) : null;
           let kasse = true;
           if (kb) {
@@ -19464,12 +19480,15 @@ async function rechnungEntwurfSpeichern(neu, erwartet) {
 const STORNO_RE_ABF_IM_PAPIERKORB = 'Eine Abfüllung dieser Rechnung liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.';
 /** Rechnung stornieren. Ergebnis: false = war schon storniert, sonst { abfuellungFehlt, ohneGegenbuchung } für den Hinweis danach. */
 async function rechnungStornieren(id) {
-  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'papierkorb', 'inventar'], (d) => {
+  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'papierkorb', 'inventar', 'materialabgaenge'], (d) => {
     const r = d.rechnungen.find((x) => x.id === id);
     if (!r || r.status === 'storniert') return { ops: [], wert: false };
     if (r.status !== 'festgeschrieben') throw new Error('Nur eine festgeschriebene Rechnung kann storniert werden.');
     /* Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4): Sie hat nichts gebucht, also bucht ihr Storno auch
-       nichts zurück – der Verkauf bleibt, wie er ist. */
+       nichts zurück – der Verkauf bleibt, wie er ist. Hat das Festschreiben den Betrag geändert (belegVerkaufAnpassen), bleibt
+       auch der NEUE Betrag stehen (Julian 08.11.2026): Der Kunde hat zu diesem Preis gekauft, Verkauf und Einnahme stimmen
+       überein. Den alten Betrag wiederherzustellen hieße, eine Einnahme zu buchen, die so nie geflossen ist. Wer den Verkauf
+       ganz zurücknehmen will, nimmt ihn beim Verkauf zurück (dort ohne Rechnung, denn die ist dann schon storniert). */
     if (r.ausVerkauf) { r.status = 'storniert'; return { ops: [{ store: 'rechnungen', obj: r }], wert: { abfuellungFehlt: false, ohneGegenbuchung: false, ausVerkauf: true } }; }
     const imKorb = (store, pruef) => d.papierkorb.some((t) => t.store === store && t.daten && pruef(t.daten));
     const ops = [], geaendert = new Map();
@@ -19496,6 +19515,8 @@ async function rechnungStornieren(id) {
       if (!lagerBuchen(d, p.inventarId, buchungsZahl(p.menge, 'Menge'), geaendertLager, { bezeichnung: p.text })) lagerFehlt = true;
     }
     for (const obj of geaendertLager.values()) ops.push({ store: 'inventar', obj });
+    // Die Abgangs-Zeilen dieser Rechnung verschwinden mit – den Bestand hat die Schleife oben genau einmal zurückgelegt (Julian 08.11.2026)
+    for (const a of d.materialabgaenge) if (a.rechnungId === r.id) ops.push({ op: 'del', store: 'materialabgaenge', id: a.id });
     /* Gegenbuchung nur über das, was zu dieser Rechnung wirklich im Kassenbuch steht (Fund 04.11.2026, #3/#25). Vorher immer
        −Brutto – fehlte die Einnahme (früher frei löschbar), ergab das −120 € statt 0 €. Normalfall: die Einnahme steht da,
        gebucht wird genau −Brutto. Fehlt sie und liegt im Papierkorb: erst wiederherstellen. Ist sie endgültig weg: keine
@@ -19593,7 +19614,7 @@ Views.rechnung = {
     const posAenderbar = entwurf && !ausVerkauf;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('finanzen/rechnungen')">${icon('back')} Alle Rechnungen</button>
-      ${ausVerkauf ? `<div class="banner info mb12 no-print" data-rechnung-aus-verkauf><span class="b-msg"><b>Rechnung zu einem Verkauf.</b> Der Verkauf ist schon gebucht. Beim Festschreiben ändern sich Bestand und Kassenbuch nicht noch einmal.${entwurf && !r.kundeId ? ' Wähle noch den Kunden.' : ''}</span></div>` : ''}
+      ${ausVerkauf ? `<div class="banner info mb12 no-print" data-rechnung-aus-verkauf><span class="b-msg"><b>Rechnung zu einem Verkauf.</b> Der Verkauf ist schon gebucht. Beim Festschreiben ändern sich Bestand und Kassenbuch nicht noch einmal.${entwurf && !r.kundeId ? ' Wähle noch den Kunden.' : ''}${verkaufAbweichungText(r, entwurf)}</span></div>` : ''}
       ${pageHead(r.nummer || 'Rechnung (Entwurf)', `${U.fmtDate(r.datum)} · Status: ${r.status}`, `
         <span class="flex-wrap no-print">
           <button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} PDF</button>
@@ -19653,6 +19674,7 @@ Views.rechnung = {
             <div class="small muted">Zahlbar bis ${U.fmtDate(sum.zahlungsziel.faellig)} (${sum.zahlungsziel.tage} Tage).</div>
             ${sum.skonto ? `<div class="small muted">Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)}: ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto = ${U.fmtEur(sum.skonto.betrag)} → Zahlbetrag ${U.fmtEur(sum.skonto.zahlbetrag)}. <b>Nicht im Gesamtbetrag abgezogen</b> – wird erst beim Zahlungseingang wirksam.</div>` : ''}
             ${rechnungHinweis(r) ? `<div class="small muted" style="max-width:420px;margin-left:auto">${rechnungHinweis(r)}</div>` : ''}
+            ${rechnungVerkaufVermerk(r) ? `<div class="small muted" data-verkauf-vermerk>${U.esc(rechnungVerkaufVermerk(r))}</div>` : ''}
           </div>`
         : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand, Artikel aus dem Lager oder freie Positionen hinzu.')}
       </div>`;
@@ -19708,7 +19730,7 @@ Views.rechnung = {
     if (st) st.onclick = async () => {
       if (Lizenz.nurVoll('Rechnungen')) return;
       if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: r.ausVerkauf
-        ? 'Die Rechnung wird ungültig. Der Verkauf dazu bleibt gebucht – Bestand und Kassenbuch ändern sich nicht. Willst du auch den Verkauf zurücknehmen, mach das beim Verkauf.'
+        ? `Die Rechnung wird ungültig. Der Verkauf dazu bleibt gebucht – Bestand und Kassenbuch ändern sich nicht${rechnungVerkaufVermerk(r) ? ` (die Einnahme bleibt bei ${U.fmtEur(rechnungSummen(r).brutto)})` : ''}. Willst du auch den Verkauf zurücknehmen, mach das beim Verkauf.`
         : 'Der Bestand (Honig und Lager) wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
       try {
         const erg = await rechnungStornieren(r.id);
@@ -19783,6 +19805,9 @@ Views.rechnung = {
       if (!invFeld || !preisFeld || (quelleFeld && quelleFeld.value !== 'lager')) return;
       const vk = lagerVk(invFeld.value);
       preisFeld.value = vk ? U.fmtNum(vk, 2) : '';
+      // Steuersatz des Lager-Artikels vorbelegen (Julian 08.11.2026)
+      const satzFeld = $('#f-steuersatz', m.el), i = lagerVerf.find((x) => x.id === invFeld.value);
+      if (satzFeld && i) satzFeld.value = String(lagerSteuersatz(i));
     };
     if (invFeld) invFeld.addEventListener('change', lagerPreisSetzen);
     if (quelleFeld) quelleFeld.addEventListener('change', lagerPreisSetzen);
@@ -19816,8 +19841,10 @@ Views.rechnung = {
       const a = vorBestand.find((x) => x.id === id);
       if (!a || menge > a.bestand) return UI.toast('Bestand reicht nicht oder die Abfüllung fehlt.', 'err');
     }
+    const abw = r.ausVerkauf ? verkaufAbweichung(r) : null;
     const confirmText = r.ausVerkauf
-      ? 'Die Rechnung erhält die nächste fortlaufende Nummer. Der Verkauf dazu ist schon gebucht – Bestand und Kassenbuch ändern sich nicht noch einmal. Danach ist sie nicht mehr änderbar.'
+      ? (abw ? `Die Rechnung erhält die nächste fortlaufende Nummer. Ihr Betrag (${U.fmtEur(abw.neu)}) weicht vom Verkauf ab (${U.fmtEur(abw.vorher)}): Die Einnahme im Kassenbuch wird auf ${U.fmtEur(abw.neu)} gesetzt und als geändert vermerkt – es kommt keine zweite dazu. Danach ist sie nicht mehr änderbar.`
+        : 'Die Rechnung erhält die nächste fortlaufende Nummer. Der Verkauf dazu ist schon gebucht – Bestand und Kassenbuch ändern sich nicht noch einmal. Danach ist sie nicht mehr änderbar.')
       : 'Die Rechnung erhält die nächste fortlaufende Nummer, der Bestand (Honig und Lager) wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.';
     if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: confirmText, confirmText: 'Festschreiben', danger: false }))) return;
     try {
@@ -19873,6 +19900,20 @@ Views.rechnung = {
         // Empfänger und Absender festhalten, wie sie jetzt sind – das PDF druckt sie später genau so (Fund 04.11.2026, #2/#21)
         rechnungSchnappschussErgaenzen(aktuell, kunde, imkereiAusSaetzen(d.settings));
         if (!ausVerkauf) ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: rechnungKategorie(aktuell, d.inventar), betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } });
+        // Betrag weicht vom Verkauf ab: Einnahme und Verkauf in derselben Transaktion nachziehen, mit Vermerk (Julian 08.11.2026)
+        if (ausVerkauf) ops.push(...belegVerkaufAnpassen(d, aktuell, nr.nummer, brutto));
+        /* Lager-Positionen erscheinen als Abgang „Verkauf“ in der Abgangsliste (Julian 08.11.2026). Bestand und Einnahme hat
+           oben schon die Rechnung gebucht – der Abgang ist nur die Zeile dazu: ohne eigene Kassenbuch-Buchung (kassenbuchId null),
+           mit `rechnungId`. Ändern/Zurücknehmen geht nur über das Storno der Rechnung, das ihn wieder entfernt. */
+        for (const [id, { menge, text }] of gebrauchtLager) {
+          const pos = geaendertLager.get(id);
+          if (!pos) continue;   // Position endgültig gelöscht: nichts abgezogen, keine Zeile
+          const ps = aktuell.positionen.filter((p) => p.inventarId === id);
+          const summe = U.sum(ps, (p) => buchungsZahl(p.menge, 'Menge') * buchungsZahl(p.einzelpreis, 'Einzelpreis'));
+          ops.push({ store: 'materialabgaenge', obj: { id: U.uuid(), inventarId: id, bezeichnung: pos.bezeichnung || text, typ: inventarTyp(pos), einheit: verbrauchEinheit(pos),
+            datum: aktuell.datum, menge, art: 'Verkauf', preis: menge > 0 ? Math.round(summe / menge * 100) / 100 : 0, kontaktId: aktuell.kundeId, kaeufer: '',
+            belegNr: nr.nummer, bestandVorher: verbrauchBestand(pos) + menge, bestandNachher: verbrauchBestand(pos), notiz: '', kassenbuchId: null, rechnungId: aktuell.id } });
+        }
         ops.push({ store: 'rechnungen', obj: aktuell });
         const kreisSatz = S.satz(kreisVorher, 'rechnungskreis', kreis);
         ops.push({ store: 'settings', obj: kreisSatz, keepStamp: true });
@@ -20181,6 +20222,9 @@ async function renderInventarBereich(main, cfg) {
       /* Verkaufspreis (Julian 08.11.2026): wird beim „Verkaufen“ aus dem Lager vorgeschlagen und lässt sich dort ändern. */
       { key: 'verkaufspreis', label: 'Verkaufspreis je Einheit (€, optional)', type: 'number', halb: true, placeholder: 'z. B. 4,50',
         hint: 'Was du verlangst, wenn du es verkaufst. Beim Verkaufen steht der Preis dann schon drin.' },
+      /* Steuersatz (Julian 08.11.2026): gilt für Rechnungen mit Umsatzsteuer; Honig hat 7 %, Lager-Artikel meist 19 %. */
+      { key: 'steuersatz', label: 'Steuersatz (%)', type: 'select', keepOrder: true, required: true, halb: true, default: String(lagerSteuersatz(i)),
+        options: LAGER_STEUERSAETZE.map((x) => ({ v: String(x), l: `${x} %` })), hint: 'Für Rechnungen mit Umsatzsteuer. Als Kleinunternehmer gilt immer 0 %.' },
       { key: '_trennVk', type: 'static', html: '' },
       /* Gebindegröße gehört zum Bestand, nicht zum Preis – sie sagt, wofür die
          Position beim Abfüllen zählt. */
@@ -20242,6 +20286,7 @@ async function renderInventarBereich(main, cfg) {
       delete v._hatMhd;                              // Hilfsfeld nicht mitspeichern
       if (!v._hatPfand) { v.pfand = 0; v.pfandSeit = null; }   // kein Mehrweg → auch kein altes Pfand
       v.verkaufspreis = Number(v.verkaufspreis) > 0 ? Math.round(Number(v.verkaufspreis) * 100) / 100 : null;   // leer = kein Verkaufspreis (Julian 08.11.2026)
+      v.steuersatz = lagerSteuersatz(v);   // nur 0, 7 oder 19 (Julian 08.11.2026)
       delete v._hatPfand;
       /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
          und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
@@ -20510,13 +20555,19 @@ async function lagerVerkaufForm(vorId = '') {
   return m;
 }
 
+/** Steuersätze eines Lager-Artikels (Julian 08.11.2026). Vorgabe 19 %, Honig bleibt bei 7 %. */
+const LAGER_STEUERSAETZE = [0, 7, 19];
+function lagerSteuersatz(i) {
+  const s = i && i.steuersatz != null && i.steuersatz !== '' ? Number(i.steuersatz) : NaN;
+  return LAGER_STEUERSAETZE.includes(s) ? s : 19;
+}
 /** Was ein gebuchter Verkauf für die Rückfrage und die Rechnung braucht (Julian 08.11.2026, Mockup 3) – aus dem Lager
     ({ abgang, gefehlt }) oder aus dem Honigverkauf ({ verkauf, text }). Die Positionen sind reine Beleg-Zeilen: ohne
     Abfüllung und ohne Lager-Position, denn Bestand und Kassenbuch hat der Verkauf schon gebucht. */
 function verkaufBeleg(erg) {
   if (erg && erg.abgang) {
     const a = erg.abgang;
-    return { art: 'lager', id: a.id, datum: a.datum, kontaktId: a.kontaktId || null, betrag: abgangErloes(a), kurz: `${U.fmtNum(a.menge, 2)} × ${a.bezeichnung}`,
+    return { art: 'lager', id: a.id, inventarId: a.inventarId || null, datum: a.datum, kontaktId: a.kontaktId || null, betrag: abgangErloes(a), kurz: `${U.fmtNum(a.menge, 2)} × ${a.bezeichnung}`,
       gefehlt: erg.gefehlt || 0, einheit: a.einheit || '', rabatt: 0,
       positionen: [{ text: a.bezeichnung, menge: Number(a.menge) || 0, einzelpreis: Number(a.preis) || 0, pfand: 0, steuersatz: 19, abfuellungId: null }] };
   }
@@ -20551,6 +20602,80 @@ function rechnungGrundwerte() {
   const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
   return { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, pfandSteuersatz: U.zahl(stg.pfandSteuersatz, 0), status: 'entwurf', qrAufDruck: false };
 }
+/** Festgeschriebene (nicht stornierte) Rechnung, die Beleg zu diesem Verkauf ist – sonst null (Julian 08.11.2026).
+    art: 'honig' (Honig-Verkauf) oder 'lager' (Lager-Abgang). Ein Entwurf zählt nicht – er bleibt wie bisher. */
+function belegRechnungZu(rechnungen, art, id) {
+  return (rechnungen || []).find((r) => r.status === 'festgeschrieben' && r.ausVerkauf && r.ausVerkauf.art === art && r.ausVerkauf.id === id) || null;
+}
+/** Fehler, wenn ein Verkauf ohne Rückfrage zurückgenommen werden soll, zu dem es eine Rechnung gibt. */
+function belegRechnungFehler(re) {
+  const e = new Error(`Zu diesem Verkauf gibt es Rechnung ${re.nummer}. Nimm den Verkauf in seiner Liste zurück (Honig: Reiter Verkauf, Lager: Abgangsliste) – dort wird die Rechnung mit storniert. Nichts wurde geändert.`);
+  e.belegRechnung = re.nummer;
+  return e;
+}
+/** Die eine Rückfrage beim Zurücknehmen eines Verkaufs mit Rechnung (Julian 08.11.2026). true = beides zurück. */
+function belegRechnungFragen(re) {
+  return UI.confirm({ title: 'Verkauf zurücknehmen?', text: `Zu diesem Verkauf gibt es Rechnung ${re.nummer}. Rechnung stornieren und Verkauf zurücknehmen?`
+    + ' Bestand und Kassenbuch gehen genau einmal zurück.', confirmText: 'Stornieren und zurücknehmen', danger: true });
+}
+/** Weicht der Betrag eines Rechnungsentwurfs zum Verkauf vom Verkauf ab? { vorher, neu } oder null (Julian 08.11.2026).
+    Grundlage ist der Betrag beim Anlegen (ausVerkauf.betrag); maßgeblich beim Festschreiben bleibt belegVerkaufAnpassen. */
+function verkaufAbweichung(r) {
+  if (!r || !r.ausVerkauf) return null;
+  const vorher = Math.round((Number(r.ausVerkauf.betrag) || 0) * 100) / 100, neu = Math.round(rechnungSummen(r).brutto * 100) / 100;
+  return Math.abs(neu - vorher) < 0.005 ? null : { vorher, neu };
+}
+/** Satz im Hinweis oben auf der Rechnung zum Verkauf: im Entwurf die Abweichung, danach der Vermerk. */
+function verkaufAbweichungText(r, entwurf) {
+  if (!entwurf) return rechnungVerkaufVermerk(r) ? ` ${rechnungVerkaufVermerk(r)} – die Einnahme im Kassenbuch ist angepasst.` : '';
+  const abw = verkaufAbweichung(r);
+  return abw ? ` Der Betrag weicht vom Verkauf ab (vorher ${U.fmtEur(abw.vorher)}): Beim Festschreiben wird die Einnahme im Kassenbuch auf ${U.fmtEur(abw.neu)} gesetzt und als geändert vermerkt.` : '';
+}
+/** Vermerk auf einer Rechnung zum Verkauf, deren Betrag beim Festschreiben vom Verkauf abwich (Julian 08.11.2026) – sonst ''. */
+function rechnungVerkaufVermerk(r) {
+  const vorher = r && r.ausVerkauf ? r.ausVerkauf.geaendertVorher : null;
+  return vorher != null ? `Gegenüber dem Verkauf geändert (vorher ${U.fmtEur(vorher)})` : '';
+}
+/** Beim Festschreiben einer Rechnung zum Verkauf (Julian 08.11.2026: „es muss mit dran stehen das verändert wurde und kann man
+    es dann nicht im kassenbuch mit ändern?“): Weicht ihr Betrag vom Verkauf ab (Rabatt, Steuerart, Preis geändert), wird in
+    DERSELBEN Transaktion die Einnahme des Verkaufs auf den Rechnungsbetrag gesetzt und der Verkauf mitgeführt – mit Vermerk
+    „vorher X €“ an Rechnung, Verkauf und Kassenbuch-Zeile. Es entsteht KEINE zweite Einnahme: genau eine Zeile, neuer Betrag.
+    Hat der Verkauf (Honig-Verkauf ohne Preis o. Ä.) noch gar keine Einnahme, wird eine angelegt und verknüpft. Fehlt sie, obwohl
+    der Verkauf auf eine zeigt (gelöscht oder im Papierkorb), bleibt das Kassenbuch unangetastet – sonst entstünde beim
+    Wiederherstellen eine doppelte Einnahme. Gibt die Ops zurück. */
+function belegVerkaufAnpassen(d, rechnung, nummer, brutto) {
+  const av = rechnung.ausVerkauf, honig = av.art === 'honig';
+  const vk = honig ? d.verkaeufe.find((x) => x.id === av.id) : d.materialabgaenge.find((x) => x.id === av.id);
+  if (!vk) return [];
+  const vorher = Math.round((honig ? Number(vk.betrag) || 0 : abgangErloes(vk)) * 100) / 100;
+  const neu = Math.round(brutto * 100) / 100;
+  if (Math.abs(neu - vorher) < 0.005) return [];
+  const ops = [], vermerk = `Rechnung ${nummer}: gegenüber dem Verkauf geändert (vorher ${U.fmtEur(vorher)})`;
+  av.geaendertVorher = vorher;
+  let kb = vk.kassenbuchId ? d.kassenbuch.find((k) => k.id === vk.kassenbuchId) || null : null;
+  if (kb) {
+    kb.betrag = neu;
+    kb.beschreibung = `${String(kb.beschreibung || '').replace(/ – Rechnung [^:]*: gegenüber dem Verkauf geändert \(vorher [^)]*\)$/, '')} – ${vermerk}`;
+    kb.geaendertDurchRechnung = { rechnungId: rechnung.id, nummer, vorher };
+    ops.push({ store: 'kassenbuch', obj: kb });
+  } else if (!vk.kassenbuchId && neu > 0) {
+    kb = { id: U.uuid(), datum: vk.datum || rechnung.datum, typ: 'einnahme', kategorie: honig ? 'Honigverkauf' : (vk.typ === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf'),
+      betrag: neu, steuersatz: 0, kontaktId: rechnung.kundeId || vk.kontaktId || null, rechnungId: null, beschreibung: `Verkauf – ${vermerk}`,
+      geaendertDurchRechnung: { rechnungId: rechnung.id, nummer, vorher } };
+    vk.kassenbuchId = kb.id;
+    ops.push({ store: 'kassenbuch', obj: kb });
+  }
+  if (honig) {
+    vk.betrag = neu;
+    // Rabatt passend mitführen: Warenwert minus Rechnungsbetrag (mehr als der Warenwert = kein Rabatt)
+    const waren = Math.round((Number(vk.anzahl) || 0) * (Number(vk.preisJeGlas) || 0) * 100) / 100;
+    const rabatt = Math.max(0, Math.round((waren - neu) * 100) / 100);
+    if (rabatt > 0) { vk.rabatt = rabatt; vk.rabattText = `${U.fmtEur(rabatt)} (${vermerk})`; } else { delete vk.rabatt; delete vk.rabattText; }
+  } else vk.betragRechnung = neu;
+  vk.geaendertDurchRechnung = { rechnungId: rechnung.id, nummer, vorher };
+  ops.push({ store: honig ? 'verkaeufe' : 'materialabgaenge', obj: vk });
+  return ops;
+}
 /** Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4). Die Rechnung ist der BELEG zum Verkauf: Der Verkauf
     hat Bestand und Kassenbuch schon gebucht, darum merkt sich die Rechnung den Verkauf in `ausVerkauf` – beim Festschreiben
     bucht sie dann weder Bestand noch Einnahme ein zweites Mal, und ihr Storno bucht auch nichts zurück. Kunde und Positionen
@@ -20560,13 +20685,15 @@ async function verkaufRechnungErstellen(erg) {
   const b = verkaufBeleg(erg);
   if (!b) return null;
   try {
-    const r = await DB.aendereAtomar(['rechnungen', 'kontakte'], (d) => {
+    const r = await DB.aendereAtomar(['rechnungen', 'kontakte', 'inventar'], (d) => {
       const schon = d.rechnungen.find((x) => x.status !== 'storniert' && x.ausVerkauf && x.ausVerkauf.art === b.art && x.ausVerkauf.id === b.id);
       if (schon) return { ops: [], wert: schon };
       const kunde = b.kontaktId ? d.kontakte.find((k) => k.id === b.kontaktId) : null;
       const grund = rechnungGrundwerte();
       const neu = { ...grund, id: U.uuid(), datum: b.datum || U.todayIso(), kundeId: kontaktIstKunde(kunde) ? kunde.id : null,
-        positionen: b.positionen.map((p) => ({ ...p, steuersatz: grund.steuerart === 'regel' ? p.steuersatz : 0 })), ausVerkauf: { art: b.art, id: b.id, betrag: b.betrag },
+        // Lager-Artikel: sein eigener Steuersatz (Julian 08.11.2026); Kleinunternehmer und Pauschal weiter 0 %
+        positionen: b.positionen.map((p) => ({ ...p, steuersatz: grund.steuerart !== 'regel' ? 0
+          : b.art === 'lager' ? lagerSteuersatz(d.inventar.find((i) => i.id === b.inventarId)) : p.steuersatz })), ausVerkauf: { art: b.art, id: b.id, betrag: b.betrag },
         ...(b.rabatt > 0 ? { rabattTyp: 'betrag', rabattWert: b.rabatt } : {}) };
       return { ops: [{ store: 'rechnungen', obj: neu }], wert: neu };
     });
@@ -22997,11 +23124,15 @@ function verdrahteEinheit(m, istNeu, lieferanten) {
    Bestand vorher/nachher stehen im Datensatz: so bleibt nachvollziehbar, was der
    Abgang mit dem Lager gemacht hat, auch wenn die Position später bearbeitet wird.
    --------------------------------------------------------------------- */
+/** Meldung für einen Abgang, den eine festgeschriebene Rechnung gebucht hat (Julian 08.11.2026). */
+const ABGANG_AUS_RECHNUNG = (a) => `Dieser Verkauf gehört zur Rechnung${a && a.belegNr ? ' ' + a.belegNr : ''}. Ändern oder zurücknehmen geht über die Rechnung: Storniere sie, dann kommt der Bestand zurück. Nichts wurde geändert.`;
 const ABGANG_ARTEN = ['Verkauf', 'Eigenverbrauch', 'Verlust / Bruch', 'Verschenkt', 'Korrektur'];
 
-/** Erlös eines Abgangs (0, wenn kein Verkauf). */
+/** Erlös eines Abgangs (0, wenn kein Verkauf). Hat eine Rechnung zum Verkauf den Betrag geändert, gilt ihr Betrag
+    (`betragRechnung`, Julian 08.11.2026) – so stimmen Abgangsliste und Kassenbuch überein. */
 function abgangErloes(a) {
   if (!a || a.art !== 'Verkauf') return 0;
+  if (a.betragRechnung != null && Number.isFinite(Number(a.betragRechnung))) return Math.round(Number(a.betragRechnung) * 100) / 100;
   return Math.round((Math.max(0, Number(a.menge) || 0) * Math.max(0, Number(a.preis) || 0)) * 100) / 100;
 }
 
@@ -23633,11 +23764,11 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     Eine dazu gebuchte Kassenbuch-Einnahme wandert in den Papierkorb. Bei
     Datensätzen aus der Zeit vor `kassenbuchId` wird sie über Datum, Betrag und
     Bezeichnung gesucht – lieber gefunden als stehengelassen. */
-async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {}) {
+async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false, mitRechnung = false } = {}) {
   if (!rec) return null;
   /* Eine Transaktion für Bestand, Kassenbuch und (mit `loeschen`) Papierkorb (Fund 04.11.2026, #1/#19). Liegt die Position im
      Papierkorb, erst sie wiederherstellen – vorher ging die Menge dann still verloren. */
-  return DB.aendereAtomar(['inventar', 'materialabgaenge', 'kassenbuch', 'papierkorb'], (d) => {
+  return DB.aendereAtomar(['inventar', 'materialabgaenge', 'kassenbuch', 'papierkorb', 'rechnungen'], (d) => {
     const frisch = rec.id ? d.materialabgaenge.find((y) => y.id === rec.id) : null;
     if (rec.id && !frisch && loeschen) return { ops: [], wert: null };   // schon gelöscht
     /* Bearbeiten eines inzwischen gelöschten Abgangs (Ultra-Test 2, V5 – Sperre wie bei zugangZurueckbuchen): Ein zweites Fenster
@@ -23645,6 +23776,14 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {})
        zurück – der Bestand stand zu hoch. */
     if (rec.id && !frisch) throw new Error('Dieser Abgang wurde inzwischen gelöscht. Bitte die Ansicht neu öffnen; nichts wurde geändert.');
     const x = frisch || rec, geaendert = new Map();
+    /* Abgang aus einer festgeschriebenen Rechnung (Julian 08.11.2026): Bestand und Einnahme hat die Rechnung gebucht – zurück
+       geht beides nur über ihr Storno, sonst käme der Bestand zweimal zurück. */
+    if (x.rechnungId) throw new Error(ABGANG_AUS_RECHNUNG(x));
+    /* Beleg-Rechnung zum Lager-Verkauf (Julian 08.11.2026): wie bei verkaufStornieren – Zurücknehmen nur mit `mitRechnung`
+       (nach der Rückfrage), dann Rechnung storniert, Bestand und Einnahme genau einmal zurück. Bearbeiten bleibt wie bisher. */
+    const re = loeschen ? belegRechnungZu(d.rechnungen, 'lager', x.id) : null;
+    if (re && !mitRechnung) throw belegRechnungFehler(re);
+    if (re) { kasse = true; re.status = 'storniert'; }
     lagerBuchen(d, x.inventarId, -lagerWirkung('materialabgaenge', x), geaendert, { bezeichnung: x.bezeichnung });
     const erloes = abgangErloes(x);
     const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
@@ -23652,8 +23791,9 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {})
       && k.datum === x.datum && Math.abs((Number(k.betrag) || 0) - erloes) < 0.005 && String(k.beschreibung || '').startsWith(String(x.bezeichnung || '')) : null) : null;
     if (altKb) ops.push(...papierkorbAuftraege('kassenbuch', altKb));
     if (loeschen && frisch) ops.push(...papierkorbAuftraege('materialabgaenge', frisch));
+    if (re) ops.push({ store: 'rechnungen', obj: re });
     // kassenbuchAlt: die Buchung, die in den Papierkorb ging – beim Bearbeiten ziehen ihre Belegfotos auf die neue um (Ultra-Test 05.11.2026, U1)
-    return { ops, wert: { abgang: x, kassenbuchAlt: altKb ? altKb.id : null } };
+    return { ops, wert: { abgang: x, kassenbuchAlt: altKb ? altKb.id : null, ...(re ? { rechnungStorniert: re.nummer } : {}) } };
   });
 }
 
@@ -23662,6 +23802,8 @@ async function abgangZurueckbuchen(rec, { kasse = true, loeschen = false } = {})
     Speichern zuerst zurückgenommen, dann neu gebucht. */
 async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = '') {
   if (Lizenz.nurVoll('Lager und Material')) return;
+  // Abgang aus einer Rechnung: ändern oder zurücknehmen nur über die Rechnung (Julian 08.11.2026)
+  if (rec && rec.rechnungId) { UI.toast(ABGANG_AUS_RECHNUNG(rec), 'err'); return; }
   const posten = U.sortBy((await DB.getAll('inventar')).filter((i) => inventarTyp(i) === cfg.typ), (i) => (i.bezeichnung || '').toLowerCase());
   /* Statt Sackgasse: gleich zum Anlegen führen (Prüfung „was blockiert unnötig“, 2026-10-20) */
   if (!posten.length) {
@@ -23729,6 +23871,15 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     /* Kunde hat zurückgegeben: Abgang löschen, Bestand und Kassenbuch gehen
        automatisch mit. */
     onDelete: rec ? async () => {
+      // Festgeschriebene Rechnung dazu: EINE Rückfrage, Ja nimmt beides zusammen zurück (Julian 08.11.2026)
+      const re = belegRechnungZu(await DB.getAll('rechnungen'), 'lager', rec.id);
+      if (re) {
+        if (!(await belegRechnungFragen(re))) return false;
+        await abgangZurueckbuchen(rec, { kasse: true, loeschen: true, mitRechnung: true });
+        UI.toast(`Rechnung ${re.nummer} storniert und Verkauf zurückgenommen – Bestand und Kassenbuch angepasst`);
+        await pruefeMhd(); renderRoute();
+        return true;
+      }
       const kb = await kasseBuchungZu(rec.kassenbuchId);
       const basis = `${U.fmtNum(rec.menge, 2)} ${rec.einheit} „${rec.bezeichnung}" kommen wieder auf den Bestand.`;
       let kasse = true;
@@ -28965,6 +29116,9 @@ const Pdf = {
       doc.text(zLines, 196, y, { align: 'right' }); y += zLines.length * 4.2 + 1;
       const hinweis = rechnungHinweis(r);
       if (hinweis) { const lines = doc.splitTextToSize(hinweis, 150); doc.text(lines, 196, y, { align: 'right' }); y += lines.length * 4.2 + 1; }
+      // Kleiner Vermerk, wenn die Rechnung vom Verkauf abweicht (Julian 08.11.2026)
+      const vermerk = rechnungVerkaufVermerk(r);
+      if (vermerk) { doc.setFontSize(7.5); doc.text(vermerk + '.', 196, y, { align: 'right' }); y += 4; }
       y += 8;
       doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(60);
       doc.text('Vielen Dank für Ihren Einkauf!', 25, y);
