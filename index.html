@@ -1051,6 +1051,8 @@ body:not([data-route="dashboard"]) #banners .b-sicherung{display:none}
 .btn-zwei small{font-size:11.5px;font-weight:500;opacity:.85}
 /* Knöpfe nebeneinander/untereinander gleich groß – auch wenn einer zweizeilig ist (Julian: „sieht nicht schön aus“) */
 .knopf-gruppe{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;width:100%;flex:1 1 100%}
+/* Lager-Reiter: statt zweitem Seitentitel nur Zahl und Knöpfe (Julian 08.11.2026) */
+.lager-teilkopf{display:flex;flex-direction:column;gap:8px}
 .knopf-gruppe>.btn{width:100%;min-height:52px;justify-content:flex-start;text-align:left}
 .ph-actions:has(> .knopf-gruppe){flex:1 1 100%}
 .aufleuchten{outline:3px solid var(--danger);outline-offset:3px;border-radius:var(--r-sm);transition:outline-color .6s}
@@ -4171,13 +4173,13 @@ const NAV = [
   { route: 'trachten', label: 'Trachten', ic: 'flower' },
   { sec: 'Ernte & Geschäft' },
   { route: 'honig', label: 'Ernte und Abfüllung', ic: 'honig' },
-  { route: 'kassenbuch', label: 'Kassenbuch', ic: 'kasse' },
-  { route: 'rechnungen', label: 'Rechnungen', ic: 'rechnung' },
-  { route: 'kontakte', label: 'Abnehmer & Lieferanten', ic: 'kontakte' },
+  /* Kassenbuch, Rechnungen und Abnehmer & Lieferanten sind jetzt EIN Bereich „Finanzen“ mit Reitern (Julian 08.11.2026).
+     Die alten Adressen #/kassenbuch, #/rechnungen, #/kontakte leiten auf den passenden Reiter um (siehe ALTE_ROUTEN). */
+  { route: 'finanzen', label: 'Finanzen', ic: 'kasse' },
   { route: 'fahrten', label: 'Fahrtenbuch', ic: 'auto' },
-  { route: 'inventar', label: 'Inventar', ic: 'box' },
-  { route: 'material', label: 'Verbrauchsmaterial', ic: 'material' },
-  { route: 'produkte', label: 'Weitere Produkte', ic: 'produkte' },
+  /* Inventar, Verbrauchsmaterial und Weitere Produkte sind jetzt EIN Bereich „Lager“ mit Reitern (Julian 08.11.2026).
+     Die alten Adressen #/inventar, #/material, #/produkte leiten auf den passenden Reiter um (siehe ALTE_ROUTEN). */
+  { route: 'lager', label: 'Lager', ic: 'box' },
   { sec: 'Auswertung' },
   { route: 'reporting', label: 'Statistiken', ic: 'chart' },
   { route: 'zeiten', label: 'Zeiterfassung', ic: 'uhr' },
@@ -4193,7 +4195,15 @@ const NAV = [
 const ZUCHT_AN = Testmodus.an();
 if (!ZUCHT_AN) NAV.splice(NAV.findIndex((n) => n.route === 'zucht'), 1);
 /* Detail-Routen → zugehöriger Nav-Eintrag */
-const ROUTE_PARENT = { stand: 'staende', volk: 'voelker', durchsicht: 'voelker', rechnung: 'rechnungen', serie: 'zucht', koenigin: 'koeniginnen' };
+/* Alte Bereiche, die in einem neuen Bereich aufgegangen sind (Julian 08.11.2026): alte Links, Lesezeichen, gespeicherte
+   Menü- und Leisten-Reihenfolgen zeigen auf den neuen Bereich und den passenden Reiter. */
+const ALTE_ROUTEN = { inventar: 'lager/inventar', material: 'lager/verbrauch', produkte: 'lager/produkt',
+  kassenbuch: 'finanzen/kassenbuch', rechnungen: 'finanzen/rechnungen', kontakte: 'finanzen/kontakte' };   // Finanzen (Julian 08.11.2026)
+/** Gespeicherte Routen-Liste (menuOrder, bottomNav) auf die neuen Bereiche umschreiben – doppelte fallen weg (Julian 08.11.2026). */
+function navRoutenNeu(liste) {
+  return [...new Set((liste || []).map((r) => (ALTE_ROUTEN[r] ? ALTE_ROUTEN[r].split('/')[0] : r)))];
+}
+const ROUTE_PARENT = { stand: 'staende', volk: 'voelker', durchsicht: 'voelker', rechnung: 'finanzen', serie: 'zucht', koenigin: 'koeniginnen' };
 
 function currentRoute() {
   const h = location.hash.replace(/^#\/?/, '');
@@ -4652,6 +4662,13 @@ async function renderRoute(opt = {}) {
   const lauf = ++renderLauf;
   const scrollY = opt.scrollBehalten ? window.scrollY : 0;
   const ueberholt = () => lauf !== renderLauf;
+  /* Alte Adresse (z. B. #/inventar) still auf den neuen Bereich umschreiben – ohne neuen Verlaufseintrag (Julian 08.11.2026). */
+  /* Der Zusatz der alten Adresse (z. B. #/kassenbuch/buchen-honig, #/kassenbuch/kontakt-…) geht an den neuen Bereich
+     weiter (unterParam) – sonst verlören Links aus Lager, Honig und Kontakten ihr Ziel (Julian 08.11.2026). */
+  const vorher = currentRoute();
+  const umleitung = ALTE_ROUTEN[vorher.route];
+  const unterParam = umleitung ? vorher.param : null;
+  if (umleitung) try { history.replaceState(null, '', '#/' + umleitung); } catch (e) { location.hash = '#/' + umleitung; return; }
   const { route, param } = currentRoute();
   const view = Views[route] || Views.dashboard;
   document.body.dataset.route = Views[route] ? route : 'dashboard';
@@ -4672,7 +4689,7 @@ async function renderRoute(opt = {}) {
     $('#tb-title').textContent = title || '';
     leistePlatz();
     document.title = (title ? title + ' – ' : '') + 'ImkerBuch';
-    await view.render(main, param);
+    await view.render(main, param, unterParam);
     leistePlatz();   // Seiten-Knöpfe oben (z. B. Regler der Startseite) nehmen Platz weg
   } catch (e) {
     if (ueberholt()) return;   // Fehler einer verlassenen Seite gehört nicht auf die neue
@@ -4683,7 +4700,7 @@ async function renderRoute(opt = {}) {
   Lizenz.kennzeichnen();
   const sperre = Lizenz.sperrBereich(route);
   if (!sperre && route === 'dashboard' && Lizenz.light()) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>Du nutzt ImkerBuch Light</b> – bis ${Lizenz.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte. Kassenbuch, Behandlungen, Fütterung, Ernte, Aufgaben, Fotos und mehr gibt es mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion holen</button></div>`);
-  if (sperre) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>${U.esc(sperre)} ${/^(Rechnungen|Wanderungen|Trachten|Statistiken|Meldungen|Fotos)/.test(sperre) ? 'sind' : 'ist'} Teil der Vollversion.</b> Alles bleibt sichtbar – Neues eintragen geht mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`);
+  if (sperre) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>${U.esc(sperre)} ${/^(Die Finanzen|Rechnungen|Wanderungen|Trachten|Statistiken|Meldungen|Fotos)/.test(sperre) ? 'sind' : 'ist'} Teil der Vollversion.</b> Alles bleibt sichtbar – Neues eintragen geht mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`);
   kopfHoeheMerken();           // quer klebt die Kopfzeile auf Seiten mit Reiterleiste nicht (CSS)
   window.scrollTo({ top: scrollY });
   Assistent.layout(true); setTimeout(() => Assistent.layout(true), 120); setTimeout(() => Assistent.layout(true), 600);
@@ -4777,7 +4794,7 @@ function renderChrome() {
     „Start“ (dashboard) steht immer zuerst, „Mehr“ hängt die App selbst an. */
 function renderBottomNav() {
   const bn = $('#bottomnav'); if (!bn) return;
-  let routes = (S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
+  let routes = navRoutenNeu(S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);   // alte Bereiche → Lager (Julian 08.11.2026)
   if (!routes.includes('dashboard')) routes = ['dashboard', ...routes];
   routes = routes.slice(0, 4);
   const bnLabel = (r) => (r === 'dashboard' ? 'Start' : bereichKurz(r));
@@ -5139,7 +5156,7 @@ function langDruckSortieren(host, sel, fertig, opt = {}) {
 /** Reihenfolge der Bereiche unter „Mehr“: gespeicherte Reihenfolge zuerst, Neues hinten dran. */
 function menuReihenfolge() {
   const alle = NAV.filter((n) => n.route);
-  const gesp = (S.get('menuOrder') || []).filter((r) => alle.some((n) => n.route === r));
+  const gesp = navRoutenNeu(S.get('menuOrder') || []).filter((r) => alle.some((n) => n.route === r));   // alte Bereiche → Lager (Julian 08.11.2026)
   return [...gesp.map((r) => alle.find((n) => n.route === r)), ...alle.filter((n) => !gesp.includes(n.route))];
 }
 
@@ -5162,7 +5179,7 @@ function openMoreSheet({ ausKreis = false } = {}) {
     ziele: '#bottomnav button', rollen: 'eltern',
     onZiel: async (el, ziel) => {
       const neu = el.dataset.route;
-      let bar = (S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
+      let bar = navRoutenNeu(S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
       if (!bar.includes('dashboard')) bar = ['dashboard', ...bar];
       bar = bar.slice(0, 4);
       if (ziel.hasAttribute('data-more')) { if (bar.includes(neu) || bar.length >= 4) return UI.toast(bar.includes(neu) ? 'Ist schon in der Leiste' : 'Die Leiste ist voll – auf einen Eintrag ziehen, um ihn zu ersetzen', 'err'); bar.push(neu); }
@@ -6106,26 +6123,26 @@ const DASH_WIDGETS = {
       <div class="small muted mb4">${serien.length} ${serien.length === 1 ? 'Serie' : 'Serien'} · nächste Termine</div>
       ${termine.length ? `<div class="rows">${termine.map((t) => `<div class="row" style="min-height:42px;padding:7px 4px"><div class="r-main"><div class="r-title">${U.esc(t.serie)}: ${U.esc(t.titel)}</div></div><span class="badge b-honey">${U.fmtDate(t.datum)}</span></div>`).join('')}</div>` : '<div class="muted small">Keine anstehenden Termine.</div>'}</div>`;
   }},
-  kassenbuch: { label: 'Kassenbuch (Jahr)', ic: 'kasse', ziel: 'kassenbuch', async html() {
+  kassenbuch: { label: 'Kassenbuch (Jahr)', ic: 'kasse', ziel: 'finanzen/kassenbuch', async html() {
     const jahr = String(new Date().getFullYear());
     const bu = (await DB.getAll('kassenbuch')).filter((b) => (b.datum || '').startsWith(jahr));
     const ein = U.sum(bu.filter((b) => b.typ === 'einnahme'), (b) => b.betrag || 0);
     const aus = U.sum(bu.filter((b) => b.typ === 'ausgabe'), (b) => b.betrag || 0);
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('kasse')}<h2>Kassenbuch ${jahr}</h2><a href="#/kassenbuch" class="small">Alle</a></div>
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('kasse')}<h2>Kassenbuch ${jahr}</h2><a href="#/finanzen/kassenbuch" class="small">Alle</a></div>
       <div class="grid3" style="gap:8px">
         <div><div class="small muted">Einnahmen</div><div style="font-weight:700;color:#2E7D46">${U.fmtEur(ein)}</div></div>
         <div><div class="small muted">Ausgaben</div><div style="font-weight:700;color:#B3362B">${U.fmtEur(aus)}</div></div>
         <div><div class="small muted">Saldo</div><div style="font-weight:800">${U.fmtEur(ein - aus)}</div></div>
       </div></div>`;
   }},
-  bestand: { label: 'Niedrige Bestände', ic: 'material', ziel: 'material', async html() {
+  bestand: { label: 'Niedrige Bestände', ic: 'material', ziel: 'lager/verbrauch', async html() {
     const knapp = (await DB.getAll('inventar')).filter((i) => i.mindestbestand > 0 && (i.stueckzahl || 0) <= i.mindestbestand);
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('box')}<h2>Niedrige Bestände</h2><a href="#/material" class="small">Material</a></div>
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('box')}<h2>Niedrige Bestände</h2><a href="#/lager/verbrauch" class="small">Lager</a></div>
       ${knapp.length ? `<div class="rows">${knapp.map((i) => `<div class="row" style="min-height:42px;padding:7px 4px"><div class="r-main"><div class="r-title">${U.esc(i.bezeichnung)}</div></div><span class="badge b-danger">${U.fmtNum(i.stueckzahl || 0)} / ${U.fmtNum(i.mindestbestand)}</span></div>`).join('')}</div>` : '<div class="muted small">Alle Bestände über dem Mindestwert. 🐝</div>'}</div>`;
   }},
-  rechnungen: { label: 'Rechnungen (Jahr)', ic: 'rechnung', ziel: 'rechnungen', async html() {
+  rechnungen: { label: 'Rechnungen (Jahr)', ic: 'rechnung', ziel: 'finanzen/rechnungen', async html() {
     const alle = await DB.getAll('rechnungen');
-    const kopf = (t) => `<div class="card-title">${icon('rechnung')}<h2>${t}</h2><a href="#/rechnungen" class="small">Alle</a></div>`;
+    const kopf = (t) => `<div class="card-title">${icon('rechnung')}<h2>${t}</h2><a href="#/finanzen/rechnungen" class="small">Alle</a></div>`;
     if (!alle.length) return `<div class="card" style="margin:0">${kopf('Rechnungen')}<div class="muted small">Noch keine Rechnung erstellt.</div></div>`;
     const jahr = String(new Date().getFullYear());
     const entwuerfe = alle.filter((r) => r.status === 'entwurf');
@@ -6185,8 +6202,7 @@ const BEREICH_KURZ = {
   dashboard: 'Dashboard', aufgaben: 'Aufgaben', imkerschule: 'Imkerschule', assistent: 'Assistent', staende: 'Bienenstände',
   voelker: 'Völker', koeniginnen: 'Königinnen', zucht: 'Zucht', behandlungen: 'Behandlungen',
   fuetterung: 'Fütterung', wanderungen: 'Wanderungen', trachten: 'Trachten', honig: 'Ernte',
-  kassenbuch: 'Kassenbuch', rechnungen: 'Rechnungen', fahrten: 'Fahrtenbuch', inventar: 'Inventar',
-  material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', hygiene: 'Hygiene', kontakte: 'Abnehmer & Lieferanten', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
+  kassenbuch: 'Kassenbuch', rechnungen: 'Rechnungen', finanzen: 'Finanzen', fahrten: 'Fahrtenbuch', lager: 'Lager', hygiene: 'Hygiene', kontakte: 'Abnehmer & Lieferanten', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
   meldungen: 'Unterlagen', einstellungen: 'Einstellungen', papierkorb: 'Papierkorb',
 };
 /** {route: {label, ic}} aus der NAV – Grundlage für Verknüpfungskacheln & untere Leiste */
@@ -6269,7 +6285,7 @@ Views.dashboard = {
     // Nur echte Widgets übernehmen (alte „link:“-Verknüpfungen fallen weg)
     const dashAktiv = S.get('dashboardWidgets').filter((e) => DASH_WIDGETS[e]);
     const dashVerf = dashAlleEintraege().filter((e) => !dashAktiv.includes(e));
-    const navAktiv = S.get('bottomNav').filter((r) => BEREICHE[r]);
+    const navAktiv = navRoutenNeu(S.get('bottomNav')).filter((r) => BEREICHE[r]);
     if (!navAktiv.includes('dashboard')) { navAktiv.unshift('dashboard'); } // „Start“ bleibt dabei, die Stelle ist frei
     const navVerf = Object.keys(BEREICHE).filter((r) => r !== 'dashboard' && !navAktiv.includes(r));
     const stDash = { aktiv: dashAktiv, verf: dashVerf };
@@ -11045,13 +11061,15 @@ Views.behandlungen = {
       fields: [
         { key: 'standId', label: 'Welcher Stand?', type: 'select', options: [{ v: '', l: 'Alle Stände' }, ...staende.map((s) => ({ v: s.id, l: s.name }))] },
         { key: 'funktion', label: 'Welche Funktion?', type: 'select', options: [{ v: '', l: 'Alle Funktionen' }, ...funktionen.map((f) => ({ v: f, l: f }))], hint: 'So behandelst du z. B. nur die Wirtschaftsvölker.' },
-        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
         { key: 'mittel', label: 'Arzneimittel / Mittel', type: 'suggest', required: true, options: mittelOpts },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-        { key: 'menge', label: 'Menge je Volk', type: 'number', required: true, halb: true },
+        /* Menge pro Volk oben, darunter die Völker mit eigener Menge (Julian 08.11.2026, Mockup 4) */
+        { key: 'menge', label: 'Menge je Volk', type: 'number', required: true, halb: true, hint: 'Gilt für jedes angehakte Volk. Eine eigene Menge trägst du in der Liste neben dem Volk ein.' },
         { key: '_trennBeh', type: 'static', html: '' },
         { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit, halb: true },
         { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts, halb: true },
+        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
+        { key: '_jeVolkSumme', type: 'static', html: '<div class="small" style="font-weight:600" data-je-volk-summe></div>' },
         { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', hint: 'Leer = nicht erfasst, 0 = keine Wartezeit. Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
         ...verbrauchFelder(mittelPosten, { label: 'Mittel vom Verbrauchsmaterial abziehen', hint: 'Abgezogen wird Menge je Volk × Anzahl der angehakten Völker.' }),
@@ -11065,29 +11083,32 @@ Views.behandlungen = {
       ],
       values: vorbelegung,
       async onSave(v) {
-        const angelegt = [];
-        const n = await behandlungFuerVoelker(v.volkIds, v, angelegt);
-        const buchung = await verbrauchBuchen(v, Math.max(0, Number(v.menge) || 0) * Math.max(1, n));
-        for (const [i, rec] of angelegt.entries()) {
-          rec.verbrauchAbzug = abzugAnteil(buchung, n, i);   // je Datensatz sein Teil, zusammen genau der Abzug (Fund 04.11.2026, #34)
-          await DB.put('behandlungen', rec);
-        }
-        if (v.wartezeitTage > 0) {
-          const ende = U.addDays(v.datum, Math.round(v.wartezeitTage));
-          /* refIds: die Behandlungen dieser Erinnerung (Fund 04.11.2026, #23) – damit Ändern und Löschen sie nachführen können */
-          await DB.put('aufgaben', { titel: wartezeitSammelTitel(v.mittel, n), faellig: ende, erledigt: false, quelle: 'behandlung', refId: null, refIds: angelegt.map((r) => r.id), notiz: `${v.mittel}, ${U.fmtNum(v.menge)} ${v.einheit || ''} je Volk vom ${U.fmtDate(v.datum)}` });
-          Notif.check();
-        }
+        /* Pro Volk (Julian 08.11.2026): je Volk seine Menge; Einträge, Lager-Abzug der Summe und Wartezeit-Erinnerung
+           (refIds, Fund 04.11.2026, #23) in EINER Transaktion – behandlungenJeVolkAnlegen. */
+        const liste = mengeJeVolkPruefen(jeVolk.werte(), 'volkIds');
+        const erg = await behandlungenJeVolkAnlegen(liste, v);
+        const n = erg.recs.length;
+        verbrauchMelden(erg.buchung);
+        if (erg.buchung && erg.buchung.abzug.length) pruefeMhd();
+        if (erg.wartezeit) Notif.check();
         UI.toast(`Behandlung für ${n} ${n === 1 ? 'Volk' : 'Völker'} dokumentiert`);
         renderRoute();
       },
     });
     // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
     verdrahteVolkFilter(m, alleVoelker);
-    verdrahteVerbrauch(m, mittelPosten, () => {
-      const el = $('#f-menge', m.el);
-      return (el ? U.parseNum(el.value) : 0) * Math.max(1, $$('#f-volkIds input:checked', m.el).length);
-    });
+    const einheitEl = $('#f-einheit', m.el);
+    const jeVolk = verdrahteMengeJeVolk(m, $('#f-volkIds', m.el), $('#f-menge', m.el), { einheit: () => (einheitEl ? einheitEl.value.trim() : ''), summe: $('[data-je-volk-summe]', m.el) });
+    /* Stand gewählt: alle Völker dieses Stands sind vorausgewählt, abwählen geht einzeln (Julian 08.11.2026) */
+    const standSel = $('#f-standId', m.el);
+    const vorauswahl = () => {
+      if (!standSel.value) return;
+      $$('#f-volkIds label.check-line', m.el).filter((l) => l.style.display !== 'none').forEach((l) => { $('input[type=checkbox]', l).checked = true; });
+      jeVolk.auffrischen();
+    };
+    standSel.addEventListener('change', vorauswahl);
+    $('#f-funktion', m.el).addEventListener('change', vorauswahl);
+    verdrahteVerbrauch(m, mittelPosten, () => jeVolk.werte().reduce((s, x) => s + (x.menge > 0 ? x.menge : 0), 0));
   },
 };
 
@@ -11466,14 +11487,98 @@ async function fuetterungFuerVoelker(volkIds, daten, sammle = null) {
 
 /** Legt dieselbe Behandlung als eigenen Bestandsbuch-Eintrag für mehrere Völker an
     (TAMG: je Volk ein Eintrag). Gibt die Anzahl zurück. */
+const behandlungFuerVolk = (id, daten) => ({ zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: wartezeitWert(daten.wartezeitTage), behandlungBis: daten.behandlungBis || '', lieferant: daten.lieferant || '', behandelndePerson: daten.behandelndePerson || '', tierarzt: daten.tierarzt || '', kaufbeleg: !!daten.kaufbeleg, notiz: daten.notiz || '' });
 async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
   let n = 0;
   for (const id of volkIds || []) {
-    const rec = await DB.put('behandlungen', { zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: wartezeitWert(daten.wartezeitTage), behandlungBis: daten.behandlungBis || '', lieferant: daten.lieferant || '', behandelndePerson: daten.behandelndePerson || '', tierarzt: daten.tierarzt || '', kaufbeleg: !!daten.kaufbeleg, notiz: daten.notiz || '' });
+    const rec = await DB.put('behandlungen', behandlungFuerVolk(id, daten));
     if (sammle) sammle.push(rec);
     n++;
   }
   return n;
+}
+
+/* Behandlung pro Volk (Julian 08.11.2026): je Volk ein Bestandsbuch-Eintrag mit SEINER Menge, die Summe vom Lager und die
+   Wartezeit-Erinnerung für alle – in EINER Transaktion. Vorher: erst die Einträge, dann der Abzug, dann die Erinnerung.
+   liste: [{ volkId, menge }]. Fehlt Mittel im Bestand, wird wie bisher gemeldet, nicht abgewiesen: verbraucht ist verbraucht.
+   Jeder Eintrag merkt seinen Teil nach Menge (abzugAnteilGewichtet) – Löschen gibt genau diesen Teil zurück. */
+async function behandlungenJeVolkAnlegen(liste, daten) {
+  const eingabe = { ...daten }, posten = (liste || []).map((x) => ({ ...x }));
+  return DB.aendereAtomar(['behandlungen', 'inventar', 'aufgaben', 'voelker'], (d) => {
+    if (!posten.length) throw new Error('Bitte mindestens ein Volk auswählen.');
+    const voelker = new Set(d.voelker.map((v) => v.id));
+    if (posten.some((x) => !voelker.has(x.volkId))) throw new Error('Ein ausgewähltes Volk gibt es nicht mehr. Bitte das Fenster neu öffnen.');
+    const r3 = (n) => Math.round(n * 1e6) / 1e6;
+    const mengen = posten.map((x) => r3(buchungsZahl(x.menge, 'Menge je Volk')));
+    const recs = posten.map((x, i) => ({ ...behandlungFuerVolk(x.volkId, eingabe), id: U.uuid(), menge: mengen[i] }));
+    const summe = r3(mengen.reduce((s, x) => s + x, 0)), geaendert = new Map();
+    const plan = eingabe._verbrauchId ? materialAbzugPlan(d.inventar, eingabe._verbrauchId, summe, geaendert) : { abzug: [], gefehlt: 0 };
+    recs.forEach((r, i) => { r.verbrauchAbzug = abzugAnteilGewichtet(plan, mengen, i); });
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'behandlungen', obj })));
+    const wz = Number(wartezeitWert(eingabe.wartezeitTage)) || 0;
+    if (wz > 0) {
+      const gleich = mengen.every((x) => x === mengen[0]), e = eingabe.einheit || '';
+      ops.push({ store: 'aufgaben', obj: { titel: wartezeitSammelTitel(eingabe.mittel, recs.length), faellig: U.addDays(eingabe.datum, Math.round(wz)), erledigt: false, quelle: 'behandlung', refId: null, refIds: recs.map((r) => r.id),
+        notiz: gleich ? `${eingabe.mittel}, ${U.fmtNum(mengen[0])} ${e} je Volk vom ${U.fmtDate(eingabe.datum)}` : `${eingabe.mittel}, zusammen ${U.fmtNum(summe)} ${e} (je Volk eigene Menge) vom ${U.fmtDate(eingabe.datum)}` } });
+    }
+    return { ops, wert: { recs, summe, wartezeit: wz > 0, buchung: eingabe._verbrauchId ? { abzug: plan.abzug, gefehlt: plan.gefehlt, einheit: plan.einheit } : null } };
+  });
+}
+/* Ernte pro Volk (Julian 08.11.2026): Ernte am ganzen Stand als je ein Eintrag pro Volk (zielTyp 'volk'), damit der
+   Honigertrag je Volk in der Statistik stimmt. Alle Einträge in EINER Transaktion. liste: [{ volkId, menge }] in kg. */
+async function ernteJeVolkAnlegen(liste, daten) {
+  const eingabe = { ...daten }, posten = (liste || []).map((x) => ({ ...x }));
+  return DB.aendereAtomar(['ernten', 'voelker'], (d) => {
+    if (!posten.length) throw new Error('Bitte mindestens ein Volk auswählen.');
+    const voelker = new Set(d.voelker.map((v) => v.id));
+    if (posten.some((x) => !voelker.has(x.volkId))) throw new Error('Ein ausgewähltes Volk gibt es nicht mehr. Bitte das Fenster neu öffnen.');
+    const recs = posten.map((x) => ({ ...eingabe, zielTyp: 'volk', zielId: x.volkId, mengeKg: Math.round(buchungsZahl(x.menge, 'Menge je Volk') * 1000) / 1000 }));
+    return { ops: recs.map((obj) => ({ store: 'ernten', obj })), wert: recs };
+  });
+}
+/* Mengen je Volk im Formular (Julian 08.11.2026, Mockup 4): Jede Zeile der Völkerliste (label.check-line mit Häkchen) bekommt
+   ein eigenes Mengenfeld. Die Menge oben gilt für jedes Volk, bis man dort eine eigene einträgt (z. B. Ableger halbe Dosis).
+   Abgewählte Völker sind ausgegraut. Darunter steht die Summe. werte() liefert [{ volkId, name, menge }] der angehakten,
+   sichtbaren Völker; menge ist NaN, wenn das Feld leer ist. */
+function verdrahteMengeJeVolk(m, box, oben, { einheit = () => '', summe = null } = {}) {
+  const zeilen = () => $$('label.check-line', box);
+  const feld = (lab) => {
+    let inp = $('input[data-volk-menge]', lab);
+    if (!inp) {
+      inp = document.createElement('input');
+      inp.className = 'inp'; inp.dataset.volkMenge = ''; inp.setAttribute('inputmode', 'decimal');
+      inp.setAttribute('aria-label', `Menge für ${lab.textContent.trim()}`);
+      inp.style.cssText = 'margin-left:auto;width:96px;flex:0 0 96px;padding:6px 10px;min-height:36px';
+      lab.appendChild(inp);
+    }
+    return inp;
+  };
+  const zahl = (x) => { const n = U.parseNum(x); return Number.isFinite(n) ? n : NaN; };
+  const werte = () => zeilen().filter((l) => l.style.display !== 'none' && $('input[type=checkbox]', l).checked)
+    .map((l) => ({ volkId: $('input[type=checkbox]', l).value, name: $('span', l).textContent.split(' · ')[0], menge: zahl(feld(l).value) }));
+  const auffrischen = () => {
+    for (const lab of zeilen()) {
+      const cb = $('input[type=checkbox]', lab), inp = feld(lab);
+      if (!inp.dataset.eigen) inp.value = oben ? oben.value : '';
+      inp.disabled = !cb.checked; inp.style.opacity = cb.checked ? '' : '.45';
+    }
+    if (!summe) return;
+    const w = werte(), n = w.length, s = Math.round(w.reduce((a, x) => a + (x.menge > 0 ? x.menge : 0), 0) * 1e6) / 1e6;
+    summe.textContent = n ? `Zusammen: ${U.fmtNum(s, 3)} ${einheit()} für ${n} ${n === 1 ? 'Volk' : 'Völker'}` : 'Kein Volk ausgewählt.';
+  };
+  box.addEventListener('input', (e) => { if (e.target.matches('[data-volk-menge]')) e.target.dataset.eigen = '1'; });
+  m.el.addEventListener('input', auffrischen);
+  m.el.addEventListener('change', auffrischen);
+  m.el.addEventListener('click', (e) => { if (e.target.closest('[data-alle],[data-keine]')) auffrischen(); });   // „Alle auswählen“/„Keine“ setzen Häkchen ohne change
+  auffrischen();
+  return { werte, auffrischen };
+}
+/** Prüft die Liste je Volk vor dem Speichern: mindestens ein Volk, bei jedem eine Menge über 0. */
+function mengeJeVolkPruefen(liste, feld) {
+  if (!liste.length) throw feldFehler(feld, 'Bitte mindestens ein Volk anhaken.');
+  const ohne = liste.filter((x) => !(x.menge > 0));
+  if (ohne.length) throw feldFehler(feld, `Bitte bei jedem angehakten Volk eine Menge eintragen – fehlt bei ${ohne.map((x) => x.name).join(', ')}.`);
+  return liste;
 }
 
 /* Behandlung ändern (Fund 04.11.2026, #17): Mittel-Abzug, Datensatz und Wartezeit-Erinnerung in EINER Transaktion.
@@ -12828,6 +12933,11 @@ function verkaufHonigText(v, a, c, ernten) {
   // Abfüllung gelöscht (Fund 04.11.2026): Die Zeile hieß nur „N × Gebinde“ – jetzt sieht man, warum Größe und Sorte fehlen
   return v && v.abfuellungId ? 'Gebinde (Abfüllung gelöscht)' : 'Gebinde';
 }
+/** Bezeichnung einer Honig-Position in der Rechnung – aus einer Abfüllung oder (ohne Bestand) aus Sorte und Gebinde. */
+function rechnungHonigText(a, c, frei = {}) {
+  if (a) return `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
+  return `Honig ${String(frei.sorte || '').trim() ? String(frei.sorte).trim() + ' ' : ''}${gebindeLabel(Number(frei.gebindeG) || 500)} Glas`;
+}
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
 /** Bereits abgefüllte Menge (kg) einer Charge über alle ihre Abfüllungen. */
 /* Tierseuchenkasse (TSK) für Bienen je Bundesland – Landesrecht, Recherche mit Gegenprüfung 23.10.2026
@@ -13245,7 +13355,7 @@ function abfuellungVerkaufSperre(d, abfuellungId) {
   ];
   const storno = [
     ...(vk.length ? [`${vk.length === 1 ? 'den Verkauf' : 'die Verkäufe'} im Reiter „Verkauf“`] : []),
-    ...(fest.length ? [`${fest.length === 1 ? 'die Rechnung' : 'die Rechnungen'} unter „Rechnungen“`] : []),
+    ...(fest.length ? [`${fest.length === 1 ? 'die Rechnung' : 'die Rechnungen'} unter „Finanzen“ ▸ „Rechnungen“`] : []),
   ];
   const und = (l) => l.length > 1 ? `${l.slice(0, -1).join(', ')} und ${l[l.length - 1]}` : l[0];
   // „gehört“ nur bei genau einem Eintrag insgesamt („1 Verkauf“), sonst „gehören“
@@ -13565,15 +13675,21 @@ async function verkaufForm(vorAbfuellungId = '') {
         const e = new Error('abgebrochen'); e.leise = true; throw e;
       };
       if (frei) await nachfragen(`${U.zahl(Math.round(Number(v.anzahl) || 0))} × ${gebindeLabel(Number(v.gebindeG))} ${daten.sorte || 'Honig'} sind nicht im Bestand erfasst. Trotzdem als Verkauf buchen? Die Einnahme kommt ins Kassenbuch, der Lagerbestand bleibt unverändert.`);
-      try { await verkaufErfassen({ ...daten, ohneBestand: frei }); }
+      let verkauf;
+      try { verkauf = await verkaufErfassen({ ...daten, ohneBestand: frei }); }
       catch (e) {
         if (e.zuWenigBestand === undefined) throw e;
         await nachfragen(e.zuWenigBestand > 0
           ? `Im Lager sind nur ${e.zuWenigBestand} Gebinde dieser Abfüllung. Trotzdem ${U.zahl(Math.round(Number(v.anzahl)))} verkaufen? Der Bestand geht auf 0, die Einnahme kommt ins Kassenbuch.`
           : 'Von dieser Abfüllung ist nichts mehr auf Lager. Trotzdem als Verkauf buchen? Der Bestand bleibt bei 0, die Einnahme kommt ins Kassenbuch.');
-        await verkaufErfassen({ ...daten, ohneBestand: true });
+        verkauf = await verkaufErfassen({ ...daten, ohneBestand: true });
       }
-      UI.toast('Verkauf gebucht – Bestand und Kassenbuch aktualisiert'); renderRoute(imBestandBleiben());
+      renderRoute(imBestandBleiben());
+      /* Rückfrage aus Mockup 3 auch beim Honig (Julian 08.11.2026): „Rechnung dazu erstellen“ oder „Fertig (ohne Rechnung)“.
+         Erst wenn das Formular zu ist. */
+      const a = frei ? null : abf.find((x) => x.id === v.abfuellungId);
+      const text = rechnungHonigText(a, a ? chargen.get(a.chargeId) : null, { sorte: daten.sorte, gebindeG: daten.gebindeG });
+      setTimeout(() => nachVerkaufFragen({ verkauf, text }), 0);
     },
   });
   /* Live-Summe: Warenwert, Rabatt, Gesamt (das, was ins Kassenbuch geht) */
@@ -15651,17 +15767,19 @@ async function landbedeckungErmitteln(lat, lon, radiusM, melde = () => {}, nur =
 
 /* =====================================================================
    ABNEHMER & LIEFERANTEN – ein eigener Bereich für alle Kontakte
-   Dieselbe Liste erscheint im Menü, im Kassenbuch (Reiter „Kunden & Lieferanten“) und bei Bio. Wer hier einen Kontakt anlegt, findet ihn
+   Dieselbe Liste erscheint im Menü (seit 08.11.2026 als Reiter im Bereich „Finanzen“) und bei Bio. Wer hier einen Kontakt anlegt, findet ihn
    im Einkauf, Verkauf, bei der Rechnung und in der Öko-Kontrolle wieder – und sieht an jedem Kontakt, wo er überall vorkommt.
    ===================================================================== */
 Views.kontakte = {
   title: 'Abnehmer & Lieferanten',
   _filter: '', _suche: '',
-  async render(main) {
-    main.innerHTML = pageHead('Abnehmer & Lieferanten', 'Kunden, Lieferanten und Öko-Partner an einem Ort – dieselbe Liste wie beim Einkauf, Verkauf, bei Rechnungen, im Kassenbuch und bei Bio.',
-      `<span class="flex-wrap no-print"><button class="btn btn-primary btn-sm" data-neu>${icon('plus')} Kontakt</button></span>`) + '<div id="kontakte-box"></div>';
-    await Views.kontakte.liste($('#kontakte-box', main), { ohneKopf: true });
-    $$('[data-neu]', main.querySelector('.page-head')).forEach((b) => { b.onclick = () => kontaktForm(null, { onSaved: () => renderRoute() }); });
+  /** opt.imFinanzen: als Reiter im Bereich „Finanzen“ – ohne eigenen Seitentitel, Filter-Reiter kleiner darunter (Julian 08.11.2026). */
+  async render(main, param, opt = {}) {
+    const unter = 'Kunden, Lieferanten und Öko-Partner an einem Ort – dieselbe Liste wie beim Einkauf, Verkauf, bei Rechnungen, im Kassenbuch und bei Bio.';
+    const knopf = `<span class="flex-wrap no-print"><button class="btn btn-primary btn-sm" data-neu>${icon('plus')} Kontakt</button></span>`;
+    main.innerHTML = (opt.imFinanzen ? `<div class="lager-teilkopf mb12" data-kopf><span class="small muted">${unter}</span>${knopf}</div>` : pageHead('Abnehmer & Lieferanten', unter, knopf)) + '<div id="kontakte-box"></div>';
+    await Views.kontakte.liste($('#kontakte-box', main), { ohneKopf: true, unter: !!opt.imFinanzen });
+    $$('[data-neu]', main.querySelector('.page-head, [data-kopf]')).forEach((b) => { b.onclick = () => kontaktForm(null, { onSaved: () => renderRoute() }); });
   },
   /** Die Liste mit Filter, Suche und Verknüpfungen. opt.bio: mit Öko-Hinweisen (Bio-Reiter), opt.ohneKopf: ohne eigenen Kartenkopf. */
   async liste(box, opt = {}) {
@@ -15703,11 +15821,11 @@ Views.kontakte = {
       : emptyState('kontakte', (filter || suche) ? 'Kein Kontakt passt zu dieser Auswahl.' : 'Noch kein Kontakt. Kunden brauchst du für Rechnungen, Lieferanten für den Einkauf.',
         `<button class="btn btn-primary" data-neu>${icon('plus')} Ersten Kontakt anlegen</button>`); };
     /* Eigene Seite: angeheftete Reiter über der Karte. Im Kassenbuch und bei Bio klebt schon deren Leiste – dort Unterreiter in der Karte. */
-    const eigen = !!opt.ohneKopf;
+    const eigen = !!opt.ohneKopf && !opt.unter;   // in „Finanzen“ klebt schon deren Leiste (Julian 08.11.2026)
     box.innerHTML = `${eigen ? '<div id="k-reiter"></div>' : ''}<div class="card">
       ${opt.ohneKopf ? '' : `<div class="card-title">${icon('kontakte')}<h2>Abnehmer und Lieferanten</h2>
         <button class="btn btn-primary btn-sm no-print" data-neu>${icon('plus')} Kontakt</button></div>`}
-      <p class="small muted mb12">${opt.bio ? 'Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst. Bei Öko-Ware gehört die Kontrollnummer des Partners dazu, dazu das Zertifikat als Datei – tippe einen Kontakt an. ' : ''}Dieselbe Liste erscheint im Einkauf und Verkauf, bei Rechnungen, im Kassenbuch und bei Bio – du trägst nichts zweimal ein. <a href="#/${opt.bio ? 'kontakte' : 'bio'}">${opt.bio ? 'Auch im Menü unter „Abnehmer & Lieferanten“' : 'Öko-Daten stehen im Bio-Bereich'}</a>.</p>
+      <p class="small muted mb12">${opt.bio ? 'Von wem du Öko-relevante Ware beziehst (Zucker, Mittelwände, Gläser) und an wen du lieferst. Bei Öko-Ware gehört die Kontrollnummer des Partners dazu, dazu das Zertifikat als Datei – tippe einen Kontakt an. ' : ''}Dieselbe Liste erscheint im Einkauf und Verkauf, bei Rechnungen, im Kassenbuch und bei Bio – du trägst nichts zweimal ein. <a href="#/${opt.bio ? 'finanzen/kontakte' : 'bio'}">${opt.bio ? 'Auch im Menü unter „Finanzen“ ▸ „Abnehmer & Lieferanten“' :'Öko-Daten stehen im Bio-Bereich'}</a>.</p>
       ${eigen ? '' : '<div id="k-reiter"></div>'}
       <div class="field mb12 no-print" style="margin-bottom:12px"><input class="inp" data-ksuche placeholder="Name, Ort oder Ware suchen …" value="${U.esc(Views.kontakte._suche || '')}"></div>
       ${opt.bio && ohneNummer ? `<div class="banner warn mb12">${icon('info')} <span class="b-msg">${ohneNummer} ${ohneNummer === 1 ? 'Lieferant hat' : 'Lieferanten haben'} noch keine Öko-Kontrollnummer. Bei Öko-Ware gehört sie dazu.</span></div>` : ''}
@@ -15767,7 +15885,7 @@ Views.kontakte = {
           <dt>Kassenbuch</dt><dd>${b.length ? `${b.length} ${b.length === 1 ? 'Buchung' : 'Buchungen'} · Einnahmen ${U.fmtEur(ein)} · Ausgaben ${U.fmtEur(aus)} · <a href="#/kassenbuch/kontakt-${U.esc(c.id)}" data-zu>im Kassenbuch ansehen</a>` : '<span class="muted">keine Buchung</span>'}</dd>
           <dt>Einkäufe</dt><dd>${nZug ? `${nZug} ${nZug === 1 ? 'Einkauf' : 'Einkäufe'} im Lager (Verbrauchsmaterial, Inventar, Weitere Produkte)` : '<span class="muted">keine</span>'}</dd>
           <dt>Verkäufe</dt><dd>${nAbg + nVk ? [nAbg ? `${nAbg} im Lager` : '', nVk ? `${nVk} Honig-${nVk === 1 ? 'Verkauf' : 'Verkäufe'}` : ''].filter(Boolean).join(' · ') : '<span class="muted">keine</span>'}</dd>
-          <dt>Rechnungen</dt><dd>${re.length ? `${re.length} · <a href="#/rechnungen" data-zu>zu den Rechnungen</a>` : '<span class="muted">keine</span>'}</dd>
+          <dt>Rechnungen</dt><dd>${re.length ? `${re.length} · <a href="#/finanzen/rechnungen" data-zu>zu den Rechnungen</a>` : '<span class="muted">keine</span>'}</dd>
           <dt>Pfand</dt><dd>${nPf ? `${nPf} Rücknahme(n)` : '<span class="muted">keine</span>'}</dd>
         </div>
         <div data-anhang></div>`,
@@ -17605,7 +17723,12 @@ Views.honig = {
             options: U.sortBy(trachtenAlle, (t) => Tracht.name(t).toLowerCase()).map((t) => { const o = Tracht.standNamen(t, staendeM); return { v: t.id, l: Tracht.name(t) + (o ? ` · ${o}` : '') }; }),
             hint: 'Schlägt die App nach Datum und Stand vor – für „Ertrag je Tracht“ in der Statistik.' }] : []),
           { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
-          { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true },
+          /* Ernte am ganzen Stand (Julian 08.11.2026, Mockup 4): neu angelegt kg pro Volk statt einer Stand-Menge.
+             Gespeicherte Stand-Ernten bleiben beim Bearbeiten, wie sie sind. */
+          { key: 'mengeKg', label: 'Menge (kg)', type: 'number', required: true, halb: true, showIf: (f) => !!e || f.zielTyp !== 'stand' },
+          { key: 'mengeProVolk', label: 'Menge pro Volk (kg)', type: 'number', halb: true, showIf: (f) => !e && f.zielTyp === 'stand', hint: 'Gilt für jedes angehakte Volk. Eine eigene Menge trägst du in der Liste neben dem Volk ein.' },
+          { key: '_jeVolk', type: 'static', showIf: (f) => !e && f.zielTyp === 'stand',
+            html: '<label>Welche Völker?</label><div data-je-volk></div><div class="small mt8" style="font-weight:600" data-je-volk-summe></div><div class="err"></div>' },
           { key: '_trennErnte', type: 'static', html: '' },
           { key: 'wassergehalt', label: 'Wassergehalt (%)', type: 'number', placeholder: 'z. B. 17,2 – meist erst nach dem Labor' },
           { key: 'schleuderung', label: 'Schleuderung', type: 'select', options: [{ v: 1, l: '1. Schleuderung' }, { v: 2, l: '2. Schleuderung' }, { v: 3, l: '3. Schleuderung' }], hint: 'Für die spätere Zuordnung des Laborergebnisses (Tab „Sorten“).' },
@@ -17614,6 +17737,14 @@ Views.honig = {
         values: zielFormValues(e),
         async onSave(v) {
           const zielId = zielIdAus(v);
+          if (!e && v.zielTyp === 'stand') {
+            // je Volk ein Ernte-Eintrag, damit der Honigertrag je Volk stimmt (Julian 08.11.2026)
+            const liste = mengeJeVolkPruefen(jeVolk.werte(), '_jeVolk');
+            const recs = await ernteJeVolkAnlegen(liste, { schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', wassergehalt: v.wassergehalt ?? null, notiz: v.notiz || '', trachtId: v.trachtId || null });
+            UI.toast(`Ernte für ${recs.length} ${recs.length === 1 ? 'Volk' : 'Völker'} gespeichert – zusammen ${U.fmtNum(recs.reduce((s, r) => s + r.mengeKg, 0), 3)} kg`);
+            renderRoute();
+            return;
+          }
           /* Über ernteSpeichern: Die Chargen dieser Ernte ziehen ihre Gesamtmenge in derselben Transaktion nach (Fund 04.11.2026, #2).
              Eine Kopie statt e selbst – wird das Speichern abgewiesen, behält die Liste die alten Werte. */
           const r = await ernteSpeichern(Object.assign({}, e || {}, { zielTyp: v.zielTyp, zielId, schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: v.wassergehalt ?? null, notiz: v.notiz, trachtId: v.trachtId !== undefined ? (v.trachtId || null) : (e && e.trachtId) || null }));
@@ -17623,6 +17754,21 @@ Views.honig = {
       });
       listenwertNeuShortcut(m, 'sorte', 'honigsorten', { label: 'Neue Honigsorte anlegen', titel: 'Neue Honigsorte', platzhalter: 'z. B. Phaceliahonig' });
       Views.honig.trachtVorschlag(m, trachtenAlle, !!e, sortenOpts);
+      /* Völkerliste des gewählten Stands: alle aktiven Völker angehakt, einzeln abwählbar, eigene kg (Julian 08.11.2026) */
+      const jeVolkBox = $('[data-je-volk]', m.el);
+      const jeVolk = verdrahteMengeJeVolk(m, jeVolkBox, $('#f-mengeProVolk', m.el), { einheit: () => 'kg', summe: $('[data-je-volk-summe]', m.el) });
+      if (!e) {
+        const aktiv = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name.toLowerCase());
+        const standSel = $('#f-zielStand', m.el);
+        const zeichnen = () => {
+          const am = standSel && standSel.value ? aktiv.filter((x) => x.standId === standSel.value) : [];
+          jeVolkBox.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}</span></label>`).join('')
+            : `<div class="hint">${standSel && standSel.value ? 'An diesem Stand steht kein aktives Volk. Wähle „Einzelnes Volk“ oder einen anderen Stand.' : 'Wähle zuerst den Stand.'}</div>`;
+          jeVolk.auffrischen();
+        };
+        if (standSel) standSel.addEventListener('change', zeichnen);
+        zeichnen();
+      }
     };
     const add = () => form(null);
     bindAdd(add, box);
@@ -18667,24 +18813,28 @@ async function kassenbuchLoeschen(k) {
 
 Views.kassenbuch = {
   title: 'Kassenbuch',
-  async render(main, param) {
+  /** opt.imFinanzen: als Reiter im Bereich „Finanzen“ – ohne eigenen Seitentitel, die Unter-Reiter kleiner darunter
+      und ohne „Kunden & Lieferanten“, das steht dort als eigener Reiter (Julian 08.11.2026). */
+  async render(main, param, opt = {}) {
     /* Aus den Bereichen kommt man mit „buchen-<bereich>“ (Auswahl öffnet sich) oder „filter-<bereich>“ (Liste gefiltert) hierher. */
     let oeffnen = null;
+    const adresse = opt.imFinanzen ? '#/finanzen' : '#/kassenbuch';
     const km = /^kontakt-(.+)$/.exec(param || '');
-    if (km) { Views.kassenbuch._tab = 'buchungen'; Views.kassenbuch._kontakt = km[1]; try { history.replaceState(null, '', '#/kassenbuch'); } catch (e) { /* egal */ } }
+    if (km) { Views.kassenbuch._tab = 'buchungen'; Views.kassenbuch._kontakt = km[1]; try { history.replaceState(null, '', adresse); } catch (e) { /* egal */ } }
     const pm = /^(buchen|filter)-(verbrauch|inventar|produkt|honig|pfand|sonstiges)$/.exec(param || '');
     if (pm) {
       Views.kassenbuch._tab = 'buchungen';
       if (pm[1] === 'filter') Views.kassenbuch._bereich = pm[2]; else oeffnen = pm[2];
-      try { history.replaceState(null, '', '#/kassenbuch'); } catch (e) { /* egal */ }
+      try { history.replaceState(null, '', adresse); } catch (e) { /* egal */ }
     }
+    if (opt.imFinanzen && Views.kassenbuch._tab === 'kontakte') Views.kassenbuch._tab = 'buchungen';
     const tab = Views.kassenbuch._tab || 'buchungen';
-    main.innerHTML = pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei') + `<div class="small muted mb12" data-geld-hinweis>${U.esc(GELD_HINWEIS)}</div><div id="tabbar"></div><div id="tab-content"></div>`;
+    main.innerHTML = (opt.imFinanzen ? '' : pageHead('Kassenbuch', 'Einnahmen und Ausgaben der Imkerei')) + `<div class="small muted mb12" data-geld-hinweis>${U.esc(GELD_HINWEIS)}</div><div id="tabbar"></div><div id="tab-content"></div>`;
     bereichsReiter(main, [
-      { id: 'buchungen', label: 'Buchungen' }, { id: 'kontakte', label: 'Kunden & Lieferanten' },
+      { id: 'buchungen', label: 'Buchungen' }, ...(opt.imFinanzen ? [] : [{ id: 'kontakte', label: 'Kunden & Lieferanten' }]),
       { id: 'geschaeftskosten', label: 'Geschäftskosten' }, { id: 'auswertung', label: 'Auswertung' },
-    ], tab, (t) => { Views.kassenbuch._tab = t; return renderRoute(); });
-    const box = $('#tab-content');
+    ], tab, (t) => { Views.kassenbuch._tab = t; return renderRoute(); }, opt.imFinanzen ? { unter: true, name: 'kassenbuch' } : {});
+    const box = $('#tab-content', main);
     if (tab === 'buchungen') await Views.kassenbuch.tabBuchungen(box);
     else if (tab === 'kontakte') await Views.kassenbuch.tabKontakte(box);
     else if (tab === 'geschaeftskosten') await Views.kassenbuch.tabGeschaeftskosten(box);
@@ -19292,6 +19442,14 @@ function rechnungSummenNeu(r) {
   return { waren, pfand, rabatt, nachRabatt, brutto, steuern, nettoJeSatz, skonto,
     zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
 }
+/** Kassenbuch-Kategorie einer Rechnung (Julian 08.11.2026, Paket 4): wie bisher „Honigverkauf“; besteht sie nur aus
+    Lager-Positionen, die Kategorie wie beim Lager-Verkauf („Weitere Produkte“ bzw. „Materialverkauf“). */
+function rechnungKategorie(r, inventar) {
+  const pos = (r && r.positionen) || [];
+  if (!pos.length || !pos.every((p) => p.inventarId)) return 'Honigverkauf';
+  const typen = pos.map((p) => { const i = (inventar || []).find((x) => x.id === p.inventarId); return i ? inventarTyp(i) : 'verbrauch'; });
+  return typen.every((t) => t === 'produkt') ? 'Weitere Produkte' : 'Materialverkauf';
+}
 /** Nur den unveränderten, weiterhin offenen Entwurf überschreiben. */
 async function rechnungEntwurfSpeichern(neu, erwartet) {
   const kopie = structuredClone(neu);
@@ -19306,10 +19464,13 @@ async function rechnungEntwurfSpeichern(neu, erwartet) {
 const STORNO_RE_ABF_IM_PAPIERKORB = 'Eine Abfüllung dieser Rechnung liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.';
 /** Rechnung stornieren. Ergebnis: false = war schon storniert, sonst { abfuellungFehlt, ohneGegenbuchung } für den Hinweis danach. */
 async function rechnungStornieren(id) {
-  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'papierkorb'], (d) => {
+  return DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'papierkorb', 'inventar'], (d) => {
     const r = d.rechnungen.find((x) => x.id === id);
     if (!r || r.status === 'storniert') return { ops: [], wert: false };
     if (r.status !== 'festgeschrieben') throw new Error('Nur eine festgeschriebene Rechnung kann storniert werden.');
+    /* Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4): Sie hat nichts gebucht, also bucht ihr Storno auch
+       nichts zurück – der Verkauf bleibt, wie er ist. */
+    if (r.ausVerkauf) { r.status = 'storniert'; return { ops: [{ store: 'rechnungen', obj: r }], wert: { abfuellungFehlt: false, ohneGegenbuchung: false, ausVerkauf: true } }; }
     const imKorb = (store, pruef) => d.papierkorb.some((t) => t.store === store && t.daten && pruef(t.daten));
     const ops = [], geaendert = new Map();
     let abfuellungFehlt = false;
@@ -19328,6 +19489,13 @@ async function rechnungStornieren(id) {
       geaendert.set(a.id, a);
     }
     for (const a of geaendert.values()) ops.push({ store: 'abfuellungen', obj: a });
+    // Lager-Positionen zurück ins Lager (Julian 08.11.2026, Paket 4). Liegt die Position im Papierkorb, meldet lagerBuchen das.
+    const geaendertLager = new Map();
+    let lagerFehlt = false;
+    for (const p of r.positionen) if (p.inventarId) {
+      if (!lagerBuchen(d, p.inventarId, buchungsZahl(p.menge, 'Menge'), geaendertLager, { bezeichnung: p.text })) lagerFehlt = true;
+    }
+    for (const obj of geaendertLager.values()) ops.push({ store: 'inventar', obj });
     /* Gegenbuchung nur über das, was zu dieser Rechnung wirklich im Kassenbuch steht (Fund 04.11.2026, #3/#25). Vorher immer
        −Brutto – fehlte die Einnahme (früher frei löschbar), ergab das −120 € statt 0 €. Normalfall: die Einnahme steht da,
        gebucht wird genau −Brutto. Fehlt sie und liegt im Papierkorb: erst wiederherstellen. Ist sie endgültig weg: keine
@@ -19335,19 +19503,22 @@ async function rechnungStornieren(id) {
     const saldo = rechnungKassenSaldo(r.id, d.kassenbuch);
     const ohneGegenbuchung = saldo < 0.005;
     if (ohneGegenbuchung && imKorb('kassenbuch', (x) => x.rechnungId === r.id)) throw new Error(`Die Einnahme zur Rechnung ${r.nummer} liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.`);
-    if (!ohneGegenbuchung) ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: -saldo, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
+    const einnahme = d.kassenbuch.find((x) => x.rechnungId === r.id && Number(x.betrag) > 0);
+    if (!ohneGegenbuchung) ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: (einnahme && einnahme.kategorie) || 'Honigverkauf', betrag: -saldo, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
     r.status = 'storniert'; ops.push({ store: 'rechnungen', obj: r });
-    return { ops, wert: { abfuellungFehlt, ohneGegenbuchung } };
+    return { ops, wert: { abfuellungFehlt, ohneGegenbuchung, ...(lagerFehlt ? { lagerFehlt } : {}) } };
   });
 }
 Views.rechnungen = {
   title: 'Rechnungen',
-  async render(main) {
+  /** opt.imFinanzen: als Reiter im Bereich „Finanzen“ – dort steht oben schon „Neue Rechnung“ (Julian 08.11.2026). */
+  async render(main, param, opt = {}) {
     const list = U.sortBy(await DB.getAll('rechnungen'), (r) => r.datum + (r.nummer || ''), true);
     const kontakte = await idMap('kontakte');
     const statusBadge = { entwurf: 'b-warn', festgeschrieben: 'b-ok', storniert: 'b-danger' };
-    main.innerHTML = pageHead('Rechnungen', 'Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export',
-      `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Rechnung</button>`) +
+    main.innerHTML = (opt.imFinanzen ? '<div class="small muted mb12">Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export</div>'
+      : pageHead('Rechnungen', 'Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export',
+        `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Rechnung</button>`)) +
       `<div class="card">` + (list.length ? `<div class="rows">` + seitenweise('rechnungen', list).sichtbar.map((r) => {
         const { brutto } = rechnungSummen(r);
         return `<button class="row" data-id="${U.esc(r.id)}">
@@ -19356,15 +19527,49 @@ Views.rechnungen = {
           <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(rechnungKundeName(r, kontakte) || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
       }).join('') + `</div>` + seitenweise('rechnungen', list).knopf : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
-    const add = async () => {
-      if (Lizenz.nurVoll('Rechnungen')) return;
-      const stg = S.get('steuer');
-      const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
-      const r = await DB.put('rechnungen', { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, pfandSteuersatz: U.zahl(stg.pfandSteuersatz, 0), status: 'entwurf', qrAufDruck: false });
-      navTo('rechnung/' + r.id);
-    };
-    bindAdd(add);
+    bindAdd(() => Views.rechnungen.neu(), main);
     main.addEventListener('click', (e) => { const b = e.target.closest('.row[data-id]'); if (b) navTo('rechnung/' + b.dataset.id); });
+  },
+  /** Neue Rechnung als Entwurf anlegen und öffnen – aus dem Reiter und vom Knopf oben in „Finanzen“ (Julian 08.11.2026). */
+  async neu() {
+    if (Lizenz.nurVoll('Rechnungen')) return null;
+    const r = await DB.put('rechnungen', rechnungGrundwerte());
+    navTo('rechnung/' + r.id);
+    return r;
+  },
+};
+
+/* =====================================================================
+   BEREICH „FINANZEN“ (Julian 08.11.2026, Mockup 2)
+   Kassenbuch, Rechnungen und Abnehmer & Lieferanten in EINEM Bereich mit
+   Reitern („Soll die Zusammenfassung heißen von Kassenbuch Rechnungen und
+   Kunden Lieferanten“). Die Daten bleiben, wie sie sind: Jeder Reiter zeigt
+   den bisherigen Bereich, nur ohne eigenen Seitentitel. Oben steht immer
+   „Neue Rechnung (Honig, Produkte, Lager)“.
+   ===================================================================== */
+const FINANZEN_REITER = [['kassenbuch', 'Kassenbuch'], ['rechnungen', 'Rechnungen'], ['kontakte', 'Abnehmer & Lieferanten']];
+Views.finanzen = {
+  title: 'Finanzen',
+  _tab: 'kassenbuch',
+  /** param: Reiter aus der Adresse (#/finanzen/rechnungen); unterParam: Zusatz einer alten Adresse, z. B. „buchen-honig“
+      aus #/kassenbuch/buchen-honig – geht an den Reiter weiter. */
+  async render(main, param, unterParam) {
+    if (param && FINANZEN_REITER.some(([id]) => id === param)) {
+      this._tab = param;
+      try { history.replaceState(null, '', '#/finanzen'); } catch (e) { /* egal */ }
+    }
+    if (!FINANZEN_REITER.some(([id]) => id === this._tab)) this._tab = 'kassenbuch';
+    const tab = this._tab;
+    main.innerHTML = pageHead('Finanzen', 'Kassenbuch, Rechnungen, Abnehmer & Lieferanten an einem Ort',
+      `<button class="btn btn-primary btn-sm no-print" type="button" data-fin-rechnung>${icon('plus')} Neue Rechnung (Honig, Produkte, Lager)</button>`)
+      + '<div id="fin-reiter"></div><div id="fin-inhalt"></div>';
+    bereichsReiter(main, FINANZEN_REITER.map(([id, label]) => ({ id, label })), tab,
+      (t) => { Views.finanzen._tab = t; return renderRoute(); }, { platz: '#fin-reiter', name: 'finanzen' });
+    main.addEventListener('click', (e) => { if (e.target.closest('[data-fin-rechnung]')) Views.rechnungen.neu(); });
+    const box = $('#fin-inhalt', main);
+    if (tab === 'rechnungen') return Views.rechnungen.render(box, unterParam, { imFinanzen: true });
+    if (tab === 'kontakte') return Views.kontakte.render(box, unterParam, { imFinanzen: true });
+    return Views.kassenbuch.render(box, unterParam, { imFinanzen: true });
   },
 };
 const RECHNUNG_KUNDE_FEHLT = 'Der Kunde dieser Rechnung ist gelöscht. Wähle einen Kunden aus oder stell ihn aus dem Papierkorb wieder her. Nichts wurde festgeschrieben.';
@@ -19382,8 +19587,13 @@ Views.rechnung = {
     const { brutto, steuern } = sum;
     const zeigtPfand = r.positionen.some((p) => Number(p.pfand) > 0);
     const zeigtUst = art === 'regel';
+    /* Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4): Positionen kommen aus dem Verkauf und bleiben fest –
+       sonst passte der Beleg nicht mehr zu dem, was Bestand und Kassenbuch schon gebucht haben. */
+    const ausVerkauf = !!r.ausVerkauf;
+    const posAenderbar = entwurf && !ausVerkauf;
     main.innerHTML = `
-      <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('rechnungen')">${icon('back')} Alle Rechnungen</button>
+      <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('finanzen/rechnungen')">${icon('back')} Alle Rechnungen</button>
+      ${ausVerkauf ? `<div class="banner info mb12 no-print" data-rechnung-aus-verkauf><span class="b-msg"><b>Rechnung zu einem Verkauf.</b> Der Verkauf ist schon gebucht. Beim Festschreiben ändern sich Bestand und Kassenbuch nicht noch einmal.${entwurf && !r.kundeId ? ' Wähle noch den Kunden.' : ''}</span></div>` : ''}
       ${pageHead(r.nummer || 'Rechnung (Entwurf)', `${U.fmtDate(r.datum)} · Status: ${r.status}`, `
         <span class="flex-wrap no-print">
           <button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} PDF</button>
@@ -19430,10 +19640,10 @@ Views.rechnung = {
         </div>
       </div>` : ''}
       <div class="card">
-        <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${entwurf ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
-        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${entwurf ? '<th></th>' : ''}</tr></thead>
-          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 0)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${U.esc(p.steuersatz || 0)} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
-            ${entwurf ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${U.esc(i)}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
+        <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${posAenderbar ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
+        ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${posAenderbar ? '<th></th>' : ''}</tr></thead>
+          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 3)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${U.esc(p.steuersatz || 0)} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
+            ${posAenderbar ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${U.esc(i)}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
             ${sum.rabatt > 0 || sum.pfand > 0 ? `<div class="small muted">Warenwert: ${U.fmtEur(sum.waren)}</div>` : ''}
             ${sum.rabatt > 0 ? `<div class="small muted">Rabatt${r.rabattGrund ? ` (${U.esc(r.rabattGrund)})` : ''}${(r.rabattTyp || 'prozent') === 'prozent' ? ` ${U.fmtNum(r.rabattWert, 1)} %` : ''}: −${U.fmtEur(sum.rabatt)}</div>` : ''}
@@ -19444,7 +19654,7 @@ Views.rechnung = {
             ${sum.skonto ? `<div class="small muted">Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)}: ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto = ${U.fmtEur(sum.skonto.betrag)} → Zahlbetrag ${U.fmtEur(sum.skonto.zahlbetrag)}. <b>Nicht im Gesamtbetrag abgezogen</b> – wird erst beim Zahlungseingang wirksam.</div>` : ''}
             ${rechnungHinweis(r) ? `<div class="small muted" style="max-width:420px;margin-left:auto">${rechnungHinweis(r)}</div>` : ''}
           </div>`
-        : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand oder freie Positionen hinzu.')}
+        : emptyState('rechnung', 'Noch keine Positionen. Füge Gläser aus dem Bestand, Artikel aus dem Lager oder freie Positionen hinzu.')}
       </div>`;
     let gespeichert = structuredClone(r);
     let wartend = Promise.resolve();
@@ -19477,7 +19687,7 @@ Views.rechnung = {
       $('#r-ziel').onchange = (e) => neuZeichnen(() => { r.zahlungszielTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
       $('#r-skonto').onchange = (e) => neuZeichnen(() => { r.skontoProzent = Math.max(0, U.parseNum(e.target.value) || 0); });
       $('#r-skontoTage').onchange = (e) => neuZeichnen(() => { r.skontoTage = Math.max(0, Math.round(U.parseNum(e.target.value) || 0)); });
-      $('#addPos').onclick = () => Views.rechnung.posForm(r, abfAlle, chargenM);
+      const addPos = $('#addPos'); if (addPos) addPos.onclick = () => Views.rechnung.posForm(r, abfAlle, chargenM);
       main.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-pdel]');
         if (b && (await UI.confirm({ title: 'Position entfernen?', text: '', confirmText: 'Entfernen' }))) { if (await saveField(() => r.positionen.splice(+b.dataset.pdel, 1))) renderRoute(); }
@@ -19489,7 +19699,7 @@ Views.rechnung = {
             const alt = d.rechnungen.find((x) => x.id === r.id);
             if (!alt || alt.status !== 'entwurf' || alt.nummer || JSON.stringify(alt) !== JSON.stringify(gespeichert)) throw new Error('Die Rechnung wurde inzwischen geändert. Bitte erneut öffnen.');
             return { ops: papierkorbAuftraege('rechnungen', alt) };
-          }); navTo('rechnungen');
+          }); navTo('finanzen/rechnungen');
         } catch (e) { UI.toast(e.message, 'err'); }
       };
       $('#final').onclick = () => Views.rechnung.festschreiben(r, abfAlle);
@@ -19497,11 +19707,14 @@ Views.rechnung = {
     const st = $('#storno');
     if (st) st.onclick = async () => {
       if (Lizenz.nurVoll('Rechnungen')) return;
-      if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: 'Der Honigbestand wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
+      if (!(await UI.confirm({ title: 'Rechnung stornieren?', text: r.ausVerkauf
+        ? 'Die Rechnung wird ungültig. Der Verkauf dazu bleibt gebucht – Bestand und Kassenbuch ändern sich nicht. Willst du auch den Verkauf zurücknehmen, mach das beim Verkauf.'
+        : 'Der Bestand (Honig und Lager) wird wieder erhöht und im Kassenbuch ein Storno gebucht.' }))) return;
       try {
         const erg = await rechnungStornieren(r.id);
         // Was nicht ging, sagt der Hinweis dazu (Fund 04.11.2026, #6 und #3/#25)
-        const zusatz = [erg && erg.abfuellungFehlt ? 'Die Gläser konnten nicht zurück in den Bestand, weil ihre Abfüllung endgültig gelöscht ist.' : '',
+        const zusatz = erg && erg.ausVerkauf ? 'Der Verkauf dazu bleibt gebucht.' : [erg && erg.abfuellungFehlt ? 'Die Gläser konnten nicht zurück in den Bestand, weil ihre Abfüllung endgültig gelöscht ist.' : '',
+          erg && erg.lagerFehlt ? 'Eine Lager-Position ist endgültig gelöscht, ihr Bestand konnte nicht zurück.' : '',
           erg && erg.ohneGegenbuchung ? 'Im Kassenbuch wurde nichts gegengebucht, weil dort keine Einnahme zu dieser Rechnung mehr steht.' : ''].filter(Boolean).join(' ');
         UI.toast('Rechnung storniert' + (zusatz ? '. ' + zusatz : '')); renderRoute();
       } catch (e) { fehlerMelden(e, 'Das Stornieren hat nicht geklappt. Bitte noch einmal versuchen.'); }
@@ -19515,38 +19728,64 @@ Views.rechnung = {
        nicht zweimal wissen müssen. Zuordnung über die Gebindegröße, dieselbe
        Verbindung wie beim Glas-Abzug beim Abfüllen. */
     const pfandJeGroesse = new Map();
-    for (const i of pfandPositionen((await DB.getAll('inventar')).filter((x) => x.typ === 'verbrauch'))) {
+    const inventarAlle = await DB.getAll('inventar');
+    /* Positionen aus dem Lager (Julian 08.11.2026, Paket 4): Produkte, Verbrauchsmaterial, Geräte & Inventar mit Bestand.
+       Der Bestand geht erst beim Festschreiben ab, das Storno bucht ihn zurück. */
+    const lagerVerf = U.sortBy(inventarAlle.filter((i) => verbrauchBestand(i) > 0), (i) => (i.bezeichnung || '').toLowerCase());
+    const lagerVk = (id) => { const i = lagerVerf.find((x) => x.id === id); return i && Number(i.verkaufspreis) > 0 ? Number(i.verkaufspreis) : null; };
+    for (const i of pfandPositionen(inventarAlle.filter((x) => x.typ === 'verbrauch'))) {
       const g = gebindeGrammAus(i.gebindeG);
       if (g && !pfandJeGroesse.has(g)) pfandJeGroesse.set(g, Number(i.pfand) || 0);
     }
     const m = UI.formModal({
       title: 'Position hinzufügen',
       fields: [
-        { key: 'quelle', label: 'Art der Position', type: 'select', required: true, default: 'charge', options: [{ v: 'charge', l: 'Honig aus Bestand (Abfüllung)' }, { v: 'frei', l: 'Freie Position' }] },
+        { key: 'quelle', label: 'Art der Position', type: 'select', required: true, default: 'charge', keepOrder: true,
+          options: [{ v: 'charge', l: 'Honig aus Bestand (Abfüllung)' }, { v: 'lager', l: 'Aus dem Lager (Produkte, Material, Geräte)' }, { v: 'frei', l: 'Freie Position' }] },
         { key: 'abfuellungId', label: 'Abfüllung', type: 'select', options: verf.map((a) => { const c = chargenM.get(a.chargeId); return { v: a.id, l: `${abfLabel(a, c)} · ${a.bestand} verfügbar` }; }), showIf: (f) => f.quelle === 'charge' },
+        { key: 'inventarId', label: 'Was aus dem Lager?', type: 'select', keepOrder: true, showIf: (f) => f.quelle === 'lager',
+          options: lagerVerf.map((i) => ({ v: i.id, l: `${i.bezeichnung} · ${LAGER_TYP_NAME[inventarTyp(i)]} · ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)} da${lagerVk(i.id) ? ` · ${U.fmtEur(lagerVk(i.id))}` : ''}` })) },
         { key: 'text', label: 'Bezeichnung', placeholder: 'wird bei Abfüllung automatisch gefüllt', showIf: (f) => f.quelle === 'frei', required: false },
-        { key: 'menge', label: 'Menge (Stück)', type: 'number', required: true, default: 1 },
+        { key: 'menge', label: 'Menge', type: 'number', required: true, default: 1, hint: 'Honig in Stück (Gebinde), Lager in der Einheit der Position.' },
         { key: 'einzelpreis', label: 'Einzelpreis (€, brutto)', type: 'number', required: true },
         { key: 'pfand', label: 'Pfand je Gebinde (€)', type: 'number', hint: 'Für Mehrweg – Glas, Eimer, Kiste. Wird getrennt ausgewiesen, ohne Rabatt und Skonto. Die Umsatzsteuer folgt dem gewählten Pfandsteuersatz. 0 oder leer = kein Pfand.' },
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
-        let text = v.text, abfuellungId = null;
+        let text = v.text, abfuellungId = null, inventarId = null, menge = Math.round(v.menge);
+        if (v.quelle === 'lager') {
+          const i = lagerVerf.find((x) => x.id === v.inventarId);
+          if (!i) throw feldFehler('inventarId', 'Bitte eine Position aus dem Lager wählen.');
+          menge = Math.round(Number(v.menge) * 1000) / 1000;
+          if (!(menge > 0)) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+          // schon in dieser Rechnung stehende Mengen derselben Position zählen mit
+          const schon = U.sum(r.positionen.filter((p) => p.inventarId === i.id), (p) => Number(p.menge) || 0);
+          if (schon + menge > verbrauchBestand(i) + 1e-9) throw feldFehler('menge', `Im Lager sind nur ${U.fmtNum(verbrauchBestand(i) - schon, 2)} ${verbrauchEinheit(i)} ${i.bezeichnung}.`);
+          text = i.bezeichnung; inventarId = i.id;
+        }
         if (v.quelle === 'charge') {
           const a = verf.find((x) => x.id === v.abfuellungId);
           if (!a) throw feldFehler('abfuellungId', 'Bitte eine Abfüllung wählen.');
           if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser stehen noch zum Verkauf.`);
-          const c = chargenM.get(a.chargeId);
-          text = `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
+          text = rechnungHonigText(a, chargenM.get(a.chargeId));
           abfuellungId = a.id;
         }
         if (!text) throw feldFehler('text', 'Bitte eine Bezeichnung angeben.');
-        r.positionen.push({ text, abfuellungId, menge: Math.round(v.menge), einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
+        r.positionen.push({ text, abfuellungId, ...(inventarId ? { inventarId } : {}), menge, einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
         await rechnungEntwurfSpeichern(r, gespeichert); renderRoute();
       },
     });
     /* Wird eine Abfüllung gewählt, springt das Pfand der passenden Glassorte ins
        Feld – aber nur, solange dort nichts Eigenes steht. */
+    /* Lager-Position gewählt: ihr Verkaufspreis kommt als Einzelpreis ins Feld (änderbar). */
+    const invFeld = $('#f-inventarId', m.el), quelleFeld = $('#f-quelle', m.el), preisFeld = $('#f-einzelpreis', m.el);
+    const lagerPreisSetzen = () => {
+      if (!invFeld || !preisFeld || (quelleFeld && quelleFeld.value !== 'lager')) return;
+      const vk = lagerVk(invFeld.value);
+      preisFeld.value = vk ? U.fmtNum(vk, 2) : '';
+    };
+    if (invFeld) invFeld.addEventListener('change', lagerPreisSetzen);
+    if (quelleFeld) quelleFeld.addEventListener('change', lagerPreisSetzen);
     const abfFeld = $('#f-abfuellungId', m.el), pfandFeld = $('#f-pfand', m.el);
     if (abfFeld && pfandFeld && pfandJeGroesse.size) {
       let eigen = false;
@@ -19577,9 +19816,12 @@ Views.rechnung = {
       const a = vorBestand.find((x) => x.id === id);
       if (!a || menge > a.bestand) return UI.toast('Bestand reicht nicht oder die Abfüllung fehlt.', 'err');
     }
-    if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: 'Die Rechnung erhält die nächste fortlaufende Nummer, der Honigbestand wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.', confirmText: 'Festschreiben', danger: false }))) return;
+    const confirmText = r.ausVerkauf
+      ? 'Die Rechnung erhält die nächste fortlaufende Nummer. Der Verkauf dazu ist schon gebucht – Bestand und Kassenbuch ändern sich nicht noch einmal. Danach ist sie nicht mehr änderbar.'
+      : 'Die Rechnung erhält die nächste fortlaufende Nummer, der Bestand (Honig und Lager) wird gemindert und die Einnahme im Kassenbuch gebucht. Danach ist sie nicht mehr änderbar.';
+    if (!(await UI.confirm({ title: 'Rechnung festschreiben?', text: confirmText, confirmText: 'Festschreiben', danger: false }))) return;
     try {
-      const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings', 'kontakte'], (d) => {
+      const gespeichert = await DB.aendereAtomar(['rechnungen', 'abfuellungen', 'kassenbuch', 'settings', 'kontakte', 'inventar', 'papierkorb', 'verkaeufe', 'materialabgaenge'], (d) => {
         const aktuell = d.rechnungen.find((x) => x.id === r.id);
         if (!aktuell || aktuell.status !== 'entwurf' || aktuell.nummer) throw new Error('Diese Rechnung ist nicht mehr als Entwurf vorhanden. Bitte erneut öffnen.');
         if (JSON.stringify(aktuell) !== JSON.stringify(r)) throw new Error('Die Rechnung wurde inzwischen geändert. Bitte erneut öffnen und prüfen.');
@@ -19587,13 +19829,22 @@ Views.rechnung = {
         const kunde = d.kontakte.find((x) => x.id === aktuell.kundeId);
         if (!kunde) throw new Error(RECHNUNG_KUNDE_FEHLT);
         if (!aktuell.positionen.length) throw new Error('Die Rechnung hat keine Positionen.');
-        const gebraucht = new Map();
+        const gebraucht = new Map(), gebrauchtLager = new Map();
+        /* Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4): Der Verkauf hat Bestand und Kassenbuch schon
+           gebucht – hier wird beides NICHT noch einmal gebucht. Ist der Verkauf inzwischen storniert, passt der Beleg nicht mehr. */
+        const ausVerkauf = aktuell.ausVerkauf || null;
+        if (ausVerkauf) {
+          const da = ausVerkauf.art === 'honig' ? d.verkaeufe.some((x) => x.id === ausVerkauf.id) : d.materialabgaenge.some((x) => x.id === ausVerkauf.id);
+          if (!da) throw new Error('Der Verkauf zu dieser Rechnung ist storniert oder gelöscht. Lösch den Entwurf oder stell den Verkauf wieder her.');
+        }
         for (const p of aktuell.positionen) {
           const menge = buchungsZahl(p.menge, 'Menge');
           if (menge <= 0) throw new Error('Jede Position braucht eine Menge größer als null.');
           buchungsZahl(p.einzelpreis, 'Einzelpreis'); buchungsZahl(p.pfand ?? 0, 'Pfand');
           buchungsZahl(p.steuersatz ?? 0, 'Steuersatz');
+          if (ausVerkauf) continue;
           if (p.abfuellungId) gebraucht.set(p.abfuellungId, (gebraucht.get(p.abfuellungId) || 0) + menge);
+          if (p.inventarId) gebrauchtLager.set(p.inventarId, { menge: ((gebrauchtLager.get(p.inventarId) || {}).menge || 0) + menge, text: p.text });
         }
         buchungsZahl(aktuell.pauschalsatz ?? 7.8, 'Pauschalsatz'); buchungsZahl(aktuell.pfandSteuersatz ?? 0, 'Pfandsteuersatz');
         const ops = [];
@@ -19604,6 +19855,14 @@ Views.rechnung = {
           if (menge > bestand) throw new Error(`Bestand reicht nicht: ${U.fmtNum(menge, 0)} verlangt, ${bestand} verfügbar.`);
           a.bestand = bestand - menge; ops.push({ store: 'abfuellungen', obj: a });
         }
+        // Lager-Positionen: Bestand ab, in derselben Transaktion (Julian 08.11.2026, Paket 4)
+        const geaendertLager = new Map();
+        for (const [id, { menge, text }] of gebrauchtLager) {
+          const b = lagerBuchen(d, id, -menge, geaendertLager, { bezeichnung: text,
+            reichtNicht: (pos, braucht, da) => new Error(`Bestand reicht nicht: ${U.fmtNum(braucht, 2)} ${verbrauchEinheit(pos)} ${pos.bezeichnung} verlangt, ${U.fmtNum(da, 2)} da.`) });
+          if (!b) throw new Error(`Die Lager-Position „${text}“ gibt es nicht mehr.`);
+        }
+        for (const obj of geaendertLager.values()) ops.push({ store: 'inventar', obj });
         const kreisVorher = d.settings.find((x) => x.key === 'rechnungskreis') || null;
         const kreis = structuredClone((kreisVorher && kreisVorher.value) || S.defaults.rechnungskreis);
         const nr = naechsteRechnungsnummer(kreis, d.rechnungen);
@@ -19613,8 +19872,8 @@ Views.rechnung = {
         aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
         // Empfänger und Absender festhalten, wie sie jetzt sind – das PDF druckt sie später genau so (Fund 04.11.2026, #2/#21)
         rechnungSchnappschussErgaenzen(aktuell, kunde, imkereiAusSaetzen(d.settings));
-        ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: 'Honigverkauf', betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } },
-          { store: 'rechnungen', obj: aktuell });
+        if (!ausVerkauf) ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: rechnungKategorie(aktuell, d.inventar), betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } });
+        ops.push({ store: 'rechnungen', obj: aktuell });
         const kreisSatz = S.satz(kreisVorher, 'rechnungskreis', kreis);
         ops.push({ store: 'settings', obj: kreisSatz, keepStamp: true });
         return { ops, wert: { rechnung: aktuell, kreis, kreisSatz } };
@@ -19715,7 +19974,8 @@ async function renderInventarBereich(main, cfg) {
     // Anschaffungsdatum steht bewusst NICHT hier: es ist beim Durchscrollen das
     // Unwichtigste, dafür gibt es den Jahr-Filter darüber und das Bearbeiten-Fenster.
     const groesse = gebindeGrammAus(i.gebindeG);
-    const teile = [i.kategorie, groesse ? `für ${gebindeLabel(groesse)}` : null, menge, zuord, i.notiz].filter(Boolean);
+    const vk = Number(i.verkaufspreis) > 0 ? `Verkaufspreis ${U.fmtEur(i.verkaufspreis)}` : null;   // (Julian 08.11.2026)
+    const teile = [i.kategorie, groesse ? `für ${gebindeLabel(groesse)}` : null, menge, vk, zuord, i.notiz].filter(Boolean);
     return `<button class="row${badge ? ' hat-hinweis' : ''}" data-edit="${U.esc(i.id)}">
       <span class="r-ic">${icon(cfg.ic)}</span>
       <span class="r-main">
@@ -19738,10 +19998,13 @@ async function renderInventarBereich(main, cfg) {
       ? `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div><div class="rows">${seitenweise('positionen', list).sichtbar.map(zeile).join('')}</div>${seitenweise('positionen', list).knopf}`
       : `<p class="small muted">${suchtext ? `Nichts gefunden zu „${U.esc((view._suche || '').trim())}“.${jahr || art ? ' Vielleicht liegt es an der Jahr/Art-Auswahl darüber.' : ''}` : 'Keine Positionen passen zu Jahr/Art-Auswahl.'}</p>`)
     : emptyState(cfg.ic, cfg.leer, `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Position anlegen</button>`));
-  main.innerHTML = pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`,
-    `<span class="knopf-gruppe no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
+  const kopfKnoepfe = `<span class="knopf-gruppe no-print"><button class="btn btn-ghost btn-sm" id="pdf">${icon('doc')} ${cfg.titel} (PDF)</button>
       <button class="btn btn-ghost btn-sm" id="abgang-pdf">${icon('doc')} Abgänge ${abgangJahr} (PDF)</button>
-      <a class="btn btn-primary btn-sm btn-zwei" id="kasse-buchen" href="#/kassenbuch/buchen-${cfg.typ}"><span>${icon('euro')} An- und Verkauf buchen</span><small>Eigenverbrauch / Verlust</small></a></span>`) +
+      <a class="btn btn-primary btn-sm btn-zwei" id="kasse-buchen" href="#/kassenbuch/buchen-${cfg.typ}"><span>${icon('euro')} An- und Verkauf buchen</span><small>Eigenverbrauch / Verlust</small></a></span>`;
+  /* Im Bereich „Lager“ steht der Titel schon oben und die Reiter darunter – hier nur Zahl, Untertitel und Knöpfe (Julian 08.11.2026). */
+  main.innerHTML = (cfg.imLager
+    ? `<div class="lager-teilkopf mb12"><span class="small muted">${alle.length} Positionen · ${cfg.subtitle}</span>${kopfKnoepfe}</div>`
+    : pageHead(cfg.titel, `${alle.length} Positionen · ${cfg.subtitle}`, kopfKnoepfe)) +
     (alle.length ? `
     <div class="chip-row mb8 no-print"><span class="small muted" style="align-self:center;margin-right:4px">Jahr:</span>${chip('Alle', '', jahr, 'jahr')}${jahre.map((j) => chip(j, j, jahr, 'jahr')).join('')}${hatOhneJahr ? chip('ohne Datum', '__ohne', jahr, 'jahr') : ''}</div>
     <div id="inv-reiter"></div><div id="inv-bestand">
@@ -19753,7 +20016,7 @@ async function renderInventarBereich(main, cfg) {
          es erst ab neun – dadurch war die Suche unsichtbar und unfindbar. Ein Feld,
          das man bei wenigen Einträgen nicht braucht, stört weniger als eine
          Funktion, von der niemand weiß. */
-      + (alle.length ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
+      + (alle.length && !cfg.suchfeld ? `<div class="field mb12 no-print"><input class="inp" id="suche" type="search" inputmode="search" autocomplete="off" placeholder="Position suchen – Bezeichnung, Kategorie, Zuordnung …" value="${U.esc(view._suche || '')}"></div>` : '')
       + `<div id="pos-erg">${ergebnis()}</div></div></div>`;
   /* Zugänge: was gekauft wurde und was es gekostet hat. Steht über den
      Abgängen, weil zuerst gekauft und dann verbraucht wird. */
@@ -19915,6 +20178,10 @@ async function renderInventarBereich(main, cfg) {
       { key: 'packPreis', label: 'Preis je Packung (€)', type: 'number', placeholder: 'z. B. 41', halb: true },
       { key: 'preis', label: 'Preis je Stück (€)', type: 'number', halb: true },
       { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>' },
+      /* Verkaufspreis (Julian 08.11.2026): wird beim „Verkaufen“ aus dem Lager vorgeschlagen und lässt sich dort ändern. */
+      { key: 'verkaufspreis', label: 'Verkaufspreis je Einheit (€, optional)', type: 'number', halb: true, placeholder: 'z. B. 4,50',
+        hint: 'Was du verlangst, wenn du es verkaufst. Beim Verkaufen steht der Preis dann schon drin.' },
+      { key: '_trennVk', type: 'static', html: '' },
       /* Gebindegröße gehört zum Bestand, nicht zum Preis – sie sagt, wofür die
          Position beim Abfüllen zählt. */
       { key: 'gebindeG', label: 'Gebindegröße (optional)', type: 'suggest',
@@ -19974,6 +20241,7 @@ async function renderInventarBereich(main, cfg) {
       if (!v._hatMhd) v.ablauf = null;               // Häkchen weg heißt: kein MHD, auch kein altes
       delete v._hatMhd;                              // Hilfsfeld nicht mitspeichern
       if (!v._hatPfand) { v.pfand = 0; v.pfandSeit = null; }   // kein Mehrweg → auch kein altes Pfand
+      v.verkaufspreis = Number(v.verkaufspreis) > 0 ? Math.round(Number(v.verkaufspreis) * 100) / 100 : null;   // leer = kein Verkaufspreis (Julian 08.11.2026)
       delete v._hatPfand;
       /* Packungsangaben bleiben gespeichert, damit man sie später wieder sieht
          und ändern kann. Der Stückpreis wird daraus neu gerechnet – nicht dem
@@ -20011,7 +20279,13 @@ async function renderInventarBereich(main, cfg) {
   /* Bestand, Zugänge, Abgänge (und Pfand) als Reiter – untereinander waren es über drei Bildschirme.
      Die Jahr-Auswahl darüber gilt für alle Teile, die Art-Auswahl nur für den Bestand. */
   teileReiter(main, $('#inv-reiter', main), [['inv-bestand', 'Bestand'], ['inv-zugaenge', 'Zugänge'], ['inv-abgaenge', 'Abgänge'],
-    ...($('#inv-pfand', main) ? [['inv-pfand', 'Pfand']] : [])], { obj: view, key: '_teil' });
+    ...($('#inv-pfand', main) ? [['inv-pfand', 'Pfand']] : [])], { obj: view, key: '_teil' }, { unter: !!cfg.imLager });   // im Lager klebt schon dessen Leiste (Julian 08.11.2026)
+  /* Aus „Alle“ im Lager angetippt: das Bearbeiten-Fenster dieser Position gleich öffnen (Julian 08.11.2026). */
+  if (view._oeffne) {
+    const pos = alle.find((x) => x.id === view._oeffne);
+    view._oeffne = null;
+    if (pos) form(pos);
+  }
   if (view._springeListe) {
     view._springeListe = false;
     const ziel = $('#pos-liste', main);
@@ -20019,10 +20293,11 @@ async function renderInventarBereich(main, cfg) {
   }
   /* Suche: Tastendrücke kurz sammeln, dann nur Übersicht und Trefferliste neu zeichnen – das Suchfeld bleibt
      stehen und behält den Fokus (vorher baute jeder Buchstabe die Seite neu, die Tastatur klappte zu). */
-  const sfeld = $('#suche', main);
+  const sfeld = cfg.suchfeld || $('#suche', main);   // im Lager: das gemeinsame Suchfeld über den Reitern (Julian 08.11.2026)
   if (sfeld) {
     sfeld.oninput = () => {
       view._suche = sfeld.value;
+      if (cfg.imLager) Views.lager._suche = sfeld.value;   // eine Suche für alle Lager-Reiter (Julian 08.11.2026)
       clearTimeout(view._sucheTimer);
       view._sucheTimer = setTimeout(() => {
         suchtext = (view._suche || '').trim().toLowerCase();
@@ -20054,6 +20329,251 @@ Views.material = {
   title: 'Verbrauchsmaterial',
   render(main) { return renderInventarBereich(main, bereichCfg('verbrauch')); },
 };
+
+/* =====================================================================
+   BEREICH „LAGER“ (Julian 08.11.2026)
+   Inventar, Verbrauchsmaterial und Weitere Produkte in EINEM Bereich mit
+   Reitern – erster Reiter „Alle“, darüber ein Suchfeld für alle Reiter
+   („bei lager mit suche und ein bereich mit alles“). Die Daten bleiben, wie
+   sie sind: Jeder Reiter zeigt den bisherigen Bereich (renderInventarBereich),
+   nur ohne eigenen Seitentitel. „Verkaufen“ bucht Bestand und Kassenbuch in
+   einer Transaktion und fragt danach nach einer Rechnung (Mockup 3).
+   ===================================================================== */
+const LAGER_REITER = [['alle', 'Alle'], ['produkt', 'Produkte'], ['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Geräte & Inventar']];
+const LAGER_TYP_NAME = { produkt: 'Produkte', verbrauch: 'Verbrauchsmaterial', inventar: 'Geräte & Inventar' };
+Views.lager = {
+  title: 'Lager',
+  _tab: 'alle',
+  _suche: '',
+  async render(main, param) {
+    /* #/lager/verbrauch usw. (auch aus den alten Adressen): Reiter wählen, dann die Adresse kürzen – sonst
+       stünde der Reiter bei jedem neuen Zeichnen wieder auf dem aus der Adresse. */
+    if (param && LAGER_REITER.some(([id]) => id === param)) {
+      this._tab = param;
+      try { history.replaceState(null, '', '#/lager'); } catch (e) { /* egal */ }
+    }
+    if (!LAGER_REITER.some(([id]) => id === this._tab)) this._tab = 'alle';
+    const tab = this._tab;
+    const alle = U.sortBy(await DB.getAll('inventar'), (i) => (i.bezeichnung || '').toLowerCase());
+    const zahl = (typ) => (typ === 'alle' ? alle.length : alle.filter((i) => inventarTyp(i) === typ).length);
+    main.innerHTML = pageHead('Lager', 'Produkte, Verbrauchsmaterial, Geräte & Inventar an einem Ort',
+      `<button class="btn btn-primary btn-sm no-print" type="button" data-lager-verkaufen>${icon('euro')} Verkaufen</button>`)
+      + '<div id="tabbar"></div>'
+      + (alle.length ? `<div class="field mb12 no-print"><input class="inp" id="lager-suche" type="search" inputmode="search" autocomplete="off" placeholder="Im ganzen Lager suchen – Name, Kategorie, Notiz …" value="${U.esc(this._suche || '')}"></div>` : '')
+      + '<div id="lager-inhalt"></div>';
+    bereichsReiter(main, LAGER_REITER.map(([id, label]) => ({ id, label: `${label} (${zahl(id)})` })), tab,
+      (t) => { Views.lager._tab = t; return renderRoute(); }, { name: 'lager' });
+    main.addEventListener('click', (e) => { if (e.target.closest('[data-lager-verkaufen]')) lagerVerkaufForm(); });
+    const box = $('#lager-inhalt', main);
+    const sfeld = $('#lager-suche', main);
+    if (tab !== 'alle') {
+      const cfg = { ...bereichCfg(tab), imLager: true, suchfeld: sfeld };
+      cfg.view._suche = this._suche || '';
+      return renderInventarBereich(box, cfg);
+    }
+    await this.alleZeigen(box, alle, sfeld);
+  },
+  /** Reiter „Alle“: jede Position aus allen drei Teilen in einer Liste, mit Bestand und Verkaufspreis (Mockup 1). */
+  async alleZeigen(box, alle, sfeld) {
+    const staende = await idMap('staende'), voelker = await idMap('voelker');
+    const zuordnungVon = (i) => standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '';
+    const treffer = () => {
+      const q = (this._suche || '').trim().toLowerCase();
+      return alle.filter((i) => positionTrifft(i, q, [zuordnungVon(i), LAGER_TYP_NAME[inventarTyp(i)]].join(' ')));
+    };
+    const zeile = (i) => {
+      const typ = inventarTyp(i);
+      const teile = [LAGER_TYP_NAME[typ], `Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`,
+        Number(i.verkaufspreis) > 0 ? `Verkaufspreis ${U.fmtEur(i.verkaufspreis)}` : null, i.kategorie].filter(Boolean);
+      return `<button class="row" data-lager-pos="${U.esc(i.id)}" data-lager-typ="${U.esc(typ)}">
+        <span class="r-ic">${icon(bereichCfg(typ).ic)}</span>
+        <span class="r-main"><span class="r-title">${U.esc(i.bezeichnung || '')}</span><span class="r-sub">${U.esc(teile.join(' · '))}</span></span>
+        ${icon('chevR', 'chev')}</button>`;
+    };
+    const ergebnis = () => {
+      const list = treffer();
+      if (!alle.length) return emptyState('box', 'Noch nichts im Lager. Über „An- und Verkauf buchen“ in einem der Reiter legst du die erste Position an – mit dem, was du gekauft hast.');
+      if (!list.length) return `<p class="small muted">Nichts gefunden zu „${U.esc((this._suche || '').trim())}“.</p>`;
+      const seite = seitenweise('lager-alle', list);
+      return `<div class="small muted mb8">${list.length === alle.length ? `${list.length} Positionen` : `${list.length} von ${alle.length} Positionen`}</div>
+        <div class="rows">${seite.sichtbar.map(zeile).join('')}</div>${seite.knopf}`;
+    };
+    box.innerHTML = `<div class="card" id="lager-alle"><div id="lager-erg">${ergebnis()}</div>
+      ${alle.length ? `<button class="btn btn-primary mt12 no-print" type="button" data-lager-verkaufen style="width:100%">${icon('euro')} Verkaufen</button>` : ''}</div>`;
+    /* Antippen öffnet die Position in ihrem Reiter – dort sind Bearbeiten, Zugänge und Abgänge. */
+    box.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-lager-pos]');
+      if (!r) return;
+      const cfg = bereichCfg(r.dataset.lagerTyp);
+      cfg.view._oeffne = r.dataset.lagerPos;
+      Views.lager._tab = r.dataset.lagerTyp;
+      renderRoute();
+    });
+    /* Nur die Trefferliste neu zeichnen, nie das Suchfeld – sonst klappt auf dem iPhone die Tastatur zu (wie im Inventar). */
+    if (sfeld) sfeld.oninput = () => {
+      Views.lager._suche = sfeld.value;
+      clearTimeout(Views.lager._sucheTimer);
+      Views.lager._sucheTimer = setTimeout(() => { const erg = $('#lager-erg', box); if (erg) erg.innerHTML = ergebnis(); }, 150);
+    };
+  },
+};
+
+/** Verkauf aus dem Lager in EINER Transaktion (Julian 08.11.2026): Bestand ab, Abgang „Verkauf“ anlegen und – bei einem
+    Erlös – die Einnahme ins Kassenbuch. Wie der Abgang im Formular darf mehr verkauft werden als im Bestand steht; abgezogen
+    wird dann nur, was da ist (gefehlt sagt, wie viel fehlte). Gibt { abgang, kassenbuch, gefehlt } zurück. */
+async function lagerVerkaufBuchen({ inventarId, menge, preis, datum = U.todayIso(), kontaktId = null, kaeufer = '', belegNr = '', notiz = '' }) {
+  const m = Math.max(0, Number(menge) || 0);
+  if (m <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+  const p = Math.max(0, Number(preis) || 0);
+  return DB.aendereAtomar(['inventar', 'materialabgaenge', 'kassenbuch', 'kontakte', 'papierkorb'], (d) => {
+    const pos = d.inventar.find((x) => x.id === inventarId);
+    if (!pos) {
+      if (materialImPapierkorb(d, inventarId)) throw new Error('Diese Position liegt im Papierkorb. Stell sie zuerst wieder her. Nichts wurde gebucht.');
+      throw feldFehler('inventarId', 'Diese Position gibt es nicht mehr. Bitte die Ansicht neu öffnen. Nichts wurde gebucht.');
+    }
+    const vorher = verbrauchBestand(pos);
+    const geaendert = new Map();
+    const b = lagerBuchen(d, pos.id, -Math.min(vorher, m), geaendert, { bezeichnung: pos.bezeichnung });
+    const typ = inventarTyp(pos);
+    const abgang = {
+      id: U.uuid(), inventarId: pos.id, bezeichnung: pos.bezeichnung, typ, einheit: verbrauchEinheit(pos),
+      datum, menge: m, art: 'Verkauf', preis: p, kontaktId: kontaktId || null, kaeufer: String(kaeufer || '').trim(),
+      belegNr: String(belegNr || '').trim(), bestandVorher: vorher, bestandNachher: b ? b.nachher : vorher,
+      notiz: String(notiz || '').trim(), kassenbuchId: null,
+    };
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj }));
+    const erloes = abgangErloes(abgang);
+    let kb = null;
+    if (erloes > 0) {
+      const wer = abgang.kaeufer || (d.kontakte.find((k) => k.id === abgang.kontaktId) || {}).name || '';
+      // Gleiche Kategorie und Beschreibung wie beim Abgang im Formular – Rücknahme und Kassenbuch-Filter finden sie so wieder
+      kb = { id: U.uuid(), datum, typ: 'einnahme', kategorie: typ === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf', betrag: erloes, steuersatz: 0,
+        kontaktId: abgang.kontaktId, rechnungId: null,
+        beschreibung: `${abgang.bezeichnung}: ${U.fmtNum(m, 2)} ${abgang.einheit}${wer ? ` an ${wer}` : ''}${abgang.belegNr ? ` (${abgang.belegNr})` : ''}` };
+      abgang.kassenbuchId = kb.id;
+      ops.push({ store: 'kassenbuch', obj: kb });
+    }
+    ops.push({ store: 'materialabgaenge', obj: abgang });
+    return { ops, wert: { abgang, kassenbuch: kb, gefehlt: Math.max(0, Math.round((m - (vorher - (b ? b.nachher : vorher))) * 1000) / 1000) } };
+  });
+}
+
+/** „Verkaufen“ im Lager (Mockup 1): Position wählen, Menge, Preis (aus dem Verkaufspreis vorbelegt, änderbar). */
+async function lagerVerkaufForm(vorId = '') {
+  if (Lizenz.nurVoll('Lager und Material')) return;
+  const posten = U.sortBy(await DB.getAll('inventar'), (i) => (i.bezeichnung || '').toLowerCase());
+  if (!posten.length) { UI.toast('Im Lager ist noch nichts, was du verkaufen kannst.', 'err'); return null; }
+  const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase());
+  const vk = (id) => { const p = posten.find((i) => i.id === id); return p && Number(p.verkaufspreis) > 0 ? p.verkaufspreis : ''; };
+  const start = vorId && posten.some((i) => i.id === vorId) ? vorId : posten[0].id;
+  const m = UI.formModal({
+    title: 'Verkaufen · Lager',
+    fields: [
+      { key: 'inventarId', label: 'Was verkaufst du?', type: 'select', required: true, keepOrder: true, default: start,
+        options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · ${LAGER_TYP_NAME[inventarTyp(i)]} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
+      { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true, default: 1 },
+      { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', halb: true, default: vk(start),
+        hint: 'Aus dem Verkaufspreis der Position. Du kannst ihn hier ändern.' },
+      { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
+      { key: '_trennVerkauf', type: 'static', html: '' },
+      { key: 'kontaktId', label: 'An wen verkauft? (optional)', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: 'kaeufer', label: 'oder Name frei eintragen', placeholder: 'leer lassen bei Barverkauf' },
+      { key: '_verkaufInfo', type: 'static', html: '<div class="hint" data-lager-verkauf-info></div>' },
+    ],
+    values: {},
+    saveText: 'Verkaufen',
+    async onSave(v) {
+      const erg = await lagerVerkaufBuchen({ inventarId: v.inventarId, menge: v.menge, preis: v.preis, datum: v.datum, kontaktId: v.kontaktId || null, kaeufer: v.kaeufer || '' });
+      await pruefeMhd();
+      renderRoute({ scrollBehalten: true });
+      // Erst wenn das Formular zu ist: die Rückfrage nach der Rechnung (Mockup 3)
+      setTimeout(() => nachVerkaufFragen(erg), 0);
+    },
+  });
+  verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
+  const feld = (k) => $(`#f-${k}`, m.el);
+  const info = $('[data-lager-verkauf-info]', m.el);
+  const zeige = () => {
+    const pos = posten.find((i) => i.id === (feld('inventarId') || {}).value);
+    if (!pos || !info) return;
+    const menge = U.parseNum((feld('menge') || {}).value) || 0, preis = U.parseNum((feld('preis') || {}).value) || 0;
+    const e = verbrauchEinheit(pos), bestand = verbrauchBestand(pos);
+    info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${U.esc(e)}</b> → danach <b>${U.fmtNum(Math.max(0, bestand - menge), 2)} ${U.esc(e)}</b>`
+      + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${U.esc(e)} fehlen)</span>` : '')
+      + (menge > 0 && preis > 0 ? `<br>Erlös <b>${U.fmtEur(Math.round(menge * preis * 100) / 100)}</b> kommt als Einnahme ins Kassenbuch` : '');
+  };
+  // Andere Position gewählt: deren Verkaufspreis eintragen
+  const sel = feld('inventarId');
+  if (sel) sel.addEventListener('change', () => { const pf = feld('preis'); if (pf) pf.value = vk(sel.value) === '' ? '' : U.fmtNum(vk(sel.value), 2); zeige(); });
+  m.el.addEventListener('input', zeige);
+  zeige();
+  return m;
+}
+
+/** Was ein gebuchter Verkauf für die Rückfrage und die Rechnung braucht (Julian 08.11.2026, Mockup 3) – aus dem Lager
+    ({ abgang, gefehlt }) oder aus dem Honigverkauf ({ verkauf, text }). Die Positionen sind reine Beleg-Zeilen: ohne
+    Abfüllung und ohne Lager-Position, denn Bestand und Kassenbuch hat der Verkauf schon gebucht. */
+function verkaufBeleg(erg) {
+  if (erg && erg.abgang) {
+    const a = erg.abgang;
+    return { art: 'lager', id: a.id, datum: a.datum, kontaktId: a.kontaktId || null, betrag: abgangErloes(a), kurz: `${U.fmtNum(a.menge, 2)} × ${a.bezeichnung}`,
+      gefehlt: erg.gefehlt || 0, einheit: a.einheit || '', rabatt: 0,
+      positionen: [{ text: a.bezeichnung, menge: Number(a.menge) || 0, einzelpreis: Number(a.preis) || 0, pfand: 0, steuersatz: 19, abfuellungId: null }] };
+  }
+  if (erg && erg.verkauf) {
+    const v = erg.verkauf;
+    return { art: 'honig', id: v.id, datum: v.datum, kontaktId: v.kontaktId || null, betrag: Number(v.betrag) || 0, kurz: `${U.zahl(v.anzahl)} × ${erg.text || 'Honig'}`,
+      gefehlt: 0, einheit: '', rabatt: Number(v.rabatt) || 0,
+      positionen: [{ text: erg.text || 'Honig', menge: Number(v.anzahl) || 0, einzelpreis: Number(v.preisJeGlas) || 0, pfand: 0, steuersatz: 7, abfuellungId: null }] };
+  }
+  return null;
+}
+/** Rückfrage nach einem Verkauf (Mockup 3): „Rechnung dazu erstellen“ oder „Fertig (ohne Rechnung)“. Gibt 'rechnung',
+    'fertig' oder null (geschlossen) zurück. Die Rechnung selbst legt verkaufRechnungErstellen an. */
+function nachVerkaufFragen(erg) {
+  const b = verkaufBeleg(erg);
+  if (!b) return Promise.resolve(null);
+  return new Promise((res) => {
+    let antwort = null;
+    const m = UI.modal({
+      title: 'Verkauf gebucht', onClose: () => res(antwort),
+      body: `<div data-nach-verkauf><p><b>${U.esc(b.kurz)}</b>${b.betrag > 0 ? ` · ${U.fmtEur(b.betrag)}` : ''}</p>
+        <p class="small muted">${b.betrag > 0 ? 'Bestand und Kassenbuch sind gebucht.' : 'Der Bestand ist gebucht. Ohne Preis kommt nichts ins Kassenbuch.'}${b.gefehlt > 0 ? ` Es fehlten ${U.fmtNum(b.gefehlt, 2)} ${U.esc(b.einheit)} im Bestand.` : ''}</p></div>`,
+      footer: `<button class="btn btn-ghost" type="button" data-fertig>Fertig (ohne Rechnung)</button><button class="btn btn-primary" type="button" data-rechnung>Rechnung dazu erstellen</button>`,
+    });
+    $('[data-fertig]', m.el).onclick = () => { antwort = 'fertig'; m.close(true); };
+    $('[data-rechnung]', m.el).onclick = () => { antwort = 'rechnung'; m.close(true); verkaufRechnungErstellen(erg); };
+  });
+}
+/** Grundwerte einer neuen Rechnung aus den Steuer-Einstellungen (wie „Neue Rechnung“). */
+function rechnungGrundwerte() {
+  const stg = S.get('steuer');
+  const art = stg.art || (stg.kleinunternehmer ? 'klein' : 'regel');
+  return { nummer: null, datum: U.todayIso(), kundeId: null, positionen: [], steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: stg.pauschalsatz != null ? stg.pauschalsatz : 7.8, pfandSteuersatz: U.zahl(stg.pfandSteuersatz, 0), status: 'entwurf', qrAufDruck: false };
+}
+/** Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4). Die Rechnung ist der BELEG zum Verkauf: Der Verkauf
+    hat Bestand und Kassenbuch schon gebucht, darum merkt sich die Rechnung den Verkauf in `ausVerkauf` – beim Festschreiben
+    bucht sie dann weder Bestand noch Einnahme ein zweites Mal, und ihr Storno bucht auch nichts zurück. Kunde und Positionen
+    sind vorbelegt. Gibt es zu diesem Verkauf schon eine (nicht stornierte) Rechnung, öffnet sich diese statt einer zweiten. */
+async function verkaufRechnungErstellen(erg) {
+  if (Lizenz.nurVoll('Rechnungen')) return null;
+  const b = verkaufBeleg(erg);
+  if (!b) return null;
+  try {
+    const r = await DB.aendereAtomar(['rechnungen', 'kontakte'], (d) => {
+      const schon = d.rechnungen.find((x) => x.status !== 'storniert' && x.ausVerkauf && x.ausVerkauf.art === b.art && x.ausVerkauf.id === b.id);
+      if (schon) return { ops: [], wert: schon };
+      const kunde = b.kontaktId ? d.kontakte.find((k) => k.id === b.kontaktId) : null;
+      const grund = rechnungGrundwerte();
+      const neu = { ...grund, id: U.uuid(), datum: b.datum || U.todayIso(), kundeId: kontaktIstKunde(kunde) ? kunde.id : null,
+        positionen: b.positionen.map((p) => ({ ...p, steuersatz: grund.steuerart === 'regel' ? p.steuersatz : 0 })), ausVerkauf: { art: b.art, id: b.id, betrag: b.betrag },
+        ...(b.rabatt > 0 ? { rabattTyp: 'betrag', rabattWert: b.rabatt } : {}) };
+      return { ops: [{ store: 'rechnungen', obj: neu }], wert: neu };
+    });
+    navTo('rechnung/' + r.id);
+    return r;
+  } catch (e) { fehlerMelden(e, 'Die Rechnung ließ sich nicht anlegen. Der Verkauf ist gebucht.'); return null; }
+}
 
 /* =====================================================================
    MODUL: AUFGABEN & KALENDER (inkl. Auto-Termine aus Zucht/Behandlung)
@@ -23226,6 +23746,17 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     } : null,
   });
   verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
+  /* Neuer Verkauf: Preis aus dem Verkaufspreis der gewählten Position vorbelegen, änderbar (Julian 08.11.2026).
+     Beim Bearbeiten bleibt der gebuchte Preis stehen. */
+  if (!rec) {
+    const selPos = $('#f-inventarId', m.el), preisFeld = $('#f-preis', m.el);
+    const vkSetzen = () => {
+      const pos = posten.find((i) => i.id === (selPos || {}).value);
+      if (preisFeld && pos && Number(pos.verkaufspreis) > 0) preisFeld.value = U.fmtNum(pos.verkaufspreis, 2);
+    };
+    if (selPos) selPos.addEventListener('change', vkSetzen);
+    vkSetzen();
+  }
   // Live-Hinweis: Bestand nachher und Erlös
   const info = $('[data-abgang-info]', m.el);
   const zeige = () => {
@@ -23823,6 +24354,11 @@ function verdrahteGlasAbzug(m, posten) {
 /** Bucht den Abzug beim Speichern und meldet es. Gibt die Buchung zurück. */
 async function verbrauchBuchen(v, menge) {
   const buchung = await verbrauchAbziehenKette(v && v._verbrauchId, menge);
+  verbrauchMelden(buchung);
+  return buchung;
+}
+/** Meldung zu einem Material-Abzug (aus verbrauchBuchen herausgelöst, Julian 08.11.2026 – auch für die Behandlung pro Volk). */
+function verbrauchMelden(buchung) {
   if (buchung && buchung.abzug.length) {
     /* Wurden mehrere Positionen angefasst, sagt die Meldung welche – sonst
        wundert man sich, warum bei „Zucker 2025" plötzlich weniger fehlt. */
@@ -23833,7 +24369,6 @@ async function verbrauchBuchen(v, menge) {
   } else if (buchung) {
     UI.toast(`Kein Bestand vorhanden – ${U.fmtNum(buchung.gefehlt, 2)} ${buchung.einheit} fehlten`, 'err');
   }
-  return buchung;
 }
 
 /** Anteil eines Sammel-Abzugs für den Datensatz Nummer `i` (0 … n−1). Bei einer
@@ -23852,6 +24387,31 @@ function abzugAnteil(buchung, n, i = 0) {
   const gesamt = teile.reduce((s, x) => s + x, 0);
   const je = Math.floor(gesamt / n), extra = gesamt - je * n;   // die ersten `extra` Datensätze bekommen eine Einheit mehr
   const von = i * je + Math.min(i, extra), bis = von + je + (i < extra ? 1 : 0);
+  const anteil = [];
+  let lauf = 0;
+  buchung.abzug.forEach((a, k) => {
+    const n2 = Math.max(0, Math.min(bis, lauf + teile[k]) - Math.max(von, lauf));
+    if (n2 > 0) anteil.push({ ...a, menge: n2 / faktor });
+    lauf += teile[k];
+  });
+  return anteil;
+}
+/** Wie abzugAnteil, aber nach Menge gewichtet (Julian 08.11.2026): Behandlung pro Volk mit eigener Menge je Volk –
+    Ableger mit halber Dosis tragen auch nur den halben Teil, und das Löschen gibt genau diesen Teil zurück.
+    Größter Rest wie oben, bei Gleichstand die vorderen zuerst – gleiche Mengen ergeben genau abzugAnteil. */
+function abzugAnteilGewichtet(buchung, gewichte, i = 0) {
+  const n = (gewichte || []).length;
+  if (!buchung || !buchung.abzug.length || n < 1 || i < 0 || i >= n) return [];
+  const w = gewichte.map((x) => Math.max(0, Number(x) || 0)), summe = w.reduce((s, x) => s + x, 0);
+  if (!(summe > 0)) return abzugAnteil(buchung, n, i);
+  const faktor = buchung.abzug.every((a) => a.einheit === 'Stück') ? 1 : 1000;
+  const teile = buchung.abzug.map((a) => Math.round((Number(a.menge) || 0) * faktor));
+  const gesamt = teile.reduce((s, x) => s + x, 0);
+  const roh = w.map((x) => gesamt * x / summe), je = roh.map((x) => Math.floor(x + 1e-9));
+  const rest = gesamt - je.reduce((s, x) => s + x, 0);
+  const reihe = roh.map((x, k) => k).sort((a, b) => ((roh[b] - je[b]) - (roh[a] - je[a])) || a - b);
+  for (let k = 0; k < rest; k++) je[reihe[k % n]] += 1;
+  const von = je.slice(0, i).reduce((s, x) => s + x, 0), bis = von + je[i];
   const anteil = [];
   let lauf = 0;
   buchung.abzug.forEach((a, k) => {
@@ -24925,9 +25485,9 @@ const Statistik = {
       const kJ = kat(imJ), kV = kat(imV);
       const top = [...kJ.entries()].sort((a, b) => b[1] - a[1])[0];
       if (top && aus > 0) kacheln.push(this.kachel('Größter Kostenblock', top[0], `${U.fmtEur(top[1])} · ${U.fmtNum(top[1] / aus * 100, 0)} %`));
-      for (const [k, x] of kJ) { const alt = kV.get(k) || 0; if (x > 50 && x > alt * 1.5 && alt > 0) auff.push({ art: 'w', titel: `${k}: ${U.fmtEur(x)}`, text: `${U.fmtNum((x / alt - 1) * 100, 0)} % mehr als im Vorjahr (${U.fmtEur(alt)}).`, href: '#/kassenbuch' }); }
-      if (ein - aus < 0 && (ein > 0 || aus > 0)) auff.push({ art: 'x', titel: `Verlust ${U.fmtEur(ein - aus)}`, text: 'Die Ausgaben sind höher als die Einnahmen – Preise und größte Kostenblöcke prüfen.', href: '#/kassenbuch' });
-      if (ein > 0 && ein - aus > 0 && einV > 0 && ein - aus > (einV - ausV) * 1.2 && einV - ausV > 0) auff.push({ art: 'o', titel: `Gewinn gestiegen`, text: `${U.fmtEur(ein - aus)} statt ${U.fmtEur(einV - ausV)} im Vorjahr.`, href: '#/kassenbuch' });
+      for (const [k, x] of kJ) { const alt = kV.get(k) || 0; if (x > 50 && x > alt * 1.5 && alt > 0) auff.push({ art: 'w', titel: `${k}: ${U.fmtEur(x)}`, text: `${U.fmtNum((x / alt - 1) * 100, 0)} % mehr als im Vorjahr (${U.fmtEur(alt)}).`, href: '#/finanzen/kassenbuch' }); }
+      if (ein - aus < 0 && (ein > 0 || aus > 0)) auff.push({ art: 'x', titel: `Verlust ${U.fmtEur(ein - aus)}`, text: 'Die Ausgaben sind höher als die Einnahmen – Preise und größte Kostenblöcke prüfen.', href: '#/finanzen/kassenbuch' });
+      if (ein > 0 && ein - aus > 0 && einV > 0 && ein - aus > (einV - ausV) * 1.2 && einV - ausV > 0) auff.push({ art: 'o', titel: `Gewinn gestiegen`, text: `${U.fmtEur(ein - aus)} statt ${U.fmtEur(einV - ausV)} im Vorjahr.`, href: '#/finanzen/kassenbuch' });
     } else if (bereich === 'arbeit') {
       const h = this.stunden(d, imJ), hV = this.stunden(d, imV);
       kacheln.push(this.kachel('Arbeitsstunden', `${U.fmtNum(h, 1)} h`, laufend ? 'bis heute' : '', this.vergleich(h, hV, { einheit: 'h', dez: 1, gut: '' })));
@@ -26686,8 +27246,8 @@ const Lizenz = {
      Alles andere ist Vollversion: sichtbar und lesbar (zeigt, was man verpasst), aber neues
      Speichern öffnet das Kauf-Fenster. Sicherung/Export bleiben immer frei (Daten gehören dem Nutzer). */
   LIGHT_VOELKER: 2,
-  NUR_VOLL: { kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
-    inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
+  NUR_VOLL: { finanzen: 'Die Finanzen', kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
+    lager: 'Das Lager', inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
     behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen',
     markt: 'Der Marktverkauf', bio: 'Die Bio-Kontrolle', hygiene: 'Der Hygieneplan', fahrten: 'Das Fahrtenbuch', zeiten: 'Die Zeiterfassung', wanderungen: 'Wanderungen',
     trachten: 'Trachten', reporting: 'Statistiken', rechner: 'Der Imker-Rechner', zucht: 'Die Zucht' },
@@ -28358,7 +28918,7 @@ const Pdf = {
       const zeigtUst = rechnungSteuerart(r) === 'regel';
       const zeigtPfand = r.positionen.some((p) => Number(p.pfand) > 0);
       const body = r.positionen.map((p, i) => {
-        const zeile = [String(i + 1), p.text, U.fmtNum(p.menge, 0), U.fmtEur(p.einzelpreis)];
+        const zeile = [String(i + 1), p.text, U.fmtNum(p.menge, 3), U.fmtEur(p.einzelpreis)];
         if (zeigtPfand) zeile.push(p.pfand ? U.fmtEur(p.pfand) : '–');
         if (zeigtUst) zeile.push(`${p.steuersatz || 0} %`);
         zeile.push(U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0)));
@@ -29742,10 +30302,10 @@ const APP_WISSEN = [
       { feld: 'An wen verkauft', text: 'Optional: der Kunde. Ohne Kunden gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Die Einnahme landet im Kassenbuch.' }] },
   /* v3.00 (Julian 26.10.2026: „beim Abfüllen habe ich Verluste … nicht Honig“) */
-  { id: 'honig-verlust', titel: 'Honig: Verlust oder Eigenverbrauch buchen', route: 'kassenbuch', zeige: 'An- und Verkauf buchen',
+  { id: 'honig-verlust', titel: 'Honig: Verlust oder Eigenverbrauch buchen', route: 'finanzen', param: 'kassenbuch', zeige: 'An- und Verkauf buchen',
     stichw: ['abfuellverlust', 'verlust beim abfuellen', 'honig verlust', 'honigverlust', 'glas kaputt', 'glas zerbrochen', 'glaeser kaputt', 'glaeser zerbrochen', 'bruch glaeser', 'glasbruch', 'honig verschuettet', 'eigenverbrauch honig', 'honig selbst gegessen', 'glas selbst gegessen', 'honig verschenkt', 'glas verschenkt', 'honig schwund', 'rest im eimer', 'rest im abfuellkuebel', 'schaum abgeschoepft', 'honig an bienen verfuettert', 'honig verfuettert', 'honig verdorben', 'honig gaerig', 'honig gegoren'],
     antwort: 'Zerbrochene, verschenkte oder selbst gegessene Gläser und den Rest im Eimer buchst du unter „Eigenverbrauch / Verlust“: im Kassenbuch über „An- und Verkauf buchen“ → „Eigenverbrauch / Verlust“ → „Honig“, oder im Honig-Bereich im Reiter „Bestand“ mit „Verlust“. Beim Abfüllen trägst du den Rest gleich im Feld „Verlust beim Abfüllen“ ein. Es bringt kein Geld – im Kassenbuch steht eine Zeile mit 0,00 €.',
-    schritte: ['Menü ▸ Kassenbuch (oder Ernte und Abfüllung ▸ Bestand)', '„An- und Verkauf buchen“ ▸ „Eigenverbrauch / Verlust“ ▸ „Honig“', 'Gebinde oder Eimer, Grund und Menge wählen, speichern'],
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Kassenbuch (oder Ernte und Abfüllung ▸ Bestand)', '„An- und Verkauf buchen“ ▸ „Eigenverbrauch / Verlust“ ▸ „Honig“', 'Gebinde oder Eimer, Grund und Menge wählen, speichern'],
     tour: [{ reiter: 'Buchungen', text: 'Öffne den Reiter „Buchungen“.' },
       { knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Eigenverbrauch / Verlust', text: 'Tippe auf „Eigenverbrauch / Verlust“.' },
@@ -29764,14 +30324,14 @@ const APP_WISSEN = [
       { knopf: 'Marktverkauf', text: 'Tippe auf „Marktverkauf“.' },
       { knopf: '.markt-grid button', weiter: true, text: 'Tippe die Gläser an, die der Kunde nimmt – jedes Tippen legt ein Glas in den Korb. Dann siehst du unten die Summe, das Wechselgeld und „Kassieren“.' },
       { abschluss: '#kassieren, .markt-grid', text: 'Mit „Kassieren“ ist der Verkauf gebucht: Der Bestand sinkt, die Einnahme landet im Kassenbuch. Der Knopf erscheint unten, sobald etwas im Korb liegt.' }] },
-  { id: 'kassenbuch', titel: 'Einnahmen und Ausgaben (Kassenbuch)', route: 'kassenbuch', zeige: 'Buchung',
-    stichw: ['kassenbuch', 'buchung', 'einnahmen', 'ausgaben', 'kasse', 'buchen', 'beleg', 'umsatz', 'steuer', 'ust', 'jahresabschluss', 'einnahme buchen', 'ausgabe buchen', 'geld buchen', 'einnahme', 'ausgabe', 'beleg buchen', 'kassenbuch fuehren', 'buchungen'],
+  { id: 'kassenbuch', titel: 'Einnahmen und Ausgaben (Kassenbuch)', route: 'finanzen', param: 'kassenbuch', zeige: 'Buchung',
+    stichw: ['kassenbuch', 'finanzen', 'buchung', 'einnahmen', 'ausgaben', 'kasse', 'buchen', 'beleg', 'umsatz', 'steuer', 'ust', 'jahresabschluss', 'einnahme buchen', 'ausgabe buchen', 'geld buchen', 'einnahme', 'ausgabe', 'beleg buchen', 'kassenbuch fuehren', 'buchungen'],
     antwort: 'Alles Geld steht im Kassenbuch. Verkäufe und Einkäufe aus den Lager-Bereichen werden automatisch dorthin gebucht, eigene Buchungen machst du mit „Buchung“.',
-    schritte: ['Menü ▸ Kassenbuch', '„Buchung“ tippen', 'Datum, Betrag, Kategorie und Kontakt eintragen'] },
-  { id: 'an-verkauf', titel: 'An- und Verkauf von Material buchen', route: 'material', zeige: 'An- und Verkauf buchen',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Kassenbuch', '„Buchung“ tippen', 'Datum, Betrag, Kategorie und Kontakt eintragen'] },
+  { id: 'an-verkauf', titel: 'An- und Verkauf von Material buchen', route: 'lager', param: 'verbrauch', zeige: 'An- und Verkauf buchen',
     stichw: ['anverkauf', 'an und verkauf', 'material einkaufen', 'material verkaufen', 'einkauf', 'eigenverbrauch', 'verlust buchen', 'zukauf', 'materialverkauf', 'an und verkauf', 'anverkauf', 'eigenverbrauch', 'verlust buchen', 'gläser gekauft', 'zucker gekauft', 'zucker eingekauft', 'gläser nachbestellt', 'glaeser nachbestellt', 'material bestellt', 'lieferung gebucht', 'lieferung glaeser', 'honig kaufen', 'honig gekauft', 'honig zukaufen', 'zuckersirup verschenkt', 'verschenkt', 'futter verdorben', 'verdorben', 'verlust', 'weggeschmissen', 'entsorgt', 'kaputt gegangen'],
-    antwort: 'In den Bereichen Verbrauchsmaterial, Inventar und Weitere Produkte gibt es den Knopf „An- und Verkauf buchen“. Dort wählst du Einkauf, Verkauf, Eigenverbrauch oder Verlust – die Buchung ins Kassenbuch läuft automatisch. Eigenverbrauch und Verlust gibt es dort auch für Honig.',
-    schritte: ['Menü ▸ Verbrauchsmaterial (oder Inventar / Weitere Produkte)', '„An- und Verkauf buchen“ tippen', 'Art, Position, Menge und Preis eingeben'],
+    antwort: 'Im Lager gibt es bei Verbrauchsmaterial, Geräte & Inventar und Produkte den Knopf „An- und Verkauf buchen“. Dort wählst du Einkauf, Verkauf, Eigenverbrauch oder Verlust – die Buchung ins Kassenbuch läuft automatisch. Eigenverbrauch und Verlust gibt es dort auch für Honig.',
+    schritte: ['Menü ▸ Lager ▸ Reiter Verbrauchsmaterial (oder Geräte & Inventar / Produkte)', '„An- und Verkauf buchen“ tippen', 'Art, Position, Menge und Preis eingeben'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
       { knopf: 'Verbrauchsmaterial', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
@@ -29785,19 +30345,19 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'rechnung', titel: 'Rechnung schreiben', route: 'rechnungen', zeige: 'Neue Rechnung',
+  { id: 'rechnung', titel: 'Rechnung schreiben', route: 'finanzen', param: 'rechnungen', zeige: 'Neue Rechnung',
     stichw: ['rechnung', 'rechnungen', 'rechnung schreiben', 'rechnungsnummer', 'faktura', 'kunde rechnung', 'quittung', 'lieferschein', 'rechnugn', 'rechnung stellen', 'rechnung erstellen', 'rechnung an', 'kunde will rechnung', 'rechnung ausstellen', 'rechnung fuer kunden', 'hofladen rechnung'],
-    antwort: 'Rechnungen schreibst du im Bereich „Rechnungen“. Kunde, Positionen und Zahlungsziel eintragen, dann als PDF öffnen oder teilen.',
-    schritte: ['Menü ▸ Rechnungen', '„+ Neue Rechnung“ tippen', 'Kunde und Positionen eintragen, als PDF öffnen'],    seite: true,
+    antwort: 'Rechnungen schreibst du im Bereich „Finanzen“ unter „Rechnungen“. Kunde, Positionen (Honig, Artikel aus dem Lager oder frei) und Zahlungsziel eintragen, dann als PDF öffnen oder teilen. Nach jedem Verkauf kannst du auch gleich „Rechnung dazu erstellen“ tippen – dann sind Kunde und Positionen schon drin.',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Rechnungen', '„+ Neue Rechnung“ tippen', 'Kunde und Positionen eintragen, als PDF öffnen'],    seite: true,
     tour: [{ knopf: 'Neue Rechnung', text: 'Tippe auf „Neue Rechnung“.' },
       { feld: 'Kunde', text: 'Wähle den Kunden. Fehlt er, legst du ihn gleich dort neu an.' },
       { feld: 'Rechnungsdatum', text: 'Das Datum der Rechnung.' },
       { feld: 'Zahlungsziel', text: 'Nach wie vielen Tagen soll bezahlt werden?' },
       { abschluss: 'Position', text: 'Weiter unten fügst du die Positionen hinzu. Danach kannst du die Rechnung als PDF öffnen.' }] },
-  { id: 'kontakte', titel: 'Kunden und Lieferanten verwalten', route: 'kontakte', zeige: 'Kontakt',
+  { id: 'kontakte', titel: 'Kunden und Lieferanten verwalten', route: 'finanzen', param: 'kontakte', zeige: 'Kontakt',
     stichw: ['kontakt', 'kontakte', 'kunde', 'kunden', 'lieferant', 'lieferanten', 'abnehmer', 'adresse', 'telefon', 'neuer kunde', 'neuer lieferant', 'bio partner', 'telefonnummer', 'telefonnummer kunde', 'adresse speichern', 'adressen', 'kundenliste', 'lieferantenliste', 'kunden anlegen', 'kunde anlegen', 'wo ist meine kundenliste', 'adresse von kunden', 'adressbuch', 'telefonbuch', 'lieferant anlegen'],
-    antwort: 'Kunden und Lieferanten pflegst du im Bereich „Abnehmer & Lieferanten“. Die Kontakte erscheinen automatisch in allen Auswahllisten (Rechnung, Verkauf, Einkauf …).',
-    schritte: ['Menü ▸ Abnehmer & Lieferanten', '„+ Kontakt“ tippen', 'Art (Kunde / Lieferant), Name und Adresse eintragen'],
+    antwort: 'Kunden und Lieferanten pflegst du im Bereich „Finanzen“ unter „Abnehmer & Lieferanten“. Die Kontakte erscheinen automatisch in allen Auswahllisten (Rechnung, Verkauf, Einkauf …).',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Abnehmer & Lieferanten', '„+ Kontakt“ tippen', 'Art (Kunde / Lieferant), Name und Adresse eintragen'],
     tour: [{ knopf: 'Kontakt', text: 'Tippe auf „+ Kontakt“.' },
       { feld: 'Art', text: 'Kunde, Lieferant oder beides?' },
       { feld: 'Name', text: 'Name oder Firma eintragen.' },
@@ -29858,10 +30418,10 @@ const APP_WISSEN = [
       { feld: 'Arbeitsschritte', text: 'Die Arbeitsschritte erkennt die App aus deinem Text – antippen zum Ändern, mehrere sind möglich (die Zeit wird dann geteilt).', weiter: true },
       { feld: 'Dauer', text: 'Wie viele Minuten hat es gedauert?' },
       { speichern: true, text: 'Tippe auf „Speichern“.' }] },
-  { id: 'material', titel: 'Verbrauchsmaterial und Bestand', route: 'material', zeige: 'An- und Verkauf buchen',
+  { id: 'material', titel: 'Verbrauchsmaterial und Bestand', route: 'lager', param: 'verbrauch', zeige: 'An- und Verkauf buchen',
     stichw: ['material', 'verbrauchsmaterial', 'bestand', 'lager', 'glaeser lager', 'deckel', 'mittelwaende', 'zucker lager', 'mindestbestand', 'zugang', 'einkaufen', 'lagerbestand', 'wie viele glaeser noch', 'wie viele deckel', 'was ist noch da', 'was habe ich auf lager', 'auf lager', 'mindestbestand glaeser', 'verbrauchsmaterial anlegen', 'neue position material', 'material anlegen', 'vorrat glaeser', 'lagerverwaltung', 'lager verwalten', 'lagerliste'],
-    antwort: 'Im Verbrauchsmaterial steht, was du auf Lager hast (Gläser, Zucker, Mittelwände …). Beim Abfüllen oder Füttern wird automatisch abgezogen; unter dem Mindestbestand warnt dich das Dashboard.',
-    schritte: ['Menü ▸ Verbrauchsmaterial', '„+ Position“ tippen', 'Name, Einheit, Bestand und Mindestbestand eintragen'],
+    antwort: 'Im Lager unter Verbrauchsmaterial steht, was du da hast (Gläser, Zucker, Mittelwände …). Beim Abfüllen oder Füttern wird automatisch abgezogen; unter dem Mindestbestand warnt dich das Dashboard.',
+    schritte: ['Menü ▸ Lager ▸ Reiter Verbrauchsmaterial', '„An- und Verkauf buchen“ ▸ Einkauf tippen', 'Name, Einheit, Bestand und Mindestbestand eintragen'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
       { knopf: 'Verbrauchsmaterial', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
@@ -29875,10 +30435,10 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'inventar', titel: 'Inventar (Geräte und Beuten)', route: 'inventar', zeige: 'An- und Verkauf buchen',
+  { id: 'inventar', titel: 'Inventar (Geräte und Beuten)', route: 'lager', param: 'inventar', zeige: 'An- und Verkauf buchen',
     stichw: ['inventar', 'geraete', 'beuten', 'schleuder', 'ausruestung', 'werkzeug', 'anschaffung', 'abschreibung', 'schleuder', 'honigschleuder', 'geraet eintragen', 'honigschleuder gekauft', 'neue honigschleuder', 'beuten zaehlen', 'schleuder gekauft', 'rähmchen', 'raehmchen', 'smoker', 'stockmeissel', 'schutzkleidung', 'inventarliste', 'inventar liste', 'geraeteliste', 'geraete auflisten'],
-    antwort: 'Das Inventar listet deine Geräte und Beuten. Ein Kauf wird auf Wunsch ins Kassenbuch gebucht.',
-    schritte: ['Menü ▸ Inventar', '„+ Position“ tippen', 'Bezeichnung, Anzahl und Kaufpreis eintragen'],
+    antwort: 'Im Lager unter Geräte & Inventar stehen deine Geräte und Beuten. Ein Kauf wird auf Wunsch ins Kassenbuch gebucht.',
+    schritte: ['Menü ▸ Lager ▸ Reiter Geräte & Inventar', '„An- und Verkauf buchen“ ▸ Einkauf tippen', 'Bezeichnung, Anzahl und Kaufpreis eintragen'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
       { knopf: 'Inventar', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
@@ -29892,10 +30452,10 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'produkte', titel: 'Weitere Produkte (Essig, Met, Lohnverarbeitung)', route: 'produkte', zeige: 'An- und Verkauf buchen',
+  { id: 'produkte', titel: 'Weitere Produkte (Essig, Met, Lohnverarbeitung)', route: 'lager', param: 'produkt', zeige: 'An- und Verkauf buchen',
     stichw: ['weitere produkte', 'essig', 'met', 'honigwein', 'kerzen', 'wachs', 'propolis', 'lohnverarbeitung', 'lohnverarbeiter', 'honig lose', 'honigessig', 'kerzen aus wachs', 'propolis tinktur', 'tinktur', 'lebkuchen', 'honig weiterverarbeitet', 'selbstgemachtes', 'nebenprodukt'],
-    antwort: 'Alles, was nicht Honigglas ist (Essig, Met, Kerzen …), führst du unter „Weitere Produkte“. Auch Lohnverarbeitung: Honig geht an den Verarbeiter, die Kosten buchen sich ins Kassenbuch.',
-    schritte: ['Menü ▸ Weitere Produkte', '„+ Position“ tippen', 'Name, Einheit und Bestand eintragen'],
+    antwort: 'Alles, was nicht Honigglas ist (Essig, Met, Kerzen …), führst du im Lager unter „Produkte“. Auch Lohnverarbeitung: Honig geht an den Verarbeiter, die Kosten buchen sich ins Kassenbuch.',
+    schritte: ['Menü ▸ Lager ▸ Reiter Produkte', '„An- und Verkauf buchen“ ▸ Einkauf tippen', 'Name, Einheit und Bestand eintragen'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
       { knopf: 'Weitere Produkte', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
@@ -29909,10 +30469,10 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'material', zeige: '',
+  { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'lager', param: 'verbrauch', zeige: '',
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
     antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position. Wie das Pfand steuerlich behandelt wird, stellst du unter Einstellungen → Steuer & Rechnungen ein.',
-    schritte: ['Menü ▸ Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
+    schritte: ['Menü ▸ Lager ▸ Reiter Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
   /* Kein einzelnes „anmelden“ als Stichwort: das zog „Muss ich mich bei der App anmelden?“ vom Datenschutz weg
      (Code-Prüfung 23.10.2026) – dafür Wendungen und eine Regel in ASSISTENT_REGELN. */
   { id: 'anmeldung-amt', titel: 'Bienen beim Amt melden: Veterinäramt (§ 1a), Tierseuchenkasse, Schild am Stand', route: 'meldungen', zeige: 'Ämter & Pflicht',
@@ -30081,26 +30641,26 @@ APP_WISSEN.push(
     stichw: ['honigsorte', 'neue sorte', 'sorte anlegen', 'sortenliste', 'honigsorten', 'sorte fehlt', 'eigene sorte', 'sorte hinzufuegen', 'sorte', 'sorte fuer den honig', 'neue sorte fuer honig', 'neue sorte fuer den honig'],
     antwort: 'Die Honigsorten pflegst du in den Einstellungen unter „Honigsorten“. Neue Sorten kannst du auch direkt beim Erfassen einer Ernte anlegen.',
     schritte: ['Menü ▸ Einstellungen', 'Bereich „Honigsorten“ öffnen', 'Neue Sorte eintragen'] },
-  { id: 'rechnung-festschreiben', titel: 'Rechnung festschreiben (fertig machen)', route: 'rechnungen', zeige: '',
+  { id: 'rechnung-festschreiben', titel: 'Rechnung festschreiben (fertig machen)', route: 'finanzen', param: 'rechnungen', zeige: '',
     stichw: ['rechnung festschreiben', 'festschreiben', 'rechnung abschliessen', 'rechnung fertig', 'rechnung nicht mehr aendern', 'rechnungsnummer vergeben', 'entwurf', 'rechnung final', 'rechnung freigeben', 'nicht mehr veraendert', 'nicht mehr aendern', 'nicht mehr veraendern', 'nummer fuer die rechnung', 'rechnung final machen', 'endgueltig'],
     antwort: 'Eine Rechnung beginnt als Entwurf und lässt sich frei ändern. Mit „Festschreiben“ bekommt sie ihre endgültige Rechnungsnummer; danach lässt sie sich in der App nicht mehr ändern, nur stornieren.',
-    schritte: ['Menü ▸ Rechnungen, die Rechnung antippen', 'Positionen und Kunde prüfen', '„Festschreiben“ antippen'] },
-  { id: 'rechnung-zahlung', titel: 'Rabatt, Skonto und Zahlungsziel auf der Rechnung', route: 'rechnungen', zeige: '',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Rechnungen, die Rechnung antippen', 'Positionen und Kunde prüfen', '„Festschreiben“ antippen'] },
+  { id: 'rechnung-zahlung', titel: 'Rabatt, Skonto und Zahlungsziel auf der Rechnung', route: 'finanzen', param: 'rechnungen', zeige: '',
     stichw: ['rabatt', 'skonto', 'zahlungsziel', 'zahlungsfrist', 'bezahlt', 'rechnung bezahlt', 'zahlung eingegangen', 'mahnung', 'faellig rechnung', 'ueberfaellig', 'nachlass', 'preisnachlass', 'rechnung offen', '14 tage', 'zahlt in', 'kunde zahlt in', 'prozent skonto', 'skonto prozent', 'skonto einstellen', 'rabatt prozent', 'rechnung ueberwiesen', 'rechnung wurde ueberwiesen', 'geld eingegangen', 'zahlungseingang'],
     antwort: 'In der Rechnung gibt es den Bereich „Rabatt, Skonto & Zahlung“. Dort stellst du Rabatt, Skonto, Zahlungsziel und den Zahlungseingang ein.',
-    schritte: ['Menü ▸ Rechnungen, die Rechnung antippen', 'Bereich „Rabatt, Skonto & Zahlung“ öffnen', 'Werte eintragen'] },
-  { id: 'rechnung-pdf', titel: 'Rechnung als PDF senden oder drucken', route: 'rechnungen', zeige: '',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Rechnungen, die Rechnung antippen', 'Bereich „Rabatt, Skonto & Zahlung“ öffnen', 'Werte eintragen'] },
+  { id: 'rechnung-pdf', titel: 'Rechnung als PDF senden oder drucken', route: 'finanzen', param: 'rechnungen', zeige: '',
     stichw: ['rechnung pdf', 'rechnung senden', 'rechnung mailen', 'rechnung drucken', 'rechnung teilen', 'rechnung an kunden schicken', 'rechnung verschicken', 'rechnung per mail', 'rechnung ausdrucken', 'rechnung whatsapp', 'rechnung aufs handy', 'rechnung per whatsapp', 'rechnung email', 'rechnung versenden', 'rechnung weitergeben', 'rechnung als pdf', 'pdf rechnung', 'rechnung exportieren'],
     antwort: 'Öffne die Rechnung und tippe auf „PDF“. Du kannst sie drucken oder über das Teilen-Menü per E-Mail oder Nachrichten-App an den Kunden schicken.',
-    schritte: ['Menü ▸ Rechnungen, die Rechnung antippen', '„PDF“ antippen', 'Drucken oder teilen'] },
-  { id: 'kassenbuch-auswertung', titel: 'Einnahmen und Ausgaben auswerten', route: 'kassenbuch', zeige: 'Auswertung',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Rechnungen, die Rechnung antippen', '„PDF“ antippen', 'Drucken oder teilen'] },
+  { id: 'kassenbuch-auswertung', titel: 'Einnahmen und Ausgaben auswerten', route: 'finanzen', param: 'kassenbuch', zeige: 'Auswertung',
     stichw: ['auswertung', 'jahresuebersicht', 'gewinn', 'verlust gewinn', 'einnahmen ausgaben', 'euer', 'ueberschuss', 'wieviel verdient', 'kostendeckend', 'jahresabschluss', 'summe', 'bilanz', 'was habe ich verdient', 'rentabel', 'wirtschaftlich', 'lohnt sich', 'lohnt', 'imkerei lohnt sich', 'verdient', 'wie viel verdient', 'hab ich verdient', 'gewinn gemacht', 'ergebnis', 'einnahmen ausgaben ergebnis', 'jahresergebnis', 'plus minus', 'unterm strich', 'ausgaben pro jahr', 'einnahmen pro jahr', 'pro jahr', 'jahresauswertung'],
     antwort: 'Im Kassenbuch zeigt der Reiter „Auswertung“ Einnahmen, Ausgaben und Ergebnis nach Jahr und Kategorie. Unter „Statistiken“ gibt es dazu Diagramme und den Jahresbericht als PDF.',
-    schritte: ['Menü ▸ Kassenbuch', 'Reiter „Auswertung“ öffnen', 'Jahr wählen'] },
-  { id: 'geschaeftskosten', titel: 'Allgemeine Geschäftskosten buchen', route: 'kassenbuch', zeige: 'Geschäftskosten',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Kassenbuch', 'Reiter „Auswertung“ öffnen', 'Jahr wählen'] },
+  { id: 'geschaeftskosten', titel: 'Allgemeine Geschäftskosten buchen', route: 'finanzen', param: 'kassenbuch', zeige: 'Geschäftskosten',
     stichw: ['geschaeftskosten', 'allgemeine kosten', 'versicherung', 'beitrag', 'vereinsbeitrag', 'porto', 'telefon kosten', 'buerokosten', 'kosten ohne bestand', 'betriebskosten', 'gebuehren buchen', 'pacht', 'miete', 'strom', 'haftpflicht', 'haftpflichtversicherung', 'versicherung gebucht', 'mitgliedsbeitrag', 'kosten buero', 'kosten allgemein'],
     antwort: 'Kosten, die keinem Lager zugehören – etwa Versicherung, Vereinsbeitrag oder Porto – buchst du im Kassenbuch unter „Allgemeine Geschäftskosten“.',
-    schritte: ['Menü ▸ Kassenbuch', 'Reiter „Geschäftskosten“ öffnen', '„Buchung“ antippen'] },
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Kassenbuch', 'Reiter „Geschäftskosten“ öffnen', '„Buchung“ antippen'] },
   { id: 'fahrtenbuch-pdf', titel: 'Fahrtenbuch als PDF', route: 'fahrten', zeige: 'PDF',
     stichw: ['fahrtenbuch pdf', 'fahrtenbuch drucken', 'fahrtenbuch finanzamt', 'fahrtenbuch export', 'kilometer nachweis', 'fahrten auswerten', 'km pauschale', 'fahrtkosten abrechnen', 'fahrtenbuch jahr', 'kilometernachweis'],
     antwort: 'Oben im Fahrtenbuch gibt es „Fahrtenbuch (PDF)“ für das gewählte Jahr – fertig zum Drucken oder Weitergeben.',
@@ -30125,10 +30685,10 @@ APP_WISSEN.push(
     stichw: ['aufgabe erledigt', 'aufgabe abhaken', 'aufgabe fertig', 'aufgabe aendern', 'aufgabe loeschen', 'aufgabe verschieben', 'aufgabe abschliessen', 'aufgabe bearbeiten', 'todo erledigt', 'termin verschieben'],
     antwort: 'Tippe die Aufgabe in der Liste oder im Kalender an. Dort kannst du sie bearbeiten, ein neues Datum setzen oder als erledigt abschließen. Auf der Startseite hakst du sie in „Anstehende Aufgaben“ direkt ab.',
     schritte: ['Menü ▸ Aufgaben', 'Aufgabe antippen', 'Erledigen, ändern oder löschen'] },
-  { id: 'bio-partner', titel: 'Bio-Lieferanten und Zertifikate verwalten', route: 'kontakte', zeige: 'Bio-Partner',
+  { id: 'bio-partner', titel: 'Bio-Lieferanten und Zertifikate verwalten', route: 'finanzen', param: 'kontakte', zeige: 'Bio-Partner',
     stichw: ['bio lieferant', 'bio partner', 'kontrollnummer', 'oeko nummer', 'zertifikat lieferant', 'zertifikat ablaufen', 'bio zucker', 'oeko zucker', 'bio ware', 'zertifikat hinterlegen', 'bio abnehmer'],
-    antwort: 'Bei jedem Kontakt wählst du „Bio-Partner? Ja“ und trägst Kontrollnummer und Gültigkeit ein. Das Zertifikat hängst du als Datei an. Im Bereich „Abnehmer & Lieferanten“ filtert „Bio-Partner“ die Liste, und die App warnt vor ablaufenden Zertifikaten.',
-    schritte: ['Menü ▸ Abnehmer & Lieferanten', 'Kontakt antippen, „Bio-Partner? Ja“ wählen', 'Kontrollnummer und Gültigkeit eintragen, Zertifikat anhängen'] },
+    antwort: 'Bei jedem Kontakt wählst du „Bio-Partner? Ja“ und trägst Kontrollnummer und Gültigkeit ein. Das Zertifikat hängst du als Datei an. In „Finanzen“ unter „Abnehmer & Lieferanten“ filtert „Bio-Partner“ die Liste, und die App warnt vor ablaufenden Zertifikaten.',
+    schritte: ['Menü ▸ Finanzen ▸ Reiter Abnehmer & Lieferanten', 'Kontakt antippen, „Bio-Partner? Ja“ wählen', 'Kontrollnummer und Gültigkeit eintragen, Zertifikat anhängen'] },
   { id: 'bio-landbedeckung', titel: 'Landbedeckung und Standorte für Bio', route: 'bio', zeige: 'Standorte',
     stichw: ['landbedeckung', 'standorte bio', 'umkreis', 'drei komma fuenf kilometer', 'flugradius', 'flaechen', 'acker', 'gruenland', 'wald', 'oeko standort', 'standortpruefung', 'umgebung des stands', 'was waechst um', 'waechst um den stand', 'umgebung', 'was ist um meinen stand'],
     antwort: 'Im Bereich „Bio“ zeigt der Reiter „Standorte“ die Landbedeckung im Umkreis jedes Stands (3,5 km). Das kann dir als Unterlage dienen; ob sie reicht, entscheidet deine Kontrollstelle.',
@@ -30670,8 +31230,8 @@ const Assistent = {
     const id = ++Assistent._tourId;
     Assistent.tour = { e, i: 0, id };
     document.body.classList.add('bini-fuehrt');
-    const ziel = e.route;
-    if (currentRoute().route !== ziel || currentRoute().param) navTo(ziel); else await renderRoute();
+    const ziel = e.route + (e.param ? '/' + e.param : '');   // mit Reiter, z. B. lager/verbrauch (Julian 08.11.2026)
+    if (location.hash !== '#/' + ziel) navTo(ziel); else await renderRoute();
     await new Promise((r) => setTimeout(r, 350));
     Assistent.schritt(id);
   },
@@ -32391,7 +32951,7 @@ Object.assign(window, {
   zuckerAnteilAusFutterart, zuckerAusFuetterung, futterRechnerRechnen, futterRechnerHtml,
   sirupAnteilProzent, zuckerAusSirupLiter, futterAusSirupLiter, literAusZucker, verhaeltnisAusFutterart, sirupLiterAusFuetterung,
   VERBRAUCH_EINHEITEN, verbrauchBestand, verbrauchEinheit, verbrauchsPosten, verbrauchAbziehen, einheitVorschlag, fuetterungVerbrauch,
-  verbrauchAbziehenKette, verbrauchZurueckbuchen, abzugAnteil,
+  verbrauchAbziehenKette, verbrauchZurueckbuchen, abzugAnteil, abzugAnteilGewichtet, behandlungenJeVolkAnlegen, ernteJeVolkAnlegen,
   preisJeEinheit, VERBRAUCH_KATEGORIEN, BESTAND_EINHEITEN,
   verbrauchZugang, pfandPositionen, pfandUmlauf, pfandRuecknahmeForm, PFAND_KATEGORIE,
   abgangZurueckbuchen, materialAbgangForm, verdrahteKontaktNeu, kontaktForm,

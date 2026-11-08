@@ -1217,7 +1217,8 @@ test('Bestand-Widget: nur Positionen unter dem Mindestbestand', async (w) => {
 });
 test('bereichKurz/bereichIcon: aus der NAV abgeleitet', (w) => {
   assertEq(w.bereichKurz('honig'), 'Ernte');
-  assertEq(w.bereichKurz('material'), 'Verbrauchsmaterial');
+  // Verbrauchsmaterial ist seit dem Lager-Umbau ein Reiter im Bereich „Lager“, kein eigener Menüpunkt mehr (Julian 08.11.2026)
+  assertEq(w.bereichKurz('lager'), 'Lager');
   assertEq(w.bereichIcon('koeniginnen'), 'crown');
   assert(w.BEREICHE.dashboard, 'Dashboard ist ein Bereich');
 });
@@ -1309,7 +1310,7 @@ test('NAV: kein Icon doppelt belegt (Fahrtenbuch/Material entdoppelt)', (w) => {
   const doppelt = Object.keys(zaehler).filter((ic) => zaehler[ic].length > 1).map((ic) => `${ic}: ${zaehler[ic].join('+')}`);
   assertEq(doppelt, [], 'jeder Bereich hat ein eigenes Symbol');
   assertEq(w.bereichIcon('fahrten'), 'auto');
-  assertEq(w.bereichIcon('material'), 'material');
+  assertEq(w.bereichIcon('lager'), 'box', 'Lager trägt das Kistensymbol des früheren Inventars (Julian 08.11.2026)');
   assertEq(w.bereichIcon('wanderungen'), 'truck', 'Wanderungen behält den Lkw');
 });
 const IC_TOENE = ['amber', 'gruen', 'blau', 'violett', 'rot', 'grau'];
@@ -12539,7 +12540,8 @@ test('Kontakte erscheinen überall: auch „beides“ steht in Einkauf, Verarbei
 test('Eigene Bereiche im Menü: Abnehmer & Lieferanten und Hygiene – mit Verknüpfungen', async (w) => {
   dialogeSchliessen(w);
   const routen = w.NAV.filter((n) => n.route).map((n) => n.route);
-  assert(routen.includes('kontakte') && routen.includes('hygiene'), 'beide Bereiche stehen im Menü');
+  // seit 08.11.2026 (Julian): Abnehmer & Lieferanten ist ein Reiter im Bereich „Finanzen“, kein eigener Menüpunkt mehr
+  assert(routen.includes('finanzen') && routen.includes('hygiene'), 'beide Bereiche stehen im Menü');
   assert(w.Views.kontakte && w.Views.hygiene, 'beide Ansichten sind registriert');
   const k = await w.DB.put('kontakte', { typ: 'beides', name: 'MENUE-TEST Roth', oekoWas: 'Essig', oekoNummer: 'DE-ÖKO-999', ort: 'Dachau' });
   const kb = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'ausgabe', kategorie: 'Lohnverarbeitung', betrag: 12, steuersatz: 0, beschreibung: 'MENUE-TEST', kontaktId: k.id });
@@ -12588,9 +12590,9 @@ test('Menü & untere Leiste: per Gedrückthalten verschiebbar, Reihenfolge wird 
     await w.S.set('menuOrder', []);
     const std = w.menuReihenfolge().map((n) => n.route);
     assertEq(std[0], 'dashboard', 'ohne Eigenwunsch gilt die Standardreihenfolge');
-    await w.S.set('menuOrder', ['kassenbuch', 'bio']);
+    await w.S.set('menuOrder', ['finanzen', 'bio']);   // „kassenbuch“ ist seit 08.11.2026 ein Reiter in Finanzen (Julian)
     const neu = w.menuReihenfolge().map((n) => n.route);
-    assertEq(neu.slice(0, 2), ['kassenbuch', 'bio'], 'eigene Reihenfolge kommt zuerst');
+    assertEq(neu.slice(0, 2), ['finanzen', 'bio'], 'eigene Reihenfolge kommt zuerst');
     assertEq(neu.length, std.length, 'nichts geht verloren, Neues hängt hinten dran');
     await w.S.set('menuOrder', ['gibtsnicht', 'bio']);
     assertEq(w.menuReihenfolge()[0].route, 'bio', 'unbekannte Einträge werden ignoriert');
@@ -15535,7 +15537,7 @@ test('Seitenkopf: Bereichsname nur oben in der Leiste – Druck und Vorleser beh
     const css = [...w.document.querySelectorAll('style')].map((s) => s.textContent).join('');
     assert(/@media print\{\.ph-titel-druck\{position:static/.test(css), 'im Ausdruck steht die Überschrift');
   } finally { tb.textContent = alt; }
-  for (const r of ['voelker', 'trachten', 'bio', 'rechner', 'kontakte', 'meldungen']) {
+  for (const r of ['voelker', 'trachten', 'bio', 'rechner', 'finanzen', 'meldungen']) {   // finanzen statt kontakte (Julian 08.11.2026)
     w.location.hash = '#/' + r;
     await warteBis(() => w.document.body.dataset.route === r && w.document.querySelector('#main .page-head h1'));
     assert(w.document.querySelector('#main .page-head h1.ph-titel-druck'), `${r}: Titel nicht doppelt`);
@@ -18529,7 +18531,7 @@ test('Lösch-Paket 04.11.2026 (#5): Rechnungen sperren das Löschen – Entwurf 
   const entwurf = await w.DB.put('rechnungen', { datum: '2026-07-06', kundeId: 'k', status: 'entwurf', positionen: [pos(2)] });
   await w.DB.put('rechnungen', { nummer: 'RE-0005', datum: '2026-07-01', kundeId: 'k', status: 'storniert', positionen: [pos(1)] });
   const sperre = w.abfuellungVerkaufSperre({ verkaeufe: [], rechnungen: await w.DB.getAll('rechnungen') }, a.id);
-  assertEq(sperre, 'Zu dieser Abfüllung gehören 1 Rechnung (RE-0007) und 1 Rechnungsentwurf. Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst die Rechnung unter „Rechnungen“. Nimm die Abfüllung aus dem Entwurf heraus oder lösche ihn. Danach kannst du die Abfüllung löschen.', 'Meldung nennt beide');
+  assertEq(sperre, 'Zu dieser Abfüllung gehören 1 Rechnung (RE-0007) und 1 Rechnungsentwurf. Gelöscht würde der verkaufte Honig wieder als „nicht abgefüllt“ zählen. Storniere zuerst die Rechnung unter „Finanzen“ ▸ „Rechnungen“. Nimm die Abfüllung aus dem Entwurf heraus oder lösche ihn. Danach kannst du die Abfüllung löschen.', 'Meldung nennt beide');
   let f = ''; try { await w.loescheMitMaterial('abfuellungen', await w.DB.get('abfuellungen', a.id)); } catch (e) { f = e.message; }
   assertEq(f, sperre, 'gesperrt');
   // nur noch der Entwurf
@@ -21435,4 +21437,572 @@ test('Menü „Mehr“: Kachel ziehen rollt das Fenster am unteren Rand mit', as
     grid.dispatchEvent(new w.PointerEvent('pointerup', { ...opt, clientX: r.left + 5, clientY: br.bottom - 5 }));
     assert(gerollt > 0, 'Menü ist mitgerollt (scrollTop ' + gerollt + ')');
   } finally { dialogeSchliessen(w); }
+});
+
+/* =====================================================================
+   Praxis-Umbau Paket 1 (Julian 08.11.2026): Behandlung und Ernte am ganzen Stand pro Volk.
+   Quelle: docs/PLAN-PRAXIS-UMBAU-2026-11-07.md (Mockup 4) – alle Völker des Stands vorausgewählt, einzeln abwählbar,
+   eigene Menge je Volk, Summe sichtbar, je Volk ein eigener Eintrag.
+   ===================================================================== */
+const pvSetz = (w, el, wert) => { el.value = wert; el.dispatchEvent(new w.Event('input', { bubbles: true })); el.dispatchEvent(new w.Event('change', { bubbles: true })); };
+const pvHaken = (w, el, an) => { el.checked = an; el.dispatchEvent(new w.Event('change', { bubbles: true })); };
+const pvZeile = (m, volk) => m.querySelector(`input[type=checkbox][value="${volk.id}"]`).closest('label');
+
+test('Pro Volk (Julian 08.11.2026): Behandlung am Stand – alle Völker vorausgewählt, abwählbar, eigene Menge, Summe vom Lager', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PV-Stand' }), anders = await w.DB.put('staende', { name: 'PV-Anders' });
+  const A = await r2Volk(w, 'PV-A', { standId: st.id }), B = await r2Volk(w, 'PV-B', { standId: st.id }), C = await r2Volk(w, 'PV-C', { standId: st.id });
+  const D = await r2Volk(w, 'PV-D', { standId: anders.id });
+  const ox = await r2Mittel(w, 'Oxalsäure PV', 1000);
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  f.setz('standId', st.id); await w99(50);
+  const an = (v) => pvZeile(f.m, v).querySelector('input[type=checkbox]').checked;
+  assertEq([an(A), an(B), an(C), an(D)], [true, true, true, false], 'Stand gewählt: alle Völker des Stands angehakt');
+  f.setz('menge', '50'); await w99(50);
+  const menge = (v) => pvZeile(f.m, v).querySelector('input[data-volk-menge]');
+  assertEq([menge(A).value, menge(B).value, menge(C).value].map((x) => x.replace(',', '.')), ['50', '50', '50'], 'Menge oben gilt für jedes Volk');
+  pvSetz(w, menge(C), '25'); await w99(50);
+  const summe = () => f.m.querySelector('[data-je-volk-summe]').textContent;
+  assert(/Zusammen: 125 ml für 3 Völker/.test(summe()), 'Summe: ' + summe());
+  f.m.querySelector('[data-keine]').click(); await w99(50);
+  assert(/Kein Volk ausgewählt/.test(summe()) && menge(A).disabled, '„Keine“: Summe und Felder folgen: ' + summe());
+  f.m.querySelector('[data-alle]').click(); await w99(50);
+  assert(/Zusammen: 125 ml für 3 Völker/.test(summe()) && !menge(A).disabled, '„Alle auswählen“: ' + summe());
+  pvHaken(w, pvZeile(f.m, B).querySelector('input[type=checkbox]'), false); await w99(50);
+  assert(/Zusammen: 75 ml für 2 Völker/.test(summe()), 'B abgewählt: ' + summe());
+  f.setz('menge', '40'); await w99(50);
+  assertEq([menge(A).value, menge(C).value].map((x) => x.replace(',', '.')), ['40', '25'], 'eigene Menge bleibt, wenn oben geändert wird');
+  f.setz('menge', '50'); f.setz('mittel', 'Oxalsäure'); f.setz('datum', '2026-08-01'); f.setz('wartezeitTage', '14'); f.setz('_verbrauchId', ox.id);
+  assert(/Abzug 75 ml von 1.000 ml/.test(f.m.querySelector('[data-verbrauch-info]').textContent), 'Lager-Hinweis rechnet mit der Summe: ' + f.m.querySelector('[data-verbrauch-info]').textContent);
+  await f.speichern();
+  const beh = w.U.sortBy(await w.DB.getAll('behandlungen'), (b) => b.menge);
+  assertEq(beh.map((b) => [b.zielTyp, b.zielId, b.menge]), [['volk', C.id, 25], ['volk', A.id, 50]], 'je Volk ein Eintrag mit eigener Menge');
+  assertEq(await lagerBestand(w, ox), 925, 'die Summe (75 ml) ist vom Lager abgezogen');
+  assertEq(beh.map((b) => r2Abzug(b)), [[[ox.id, 25]], [[ox.id, 50]]], 'jeder Eintrag merkt seinen Anteil nach Menge');
+  const e = await r2Erinnerungen(w);
+  assertEq(e.map((a) => [a.titel, a.faellig, [...a.refIds].sort()]), [['Wartezeit endet: Oxalsäure (2 Völker)', '2026-08-15', beh.map((b) => b.id).sort()]], 'eine Wartezeit-Erinnerung für beide');
+  // Löschen eines Eintrags gibt genau dessen Anteil zurück
+  await w.loescheMitMaterial('behandlungen', beh[0]);
+  assertEq(await lagerBestand(w, ox), 950, 'C gelöscht: 25 ml zurück');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts.filter((t) => t.typ === 'err')));
+})));
+
+test('Pro Volk (Julian 08.11.2026): Behandlung – angehaktes Volk ohne Menge wird abgewiesen, nichts gebucht; Anteile nach Menge', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PV-Stand2' });
+  const A = await r2Volk(w, 'PV2-A', { standId: st.id }), B = await r2Volk(w, 'PV2-B', { standId: st.id });
+  const ox = await r2Mittel(w, 'Oxalsäure PV2', 1000);
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  f.setz('standId', st.id); f.setz('menge', '30'); f.setz('mittel', 'Oxalsäure'); f.setz('_verbrauchId', ox.id); await w99(50);
+  pvSetz(w, pvZeile(f.m, B).querySelector('input[data-volk-menge]'), '');
+  await f.speichern();
+  assert(toasts.some((t) => t.typ === 'err' && /PV2-B/.test(t.msg)), 'Meldung nennt das Volk: ' + JSON.stringify(toasts));
+  assertEq([(await w.DB.getAll('behandlungen')).length, await lagerBestand(w, ox)], [0, 1000], 'nichts angelegt, nichts abgezogen');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  // Anteile nach Gewicht: 5 Stück auf 2 : 1 : 2 → 2, 1, 2; gleiche Gewichte wie abzugAnteil
+  const buchung = { abzug: [{ inventarId: 'x', bezeichnung: 'Apivar', menge: 5, einheit: 'Stück' }] };
+  assertEq([0, 1, 2].map((i) => w.abzugAnteilGewichtet(buchung, [2, 1, 2], i).map((a) => a.menge)), [[2], [1], [2]], '2 : 1 : 2');
+  assertEq([0, 1, 2].map((i) => w.abzugAnteilGewichtet(buchung, [1, 1, 1], i)), [0, 1, 2].map((i) => w.abzugAnteil(buchung, 3, i)), 'gleiche Mengen wie bisher');
+})));
+
+test('Pro Volk (Julian 08.11.2026): Ernte am Stand – kg pro Volk, abwählbar, je Volk ein Ernte-Eintrag für die Statistik', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'PV-Ernte' });
+  const A = await r2Volk(w, 'PVE-A', { standId: st.id }), B = await r2Volk(w, 'PVE-B', { standId: st.id }), C = await r2Volk(w, 'PVE-C', { standId: st.id });
+  await r2Volk(w, 'PVE-weg', { standId: st.id, status: 'aufgeloest' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  let m;
+  try {
+    dialogeSchliessen(w);
+    await w.Views.honig.tabErnten(host);
+    host.querySelector('#add').click();
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-zielTyp'));
+    m = letztesModal(w);
+  } finally { host.remove(); }
+  const f = (k) => m.querySelector('#f-' + k);
+  pvSetz(w, f('zielTyp'), 'stand'); pvSetz(w, f('zielStand'), st.id); await w99(50);
+  assert(m.querySelector('[data-field="mengeKg"]').classList.contains('hidden') && !m.querySelector('[data-field="mengeProVolk"]').classList.contains('hidden'), 'statt „Menge (kg)“ steht „Menge pro Volk (kg)“');
+  const zeilen = [...m.querySelectorAll('[data-je-volk] input[type=checkbox]')];
+  assertEq(zeilen.map((i) => [i.value, i.checked]).sort(), [[A.id, true], [B.id, true], [C.id, true]].sort(), 'nur aktive Völker des Stands, alle angehakt');
+  pvSetz(w, f('mengeProVolk'), '20'); await w99(50);
+  pvSetz(w, pvZeile(m, B).querySelector('input[data-volk-menge]'), '12,5');
+  pvHaken(w, pvZeile(m, C).querySelector('input[type=checkbox]'), false); await w99(50);
+  const summe = m.querySelector('[data-je-volk-summe]').textContent;
+  assert(/Zusammen: 32,5 kg für 2 Völker/.test(summe), 'Summe: ' + summe);
+  pvSetz(w, f('datum'), '2026-07-01');
+  m.querySelector('[data-save]').click(); await w99(700);
+  const ern = w.U.sortBy(await w.DB.getAll('ernten'), (e) => e.mengeKg);
+  assertEq(ern.map((e) => [e.zielTyp, e.zielId, e.mengeKg, e.produktart, e.datum]), [['volk', B.id, 12.5, 'Honig', '2026-07-01'], ['volk', A.id, 20, 'Honig', '2026-07-01']], 'je Volk ein Ernte-Eintrag');
+  const je = w.Statistik.ernteKgJeVolk({ ernten: await w.DB.getAll('ernten') }, () => true);
+  assertEq([je.get(A.id), je.get(B.id), je.get(C.id)], [20, 12.5, undefined], 'Honigertrag je Volk stimmt');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts.filter((t) => t.typ === 'err')));
+})));
+
+test('Pro Volk (Julian 08.11.2026): bestehende Stand-Ernte bleibt beim Bearbeiten ein Stand-Eintrag', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'PV-Alt' });
+  await r2Volk(w, 'PVA-A', { standId: st.id });
+  const alt = await w.DB.put('ernten', { zielTyp: 'stand', zielId: st.id, datum: '2025-07-01', produktart: 'Honig', sorte: '', mengeKg: 30, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  let m;
+  try {
+    dialogeSchliessen(w);
+    await w.Views.honig.tabErnten(host);
+    host.querySelector(`.row[data-id="${alt.id}"]`).click();
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-mengeKg'));
+    m = letztesModal(w);
+  } finally { host.remove(); }
+  assert(!m.querySelector('[data-field="mengeKg"]').classList.contains('hidden') && m.querySelector('[data-field="mengeProVolk"]').classList.contains('hidden'), 'Menge (kg) wie bisher');
+  pvSetz(w, m.querySelector('#f-mengeKg'), '31');
+  m.querySelector('[data-save]').click(); await w99(700);
+  const ern = await w.DB.getAll('ernten');
+  assertEq(ern.map((e) => [e.id, e.zielTyp, e.mengeKg]), [[alt.id, 'stand', 31]], 'derselbe Stand-Eintrag, nur die Menge geändert');
+})));
+
+/* =====================================================================
+   PAKET 2 – Bereich „Lager“ (Julian 08.11.2026, Mockup 1 und 3)
+   ===================================================================== */
+async function lagerTestDaten(w) {
+  const prod = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'LG Bienenwachskerze klein', kategorie: 'Kerzen', einheit: 'Stück', stueckzahl: 24, verkaufspreis: 4.5 });
+  const mat = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'LG Zucker', kategorie: 'Futter', einheit: 'kg', stueckzahl: 50 });
+  const ger = await w.DB.put('inventar', { typ: 'inventar', bezeichnung: 'LG Zanderbeute', kategorie: 'Beuten', einheit: 'Stück', stueckzahl: 3, notiz: 'im Keller' });
+  return { prod, mat, ger };
+}
+
+test('Lager (Julian 08.11.2026): ein Bereich im Menü statt Inventar, Verbrauchsmaterial und Weitere Produkte', (w) => {
+  const routen = w.NAV.filter((n) => n.route).map((n) => n.route);
+  assert(routen.includes('lager'), 'Lager steht im Menü');
+  assertEq(routen.filter((r) => ['inventar', 'material', 'produkte'].includes(r)), [], 'die drei alten Bereiche stehen nicht mehr einzeln im Menü');
+  assertEq(w.bereichKurz('lager'), 'Lager');
+  assert(w.Views.lager && typeof w.Views.lager.render === 'function', 'Ansicht ist registriert');
+  assert(w.Lizenz.NUR_VOLL.lager, 'Light: Lager ist wie die alten Bereiche Teil der Vollversion');
+});
+
+test('Lager (Julian 08.11.2026): Reiter Alle/Produkte/Verbrauchsmaterial/Geräte & Inventar, Alle zeigt alles, Suche gilt für alle Reiter', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const d = await lagerTestDaten(w);
+  const alt = { tab: w.Views.lager._tab, suche: w.Views.lager._suche };
+  try {
+    w.Views.lager._tab = 'alle'; w.Views.lager._suche = '';
+    await w.Views.lager.render(host);
+    const reiter = [...host.querySelectorAll('.tabs [data-id]')].map((b) => b.textContent.trim());
+    assertEq(reiter, ['Alle (3)', 'Produkte (1)', 'Verbrauchsmaterial (1)', 'Geräte & Inventar (1)'], 'Reiter in der Reihenfolge des Mockups, erster „Alle“');
+    assertEq(host.querySelector('h1').textContent, 'Lager', 'Seitentitel');
+    const zeilen = [...host.querySelectorAll('[data-lager-pos]')];
+    assertEq(zeilen.length, 3, 'Alle zeigt jede Position');
+    const kerze = zeilen.find((z) => z.dataset.lagerPos === d.prod.id);
+    assert(/Bestand 24 Stück/.test(kerze.textContent) && /Verkaufspreis 4,50/.test(kerze.textContent) && /Produkte/.test(kerze.textContent), 'Zeile wie im Mockup: ' + kerze.textContent.replace(/\s+/g, ' '));
+    assert(host.querySelector('[data-lager-verkaufen]'), 'Knopf „Verkaufen“');
+    // Suche
+    const s = host.querySelector('#lager-suche');
+    assert(s, 'Suchfeld über den Reitern');
+    pvSetz(w, s, 'keller'); await w99(300);
+    assertEq([...host.querySelectorAll('[data-lager-pos]')].map((z) => z.dataset.lagerPos), [d.ger.id], 'Suche findet auch die Notiz');
+    assert(host.querySelector('#lager-suche') === s, 'das Suchfeld bleibt stehen (Tastatur klappt nicht zu)');
+    pvSetz(w, s, 'lg'); await w99(300);
+    // Reiter Verbrauchsmaterial: gleicher Suchtext, bisheriger Bereich ohne zweiten Titel
+    w.Views.lager._tab = 'verbrauch'; w.Views.lager._suche = 'zucker';
+    host.innerHTML = '';
+    await w.Views.lager.render(host);
+    assertEq(host.querySelectorAll('h1').length, 1, 'nur ein Seitentitel');
+    assertEq(host.querySelector('#lager-suche').value, 'zucker', 'die Suche gilt im anderen Reiter weiter');
+    assert(!host.querySelector('#suche'), 'kein zweites Suchfeld im Reiter');
+    assertEq(host.querySelector('#kasse-buchen').getAttribute('href'), '#/kassenbuch/buchen-verbrauch', 'An- und Verkauf buchen wie bisher');
+    assert(/LG Zucker/.test(host.querySelector('#pos-erg').textContent) && !/Zanderbeute/.test(host.textContent), 'nur Verbrauchsmaterial');
+    pvSetz(w, host.querySelector('#lager-suche'), 'gibtsnicht'); await w99(300);
+    assert(/Nichts gefunden/.test(host.querySelector('#pos-erg').textContent), 'das gemeinsame Suchfeld filtert den Reiter');
+    assertEq(w.Views.lager._suche, 'gibtsnicht', 'und merkt sich den Text für die anderen Reiter');
+  } finally { w.Views.lager._tab = alt.tab; w.Views.lager._suche = alt.suche; w.Views.material._suche = ''; }
+})));
+
+test('Lager (Julian 08.11.2026): alte Adressen #/inventar, #/material, #/produkte führen in den passenden Reiter', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.location.hash, altTab = w.Views.lager._tab;
+  try {
+    for (const [alt, tab] of [['inventar', 'inventar'], ['material', 'verbrauch'], ['produkte', 'produkt']]) {
+      w.Views.lager._tab = 'alle';
+      w.history.replaceState(null, '', '#/' + alt);
+      await w.renderRoute();
+      assertEq([w.currentRoute().route, w.Views.lager._tab, w.document.body.dataset.route], ['lager', tab, 'lager'], `#/${alt} → Lager, Reiter ${tab}`);
+    }
+    w.history.replaceState(null, '', '#/lager/produkt'); w.Views.lager._tab = 'alle';
+    await w.renderRoute();
+    assertEq([w.location.hash, w.Views.lager._tab], ['#/lager', 'produkt'], 'Reiter direkt über die Adresse');
+  } finally { w.Views.lager._tab = altTab; w.history.replaceState(null, '', vorher || '#/dashboard'); await w.renderRoute(); }
+});
+
+test('Lager (Julian 08.11.2026): gespeicherte Menü- und Leisten-Reihenfolge mit alten Bereichen zeigt Lager', async (w) => {
+  assertEq(w.navRoutenNeu(['inventar', 'voelker', 'material', 'produkte', 'bio']), ['lager', 'voelker', 'bio'], 'alte Bereiche → einmal Lager');
+  const altMenu = w.S.get('menuOrder'), altNav = w.S.get('bottomNav');
+  try {
+    await w.S.set('menuOrder', ['produkte', 'bio']);
+    assertEq(w.menuReihenfolge().slice(0, 2).map((n) => n.route), ['lager', 'bio'], 'Menü: Lager an der Stelle der alten Kachel');
+    await w.S.set('bottomNav', ['dashboard', 'inventar', 'material', 'honig']);
+    w.renderBottomNav();
+    assertEq([...w.document.querySelectorAll('#bottomnav button[data-route]')].map((b) => b.dataset.route), ['dashboard', 'lager', 'honig'], 'untere Leiste: Lager statt Inventar/Material');
+  } finally { await w.S.set('menuOrder', altMenu); await w.S.set('bottomNav', altNav); w.renderBottomNav(); }
+});
+
+test('Lager (Julian 08.11.2026): Imme und Dashboard führen ins Lager', (w) => {
+  for (const id of ['material', 'inventar', 'produkte', 'an-verkauf', 'pfand']) {
+    const e = w.APP_WISSEN.find((x) => x.id === id);
+    assertEq(e.route, 'lager', `Imme „${id}“ öffnet das Lager`);
+    assert(!e.schritte.some((t) => /Menü ▸ (Verbrauchsmaterial|Inventar|Weitere Produkte)/.test(t)), `„${id}“ nennt keinen alten Menüpunkt`);
+  }
+  assertEq(w.APP_WISSEN.find((x) => x.id === 'inventar').param, 'inventar', 'mit passendem Reiter');
+  assertEq(w.DASH_WIDGETS.bestand.ziel, 'lager/verbrauch', 'Kachel „Niedrige Bestände“');
+});
+
+test('Lager (Julian 08.11.2026): Verkaufspreis am Artikel – Feld im Bearbeiten, beim Abgang „Verkauf“ vorbelegt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const d = await lagerTestDaten(w);
+  try {
+    // Aus „Alle“ angetippt: Reiter Produkte, Bearbeiten-Fenster der Position mit dem Verkaufspreis
+    w.Views.lager._tab = 'alle'; w.Views.lager._suche = '';
+    await w.Views.lager.render(host);
+    host.querySelector(`[data-lager-pos="${d.prod.id}"]`).click();
+    assertEq([w.Views.lager._tab, w.Views.produkte._oeffne], ['produkt', d.prod.id], 'Antippen wechselt in den Reiter der Position');
+    host.innerHTML = '';
+    await w.Views.lager.render(host);
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-verkaufspreis'));
+    const m = letztesModal(w);
+    assertEq(m.querySelector('#f-verkaufspreis').value, '4,5', 'Verkaufspreis steht im Bearbeiten');
+    pvSetz(w, m.querySelector('#f-verkaufspreis'), '5,20');
+    m.querySelector('[data-save]').click(); await w99(500);
+    assertEq((await w.DB.get('inventar', d.prod.id)).verkaufspreis, 5.2, 'Verkaufspreis gespeichert');
+    dialogeSchliessen(w);
+    // leer = kein Verkaufspreis
+    w.Views.material._oeffne = d.mat.id; w.Views.lager._tab = 'verbrauch';
+    host.innerHTML = ''; await w.Views.lager.render(host);
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-verkaufspreis'));
+    letztesModal(w).querySelector('[data-save]').click(); await w99(500);
+    assertEq((await w.DB.get('inventar', d.mat.id)).verkaufspreis, null, 'ohne Eintrag kein Verkaufspreis');
+    dialogeSchliessen(w);
+    // Abgang „Verkauf“ im Reiter: Preis aus dem Verkaufspreis
+    w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id); await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-preis'));
+    assertEq(letztesModal(w).querySelector('#f-preis').value, '5,2', 'Abgang: Preis vorbelegt');
+  } finally { dialogeSchliessen(w); w.Views.lager._tab = 'alle'; w.Views.produkte._oeffne = null; w.Views.material._oeffne = null; }
+})));
+
+test('Lager (Julian 08.11.2026): Verkaufen bucht Bestand, Abgang und Kassenbuch in EINER Transaktion, danach Rückfrage Rechnung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'LG Hofladen' });
+  const echt = w.DB.aendereAtomar.bind(w.DB);
+  const tx = [];
+  w.DB.aendereAtomar = (stores, fn) => { tx.push(stores); return echt(stores, fn); };
+  try {
+    await w.lagerVerkaufForm(d.prod.id);
+    let m = letztesModal(w);
+    assertEq(m.querySelector('#f-inventarId').value, d.prod.id, 'Position vorgewählt');
+    assertEq(m.querySelector('#f-preis').value, '4,5', 'Preis aus dem Verkaufspreis');
+    // andere Position gewählt → deren (fehlender) Verkaufspreis, zurück → wieder 4,50
+    pvSetz(w, m.querySelector('#f-inventarId'), d.mat.id);
+    assertEq(m.querySelector('#f-preis').value, '', 'ohne Verkaufspreis leer');
+    pvSetz(w, m.querySelector('#f-inventarId'), d.prod.id);
+    assertEq(m.querySelector('#f-preis').value, '4,5', 'wieder vorbelegt');
+    pvSetz(w, m.querySelector('#f-menge'), '2');
+    pvSetz(w, m.querySelector('#f-kontaktId'), kunde.id);
+    assert(/Erlös <b>9,00/.test(m.querySelector('[data-lager-verkauf-info]').innerHTML), 'Vorschau Erlös');
+    tx.length = 0;
+    m.querySelector('[data-save]').click();
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('[data-nach-verkauf]'));
+    assertEq(tx.length, 1, 'genau eine Transaktion');
+    assert(['inventar', 'materialabgaenge', 'kassenbuch'].every((st) => tx[0].includes(st)), 'Bestand, Abgang und Kassenbuch in derselben Transaktion');
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 22, 'Bestand 24 − 2');
+    const ab = (await w.DB.getAll('materialabgaenge'));
+    assertEq(ab.map((a) => [a.inventarId, a.art, a.menge, a.preis, a.typ, a.kontaktId, a.bestandVorher, a.bestandNachher]), [[d.prod.id, 'Verkauf', 2, 4.5, 'produkt', kunde.id, 24, 22]], 'Abgang „Verkauf“');
+    const kb = await w.DB.getAll('kassenbuch');
+    assertEq(kb.map((k) => [k.id, k.typ, k.betrag, k.kategorie, k.kontaktId]), [[ab[0].kassenbuchId, 'einnahme', 9, 'Weitere Produkte', kunde.id]], 'Einnahme im Kassenbuch, am Abgang gemerkt');
+    // Rückfrage (Mockup 3)
+    m = letztesModal(w);
+    assert(/Verkauf gebucht/.test(m.textContent) && /2 × LG Bienenwachskerze klein/.test(m.textContent) && /9,00/.test(m.textContent), 'Rückfrage nennt Ware und Betrag');
+    const knoepfe = [...m.querySelectorAll('.modal-foot button, [data-fertig], [data-rechnung]')].map((b) => b.textContent.trim());
+    assert(knoepfe.includes('Rechnung dazu erstellen') && knoepfe.includes('Fertig (ohne Rechnung)'), 'beide Knöpfe: ' + knoepfe.join(' | '));
+    m.querySelector('[data-fertig]').click(); await w99(300);
+    assert(!w.document.querySelector('[data-nach-verkauf]'), 'Fertig schließt');
+    // Zurücknehmen wie jeder Abgang: Bestand und Kassenbuch gehen mit
+    await w.abgangZurueckbuchen(ab[0], { kasse: true, loeschen: true });
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 24, 'Rücknahme: Bestand wieder 24');
+    assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'Rücknahme: Einnahme weg');
+    // Fehler in der Transaktion: nichts wird gebucht
+    await w.DB.softDel('inventar', d.mat.id);
+    let fehler = null;
+    try { await w.lagerVerkaufBuchen({ inventarId: d.mat.id, menge: 1, preis: 2 }); } catch (e) { fehler = e; }
+    assert(fehler && /Papierkorb/.test(fehler.message), 'Position im Papierkorb: klare Meldung');
+    assertEq([(await w.DB.getAll('kassenbuch')).length, (await w.DB.getAll('materialabgaenge')).length], [0, 0], 'nichts gebucht');
+    // Mehr verkauft als da: nur der Bestand geht ab, die Rückfrage sagt es
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.ger.id, menge: 5, preis: 0 });
+    assertEq([erg.gefehlt, w.verbrauchBestand(await w.DB.get('inventar', d.ger.id)), erg.kassenbuch], [2, 0, null], 'ohne Preis kein Kassenbuch, 2 fehlten');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { w.DB.aendereAtomar = echt; dialogeSchliessen(w); }
+})));
+
+/* ===== Paket 4: Verkauf und Rechnung verbunden (Julian 08.11.2026, Mockup 3) =====
+   Ersetzt den Paket-2-Test „legt (bis Paket 4) keine Rechnung an“: Jetzt legt der Knopf eine Rechnung an – als Beleg zum
+   schon gebuchten Verkauf, die beim Festschreiben und beim Storno nichts ein zweites Mal bucht. */
+async function p4Stand(w, d) {
+  const kb = await w.DB.getAll('kassenbuch');
+  return { kasse: kb.length, summe: Math.round(w.U.sum(kb, (k) => Number(k.betrag) || 0) * 100) / 100,
+    prod: d && d.prod ? w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)) : null };
+}
+test('Verkauf+Rechnung (Julian 08.11.2026): „Rechnung dazu erstellen“ nach dem Lager-Verkauf – Kunde und Position vorbelegt, Festschreiben und Storno buchen nichts doppelt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P4 Hofladen' });
+  const hash = w.location.hash;
+  try {
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+    const nachVerkauf = await p4Stand(w, d);
+    assertEq([nachVerkauf.kasse, nachVerkauf.summe, nachVerkauf.prod], [1, 9, 22], 'Verkauf hat einmal gebucht');
+    const frage = w.nachVerkaufFragen(erg);
+    await warteBis(() => w.document.querySelector('[data-nach-verkauf]'));
+    letztesModal(w).querySelector('[data-rechnung]').click();
+    assertEq(await frage, 'rechnung', 'Antwort „rechnung“');
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 1);
+    let r = (await w.DB.getAll('rechnungen'))[0];
+    assertEq([r.status, r.kundeId, r.ausVerkauf && r.ausVerkauf.art, r.ausVerkauf && r.ausVerkauf.id], ['entwurf', kunde.id, 'lager', erg.abgang.id], 'Entwurf mit Kunde und Verweis auf den Verkauf');
+    assertEq(r.positionen.map((p) => [p.text, p.menge, p.einzelpreis, p.abfuellungId || null, p.inventarId || null]), [['LG Bienenwachskerze klein', 2, 4.5, null, null]], 'Position vorbelegt – ohne Bestandsverweis');
+    assertEq(w.rechnungSummen(r).brutto, 9, 'Rechnungsbetrag = Verkauf');
+    // Ein zweites Mal „Rechnung dazu erstellen“ öffnet dieselbe Rechnung statt einer zweiten
+    const r2 = await w.verkaufRechnungErstellen(erg);
+    assertEq([r2.id, (await w.DB.getAll('rechnungen')).length], [r.id, 1], 'keine zweite Rechnung zum selben Verkauf');
+    // Festschreiben: Nummer ja, aber Bestand und Kassenbuch bleiben
+    await w.Views.rechnung.festschreiben(r, []);
+    r = await w.DB.get('rechnungen', r.id);
+    assert(r.status === 'festgeschrieben' && r.nummer, 'festgeschrieben mit Nummer');
+    assertEq(await p4Stand(w, d), nachVerkauf, 'Festschreiben bucht weder Bestand noch Kassenbuch ein zweites Mal');
+    // Storno: nur die Rechnung wird ungültig, der Verkauf bleibt
+    const st = await w.rechnungStornieren(r.id);
+    assert(st && st.ausVerkauf, 'Storno weiß, dass es ein Beleg zum Verkauf ist');
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'storniert');
+    assertEq(await p4Stand(w, d), nachVerkauf, 'Storno bucht nichts zurück – der Verkauf bleibt gebucht');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Verkauf+Rechnung (Julian 08.11.2026): Honigverkauf fragt danach, die Rechnung dazu bucht Gläser und Einnahme nicht noch einmal', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P4 Honigkunde' });
+  const c = await w.DB.put('chargen', { losnummer: 'P4-1', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 10, bestand: 10 });
+  const hash = w.location.hash;
+  try {
+    await w.verkaufForm(a.id);
+    const m = letztesModal(w);
+    pvSetz(w, m.querySelector('#f-anzahl'), '3');
+    pvSetz(w, m.querySelector('#f-preisJeGlas'), '6');
+    pvSetz(w, m.querySelector('#f-rabattWert'), '2');
+    pvSetz(w, m.querySelector('#f-rabattTyp'), 'betrag');
+    pvSetz(w, m.querySelector('#f-kontaktId'), kunde.id);
+    m.querySelector('[data-save]').click();
+    await warteBis(() => w.document.querySelector('[data-nach-verkauf]'));
+    const stand = async () => [(await w.DB.get('abfuellungen', a.id)).bestand, (await w.DB.getAll('kassenbuch')).length, w.U.sum(await w.DB.getAll('kassenbuch'), (k) => k.betrag)];
+    const nachVerkauf = await stand();
+    assertEq(nachVerkauf, [7, 1, 16], 'Verkauf: 3 Gläser ab, 18 € − 2 € Rabatt ins Kassenbuch');
+    assert(/3 × Honig/.test(letztesModal(w).textContent) && /16,00/.test(letztesModal(w).textContent), 'Rückfrage nennt Ware und Betrag: ' + letztesModal(w).textContent);
+    letztesModal(w).querySelector('[data-rechnung]').click();
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 1);
+    const r = (await w.DB.getAll('rechnungen'))[0];
+    assertEq([r.kundeId, r.ausVerkauf.art, r.positionen.length, r.positionen[0].menge, r.positionen[0].einzelpreis, r.positionen[0].abfuellungId], [kunde.id, 'honig', 1, 3, 6, null], 'Kunde und Position vorbelegt');
+    assert(/Charge P4-1/.test(r.positionen[0].text), 'Bezeichnung mit Charge: ' + r.positionen[0].text);
+    assertEq(w.rechnungSummen(r).brutto, 16, 'Rabatt übernommen – Rechnung = Verkauf');
+    await w.Views.rechnung.festschreiben(r, [a]);
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'festgeschrieben', 'festgeschrieben');
+    assertEq(await stand(), nachVerkauf, 'genau einmal gebucht: Bestand und Kassenbuch wie nach dem Verkauf');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Verkauf+Rechnung (Julian 08.11.2026): Rechnung zu einem stornierten Verkauf lässt sich nicht festschreiben', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P4 Storno' });
+  const hash = w.location.hash;
+  try {
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 1, preis: 4.5, kontaktId: kunde.id });
+    const r = await w.verkaufRechnungErstellen(erg);
+    await w.abgangZurueckbuchen(erg.abgang, { kasse: true, loeschen: true });
+    await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r.id), []);
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'entwurf', 'bleibt Entwurf');
+    assert(toasts.some((t) => t.typ === 'err' && /Verkauf zu dieser Rechnung/.test(t.msg)), 'klare Meldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Verkauf+Rechnung (Julian 08.11.2026): Rechnungsentwurf zum Verkauf zeigt den Hinweis und keinen Knopf „Position“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const d = await lagerTestDaten(w);
+  const hash = w.location.hash;
+  try {
+    const r = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 1, preis: 4.5, kaeufer: 'Frau Maier' }));
+    assertEq(r.kundeId, null, 'frei eingetragener Name: Kunde wird in der Rechnung gewählt');
+    await w.Views.rechnung.render(host, r.id);
+    assert(host.querySelector('[data-rechnung-aus-verkauf]'), 'Hinweis „Rechnung zu einem Verkauf“');
+    assert(/Wähle noch den Kunden/.test(host.textContent), 'Hinweis auf den fehlenden Kunden');
+    assert(!host.querySelector('#addPos') && !host.querySelector('[data-pdel]'), 'Positionen bleiben fest');
+    assert(host.querySelector('#r-kunde') && host.querySelector('#r-kunde-neu'), 'Kunde wählbar oder neu anlegbar');
+    const normal = await w.DB.put('rechnungen', w.rechnungGrundwerte());
+    host.innerHTML = '';
+    await w.Views.rechnung.render(host, normal.id);
+    assert(host.querySelector('#addPos') && !host.querySelector('[data-rechnung-aus-verkauf]'), 'normale Rechnung unverändert');
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Verkauf+Rechnung (Julian 08.11.2026): Lager-Artikel in der Rechnung – Verkaufspreis vorbelegt, Bestand beim Festschreiben genau einmal ab, Storno bucht zurück', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'P4 Großkunde' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true });
+  try {
+    await w.Views.rechnung.posForm(r0, [], new Map());
+    let m = letztesModal(w);
+    assert([...m.querySelectorAll('#f-quelle option')].some((o) => o.value === 'lager'), 'Art „Aus dem Lager“ wählbar');
+    pvSetz(w, m.querySelector('#f-quelle'), 'lager');
+    pvSetz(w, m.querySelector('#f-inventarId'), d.prod.id);
+    assertEq(m.querySelector('#f-einzelpreis').value, '4,5', 'Verkaufspreis vorbelegt');
+    pvSetz(w, m.querySelector('#f-menge'), '30');
+    m.querySelector('[data-save]').click(); await w99(300);
+    assertEq((await w.DB.get('rechnungen', r0.id)).positionen.length, 0, 'mehr als im Lager: nicht übernommen');
+    pvSetz(w, m.querySelector('#f-menge'), '4');
+    m.querySelector('[data-save]').click();
+    await warteBis(async () => (await w.DB.get('rechnungen', r0.id)).positionen.length === 1);
+    let r = await w.DB.get('rechnungen', r0.id);
+    assertEq(r.positionen.map((p) => [p.text, p.menge, p.einzelpreis, p.inventarId]), [['LG Bienenwachskerze klein', 4, 4.5, d.prod.id]], 'Lager-Position in der Rechnung');
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 24, 'Entwurf bucht noch nichts');
+    dialogeSchliessen(w);
+    // Festschreiben: Bestand 24 − 4, genau eine Einnahme über 18 € – auch wenn zweimal geklickt wird
+    await Promise.all([w.Views.rechnung.festschreiben(structuredClone(r), []), w.Views.rechnung.festschreiben(structuredClone(r), [])]);
+    r = await w.DB.get('rechnungen', r.id);
+    assertEq(r.status, 'festgeschrieben', 'festgeschrieben');
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 20, 'Bestand genau einmal abgezogen');
+    let kb = await w.DB.getAll('kassenbuch');
+    assertEq(kb.map((k) => [k.betrag, k.kategorie, k.rechnungId]), [[18, 'Weitere Produkte', r.id]], 'genau eine Einnahme, Kategorie wie beim Lager-Verkauf');
+    // Storno: Bestand zurück, Kassenbuch gegengebucht
+    await w.rechnungStornieren(r.id); await w.rechnungStornieren(r.id);
+    assertEq(w.verbrauchBestand(await w.DB.get('inventar', d.prod.id)), 24, 'Storno: Bestand genau einmal zurück');
+    kb = await w.DB.getAll('kassenbuch');
+    assertEq([kb.length, w.U.sum(kb, (k) => k.betrag), kb.every((k) => k.kategorie === 'Weitere Produkte')], [2, 0, true], 'Storno: Gegenbuchung, Saldo 0');
+    // Bestand reicht beim Festschreiben nicht mehr: nichts wird gebucht
+    const r3 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+      positionen: [{ text: 'LG Zanderbeute', inventarId: d.ger.id, menge: 5, einzelpreis: 80, pfand: 0, steuersatz: 0, abfuellungId: null }] });
+    await w.Views.rechnung.festschreiben(r3, []);
+    assertEq([(await w.DB.get('rechnungen', r3.id)).status, w.verbrauchBestand(await w.DB.get('inventar', d.ger.id)), (await w.DB.getAll('kassenbuch')).length], ['entwurf', 3, 2], 'zu wenig im Lager: nichts gebucht');
+    assert(toasts.some((t) => t.typ === 'err' && /Bestand reicht nicht/.test(t.msg)), 'Meldung „Bestand reicht nicht“');
+  } finally { dialogeSchliessen(w); }
+})));
+
+/* ===== Paket 3: Bereich „Finanzen“ (Julian 08.11.2026, Mockup 2) ===== */
+test('Finanzen (Julian 08.11.2026): ein Bereich im Menü statt Kassenbuch, Rechnungen und Abnehmer & Lieferanten', (w) => {
+  const routen = w.NAV.filter((n) => n.route).map((n) => n.route);
+  assert(routen.includes('finanzen'), 'Finanzen steht im Menü');
+  assertEq(routen.filter((r) => ['kassenbuch', 'rechnungen', 'kontakte'].includes(r)), [], 'die drei alten Bereiche stehen nicht mehr einzeln im Menü');
+  assertEq(w.bereichKurz('finanzen'), 'Finanzen');
+  assert(w.Views.finanzen && typeof w.Views.finanzen.render === 'function', 'Ansicht ist registriert');
+  assert(w.Lizenz.NUR_VOLL.finanzen, 'Light: Finanzen ist wie die alten Bereiche Teil der Vollversion');
+});
+
+async function finanzenTestDaten(w) {
+  const k = await w.DB.put('kontakte', { typ: 'kunde', name: 'FIN Hofladen Huber', ort: 'Dachau' });
+  const kb = await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'einnahme', kategorie: 'Honigverkauf', betrag: 18, steuersatz: 0, beschreibung: 'FIN Markt', kontaktId: k.id });
+  const r = await w.DB.put('rechnungen', { nummer: null, datum: w.U.todayIso(), kundeId: k.id, positionen: [{ text: 'FIN Glas', menge: 2, einzelpreis: 6, steuersatz: 0 }], steuerart: 'klein', kleinunternehmer: true, status: 'entwurf' });
+  return { k, kb, r };
+}
+
+test('Finanzen (Julian 08.11.2026): Reiter Kassenbuch/Rechnungen/Abnehmer & Lieferanten, ein Titel, Knopf „Neue Rechnung (Honig, Produkte, Lager)“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const d = await finanzenTestDaten(w);
+  const alt = { tab: w.Views.finanzen._tab, kb: w.Views.kassenbuch._tab };
+  try {
+    w.Views.finanzen._tab = 'kassenbuch'; w.Views.kassenbuch._tab = 'buchungen';
+    await w.Views.finanzen.render(host);
+    const reiter = [...host.querySelectorAll('[data-reiter="finanzen"] [data-id]')].map((b) => b.textContent.trim());
+    assertEq(reiter, ['Kassenbuch', 'Rechnungen', 'Abnehmer & Lieferanten'], 'Reiter in der Reihenfolge des Mockups');
+    assertEq([...host.querySelectorAll('h1')].map((h) => h.textContent), ['Finanzen'], 'nur ein Seitentitel');
+    const knopf = host.querySelector('[data-fin-rechnung]');
+    assert(knopf && /Neue Rechnung \(Honig, Produkte, Lager\)/.test(knopf.textContent), 'Knopf oben: ' + (knopf && knopf.textContent));
+    const unter = [...host.querySelectorAll('[data-reiter="kassenbuch"] [data-id]')].map((b) => b.textContent.trim());
+    assertEq(unter, ['Buchungen', 'Geschäftskosten', 'Auswertung'], 'Kassenbuch-Unterreiter ohne doppelte Kontaktliste');
+    assert(/FIN Markt/.test(host.textContent), 'Buchungen stehen im Reiter Kassenbuch');
+    // Reiter Rechnungen
+    w.Views.finanzen._tab = 'rechnungen'; host.innerHTML = '';
+    await w.Views.finanzen.render(host);
+    assertEq(host.querySelectorAll('h1').length, 1, 'Rechnungen: kein zweiter Titel');
+    assert(!host.querySelector('#add'), 'kein zweiter „Neue Rechnung“-Knopf');
+    assert(host.querySelector(`.row[data-id="${d.r.id}"]`) && /FIN Hofladen Huber/.test(host.textContent), 'die Rechnung steht in der Liste');
+    // Reiter Abnehmer & Lieferanten
+    w.Views.finanzen._tab = 'kontakte'; host.innerHTML = '';
+    await w.Views.finanzen.render(host);
+    assertEq(host.querySelectorAll('h1').length, 1, 'Kontakte: kein zweiter Titel');
+    assert(host.querySelector(`[data-kontakt="${d.k.id}"]`), 'der Kontakt steht in der Liste');
+    assert(host.querySelector('[data-kopf] [data-neu]'), 'Knopf „Kontakt“');
+    assert(host.querySelector('[data-reiter="kontakte"]').classList.contains('unter-reiter'), 'Filter Alle/Kunden/Lieferanten/Bio als Unterreiter');
+  } finally { w.Views.finanzen._tab = alt.tab; w.Views.kassenbuch._tab = alt.kb; }
+})));
+
+test('Finanzen (Julian 08.11.2026): „Neue Rechnung“ oben legt einen Entwurf an und öffnet ihn', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const vorher = w.location.hash, alt = w.Views.finanzen._tab;
+  try {
+    w.Views.finanzen._tab = 'kassenbuch';
+    await w.Views.finanzen.render(host);
+    host.querySelector('[data-fin-rechnung]').click();
+    assert(await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 1), 'ein Entwurf angelegt');
+    const r = (await w.DB.getAll('rechnungen'))[0];
+    assertEq([r.status, r.nummer], ['entwurf', null], 'als Entwurf ohne Nummer');
+    assert(await warteBis(() => w.location.hash === '#/rechnung/' + r.id), 'die Rechnung ist offen');
+  } finally { w.Views.finanzen._tab = alt; w.history.replaceState(null, '', vorher || '#/dashboard'); }
+})));
+
+test('Finanzen (Julian 08.11.2026): alte Adressen #/kassenbuch, #/rechnungen, #/kontakte und Sprünge mit Zusatz führen in den passenden Reiter', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.location.hash, alt = { tab: w.Views.finanzen._tab, kb: w.Views.kassenbuch._tab, kontakt: w.Views.kassenbuch._kontakt };
+  try {
+    for (const [route, tab] of [['kassenbuch', 'kassenbuch'], ['rechnungen', 'rechnungen'], ['kontakte', 'kontakte']]) {
+      w.Views.finanzen._tab = 'kassenbuch';
+      w.history.replaceState(null, '', '#/' + route);
+      await w.renderRoute();
+      assertEq([w.currentRoute().route, w.Views.finanzen._tab, w.document.body.dataset.route], ['finanzen', tab, 'finanzen'], `#/${route} → Finanzen, Reiter ${tab}`);
+      assert(w.document.querySelector('#sidebar .nav-item.active[data-route="finanzen"]'), 'Menüpunkt Finanzen ist markiert');
+    }
+    // Sprung aus einem Kontakt: Kassenbuch gefiltert nach diesem Kontakt
+    w.history.replaceState(null, '', '#/kassenbuch/kontakt-FIN-K1'); w.Views.finanzen._tab = 'rechnungen';
+    await w.renderRoute();
+    assertEq([w.location.hash, w.Views.finanzen._tab, w.Views.kassenbuch._kontakt], ['#/finanzen', 'kassenbuch', 'FIN-K1'], 'Zusatz der alten Adresse kommt im Kassenbuch an');
+    // „An- und Verkauf buchen“ aus dem Lager: Auswahl öffnet sich
+    w.history.replaceState(null, '', '#/kassenbuch/buchen-verbrauch');
+    await w.renderRoute();
+    assert(await warteBis(() => [...w.document.querySelectorAll('.modal-back')].some((m) => /An- und Verkauf buchen/.test(m.textContent))), 'Fenster „An- und Verkauf buchen“ ist offen');
+    dialogeSchliessen(w);
+    w.history.replaceState(null, '', '#/rechnung/gibt-es-nicht');
+    await w.renderRoute();
+    assert(w.document.querySelector('#sidebar .nav-item.active[data-route="finanzen"]'), 'eine offene Rechnung markiert Finanzen im Menü');
+    w.history.replaceState(null, '', '#/finanzen/kontakte');
+    await w.renderRoute();
+    assertEq([w.location.hash, w.Views.finanzen._tab], ['#/finanzen', 'kontakte'], 'Reiter direkt über die Adresse');
+  } finally {
+    dialogeSchliessen(w);
+    w.Views.finanzen._tab = alt.tab; w.Views.kassenbuch._tab = alt.kb; w.Views.kassenbuch._kontakt = alt.kontakt || '';
+    w.history.replaceState(null, '', vorher || '#/dashboard'); await w.renderRoute();
+  }
+});
+
+test('Finanzen (Julian 08.11.2026): gespeicherte Menü- und Leisten-Reihenfolge mit alten Bereichen zeigt Finanzen', async (w) => {
+  assertEq(w.navRoutenNeu(['kassenbuch', 'voelker', 'rechnungen', 'kontakte', 'inventar']), ['finanzen', 'voelker', 'lager'], 'alte Bereiche → einmal Finanzen');
+  const altMenu = w.S.get('menuOrder'), altNav = w.S.get('bottomNav');
+  try {
+    await w.S.set('menuOrder', ['rechnungen', 'bio']);
+    assertEq(w.menuReihenfolge().slice(0, 2).map((n) => n.route), ['finanzen', 'bio'], 'Menü: Finanzen an der Stelle der alten Kachel');
+    await w.S.set('bottomNav', ['dashboard', 'kassenbuch', 'kontakte', 'honig']);
+    w.renderBottomNav();
+    assertEq([...w.document.querySelectorAll('#bottomnav button[data-route]')].map((b) => b.dataset.route), ['dashboard', 'finanzen', 'honig'], 'untere Leiste: Finanzen statt Kassenbuch/Kontakte');
+  } finally { await w.S.set('menuOrder', altMenu); await w.S.set('bottomNav', altNav); w.renderBottomNav(); }
+});
+
+test('Finanzen (Julian 08.11.2026): Imme und Dashboard führen in Finanzen', (w) => {
+  const erwartet = { 'honig-verlust': 'kassenbuch', kassenbuch: 'kassenbuch', 'kassenbuch-auswertung': 'kassenbuch', geschaeftskosten: 'kassenbuch',
+    rechnung: 'rechnungen', 'rechnung-festschreiben': 'rechnungen', 'rechnung-zahlung': 'rechnungen', 'rechnung-pdf': 'rechnungen', kontakte: 'kontakte', 'bio-partner': 'kontakte' };
+  for (const [id, reiter] of Object.entries(erwartet)) {
+    const e = w.APP_WISSEN.find((x) => x.id === id);
+    assertEq([e.route, e.param], ['finanzen', reiter], `Imme „${id}“ öffnet Finanzen, Reiter ${reiter}`);
+    assert(!e.schritte.some((t) => /Menü ▸ (Kassenbuch|Rechnungen|Abnehmer)/.test(t)), `„${id}“ nennt keinen alten Menüpunkt`);
+  }
+  assert(!w.APP_WISSEN.some((e) => ['kassenbuch', 'rechnungen', 'kontakte'].includes(e.route)), 'kein Imme-Eintrag zeigt noch auf einen alten Bereich');
+  assertEq([w.DASH_WIDGETS.kassenbuch.ziel, w.DASH_WIDGETS.rechnungen.ziel], ['finanzen/kassenbuch', 'finanzen/rechnungen'], 'Dashboard-Kacheln');
+});
+
+test('Finanzen (Julian 08.11.2026): Imme zeigt „Neue Rechnung“ im Bereich Finanzen', async (w) => {
+  dialogeSchliessen(w);
+  const vorher = w.location.hash, alt = w.Views.finanzen._tab;
+  try {
+    await w.Assistent.zeige(w.APP_WISSEN.find((x) => x.id === 'rechnung'));
+    const marke = w.document.querySelector('.bini-tip');
+    assert(marke, 'Imme hat den Knopf gefunden und zeigt darauf');
+    assertEq(w.Views.finanzen._tab, 'rechnungen', 'Reiter Rechnungen ist offen');
+  } finally { w.Assistent.markeWeg(); w.Views.finanzen._tab = alt; w.history.replaceState(null, '', vorher || '#/dashboard'); await w.renderRoute(); }
 });
