@@ -21491,8 +21491,9 @@ test('Pro Volk (Julian 08.11.2026): Behandlung – angehaktes Volk ohne Menge wi
   const A = await r2Volk(w, 'PV2-A', { standId: st.id }), B = await r2Volk(w, 'PV2-B', { standId: st.id });
   const ox = await r2Mittel(w, 'Oxalsäure PV2', 1000);
   const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
-  f.setz('standId', st.id); f.setz('menge', '30'); f.setz('mittel', 'Oxalsäure'); f.setz('_verbrauchId', ox.id); await w99(50);
-  pvSetz(w, pvZeile(f.m, B).querySelector('input[data-volk-menge]'), '');
+  // Ein geleertes Feld folgt seit Prüfung 2 (R4) wieder der Menge oben – ohne Menge bleibt B deshalb nur mit 0 oben
+  f.setz('standId', st.id); f.setz('menge', '0'); f.setz('mittel', 'Oxalsäure'); f.setz('_verbrauchId', ox.id); await w99(50);
+  pvSetz(w, pvZeile(f.m, A).querySelector('input[data-volk-menge]'), '30');
   await f.speichern();
   assert(toasts.some((t) => t.typ === 'err' && /PV2-B/.test(t.msg)), 'Meldung nennt das Volk: ' + JSON.stringify(toasts));
   assertEq([(await w.DB.getAll('behandlungen')).length, await lagerBestand(w, ox)], [0, 1000], 'nichts angelegt, nichts abgezogen');
@@ -22071,7 +22072,8 @@ test('Lager-Steuersatz (Julian 08.11.2026): Feld „Steuersatz (%)“ (Vorgabe 1
     // Kleinunternehmer: weiter 0 %
     w.S.get = function (k) { return k === 'steuer' ? { art: 'klein', kleinunternehmer: true } : echtGet.call(this, k); };
     const rk = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: kerze7.id, menge: 1, preis: 2, kontaktId: kunde.id }));
-    assertEq(rk.positionen[0].steuersatz, 0, 'Kleinunternehmer: 0 %');
+    // Kleinunternehmer: keine USt auf der Rechnung. Die Position behält ihren echten Satz für einen Wechsel auf Regelbesteuerung (Prüfung 2, 08.11.2026, R8)
+    assertEq([w.rechnungSteuerart(rk), rk.positionen[0].steuersatz, w.rechnungSummen(rk).steuern], ['klein', 7, {}], 'Kleinunternehmer: 0 % USt');
     assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
   } finally { w.S.get = echtGet; dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
 })));
@@ -22640,3 +22642,267 @@ test('Prüfung 08.11.2026 (P19): Menü ohne Scrollbalken – Ziehen an den Rand 
     assertEq(y, start, 'die Seite hinter dem Fenster bleibt stehen');
   } finally { a.weg(); platz.remove(); w.scrollTo({ top: 0, behavior: 'instant' }); }
 });
+
+/* ===== Prüfung 2, 08.11.2026 (docs/PRUEFUNG-PRAXIS-UMBAU-2026-11-08.md, „Zweite Prüfung“), Paket A: Verkauf und Rechnung ===== */
+test('Prüfung 2, 08.11.2026 (R5): Lager-Verkauf über „An- und Verkauf buchen“ fragt nach der Rechnung – sie ist Beleg, nichts wird doppelt gebucht', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'R5 Kunde' });
+  const hash = w.location.hash;
+  try {
+    const f = await lagerFormular(w, () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, null, 'Verkauf'));
+    f.setz('menge', '2'); f.setz('preis', '5'); f.setz('kontaktId', kunde.id);
+    await f.speichern();
+    await warteBis(() => w.document.querySelector('[data-nach-verkauf]'));
+    const stand = await p4Stand(w, d);
+    assertEq([stand.kasse, stand.summe, stand.prod], [1, 10, 22], 'Verkauf einmal gebucht: 2 × 5 €');
+    letztesModal(w).querySelector('[data-rechnung]').click();
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 1);
+    const ab = (await w.DB.getAll('materialabgaenge'))[0];
+    const r = (await w.DB.getAll('rechnungen'))[0];
+    assertEq([r.ausVerkauf && r.ausVerkauf.art, r.ausVerkauf && r.ausVerkauf.id, r.kundeId], ['lager', ab.id, kunde.id], 'Beleg-Rechnung zu diesem Verkauf');
+    await w.Views.rechnung.festschreiben(r, []);
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'festgeschrieben', 'festgeschrieben');
+    assertEq(await p4Stand(w, d), stand, 'Festschreiben bucht Bestand und Kassenbuch nicht noch einmal');
+    // Eigenverbrauch: keine Frage nach einer Rechnung
+    const g = await lagerFormular(w, () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, null, 'Eigenverbrauch'));
+    g.setz('menge', '1'); await g.speichern(); await w99(200);
+    assert(!w.document.querySelector('[data-nach-verkauf]'), 'Eigenverbrauch: keine Rückfrage');
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Prüfung 2, 08.11.2026 (R7): Rechnung zum Verkauf auch später – Knopf im Abgang-Formular und in der Honig-Verkaufsliste, nach „Stornieren und ändern“ kommt die Rückfrage', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'R7 Kunde' });
+  const hash = w.location.hash;
+  const liste = w.document.createElement('div'); w.document.body.appendChild(liste);
+  const oeffnen = async (id) => lagerFormular(w, async () => w.materialAbgangForm(w.bereichCfg('produkt'), d.prod.id, await w.DB.get('materialabgaenge', id)));
+  try {
+    // a) Lager-Verkauf ohne Rechnung, später im Formular „Rechnung erstellen“
+    const erg = await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 4.5, kontaktId: kunde.id });
+    const stand = await p4Stand(w, d);
+    let f = await oeffnen(erg.abgang.id);
+    let knopf = f.m.querySelector('[data-abgang-rechnung]');
+    assert(knopf && /Rechnung erstellen/.test(knopf.textContent), 'Knopf „Rechnung erstellen“ im Abgang-Formular');
+    knopf.click();
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 1);
+    let r = (await w.DB.getAll('rechnungen'))[0];
+    assertEq([r.ausVerkauf.art, r.ausVerkauf.id, r.positionen[0].menge], ['lager', erg.abgang.id, 2], 'Beleg-Rechnung zum Verkauf');
+    await w.Views.rechnung.festschreiben(r, []);
+    r = await w.DB.get('rechnungen', r.id);
+    assertEq([r.status, await p4Stand(w, d)], ['festgeschrieben', stand], 'festgeschrieben, nichts doppelt gebucht');
+    // Gibt es schon eine Rechnung, zeigt der Knopf sie
+    f = await oeffnen(erg.abgang.id);
+    knopf = f.m.querySelector('[data-abgang-rechnung]');
+    assert(knopf.textContent.includes(`Rechnung ${r.nummer} ansehen`), 'Knopf „Rechnung … ansehen“: ' + knopf.textContent);
+    knopf.click(); await w99(300);
+    assertEq([(await w.DB.getAll('rechnungen')).length, w.location.hash], [1, '#/rechnung/' + r.id], 'öffnet die vorhandene, keine zweite');
+    // b) „Stornieren und ändern“: danach die Rückfrage nach einer neuen Rechnung
+    f = await oeffnen(erg.abgang.id);
+    f.setz('menge', '3'); await f.speichern();
+    await warteBis(() => w.document.querySelector('[data-nach-verkauf]'));
+    assertEq((await w.DB.get('rechnungen', r.id)).status, 'storniert', 'alte Rechnung storniert');
+    letztesModal(w).querySelector('[data-rechnung]').click();
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).length === 2);
+    const r2 = (await w.DB.getAll('rechnungen')).find((x) => x.id !== r.id);
+    assertEq([r2.status, r2.ausVerkauf.id, r2.positionen[0].menge, w.rechnungSummen(r2).brutto], ['entwurf', erg.abgang.id, 3, 13.5], 'neue Beleg-Rechnung zum geänderten Verkauf');
+    // c) Honig: Knopf an der Verkaufszeile
+    const h = await p5Honig(w);
+    await w.Views.honig.tabVerkaeufe(liste);
+    const hk = liste.querySelector(`[data-vk-rechnung="${h.v.id}"]`);
+    assertEq(hk && hk.textContent.trim(), 'Rechnung erstellen', 'Knopf an der Verkaufszeile');
+    hk.click();
+    await warteBis(async () => (await w.DB.getAll('rechnungen')).some((x) => x.ausVerkauf && x.ausVerkauf.id === h.v.id));
+    const rh = (await w.DB.getAll('rechnungen')).find((x) => x.ausVerkauf && x.ausVerkauf.id === h.v.id);
+    assertEq([rh.ausVerkauf.art, rh.kundeId, rh.positionen[0].menge, w.rechnungSummen(rh).brutto], ['honig', h.kunde.id, 4, 24], 'Honig: Beleg-Rechnung mit Kunde und Menge');
+    const liste2 = w.document.createElement('div'); w.document.body.appendChild(liste2);
+    try {
+      await w.Views.honig.tabVerkaeufe(liste2);
+      const hk2 = liste2.querySelector(`[data-vk-rechnung="${h.v.id}"]`);
+      assertEq(hk2.textContent.trim(), 'Rechnung (Entwurf) ansehen', 'danach: vorhandene ansehen');
+      hk2.click(); await w99(300);
+      assertEq((await w.DB.getAll('rechnungen')).filter((x) => x.ausVerkauf && x.ausVerkauf.id === h.v.id).length, 1, 'keine zweite Rechnung');
+    } finally { liste2.remove(); }
+    assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  } finally { liste.remove(); dialogeSchliessen(w); w.history.replaceState(null, '', hash || '#/dashboard'); }
+})));
+
+test('Prüfung 2, 08.11.2026 (R8): Rechnung zum Verkauf unter § 19/§ 24 – Umstellen auf Regelbesteuerung gibt die richtige USt (Honig 7 %, Lager-Satz)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const echtGet = w.S.get;
+  try {
+    w.S.get = function (k) { return k === 'steuer' ? { art: 'pauschal24', pauschalsatz: 7.8 } : echtGet.call(this, k); };
+    const h = await p5Honig(w);
+    const d = await lagerTestDaten(w);
+    const rh = await w.verkaufRechnungErstellen({ verkauf: h.v, text: 'Honig' });
+    const rl = await w.verkaufRechnungErstellen(await w.lagerVerkaufBuchen({ inventarId: d.prod.id, menge: 2, preis: 5, kontaktId: h.kunde.id }));
+    assertEq([w.rechnungSteuerart(rh), w.rechnungSteuerart(rl)], ['pauschal24', 'pauschal24'], 'Entwurf nach Einstellung § 24');
+    // Im Entwurf auf Regelbesteuerung umgestellt (wie die Auswahl „Besteuerung“)
+    const regel = (r) => w.rechnungSummen({ ...r, steuerart: 'regel', kleinunternehmer: false });
+    const sh = regel(rh), sl = regel(rl);
+    assertEq([Object.keys(sh.steuern), Math.round(sh.steuern[7] * 100) / 100], [['7'], 1.57], 'Honig 24 € brutto: 7 % USt enthalten');
+    assertEq([Object.keys(sl.steuern), Math.round(sl.steuern[19] * 100) / 100], [['19'], 1.6], 'Lager-Artikel 10 € brutto: 19 % (sein Satz)');
+  } finally { w.S.get = echtGet; dialogeSchliessen(w); }
+})));
+
+test('Prüfung 2, 08.11.2026 (R9): Rechnung nur mit Geräten & Inventar – Einnahme und Storno stehen im Kassenbuch unter Inventar', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'R9 Kunde' });
+  const rechnung = (pos) => w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+    positionen: pos.map(([i, preis]) => ({ text: i.bezeichnung, inventarId: i.id, menge: 1, einzelpreis: preis, pfand: 0, steuersatz: 0, abfuellungId: null })) });
+  const r = await rechnung([[d.ger, 300]]);
+  await w.Views.rechnung.festschreiben(r, []);
+  const rp = await rechnung([[d.prod, 5]]);
+  await w.Views.rechnung.festschreiben(rp, []);
+  let bMap = await w.kassenBereiche();
+  const zeilen = async (id) => (await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === id);
+  assertEq((await zeilen(r.id)).map((k) => [k.betrag, k.kategorie, w.kassenBereich(k, bMap)]), [[300, 'Materialverkauf', 'inventar']], 'Schleuder: Bereich Inventar');
+  assertEq((await zeilen(rp.id)).map((k) => [k.kategorie, w.kassenBereich(k, bMap)]), [['Weitere Produkte', 'produkt']], 'Produkt: Weitere Produkte wie bisher');
+  await w.rechnungStornieren(r.id);
+  bMap = await w.kassenBereiche();
+  assertEq((await zeilen(r.id)).map((k) => w.kassenBereich(k, bMap)), ['inventar', 'inventar'], 'auch das Storno steht unter Inventar');
+})));
+
+test('Prüfung 2, 08.11.2026 (R10): Beleg-Rechnung mit geändertem Betrag, Einnahme im Papierkorb – nach dem Wiederherstellen steht der Rechnungsbetrag', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const h = await p5Honig(w);
+  let r = await w.verkaufRechnungErstellen({ verkauf: h.v, text: 'Honig' });
+  // „Nur im Kassenbuch löschen“: die Einnahme wandert allein in den Papierkorb
+  await w.loescheMitMaterial('kassenbuch', await w.DB.get('kassenbuch', h.v.kassenbuchId));
+  assertEq(await w.DB.get('kassenbuch', h.v.kassenbuchId), undefined, 'Einnahme im Papierkorb');
+  r = await w.DB.put('rechnungen', { ...r, kundeId: h.kunde.id, rabattTyp: 'betrag', rabattWert: 4 });
+  await w.Views.rechnung.festschreiben(r, []);
+  assertEq([(await w.DB.get('rechnungen', r.id)).status, (await w.DB.get('verkaeufe', h.v.id)).betrag], ['festgeschrieben', 20], 'Rechnung und Verkauf: 24 € − 4 € = 20 €');
+  assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'keine neue Einnahme');
+  const t = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'kassenbuch' && x.daten && x.daten.id === h.v.kassenbuchId);
+  await w.DB.trashRestore(t.id);
+  const kb = await w.DB.get('kassenbuch', h.v.kassenbuchId);
+  assertEq([kb.betrag, kb.geaendertDurchRechnung && kb.geaendertDurchRechnung.vorher], [20, 24], 'wiederhergestellt mit dem Rechnungsbetrag, vorher 24 € vermerkt');
+  assert(/gegenüber dem Verkauf geändert \(vorher/.test(kb.beschreibung), 'Vermerk in der Beschreibung');
+  assert(!toasts.some((x) => x.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Prüfung 2, 08.11.2026 (R6): Rechnung mit demselben Lager-Artikel zu verschiedenen Preisen – Erlös der Abgangszeile gleich Kassenbuch', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'R6 Kunde' });
+  const pos = (menge, preis) => ({ text: d.prod.bezeichnung, inventarId: d.prod.id, menge, einzelpreis: preis, pfand: 0, steuersatz: 0, abfuellungId: null });
+  const r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, positionen: [pos(1, 4.99), pos(2, 5)] });
+  await w.Views.rechnung.festschreiben(r, []);
+  const kb = await w.DB.getAll('kassenbuch'), ab = await w.DB.getAll('materialabgaenge');
+  assertEq(kb.map((k) => k.betrag), [14.99], 'Kassenbuch 14,99 €');
+  assertEq(ab.map((a) => [a.menge, w.abgangErloes(a)]), [[3, 14.99]], 'Abgangszeile: Erlös 14,99 € wie im Kassenbuch');
+})));
+
+/* ---------- Prüfung 2, 08.11.2026, Paket B (R1–R4, R11, R12): pro Volk und Rangliste ---------- */
+test('Prüfung 2, 08.11.2026 (R1): Pro-Volk-Behandlung mit halbem Stück ändern – kein zusätzliches Stück vom Lager', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'R1-Stand' });
+  const A = await r2Volk(w, 'R1-A', { standId: st.id }), B = await r2Volk(w, 'R1-B', { standId: st.id });
+  const apivar = await r2Mittel(w, 'Apivar R1', 10, 'Stück');
+  await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 2 }, { volkId: B.id, menge: 0.5 }], { mittel: 'Apivar', datum: '2026-08-01', einheit: 'Stück', _verbrauchId: apivar.id });
+  assertEq(await lagerBestand(w, apivar), 7, 'A 2 + B 0,5 = 2,5 → 3 Stück abgezogen');
+  const beh = async (v) => (await w.DB.getAll('behandlungen')).find((b) => b.zielId === v.id);
+  const summeAbzug = async () => w.U.sum(await w.DB.getAll('behandlungen'), (b) => w.U.sum(b.verbrauchAbzug || [], (a) => a.menge));
+  await w.behandlungAendern(await beh(A), { menge: 2.5 });
+  assertEq([await lagerBestand(w, apivar), await summeAbzug()], [7, 3], 'A auf 2,5: zusammen 3 Stück, schon abgezogen – Lager bleibt 7 (vorher 6)');
+  await w.behandlungAendern(await beh(B), { menge: 1 });
+  assertEq([await lagerBestand(w, apivar), await summeAbzug()], [6, 4], 'B auf 1: zusammen 3,5 → 4 Stück, eins nach');
+  await w.behandlungAendern(await beh(B), { menge: 0.5 });
+  assertEq([await lagerBestand(w, apivar), await summeAbzug()], [7, 3], 'B zurück auf 0,5: zusammen 3 Stück, eins zurück');
+  // Einzelne Behandlung (ohne Gruppe): 0,5 → 1 braucht kein neues Stück
+  const [einzeln] = (await w.behandlungenJeVolkAnlegen([{ volkId: A.id, menge: 0.5 }], { mittel: 'Apivar', datum: '2026-08-02', einheit: 'Stück', _verbrauchId: apivar.id })).recs;
+  assertEq(await lagerBestand(w, apivar), 6, 'einzeln 0,5 → 1 Stück');
+  await w.behandlungAendern(await w.DB.get('behandlungen', einzeln.id), { menge: 1 });
+  assertEq(await lagerBestand(w, apivar), 6, 'einzeln auf 1: das angebrochene Stück reicht');
+})));
+
+test('Prüfung 2, 08.11.2026 (R2): Ernte pro Volk – Herkunft und Stand-Behandlungen nach dem Stand am Erntetag', async (w) => isolierteDaten(w, async () => {
+  const sA = await w.DB.put('staende', { name: 'R2-Alt' }), sB = await w.DB.put('staende', { name: 'R2-Neu' });
+  const X = await r2Volk(w, 'R2-X', { standId: sB.id });
+  await w.DB.put('wanderungen', { datum: '2026-07-15', volkIds: [X.id], vonStandId: sA.id, nachStandId: sB.id });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: sA.id, datum: '2026-06-01', mittel: 'Ameisensäure', menge: 1, einheit: 'ml', wartezeitTage: 60 });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: sB.id, datum: '2026-06-20', mittel: 'Thymol', menge: 1, einheit: 'ml', wartezeitTage: 0 });   // X stand da noch nicht dort
+  await w.ernteJeVolkAnlegen([{ volkId: X.id, menge: 10 }], { datum: '2026-07-01', produktart: 'Honig', sorte: '' });
+  const e = (await w.DB.getAll('ernten'))[0];
+  const i = await w.ernteFuerVerarbeitung(e.id);
+  assertEq([i.herkunft, i.behandlungAm, i.behandlungMittel, i.wartezeitKonflikt], ['Volk R2-X · R2-Alt', '2026-06-01', 'Ameisensäure', '2026-07-31'],
+    'Herkunft und Wartezeit vom Stand am Erntetag (vorher „· R2-Neu“, Thymol, kein Konflikt)');
+}));
+
+test('Prüfung 2, 08.11.2026 (R3): Ernte und Behandlung am Stand – Völkerliste nach dem gewählten Datum', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const sA = await w.DB.put('staende', { name: 'R3-A' }), sB = await w.DB.put('staende', { name: 'R3-B' });
+  const X = await r2Volk(w, 'R3-X', { standId: sB.id }), Y = await r2Volk(w, 'R3-Y', { standId: sA.id });
+  const Z = await r2Volk(w, 'R3-Z', { standId: sA.id, status: 'aufgeloest', historie: [{ datum: '2025-04-01', text: 'angelegt' }, { datum: '2026-09-01', text: 'aufgelöst' }] });
+  await w.DB.put('wanderungen', { datum: '2026-07-15', volkIds: [X.id], vonStandId: sA.id, nachStandId: sB.id });
+  await w.DB.put('wanderungen', { datum: '2026-07-10', volkIds: [Y.id], vonStandId: sB.id, nachStandId: sA.id });
+  const liste = (m) => [...m.querySelectorAll('[data-je-volk] input[type=checkbox]')].map((i) => [i.value, i.checked]);
+  // Ernte (PDF-Übernahme und Ernte-Formular nutzen dieselbe Liste)
+  let f = await lagerFormular(w, () => w.PdfImport.ernteQuickForm({ datum: '2026-07-01', sorte: '' }));
+  f.setz('zielTyp', 'stand'); await w99(50); f.setz('zielStand', sA.id); await w99(50);
+  assertEq(liste(f.m), [[X.id, true], [Z.id, true]], 'am 01.07. standen X und das später aufgelöste Z dort, Y noch nicht');
+  f.setz('datum', w.U.todayIso()); await w99(50);
+  assertEq(liste(f.m), [[Y.id, true]], 'heute steht nur Y dort');
+  f.setz('datum', '2026-07-01'); await w99(50);
+  f.setz('mengeProVolk', '10'); await w99(50);
+  await f.speichern();
+  assertEq((await w.DB.getAll('ernten')).map((e) => e.zielId).sort(), [X.id, Z.id].sort(), 'Honig bei X und Z, nicht bei Y: ' + JSON.stringify(toasts));
+  // Behandlung: dieselbe Regel
+  f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  f.setz('datum', '2026-07-01'); await w99(50); f.setz('standId', sA.id); await w99(50);
+  const sichtbar = () => [...f.m.querySelectorAll('#f-volkIds label.check-line')].filter((l) => l.style.display !== 'none').map((l) => [l.querySelector('input').value, l.querySelector('input').checked]);
+  assertEq(sichtbar(), [[X.id, true], [Z.id, true]], 'Behandlung am 01.07.: X und Z angehakt, Y nicht in der Liste');
+  f.setz('datum', w.U.todayIso()); await w99(50);
+  assertEq(sichtbar(), [[Y.id, true]], 'heute: nur Y');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+})));
+
+test('Prüfung 2, 08.11.2026 (R4): geleertes eigenes Mengenfeld folgt wieder der Menge oben', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const st = await w.DB.put('staende', { name: 'R4-Stand' });
+  const A = await r2Volk(w, 'R4-A', { standId: st.id }), B = await r2Volk(w, 'R4-B', { standId: st.id });
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  f.setz('standId', st.id); f.setz('menge', '2'); f.setz('mittel', 'Oxalsäure'); f.setz('datum', '2026-08-01'); await w99(50);
+  const feldB = pvZeile(f.m, B).querySelector('input[data-volk-menge]'), summe = () => f.m.querySelector('[data-je-volk-summe]').textContent;
+  pvSetz(w, feldB, '1'); await w99(50);
+  assert(/Zusammen: 3 /.test(summe()), 'eigene Menge 1: ' + summe());
+  // Beim Tippen leeren: Feld bleibt leer, zählt aber mit der Menge oben
+  feldB.value = ''; feldB.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(50);
+  assertEq(feldB.value, '', 'beim Tippen springt die Zahl nicht sofort zurück');
+  assert(/Zusammen: 4 /.test(summe()), 'leer zählt wie die Menge oben: ' + summe());
+  feldB.dispatchEvent(new w.Event('change', { bubbles: true })); await w99(50);
+  assertEq(feldB.value.replace(',', '.'), '2', 'beim Verlassen steht wieder die Menge oben drin');
+  f.setz('menge', '3'); await w99(50);
+  assertEq(feldB.value.replace(',', '.'), '3', 'und folgt Änderungen oben wieder');
+  await f.speichern();
+  assertEq((await w.DB.getAll('behandlungen')).map((b) => [b.zielId, b.menge]).sort(), [[A.id, 3], [B.id, 3]].sort(), 'gespeichert ohne „fehlt bei“: ' + JSON.stringify(toasts));
+})));
+
+test('Prüfung 2, 08.11.2026 (R11): ältere Ernten für den ganzen Stand – Hinweis mit Menge in Rangliste und „Honig pro Jahr“', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'R11-Waldrand' }), anders = await w.DB.put('staende', { name: 'R11-Anders' });
+  const V = await r2Volk(w, 'R11-V', { standId: st.id }), W = await r2Volk(w, 'R11-W', { standId: anders.id });
+  await w.DB.put('ernten', { zielTyp: 'stand', zielId: st.id, datum: '2025-07-01', produktart: 'Honig', sorte: '', mengeKg: 120 });
+  const alt = { t: w.Views.reporting._typ, g: w.Views.reporting._gruppe, j: w.Views.reporting._jahr };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    w.Views.reporting._typ = 'ertrag'; w.Views.reporting._gruppe = 'volk'; w.Views.reporting._jahr = '2025';
+    await w.Views.reporting.render(host); await w99(100);
+    const h = host.querySelector('.rang-karte [data-stand-ernten]');
+    assert(h && /1 ältere Ernte für den ganzen Stand/.test(h.textContent) && /120 kg/.test(h.textContent) && /keinem einzelnen Volk/.test(h.textContent), 'Rangliste nennt die Stand-Ernte: ' + (h ? h.textContent : host.textContent));
+    assert(/Keine Honigernte pro Volk in 2025/.test(host.textContent), 'die Rangliste selbst bleibt leer');
+    host.innerHTML = '';
+    await w.Views.volk.honigKasten(host, V);
+    const k = host.querySelector('[data-stand-ernten]');
+    assert(k && /120 kg/.test(k.textContent), 'Volk-Seite am Stand nennt sie: ' + host.textContent);
+    host.innerHTML = '';
+    await w.Views.volk.honigKasten(host, W);
+    assert(!host.querySelector('[data-stand-ernten]'), 'Volk an einem anderen Stand: kein Hinweis');
+    assertEq((await w.DB.getAll('ernten')).map((e) => [e.zielTyp, e.mengeKg]), [['stand', 120]], 'nichts umgeschrieben');
+  } finally { host.remove(); w.Views.reporting._typ = alt.t; w.Views.reporting._gruppe = alt.g; w.Views.reporting._jahr = alt.j; }
+}));
+
+test('Prüfung 2, 08.11.2026 (R12): gleiche angezeigte Menge = gleicher Platz', async (w) => isolierteDaten(w, async () => {
+  const A = await r2Volk(w, 'R12-A'), B = await r2Volk(w, 'R12-B'), C = await r2Volk(w, 'R12-C');
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: A.id, datum: '2025-07-01', produktart: 'Honig', sorte: '', mengeKg: 10.04 });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: B.id, datum: '2025-07-01', produktart: 'Honig', sorte: '', mengeKg: 9.96 });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: C.id, datum: '2025-07-01', produktart: 'Honig', sorte: '', mengeKg: 9.94 });
+  const d = await w.Statistik.daten();
+  const r = w.Statistik.honigRangliste(d, (iso) => w.Statistik.im(iso, '2025'));
+  assertEq(r.map((z) => [z.id, z.platz, w.U.fmtNum(z.kg, 1)]), [[A.id, 1, '10'], [B.id, 1, '10'], [C.id, 3, '9,9']], '10,04 und 9,96 kg zeigen beide „10“ und stehen beide auf Platz 1');
+  assertEq(w.Statistik.honigPlaetzeVolk(d, B.id).map((p) => p.platz), [1], 'Volk-Seite von B: Platz 1');
+}));

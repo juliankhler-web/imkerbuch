@@ -1628,8 +1628,16 @@ const CDN = {
    und oben einen neuen CHANGELOG-Eintrag ergänzen. Nach dem Update
    zeigt die App dem Nutzer einmalig ein „Was ist neu?“-Fenster.
    ===================================================================== */
-const APP_VERSION = '3.24';
+const APP_VERSION = '3.25';
 const CHANGELOG = [
+  { version: '3.25', datum: '2026-11-08', punkte: [
+    '<b>Neuer Bereich „Lager“:</b> Produkte, Verbrauchsmaterial sowie Geräte &amp; Inventar an einem Ort, mit Reiter „Alle“ und Suche. Artikel bekommen auf Wunsch einen Verkaufspreis und einen Steuersatz und lassen sich direkt verkaufen.',
+    '<b>Neuer Bereich „Finanzen“:</b> Kassenbuch, Rechnungen sowie Abnehmer &amp; Lieferanten zusammen, mit „Neue Rechnung“ für Honig, Produkte und Lager.',
+    '<b>Verkauf und Rechnung verbunden:</b> Nach jedem Verkauf „Rechnung dazu erstellen“ – ohne doppelte Buchung, und auch später noch über den Knopf am Verkauf. Gibt es zum Verkauf schon eine Rechnung, fragt die App beim Zurücknehmen einmal: Rechnung stornieren und Verkauf zurücknehmen?',
+    '<b>Ganzer Stand pro Volk:</b> Bei Behandlung und Ernte am ganzen Stand gibst du die Menge je Volk ein; alle Völker sind vorausgewählt, einzelne abwählbar oder mit eigener Menge (z. B. Ableger halbe Dosis). Jedes Volk bekommt seinen Eintrag.',
+    '<b>Leistung pro Volk:</b> Statistik → Honig zeigt eine Rangliste je Volk mit Jahr, Schnitt und „Exportieren“; auf der Seite jedes Volks steht „Honig pro Jahr“ mit Platz.',
+    '<b>Kleinigkeiten:</b> Kacheln im Menü verschieben rollt jetzt mit; Export vom Stand oder Volk zeigt nur passende Bereiche.',
+  ] },
   { version: '3.24', datum: '2026-11-05', punkte: [
     '<b>Große Fehlerprüfung:</b> Alle Rechnungen mit Honigmengen und alle übrigen Bereiche wurden durchgesehen, jeder Fund unabhängig gegengeprüft und behoben.',
     '<b>Stornieren tut nie mehr „nichts“:</b> Klappt etwas nicht, sagt die App jetzt immer, warum und was zu tun ist. Liegt die Abfüllung eines Verkaufs im Papierkorb, kommt eine klare Meldung; ist sie endgültig gelöscht, lässt sich der Verkauf trotzdem stornieren.',
@@ -8480,10 +8488,17 @@ Views.volk = {
      neueste oben – dieselbe Rangliste wie in der Statistik (Honig + Wabenhonig, nur Ernten pro Volk). */
   async honigKasten(box, v) {
     if (!box) return;
-    const plaetze = Statistik.honigPlaetzeVolk({ ernten: await DB.getAll('ernten'), voelker: await DB.getAll('voelker') }, v.id);
+    const d = { ernten: await DB.getAll('ernten'), voelker: await DB.getAll('voelker') }, wanderungen = await DB.getAll('wanderungen');
+    const plaetze = Statistik.honigPlaetzeVolk(d, v.id);
+    /* Ältere Ernten für den ganzen Stand, an dem das Volk an dem Tag stand (Prüfung 2, 08.11.2026, R11): nennen statt verschweigen */
+    const standHinweis = Statistik.standErntenHinweis(Statistik.standErntenOhneVolk(d, () => true, (e) => {
+      const tag = String(e.datum || '').slice(0, 10);
+      return !!tag && voelkerAmStichtag([v], tag).length > 0 && standAmStichtag(v, tag, wanderungen) === e.zielId;
+    }));
     box.innerHTML = `<div class="card rang-karte volk-honig" style="margin-top:14px"><div class="card-title">${icon('honig')}<h2>Honig pro Jahr</h2><a href="#/reporting" class="small no-print" data-honig-rang>Rangliste ›</a></div>
       ${plaetze.length ? `<div class="rows">${plaetze.map((p) => `<div class="row" style="min-height:44px"><span class="r-main"><span class="r-title">${p.jahr} · Platz ${p.platz} von ${p.von}</span></span><span class="r-side"><b>${U.fmtNum(p.kg, 1)} kg</b></span></div>`).join('')}</div>`
-        : '<div class="small muted">Noch keine Honigernte für dieses Volk. Ernten trägst du pro Volk ein – auch über „Ganzer Stand“ mit der Völkerliste.</div>'}</div>`;
+        : '<div class="small muted">Noch keine Honigernte für dieses Volk. Ernten trägst du pro Volk ein – auch über „Ganzer Stand“ mit der Völkerliste.</div>'}
+      ${standHinweis ? `<div class="small muted mt8" data-stand-ernten>${U.esc(standHinweis)}</div>` : ''}</div>`;
     const l = $('[data-honig-rang]', box);
     if (l) l.onclick = () => { Views.reporting._typ = 'ertrag'; Views.reporting._gruppe = 'volk'; if (plaetze.length) Views.reporting._jahr = plaetze[0].jahr; };
   },
@@ -11082,7 +11097,8 @@ Views.behandlungen = {
       Legt je gewähltem Volk einen eigenen Bestandsbuch-Eintrag an. vorbelegung: aus „Meine Mittel“. */
   async sammelForm(vorbelegung = {}) {
     const staende = await DB.getAll('staende');
-    const alleVoelker = U.sortBy((await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'), (v) => v.name.toLowerCase());
+    const voelkerAlle = U.sortBy(await DB.getAll('voelker'), (v) => String(v.name || '').toLowerCase()), wanderungen = await DB.getAll('wanderungen');
+    const alleVoelker = voelkerAlle.filter((v) => v.status === 'aktiv');
     if (!alleVoelker.length) return UI.toast('Lege zuerst Völker an – dann behandelst du sie hier gesammelt.', 'err');
     const funktionen = [...new Set([...VORSCHLAEGE.volksfunktion, ...alleVoelker.map((v) => v.funktion).filter(Boolean)])];
     const mittelOpts = await gelernteWerte(VORSCHLAEGE.mittel, 'behandlungen', 'mittel');
@@ -11100,7 +11116,8 @@ Views.behandlungen = {
         { key: '_trennBeh', type: 'static', html: '' },
         { key: 'einheit', label: 'Einheit', type: 'suggest', default: 'ml', options: VORSCHLAEGE.einheit, halb: true },
         { key: 'anwendungsart', label: 'Anwendungsart', type: 'suggest', options: anwendungOpts, halb: true },
-        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: alleVoelker.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') })) },
+        /* Alle Völker als Zeilen, sichtbar sind die am Behandlungstag (Prüfung 2, 08.11.2026, R3) – auch nachgetragen. */
+        { key: 'volkIds', label: 'Welche Völker?', type: 'multicheck', required: true, options: voelkerAlle.map((v) => ({ v: v.id, l: v.name + (v.funktion ? ` · ${v.funktion}` : '') + (v.status !== 'aktiv' ? ' · nicht mehr aktiv' : '') })) },
         { key: '_jeVolkSumme', type: 'static', html: '<div class="small" style="font-weight:600" data-je-volk-summe></div>' },
         { key: '_trennBeh2', type: 'static', html: '' },
         { key: 'wartezeitTage', label: 'Wartezeit (Tage)', type: 'number', hint: 'Leer = nicht erfasst, 0 = keine Wartezeit. Bei Wartezeit > 0 wird automatisch eine Erinnerung zum Ende angelegt.' },
@@ -11127,8 +11144,8 @@ Views.behandlungen = {
         renderRoute();
       },
     });
-    // Stand- und Funktions-Wahl filtern die Völkerliste (gemeinsamer Helfer)
-    verdrahteVolkFilter(m, alleVoelker);
+    // Stand-, Funktions- und Datums-Wahl filtern die Völkerliste (gemeinsamer Helfer; Datum: Prüfung 2, 08.11.2026, R3)
+    verdrahteVolkFilter(m, voelkerAlle, { amTag: true, wanderungen });
     const einheitEl = $('#f-einheit', m.el);
     const jeVolk = verdrahteMengeJeVolk(m, $('#f-volkIds', m.el), $('#f-menge', m.el), { einheit: () => (einheitEl ? einheitEl.value.trim() : ''), summe: $('[data-je-volk-summe]', m.el) });
     /* Stand gewählt: alle Völker dieses Stands sind vorausgewählt, abwählen geht einzeln (Julian 08.11.2026) */
@@ -11152,6 +11169,7 @@ Views.behandlungen = {
     };
     standSel.addEventListener('change', vorauswahl);
     $('#f-funktion', m.el).addEventListener('change', vorauswahl);
+    $('#f-datum', m.el).addEventListener('change', vorauswahl);   // anderes Datum, andere Völker am Stand (Prüfung 2, 08.11.2026, R3)
     verdrahteVerbrauch(m, mittelPosten, () => jeVolk.werte().reduce((s, x) => s + (x.menge > 0 ? x.menge : 0), 0));
   },
 };
@@ -11559,7 +11577,10 @@ async function behandlungenJeVolkAnlegen(liste, daten) {
     if (posten.some((x) => !voelker.has(x.volkId))) throw new Error('Ein ausgewähltes Volk gibt es nicht mehr. Bitte das Fenster neu öffnen.');
     const r3 = (n) => Math.round(n * 1e6) / 1e6;
     const mengen = posten.map((x) => r3(buchungsZahl(x.menge, 'Menge je Volk')));
-    const recs = posten.map((x, i) => ({ ...behandlungFuerVolk(x.volkId, eingabe), id: U.uuid(), menge: mengen[i] }));
+    /* Gemeinsame Kennung der Einträge (Prüfung 2, 08.11.2026, R1): Beim Ändern kennt behandlungAendern so die Aufrundung
+       auf ganze Stück für alle zusammen und zieht kein zusätzliches Stück ab, wenn die Gruppe es schon trägt. */
+    const gruppe = posten.length > 1 ? U.uuid() : null;
+    const recs = posten.map((x, i) => ({ ...behandlungFuerVolk(x.volkId, eingabe), id: U.uuid(), menge: mengen[i], ...(gruppe ? { abzugGruppe: gruppe } : {}) }));
     const summe = r3(mengen.reduce((s, x) => s + x, 0)), geaendert = new Map();
     /* Gelöschte Lager-Position: speichern ohne Abzug wie vor dem Umbau (Prüfung 08.11.2026, P3), statt alles abzuweisen. */
     const mitAbzug = !!eingabe._verbrauchId && d.inventar.some((p) => p.id === eingabe._verbrauchId);
@@ -11605,19 +11626,27 @@ function verdrahteMengeJeVolk(m, box, oben, { einheit = () => '', summe = null }
     return inp;
   };
   const zahl = (x) => { const n = U.parseNum(x); return Number.isFinite(n) ? n : NaN; };
+  /* Ein leeres Feld folgt wieder der Menge oben (Prüfung 2, 08.11.2026, R4): Vorher blieb es nach dem Leeren „eigen“ und leer,
+     Änderungen oben kamen nicht mehr an, und Speichern brach mit „fehlt bei …“ ab. Solange man darin tippt, bleibt es leer
+     (sonst stünde beim Löschen sofort wieder die obere Zahl drin) und zählt mit der Menge oben; beim Verlassen steht sie drin. */
+  const wert = (inp) => (String(inp.value).trim() === '' && !inp.dataset.eigen && oben ? oben.value : inp.value);
   const werte = () => zeilen().filter((l) => l.style.display !== 'none' && $('input[type=checkbox]', l).checked)
-    .map((l) => ({ volkId: $('input[type=checkbox]', l).value, name: $('span', l).textContent.split(' · ')[0], menge: zahl(feld(l).value) }));
-  const auffrischen = () => {
+    .map((l) => ({ volkId: $('input[type=checkbox]', l).value, name: $('span', l).textContent.split(' · ')[0], menge: zahl(wert(feld(l))) }));
+  const auffrischen = (ev) => {
+    const tippt = ev && ev.type === 'input' && ev.target && ev.target.matches && ev.target.matches('[data-volk-menge]') ? ev.target : null;
     for (const lab of zeilen()) {
       const cb = $('input[type=checkbox]', lab), inp = feld(lab);
-      if (!inp.dataset.eigen) inp.value = oben ? oben.value : '';
+      if (!inp.dataset.eigen && inp !== tippt) inp.value = oben ? oben.value : '';
       inp.disabled = !cb.checked; inp.style.opacity = cb.checked ? '' : '.45';
     }
     if (!summe) return;
     const w = werte(), n = w.length, s = Math.round(w.reduce((a, x) => a + (x.menge > 0 ? x.menge : 0), 0) * 1e6) / 1e6;
     summe.textContent = n ? `Zusammen: ${U.fmtNum(s, 3)} ${einheit()} für ${n} ${n === 1 ? 'Volk' : 'Völker'}` : 'Kein Volk ausgewählt.';
   };
-  box.addEventListener('input', (e) => { if (e.target.matches('[data-volk-menge]')) e.target.dataset.eigen = '1'; });
+  box.addEventListener('input', (e) => {
+    if (!e.target.matches('[data-volk-menge]')) return;
+    if (String(e.target.value).trim() === '') delete e.target.dataset.eigen; else e.target.dataset.eigen = '1';   // (Prüfung 2, 08.11.2026, R4)
+  });
   m.el.addEventListener('input', auffrischen);
   m.el.addEventListener('change', auffrischen);
   m.el.addEventListener('click', (e) => { if (e.target.closest('[data-alle],[data-keine]')) auffrischen(); });   // „Alle auswählen“/„Keine“ setzen Häkchen ohne change
@@ -11665,7 +11694,19 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
       return plan.abzug;
     };
     if (id && id === altStart) {
-      const diff = r3(neuMenge - altMenge);
+      let diff = r3(neuMenge - altMenge);
+      /* Stück gibt es nur ganz (Prüfung 2, 08.11.2026, R1): Apivar A 2 + B 0,5 → 3 Stück abgezogen. B auf 1 geändert
+         rundete 0,5 nochmals auf 1 auf – das Lager stand bei 6, obwohl zusammen 3 Stück reichen. Jetzt zählt, was die Gruppe
+         (Einträge derselben Behandlung pro Volk, sonst nur dieser) schon abgezogen hat: nachgezogen wird nur, was auf ganze
+         Stück noch fehlt, höchstens so viel wie bisher. Zurück kommt nur, was nach dem Ändern übrig ist. */
+      const ganz = posten.has(id) ? verbrauchEinheit(posten.get(id)) === 'Stück' : (altAbzug[0] || {}).einheit === 'Stück';
+      if (ganz && diff !== 0) {
+        const gruppe = alt.abzugGruppe ? d.behandlungen.filter((b) => b.id !== alt.id && b.abzugGruppe === alt.abzugGruppe && ((b.verbrauchAbzug || [])[0] || {}).inventarId === altStart) : [];
+        const mengeSonst = gruppe.reduce((s, b) => s + Math.max(0, Number(b.menge) || 0), 0);
+        const schon = [alt, ...gruppe].reduce((s, b) => s + (b.verbrauchAbzug || []).reduce((t, a) => t + (Number(a.menge) || 0), 0), 0);
+        const noetig = Math.ceil(r3(mengeSonst + neuMenge) - 1e-9);
+        diff = diff > 0 ? Math.min(Math.ceil(diff - 1e-9), Math.max(0, noetig - Math.round(schon))) : -Math.min(Math.ceil(-diff - 1e-9), Math.max(0, Math.round(schon) - noetig));
+      }
       if (diff > 0) {
         if (!posten.has(id)) materialFehltPruefen(d, altAbzug[0]);   // im Papierkorb: Meldung; endgültig gelöscht: nichts mehr abzuziehen
         else for (const y of abziehen(id, diff)) {
@@ -11968,22 +12009,27 @@ function verdrahteVolkFilter(m, alleVoelker, opts = null) {
       }
     }
   };
+  /* opts.amTag (Prüfung 2, 08.11.2026, R3): sichtbar sind die Völker, die am gewählten Datum (Feld „datum“) am Stand standen. */
+  const datumEl = opts && opts.amTag ? $('#f-datum', m.el) : null;
   const filtern = () => {
+    const tag = datumEl ? (datumEl.value || U.todayIso()) : '';
+    const amTag = tag ? new Set(voelkerAmStandAm(alleVoelker, standSel.value, tag, opts.wanderungen || []).map((v) => v.id)) : null;
     zeilen().forEach((lab) => {
       const inp = $('input', lab);
       const volk = alleVoelker.find((x) => x.id === inp.value);
-      const zeig = !!volk && passtZuFilter(volk, standSel.value, funkSel.value);
+      const zeig = !!volk && (amTag ? amTag.has(volk.id) && (!funkSel.value || (volk.funktion || '') === funkSel.value) : passtZuFilter(volk, standSel.value, funkSel.value));
       lab.style.display = zeig ? '' : 'none';
       if (!zeig) inp.checked = false; // versteckte Völker nie mitverarbeiten
     });
     const n = sichtbare().length;
     leer.style.display = n ? 'none' : '';
-    leer.textContent = n ? '' : 'Kein aktives Volk passt zu dieser Auswahl.';
+    leer.textContent = n ? '' : amTag ? 'Am gewählten Datum passt kein Volk zu dieser Auswahl.' : 'Kein aktives Volk passt zu dieser Auswahl.';
     bar.style.display = n ? '' : 'none';
     zahl();
   };
   standSel.addEventListener('change', filtern);
   funkSel.addEventListener('change', filtern);
+  if (datumEl) datumEl.addEventListener('change', filtern);
   box.addEventListener('change', zahl);
   $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
   $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
@@ -13090,6 +13136,37 @@ function voelkerAmStichtag(voelker, tag) {
   // Stand-Wechsel-Vermerke (standNach) sind kein Ende – sonst verlängerte ein später Vermerk ein aufgelöstes Volk
   const schluss = (v) => { if (v.status === 'aktiv') return null; const h = (v.historie || []).filter((e) => !('standNach' in e)); return h.length ? h[h.length - 1].datum : null; };
   return (voelker || []).filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag));
+}
+/** Völker, die an einem Tag an einem Stand standen (Prüfung 2, 08.11.2026, R3) – für Ernte und Behandlung am ganzen Stand.
+    Vorher nahmen die Listen die Völker, die HEUTE dort stehen: Eine nachgetragene Ernte vom 01.07. bot das inzwischen
+    gewanderte oder aufgelöste Volk nicht an und hakte ein später zugezogenes an. Ein aufgelöstes Volk ohne Enddatum fehlt
+    (wann es aufgelöst wurde, ist unbekannt). Sortiert nach Name. */
+function voelkerAmStandAm(voelker, standId, tag, wanderungen = []) {
+  if (!tag) return [];
+  const da = voelkerAmStichtag(voelker, tag).filter((v) => (v.status === 'aktiv' || (v.historie || []).some((h) => !('standNach' in h)))
+    && (!standId || standAmStichtag(v, tag, wanderungen) === standId));   // ohne Stand: alle Völker dieses Tages
+  return U.sortBy(da, (v) => String(v.name || '').toLowerCase());
+}
+/* Völkerliste der Ernte am ganzen Stand (Prüfung 2, 08.11.2026, R3): Ernte-Formular und PDF-Übernahme teilen sich das.
+   Die Liste folgt Stand UND Erntedatum. Bleiben es dieselben Völker, bleibt die Liste stehen – Häkchen und eigene Mengen
+   gehen beim Ändern des Datums nicht verloren. */
+async function verdrahteErnteVoelker(m, box, jeVolk) {
+  const [alle, wanderungen] = await Promise.all([DB.getAll('voelker'), DB.getAll('wanderungen')]);
+  const standSel = $('#f-zielStand', m.el), datumEl = $('#f-datum', m.el);
+  let bisher = null;
+  const zeichnen = () => {
+    const tag = (datumEl && datumEl.value) || U.todayIso(), standId = standSel ? standSel.value : '';
+    const am = standId ? voelkerAmStandAm(alle, standId, tag, wanderungen) : [];
+    const schluessel = `${standId}|${am.map((x) => x.id).join(',')}`;
+    if (schluessel === bisher) return;
+    bisher = schluessel;
+    box.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}${x.status !== 'aktiv' ? ' · nicht mehr aktiv' : ''}</span></label>`).join('')
+      : `<div class="hint">${standId ? 'Am Erntetag stand an diesem Stand kein Volk. Wähle „Einzelnes Volk“, einen anderen Stand oder ein anderes Datum.' : 'Wähle zuerst den Stand.'}</div>`;
+    jeVolk.auffrischen();
+  };
+  if (standSel) standSel.addEventListener('change', zeichnen);
+  if (datumEl) datumEl.addEventListener('change', zeichnen);
+  zeichnen();
 }
 
 function chargeAbgefuelltKg(chargeId, abfAlle) { return U.sum((abfAlle || []).filter((a) => a.chargeId === chargeId), (a) => (a.anzahl || 0) * (a.gebindeG || 0) / 1000); }
@@ -14607,8 +14684,8 @@ const BB_ASSISTENT = {
   zertifikate: {
     fragen: [],
     text: (a, c) => c.zertNr
-      ? `Bescheinigung der Kontrollstelle Nr. ${c.zertNr}${c.zertBis ? `, gültig bis ${U.fmtDate(c.zertBis)}` : ''}.${c.zertAblage ? ` Das Original liegt: ${c.zertAblage}.` : ''} Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Abnehmer & Lieferanten“ hinterlegt.`
-      : 'Die Bescheinigung der Kontrollstelle (Nummer, Gültigkeit, Ablageort) ist unten unter „Eigenes Öko-Zertifikat“ eingetragen. Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Abnehmer & Lieferanten“ hinterlegt.',
+      ? `Bescheinigung der Kontrollstelle Nr. ${c.zertNr}${c.zertBis ? `, gültig bis ${U.fmtDate(c.zertBis)}` : ''}.${c.zertAblage ? ` Das Original liegt: ${c.zertAblage}.` : ''} Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Finanzen“ › „Abnehmer & Lieferanten“ hinterlegt.`
+      : 'Die Bescheinigung der Kontrollstelle (Nummer, Gültigkeit, Ablageort) ist unten unter „Eigenes Öko-Zertifikat“ eingetragen. Zertifikate von Lieferanten sind beim jeweiligen Partner unter „Finanzen“ › „Abnehmer & Lieferanten“ hinterlegt.',
   },
 };
 
@@ -14908,18 +14985,22 @@ async function chargeFuerVerarbeitung(chargeId) {
 }
 /** Was die App über eine Ernte (Schleuderung) weiß – Datum, Sorte, Menge, Wassergehalt und das Los, in das sie eingeht. */
 async function ernteFuerVerarbeitung(ernteId) {
-  const [ernten, chargen, abf, behandlungen, voelker, staende] = await Promise.all(['ernten', 'chargen', 'abfuellungen', 'behandlungen', 'voelker', 'staende'].map((st) => DB.getAll(st)));
+  const [ernten, chargen, abf, behandlungen, voelker, staende, wanderungen] = await Promise.all(['ernten', 'chargen', 'abfuellungen', 'behandlungen', 'voelker', 'staende', 'wanderungen'].map((st) => DB.getAll(st)));
   const e = ernten.find((x) => x.id === ernteId);
   if (!e) return null;
   const volk = e.zielTyp === 'volk' ? voelker.find((v) => v.id === e.zielId) : null;
-  const stand = e.zielTyp === 'stand' ? staende.find((x) => x.id === e.zielId) : (volk ? staende.find((x) => x.id === volk.standId) : null);
+  /* Stand am Erntetag, nicht der heutige (Prüfung 2, 08.11.2026, R2): Ernten am ganzen Stand sind jetzt Volk-Ernten. Wanderte
+     das Volk danach von A nach B, hieß die Herkunft „Volk X · B“, und die Behandlungen von Stand A fehlten für Wartezeit und
+     „letzte Behandlung“. Wie in der Statistik: standAmStichtag. Eine Stand-Behandlung zählt, wenn das Volk an ihrem Tag dort stand. */
+  const amTag = (tag) => (volk ? standAmStichtag(volk, String(tag || U.todayIso()).slice(0, 10), wanderungen) : null);
+  const stand = e.zielTyp === 'stand' ? staende.find((x) => x.id === e.zielId) : (volk ? staende.find((x) => x.id === amTag(e.datum)) : null);
   /* Gelöschter Stand (Julian 05.11.2026): Herkunft „Stand Waldrand (gelöscht)“ statt leer, und seine Behandlungen zählen
      weiter für Wartezeit und „letzte Behandlung“ – sie hängen an der Kennung, nicht am vorhandenen Datensatz. */
-  const standId = e.zielTyp === 'stand' ? e.zielId : (volk ? volk.standId : null);
+  const standId = e.zielTyp === 'stand' ? e.zielId : amTag(e.datum);
   const standName = stand ? stand.name : standId ? standNameAnzeige(standId, staende) : null;
   const herkunft = volk ? (/^volk\b/i.test(String(volk.name || '')) ? String(volk.name) : `Volk ${volk.name || volk.nummer || ''}`.trim()) + (standName != null ? ` · ${standName}` : '') : (standName != null ? (stand ? `Stand ${standName}` : Pdf._ziel('Stand', standName)) : '');
   // letzte Behandlung des Volkes bzw. Standes vor der Ernte (Bestandsbuch)
-  const passt = (b) => (b.zielTyp === 'volk' ? volk && b.zielId === volk.id : !!standId && b.zielId === standId) && (b.datum || '') <= (e.datum || '9999');
+  const passt = (b) => (b.zielTyp === 'volk' ? volk && b.zielId === volk.id : volk ? !!b.zielId && amTag(b.datum || e.datum) === b.zielId : !!standId && b.zielId === standId) && (b.datum || '') <= (e.datum || '9999');
   const letzte = U.sortBy(behandlungen.filter(passt), (b) => b.datum || '', true)[0] || null;
   // Das späteste Ende aller Behandlungen zählt: Eine neuere ohne Wartezeit beendet die laufende einer älteren nicht
   const wartezeitBis = behandlungen.filter(passt).reduce((max, b) => { const t = Number(b.wartezeitTage); if (!(t > 0)) return max; const ende = U.addDays(b.datum, Math.round(t)); return ende > max ? ende : max; }, '');
@@ -17169,7 +17250,7 @@ Views.bio = {
     <div class="card"><div class="card-title">${icon('doc')}<h2>Eigenes Öko-Zertifikat</h2>
       <button class="btn btn-ghost btn-sm no-print" id="zert-edit">${icon('pencil')} Bearbeiten</button></div>
       <p class="small muted mb12">Die eigene Bescheinigung der Kontrollstelle. Die Zertifikate deiner Lieferanten gehören nicht hierher,
-        sondern zum jeweiligen Partner unter „Abnehmer &amp; Lieferanten“.</p>
+        sondern zum jeweiligen Partner unter „Finanzen“ › „Abnehmer &amp; Lieferanten“.</p>
       <div class="detail-kv">
         <dt>Kontrollstelle</dt><dd>${U.esc(imk.bioKontrollstelle) || '–'}</dd>
         <dt>Bescheinigungs-Nr.</dt><dd>${U.esc(imk.oekoZertNummer) || '–'}</dd>
@@ -17650,6 +17731,7 @@ Views.honig = {
   async tabVerkaeufe(box) {
     const roh = await DB.getAll('verkaeufe');
     const abf = await idMap('abfuellungen'), chargen = await idMap('chargen'), kontakte = await idMap('kontakte'), ernten = await idMap('ernten');
+    const rechnungen = await DB.getAll('rechnungen');
     const H = Views.honig, F = H.filterLeiste('verkaeufe', roh, (v) => (v.datum || '').slice(0, 4), [['Datum', 'datum'], ['Betrag', 'betrag'], ['Abnehmer', 'abnehmer'], ['Menge', 'menge']]);
     const abnehmer = (v) => (v.kontaktId && kontakte.get(v.kontaktId)?.name) || '';
     const list = roh.filter(F.passt).sort({
@@ -17671,7 +17753,9 @@ Views.honig = {
           <span class="r-ic" style="background:var(--ok-bg);color:var(--ok)">${icon('euro')}</span>
           <span class="r-main"><span class="r-title">${U.esc(v.anzahl)} × ${U.esc(verkaufHonigText(v, a, c, ernten))} · ${U.fmtEur(v.betrag)}</span>
           <span class="r-sub">${U.fmtDate(v.datum)} · à ${U.fmtEur(v.preisJeGlas)}${v.rabatt ? ' · ' + U.esc(v.rabattText || 'Rabatt ' + U.fmtEur(v.rabatt)) : ''}${v.kontaktId ? ' · ' + U.esc(kontakte.get(v.kontaktId)?.name || '') : ''}${v.notiz ? ' · ' + U.esc(v.notiz) : ''}</span></span>
-          <button class="btn btn-xs btn-danger no-print" data-storno="${U.esc(v.id)}">Stornieren</button>
+          <span class="flex-wrap no-print" style="gap:6px;justify-content:flex-end">
+            <button class="btn btn-xs btn-ghost" data-vk-rechnung="${U.esc(v.id)}">${verkaufRechnungKnopf(verkaufRechnungZu(rechnungen, 'honig', v.id))}</button>
+            <button class="btn btn-xs btn-danger" data-storno="${U.esc(v.id)}">Stornieren</button></span>
         </div>`;
       }).join('') + `</div>` + seitenweise('verkaeufe', list).knopf
       : roh.length ? '<p class="small muted">Kein Verkauf in dieser Auswahl.</p>'
@@ -17680,6 +17764,16 @@ Views.honig = {
     bindAdd(() => verkaufForm(), box);
     box.addEventListener('click', async (e) => {
       if (H.filterKlick(e)) return;
+      /* Rechnung auch später noch (Prüfung 2, 08.11.2026, R5/R7): als Beleg zum gebuchten Verkauf, ohne doppelte Buchung.
+         Gibt es schon eine, öffnet verkaufRechnungErstellen diese. */
+      const rb = e.target.closest('[data-vk-rechnung]');
+      if (rb) {
+        const vk = list.find((x) => x.id === rb.dataset.vkRechnung);
+        if (!vk) return;
+        const a = abf.get(vk.abfuellungId);
+        await verkaufRechnungErstellen({ verkauf: vk, text: rechnungHonigText(a, a ? chargen.get(a.chargeId) : null, { sorte: vk.sorte, gebindeG: vk.gebindeG }) });
+        return;
+      }
       const st = e.target.closest('[data-storno]');
       if (st) {
         if (Lizenz.nurVoll('Der Honigverkauf')) return;
@@ -17824,18 +17918,7 @@ Views.honig = {
       /* Völkerliste des gewählten Stands: alle aktiven Völker angehakt, einzeln abwählbar, eigene kg (Julian 08.11.2026) */
       const jeVolkBox = $('[data-je-volk]', m.el);
       const jeVolk = verdrahteMengeJeVolk(m, jeVolkBox, $('#f-mengeProVolk', m.el), { einheit: () => 'kg', summe: $('[data-je-volk-summe]', m.el) });
-      if (!e) {
-        const aktiv = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name.toLowerCase());
-        const standSel = $('#f-zielStand', m.el);
-        const zeichnen = () => {
-          const am = standSel && standSel.value ? aktiv.filter((x) => x.standId === standSel.value) : [];
-          jeVolkBox.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}</span></label>`).join('')
-            : `<div class="hint">${standSel && standSel.value ? 'An diesem Stand steht kein aktives Volk. Wähle „Einzelnes Volk“ oder einen anderen Stand.' : 'Wähle zuerst den Stand.'}</div>`;
-          jeVolk.auffrischen();
-        };
-        if (standSel) standSel.addEventListener('change', zeichnen);
-        zeichnen();
-      }
+      if (!e) await verdrahteErnteVoelker(m, jeVolkBox, jeVolk);   // Völker am Erntetag (Prüfung 2, 08.11.2026, R3)
     };
     const add = () => form(null);
     bindAdd(add, box);
@@ -18823,7 +18906,7 @@ const KASSE_BEREICHE = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Inven
 /** Bereich eines Lager-Datensatzes (Zugang/Abgang) nach seinem Typ. */
 const lagerBereichVon = (typ) => (typ === 'inventar' ? 'inventar' : typ === 'produkt' ? 'produkt' : typ === 'honig' ? 'honig' : 'verbrauch');
 async function kassenBereiche() {
-  const [inv, zug, abg, vk, pf] = await Promise.all(['inventar', 'materialzugaenge', 'materialabgaenge', 'verkaeufe', 'pfandbewegungen'].map((st) => DB.getAll(st)));
+  const [inv, zug, abg, vk, pf, re] = await Promise.all(['inventar', 'materialzugaenge', 'materialabgaenge', 'verkaeufe', 'pfandbewegungen', 'rechnungen'].map((st) => DB.getAll(st)));
   const typVon = new Map(inv.map((i) => [i.id, inventarTyp(i)]));
   const m = new Map();
   const mat = (x) => lagerBereichVon(x.typ || typVon.get(x.inventarId));
@@ -18831,13 +18914,19 @@ async function kassenBereiche() {
   for (const a of abg) if (a.kassenbuchId) m.set(a.kassenbuchId, mat(a));
   for (const v of vk) if (v.kassenbuchId) m.set(v.kassenbuchId, 'honig');
   for (const x of pf) if (x.kassenbuchId) m.set(x.kassenbuchId, 'pfand');
+  /* Rechnung nur mit Lager-Ware einer Art (Prüfung 2, 08.11.2026, R9): Einnahme und Storno in den Bereich dieser Art –
+     eine Schleuder (Geräte & Inventar) stand sonst über die Kategorie „Materialverkauf“ unter Verbrauchsmaterial. */
+  for (const r of re) {
+    const art = rechnungLagerArt(r, (id) => typVon.get(id));
+    if (art && art !== 'gemischt') m.set('rechnung:' + r.id, lagerBereichVon(art));
+  }
   return m;
 }
 /* Richtung einer Kassenbuch-Zeile aus Art UND Betrag: +1 = Geld kommt rein, -1 = Geld geht raus. Das Storno einer
    Rechnung ist eine Einnahme mit negativem Betrag – angezeigt wurde es mit „+“, und die Zeilen ergaben nicht mehr die
    Summe darüber (Fund 04.11.2026, #20). Für Liste und Kassenbuch-PDF. */
 function kassenRichtung(k) { return (k.typ === 'einnahme' ? 1 : -1) * (Number(k.betrag) < 0 ? -1 : 1); }
-const kassenBereich = (k, map) => map.get(k.id) || ({ Honigverkauf: 'honig', 'Honig-Zukauf': 'honig', 'Pfandrückgabe': 'pfand', Materialverkauf: 'verbrauch', 'Weitere Produkte': 'produkt', Lohnverarbeitung: 'produkt' }[k.kategorie]) || 'sonstiges';
+const kassenBereich = (k, map) => map.get(k.id) || (k.rechnungId && map.get('rechnung:' + k.rechnungId)) || ({ Honigverkauf: 'honig', 'Honig-Zukauf': 'honig', 'Pfandrückgabe': 'pfand', Materialverkauf: 'verbrauch', 'Weitere Produkte': 'produkt', Lohnverarbeitung: 'produkt' }[k.kategorie]) || 'sonstiges';
 
 /** Gehört eine Kassenbuch-Buchung zu einem Eintrag in einem Bereich (Zugang, Abgang, Honig-Verkauf, Pfand)? Beschreibung + Aktion zum Mitlöschen, sonst null. */
 async function kassenbuchVerknuepft(k) {
@@ -19521,10 +19610,18 @@ function rechnungSummenNeu(r) {
 /** Kassenbuch-Kategorie einer Rechnung (Julian 08.11.2026, Paket 4): wie bisher „Honigverkauf“; besteht sie nur aus
     Lager-Positionen, die Kategorie wie beim Lager-Verkauf („Weitere Produkte“ bzw. „Materialverkauf“). */
 function rechnungKategorie(r, inventar) {
+  const art = rechnungLagerArt(r, (id) => { const i = (inventar || []).find((x) => x.id === id); return i ? inventarTyp(i) : null; });
+  if (!art) return 'Honigverkauf';
+  return art === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf';
+}
+/** Lager-Art einer Rechnung nur aus Lager-Positionen: 'produkt', 'verbrauch' oder 'inventar' – 'gemischt' bei mehreren
+    Arten, null wenn auch Honig oder freie Positionen drin sind. typVon(inventarId) liefert die Art (unbekannt = Verbrauch).
+    Daraus folgen Kategorie und Kassenbuch-Bereich (Prüfung 2, 08.11.2026, R9: eine Schleuder stand unter „Verbrauchsmaterial“). */
+function rechnungLagerArt(r, typVon) {
   const pos = (r && r.positionen) || [];
-  if (!pos.length || !pos.every((p) => p.inventarId)) return 'Honigverkauf';
-  const typen = pos.map((p) => { const i = (inventar || []).find((x) => x.id === p.inventarId); return i ? inventarTyp(i) : 'verbrauch'; });
-  return typen.every((t) => t === 'produkt') ? 'Weitere Produkte' : 'Materialverkauf';
+  if (!pos.length || !pos.every((p) => p.inventarId)) return null;
+  const arten = new Set(pos.map((p) => typVon(p.inventarId) || 'verbrauch'));
+  return arten.size === 1 ? [...arten][0] : 'gemischt';
 }
 /* Gemischte Rechnung (Lager-Ware UND Honig oder freie Positionen, Prüfung 08.11.2026, P9/P17): Die Einnahme bleibt EINE
    Buchung unter „Honigverkauf“ – das Storno nimmt dieselbe Kategorie, die Rechnung bleibt im Kassenbuch eine Zeile. Damit
@@ -20001,9 +20098,11 @@ Views.rechnung = {
           if (!pos) continue;   // Position endgültig gelöscht: nichts abgezogen, keine Zeile
           const ps = aktuell.positionen.filter((p) => p.inventarId === id);
           const summe = U.sum(ps, (p) => buchungsZahl(p.menge, 'Menge') * buchungsZahl(p.einzelpreis, 'Einzelpreis'));
+          /* betragRechnung immer setzen (Prüfung 2, 08.11.2026, R6): Derselbe Artikel zu verschiedenen Preisen (1 × 4,99 € +
+             2 × 5,00 €) ergab einen gerundeten Durchschnittspreis 5,00 € und so 15,00 € Erlös statt 14,99 € wie im Kassenbuch. */
           ops.push({ store: 'materialabgaenge', obj: { id: U.uuid(), inventarId: id, bezeichnung: pos.bezeichnung || text, typ: inventarTyp(pos), einheit: verbrauchEinheit(pos),
             datum: aktuell.datum, menge, art: 'Verkauf', preis: menge > 0 ? Math.round(summe / menge * 100) / 100 : 0, kontaktId: aktuell.kundeId, kaeufer: '',
-            ...(rabattFaktor < 1 - 1e-9 ? { betragRechnung: Math.round(summe * rabattFaktor * 100) / 100 } : {}),
+            betragRechnung: Math.round(summe * rabattFaktor * 100) / 100,
             belegNr: nr.nummer, bestandVorher: vorherLager.has(id) ? vorherLager.get(id) : verbrauchBestand(pos) + menge, bestandNachher: verbrauchBestand(pos), notiz: '', kassenbuchId: null, rechnungId: aktuell.id } });
         }
         ops.push({ store: 'rechnungen', obj: aktuell });
@@ -20701,6 +20800,15 @@ function rechnungGrundwerte() {
 function belegRechnungZu(rechnungen, art, id) {
   return (rechnungen || []).find((r) => r.status === 'festgeschrieben' && r.ausVerkauf && r.ausVerkauf.art === art && r.ausVerkauf.id === id) || null;
 }
+/** Nicht stornierte Rechnung (Entwurf oder festgeschrieben) zu diesem Verkauf – sonst null. Danach richtet sich der Knopf
+    „Rechnung erstellen“ bzw. „Rechnung … ansehen“ am Verkauf (Prüfung 2, 08.11.2026, R5/R7). */
+function verkaufRechnungZu(rechnungen, art, id) {
+  return (rechnungen || []).find((r) => r.status !== 'storniert' && r.ausVerkauf && r.ausVerkauf.art === art && r.ausVerkauf.id === id) || null;
+}
+/** Beschriftung des Rechnungs-Knopfs an einem Verkauf (R5/R7). */
+function verkaufRechnungKnopf(re) {
+  return re ? `Rechnung ${re.nummer ? U.esc(re.nummer) : '(Entwurf)'} ansehen` : 'Rechnung erstellen';
+}
 /** Festgeschriebene Beleg-Rechnung zu der Kassenbuch-Einnahme eines Verkaufs (Honig oder Lager) – sonst null
     (Prüfung 08.11.2026, P11/P15). Der Verkauf merkt sich seine Einnahme in `kassenbuchId`. */
 function belegRechnungZuBuchung(k, rechnungen, verkaeufe, abgaenge) {
@@ -20763,8 +20871,8 @@ function rechnungVerkaufVermerk(r) {
     DERSELBEN Transaktion die Einnahme des Verkaufs auf den Rechnungsbetrag gesetzt und der Verkauf mitgeführt – mit Vermerk
     „vorher X €“ an Rechnung, Verkauf und Kassenbuch-Zeile. Es entsteht KEINE zweite Einnahme: genau eine Zeile, neuer Betrag.
     Hat der Verkauf (Honig-Verkauf ohne Preis o. Ä.) noch gar keine Einnahme, wird eine angelegt und verknüpft. Fehlt sie, obwohl
-    der Verkauf auf eine zeigt (gelöscht oder im Papierkorb), bleibt das Kassenbuch unangetastet – sonst entstünde beim
-    Wiederherstellen eine doppelte Einnahme. Gibt die Ops zurück. */
+    der Verkauf auf eine zeigt (gelöscht oder im Papierkorb), entsteht keine neue – sonst gäbe es beim Wiederherstellen eine
+    doppelte Einnahme; liegt sie im Papierkorb, bekommt sie dort den neuen Betrag (R10). Gibt die Ops zurück. */
 function belegVerkaufAnpassen(d, rechnung, nummer, brutto) {
   const av = rechnung.ausVerkauf, honig = av.art === 'honig';
   const vk = honig ? d.verkaeufe.find((x) => x.id === av.id) : d.materialabgaenge.find((x) => x.id === av.id);
@@ -20774,12 +20882,21 @@ function belegVerkaufAnpassen(d, rechnung, nummer, brutto) {
   if (Math.abs(neu - vorher) < 0.005) return [];
   const ops = [], vermerk = `Rechnung ${nummer}: gegenüber dem Verkauf geändert (vorher ${U.fmtEur(vorher)})`;
   av.geaendertVorher = vorher;
+  const anpassen = (k) => {
+    k.betrag = neu;
+    k.beschreibung = `${String(k.beschreibung || '').replace(/ – Rechnung [^:]*: gegenüber dem Verkauf geändert \(vorher [^)]*\)$/, '')} – ${vermerk}`;
+    k.geaendertDurchRechnung = { rechnungId: rechnung.id, nummer, vorher };
+  };
   let kb = vk.kassenbuchId ? d.kassenbuch.find((k) => k.id === vk.kassenbuchId) || null : null;
+  /* Einnahme liegt im Papierkorb (Prüfung 2, 08.11.2026, R10): Dort den neuen Betrag mitführen. Vorher kam beim
+     Wiederherstellen der alte Betrag zurück – gesperrt durch die Rechnung, korrigierbar nur über ein Storno von allem. */
+  const imKorb = !kb && vk.kassenbuchId ? (d.papierkorb || []).find((t) => t.store === 'kassenbuch' && t.daten && t.daten.id === vk.kassenbuchId) : null;
   if (kb) {
-    kb.betrag = neu;
-    kb.beschreibung = `${String(kb.beschreibung || '').replace(/ – Rechnung [^:]*: gegenüber dem Verkauf geändert \(vorher [^)]*\)$/, '')} – ${vermerk}`;
-    kb.geaendertDurchRechnung = { rechnungId: rechnung.id, nummer, vorher };
+    anpassen(kb);
     ops.push({ store: 'kassenbuch', obj: kb });
+  } else if (imKorb) {
+    anpassen(imKorb.daten);
+    ops.push({ store: 'papierkorb', obj: imKorb });
   } else if (!vk.kassenbuchId && neu > 0) {
     kb = { id: U.uuid(), datum: vk.datum || rechnung.datum, typ: 'einnahme', kategorie: honig ? 'Honigverkauf' : (vk.typ === 'produkt' ? 'Weitere Produkte' : 'Materialverkauf'),
       betrag: neu, steuersatz: 0, kontaktId: rechnung.kundeId || vk.kontaktId || null, rechnungId: null, beschreibung: `Verkauf – ${vermerk}`,
@@ -20808,14 +20925,15 @@ async function verkaufRechnungErstellen(erg) {
   if (!b) return null;
   try {
     const r = await DB.aendereAtomar(['rechnungen', 'kontakte', 'inventar'], (d) => {
-      const schon = d.rechnungen.find((x) => x.status !== 'storniert' && x.ausVerkauf && x.ausVerkauf.art === b.art && x.ausVerkauf.id === b.id);
+      const schon = verkaufRechnungZu(d.rechnungen, b.art, b.id);
       if (schon) return { ops: [], wert: schon };
       const kunde = b.kontaktId ? d.kontakte.find((k) => k.id === b.kontaktId) : null;
       const grund = rechnungGrundwerte();
       const neu = { ...grund, id: U.uuid(), datum: b.datum || U.todayIso(), kundeId: kontaktIstKunde(kunde) ? kunde.id : null,
-        // Lager-Artikel: sein eigener Steuersatz (Julian 08.11.2026); Kleinunternehmer und Pauschal weiter 0 %
-        positionen: b.positionen.map((p) => ({ ...p, steuersatz: grund.steuerart !== 'regel' ? 0
-          : b.art === 'lager' ? lagerSteuersatz(d.inventar.find((i) => i.id === b.inventarId)) : p.steuersatz })), ausVerkauf: { art: b.art, id: b.id, betrag: b.betrag },
+        /* Lager-Artikel: sein eigener Steuersatz (Julian 08.11.2026), Honig 7 %. Immer der echte Satz, auch bei § 19/§ 24
+           (Prüfung 2, 08.11.2026, R8): Dort zählt er nicht (keine USt auf der Rechnung). Stellt man den Entwurf auf
+           Regelbesteuerung um, stimmt die USt sofort – die Position ist ja gesperrt und ließe sich nicht korrigieren. */
+        positionen: b.positionen.map((p) => ({ ...p, steuersatz: b.art === 'lager' ? lagerSteuersatz(d.inventar.find((i) => i.id === b.inventarId)) : p.steuersatz })), ausVerkauf: { art: b.art, id: b.id, betrag: b.betrag },
         ...(b.rabatt > 0 ? { rabattTyp: 'betrag', rabattWert: b.rabatt } : {}) };
       return { ops: [{ store: 'rechnungen', obj: neu }], wert: neu };
     });
@@ -23934,11 +24052,17 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     return;
   }
   const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase()); // alle Kontakte – auch „beides“
+  // Rechnung zu einem gebuchten Verkauf auch später noch (Prüfung 2, 08.11.2026, R5/R7) – oder die vorhandene ansehen
+  const rechnungKnopf = rec && rec.art === 'Verkauf';
+  const reVorhanden = rechnungKnopf ? verkaufRechnungZu(await DB.getAll('rechnungen'), 'lager', rec.id) : null;
   const m = UI.formModal({
     title: rec ? `Abgang bearbeiten · ${cfg.titel}` : `${(vorArt && vorArt !== 'Verkauf') ? 'Eigenverbrauch / Verlust' : 'Verkauf'} · ${cfg.titel}`, wide: true,
     fields: [
       { key: '_bearbHinweis', type: 'static', showIf: () => !!rec,
         html: rec ? '<div class="hint">Beim Speichern wird die alte Buchung zuerst zurückgenommen – Bestand und Kassenbuch stimmen danach wieder. Kam die Ware zurück, kannst du den Abgang unten auch löschen.</div>' : '' },
+      { key: '_rechnung', type: 'static', showIf: () => rechnungKnopf,
+        html: rechnungKnopf ? `<div class="flex-wrap no-print" style="gap:8px;align-items:center"><button class="btn btn-ghost btn-sm" type="button" data-abgang-rechnung>${icon('doc')} ${verkaufRechnungKnopf(reVorhanden)}</button>
+          <span class="small muted">${reVorhanden ? 'Zu diesem Verkauf gibt es schon eine Rechnung.' : 'Die Rechnung ist der Beleg zu diesem Verkauf. Bestand und Kassenbuch bucht sie nicht noch einmal.'}</span></div>` : '' },
       { key: 'inventarId', label: 'Welche Position?', type: 'select', required: true, default: vorPositionId,
         options: posten.map((i) => ({ v: i.id, l: `${i.bezeichnung} · Bestand ${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}` })) },
       { key: 'art', label: 'Grund des Abgangs', type: 'select', required: true, default: 'Verkauf', options: ABGANG_ARTEN.map((a) => ({ v: a, l: a })) },
@@ -24001,6 +24125,11 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
         + (buchung && buchung.gefehlt > 0 ? ` – ${U.fmtNum(buchung.gefehlt, 2)} ${gespeichert.einheit} fehlten im Bestand` : ''));
       await pruefeMhd();
       renderRoute();
+      /* Rückfrage „Rechnung dazu erstellen?“ wie nach jedem Verkauf (Prüfung 2, 08.11.2026, R5) – auch nach „Stornieren und
+         ändern“, denn dann gibt es zum geänderten Verkauf keine Rechnung mehr (R7). Erst wenn das Formular zu ist. */
+      if (gespeichert.art === 'Verkauf' && (!rec || (zurueck && zurueck.rechnungStorniert))) {
+        setTimeout(() => nachVerkaufFragen({ abgang: gespeichert, gefehlt: buchung ? buchung.gefehlt : 0 }), 0);
+      }
     },
     /* Kunde hat zurückgegeben: Abgang löschen, Bestand und Kassenbuch gehen
        automatisch mit. */
@@ -24031,6 +24160,14 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
     } : null,
   });
   verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
+  const reKnopf = $('[data-abgang-rechnung]', m.el);
+  if (reKnopf) reKnopf.onclick = async () => {
+    // Der gebuchte Stand zählt, nicht ungespeicherte Eingaben im Formular
+    const frisch = await DB.get('materialabgaenge', rec.id);
+    if (!frisch) { UI.toast('Dieser Verkauf wurde inzwischen gelöscht. Bitte die Ansicht neu öffnen.', 'err'); return; }
+    m.close();
+    await verkaufRechnungErstellen({ abgang: frisch });
+  };
   /* Neuer Verkauf: Preis aus dem Verkaufspreis der gewählten Position vorbelegen, änderbar (Julian 08.11.2026).
      Beim Bearbeiten bleibt der gebuchte Preis stehen. */
   if (!rec) {
@@ -25645,9 +25782,27 @@ const Statistik = {
       const v = volkMap.get(id), sid = v ? standAmStichtag(v, letzte.get(id) || U.todayIso(), d.wanderungen || []) : null;
       return { id, name: v ? (v.name || 'ohne Name') : 'gelöschtes Volk', stand: sid ? standNameAnzeige(sid, d.staende || []) : '', kg, n: anzahl.get(id) || 0, href: v ? '#/volk/' + id : '' };
     });
-    zeilen.sort((a, b) => b.kg - a.kg || a.name.localeCompare(b.name, 'de', { numeric: true }));
-    for (const z of zeilen) z.platz = 1 + zeilen.filter((x) => x.kg > z.kg + 1e-9).length;
+    /* Platz nach der angezeigten Menge (eine Nachkommastelle wie Liste, Volk-Seite und Export) (Prüfung 2, 08.11.2026, R12):
+       Vorher zählten die ungerundeten kg – 10,04 und 9,96 kg standen beide als „10 kg“ da, aber auf Platz 1 und 2. */
+    const anzeige = (kg) => Math.round(kg * 10) / 10;
+    zeilen.sort((a, b) => anzeige(b.kg) - anzeige(a.kg) || a.name.localeCompare(b.name, 'de', { numeric: true }));
+    for (const z of zeilen) z.platz = 1 + zeilen.filter((x) => anzeige(x.kg) > anzeige(z.kg)).length;
     return zeilen;
+  },
+  /* Ältere Ernten „Ganzer Stand“ (zielTyp 'stand') gehören keinem Volk und fehlen deshalb in Rangliste und „Honig pro Jahr“
+     (Prüfung 2, 08.11.2026, R11). Damit die Menge nicht still verschwindet, nennen beide Stellen sie: { n, kg } im Zeitraum.
+     passtStand: nur bestimmte Stand-Ernten (Volk-Seite: der Stand, an dem das Volk an dem Tag stand). Nichts wird umgeschrieben. */
+  standErntenOhneVolk(d, pruef, passtStand = null) {
+    let n = 0, kg = 0;
+    for (const e of d.ernten || []) {
+      if (e.zielTyp !== 'stand' || !pruef(e.datum) || !istHonigErnte(e) || (passtStand && !passtStand(e))) continue;
+      n++; kg += Number(e.mengeKg) || 0;
+    }
+    return { n, kg };
+  },
+  standErntenHinweis({ n, kg }) {
+    if (!n) return '';
+    return `Dazu ${n === 1 ? 'kommt 1 ältere Ernte' : `kommen ${n} ältere Ernten`} für den ganzen Stand mit zusammen ${U.fmtNum(kg, 1)} kg. Sie ${n === 1 ? 'ist' : 'sind'} keinem einzelnen Volk zugeordnet und ${n === 1 ? 'zählt' : 'zählen'} hier nicht mit.`;
   },
   /** Platz eines Volks je Jahr mit Honigernte, neueste oben: [{ jahr, platz, von, kg }] (Julian 08.11.2026) */
   honigPlaetzeVolk(d, volkId) {
@@ -25912,7 +26067,9 @@ Views.reporting = {
       if (gruppe === 'volk') {
         /* Rangliste je Volk (Julian 08.11.2026): bestes Volk oben, Balken relativ zum besten, Jahr und Schnitt darüber,
            „Exportieren“ direkt in der Kopfzeile – alles zu dieser Liste an einer Stelle. */
-        const rang = Statistik.honigRangliste(await Statistik.daten(), jahr ? (iso) => Statistik.im(iso, jahr) : () => true);
+        const dRang = await Statistik.daten(), pruefRang = jahr ? (iso) => Statistik.im(iso, jahr) : () => true;
+        const rang = Statistik.honigRangliste(dRang, pruefRang);
+        const standHinweis = Statistik.standErntenHinweis(Statistik.standErntenOhneVolk(dRang, pruefRang));   // (Prüfung 2, 08.11.2026, R11)
         const bestes = rang.length ? Math.max(rang[0].kg, 0) : 0;
         const schnitt = rang.length ? U.sum(rang, (z) => z.kg) / rang.length : 0;
         const sw = seitenweise('ertrag-volk', rang);
@@ -25927,7 +26084,8 @@ Views.reporting = {
                 <span class="rang-balken"><i style="width:${bestes > 0 ? Math.max(2, Math.round(Math.max(z.kg, 0) / bestes * 100)) : 0}%"></i></span></span>
               <span class="rang-kg">${U.fmtNum(z.kg, 1)} kg</span></div>`).join('')}</div>${sw.knopf}
             <div class="small muted mt8">Gezählt: Honig und Wabenhonig, eingetragen pro Volk (auch über „Ganzer Stand“ mit Völkerliste). Stand am Tag der Ernte.</div>`
-          : emptyState('honig', jahr ? `Keine Honigernte pro Volk in ${jahr}.` : 'Noch keine Honigernte pro Volk erfasst.')}</div>`;
+          : emptyState('honig', jahr ? `Keine Honigernte pro Volk in ${jahr}.` : 'Noch keine Honigernte pro Volk erfasst.')}
+          ${standHinweis ? `<div class="small muted mt8" data-stand-ernten>${U.esc(standHinweis)}</div>` : ''}</div>`;
         $('[data-rang-jahr]', box).onchange = (e) => { V._jahr = e.target.value; renderRoute({ scrollBehalten: true }); };
         $('[data-rang-export]', box).onclick = () => Statistik.ranglisteExportieren(jahr);
       } else box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${GRP[gruppe]}${jahr && gruppe !== 'jahr' ? ' ' + U.esc(jahr) : ''}</h2>
@@ -30224,17 +30382,9 @@ const PdfImport = {
         UI.toast('Ernte übernommen');
       },
     });
-    const jeVolkBox = $('[data-je-volk]', m.el), standSel = $('#f-zielStand', m.el);
+    const jeVolkBox = $('[data-je-volk]', m.el);
     const jeVolk = verdrahteMengeJeVolk(m, jeVolkBox, $('#f-mengeProVolk', m.el), { einheit: () => 'kg', summe: $('[data-je-volk-summe]', m.el) });
-    const aktiv = U.sortBy((await DB.getAll('voelker')).filter((x) => x.status === 'aktiv'), (x) => x.name.toLowerCase());
-    const zeichnen = () => {
-      const am = standSel && standSel.value ? aktiv.filter((x) => x.standId === standSel.value) : [];
-      jeVolkBox.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}</span></label>`).join('')
-        : `<div class="hint">${standSel && standSel.value ? 'An diesem Stand steht kein aktives Volk. Wähle „Einzelnes Volk“ oder einen anderen Stand.' : 'Wähle zuerst den Stand.'}</div>`;
-      jeVolk.auffrischen();
-    };
-    if (standSel) standSel.addEventListener('change', zeichnen);
-    zeichnen();
+    await verdrahteErnteVoelker(m, jeVolkBox, jeVolk);   // Völker am Erntetag (Prüfung 2, 08.11.2026, R3)
     return m;
   },
 };
