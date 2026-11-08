@@ -22906,3 +22906,132 @@ test('Prüfung 2, 08.11.2026 (R12): gleiche angezeigte Menge = gleicher Platz', 
   assertEq(r.map((z) => [z.id, z.platz, w.U.fmtNum(z.kg, 1)]), [[A.id, 1, '10'], [B.id, 1, '10'], [C.id, 3, '9,9']], '10,04 und 9,96 kg zeigen beide „10“ und stehen beide auf Platz 1');
   assertEq(w.Statistik.honigPlaetzeVolk(d, B.id).map((p) => p.platz), [1], 'Volk-Seite von B: Platz 1');
 }));
+
+/* Meldung Android (Web-Version), 08.11.2026: Zurück ging die Seite hinter dem Fenster zurück, das Fenster blieb offen. */
+async function zwFensterZu(w) { for (const m of w.document.querySelectorAll('#modal-root .modal-back')) m.remove(); w.FormGuard.dirty = false; }
+test('Web-Zurück: Zurück schließt das oberste Fenster, die Seite darunter bleibt', async (w) => {
+  w.ZurueckWeb._ohneGeste = true;
+  try {
+    await zwFensterZu(w);
+    w.navTo('lager'); await w99(400);
+    const vorher = w.location.hash;
+    const m = w.UI.modal({ title: 'ZW-Test', body: '<p>x</p>' });
+    assert(w.history.state && w.history.state.ibFenster, 'Fenster hat einen eigenen Verlaufs-Eintrag');
+    assertEq(w.location.hash, vorher, 'gleiche Adresse');
+    w.history.back(); await w99(500);
+    assert(!m.el.isConnected, 'Fenster ist zu');
+    assertEq(w.location.hash, vorher, 'Seite darunter bleibt stehen');
+    /* zwei Fenster übereinander: erst das obere */
+    const a = w.UI.modal({ title: 'ZW-A', body: '<p>a</p>' }), b = w.UI.modal({ title: 'ZW-B', body: '<p>b</p>' });
+    w.history.back(); await w99(500);
+    assert(!b.el.isConnected && a.el.isConnected, 'nur das obere Fenster geht zu');
+    w.history.back(); await w99(500);
+    assert(!a.el.isConnected, 'dann das untere');
+    assertEq(w.location.hash, vorher, 'Seite bleibt weiter stehen');
+  } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
+});
+
+test('Web-Zurück: ungespeicherte Eingaben – erst fragen; bei „Abbrechen“ bleibt das Formular samt Eintrag', async (w) => {
+  w.ZurueckWeb._ohneGeste = true;
+  try {
+    await zwFensterZu(w);
+    w.navTo('lager'); await w99(400);
+    const vorher = w.location.hash;
+    const m = w.UI.modal({ title: 'ZW-Form', body: '<input class="inp">', guardDirty: true });
+    w.FormGuard.dirty = true;
+    w.history.back(); await w99(500);
+    let oben = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(oben && /Änderungen verwerfen/.test(oben.textContent), 'Rückfrage erscheint: ' + (oben ? oben.textContent : '–'));
+    oben.querySelector('[data-no]').click(); await w99(400);
+    assert(m.el.isConnected, 'Formular bleibt offen');
+    assert(w.history.state && w.history.state.ibFenster, 'Eintrag wieder angelegt – das nächste Zurück schließt wieder zuerst das Fenster');
+    w.history.back(); await w99(500);
+    oben = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(oben && /Änderungen verwerfen/.test(oben.textContent), 'wieder die Rückfrage');
+    oben.querySelector('[data-yes]').click(); await w99(400);
+    assert(!m.el.isConnected, 'nach „Verwerfen“ ist das Formular zu');
+    assertEq(w.location.hash, vorher, 'Seite blieb die ganze Zeit stehen');
+  } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
+});
+
+test('Web-Zurück: Fenster mit ✕ geschlossen – das nächste Zurück geht gleich eine Seite zurück', async (w) => {
+  w.ZurueckWeb._ohneGeste = true;
+  try {
+    await zwFensterZu(w);
+    w.navTo('aufgaben'); await w99(400);
+    w.navTo('lager'); await w99(400);
+    const m = w.UI.modal({ title: 'ZW-X', body: '<p>x</p>' });
+    m.el.querySelector('[data-close]').click(); await w99(300);
+    assert(!m.el.isConnected, 'mit ✕ zu');
+    w.history.back(); await w99(700);
+    assertEq(w.currentRoute().route, 'aufgaben', 'ein Zurück reicht, um auf die vorige Seite zu kommen');
+  } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
+});
+
+test('Web-Zurück: Zurück schließt den Aufkleber-Scanner, die Seite bleibt; Zurück in der Hilfe-Tour beendet sie', async (w) => {
+  w.ZurueckWeb._ohneGeste = true;
+  const echt = Object.getOwnPropertyDescriptor(w.navigator, 'mediaDevices');
+  try {
+    await zwFensterZu(w);
+    w.navTo('voelker'); await w99(500);
+    const vorher = w.location.hash;
+    Object.defineProperty(w.navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: () => new Promise(() => {}) } });   // Kamera „lädt“ noch
+    w.VolkScanner.oeffnen(); await w99(400);
+    assert(w.document.querySelector('.volk-scan'), 'Scanner ist offen');
+    w.history.back(); await w99(500);
+    assert(!w.document.querySelector('.volk-scan') && !w.VolkScanner._el, 'Scanner ist zu');
+    assertEq(w.location.hash, vorher, 'Seite bleibt stehen');
+    /* Hilfe-Tour ohne eigenen Eintrag: Zurück beendet sie */
+    w.Assistent.tour = { e: {}, i: 0, id: -1 };
+    w.history.back(); await w99(500);
+    assert(!w.Assistent.tour, 'Tour beendet');
+  } finally {
+    if (echt) Object.defineProperty(w.navigator, 'mediaDevices', echt); else delete w.navigator.mediaDevices;
+    if (w.VolkScanner._el) w.VolkScanner.schliessen();
+    w.Assistent.tour = null; w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w);
+  }
+});
+
+/* Prüfung der Zurück-Reparatur, 08.11.2026: zweites Zurück bei der Rückfrage, Sperr-Anzeige, Fenster ohne eigenen Eintrag */
+test('Web-Zurück: Rückfrage ohne eigenen Eintrag – zweites Zurück bricht sie ab, Seite und Formular bleiben', async (w) => {
+  try {
+    await zwFensterZu(w);
+    w.navTo('aufgaben'); await w99(400);
+    w.navTo('lager'); await w99(400);
+    const vorher = w.location.hash;
+    w.ZurueckWeb._ohneGeste = true;
+    const m = w.UI.modal({ title: 'ZW-Form2', body: '<input class="inp">', guardDirty: true });
+    w.ZurueckWeb._ohneGeste = false;   // ab hier wie nach >5 s ohne Fingertipp: keine neuen Einträge
+    w.FormGuard.dirty = true;
+    w.history.back(); await w99(900);
+    let oben = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(oben && /Änderungen verwerfen/.test(oben.textContent), 'Rückfrage erscheint');
+    assert(w.history.state && w.history.state.ibFenster, 'der Eintrag des Formulars ist zurückgeholt');
+    w.history.back(); await w99(1200);
+    oben = [...w.document.querySelectorAll('#modal-root .modal-back')].pop();
+    assert(!(oben && /Änderungen verwerfen/.test(oben.textContent)), 'Rückfrage ist weg');
+    assert(m.el.isConnected, 'Formular bleibt offen');
+    assertEq(w.location.hash, vorher, 'Seite dahinter hat NICHT gewechselt');
+    assert(w.history.state && w.history.state.ibFenster, 'Formular hat wieder seinen Eintrag');
+  } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
+});
+
+test('Web-Zurück: „Sicherung wird eingespielt …“ bleibt bei Zurück stehen, Fenster ohne eigenen Eintrag holt die Seite zurück', async (w) => {
+  try {
+    await zwFensterZu(w);
+    w.navTo('aufgaben'); await w99(400);
+    w.navTo('lager'); await w99(400);
+    const vorher = w.location.hash;
+    const weg = w.Backup._warteAnzeige();
+    w.history.back(); await w99(1200);
+    assert(w.document.querySelector('#modal-root .modal-back[data-sperre]'), 'Warte-Anzeige steht noch');
+    assertEq(w.location.hash, vorher, 'Seite dahinter zurückgeholt');
+    weg();
+    w.ZurueckWeb._ohneGeste = false;
+    const m = w.UI.modal({ title: 'ZW-ohne-Eintrag', body: '<p>x</p>' });   // ohne Fingertipp → kein eigener Eintrag
+    assert(!(w.history.state && w.history.state.ibFenster), 'wirklich kein Eintrag angelegt');
+    w.history.back(); await w99(1200);
+    assert(!m.el.isConnected, 'Fenster ist zu');
+    assertEq(w.location.hash, vorher, 'Seite dahinter zurückgeholt');
+  } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
+});

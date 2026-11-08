@@ -1637,6 +1637,7 @@ const CHANGELOG = [
     '<b>Ganzer Stand pro Volk:</b> Bei Behandlung und Ernte am ganzen Stand gibst du die Menge je Volk ein; alle Völker sind vorausgewählt, einzelne abwählbar oder mit eigener Menge (z. B. Ableger halbe Dosis). Jedes Volk bekommt seinen Eintrag.',
     '<b>Leistung pro Volk:</b> Statistik → Honig zeigt eine Rangliste je Volk mit Jahr, Schnitt und „Exportieren“; auf der Seite jedes Volks steht „Honig pro Jahr“ mit Platz.',
     '<b>Kleinigkeiten:</b> Kacheln im Menü verschieben rollt jetzt mit; Export vom Stand oder Volk zeigt nur passende Bereiche.',
+    '<b>Zurück im Browser:</b> In der Web-Version schließt die Zurück-Taste (oder Zurück-Wischen) jetzt zuerst das offene Fenster, den Aufkleber-Scanner oder die Hilfe-Tour – die Seite dahinter bleibt stehen. Vorher blieb das Fenster offen, und die Seite dahinter ging zurück.',
   ] },
   { version: '3.24', datum: '2026-11-05', punkte: [
     '<b>Große Fehlerprüfung:</b> Alle Rechnungen mit Honigmengen und alle übrigen Bereiche wurden durchgesehen, jeder Fund unabhängig gegengeprüft und behoben.',
@@ -3811,6 +3812,104 @@ function optionenSortiert(opts, string = false, keepOrder = false) {
   return [...pinned, ...rest];
 }
 
+/* Web-Version (Browser, Android-Chrome, iPhone-Safari, Startbildschirm-App):
+   Zurück-Taste und Zurück-Wischen schließen zuerst das oberste Fenster – wie in
+   der App, wo das der backButton-Empfänger weiter unten regelt. Vorher ging die
+   Seite darunter zurück, und das Fenster blieb offen (Meldung Android, 08.11.2026).
+   So geht es: Jedes Fenster legt einen eigenen Verlaufs-Eintrag mit derselben
+   Adresse an. Zurück landet auf der gleichen Adresse → das Fenster schließt sich
+   (mit der üblichen Rückfrage bei ungespeicherten Eingaben; bleibt es offen,
+   kommt der Eintrag wieder). Fenster, die anders zugehen (Speichern, ✕), lassen
+   ihren Eintrag liegen; den überspringt das nächste Zurück von selbst.
+   Jeder Eintrag trägt eine Marke (ibStand), damit „zurück“ und „vorwärts“
+   unterscheidbar sind. */
+const ZurueckWeb = {
+  _fenster: new WeakMap(),
+  _stand: 0,
+  _adresse: '',
+  _ohneGeste: false,   // Testseite: Eintrag auch ohne Fingertipp anlegen
+  _marke() { return Math.max(Date.now(), this._stand + 1); },
+  _stempeln(wert) {
+    this._stand = wert;
+    try { history.replaceState({ ...(history.state || {}), ibStand: wert }, ''); } catch (e) { /* dann eben ohne Marke */ }
+    this._adresse = location.href;
+  },
+  start() {
+    if (IST_NATIVE_APP || this._an) return;
+    this._an = true;
+    const st = history.state && history.state.ibStand;
+    if (st) { this._stand = st; this._adresse = location.href; this._aufFenster = !!history.state.ibFenster; } else this._stempeln(this._marke());   // nach Neuladen weiß der Eintrag noch, ob er einem Fenster gehörte
+    window.addEventListener('popstate', (e) => this._zurueck(e));
+    window.addEventListener('hashchange', () => {
+      if (!(history.state && history.state.ibStand)) { this._stempeln(this._marke()); this._aufFenster = false; }
+      else this._adresse = location.href;
+    });
+  },
+  /** Neues Fenster: eigenen Verlaufs-Eintrag anlegen. */
+  offen(back, m) {
+    if (IST_NATIVE_APP) return;
+    this.start();
+    if (m) this._fenster.set(back, m);
+    this._eintrag();
+  },
+  _eintrag() {
+    /* Ohne Fingertipp angelegte Einträge überspringt Chrome beim Zurückgehen –
+       samt der Seite darunter. Dann lieber wie bisher ohne Eintrag. */
+    if (!this._ohneGeste && navigator.userActivation && !navigator.userActivation.isActive) return;
+    this._stand = this._marke();
+    try { history.pushState({ ibStand: this._stand, ibFenster: true }, ''); } catch (e) { return; /* Verlauf voll o. ä.: Zurück wie bisher */ }
+    this._adresse = location.href;
+    this._aufFenster = true;
+  },
+  /** Den Schritt zurück rückgängig machen (Vorwärts braucht keinen Fingertipp). Wartet, bis der Browser dort ist. */
+  _vorwaerts() {
+    return new Promise((fertig) => {
+      const uhr = setTimeout(() => { this._warteVor = null; fertig(false); }, 600);
+      this._warteVor = () => { clearTimeout(uhr); this._warteVor = null; fertig(true); };
+      history.forward();
+    });
+  },
+  async _zurueck(e) {
+    const st = e.state && e.state.ibStand;
+    const gleich = location.href === this._adresse;
+    const vonFenster = this._aufFenster;   // der Eintrag, den Zurück gerade verlässt, gehörte einem Fenster
+    if (!st && !gleich) { this._stempeln(this._marke()); this._aufFenster = false; return; }   // neue Seite über Link oder navTo
+    if (st && st > this._stand) {   // vorwärts
+      this._stand = st; this._adresse = location.href; this._aufFenster = !!e.state.ibFenster;
+      if (this._warteVor) this._warteVor();
+      return;
+    }
+    if (st) { this._stand = st; this._adresse = location.href; } else this._stempeln(this._stand - 1);
+    this._aufFenster = !!(e.state && e.state.ibFenster);
+    /* Liegt etwas offen, darf die Seite dahinter nicht wechseln. Kam Zurück nicht vom Eintrag eines Fensters
+       (Fenster ohne Fingertipp geöffnet), hat der Browser die Seite schon gewechselt → mit Vorwärts zurückholen. */
+    if (VolkScanner._el) { if (!vonFenster) await this._vorwaerts(); VolkScanner.schliessen(); return; }   // Reihenfolge wie beim backButton der App
+    const oben = [...document.querySelectorAll('#modal-root .modal-back')].pop();
+    if (oben) {
+      const m = this._fenster.get(oben);
+      const gesperrt = oben.hasAttribute('data-sperre') || !!oben.querySelector('#wz-body') || (!m && !oben.querySelector('[data-close]'));
+      if (gesperrt) {   // „Sicherung wird eingespielt …“, Einrichtung: nicht schließen, Seite bleibt
+        const z = oben.querySelector('#wz-back'); if (z) z.click();   // Einrichtung: einen Schritt zurück wie in der App
+        await this._vorwaerts();
+        return;
+      }
+      /* Fragt das Fenster gleich „Änderungen verwerfen?“, den Eintrag des Fensters zuerst zurückholen:
+         Sonst ginge ein zweites Zurück (um die Frage wegzumachen) eine Seite dahinter (Prüfung 08.11.2026). */
+      const fragt = !!(m && m.fragtBeimSchliessen && m.fragtBeimSchliessen());
+      if (!vonFenster || fragt) await this._vorwaerts();
+      let zu = true;
+      if (m) zu = await m.close();
+      else oben.querySelector('[data-close]').click();
+      if (zu === false && oben.isConnected && !this._aufFenster) {   // Fenster bleibt offen (Nein bei der Rückfrage): seinen Eintrag wiederherstellen
+        if (!(await this._vorwaerts()) || !this._aufFenster) this._eintrag();
+      }
+      return;
+    }
+    if (Assistent.tour) { Assistent.beendeTour(); return; }   // Zurück während der Hilfe-Tour beendet sie
+    if (vonFenster) history.back();   // liegen gebliebener Eintrag eines geschlossenen Fensters: gleich weiter zurück
+  },
+};
+
 const UI = {
   toast(msg, type = 'ok', aktion = null) {
     const t = document.createElement('div');
@@ -3841,6 +3940,7 @@ const UI = {
     if (typeof body === 'string') bodyEl.innerHTML = body; else if (body) bodyEl.appendChild(body);
     const m = {
       el: back, body: bodyEl, foot: $('.modal-foot', back),
+      fragtBeimSchliessen: () => !!(guardDirty && FormGuard.dirty),   // ZurueckWeb: kommt beim Schließen „Änderungen verwerfen?“
       async close(force = false) {
         if (!force && guardDirty && FormGuard.dirty) {
           if (!(await UI.confirm({ title: 'Änderungen verwerfen?', text: 'Das Formular enthält ungespeicherte Eingaben.', confirmText: 'Verwerfen', danger: true }))) return false;
@@ -3864,6 +3964,7 @@ const UI = {
     back.addEventListener('mousedown', (e) => { if (e.target === back) m.close(); });
     $('[data-close]', back).onclick = () => m.close();
     $('#modal-root').appendChild(back);
+    ZurueckWeb.offen(back, m);   // Web-Version: Zurück schließt dieses Fenster
     return m;
   },
 
@@ -4691,7 +4792,7 @@ async function renderRoute(opt = {}) {
   const vorher = currentRoute();
   const umleitung = ALTE_ROUTEN[vorher.route];
   const unterParam = umleitung ? vorher.param : null;
-  if (umleitung) try { history.replaceState(null, '', '#/' + umleitung); } catch (e) { location.hash = '#/' + umleitung; return; }
+  if (umleitung) try { history.replaceState(history.state, '', '#/' + umleitung); } catch (e) { location.hash = '#/' + umleitung; return; }
   const { route, param } = currentRoute();
   const view = Views[route] || Views.dashboard;
   document.body.dataset.route = Views[route] ? route : 'dashboard';
@@ -6454,7 +6555,7 @@ async function alleDatenLoeschen() {
   UI.toast('Alle Daten gelöscht');
   /* Neu anfangen heißt: auf der Startseite. Vorher lud die App die zuletzt offene Seite (#/einstellungen)
      neu, und man stand nach dem Löschen wieder in den Einstellungen (Julian, 20.10.2026). */
-  setTimeout(() => { try { history.replaceState(null, '', startAdresse()); } catch (e) { /* dann eben mit Bereich */ } location.reload(); }, 600);
+  setTimeout(() => { try { history.replaceState(history.state, '', startAdresse()); } catch (e) { /* dann eben mit Bereich */ } location.reload(); }, 600);
 }
 /** Adresse der App ohne Bereich (#/…) – lädt man sie neu, beginnt die App auf der Startseite. */
 function startAdresse() { return location.pathname + location.search; }
@@ -6494,7 +6595,7 @@ if (IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Cap
     if (VolkScanner._el) { VolkScanner.schliessen(); return; }
     const m = [...document.querySelectorAll('#modal-root .modal-back')].pop();
     if (m && m.querySelector('#wz-body')) { const z = m.querySelector('#wz-back'); if (z) z.click(); return; }   // Einrichtung nicht halb wegwerfen
-    if (m) { const x = m.querySelector('[data-close]'); if (x) x.click(); else m.remove(); return; }
+    if (m) { const x = m.querySelector('[data-close]'); if (x) x.click(); else if (!m.hasAttribute('data-sperre')) m.remove(); return; }   // „Sicherung wird eingespielt …“ bleibt stehen
     if (typeof Assistent !== 'undefined' && Assistent.tour) { Assistent.beendeTour(); return; }
     if (currentRoute().route !== 'dashboard') { if (history.length > 1) history.back(); else navTo('dashboard'); return; }
     window.Capacitor.Plugins.App.minimizeApp();
@@ -8036,6 +8137,7 @@ const VolkScanner = {
         <button type="button" class="btn vs-abbruch">Abbrechen</button></div>`;
     this._el = el;
     document.body.appendChild(el);
+    ZurueckWeb.offen(el, null);   // Web-Version: Zurück schließt den Scanner, die Seite bleibt
     const SB = IST_NATIVE_APP && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.StatusBar;   // helle Uhrzeit auf dem dunklen Scanner
     if (SB) { SB.setStyle({ style: 'DARK' }); if (SB.setBackgroundColor) SB.setBackgroundColor({ color: '#14130F' }).catch(() => {}); }
     $('.vs-abbruch', el).onclick = () => this.schliessen();
@@ -18977,12 +19079,12 @@ Views.kassenbuch = {
     let oeffnen = null;
     const adresse = opt.imFinanzen ? '#/finanzen' : '#/kassenbuch';
     const km = /^kontakt-(.+)$/.exec(param || '');
-    if (km) { Views.kassenbuch._tab = 'buchungen'; Views.kassenbuch._kontakt = km[1]; try { history.replaceState(null, '', adresse); } catch (e) { /* egal */ } }
+    if (km) { Views.kassenbuch._tab = 'buchungen'; Views.kassenbuch._kontakt = km[1]; try { history.replaceState(history.state, '', adresse); } catch (e) { /* egal */ } }
     const pm = /^(buchen|filter)-(verbrauch|inventar|produkt|honig|pfand|sonstiges)$/.exec(param || '');
     if (pm) {
       Views.kassenbuch._tab = 'buchungen';
       if (pm[1] === 'filter') Views.kassenbuch._bereich = pm[2]; else oeffnen = pm[2];
-      try { history.replaceState(null, '', adresse); } catch (e) { /* egal */ }
+      try { history.replaceState(history.state, '', adresse); } catch (e) { /* egal */ }
     }
     if (opt.imFinanzen && Views.kassenbuch._tab === 'kontakte') Views.kassenbuch._tab = 'buchungen';
     const tab = Views.kassenbuch._tab || 'buchungen';
@@ -19742,7 +19844,7 @@ Views.finanzen = {
   async render(main, param, unterParam) {
     if (param && FINANZEN_REITER.some(([id]) => id === param)) {
       this._tab = param;
-      try { history.replaceState(null, '', '#/finanzen'); } catch (e) { /* egal */ }
+      try { history.replaceState(history.state, '', '#/finanzen'); } catch (e) { /* egal */ }
     }
     if (!FINANZEN_REITER.some(([id]) => id === this._tab)) this._tab = 'kassenbuch';
     const tab = this._tab;
@@ -20586,7 +20688,7 @@ Views.lager = {
        stünde der Reiter bei jedem neuen Zeichnen wieder auf dem aus der Adresse. */
     if (param && LAGER_REITER.some(([id]) => id === param)) {
       this._tab = param;
-      try { history.replaceState(null, '', '#/lager'); } catch (e) { /* egal */ }
+      try { history.replaceState(history.state, '', '#/lager'); } catch (e) { /* egal */ }
     }
     if (!LAGER_REITER.some(([id]) => id === this._tab)) this._tab = 'alle';
     const tab = this._tab;
@@ -26908,6 +27010,7 @@ const Backup = {
   _warteAnzeige() {
     const w = document.createElement('div');
     w.className = 'modal-back';
+    w.setAttribute('data-sperre', '');   // Zurück schließt die Anzeige nicht (App und Web-Version)
     w.innerHTML = `<div class="modal"><div class="modal-body" style="text-align:center;padding:26px 24px">${logoBild(56)}<p class="mt12"><b>Sicherung wird eingespielt …</b></p><p class="small muted mt8">Bitte die App nicht schließen.</p></div></div>`;
     $('#modal-root').appendChild(w);
     return () => w.remove();
@@ -33405,6 +33508,7 @@ async function boot() {
     nebenbei('Diagramm-Bedienung', () => nachRenderBeobachten()); // Diagramm-Bedienung + Tabellen-Beschriftung, auch für Nachgeladenes
     DB.purgeTrash().catch(() => {});
     window.addEventListener('hashchange', renderRoute);
+    ZurueckWeb.start();   // Web-Version: Zurück schließt zuerst offene Fenster
     nebenbei('Auto-Sicherung', () => Backup.initAuto());
     Backup.requestPersist();
     nebenbei('Mitteilungen', () => Notif.init());
@@ -33477,7 +33581,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden, chargeLoeschWarnung,
-  TesterSperre, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
+  TesterSperre, ZurueckWeb, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,
   queenColor, zielFormValues, papierkorbDelete, ZUCHT_KALENDER, QUEEN_COLORS,
   TAGESBIENEN, tagesbiene, tagesbieneHtml, tagesbieneAktualisieren, pageHead, leistePlatz,

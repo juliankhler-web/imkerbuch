@@ -59,6 +59,10 @@ Julian: „es wäre gut eine statistik über jedes einzelne volk zu haben so das
 4. Gerätetest iPhone + Android.
 5. Praxistest der Imker (Lager, Finanzen, pro Volk, Rangliste).
 6. Store-Bildschirmfotos neu (betroffene: Menü, Lager, Finanzen) + Upload Apple/Google einzeln mit Prüfung.
+   - **Erledigt 08.11.2026 abends** (Upload-Kopien in `store-bilder/upload-v325/`): Apple iPhone 6,3″: Bild „Vom Honigraum bis zur Rechnung“ neu (Finanzen); dabei aus Versehen „Durchsicht am Stand“ entfernt und wieder hochgeladen; Reihenfolge Stockbuch, Kein Konto, Durchsicht, Honigraum, Bestandsbuch, Deine App, Mehr. Apple iPad 13″: **alle drei** neu (Julian: „denke auch an die tablet bilder“ – Bild 1 und 3 zeigten links noch das alte Menü mit Kassenbuch/Rechnungen/Inventar/Verbrauchsmaterial einzeln). Google Handy: Bild 5 neu, Reihenfolge wie vorher, Store-Eintrag gespeichert (nicht eingereicht).
+   - Pixelvergleich alt/neu aller iPhone- und Android-Bilder: sonst nur Datum (01) und Volksname (04) anders – kein Austausch nötig.
+   - Gelernt: Bei Apple nie über `find`-Treffer „Entfernen“ klicken – die Dateinamen-Beschriftung gehört oft zum Nachbarbild. Richtig: Element mit `aria-label="Screenshot <datei>"` suchen, darin den Entfernen-Knopf.
+   - Offen: KI-Kennzeichnung des neuen Google-Bilds 5 (der Knopf „KI-generierte Assets kennzeichnen“ öffnet einen Tab außerhalb meiner Reichweite – Julian). Google-Tablet-Bilder (7″/10″) gibt es bisher keine – Entscheidung Julian.
 7. Store-Texte auf alte Bereichsnamen prüfen.
 8. Website-Funktionsliste an Lager/Finanzen anpassen.
 9. Website bei Google freischalten (noindex weg inkl. .htaccess/Rechtsseiten/hochladen-vorbereiten-Prüfung, robots.txt, sitemap.xml, WebFTP-Upload, Search Console: Sitemap + Indexierung) – zusammen mit 8 in einem Upload.
