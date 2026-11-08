@@ -342,6 +342,21 @@ html[data-theme="dark"] .modal-back.kreis-auf .sheet-grid button{box-shadow:0 6p
 /* =====================================================================
    KOMPONENTEN: Karten, Buttons, Badges, Listen, Tabellen
    ===================================================================== */
+/* Rangliste Honig je Volk + „Honig pro Jahr“ beim Volk (Julian 08.11.2026, Mockup: Karten 14 px Rundung) */
+.card.rang-karte{border-radius:14px}
+.rang-kopf{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin-bottom:10px}
+.rang-jahr{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted)}
+.rang-jahr .inp{width:auto;min-width:120px;padding:7px 10px}
+.rang-schnitt{font-size:13px;color:var(--muted)}.rang-schnitt b{color:var(--text)}
+.rang-liste{display:flex;flex-direction:column}
+.rang-zeile{display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--line);min-height:48px}
+.rang-zeile:first-child{border-top:0}
+.rang-platz{width:30px;flex:none;font-weight:700;color:var(--muted);text-align:right}
+.rang-mitte{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.rang-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rang-balken{display:block;height:6px;border-radius:3px;background:var(--honey-soft)}
+.rang-balken i{display:block;height:100%;border-radius:3px;background:var(--honey)}
+.rang-kg{flex:none;font-weight:700;white-space:nowrap}
 .card{background:var(--card);border:1px solid transparent;border-radius:var(--r);box-shadow:0 2px 4px rgba(122,80,0,.04),0 14px 34px -16px rgba(122,80,0,.25);padding:18px;transition:background .25s}
 html[data-theme="dark"] .card{box-shadow:var(--shadow)}
 .card+.card{margin-top:14px}
@@ -8406,7 +8421,7 @@ Views.volk = {
         ${v.beutenkennung ? `<span class="kpill" style="white-space:nowrap">${icon('volk')} Beute ${U.esc(v.beutenkennung)}</span>` : ''}
         ${q ? `<a class="kpill" href="#/koenigin/${U.esc(q.id)}" title="Königin öffnen"><span class="dot" style="background:${qc[1]}"></span> Königin ${q.kennung ? U.esc(q.kennung) + ' · ' : ''}${q.jahrgang} (${qc[0]})${q.linie ? ' · ' + U.esc(q.linie) : ''} ›</a>` : '<span class="kpill muted">keine Königin zugeordnet</span>'}
       </div>
-      <div id="tabbar"></div><div id="tab-content"></div>
+      <div id="tabbar"></div><div id="tab-content"></div><div id="volk-honig"></div>
       <div class="card" style="margin-top:14px"><div class="card-title">${icon('buch')}<h2>Historie</h2></div>
         <div class="rows">${U.sortBy(v.historie || [], (h) => h.datum, true).map((h) => `<div class="row" style="min-height:40px;padding:7px 4px;align-items:flex-start"><span class="small muted nowrap">${U.fmtDate(h.datum)}</span><span class="small" style="flex:1;min-width:0;word-break:break-word">${U.esc(h.text)}</span></div>`).join('') || '<span class="muted small">–</span>'}</div>
       </div>`;
@@ -8420,6 +8435,7 @@ Views.volk = {
     else if (tab === 'varroa') await Views.volk.tabVarroa(box, v);
     else if (tab === 'gewicht') await Views.volk.tabGewicht(box, v);
     else await Views.volk.tabNotizen(box, v);
+    await Views.volk.honigKasten($('#volk-honig', main), v);
     $('#qr').onclick = () => volkQrAnzeigen(v);
     const sdVolk = $('#sdVolk'); if (sdVolk) sdVolk.onclick = () => Views.durchsicht.starten(v.id);
     $('#edit').onclick = () => openVolkForm(v, {}, renderRoute);
@@ -8454,6 +8470,18 @@ Views.volk = {
         },
       });
     };
+  },
+
+  /* „Honig pro Jahr“ (Julian 08.11.2026): je Jahr mit Ernte der Platz unter allen Völkern mit Honigernte in diesem Jahr,
+     neueste oben – dieselbe Rangliste wie in der Statistik (Honig + Wabenhonig, nur Ernten pro Volk). */
+  async honigKasten(box, v) {
+    if (!box) return;
+    const plaetze = Statistik.honigPlaetzeVolk({ ernten: await DB.getAll('ernten'), voelker: await DB.getAll('voelker') }, v.id);
+    box.innerHTML = `<div class="card rang-karte volk-honig" style="margin-top:14px"><div class="card-title">${icon('honig')}<h2>Honig pro Jahr</h2><a href="#/reporting" class="small no-print" data-honig-rang>Rangliste ›</a></div>
+      ${plaetze.length ? `<div class="rows">${plaetze.map((p) => `<div class="row" style="min-height:44px"><span class="r-main"><span class="r-title">${p.jahr} · Platz ${p.platz} von ${p.von}</span></span><span class="r-side"><b>${U.fmtNum(p.kg, 1)} kg</b></span></div>`).join('')}</div>`
+        : '<div class="small muted">Noch keine Honigernte für dieses Volk. Ernten trägst du pro Volk ein – auch über „Ganzer Stand“ mit der Völkerliste.</div>'}</div>`;
+    const l = $('[data-honig-rang]', box);
+    if (l) l.onclick = () => { Views.reporting._typ = 'ertrag'; Views.reporting._gruppe = 'volk'; if (plaetze.length) Views.reporting._jahr = plaetze[0].jahr; };
   },
 
   /* ---------- Stockkarte: chronologische Durchsichten ---------- */
@@ -24731,7 +24759,11 @@ const Export = {
   /** Bedienfeld in host zeichnen (Export-Reiter oder Fenster). vor = { bereich, volk (id), stand (id), jahr } */
   async zeichnen(host, vor = {}) {
     const defs = await Xlsx.defs();
-    const bereiche = Object.keys(defs).filter((k) => ZUCHT_AN || k !== 'zuchtserien');
+    let bereiche = Object.keys(defs).filter((k) => ZUCHT_AN || k !== 'zuchtserien');
+    /* Vom Volk oder Stand aus geöffnet (z. B. „Alle Werte exportieren“ beim Wetter): nur Bereiche, die dazu passen –
+       keine Kontakte o. Ä. Der allgemeine Export unter Unterlagen (ohne Volk/Stand) bleibt vollständig (Julian 08.11.2026). */
+    if (vor.volk) bereiche = bereiche.filter((k) => this.VOLK[k]);
+    else if (vor.stand) bereiche = bereiche.filter((k) => this.STAND[k]);
     const voelker = U.sortBy(await DB.getAll('voelker'), (v) => (v.status === 'aktiv' ? '0' : '1') + (v.name || '').toLowerCase());
     const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
     const st = { bereich: bereiche.includes(vor.bereich) ? vor.bereich : 'voelker', volkId: vor.volk || '', standId: vor.stand || '', jahr: vor.jahr ?? null };
@@ -25489,6 +25521,59 @@ const Statistik = {
     }
     return je;
   },
+  /* Rangliste Honig je Volk (Julian 08.11.2026): bestes Volk oben, gleiche Menge = gleicher Platz. Dieselbe Regel wie
+     ernteKgJeVolk (Honig + Wabenhonig, nur Ernten „Volk“), gleichnamige Völker bleiben nach id getrennt.
+     Stand = Stand am Tag der letzten Ernte im Zeitraum (nach Wanderungen), nicht der heutige. */
+  honigRangliste(d, pruef) {
+    const je = this.ernteKgJeVolk(d, pruef), letzte = new Map(), anzahl = new Map();
+    for (const e of d.ernten) {
+      if (!pruef(e.datum) || e.zielTyp !== 'volk' || !istHonigErnte(e)) continue;
+      anzahl.set(e.zielId, (anzahl.get(e.zielId) || 0) + 1);
+      const t = String(e.datum || '').slice(0, 10); if (!letzte.has(e.zielId) || t > letzte.get(e.zielId)) letzte.set(e.zielId, t);
+    }
+    const volkMap = d.volkMap || new Map((d.voelker || []).map((v) => [v.id, v]));
+    const zeilen = [...je.entries()].map(([id, kg]) => {
+      const v = volkMap.get(id), sid = v ? standAmStichtag(v, letzte.get(id) || U.todayIso(), d.wanderungen || []) : null;
+      return { id, name: v ? (v.name || 'ohne Name') : 'gelöschtes Volk', stand: sid ? standNameAnzeige(sid, d.staende || []) : '', kg, n: anzahl.get(id) || 0, href: v ? '#/volk/' + id : '' };
+    });
+    zeilen.sort((a, b) => b.kg - a.kg || a.name.localeCompare(b.name, 'de', { numeric: true }));
+    for (const z of zeilen) z.platz = 1 + zeilen.filter((x) => x.kg > z.kg + 1e-9).length;
+    return zeilen;
+  },
+  /** Platz eines Volks je Jahr mit Honigernte, neueste oben: [{ jahr, platz, von, kg }] (Julian 08.11.2026) */
+  honigPlaetzeVolk(d, volkId) {
+    const jahre = new Set();
+    for (const e of d.ernten) if (e.zielTyp === 'volk' && e.zielId === volkId && istHonigErnte(e) && /^\d{4}/.test(String(e.datum || ''))) jahre.add(String(e.datum).slice(0, 4));
+    return [...jahre].sort().reverse().map((j) => {
+      const r = this.honigRangliste(d, (iso) => this.im(iso, j)), z = r.find((x) => x.id === volkId);
+      return z ? { jahr: j, platz: z.platz, von: r.length, kg: z.kg } : null;
+    }).filter(Boolean);
+  },
+  /** Export der Rangliste (Knopf in der Kopfzeile der Karte): PDF, Excel, CSV – oder alle Ernten des Jahres (Julian 08.11.2026) */
+  async ranglisteExportieren(jahr = '') {
+    const d = await this.daten();
+    const rows = this.honigRangliste(d, jahr ? (iso) => this.im(iso, jahr) : () => true)
+      .map((z) => ({ Platz: z.platz, Volk: z.name, Stand: z.stand, Ernten: z.n, 'Honig (kg)': Math.round(z.kg * 10) / 10 }));
+    const titel = `Honigertrag je Volk ${jahr || '– alle Jahre'}`;
+    const datei = Export._datei(['imkerbuch', 'honig-rangliste', jahr || 'alle-jahre', U.todayIso()]);
+    const m = UI.modal({ title: 'Rangliste exportieren', body: `<p class="small muted mb12">${U.esc(titel)} · ${rows.length} ${rows.length === 1 ? 'Volk' : 'Völker'}, bestes oben.</p>
+      <div class="flex-wrap" style="gap:8px">
+        <button type="button" class="btn btn-primary" data-rx="pdf" ${rows.length ? '' : 'disabled'}>${icon('doc')} PDF</button>
+        <button type="button" class="btn btn-ghost" data-rx="xlsx" ${rows.length ? '' : 'disabled'}>${icon('excel')} Excel</button>
+        <button type="button" class="btn btn-ghost" data-rx="csv" ${rows.length ? '' : 'disabled'}>${icon('download')} CSV</button></div>
+      <button type="button" class="btn btn-ghost btn-sm mt12" data-rx="ernten">Alle Ernten${jahr ? ' ' + U.esc(jahr) : ''} mit allen Spalten …</button>` });
+    m.rows = rows;
+    m.el.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-rx]'); if (!b) return;
+      const art = b.dataset.rx;
+      if (art === 'ernten') { m.close(true); return Export.oeffnen({ bereich: 'ernten', jahr }); }
+      if (art === 'pdf') return Pdf.abschnitte({ titel, untertitel: `${jahr ? 'Jahr ' + jahr : 'alle Jahre'} · Datenstand ${U.fmtDate(U.todayIso())}`, teile: [{ titel: 'Rangliste', rows }], datei: datei + '.pdf' });
+      await Xlsx.lib();
+      if (art === 'csv') { Xlsx.csvSpeichern(rows, datei + '.csv'); return UI.toast('CSV erstellt'); }
+      xlsxSpeichern(Xlsx.mappe([{ name: 'Rangliste', rows }]), datei + '.xlsx'); UI.toast('Excel-Datei erstellt');
+    });
+    return m;
+  },
   honigKg(d, pruef) { return U.sum(d.ernten.filter((e) => pruef(e.datum) && istHonigErnte(e)), (e) => Number(e.mengeKg) || 0); },   // Wabenhonig zählt mit (Fund 04.11.2026, #12)
   zucker(d, pruef) { return U.sum(d.fuetterungen.filter((f) => pruef(f.datum)), (f) => { const z = zuckerAusFuetterung(f); return z ? z.kg : 0; }); },
   /** Verkaufter Honig im Zeitraum – Verkäufe UND festgeschriebene Rechnungen, wie im Jahresbericht (Fund 04.11.2026, #10). */
@@ -25715,7 +25800,28 @@ Views.reporting = {
       const trTabelle = tr && tr.length ? `<div class="tbl-wrap mt12"><table class="tbl"><thead><tr><th>Tracht</th><th class="num">Ernten</th><th class="num">Menge (kg)</th><th class="num">Ø je Volk</th>${jahr ? `<th class="num">Vorjahr</th>` : ''}</tr></thead>
         <tbody>${tr.map((r) => { const v = jahr ? Statistik.vergleich(r.kg, r.vorjahr, { einheit: 'kg', dez: 1 }) : null; return `<tr><td>${U.esc(r.k)}</td><td class="num">${r.n}</td><td class="num">${U.fmtNum(r.kg, 1)}</td><td class="num">${r.schnitt != null ? U.fmtNum(r.schnitt, 1) + ' kg' : '–'}</td>${jahr ? `<td class="num">${r.vorjahr != null ? `${U.fmtNum(r.vorjahr, 1)} kg <span class="st-vgl st-${v.richtung || 'leer'}" style="display:inline">${U.esc(v.text)}</span>` : '<span class="muted">–</span>'}</td>` : ''}</tr>`; }).join('')}</tbody></table></div>
         ${tr.some((r) => r.k === 'ohne Tracht') ? '<div class="small muted mt8">„ohne Tracht“: Ernten, bei denen keine Tracht gewählt ist – in der Ernte nachtragen.</div>' : ''}` : '';
-      box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${GRP[gruppe]}${jahr && gruppe !== 'jahr' ? ' ' + U.esc(jahr) : ''}</h2>
+      if (gruppe === 'volk') {
+        /* Rangliste je Volk (Julian 08.11.2026): bestes Volk oben, Balken relativ zum besten, Jahr und Schnitt darüber,
+           „Exportieren“ direkt in der Kopfzeile – alles zu dieser Liste an einer Stelle. */
+        const rang = Statistik.honigRangliste(await Statistik.daten(), jahr ? (iso) => Statistik.im(iso, jahr) : () => true);
+        const bestes = rang.length ? Math.max(rang[0].kg, 0) : 0;
+        const schnitt = rang.length ? U.sum(rang, (z) => z.kg) / rang.length : 0;
+        const sw = seitenweise('ertrag-volk', rang);
+        box.innerHTML = `<div class="card rang-karte"><div class="card-title">${icon('honig')}<h2>Honigertrag je Volk</h2>
+          <button type="button" class="btn btn-ghost btn-sm no-print" data-rang-export>${icon('download')} Exportieren</button></div>
+          <div class="seg mb12 no-print">${Object.entries(GRP).map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${U.esc(id)}">${l}</button>`).join('')}</div>
+          <div class="rang-kopf"><label class="rang-jahr">Jahr: <select class="inp" data-rang-jahr>${jahreListe.map((j) => `<option value="${j}" ${jahr === j ? 'selected' : ''}>${j}</option>`).join('')}<option value="" ${jahr === '' ? 'selected' : ''}>Alle Jahre</option></select></label>
+            ${rang.length ? `<span class="rang-schnitt">Schnitt <b>${U.fmtNum(schnitt, 1)} kg</b></span>` : ''}</div>
+          ${rang.length ? `<div class="rang-liste">${sw.sichtbar.map((z) => `<div class="rang-zeile${z.href ? ' art-zeile' : ''}"${z.href ? ` data-href="${U.esc(z.href)}" tabindex="0" role="link" title="Antippen: Volk öffnen"` : ''}>
+              <span class="rang-platz">${z.platz}.</span>
+              <span class="rang-mitte"><span class="rang-name"><b>${U.esc(z.name)}</b>${z.stand ? ` <span class="small muted">· ${U.esc(z.stand)}</span>` : ''}</span>
+                <span class="rang-balken"><i style="width:${bestes > 0 ? Math.max(2, Math.round(Math.max(z.kg, 0) / bestes * 100)) : 0}%"></i></span></span>
+              <span class="rang-kg">${U.fmtNum(z.kg, 1)} kg</span></div>`).join('')}</div>${sw.knopf}
+            <div class="small muted mt8">Gezählt: Honig und Wabenhonig, eingetragen pro Volk (auch über „Ganzer Stand“ mit Völkerliste). Stand am Tag der Ernte.</div>`
+          : emptyState('honig', jahr ? `Keine Honigernte pro Volk in ${jahr}.` : 'Noch keine Honigernte pro Volk erfasst.')}</div>`;
+        $('[data-rang-jahr]', box).onchange = (e) => { V._jahr = e.target.value; renderRoute({ scrollBehalten: true }); };
+        $('[data-rang-export]', box).onclick = () => Statistik.ranglisteExportieren(jahr);
+      } else box.innerHTML = `<div class="card"><div class="card-title">${icon('honig')}<h2>Honigertrag je ${GRP[gruppe]}${jahr && gruppe !== 'jahr' ? ' ' + U.esc(jahr) : ''}</h2>
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('ertrag', '${U.esc(jahr)}')">${icon('doc')} PDF</button></div>
         <div class="seg mb12 no-print">${Object.entries(GRP).map(([id, l]) => `<button class="${gruppe === id ? 'active' : ''}" data-grp="${U.esc(id)}">${l}</button>`).join('')}</div>
         ${rows.length ? UI.chart({ type: 'bars', labels: rows.slice(0, 12).map((r) => r.k), series: [{ name: 'kg', values: rows.slice(0, 12).map((r) => r.kg) }], height: 210, unit: 'kg' }) + (tr ? trTabelle :

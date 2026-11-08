@@ -22227,3 +22227,80 @@ test('Finanzen (Julian 08.11.2026): Imme zeigt „Neue Rechnung“ im Bereich Fi
     assertEq(w.Views.finanzen._tab, 'rechnungen', 'Reiter Rechnungen ist offen');
   } finally { w.Assistent.markeWeg(); w.Views.finanzen._tab = alt; w.history.replaceState(null, '', vorher || '#/dashboard'); await w.renderRoute(); }
 });
+
+/* ---------- Statistik/Export (Julian 08.11.2026): Rangliste Honig je Volk, „Honig pro Jahr“, Export passend zu Stand/Volk ---------- */
+test('Rangliste (Julian 08.11.2026): Honig je Volk als Rangliste mit Platz, Stand, Balken, Schnitt und Export-Knopf', async (w) => isolierteDaten(w, async () => {
+  const s1 = await w.DB.put('staende', { name: 'RL-Heim' }), s2 = await w.DB.put('staende', { name: 'RL-Raps' });
+  const A = await r2Volk(w, 'RL-Gleich', { standId: s1.id }), B = await r2Volk(w, 'RL-Gleich', { standId: s2.id }), C = await r2Volk(w, 'RL-Drei', { standId: s1.id });
+  const ern = (zielTyp, zielId, mengeKg, datum, produktart = 'Honig') => w.DB.put('ernten', { zielTyp, zielId, mengeKg, datum, produktart, sorte: '' });
+  await ern('volk', A.id, 10, '2025-06-01'); await ern('volk', A.id, 5, '2025-07-01', 'Wabenhonig');
+  await ern('volk', B.id, 30, '2025-07-01'); await ern('volk', C.id, 8, '2025-07-02');
+  await ern('volk', C.id, 50, '2025-07-03', 'Pollen');   // Pollen zählt nicht
+  await ern('stand', s1.id, 99, '2025-07-04');           // Stand-Ernte zählt nicht je Volk
+  await ern('volk', C.id, 40, '2024-07-01');             // anderes Jahr
+  const d = await w.Statistik.daten();
+  const r = w.Statistik.honigRangliste(d, (iso) => w.Statistik.im(iso, '2025'));
+  assertEq(r.map((z) => [z.platz, z.id, z.kg, z.stand]), [[1, B.id, 30, 'RL-Raps'], [2, A.id, 15, 'RL-Heim'], [3, C.id, 8, 'RL-Heim']], 'bestes Volk oben, gleichnamige getrennt, Wabenhonig mit, Pollen/Stand-Ernte nicht');
+  const alt = { t: w.Views.reporting._typ, g: w.Views.reporting._gruppe, j: w.Views.reporting._jahr };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    w.Views.reporting._typ = 'ertrag'; w.Views.reporting._gruppe = 'volk'; w.Views.reporting._jahr = '2025';
+    await w.Views.reporting.render(host); await w99(100);
+    const karte = host.querySelector('.rang-karte');
+    assert(karte, 'Karte als Rangliste');
+    assertEq(getComputedStyle(karte).borderRadius, '14px', 'Karte mit 14 px Rundung');
+    const zeilen = [...karte.querySelectorAll('.rang-zeile')];
+    assertEq(zeilen.map((z) => z.querySelector('.rang-platz').textContent.trim()), ['1.', '2.', '3.'], 'Platz 1., 2., 3.');
+    assert(/RL-Gleich/.test(zeilen[0].textContent) && /RL-Raps/.test(zeilen[0].textContent) && /30 kg/.test(zeilen[0].querySelector('.rang-kg').textContent), 'Name · Stand und kg rechts: ' + zeilen[0].textContent);
+    assertEq(zeilen.map((z) => z.querySelector('.rang-balken i').style.width), ['100%', '50%', '27%'], 'Balken relativ zum besten Volk');
+    assertEq(karte.querySelector('[data-rang-jahr]').value, '2025', 'Jahr-Auswahl steht auf 2025');
+    assert(/Schnitt\s*17,7 kg/.test(karte.querySelector('.rang-schnitt').textContent), 'Schnitt über Völker mit Ernte: ' + karte.querySelector('.rang-schnitt').textContent);
+    const knopf = karte.querySelector('.card-title [data-rang-export]');
+    assert(knopf && /Exportieren/.test(knopf.textContent), 'Exportieren in der Kopfzeile der Karte');
+    assertEq(getComputedStyle(knopf).borderRadius, '12px', 'Knopf: abgerundetes Rechteck 12 px');
+    const m = await w.Statistik.ranglisteExportieren('2025');
+    try {
+      assertEq(m.rows.map((x) => [x.Platz, x['Honig (kg)']]), [[1, 30], [2, 15], [3, 8]], 'Export enthält die Rangliste des Jahres');
+      assertEq([...m.el.querySelectorAll('[data-rx]')].map((b) => b.dataset.rx), ['pdf', 'xlsx', 'csv', 'ernten'], 'PDF, Excel, CSV und alle Ernten');
+    } finally { m.close(true); }
+    knopf.click(); await w99(300);
+    assert(w.document.querySelector('.modal-back [data-rx="pdf"]'), 'Knopf öffnet den Export der Rangliste');
+  } finally {
+    dialogeSchliessen(w); host.remove();
+    w.Views.reporting._typ = alt.t; w.Views.reporting._gruppe = alt.g; w.Views.reporting._jahr = alt.j;
+  }
+}));
+
+test('Volk-Seite (Julian 08.11.2026): Kasten „Honig pro Jahr“ mit Platz je Jahr, neueste oben; ohne Ernte ein Hinweis', async (w) => isolierteDaten(w, async () => {
+  const A = await r2Volk(w, 'HJ-A'), B = await r2Volk(w, 'HJ-B'), C = await r2Volk(w, 'HJ-C');
+  const ern = (id, mengeKg, datum) => w.DB.put('ernten', { zielTyp: 'volk', zielId: id, mengeKg, datum, produktart: 'Honig', sorte: '' });
+  await ern(A.id, 31, '2026-07-01'); await ern(B.id, 40, '2026-07-01'); await ern(C.id, 10, '2026-07-01');
+  await ern(A.id, 12, '2025-07-01'); await ern(B.id, 5, '2025-07-01');
+  const vorher = w.location.hash;
+  try {
+    w.Views.volk._tab = 'stockkarte';
+    w.location.hash = '#/volk/' + A.id; await w.renderRoute(); await w99(200);
+    const box = w.document.querySelector('#volk-honig');
+    assert(box && /Honig pro Jahr/.test(box.textContent), 'Kasten „Honig pro Jahr“ da');
+    const zeilen = [...box.querySelectorAll('.row')].map((r) => r.querySelector('.r-title').textContent.trim() + ' | ' + r.querySelector('.r-side').textContent.trim());
+    assertEq(zeilen, ['2026 · Platz 2 von 3 | 31 kg', '2025 · Platz 1 von 2 | 12 kg'], 'je Jahr der Platz, neueste oben');
+    w.location.hash = '#/volk/' + (await r2Volk(w, 'HJ-leer')).id; await w.renderRoute(); await w99(200);
+    assert(/pro Volk ein/.test(w.document.querySelector('#volk-honig').textContent) && /Ganzer Stand/.test(w.document.querySelector('#volk-honig').textContent), 'ohne Ernte: Hinweis auf Ernte pro Volk');
+  } finally { w.history.replaceState(null, '', vorher || '#/dashboard'); await w.renderRoute(); }
+}));
+
+test('Export (Julian 08.11.2026): vom Stand oder Volk aus nur passende Bereiche, unter Unterlagen alle', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'EX-Stand' });
+  const v = await r2Volk(w, 'EX-Volk', { standId: st.id });
+  const bereicheVon = async (vor) => {
+    const host = w.document.createElement('div'); w.document.body.appendChild(host);
+    try { await w.Export.zeichnen(host, vor); await w99(100); return [...host.querySelectorAll('[data-ex="bereich"] option')].map((o) => o.value); } finally { host.remove(); }
+  };
+  const stand = await bereicheVon({ bereich: 'wetter', stand: st.id });
+  assert(stand.length && stand.every((k) => w.Export.STAND[k]), 'vom Stand: nur Stand-Bereiche: ' + stand);
+  assert(stand.includes('wetter') && !stand.includes('kontakte'), 'Wetter ja, Kontakte nein');
+  const volk = await bereicheVon({ bereich: 'voelker', volk: v.id });
+  assert(volk.length && volk.every((k) => w.Export.VOLK[k]) && !volk.includes('kontakte'), 'vom Volk: nur Volk-Bereiche: ' + volk);
+  const alle = await bereicheVon({});
+  assert(alle.includes('kontakte') && alle.includes('wetter') && alle.includes('stockkarten'), 'allgemeiner Export vollständig');
+}));
