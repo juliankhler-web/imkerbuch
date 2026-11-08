@@ -139,6 +139,8 @@ const AUFNAHMEN = [
   { name: 'pdf-rechnung', pdf: 'Pdf.rechnung("{rechnung}")' },
 ];
 const IPAD = process.argv.includes('--ipad');
+// --tablet: Android-Tablet quer (Google Play 7″/10″, 16:10): 1280×800 dp minus 24 dp Statusleiste, 2-fach = 2560×1552 px
+const TABLET = process.argv.includes('--tablet');
 async function main() {
   mkdirSync(ZIEL, { recursive: true });
   const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFIL}`,
@@ -155,7 +157,7 @@ async function main() {
   await cdp.send('Storage.clearDataForOrigin', { origin: 'http://localhost:8931', storageTypes: 'cache_storage,service_workers' }).catch(() => {});
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {});
   // iPad 13″ quer: 1376×1032 pt, minus 24 pt Statusleiste, 2-fach = 2752×2016 px
-  await cdp.send('Emulation.setDeviceMetricsOverride', IPAD ? { width: 1376, height: 1008, deviceScaleFactor: 2, mobile: true } : { width: 440, height: process.argv.includes('--kauf') ? 956 : 902, deviceScaleFactor: 3, mobile: true });
+  await cdp.send('Emulation.setDeviceMetricsOverride', TABLET ? { width: 1280, height: 776, deviceScaleFactor: 2, mobile: true } : IPAD ? { width: 1376, height: 1008, deviceScaleFactor: 2, mobile: true } : { width: 440, height: process.argv.includes('--kauf') ? 956 : 902, deviceScaleFactor: 3, mobile: true });
   await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: DUNKEL ? 'dark' : 'light' }] });
   await cdp.send('Page.navigate', { url: BASIS + '#/dashboard' });
   for (let i = 0; i < 200; i++) { try { if (await cdp.js('return !!window.appReady')) break; } catch (e) {} await schlaf(150); }
@@ -174,8 +176,8 @@ async function main() {
     const punkte = (v) => sk.filter((s) => s.volkId === v.id).length * 10 + (kn.some((k) => k.volkId === v.id) ? 5 : 0) + (/Frida/.test(v.name || '') ? 1 : 0);
     return vs.sort((a, b) => punkte(b) - punkte(a))[0].id`);
   const rechnung = await cdp.js(`const r = (await DB.getAll('rechnungen')).find((x) => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0]; return r ? r.id : ''`);
-  const endung = `${DUNKEL ? '-dunkel' : ''}${IPAD ? '-ipad' : ''}`;
-  for (const a of AUFNAHMEN.filter((x) => NUR.includes(x.name) || (!NUR.length && !x.nurMitNamen)).filter((x) => !(IPAD && x.pdf))) {
+  const endung = `${DUNKEL ? '-dunkel' : ''}${IPAD ? '-ipad' : ''}${TABLET ? '-tablet' : ''}`;
+  for (const a of AUFNAHMEN.filter((x) => NUR.includes(x.name) || (!NUR.length && !x.nurMitNamen)).filter((x) => !((IPAD || TABLET) && x.pdf))) {
     if (a.pdf) {
       // PDF erzeugen, abfangen und Seite 1 mit dem eingebauten PDF-Leser in ein Bild verwandeln
       const bild = await cdp.js(`window.__pdf = null; const alt = Pdf.ausgeben; Pdf.ausgeben = async (doc) => { window.__pdf = doc.output('arraybuffer'); };
@@ -193,6 +195,7 @@ async function main() {
     await schlaf(1500);
     if (a.schritt) { await cdp.js(a.schritt + '; return 1;'); await schlaf(800); }
     await cdp.js(`document.querySelectorAll('.toast${a.behalten ? '' : ', #modal-root .modal-back'}').forEach((m) => m.remove()); scrollTo(0, 0); return 1;`);
+    if (TABLET) await cdp.js(`const f = document.querySelector('#bini-fab'); if (f) f.style.display = 'none'; return 1;`);   // Imme-Knopf verdeckte auf dem Tablet Zahlen (Finanzen, Honig pro Jahr)
     await schlaf(400);
     const bild = await cdp.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(`${ZIEL}/${a.name}${endung}.png`, Buffer.from(bild.data, 'base64'));

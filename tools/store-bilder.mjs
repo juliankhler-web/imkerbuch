@@ -145,10 +145,12 @@ async function main() {
   }
   // --play: Google-Play-Fassung (9:16, Android-Handy) → store-bilder/play/0N-dunkel.png in 1080 × 1920
   const PLAY = process.argv.includes('--play');
-  const SAETZE = PLAY ? [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }].map((x) => ({ ...x, h: 2347, play: true }))
+  // --tablet: Google-Play-Tablet (16:9) → store-bilder/play-tablet/0N-dunkel.png in 2560 × 1440 (passt für 7″ und 10″)
+  const TABLETBILD = process.argv.includes('--tablet');
+  const SAETZE = TABLETBILD ? [{ datei: 'studio-tablet.html', start: 1, n: 4, w: 2560, h: 1440, tablet: true }] : PLAY ? [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }].map((x) => ({ ...x, h: 2347, play: true }))
     : [{ datei: 'studio.html', start: 1 }, { datei: 'studio-2.html', start: 4 }, { datei: 'studio-3.html', start: 7, n: 1 }, { datei: 'studio-ipad.html', start: 1, ipad: true, w: 2752, h: 2064 }];
-  for (const satz of SAETZE) for (const thema of (satz.ipad || satz.play ? ['dunkel'] : ['hell', 'dunkel'])) {
-    const W = satz.w || 1320, H = satz.h || 2868, zielDir = satz.ipad ? ziel.replace(/iphone\/$/, 'ipad/') : satz.play ? ziel.replace(/iphone\/$/, 'play/') : ziel;
+  for (const satz of SAETZE) for (const thema of (satz.ipad || satz.play || satz.tablet ? ['dunkel'] : ['hell', 'dunkel'])) {
+    const W = satz.w || 1320, H = satz.h || 2868, zielDir = satz.tablet ? ziel.replace(/iphone\/$/, 'play-tablet/') : satz.ipad ? ziel.replace(/iphone\/$/, 'ipad/') : satz.play ? ziel.replace(/iphone\/$/, 'play/') : ziel;
     mkdirSync(zielDir, { recursive: true });
     const N = satz.n || 3;
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: W * N, height: H, deviceScaleFactor: 1, mobile: false });
