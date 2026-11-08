@@ -24,7 +24,13 @@ Start: Sonntag 08.11.2026 nach dem Reset des Wochenlimits (Julian: „bereite al
 - „Buhl kündigen“ gehört nicht hierher (Julian: „buhl vergiss es geht in einem anderen chat“).
 - Zeitschätzung erklärt: ~½–1 Tag Mockups, 2–3 Tage Bauen, 1–2 Tage Prüfen (viele Tests laufen über alte Bereiche), 2–3 Stunden Store-Bilder (nur betroffene neu; Hochladen einzeln mit Prüfung dauert am längsten), einige Tage Praxis bei den Imkern, dann Ultra-Test 3 + 1.00 + Einreichen; Token-Limit kann Pausen erzwingen.
 
-## Offen (am Sonntag klären)
+## Entschieden 08.11.2026 (Interview, Sonntag vormittag)
+- **Aufbau:** „Lager“ und „Finanzen“ mit **Reitern** – Lager: Geräte & Inventar · Verbrauchsmaterial · Produkte; Finanzen: Kassenbuch · Rechnungen · Abnehmer & Lieferanten.
+- **Rechnung:** nach jedem Verkauf (Honig, Produkt, Lager-Artikel) Frage/Knopf **„Rechnung dazu erstellen?“** → Kunde wählen, Positionen schon drin; Barverkauf ohne Rechnung bleibt möglich.
+- **Pro Volk (Behandlung und Ernte am ganzen Stand):** alle Völker vorausgewählt mit gleicher Menge, **einzeln abwählbar und eigene Menge** (z. B. Ableger halbe Dosis).
+- **Lager-Artikel bekommen einen Verkaufspreis** (Feld am Artikel, beim Verkauf vorbelegt, änderbar).
+
+## Offen (Rest)
 - Verkauf+Rechnung im Detail: Barverkauf vs. Rechnung (Rechnung immer mit Kunde?), Rechnung aus Marktverkauf?, Lager-Artikel mit Preis/USt?, was passiert mit bestehenden Daten und Menü-Kacheln (alte Bereiche als Reiter im neuen Bereich?).
 - Behandlung: Völker am Stand einzeln abwählbar? Unterschiedliche Mengen je Volk (z. B. Ableger halbe Dosis)?
 
