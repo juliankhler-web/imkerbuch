@@ -1,6 +1,6 @@
 # App Store – Texte und Angaben (Entwurf zum Einfügen)
 
-Stand 2026-11-01 (v3.12). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
+Stand 2026-11-08 (v3.25; Beschreibung und Prüfer-Hinweise am 08.11.2026 in App Store Connect gespeichert, Julian: „ja passt trag es ein“). Alles hier ist zum Kopieren in App Store Connect gedacht. Julian prüft und gibt frei.
 
 ## App-Informationen
 
@@ -44,7 +44,7 @@ Das digitale Stockbuch für Imker: Durchsicht am Stand auch mit Handschuhen, all
 
 ## Beschreibung
 
-(2502 von 4000 Zeichen)
+(3285 von 4000 Zeichen, so in App Store Connect gespeichert am 08.11.2026. Google hat dieselbe Fassung mit kleinen Android-Abweichungen, 3359 Zeichen – siehe docs/PLAY_STORE.md.)
 
 ImkerBuch ist das digitale Stockbuch für Imkerinnen und Imker – komplett auf Deutsch, offline und ohne Konto. Deine Einträge bleiben auf deinem Gerät.
 
@@ -58,10 +58,12 @@ VÖLKER, KÖNIGINNEN, STÄNDE
 • Bienenstände mit Wetter auf Wunsch (ab Werk aus) und Verlauf als Grafik
 • Trachtkalender: was an deinen Ständen wann blüht – aus Beobachtungen des Deutschen Wetterdienstes in deiner Nähe, mit Erinnerung vor Blühbeginn und Ertrag je Tracht
 • Behandlungen mit Wartezeiten, Varroa-Kontrollen mit Ampel, Fütterung mit Futter-Rechner
+• Behandlung und Ernte für den ganzen Stand – mit Menge je Volk, einzelne Völker abwählbar
 
-HONIG UND GESCHÄFT
-• Ernte, Chargen, Abfüllung und Bestand
-• Kassenbuch, Rechnungen, Abnehmer
+HONIG, LAGER UND FINANZEN
+• Ernte, Chargen, Abfüllung und Honig-Bestand
+• Lager: Produkte, Verbrauchsmaterial sowie Geräte & Inventar an einem Ort – mit Suche, Verkaufspreis und Steuersatz
+• Finanzen: Kassenbuch, Rechnungen sowie Abnehmer & Lieferanten zusammen – Verkauf mit Rabatt und auf Wunsch gleich die Rechnung dazu, ohne doppelte Buchung
 • Fahrtenbuch und Zeiterfassung
 
 ALLE UNTERLAGEN AN EINEM ORT
@@ -73,6 +75,7 @@ STATISTIK, DIE ETWAS SAGT
 • Die wichtigsten Zahlen im Vergleich zum Vorjahr
 • Auffälliges auf einen Blick: starke und schwache Völker, hoher Varroa-Befall, Völker ohne Winterfutter
 • Winterverluste, Erlös je kg Honig, Kosten je Volk
+• Honigertrag je Volk als Rangliste – und auf jeder Volk-Seite „Honig pro Jahr“ mit Platz
 
 ERINNERUNGEN
 • Aufgaben mit Datum und Uhrzeit – die App erinnert dich pünktlich, auch wenn sie geschlossen ist
@@ -114,7 +117,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 
 - On first launch a short welcome form appears (all fields optional, "Überspringen" possible); right after it the purchase screen opens: tap "30 Tage kostenlos starten" to start the free 30-day trial (a free non-consumable IAP named "30-day Trial", as described in guideline 3.1.1). Starting the trial or buying needs an internet connection once; everything else works offline. The full version is the non-consumable "de.imkerbuch.app.vollversion".
 - "Käufe wiederherstellen" (Restore Purchases) and "Code einlösen" (offer codes) are on the purchase screen and under Einstellungen → "ImkerBuch Vollversion".
-- After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time.
+- After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time. Cash book, invoices and customers/suppliers are in the menu "Finanzen"; products, consumables and equipment are in "Lager".
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Neues Volk"), or follow the built-in tour by the assistant "Imme".
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
 - Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, when the connection returns, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
