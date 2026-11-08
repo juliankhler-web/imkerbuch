@@ -51,3 +51,16 @@ Julian: „es wäre gut eine statistik über jedes einzelne volk zu haben so das
 „für mich ist nur wichtig das man nicht für das eine da hin muss dann sucht man wieder das andere und muss in den anderen bereich wechseln“ → Alles, was zu einer Aufgabe gehört, an EINER Stelle: Ansehen + Exportieren am selben Ort (Statistik mit eigenem Export-Knopf, Export vom Stand/Volk nur mit passenden Bereichen), Leistung pro Volk direkt beim Volk.
 - Erledigt 08.11.: Nachbesserung Rechnung/Verkauf (bebe835, 994 Tests).
 - Nächster Schritt (Mockup zeigen): Statistik → Honig als Rangliste je Volk mit Jahr + Knopf „Exportieren“; Kasten „Honig pro Jahr“ auf der Volk-Seite; Export vom Stand/Volk zeigt nur passende Bereiche.
+
+## Gesamt-Liste bis zum Einreichen (Stand 08.11.2026 abends, Julian: „hast du das noch alles auf dem schirm“)
+1. Reparatur der Prüfungs-Funde (docs/PRUEFUNG-PRAXIS-UMBAU-2026-11-08.md) → danach zweite Prüfung (Julian: „wenn es durch ist mach noch mal eine prüfung“).
+2. Version 3.25 + CHANGELOG + PROJEKT.md + Service Worker.
+3. Texte mit alten Bereichsnamen (Inventar/Verbrauchsmaterial/Weitere Produkte/Kassenbuch/Rechnungen/Abnehmer als eigene Bereiche) in Hilfe, Imkerschule, FAQ, Imme prüfen.
+4. Gerätetest iPhone + Android.
+5. Praxistest der Imker (Lager, Finanzen, pro Volk, Rangliste).
+6. Store-Bildschirmfotos neu (betroffene: Menü, Lager, Finanzen) + Upload Apple/Google einzeln mit Prüfung.
+7. Store-Texte auf alte Bereichsnamen prüfen.
+8. Website-Funktionsliste an Lager/Finanzen anpassen.
+9. Website bei Google freischalten (noindex weg inkl. .htaccess/Rechtsseiten/hochladen-vorbereiten-Prüfung, robots.txt, sitemap.xml, WebFTP-Upload, Search Console: Sitemap + Indexierung) – zusammen mit 8 in einem Upload.
+10. Ultra-Test 3 (schlankes Repo ~/ImkerBuch-Pruefung), release-100 (1.00), Upload, Sandbox-Kauf, Einreichen nur mit Julians Ja.
+11. Apple: Händlerstatus (DSA) und Small Business Program abwarten.
