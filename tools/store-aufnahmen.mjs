@@ -169,7 +169,10 @@ async function main() {
     const neu = [['Varroa-Kontrolle alle Völker', 1], ['Futterkontrolle Heimstand', 3], ['Mäusegitter anbringen', 6], ['Honig abfüllen – Linde', 9]];
     for (const [titel, n] of neu) await DB.put('aufgaben', { id: crypto.randomUUID(), titel, faellig: tag(n), erledigt: false });
     return 1;`);
-  const volk = await cdp.js(`return (await DB.getAll('voelker')).find((v) => v.status === 'aktiv').id`);
+  // Ein Volk mit Königin und vielen Durchsichten zeigen – nicht einfach das erste (Reihenfolge der IDs ist zufällig; 08.11.2026 kam ein leeres Volk ins Bild)
+  const volk = await cdp.js(`const vs = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv'); const sk = await DB.getAll('stockkarten'); const kn = await DB.getAll('koeniginnen');
+    const punkte = (v) => sk.filter((s) => s.volkId === v.id).length * 10 + (kn.some((k) => k.volkId === v.id) ? 5 : 0) + (/Frida/.test(v.name || '') ? 1 : 0);
+    return vs.sort((a, b) => punkte(b) - punkte(a))[0].id`);
   const rechnung = await cdp.js(`const r = (await DB.getAll('rechnungen')).find((x) => x.status === 'festgeschrieben') || (await DB.getAll('rechnungen'))[0]; return r ? r.id : ''`);
   const endung = `${DUNKEL ? '-dunkel' : ''}${IPAD ? '-ipad' : ''}`;
   for (const a of AUFNAHMEN.filter((x) => NUR.includes(x.name) || (!NUR.length && !x.nurMitNamen)).filter((x) => !(IPAD && x.pdf))) {
