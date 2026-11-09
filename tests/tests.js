@@ -7615,6 +7615,602 @@ test('Ultra-Test 3 U5: Beleg eines Lager-Verkaufs trägt den Rabatt der frühere
   assertEq(o.rabatt, 0, 'ohne frühere Rechnung kein Rabatt');
 });
 
+test('Finaltest P1 FI1/FI2: Position mit negativem Preis oder Menge abgewiesen, Komma-Menge bleibt; alter kaputter Entwurf bleibt bedienbar', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'FI1 Kunde' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true });
+  await w.Views.rechnung.posForm(r0, [], new Map());
+  const m = letztesModal(w);
+  pvSetz(w, m.querySelector('#f-quelle'), 'frei'); pvSetz(w, m.querySelector('#f-text'), 'Gutschrift Leergut');
+  pvSetz(w, m.querySelector('#f-menge'), '1'); pvSetz(w, m.querySelector('#f-einzelpreis'), '-5');
+  m.querySelector('[data-save]').click(); await w99(300);
+  assertEq((await w.DB.get('rechnungen', r0.id)).positionen.length, 0, 'negativer Preis: nicht übernommen');
+  assert(/Preis ab 0/.test(m.textContent), 'mit Feldfehler am Preis');
+  pvSetz(w, m.querySelector('#f-einzelpreis'), '8'); pvSetz(w, m.querySelector('#f-menge'), '-1');
+  m.querySelector('[data-save]').click(); await w99(300);
+  assertEq((await w.DB.get('rechnungen', r0.id)).positionen.length, 0, 'negative Menge: nicht übernommen');
+  pvSetz(w, m.querySelector('#f-text'), 'Honig lose im Eimer (kg)'); pvSetz(w, m.querySelector('#f-menge'), '12,5');
+  m.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.get('rechnungen', r0.id)).positionen.length === 1);
+  const r = await w.DB.get('rechnungen', r0.id);
+  assertEq(r.positionen[0].menge, 12.5, '12,5 bleibt 12,5 (nicht 13)');
+  assertEq(w.rechnungSummen(r).brutto, 100, '12,5 × 8 € = 100 €');
+  dialogeSchliessen(w);
+  // Entwurf, der vor der Reparatur mit −5 € gespeichert wurde: Liste und Entwurf gehen wieder auf, Festschreiben weist ab
+  const kaputt = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true,
+    positionen: [{ text: 'FI1 Gutschrift', abfuellungId: null, menge: 1, einzelpreis: -5, pfand: 0, steuersatz: 7 }, { text: 'FI1 Honig', abfuellungId: null, menge: 2, einzelpreis: 6, pfand: 0, steuersatz: 7 }] });
+  assertEq(w.rechnungSummen(kaputt).brutto, 12, 'ungültige Position zählt als 0, statt alles zu sperren');
+  await w.Views.rechnungen.render(host, null, { imFinanzen: true });
+  assert(!/schiefgelaufen/.test(host.textContent) && /FI1 Kunde/.test(host.textContent), 'Rechnungsliste geht auf');
+  host.innerHTML = '';
+  await w.Views.rechnung.render(host, kaputt.id);
+  assert(host.querySelector('#del'), 'Entwurf geht auf, Löschen ist da');
+  assertEq(host.querySelectorAll('[data-pos-ungueltig]').length, 1, 'die ungültige Position ist markiert');
+  await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', kaputt.id), []);
+  assertEq((await w.DB.get('rechnungen', kaputt.id)).status, 'entwurf', 'nicht festgeschrieben');
+  assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'nichts gebucht');
+  assertEq(toasts.at(-1).typ, 'err', 'mit Fehlermeldung');
+})));
+
+test('Finaltest P1 FI3: Rechnung ohne Rechnungsdatum wird nicht festgeschrieben, geleertes Datum nicht gespeichert', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'FI3 Kunde' });
+  const pos = [{ text: 'Honig', abfuellungId: null, menge: 10, einzelpreis: 7, pfand: 0, steuersatz: 7 }];
+  const ohne = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, datum: '', positionen: pos });
+  await w.Views.rechnung.festschreiben(ohne, []);
+  assertEq((await w.DB.get('rechnungen', ohne.id)).status, 'entwurf', 'ohne Datum: kein Festschreiben');
+  assert(/Rechnungsdatum/.test(toasts.at(-1).msg), 'Meldung nennt das Datum: ' + toasts.at(-1).msg);
+  assertEq((await w.DB.getAll('kassenbuch')).length, 0, 'keine Einnahme ohne Datum');
+  const mit = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, datum: '2026-03-01', positionen: pos });
+  await w.Views.rechnung.render(host, mit.id);
+  pvSetz(w, host.querySelector('#r-datum'), '');
+  await w99(200);
+  assertEq(host.querySelector('#r-datum').value, '2026-03-01', 'Feld zeigt wieder das Datum');
+  assertEq((await w.DB.get('rechnungen', mit.id)).datum, '2026-03-01', 'gespeichert bleibt das Datum');
+  assert(/Pflicht/.test(toasts.at(-1).msg), 'Hinweis „Pflicht“');
+})));
+
+test('Finaltest P1 FI4: Kassenbuch bleibt nicht auf einem leeren Jahr hängen (Buchungen, Geschäftskosten)', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('kassenbuch', { datum: '2026-03-01', typ: 'einnahme', kategorie: 'Spende', betrag: 50, steuersatz: 0, kontaktId: null, beschreibung: '' });
+  await w.DB.put('kassenbuch', { datum: '2026-04-01', typ: 'ausgabe', kategorie: 'Allgemeine Geschäftskosten', betrag: 7, steuersatz: 0, kontaktId: null, beschreibung: 'Porto' });
+  const echt = { j: w.Views.kassenbuch._jahr, g: w.Views.kassenbuch._jahrGk };
+  w.Views.kassenbuch._jahr = '2025'; w.Views.kassenbuch._jahrGk = '2025';   // gemerkt, aber die letzte 2025er Buchung ist gelöscht
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.kassenbuch.tabBuchungen(host);
+    assert(host.textContent.includes('Einnahmen 2026') && !host.textContent.includes('Keine Buchungen in 2025'), 'Buchungen: springt auf 2026');
+    host.innerHTML = '';
+    await w.Views.kassenbuch.tabGeschaeftskosten(host);
+    assert(host.textContent.includes('Geschäftskosten 2026'), 'Geschäftskosten: springt auf 2026');
+  } finally { host.remove(); w.Views.kassenbuch._jahr = echt.j; w.Views.kassenbuch._jahrGk = echt.g; }
+}));
+
+test('Finaltest P1 FI5/FI8: Einnahme einer Rechnung cent-genau mit USt-Satz, Abgangszeilen ergeben genau die Einnahme', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'FI5 Kunde' });
+  const basis = { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'regel', kleinunternehmer: false, datum: '2026-05-01' };
+  const r1 = await w.DB.put('rechnungen', { ...basis, rabattTyp: 'prozent', rabattWert: 15, positionen: [{ text: 'Waldhonig', abfuellungId: null, menge: 3, einzelpreis: 3.33, pfand: 0, steuersatz: 7 }] });
+  await w.Views.rechnung.festschreiben(r1, []);
+  let kb = (await w.DB.getAll('kassenbuch')).find((k) => k.rechnungId === r1.id);
+  assertEq([kb.betrag, kb.steuersatz], [8.49, 7], '8,4915 € → 8,49 €, ein Satz: 7 %');
+  const r2 = await w.DB.put('rechnungen', { ...basis, rabattTyp: 'prozent', rabattWert: 10, positionen: [
+    { text: 'Waldhonig', abfuellungId: null, menge: 2, einzelpreis: 6.9, pfand: 0, steuersatz: 7 }, { text: 'Kerze', abfuellungId: null, menge: 1, einzelpreis: 4.99, pfand: 0, steuersatz: 19 }] });
+  await w.Views.rechnung.festschreiben(r2, []);
+  kb = (await w.DB.getAll('kassenbuch')).find((k) => k.rechnungId === r2.id);
+  assertEq([kb.betrag, kb.steuersatz], [16.91, null], 'cent-genau; mehrere Sätze: kein einzelner Satz (nicht 0)');
+  assert(/USt 7 % und 19 %/.test(kb.beschreibung), 'die Sätze stehen in der Beschreibung: ' + kb.beschreibung);
+  await w.rechnungStornieren(r2.id);
+  const zu2 = (await w.DB.getAll('kassenbuch')).filter((k) => k.rechnungId === r2.id);
+  assertEq([zu2.length, Math.round(w.U.sum(zu2, (k) => k.betrag) * 100) / 100, zu2.every((k) => k.steuersatz === null)], [2, 0, true], 'Storno hebt genau auf, gleicher Satz');
+  // Zwei kg-Positionen 1,25 × 6,50 €: Einnahme 16,25 €, die Abgangszeilen zusammen ebenso (vorher 8,13 + 8,13 = 16,26 €)
+  const wachs = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'FI5 Wachs', einheit: 'kg', stueckzahl: 10 });
+  const pollen = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'FI5 Pollen', einheit: 'kg', stueckzahl: 10 });
+  const r3 = await w.DB.put('rechnungen', { ...basis, steuerart: 'klein', kleinunternehmer: true, positionen: [
+    { text: 'FI5 Wachs', inventarId: wachs.id, abfuellungId: null, menge: 1.25, einzelpreis: 6.5, pfand: 0, steuersatz: 19 },
+    { text: 'FI5 Pollen', inventarId: pollen.id, abfuellungId: null, menge: 1.25, einzelpreis: 6.5, pfand: 0, steuersatz: 7 }] });
+  await w.Views.rechnung.festschreiben(r3, []);
+  kb = (await w.DB.getAll('kassenbuch')).find((k) => k.rechnungId === r3.id);
+  const ab = (await w.DB.getAll('materialabgaenge')).filter((a) => a.rechnungId === r3.id);
+  assertEq([kb.betrag, kb.steuersatz], [16.25, 0], 'Kassenbuch 16,25 €; § 19: kein Satz');
+  assertEq(Math.round(w.U.sum(ab, (a) => a.betragRechnung) * 100), 1625, 'Abgangszeilen zusammen 16,25 €');
+})));
+
+test('Finaltest P1 FI6: Entwurf an einen Kontakt, der jetzt Lieferant ist, zeigt ihn in der Kunden-Auswahl', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const k = await w.DB.put('kontakte', { typ: 'kunde', name: 'FI6 Imkerverein Nord' });
+  const r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: k.id, steuerart: 'klein', kleinunternehmer: true });
+  await w.DB.put('kontakte', { ...k, typ: 'lieferant' });
+  await w.Views.rechnung.render(host, r.id);
+  const sel = host.querySelector('#r-kunde');
+  assertEq(sel.value, k.id, 'der gesetzte Kontakt ist gewählt, nicht „– wählen –“');
+  assert(/FI6 Imkerverein Nord \(Lieferant\)/.test(sel.options[sel.selectedIndex].textContent), 'mit seiner Rolle');
+})));
+
+test('Finaltest P1 FI7: Rechnungsnummern-Präfix bleibt, auch wenn man die Einstellungen sofort verlässt', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('rechnungskreis', { prefix: 'RE-', next: 2 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.einstellungen.render(host);
+    const pf = host.querySelector('#rk-prefix'), nx = host.querySelector('#rk-next');
+    pf.value = 'RE-2027-'; pf.dispatchEvent(new w.Event('input', { bubbles: true }));
+    nx.value = '1'; nx.dispatchEvent(new w.Event('input', { bubbles: true }));
+    host.remove();   // Seite verlassen, bevor die 0,5 s um sind
+    await kurz(800);
+    const kreis = (await w.DB.get('settings', 'rechnungskreis')).value;
+    assertEq([kreis.prefix, kreis.next], ['RE-2027-', 1], 'Präfix und Zähler gespeichert');
+  } finally { host.remove(); }
+}));
+
+test('Finaltest P1 FI10/FI11: Lager-Namen im Kassenbuch; Rechnung zu einem bezahlten Verkauf ohne Zahlungsziel', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  assertEq(w.KASSE_BEREICHE.filter(([k]) => ['inventar', 'produkt'].includes(k)).map(([, l]) => l), ['Geräte & Inventar', 'Produkte'], 'Namen wie im Lager');
+  const k = await w.DB.put('kontakte', { typ: 'kunde', name: 'FI11 Kunde' });
+  const r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: k.id, steuerart: 'klein', kleinunternehmer: true, skontoProzent: 2,
+    positionen: [{ text: 'Honig', abfuellungId: null, menge: 10, einzelpreis: 6, pfand: 0, steuersatz: 7 }], ausVerkauf: { art: 'honig', id: 'fi11-v', betrag: 60 } });
+  await w.Views.rechnung.render(host, r.id);
+  assert(host.querySelector('[data-dankend]') && /Betrag dankend erhalten/.test(host.textContent), '„Betrag dankend erhalten“');
+  assert(!/Zahlbar bis/.test(host.textContent) && !/Skonto =/.test(host.textContent), 'kein Zahlungsziel, kein Skonto');
+  host.innerHTML = '';
+  const normal = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: k.id, steuerart: 'klein', kleinunternehmer: true, positionen: [{ text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 6, pfand: 0, steuersatz: 7 }] });
+  await w.Views.rechnung.render(host, normal.id);
+  assert(/Zahlbar bis/.test(host.textContent) && !host.querySelector('[data-dankend]'), 'normale Rechnung: Zahlungsziel wie bisher');
+})));
+
+/* ---------- Finaltest Portion 1, 09.11.2026 (Prüfer Lager) ---------- */
+test('Finaltest P1 L1: Stück-Ware über „An- und Verkauf buchen“ nur in ganzen Zahlen – nichts still gerundet', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const p = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'L1 Kerze', einheit: 'Stück', stueckzahl: 10, preis: 2, verkaufspreis: 5 });
+  w.materialAbgangForm(w.bereichCfg('produkt'), p.id, null, 'Verkauf'); await kurz(400);
+  let m = letztesModal(w);
+  setzFeld(w, m, 'menge', '2,5');
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assert(/zählt in Stück/.test(m.textContent), 'Verkauf 2,5: Feldfehler „zählt in Stück“');
+  assertEq((await w.DB.get('inventar', p.id)).stueckzahl, 10, 'Bestand bleibt 10');
+  assertEq([(await w.DB.getAll('materialabgaenge')).length, (await w.DB.getAll('kassenbuch')).length], [0, 0], 'kein Abgang, keine Einnahme');
+  dialogeSchliessen(w);
+  w.materialZugangForm(w.bereichCfg('produkt'), p.id); await kurz(400);
+  m = letztesModal(w);
+  setzFeld(w, m, 'menge', '2,5'); setzFeld(w, m, 'preis', '2');
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assert(/zählt in Stück/.test(m.textContent), 'Einkauf 2,5: Feldfehler');
+  assertEq((await w.DB.get('inventar', p.id)).stueckzahl, 10, 'Bestand bleibt 10 (nicht 13)');
+  assertEq([(await w.DB.getAll('materialzugaenge')).length, (await w.DB.getAll('kassenbuch')).length], [0, 0], 'kein Zugang, keine Ausgabe');
+  setzFeld(w, m, 'menge', '3');
+  m.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.getAll('materialzugaenge')).length === 1);
+  assertEq((await w.DB.get('inventar', p.id)).stueckzahl, 13, 'ganze Zahl wird gebucht');
+  dialogeSchliessen(w);
+  // Neue Position mit 2,5 Stück: abgewiesen; 2,5 Kartons à 12 Stück = 30 Stück bleibt erlaubt
+  w.materialZugangForm(w.bereichCfg('produkt')); await kurz(400);
+  m = letztesModal(w);
+  setzFeld(w, m, 'inventarId', '__neu'); await kurz(100);
+  setzFeld(w, m, 'bezeichnung', 'L1 Neu'); setzFeld(w, m, '_bestand', '2,5');
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assert(/zählt in Stück/.test(m.textContent), 'neue Position mit 2,5 Stück: Feldfehler');
+  assert(!(await w.DB.getAll('inventar')).some((i) => i.bezeichnung === 'L1 Neu'), 'nicht angelegt');
+  let f = null; try { w.stueckGanzzahl({ bezeichnung: 'x' }, 30, 'menge', 'Stück'); w.stueckGanzzahl({ bezeichnung: 'x' }, 2.5, 'menge', 'kg'); } catch (e) { f = e; }
+  assertEq(f, null, '30 Stück und 2,5 kg sind erlaubt');
+})));
+
+test('Finaltest P1 L2: Abgang unter den Mindestbestand legt „Bestand niedrig“ nur einmal an', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L2 Deckel TO 82', einheit: 'Stück', stueckzahl: 60, mindestbestand: 50 });
+  w.materialAbgangForm(w.bereichCfg('verbrauch'), p.id, null, 'Eigenverbrauch'); await kurz(400);
+  const m = letztesModal(w);
+  setzFeld(w, m, 'art', 'Eigenverbrauch'); setzFeld(w, m, 'menge', '45');
+  m.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.getAll('materialabgaenge')).length === 1);
+  await w.pruefeMhd();   // wartet auch auf einen noch laufenden Prüflauf
+  const auf = (await w.DB.getAll('aufgaben')).filter((a) => a.refId === p.id);
+  assertEq(auf.length, 1, 'genau eine Aufgabe: ' + auf.map((a) => a.titel).join(' | '));
+  assert(/Bestand niedrig: L2 Deckel TO 82 \(15 ≤ 50\)/.test(auf[0].titel), auf[0].titel);
+  // Zwei gleichzeitige Läufe: trotzdem nur eine Aufgabe
+  const q = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L2 Gläser', einheit: 'Stück', stueckzahl: 3, mindestbestand: 20 });
+  await Promise.all([w.pruefeMhd(), w.pruefeMhd(), w.pruefeMhd()]);
+  assertEq((await w.DB.getAll('aufgaben')).filter((a) => a.refId === q.id).length, 1, 'gleichzeitige Läufe: eine Aufgabe');
+})));
+
+test('Finaltest P1 L3: abgehakte „Bestand niedrig“/„Abgelaufen“ kommt nicht bei jeder Buchung wieder', async (w) => isolierteDaten(w, async () => {
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  try {
+    const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L3 Deckel', einheit: 'Stück', stueckzahl: 3, mindestbestand: 50 });
+    const zu = async () => (await w.DB.getAll('aufgaben')).filter((a) => a.refId === p.id);
+    await w.pruefeMhd();
+    let auf = await zu();
+    assertEq(auf.length, 1, 'eine Erinnerung');
+    await w.DB.put('aufgaben', { ...auf[0], erledigt: true });
+    await w.pruefeMhd();
+    assertEq((await zu()).length, 1, 'abgehakt: keine neue beim nächsten Lauf');
+    await w.DB.put('inventar', { ...(await w.DB.get('inventar', p.id)), stueckzahl: 2 });
+    await w.pruefeMhd();
+    assertEq((await zu()).length, 1, 'weiter niedrig: Ruhe, bis die Ware da ist');
+    await w.DB.put('inventar', { ...(await w.DB.get('inventar', p.id)), stueckzahl: 60 });
+    await w.pruefeMhd();
+    await w.DB.put('inventar', { ...(await w.DB.get('inventar', p.id)), stueckzahl: 10 });
+    await w.pruefeMhd();
+    auf = await zu();
+    assertEq([auf.length, auf.filter((a) => !a.erledigt).length], [2, 1], 'nach Nachkauf und erneutem Absinken: neue Erinnerung');
+    // Abgelaufenes ohne Bestand: keine Aufgabe; mit Bestand eine, abgehakt bleibt Ruhe
+    const gestern = w.U.addDays(w.U.todayIso(), -1);
+    const leer = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L3 Säure leer', einheit: 'ml', stueckzahl: 0, ablauf: gestern });
+    const voll = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L3 Säure', einheit: 'ml', stueckzahl: 500, ablauf: gestern });
+    await w.pruefeMhd();
+    const alle = await w.DB.getAll('aufgaben');
+    assertEq(alle.filter((a) => a.refId === leer.id).length, 0, 'Bestand 0: kein „Abgelaufen“');
+    const ab = alle.filter((a) => a.refId === voll.id);
+    assert(ab.length === 1 && /Abgelaufen: L3 Säure/.test(ab[0].titel), 'mit Bestand: „Abgelaufen“');
+    await w.DB.put('aufgaben', { ...ab[0], erledigt: true });
+    await w.pruefeMhd();
+    assertEq((await w.DB.getAll('aufgaben')).filter((a) => a.refId === voll.id).length, 1, 'abgehakt: kommt nicht wieder');
+  } finally { w.Lizenz.light = echtLight; }
+}));
+
+test('Finaltest P1 L4/L8: Lagerliste zeigt Bestand 0 statt 1; Bereichsnamen wie die Lager-Reiter', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'L4 Propolis-Tinktur', kategorie: 'Propolis', einheit: 'Stück', stueckzahl: 0, preis: 3 });
+  const cfg = w.bereichCfg('produkt'); cfg.view._suche = ''; cfg.view._jahr = ''; cfg.view._art = '';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.renderInventarBereich(host, cfg);
+    const zeile = [...host.querySelectorAll('[data-edit]')].find((r) => /L4 Propolis-Tinktur/.test(r.textContent));
+    assert(zeile && /0 Stück ×/.test(zeile.textContent) && !/1 Stück/.test(zeile.textContent), 'Zeile zeigt 0 Stück: ' + (zeile && zeile.textContent));
+    assertEq([w.bereichCfg('produkt').titel, w.bereichCfg('inventar').titel, w.bereichCfg('verbrauch').titel], ['Produkte', 'Geräte & Inventar', 'Verbrauchsmaterial'], 'Titel wie die Reiter');
+    assert(/Produkte \(PDF\)/.test(host.textContent) && !/Weitere Produkte/.test(host.textContent), 'PDF-Knopf mit neuem Namen');
+    const tour = w.APP_WISSEN.find((x) => x.id === 'produkte').tour.find((s) => s.weiter && s.text.includes('Bereich'));
+    assertEq(tour.knopf, 'Produkte', 'Imme-Führung trifft den Bereichs-Chip „Produkte“');
+  } finally { host.remove(); }
+}));
+
+test('Finaltest P1 L5: Einkauf eines Produkts ohne oder mit eigener Kategorie bucht „Weitere Produkte“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  assertEq([w.kasseKategorieFuer('', 'produkt'), w.kasseKategorieFuer('Seife', 'produkt'), w.kasseKategorieFuer('', 'verbrauch'), w.kasseKategorieFuer('Futter', 'produkt')],
+    ['Weitere Produkte', 'Weitere Produkte', 'Material/Geräte', 'Futter'], 'Rückfall je Bereich');
+  const p = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: 'L5 Honigseife', kategorie: 'Seife', einheit: 'Stück', stueckzahl: 0, preis: 3 });
+  w.materialZugangForm(w.bereichCfg('produkt'), p.id); await kurz(400);
+  const m = letztesModal(w);
+  setzFeld(w, m, 'menge', '5'); setzFeld(w, m, 'preis', '3'); await kurz(100);
+  assert(/Weitere Produkte/.test(m.textContent), 'Hinweis im Formular nennt „Weitere Produkte“');
+  m.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.getAll('kassenbuch')).length === 1);
+  const kb = (await w.DB.getAll('kassenbuch'))[0];
+  assertEq([kb.typ, kb.betrag, kb.kategorie], ['ausgabe', 15, 'Weitere Produkte'], 'Ausgabe unter „Weitere Produkte“');
+})));
+
+test('Finaltest P1 L6: Imme „Zeig es mir“ bei Pfand zeigt auf „Rücknahme buchen“, nicht auf „Verkaufen“', async (w) => isolierteDaten(w, async () => {
+  const A = w.Assistent, e = w.APP_WISSEN.find((x) => x.id === 'pfand');
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  assert(/Pfand im Umlauf/.test(e.antwort) && !/Umlauf-Zahl steht an der Position/.test(e.antwort), 'Antwort nennt die Karte „Pfand im Umlauf“');
+  try {
+    await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'L6 Mehrwegglas', kategorie: 'Gläser/Deckel', einheit: 'Stück', stueckzahl: 50, pfand: 0.5, pfandSeit: '2026-01-01', gebindeG: 500 });
+    await A.zeige(e);
+    const ziel = w.document.querySelector('.bini-ziel');
+    assert(ziel && ziel.id === 'pfand-zurueck', 'markiert „Rücknahme buchen“: ' + (ziel && ziel.textContent.trim()));
+  } finally { A.markeWeg(); w.Lizenz.light = echtLight; w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));
+
+test('Finaltest P1 L7: Verkaufen – Suche ohne Treffer löscht den Hinweis der vorigen Position', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  for (let n = 1; n <= 10; n++) await w.DB.put('inventar', { typ: 'produkt', bezeichnung: `L7 Met Sorte ${n}`, einheit: 'Stück', stueckzahl: 12, verkaufspreis: 9.9 });
+  const erste = (await w.DB.getAll('inventar')).find((i) => i.bezeichnung === 'L7 Met Sorte 1');
+  await w.lagerVerkaufForm(erste.id); await kurz(300);
+  const m = letztesModal(w);
+  setzFeld(w, m, 'menge', '1'); await kurz(100);
+  const info = m.querySelector('[data-lager-verkauf-info]');
+  assert(/Erlös/.test(info.textContent), 'mit Position: Hinweis mit Erlös');
+  const such = m.querySelector('[data-auswahl-suche]');
+  such.value = 'kerze'; such.dispatchEvent(new w.Event('input', { bubbles: true }));
+  await kurz(400);
+  assertEq(m.querySelector('#f-inventarId').value, '', 'nichts gewählt');
+  assert(!/Bestand|Erlös/.test(info.textContent), 'kein alter Hinweis: ' + info.textContent);
+})));
+
+test('Finaltest P1 D1/D4: Zwischenstand zurückholen – Fotos im Papierkorb behalten ihre Datei, spätere Fotos landen im Papierkorb, Rückgängig holt alles', async (w) => isolierteDaten(w, async () => {
+  const vorherSnaps = new Set((await w.DB.getAll('snapshots')).map((s) => s.id));
+  const bild = (t) => new w.Blob([t], { type: 'image/jpeg' });
+  const volk = await w.DB.put('voelker', { name: 'D1-Volk', status: 'aktiv' });
+  const foto = (name) => w.DB.put('anhaenge', { parentTyp: 'volk', parentId: volk.id, art: 'foto', name, mime: 'image/jpeg', blob: bild(name), datum: w.U.nowIso() });
+  const a = await foto('a.jpg'), b = await foto('b.jpg');
+  await w.DB.softDel('anhaenge', b.id);                       // b im Papierkorb
+  await w.Backup.snapshotInternal('manuell');
+  const snap = w.U.sortBy((await w.DB.getAll('snapshots')).filter((s) => !vorherSnaps.has(s.id)), (s) => s.datum, true)[0];
+  await w.DB.softDel('anhaenge', a.id);                       // a danach auch gelöscht
+  await foto('c.jpg');                                        // c erst nach dem Zwischenstand
+  const confirm = w.UI.confirm, fragen = [];
+  w.UI.confirm = async (o) => { fragen.push(o); return true; };
+  try {
+    await w.Backup.restoreSnapshot(snap.id);
+    assert(/Foto bzw\. eine Sprachnotiz/.test(fragen[0].text) && /Papierkorb/.test(fragen[0].text), 'Rückfrage nennt das spätere Foto: ' + fragen[0].text);
+    const aktiv = await w.DB.getAll('anhaenge');
+    assertEq(aktiv.map((x) => x.name), ['a.jpg'], 'a ist wieder als Foto da');
+    assert(w.U.istBlob(aktiv[0].blob), 'mit Datei');
+    const korb = () => w.DB.getAll('papierkorb').then((l) => l.filter((t) => t.store === 'anhaenge'));
+    const imKorb = (l, n) => l.find((t) => t.daten.name === n);
+    let k = await korb();
+    assert(imKorb(k, 'b.jpg') && w.U.istBlob(imKorb(k, 'b.jpg').daten.blob), 'b liegt mit Datei im Papierkorb');
+    assert(imKorb(k, 'c.jpg') && w.U.istBlob(imKorb(k, 'c.jpg').daten.blob), 'c (später) liegt mit Datei im Papierkorb statt verloren');
+    // Rückgängig: den Stand von vor dem Zurückholen holen
+    const vor = w.U.sortBy((await w.DB.getAll('snapshots')).filter((s) => s.grund === 'vor-wiederherstellung' && !vorherSnaps.has(s.id)), (s) => s.datum, true)[0];
+    await w.Backup.restoreSnapshot(vor.id);
+    const aktiv2 = await w.DB.getAll('anhaenge');
+    assertEq(aktiv2.map((x) => x.name), ['c.jpg'], 'nach dem Rückgängigmachen ist c wieder aktiv');
+    assert(w.U.istBlob(aktiv2[0].blob), 'c mit Datei');
+    k = await korb();
+    assertEq(k.map((t) => t.daten.name).sort(), ['a.jpg', 'b.jpg'], 'a und b im Papierkorb');
+    assert(k.every((t) => w.U.istBlob(t.daten.blob)), 'beide mit Datei');
+    await w.DB.trashRestore(imKorb(k, 'b.jpg').id);
+    const b2 = await w.DB.get('anhaenge', b.id);
+    assert(b2 && w.U.istBlob(b2.blob), 'b lässt sich mit Datei wiederherstellen');
+  } finally {
+    w.UI.confirm = confirm; dialogeSchliessen(w);
+    for (const s of await w.DB.getAll('snapshots')) if (!vorherSnaps.has(s.id)) await w.DB.del('snapshots', s.id);
+  }
+}));
+
+test('Finaltest P1 D2: Zusammenführen – dort gelöschte Fütterung und stornierter Verkauf: Bestände passen zu den hier aktiven Einträgen', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso(), spaeter = new Date(Date.now() + 120000).toISOString();
+  const zucker = await w.DB.put('inventar', { typ: 'verbrauch', einheit: 'kg', bezeichnung: 'D2-Zucker', kategorie: 'Futter', stueckzahl: 30 });
+  const folie = await w.DB.put('inventar', { typ: 'verbrauch', einheit: 'Stück', bezeichnung: 'D2-Folie', kategorie: 'Sonstiges', stueckzahl: 5 });
+  const f = await w.DB.put('fuetterungen', { zielTyp: 'volk', zielId: 'x', datum: heute, mengeKg: 10, verbrauchAbzug: [{ inventarId: zucker.id, menge: 10 }, { inventarId: folie.id, menge: 2 }] });
+  const abf = await w.DB.put('abfuellungen', { datum: heute, gebindeG: 500, anzahl: 100, bestand: 70 });   // von Hand gesenkt, dann 12 verkauft
+  const v = await w.DB.put('verkaeufe', { datum: heute, abfuellungId: abf.id, anzahl: 12, preisProStueck: 7.5, betrag: 90 });
+  // Das andere Gerät: Fütterung gelöscht (Zucker 40), Verkauf storniert (Bestand 82); die Folie dort nicht neuer
+  const sicherung = { app: 'ImkerBuch', formatVersion: 1, exportiert: spaeter, stores: {
+    inventar: [{ ...zucker, stueckzahl: 40, lastModified: spaeter }, { ...folie, stueckzahl: 7 }],
+    abfuellungen: [{ ...abf, bestand: 82, lastModified: spaeter }],
+    fuetterungen: [], verkaeufe: [],
+    papierkorb: [{ id: w.U.uuid(), store: 'fuetterungen', daten: f, geloeschtAm: spaeter }, { id: w.U.uuid(), store: 'verkaeufe', daten: v, geloeschtAm: spaeter }],
+  } };
+  const erg = await w.Backup.applyMerge(sicherung);
+  assertEq(erg.fremdGeloescht, 2, 'zwei Löschungen vom anderen Gerät gezählt');
+  assert(await w.DB.get('fuetterungen', f.id) && await w.DB.get('verkaeufe', v.id), 'hier bleiben beide aktiv');
+  assertEq((await w.DB.get('inventar', zucker.id)).stueckzahl, 30, 'Zucker: der Abzug der hier aktiven Fütterung bleibt');
+  assertEq((await w.DB.get('inventar', folie.id)).stueckzahl, 5, 'eigener (neuerer) Posten unverändert');
+  assertEq((await w.DB.get('abfuellungen', abf.id)).bestand, 70, 'Abfüllung: der hier aktive Verkauf bleibt abgezogen');
+  // Noch einmal dieselbe Sicherung: nichts ändert sich mehr
+  await w.Backup.applyMerge(sicherung);
+  assertEq([(await w.DB.get('inventar', zucker.id)).stueckzahl, (await w.DB.get('abfuellungen', abf.id)).bestand], [30, 70], 'zweites Zusammenführen ändert nichts');
+}));
+
+test('Finaltest P1 D3: Excel-Zahlenzellen mit drei Nachkommastellen bleiben richtig (2,125 kg statt 2125 kg)', async (w) => {
+  const X = await w.Xlsx.lib();
+  const ws = X.utils.aoa_to_sheet([['Volk', 'Sorte', 'Menge (kg)'], ['D3', 'Raps', 2.125], ['D3', 'Linde', 12.5], ['D3', 'Wald', 1.75], ['D3', 'Heide', 1250]]);
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'A');
+  const rows = w.Importer.zeilenLesen(X, X.write(wb, { type: 'array', bookType: 'xlsx' }));
+  assertEq(rows.map((r) => w.U.parseNum(r['Menge (kg)'])), [2.125, 12.5, 1.75, 1250], 'Zahlen aus Excel');
+  assertEq(rows[0]['Menge (kg)'], '2,125', 'Vorschau deutsch geschrieben');
+  // CSV bleibt, wie es war
+  const csv = new w.TextEncoder().encode('Menge;Text\n2.000;x\n1,5;y\n').buffer;
+  const vorher = X.utils.sheet_to_json(w.tabelleLesen(X, csv).Sheets[w.tabelleLesen(X, csv).SheetNames[0]], { defval: '', raw: false });
+  assertEq(w.Importer.zeilenLesen(X, csv), vorher, 'CSV unverändert');
+});
+
+test('Finaltest P1 D5: Zusammenführen vereinigt Fahrt-Vorlagen, Durchsicht-Felder und Honigsorten statt sie zu ersetzen', async (w) => isolierteDaten(w, async () => {
+  const B = w.Backup, t1 = '2026-11-09T10:00:00.000Z', t2 = '2026-11-09T10:00:01.000Z';
+  const r = B.einstellungZusammen({ key: 'fahrtvorlagen', value: [{ id: 'a', name: 'Fahrt A' }], lastModified: t1 }, { key: 'fahrtvorlagen', value: [{ id: 'b', name: 'Fahrt B' }], lastModified: t2 });
+  assertEq(r.value.map((x) => x.name), ['Fahrt B', 'Fahrt A'], 'beide Vorlagen');
+  const f = B.einstellungZusammen({ key: 'stockkartenFelder', value: [{ name: 'Feld A', typ: 'text' }], lastModified: t1 }, { key: 'stockkartenFelder', value: [{ name: 'Feld A', typ: 'zahl' }, { name: 'Feld B', typ: 'check' }], lastModified: t2 });
+  assertEq(f.value, [{ name: 'Feld A', typ: 'zahl' }, { name: 'Feld B', typ: 'check' }], 'gleiches Feld: die neuere Fassung');
+  assertEq(B.einstellungZusammen({ key: 'honigsorten', value: ['Raps', 'Sorte A'], lastModified: t2 }, { key: 'honigsorten', value: ['Raps', 'Sorte A'], lastModified: t1 }), null, 'gleiche Liste: nichts zu tun');
+  // Ganzer Weg über applyMerge
+  await w.S.set('honigsorten', ['Sorte A']);
+  await w.S.set('dokumentTypen', ['Dok A']);
+  const spaeter = new Date(Date.now() + 60000).toISOString();
+  await B.applyMerge({ app: 'ImkerBuch', formatVersion: 1, stores: { settings: [{ key: 'honigsorten', value: ['Sorte B'], lastModified: spaeter }, { key: 'dokumentTypen', value: ['Dok B'], lastModified: spaeter }] } });
+  await w.S.load();
+  assertEq(w.S.get('honigsorten'), ['Sorte B', 'Sorte A'], 'beide Sorten');
+  assertEq(w.S.get('dokumentTypen'), ['Dok B', 'Dok A'], 'beide Dokumenttypen');
+}));
+
+test('Finaltest P1 D6: alte Sicherung zweimal zusammengeführt – Bio-Partner-Notiz und Zertifikate nicht doppelt', async (w) => isolierteDaten(w, async () => {
+  const alt = { app: 'ImkerBuch', formatVersion: 1, stores: { bioeintraege: [
+    { id: w.U.uuid(), bereich: 'partner', name: 'D6 Imkerhof', notiz: 'Liefert Wachs', rolle: 'Lieferant' },
+    { id: w.U.uuid(), bereich: 'zertifikat', art: 'Zertifikat', name: 'Bio 2025', nummer: 'Z-1', aussteller: 'D6 Imkerhof' },
+    { id: w.U.uuid(), bereich: 'zertifikat', art: 'Bescheinigung', name: 'Rückstand', nummer: 'R-1' },
+  ] } };
+  for (let i = 0; i < 2; i++) { await w.Backup.applyMerge(alt); await w.Backup.nachImport(alt); }
+  const k = (await w.DB.getAll('kontakte')).filter((x) => x.name === 'D6 Imkerhof');
+  assertEq(k.length, 1, 'ein Kontakt');
+  assertEq(k[0].notiz, 'Liefert Wachs\nZertifikat: Bio 2025 (Nr. Z-1)', 'Notiz einmal');
+  const z = String(w.S.get('bioBetrieb').zertifikate || '');
+  assertEq(z.split('Bescheinigung: Rückstand (Nr. R-1)').length - 1, 1, 'Bescheinigung einmal: ' + z);
+}));
+
+test('Finaltest P1 D7: zweites Fenster – gespeicherte Liste des anderen Fensters geht beim eigenen Speichern nicht verloren', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('honigsorten', ['Raps']);
+  // Das andere Fenster speichert (an den Einstellungen dieses Fensters vorbei) und meldet sich
+  const spaeter = new Date(Date.now() + 1000).toISOString();
+  await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'honigsorten', value: ['Raps', 'Sorte Fenster1'], lastModified: spaeter }, keepStamp: true }]);
+  await w.Backup.leseAenderungsstand();
+  await w.S.set('honigsorten', [...w.S.get('honigsorten'), 'Sorte Fenster2']);
+  assertEq((await w.DB.get('settings', 'honigsorten')).value, ['Raps', 'Sorte Fenster1', 'Sorte Fenster2'], 'beide Sorten gespeichert');
+  // Ein älterer, inhaltlich anderer Satz aus der Datenbank dreht das eigene, neuere Speichern nicht zurück
+  const merk = w.S._saetze.honigsorten.lastModified;
+  await w.DB.schreibeAlles([{ store: 'settings', obj: { key: 'honigsorten', value: ['Raps'], lastModified: new Date(Date.parse(merk) - 60000).toISOString() }, keepStamp: true }]);
+  await w.Backup.leseAenderungsstand();
+  assertEq(w.S.get('honigsorten').length, 3, 'nichts zurückgedreht');
+}));
+
+test('Finaltest P1 D2b: Zusammenführen – dort gelöschter Lager-Abgang: Bestand passt zum hier aktiven Abgang', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso(), spaeter = new Date(Date.now() + 120000).toISOString();
+  const kerze = await w.DB.put('inventar', { typ: 'produkt', einheit: 'Stück', bezeichnung: 'D2b-Kerze', kategorie: 'Kerzen', stueckzahl: 5 });
+  const ab = await w.DB.put('materialabgaenge', { datum: heute, inventarId: kerze.id, bezeichnung: 'D2b-Kerze', menge: 5, bestandVorher: 10, bestandNachher: 5, grund: 'Verkauf' });
+  const sicherung = { app: 'ImkerBuch', formatVersion: 1, exportiert: spaeter, stores: {
+    inventar: [{ ...kerze, stueckzahl: 10, lastModified: spaeter }], materialabgaenge: [],
+    papierkorb: [{ id: w.U.uuid(), store: 'materialabgaenge', daten: ab, geloeschtAm: spaeter }],
+  } };
+  const erg = await w.Backup.applyMerge(sicherung);
+  assertEq(erg.fremdGeloescht, 1, 'eine Löschung vom anderen Gerät');
+  assert(await w.DB.get('materialabgaenge', ab.id), 'Abgang hier weiter aktiv');
+  assertEq((await w.DB.get('inventar', kerze.id)).stueckzahl, 5, 'Bestand passt zum aktiven Abgang');
+}));
+
+test('Finaltest P1 D3b: Excel – PLZ mit führender Null, Prozent und Datum behalten ihren Text', async (w) => {
+  const X = await w.Xlsx.lib();
+  const ws = X.utils.aoa_to_sheet([['Name', 'PLZ', 'Telefon', 'Satz', 'Menge'], ['D3b', 1067, 8912345, 0.07, 2.125]]);
+  ws.B2.z = '00000'; ws.C2.z = '"0"#'; ws.D2.z = '0%'; ws.E2.z = '0.000';
+  const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, 'A');
+  const r = w.Importer.zeilenLesen(X, X.write(wb, { type: 'array', bookType: 'xlsx' }))[0];
+  assertEq([r.PLZ, r.Telefon, r.Satz], ['01067', '08912345', '7%'], 'Format bleibt');
+  assertEq(w.U.parseNum(r.Menge), 2.125, 'Kommazahl mit Format 0.000 richtig');
+});
+
+test('Finaltest P1 D8: Volksakte zeigt den Text einer Sprachnotiz', async (w) => isolierteDaten(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'D8-Volk', status: 'aktiv', historie: [] });
+  await w.DB.put('anhaenge', { parentTyp: 'volk', parentId: v.id, art: 'audio', name: 'sprachnotiz.webm', datum: w.U.nowIso(), transkript: 'Weiselzelle auf Wabe drei gesehen' });
+  const t = (await w.Export.volkTeile(await w.DB.get('voelker', v.id))).find((x) => x.k === '_anhaenge');
+  assertEq(t.rows[0].Text, 'Weiselzelle auf Wabe drei gesehen');
+}));
+
+test('Finaltest P1 D9/D11: Papierkorb zeigt keine abgelaufenen Einträge, „1 Tag“/„heute“; lesbare Bereichs- und Kontakt-Namen', async (w) => isolierteDaten(w, async () => {
+  const tage = (n) => new Date(Date.now() - n * 86400000).toISOString();
+  await w.DB.put('papierkorb', { id: w.U.uuid(), store: 'staende', daten: { id: w.U.uuid(), name: 'D9 Alter Stand' }, geloeschtAm: tage(31) });
+  await w.DB.put('papierkorb', { id: w.U.uuid(), store: 'staende', daten: { id: w.U.uuid(), name: 'D9 Frischer Stand' }, geloeschtAm: tage(0) });
+  const host = w.document.createElement('div');
+  await w.Views.papierkorb.render(host);
+  assert(!/D9 Alter Stand/.test(host.textContent) && /D9 Frischer Stand/.test(host.textContent), 'nur der frische Eintrag');
+  assertEq([w.verfallText(0), w.verfallText(1), w.verfallText(5)], ['verfällt heute', 'verfällt in 1 Tag', 'verfällt in 5 Tagen']);
+  assertEq([w.STORE_LABELS.papierkorb, w.STORE_LABELS.inventar], ['Papierkorb-Eintrag', 'Lager-Position']);
+  await w.DB.put('kontakte', { typ: 'beides', name: 'D11 Kontakt' });
+  const rows = await (await w.Xlsx.defs()).kontakte.rows();
+  assertEq(rows.find((r) => r.Name === 'D11 Kontakt').Art, 'Kunde und Lieferant');
+}));
+
+test('Finaltest P1 D10: Umstellungen nach dem Einspielen behalten die Änderungszeit', async (w) => isolierteDaten(w, async () => {
+  const alt = '2026-01-01T00:00:00.000Z';
+  const v = await w.DB.put('voelker', { name: 'D10', status: 'aktiv', raehmchenmass: 'Zander', lastModified: alt }, true);
+  const k = await w.DB.put('koeniginnen', { kennung: 'D10-K', jahrgang: 2025, status: 'aktiv', belegstelle: 'D10 Belegstelle', historie: [], lastModified: alt }, true);
+  const c = await w.DB.put('chargen', { losnummer: 'D10-L', glasGroesseG: 500, anzahlGlaeser: 10, bestandGlaeser: 10, lastModified: alt }, true);
+  const vk = await w.DB.put('verkaeufe', { datum: '2025-08-01', chargeId: c.id, anzahl: 1, lastModified: alt }, true);
+  await w.migriereRaehmchenmass(true); await w.migriereBelegstellen(true); await w.migriereChargenAbfuellung(true);
+  const v2 = await w.DB.get('voelker', v.id), k2 = await w.DB.get('koeniginnen', k.id), c2 = await w.DB.get('chargen', c.id), vk2 = await w.DB.get('verkaeufe', vk.id);
+  assert(v2.beutentyp === 'Zander' && k2.belegstelleId && c2.mengeKg === 5 && vk2.abfuellungId, 'umgestellt');
+  assertEq([v2.lastModified, k2.lastModified, c2.lastModified, vk2.lastModified], [alt, alt, alt, alt], 'Zeitstempel unverändert');
+}));
+
+test('Finaltest P1 D12: Kassenbuch-Übernahme – „Einnahme aus …“, „Bar-Einnahme“, „Hausverkauf“ bleiben Einnahmen', async (w) => isolierteDaten(w, async () => {
+  const T = (typ, betrag = 50) => w.Importer.kassenTyp(typ, betrag);
+  assertEq(['Einnahme aus Verkauf', 'Bar-Einnahme', 'Einnahme (Hausverkauf)', 'Umsatz Hofladen', 'Einnahme', ''].map((x) => T(x)), Array(6).fill('einnahme'));
+  assertEq(['Ausgabe', 'Ausgaben Futter', 'Expense', 'aus', '-', 'Kosten'].map((x) => T(x)), Array(6).fill('ausgabe'));
+  assertEq(T('Einnahme', -5), 'ausgabe', 'negativer Betrag bleibt Ausgabe');
+  const rows = [{ Datum: '01.07.2026', Betrag: '50', Art: 'Einnahme aus Verkauf', Beschreibung: 'D12-a' }, { Datum: '02.07.2026', Betrag: '20', Art: 'Ausgabe', Beschreibung: 'D12-b' }];
+  await w.Importer.run('kassenbuch', rows, { datum: 'Datum', betrag: 'Betrag', typ: 'Art', beschreibung: 'Beschreibung' }, w.document.createElement('div'));
+  const kb = await w.DB.getAll('kassenbuch');
+  assertEq(['D12-a', 'D12-b'].map((b) => kb.find((x) => x.beschreibung === b).typ), ['einnahme', 'ausgabe']);
+}));
+
+test('Finaltest P1 LZ1/LZ2/LZ7: „noch 1 Tag“, „sind“ bei Mehrzahl, Lager in der Vollversions-Liste', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, echt = { aktiv: L.aktiv, speicher: L.speicher, preise: L.preise };
+  assertEq([L.tageText(1), L.tageText(0), L.tageText(5)], ['1 Tag', '0 Tage', '5 Tage']);
+  assertEq(L.vollSatz('Rechnungen'), 'Rechnungen sind Teil der Vollversion.');
+  assertEq(L.vollSatz('Behandlungen und Bestandsbuch'), 'Behandlungen und Bestandsbuch sind Teil der Vollversion.');
+  assertEq(L.vollSatz('Abnehmer & Lieferanten'), 'Abnehmer & Lieferanten sind Teil der Vollversion.');
+  assertEq(L.vollSatz('Fotos, Dokumente und Sprachnotizen'), 'Fotos, Dokumente und Sprachnotizen sind Teil der Vollversion.');
+  for (const b of ['Trachten', 'Sprachnotizen', 'Chargen', 'Die Finanzen', 'Weitere Produkte']) assert(/ sind /.test(L.vollSatz(b)), b);
+  for (const b of ['Das Lager', 'Die Fütterung', 'Das Fahrtenbuch', 'Verbrauchsmaterial', 'Die Übernahme aus anderen Apps']) assert(/ ist /.test(L.vollSatz(b)), b);
+  assert(/Lager/.test(L.VOLL_LISTE), 'Lager genannt');
+  L.aktiv = () => true; L.preise = async () => ({ voll: '24,99 €', test: null, geladen: true });
+  L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 29.5 * 864e5).toISOString() });
+  try {
+    dialogeSchliessen(w); L._offen = false;
+    const zu = L.fenster();
+    await kurz(30);
+    const m = w.document.querySelector('#modal-root .modal-back:last-child');
+    assert(/Testphase: noch 1 Tag(?!e)/.test(m.textContent), m.textContent.slice(0, 120));
+    L._fensterOffen.close(); await zu;
+    L.speicher = () => ({ voll: false, testStart: new Date(Date.now() - 40 * 864e5).toISOString() });
+    L._offen = false;
+    const zu2 = L.fenster();
+    await kurz(30);
+    const t2 = w.document.querySelector('#modal-root .modal-back:last-child').textContent;
+    assert(/Lager/.test(t2) && /mehr als 2 Völker/.test(t2), t2);
+    L._fensterOffen.close(); await zu2;
+  } finally { Object.assign(L, echt); L._offen = false; dialogeSchliessen(w); }
+}));
+test('Finaltest P1 LZ3: Light-Erinnerung legt sich nicht über ein offenes Fenster und kommt beim nächsten Start', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, echt = { light: L.light, fenster: L.fenster };
+  let fenster = 0; L.light = () => true; L.fenster = () => { fenster++; };
+  const alt = new Date(Date.now() - 5 * 864e5).toISOString();
+  await w.S.set('wizardDone', true, { auto: true }); await w.S.set('lightErinnert', alt, { auto: true });
+  const fremd = w.document.createElement('div'); fremd.className = 'modal-back'; w.document.getElementById('modal-root').appendChild(fremd);
+  try {
+    assert(await L.lightErinnerung(), 'Erinnerung fällig');
+    await kurz(1700);
+    assertEq(fenster, 0, 'nicht über „Was ist neu?“');
+    assertEq(w.S.get('lightErinnert'), alt, 'beim nächsten Start wieder fällig');
+    fremd.remove();
+    assert(await L.lightErinnerung(), 'ohne anderes Fenster');
+    await kurz(1700);
+    assertEq(fenster, 1, 'ohne anderes Fenster erscheint sie');
+  } finally { fremd.remove(); Object.assign(L, echt); }
+}));
+test('Finaltest P1 LZ4: ungültiger Pauschalsatz § 24 wird zurückgesetzt und gemeldet', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('steuer', { art: 'pauschal24', kleinunternehmer: false, pauschalsatz: 7.8 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const echtToast = w.UI.toast, ms = []; w.UI.toast = (m, a) => ms.push([m, a]);
+  try {
+    await w.Views.einstellungen.render(host);
+    const f = host.querySelector('#st-pausch');
+    f.value = '150'; f.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await kurz(100);
+    assertEq(f.value, '7,8', 'Feld zeigt wieder den gespeicherten Satz');
+    assertEq(w.S.get('steuer').pauschalsatz, 7.8);
+    assert(ms.some(([m, a]) => /zwischen 0 und 100/.test(m) && a === 'err'), JSON.stringify(ms));
+    ms.length = 0; f.value = '9,5'; f.dispatchEvent(new w.Event('change', { bubbles: true }));
+    await kurz(100);
+    assertEq(w.S.get('steuer').pauschalsatz, 9.5);
+    assert(ms.some(([m]) => /Gespeichert/.test(m)), 'gültiger Satz bestätigt');
+  } finally { w.UI.toast = echtToast; host.remove(); }
+}));
+test('Finaltest P1 LZ5: Kauf-Fenster baut sich nach gescheitertem Teststart als Light-Fenster neu auf', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, echt = { aktiv: L.aktiv, plugin: L.plugin, android: L.android, preise: L.preise }, toast = w.UI.toast, render = w.renderRoute, vor = w.S.get('lizenz');
+  const ms = []; w.UI.toast = (m, a) => ms.push([m, a]); w.renderRoute = () => {};
+  const alt = new Date(Date.now() - 35 * 864e5).toISOString();
+  L.aktiv = () => true; L.android = () => false; L.preise = async () => ({ voll: '24,99 €', test: '0,00 €', geladen: true });
+  L.plugin = () => ({ restorePurchases: async () => {}, purchaseProduct: async () => {},
+    getPurchases: async () => ({ purchases: [{ productIdentifier: w.LIZENZ_PRODUKTE.test, originalPurchaseDate: alt }] }) });
+  try {
+    await w.S.set('lizenz', { voll: false, testStart: null, geprueft: null }, { auto: true });
+    dialogeSchliessen(w); L._offen = false;
+    const zu = L.fenster();
+    await kurz(30);
+    assertEq(L.status(), 'ohneTest');
+    w.document.querySelector('#modal-root .modal-back:last-child [data-test]').click();
+    assert(await warteBis(() => /Weiter mit Light/.test(w.document.querySelector('#modal-root .modal-back:last-child')?.textContent || ''), 3000), 'Fenster zeigt jetzt Light');
+    assertEq(L.status(), 'abgelaufen');
+    assert(!w.document.querySelector('#modal-root .modal-back:last-child [data-test]'), 'kein „30 Tage kostenlos starten“ mehr');
+    L._fensterOffen.close(); await zu;
+  } finally { Object.assign(L, echt); L._offen = false; w.UI.toast = toast; w.renderRoute = render; dialogeSchliessen(w); await w.S.set('lizenz', vor, { auto: true }); }
+}));
+test('Finaltest P1 LZ6/LZ8: verlorener Kauf nach der Frist – Hinweis aufs Store-Konto statt „Testphase wiederhergestellt“ oder „Testphase vorbei“', async (w) => isolierteDaten(w, async () => {
+  const L = w.Lizenz, tag = 864e5, echt = { aktiv: L.aktiv, plugin: L.plugin, android: L.android, preise: L.preise }, toast = w.UI.toast, render = w.renderRoute;
+  const vor = w.S.get('lizenz'), vorGeraet = w.S.get('testStartGeraet');
+  const ms = []; w.UI.toast = (m, a) => ms.push([m, a]); w.renderRoute = () => {};
+  L.plugin = () => ({ restorePurchases: async () => {}, getPurchases: async () => ({ purchases: [] }) });
+  try {
+    // LZ6: Android, Testphase läuft, Kauf fehlt seit 8 Tagen – „Käufe wiederherstellen“
+    L.android = () => true;
+    await w.S.set('testStartGeraet', new Date(Date.now() - 3 * tag).toISOString(), { auto: true });
+    await w.S.set('lizenz', { voll: true, testStart: null, geprueft: null, kaufFehltSeit: new Date(Date.now() - 8 * tag).toISOString() }, { auto: true });
+    await L.wiederherstellen();
+    assertEq(L.status(), 'test');
+    assert(ms.some(([m, a]) => /nicht gefunden.*Google-Konto|Google-Konto nicht gefunden/.test(m) && /Testphase weiter, noch 27 Tage/.test(m) && a === 'err'), JSON.stringify(ms));
+    assert(!ms.some(([m]) => /wiederhergestellt/.test(m)), 'kein Erfolgstext');
+    ms.length = 0; await L.wiederherstellen();
+    assert(ms.some(([m]) => /Google-Konto nicht gefunden/.test(m)) && !ms.some(([m]) => /wiederhergestellt/.test(m)), 'auch beim zweiten Tippen: ' + JSON.stringify(ms));
+    // LZ8: iOS, Start nach der Frist – Hinweis statt stillem Wegfall
+    L.android = () => false; ms.length = 0;
+    await w.S.set('lizenz', { voll: true, testStart: new Date(Date.now() - 90 * tag).toISOString(), geprueft: null, kaufFehltSeit: new Date(Date.now() - 8 * tag).toISOString() }, { auto: true });
+    await L.vonAussenPruefen();
+    assertEq(L.status(), 'abgelaufen');
+    assert(ms.some(([m, a]) => /Apple-ID nicht gefunden/.test(m) && /als Light weiter/.test(m) && a === 'err'), JSON.stringify(ms));
+    L.aktiv = () => true; L.preise = async () => ({ voll: '24,99 €', test: null, geladen: true });
+    dialogeSchliessen(w); L._offen = false;
+    const zu = L.fenster();
+    await kurz(30);
+    const text = w.document.querySelector('#modal-root .modal-back:last-child').textContent;
+    assert(/Apple-ID nicht gefunden/.test(text) && !/Testphase ist vorbei/.test(text), text);
+    L._fensterOffen.close(); await zu;
+    // Rückerstattung: kein Konto-Hinweis
+    await w.S.set('lizenz', { voll: true, testStart: new Date(Date.now() - 90 * tag).toISOString(), geprueft: null }, { auto: true });
+    L.plugin = () => ({ restorePurchases: async () => {}, getPurchases: async () => ({ purchases: [{ productIdentifier: w.LIZENZ_PRODUKTE.voll, revocationDate: '2026-10-05T00:00:00Z' }] }) });
+    ms.length = 0; await L.vonAussenPruefen();
+    assertEq(w.S.get('lizenz').kaufVerloren, null);
+    assert(!ms.some(([m]) => /nicht gefunden/.test(m)), JSON.stringify(ms));
+  } finally {
+    Object.assign(L, echt); L._offen = false; w.UI.toast = toast; w.renderRoute = render; dialogeSchliessen(w);
+    await w.S.set('lizenz', vor, { auto: true }); await w.S.set('testStartGeraet', vorGeraet, { auto: true });
+  }
+}));
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
   const altInventar = await w.DB.getAll('inventar');
@@ -12767,7 +13363,8 @@ test('Kassenbuch löschen: fragt, ob der Eintrag im Bereich auch gelöscht wird 
   try {
     assertEq(w.chargeVerarbeitetKg(d.ch.id), 15, 'vorher: 15 kg abgegeben');
     const verkn = await w.kassenbuchVerknuepft(d.kb);
-    assert(verkn && /Lohnverarbeitung/.test(verkn.text) && /Weitere Produkte/.test(verkn.text), 'die Buchung kennt ihren Zugang im Bereich');
+    // Bereichsname wie im Lager: „Produkte“ statt „Weitere Produkte“ (Finaltest Portion 1, 09.11.2026)
+    assert(verkn && /Lohnverarbeitung/.test(verkn.text) && /Bereich Produkte/.test(verkn.text), 'die Buchung kennt ihren Zugang im Bereich: ' + (verkn && verkn.text));
     const lauf = w.kassenbuchLoeschen(d.kb);
     await klickeAntwort(w, 'ja');
     assertEq(await lauf, true, 'gelöscht');

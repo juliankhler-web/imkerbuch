@@ -4867,7 +4867,7 @@ async function renderRoute(opt = {}) {
   Lizenz.kennzeichnen();
   const sperre = Lizenz.sperrBereich(route);
   if (!sperre && route === 'dashboard' && Lizenz.light()) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>Du nutzt ImkerBuch Light</b> – bis ${Lizenz.LIGHT_VOELKER} Völker, Durchsicht und Stockkarte. Finanzen, Lager, Behandlungen, Fütterung, Ernte, Aufgaben, Fotos und mehr gibt es mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion holen</button></div>`);
-  if (sperre) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>${U.esc(sperre)} ${/^(Die Finanzen|Rechnungen|Wanderungen|Trachten|Statistiken|Meldungen|Fotos)/.test(sperre) ? 'sind' : 'ist'} Teil der Vollversion.</b> Alles bleibt sichtbar – Neues eintragen geht mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`);
+  if (sperre) main.insertAdjacentHTML('afterbegin', `<div class="banner info light-hinweis no-print" style="flex-wrap:wrap">${icon('crown')} <span style="flex:1 1 220px;min-width:0"><b>${U.esc(Lizenz.vollSatz(sperre))}</b> Alles bleibt sichtbar – Neues eintragen geht mit der Vollversion.</span><button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">Vollversion ansehen</button></div>`);
   kopfHoeheMerken();           // quer klebt die Kopfzeile auf Seiten mit Reiterleiste nicht (CSS)
   window.scrollTo({ top: scrollY });
   Assistent.layout(true); setTimeout(() => Assistent.layout(true), 120); setTimeout(() => Assistent.layout(true), 600);
@@ -19227,7 +19227,8 @@ Views.markt = {
    ===================================================================== */
 /* Zu welchem Bereich gehört eine Kassenbuch-Buchung? Über den Datensatz, der sie ausgelöst hat (Zugang, Abgang, Honig-Verkauf, Pfand);
    ältere oder von Hand erfasste Buchungen über die Kategorie, sonst „Sonstiges“. */
-const KASSE_BEREICHE = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Inventar'], ['produkt', 'Weitere Produkte'], ['honig', 'Honig'], ['pfand', 'Pfand'], ['sonstiges', 'Sonstiges']];
+// Namen wie die Lager-Reiter (LAGER_TYP_NAME): „Geräte & Inventar“, „Produkte“ (Finaltest Portion 1, 09.11.2026, wie X1)
+const KASSE_BEREICHE = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Geräte & Inventar'], ['produkt', 'Produkte'], ['honig', 'Honig'], ['pfand', 'Pfand'], ['sonstiges', 'Sonstiges']];
 /** Bereich eines Lager-Datensatzes (Zugang/Abgang) nach seinem Typ. */
 const lagerBereichVon = (typ) => (typ === 'inventar' ? 'inventar' : typ === 'produkt' ? 'produkt' : typ === 'honig' ? 'honig' : 'verbrauch');
 async function kassenBereiche() {
@@ -19328,7 +19329,8 @@ Views.kassenbuch = {
   anVerkaufBuchen(vorBereich = '') {
     let richtung = 'ein';
     let bereich = vorBereich && vorBereich !== 'pfand' ? vorBereich : '';
-    const BER = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Inventar'], ['produkt', 'Weitere Produkte'], ['honig', 'Honig'], ['sonstiges', 'Sonstiges (nur Geld)']];
+    // Lager-Namen wie LAGER_TYP_NAME (Finaltest Portion 1, 09.11.2026)
+    const BER = [['verbrauch', 'Verbrauchsmaterial'], ['inventar', 'Geräte & Inventar'], ['produkt', 'Produkte'], ['honig', 'Honig'], ['sonstiges', 'Sonstiges (nur Geld)']];
     const m = UI.modal({
       title: 'An- und Verkauf buchen',
       body: '<div data-ak></div>',
@@ -19372,7 +19374,8 @@ Views.kassenbuch = {
     const all = U.sortBy(await DB.getAll('kassenbuch'), (k) => k.datum, true);
     const kontakte = await idMap('kontakte');
     const jahre = [...new Set(all.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
-    const jahr = Views.kassenbuch._jahr || jahre[0] || U.todayIso().slice(0, 4);
+    // gemerktes Jahr nur, wenn es noch Buchungen hat – sonst hing die Ansicht ohne Jahr-Knöpfe auf einem leeren Jahr (Finaltest Portion 1, 09.11.2026, wie F1)
+    const jahr = jahre.includes(Views.kassenbuch._jahr) ? Views.kassenbuch._jahr : (jahre[0] || U.todayIso().slice(0, 4));
     const bMap = await kassenBereiche();
     const imJahr = all.filter((k) => (k.datum || '').startsWith(jahr));
     /* Eigenverbrauch, Verlust und Verschenktes bringen kein Geld und stehen nicht im Kassenbuch – sie erscheinen hier als Zeilen mit 0,00 € und zählen nicht in die Summen. */
@@ -19437,7 +19440,7 @@ Views.kassenbuch = {
     const all = U.sortBy((await DB.getAll('kassenbuch')).filter((k) => k.kategorie === KAT), (k) => k.datum, true);
     const kontakte = await idMap('kontakte');
     const jahre = [...new Set(all.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
-    const jahr = Views.kassenbuch._jahrGk || jahre[0] || U.todayIso().slice(0, 4);
+    const jahr = jahre.includes(Views.kassenbuch._jahrGk) ? Views.kassenbuch._jahrGk : (jahre[0] || U.todayIso().slice(0, 4));   // Finaltest Portion 1, 09.11.2026: nie auf einem leeren Jahr hängen
     const list = all.filter((k) => (k.datum || '').startsWith(jahr));
     const summe = U.sum(list, (k) => k.betrag);
     box.innerHTML = `
@@ -19496,6 +19499,7 @@ Views.kassenbuch = {
       async onSave(v) {
         const kategorie = (v.typ === 'einnahme' ? v.katEin : v.katAus) || 'Sonstiges';
         await DB.put('kassenbuch', Object.assign(k || {}, { typ: v.typ, datum: v.datum, kategorie, betrag: v.betrag, steuersatz: +v.steuersatz || 0, kontaktId: v.kontaktId || null, beschreibung: v.beschreibung }));
+        Views.kassenbuch._jahr = String(v.datum || '').slice(0, 4);   // das Kassenbuch zeigt danach das Jahr dieser Buchung (Finaltest Portion 1, wie F1)
         UI.toast('Buchung gespeichert'); renderRoute();
       },
       onDelete: k ? () => kassenbuchLoeschen(k) : null,
@@ -19585,7 +19589,7 @@ Views.kassenbuch = {
        ergäben sie absurde 50 €/kg. Wer es genau will, nimmt den Rechner. */
     const skStart = selbstkostenGlas({ ...SELBSTKOSTEN_VORGABE, voelker: ep.voelker || SELBSTKOSTEN_VORGABE.voelker }).jeKg;
     const jahre = [...new Set(all.map((k) => (k.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
-    const jahr = Views.kassenbuch._ajahr || jahre[0] || U.todayIso().slice(0, 4);
+    const jahr = jahre.includes(Views.kassenbuch._ajahr) ? Views.kassenbuch._ajahr : (jahre[0] || U.todayIso().slice(0, 4));   // Finaltest Portion 1, 09.11.2026: nie auf einem leeren Jahr hängen
     const list = all.filter((k) => (k.datum || '').startsWith(jahr));
     const monate = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
     const einM = monate.map((_, i) => U.sum(list.filter((k) => k.typ === 'einnahme' && +k.datum.slice(5, 7) === i + 1), (k) => k.betrag));
@@ -19875,10 +19879,17 @@ function rechnungSummenAlt(r) {
   return { waren, pfand, rabatt, nachRabatt, brutto, steuern, nettoJeSatz, skonto,
     zahlungsziel: { tage: zielTage, faellig: U.addDays(r.datum, zielTage) } };
 }
+/** Position mit ungültiger Zahl (negativ, leer, Text)? (Finaltest Portion 1, 09.11.2026) */
+function rechnungPosUngueltig(p) {
+  try { buchungsZahl(p.menge, 'Menge'); buchungsZahl(p.einzelpreis, 'Einzelpreis'); buchungsZahl(p.pfand ?? 0, 'Pfand'); return false; } catch (e) { return true; }
+}
 function rechnungSummenNeu(r) {
-  for (const p of (r.positionen || [])) {
-    buchungsZahl(p.menge, 'Menge'); buchungsZahl(p.einzelpreis, 'Einzelpreis');
-    buchungsZahl(p.pfand ?? 0, 'Pfand');
+  /* Ungültige Zahlen zählen hier als 0, statt zu werfen (Finaltest Portion 1, 09.11.2026): Ein Entwurf mit −5 € sperrte sonst
+     Rechnungsliste, Entwurf und Excel-Export dauerhaft – man kam nicht einmal mehr ans Löschen. Das Festschreiben prüft weiter
+     streng (buchungsZahl in festschreiben) und weist so einen Entwurf ab. */
+  if ((r.positionen || []).some(rechnungPosUngueltig)) {
+    const zahl = (x) => { try { return buchungsZahl(x, ''); } catch (e) { return 0; } };
+    r = { ...r, positionen: r.positionen.map((p) => ({ ...p, menge: zahl(p.menge), einzelpreis: zahl(p.einzelpreis), pfand: zahl(p.pfand ?? 0) })) };
   }
   const waren = U.sum(r.positionen, (p) => p.menge * p.einzelpreis);
   const pfand = U.sum(r.positionen, (p) => p.menge * (Number(p.pfand) || 0));
@@ -20015,7 +20026,7 @@ async function rechnungStornieren(id) {
     const ohneGegenbuchung = saldo < 0.005;
     if (ohneGegenbuchung && imKorb('kassenbuch', (x) => x.rechnungId === r.id)) throw new Error(`Die Einnahme zur Rechnung ${r.nummer} liegt im Papierkorb. Stell sie zuerst wieder her, dann kannst du stornieren. Nichts wurde storniert.`);
     const einnahme = d.kassenbuch.find((x) => x.rechnungId === r.id && Number(x.betrag) > 0);
-    if (!ohneGegenbuchung) ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: (einnahme && einnahme.kategorie) || 'Honigverkauf', betrag: -saldo, steuersatz: 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
+    if (!ohneGegenbuchung) ops.push({ store: 'kassenbuch', obj: { datum: U.todayIso(), typ: 'einnahme', kategorie: (einnahme && einnahme.kategorie) || 'Honigverkauf', betrag: -saldo, steuersatz: einnahme && einnahme.steuersatz !== undefined ? einnahme.steuersatz : 0, kontaktId: r.kundeId, beschreibung: `Storno Rechnung ${r.nummer}`, rechnungId: r.id } });
     r.status = 'storniert'; ops.push({ store: 'rechnungen', obj: r });
     return { ops, wert: { abfuellungFehlt, ohneGegenbuchung, ...(lagerFehlt ? { lagerFehlt } : {}) } };
   });
@@ -20113,13 +20124,21 @@ Views.finanzen = {
     return Views.kassenbuch.render(box, unterParam, { imFinanzen: true });
   },
 };
+/* Rechnung zu einem gebuchten Verkauf: Der Verkauf ist schon bezahlt und steht im Kassenbuch – kein Zahlungsziel, kein Skonto
+   (Finaltest Portion 1, 09.11.2026: das PDF verlangte „Zahlbar ohne Abzug bis …“ von einem Kunden, der längst bezahlt hatte). */
+const RECHNUNG_BEZAHLT_TEXT = 'Betrag dankend erhalten.';
+const RECHNUNG_DATUM_FEHLT = 'Bitte ein Rechnungsdatum eintragen. Nichts wurde festgeschrieben.';
 const RECHNUNG_KUNDE_FEHLT = 'Der Kunde dieser Rechnung ist gelöscht. Wähle einen Kunden aus oder stell ihn aus dem Papierkorb wieder her. Nichts wurde festgeschrieben.';
 Views.rechnung = {
   title: 'Rechnung',
   async render(main, id) {
     const r = await DB.get('rechnungen', id);
     if (!r) { main.innerHTML = emptyState('warn', 'Rechnung nicht gefunden.'); return; }
-    const kunden = (await DB.getAll('kontakte')).filter(kontaktIstKunde);
+    const kontakteAlle = await DB.getAll('kontakte');
+    const kunden = kontakteAlle.filter(kontaktIstKunde);
+    /* Gewählter Kontakt ist inzwischen kein Kunde mehr (z. B. jetzt Lieferant): trotzdem sichtbar in der Auswahl, mit seiner
+       Rolle – vorher stand „– wählen –“, und das Festschreiben ging trotzdem an ihn (Finaltest Portion 1, 09.11.2026). */
+    const kundeAnders = r.kundeId && !kunden.some((k) => k.id === r.kundeId) ? kontakteAlle.find((k) => k.id === r.kundeId) || null : null;
     const abfAlle = await DB.getAll('abfuellungen');
     const chargenM = await idMap('chargen');
     const entwurf = r.status === 'entwurf';
@@ -20145,7 +20164,7 @@ Views.rechnung = {
         <div class="grid2">
           <div class="field"><label>Kunde ${entwurf ? '<span class="req">*</span>' : ''}</label>
             ${entwurf ? `<div class="flex-wrap" style="gap:6px;align-items:center">
-              <select class="inp" id="r-kunde" style="flex:1 1 160px;min-width:0"><option value="">– wählen –</option>${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
+              <select class="inp" id="r-kunde" style="flex:1 1 160px;min-width:0"><option value="">– wählen –</option>${kundeAnders ? `<option value="${U.esc(kundeAnders.id)}" selected>${U.esc(kundeAnders.name)} (${U.esc(kontaktTypLabel(kundeAnders) || 'kein Kunde')})</option>` : ''}${[...kunden].sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' })).map((k) => `<option value="${k.id}" ${r.kundeId === k.id ? 'selected' : ''}>${U.esc(k.name)}</option>`).join('')}</select>
               <button class="btn btn-ghost btn-sm no-print" id="r-kunde-neu" style="flex:0 0 auto">${icon('plus')} Neuer Kunde</button></div>
             <div class="hint">Neuen Kunden gleich hier anlegen – er wird sofort für diese Rechnung übernommen.</div>`
             : `<div class="kpill">${U.esc((rechnungEmpfaenger(r, kunden.find((k) => k.id === r.kundeId)) || {}).name || '–')}</div>`}</div>
@@ -20183,7 +20202,7 @@ Views.rechnung = {
       <div class="card">
         <div class="card-title">${icon('rechnung')}<h2>Positionen</h2>${posAenderbar ? `<button class="btn btn-primary btn-sm no-print" id="addPos">${icon('plus')} Position</button>` : ''}</div>
         ${r.positionen.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Bezeichnung</th><th class="num">Menge</th><th class="num">Einzelpreis</th>${zeigtPfand ? '<th class="num">Pfand</th>' : ''}${zeigtUst ? '<th class="num">USt</th>' : ''}<th class="num">Summe</th>${posAenderbar ? '<th></th>' : ''}</tr></thead>
-          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}</td><td class="num">${U.fmtNum(p.menge, 3)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${U.esc(p.steuersatz || 0)} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
+          <tbody>${r.positionen.map((p, i) => `<tr><td>${U.esc(p.text)}${rechnungPosUngueltig(p) ? ' <span class="zahl-warn" data-pos-ungueltig>– Zahl ungültig, zählt als 0. Bitte Position löschen und neu eintragen.</span>' : ''}</td><td class="num">${U.fmtNum(p.menge, 3)}</td><td class="num">${U.fmtEur(p.einzelpreis)}</td>${zeigtPfand ? `<td class="num">${p.pfand ? U.fmtEur(p.pfand) : '–'}</td>` : ''}${zeigtUst ? `<td class="num">${U.esc(p.steuersatz || 0)} %</td>` : ''}<td class="num"><b>${U.fmtEur(p.menge * p.einzelpreis + p.menge * (Number(p.pfand) || 0))}</b></td>
             ${posAenderbar ? `<td class="no-print"><button class="btn btn-xs btn-ghost" data-pdel="${U.esc(i)}">${icon('trash')}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>
           <div class="right mt12">
             ${sum.rabatt > 0 || sum.pfand > 0 ? `<div class="small muted">Warenwert: ${U.fmtEur(sum.waren)}</div>` : ''}
@@ -20191,8 +20210,8 @@ Views.rechnung = {
             ${sum.pfand > 0 ? `<div class="small muted">Pfand (getrennt ausgewiesen): ${U.fmtEur(sum.pfand)}</div>` : ''}
             <div style="font-size:19px;font-weight:800">Gesamtbetrag: ${U.fmtEur(sum.brutto)}</div>
             ${Object.entries(steuern).map(([satz, val]) => `<div class="small muted">enthaltene USt ${U.fmtNum(+satz, 1)} %: ${U.fmtEur(val)}</div>`).join('')}
-            <div class="small muted">Zahlbar bis ${U.fmtDate(sum.zahlungsziel.faellig)} (${sum.zahlungsziel.tage} Tage).</div>
-            ${sum.skonto ? `<div class="small muted">Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)}: ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto = ${U.fmtEur(sum.skonto.betrag)} → Zahlbetrag ${U.fmtEur(sum.skonto.zahlbetrag)}. <b>Nicht im Gesamtbetrag abgezogen</b> – wird erst beim Zahlungseingang wirksam.</div>` : ''}
+            ${ausVerkauf ? `<div class="small muted" data-dankend>${RECHNUNG_BEZAHLT_TEXT}</div>` : `<div class="small muted">Zahlbar bis ${U.fmtDate(sum.zahlungsziel.faellig)} (${sum.zahlungsziel.tage} Tage).</div>`}
+            ${sum.skonto && !ausVerkauf ? `<div class="small muted">Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)}: ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto = ${U.fmtEur(sum.skonto.betrag)} → Zahlbetrag ${U.fmtEur(sum.skonto.zahlbetrag)}. <b>Nicht im Gesamtbetrag abgezogen</b> – wird erst beim Zahlungseingang wirksam.</div>` : ''}
             ${rechnungHinweis(r) ? `<div class="small muted" style="max-width:420px;margin-left:auto">${rechnungHinweis(r)}</div>` : ''}
             ${rechnungVerkaufVermerk(r) ? `<div class="small muted" data-verkauf-vermerk>${U.esc(rechnungVerkaufVermerk(r))}</div>` : ''}
           </div>`
@@ -20218,7 +20237,12 @@ Views.rechnung = {
         typ: 'kunde',
         onSaved: async (k) => { if (await saveField(() => { r.kundeId = k.id; })) renderRoute(); },
       });
-      $('#r-datum').onchange = (e) => saveField(() => { r.datum = e.target.value; });
+      /* Rechnungsdatum ist Pflicht (Finaltest Portion 1, 09.11.2026): Ein geleertes Feld wurde gespeichert – die Einnahme stand
+         dann ohne Datum im Kassenbuch und erschien in keinem Jahr. */
+      $('#r-datum').onchange = (e) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { e.target.value = r.datum || ''; return UI.toast('Das Rechnungsdatum ist Pflicht.', 'err'); }
+        return saveField(() => { r.datum = e.target.value; });
+      };
       const lf = $('#r-lieferdatum'); if (lf) lf.onchange = (e) => saveField(() => { r.lieferdatum = e.target.value; });
       $('#r-steuerart').onchange = async (e) => { if (await saveField(() => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); })) renderRoute(); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
@@ -20294,7 +20318,11 @@ Views.rechnung = {
         { key: 'steuersatz', label: 'USt-Satz', type: 'select', default: '7', options: [{ v: '0', l: '0 %' }, { v: '7', l: '7 % (Honig)' }, { v: '19', l: '19 %' }], showIf: () => rechnungSteuerart(r) === 'regel' },
       ],
       async onSave(v) {
-        let text = v.text, abfuellungId = null, inventarId = null, menge = Math.round(v.menge);
+        /* Menge mit bis zu 3 Nachkommastellen, nie ≤ 0, Preis nie negativ (Finaltest Portion 1, 09.11.2026): Vorher wurde eine
+           freie Position still gerundet (12,5 kg → 13) und ein negativer Preis gespeichert – der sperrte danach den ganzen Bereich. */
+        let text = v.text, abfuellungId = null, inventarId = null, menge = Math.round(Number(v.menge) * 1000) / 1000;
+        if (!(menge > 0)) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+        if (!(Number(v.einzelpreis) >= 0) || !Number.isFinite(Number(v.einzelpreis))) throw feldFehler('einzelpreis', 'Bitte einen Preis ab 0 eintragen.');
         /* Ohne Regelbesteuerung ist das USt-Feld ausgeblendet – dann den passenden Satz trotzdem merken (Großbestand-Test
            09.11.2026, #2): Vorher stand 0 %, und wer die Besteuerung danach auf „Regel“ stellte, rechnete ohne Umsatzsteuer. */
         let satz = rechnungSteuerart(r) === 'regel' ? (+v.steuersatz || 0) : 7;
@@ -20314,7 +20342,8 @@ Views.rechnung = {
         if (v.quelle === 'charge') {
           const a = verf.find((x) => x.id === v.abfuellungId);
           if (!a) throw feldFehler('abfuellungId', 'Bitte eine Abfüllung wählen.');
-          if (v.menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser stehen noch zum Verkauf.`);
+          if (!Number.isInteger(menge)) throw feldFehler('menge', 'Gläser bitte als ganze Zahl eintragen, z. B. 2 oder 3.');   // statt still zu runden (Finaltest Portion 1)
+          if (menge > a.bestand) throw new Error(`Nur ${a.bestand} Gläser stehen noch zum Verkauf.`);
           text = rechnungHonigText(a, chargenM.get(a.chargeId));
           abfuellungId = a.id;
         }
@@ -20362,6 +20391,8 @@ Views.rechnung = {
        ohne Empfänger. */
     if (!(await DB.get('kontakte', r.kundeId))) { springeZuElement($('#r-kunde')); return UI.toast(RECHNUNG_KUNDE_FEHLT, 'err'); }
     if (!r.positionen.length) { springeZuElement($('#addPos')); return UI.toast('Die Rechnung hat keine Positionen', 'err'); }
+    // Ohne Rechnungsdatum stünde die Einnahme in keinem Kassenbuch-Jahr (Finaltest Portion 1, 09.11.2026)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(r.datum || '')) { springeZuElement($('#r-datum')); return UI.toast(RECHNUNG_DATUM_FEHLT, 'err'); }
     const vorBestand = await DB.getAll('abfuellungen'), vorMengen = new Map();
     for (const p of r.positionen) if (p.abfuellungId) vorMengen.set(p.abfuellungId, (vorMengen.get(p.abfuellungId) || 0) + Number(p.menge));
     for (const [id, menge] of vorMengen) {
@@ -20390,6 +20421,7 @@ Views.rechnung = {
         const kunde = d.kontakte.find((x) => x.id === aktuell.kundeId);
         if (!kunde) throw new Error(RECHNUNG_KUNDE_FEHLT);
         if (!aktuell.positionen.length) throw new Error('Die Rechnung hat keine Positionen.');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(aktuell.datum || '')) throw new Error(RECHNUNG_DATUM_FEHLT);   // Finaltest Portion 1, 09.11.2026
         const gebraucht = new Map(), gebrauchtLager = new Map();
         /* Rechnung zu einem gebuchten Verkauf (Julian 08.11.2026, Paket 4): Der Verkauf hat Bestand und Kassenbuch schon
            gebucht – hier wird beides NICHT noch einmal gebucht. Ist der Verkauf inzwischen storniert, passt der Beleg nicht mehr. */
@@ -20443,7 +20475,14 @@ Views.rechnung = {
         aktuell.nummer = nr.nummer; aktuell.status = 'festgeschrieben'; kreis.next = nr.next;
         // Empfänger und Absender festhalten, wie sie jetzt sind – das PDF druckt sie später genau so (Fund 04.11.2026, #2/#21)
         rechnungSchnappschussErgaenzen(aktuell, kunde, imkereiAusSaetzen(d.settings));
-        if (!ausVerkauf) ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: rechnungKategorie(aktuell, d.inventar), betrag: brutto, steuersatz: 0, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}`, rechnungId: aktuell.id } });
+        /* Einnahme cent-genau (Finaltest Portion 1, 09.11.2026): Vorher stand z. B. 8,4915 € im Kassenbuch – die Zeilen zeigten
+           8,49 €, die Jahressumme rechnete mit den Bruchteilen und wich um Cents ab, der Excel-Export zeigte 8.4915.
+           USt-Satz bei Regelbesteuerung (Finaltest Portion 1): genau ein Satz → dieser Satz; mehrere Sätze → kein einzelner Satz,
+           die Sätze stehen in der Beschreibung. Vorher stand immer 0 – im Export sahen die Einnahmen steuerfrei aus. */
+        const ustSaetze = rechnungSteuerart(aktuell) === 'regel' ? Object.keys(summen.steuern).map(Number).filter((x) => x > 0).sort((a, b) => a - b) : [];
+        const kbSteuersatz = ustSaetze.length === 1 ? ustSaetze[0] : (ustSaetze.length > 1 ? null : 0);
+        const kbUstText = ustSaetze.length > 1 ? ` (USt ${ustSaetze.map((x) => `${String(x).replace('.', ',')} %`).join(' und ')})` : '';
+        if (!ausVerkauf) ops.push({ store: 'kassenbuch', obj: { datum: aktuell.datum, typ: 'einnahme', kategorie: rechnungKategorie(aktuell, d.inventar), betrag: Math.round(brutto * 100) / 100, steuersatz: kbSteuersatz, kontaktId: aktuell.kundeId, beschreibung: `Rechnung ${nr.nummer}${kbUstText}`, rechnungId: aktuell.id } });
         // Betrag weicht vom Verkauf ab: Einnahme und Verkauf in derselben Transaktion nachziehen, mit Vermerk (Julian 08.11.2026)
         if (ausVerkauf) ops.push(...belegVerkaufAnpassen(d, aktuell, nr.nummer, brutto));
         /* Lager-Positionen erscheinen als Abgang „Verkauf“ in der Abgangsliste (Julian 08.11.2026). Bestand und Einnahme hat
@@ -20453,6 +20492,10 @@ Views.rechnung = {
            Erlös der Zeile ist deshalb ihr Anteil NACH Rabatt (`betragRechnung`, wie bei belegVerkaufAnpassen) – so zeigen
            Abgangsliste, PDF und Export dasselbe wie das Kassenbuch. Der Preis je Einheit bleibt der aus der Rechnung. */
         const rabattFaktor = summen.waren > 0 ? summen.nachRabatt / summen.waren : 1;
+        /* Cent-Rest auf die Zeilen verteilt (Finaltest Portion 1, 09.11.2026): Jede Zeile einzeln gerundet ergab bei 2 × 8,125 €
+           zusammen 16,26 €, im Kassenbuch standen 16,25 €. Jetzt wird die laufende Summe gerundet – die Zeilen ergeben zusammen
+           genau den gerundeten Lager-Anteil. */
+        let lagerExakt = 0, lagerCent = 0;
         for (const [id, { menge, text }] of gebrauchtLager) {
           const pos = geaendertLager.get(id);
           if (!pos) continue;   // Position endgültig gelöscht: nichts abgezogen, keine Zeile
@@ -20462,7 +20505,7 @@ Views.rechnung = {
              2 × 5,00 €) ergab einen gerundeten Durchschnittspreis 5,00 € und so 15,00 € Erlös statt 14,99 € wie im Kassenbuch. */
           ops.push({ store: 'materialabgaenge', obj: { id: U.uuid(), inventarId: id, bezeichnung: pos.bezeichnung || text, typ: inventarTyp(pos), einheit: verbrauchEinheit(pos),
             datum: aktuell.datum, menge, art: 'Verkauf', preis: menge > 0 ? Math.round(summe / menge * 100) / 100 : 0, kontaktId: aktuell.kundeId, kaeufer: '',
-            betragRechnung: Math.round(summe * rabattFaktor * 100) / 100,
+            betragRechnung: (() => { lagerExakt += summe * rabattFaktor; const cent = Math.round(lagerExakt * 100) - lagerCent; lagerCent += cent; return cent / 100; })(),
             belegNr: nr.nummer, bestandVorher: vorherLager.has(id) ? vorherLager.get(id) : verbrauchBestand(pos) + menge, bestandNachher: verbrauchBestand(pos), notiz: '', kassenbuchId: null, rechnungId: aktuell.id } });
         }
         ops.push({ store: 'rechnungen', obj: aktuell });
@@ -20551,7 +20594,7 @@ async function renderInventarBereich(main, cfg) {
       : laueftAb ? `<span class="badge b-warn">MHD ${U.fmtDate(i.ablauf)}</span>`
         : knapp ? '<span class="badge b-warn">Bestand niedrig</span>' : '';
     const zuord = zuordnungVon(i);
-    const stk = i.stueckzahl || 1;
+    const stk = U.fmtNum(verbrauchBestand(i), 2);   // Bestand 0 zeigt 0, nicht 1 – wie „Alle“, Wert und PDF (Finaltest Portion 1, 09.11.2026)
     // „3 × 7,20 €“ sagt Stückzahl und Einzelpreis in einem Zug – rechts steht dann
     // nur die Summe. Das hält die Wertspalte schmal, damit vom Untertitel etwas
     // übrig bleibt statt nach zwei Wörtern abgeschnitten zu werden.
@@ -20906,19 +20949,20 @@ async function renderInventarBereich(main, cfg) {
     };
   }
 }
-/** Einstellungen der beiden Lager-Bereiche – auch vom Kassenbuch aus gebraucht („An- und Verkauf buchen“). */
+/** Einstellungen der beiden Lager-Bereiche – auch vom Kassenbuch aus gebraucht („An- und Verkauf buchen“).
+    Titel wie die Lager-Reiter (LAGER_TYP_NAME): „Produkte“, „Geräte & Inventar“ – in Fenstertiteln, PDF-Knopf und PDF (Finaltest Portion 1, 09.11.2026). */
 function bereichCfg(typ) {
-  if (typ === 'produkt') return { view: Views.produkte, typ: 'produkt', titel: 'Weitere Produkte', subtitle: 'Essig, Met, Kerzen, Propolis … (verkauft oder zugekauft)', kategorien: PRODUKT_KATEGORIEN, vorschlaege: PRODUKT_VORSCHLAEGE, ic: 'produkte', leer: 'Noch keine Produkte erfasst – Honigessig, Met, Kerzen, Propolis …' };
+  if (typ === 'produkt') return { view: Views.produkte, typ: 'produkt', titel: 'Produkte', subtitle: 'Essig, Met, Kerzen, Propolis … (verkauft oder zugekauft)', kategorien: PRODUKT_KATEGORIEN, vorschlaege: PRODUKT_VORSCHLAEGE, ic: 'produkte', leer: 'Noch keine Produkte erfasst – Honigessig, Met, Kerzen, Propolis …' };
   return typ === 'inventar'
-    ? { view: Views.inventar, typ: 'inventar', titel: 'Inventar', subtitle: 'langlebige Gebrauchsgüter (Beuten, Geräte …)', kategorien: INVENTAR_KATEGORIEN, ic: 'box', leer: 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …' }
+    ? { view: Views.inventar, typ: 'inventar', titel: 'Geräte & Inventar', subtitle: 'langlebige Gebrauchsgüter (Beuten, Geräte …)', kategorien: INVENTAR_KATEGORIEN, ic: 'box', leer: 'Noch kein Inventar erfasst – Beuten, Zargen, Schleuder, Anhänger …' }
     : { view: Views.material, typ: 'verbrauch', titel: 'Verbrauchsmaterial', subtitle: 'Verbrauchsgüter (Mittel, Futter, Gläser …)', kategorien: MATERIAL_KATEGORIEN, ic: 'flask', leer: 'Noch kein Verbrauchsmaterial erfasst – Behandlungsmittel, Futter, Gläser, Etiketten …' };
 }
 Views.inventar = {
-  title: 'Inventar',
+  title: 'Geräte & Inventar',
   render(main) { return renderInventarBereich(main, bereichCfg('inventar')); },
 };
 Views.produkte = {
-  title: 'Weitere Produkte',
+  title: 'Produkte',
   render(main) { return renderInventarBereich(main, bereichCfg('produkt')); },
 };
 Views.material = {
@@ -21157,7 +21201,8 @@ async function lagerVerkaufForm(vorId = '', suche = '', reiter = '') {
   const info = $('[data-lager-verkauf-info]', m.el);
   const zeige = () => {
     const pos = posten.find((i) => i.id === (feld('inventarId') || {}).value);
-    if (!pos || !info) return;
+    if (!info) return;
+    if (!pos) { info.innerHTML = ''; return; }   // Suche ohne Treffer: nicht den Hinweis der vorigen Position stehen lassen (Finaltest Portion 1, 09.11.2026)
     const menge = U.parseNum((feld('menge') || {}).value) || 0, preis = U.parseNum((feld('preis') || {}).value) || 0;
     const e = verbrauchEinheit(pos), bestand = verbrauchBestand(pos);
     info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${U.esc(e)}</b> → danach <b>${U.fmtNum(Math.max(0, bestand - menge), 2)} ${U.esc(e)}</b>`
@@ -23651,6 +23696,14 @@ function einheitVorschlag(text) {
 function verbrauchBestand(pos) { return Math.max(0, Number(pos && pos.stueckzahl) || 0); }
 /** Einheit einer Position, mit „Stück" als Vorgabe für alte Einträge. */
 function verbrauchEinheit(pos) { return ((pos && pos.einheit) || 'Stück').trim() || 'Stück'; }
+/** Stück-Ware nur in ganzen Zahlen buchen (Finaltest Portion 1, 09.11.2026): „An- und Verkauf buchen“ nahm 2,5 Stück an,
+    der Bestand wurde still auf ganze Stück gerundet – Bestand, Kassenbuch und Meldung passten nicht mehr zusammen. */
+function stueckGanzzahl(pos, menge, feld = 'menge', einheit = verbrauchEinheit(pos)) {
+  const m = Number(menge) || 0;
+  if (einheit === 'Stück' && Math.abs(m - Math.round(m)) > 1e-9) {
+    throw feldFehler(feld, `${pos && pos.bezeichnung ? `„${pos.bezeichnung}“` : 'Diese Position'} zählt in Stück. Bitte eine ganze Zahl eintragen, z. B. 2 oder 3. Nichts wurde gebucht.`);
+  }
+}
 
 /* Bestände je EINHEIT summieren. Eine Gesamtzahl über Kilogramm, Streifen und
    Stück hinweg wäre eine Zahl ohne Bedeutung – „62 Stück" sagt nichts, wenn
@@ -23838,8 +23891,9 @@ const MATERIAL_ZU_KASSE = new Map([
   ['Fahrzeug/Anhänger', 'Material/Geräte'],
   ...PRODUKT_KATEGORIEN.map((k) => [k, 'Weitere Produkte']),
 ]);
-function kasseKategorieFuer(materialKategorie) {
-  return MATERIAL_ZU_KASSE.get(String(materialKategorie || '').trim()) || 'Material/Geräte';
+/* Produkte ohne oder mit eigener Kategorie: „Weitere Produkte“ wie beim Verkauf, nicht „Material/Geräte“ (Finaltest Portion 1, 09.11.2026) */
+function kasseKategorieFuer(materialKategorie, typ = '') {
+  return MATERIAL_ZU_KASSE.get(String(materialKategorie || '').trim()) || (typ === 'produkt' ? 'Weitere Produkte' : 'Material/Geräte');
 }
 
 /** Was das Lager wirklich wert ist – aus den tatsächlichen Einkäufen.
@@ -24229,6 +24283,8 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         const mitPackung = inhalt > 0 && aussen !== innen;
         const einheit = mitPackung ? innen : aussen;
         const gesamt = mitPackung ? gezaehlt * inhalt : gezaehlt;
+        // Stück-Ware: ganze Zahl statt still runden (Finaltest Portion 1, 09.11.2026) – 2,5 Kartons à 12 Stück = 30 bleibt erlaubt
+        stueckGanzzahl({ bezeichnung: name }, gesamt, '_bestand', einheit);
         // nur Stückgut wird gerundet – kg, Liter, ml dürfen Kommastellen haben
         menge = einheit === 'Stück' ? Math.round(gesamt) : Math.round(gesamt * 1000) / 1000;
         /* Preis herunterrechnen auf das einzelne Produkt: 41 € je Sack ÷ 25 kg =
@@ -24265,6 +24321,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         if (!pos) throw feldFehler('inventarId', 'Bitte eine Position wählen.');
         menge = Math.max(0, Number(v.menge) || 0);
         if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+        stueckGanzzahl(pos, menge);   // kein stilles Runden beim Zugang (Finaltest Portion 1, 09.11.2026)
         if (lohnArt) v.preis = Math.round((lohnKosten / menge) * 10000) / 10000;
         // Bezahlter Betrag aus dem Packungspreis bleibt, solange Menge und Preis nicht geändert wurden (sonst neu: Menge × Preis)
         else if (rec && !rec.lohn && Number(rec.kostenGesamt) > 0 && art === 'Einkauf' && menge === Number(rec.menge) && Math.max(0, Number(v.preis) || 0) === Number(rec.preis)) packKosten = Number(rec.kostenGesamt);
@@ -24291,7 +24348,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
         const wer = (lieferanten.find((k) => k.id === gespeichert.kontaktId) || {}).name || '';
         // Buchung, Nummer am Zugang und die Belegfotos der ersetzten Buchung in einer Transaktion (Ultra-Test 05.11.2026, U1)
         await lagerKasseBuchen('materialzugaenge', gespeichert, { datum: gespeichert.datum, typ: 'ausgabe',
-          kategorie: gespeichert.lohn ? 'Lohnverarbeitung' : kasseKategorieFuer(gespeichert.kategorie), betrag: kosten, steuersatz: 0,
+          kategorie: gespeichert.lohn ? 'Lohnverarbeitung' : kasseKategorieFuer(gespeichert.kategorie, cfg.typ), betrag: kosten, steuersatz: 0,
           kontaktId: gespeichert.kontaktId || null, rechnungId: null,
           beschreibung: `${gespeichert.lohn ? 'Lohnverarbeitung' : 'Einkauf'} ${gespeichert.bezeichnung}: ${U.fmtNum(gespeichert.menge, 2)} ${gespeichert.einheit}`
             + `${wer ? ` bei ${wer}` : ''}${gespeichert.belegNr ? ` (${gespeichert.belegNr})` : ''}` }, zurueck && zurueck.kassenbuchAlt);
@@ -24387,7 +24444,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       const packPreis = Math.max(0, U.parseNum((feld('packPreis') || {}).value) || 0);
       const kosten = art === 'Lohnverarbeitung' ? Math.round(lohnK * 100) / 100
         : (art === 'Einkauf' ? Math.round((mitPack && packPreis > 0 ? anzahl * packPreis : gesamt * preis) * 100) / 100 : 0);
-      const kat = art === 'Lohnverarbeitung' ? 'Lohnverarbeitung' : kasseKategorieFuer((feld('kategorie') || {}).value || '');
+      const kat = art === 'Lohnverarbeitung' ? 'Lohnverarbeitung' : kasseKategorieFuer((feld('kategorie') || {}).value || '', cfg.typ);
       info.innerHTML = gesamt > 0
         ? `Neue Position mit <b>${U.fmtNum(gesamt, 2)} ${U.esc(mitPack ? innen : aussen)}</b> Anfangsbestand`
           + (kosten > 0 ? `<br>Kosten <b>${U.fmtEur(kosten)}</b> werden als Ausgabe „${U.esc(kat)}" ins Kassenbuch gebucht` : '')
@@ -24408,7 +24465,7 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
     const neuMenge = bestand + menge;
     const neuWert = Math.round((bwAlt.wert + (kaufArt ? (art === 'Lohnverarbeitung' ? lohnK2 : menge * preis) : 0)) * 100) / 100;
     info.innerHTML = `Bestand <b>${U.fmtNum(bestand, 2)} ${e}</b> → nach dem Zugang <b>${U.fmtNum(neuMenge, 2)} ${e}</b>`
-      + (kosten > 0 ? `<br>Kosten <b>${U.fmtEur(kosten)}</b> werden als Ausgabe „${U.esc(art === 'Lohnverarbeitung' ? 'Lohnverarbeitung' : kasseKategorieFuer(pos.kategorie))}" ins Kassenbuch gebucht` : '')
+      + (kosten > 0 ? `<br>Kosten <b>${U.fmtEur(kosten)}</b> werden als Ausgabe „${U.esc(art === 'Lohnverarbeitung' ? 'Lohnverarbeitung' : kasseKategorieFuer(pos.kategorie, cfg.typ))}" ins Kassenbuch gebucht` : '')
       + (!kaufArt ? '<br><span class="muted">Kein Einkauf – es wird nichts im Kassenbuch gebucht.</span>' : '')
       + (neuMenge > 0 && neuWert > 0
         ? `<br>Lagerwert danach <b>${U.fmtEur(neuWert)}</b> · Durchschnitt <b>${U.fmtEur(neuWert / neuMenge)} je ${U.esc(e)}</b>`
@@ -24510,6 +24567,7 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
       if (!pos) throw feldFehler('inventarId', 'Bitte eine Position wählen.');
       const menge = Math.max(0, Number(v.menge) || 0);
       if (menge <= 0) throw feldFehler('menge', 'Bitte eine Menge größer als null eintragen.');
+      stueckGanzzahl(pos, menge);   // wie beim „Verkaufen“ – kein stilles Runden (Finaltest Portion 1, 09.11.2026)
       /* Festgeschriebene Rechnung zum Verkauf (Prüfung 08.11.2026, P7/P13): Ändern nur mit Rückfrage wie beim Löschen –
          Ja storniert die Rechnung, danach kann eine neue zum geänderten Verkauf erstellt werden. */
       const re = rec ? belegRechnungZu(await DB.getAll('rechnungen'), 'lager', rec.id) : null;
@@ -24521,7 +24579,8 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
          so muss keine Differenz gerechnet werden und der Bestand stimmt auch,
          wenn Position oder Menge gewechselt haben. */
       const zurueck = rec ? await abgangZurueckbuchen(rec, { mitRechnung: !!re }) : null;
-      const buchung = await verbrauchAbziehen(pos.id, menge);
+      // Ohne Prüflauf hier: unten folgt await pruefeMhd() – zwei gleichzeitige Läufe legten „Bestand niedrig“ doppelt an (Finaltest Portion 1, 09.11.2026)
+      const buchung = await verbrauchAbziehen(pos.id, menge, { pruefen: false });
       /* Den Betrag einer früheren Rechnung (betragRechnung, z. B. mit Rabatt) nicht mitschleppen (Prüfung 08.11.2026, P7/P13):
          Neu gebucht wird Menge × Preis, so wie es das Formular anzeigt. Die Rechnung dazu ist storniert (oder wird es oben). */
       if (rec) { delete rec.betragRechnung; delete rec.geaendertDurchRechnung; }
@@ -24611,7 +24670,8 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
   const info = $('[data-abgang-info]', m.el);
   const zeige = () => {
     const pos = posten.find((i) => i.id === ($('#f-inventarId', m.el) || {}).value);
-    if (!pos || !info) return;
+    if (!info) return;
+    if (!pos) { info.innerHTML = ''; return; }   // nichts gewählt: kein alter Hinweis (Finaltest Portion 1, 09.11.2026)
     const menge = U.parseNum(($('#f-menge', m.el) || {}).value) || 0;
     const preis = U.parseNum(($('#f-preis', m.el) || {}).value) || 0;
     const art = ($('#f-art', m.el) || {}).value;
@@ -25274,15 +25334,20 @@ function abzugAnteilGewichtet(buchung, gewichte, i = 0) {
   return anteil;
 }
 
-const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', honigabgaenge: 'Honig-Abgang', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Inventar', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', settings: 'Einstellung' };
+const STORE_LABELS = { staende: 'Bienenstand', wetter: 'Wettereintrag', voelker: 'Volk', stockkarten: 'Durchsicht', fuetterungen: 'Fütterung', gewichte: 'Wiegung', varroa: 'Varroa-Kontrolle', koeniginnen: 'Königin', zuchtserien: 'Zuchtserie', belegstellen: 'Belegstelle', behandlungen: 'Behandlung', trachten: 'Tracht', wanderungen: 'Wanderung', ernten: 'Ernte', chargen: 'Charge', abfuellungen: 'Abfüllung', verkaeufe: 'Verkauf', honigabgaenge: 'Honig-Abgang', fahrten: 'Fahrt', kontakte: 'Kontakt', kassenbuch: 'Buchung', rechnungen: 'Rechnung', inventar: 'Lager-Position', materialzugaenge: 'Materialzugang', materialabgaenge: 'Materialabgang', pfandbewegungen: 'Pfand-Rücknahme', aufgaben: 'Aufgabe', bioeintraege: 'Bio-Eintrag', anhaenge: 'Anhang', papierkorb: 'Papierkorb-Eintrag', settings: 'Einstellung' };   // papierkorb, Lager-Position: keine rohen bzw. alten Namen in Vorschau und Ergebnis (Finaltest Portion 1, 09.11.2026)
 /** Zusatz zur Rückfrage beim endgültigen Löschen: welche Dateien mitgehen (Fund 04.11.2026, #9). */
 function papierkorbAnhangText(n) {
   return n ? ` ${n === 1 ? 'Die zugehörige Datei (Foto, Sprachnotiz oder Beleg) wird' : `Die ${n} zugehörigen Dateien (Fotos, Sprachnotizen, Belege) werden`} mitgelöscht.` : '';
 }
+/** „verfällt in 1 Tag“ statt „1 Tagen“, „verfällt heute“ statt „0 Tagen“ (Finaltest Portion 1, 09.11.2026). */
+function verfallText(n) { return n <= 0 ? 'verfällt heute' : n === 1 ? 'verfällt in 1 Tag' : `verfällt in ${n} Tagen`; }
 Views.papierkorb = {
   title: 'Papierkorb',
   async render(main) {
-    const list = U.sortBy(await DB.getAll('papierkorb'), (t) => t.geloeschtAm, true);
+    /* Abgelaufene nicht mehr zeigen (Finaltest Portion 1, 09.11.2026): Beim Start räumt DB.purgeTrash im Hintergrund auf – lief die
+       Seite schneller, stand ein schon gelöschter Eintrag da, und „Wiederherstellen“ ging ins Leere. Gleiche Grenze wie purgeTrash. */
+    const grenze = Date.now() - 30 * 86400000;
+    const list = U.sortBy((await DB.getAll('papierkorb')).filter((t) => !(new Date(t.geloeschtAm).getTime() < grenze)), (t) => t.geloeschtAm, true);
     const name = (t) => t.daten.name || t.daten.bezeichnung || t.daten.titel || t.daten.losnummer || t.daten.mittel || t.daten.sorte || t.daten.beschreibung || U.fmtDate(t.daten.datum) || t.daten.id;
     main.innerHTML = pageHead('Papierkorb', 'Gelöschte Einträge bleiben 30 Tage wiederherstellbar',
       list.length ? `<button class="btn btn-danger btn-sm no-print" id="empty">${icon('trash')} Papierkorb leeren</button>` : '') +
@@ -25290,7 +25355,7 @@ Views.papierkorb = {
         <div class="row">
           <span class="r-ic" style="background:var(--danger-bg);color:var(--danger)">${icon('trash')}</span>
           <span class="r-main"><span class="r-title">${U.esc(String(name(t)).slice(0, 60))}</span>
-          <span class="r-sub">${STORE_LABELS[t.store] || 'Unbekannter Bereich'} · gelöscht ${U.fmtDateTime(t.geloeschtAm)} · verfällt in ${Math.max(0, 30 - U.daysBetween(t.geloeschtAm, U.nowIso()))} Tagen</span></span>
+          <span class="r-sub">${STORE_LABELS[t.store] || 'Unbekannter Bereich'} · gelöscht ${U.fmtDateTime(t.geloeschtAm)} · ${verfallText(Math.max(0, 30 - U.daysBetween(t.geloeschtAm, U.nowIso())))}</span></span>
           <button class="btn btn-sm btn-ghost no-print" data-restore="${U.esc(t.id)}">${icon('restore')} Wiederherstellen</button>
           <button class="btn btn-xs btn-danger no-print" data-kill="${U.esc(t.id)}">${icon('x')}</button>
         </div>`).join('') + `</div>` + seitenweise('papierkorb', list).knopf : emptyState('trash', 'Der Papierkorb ist leer.')) + `</div>`;
@@ -25395,7 +25460,7 @@ const Export = {
       } else if (k === '_anhaenge') {
         const ART = { foto: 'Foto', dokument: 'Dokument', audio: 'Sprachnotiz', sprache: 'Sprachnotiz' };
         rows = U.sortBy((await DB.getAll('anhaenge')).filter((a) => a.parentTyp === 'volk' && a.parentId === volk.id && imJahr(a.datum)), (a) => a.datum || '')
-          .map((a) => ({ Datum: Xlsx._d(a.datum), Art: ART[a.art] || a.art || '', Name: a.name || '', Dokumenttyp: a.dokumentTyp || '', 'Größe (KB)': a.groesse ? Math.round(a.groesse / 1024) : '', Text: a.text || a.notiz || '' }));
+          .map((a) => ({ Datum: Xlsx._d(a.datum), Art: ART[a.art] || a.art || '', Name: a.name || '', Dokumenttyp: a.dokumentTyp || '', 'Größe (KB)': a.groesse ? Math.round(a.groesse / 1024) : '', Text: a.transkript || a.text || a.notiz || '' }));   // Sprachnotizen tragen ihren Text in transkript (Finaltest Portion 1, 09.11.2026)
         if (rows.some((r) => r.Art === 'Foto' || r.Art === 'Dokument')) hinweis = 'Fotos und Dokumente selbst stehen nicht im PDF – sie liegen in der App und in der Sicherung.';
       } else if (defs[k]) {
         rows = await defs[k].rows();
@@ -25593,11 +25658,11 @@ function unterlagenListe() {
     /* Geld & Steuer */
     { id: 'kassenbuch', kat: 'geld', titel: 'Kassenbuch-Jahresbericht', text: 'Einnahmen, Ausgaben, Umsatzsteuer', jahr: true, nurJahr: true, pdf: (j) => Pdf.kassenbuchJahr(j), ...X('kassenbuch'), stichw: 'einnahmen ausgaben steuer finanzamt euer' },
     { id: 'fahrtenbuch', kat: 'geld', titel: 'Fahrtenbuch', text: 'Kilometer und Pauschale', jahr: true, nurJahr: true, pdf: (j) => Pdf.fahrtenbuch(j), ...X('fahrten'), stichw: 'fahrt kilometer km steuer' },
-    { id: 'inventar', kat: 'geld', titel: 'Inventar', text: 'Bestand und Wert der Gebrauchsgüter', pdf: () => Pdf.inventar('', '', 'inventar', 'Inventar'), ...X('inventar'), stichw: 'beuten geraete wert' },
+    { id: 'inventar', kat: 'geld', titel: 'Geräte & Inventar', text: 'Bestand und Wert der Gebrauchsgüter', pdf: () => Pdf.inventar('', '', 'inventar', 'Geräte & Inventar'), ...X('inventar'), stichw: 'beuten geraete wert' },
     { id: 'verbrauchsmaterial', kat: 'geld', titel: 'Verbrauchsmaterial', text: 'Gläser, Futter, Mittel', pdf: () => Pdf.inventar('', '', 'verbrauch', 'Verbrauchsmaterial'), stichw: 'material lager glaeser' },
-    { id: 'weitere-produkte', kat: 'geld', titel: 'Weitere Produkte', text: 'Met, Kerzen, Propolis …', pdf: () => Pdf.inventar('', '', 'produkt', 'Weitere Produkte'), stichw: 'produkte lager' },
+    { id: 'weitere-produkte', kat: 'geld', titel: 'Produkte', text: 'Met, Kerzen, Propolis …', pdf: () => Pdf.inventar('', '', 'produkt', 'Produkte'), stichw: 'produkte lager' },
     { id: 'abgaenge-material', kat: 'geld', titel: 'Abgänge Verbrauchsmaterial', text: 'Verkäufe und Verbrauch', jahr: true, nurJahr: true, pdf: (j) => Pdf.materialAbgaenge(j, 'verbrauch', 'Verbrauchsmaterial'), ...X('materialabgaenge'), stichw: 'material abgang' },
-    { id: 'abgaenge-produkte', kat: 'geld', titel: 'Abgänge weitere Produkte', text: 'Verkäufe und Abgaben', jahr: true, nurJahr: true, pdf: (j) => Pdf.materialAbgaenge(j, 'produkt', 'Weitere Produkte'), stichw: 'produkte abgang' },
+    { id: 'abgaenge-produkte', kat: 'geld', titel: 'Abgänge Produkte', text: 'Verkäufe und Abgaben', jahr: true, nurJahr: true, pdf: (j) => Pdf.materialAbgaenge(j, 'produkt', 'Produkte'), stichw: 'produkte abgang' },
     { id: 'einkaeufe', kat: 'geld', titel: 'Einkäufe & Zugänge', text: 'alles, was ins Lager kam', jahr: true, ...T('materialzugaenge'), stichw: 'einkauf zugang' },
     { id: 'pfand', kat: 'geld', titel: 'Pfand-Rücknahmen', text: 'Mehrweggläser', jahr: true, ...T('pfandbewegungen'), stichw: 'mehrweg pfand' },
     { id: 'aufgaben', kat: 'geld', titel: 'Aufgaben & Zeiten', text: 'erledigte Arbeiten mit Zeitaufwand', jahr: true, ...T('aufgaben'), stichw: 'zeit zeiterfassung arbeit' },
@@ -25850,7 +25915,15 @@ const Importer = {
       { key: 'typ', label: 'Art (Einnahme/Ausgabe)', aliases: ['art', 'typ', 'type', 'einnahmeausgabe'] },
       { key: 'kategorie', label: 'Kategorie', aliases: ['kategorie', 'category', 'gruppe'] },
       { key: 'beschreibung', label: 'Beschreibung', aliases: ['beschreibung', 'text', 'zweck', 'description', 'notiz', 'bemerkung'] },
-    ], build: (v) => { const t = /aus|ausgab|expense|-/.test(String(v.typ || '').toLowerCase()) || v.betrag < 0 ? 'ausgabe' : 'einnahme'; return { datum: v.datum, typ: t, kategorie: v.kategorie || 'Sonstiges', betrag: Math.abs(v.betrag), steuersatz: 0, kontaktId: null, beschreibung: v.beschreibung || '', rechnungId: null }; } },
+    ], build: (v) => { const t = Importer.kassenTyp(v.typ, v.betrag); return { datum: v.datum, typ: t, kategorie: v.kategorie || 'Sonstiges', betrag: Math.abs(v.betrag), steuersatz: 0, kontaktId: null, beschreibung: v.beschreibung || '', rechnungId: null }; } },
+  },
+  /* Einnahme oder Ausgabe aus der Spalte „Art“ (Finaltest Portion 1, 09.11.2026): Vorher machte jedes „aus“ oder „-“ irgendwo im
+     Wort eine Ausgabe – „Einnahme aus Verkauf“, „Hausverkauf“, „Bar-Einnahme“. Jetzt zählen nur Wortanfänge, Einnahme geht vor. */
+  kassenTyp(typ, betrag) {
+    const s = String(typ || '').toLowerCase().trim();
+    const ein = /(^|[^a-zäöüß])(einnahm|eingang|income|erl[öo]s|umsatz)/.test(s);
+    const aus = /(^|[^a-zäöüß])(ausgab|ausgang|expense|kosten)/.test(s) || /^(aus|-)/.test(s);
+    return betrag < 0 || (aus && !ein) ? 'ausgabe' : 'einnahme';
   },
   _norm: (s) => String(s || '').toLowerCase().replace(/[^a-z0-9äöü]/g, '').replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u'),
   /** flexibles Datum → ISO (TT.MM.JJJJ, JJJJ-MM-TT, TT/MM/JJJJ, Excel-Serial) */
@@ -25880,14 +25953,30 @@ const Importer = {
     for (const f of ent.felder) guess[f.key] = guess[f.key] || '';
     return guess;
   },
+  /* Erstes Blatt als Zeilen. Zahlenzellen aus Excel mit Komma (Finaltest Portion 1, 09.11.2026): Die Bibliothek schreibt sie
+     englisch („2.125“), U.parseNum las den Punkt vor drei Ziffern als Tausender – aus 2,125 kg wurden 2125 kg. Jetzt steht die
+     echte Zahl deutsch geschrieben da („2,125“), auch in der Vorschau. CSV bleibt, wie es ist (dort steht der Text der Datei). */
+  zeilenLesen(XLSX, puffer) {
+    const wb = tabelleLesen(XLSX, puffer);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const k = new Uint8Array(puffer.slice(0, 4));
+    if (ws && ((k[0] === 0x50 && k[1] === 0x4b && k[2] === 3 && k[3] === 4) || (k[0] === 0xd0 && k[1] === 0xcf))) {
+      // Nur Zellen, deren Text eine englisch geschriebene Kommazahl ist („2.125“, „1,250.5“): PLZ 01067, Telefon 0891…,
+      // Prozent und Datum behalten ihren angezeigten Text (Durchsicht Portion 1, 10.11.2026)
+      const englisch = /^-?(\d{1,3}(,\d{3})+(\.\d+)?|\d+\.\d+)$/;
+      for (const [adr, zelle] of Object.entries(ws)) {
+        if (adr[0] === '!' || !zelle || zelle.t !== 'n' || !Number.isFinite(zelle.v)) continue;
+        if (englisch.test(String(zelle.w ?? '').trim())) zelle.w = String(zelle.v).replace('.', ',');
+      }
+    }
+    return XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+  },
   async start(entityKey, file, zone) {
     zone.innerHTML = `<div class="small muted">Datei wird gelesen …</div>`;
     let rows;
     try {
       const XLSX = await Xlsx.lib();
-      const wb = tabelleLesen(XLSX, await file.arrayBuffer());
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      rows = Importer.zeilenLesen(XLSX, await file.arrayBuffer());
     } catch (e) { zone.innerHTML = `<div class="banner danger">${icon('warn')} <span class="b-msg">Datei konnte nicht gelesen werden: ${U.esc(e.message)}</span></div>`; return; }
     if (!rows.length) { zone.innerHTML = `<div class="banner warn">${icon('warn')} <span class="b-msg">Keine Datenzeilen gefunden.</span></div>`; return; }
     const spalten = Object.keys(rows[0]);
@@ -27038,6 +27127,16 @@ const Backup = {
        Wert: Er wird nie über S.set geändert, nur in derselben Transaktion wie das Löschen (geloeschteStaendeAuftrag). */
     const gs = d.settings.find((r) => r.key === 'geloeschteStaende');
     if (gs) { S.data.geloeschteStaende = gs.value; S._merke(gs); }
+    /* Alle anderen Einstellungen ebenso (Finaltest Portion 1, 09.11.2026): Speicherte ein zweites Fenster ein Mittel, eine Fahrt-Vorlage
+       oder Honigsorte, schrieb dieses Fenster beim nächsten Speichern seine alte Liste plus den neuen Eintrag – der andere war weg.
+       Nur jüngere bzw. gleich alte Sätze übernehmen, damit ein früher begonnenes Lesen nie ein eigenes, neueres Speichern zurückdreht. */
+    for (const r of d.settings) {
+      if (!r || typeof r.key !== 'string' || r.key === 'geloeschteStaende') continue;
+      const bekannt = S._saetze[r.key];
+      if (bekannt && String(r.lastModified || '') < String(bekannt.lastModified || '')) continue;
+      if (JSON.stringify(r.value) === JSON.stringify(S.data[r.key])) continue;
+      S.data[r.key] = r.value; S._merke(r);
+    }
     return window._changedSinceBackup;
   },
   async markExternal(blob) {
@@ -27215,17 +27314,25 @@ const Backup = {
   async restoreSnapshot(id) {
     const snap = await DB.get('snapshots', id);
     if (!snap) return;
-    const ok1 = await UI.confirm({ title: 'Zwischenstand zurückholen?', text: `Der Stand vom ${U.fmtDateTime(snap.datum)} ersetzt ALLE aktuellen Daten. Vorher merkt sich die App den jetzigen Stand als Zwischenstand – so kannst du es rückgängig machen.`, confirmText: 'Weiter', danger: true });
+    /* Ehrlich sagen, was mit späteren Fotos passiert (Finaltest Portion 1, 09.11.2026): Der Zwischenstand hat keine Dateien,
+       applyReplace legt Fotos und Sprachnotizen, die es darin nicht gibt, in den Papierkorb. Einmal lesen, unten weiterverwenden. */
+    let data = null, ladeFehler = null, inKorb = 0;
+    try { data = JSON.parse(await this.snapshotText(snap)); } catch (e) { ladeFehler = e; }
+    if (data && data.stores) {
+      const imStand = new Set((Array.isArray(data.stores.anhaenge) ? data.stores.anhaenge : []).filter((r) => r && r.id).map((r) => r.id));
+      inKorb = (await DB.getAll('anhaenge')).filter((a) => U.istBlob(a.blob) && !imStand.has(a.id)).length;
+    }
+    const korbText = inKorb ? ` ${inKorb === 1 ? 'Ein Foto bzw. eine Sprachnotiz gibt' : `${inKorb} Fotos bzw. Sprachnotizen gibt`} es in diesem Stand noch nicht – ${inKorb === 1 ? 'es kommt' : 'sie kommen'} in den Papierkorb und ${inKorb === 1 ? 'lässt' : 'lassen'} sich dort 30 Tage lang wiederherstellen.` : '';
+    const ok1 = await UI.confirm({ title: 'Zwischenstand zurückholen?', text: `Der Stand vom ${U.fmtDateTime(snap.datum)} ersetzt ALLE aktuellen Daten.${korbText} Vorher merkt sich die App den jetzigen Stand als Zwischenstand – so kannst du es rückgängig machen.`, confirmText: 'Weiter', danger: true });
     if (!ok1) return;
     const ok2 = await UI.confirm({ title: 'Wirklich sicher?', text: 'Letzte Bestätigung: aktuelle Daten werden überschrieben.', confirmText: 'Zurückholen', danger: true });
     if (!ok2) return;
     /* Fehler beim Zurückholen (Fund 04.11.2026, #13) – wie beim Einspielen einer Sicherung: klar sagen, dass nichts
        zurückgeholt wurde. applyReplace ist eine Transaktion, die Daten bleiben bei jedem Fehler, wie sie waren. Vorher
        kam nur der allgemeine Satz vom Fangnetz, und 30 s nach einem früheren Fehler gar nichts. */
-    let data;
     try {
+      if (ladeFehler || !data) throw ladeFehler || new Error('Der Zwischenstand ist beschädigt.');
       await this.snapshotInternal('vor-wiederherstellung');
-      data = JSON.parse(await this.snapshotText(snap));
       await this.applyReplace(data, { blobsBehalten: true });
     } catch (e) {
       console.error('Zwischenstand zurückholen', e);
@@ -27440,13 +27547,15 @@ const Backup = {
       UI.modal({
         title: 'Zusammenführen abgeschlossen',
         body: (erg.gesamt
-          ? `<p class="small">Aus der Sicherung wurden <b>${erg.gesamt}</b> ${erg.gesamt === 1 ? 'Eintrag' : 'Einträge'} übernommen – neuere Stände haben gewonnen.</p>
+          ? `<p class="small">Aus der Sicherung wurden <b>${erg.gesamt}</b> ${erg.gesamt === 1 ? 'Eintrag' : 'Einträge'} übernommen. Wo ein Eintrag auf beiden Geräten geändert wurde, gilt die neuere Fassung.</p>
              <div class="rows mt12">${teile.map(([store, n]) => `<div class="row" style="min-height:34px;padding:5px 4px">
                <span class="r-main"><span class="r-title" style="font-weight:400">${U.esc(STORE_LABELS[store] || store)}</span></span>
                <span class="r-side"><b>${n}</b></span></div>`).join('')}</div>`
-          : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Stände, die du schon hast (oder ältere).</p>')
+          : '<p class="small">Es gab nichts zu übernehmen – die Sicherung enthielt nur Einträge, die du schon hast (oder ältere Fassungen davon).</p>')
           + (erg.bestandKorrigiert ? `<p class="small mt12">Bei <b>${erg.bestandKorrigiert}</b> ${erg.bestandKorrigiert === 1 ? 'Abfüllung wurde der Bestand' : 'Abfüllungen wurden die Bestände'} nachgerechnet: Verkäufe aus beiden Geräten sind jetzt abgezogen.</p>` : '')
-          + (erg.imPapierkorb ? `<p class="small mt12"><b>${erg.imPapierkorb}</b> ${erg.imPapierkorb === 1 ? 'Eintrag aus der Sicherung liegt' : 'Einträge aus der Sicherung liegen'} bei dir im Papierkorb und ${erg.imPapierkorb === 1 ? 'wurde' : 'wurden'} nicht zurückgeholt. Brauchst du ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} wieder, stell ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} im Papierkorb wieder her – dann stimmen auch Bestand und Kassenbuch.</p>` : ''),
+          + (erg.imPapierkorb ? `<p class="small mt12"><b>${erg.imPapierkorb}</b> ${erg.imPapierkorb === 1 ? 'Eintrag aus der Sicherung liegt' : 'Einträge aus der Sicherung liegen'} bei dir im Papierkorb und ${erg.imPapierkorb === 1 ? 'wurde' : 'wurden'} nicht zurückgeholt. Brauchst du ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} wieder, stell ${erg.imPapierkorb === 1 ? 'ihn' : 'sie'} im Papierkorb wieder her – dann stimmen auch Bestand und Kassenbuch.</p>` : '')
+          // Löschungen vom anderen Gerät werden nicht übernommen – ehrlich sagen (Finaltest Portion 1, 09.11.2026)
+          + (erg.fremdGeloescht ? `<p class="small mt12"><b>${erg.fremdGeloescht}</b> ${erg.fremdGeloescht === 1 ? 'Eintrag wurde' : 'Einträge wurden'} auf dem anderen Gerät gelöscht oder storniert, ${erg.fremdGeloescht === 1 ? 'ist' : 'sind'} hier aber noch da. Das Löschen wird beim Zusammenführen nicht übernommen. ${erg.fremdGeloescht === 1 ? 'Soll er' : 'Sollen sie'} auch hier weg, lösch oder storniere ${erg.fremdGeloescht === 1 ? 'ihn' : 'sie'} hier noch einmal.</p>` : ''),
         footer: '<button class="btn btn-primary" data-fertig>Fertig</button>',
       });
       $$('[data-fertig]').forEach((b) => b.onclick = () => b.closest('.modal-back').remove());
@@ -27562,11 +27671,34 @@ const Backup = {
   async applyReplace(data, { blobsBehalten }) {
     const vorbereitet = this._vorbereiten(data);
     await DB.aendereAtomar(DB.DATA_STORES, (d) => {
-      const alteBlobs = new Map(blobsBehalten ? d.anhaenge.map((a) => [a.id, a.blob]) : []);
+      /* Dateien auch aus dem Papierkorb holen (Finaltest Portion 1, 09.11.2026): Der Zwischenstand enthält keine Dateien, und
+         bisher kannte diese Liste nur aktive Anhänge – ein Foto im Papierkorb blieb danach ohne Datei, ein inzwischen gelöschtes
+         fiel ganz heraus. Jetzt: id → { rec, korb } (korb = der lokale Papierkorb-Eintrag, wenn die Datei dort liegt). */
+      const alteBlobs = new Map();
+      if (blobsBehalten) {
+        for (const a of d.anhaenge) if (a && a.id && U.istBlob(a.blob)) alteBlobs.set(a.id, { rec: a, korb: null });
+        for (const t of d.papierkorb || []) if (t && t.store === 'anhaenge' && t.daten && t.daten.id && U.istBlob(t.daten.blob) && !alteBlobs.has(t.daten.id)) alteBlobs.set(t.daten.id, { rec: t.daten, korb: t });
+      }
+      const blobVon = (id) => alteBlobs.has(id) ? alteBlobs.get(id).rec.blob : undefined;
+      const untergebracht = new Set();   // Anhänge, deren Datei im zurückgeholten Stand einen Platz hat
       const ops = [];
       for (const store of DB.DATA_STORES) {
         let rows = vorbereitet.get(store);
-        if (store === 'anhaenge' && blobsBehalten) rows = rows.map((r) => r.blob ? r : { ...r, blob: alteBlobs.get(r.id) }).filter((r) => r.blob);
+        if (store === 'anhaenge' && blobsBehalten) {
+          rows = rows.map((r) => r.blob ? r : { ...r, blob: blobVon(r.id) }).filter((r) => r.blob);
+          for (const r of rows) untergebracht.add(r.id);
+        }
+        if (store === 'papierkorb' && blobsBehalten) {
+          rows = rows.map((t) => (t.store === 'anhaenge' && S.istObjekt(t.daten) && !U.istBlob(t.daten.blob) && blobVon(t.daten.id)) ? { ...t, daten: { ...t.daten, blob: blobVon(t.daten.id) } } : t);
+          for (const t of rows) if (t.store === 'anhaenge' && t.daten && U.istBlob(t.daten.blob)) untergebracht.add(t.daten.id);
+          /* Fotos und Sprachnotizen, die es im Zwischenstand nicht (oder nicht mit Datei) gibt, nicht wegwerfen, sondern in den
+             Papierkorb legen (Finaltest Portion 1, 09.11.2026) – sonst waren sie endgültig weg, und „rückgängig machen“ holte sie nicht zurück. */
+          for (const [id, { rec, korb }] of alteBlobs) {
+            if (untergebracht.has(id)) continue;
+            rows = [...rows, korb || { id: U.uuid(), store: 'anhaenge', daten: rec, geloeschtAm: U.nowIso() }];
+            untergebracht.add(id);
+          }
+        }
         // Backup-Ordner usw. gehören zu diesem Gerät. Die Liste der Einrichtungs-Daten nicht: Die sind jetzt ersetzt.
         if (store === 'settings') rows = [...rows, ...d.settings.filter((r) => S.GERAET.has(r.key) && r.key !== 'startDaten')];
         ops.push({ op: 'clear', store });
@@ -27583,6 +27715,7 @@ const Backup = {
      Logos, Anschrift kamen nicht an. Jetzt entscheidet bei Objekten jedes Feld
      für sich, und von der App selbst gesetzte Felder zählen nicht als neuer.
      Gibt den neuen Datensatz zurück – oder null, wenn sich nichts ändert. */
+  LISTEN_VEREINIGEN: { fahrtvorlagen: 'id', zeitVorlagen: 'id', stockkartenFelder: 'name', stockkartenVorlagen: 'name', belegstellenVerzeichnis: 'name', honigsorten: null, dokumentTypen: null, taetigkeiten: null },   // Liste → Kennungs-Feld (null: Texte)
   einstellungZusammen(lokal, fremd) {
     if (!lokal) return fremd;
     const lmL = String(lokal.lastModified || ''), lmF = String(fremd.lastModified || '');
@@ -27593,6 +27726,19 @@ const Backup = {
       const [alt, neu] = lmF > lmL ? [lokal, fremd] : [fremd, lokal];
       const je = new Map([...(Array.isArray(alt.value) ? alt.value : []), ...(Array.isArray(neu.value) ? neu.value : [])].filter((x) => x && typeof x.id === 'string' && typeof x.name === 'string').map((x) => [x.id, x]));
       const wert = U.sortBy([...je.values()], (x) => x.name.toLowerCase());
+      return JSON.stringify(wert) === JSON.stringify(lokal.value) ? null : { ...neu, value: wert };
+    }
+    /* Weitere Listen genauso vereinigen (Finaltest Portion 1, 09.11.2026): Fahrt-Vorlagen, eigene Durchsicht-Felder, Honigsorten …
+       des einen Geräts verschwanden, weil die neuere Liste als Ganzes gewann – die Werte eigener Felder standen dann ohne Feld in
+       den Durchsichten. Reihenfolge und gleiche Einträge: die der neueren Liste, dazu fehlende aus der älteren. */
+    if (Object.prototype.hasOwnProperty.call(this.LISTEN_VEREINIGEN, lokal.key)) {
+      if (!Array.isArray(fremd.value)) return null;
+      const feld = this.LISTEN_VEREINIGEN[lokal.key];
+      const schluessel = (x) => feld ? (x && typeof x[feld] === 'string' && x[feld] ? x[feld] : null) : (typeof x === 'string' && x ? x : null);
+      const [alt, neu] = lmF > lmL ? [lokal, fremd] : [fremd, lokal];
+      const wert = [], da = new Set();
+      for (const x of Array.isArray(neu.value) ? neu.value : []) { const k = schluessel(x); if (k !== null && da.has(k)) continue; if (k !== null) da.add(k); wert.push(x); }
+      for (const x of Array.isArray(alt.value) ? alt.value : []) { const k = schluessel(x); if (k === null || da.has(k)) continue; da.add(k); wert.push(x); }
       return JSON.stringify(wert) === JSON.stringify(lokal.value) ? null : { ...neu, value: wert };
     }
     if (!S.istObjekt(lokal.value) || !S.istObjekt(fremd.value)) {
@@ -27671,6 +27817,7 @@ const Backup = {
          Bestand und Kassenbuch mit der neueren Fassung richtig. Geschrieben wird nach der Schleife, auf den zusammengeführten Papierkorb. */
       const korbNeu = new Map();   // Papierkorb-Kennung → neuere Daten
       const neuer = (r, t) => (r.lastModified || '') > (t.geloeschtAm || '') && (r.lastModified || '') > ((t.daten && t.daten.lastModified) || '');
+      const uebernommen = {};   // Bereich → aus der Sicherung übernommene Datensätze (für den Abgleich unten)
       for (const store of DB.DATA_STORES) {
         const key = (r) => store === 'settings' ? r.key : r.id;
         const map = new Map(d[store].map((r) => [key(r), r]));
@@ -27692,12 +27839,47 @@ const Backup = {
         }
         for (const r of neu.values()) ops.push({ store, obj: r, keepStamp: true });
         if (neu.size) { jeStore[store] = neu.size; gesamt += neu.size; }
+        uebernommen[store] = neu;
         d[store] = [...map.values()];
       }
       for (const t of d.papierkorb) if (korbNeu.has(t.id)) { t.daten = korbNeu.get(t.id); ops.push({ store: 'papierkorb', obj: t }); }
+      /* Dort gelöscht oder storniert, hier noch da (Finaltest Portion 1, 09.11.2026): Das Löschen wird nicht übernommen, aber der
+         dort zurückgebuchte Bestand kam mit dem jüngeren Lagerposten bzw. der jüngeren Abfüllung herein – er passte dann nicht mehr
+         zur hier weiter aktiven Fütterung oder zum Verkauf (z. B. 10 kg Zucker zu viel). Nur bei übernommenen Posten wird der Abzug
+         wieder angewandt; bleibt der eigene Posten, enthält er den Abzug ohnehin. Die Zahl nennt das Ergebnisfenster. */
+      let fremdGeloescht = 0;
+      const aktiv = (store, quelle) => new Set((quelle[store] || []).map((r) => r && r.id));
+      const hierAktiv = {}, dortAktiv = {}, gezaehlt = new Set();
+      for (const t of vorbereitet.get('papierkorb')) {
+        if (!t || !S.istObjekt(t.daten) || !t.daten.id || !DB.DATA_STORES.includes(t.store) || ['settings', 'papierkorb'].includes(t.store)) continue;
+        const k = `${t.store}|${t.daten.id}`;
+        if (gezaehlt.has(k)) continue;
+        hierAktiv[t.store] = hierAktiv[t.store] || aktiv(t.store, d);
+        dortAktiv[t.store] = dortAktiv[t.store] || new Set(vorbereitet.get(t.store).map((r) => r && r.id));
+        if (!hierAktiv[t.store].has(t.daten.id) || dortAktiv[t.store].has(t.daten.id)) continue;
+        gezaehlt.add(k); fremdGeloescht++;
+        for (const a of Array.isArray(t.daten.verbrauchAbzug) ? t.daten.verbrauchAbzug : []) {
+          const p = a && uebernommen.inventar && uebernommen.inventar.get(a.inventarId);
+          const n = Number(a && a.menge), alt = Number(p && p.stueckzahl);
+          if (!p || !Number.isFinite(n) || n <= 0 || !Number.isFinite(alt)) continue;
+          const wert = Math.max(0, alt - n);
+          p.stueckzahl = verbrauchEinheit(p) === 'Stück' ? Math.round(wert) : Math.round(wert * 1000) / 1000;
+        }
+        // Lager-Belege wirken über Bestand vorher/nachher bzw. Pfand-Anzahl (Durchsicht Portion 1, 10.11.2026)
+        if (LAGER_BELEGE.includes(t.store) && t.daten.inventarId) {
+          const p = uebernommen.inventar && uebernommen.inventar.get(t.daten.inventarId);
+          const n = lagerWirkung(t.store, t.daten), alt = Number(p && p.stueckzahl);
+          if (p && Number.isFinite(n) && n !== 0 && Number.isFinite(alt)) p.stueckzahl = lagerRunden(p, Math.max(0, alt + n));
+        }
+        if (t.store === 'verkaeufe' && t.daten.abfuellungId) {
+          const a = uebernommen.abfuellungen && uebernommen.abfuellungen.get(t.daten.abfuellungId);
+          const n = Number(t.daten.ausBestand ?? t.daten.anzahl), alt = Number(a && a.bestand);
+          if (a && Number.isFinite(n) && n > 0 && Number.isFinite(alt)) a.bestand = Math.max(0, alt - n);
+        }
+      }
       const korrekturen = this.bestandAbgleichPlan(d);
       ops.push(...korrekturen);
-      return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length, imPapierkorb } };
+      return { ops, wert: { gesamt, jeStore, bestandKorrigiert: korrekturen.length, imPapierkorb, fremdGeloescht } };
     });
   },
 
@@ -27977,11 +28159,24 @@ function backupRingStart() {
    MHD-WÄCHTER: legt automatisch Aufgaben an, wenn das Mindesthaltbarkeits-
    datum einer Charge mit Restbestand näher rückt oder überschritten ist.
    ===================================================================== */
-async function pruefeMhd() {
+/* Läufe nacheinander, nie gleichzeitig (Finaltest Portion 1, 09.11.2026): Ein Abgang startete einen Lauf nebenbei und gleich
+   danach einen zweiten – beide sahen noch keine Aufgabe und legten „Bestand niedrig“ doppelt an. Jeder Lauf wartet jetzt auf
+   den vorigen und sieht dessen Aufgaben. */
+let _mhdKette = Promise.resolve();
+function pruefeMhd() {
+  const lauf = _mhdKette.then(() => pruefeMhdLauf());
+  _mhdKette = lauf.catch(() => {});
+  return lauf;
+}
+async function pruefeMhdLauf() {
   if (Lizenz.light()) return;   // legt Aufgaben an, und die sind Vollversion (v3.07)
-  const offeneMhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd' && !a.erledigt);
+  const mhdAufgaben = (await DB.getAll('aufgaben')).filter((a) => a.quelle === 'mhd');
+  const offeneMhdAufgaben = mhdAufgaben.filter((a) => !a.erledigt);
   const heute = U.todayIso();
-  const schonErinnert = (refId) => offeneMhdAufgaben.some((a) => a.refId === refId);
+  /* Abgehakt heißt erledigt (Finaltest Portion 1, 09.11.2026): Eine erledigte Erinnerung zählt mit, solange ihr Anlass
+     (Ablaufdatum, „Bestand niedrig“) derselbe ist – vorher kam sie bei jeder Lager-Buchung sofort wieder. */
+  const schonErinnert = (refId, anlass) => offeneMhdAufgaben.some((a) => a.refId === refId)
+    || (!!anlass && mhdAufgaben.some((a) => a.erledigt && a.refId === refId && a.anlass === anlass));
   // Honig-Chargen mit Restbestand (Gläser im Bestand ODER noch nicht abgefüllte Menge)
   /* Gewarnt wird je ABFÜLLUNG, nicht je Charge: das MHD hängt am Glas, und
      zwei Abfüllungen derselben Charge können verschieden lange haltbar sein.
@@ -27991,29 +28186,40 @@ async function pruefeMhd() {
   for (const a of abfAlle) {
     const c = chargenM.get(a.chargeId);
     const mhd = abfMhd(a, c);
-    if (!mhd || (a.bestand || 0) <= 0 || schonErinnert(a.id)) continue;
+    const anlass = `mhd:${mhd}:${mhd < heute ? 'ueber' : 'bald'}`;
+    if (!mhd || (a.bestand || 0) <= 0 || schonErinnert(a.id, anlass)) continue;
     if (U.daysBetween(heute, mhd) > MHD_WARN_TAGE) continue;
     const was = `${a.bestand} × ${gebindeLabel(a.gebindeG)} aus Charge ${c ? c.losnummer : '?'}`;
     const titel = mhd < heute ? `MHD überschritten: ${was}` : `MHD läuft ab: ${was} am ${U.fmtDate(mhd)}`;
-    await DB.put('aufgaben', { titel, faellig: mhd, erledigt: false, quelle: 'mhd', refId: a.id, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
+    await DB.put('aufgaben', { titel, faellig: mhd, erledigt: false, quelle: 'mhd', refId: a.id, anlass, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
   }
   // Noch nicht abgefüllter Rest einer Altcharge, die ihr MHD selbst trägt
   for (const c of (await DB.getAll('chargen')).filter((c) => c.mhd)) {
     const restKg = chargeRestKg(c, abfAlle);
-    if (restKg <= 0.0001 || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id)) continue;
+    const anlass = `mhd:${c.mhd}:${c.mhd < heute ? 'ueber' : 'bald'}`;
+    if (restKg <= 0.0001 || U.daysBetween(heute, c.mhd) > MHD_WARN_TAGE || schonErinnert(c.id, anlass)) continue;
     const titel = c.mhd < heute
       ? `MHD überschritten: Charge ${c.losnummer} (${restKgText(restKg)} kg nicht abgefüllt)`   // nicht „(0 kg …)“ bei kleinem Rest (Fund 04.11.2026, #9)
       : `MHD läuft ab: Charge ${c.losnummer} am ${U.fmtDate(c.mhd)} (${restKgText(restKg)} kg nicht abgefüllt)`;
-    await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, notiz: 'Restbestand vor Ablauf abfüllen oder verwerten.' });
+    await DB.put('aufgaben', { titel, faellig: c.mhd, erledigt: false, quelle: 'mhd', refId: c.id, anlass, notiz: 'Restbestand vor Ablauf abfüllen oder verwerten.' });
   }
   // Betriebsmittel/Inventar: Ablaufdatum (MHD) und Mindestbestand
   for (const it of await DB.getAll('inventar')) {
-    if (schonErinnert(it.id)) continue;
-    if (it.ablauf && U.daysBetween(heute, it.ablauf) <= MHD_WARN_TAGE) {
+    /* Leere Position läuft nicht ab (Finaltest Portion 1, 09.11.2026): „Abgelaufen“ kam auch bei Bestand 0 immer wieder. */
+    const ablaufNah = it.ablauf && verbrauchBestand(it) > 0 && U.daysBetween(heute, it.ablauf) <= MHD_WARN_TAGE;
+    const niedrig = it.mindestbestand > 0 && (it.stueckzahl || 0) <= it.mindestbestand;
+    /* Bestand wieder über dem Mindestbestand: die abgehakte „Bestand niedrig“-Erinnerung gilt nicht mehr – fällt er
+       später wieder, wird neu erinnert. */
+    if (!niedrig) {
+      for (const a of mhdAufgaben) if (a.erledigt && a.refId === it.id && a.anlass === 'bestand') { a.anlass = 'bestand-vorbei'; await DB.put('aufgaben', a); }
+    }
+    const anlass = ablaufNah ? `ablauf:${it.ablauf}:${it.ablauf < heute ? 'ueber' : 'bald'}` : niedrig ? 'bestand' : '';
+    if (!anlass || schonErinnert(it.id, anlass)) continue;
+    if (ablaufNah) {
       const titel = it.ablauf < heute ? `Abgelaufen: ${it.bezeichnung}` : `Läuft ab: ${it.bezeichnung} am ${U.fmtDate(it.ablauf)}`;
-      await DB.put('aufgaben', { titel, faellig: it.ablauf, erledigt: false, quelle: 'mhd', refId: it.id, notiz: 'Betriebsmittel vor Ablauf ersetzen (z. B. Varroa-Mittel).' });
-    } else if (it.mindestbestand > 0 && (it.stueckzahl || 0) <= it.mindestbestand) {
-      await DB.put('aufgaben', { titel: `Bestand niedrig: ${it.bezeichnung} (${it.stueckzahl} ≤ ${it.mindestbestand})`, faellig: heute, erledigt: false, quelle: 'mhd', refId: it.id, notiz: 'Nachbestellen.' });
+      await DB.put('aufgaben', { titel, faellig: it.ablauf, erledigt: false, quelle: 'mhd', refId: it.id, anlass, notiz: 'Betriebsmittel vor Ablauf ersetzen (z. B. Varroa-Mittel).' });
+    } else {
+      await DB.put('aufgaben', { titel: `Bestand niedrig: ${it.bezeichnung} (${it.stueckzahl} ≤ ${it.mindestbestand})`, faellig: heute, erledigt: false, quelle: 'mhd', refId: it.id, anlass, notiz: 'Nachbestellen.' });
     }
   }
 }
@@ -28212,6 +28418,8 @@ const Lizenz = {
      Alles andere ist Vollversion: sichtbar und lesbar (zeigt, was man verpasst), aber neues
      Speichern öffnet das Kauf-Fenster. Sicherung/Export bleiben immer frei (Daten gehören dem Nutzer). */
   LIGHT_VOELKER: 2,
+  /* Eine Aufzählung für Kauf-Fenster und Einstellungen (Finaltest Portion 1, 09.11.2026): Dort fehlte das Lager, die Startseite nannte es. */
+  VOLL_LISTE: 'Finanzen (Kassenbuch und Rechnungen), Lager, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten',
   NUR_VOLL: { finanzen: 'Die Finanzen', kassenbuch: 'Das Kassenbuch', rechnungen: 'Rechnungen', rechnung: 'Rechnungen', kontakte: 'Abnehmer & Lieferanten',
     lager: 'Das Lager', inventar: 'Das Inventar', material: 'Verbrauchsmaterial', produkte: 'Weitere Produkte', honig: 'Ernte und Abfüllung',
     behandlungen: 'Behandlungen und Bestandsbuch', fuetterung: 'Die Fütterung', aufgaben: 'Aufgaben und Erinnerungen',
@@ -28223,6 +28431,11 @@ const Lizenz = {
     anhaenge: 'Fotos und Dokumente', zuchtserien: 'Die Zucht' },
   VOLK_TAB_VOLL: { futter: 'Die Fütterung', notizen: 'Fotos, Dokumente und Sprachnotizen' },
   light() { return this.aktiv() && this.status() === 'abgelaufen'; },
+  /** „… ist/sind Teil der Vollversion.“ (Finaltest Portion 1, 09.11.2026): Banner und Kauf-Fenster sagten für denselben Bereich mal „ist“, mal „sind“ („Rechnungen ist …“). */
+  vollSatz(b) {
+    const mehrzahl = / und |&|,/.test(b) || /^(Die Finanzen|Rechnungen|Wanderungen|Trachten|Statistiken|Meldungen|Fotos|Sprachnotizen|Chargen|Weitere Produkte)$/.test(b);
+    return `${b} ${mehrzahl ? 'sind' : 'ist'} Teil der Vollversion.`;
+  },
   /** Name des Bereichs, wenn die aktuelle Seite in Light nur zum Ansehen ist – sonst null. */
   sperrBereich(route = currentRoute().route) {
     if (!this.light()) return null;
@@ -28238,7 +28451,7 @@ const Lizenz = {
   async pruefeLight({ frei = false, bereich = null } = {}) {
     if (!this.light() || frei) return;
     const b = bereich === false ? null : (bereich || this.sperrBereich());   // false: das Formular gehört nicht zum gerade offenen Reiter
-    if (b) this._sperre(`${b} ist Teil der Vollversion.`);
+    if (b) this._sperre(this.vollSatz(b));
     const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
     if (n > this.LIGHT_VOELKER) this._sperre(`ImkerBuch Light gilt für bis zu ${this.LIGHT_VOELKER} Völker – du hast ${n} aktive. Löse überzählige Völker auf oder hol dir die Vollversion.`);
   },
@@ -28261,11 +28474,17 @@ const Lizenz = {
     if (!this.light() || !S.get('wizardDone')) return false;
     const zuletzt = S.get('lightErinnert');
     if (zuletzt && jetzt - Date.parse(zuletzt) < 3 * 864e5) return false;
-    await S.set('lightErinnert', new Date(jetzt).toISOString(), { auto: true });
-    setTimeout(() => this.fenster(), 1500);
+    const merk = new Date(jetzt).toISOString();
+    await S.set('lightErinnert', merk, { auto: true });
+    setTimeout(() => {
+      /* Nie über ein anderes Fenster (Finaltest Portion 1, 09.11.2026): Nach einem Store-Update lag sie über „Was ist neu?“.
+         Dann beim nächsten Start erinnern. */
+      if (document.querySelector('#modal-root .modal-back')) { if (S.get('lightErinnert') === merk) S.set('lightErinnert', zuletzt || null, { auto: true }); return; }
+      this.fenster();
+    }, 1500);
     return true;
   },
-  nurVoll(bereich) { if (!this.light()) return false; this.fenster({ grund: `${bereich} ist Teil der Vollversion.` }); return true; },
+  nurVoll(bereich) { if (!this.light()) return false; this.fenster({ grund: this.vollSatz(bereich) }); return true; },
   async neuesVolkErlaubt() {
     if (!this.light()) return true;
     const n = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv').length;
@@ -28282,6 +28501,8 @@ const Lizenz = {
     if (start > jetzt + this.TAGE * 864e5) return 'abgelaufen';   // Start weit in der Zukunft geht nur mit verstellter Uhr: nicht als ewige Testphase werten. Bis dahin schadet es niemandem, dessen Uhr nur falsch geht
     return jetzt < start + this.TAGE * 864e5 ? 'test' : 'abgelaufen';
   },
+  /** „1 Tag“ / „5 Tage“ (Finaltest Portion 1, 09.11.2026): Am letzten Testtag stand „noch 1 Tage“. */
+  tageText(n) { return n === 1 ? '1 Tag' : `${n} Tage`; },
   restTage(l = this.speicher(), jetzt = Date.now()) {
     return l.testStart ? Math.min(this.TAGE, Math.max(0, Math.ceil((Date.parse(l.testStart) + this.TAGE * 864e5 - jetzt) / 864e5))) : this.TAGE;
   },
@@ -28343,7 +28564,10 @@ const Lizenz = {
       const testImStore = gueltig.filter((t) => t.productIdentifier === LIZENZ_PRODUKTE.test).map((t) => t.originalPurchaseDate || t.purchaseDate).filter(Boolean).sort()[0] || null;
       this._testNurGemerkt = !this.android() && !testImStore && !!vorher.testStart;
       const test = this.android() ? (S.get('testStartGeraet') || null) : testImStore || vorher.testStart || null;   // anderes Konto angemeldet: Die gelaufene Testphase beginnt nicht neu, Light bleibt Light
-      await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso(), kaufFehltSeit: voll ? kaufFehltSeit : null }, { auto: true });
+      /* Kauf nach der Frist weggefallen (nicht erstattet) (Finaltest Portion 1, 09.11.2026): merken, damit Meldungen und Kauf-Fenster auf das
+         Store-Konto hinweisen statt „Testphase wiederhergestellt“ oder „Deine Testphase ist vorbei“. */
+      const kaufVerloren = voll || erstattet ? null : vorher.voll ? U.nowIso() : (vorher.kaufVerloren || null);
+      await S.set('lizenz', { voll, testStart: test, geprueft: U.nowIso(), kaufFehltSeit: voll ? kaufFehltSeit : null, kaufVerloren }, { auto: true });
     } catch (e) { this._abgleichFehler = true; console.warn('Käufe nicht abrufbar', e); }
     return this.speicher();
   },
@@ -28369,7 +28593,7 @@ const Lizenz = {
     if (art === 'test' && this.android()) {
       if (!S.get('testStartGeraet')) await S.set('testStartGeraet', U.nowIso(), { auto: true });
       await this.abgleichen();
-      UI.toast(this.status() === 'test' ? `Testphase läuft – noch ${this.restTage()} Tage alles frei.` : 'Die Testphase auf diesem Gerät ist schon abgelaufen.');
+      UI.toast(this.status() === 'test' ? `Testphase läuft – noch ${this.tageText(this.restTage())} alles frei.` : 'Die Testphase auf diesem Gerät ist schon abgelaufen.');
       return this.status() === 'test';
     }
     if (this._kaufLaeuft) return false;   // Doppeltippen: Ein zweiter Aufruf würde die Verbindung des ersten schließen
@@ -28402,10 +28626,16 @@ const Lizenz = {
     const st = this.status(await this.abgleichen());
     if (this._abgleichFehler && st !== 'voll' && st !== 'test') { UI.toast('Der Kauf ist abgeschickt, konnte aber gerade nicht geprüft werden. Bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
     if (st === 'voll') UI.toast('Danke! Die Vollversion ist freigeschaltet.');
-    else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.restTage()} Tage alles frei.`);
+    else if (st === 'test') UI.toast(`Testphase läuft – noch ${this.tageText(this.restTage())} alles frei.`);
     else if (st === 'abgelaufen') UI.toast(`Zu ${this.android() ? 'diesem Gerät' : 'dieser Apple-ID'} lief die Testphase schon. Neues eintragen geht mit der Vollversion.`, 'err');
     else { UI.toast(this._ausstehend ? 'Der Kauf wird noch bestätigt – sobald die Zahlung durch ist, wird die Vollversion freigeschaltet.' : 'Der Kauf ist noch nicht bestätigt – bitte gleich „Käufe wiederherstellen“ tippen.', 'err'); return false; }
     return st === 'voll' || st === 'test';
+  },
+  /** Hinweis, wenn ein früher gefundener Kauf zu diesem Store-Konto fehlt (Finaltest Portion 1, 09.11.2026) */
+  kaufWegText(st = this.status()) {
+    const konto = this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID', store = this.android() ? 'Google Play' : 'Apple';
+    return `Dein Kauf wurde zu ${konto} nicht gefunden. Bitte melde dich bei ${store} mit dem Konto an, mit dem du gekauft hast, und tippe dann auf „Käufe wiederherstellen“.`
+      + (st === 'test' ? ` Bis dahin läuft deine Testphase weiter, noch ${this.tageText(this.restTage())}.` : st === 'abgelaufen' ? ' Bis dahin läuft ImkerBuch als Light weiter.' : '');
   },
   async wiederherstellen() {
     const P = this.plugin(); if (!P) return;
@@ -28415,8 +28645,9 @@ const Lizenz = {
     if (st !== vorher) renderRoute();
     if (this._abgleichFehler && st !== 'voll') { UI.toast('Wiederherstellen nicht möglich – bist du online?', 'err'); return; }   // nicht behaupten, es gebe keinen Kauf
     if (this._kaufFehlt) { UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err'); return; }
-    if (st === 'test' && this._testNurGemerkt) { UI.toast(`Kein Kauf zu dieser Apple-ID gefunden. Deine Testphase läuft weiter, noch ${this.restTage()} Tage.`, 'err'); return; }
-    UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.restTage()} Tage.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
+    if (st !== 'voll' && this.speicher().kaufVerloren) { UI.toast(this.kaufWegText(st), 'err'); return; }
+    if (st === 'test' && this._testNurGemerkt) { UI.toast(`Kein Kauf zu dieser Apple-ID gefunden. Deine Testphase läuft weiter, noch ${this.tageText(this.restTage())}.`, 'err'); return; }
+    UI.toast(st === 'voll' ? 'Vollversion wiederhergestellt.' : st === 'test' ? `Testphase wiederhergestellt – noch ${this.tageText(this.restTage())}.` : (this._ausstehend ? 'Dein Kauf wird noch bestätigt – bitte später noch einmal.' : `Kein Kauf zu ${this.android() ? 'diesem Google-Konto' : 'dieser Apple-ID'} gefunden.`));
   },
   async codeEinloesen() {
     const P = this.plugin(); if (!P) return;
@@ -28439,10 +28670,10 @@ const Lizenz = {
     let neuLaden = false;
     const pr = await this.preise();
     const st = this.status();
-    const kopf = st === 'abgelaufen' ? (grund ? 'Das gibt es in der Vollversion' : 'ImkerBuch Light läuft weiter') : st === 'test' ? `Testphase: noch ${this.restTage()} Tage` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
+    const kopf = st === 'abgelaufen' ? (grund ? 'Das gibt es in der Vollversion' : 'ImkerBuch Light läuft weiter') : st === 'test' ? `Testphase: noch ${this.tageText(this.restTage())}` : `ImkerBuch ${this.TAGE} Tage kostenlos testen`;
     const preis = pr.voll ? `einmalig ${U.esc(pr.voll)}` : `als Einmalkauf (Preis siehe ${this.android() ? 'Google Play' : 'App Store'})`;
     const text = st === 'abgelaufen'
-      ? `${grund ? U.esc(grund) + ' ' : 'Deine Testphase ist vorbei – ImkerBuch läuft kostenlos als <b>Light</b> weiter: bis zu ' + this.LIGHT_VOELKER + ' Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. '}Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr als ${this.LIGHT_VOELKER} Völker gibt es mit der Vollversion – ${preis}, kein Abo. Alles, was du eingetragen hast, bleibt sichtbar.`
+      ? `${grund ? U.esc(grund) + ' ' : (this.speicher().kaufVerloren ? U.esc(this.kaufWegText('')) + ' Bis dahin läuft ImkerBuch kostenlos als <b>Light</b> weiter' : 'Deine Testphase ist vorbei – ImkerBuch läuft kostenlos als <b>Light</b> weiter') + ': bis zu ' + this.LIGHT_VOELKER + ' Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. '}${this.VOLL_LISTE} und mehr als ${this.LIGHT_VOELKER} Völker gibt es mit der Vollversion – ${preis}, kein Abo. Alles, was du eingetragen hast, bleibt sichtbar.`
       : `Alle Funktionen, ohne Einschränkung. Danach gibt es die Vollversion ${preis} – kein Abo, keine automatische Abbuchung.`;
     const m = this._fensterOffen = UI.modal({ title: '', onClose: () => {
         this._offen = false; this._fensterOffen = null;
@@ -28450,17 +28681,19 @@ const Lizenz = {
         else zu();
       },
       body: `<div class="einf-start">${logoBild(56)}<h2>${kopf}</h2><p class="muted">${text}</p>
-        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann nur mit der Vollversion, zum Beispiel Kassenbuch, Rechnungen, Verkauf, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos und Sprachnotizen, Bio, Fahrten und mehr Völker. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
+        ${st === 'ohneTest' ? `<p class="small muted mt8">Nach ${this.TAGE} Tagen läuft ImkerBuch kostenlos als Light weiter (bis ${this.LIGHT_VOELKER} Völker, Durchsicht, Stockkarte, Varroa und Königinnen). Alles andere geht dann nur mit der Vollversion, zum Beispiel ${this.VOLL_LISTE} und mehr Völker. Deine Daten bleiben sichtbar und sicherbar. ${this.android() ? 'Die Testphase läuft ab dem Start auf diesem Gerät.' : `Die Testphase ist ein kostenloser Kauf${pr.test ? ` (${U.esc(pr.test)})` : ''} im App Store – so geht sie bei einer Neuinstallation nicht verloren.`}</p>` : ''}
         ${pr.geladen ? '' : '<p class="small mt8">' + (st === 'ohneTest' && !this.android() ? 'Zum Start der Testphase braucht ImkerBuch einmal kurz Internet. Bist du online?' : 'Die Angebote konnten gerade nicht vom Store geladen werden. Bist du online?') + ' <button class="btn btn-ghost btn-sm" type="button" data-neu-laden>Erneut laden</button></p>'}
         <div class="lizenz-links mt12"><button class="btn btn-ghost btn-sm" data-wieder>Käufe wiederherstellen</button><button class="btn btn-ghost btn-sm" data-code>Code einlösen</button></div>
         <p class="small mt8"><a href="datenschutz.html" target="_blank" rel="noopener">Datenschutz</a> · <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a></p>
         <p class="small mt12" data-agb-hinweis><b>Mit dem Start der Testphase oder dem Kauf gelten die <a href="agb.html" target="_blank" rel="noopener">Nutzungsbedingungen (AGB)</a>. Bitte vorher lesen.</b></p></div>`,
       footer: `${st === 'ohneTest' ? `<button class="btn btn-primary" data-ja data-test>${this.TAGE} Tage kostenlos starten</button>` : ''}<button class="btn ${st === 'ohneTest' ? 'btn-ghost' : 'btn-primary'}" data-voll>Vollversion kaufen${pr.voll ? ' · ' + U.esc(pr.voll) : ''}</button>${st === 'abgelaufen' ? '<button class="btn btn-ghost" data-light>Weiter mit Light</button>' : ''}` });
-    const fertig = (ok) => { if (ok) { m.close(); renderRoute(); } };
-    const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => fertig(await this.kaufen('test'));
+    /* Stand geändert, aber nicht frei (Finaltest Portion 1, 09.11.2026): Nach einem gescheiterten Teststart (Apple-ID hatte die Testphase schon) blieb
+       das Fenster bei „30 Tage kostenlos starten“. Dann mit dem neuen Stand neu aufbauen. */
+    const fertig = (ok, vor) => { if (ok) { m.close(); renderRoute(); } else if (vor !== undefined && this.status() !== vor && m.el.isConnected) { neuLaden = true; m.close(); } };
+    const t = m.el.querySelector('[data-test]'); if (t) t.onclick = async () => { const vor = this.status(); fertig(await this.kaufen('test'), vor); };
     const li = m.el.querySelector('[data-light]'); if (li) li.onclick = () => m.close();
-    m.el.querySelector('[data-voll]').onclick = async () => fertig(await this.kaufen('voll'));
-    m.el.querySelector('[data-wieder]').onclick = async () => { await this.wiederherstellen(); if (['voll', 'test'].includes(this.status())) fertig(true); };
+    m.el.querySelector('[data-voll]').onclick = async () => { const vor = this.status(); fertig(await this.kaufen('voll'), vor); };
+    m.el.querySelector('[data-wieder]').onclick = async () => { const vor = this.status(); await this.wiederherstellen(); fertig(['voll', 'test'].includes(this.status()), vor); };
     m.el.querySelector('[data-code]').onclick = () => this.codeEinloesen();
     const nl = m.el.querySelector('[data-neu-laden]'); if (nl) nl.onclick = () => { neuLaden = true; m.close(); };
     return geschlossen;
@@ -28483,6 +28716,7 @@ const Lizenz = {
     const st = this.status(await this.abgleichen());
     if (st === vorher) return;
     if (st === 'voll') { UI.toast('Danke! Die Vollversion ist freigeschaltet.'); if (this._fensterOffen) this._fensterOffen.close(); }
+    else if (vorher === 'voll' && this.speicher().kaufVerloren) UI.toast(this.kaufWegText(st), 'err');   // (Finaltest Portion 1, 09.11.2026) bisher fiel die Vollversion beim Start still weg
     if (S.get('wizardDone')) renderRoute();
   },
 };
@@ -28677,10 +28911,10 @@ const Xlsx = {
       honigabgaenge: { blatt: 'Honig: Verlust & Eigenverbrauch', rows: async () => { const abf = await idMap('abfuellungen'); return U.sortBy(await alle('honigabgaenge'), (x) => x.datum || '').map((x) => { const a = abf.get(x.abfuellungId); const c = chargenM.get(x.chargeId); return ({ Datum: d(x.datum), Charge: c ? c.losnummer : '', Los: a ? abfLos(a, c) : '', Woraus: x.quelle === 'charge' ? 'Eimer (nicht abgefüllt)' : 'Gebinde', Gebinde: x.quelle === 'charge' ? '' : gebindeLabel(x.gebindeG), Menge: x.quelle === 'charge' ? x.kg : x.anzahl, Einheit: x.quelle === 'charge' ? 'kg' : 'Gebinde', Grund: x.art, Notiz: x.notiz }); }); } },
       verkaeufe: { blatt: 'Verkäufe', rows: async () => { const abf = await idMap('abfuellungen'); return (await alle('verkaeufe')).map((v) => { const a = abf.get(v.abfuellungId); return ({ Datum: d(v.datum), Los: a ? abfLos(a, chargenM.get(a.chargeId)) : '', Gebinde: verkaufGebindeG(v, a) ? gebindeLabel(verkaufGebindeG(v, a)) : '', Sorte: a ? '' : (v.sorte || ''), 'Anzahl Gläser': v.anzahl, 'Preis je Glas (€)': v.preisJeGlas, 'Betrag (€)': v.betrag, Käufer: kontakte.get(v.kontaktId)?.name || '', Notiz: v.notiz }); }); } },
       fahrten: { blatt: 'Fahrten', rows: async () => (await alle('fahrten')).map((f) => ({ Datum: d(f.datum), Ziel: fahrtZielName(f, staende), Zweck: f.zweck, Kilometer: f.km, Notiz: f.notiz })) },
-      kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz, Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
-      kontakte: { blatt: 'Kontakte', rows: async () => (await alle('kontakte')).map((c) => ({ Art: c.typ, Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },
+      kassenbuch: { blatt: 'Kassenbuch', rows: async () => (await alle('kassenbuch')).map((k) => ({ Datum: d(k.datum), Art: k.typ === 'einnahme' ? 'Einnahme' : k.typ === 'ausgabe' ? 'Ausgabe' : k.typ, Kategorie: k.kategorie, 'Betrag (€)': k.betrag, 'USt (%)': k.steuersatz ?? '', Kontakt: kontakte.get(k.kontaktId)?.name || '', Beschreibung: k.beschreibung })) },
+      kontakte: { blatt: 'Kontakte', rows: async () => (await alle('kontakte')).map((c) => ({ Art: ({ kunde: 'Kunde', lieferant: 'Lieferant', beides: 'Kunde und Lieferant' })[c.typ] || c.typ || '', Name: c.name, Straße: c.strasse, PLZ: c.plz, Ort: c.ort, 'E-Mail': c.email, Telefon: c.telefon, Notiz: c.notiz })) },   // Art lesbar statt „kunde“/„beides“ (Finaltest Portion 1, 09.11.2026)
       rechnungen: { blatt: 'Rechnungen', rows: async () => (await alle('rechnungen')).map((r) => ({ Nummer: r.nummer || 'Entwurf', Datum: d(r.datum), Kunde: rechnungKundeName(r, kontakte), Positionen: r.positionen.length, 'Warenwert (€)': rechnungSummen(r).waren, 'Rabatt (€)': rechnungSummen(r).rabatt, 'Pfand (€)': rechnungSummen(r).pfand, 'Skonto (%)': r.skontoProzent || 0, 'Summe (€)': rechnungSummen(r).brutto, Status: r.status, Steuerart: ({ regel: 'Regelbesteuerung', klein: '§ 19 UStG', pauschal24: '§ 24 UStG' })[rechnungSteuerart(r)] })) },
-      inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * (i.stueckzahl || 1), Anschaffung: d(i.anschaffung), Zuordnung: standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
+      inventar: { blatt: 'Inventar', rows: async () => (await alle('inventar')).map((i) => ({ Bezeichnung: i.bezeichnung, Kategorie: i.kategorie, Bestand: verbrauchBestand(i), Einheit: verbrauchEinheit(i), 'Preis (€)': i.preis, 'Wert (€)': (i.preis || 0) * verbrauchBestand(i), Anschaffung: d(i.anschaffung), Zuordnung: standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '', Notiz: i.notiz })) },
       aufgaben: { blatt: 'Aufgaben', rows: async () => (await alle('aufgaben')).map((a) => ({ Aufgabe: a.titel, Fällig: d(a.faellig), Erledigt: a.erledigt ? 'ja' : 'nein', Quelle: a.quelle, Tätigkeit: a.kategorie || '', Arbeitsschritt: a.zeitMinuten ? schrittVon(a).liste.join(', ') : schritteGewaehlt(a).join(', '), 'Zeit (Min.)': a.zeitMinuten || '', Notiz: a.notiz })) },
       fuetterungen: { blatt: 'Fütterungen', rows: async () => (await alle('fuetterungen')).map((f) => ({ Volk: voelker.get(f.volkId)?.name || '', Datum: d(f.datum), Futterart: f.futterart, 'Menge (kg)': f.mengeKg, 'Zucker (kg)': f.zuckerKg || '', 'Zucker gerechnet (kg)': (() => { const z = zuckerAusFuetterung(f); return z && z.geschaetzt ? Math.round(z.kg * 10) / 10 : ''; })(), Winterfutter: f.winterfutter ? 'ja' : 'nein' })) },
       belegstellen: { blatt: 'Belegstellen', rows: async () => (await alle('belegstellen')).map((b) => ({ Name: b.name || '', Herkunft: b.rasse || '', 'Aktuelle Drohnenlinie': b.drohnenlinie || '', Ort: b.ort || '', Betreiber: b.betreiber || '' })) },
@@ -29514,7 +29748,7 @@ const Pdf = {
       // Detailliste
       const body = list.map((i) => [i.bezeichnung, i.kategorie || '–', `${U.fmtNum(verbrauchBestand(i), 2)} ${verbrauchEinheit(i)}`, U.fmtEur(i.preis), U.fmtEur(wertVon(i)), standNameAnzeige(i.standId, staende) || voelker.get(i.volkId)?.name || '–', U.fmtDate(i.anschaffung) || '–']);
       this.table(doc, { head: ['Bezeichnung', 'Kategorie', 'Bestand', 'Preis', 'Wert', 'Zuordnung', 'Anschaffung'], body, startY: yy + 8, widths: { 2: { cellWidth: 22, halign: 'right' }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 24 } } });
-      this.finish(doc, `${(titel || 'inventar').toLowerCase()}-${U.todayIso()}.pdf`);
+      this.finish(doc, `${(titel || 'inventar').toLowerCase().replace(/[^\wäöüß-]+/g, '-')}-${U.todayIso()}.pdf`);   // „geräte-inventar-…“ statt „geräte & inventar-…“ (Finaltest Portion 1)
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
 
@@ -29925,7 +30159,8 @@ const Pdf = {
       } else {
         for (const [satz, val] of Object.entries(steuern)) { doc.text(`Im Gesamtbetrag enthaltene USt (${U.fmtNum(+satz, 1)} %): ${U.fmtEur(val)}`, 196, y, { align: 'right' }); y += 4.5; }
       }
-      const zahlung = `Zahlbar ohne Abzug bis ${U.fmtDate(sum.zahlungsziel.faellig)}.`
+      // Rechnung zu einem gebuchten Verkauf: schon bezahlt, kein Zahlungsziel (Finaltest Portion 1, 09.11.2026)
+      const zahlung = r.ausVerkauf ? RECHNUNG_BEZAHLT_TEXT : `Zahlbar ohne Abzug bis ${U.fmtDate(sum.zahlungsziel.faellig)}.`
         + (sum.skonto ? ` Bei Zahlung bis ${U.fmtDate(sum.skonto.faellig)} gewähren wir ${U.fmtNum(sum.skonto.prozent, 1)} % Skonto (${U.fmtEur(sum.skonto.betrag)}), Zahlbetrag dann ${U.fmtEur(sum.skonto.zahlbetrag)}.` : '');
       const zLines = doc.splitTextToSize(zahlung, 150);
       doc.text(zLines, 196, y, { align: 'right' }); y += zLines.length * 4.2 + 1;
@@ -31426,7 +31661,7 @@ const APP_WISSEN = [
     schritte: ['Menü ▸ Lager ▸ Reiter Geräte & Inventar', '„An- und Verkauf buchen“ ▸ Einkauf tippen', 'Bezeichnung, Anzahl und Kaufpreis eintragen'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
-      { knopf: 'Inventar', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Geräte & Inventar', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
       { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
       { feld: 'Was kommt ins Lager', text: 'Beim Einkauf: Wähle eine vorhandene Position oder lege direkt eine neue an.' },
       { feld: 'Welche Position', text: 'Wähle die Position, um die es geht.' },
@@ -31437,13 +31672,13 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'produkte', titel: 'Weitere Produkte (Essig, Met, Lohnverarbeitung)', route: 'lager', param: 'produkt', zeige: 'An- und Verkauf buchen',
+  { id: 'produkte', titel: 'Produkte (Essig, Met, Kerzen, Lohnverarbeitung)', route: 'lager', param: 'produkt', zeige: 'An- und Verkauf buchen',
     stichw: ['weitere produkte', 'essig', 'met', 'honigwein', 'kerzen', 'wachs', 'propolis', 'lohnverarbeitung', 'lohnverarbeiter', 'honig lose', 'honigessig', 'kerzen aus wachs', 'propolis tinktur', 'tinktur', 'lebkuchen', 'honig weiterverarbeitet', 'selbstgemachtes', 'nebenprodukt'],
     antwort: 'Alles, was nicht Honigglas ist (Essig, Met, Kerzen …), führst du im Lager unter „Produkte“. Auch Lohnverarbeitung: Honig geht an den Verarbeiter, die Kosten buchen sich ins Kassenbuch.',
     schritte: ['Menü ▸ Lager ▸ Reiter Produkte', '„An- und Verkauf buchen“ ▸ Einkauf tippen', 'Name, Einheit und Bestand eintragen'],
     tour: [{ knopf: 'An- und Verkauf buchen', text: 'Tippe auf „An- und Verkauf buchen“.' },
       { knopf: 'Einkauf', weiter: true, text: 'Was möchtest du buchen: Einkauf, Verkauf, Eigenverbrauch oder Verlust? Tippe die Art an.' },
-      { knopf: 'Weitere Produkte', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },
+      { knopf: 'Produkte', weiter: true, text: 'Für welchen Bereich? Wähle ihn aus.' },   // Bereichs-Chip heißt jetzt „Produkte“ (Finaltest Portion 1)
       { knopf: 'Weiter', exakt: true, text: 'Tippe auf „Weiter“.' },
       { feld: 'Was kommt ins Lager', text: 'Beim Einkauf: Wähle eine vorhandene Position oder lege direkt eine neue an.' },
       { feld: 'Welche Position', text: 'Wähle die Position, um die es geht.' },
@@ -31454,10 +31689,12 @@ const APP_WISSEN = [
       { feld: 'Bei wem gekauft', text: 'Optional: bei welchem Lieferanten? Er erscheint dann im Kassenbuch.' },
       { feld: 'An wen verkauft', text: 'Optional: an welchen Kunden? Ohne Angabe gilt es als Barverkauf.' },
       { speichern: true, text: 'Tippe auf „Speichern“. Den Bestand und das Kassenbuch bucht die App automatisch mit.' }] },
-  { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'lager', param: 'verbrauch', zeige: '',
+  /* Zeigt auf „Rücknahme buchen“ in der Karte „Pfand im Umlauf“, nicht mehr auf den ersten Hauptknopf „Verkaufen“; ohne Pfand-Glas
+     gibt es die Karte nicht – dann nur der Hinweis statt eines falschen Knopfs (Finaltest Portion 1, 09.11.2026). */
+  { id: 'pfand', titel: 'Pfand für Mehrweggläser', route: 'lager', param: 'verbrauch', zeige: 'Rücknahme buchen', rueckfall: false,
     stichw: ['pfand', 'mehrweg', 'rueckgabe', 'pfandglas', 'pfandrueckgabe', 'glasrueckgabe'],
-    antwort: 'Mehrweggläser mit Pfand: Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Die Umlauf-Zahl steht an der Position. Wie das Pfand steuerlich behandelt wird, stellst du unter Einstellungen → Steuer & Rechnungen ein.',
-    schritte: ['Menü ▸ Lager ▸ Reiter Verbrauchsmaterial', 'Das Glas antippen', 'Pfand-Betrag und Startdatum eintragen'] },
+    antwort: 'Mehrweggläser mit Pfand: Das Pfand trägst du am Glas ein (Lager ▸ Verbrauchsmaterial ▸ Glas antippen ▸ „Mehrweg mit Pfand“). Beim Verkauf wird das Pfand erhoben, bei der Rückgabe erstattet. Wie viele Gläser gerade beim Kunden sind, steht im Lager unter Verbrauchsmaterial in der Karte „Pfand im Umlauf“ – dort buchst du auch Rücknahmen. Wie das Pfand steuerlich behandelt wird, stellst du unter Einstellungen → Steuer & Rechnungen ein.',
+    schritte: ['Menü ▸ Lager ▸ Reiter Verbrauchsmaterial', 'Pfand eintragen: das Glas antippen ▸ „Mehrweg mit Pfand“', 'Rückgabe: Karte „Pfand im Umlauf“ ▸ „Rücknahme buchen“'] },
   /* Kein einzelnes „anmelden“ als Stichwort: das zog „Muss ich mich bei der App anmelden?“ vom Datenschutz weg
      (Code-Prüfung 23.10.2026) – dafür Wendungen und eine Regel in ASSISTENT_REGELN. */
   { id: 'anmeldung-amt', titel: 'Bienen beim Amt melden: Veterinäramt (§ 1a), Tierseuchenkasse, Schild am Stand', route: 'meldungen', zeige: 'Ämter & Pflicht',
@@ -32097,7 +32334,7 @@ const Assistent = {
     /* Erst nur nach dem genannten Knopf suchen: Die Seite baut in Schritten auf (z. B. Lager: Kopf mit „Verkaufen“ sofort,
        die Liste erst nach den Abfragen). Der Rückfall auf den ersten Hauptknopf kommt erst ganz am Ende (Prüfung 08.11.2026, P12). */
     for (let i = 0; i < 40 && !el; i++) { await new Promise((r) => setTimeout(r, 100)); if (currentRoute().route === e.route) el = Assistent.finde(e.zeige, { rueckfall: false }); }
-    if (!el && currentRoute().route === e.route) el = Assistent.finde(e.zeige);
+    if (!el && currentRoute().route === e.route && e.rueckfall !== false) el = Assistent.finde(e.zeige);   // rueckfall: false – lieber Hinweis als falscher Knopf (Finaltest Portion 1, 09.11.2026)
     if (!el) return UI.toast(`Ich habe „${e.titel}“ geöffnet – such dort nach: ${e.schritte[e.schritte.length - 1]}`);
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     Assistent.markieren(el);
@@ -33101,7 +33338,7 @@ Views.einstellungen = {
       </div>
 
       ${Lizenz.aktiv() ? `<div class="card"><div class="card-title">${icon('check')}<h2>ImkerBuch Vollversion</h2></div>
-        <p class="small mb12">${{ voll: 'Vollversion freigeschaltet ✓ – danke!', test: `Testphase: noch <b>${Lizenz.restTage()} Tage</b>.`, ohneTest: 'Die kostenlose Testphase ist noch nicht gestartet.', abgelaufen: `Du nutzt <b>ImkerBuch Light</b> (kostenlos): bis ${Lizenz.LIGHT_VOELKER} Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. Kassenbuch, Rechnungen, Behandlungen und Bestandsbuch, Fütterung, Ernte, Aufgaben, Fotos, Sprachnotizen, Bio und mehr gibt es mit der Vollversion.` }[Lizenz.status()]}</p>
+        <p class="small mb12">${{ voll: 'Vollversion freigeschaltet ✓ – danke!', test: `Testphase: noch <b>${Lizenz.tageText(Lizenz.restTage())}</b>.`, ohneTest: 'Die kostenlose Testphase ist noch nicht gestartet.', abgelaufen: `Du nutzt <b>ImkerBuch Light</b> (kostenlos): bis ${Lizenz.LIGHT_VOELKER} Völker mit Durchsicht, Stockkarte, Varroa und Königinnen. ${Lizenz.VOLL_LISTE} und mehr gibt es mit der Vollversion.` }[Lizenz.status()]}</p>
         <div class="flex-wrap no-print">
           ${Lizenz.status() === 'voll' ? '' : `<button class="btn btn-primary btn-sm" type="button" onclick="Lizenz.fenster()">${icon('euro')} Vollversion kaufen</button>`}
           <button class="btn btn-ghost btn-sm" type="button" onclick="Lizenz.wiederherstellen()">${icon('restore')} Käufe wiederherstellen</button>
@@ -33273,16 +33510,23 @@ Views.einstellungen = {
       await S.set('steuer', steuer);
     };
     const stP = $('#st-pausch');
-    if (stP) stP.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { steuer.pauschalsatz = v; await S.set('steuer', steuer); } };
+    /* Ungültiger Satz nicht mehr still verworfen (Finaltest Portion 1, 09.11.2026): Das Feld zeigte weiter „150“, gespeichert blieb 7,8. */
+    if (stP) stP.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { steuer.pauschalsatz = v; await S.set('steuer', steuer); UI.toast('Gespeichert'); } else { e.target.value = U.fmtNum(steuer.pauschalsatz != null ? steuer.pauschalsatz : 7.8, 1); UI.toast('Bitte einen Satz zwischen 0 und 100 % eingeben', 'err'); } };
     const stPf = $('#st-pfand');
     if (stPf) stPf.onchange = async (e) => { steuer.pfandSteuersatz = U.zahl(e.target.value, 0); await S.set('steuer', steuer); UI.toast('Gespeichert'); };
     const stKm = $('#st-km');
     if (stKm) stKm.onchange = async (e) => { const v = U.parseNum(e.target.value); if (!isNaN(v) && v >= 0 && v < 100) { await S.set('kmPauschale', v); UI.toast('Kilometerpauschale gespeichert'); } else { e.target.value = U.fmtNum(S.get('kmPauschale'), 2); UI.toast('Bitte einen gültigen Betrag eingeben', 'err'); } };
-    const saveKreis = U.debounce(async () => {
-      if (!$('#rk-prefix')) return;   // Seite schon verlassen
-      kreis.prefix = $('#rk-prefix').value;
-      const n = parseInt($('#rk-next').value, 10);
+    /* Eingabe sofort übernehmen, nur das Speichern verzögern (Finaltest Portion 1, 09.11.2026): Wer binnen 0,5 s die Seite
+       verließ, verlor Präfix und Zähler – die Prüfung „Seite schon verlassen“ warf die Eingabe weg. Beim Verlassen des Felds
+       (change) wird gleich gespeichert. */
+    const kreisUebernehmen = () => {
+      const pf = $('#rk-prefix'), nx = $('#rk-next');
+      if (!pf || !nx) return;
+      kreis.prefix = pf.value;
+      const n = parseInt(nx.value, 10);
       if (!isNaN(n) && n > 0) kreis.next = n;
+    };
+    const kreisSpeichern = async () => {
       await S.set('rechnungskreis', kreis);
       /* Warnen, wenn der Zähler hinter den Bestand zurückfällt. Die Vergabe
          korrigiert das zwar von selbst, aber der Nutzer soll wissen, dass seine
@@ -33295,8 +33539,10 @@ Views.einstellungen = {
           : `Die nächste Rechnung bekommt ${naechste.nummer}.`;
         hinweis.className = naechste.next - 1 !== kreis.next ? 'hint mt8 zahl-warn' : 'hint mt8';
       }
-    }, 500);
-    $('#rk-prefix').oninput = saveKreis; $('#rk-next').oninput = saveKreis;
+    };
+    const saveKreis = U.debounce(kreisSpeichern, 500);
+    $('#rk-prefix').oninput = $('#rk-next').oninput = () => { kreisUebernehmen(); saveKreis(); };
+    $('#rk-prefix').onchange = $('#rk-next').onchange = () => { kreisUebernehmen(); kreisSpeichern(); };
 
     /* Feature-Schalter */
     $$('[data-feat]', main).forEach((el) => el.onchange = async () => { f[el.dataset.feat] = el.checked; await saveFeatures(); });
@@ -33562,7 +33808,7 @@ async function migriereRaehmchenmass(erzwingen = false) {
     if (!('raehmchenmass' in v)) continue;
     if (!v.beutentyp && v.raehmchenmass) v.beutentyp = v.raehmchenmass;
     delete v.raehmchenmass;
-    await DB.put('voelker', v);
+    await DB.put('voelker', v, true);   // Umstellung, keine echte Änderung: Zeitstempel behalten wie U4 (Finaltest Portion 1, 09.11.2026)
   }
   await S.set('raehmchenmassMigriert', true, { auto: true });
 }
@@ -33597,7 +33843,9 @@ async function migriereChargenAbfuellung(erzwingen = false) {
     }
     c.mengeKg = Math.round(anzahl * gebindeG / 1000 * 1000) / 1000;
     delete c.glasGroesseG; delete c.anzahlGlaeser; delete c.bestandGlaeser; delete c.abfuelldatum; delete c.verkaufspreis;
-    ops.push({ op: 'put', store: 'chargen', obj: c });
+    /* Umgestellte Datensätze behalten ihren Zeitstempel (Finaltest Portion 1, 09.11.2026), wie U4: sonst gewann beim späteren
+       Zusammenführen die nur umgestellte Kopie gegen eine echte Änderung auf dem anderen Gerät. Neue Abfüllungen bekommen einen. */
+    ops.push({ op: 'put', store: 'chargen', obj: c, keepStamp: true });
     await DB.schreibeAlles(ops);
   }
   for (const v of await DB.getAll('verkaeufe')) {
@@ -33605,12 +33853,12 @@ async function migriereChargenAbfuellung(erzwingen = false) {
     // Ohne Treffer bleibt chargeId stehen – lieber ein Altfeld als eine gekappte Zuordnung.
     if (!map[v.chargeId]) continue;
     v.abfuellungId = map[v.chargeId]; delete v.chargeId;
-    await DB.put('verkaeufe', v);
+    await DB.put('verkaeufe', v, true);
   }
   for (const r of await DB.getAll('rechnungen')) {
     let changed = false;
     for (const p of (r.positionen || [])) if (p.chargeId && !p.abfuellungId && map[p.chargeId]) { p.abfuellungId = map[p.chargeId]; delete p.chargeId; changed = true; }
-    if (changed) await DB.put('rechnungen', r);
+    if (changed) await DB.put('rechnungen', r, true);
   }
   await S.set('abfuellungMigriert', true, { auto: true });
 }
@@ -33657,13 +33905,16 @@ async function migriereBioPartner(erzwingen = false) {
   const schluessel = (x) => String(x || '').trim().toLowerCase();
   const finde = (name) => kontakte.find((k) => schluessel(k.name) === schluessel(name));
   const artAus = (rolle) => (rolle === 'Abnehmer' ? 'kunde' : rolle === 'beides' ? 'beides' : 'lieferant');
+  /* Text nur anhängen, wenn er nicht schon dasteht (Finaltest Portion 1, 09.11.2026): Dieselbe alte Sicherung zweimal zusammengeführt
+     brachte die gelöschten Bio-Einträge zurück, die Umstellung lief erneut, und Notizen und Zertifikate standen doppelt da. */
+  const dazu = (alt, zeile) => { const a = String(alt || ''); return !zeile || ('\n' + a + '\n').includes('\n' + zeile + '\n') ? a : [a, zeile].filter(Boolean).join('\n'); };
 
   for (const e of partner) {
     if (!e.name) continue;
     const vorhanden = finde(e.name);
     const daten = {
       bio: 'ja', oekoWas: e.was || '', oekoNummer: e.kontrollnummer || '', oekoGueltigBis: e.gueltigBis || '',
-      notiz: [vorhanden && vorhanden.notiz, e.notiz].filter(Boolean).join('\n'),
+      notiz: dazu(vorhanden && vorhanden.notiz, e.notiz),
     };
     if (vorhanden) {
       // Rolle aufwerten: wer Kunde war und jetzt auch Lieferant ist, wird „beides"
@@ -33694,7 +33945,7 @@ async function migriereBioPartner(erzwingen = false) {
       imk.oekoZertAblage = imk.oekoZertAblage || z.ablage || '';
       setzen('imkerei', imk);           // gesichert, bevor die Quelle fällt
     } else if (ziel) {
-      const notiz = [ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`].filter(Boolean).join('\n');
+      const notiz = dazu(ziel.notiz, `${z.art || 'Papier'}: ${z.name || ''}${z.nummer ? ` (Nr. ${z.nummer})` : ''}${z.ablage ? ` – Ablage: ${z.ablage}` : ''}`);
       kontaktSpeichern( Object.assign(ziel, {
         notiz, bio: 'ja',
         oekoGueltigBis: ziel.oekoGueltigBis || z.gueltigBis || '',
@@ -33705,7 +33956,7 @@ async function migriereBioPartner(erzwingen = false) {
       const bb = structuredClone(lesen('bioBetrieb') || {});
       const kopf = 'Aus dem früheren Reiter „Zertifikate" übernommen:';
       const hatKopf = String(bb.zertifikate || '').includes(kopf);
-      bb.zertifikate = [bb.zertifikate, hatKopf ? '' : kopf, uebrig[uebrig.length - 1]].filter(Boolean).join('\n');
+      bb.zertifikate = dazu([bb.zertifikate, hatKopf ? '' : kopf].filter(Boolean).join('\n'), uebrig[uebrig.length - 1]);
       setzen('bioBetrieb', bb);          // ebenfalls zuerst sichern
     }
     ops.push({ op: 'del', store: 'bioeintraege', id: z.id });
@@ -33764,7 +34015,7 @@ async function migriereBelegstellen(erzwingen = false) {
     for (const rec of await DB.getAll(store)) {
       if (rec.belegstelleId || !rec.belegstelle) continue;
       rec.belegstelleId = await sorgeFuer(rec.belegstelle);
-      await DB.put(store, rec);
+      await DB.put(store, rec, true);   // nur verknüpft: Zeitstempel behalten (Finaltest Portion 1, 09.11.2026)
     }
   }
   await S.set('belegstellenMigriert', true, { auto: true });
@@ -33920,6 +34171,7 @@ async function boot() {
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
   netzFetch, kontaktTypLabel, wanderungHistorieBerichtigen,
+  verfallText, migriereChargenAbfuellung,   // für die Tests (Finaltest Portion 1, 09.11.2026)
   wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden, chargeLoeschWarnung,
   TesterSperre, ZurueckWeb, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,

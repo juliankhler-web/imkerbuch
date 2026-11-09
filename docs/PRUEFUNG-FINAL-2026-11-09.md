@@ -60,3 +60,20 @@ Julians erster Versuch `/ultrareview --max-findings all` im großen Projektordne
 - **U7 (nit)** Zweite Sortier-Logik in der Lager-Liste. *Fix:* `lagerNatuerlich()` überall.
 - **U8 (nit)** `behandlungFuerVoelker` hatte keinen Aufrufer mehr (Weg ohne Lager-Abzug und Wartezeit), der Kommentar stand an der falschen Stelle. *Fix:* entfernt, Tests auf `behandlungenJeVolkAnlegen` umgestellt.
 - **U9 (nit)** „Alle auswählen / Keine / n von m“ zweimal gebaut (Behandlung und Ernte). *Fix:* ein Helfer `volkAuswahlLeiste()`.
+
+## 5. Restliche 12 Bereiche in Portionen (Opus 5.5) – Portion 1: Finanzen, Lager, Daten, Lizenz/Start
+
+Workflow `imkerbuch-portion` (4 Prüfer + Gegenprüfer): 40 bestätigte Funde, sofort an Julian gemeldet.
+Reparatur Bereich für Bereich (Workflow `imkerbuch-portion-reparieren`, Run wf_76c1cd9e-88c), danach unabhängige Durchsicht des Diffs.
+
+- **Finanzen (11):** 10 behoben – negativer Preis/negative Menge sperrt den Bereich nicht mehr (Feldfehler, kaputte Altentwürfe zählen als 0 mit Hinweis), freie Position mit Kommamenge, Rechnungsdatum Pflicht, Kassenbuch springt aus leerem Jahr, Einnahme cent-genau (Abgangszeilen summieren genau), Kontakt als Lieferant bleibt sichtbar gewählt, Rechnungskreis geht beim schnellen Wechsel nicht verloren, USt-Satz in der Einnahme, Bereichsnamen „Produkte“/„Geräte & Inventar“, Beleg-Rechnung zu Barverkauf „Betrag dankend erhalten.“
+  - **Offen (Entscheidung Julian):** Rechnung nur mit freien Positionen (z. B. Ableger) bucht als „Honigverkauf“. Vorschlag: Auswahlfeld „Kassenbuch-Kategorie“ im Entwurf (braucht Mockup) oder feste Regel.
+  - Bewusst gelassen: Positionszeilen im Entwurf/PDF zeigen ihre eigene gerundete Summe (Rechenversion 2 der festgeschriebenen Rechnungen bleibt unverändert).
+- **Lager (8):** alle behoben – keine Bruchteile bei Stück, „Bestand niedrig“ nur einmal und nicht sofort wieder, Liste bei Bestand 0, Einkauf von Produkten in richtiger Kategorie, Imme „Zeig es mir“ bei Pfand, Verkaufssuche ohne Treffer, alte Bereichsnamen.
+- **Daten (12):** alle behoben – Zwischenstand zurückholen legt Fotos in den Papierkorb statt sie zu löschen und warnt vor späteren Fotos, Zusammenführen berücksichtigt Löschungen/Stornos vom anderen Gerät, Excel 2,125 kg, Listen-Einstellungen werden vereinigt, Bio-Partner nicht doppelt, zwei Fenster überschreiben Listen nicht, Sprachnotiz-Text in der Volksakte, Papierkorb nach Start, Migrationen behalten Zeitstempel, Texte, Kassenbuch-Übernahme „aus/Haus“.
+- **Lizenz/Start (8):** alle behoben – „1 Tag“, „sind“ bei Mehrzahl, kein doppeltes Fenster nach Update, Pauschalsatz § 24 mit Feldfehler, Kauf-Fenster nach gescheitertem Teststart, ehrliche Meldung bei „Käufe wiederherstellen“, Lager in Light-Texten, Hinweis wenn die Vollversion nach 7 Tagen nicht mehr bestätigt ist.
+- **Durchsicht fand 3 Nachbesserungen (selbst behoben, 10.11.2026):**
+  1. Excel: Umschreiben nur noch bei englisch geschriebenen Kommazahlen – PLZ 01067, Telefon 089…, Prozent bleiben (Test D3b).
+  2. Zusammenführen: auch dort gelöschte Lager-Abgänge/-Zugänge/Pfand korrigieren den Bestand (Test D2b).
+  3. Test D7 prüft jetzt wirklich mit einem älteren, anderen Satz.
+- **Ergebnis:** voller Lauf 1090 von 1090 Tests grün.
