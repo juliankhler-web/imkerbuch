@@ -14888,6 +14888,41 @@ test('Sicherungs-Hinweis steht nur auf der Startseite', async (w) => isolierteDa
   w.document.body.dataset.route = 'dashboard';
 }));
 
+test('Tablet (Julian 09.11.2026): Völker-Kachel zeigt Völker je Stand, Sichern und ✕ bleiben zusammen', async (w) => isolierteDaten(w, async () => {
+  const st = [];
+  for (let i = 1; i <= 7; i++) { const s = { id: w.U.uuid(), name: `Stand Nr. ${i}` }; await w.DB.put('staende', s); st.push(s); }
+  // Nr. 2: 3 Völker, Nr. 16 gibt es nicht; Nr. 1: 1 Volk, Nr. 3–7: je 1 Volk; dazu 1 Volk ohne Stand und 1 aufgelöstes
+  const volk = (standId, status = 'aktiv') => w.DB.put('voelker', { id: w.U.uuid(), name: 'V' + Math.random(), standId, status });
+  for (let k = 0; k < 3; k++) await volk(st[1].id);
+  for (const s of [st[0], st[2], st[3], st[4], st[5], st[6]]) await volk(s.id);
+  await volk(''); await volk(st[0].id, 'aufgeloest');
+  const d = w.document.createElement('div'); d.innerHTML = await w.DASH_WIDGETS.voelker.html();
+  assertEq(d.querySelector('.s-value').textContent, '10', 'nur aktive Völker gezählt');
+  const reihen = [...d.querySelectorAll('.v-stand')].map((r) => r.textContent.trim());
+  assertEq(reihen[0], 'Stand Nr. 23', 'meiste Völker zuerst (Name + Zahl)');
+  assertEq(reihen.length, 5, 'höchstens 5 Zeilen');
+  assertEq(reihen[4], '+ 4 weitere Stände', 'Rest zusammengefasst (8 Gruppen: 4 gezeigt + 4 weitere)');
+  assertEq(reihen.slice(1, 4).join(' | '), 'Stand Nr. 11 | Stand Nr. 31 | Stand Nr. 41', 'danach natürlich sortiert, „Ohne Stand“ hinten');
+  // Handy: Liste ausgeblendet
+  const t = w.document.createElement('div'); t.className = 'grid2 dash-raster'; t.innerHTML = `<div class="dash-klick">${d.innerHTML}</div>`;
+  w.document.body.appendChild(t);
+  const sichtbar = w.getComputedStyle(t.querySelector('.v-staende')).display !== 'none';
+  assertEq(sichtbar, w.innerWidth > 700, 'Liste nur zweispaltig sichtbar');
+  t.remove();
+  // nur ein Stand: keine Liste
+  for (const s of st.slice(1)) await w.DB.del('staende', s.id);
+  for (const v of await w.DB.getAll('voelker')) if (v.standId !== st[0].id) await w.DB.del('voelker', v.id);
+  d.innerHTML = await w.DASH_WIDGETS.voelker.html();
+  assert(!d.querySelector('.v-staende'), 'ein Stand: keine Liste nötig');
+  // Sicherungshinweis: Knopf und ✕ in einer Gruppe
+  await w.S.set('wizardDone', true, { auto: true }); await w.S.set('backupErinnerung', true, { auto: true });
+  await w.S.set('letzteExterneSicherung', null, { auto: true });
+  w.Backup.updateBanners();
+  const g = w.document.querySelector('#banners .b-sicherung .b-knoepfe');
+  assert(g && g.querySelector('.btn') && g.querySelector('.icon-btn'), 'Sichern und ✕ stehen zusammen in .b-knoepfe');
+  assertEq(w.getComputedStyle(g).flexShrink, '0', 'Gruppe wird nicht zerdrückt');
+}));
+
 test('Etikett: Füllmenge in gesetzlicher Mindesthöhe (Ziffern 2/3/4/6 mm)', (w) => {
   const mm = (g) => w.fuellmengePunkt(g) * 0.717 * 0.3528;
   assertEq([50, 125, 250, 500, 1000, 2000].map(w.fuellmengeMm), [2, 3, 4, 4, 4, 6], 'Stufen nach Füllmenge');
