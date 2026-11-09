@@ -11920,7 +11920,8 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
     // Mitglied einer Gruppe ohne eigenen Abzug (0 Stück nach der Aufteilung, z. B. 3 × 0,5 Stück → 2 Stück auf zwei Einträge):
     // die Start-Position der Gruppe übernehmen, damit die Gruppenrechnung unten greift (Ultra-Test 3, 09.11.2026)
     const gruppenStart = !altAbzug.length && alt.abzugGruppe ? (d.behandlungen.map((b) => b.abzugGruppe === alt.abzugGruppe ? ((b.verbrauchAbzug || [])[0] || {}).inventarId : '').find(Boolean) || '') : '';
-    const altStart = altAbzug.length ? altAbzug[0].inventarId : gruppenStart;
+    const stueckGruppe = !!gruppenStart && posten.has(gruppenStart) && verbrauchEinheit(posten.get(gruppenStart)) === 'Stück';   // nur ganze Stück teilt die Gruppe untereinander auf
+    const altStart = altAbzug.length ? altAbzug[0].inventarId : (stueckGruppe ? gruppenStart : '');
     const id = eingabe._verbrauchId !== undefined ? (eingabe._verbrauchId || '') : altStart;
     const altMenge = Math.max(0, Number(alt.menge) || 0), neuMenge = Math.max(0, Number(eingabe.menge) || 0);
     let abzug = altAbzug, gefehlt = 0, einheit = '';
@@ -11942,13 +11943,15 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
          (Einträge derselben Behandlung pro Volk, sonst nur dieser) schon abgezogen hat: nachgezogen wird nur, was auf ganze
          Stück noch fehlt, höchstens so viel wie bisher. Zurück kommt nur, was nach dem Ändern übrig ist. */
       const ganz = posten.has(id) ? verbrauchEinheit(posten.get(id)) === 'Stück' : (altAbzug[0] || {}).einheit === 'Stück';
-      if (ganz && diff !== 0) {
+      if (ganz) {
         // auch Mitglieder ohne eigenen Abzug zählen zur Gruppe – sonst fehlte ihre Menge, und das Lager bekam Stück zurück, die es nie gab (Ultra-Test 3)
         const gruppe = alt.abzugGruppe ? d.behandlungen.filter((b) => b.id !== alt.id && b.abzugGruppe === alt.abzugGruppe && (!(b.verbrauchAbzug || []).length || b.verbrauchAbzug[0].inventarId === altStart)) : [];
         const mengeSonst = gruppe.reduce((s, b) => s + Math.max(0, Number(b.menge) || 0), 0);
         const schon = [alt, ...gruppe].reduce((s, b) => s + (b.verbrauchAbzug || []).reduce((t, a) => t + (Number(a.menge) || 0), 0), 0);
         const noetig = Math.ceil(r3(mengeSonst + neuMenge) - 1e-9);
-        diff = diff > 0 ? Math.min(Math.ceil(diff - 1e-9), Math.max(0, noetig - Math.round(schon))) : -Math.min(Math.ceil(-diff - 1e-9), Math.max(0, Math.round(schon) - noetig));
+        // Menge gleich, aber die Gruppe trägt weniger Stück als nötig (Mittel war abgewählt und ist wieder gewählt): fehlende nachziehen
+        if (diff === 0) diff = Math.max(0, noetig - Math.round(schon));
+        else diff = diff > 0 ? Math.min(Math.ceil(diff - 1e-9), Math.max(0, noetig - Math.round(schon))) : -Math.min(Math.ceil(-diff - 1e-9), Math.max(0, Math.round(schon) - noetig));
       }
       if (diff > 0) {
         if (!posten.has(id)) materialFehltPruefen(d, altAbzug[0]);   // im Papierkorb: Meldung; endgültig gelöscht: nichts mehr abzuziehen
@@ -21142,7 +21145,7 @@ async function lagerVerkaufForm(vorId = '', suche = '', reiter = '') {
     saveText: 'Verkaufen',
     async onSave(v) {
       const erg = await lagerVerkaufBuchen({ inventarId: v.inventarId, menge: v.menge, preis: v.preis, datum: v.datum, kontaktId: v.kontaktId || null, kaeufer: v.kaeufer || '' });
-      pruefeMhd().catch((e) => console.error('MHD-Prüfung', e));   // nebenbei: Der Verkauf ist gebucht; ein Fehler hier darf das Formular nicht offen halten (Ultra-Test 3)
+      try { await pruefeMhd(); } catch (e) { console.error('MHD-Prüfung', e); }   // Der Verkauf ist gebucht; ein Fehler hier darf das Formular nicht offen halten (Ultra-Test 3)
       renderRoute({ scrollBehalten: true });
       // Erst wenn das Formular zu ist: die Rückfrage nach der Rechnung (Mockup 3)
       setTimeout(() => nachVerkaufFragen(erg), 0);
