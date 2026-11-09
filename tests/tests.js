@@ -12596,11 +12596,11 @@ test('Menü & untere Leiste: per Gedrückthalten verschiebbar, Reihenfolge wird 
     assertEq(neu.length, std.length, 'nichts geht verloren, Neues hängt hinten dran');
     await w.S.set('menuOrder', ['gibtsnicht', 'bio']);
     assertEq(w.menuReihenfolge()[0].route, 'bio', 'unbekannte Einträge werden ignoriert');
-    // untere Leiste: Start darf an jeder Stelle stehen
+    // untere Leiste: Start steht fest vorne (Julian 09.11.2026 – vorher durfte er an jeder Stelle stehen)
     await w.S.set('bottomNav', ['voelker', 'dashboard', 'aufgaben', 'honig']);
     w.renderBottomNav();
     const bn = [...w.document.querySelectorAll('#bottomnav button[data-route]')].map((b) => b.dataset.route);
-    assertEq(bn, ['voelker', 'dashboard', 'aufgaben', 'honig'], 'Start bleibt, wo der Nutzer ihn hingelegt hat');
+    assertEq(bn, ['dashboard', 'voelker', 'aufgaben', 'honig'], 'Start rückt nach vorne');
     await w.S.set('bottomNav', ['voelker', 'aufgaben']);
     w.renderBottomNav();
     assertEq(w.document.querySelector('#bottomnav button[data-route]').dataset.route, 'dashboard', 'fehlt Start, kommt er nach vorn');
@@ -23310,3 +23310,22 @@ test('Prüfung 09.11.2026: Rechnung „Aus dem Lager“ wählt beim Öffnen nich
   const k = (await w.Statistik.auswerten('behandlungen', '2025', d)).kacheln.find((x) => x.label === 'Häufigstes Mittel');
   assert(k && k.wort === true, 'als Wort markiert');
 })));
+test('Start (Julian 09.11.2026): heißt überall „Start“, steht fest vorne in der Leiste, keine doppelte Kachel unter „Mehr“', async (w) => {
+  assertEq(w.NAV.find((n) => n.route === 'dashboard').label, 'Start', 'Seitenleiste');
+  assertEq(w.bereichKurz('dashboard'), 'Start', 'Kurzname');
+  assertEq(w.Views.dashboard.title, 'Start', 'Seitentitel');
+  assertEq(w.leisteMitStart(['voelker', 'dashboard', 'honig']), ['dashboard', 'voelker', 'honig'], 'Start rückt nach vorne');
+  assertEq(w.leisteMitStart(['voelker', 'aufgaben', 'honig', 'lager']), ['dashboard', 'voelker', 'aufgaben', 'honig'], 'ohne Start: vorne dazu, höchstens 4');
+  assertEq(w.leisteMitStart([]), ['dashboard'], 'leer: nur Start');
+  const alt = w.S.get('bottomNav');
+  try {
+    await w.S.set('bottomNav', ['honig', 'dashboard', 'voelker']);
+    w.renderBottomNav();
+    assertEq([...w.document.querySelectorAll('#bottomnav button[data-route]')].map((b) => b.dataset.route)[0], 'dashboard', 'gezeichnet: Start zuerst');
+    dialogeSchliessen(w);
+    const m = w.openMoreSheet();
+    assert(!m.el.querySelector('.sheet-grid [data-route="dashboard"]'), 'keine Start-Kachel unter „Mehr“');
+    assert(m.el.querySelector('.sheet-grid [data-route="voelker"]'), 'andere Bereiche da');
+    m.close(true);
+  } finally { await w.S.set('bottomNav', alt); w.renderBottomNav(); dialogeSchliessen(w); }
+});

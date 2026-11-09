@@ -4291,7 +4291,7 @@ function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(Math.max(r
 const Views = {};
 const NAV = [
   { sec: 'Übersicht' },
-  { route: 'dashboard', label: 'Dashboard', ic: 'home' },
+  { route: 'dashboard', label: 'Start', ic: 'home' },   // „Start“ wie in der unteren Leiste (Julian 09.11.2026: „nenne es überall Start“)
   { route: 'aufgaben', label: 'Aufgaben & Kalender', ic: 'task' },
   { sec: 'Hilfe' },
   { route: 'assistent', label: 'Assistent', ic: 'assistent' },
@@ -4874,8 +4874,8 @@ function renderChrome() {
   side.addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) navTo(b.dataset.route); });
   const bn = $('#bottomnav');
   renderBottomNav();
-  langDruckSortieren(bn, 'button[data-route]', async (els) => {
-    await S.set('bottomNav', els.map((b) => b.dataset.route));
+  langDruckSortieren(bn, 'button[data-route]:not([data-route="dashboard"])', async (els) => {
+    await S.set('bottomNav', leisteMitStart(els.map((b) => b.dataset.route)));
     renderBottomNav();
   });
   bn.addEventListener('click', (e) => {
@@ -4948,13 +4948,16 @@ function renderChrome() {
     UI.toast('Darstellung: ' + THEME_NAMEN[neu]);
   };
 }
-/** Nur die untere Leiste neu zeichnen (Inhalt); der Klick-Listener bleibt an #bottomnav.
-    „Start“ (dashboard) steht immer zuerst, „Mehr“ hängt die App selbst an. */
+/** Untere Leiste: „Start“ steht fest vorne – nicht verschiebbar, nicht ersetzbar (Julian 09.11.2026: „am anfang dann ist es
+    einfacher mit der quer ansicht“), dahinter bis zu drei Bereiche. Alte gespeicherte Reihenfolgen mit Start weiter hinten
+    werden so beim Zeichnen gerade gerückt. */
+function leisteMitStart(liste) {
+  return ['dashboard', ...[...new Set(navRoutenNeu(liste || []))].filter((r) => r !== 'dashboard' && BEREICHE[r])].slice(0, 4);   // alte Bereiche → Lager (Julian 08.11.2026)
+}
+/** Nur die untere Leiste neu zeichnen (Inhalt); der Klick-Listener bleibt an #bottomnav. „Mehr“ hängt die App selbst an. */
 function renderBottomNav() {
   const bn = $('#bottomnav'); if (!bn) return;
-  let routes = navRoutenNeu(S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);   // alte Bereiche → Lager (Julian 08.11.2026)
-  if (!routes.includes('dashboard')) routes = ['dashboard', ...routes];
-  routes = routes.slice(0, 4);
+  const routes = leisteMitStart(S.get('bottomNav'));
   const bnLabel = (r) => (r === 'dashboard' ? 'Start' : bereichKurz(r));
   bn.innerHTML = Mulde.grundHtml() + routes.map((r) => `<button data-route="${U.esc(r)}" aria-label="${U.esc(bnLabel(r))}"><span class="bn-pill">${iconBunt(bereichIcon(r))}</span><span class="bn-text">${U.esc(bnLabel(r))}</span></button>`).join('') +
     `<button data-more aria-label="Mehr – alle Bereiche"><span class="bn-pill">${iconBunt('mehr')}</span><span class="bn-text">Mehr</span></button>`;
@@ -5322,7 +5325,7 @@ function menuReihenfolge() {
 }
 
 function openMoreSheet({ ausKreis = false } = {}) {
-  const items = menuReihenfolge();
+  const items = menuReihenfolge().filter((n) => n.route !== 'dashboard');   // steht als „Start“ fest in der Leiste darunter – nicht doppelt (Julian 09.11.2026)
   const m = UI.modal({
     title: 'Alle Bereiche',
     /* Beim Schließen: Inhalt blendet aus, der Ballon fällt in den Kreis zusammen, dann fließt die Mulde zurück */
@@ -5340,9 +5343,8 @@ function openMoreSheet({ ausKreis = false } = {}) {
     ziele: '#bottomnav button', rollen: 'eltern',
     onZiel: async (el, ziel) => {
       const neu = el.dataset.route;
-      let bar = navRoutenNeu(S.get('bottomNav') || ['dashboard']).filter((r) => BEREICHE[r]);
-      if (!bar.includes('dashboard')) bar = ['dashboard', ...bar];
-      bar = bar.slice(0, 4);
+      const bar = leisteMitStart(S.get('bottomNav'));
+      if (ziel.dataset.route === 'dashboard') return UI.toast('„Start“ bleibt immer vorne – zieh die Kachel auf einen anderen Eintrag.', 'err');
       if (ziel.hasAttribute('data-more')) { if (bar.includes(neu) || bar.length >= 4) return UI.toast(bar.includes(neu) ? 'Ist schon in der Leiste' : 'Die Leiste ist voll – auf einen Eintrag ziehen, um ihn zu ersetzen', 'err'); bar.push(neu); }
       else {
         const stelle = bar.indexOf(ziel.dataset.route);
@@ -6361,7 +6363,7 @@ if (!ZUCHT_AN) delete DASH_WIDGETS.zucht;   // Zucht fehlt in der Store-Version 
 
 /* Kurz-Labels für die Kachel-/Sheet-Optik (ein Wort, wo möglich). */
 const BEREICH_KURZ = {
-  dashboard: 'Dashboard', aufgaben: 'Aufgaben', imkerschule: 'Imkerschule', assistent: 'Assistent', staende: 'Bienenstände',
+  dashboard: 'Start', aufgaben: 'Aufgaben', imkerschule: 'Imkerschule', assistent: 'Assistent', staende: 'Bienenstände',
   voelker: 'Völker', koeniginnen: 'Königinnen', zucht: 'Zucht', behandlungen: 'Behandlungen',
   fuetterung: 'Fütterung', wanderungen: 'Wanderungen', trachten: 'Trachten', honig: 'Ernte',
   kassenbuch: 'Kassenbuch', rechnungen: 'Rechnungen', finanzen: 'Finanzen', fahrten: 'Fahrtenbuch', lager: 'Lager', hygiene: 'Hygiene', kontakte: 'Abnehmer & Lieferanten', reporting: 'Statistiken', zeiten: 'Zeiterfassung', rechner: 'Rechner',
@@ -6389,7 +6391,7 @@ async function dashBlock(entry) {
 }
 
 Views.dashboard = {
-  title: 'Dashboard',
+  title: 'Start',
   async render(main) {
     // Einmalige Migration: neue Widgets bei bestehenden Nutzern EINMAL einblenden
     // (Flag je Widget respektiert bewusstes Entfernen – wird nie erneut hinzugefügt)
@@ -6447,33 +6449,32 @@ Views.dashboard = {
     // Nur echte Widgets übernehmen (alte „link:“-Verknüpfungen fallen weg)
     const dashAktiv = S.get('dashboardWidgets').filter((e) => DASH_WIDGETS[e]);
     const dashVerf = dashAlleEintraege().filter((e) => !dashAktiv.includes(e));
-    const navAktiv = navRoutenNeu(S.get('bottomNav')).filter((r) => BEREICHE[r]);
-    if (!navAktiv.includes('dashboard')) { navAktiv.unshift('dashboard'); } // „Start“ bleibt dabei, die Stelle ist frei
+    const navAktiv = leisteMitStart(S.get('bottomNav')).slice(1);   // „Start“ steht fest vorne und ist hier nicht verschiebbar
     const navVerf = Object.keys(BEREICHE).filter((r) => r !== 'dashboard' && !navAktiv.includes(r));
     const stDash = { aktiv: dashAktiv, verf: dashVerf };
     const stNav = { aktiv: [...new Set(navAktiv)], verf: navVerf };
 
     const m = UI.modal({
-      title: 'Dashboard & Schnellzugriff anpassen', wide: true,
+      title: 'Startseite & Schnellzugriff anpassen', wide: true,
       body: `<div id="cfg-tabs" class="mb12"></div><div id="cfg-dash"></div><div id="cfg-nav" style="display:none"></div>`,
       footer: `<button class="btn btn-ghost" data-cancel>Abbrechen</button><button class="btn btn-primary" data-ok>Fertig</button>`,
     });
-    const tabbar = UI.tabs([{ id: 'dash', label: 'Dashboard' }, { id: 'nav', label: 'Schnellzugriff' }], 'dash', (t) => {
+    const tabbar = UI.tabs([{ id: 'dash', label: 'Startseite' }, { id: 'nav', label: 'Schnellzugriff' }], 'dash', (t) => {
       $$('button', tabbar).forEach((b) => b.classList.toggle('active', b.dataset.id === t));
       $('#cfg-dash', m.el).style.display = t === 'dash' ? '' : 'none';
       $('#cfg-nav', m.el).style.display = t === 'nav' ? '' : 'none';
     });
     $('#cfg-tabs', m.el).appendChild(tabbar);
     dashCfgListe($('#cfg-dash', m.el), stDash, { label: dashLabel, icon: dashIcon,
-      aktivTitel: 'Auf dem Dashboard',
+      aktivTitel: 'Auf der Startseite',
       hinweis: 'Rotes − nimmt eine Kachel weg, grünes + fügt sie hinzu, mit ⁝⁝ verschiebst du. Jeder Bereich lässt sich hinzufügen – ohne eigenes Daten-Widget als Verknüpfungskachel. Tipp: Auf der Startseite selbst geht das Verschieben auch – Kachel gedrückt halten und ziehen.' });
-    dashCfgListe($('#cfg-nav', m.el), stNav, { label: bereichKurz, icon: bereichIcon, max: 4,
+    dashCfgListe($('#cfg-nav', m.el), stNav, { label: bereichKurz, icon: bereichIcon, max: 3,
       aktivTitel: 'Im Schnellzugriff',
-      hinweis: 'Bis zu vier Bereiche im Schnellzugriff – der Rest liegt unter „Mehr“. Du kannst die Leiste auch direkt verschieben: einen Eintrag unten gedrückt halten und ziehen.' });
+      hinweis: '„Start“ steht immer vorne, dahinter bis zu drei Bereiche – der Rest liegt unter „Mehr“. Du kannst die Leiste auch direkt verschieben: einen Eintrag unten gedrückt halten und ziehen.' });
     $('[data-cancel]', m.el).onclick = () => m.close();
     $('[data-ok]', m.el).onclick = async () => {
       await S.set('dashboardWidgets', stDash.aktiv);
-      await S.set('bottomNav', stNav.aktiv.length ? stNav.aktiv : ['dashboard']);
+      await S.set('bottomNav', leisteMitStart(stNav.aktiv));
       m.close(true); renderBottomNav(); renderRoute();
     };
   },
@@ -31345,10 +31346,10 @@ const APP_WISSEN = [
       { feld: 'Aufgabe', text: 'Schreib kurz auf, was zu tun ist.' },
       { feld: 'Fällig', text: 'Bis wann? Dann erinnert dich die App.' },
       { speichern: true, text: 'Tippe auf „Speichern“.' }] },
-  { id: 'dashboard', titel: 'Dashboard anpassen', route: 'dashboard', zeige: 'Widgets',
+  { id: 'dashboard', titel: 'Startseite anpassen', route: 'dashboard', zeige: 'Widgets',
     stichw: ['dashboard', 'startseite', 'widgets', 'anpassen', 'kacheln', 'startbildschirm', 'uebersicht', 'startseite anpassen', 'startseite aendern', 'kacheln startseite', 'startseite sortieren', 'startseite verschieben', 'reihenfolge startseite', 'kacheln startseite verschieben'],
-    antwort: 'Das Dashboard zeigt Kacheln wie Völker, Aufgaben, Wetter und Ertrag. Mit „Widgets“ blendest du ein, was du brauchst. Die Reihenfolge änderst du direkt auf der Startseite: Kachel etwa eine halbe Sekunde gedrückt halten, ziehen und loslassen.',
-    schritte: ['Dashboard öffnen', 'Kachel gedrückt halten, an den neuen Platz ziehen und loslassen', 'Ein- und ausblenden: „Widgets“ tippen und Kacheln mit + / − wählen'] },
+    antwort: 'Die Startseite zeigt Kacheln wie Völker, Aufgaben, Wetter und Ertrag. Mit „Widgets“ blendest du ein, was du brauchst. Die Reihenfolge änderst du direkt auf der Startseite: Kachel etwa eine halbe Sekunde gedrückt halten, ziehen und loslassen.',
+    schritte: ['„Start“ öffnen', 'Kachel gedrückt halten, an den neuen Platz ziehen und loslassen', 'Ein- und ausblenden: „Widgets“ tippen und Kacheln mit + / − wählen'] },
   { id: 'menue', titel: 'Menü und untere Leiste anpassen', route: 'dashboard', zeige: 'Mehr',
     stichw: ['menue', 'untere leiste', 'leiste', 'verschieben', 'reihenfolge', 'schnellzugriff', 'kacheln verschieben', 'mehr', 'navigation', 'sortieren', 'menue anpassen', 'menue aendern', 'menue sortieren', 'menue verschieben', 'reihenfolge aendern', 'bereiche sortieren', 'leiste unten'],
     antwort: 'Im Menü „Mehr“ kannst du jede Kachel etwa eine halbe Sekunde gedrückt halten und verschieben. Ziehst du eine Kachel auf die untere Leiste, ersetzt sie dort einen Eintrag.',
@@ -31367,8 +31368,8 @@ const APP_WISSEN = [
     schritte: ['Eintrag öffnen', 'Unter „Foto“ oder „Dokument“ auf + tippen', 'Datei wählen'] },
   { id: 'wetter', titel: 'Wetter und Tracht-Hinweise', route: 'einstellungen', zeige: 'Funktionen',
     stichw: ['wetter', 'regen', 'temperatur', 'flugwetter', 'prognose', 'vorhersage', 'wie wird das wetter', 'wetter heute', 'regen morgen'],
-    antwort: 'Das Wetter ist ab Werk aus. Schaltest du es unter Einstellungen → Funktionen ein, zeigt die Wetter-Kachel auf dem Dashboard das aktuelle Wetter an einem deiner Stände. Dafür gehen die gerundeten Koordinaten deiner Stände und technisch deine IP-Adresse an den Wetterdienst Bright Sky.',
-    schritte: ['Einstellungen öffnen', 'Unter „Funktionen“ den Wetter-Abruf einschalten', 'Dashboard öffnen, „Widgets“ tippen und die Wetter-Kachel wählen'] },
+    antwort: 'Das Wetter ist ab Werk aus. Schaltest du es unter Einstellungen → Funktionen ein, zeigt die Wetter-Kachel auf der Startseite das aktuelle Wetter an einem deiner Stände. Dafür gehen die gerundeten Koordinaten deiner Stände und technisch deine IP-Adresse an den Wetterdienst Bright Sky.',
+    schritte: ['Einstellungen öffnen', 'Unter „Funktionen“ den Wetter-Abruf einschalten', '„Start“ öffnen, „Widgets“ tippen und die Wetter-Kachel wählen'] },
 ];
 
 APP_WISSEN.push(
@@ -32387,8 +32388,8 @@ Views.assistent = {
     const an = Assistent.an();
     main.innerHTML = `<div class="bini-seite${an ? '' : ' bini-aus'}">
       <div class="bini-kopf">${Assistent.img(an ? 'wave' : 'idle', 'bini-gross')}<div><h1>Imme</h1><p class="muted">${an ? 'Dein Assistent. Frag mich alles zur App – ich zeige dir den Weg.' : 'Imme schläft gerade.'}</p></div></div>
-      <label class="bini-schalter"><span><b>Imme ist aktiv</b><small>Winkt und springt im Dashboard. Aus: schläft oben und stört nicht.</small></span><input type="checkbox" role="switch" class="ios-switch" id="bini-an" ${an ? 'checked' : ''}></label>
-      ${an ? '' : '<div class="card bini-aus-hinweis"><p>Imme ist ausgeschaltet. Sie bleibt oben im Dashboard stehen und schläft. Schieb den Regler oben an, wenn du Hilfe brauchst.</p></div>'}
+      <label class="bini-schalter"><span><b>Imme ist aktiv</b><small>Winkt und springt auf der Startseite. Aus: schläft oben und stört nicht.</small></span><input type="checkbox" role="switch" class="ios-switch" id="bini-an" ${an ? 'checked' : ''}></label>
+      ${an ? '' : '<div class="card bini-aus-hinweis"><p>Imme ist ausgeschaltet. Sie bleibt oben auf der Startseite stehen und schläft. Schieb den Regler oben an, wenn du Hilfe brauchst.</p></div>'}
       <div class="bini-chat" id="bini-chat"${an ? '' : ' hidden'}></div>
       <div class="bini-chips" id="bini-chips"${an ? '' : ' hidden'}><button class="chip active" data-einf>${Einfuehrung.stand().schritt > 0 && !Einfuehrung.stand().erledigt ? 'Einführung fortsetzen' : 'Einführung starten'}</button>${ASSISTENT_VORSCHLAEGE.map((s) => `<button class="chip" data-frage="${U.esc(s)}">${U.esc(s)}</button>`).join('')}</div>
       <form class="bini-form" id="bini-form" autocomplete="off"${an ? '' : ' hidden'}><input class="inp" id="bini-in" placeholder="Frag mich etwas …" enterkeyhint="send"><button class="btn btn-primary" type="submit" aria-label="Senden">${icon('send')}</button></form>
@@ -32411,7 +32412,7 @@ Views.assistent = {
       } else if (m.art === 'unsicher') {
         h = `<p>Da bin ich nicht ganz sicher, was du meinst. Meinst du eins davon?</p><div class="bini-chips">${m.vorschlaege.map((w) => `<button class="chip" data-wissen="${U.esc(w.id)}">${U.esc(w.titel)}</button>`).join('')}</div><p class="small muted mt8">Sonst formuliere es gern anders – ich verstehe auch einfache Worte wie „Honig verkaufen“ oder „Rechnung schreiben“.</p>`;
       } else if (m.art === 'aus') {
-        h = `<p>Alles klar, ich schalte mich aus. Du findest mich oben im Dashboard – dort schlafe ich. Unter „Assistent“ kannst du mich jederzeit wieder einschalten.</p><div class="bini-aktion"><button class="btn btn-ghost btn-sm" data-imme-ein>Doch wieder einschalten</button></div>`;
+        h = `<p>Alles klar, ich schalte mich aus. Du findest mich oben auf der Startseite – dort schlafe ich. Unter „Assistent“ kannst du mich jederzeit wieder einschalten.</p><div class="bini-aktion"><button class="btn btn-ghost btn-sm" data-imme-ein>Doch wieder einschalten</button></div>`;
       } else h = `<p>Dazu habe ich leider nichts gefunden. Versuch es mit anderen Worten, zum Beispiel <i>„Rechnung“</i>, <i>„Honig verkaufen“</i> oder <i>„Sicherung“</i> – oder tippe auf einen Vorschlag.</p><div class="bini-chips">${ASSISTENT_VORSCHLAEGE.slice(0, 4).map((x) => `<button class="chip" data-frage="${U.esc(x)}">${U.esc(x)}</button>`).join('')}</div>`;
       return `<div class="bini-msg bini">${Assistent.img('idle', 'bini-klein')}<div class="bini-text">${h}</div></div>`;
     };
