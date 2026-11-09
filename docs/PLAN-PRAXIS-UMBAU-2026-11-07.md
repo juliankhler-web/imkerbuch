@@ -52,6 +52,12 @@ Julian: „es wäre gut eine statistik über jedes einzelne volk zu haben so das
 - Erledigt 08.11.: Nachbesserung Rechnung/Verkauf (bebe835, 994 Tests).
 - Nächster Schritt (Mockup zeigen): Statistik → Honig als Rangliste je Volk mit Jahr + Knopf „Exportieren“; Kasten „Honig pro Jahr“ auf der Volk-Seite; Export vom Stand/Volk zeigt nur passende Bereiche.
 
+## Entschieden 09.11.2026 (Julian)
+- **Steffens Einverständnis zum Logo: nicht nötig.** Das PFAU-Honig-Logo steht seit 04.11.2026 nicht mehr auf der Website (nur noch die Zeile „Partner-Imkerei: PFAU-Honig (Werbung)“), damit ist der offene Punkt aus PROJEKT.md (30.10.2026) erledigt.
+- **AGB nicht anwaltlich prüfen lassen (vorerst).** Julian: „agb machen wir erstmal nicht da vertraue ich soweit auf deine recherche du kannst es ja nochmal prüfen ob sich durch die ganzen änderungen sich an den agb usw. verändert hat“ → Prüfung der Rechtsseiten gegen v3.25 läuft (siehe unten).
+- **Instagram-Profil vom Kollegen Mangold** unten auf die Website (Frage Julian) – Profil-Adresse und Art (Werbung?) noch offen, Entwurf folgt.
+- Hinweis Materialabzug sagt jetzt „im Lager unter ‚Verbrauchsmaterial‘“ (letzte gefundene Stelle mit altem Bereichsnamen, Listenpunkt 3).
+
 ## Gesamt-Liste bis zum Einreichen (Stand 08.11.2026 abends, Julian: „hast du das noch alles auf dem schirm“)
 1. Reparatur der Prüfungs-Funde (docs/PRUEFUNG-PRAXIS-UMBAU-2026-11-08.md) → danach zweite Prüfung (Julian: „wenn es durch ist mach noch mal eine prüfung“).
 2. Version 3.25 + CHANGELOG + PROJEKT.md + Service Worker.
