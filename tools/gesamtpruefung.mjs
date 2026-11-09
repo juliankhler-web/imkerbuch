@@ -38,6 +38,10 @@ const GERAETE = [
   { name: 'iphone-gross-dunkel', width: 440, height: 956, dpr: 3, dunkel: true },
   { name: 'ipad-hoch', width: 1032, height: 1376, dpr: 2, dunkel: false },
   { name: 'ipad-quer', width: 1376, height: 1032, dpr: 2, dunkel: false },
+  // Android-Tablets (Julian 09.11.2026: „müssen wir noch was für die tablet version machen?“) – liegen zwischen Handy und iPad
+  { name: 'android-7-hoch', width: 600, height: 960, dpr: 2, dunkel: false },
+  { name: 'android-10-hoch', width: 800, height: 1280, dpr: 2, dunkel: false },
+  { name: 'android-10-quer', width: 1280, height: 800, dpr: 2, dunkel: false },
 ].filter((g) => !NUR.length || NUR.includes(g.name));
 
 /* Nachgestellte App-Hülle (Capacitor) mit Plugins, Store-Modus, Vollversion gekauft. */
