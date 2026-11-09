@@ -21,6 +21,8 @@ Apple und Google: Alle Punkte, auf die die Prüfung achtet, müssen so genau wie
 
 ## Eintragen in App Store Connect (Stand 01.11.2026)
 
+Nachtrag 09.11.2026: Schlusssatz der Beschreibung (was in Light frei bleibt) und Prüfer-Hinweis zu Light (alles andere inkl. Lager braucht die Vollversion) in App Store Connect geändert und gespeichert, nicht eingereicht.
+
 Gespeichert am 01.11.2026: Adressen, Copyright, E-Mail, Beschreibung, Werbetext, Prüfer-Hinweise, eigener Lizenzvertrag für Deutschland, Österreich und die Schweiz, Datenschutz-Adresse, Standort-Angabe als Entwurf. Noch offen: Julian bestätigt das Veröffentlichen der Datenschutz-Antworten. Bei Änderung von `agb.html` den Lizenzvertrag hier mit ändern.
 
 
@@ -96,7 +98,7 @@ DEINE DATEN GEHÖREN DIR
 • Bei Sprachnotizen wandelt das Betriebssystem Sprache je nach Gerät über den Dienst des Herstellers in Text um
 • Alle Daten jederzeit als Excel oder CSV – auch in der kostenlosen Light-Version
 
-30 Tage alle Funktionen kostenlos testen. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar. Für den Start der Testphase und den Kauf muss das Gerät einmal online sein, danach läuft alles offline. Alles außer den genannten Light-Funktionen gehört zur Vollversion.
+30 Tage alle Funktionen kostenlos testen. Danach läuft ImkerBuch kostenlos als Light weiter (bis 2 Völker, Durchsicht, Stockkarte, Varroa, Königinnen) – oder du holst dir einmalig die Vollversion: kein Abo, keine automatische Abbuchung. Alles, was du eingetragen hast, bleibt sichtbar und sicherbar. Für den Start der Testphase und den Kauf muss das Gerät einmal online sein, danach läuft alles offline. Frei bleiben in Light außerdem Bienenstände, Imme, Unterlagen fürs Amt sowie Export und Sicherung. Alles andere gehört zur Vollversion.
 
 Fragen oder Wünsche? Schreib mir direkt aus der App über „Hilfe & Kontakt“.
 
@@ -117,7 +119,7 @@ ImkerBuch is an offline record-keeping app for beekeepers. No account or login i
 
 - On first launch a short welcome form appears (all fields optional, "Überspringen" possible); right after it the purchase screen opens: tap "30 Tage kostenlos starten" to start the free 30-day trial (a free non-consumable IAP named "30-day Trial", as described in guideline 3.1.1). Starting the trial or buying needs an internet connection once; everything else works offline. The full version is the non-consumable "de.imkerbuch.app.vollversion".
 - "Käufe wiederherstellen" (Restore Purchases) and "Code einlösen" (offer codes) are on the purchase screen and under Einstellungen → "ImkerBuch Vollversion".
-- After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Business features (cash book, invoices, sales, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, trips, time tracking) require the full version; they stay visible and all existing data stays readable and can be backed up/exported at any time. Cash book, invoices and customers/suppliers are in the menu "Finanzen"; products, consumables and equipment are in "Lager".
+- After the 30-day trial the app keeps working for free as "ImkerBuch Light": up to 2 active colonies with inspections, hive card, varroa and queens. Apiaries, the assistant "Imme", official documents ("Unterlagen"), export and backup also stay free. Everything else requires the full version, e.g. finances (cash book, invoices, customers/suppliers), inventory ("Lager": products, consumables, equipment), sales/market, treatments/medicine log, feeding, harvest, tasks, photos/voice notes, organic records, hygiene plan, trips, time tracking, migrations, forage, statistics, calculator and breeding; they stay visible and all existing data stays readable and can be backed up/exported at any time. Cash book, invoices and customers/suppliers are in the menu "Finanzen"; products, consumables and equipment are in "Lager".
 - To try the app quickly, create a stand ("Bienenstände" → "+ Neuer Stand") and a colony ("Völker" → "+ Neues Volk"), or follow the built-in tour by the assistant "Imme".
 - Everything the app can print or export (official reports, medicine log, colony file, statistics, CSV/Excel) is collected in the menu item "Unterlagen", with a year filter and search. Exports of the user's own data stay free in Light.
 - Weather is off by default. The app asks once when coordinates are first saved. Only after consent, rounded coordinates go to Bright Sky (data from Deutscher Wetterdienst), also automatically on app start, on returning to the app, when the connection returns, on the home screen and when opening a stand, at most every 30 minutes. Consent can be withdrawn under Einstellungen → Funktionen.
