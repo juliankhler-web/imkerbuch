@@ -9473,19 +9473,23 @@ Views.koeniginnen = {
       values: q ? { ...q, kennung: kennungVorschlag, anpaarung: q.anpaarung || anpaarungAusText(q.herkunft) } : { kennung: kennungVorschlag },
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
-        /* Kennung eindeutig (Finaltest 09.11.2026, K4): Der unveränderte Vorschlag rückt auf die nächste freie Nummer und folgt dem
-           eingetragenen Jahrgang (z. B. nach „Neue Mutter anlegen“ aus einem offenen Formular); eine selbst getippte Doppelung wird abgewiesen. */
+        /* Kennung eindeutig (Finaltest 09.11.2026, K4; Ultra-Test 3: nur bei neuer oder geänderter Kennung, sonst blieben Altdaten
+           mit Doppel unspeicherbar): Der unveränderte Vorschlag rückt auf die nächste freie Nummer und folgt dem eingetragenen
+           Jahrgang (z. B. nach „Neue Mutter anlegen“ aus einem offenen Formular); eine selbst getippte Doppelung wird abgewiesen. */
         const kennungNeu = (v.kennung || '').trim();
-        if (kennungNeu) {
-          const andereK = (await DB.getAll('koeniginnen')).filter((k) => !q || k.id !== q.id);
+        const alleK = await DB.getAll('koeniginnen'), andereK = alleK.filter((k) => !q || k.id !== q.id);
+        if (kennungNeu && (!q || kennungSchluessel(kennungNeu) !== kennungSchluessel(q.kennung))) {
           const doppelt = andereK.some((k) => kennungSchluessel(k.kennung) === kennungSchluessel(kennungNeu));
           if (!q && kennungNeu === kennungVorschlag && (doppelt || v.jahrgang !== jahr)) v.kennung = freieKoeniginKennung(v.jahrgang, andereK);
           else if (doppelt) throw feldFehler('kennung', `Die Kennung „${kennungNeu}“ ist schon vergeben.`);
         }
-        // Abstammung: Mutter und Drohnenmutter müssen älter sein als die Königin (Finaltest 09.11.2026, K6)
+        /* Abstammung (Finaltest 09.11.2026, K6; Ultra-Test 3): Mutter und Drohnenmutter dürfen nicht aus einem SPÄTEREN Jahrgang
+           stammen – dasselbe Jahr ist möglich (Tochter im Juli von der Mai-Königin). Geprüft nur, wenn neu oder geändert, damit
+           Altdaten speicherbar bleiben; die Eltern kommen frisch aus der Datenbank (auch gerade per Shortcut angelegte). */
         for (const [feld, wer] of [['mutterId', 'Die Mutter'], ['vatervolkId', 'Die Drohnenmutter (4a)']]) {
-          const eltern = v[feld] ? andereQueens.find((k) => k.id === v[feld]) : null;
-          if (eltern && Number(eltern.jahrgang) >= v.jahrgang) throw feldFehler(feld, `${wer} muss aus einem früheren Jahrgang stammen als die Königin (${eltern.jahrgang} liegt nicht vor ${v.jahrgang}).`);
+          const geaendert = !q || (v[feld] || null) !== (q[feld] || null) || v.jahrgang !== Number(q.jahrgang);
+          const eltern = geaendert && v[feld] ? alleK.find((k) => k.id === v[feld]) : null;
+          if (eltern && Number(eltern.jahrgang) > v.jahrgang) throw feldFehler(feld, `${wer} kann nicht aus einem späteren Jahrgang stammen als die Königin (${eltern.jahrgang} liegt nach ${v.jahrgang}).`);
         }
         const rec = Object.assign(q || { historie: [] }, {
           kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, generation: (v.generation || '').trim(), linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
@@ -11793,18 +11797,8 @@ async function fuetterungFuerVoelker(volkIds, daten, sammle = null) {
   return n;
 }
 
-/** Legt dieselbe Behandlung als eigenen Bestandsbuch-Eintrag für mehrere Völker an
-    (TAMG: je Volk ein Eintrag). Gibt die Anzahl zurück. */
+/** Datensatz einer Behandlung für ein Volk (TAMG: je Volk ein Bestandsbuch-Eintrag) – Grundlage von behandlungenJeVolkAnlegen. */
 const behandlungFuerVolk = (id, daten) => ({ zielTyp: 'volk', zielId: id, datum: daten.datum, mittel: daten.mittel, menge: daten.menge, einheit: daten.einheit, anwendungsart: daten.anwendungsart, wartezeitTage: wartezeitWert(daten.wartezeitTage), behandlungBis: daten.behandlungBis || '', lieferant: daten.lieferant || '', behandelndePerson: daten.behandelndePerson || '', tierarzt: daten.tierarzt || '', kaufbeleg: !!daten.kaufbeleg, notiz: daten.notiz || '' });
-async function behandlungFuerVoelker(volkIds, daten, sammle = null) {
-  let n = 0;
-  for (const id of volkIds || []) {
-    const rec = await DB.put('behandlungen', behandlungFuerVolk(id, daten));
-    if (sammle) sammle.push(rec);
-    n++;
-  }
-  return n;
-}
 
 /* Behandlung pro Volk (Julian 08.11.2026): je Volk ein Bestandsbuch-Eintrag mit SEINER Menge, die Summe vom Lager und die
    Wartezeit-Erinnerung für alle – in EINER Transaktion. Vorher: erst die Einträge, dann der Abzug, dann die Erinnerung.
@@ -11840,12 +11834,16 @@ async function behandlungenJeVolkAnlegen(liste, daten) {
 /* Ernte pro Volk (Julian 08.11.2026): Ernte am ganzen Stand als je ein Eintrag pro Volk (zielTyp 'volk'), damit der
    Honigertrag je Volk in der Statistik stimmt. Alle Einträge in EINER Transaktion. liste: [{ volkId, menge }] in kg. */
 async function ernteJeVolkAnlegen(liste, daten) {
-  const eingabe = { ...daten }, posten = (liste || []).map((x) => ({ ...x }));
+  const { gruppeStandId = null, ...eingabe } = daten || {}, posten = (liste || []).map((x) => ({ ...x }));
   return DB.aendereAtomar(['ernten', 'voelker'], (d) => {
     if (!posten.length) throw new Error('Bitte mindestens ein Volk auswählen.');
     const voelker = new Set(d.voelker.map((v) => v.id));
     if (posten.some((x) => !voelker.has(x.volkId))) throw new Error('Ein ausgewähltes Volk gibt es nicht mehr. Bitte das Fenster neu öffnen.');
-    const recs = posten.map((x) => ({ ...eingabe, zielTyp: 'volk', zielId: x.volkId, mengeKg: Math.round(buchungsZahl(x.menge, 'Menge je Volk') * 1000) / 1000 }));
+    /* Gemeinsame Kennung der Einträge einer Stand-Ernte (Ultra-Test 3, 09.11.2026): Charge und Abfüllen bieten die Ernte so als
+       EINEN Posten an („15.07.2026 · Raps · 400 kg · 80 Völker“) statt 80 gleich aussehender Zeilen. */
+    const gruppe = posten.length > 1 ? U.uuid() : null;
+    const recs = posten.map((x) => ({ ...eingabe, zielTyp: 'volk', zielId: x.volkId, mengeKg: Math.round(buchungsZahl(x.menge, 'Menge je Volk') * 1000) / 1000,
+      ...(gruppe ? { ernteGruppe: gruppe, ernteGruppeStand: gruppeStandId } : {}) }));
     return { ops: recs.map((obj) => ({ store: 'ernten', obj })), wert: recs };
   });
 }
@@ -11919,7 +11917,10 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
     const r3 = (n) => Math.round(n * 1000) / 1000;
     const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : r3(n);
     const altAbzug = (alt.verbrauchAbzug || []).map((a) => ({ ...a }));
-    const altStart = altAbzug.length ? altAbzug[0].inventarId : '';
+    // Mitglied einer Gruppe ohne eigenen Abzug (0 Stück nach der Aufteilung, z. B. 3 × 0,5 Stück → 2 Stück auf zwei Einträge):
+    // die Start-Position der Gruppe übernehmen, damit die Gruppenrechnung unten greift (Ultra-Test 3, 09.11.2026)
+    const gruppenStart = !altAbzug.length && alt.abzugGruppe ? (d.behandlungen.map((b) => b.abzugGruppe === alt.abzugGruppe ? ((b.verbrauchAbzug || [])[0] || {}).inventarId : '').find(Boolean) || '') : '';
+    const altStart = altAbzug.length ? altAbzug[0].inventarId : gruppenStart;
     const id = eingabe._verbrauchId !== undefined ? (eingabe._verbrauchId || '') : altStart;
     const altMenge = Math.max(0, Number(alt.menge) || 0), neuMenge = Math.max(0, Number(eingabe.menge) || 0);
     let abzug = altAbzug, gefehlt = 0, einheit = '';
@@ -11942,7 +11943,8 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
          Stück noch fehlt, höchstens so viel wie bisher. Zurück kommt nur, was nach dem Ändern übrig ist. */
       const ganz = posten.has(id) ? verbrauchEinheit(posten.get(id)) === 'Stück' : (altAbzug[0] || {}).einheit === 'Stück';
       if (ganz && diff !== 0) {
-        const gruppe = alt.abzugGruppe ? d.behandlungen.filter((b) => b.id !== alt.id && b.abzugGruppe === alt.abzugGruppe && ((b.verbrauchAbzug || [])[0] || {}).inventarId === altStart) : [];
+        // auch Mitglieder ohne eigenen Abzug zählen zur Gruppe – sonst fehlte ihre Menge, und das Lager bekam Stück zurück, die es nie gab (Ultra-Test 3)
+        const gruppe = alt.abzugGruppe ? d.behandlungen.filter((b) => b.id !== alt.id && b.abzugGruppe === alt.abzugGruppe && (!(b.verbrauchAbzug || []).length || b.verbrauchAbzug[0].inventarId === altStart)) : [];
         const mengeSonst = gruppe.reduce((s, b) => s + Math.max(0, Number(b.menge) || 0), 0);
         const schon = [alt, ...gruppe].reduce((s, b) => s + (b.verbrauchAbzug || []).reduce((t, a) => t + (Number(a.menge) || 0), 0), 0);
         const noetig = Math.ceil(r3(mengeSonst + neuMenge) - 1e-9);
@@ -12214,17 +12216,27 @@ function verdrahteVolkAuswahl(m, alleVoelker) {
 /* opts.ziel = Völkerzahl, auf die der Futter-Rechner gerechnet hat. Dann zählt
    die Leiste gegen diese Zahl statt gegen die Liste, und bei mehr Völkern wird
    sie rot – die berechneten Mengen stimmen dann nicht mehr. */
-function verdrahteVolkFilter(m, alleVoelker, opts = null) {
-  const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
-  const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
-  const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
-  box.parentNode.insertBefore(leer, box.nextSibling);
+/** „Alle auswählen“ / „Keine“ / „n von m ausgewählt“ über einer Völkerliste – eine Leiste für Behandlung und Ernte (Ultra-Test 3,
+    09.11.2026; vorher zweimal gebaut). haken(): die Häkchen, die gelten (Behandlung: nur sichtbare Zeilen); danach(): Zähler und
+    Mengenfelder auffrischen. Gibt die Leiste zurück; der Aufrufer füllt [data-zahl]. */
+function volkAuswahlLeiste(vorElement, haken, danach) {
   const bar = document.createElement('div');
   bar.className = 'flex-wrap mb8';
   bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
     <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
     <span class="small muted" data-zahl></span>`;
-  wrap.insertBefore(bar, box);
+  vorElement.parentNode.insertBefore(bar, vorElement);
+  const setzen = (an) => { haken().forEach((x) => { x.checked = an; }); FormGuard.dirty = true; danach(); };
+  $('[data-alle]', bar).onclick = () => setzen(true);
+  $('[data-keine]', bar).onclick = () => setzen(false);
+  return bar;
+}
+function verdrahteVolkFilter(m, alleVoelker, opts = null) {
+  const standSel = $('#f-standId', m.el), funkSel = $('#f-funktion', m.el);
+  const box = $('#f-volkIds', m.el), wrap = $('[data-field="volkIds"]', m.el);
+  const leer = document.createElement('div'); leer.className = 'hint'; leer.style.display = 'none';
+  box.parentNode.insertBefore(leer, box.nextSibling);
+  const bar = volkAuswahlLeiste(box, () => sichtbare().map((l) => $('input', l)), () => zahl());
   const ziel = opts && opts.ziel > 0 ? Math.round(opts.ziel) : null;
   let warn = null;
   if (ziel) {
@@ -12274,8 +12286,6 @@ function verdrahteVolkFilter(m, alleVoelker, opts = null) {
   funkSel.addEventListener('change', filtern);
   if (datumEl) datumEl.addEventListener('change', filtern);
   box.addEventListener('change', zahl);
-  $('[data-alle]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = true; }); FormGuard.dirty = true; zahl(); };
-  $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
   filtern();
   if (ziel) leer.textContent = leer.textContent || `Der Rechner ist auf ${ziel} ${ziel === 1 ? 'Volk' : 'Völker'} gerechnet.`;
   return { zahl };   // für Formulare, die selbst Häkchen setzen (Vorauswahl am Stand)
@@ -13395,11 +13405,13 @@ function voelkerJeStandAm(alle, tag, wanderungen, staendeIds) {
     Völker-Historie; ein Volk ohne Historie zählt ab seinem Anlegedatum.
     Eine Quelle für Völkerentwicklung, Ernteprognose und die amtlichen Meldungen –
     vorher lag dieselbe Rechnung dreimal im Code. */
+/** Beginn eines Volks laut Historie (erster Eintrag) bzw. Anlegedatum; ohne beides gilt der gefragte Tag. */
+function volkBeginn(v, tag = '') { return (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || tag; }
+/** Ende eines nicht mehr aktiven Volks: letzter Historie-Eintrag ohne Stand-Wechsel-Vermerk (standNach) – sonst verlängerte ein
+    später Vermerk ein aufgelöstes Volk. null = aktiv oder Ende unbekannt. */
+function volkSchluss(v) { if (v.status === 'aktiv') return null; const h = (v.historie || []).filter((e) => !('standNach' in e)); return h.length ? h[h.length - 1].datum : null; }
 function voelkerAmStichtag(voelker, tag) {
-  const beginn = (v) => (v.historie && v.historie[0] ? v.historie[0].datum : (v.createdAt || '').slice(0, 10)) || tag;
-  // Stand-Wechsel-Vermerke (standNach) sind kein Ende – sonst verlängerte ein später Vermerk ein aufgelöstes Volk
-  const schluss = (v) => { if (v.status === 'aktiv') return null; const h = (v.historie || []).filter((e) => !('standNach' in e)); return h.length ? h[h.length - 1].datum : null; };
-  return (voelker || []).filter((v) => beginn(v) <= tag && (!schluss(v) || schluss(v) > tag));
+  return (voelker || []).filter((v) => volkBeginn(v, tag) <= tag && (!volkSchluss(v) || volkSchluss(v) > tag));
 }
 /** Völker, die an einem Tag an einem Stand standen (Prüfung 2, 08.11.2026, R3) – für Ernte und Behandlung am ganzen Stand.
     Vorher nahmen die Listen die Völker, die HEUTE dort stehen: Eine nachgetragene Ernte vom 01.07. bot das inzwischen
@@ -13407,8 +13419,11 @@ function voelkerAmStichtag(voelker, tag) {
     (wann es aufgelöst wurde, ist unbekannt). Sortiert nach Name. */
 function voelkerAmStandAm(voelker, standId, tag, wanderungen = []) {
   if (!tag) return [];
-  const da = voelkerAmStichtag(voelker, tag).filter((v) => (v.status === 'aktiv' || (v.historie || []).some((h) => !('standNach' in h)))
-    && (!standId || standAmStichtag(v, tag, wanderungen) === standId));   // ohne Stand: alle Völker dieses Tages
+  /* Ultra-Test 3 (09.11.2026): Das Anlegedatum in der App ist nicht der Anfang des Volks – wer im November seine Völker anlegt
+     und die Juli-Ernte nachträgt, fand sonst „kein Volk“ und konnte nichts speichern. Hier zählt deshalb nur das Ende (vor dem
+     Tag aufgelöst), nicht der Beginn; später angelegte Völker markiert das Ernte-Formular und hakt sie nicht vor. */
+  const da = (voelker || []).filter((v) => { const s = volkSchluss(v); return (!s || s > tag) && (v.status === 'aktiv' || (v.historie || []).some((h) => !('standNach' in h)))
+    && (!standId || standAmStichtag(v, tag, wanderungen) === standId); });   // ohne Stand: alle Völker dieses Tages
   return U.sortBy(da, (v) => String(v.name || '').toLowerCase());
 }
 /* Völkerliste der Ernte am ganzen Stand (Prüfung 2, 08.11.2026, R3): Ernte-Formular und PDF-Übernahme teilen sich das.
@@ -13420,21 +13435,13 @@ async function verdrahteErnteVoelker(m, box, jeVolk) {
   let bisher = null;
   /* „Alle auswählen“, „Keine“ und Zähler wie bei der Behandlung (Großbestand-Test 09.11.2026, #6, Mockup freigegeben):
      vorher mussten bei 80 Völkern 70 Häkchen einzeln weg. */
-  const bar = document.createElement('div');
-  bar.className = 'flex-wrap mb8';
-  bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
-    <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
-    <span class="small muted" data-zahl></span>`;
-  box.parentNode.insertBefore(bar, box);
   const haken = () => $$('input[type=checkbox]', box);
+  const bar = volkAuswahlLeiste(box, haken, () => { jeVolk.auffrischen(); zahl(); });
   const zahl = () => {
     const h = haken(), n = h.filter((x) => x.checked).length;
     bar.style.display = h.length ? '' : 'none';
     $('[data-zahl]', bar).textContent = h.length ? `${n} von ${h.length} ausgewählt` : '';
   };
-  const alleSetzen = (an) => { haken().forEach((x) => { x.checked = an; }); FormGuard.dirty = true; jeVolk.auffrischen(); zahl(); };
-  $('[data-alle]', bar).onclick = () => alleSetzen(true);
-  $('[data-keine]', bar).onclick = () => alleSetzen(false);
   box.addEventListener('change', zahl);
   const zeichnen = () => {
     const tag = (datumEl && datumEl.value) || U.todayIso(), standId = standSel ? standSel.value : '';
@@ -13442,7 +13449,8 @@ async function verdrahteErnteVoelker(m, box, jeVolk) {
     const schluessel = `${standId}|${am.map((x) => x.id).join(',')}`;
     if (schluessel === bisher) return;
     bisher = schluessel;
-    box.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}${x.status !== 'aktiv' ? ' · nicht mehr aktiv' : ''}</span></label>`).join('')
+    box.innerHTML = am.length ? am.map((x) => { const spaeter = volkBeginn(x, tag) > tag;   // in der App erst nach dem Erntetag angelegt: anbieten, aber nicht vorhaken (Ultra-Test 3)
+      return `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}"${spaeter ? '' : ' checked'}> <span>${U.esc(x.name)}${x.status !== 'aktiv' ? ' · nicht mehr aktiv' : ''}${spaeter ? ` · in der App seit ${U.fmtDate(volkBeginn(x, tag))}` : ''}</span></label>`; }).join('')
       : `<div class="hint">${standId ? 'Am Erntetag stand an diesem Stand kein Volk. Wähle „Einzelnes Volk“, einen anderen Stand oder ein anderes Datum.' : 'Wähle zuerst den Stand.'}</div>`;
     jeVolk.auffrischen();
     zahl();
@@ -18184,7 +18192,7 @@ Views.honig = {
           if (!e && v.zielTyp === 'stand') {
             // je Volk ein Ernte-Eintrag, damit der Honigertrag je Volk stimmt (Julian 08.11.2026)
             const liste = mengeJeVolkPruefen(jeVolk.werte(), '_jeVolk');
-            const recs = await ernteJeVolkAnlegen(liste, { schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', wassergehalt: v.wassergehalt ?? null, notiz: v.notiz || '', trachtId: v.trachtId || null });
+            const recs = await ernteJeVolkAnlegen(liste, { gruppeStandId: zielId, schleuderung: v.schleuderung ? +v.schleuderung : null, datum: v.datum, produktart: v.produktart || 'Honig', sorte: v.sorte || '', wassergehalt: v.wassergehalt ?? null, notiz: v.notiz || '', trachtId: v.trachtId || null });
             UI.toast(`Ernte für ${recs.length} ${recs.length === 1 ? 'Volk' : 'Völker'} gespeichert – zusammen ${U.fmtNum(recs.reduce((s, r) => s + r.mengeKg, 0), 3)} kg`);
             renderRoute();
             return;
@@ -18571,6 +18579,20 @@ Views.honig = {
       : (ernten.length ? 'ernte' : 'lager');
     const mengeMap = new Map(ernten.map((e) => [e.id, e.mengeKg || 0]));
     const summeAus = (ids) => Math.round((ids || []).reduce((s, id) => s + (mengeMap.get(id) || 0), 0) * 1000) / 1000;
+    /* Stand-Ernten (ein Eintrag je Volk mit gemeinsamer ernteGruppe) als EIN Posten (Ultra-Test 3, 09.11.2026). Enthält diese Charge
+       schon einen Teil der Gruppe, stehen deren Völker einzeln. Einzelne Ernten nennen ihr Volk, damit gleiche Zeilen unterscheidbar sind. */
+    const voelkerName = await idMap('voelker'), staendeName = await idMap('staende');
+    const erntenEinzeln = [], gruppen = new Map();
+    for (const e of ernten) { if (e.ernteGruppe) { if (!gruppen.has(e.ernteGruppe)) gruppen.set(e.ernteGruppe, []); gruppen.get(e.ernteGruppe).push(e); } else erntenEinzeln.push(e); }
+    const eigeneIds = new Set((c && c.ernteIds) || []);
+    for (const [g, liste] of [...gruppen]) { const drin = liste.filter((e) => eigeneIds.has(e.id)).length; if (drin > 0 && drin < liste.length) { erntenEinzeln.push(...liste); gruppen.delete(g); } }
+    const ernteText = (e) => { const n = e.zielTyp === 'volk' && voelkerName.get(e.zielId); return `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg${n ? ` · ${n.name}` : ''}`; };
+    const gruppeText = (liste) => { const e = liste[0], kg = Math.round(liste.reduce((t, x) => t + (Number(x.mengeKg) || 0), 0) * 1000) / 1000, st = e.ernteGruppeStand && staendeName.get(e.ernteGruppeStand);
+      return `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(kg)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''}`; };
+    const ernteOptionen = U.sortBy([...[...gruppen].map(([g, liste]) => ({ v: 'gruppe:' + g, l: gruppeText(liste), datum: liste[0].datum || '' })),
+      ...erntenEinzeln.map((e) => ({ v: e.id, l: ernteText(e), datum: e.datum || '' }))], (o) => o.datum, true).map(({ v, l }) => ({ v, l }));
+    const ernteIdsAuswahl = (ids) => { const rest = new Set(ids || []), aus = []; for (const [g, liste] of gruppen) if (liste.length && liste.every((e) => rest.has(e.id))) { aus.push('gruppe:' + g); liste.forEach((e) => rest.delete(e.id)); } return [...aus, ...rest]; };
+    const ernteIdsAuswerten = (wahl) => (wahl || []).flatMap((x) => String(x).startsWith('gruppe:') ? (gruppen.get(String(x).slice(7)) || []).map((e) => e.id) : [x]);
     const m = UI.formModal({
       title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
@@ -18583,7 +18605,7 @@ Views.honig = {
           options: [{ v: 'ernte', l: 'Aus Ernten in dieser App' }, { v: 'lager', l: 'Aus vorhandenem Lagerbestand' }, { v: 'beides', l: 'Beides zusammen' }],
           hint: 'Lagerbestand ist Honig, der schon vor der App-Nutzung im Eimer stand – ohne erfasste Ernte.' },
         { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', showIf: (f) => (f.quelle || quelleVorgabe) !== 'lager',
-          options: ernten.map((e) => ({ v: e.id, l: `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg` })) },
+          options: ernteOptionen },
         { key: 'lagerKg', label: 'Menge aus Lagerbestand (kg)', type: 'number', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
           hint: 'Wird zur Erntemenge addiert.' },
         { key: 'lagerHerkunft', label: 'Woher stammt dieser Lagerbestand?', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
@@ -18608,11 +18630,11 @@ Views.honig = {
         { key: '_mhdHinweis', type: 'static',
           html: `<div class="hint">Das <b>Mindesthaltbarkeitsdatum</b> wird beim Abfüllen eingetragen, nicht hier: Im Eimer ist Honig praktisch unbegrenzt haltbar, die Frist läuft ab dem Glas. Die App schlägt dort zwei Jahre ab Abfülldatum vor und erinnert ${MHD_WARN_TAGE} Tage vor Ablauf.</div>` },
       ],
-      values: c || {},
+      values: c ? { ...c, ernteIds: ernteIdsAuswahl(c.ernteIds) } : {},
       async onSave(v) {
         const nurLager = v.quelle === 'lager';
         const ohneLager = v.quelle === 'ernte';
-        const ernteIds = nurLager ? [] : (v.ernteIds || []);
+        const ernteIds = nurLager ? [] : ernteIdsAuswerten(v.ernteIds);
         const lagerKg = ohneLager ? 0 : Math.max(0, Number(v.lagerKg) || 0);
         if (!ernteIds.length && lagerKg <= 0) throw feldFehler('ernteIds', 'Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
@@ -18651,12 +18673,14 @@ Views.honig = {
       $$('label.check-line', box).forEach((lab) => {
         const inp = $('input', lab);
         // Auch Ernten einer gelöschten Charge, solange sie im Papierkorb liegt – sonst stünde dieselbe Ernte nach dem Wiederherstellen in zwei Chargen (Fund 04.11.2026)
-        if ((belegt.has(inp.value) || imPapierkorb.has(inp.value)) && !eigene.has(inp.value)) {
+        const ids = ernteIdsAuswerten([inp.value]);   // eine Ernte oder alle Völker einer Stand-Ernte
+        const inCharge = ids.find((id) => belegt.has(id) && !eigene.has(id)), inKorb = ids.find((id) => imPapierkorb.has(id) && !eigene.has(id));
+        if (inCharge || inKorb) {
           inp.disabled = true; inp.checked = false;
           lab.style.opacity = '0.5';
           const span = $('span', lab);
-          if (span) span.innerHTML += belegt.has(inp.value) ? ` <span class="badge b-muted">schon in Charge ${U.esc(belegt.get(inp.value))}</span>`
-            : ` <span class="badge b-muted">in gelöschter Charge ${U.esc(imPapierkorb.get(inp.value))} (Papierkorb)</span>`;
+          if (span) span.innerHTML += inCharge ? ` <span class="badge b-muted">schon in Charge ${U.esc(belegt.get(inCharge))}</span>`
+            : ` <span class="badge b-muted">in gelöschter Charge ${U.esc(imPapierkorb.get(inKorb))} (Papierkorb)</span>`;
         }
       });
     }
@@ -18667,7 +18691,7 @@ Views.honig = {
       const rechne = () => {
         const nurLager = quelleSel && quelleSel.value === 'lager';
         const ohneLager = quelleSel && quelleSel.value === 'ernte';
-        const ernteSumme = (!nurLager && box) ? $$('input:checked', box).reduce((s, i) => s + (mengeMap.get(i.value) || 0), 0) : 0;
+        const ernteSumme = (!nurLager && box) ? $$('input:checked', box).reduce((s, i) => s + summeAus(ernteIdsAuswerten([i.value])), 0) : 0;
         const lager = (!ohneLager && lagerInp) ? Math.max(0, U.parseNum(lagerInp.value) || 0) : 0;
         const summe = ernteSumme + lager;
         /* Drei Nachkommastellen (Fund 04.11.2026, #3/#8): fmtNum rundet sonst auf zwei, und gespeichert wird der Feldtext –
@@ -18795,7 +18819,20 @@ Views.honig = {
     /* Ernten einer Charge im Papierkorb gelten weiter als belegt (Fund 04.11.2026, #1 b): Nach „Charge trotzdem löschen“ stand
        ihre Ernte hier wieder als frei – dieselben 20 kg ließen sich ein zweites Mal abfüllen, neben den alten Gebinden. */
     const inCharge = new Set([...chargen.flatMap((c) => c.ernteIds || []), ...ernteBelegungPapierkorb(await DB.getAll('papierkorb')).keys()]);
-    const freieErnten = U.sortBy((await DB.getAll('ernten')).filter((e) => !inCharge.has(e.id) && (Number(e.mengeKg) || 0) > 0), (e) => e.datum, true);
+    const alleErnten = await DB.getAll('ernten');
+    const freieErnten = U.sortBy(alleErnten.filter((e) => !inCharge.has(e.id) && (Number(e.mengeKg) || 0) > 0), (e) => e.datum, true);
+    /* Stand-Ernten (gemeinsame ernteGruppe) als EIN Posten (Ultra-Test 3, 09.11.2026): sonst 80 gleich aussehende Zeilen und beim
+       „Direkt abfüllen“ 80 automatische Chargen. Nur ganz freie Gruppen; sonst stehen die Völker einzeln. */
+    const gruppenFrei = new Map();
+    for (const e of freieErnten) if (e.ernteGruppe) { if (!gruppenFrei.has(e.ernteGruppe)) gruppenFrei.set(e.ernteGruppe, []); gruppenFrei.get(e.ernteGruppe).push(e); }
+    for (const [g, liste] of [...gruppenFrei]) if (alleErnten.filter((e) => e.ernteGruppe === g).length !== liste.length) gruppenFrei.delete(g);
+    const inGruppe = new Set([...gruppenFrei.values()].flat().map((e) => e.id));
+    const staendeName = await idMap('staende');
+    const ernteQuellen = U.sortBy([
+      ...[...gruppenFrei].map(([g, liste]) => { const e = liste[0], kg = Math.round(liste.reduce((t, x) => t + (Number(x.mengeKg) || 0), 0) * 1000) / 1000, st = e.ernteGruppeStand && staendeName.get(e.ernteGruppeStand);
+        return { v: 'gruppe:' + g, datum: e.datum || '', kg, ernten: liste, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(kg, 1)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''} (ohne Charge)` }; }),
+      ...freieErnten.filter((e) => !inGruppe.has(e.id)).map((e) => ({ v: 'ernte:' + e.id, datum: e.datum || '', kg: Number(e.mengeKg) || 0, ernten: [e], l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })),
+    ], (q) => q.datum, true);
     if (!frei.length && !freieErnten.length) return UI.toast('Nichts zum Abfüllen: Erfasse zuerst eine Ernte (Tab „Ernte“) oder lege eine Charge an.', 'err');
     const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl' }));
     /* Gläser, Deckel und Etiketten liegen als Verbrauchsmaterial mit der Einheit
@@ -18828,7 +18865,7 @@ Views.honig = {
     const m = UI.formModal({
       title: 'Abfüllen', wide: true,
       fields: [
-        { key: 'chargeId', label: 'Woraus abfüllen?', type: 'select', required: true, keepOrder: true, default: vorChargeId, options: [...freieErnten.map((e) => ({ v: 'ernte:' + e.id, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })), ...frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${restKgText(chargeRestKg(c, abfAlle))} kg frei` }))] },   // restKgText: Fund 04.11.2026, #9
+        { key: 'chargeId', label: 'Woraus abfüllen?', type: 'select', required: true, keepOrder: true, default: vorChargeId, options: [...ernteQuellen.map(({ v, l }) => ({ v, l })), ...frei.map((c) => ({ v: c.id, l: `Charge ${c.losnummer} · ${restKgText(chargeRestKg(c, abfAlle))} kg frei` }))] },   // restKgText: Fund 04.11.2026, #9
         { key: 'datum', label: 'Abfülldatum', type: 'date', required: true, halb: true, default: U.todayIso() },
         { key: 'mhd', label: 'Mindestens haltbar bis', type: 'date', required: true, halb: true, default: mhdVorschlag(U.todayIso()),
           hint: 'Vorschlag: zwei Jahre ab Abfülldatum. Steht so auf dem Etikett.' },
@@ -18847,23 +18884,25 @@ Views.honig = {
       values: {},
       async onSave(v) {
         let neueCharge = null;
-        if (String(v.chargeId || '').startsWith('ernte:')) {
-          const ernte = freieErnten.find((e) => 'ernte:' + e.id === v.chargeId);
-          if (!ernte) throw feldFehler('chargeId', 'Diese Ernte gibt es nicht mehr.');
+        const wahlVorher = v.chargeId;
+        if (String(v.chargeId || '').startsWith('ernte:') || String(v.chargeId || '').startsWith('gruppe:')) {
+          const quelle = ernteQuellen.find((q) => q.v === v.chargeId);
+          if (!quelle) throw feldFehler('chargeId', 'Diese Ernte gibt es nicht mehr.');
+          const ernte = quelle.ernten[0];
           const vergeben = new Set(chargen.map((c) => String(c.losnummer)));
           const jahr = (v.datum || U.todayIso()).slice(0, 4);
           let nr = chargen.length + 1, losnummer;
           do { losnummer = `${jahr}-${String(nr++).padStart(2, '0')}`; } while (vergeben.has(losnummer));
           if (!(await UI.confirm({ title: 'Keine Charge angelegt',
-            text: `Direkt aus der Ernte ${ernte.sorte || ''} vom ${U.fmtDate(ernte.datum)} abfüllen? Die App legt dafür die Charge ${losnummer} selbst an – die Losnummer steht auf dem Etikett und dient der Rückverfolgung.`,
+            text: `Direkt aus der Ernte ${ernte.sorte || ''} vom ${U.fmtDate(ernte.datum)}${quelle.ernten.length > 1 ? ` (${quelle.ernten.length} Völker, ${U.fmtNum(quelle.kg, 1)} kg)` : ''} abfüllen? Die App legt dafür die Charge ${losnummer} selbst an – die Losnummer steht auf dem Etikett und dient der Rückverfolgung.`,
             confirmText: 'Direkt abfüllen', danger: false }))) { const e = new Error('abgebrochen'); e.leise = true; throw e; }
-          neueCharge = await DB.put('chargen', { losnummer, datum: v.datum || U.todayIso(), ernteIds: [ernte.id], lagerKg: 0, lagerHerkunft: '',
-            mengeKg: Number(ernte.mengeKg) || 0, sorte: '', wassergehalt: null, laborDatum: null, etikettNotiz: '', automatisch: true });
+          neueCharge = await DB.put('chargen', { losnummer, datum: v.datum || U.todayIso(), ernteIds: quelle.ernten.map((e) => e.id), lagerKg: 0, lagerHerkunft: '',
+            mengeKg: quelle.kg, sorte: '', wassergehalt: null, laborDatum: null, etikettNotiz: '', automatisch: true });
           v.chargeId = neueCharge.id;
         }
         let erg;
         try { erg = await abfuellungenAnlegen(v); }
-        catch (e) { if (neueCharge) await DB.del('chargen', neueCharge.id); if (neueCharge) v.chargeId = 'ernte:' + neueCharge.ernteIds[0]; throw e; }
+        catch (e) { if (neueCharge) { await DB.del('chargen', neueCharge.id); v.chargeId = wahlVorher; } throw e; }
         UI.toast(`${erg.gesamt} Gebinde abgefüllt${erg.recs.length > 1 ? ` (${erg.recs.length} Größen)` : ''}${erg.verlust ? ` · ${U.fmtNum(erg.verlust.kg, 2)} kg Verlust gebucht` : ''}`);
         // Die Meldung nennt, wo es fehlte (Fund 04.11.2026, #23) – „30 Stück fehlten“ allein sagte nicht, ob Deckel oder Etiketten
         if (erg.gefehlt > 0) UI.toast(`${U.fmtNum(erg.gefehlt, 0)} Stück Material fehlten${(erg.fehlend || []).length ? ` (${erg.fehlend.map((f) => `${f.bezeichnung || 'ohne Namen'}: ${U.fmtNum(f.menge, 0)}`).join(', ')})` : ''} – nur der vorhandene Bestand wurde abgezogen`, 'err');
@@ -18878,7 +18917,7 @@ Views.honig = {
         + Math.max(0, Math.round(U.parseNum(($('#f-eigenesN', m.el) || {}).value) || 0)) * Math.max(0, U.parseNum(($('#f-eigenesG', m.el) || {}).value) || 0) / 1000;
       const vorher = () => {
         const wahl = ($('#f-chargeId', m.el) || {}).value || '';
-        if (wahl.startsWith('ernte:')) { const e = freieErnten.find((x) => 'ernte:' + x.id === wahl); return e ? Number(e.mengeKg) || 0 : 0; }
+        if (wahl.startsWith('ernte:') || wahl.startsWith('gruppe:')) { const q = ernteQuellen.find((x) => x.v === wahl); return q ? q.kg : 0; }
         const c = chargen.find((x) => x.id === wahl); return c ? chargeRestKg(c, abfAlle) : 0;
       };
       const danach = () => Math.round((vorher() - geplantKg()) * 1000) / 1000;
@@ -20909,8 +20948,7 @@ Views.lager = {
     if (!LAGER_REITER.some(([id]) => id === this._tab)) this._tab = 'alle';
     const tab = this._tab;
     /* Zahlen im Namen der Größe nach: „Nr. 2“ vor „Nr. 16“ vor „Nr. 111“ (Großbestand-Probe 08.11.2026: vorher Nr. 1, 111, 112, 16) */
-    const natuerlich = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
-    const alle = (await DB.getAll('inventar')).sort((a, b) => natuerlich.compare(a.bezeichnung || '', b.bezeichnung || ''));
+    const alle = lagerNatuerlich(await DB.getAll('inventar'));   // eine Sortierung für Liste, Verkaufen und Rechnung (Ultra-Test 3)
     const zahl = (typ) => (typ === 'alle' ? alle.length : alle.filter((i) => inventarTyp(i) === typ).length);
     main.innerHTML = pageHead('Lager', 'Produkte, Verbrauchsmaterial, Geräte & Inventar an einem Ort',
       `<button class="btn btn-primary btn-sm no-print" type="button" data-lager-verkaufen>${icon('euro')} Verkaufen</button>`)
@@ -21104,7 +21142,7 @@ async function lagerVerkaufForm(vorId = '', suche = '', reiter = '') {
     saveText: 'Verkaufen',
     async onSave(v) {
       const erg = await lagerVerkaufBuchen({ inventarId: v.inventarId, menge: v.menge, preis: v.preis, datum: v.datum, kontaktId: v.kontaktId || null, kaeufer: v.kaeufer || '' });
-      await pruefeMhd();
+      pruefeMhd().catch((e) => console.error('MHD-Prüfung', e));   // nebenbei: Der Verkauf ist gebucht; ein Fehler hier darf das Formular nicht offen halten (Ultra-Test 3)
       renderRoute({ scrollBehalten: true });
       // Erst wenn das Formular zu ist: die Rückfrage nach der Rechnung (Mockup 3)
       setTimeout(() => nachVerkaufFragen(erg), 0);
@@ -21143,8 +21181,11 @@ function lagerSteuersatz(i) {
 function verkaufBeleg(erg) {
   if (erg && erg.abgang) {
     const a = erg.abgang;
-    return { art: 'lager', id: a.id, inventarId: a.inventarId || null, datum: a.datum, kontaktId: a.kontaktId || null, betrag: abgangErloes(a), kurz: `${U.fmtNum(a.menge, 2)} × ${a.bezeichnung}`,
-      gefehlt: erg.gefehlt || 0, einheit: a.einheit || '', rabatt: 0,
+    /* Rabatt einer früheren (stornierten) Rechnung steckt im Abgang (betragRechnung): Der neue Beleg trägt ihn als Rabatt, sonst
+       setzte das Festschreiben die Kassenbuch-Einnahme wieder auf den vollen Betrag (Ultra-Test 3, 09.11.2026). */
+    const brutto = Math.round((Number(a.menge) || 0) * (Number(a.preis) || 0) * 100) / 100, erloes = abgangErloes(a);
+    return { art: 'lager', id: a.id, inventarId: a.inventarId || null, datum: a.datum, kontaktId: a.kontaktId || null, betrag: erloes, kurz: `${U.fmtNum(a.menge, 2)} × ${a.bezeichnung}`,
+      gefehlt: erg.gefehlt || 0, einheit: a.einheit || '', rabatt: Math.max(0, Math.round((brutto - erloes) * 100) / 100),
       positionen: [{ text: a.bezeichnung, menge: Number(a.menge) || 0, einzelpreis: Number(a.preis) || 0, pfand: 0, steuersatz: 19, abfuellungId: null }] };
   }
   if (erg && erg.verkauf) {
@@ -30771,7 +30812,7 @@ const PdfImport = {
       async onSave(v) {
         if (v.zielTyp === 'stand') {
           const liste = mengeJeVolkPruefen(jeVolk.werte(), '_jeVolk');
-          const recs = await ernteJeVolkAnlegen(liste, { datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', wassergehalt: null, schleuderung: null, notiz: v.notiz || '' });
+          const recs = await ernteJeVolkAnlegen(liste, { gruppeStandId: zielIdAus(v), datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', wassergehalt: null, schleuderung: null, notiz: v.notiz || '' });
           UI.toast(`Ernte für ${recs.length} ${recs.length === 1 ? 'Volk' : 'Völker'} übernommen`);
           return;
         }

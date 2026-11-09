@@ -5349,17 +5349,19 @@ test('fuetterungFuerVoelker: legt je Volk einen Datensatz an', async (w) => {
   assert(alle.every((f) => !('wiedervorlageTage' in f)), 'Formular-Hilfsfeld wird nicht mitgespeichert');
   assertEq(await w.fuetterungFuerVoelker([], { datum: 'x' }), 0, 'leere Auswahl = 0');
 });
-test('behandlungFuerVoelker: je Volk ein Bestandsbuch-Eintrag (TAMG)', async (w) => {
+test('behandlungenJeVolkAnlegen: je Volk ein Bestandsbuch-Eintrag (TAMG)', async (w) => {
   const v1 = await w.DB.put('voelker', { name: 'BehTest1', status: 'aktiv' });
   const v2 = await w.DB.put('voelker', { name: 'BehTest2', status: 'aktiv' });
-  const n = await w.behandlungFuerVoelker([v1.id, v2.id], { datum: '2026-08-02', mittel: 'Ameisensäure 60 %', menge: 200, einheit: 'ml', anwendungsart: 'Langzeitverdunster', wartezeitTage: 0, notiz: 'Charge AS-2026-1' });
-  assertEq(n, 2, 'zwei Einträge');
+  const erg = await w.behandlungenJeVolkAnlegen([{ volkId: v1.id, menge: 200 }, { volkId: v2.id, menge: 200 }], { datum: '2026-08-02', mittel: 'Ameisensäure 60 %', einheit: 'ml', anwendungsart: 'Langzeitverdunster', wartezeitTage: 0, notiz: 'Charge AS-2026-1' });
+  assertEq(erg.recs.length, 2, 'zwei Einträge');
   const alle = (await w.DB.getAll('behandlungen')).filter((b) => [v1.id, v2.id].includes(b.zielId));
   assertEq(alle.length, 2, 'beide in der DB');
   assert(alle.every((b) => b.zielTyp === 'volk'), 'jeweils auf das Volk gebucht');
   assert(alle.every((b) => b.mittel === 'Ameisensäure 60 %' && b.menge === 200 && b.einheit === 'ml'), 'Mittel/Menge/Einheit übernommen');
   assert(alle.every((b) => b.notiz === 'Charge AS-2026-1'), 'Charge-Notiz übernommen');
-  assertEq(await w.behandlungFuerVoelker([], { datum: 'x' }), 0, 'leere Auswahl = 0');
+  let leer = '';
+  try { await w.behandlungenJeVolkAnlegen([], { datum: 'x' }); } catch (e) { leer = e.message; }
+  assert(/mindestens ein Volk/.test(leer), 'leere Auswahl wird abgewiesen: ' + leer);
 });
 test('optionenSortiert: alphanumerisch, deutsch, zahlen-bewusst, Platzhalter oben', (w) => {
   // {v,l}-Objekte: Zahlen numerisch (7 vor 19), nicht als Text (sonst 19 vor 7)
@@ -7400,7 +7402,7 @@ test('Finaltest 09.11.2026 K4/K6: Königinnen-Kennung bleibt eindeutig, Mutter m
     modal.querySelector('[data-save]').click();
     await kurz(400);
     assert(w.document.querySelector('.modal-back'), 'der Dialog bleibt offen');
-    assert(/früheren Jahrgang/.test(modal.textContent), 'mit verständlicher Meldung');
+    assert(/späteren Jahrgang/.test(modal.textContent), 'mit verständlicher Meldung');
     assertEq((await w.DB.getAll('koeniginnen')).length, 3, 'nichts gespeichert');
   } finally { dialogeSchliessen(w); }
 }));
@@ -7508,6 +7510,109 @@ test('Finaltest 09.11.2026 W1/X2: deutscher Hinweis ohne Verbindung; Kontakt-Rol
   assertEq(w.kontaktTypLabel({ typ: 'kunde' }), 'Kunde / Abnehmer');
   assertEq(w.kontaktTypLabel({ typ: 'lieferant' }), 'Lieferant');
   assertEq(w.kontaktTypLabel({ typ: 'unbekannt' }), 'unbekannt', 'unbekannte Werte bleiben lesbar');
+});
+
+/* ---------- Ultra-Test 3 (09.11.2026): Funde U1–U5 ---------- */
+test('Ultra-Test 3 U1: Altdaten mit doppelter Kennung oder gleichaltriger Mutter bleiben speicherbar', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const mutter = await w.DB.put('koeniginnen', { kennung: 'ALT-1', jahrgang: 2026, status: 'aktiv', historie: [] });
+  const tochter = await w.DB.put('koeniginnen', { kennung: 'ALT-1', jahrgang: 2026, status: 'aktiv', historie: [], mutterId: mutter.id });   // Altbestand: gleiche Kennung, Mutter aus demselben Jahr
+  try {
+    w.Views.koeniginnen.form(tochter, () => {});
+    await kurz(300);
+    const modal = w.document.querySelector('.modal-back'); assert(modal, 'Dialog offen');
+    setzFeld(w, modal, 'notiz', 'nur eine Notiz');
+    modal.querySelector('[data-save]').click(); await kurz(500);
+    assertEq((await w.DB.get('koeniginnen', tochter.id)).notiz, 'nur eine Notiz', 'die Notiz ist gespeichert, die Altdaten bleiben erlaubt');
+    dialogeSchliessen(w);
+    // Gleiches Jahr geht auch bei einer neuen Königin: Tochter im Juli von der Mai-Königin
+    w.Views.koeniginnen.form(null, () => {});
+    await kurz(300);
+    const m2 = w.document.querySelector('.modal-back');
+    setzFeld(w, m2, 'kennung', 'NEU-26'); setzFeld(w, m2, 'jahrgang', '2026'); setzFeld(w, m2, 'mutterId', mutter.id);
+    m2.querySelector('[data-save]').click(); await kurz(500);
+    assert((await w.DB.getAll('koeniginnen')).some((k) => k.kennung === 'NEU-26'), 'Tochter mit gleichaltriger Mutter gespeichert');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Ultra-Test 3 U2: nachgetragene Stand-Ernte findet auch Völker, die in der App erst später angelegt wurden', async (w) => isolierteDaten(w, async () => {
+  const stand = await w.DB.put('staende', { name: 'U2-Stand', lat: null, lng: null, notizen: '' });
+  const heute = w.U.todayIso();
+  const v = await w.DB.put('voelker', { name: 'U2-Volk', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [{ datum: heute, text: 'Volk angelegt' }] });
+  const alt = await w.DB.put('voelker', { name: 'U2-Aufgelöst', standId: stand.id, status: 'aufgeloest', koeniginId: null, historie: [{ datum: '2026-01-01', text: 'Volk angelegt' }, { datum: '2026-03-01', text: 'Volk aufgelöst' }] });
+  const alle = await w.DB.getAll('voelker');
+  const am = w.voelkerAmStandAm(alle, stand.id, '2026-07-01', []);
+  assert(am.some((x) => x.id === v.id), 'das später angelegte Volk wird für den 01.07. angeboten');
+  assert(!am.some((x) => x.id === alt.id), 'das vorher aufgelöste Volk nicht');
+  assertEq(w.voelkerAmStichtag(alle, '2026-07-01').some((x) => x.id === v.id), false, 'die Stichtag-Rechnung der Meldungen bleibt unverändert');
+  assert(w.volkBeginn(v) > '2026-07-01', 'Beginn-Helfer: in der App seit heute');
+}));
+
+test('Ultra-Test 3 U3: Stand-Ernte ist in Charge und Abfüllen EIN Posten', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const stand = await w.DB.put('staende', { name: 'U3-Stand', lat: null, lng: null, notizen: '' });
+  const v1 = await w.DB.put('voelker', { name: 'U3-A', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const v2 = await w.DB.put('voelker', { name: 'U3-B', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const recs = await w.ernteJeVolkAnlegen([{ volkId: v1.id, menge: 12 }, { volkId: v2.id, menge: 8 }], { gruppeStandId: stand.id, datum: '2026-07-15', produktart: 'Honig', sorte: 'Raps', wassergehalt: null, schleuderung: null, notiz: '' });
+  assertEq(recs.length, 2, 'zwei Einträge');
+  assert(recs[0].ernteGruppe && recs[0].ernteGruppe === recs[1].ernteGruppe, 'gemeinsame Gruppe');
+  assertEq(recs[0].ernteGruppeStand, stand.id, 'Stand gemerkt');
+  assertEq(recs[0].gruppeStandId, undefined, 'Hilfsfeld nicht gespeichert');
+  const einzel = await w.ernteJeVolkAnlegen([{ volkId: v1.id, menge: 5 }], { gruppeStandId: stand.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Frühtracht', wassergehalt: null, schleuderung: null, notiz: '' });
+  assertEq(einzel[0].ernteGruppe, undefined, 'ein Volk: keine Gruppe');
+  try {
+    await w.Views.honig.chargeForm(null); await kurz(400);
+    let modal = w.document.querySelector('.modal-back'); assert(modal, 'Chargen-Dialog offen');
+    const zeilen = [...modal.querySelectorAll('#f-ernteIds label.check-line')].map((l) => l.textContent.replace(/\s+/g, ' ').trim());
+    assertEq(zeilen.length, 2, 'zwei Zeilen – Stand-Ernte und Einzelernte: ' + zeilen.join(' | '));
+    const gruppe = zeilen.find((z) => /2 Völker/.test(z));
+    assert(gruppe && /20 kg/.test(gruppe) && /U3-Stand/.test(gruppe), 'Stand-Ernte als ein Posten mit Summe und Stand: ' + gruppe);
+    assert(zeilen.some((z) => /Frühtracht/.test(z) && /U3-A/.test(z)), 'Einzelernte nennt ihr Volk');
+    const g = [...modal.querySelectorAll('#f-ernteIds input')].find((i) => i.value.startsWith('gruppe:'));
+    assert(g, 'Gruppen-Häkchen da');
+    g.checked = true; g.dispatchEvent(new w.Event('change', { bubbles: true }));
+    setzFeld(w, modal, 'losnummer', 'U3-01');
+    modal.querySelector('[data-save]').click(); await kurz(600);
+    const c = (await w.DB.getAll('chargen')).find((x) => x.losnummer === 'U3-01');
+    assert(c, 'Charge gespeichert');
+    assertEq(c.ernteIds.slice().sort(), recs.map((r) => r.id).sort(), 'beide Ernten der Gruppe in der Charge');
+    assertEq(Number(c.mengeKg), 20, 'Menge summiert');
+    dialogeSchliessen(w);
+    await w.Views.honig.chargeForm(c); await kurz(400);
+    modal = w.document.querySelector('.modal-back');
+    const an = [...modal.querySelectorAll('#f-ernteIds input:checked')].map((i) => i.value);
+    assertEq(an.length, 1, 'beim Bearbeiten genau ein Posten angehakt');
+    assert(an[0].startsWith('gruppe:'), 'nämlich die Stand-Ernte');
+    dialogeSchliessen(w);
+    await w.Views.honig.abfuellForm(c.id); await kurz(400);
+    modal = w.document.querySelector('.modal-back'); assert(modal, 'Abfüll-Dialog offen');
+    const quellen = [...modal.querySelectorAll('#f-chargeId option')].map((o) => o.textContent);
+    assert(quellen.some((q) => /Frühtracht/.test(q) && /ohne Charge/.test(q)), 'freie Einzelernte angeboten: ' + quellen.join(' | '));
+    assert(!quellen.some((q) => /2 Völker/.test(q)), 'die Stand-Ernte in der Charge nicht mehr einzeln');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Ultra-Test 3 U4: Gruppenmitglied ohne eigenen Abzug zählt bei der Stück-Rechnung mit', async (w) => isolierteDaten(w, async () => {
+  const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar U4', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 8 });   // 10 − 2 Stück für 3 × 0,5
+  const v = []; for (const n of ['U4-A', 'U4-B', 'U4-C']) v.push(await w.DB.put('voelker', { name: n, status: 'aktiv', koeniginId: null, historie: [] }));
+  const basis = { zielTyp: 'volk', datum: '2026-08-01', mittel: 'Apivar U4', einheit: 'Stück', anwendungsart: '', wartezeitTage: 0, notiz: '', abzugGruppe: 'gruppe-u4' };
+  const A = await w.DB.put('behandlungen', { ...basis, zielId: v[0].id, menge: 0.5, verbrauchAbzug: [{ inventarId: p.id, bezeichnung: 'Apivar U4', menge: 1, einheit: 'Stück' }] });
+  await w.DB.put('behandlungen', { ...basis, zielId: v[1].id, menge: 0.5, verbrauchAbzug: [{ inventarId: p.id, bezeichnung: 'Apivar U4', menge: 1, einheit: 'Stück' }] });
+  const C = await w.DB.put('behandlungen', { ...basis, zielId: v[2].id, menge: 0.5, verbrauchAbzug: [] });
+  const bestand = async () => (await w.DB.get('inventar', p.id)).stueckzahl;
+  await w.behandlungAendern(await w.DB.get('behandlungen', A.id), { menge: 0.25 });   // Gruppe braucht weiter 2 Stück (1,25 → 2)
+  assertEq(await bestand(), 8, 'kein Stück zurück ins Lager');
+  await w.behandlungAendern(await w.DB.get('behandlungen', C.id), { menge: 1.5 });    // Gruppe braucht 3 Stück → genau eines nachziehen
+  assertEq(await bestand(), 7, 'ein Stück nachgezogen');
+  assertEq((await w.DB.get('behandlungen', C.id)).verbrauchAbzug.reduce((s, a) => s + a.menge, 0), 1, 'C trägt das nachgezogene Stück');
+}));
+
+test('Ultra-Test 3 U5: Beleg eines Lager-Verkaufs trägt den Rabatt der früheren Rechnung', (w) => {
+  const b = w.verkaufBeleg({ abgang: { id: 'x', art: 'Verkauf', menge: 10, preis: 5, bezeichnung: 'Kerze', datum: '2026-11-01', betragRechnung: 40 }, gefehlt: 0 });
+  assertEq(b.betrag, 40, 'Betrag wie gebucht');
+  assertEq(b.rabatt, 10, 'Rabatt 10 € (50 € Positionen − 40 € gebucht)');
+  const o = w.verkaufBeleg({ abgang: { id: 'y', art: 'Verkauf', menge: 2, preis: 4.5, bezeichnung: 'Kerze', datum: '2026-11-01' }, gefehlt: 0 });
+  assertEq(o.rabatt, 0, 'ohne frühere Rechnung kein Rabatt');
 });
 
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
@@ -18465,8 +18570,8 @@ test('Bestandsbuch: neue Felder freiwillig, alte Einträge gehen weiter, PDF und
   dialogeSchliessen(w);
   const v = await w.DB.put('voelker', { name: 'BB-Volk', status: 'aktiv' });
   const alt = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-05-01', mittel: 'Altmittel', menge: 2, einheit: 'ml', anwendungsart: 'Träufeln', wartezeitTage: 0, notiz: '' });
-  const n = await w.behandlungFuerVoelker([v.id], { datum: '2026-06-01', mittel: 'Neumittel', menge: 3, einheit: 'ml', anwendungsart: '', behandlungBis: '2026-06-08', lieferant: 'Imkerbedarf Beispiel', behandelndePerson: 'Max', tierarzt: 'Dr. Beispiel', kaufbeleg: true });
-  assertEq(n, 1);
+  const erg = await w.behandlungenJeVolkAnlegen([{ volkId: v.id, menge: 3 }], { datum: '2026-06-01', mittel: 'Neumittel', einheit: 'ml', anwendungsart: '', behandlungBis: '2026-06-08', lieferant: 'Imkerbedarf Beispiel', behandelndePerson: 'Max', tierarzt: 'Dr. Beispiel', kaufbeleg: true });
+  assertEq(erg.recs.length, 1);
   const neu = (await w.DB.getAll('behandlungen')).find((b) => b.mittel === 'Neumittel');
   assertEq([neu.behandlungBis, neu.lieferant, neu.behandelndePerson, neu.tierarzt, neu.kaufbeleg], ['2026-06-08', 'Imkerbedarf Beispiel', 'Max', 'Dr. Beispiel', true], 'neue Felder gespeichert');
   // Formular: Felder da, keines Pflicht
