@@ -11,13 +11,22 @@
    echte Daten bleiben unberührt. Braucht den lokalen Server auf Port 8931.
    Aufruf: node tools/gesamtpruefung.mjs <zielordner> [--nur=iphone-se,ipad-quer]
 */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 
 const ZIEL = process.argv[2];
 const NUR = ((process.argv.find((a) => a.startsWith('--nur=')) || '').split('=')[1] || '').split(',').filter(Boolean);
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const PROFIL = new URL('.chromeprofil-gesamt', import.meta.url).pathname;
+// MASSEN=1: dieselbe Prüfung mit dem Großbestand (50 Stände, 325 Völker, ~45.000 Einträge, tools/massendaten.js)
+// in einem eigenen Chrome-Profil – und mit Ladezeit je Seite/Reiter (wartet, bis die Seite fertig gezeichnet ist).
+const MASSEN = process.env.MASSEN === '1';
+const PROFIL = new URL(MASSEN ? '.chromeprofil-massen' : '.chromeprofil-gesamt', import.meta.url).pathname;
+const LANGSAM_MS = 2000;
+/* Wartet, bis #main sich 400 ms nicht mehr ändert (höchstens 30 s), und gibt die Zeit in ms zurück. */
+const FERTIG = `const t0 = performance.now(); let alt = '', ruhig = 0;
+  while (performance.now() - t0 < 30000) { await new Promise((r) => setTimeout(r, 100)); const m = document.querySelector('#main'); const jetzt = m ? m.innerHTML.length + ':' + m.childElementCount : '';
+    if (jetzt === alt && jetzt !== '' && !document.querySelector('#main .lade, #main .spinner, #main .skeleton')) { if ((ruhig += 100) >= 400) break; } else { ruhig = 0; alt = jetzt; } }
+  return Math.round(performance.now() - t0 - 400);`;
 const PORT = 9336;
 // BASIS=http://localhost:8931/native/www/index.html?testdb=1 prüft die App-Kopie MIT Schutzregel (CSP)
 const BASIS = process.env.BASIS || 'http://localhost:8931/index.html?testdb=1';
@@ -142,6 +151,13 @@ async function main() {
     await cdp.send('Page.navigate', { url: BASIS + '&geraet=' + g.name + '#/dashboard' });
     for (let i = 0; i < 200; i++) { try { if (await cdp.js('return !!window.appReady')) break; } catch (e) {} await schlaf(150); }
     if ((await cdp.js('return (await DB.getAll("voelker")).length')) < 5) await cdp.js('await Demo.reset(); return 1;');
+    if (MASSEN && (await cdp.js('return (await DB.getAll("voelker")).length')) < 300) {
+      console.log('Erzeuge Großbestand …');
+      await cdp.js(`document.querySelectorAll('.modal-back').forEach((m) => m.remove()); await Backup.applyReplace({ stores: {} }, { blobsBehalten: false }); await S.load(); return 1;`);
+      await cdp.send('Runtime.evaluate', { expression: readFileSync(new URL('./massendaten.js', import.meta.url), 'utf8') });
+      const erg = await cdp.js('return await massendatenErzeugen({ fotos: 10 })');
+      console.log('Großbestand:', JSON.stringify(erg.zaehl));
+    }
     await cdp.js(`await S.set('darkMode', ${g.dunkel ? "'dunkel'" : "'hell'"}); applyTheme(); await S.set('wizardDone', true, { auto: true }); document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove()); return 1;`);
     // Selbstkontrolle: absichtlich eingebaute Fehler MÜSSEN gemeldet werden, sonst taugt die Prüfung nichts
     await schlaf(1500);   // Einblende-Animation der Seite abwarten (sonst gilt alles als unsichtbar)
@@ -152,8 +168,8 @@ async function main() {
       .concat([`stand/${ids.stand}`, `volk/${ids.volk}`, `koenigin/${ids.koenigin}`, `rechnung/${ids.rechnung}`, `durchsicht/${ids.volk}`]);
     for (const route of routen) {
       await cdp.js(`window.__fehler.length = 0; document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove()); location.hash = '#/${route}'; return 1;`);
-      await schlaf(900);
-      const eintrag = { geraet: g.name, route, schritte: [] };
+      const ms = MASSEN ? await cdp.js(FERTIG) : (await schlaf(900), null);
+      const eintrag = { geraet: g.name, route, schritte: [], ms, reiterMs: {} };
       eintrag.seite = await cdp.js(PRUEFEN);
       const bild = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
       writeFileSync(`${ZIEL}/${g.name}__${route.split('/')[0]}.jpg`, Buffer.from(bild.data, 'base64'));
@@ -161,7 +177,7 @@ async function main() {
       const reiter = await cdp.js(`return [...document.querySelectorAll('#main [role="tab"]')].filter((t) => t.offsetParent).map((t) => t.textContent.trim()).slice(0, 12)`);
       for (const r of reiter) {
         await cdp.js(`const t = [...document.querySelectorAll('#main [role="tab"]')].find((x) => x.textContent.trim() === ${JSON.stringify(r)}); if (t) t.click(); return 1;`);
-        await schlaf(350);
+        if (MASSEN) eintrag.reiterMs[r] = await cdp.js(FERTIG); else await schlaf(350);
         const p = await cdp.js(PRUEFEN);
         if (p.fehler.length || p.seitlich || p.ueber.length || p.riesig.length || p.komisch.length) eintrag.schritte.push({ reiter: r, ...p });
       }
@@ -175,12 +191,19 @@ async function main() {
       }
       bericht.push(eintrag);
       const s = eintrag.seite, probleme = s.fehler.length + (s.seitlich ? 1 : 0) + s.ueber.length + s.riesig.length + s.komisch.length + (s.leer ? 1 : 0) + eintrag.schritte.length;
-      console.log(`${probleme ? '⚠️ ' : '✓ '} ${g.name.padEnd(20)} ${route.split('/')[0].padEnd(14)} ${probleme ? JSON.stringify({ ...s, schritte: eintrag.schritte }).slice(0, 400) : ''}`);
+      const langsam = MASSEN ? [[route.split('/')[0], ms], ...Object.entries(eintrag.reiterMs)].filter(([, x]) => x > LANGSAM_MS) : [];
+      if (langsam.length) console.log(`🐢 ${g.name.padEnd(20)} langsam: ${langsam.map(([n, x]) => n + ' ' + x + ' ms').join(', ')}`);
+      console.log(`${probleme ? '⚠️ ' : '✓ '} ${g.name.padEnd(20)} ${route.split('/')[0].padEnd(14)} ${MASSEN ? String(ms).padStart(6) + ' ms ' : ''}${probleme ? JSON.stringify({ ...s, schritte: eintrag.schritte }).slice(0, 400) : ''}`);
     }
   }
   writeFileSync(`${ZIEL}/bericht.json`, JSON.stringify(bericht, null, 1));
   const mitProblem = bericht.filter((e) => { const s = e.seite; return s.fehler.length || s.seitlich || s.ueber.length || s.riesig.length || s.komisch.length || s.leer || e.schritte.length; });
   console.log(`\n${bericht.length} Seiten geprüft, ${mitProblem.length} mit Auffälligkeiten. Bericht: ${ZIEL}/bericht.json`);
+  if (MASSEN) {
+    const alle = bericht.flatMap((e) => [[e.geraet + ' ' + e.route.split('/')[0], e.ms], ...Object.entries(e.reiterMs).map(([r, x]) => [e.geraet + ' ' + e.route.split('/')[0] + ' › ' + r, x])]).sort((a, b) => b[1] - a[1]);
+    console.log(`Langsamste Stellen (über ${LANGSAM_MS} ms: ${alle.filter(([, x]) => x > LANGSAM_MS).length}):`);
+    for (const [n, x] of alle.slice(0, 15)) console.log(`  ${String(x).padStart(6)} ms  ${n}`);
+  }
   process.exit(0);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

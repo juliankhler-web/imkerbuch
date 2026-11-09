@@ -439,6 +439,13 @@ html[data-theme="dark"] .btn-dark{color:#1B1B1F}
 .b-violet{background:var(--violet-bg);color:var(--violet)}
 .b-blue{background:var(--blue-bg);color:var(--blue)}
 .rows{display:flex;flex-direction:column}
+/* Lange Auswahl mit Suche (Großbestand-Test 09.11.2026, #3): Trefferliste unter dem Suchfeld, der gewählte Eintrag ist markiert */
+.auswahl-liste{border:1px solid var(--line);border-radius:12px;margin-top:6px;padding:2px 4px}
+.auswahl-liste .row{min-height:44px;padding:9px 8px}
+.auswahl-liste .row.gewaehlt{background:var(--honey-soft);color:var(--honey-deep)}
+.auswahl-liste .row.gewaehlt .r-sub{color:var(--honey-deep)}
+.auswahl-mehr{padding:8px 8px 6px}
+.auswahl-liste .row>svg{width:18px;height:18px;flex:0 0 18px;margin-left:auto}
 .row{
   display:flex;align-items:center;gap:12px;padding:13px 6px;border-bottom:1px solid var(--line);
   min-height:56px;border-radius:8px;transition:background .12s;text-align:left;width:100%;
@@ -1638,6 +1645,8 @@ const CHANGELOG = [
     '<b>Leistung pro Volk:</b> Statistik → Honig zeigt eine Rangliste je Volk mit Jahr, Schnitt und „Exportieren“; auf der Seite jedes Volks steht „Honig pro Jahr“ mit Platz.',
     '<b>Kleinigkeiten:</b> Kacheln im Menü verschieben rollt jetzt mit; Export vom Stand oder Volk zeigt nur passende Bereiche.',
     '<b>Zurück im Browser:</b> In der Web-Version schließt die Zurück-Taste (oder Zurück-Wischen) jetzt zuerst das offene Fenster, den Aufkleber-Scanner oder die Hilfe-Tour – die Seite dahinter bleibt stehen. Vorher blieb das Fenster offen, und die Seite dahinter ging zurück.',
+    '<b>Viele Daten:</b> Mit 50 Ständen, 325 Völkern und 225 Lager-Positionen geprüft. Neu: Suche beim Verkaufen im Lager und bei Lager-Positionen der Rechnung (die angetippte Position ist gleich gewählt), Suche und Jahr in der Rechnungsliste, „Alle“/„Keine“ und Zähler bei der Ernte am ganzen Stand. Nummern sortieren richtig (Nr. 2 vor Nr. 16), große Beträge passen in ihre Kachel.',
+    '<b>Behoben:</b> Ein Stand aus dem Papierkorb bringt seine Völker mit; Rechnungspositionen behalten ihren Steuersatz, auch wenn die Besteuerung später auf „Regel“ wechselt; Ø Alter der Königinnen für frühere Jahre; Zähler bei der Behandlung am Stand; Bestandsbuch-PDF ohne getrennte Spaltenköpfe; Export vom Stand zeigt nur dessen Völker; Unterlagen ohne Jahr in der Zukunft; lange Mittel-Namen in der Statistik.',
   ] },
   { version: '3.24', datum: '2026-11-05', punkte: [
     '<b>Große Fehlerprüfung:</b> Alle Rechnungen mit Honigmengen und alle übrigen Bereiche wurden durchgesehen, jeder Fund unabhängig gegengeprüft und behoben.',
@@ -3499,7 +3508,7 @@ const DB = {
       behandlungen: ['aufgaben', 'voelker', 'staende'],   // Behandlung: Wartezeit-Erinnerung zurück (#23)
       koeniginnen: ['voelker', 'koeniginnen'],            // Königin: Zuordnung nur zurück, wenn das Volk frei ist (#7/#26)
       zuchtserien: ['aufgaben'],                          // Zuchtserie: Kalender-Aufgaben zurück (#22)
-      staende: ['settings'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Stand: gemerkten Namen streichen (Julian 05.11.2026)
+      staende: ['settings', 'voelker'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Stand: gemerkten Namen streichen (Julian 05.11.2026), seine Völker zurück (Großbestand-Test 09.11.2026)
     const tx = await this._tx([...new Set(['papierkorb', 'inventar', 'settings', vorab.store, ...pruefBereiche])], 'readwrite');
     return new Promise((resolve, reject) => {
       let ergebnis = null, ursache = null, standMerk = null;
@@ -3577,6 +3586,9 @@ const DB = {
             /* Stand (Julian 05.11.2026): Er ist wieder da – sein gemerkter Name fliegt raus, die Nachweise zeigen ihn wieder ohne
                „(gelöscht)“. Dieselbe Transaktion, damit nie ein vorhandener Stand als gelöscht gemerkt bleibt. */
             if (t.store === 'staende') { standMerk = geloeschteStaendeAuftrag(pruefDaten.settings, { weg: [t.daten.id] }); if (standMerk) this._auftraege(tx, [standMerk.op]); }
+            /* Seine Völker kommen mit (Großbestand-Test 09.11.2026, #4): Vorher stand der Stand wieder da, aber mit 0 Völkern –
+               alle blieben „ohne Stand“ und mussten einzeln zurück. Zurück kommt nur, wer seit dem Löschen nirgends sonst hinkam. */
+            if (t.store === 'staende') this._auftraege(tx, standVoelkerWiederPlan(pruefDaten.voelker, t.daten));
             t.daten.lastModified = U.nowIso();
             ziel.put(t.daten);
             tx.objectStore('papierkorb').delete(trashId);
@@ -4420,10 +4432,32 @@ function tabellenBeschriften(root = document) {
   });
 }
 
+/* Kennzahl-Kacheln: Passt ein Wert nicht in die Kachel, wird seine Schrift kleiner (bis 13 px),
+   statt ihn mit „…“ abzuschneiden. Großbestand-Probe 08.11.2026: Auf dem iPad quer stand bei
+   Finanzen „55.423,12…“. Werte, die passen, bleiben unverändert groß. */
+function zahlenEinpassen(root = document) {
+  $$('.stat .s-value:not(.st-wort):not([data-eingepasst])', root).forEach((el) => {   // Wörter (Mittel, Sorte) brechen um statt kleiner zu werden
+    if (!el.clientWidth) return;   // noch nicht sichtbar – beim nächsten Zeichnen
+    el.dataset.eingepasst = '1';
+    if (el.scrollWidth <= el.clientWidth + 1) return;
+    let gr = parseFloat(getComputedStyle(el).fontSize) || 23;
+    while (el.scrollWidth > el.clientWidth + 1 && gr > 13) { gr -= 1; el.style.fontSize = gr + 'px'; }
+  });
+}
+let _einpassenUhr = 0;
+window.addEventListener('resize', () => {   // Drehen oder neue Fenstergröße: neu einpassen
+  clearTimeout(_einpassenUhr);
+  _einpassenUhr = setTimeout(() => {
+    $$('.stat .s-value[data-eingepasst]').forEach((el) => { el.style.fontSize = ''; el.removeAttribute('data-eingepasst'); });
+    zahlenEinpassen();
+  }, 150);
+});
+
 /** Nach jedem Zeichnen aufräumen. Idempotent – mehrfacher Aufruf kostet fast nichts. */
 function nachRender(root = document) {
   tabellenBeschriften(root);
   chartInteraktiv(root);
+  zahlenEinpassen(root);
 }
 
 let _nrGeplant = false;
@@ -7796,6 +7830,31 @@ async function standLoeschen(s) {
     if (erg) { geloeschteStaendeUebernehmen(erg.merk); UI.toast('Stand in den Papierkorb verschoben'); }
     return true;
   } catch (e) { fehlerMelden(e); return false; }
+}
+/** Welche Königin saß an diesem Tag in welchem Volk? Map volkId → Königin, aus den Zuordnungen (historie: volkId, von, bis).
+    Für Auswertungen vergangener Jahre – die Zuordnung im Volk (koeniginId) zeigt nur den heutigen Stand. */
+function koeniginnenAmStichtag(koeniginnen, tag) {
+  const m = new Map();
+  for (const q of koeniginnen || []) {
+    for (const h of q.historie || []) {
+      if (!h || !h.volkId || !h.von || h.von > tag || (h.bis && h.bis <= tag)) continue;
+      const da = m.get(h.volkId);
+      if (!da || da.von < h.von) m.set(h.volkId, { q, von: h.von });   // zwei offene Zuordnungen: die jüngere gilt
+    }
+  }
+  return new Map([...m].map(([id, x]) => [id, x.q]));
+}
+/** Völker, die beim Löschen dieses Stands ihre Zuordnung verloren haben und seitdem ohne Stand sind: zurück an den Stand,
+    mit datiertem Historie-Eintrag (für „Stand am Stichtag“). Wer inzwischen umgezogen oder aufgelöst ist, bleibt, wie er ist. */
+function standVoelkerWiederPlan(voelker, st) {
+  const heute = U.todayIso();
+  return (voelker || []).filter((v) => {
+    if (v.standId || v.status !== 'aktiv') return false;
+    const wechsel = (v.historie || []).filter((h) => h && 'standNach' in h);
+    const letzter = wechsel[wechsel.length - 1];
+    return !!letzter && letzter.standVon === st.id && !letzter.standNach;
+  }).map((v) => ({ store: 'voelker', obj: { ...v, standId: st.id,
+    historie: [...(v.historie || []), { datum: heute, text: `Stand „${st.name}“ wiederhergestellt – Volk wieder am Stand`, standVon: null, standNach: st.id }] } }));
 }
 /** Volk auflösen (bleibt im Archiv). Völker werden nie gelöscht – ihre Stockkarte gehört zum Bestandsbuch. */
 async function volkAufloesen(v) {
@@ -11247,7 +11306,7 @@ Views.behandlungen = {
       },
     });
     // Stand-, Funktions- und Datums-Wahl filtern die Völkerliste (gemeinsamer Helfer; Datum: Prüfung 2, 08.11.2026, R3)
-    verdrahteVolkFilter(m, voelkerAlle, { amTag: true, wanderungen });
+    const volkFilter = verdrahteVolkFilter(m, voelkerAlle, { amTag: true, wanderungen });
     const einheitEl = $('#f-einheit', m.el);
     const jeVolk = verdrahteMengeJeVolk(m, $('#f-volkIds', m.el), $('#f-menge', m.el), { einheit: () => (einheitEl ? einheitEl.value.trim() : ''), summe: $('[data-je-volk-summe]', m.el) });
     /* Stand gewählt: alle Völker dieses Stands sind vorausgewählt, abwählen geht einzeln (Julian 08.11.2026) */
@@ -11268,6 +11327,7 @@ Views.behandlungen = {
       if (!standSel.value) return;
       zeilenSichtbar().forEach((l) => { const cb = $('input[type=checkbox]', l); cb.checked = !abgewaehlt.has(cb.value); });
       jeVolk.auffrischen();
+      volkFilter.zahl();   // Zähler mit den neuen Häkchen (Großbestand-Test 09.11.2026, #1: stand „0 von 80 ausgewählt“)
     };
     standSel.addEventListener('change', vorauswahl);
     $('#f-funktion', m.el).addEventListener('change', vorauswahl);
@@ -12137,6 +12197,7 @@ function verdrahteVolkFilter(m, alleVoelker, opts = null) {
   $('[data-keine]', bar).onclick = () => { sichtbare().forEach((l) => { $('input', l).checked = false; }); FormGuard.dirty = true; zahl(); };
   filtern();
   if (ziel) leer.textContent = leer.textContent || `Der Rechner ist auf ${ziel} ${ziel === 1 ? 'Volk' : 'Völker'} gerechnet.`;
+  return { zahl };   // für Formulare, die selbst Häkchen setzen (Vorauswahl am Stand)
 }
 
 Views.fuetterung = {
@@ -13256,6 +13317,24 @@ async function verdrahteErnteVoelker(m, box, jeVolk) {
   const [alle, wanderungen] = await Promise.all([DB.getAll('voelker'), DB.getAll('wanderungen')]);
   const standSel = $('#f-zielStand', m.el), datumEl = $('#f-datum', m.el);
   let bisher = null;
+  /* „Alle auswählen“, „Keine“ und Zähler wie bei der Behandlung (Großbestand-Test 09.11.2026, #6, Mockup freigegeben):
+     vorher mussten bei 80 Völkern 70 Häkchen einzeln weg. */
+  const bar = document.createElement('div');
+  bar.className = 'flex-wrap mb8';
+  bar.innerHTML = `<button type="button" class="btn btn-ghost btn-sm" data-alle>Alle auswählen</button>
+    <button type="button" class="btn btn-ghost btn-sm" data-keine>Keine</button>
+    <span class="small muted" data-zahl></span>`;
+  box.parentNode.insertBefore(bar, box);
+  const haken = () => $$('input[type=checkbox]', box);
+  const zahl = () => {
+    const h = haken(), n = h.filter((x) => x.checked).length;
+    bar.style.display = h.length ? '' : 'none';
+    $('[data-zahl]', bar).textContent = h.length ? `${n} von ${h.length} ausgewählt` : '';
+  };
+  const alleSetzen = (an) => { haken().forEach((x) => { x.checked = an; }); FormGuard.dirty = true; jeVolk.auffrischen(); zahl(); };
+  $('[data-alle]', bar).onclick = () => alleSetzen(true);
+  $('[data-keine]', bar).onclick = () => alleSetzen(false);
+  box.addEventListener('change', zahl);
   const zeichnen = () => {
     const tag = (datumEl && datumEl.value) || U.todayIso(), standId = standSel ? standSel.value : '';
     const am = standId ? voelkerAmStandAm(alle, standId, tag, wanderungen) : [];
@@ -13265,6 +13344,7 @@ async function verdrahteErnteVoelker(m, box, jeVolk) {
     box.innerHTML = am.length ? am.map((x) => `<label class="check-line"><input type="checkbox" value="${U.esc(x.id)}" checked> <span>${U.esc(x.name)}${x.status !== 'aktiv' ? ' · nicht mehr aktiv' : ''}</span></label>`).join('')
       : `<div class="hint">${standId ? 'Am Erntetag stand an diesem Stand kein Volk. Wähle „Einzelnes Volk“, einen anderen Stand oder ein anderes Datum.' : 'Wähle zuerst den Stand.'}</div>`;
     jeVolk.auffrischen();
+    zahl();
   };
   if (standSel) standSel.addEventListener('change', zeichnen);
   if (datumEl) datumEl.addEventListener('change', zeichnen);
@@ -19800,23 +19880,53 @@ async function rechnungStornieren(id) {
 Views.rechnungen = {
   title: 'Rechnungen',
   /** opt.imFinanzen: als Reiter im Bereich „Finanzen“ – dort steht oben schon „Neue Rechnung“ (Julian 08.11.2026). */
+  _filter: null, _suche: '',
   async render(main, param, opt = {}) {
     const list = U.sortBy(await DB.getAll('rechnungen'), (r) => r.datum + (r.nummer || ''), true);
     const kontakte = await idMap('kontakte');
     const statusBadge = { entwurf: 'b-warn', festgeschrieben: 'b-ok', storniert: 'b-danger' };
-    main.innerHTML = (opt.imFinanzen ? '<div class="small muted mb12">Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export</div>'
-      : pageHead('Rechnungen', 'Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export',
-        `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Rechnung</button>`)) +
-      `<div class="card">` + (list.length ? `<div class="rows">` + seitenweise('rechnungen', list).sichtbar.map((r) => {
-        const { brutto } = rechnungSummen(r);
-        return `<button class="row" data-id="${U.esc(r.id)}">
+    /* Suche und Jahr (Großbestand-Test 09.11.2026, #7, Mockup freigegeben): bei 200+ Rechnungen fand man eine bestimmte nur
+       durch Blättern. Start mit dem laufenden Jahr, sofern es darin Rechnungen gibt; die Wahl gilt, solange die App offen ist. */
+    const V = Views.rechnungen, jahrVon = (r) => String(r.datum || '').slice(0, 4);
+    if (!V._filter) V._filter = { liste: { jahr: U.todayIso().slice(0, 4), sort: '' } };
+    const leiste = jahrFilterLeiste(V._filter, 'liste', list, jahrVon);
+    const suchText = (r) => [r.nummer || 'Entwurf', r.status, rechnungKundeName(r, kontakte), U.fmtDate(r.datum), U.fmtEur(rechnungSummen(r).brutto),
+      ...(r.positionen || []).map((p) => p.text)].filter(Boolean).join(' ').toLowerCase();
+    const index = new Map(list.map((r) => [r.id, suchText(r)]));
+    const zeile = (r) => {
+      const { brutto } = rechnungSummen(r);
+      return `<button class="row" data-id="${U.esc(r.id)}">
           <span class="r-ic">${icon('rechnung')}</span>
           <span class="r-main"><span class="r-title">${r.nummer ? U.esc(r.nummer) : 'Entwurf'} <span class="badge ${statusBadge[r.status]}">${U.esc(r.status)}</span></span>
           <span class="r-sub">${U.fmtDate(r.datum)} · ${U.esc(rechnungKundeName(r, kontakte) || 'kein Kunde')} · ${r.positionen.length} Pos.</span></span>
           <span class="r-side"><b>${U.fmtEur(brutto)}</b></span>${icon('chevR', 'chev')}</button>`;
-      }).join('') + `</div>` + seitenweise('rechnungen', list).knopf : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
+    };
+    const ergebnis = () => {
+      const w = String(V._suche || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const treffer = list.filter((r) => leiste.passt(r) && w.every((x) => index.get(r.id).includes(x)));
+      if (!treffer.length) return `<p class="small muted">${w.length ? `Nichts gefunden zu „${U.esc(V._suche.trim())}“${leiste.jahr ? ` in ${U.esc(leiste.jahrText)}` : ''}.` : `Keine Rechnung in ${U.esc(leiste.jahrText)}.`}</p>`;
+      const seite = seitenweise('rechnungen', treffer);
+      return `<div class="small muted mb8">${treffer.length === list.length ? `${U.fmtNum(list.length)} ${list.length === 1 ? 'Rechnung' : 'Rechnungen'}` : `${U.fmtNum(treffer.length)} von ${U.fmtNum(list.length)} Rechnungen`}</div>
+        <div class="rows">${seite.sichtbar.map(zeile).join('')}</div>${seite.knopf}`;
+    };
+    main.innerHTML = (opt.imFinanzen ? '<div class="small muted mb12">Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export</div>'
+      : pageHead('Rechnungen', 'Rechnungen an Kunden – mit fortlaufender Nummer und PDF-Export',
+        `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neue Rechnung</button>`)) +
+      `<div class="card">` + (list.length ? `<div class="field mb8 no-print"><input class="inp" id="re-suche" type="search" inputmode="search" autocomplete="off" placeholder="Kunde, Nummer, Artikel …" aria-label="Rechnungen durchsuchen" value="${U.esc(V._suche || '')}"></div>`
+        + leiste.html + `<div id="re-erg">${ergebnis()}</div>`
+        : emptyState('rechnung', 'Noch keine Rechnung. Positionen kannst du direkt aus dem Honigbestand übernehmen.', `<button class="btn btn-primary" id="add2">${icon('plus')} Erste Rechnung</button>`)) + `</div>`;
     bindAdd(() => Views.rechnungen.neu(), main);
-    main.addEventListener('click', (e) => { const b = e.target.closest('.row[data-id]'); if (b) navTo('rechnung/' + b.dataset.id); });
+    main.addEventListener('click', (e) => {
+      if (jahrFilterKlick(V._filter, e)) return;
+      const b = e.target.closest('.row[data-id]'); if (b) navTo('rechnung/' + b.dataset.id);
+    });
+    /* Nur die Trefferliste neu zeichnen, nie das Suchfeld – sonst klappt auf dem iPhone die Tastatur zu (wie im Lager). */
+    const sf = $('#re-suche', main);
+    if (sf) sf.oninput = () => {
+      V._suche = sf.value;
+      clearTimeout(V._sucheUhr);
+      V._sucheUhr = setTimeout(() => { const erg = $('#re-erg', main); if (erg) erg.innerHTML = ergebnis(); }, 150);
+    };
   },
   /** Neue Rechnung als Entwurf anlegen und öffnen – aus dem Reiter und vom Knopf oben in „Finanzen“ (Julian 08.11.2026). */
   async neu() {
@@ -20020,7 +20130,7 @@ Views.rechnung = {
     const inventarAlle = await DB.getAll('inventar');
     /* Positionen aus dem Lager (Julian 08.11.2026, Paket 4): Produkte, Verbrauchsmaterial, Geräte & Inventar mit Bestand.
        Der Bestand geht erst beim Festschreiben ab, das Storno bucht ihn zurück. */
-    const lagerVerf = U.sortBy(inventarAlle.filter((i) => verbrauchBestand(i) > 0), (i) => (i.bezeichnung || '').toLowerCase());
+    const lagerVerf = lagerNatuerlich(inventarAlle.filter((i) => verbrauchBestand(i) > 0));
     const lagerVk = (id) => { const i = lagerVerf.find((x) => x.id === id); return i && Number(i.verkaufspreis) > 0 ? Number(i.verkaufspreis) : null; };
     for (const i of pfandPositionen(inventarAlle.filter((x) => x.typ === 'verbrauch'))) {
       const g = gebindeGrammAus(i.gebindeG);
@@ -20042,6 +20152,9 @@ Views.rechnung = {
       ],
       async onSave(v) {
         let text = v.text, abfuellungId = null, inventarId = null, menge = Math.round(v.menge);
+        /* Ohne Regelbesteuerung ist das USt-Feld ausgeblendet – dann den passenden Satz trotzdem merken (Großbestand-Test
+           09.11.2026, #2): Vorher stand 0 %, und wer die Besteuerung danach auf „Regel“ stellte, rechnete ohne Umsatzsteuer. */
+        let satz = rechnungSteuerart(r) === 'regel' ? (+v.steuersatz || 0) : 7;
         if (v.quelle === 'lager') {
           const i = lagerVerf.find((x) => x.id === v.inventarId);
           if (!i) throw feldFehler('inventarId', 'Bitte eine Position aus dem Lager wählen.');
@@ -20053,6 +20166,7 @@ Views.rechnung = {
           const schon = U.sum(r.positionen.filter((p) => p.inventarId === i.id), (p) => Number(p.menge) || 0);
           if (schon + menge > verbrauchBestand(i) + 1e-9) throw feldFehler('menge', `Im Lager sind nur ${U.fmtNum(verbrauchBestand(i) - schon, 2)} ${verbrauchEinheit(i)} ${i.bezeichnung}.`);
           text = i.bezeichnung; inventarId = i.id;
+          if (rechnungSteuerart(r) !== 'regel') satz = lagerSteuersatz(i);
         }
         if (v.quelle === 'charge') {
           const a = verf.find((x) => x.id === v.abfuellungId);
@@ -20062,13 +20176,14 @@ Views.rechnung = {
           abfuellungId = a.id;
         }
         if (!text) throw feldFehler('text', 'Bitte eine Bezeichnung angeben.');
-        r.positionen.push({ text, abfuellungId, ...(inventarId ? { inventarId } : {}), menge, einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: +v.steuersatz || 0 });
+        r.positionen.push({ text, abfuellungId, ...(inventarId ? { inventarId } : {}), menge, einzelpreis: v.einzelpreis, pfand: Math.max(0, Number(v.pfand) || 0), steuersatz: satz });
         await rechnungEntwurfSpeichern(r, gespeichert); renderRoute();
       },
     });
     /* Wird eine Abfüllung gewählt, springt das Pfand der passenden Glassorte ins
        Feld – aber nur, solange dort nichts Eigenes steht. */
     /* Lager-Position gewählt: ihr Verkaufspreis kommt als Einzelpreis ins Feld (änderbar). */
+    auswahlMitSuche(m, 'inventarId', { platzhalter: 'Im Lager suchen …', suchtext: (id) => { const i = lagerVerf.find((x) => x.id === id); return i ? [i.bezeichnung, i.kategorie, i.notiz, LAGER_TYP_NAME[inventarTyp(i)]].filter(Boolean).join(' ') : ''; } });
     const invFeld = $('#f-inventarId', m.el), quelleFeld = $('#f-quelle', m.el), preisFeld = $('#f-einzelpreis', m.el);
     const lagerPreisSetzen = () => {
       if (!invFeld || !preisFeld || (quelleFeld && quelleFeld.value !== 'lager')) return;
@@ -20635,7 +20750,7 @@ async function renderInventarBereich(main, cfg) {
   if (sfeld) {
     sfeld.oninput = () => {
       view._suche = sfeld.value;
-      if (cfg.imLager) Views.lager._suche = sfeld.value;   // eine Suche für alle Lager-Reiter (Julian 08.11.2026)
+      if (cfg.imLager) { Views.lager._suche = sfeld.value; Views.lager._zuletzt = ''; }   // eine Suche für alle Lager-Reiter (Julian 08.11.2026); neue Suche: ihr erster Treffer gilt beim Verkaufen (Prüfung 09.11.2026)
       clearTimeout(view._sucheTimer);
       view._sucheTimer = setTimeout(() => {
         suchtext = (view._suche || '').trim().toLowerCase();
@@ -20692,7 +20807,9 @@ Views.lager = {
     }
     if (!LAGER_REITER.some(([id]) => id === this._tab)) this._tab = 'alle';
     const tab = this._tab;
-    const alle = U.sortBy(await DB.getAll('inventar'), (i) => (i.bezeichnung || '').toLowerCase());
+    /* Zahlen im Namen der Größe nach: „Nr. 2“ vor „Nr. 16“ vor „Nr. 111“ (Großbestand-Probe 08.11.2026: vorher Nr. 1, 111, 112, 16) */
+    const natuerlich = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
+    const alle = (await DB.getAll('inventar')).sort((a, b) => natuerlich.compare(a.bezeichnung || '', b.bezeichnung || ''));
     const zahl = (typ) => (typ === 'alle' ? alle.length : alle.filter((i) => inventarTyp(i) === typ).length);
     main.innerHTML = pageHead('Lager', 'Produkte, Verbrauchsmaterial, Geräte & Inventar an einem Ort',
       `<button class="btn btn-primary btn-sm no-print" type="button" data-lager-verkaufen>${icon('euro')} Verkaufen</button>`)
@@ -20701,7 +20818,7 @@ Views.lager = {
       + '<div id="lager-inhalt"></div>';
     bereichsReiter(main, LAGER_REITER.map(([id, label]) => ({ id, label: `${label} (${zahl(id)})` })), tab,
       (t) => { Views.lager._tab = t; return renderRoute(); }, { name: 'lager' });
-    main.addEventListener('click', (e) => { if (e.target.closest('[data-lager-verkaufen]')) lagerVerkaufForm(); });
+    main.addEventListener('click', (e) => { if (e.target.closest('[data-lager-verkaufen]')) lagerVerkaufForm(Views.lager._zuletzt || '', Views.lager._suche || '', Views.lager._tab); });
     const box = $('#lager-inhalt', main);
     const sfeld = $('#lager-suche', main);
     if (tab !== 'alle') {
@@ -20744,12 +20861,14 @@ Views.lager = {
       if (!r) return;
       const cfg = bereichCfg(r.dataset.lagerTyp);
       cfg.view._oeffne = r.dataset.lagerPos;
+      Views.lager._zuletzt = r.dataset.lagerPos;   // „Verkaufen“ wählt sie dann gleich vor (Großbestand-Test 09.11.2026, #3)
       Views.lager._tab = r.dataset.lagerTyp;
       renderRoute();
     });
     /* Nur die Trefferliste neu zeichnen, nie das Suchfeld – sonst klappt auf dem iPhone die Tastatur zu (wie im Inventar). */
     if (sfeld) sfeld.oninput = () => {
       Views.lager._suche = sfeld.value;
+      Views.lager._zuletzt = '';   // neue Suche: deren erster Treffer gilt beim Verkaufen
       clearTimeout(Views.lager._sucheTimer);
       Views.lager._sucheTimer = setTimeout(() => { const erg = $('#lager-erg', box); if (erg) erg.innerHTML = ergebnis(); }, 150);
     };
@@ -20799,13 +20918,73 @@ async function lagerVerkaufBuchen({ inventarId, menge, preis, datum = U.todayIso
 }
 
 /** „Verkaufen“ im Lager (Mockup 1): Position wählen, Menge, Preis (aus dem Verkaufspreis vorbelegt, änderbar). */
-async function lagerVerkaufForm(vorId = '') {
+/** Lange Auswahl (Lager mit 200+ Positionen) als Suchfeld mit Trefferliste statt Klappliste (Großbestand-Test 09.11.2026, #3,
+    Mockup freigegeben). Die <select> bleibt als Wertträger im Formular, nur versteckt – Speichern, showIf und Fehlermeldungen
+    laufen wie bisher. Sichtbar sind höchstens `zeigen` Treffer, der gewählte steht immer dabei; passt der gewählte nicht mehr
+    zur Suche, gilt der erste Treffer (gewählt ist, was man sieht). Ohne Treffer ist nichts gewählt, Speichern meldet das.
+    suchtext(v) liefert, worin gesucht wird (Vorgabe: die Beschriftung). Kurze Listen bleiben Klappliste. */
+function auswahlMitSuche(m, key, { suche = '', suchtext = null, platzhalter = 'Suchen …', zeigen = 8 } = {}) {
+  const sel = $(`#f-${key}`, m.el);
+  if (!sel) return null;
+  const eintraege = [...sel.options].filter((o) => o.value).map((o) => ({ v: o.value, l: o.textContent, such: String(suchtext ? suchtext(o.value) : o.textContent).toLowerCase() }));
+  if (eintraege.length <= zeigen) return null;
+  const feld = document.createElement('input');
+  Object.assign(feld, { type: 'search', className: 'inp', placeholder: platzhalter, value: suche, autocomplete: 'off' });
+  feld.setAttribute('inputmode', 'search'); feld.setAttribute('aria-label', platzhalter); feld.dataset.auswahlSuche = key;
+  const liste = document.createElement('div');
+  liste.className = 'rows auswahl-liste'; liste.setAttribute('role', 'listbox');
+  sel.style.display = 'none';
+  sel.parentNode.insertBefore(feld, sel);
+  sel.parentNode.insertBefore(liste, sel);
+  const trifft = (e) => String(feld.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean).every((w) => e.such.includes(w));
+  const malen = (vomNutzer) => {
+    const t = eintraege.filter(trifft);
+    if (!t.some((e) => e.v === sel.value) && (vomNutzer || sel.value)) {
+      const neu = t.length ? t[0].v : '';
+      if (sel.value !== neu) { sel.value = neu; if (vomNutzer) sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    }
+    const gew = t.find((e) => e.v === sel.value);
+    const sicht = t.slice(0, zeigen);
+    if (gew && !sicht.includes(gew)) sicht.splice(zeigen - 1, 1), sicht.unshift(gew);
+    const teile = (l) => { const i = l.indexOf(' · '); return i < 0 ? [l, ''] : [l.slice(0, i), l.slice(i + 3)]; };
+    liste.innerHTML = sicht.map((e) => { const [a, b] = teile(e.l); return `<button type="button" class="row${e === gew ? ' gewaehlt' : ''}" role="option" aria-selected="${e === gew}" data-wahl="${U.esc(e.v)}">
+      <span class="r-main"><span class="r-title">${U.esc(a)}</span>${b ? `<span class="r-sub">${U.esc(b)}</span>` : ''}</span>${e === gew ? icon('check') : ''}</button>`; }).join('')
+      + (!t.length ? `<div class="small muted auswahl-mehr">Nichts gefunden zu „${U.esc(feld.value.trim())}“.</div>`
+        : t.length > sicht.length ? `<div class="small muted auswahl-mehr">… und ${U.fmtNum(t.length - sicht.length)} weitere – genauer suchen</div>` : '');
+  };
+  let uhr = 0;
+  feld.addEventListener('input', () => { clearTimeout(uhr); uhr = setTimeout(() => malen(true), 120); });
+  feld.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });   // Enter speichert nicht versehentlich
+  liste.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-wahl]'); if (!b) return;
+    if (sel.value !== b.dataset.wahl) { sel.value = b.dataset.wahl; sel.dispatchEvent(new Event('change', { bubbles: true })); }
+    malen(false);
+  });
+  malen(false);
+  return { feld, liste, malen };
+}
+/** Positionen natürlich sortiert: „Nr. 2“ vor „Nr. 16“ vor „Nr. 111“ (wie die Lager-Liste). */
+const NATUERLICH = new Intl.Collator('de', { numeric: true, sensitivity: 'base' });
+function lagerNatuerlich(liste) { return [...liste].sort((a, b) => NATUERLICH.compare(a.bezeichnung || '', b.bezeichnung || '')); }
+
+async function lagerVerkaufForm(vorId = '', suche = '', reiter = '') {
   if (Lizenz.nurVoll('Lager und Material')) return;
-  const posten = U.sortBy(await DB.getAll('inventar'), (i) => (i.bezeichnung || '').toLowerCase());
+  const posten = lagerNatuerlich(await DB.getAll('inventar'));
   if (!posten.length) { UI.toast('Im Lager ist noch nichts, was du verkaufen kannst.', 'err'); return null; }
+  // Gesucht wird wie in der Lager-Liste: auch nach Stand oder Volk der Position (Prüfung 09.11.2026)
+  const [staendeM, voelkerM] = await Promise.all([idMap('staende'), idMap('voelker')]);
+  const suchtext = (id) => { const i = posten.find((x) => x.id === id); return i ? [i.bezeichnung, i.kategorie, i.notiz, LAGER_TYP_NAME[inventarTyp(i)],
+    standNameAnzeige(i.standId, staendeM) || voelkerM.get(i.volkId)?.name].filter(Boolean).join(' ') : ''; };
   const kunden = U.sortBy(await DB.getAll('kontakte'), (k) => (k.name || '').toLowerCase());
   const vk = (id) => { const p = posten.find((i) => i.id === id); return p && Number(p.verkaufspreis) > 0 ? p.verkaufspreis : ''; };
-  const start = vorId && posten.some((i) => i.id === vorId) ? vorId : posten[0].id;
+  /* Vorauswahl (Großbestand-Test 09.11.2026, #3): die zuletzt angetippte Position, sonst der erste Treffer der Lager-Suche */
+  if (vorId && posten.some((i) => i.id === vorId)) suche = '';
+  else { vorId = ''; suche = String(suche || '').trim(); }
+  let passend = posten.filter((i) => positionTrifft({ bezeichnung: suchtext(i.id) }, suche));
+  // im Reiter „Verbrauchsmaterial“ usw.: zuerst die Treffer dieses Reiters
+  if (reiter && reiter !== 'alle' && passend.some((i) => inventarTyp(i) === reiter)) passend = [...passend.filter((i) => inventarTyp(i) === reiter), ...passend.filter((i) => inventarTyp(i) !== reiter)];
+  if (!passend.length) suche = '';
+  const start = vorId || (passend[0] || posten[0]).id;
   const m = UI.formModal({
     title: 'Verkaufen · Lager',
     fields: [
@@ -20831,6 +21010,7 @@ async function lagerVerkaufForm(vorId = '') {
     },
   });
   verdrahteKontaktNeu(m, 'kontaktId', kunden, { typ: 'kunde', label: 'Neuen Kunden anlegen' });
+  auswahlMitSuche(m, 'inventarId', { suche, suchtext, platzhalter: 'Suchen, z. B. Neutralglas …' });
   const feld = (k) => $(`#f-${k}`, m.el);
   const info = $('[data-lager-verkauf-info]', m.el);
   const zeige = () => {
@@ -25116,8 +25296,12 @@ const Export = {
     const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
     const st = { bereich: bereiche.includes(vor.bereich) ? vor.bereich : 'voelker', volkId: vor.volk || '', standId: vor.stand || '', jahr: vor.jahr ?? null };
     const male = async () => {
-      st.volk = this.VOLK[st.bereich] ? voelker.find((v) => v.id === st.volkId) || null : null;
       st.stand = this.STAND[st.bereich] ? staende.find((x) => x.id === st.standId) || null : null;
+      /* Völker vom Stand aus (Großbestand-Test 09.11.2026, #11): Vorher standen alle Völker zur Wahl und die Stand-Wahl fehlte –
+         jetzt nur die Völker dieses Stands, und der Stand bleibt wählbar. */
+      const wahlVoelker = st.stand && this.VOLK[st.bereich] ? voelker.filter((v) => v.standId === st.stand.id) : voelker;
+      if (st.volkId && !wahlVoelker.some((v) => v.id === st.volkId)) st.volkId = '';
+      st.volk = this.VOLK[st.bereich] ? voelker.find((v) => v.id === st.volkId) || null : null;
       st.akte = st.bereich === 'voelker' && !!st.volk;
       const ohneJahr = this.STAMM.includes(st.bereich) && !st.akte;
       const jahre = ohneJahr ? [] : await this.jahre(st);
@@ -25130,8 +25314,8 @@ const Export = {
       const chip = (v, l) => `<button type="button" class="chip ${st.jahr === v ? 'active' : ''}" data-exjahr="${U.esc(v)}">${U.esc(l)}</button>`;
       host.innerHTML = `
         <div class="field"><label>Bereich</label><select class="inp" data-ex="bereich">${bereiche.map((k) => `<option value="${k}" ${k === st.bereich ? 'selected' : ''}>${U.esc(defs[k].blatt)}</option>`).join('')}</select></div>
-        ${this.VOLK[st.bereich] ? `<div class="field"><label>Volk</label><select class="inp" data-ex="volk"><option value="">${st.bereich === 'voelker' ? 'Alle Völker (Liste)' : 'Alle Völker'}</option>${voelker.map((v) => `<option value="${U.esc(v.id)}" ${v.id === st.volkId ? 'selected' : ''}>${U.esc(v.name)}${v.status !== 'aktiv' ? ' (aufgelöst)' : ''}</option>`).join('')}</select></div>` : ''}
-        ${this.STAND[st.bereich] && !this.VOLK[st.bereich] ? `<div class="field"><label>Stand</label><select class="inp" data-ex="stand"><option value="">Alle Stände</option>${staende.map((x) => `<option value="${U.esc(x.id)}" ${x.id === st.standId ? 'selected' : ''}>${U.esc(x.name)}</option>`).join('')}</select></div>` : ''}
+        ${this.STAND[st.bereich] ? `<div class="field"><label>Stand</label><select class="inp" data-ex="stand"><option value="">Alle Stände</option>${staende.map((x) => `<option value="${U.esc(x.id)}" ${x.id === st.standId ? 'selected' : ''}>${U.esc(x.name)}</option>`).join('')}</select></div>` : ''}
+        ${this.VOLK[st.bereich] ? `<div class="field"><label>Volk</label><select class="inp" data-ex="volk"><option value="">${st.stand ? 'Alle Völker des Stands' : 'Alle Völker'}${st.bereich === 'voelker' ? ' (Liste)' : ''}</option>${wahlVoelker.map((v) => `<option value="${U.esc(v.id)}" ${v.id === st.volkId ? 'selected' : ''}>${U.esc(v.name)}${v.status !== 'aktiv' ? ' (aufgelöst)' : ''}</option>`).join('')}</select></div>` : ''}
         ${ohneJahr ? '<div class="small muted mb12">Stammdaten – ohne Jahr, immer der aktuelle Stand.</div>'
           : jahre.length ? `<div class="small muted mb4">Jahr</div><div class="chip-row mb12">${jahre.map((j) => chip(j, j)).join('')}${chip('', 'Alle Jahre')}</div>`
           : '<div class="small muted mb12">Noch keine Einträge mit Datum.</div>'}
@@ -25294,9 +25478,11 @@ Views.meldungen = {
   title: 'Unterlagen',
   _kat: 'amt', _jahr: null, _suche: '',
   async jahre() {
-    const j = new Set([U.todayIso().slice(0, 4)]);
+    const heute = U.todayIso().slice(0, 4), j = new Set([heute]);
+    /* Nur bis zum laufenden Jahr (Großbestand-Test 09.11.2026, #12): Eine Aufgabe, die 2027 fällig ist, bot 2027 an – der
+       Jahresbericht dafür zeigte dann einen Völkerverlauf, den es noch gar nicht gibt. */
     for (const store of ['stockkarten', 'behandlungen', 'fuetterungen', 'ernten', 'kassenbuch', 'fahrten', 'verkaeufe', 'honigabgaenge', 'wanderungen', 'varroa', 'chargen', 'rechnungen', 'materialabgaenge', 'aufgaben']) {
-      for (const r of await DB.getAll(store)) { const y = Export.datumVon(store, r).slice(0, 4); if (/^\d{4}$/.test(y)) j.add(y); }
+      for (const r of await DB.getAll(store)) { const y = Export.datumVon(store, r).slice(0, 4); if (/^\d{4}$/.test(y) && y <= heute) j.add(y); }
     }
     return [...j].sort().reverse();
   },
@@ -25857,7 +26043,7 @@ const Statistik = {
     // Der Vorjahreswert hat die Einheit des Werts selbst: „Vorjahr 6 %“, nicht „Vorjahr 6 Prozentpunkte“ (PDF-Prüfung 21.10.2026)
     return { text: `${pfeil} ${teil}`, alt: `${U.fmtNum(alt, dez)}${altEinheit ? ' ' + altEinheit : ''}`, richtung };
   },
-  kachel(label, wert, sub, v) { return { label, wert, sub: sub || '', vergleich: v || null }; },
+  kachel(label, wert, sub, v, wort = false) { return { label, wert, sub: sub || '', vergleich: v || null, wort }; },
   volkLink: (v) => (v ? '#/volk/' + v.id : ''),
   /* pruef: Datumsprüfung wie bei honigKg (imJ bzw. imV). Vorher ein Jahr – das Vorjahr zählte dann ganz, auch im
      laufenden Jahr statt nur bis zum selben Kalendertag (Fund 04.11.2026, #13). Wabenhonig zählt mit (#12). */
@@ -25973,9 +26159,13 @@ const Statistik = {
       const w = winter(+j), wv = winter(+j - 1);
       if (w && (!laufend || monat >= 5)) kacheln.push(this.kachel('Winterverluste', `${U.fmtNum(w.anteil, 0)} %`, `${w.n} von ${w.von} Völkern`, wv ? this.vergleich(w.anteil, wv.anteil, { einheit: 'Prozentpunkte', altEinheit: '%', gut: 'runter', prozent: false }) : null));
       const qMap = new Map(d.koeniginnen.map((q) => [q.id, q]));
-      const mitQ = aktiv.filter((v) => qMap.get(v.koeniginId) && qMap.get(v.koeniginId).jahrgang);
+      /* Die Königin, die am Stichtag im Volk saß (Großbestand-Test 09.11.2026, #5): Vorher zählte die HEUTIGE Königin – für
+         2024 kam so „−0,6 Jahre“ heraus, weil eine 2025 geborene Königin mitzählte. */
+      const qAmTag = koeniginnenAmStichtag(d.koeniginnen, this.stichtag(j));
+      const qVon = (v) => { const q = qAmTag.has(v.id) ? qAmTag.get(v.id) : (laufend ? qMap.get(v.koeniginId) : null); return q && q.jahrgang && +q.jahrgang <= +j ? q : null; };
+      const mitQ = aktiv.filter(qVon);
       if (mitQ.length) {
-        const alter = U.sum(mitQ, (v) => +j - qMap.get(v.koeniginId).jahrgang) / mitQ.length;
+        const alter = U.sum(mitQ, (v) => +j - qVon(v).jahrgang) / mitQ.length;
         kacheln.push(this.kachel('Ø Alter der Königinnen', `${U.fmtNum(alter, 1)} Jahre`, `${mitQ.length} Völker mit Königin`));
       }
       if (laufend) {
@@ -26002,14 +26192,14 @@ const Statistik = {
       if (mitW.length) kacheln.push(this.kachel('Wassergehalt Ø', `${U.fmtNum(U.sum(mitW, (e) => Number(e.wassergehalt)) / mitW.length, 1)} %`, feucht.length ? `${feucht.length} ${feucht.length === 1 ? 'Ernte' : 'Ernten'} über 18 %` : 'alle bis 18 %'));
       const sorten = new Map(); for (const e of d.ernten) if (imJ(e.datum) && istHonigErnte(e)) sorten.set(e.sorte || 'ohne Sorte', (sorten.get(e.sorte || 'ohne Sorte') || 0) + (Number(e.mengeKg) || 0));
       const top = [...sorten.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (top && kg > 0) kacheln.push(this.kachel('Stärkste Sorte', top[0], `${U.fmtNum(top[1] / kg * 100, 0)} % der Menge`));
+      if (top && kg > 0) kacheln.push(this.kachel('Stärkste Sorte', top[0], `${U.fmtNum(top[1] / kg * 100, 0)} % der Menge`, null, true));
       // Ertrag je Tracht (v2.83): gleiche Pflanze über die Jahre zusammen („Raps 2025“ = „Raps“)
       const trM = new Map((d.trachten || []).map((t) => [t.id, t]));
       const jeTr = (pruef) => { const m = new Map(); for (const e of d.ernten) { const t = trM.get(e.trachtId); if (!t || !pruef(e.datum) || !istHonigErnte(e)) continue; const k = Tracht.schluessel(t); m.set(k, (m.get(k) || 0) + (Number(e.mengeKg) || 0)); } return m; };
       const trJ = jeTr(imJ), trV = jeTr(imV);
       const topT = [...trJ.entries()].sort((a, b) => b[1] - a[1])[0];
       if (topT && kg > 0) {
-        kacheln.push(this.kachel('Stärkste Tracht', topT[0], `${U.fmtNum(topT[1], 1)} kg · ${U.fmtNum(topT[1] / kg * 100, 0)} % der Menge`, this.vergleich(topT[1], trV.has(topT[0]) ? trV.get(topT[0]) : null, { einheit: 'kg', dez: 1 })));
+        kacheln.push(this.kachel('Stärkste Tracht', topT[0], `${U.fmtNum(topT[1], 1)} kg · ${U.fmtNum(topT[1] / kg * 100, 0)} % der Menge`, this.vergleich(topT[1], trV.has(topT[0]) ? trV.get(topT[0]) : null, { einheit: 'kg', dez: 1 }), true));
         // gleiche Pflanze wie die stärkste Sorte: nur die Tracht-Kachel (sie hat den Vorjahresvergleich)
         const i = kacheln.findIndex((k) => k.label === 'Stärkste Sorte' && Bluehzeit.pflanze(k.wert) && Bluehzeit.pflanze(k.wert).name === topT[0]);
         if (i >= 0) kacheln.splice(i, 1);
@@ -26052,7 +26242,7 @@ const Statistik = {
       kacheln.push(this.kachel('Behandlungen', String(b.length), laufend ? 'bis heute' : '', this.vergleich(b.length, bV.length, { prozent: false, gut: '' })));
       const mittel = new Map(); for (const x of b) mittel.set(x.mittel || '?', (mittel.get(x.mittel || '?') || 0) + 1);
       const top = [...mittel.entries()].sort((a, c) => c[1] - a[1])[0];
-      if (top) kacheln.push(this.kachel('Häufigstes Mittel', top[0], `${top[1]}× angewendet`));
+      if (top) kacheln.push(this.kachel('Häufigstes Mittel', top[0], `${top[1]}× angewendet`, null, true));
       const v = d.varroa.filter((x) => imJ(x.datum)), vV = d.varroa.filter((x) => imV(x.datum));
       kacheln.push(this.kachel('Varroa-Kontrollen', String(v.length), '', this.vergleich(v.length, vV.length, { prozent: false })));
       // letzter Befund je Volk im Jahr
@@ -26086,7 +26276,7 @@ const Statistik = {
       const kat = (pruef) => { const m = new Map(); for (const k of d.kassenbuch) if (k.typ === 'ausgabe' && pruef(k.datum)) m.set(k.kategorie || 'Sonstiges', (m.get(k.kategorie || 'Sonstiges') || 0) + (Number(k.betrag) || 0)); return m; };
       const kJ = kat(imJ), kV = kat(imV);
       const top = [...kJ.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (top && aus > 0) kacheln.push(this.kachel('Größter Kostenblock', top[0], `${U.fmtEur(top[1])} · ${U.fmtNum(top[1] / aus * 100, 0)} %`));
+      if (top && aus > 0) kacheln.push(this.kachel('Größter Kostenblock', top[0], `${U.fmtEur(top[1])} · ${U.fmtNum(top[1] / aus * 100, 0)} %`, null, true));
       for (const [k, x] of kJ) { const alt = kV.get(k) || 0; if (x > 50 && x > alt * 1.5 && alt > 0) auff.push({ art: 'w', titel: `${k}: ${U.fmtEur(x)}`, text: `${U.fmtNum((x / alt - 1) * 100, 0)} % mehr als im Vorjahr (${U.fmtEur(alt)}).`, href: '#/finanzen/kassenbuch' }); }
       if (ein - aus < 0 && (ein > 0 || aus > 0)) auff.push({ art: 'x', titel: `Verlust ${U.fmtEur(ein - aus)}`, text: 'Die Ausgaben sind höher als die Einnahmen – Preise und größte Kostenblöcke prüfen.', href: '#/finanzen/kassenbuch' });
       if (ein > 0 && ein - aus > 0 && einV > 0 && ein - aus > (einV - ausV) * 1.2 && einV - ausV > 0) auff.push({ art: 'o', titel: `Gewinn gestiegen`, text: `${U.fmtEur(ein - aus)} statt ${U.fmtEur(einV - ausV)} im Vorjahr.`, href: '#/finanzen/kassenbuch' });
@@ -26112,7 +26302,7 @@ const Statistik = {
     const sym = { o: '▲', x: '▼', w: '!', i: 'i' };
     return `<div class="card st-blick"><div class="card-title">${icon('chart')}<h2>Auf einen Blick · ${U.esc(j)}</h2></div>
       <div class="small muted mb12">Verglichen mit ${+j - 1}${j === U.todayIso().slice(0, 4) ? ' bis zum selben Kalendertag' : ''}</div>
-      <div class="st-kacheln">${erg.kacheln.map((k) => `<div class="stat st-k"><div class="s-label">${U.esc(k.label)}</div><div class="s-value${/\d/.test(k.wert) ? '' : ' st-wort'}">${U.esc(k.wert)}</div>${k.sub ? `<div class="s-sub">${U.esc(k.sub)}</div>` : ''}${vgl(k.vergleich)}</div>`).join('')}</div>
+      <div class="st-kacheln">${erg.kacheln.map((k) => `<div class="stat st-k"><div class="s-label">${U.esc(k.label)}</div><div class="s-value${!k.wort && /^[-−+]?\d/.test(k.wert) ? '' : ' st-wort'}">${U.esc(k.wert)}</div>${k.sub ? `<div class="s-sub">${U.esc(k.sub)}</div>` : ''}${vgl(k.vergleich)}</div>`).join('')}</div>
       ${erg.auffaellig.length ? `<h3 class="mt16 mb8">Auffällig</h3><div class="st-auff">${erg.auffaellig.map((a) => `<${a.href ? `a href="${U.esc(a.href)}"` : 'div'} class="st-a"><span class="st-sym st-${a.art}">${sym[a.art] || 'i'}</span><span class="st-text"><b>${U.esc(a.titel)}</b>${U.esc(a.text)}</span>${a.href ? '<span class="st-pfeil">›</span>' : ''}</${a.href ? 'a' : 'div'}>`).join('')}</div>`
         : '<div class="small muted mt12">Nichts Auffälliges – alles im üblichen Rahmen.</div>'}</div>`;
   },
@@ -28944,7 +29134,7 @@ const Pdf = {
       const imk = S.get('imkerei');
       const { doc, y } = await this.newDoc(`Aufzeichnung über angewendete Arzneimittel${jahr ? ' ' + jahr : ''}`, `Betrieb: ${imk.name || '–'} · ${regNrLabel(imk)}: ${imk.registriernummer || '–'}`, { quer: true });
       const body = list.map((b) => [U.fmtDate(b.datum), (b.zielTyp === 'volk' ? Pdf._ziel('Volk', voelker.get(b.zielId)?.name) : Pdf._ziel('Stand', standNameAnzeige(b.zielId, staende))), b.mittel, `${U.fmtNum(b.menge, 6)} ${b.einheit || ''}`, b.anwendungsart || '', b.behandlungBis ? U.fmtDate(b.behandlungBis) : '', wartezeitText(b), b.lieferant || '', b.behandelndePerson || '', b.tierarzt || '', b.kaufbeleg ? 'ja' : '', b.notiz || '']);
-      this.table(doc, { head: ['Datum', 'Bienenvolk/Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Behandlung bis', 'Wartezeit', 'Lieferant', 'Behandelnde Person', 'Tierarzt', 'Kaufbeleg vorhanden', 'Bemerkung/Charge'], body, startY: y });
+      this.table(doc, { head: ['Datum', 'Bienenvolk / Stand', 'Arzneimittel', 'Menge', 'Anwendungsart', 'Behandlung bis', 'Wartezeit', 'Lieferant', 'Behandelnde Person', 'Tierarzt', 'Kaufbeleg vorhanden', 'Bemerkung / Charge'], body, startY: y });
       this.finish(doc, `bestandsbuch-${jahr || 'alle-jahre'}-${U.todayIso()}.pdf`, { vorlage: true });
     } catch (e) { UI.toast('PDF fehlgeschlagen: ' + e.message, 'err'); }
   },
@@ -31222,7 +31412,7 @@ APP_WISSEN.push({ id: 'imme-aus', persona: true, titel: 'Imme ausschalten oder w
 APP_WISSEN.push(
   { id: 'volk-aufloesen', titel: 'Volk auflösen, löschen oder als eingegangen eintragen', route: 'voelker', zeige: '',
     stichw: ['volk aufloesen', 'volk loeschen', 'volk entfernen', 'volk ist tot', 'volk eingegangen', 'volk ausgewintert', 'volk verloren', 'volk gestorben', 'volk aufgeben', 'volk weg', 'volk abgestorben', 'verlust', 'winterverlust', 'volk existiert nicht mehr', 'volk raus', 'toter stock', 'nicht ueberlebt', 'volk hat nicht ueberlebt', 'ueberlebt', 'verendet', 'ausgestorben', 'leer', 'volk leer', 'volk ist leer', 'keine bienen mehr', 'volk tot', 'abgang', 'verlust volk'],
-    antwort: 'Ist ein Volk eingegangen oder aufgegeben, öffnest du es und tippst auf „Auflösen“. Es verschwindet aus den aktiven Völkern und steht danach im „Archiv“ der Völkerliste, seine Durchsichten und Behandlungen bleiben erhalten. Ganz entfernen: „Bearbeiten“ und löschen – es landet im Papierkorb.',
+    antwort: 'Ist ein Volk eingegangen oder aufgegeben, öffnest du es und tippst auf „Auflösen“. Es verschwindet aus den aktiven Völkern und steht danach im „Archiv“ der Völkerliste, seine Durchsichten und Behandlungen bleiben erhalten. Ganz löschen lässt sich ein Volk nicht: Seine Stockkarte gehört zum Bestandsbuch und muss aufbewahrt werden.',
     schritte: ['Menü ▸ Völker, das Volk antippen', '„Auflösen“ antippen', 'Grund bestätigen'] },
   { id: 'volk-vereinigen', titel: 'Zwei Völker vereinigen', route: 'voelker', zeige: '',
     stichw: ['voelker vereinigen', 'volk vereinigen', 'zusammenlegen', 'zwei voelker zusammen', 'volk zusammenfuegen', 'schwaches volk verstaerken', 'volk mit anderem vereinen', 'voelker zusammenlegen', 'zusammensetzen', 'zwei voelker zu einem', 'voelker zu einem machen', 'zu einem volk', 'vereinigung', 'zeitungspapier'],

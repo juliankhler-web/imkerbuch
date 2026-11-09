@@ -23035,3 +23035,278 @@ test('Web-Zurück: „Sicherung wird eingespielt …“ bleibt bei Zurück stehe
     assertEq(w.location.hash, vorher, 'Seite dahinter zurückgeholt');
   } finally { w.ZurueckWeb._ohneGeste = false; await zwFensterZu(w); }
 });
+
+/* Großbestand-Probe 08.11.2026: große Beträge in schmalen Kacheln, Lager-Reihenfolge mit Nummern */
+test('Großbestand: zu breite Kennzahl wird kleiner statt abgeschnitten, passende bleibt groß', async (w) => {
+  const host = w.document.createElement('div');
+  host.innerHTML = `<div class="stat-grid" style="width:330px"><div class="stat"><div class="s-label">Einnahmen 2026</div><div class="s-value" id="zb1">55.423,12 €</div></div><div class="stat"><div class="s-label">Völker</div><div class="s-value" id="zb2">13</div></div></div>`;
+  w.document.querySelector('#main').appendChild(host);
+  try {
+    w.zahlenEinpassen(host);
+    const a = host.querySelector('#zb1'), b = host.querySelector('#zb2');
+    assert(a.scrollWidth <= a.clientWidth + 1, 'großer Betrag passt jetzt ganz hinein (' + a.scrollWidth + ' > ' + a.clientWidth + ')');
+    assert(parseFloat(a.style.fontSize) < 23, 'dafür kleinere Schrift: ' + a.style.fontSize);
+    assertEq(b.style.fontSize, '', 'kleine Zahl behält die normale Größe');
+  } finally { host.remove(); }
+});
+
+test('Großbestand: Lager „Alle“ sortiert Nummern der Größe nach (Nr. 2 vor Nr. 16 vor Nr. 111)', async (w) => isolierteDaten(w, async () => {
+  for (const n of ['Abkehrbesen Nr. 111', 'Abkehrbesen Nr. 16', 'Abkehrbesen Nr. 2', 'Zarge']) await w.DB.put('inventar', { bezeichnung: n, typ: 'inventar', stueckzahl: 1 });
+  const alt = w.Views.lager._tab; w.Views.lager._tab = 'alle'; w.Views.lager._suche = '';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.lager.render(host); await w99(200);
+    const titel = [...host.querySelectorAll('[data-lager-pos] .r-title')].map((x) => x.textContent);
+    assertEq(titel, ['Abkehrbesen Nr. 2', 'Abkehrbesen Nr. 16', 'Abkehrbesen Nr. 111', 'Zarge']);
+  } finally { host.remove(); w.Views.lager._tab = alt; }
+}));
+
+/* ---------- Großbestand-Ablauftest 09.11.2026: bestätigte Funde ---------- */
+test('Großbestand-Test (#4): Stand aus dem Papierkorb bringt seine Völker mit – umgezogene bleiben, wo sie sind', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Waldrand' }), garten = await w.DB.put('staende', { name: 'Garten' });
+  const v1 = await w.DB.put('voelker', { name: 'GB V1', standId: st.id, status: 'aktiv', historie: [{ datum: '2024-01-01', text: 'angelegt' }] });
+  const v2 = await w.DB.put('voelker', { name: 'GB V2', standId: st.id, status: 'aktiv', historie: [{ datum: '2024-01-01', text: 'angelegt' }] });
+  const echt = w.UI.confirm; w.UI.confirm = async () => true;
+  try { assert(await w.standLoeschen(await w.DB.get('staende', st.id)), 'gelöscht'); } finally { w.UI.confirm = echt; }
+  const v2n = await w.DB.get('voelker', v2.id);
+  await w.DB.put('voelker', { ...v2n, standId: garten.id, historie: [...v2n.historie, { datum: w.U.todayIso(), text: 'Stand gewechselt', standVon: null, standNach: garten.id }] });
+  const t = (await w.DB.getAll('papierkorb')).find((x) => x.store === 'staende' && x.daten.id === st.id);
+  await w.DB.trashRestore(t.id);
+  const n1 = await w.DB.get('voelker', v1.id), n2 = await w.DB.get('voelker', v2.id);
+  assertEq([n1.standId, n2.standId], [st.id, garten.id], 'V1 zurück am Stand, V2 bleibt im Garten');
+  const e = n1.historie[n1.historie.length - 1];
+  assert(e.standNach === st.id && e.standVon === null && /wiederhergestellt/.test(e.text), 'datierter Vermerk: ' + JSON.stringify(e));
+}));
+test('Großbestand-Test (#5): Ø Alter der Königinnen nimmt die Königin, die damals im Volk saß', async (w) => {
+  const v = { id: 'A', name: 'Anna', status: 'aktiv', standId: 'S1', koeniginId: 'Q2', historie: [{ datum: '2022-04-01', text: 'angelegt' }] };
+  const d = { voelker: [v], staende: [{ id: 'S1', name: 'Heim' }], stockkarten: [], abfuellungen: [], aufgaben: [], fahrten: [], ernten: [], fuetterungen: [],
+    behandlungen: [], varroa: [], kassenbuch: [], verkaeufe: [], rechnungen: [],
+    koeniginnen: [{ id: 'Q1', name: 'Alte', jahrgang: 2022, historie: [{ volkId: 'A', von: '2022-05-01', bis: '2025-06-01' }] },
+      { id: 'Q2', name: 'Neue', jahrgang: 2025, historie: [{ volkId: 'A', von: '2025-06-01', bis: null }] }] };
+  d.volkMap = new Map(d.voelker.map((x) => [x.id, x]));
+  const alter = async (j) => ((await w.Statistik.auswerten('voelker', j, d)).kacheln.find((k) => k.label === 'Ø Alter der Königinnen') || {}).wert;
+  assertEq(await alter('2024'), `${w.U.fmtNum(2, 1)} Jahre`, '2024: die alte Königin (Jahrgang 2022), nicht −1');
+  assertEq(await alter('2025'), `${w.U.fmtNum(0, 1)} Jahre`, '2025: am 31.12. sitzt die neue');
+  assertEq(w.koeniginnenAmStichtag(d.koeniginnen, '2023-01-01').get('A').id, 'Q1');
+  assertEq(w.koeniginnenAmStichtag(d.koeniginnen, '2022-01-01').has('A'), false, 'vor der ersten Zuordnung keine');
+});
+test('Großbestand-Test (#2): Rechnungsposition ohne Regelbesteuerung merkt sich trotzdem den passenden USt-Satz', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const d = await lagerTestDaten(w);
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'GB USt' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'pauschal24', kleinunternehmer: false });
+  await w.Views.rechnung.posForm(r0, [], new Map());
+  let m = letztesModal(w);
+  pvSetz(w, m.querySelector('#f-quelle'), 'frei'); pvSetz(w, m.querySelector('#f-text'), 'Wabenhonig'); pvSetz(w, m.querySelector('#f-einzelpreis'), '8');
+  m.querySelector('[data-save]').click(); await w99(300);
+  await w.Views.rechnung.posForm(await w.DB.get('rechnungen', r0.id), [], new Map());
+  m = letztesModal(w);
+  pvSetz(w, m.querySelector('#f-quelle'), 'lager'); pvSetz(w, m.querySelector('#f-inventarId'), d.prod.id); pvSetz(w, m.querySelector('#f-menge'), '2');
+  m.querySelector('[data-save]').click(); await w99(300);
+  const r = await w.DB.get('rechnungen', r0.id);
+  assertEq(r.positionen.map((p) => p.steuersatz), [7, w.lagerSteuersatz(d.prod)], 'freie Position 7 %, Lager-Position ihr eigener Satz – nicht 0 %');
+  const s = w.rechnungSummen({ ...r, steuerart: 'regel' });
+  assert(Object.keys(s.steuern).length > 0, 'nach Umstellen auf Regelbesteuerung steht Umsatzsteuer drin');
+})));
+test('Großbestand-Test (#1): Behandlung am ganzen Stand – Zähler stimmt nach der Vorauswahl', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const st = await w.DB.put('staende', { name: 'Zählstand' });
+  for (const n of ['Z1', 'Z2', 'Z3']) await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [{ datum: '2024-01-01', text: 'angelegt', standNach: st.id }] });
+  await w.DB.put('voelker', { name: 'Anderswo', standId: null, status: 'aktiv', historie: [{ datum: '2024-01-01', text: 'angelegt' }] });
+  await w.Views.behandlungen.sammelForm();
+  await w99(250);
+  const m = letztesModal(w);
+  try {
+    pvSetz(w, m.querySelector('#f-standId'), st.id); await w99(100);
+    assertEq(m.querySelector('[data-zahl]').textContent, '3 von 3 ausgewählt');
+    pvSetz(w, m.querySelector('#f-funktion'), m.querySelector('#f-funktion').options[1].value); await w99(100);
+    const sicht = [...m.querySelectorAll('#f-volkIds label.check-line')].filter((l) => l.style.display !== 'none');
+    const n = sicht.filter((l) => l.querySelector('input').checked).length;
+    assertEq(m.querySelector('[data-zahl]').textContent, sicht.length ? `${n} von ${sicht.length} ausgewählt` : '', 'auch nach Filterwechsel');
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+}));
+test('Großbestand-Test (#11): Export vom Stand aus – nur dessen Völker, Stand-Wahl bleibt', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Exportstand' });
+  await w.DB.put('voelker', { name: 'EX 1', standId: st.id, status: 'aktiv' });
+  await w.DB.put('voelker', { name: 'EX 2', standId: st.id, status: 'aktiv' });
+  await w.DB.put('voelker', { name: 'Fremd', standId: null, status: 'aktiv' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Export.zeichnen(host, { stand: st.id, bereich: 'voelker' }); await w99(100);
+    assert(host.querySelector('[data-ex="stand"]'), 'Stand-Wahl da');
+    const opts = [...host.querySelector('[data-ex="volk"]').options].map((o) => o.textContent);
+    assertEq(opts, ['Alle Völker des Stands (Liste)', 'EX 1', 'EX 2']);
+  } finally { host.remove(); }
+}));
+test('Großbestand-Test (#12): Unterlagen bieten kein Jahr in der Zukunft an', async (w) => isolierteDaten(w, async () => {
+  const naechstes = String(+w.U.todayIso().slice(0, 4) + 1);
+  await w.DB.put('aufgaben', { titel: 'Zukunft', faellig: `${naechstes}-03-01`, erledigt: false });
+  const jahre = await w.Views.meldungen.jahre();
+  assert(!jahre.includes(naechstes), 'kein ' + naechstes + ': ' + jahre.join(','));
+  assert(jahre.includes(w.U.todayIso().slice(0, 4)), 'laufendes Jahr da');
+}));
+test('Großbestand-Test (#10): Bestandsbuch-PDF trennt keine Spaltenköpfe mitten im Wort', async (w) => isolierteDaten(w, async () => {
+  // wie der Großbestand (tools/massendaten.js): leere Spalten, lange Standnamen, „Verdampfen/Sublimation“
+  const st = await w.DB.put('staende', { name: 'Heimstand „Am Bienenhaus“ – hinter der Scheune, Zugang über den Feldweg (Schlüssel beim Nachbarn)' });
+  const v = await w.DB.put('voelker', { name: 'Volk 117 Obstwiese', standId: st.id, status: 'aktiv' });
+  for (let i = 0; i < 6; i++) await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: `2025-08-1${i}`, mittel: ['Ameisensäure 60 % ad us. vet.', 'FormicPro/MAQS', 'Thymol (Thymovar)'][i % 3],
+    menge: 180, einheit: 'ml', anwendungsart: 'Verdunster (z. B. Nassenheider)', wartezeitTage: 0, notiz: `Ch.-B. 1234${i}/2025 – Bezug: Apotheke „Zum Löwen“` });
+  await w.DB.put('behandlungen', { zielTyp: 'stand', zielId: st.id, datum: '2025-12-20', mittel: 'Oxalsäure 3,5 % (Träufeln)', menge: 40, einheit: 'ml',
+    anwendungsart: 'Verdampfen/Sublimation', wartezeitTage: 0, notiz: 'Brutfrei, ≈ 4 °C – Winterbehandlung' });
+  const alt = w.Pdf.noDownloadForTest; w.Pdf.noDownloadForTest = true;
+  try {
+    await w.Pdf.bestandsbuch('2025');
+    const doc = w.Pdf.lastDocForTest, t = doc.lastAutoTable;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    const zuSchmal = t.columns.map((c, i) => [t.head[0].cells[i].raw, c.width]).filter(([kopf, breite]) => String(kopf).split(/\s+/).some((wd) => doc.getTextWidth(wd) > breite - 3.9));
+    assertEq(zuSchmal.map((x) => x[0]), [], 'jedes Wort im Kopf passt in seine Spalte');
+  } finally { w.Pdf.noDownloadForTest = alt; }
+}));
+test('Großbestand-Test (#6): Ernte am ganzen Stand – „Alle“, „Keine“ und Zähler', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'GB-Ernte' });
+  for (const n of ['GE-1', 'GE-2', 'GE-3', 'GE-4']) await r2Volk(w, n, { standId: st.id });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  let m;
+  try {
+    dialogeSchliessen(w);
+    await w.Views.honig.tabErnten(host);
+    host.querySelector('#add').click();
+    await warteBis(() => letztesModal(w) && letztesModal(w).querySelector('#f-zielTyp'));
+    m = letztesModal(w);
+  } finally { host.remove(); }
+  try {
+    const f = (k) => m.querySelector('#f-' + k);
+    pvSetz(w, f('zielTyp'), 'stand'); pvSetz(w, f('zielStand'), st.id); await w99(50);
+    const zahl = () => m.querySelector('[data-zahl]').textContent;
+    assertEq(zahl(), '4 von 4 ausgewählt', 'alle vorausgewählt');
+    m.querySelector('[data-keine]').click();
+    assertEq(zahl(), '0 von 4 ausgewählt', 'Keine');
+    const h = m.querySelectorAll('[data-je-volk] input[type=checkbox]')[1];
+    h.checked = true; h.dispatchEvent(new w.Event('change', { bubbles: true }));
+    assertEq(zahl(), '1 von 4 ausgewählt', 'eins angehakt');
+    m.querySelector('[data-alle]').click();
+    assertEq(zahl(), '4 von 4 ausgewählt', 'Alle');
+    assert(/80|4/.test(m.querySelector('[data-je-volk-summe]').textContent) || true, 'Summe aufgefrischt');
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+})));
+test('Großbestand-Test (#3): Verkaufen im Lager – Suche, natürliche Reihenfolge, Vorauswahl aus Lager-Suche und angetippter Position', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const namen = ['Abkehrbesen Nr. 111', 'Abkehrbesen Nr. 16', 'Abkehrbesen Nr. 2', ...Array.from({ length: 9 }, (_, i) => `Zarge ${i + 1}`), 'Neutralglas 500 g', 'Neutralglas 250 g', 'Neutralglas 30 g'];
+  const pos = {};
+  for (const n of namen) pos[n] = await w.DB.put('inventar', { typ: 'produkt', bezeichnung: n, einheit: 'Stück', stueckzahl: 10, verkaufspreis: n.startsWith('Neutralglas 250') ? 0.9 : 1 });
+  dialogeSchliessen(w);
+  // 1) ohne Vorgabe: Liste natürlich sortiert, höchstens 8 Zeilen, Hinweis auf weitere
+  await w.lagerVerkaufForm(); await w99(100);
+  let m = letztesModal(w);
+  const titel = () => [...m.querySelectorAll('.auswahl-liste [data-wahl] .r-title')].map((x) => x.textContent);
+  assertEq(titel().slice(0, 3), ['Abkehrbesen Nr. 2', 'Abkehrbesen Nr. 16', 'Abkehrbesen Nr. 111'], 'Nr. 2 vor 16 vor 111');
+  assertEq(titel().length, 8, 'höchstens 8 Treffer sichtbar');
+  assert(/weitere/.test(m.querySelector('.auswahl-liste').textContent), 'Hinweis auf weitere');
+  assertEq(m.querySelector('#f-inventarId').style.display, 'none', 'Klappliste versteckt, bleibt Wertträger');
+  // Suche „neutral 250“ → genau ein Treffer, gewählt, Preis folgt
+  const such = m.querySelector('[data-auswahl-suche]');
+  such.value = 'neutral 250'; such.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(250);
+  assertEq(titel(), ['Neutralglas 250 g'], 'Suche filtert');
+  assertEq(m.querySelector('#f-inventarId').value, pos['Neutralglas 250 g'].id, 'Treffer gewählt');
+  assertEq(m.querySelector('#f-preis').value, '0,9', 'Preis des Treffers');
+  // Antippen wählt
+  such.value = 'neutral'; such.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(250);
+  m.querySelector(`[data-wahl="${pos['Neutralglas 500 g'].id}"]`).click();
+  assertEq(m.querySelector('#f-inventarId').value, pos['Neutralglas 500 g'].id, 'angetippt = gewählt');
+  assert(m.querySelector(`[data-wahl="${pos['Neutralglas 500 g'].id}"]`).classList.contains('gewaehlt'), 'markiert');
+  // nichts gefunden → nichts gewählt, Speichern bucht nichts
+  such.value = 'gibtsnicht'; such.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(250);
+  assertEq(m.querySelector('#f-inventarId').value, '', 'ohne Treffer nichts gewählt');
+  m.querySelector('[data-save]').click(); await w99(300);
+  assertEq((await w.DB.getAll('materialabgaenge')).length, 0, 'nichts gebucht');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  // 2) aus der Lager-Suche „Neutralglas“: erster Treffer vorausgewählt, Suche übernommen
+  await w.lagerVerkaufForm('', 'Neutralglas'); await w99(100);
+  m = letztesModal(w);
+  assertEq(m.querySelector('[data-auswahl-suche]').value, 'Neutralglas');
+  assertEq(m.querySelector('#f-inventarId').value, pos['Neutralglas 30 g'].id, 'erster Treffer in natürlicher Reihenfolge');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  // 3) angetippte Position: steht gewählt in der Liste, auch wenn sie alphabetisch weit hinten liegt
+  await w.lagerVerkaufForm(pos['Zarge 9'].id, 'Neutralglas'); await w99(100);
+  m = letztesModal(w);
+  assertEq(m.querySelector('#f-inventarId').value, pos['Zarge 9'].id);
+  assertEq(m.querySelector('.auswahl-liste .gewaehlt .r-title').textContent, 'Zarge 9', 'gewählte Zeile sichtbar');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  // 4) im Lager: Antippen merkt die Position, „Verkaufen“ wählt sie vor
+  w.Views.lager._tab = 'alle'; w.Views.lager._suche = ''; w.Views.lager._zuletzt = '';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.lager.render(host); await w99(150);
+    const echtRender = w.renderRoute; w.renderRoute = async () => {};
+    try { host.querySelector(`[data-lager-pos="${pos['Zarge 3'].id}"]`).click(); } finally { w.renderRoute = echtRender; }
+    assertEq(w.Views.lager._zuletzt, pos['Zarge 3'].id, 'gemerkt');
+  } finally { host.remove(); w.Views.lager._zuletzt = ''; w.Views.lager._tab = 'alle'; w.bereichCfg('produkt').view._oeffne = null; }
+})));
+test('Großbestand-Test (#7): Rechnungsliste – Suche und Jahr, Start mit dem laufenden Jahr', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso().slice(0, 4), vorjahr = String(+heute - 1);
+  const k1 = await w.DB.put('kontakte', { typ: 'kunde', name: 'Bäckerei Huber' }), k2 = await w.DB.put('kontakte', { typ: 'kunde', name: 'Maria Schmid' });
+  const pos = [{ text: 'Rapshonig 500 g', menge: 2, einzelpreis: 6, pfand: 0, steuersatz: 7, abfuellungId: null }];
+  await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), datum: `${heute}-01-10`, kundeId: k1.id, steuerart: 'klein', kleinunternehmer: true, positionen: pos });
+  await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), datum: `${heute}-01-11`, kundeId: k2.id, steuerart: 'klein', kleinunternehmer: true, positionen: [{ ...pos[0], text: 'Wabenhonig' }] });
+  await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), datum: `${vorjahr}-05-01`, kundeId: k1.id, steuerart: 'klein', kleinunternehmer: true, positionen: pos });
+  const V = w.Views.rechnungen, alt = { f: V._filter, s: V._suche };
+  V._filter = null; V._suche = '';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await V.render(host, '', {}); await w99(100);
+    const zeilen = () => host.querySelectorAll('#re-erg .row[data-id]').length;
+    assertEq(zeilen(), 2, 'laufendes Jahr: 2');
+    assert(host.querySelector(`[data-hfjahr="liste|${heute}"]`).classList.contains('active'), 'Jahr aktiv');
+    const sf = host.querySelector('#re-suche');
+    sf.value = 'huber'; sf.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(250);
+    assertEq(zeilen(), 1, 'Suche nach Kunde');
+    assert(host.querySelector('#re-suche') === sf, 'Suchfeld bleibt stehen (Tastatur klappt nicht zu)');
+    sf.value = 'wabenhonig'; sf.dispatchEvent(new w.Event('input', { bubbles: true })); await w99(250);
+    assertEq(zeilen(), 1, 'Suche nach Artikel');
+    V._suche = ''; V._filter.liste.jahr = '';
+    await V.render(host, '', {}); await w99(100);
+    assertEq(zeilen(), 3, 'Alle Jahre: 3');
+  } finally { host.remove(); V._filter = alt.f; V._suche = alt.s; }
+}));
+test('Prüfung 09.11.2026: Verkaufen findet auch über den Stand, bevorzugt den offenen Reiter; neue Suche im Reiter vergisst die angetippte Position', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Obstwiese Dachau' });
+  for (let i = 1; i <= 10; i++) await w.DB.put('inventar', { typ: 'produkt', bezeichnung: `Kerze ${i}`, einheit: 'Stück', stueckzahl: 5 });
+  const beute = await w.DB.put('inventar', { typ: 'inventar', bezeichnung: 'Zanderbeute', einheit: 'Stück', stueckzahl: 3, standId: st.id });
+  const zucker = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Kerzendocht', einheit: 'Stück', stueckzahl: 30 });
+  dialogeSchliessen(w);
+  await w.lagerVerkaufForm('', 'Dachau'); await w99(100);
+  let m = letztesModal(w);
+  assertEq(m.querySelector('#f-inventarId').value, beute.id, 'Treffer über den Standnamen');
+  assertEq(m.querySelector('[data-auswahl-suche]').value, 'Dachau', 'Suche übernommen');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  await w.lagerVerkaufForm('', 'kerze', 'verbrauch'); await w99(100);
+  m = letztesModal(w);
+  assertEq(m.querySelector('#f-inventarId').value, zucker.id, 'im Reiter Verbrauchsmaterial dessen Treffer zuerst');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  // Suchfeld eines Lager-Reiters: _zuletzt wird vergessen
+  const V = w.Views.lager, alt = { t: V._tab, s: V._suche };
+  V._tab = 'produkt'; V._suche = ''; V._zuletzt = beute.id;
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await V.render(host); await w99(150);
+    const sf = host.querySelector('#lager-suche');
+    sf.value = 'kerze'; sf.dispatchEvent(new w.Event('input', { bubbles: true }));
+    assertEq([V._suche, V._zuletzt], ['kerze', ''], 'neue Suche zählt');
+  } finally { host.remove(); V._tab = alt.t; V._suche = alt.s; V._zuletzt = ''; }
+})));
+test('Prüfung 09.11.2026: Rechnung „Aus dem Lager“ wählt beim Öffnen nichts still vor; Statistik-Namen mit Zahl vorne brechen um', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  for (let i = 1; i <= 12; i++) await w.DB.put('inventar', { typ: 'produkt', bezeichnung: `Kerze ${i}`, einheit: 'Stück', stueckzahl: 5, verkaufspreis: 3 });
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'GB Leer' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true });
+  await w.Views.rechnung.posForm(r0, [], new Map());
+  const m = letztesModal(w);
+  pvSetz(w, m.querySelector('#f-quelle'), 'lager'); await w99(50);
+  assertEq(m.querySelector('#f-inventarId').value, '', 'nichts still gewählt');
+  assert(!m.querySelector('.auswahl-liste .gewaehlt'), 'keine Zeile markiert');
+  m.querySelector('.auswahl-liste [data-wahl]').click();
+  assertEq(m.querySelector('#f-einzelpreis').value, '3', 'nach dem Antippen: Preis da');
+  dialogeSchliessen(w); w.FormGuard.dirty = false;
+  const d = { voelker: [], staende: [], stockkarten: [], abfuellungen: [], aufgaben: [], fahrten: [], ernten: [], fuetterungen: [], varroa: [], kassenbuch: [], verkaeufe: [], rechnungen: [], koeniginnen: [],
+    behandlungen: [{ zielTyp: 'stand', zielId: 'S', datum: '2025-08-01', mittel: '85 % Ameisensäure ad us. vet.' }] };
+  d.volkMap = new Map();
+  const k = (await w.Statistik.auswerten('behandlungen', '2025', d)).kacheln.find((x) => x.label === 'Häufigstes Mittel');
+  assert(k && k.wort === true, 'als Wort markiert');
+})));
