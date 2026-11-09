@@ -7066,6 +7066,12 @@ const Demo = {
 const WETTER_QUELLE = 'Deutscher Wetterdienst';
 /* Fassung des Einwilligungstextes. Ändert sich der Text inhaltlich, hier hochzählen. */
 const WETTER_EINWILLIGUNG_VERSION = 1;
+/** fetch mit deutscher Meldung, wenn keine Verbindung besteht (Finaltest 09.11.2026, W1): vorher stand „Failed to fetch“. */
+async function netzFetch(url, opt, dienst) {
+  const offline = `Keine Verbindung ${dienst} – bist du online?`;
+  if (navigator.onLine === false) throw new Error(offline);
+  try { return await fetch(url, opt); } catch (e) { throw new Error(offline); }
+}
 const Wetter = {
   /** Darf überhaupt etwas an den Wetterdienst gehen? Schalter an UND Einwilligung gespeichert (v3.08). Gilt auch für
       vorhandene Geräte, die noch wetter:true ohne Einwilligung haben: Dort bleibt alles aus, bis zugestimmt wurde. */
@@ -7112,13 +7118,13 @@ const Wetter = {
   async fetchCurrent(stand) {
     if (!this.erlaubt()) throw new Error('Das Wetter ist ausgeschaltet (Einstellungen → Funktionen).');
     const ort = `lat=${encodeURIComponent(this.gerundet(stand.lat))}&lon=${encodeURIComponent(this.gerundet(stand.lng))}`;
-    const r = await fetch(`https://api.brightsky.dev/current_weather?${ort}`);
+    const r = await netzFetch(`https://api.brightsky.dev/current_weather?${ort}`, undefined, 'zum Wetterdienst');
     if (r.ok) {
       const w = (await r.json()).weather || {};
       if (w.temperature != null) return { tempC: w.temperature, windKmh: w.wind_speed_10 ?? w.wind_speed_30 ?? null, niederschlagMm: w.precipitation_60 ?? w.precipitation_30 ?? w.precipitation_10 ?? 0, quelle: WETTER_QUELLE };
     } else if (r.status !== 404) throw new Error('Wetterdienst nicht erreichbar');
     const stunde = new Date(); stunde.setUTCMinutes(0, 0, 0);
-    const r2 = await fetch(`https://api.brightsky.dev/weather?${ort}&date=${encodeURIComponent(stunde.toISOString())}`);
+    const r2 = await netzFetch(`https://api.brightsky.dev/weather?${ort}&date=${encodeURIComponent(stunde.toISOString())}`, undefined, 'zum Wetterdienst');
     if (!r2.ok) throw new Error('Wetterdienst nicht erreichbar');
     const v = ((await r2.json()).weather || [])[0];
     if (!v || v.temperature == null) throw new Error('Für diesen Ort gibt es keine Wetterdaten');
@@ -7237,6 +7243,7 @@ async function fahrtForm(arg = '', onDone, prefill = null) {
       if (frei && !(v.freiZiel || '').trim() && !(v.zweck || '').trim()) throw feldFehler((v.freiZiel || '').trim() ? 'zweck' : 'freiZiel', 'Bitte Ziel/Beschreibung oder Zweck angeben.');
       const rec = Object.assign(bearbeiten || {}, { datum: v.datum, standId: frei ? null : v.ziel, freiZiel: frei ? (v.freiZiel || '').trim() : '', km: v.km, zweck: v.zweck, notiz: v.notiz });
       await DB.put('fahrten', rec);
+      Views.fahrten._jahr = (rec.datum || '').slice(0, 4);   // das Fahrtenbuch zeigt danach das Jahr dieser Fahrt (Finaltest 09.11.2026, F1)
       if (v.alsVorlage) {
         const name = frei ? (rec.freiZiel || rec.zweck || 'Fahrt') : (staende.find((s) => s.id === rec.standId)?.name || geloeschterStandName(rec.standId) || 'Fahrt');   // reiner Name, ohne „(gelöscht)“ (Ultra-Test 05.11.2026, G1)
         const vorlagen = S.get('fahrtvorlagen') || [];
@@ -7375,8 +7382,9 @@ function schnellEinmal(key, ms = 1500) {
   return true;
 }
 /** Hinweis nach einer Ein-Tipp-Fahrt – mit „Rückgängig“, falls man sich vertippt hat. */
-function fahrtGebuchtHinweis(rec, text) {
-  UI.toast(text, 'ok', { text: 'Rückgängig', fn: async () => { await DB.del('fahrten', rec.id); renderRoute({ scrollBehalten: true }); } });
+function fahrtGebuchtHinweis(rec, text, sperrKey) {
+  // Rückgängig löst auch die Doppeltipp-Sperre: Ein neuer Tipp direkt danach bucht wieder (Finaltest 09.11.2026, F4)
+  UI.toast(text, 'ok', { text: 'Rückgängig', fn: async () => { await DB.del('fahrten', rec.id); if (sperrKey) _schnellSperre.delete(sperrKey); renderRoute({ scrollBehalten: true }); } });
 }
 /** Ein-Klick-Fahrt aus einer eigenen Fahrt-Vorlage (Dashboard-Schnellzugriff). */
 async function fahrtVorlageBuchen(vorlageId) {
@@ -7392,7 +7400,7 @@ async function fahrtVorlageBuchen(vorlageId) {
   }
   if (!vl.km) return fahrtForm(null, null, vl); // ohne Kilometer erst ins Formular
   const rec = await DB.put('fahrten', { datum: U.todayIso(), standId: vl.standId || null, freiZiel: vl.freiZiel || '', km: vl.km, zweck: vl.zweck || '', notiz: '' });
-  fahrtGebuchtHinweis(rec, `Fahrt gebucht: ${U.fmtNum(vl.km)} km · ${vl.name}`);
+  fahrtGebuchtHinweis(rec, `Fahrt gebucht: ${U.fmtNum(vl.km)} km · ${vl.name}`, 'vorlage:' + vorlageId);
   renderRoute({ scrollBehalten: true });
 }
 
@@ -7450,7 +7458,7 @@ async function fahrtSchnellBuchen(standId) {
   if (!st.kmEntfernung) return fahrtForm(standId);
   const km = st.kmEntfernung * 2;
   const rec = await DB.put('fahrten', { datum: U.todayIso(), standId: st.id, km, zweck: 'Fahrt zum Stand', notiz: '' });
-  fahrtGebuchtHinweis(rec, `Fahrt gebucht: ${U.fmtNum(km)} km zu ${st.name}`);
+  fahrtGebuchtHinweis(rec, `Fahrt gebucht: ${U.fmtNum(km)} km zu ${st.name}`, 'stand:' + standId);
   renderRoute({ scrollBehalten: true });
 }
 
@@ -8062,8 +8070,11 @@ Views.stand = {
    ===================================================================== */
 async function koeniginOptions() {
   const qs = (await DB.getAll('koeniginnen')).filter((q) => q.status === 'aktiv');
+  // In welchem Volk sitzt sie? Steht mit in der Auswahl, damit niemand aus Versehen die Königin eines anderen Volks wählt (Finaltest 09.11.2026, K1)
+  const sitzt = new Map();
+  for (const v of await DB.getAll('voelker')) if (v.koeniginId && v.status === 'aktiv') sitzt.set(v.koeniginId, v.name);
   // Kennung zuerst – sie unterscheidet die Königinnen eindeutig
-  return qs.map((q) => ({ v: q.id, l: `${q.kennung ? q.kennung + ' · ' : ''}${q.jahrgang} ${queenColor(q.jahrgang)[0]} · ${q.linie || q.herkunft || 'Königin'}` }));
+  return qs.map((q) => ({ v: q.id, l: `${q.kennung ? q.kennung + ' · ' : ''}${q.jahrgang} ${queenColor(q.jahrgang)[0]} · ${q.linie || q.herkunft || 'Königin'}${sitzt.has(q.id) ? ` · in „${sitzt.get(q.id)}“` : ''}` }));
 }
 /** Volk anlegen/bearbeiten inkl. Pflege der Königinnen-Zuordnungshistorie */
 async function openVolkForm(volk, defaults = {}, onDone) {
@@ -8107,7 +8118,27 @@ async function openVolkForm(volk, defaults = {}, onDone) {
       const saved = await DB.put('voelker', rec);
       if (alt !== rec.koeniginId) {
         if (alt) { const q = await DB.get('koeniginnen', alt); if (q) { (q.historie || []).forEach((h) => { if (h.volkId === saved.id && !h.bis) h.bis = U.todayIso(); }); await DB.put('koeniginnen', q); } }
-        if (rec.koeniginId) { const q = await DB.get('koeniginnen', rec.koeniginId); if (q) { q.historie = q.historie || []; q.historie.push({ volkId: saved.id, von: U.todayIso(), bis: null }); await DB.put('koeniginnen', q); } }
+        if (rec.koeniginId) {
+          const q = await DB.get('koeniginnen', rec.koeniginId);
+          if (q) {
+            /* Die Königin darf nur in einem Volk sitzen (Finaltest 09.11.2026, K1): Saß sie bisher in einem anderen Volk, wird sie
+               dort gelöst und ihre offene Zuordnung geschlossen – wie beim Umweiseln. Vorher führten zwei Völker dieselbe
+               Königin, und der Verlauf ließ sich nicht mehr speichern („nur eine offene Zuordnung“). */
+            const heute = U.todayIso();
+            for (const anderes of await DB.getAll('voelker')) {
+              if (anderes.id !== saved.id && anderes.koeniginId === q.id) {
+                anderes.koeniginId = null; anderes.historie = anderes.historie || [];
+                anderes.historie.push({ datum: heute, text: `Königin ${q.kennung || q.jahrgang} umgesetzt nach „${saved.name}“` });
+                await DB.put('voelker', anderes);
+              }
+            }
+            q.historie = q.historie || [];
+            q.historie.forEach((h) => { if (!h.bis) h.bis = heute; });
+            q.historie.push({ volkId: saved.id, von: heute, bis: null });
+            q.status = 'aktiv';
+            await DB.put('koeniginnen', q);
+          }
+        }
         if (volk) { saved.historie.push({ datum: U.todayIso(), text: 'Königin geändert' }); await DB.put('voelker', saved); }
       }
       UI.toast('Volk gespeichert'); if (onDone) onDone();
@@ -8579,6 +8610,9 @@ async function sammelFormular(art, volkIds, voelker) {
       saveText: `Für ${volkIds.length} Völker speichern`,
       async onSave(val) {
         /* Ohne Probengröße zählte die rohe Milbenzahl als Wert je 100 Bienen: 9 Milben ergaben „Behandlung prüfen“ statt „beobachten“. */
+        if (!(val.milben >= 0)) throw feldFehler('milben', 'Bitte eine Zahl ab 0 eingeben.');   // Finaltest 09.11.2026, K3
+        if (val.tageZaehl < 0) throw feldFehler('tageZaehl', 'Bitte mindestens 1 Tag eingeben.');
+        if (val.probeBienen < 0) throw feldFehler('probeBienen', 'Bitte mindestens 1 Biene eingeben.');
         if (VARROA_BEFALL_METHODEN.includes(val.methode)) { val.probeBienen = val.probeBienen > 0 ? val.probeBienen : 300; delete val.tageZaehl; }
         else { val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1; delete val.probeBienen; }
         for (const id of volkIds) await DB.put('varroa', { volkId: id, ...val }); UI.toast(`Varroa-Zählung für ${volkIds.length} Völker gespeichert`); renderRoute(); },
@@ -8889,9 +8923,16 @@ Views.volk = {
       ],
       values: x || {},
       async onSave(val) {
-        val.tageZaehl = val.tageZaehl ? Math.round(val.tageZaehl) : 1;
-        val.probeBienen = val.probeBienen ? Math.round(val.probeBienen) : 300;
+        /* Negative Zahlen wurden gespeichert und als „gering“ gewertet (Finaltest 09.11.2026, K3) */
+        if (!(val.milben >= 0)) throw feldFehler('milben', 'Bitte eine Zahl ab 0 eingeben.');
+        if (val.tageZaehl < 0) throw feldFehler('tageZaehl', 'Bitte mindestens 1 Tag eingeben.');
+        if (val.probeBienen < 0) throw feldFehler('probeBienen', 'Bitte mindestens 1 Biene eingeben.');
+        /* Das nicht benötigte Feld leeren statt mit 1 bzw. 300 zu füllen – sonst stand nach einem Methodenwechsel beim
+           Bearbeiten „Zähldauer 1“ statt der Vorgabe 7 (Finaltest 09.11.2026, K5) */
+        if (istBefall(val.methode)) { val.probeBienen = val.probeBienen > 0 ? Math.round(val.probeBienen) : 300; delete val.tageZaehl; }
+        else { val.tageZaehl = val.tageZaehl > 0 ? Math.round(val.tageZaehl) : 1; delete val.probeBienen; }
         const saved = Object.assign(x || { volkId: v.id }, val);
+        if (istBefall(val.methode)) delete saved.tageZaehl; else delete saved.probeBienen;
         await DB.put('varroa', saved);
         const m = varroaMetrik(saved);
         UI.toast(m.ampel.stufe === 'rot' ? '⚠️ Gespeichert – Schwelle überschritten, Behandlung prüfen' : 'Zählung gespeichert');
@@ -9432,6 +9473,20 @@ Views.koeniginnen = {
       values: q ? { ...q, kennung: kennungVorschlag, anpaarung: q.anpaarung || anpaarungAusText(q.herkunft) } : { kennung: kennungVorschlag },
       async onSave(v) {
         v.jahrgang = Math.round(v.jahrgang);
+        /* Kennung eindeutig (Finaltest 09.11.2026, K4): Der unveränderte Vorschlag rückt auf die nächste freie Nummer und folgt dem
+           eingetragenen Jahrgang (z. B. nach „Neue Mutter anlegen“ aus einem offenen Formular); eine selbst getippte Doppelung wird abgewiesen. */
+        const kennungNeu = (v.kennung || '').trim();
+        if (kennungNeu) {
+          const andereK = (await DB.getAll('koeniginnen')).filter((k) => !q || k.id !== q.id);
+          const doppelt = andereK.some((k) => kennungSchluessel(k.kennung) === kennungSchluessel(kennungNeu));
+          if (!q && kennungNeu === kennungVorschlag && (doppelt || v.jahrgang !== jahr)) v.kennung = freieKoeniginKennung(v.jahrgang, andereK);
+          else if (doppelt) throw feldFehler('kennung', `Die Kennung „${kennungNeu}“ ist schon vergeben.`);
+        }
+        // Abstammung: Mutter und Drohnenmutter müssen älter sein als die Königin (Finaltest 09.11.2026, K6)
+        for (const [feld, wer] of [['mutterId', 'Die Mutter'], ['vatervolkId', 'Die Drohnenmutter (4a)']]) {
+          const eltern = v[feld] ? andereQueens.find((k) => k.id === v[feld]) : null;
+          if (eltern && Number(eltern.jahrgang) >= v.jahrgang) throw feldFehler(feld, `${wer} muss aus einem früheren Jahrgang stammen als die Königin (${eltern.jahrgang} liegt nicht vor ${v.jahrgang}).`);
+        }
         const rec = Object.assign(q || { historie: [] }, {
           kennung: (v.kennung || '').trim(), jahrgang: v.jahrgang, generation: (v.generation || '').trim(), linie: v.linie, herkunft: v.herkunft, status: v.status, notiz: v.notiz,
           // Leer lassen heißt: aus dem Stammbaum bilden. Nur was getippt wurde, wird gespeichert.
@@ -9500,6 +9555,10 @@ Views.koeniginnen = {
       values: eintrag || {},
       async onSave(v) {
         if (v.bis && v.bis < v.von) throw new Error('„Bis“ darf nicht vor „Von“ liegen.');
+        if (!v.bis) {   // offene Zuordnung nur zu einem aktiven Volk (Finaltest 09.11.2026, K2)
+          const ziel = voelker.find((x) => x.id === v.volkId);
+          if (ziel && ziel.status !== 'aktiv') throw feldFehler('bis', `Das Volk „${ziel.name}“ ist ${ziel.status === 'aufgeloest' ? 'aufgelöst' : ziel.status}. Bitte ein „Bis“-Datum eintragen – eine offene Zuordnung geht nur bei einem aktiven Volk.`);
+        }
         const liste = [...(q.historie || [])];
         const neu = { volkId: v.volkId, von: v.von, bis: v.bis || null };
         if (idx != null) liste[idx] = neu; else liste.push(neu);
@@ -10807,6 +10866,8 @@ async function koeniginHistorieSync(q) {
   }
   if (!zielVolkId) return null;
   const volk = await DB.get('voelker', zielVolkId);
+  // Eine offene Zuordnung heißt: Sie sitzt wieder in einem Volk – also „aktiv“ (Finaltest 09.11.2026, K2)
+  if (volk && q.status !== 'aktiv') { q.status = 'aktiv'; await DB.put('koeniginnen', q); }
   if (!volk || volk.koeniginId === q.id) return zielVolkId;
   // bisherige Königin des Ziel-Volks freigeben und deren offene Zuordnung schließen
   if (volk.koeniginId) {
@@ -12006,6 +12067,8 @@ function wartezeitAufgabeWiederPlan(d, b, zielText = '') {
    Deshalb liegen die Öko-Angaben direkt am Kontakt und nicht in einer zweiten
    Liste: Julian sollte einen Lieferanten nicht zweimal eintragen müssen. */
 const KONTAKT_ARTEN = [{ v: 'kunde', l: 'Kunde / Abnehmer' }, { v: 'lieferant', l: 'Lieferant' }, { v: 'beides', l: 'beides' }];
+/** Rolle eines Kontakts lesbar („Kunde / Abnehmer“ statt des internen Werts „kunde“) – für Auswahlfelder (Finaltest 09.11.2026, X2) */
+const kontaktTypLabel = (c) => (KONTAKT_ARTEN.find((a) => a.v === (c && c.typ)) || {}).l || (c && c.typ) || '';
 const kontaktIstKunde = (c) => c && (c.typ === 'kunde' || c.typ === 'beides');
 const kontaktIstLieferant = (c) => c && (c.typ === 'lieferant' || c.typ === 'beides');
 /** Bio-Partner: ausdrücklich gewählt („Ja“/„Nein“). Ältere Kontakte ohne Auswahl gelten als Bio,
@@ -12100,7 +12163,7 @@ function verdrahteKontaktNeu(m, feldKey, liste, { typ = 'kunde', label = 'Neuer 
       if (![...sel.options].some((o) => o.value === neu.id)) {
         const opt = document.createElement('option');
         opt.value = neu.id;
-        opt.textContent = `${neu.name} (${neu.typ})`;
+        opt.textContent = `${neu.name} (${kontaktTypLabel(neu)})`;
         sel.appendChild(opt);
       }
       sel.value = neu.id;
@@ -12641,7 +12704,8 @@ const Tracht = {
   },
   aufgabeTitel(t, von) { return `${this.name(t)} blüht ab ${tagMonat(von)} – Honigräume und Wanderung vorbereiten`; },
   /** Erinnerung als Aufgabe vor dem nächsten Blühbeginn: anlegen, verschieben oder entfernen.
-      Erledigte und von Hand angelegte („Als Aufgabe“) bleiben unangetastet. auto = Wartung beim Start (kein Sicherungs-Hinweis). */
+      Erledigte bleiben unangetastet; eine offene „Als Aufgabe“-Aufgabe wird zur Erinnerung mit dem gewählten Vorlauf
+      (Finaltest 09.11.2026, T1). auto = Wartung beim Start (kein Sicherungs-Hinweis). */
   async aufgabePflegen(t, { heute = U.todayIso(), auto = false } = {}) {
     const tage = Number(t.erinnernTage) || 0;
     const schreib = (obj) => DB.schreibeAlles([{ store: 'aufgaben', obj, auto }]);
@@ -12658,7 +12722,7 @@ const Tracht = {
     const titel = this.aufgabeTitel(t, ziel.von);
     const vorhanden = alle.find((a) => a.trachtJahr === jahr);
     if (vorhanden) {
-      if (!vorhanden.erledigt && vorhanden.erinnerung && (vorhanden.faellig !== faellig || vorhanden.titel !== titel)) await schreib(Object.assign(vorhanden, { faellig, titel }));
+      if (!vorhanden.erledigt && (!vorhanden.erinnerung || vorhanden.faellig !== faellig || vorhanden.titel !== titel)) await schreib(Object.assign(vorhanden, { faellig, titel, erinnerung: true }));
       return vorhanden;
     }
     const neu = { titel, faellig, erledigt: false, quelle: 'tracht', refId: t.id, trachtJahr: jahr, erinnerung: true,
@@ -12878,6 +12942,20 @@ function wanderungPruefen({ vonStandId, nachStandId, volkIds }) {
   return null;
 }
 
+/** Beim Bearbeiten einer Wanderung die Historie-Einträge der Völker berichtigen (Finaltest 09.11.2026, F3): Einträge dieser
+    Wanderung bekommen das neue Datum und den neuen Text; Völker, die nicht mehr dabei sind, verlieren den Eintrag.
+    Ältere Einträge ohne wanderungId bleiben, wie sie sind. */
+async function wanderungHistorieBerichtigen(wanderungId, volkIds, datum, vonName, nachName) {
+  if (!wanderungId) return;
+  const text = `Gewandert: „${vonName}“ → „${nachName}“`;
+  const dabei = new Set(volkIds || []);
+  for (const volk of await DB.getAll('voelker')) {
+    const alt = volk.historie || [];
+    if (!alt.some((h) => h.wanderungId === wanderungId)) continue;
+    volk.historie = dabei.has(volk.id) ? alt.map((h) => (h.wanderungId === wanderungId ? { ...h, datum, text } : h)) : alt.filter((h) => h.wanderungId !== wanderungId);
+    await DB.put('voelker', volk);
+  }
+}
 /** Setzt die gewanderten Völker auf den Ziel-Stand um und schreibt es in ihre Historie.
     `erlaubteQuellen` (Liste von Stand-IDs) begrenzt den Umzug auf Völker, die noch auf einem
     dieser Stände stehen. Beim Bearbeiten sind das der Ausgangs-Stand und das bisherige Ziel –
@@ -12907,7 +12985,11 @@ async function wanderungVoelkerUmziehen(volkIds, nachStandId, datum, vonName, na
     }
     volk.standId = nachStandId;
     volk.historie = volk.historie || [];
-    if (!volk.historie.some((h) => h.datum === datum && h.text === text)) volk.historie.push({ datum, text });
+    if (!volk.historie.some((h) => h.datum === datum && h.text === text)) {
+      const eintrag = { datum, text };
+      if (nachtrag && nachtrag.wanderung && nachtrag.wanderung.id) eintrag.wanderungId = nachtrag.wanderung.id;   // damit eine Korrektur der Wanderung den Eintrag findet (Finaltest 09.11.2026, F3)
+      volk.historie.push(eintrag);
+    }
     await DB.put('voelker', volk);
     bewegt++;
   }
@@ -13032,6 +13114,7 @@ Views.wanderungen = {
           const quellen = w && v.vonStandId === vonUrspruenglich ? [v.vonStandId, zielVorher].filter(Boolean) : [v.vonStandId];
           // Völker, die danach schon wieder den Stand gewechselt haben, bleiben, wo sie stehen (Fund 04.11.2026, #20)
           const nachtrag = { wanderung: rec, bearbeitet: !!w, spaeter: [] };
+          if (w) await wanderungHistorieBerichtigen(w.id, v.volkIds, v.datum, vonName, nachName);   // Historie der Völker an die geänderte Wanderung anpassen (Finaltest 09.11.2026, F3)
           const bewegt = nurMetadaten ? 0 : await wanderungVoelkerUmziehen(v.volkIds, v.nachStandId, v.datum, vonName, nachName, quellen, nachtrag);
           const n = nachtrag.spaeter.length;
           const spaeterText = !n ? '' : n === 1 ? ` · „${nachtrag.spaeter[0]}“ bleibt, wo es steht: Es hat danach schon wieder den Stand gewechselt.`
@@ -15582,7 +15665,7 @@ async function osmAdresseSuchen(text) {
   if (!(await Dienste.nominatimErlaubt())) throw new Error('Die Adresssuche ist gerade nicht verfügbar. Trage die Koordinaten bitte von Hand ein oder nimm den aktuellen Standort.');
   await osmSuchAbstand();
   const url = `${OSM_NOMINATIM}?format=json&limit=1&addressdetails=0&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  const res = await netzFetch(url, { headers: { Accept: 'application/json' } }, 'zur Adresssuche');
   if (!res.ok) throw new Error(`Adresssuche nicht erreichbar (Status ${res.status})`);
   const treffer = await res.json();
   if (!treffer.length) throw new Error('Keine Adresse gefunden – versuche es mit Ort und Straße.');
@@ -16222,7 +16305,7 @@ Views.kontakte = {
         <h3 class="mt8 mb4">Wo dieser Kontakt vorkommt</h3>
         <div class="detail-kv mb12">
           <dt>Kassenbuch</dt><dd>${b.length ? `${b.length} ${b.length === 1 ? 'Buchung' : 'Buchungen'} · Einnahmen ${U.fmtEur(ein)} · Ausgaben ${U.fmtEur(aus)} · <a href="#/kassenbuch/kontakt-${U.esc(c.id)}" data-zu>im Kassenbuch ansehen</a>` : '<span class="muted">keine Buchung</span>'}</dd>
-          <dt>Einkäufe</dt><dd>${nZug ? `${nZug} ${nZug === 1 ? 'Einkauf' : 'Einkäufe'} im Lager (Verbrauchsmaterial, Inventar, Weitere Produkte)` : '<span class="muted">keine</span>'}</dd>
+          <dt>Einkäufe</dt><dd>${nZug ? `${nZug} ${nZug === 1 ? 'Einkauf' : 'Einkäufe'} im Lager (Produkte, Verbrauchsmaterial, Geräte & Inventar)` : '<span class="muted">keine</span>'}</dd>
           <dt>Verkäufe</dt><dd>${nAbg + nVk ? [nAbg ? `${nAbg} im Lager` : '', nVk ? `${nVk} Honig-${nVk === 1 ? 'Verkauf' : 'Verkäufe'}` : ''].filter(Boolean).join(' · ') : '<span class="muted">keine</span>'}</dd>
           <dt>Rechnungen</dt><dd>${re.length ? `${re.length} · <a href="#/finanzen/rechnungen" data-zu>zu den Rechnungen</a>` : '<span class="muted">keine</span>'}</dd>
           <dt>Pfand</dt><dd>${nPf ? `${nPf} Rücknahme(n)` : '<span class="muted">keine</span>'}</dd>
@@ -19364,7 +19447,7 @@ Views.kassenbuch = {
         { key: 'katEin', label: 'Kategorie', type: 'select', options: einKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'einnahme' },
         { key: 'katAus', label: 'Kategorie', type: 'select', options: ausKats.map((c) => ({ v: c, l: c })), showIf: (f) => f.typ === 'ausgabe' },
         { key: 'steuersatz', label: 'Steuersatz', type: 'select', default: '0', options: [{ v: '0', l: '0 % / keine' }, { v: '7', l: '7 %' }, { v: '19', l: '19 %' }] },
-        { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${c.typ})` })) },
+        { key: 'kontaktId', label: 'Kunde / Lieferant', type: 'select', options: kontakte.map((c) => ({ v: c.id, l: `${c.name} (${kontaktTypLabel(c)})` })) },
         { key: 'beschreibung', label: 'Beschreibung', type: 'suggest', options: beschrOpts, placeholder: 'z. B. 12 Gläser Rapshonig' },
       ],
       values: k ? { ...k, katEin: k.typ === 'einnahme' ? k.kategorie : '', katAus: k.typ === 'ausgabe' ? k.kategorie : '' } : (vorgabe || {}),
@@ -21013,7 +21096,7 @@ async function lagerVerkaufForm(vorId = '', suche = '', reiter = '') {
         hint: 'Aus dem Verkaufspreis der Position. Du kannst ihn hier ändern.' },
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
       { key: '_trennVerkauf', type: 'static', html: '' },
-      { key: 'kontaktId', label: 'An wen verkauft? (optional)', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: 'kontaktId', label: 'An wen verkauft? (optional)', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${kontaktTypLabel(k)})` })) },
       { key: 'kaeufer', label: 'oder Name frei eintragen', placeholder: 'leer lassen bei Barverkauf' },
       { key: '_verkaufInfo', type: 'static', html: '<div class="hint" data-lager-verkauf-info></div>' },
     ],
@@ -24032,9 +24115,9 @@ async function materialZugangForm(cfg, vorPositionId = '', rec = null) {
       { key: 'kostenGesamt', label: 'Kosten der Verarbeitung gesamt (€)', type: 'number', showIf: lohn, hint: 'Was du dem Verarbeiter zahlst. Die App rechnet den Preis je Einheit selbst aus.' },
       { key: '_packInfo', type: 'static', html: '<div class="hint" data-pack-info></div>', showIf: neu },
       { key: 'kontaktId', label: 'Bei wem gekauft?', type: 'select', showIf: kauf,
-        options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+        options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${kontaktTypLabel(k)})` })) },
       { key: 'verarbeiterId', label: 'Verarbeiter', type: 'select', showIf: lohn,
-        options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+        options: lieferanten.map((k) => ({ v: k.id, l: `${k.name} (${kontaktTypLabel(k)})` })) },
       { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: kauf, placeholder: 'z. B. RE-2026-118' },
       { key: 'honigKg', label: 'Eigener Honig dafür, lose abgegeben (kg)', type: 'number', showIf: lohn,
         hint: 'Optional. Der Honig wird bei der Charge als „zur Verarbeitung abgegeben“ vermerkt und gilt dort nicht mehr als offen.' },
@@ -24370,7 +24453,7 @@ async function materialAbgangForm(cfg, vorPositionId = '', rec = null, vorArt = 
       { key: 'menge', label: 'Menge', type: 'number', required: true, halb: true },
       { key: '_trennAbgang', type: 'static', html: '' },
       { key: 'preis', label: 'Preis je Einheit (€)', type: 'number', showIf: (f) => f.art === 'Verkauf' },
-      { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })), showIf: (f) => f.art === 'Verkauf' },
+      { key: 'kontaktId', label: 'An wen verkauft?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${kontaktTypLabel(k)})` })), showIf: (f) => f.art === 'Verkauf' },
       { key: 'kaeufer', label: 'oder Name frei eintragen', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. Imkerkollege Meier' },
       { key: 'belegNr', label: 'Rechnung / Belegnummer', showIf: (f) => f.art === 'Verkauf', placeholder: 'z. B. RE-0004 – oder leer bei Barverkauf',
         hint: 'Freier Verweis. Eine Rechnung in der App wird davon nicht verändert.' },
@@ -24708,7 +24791,7 @@ async function pfandRuecknahmeForm(cfg, vorPositionId = '') {
       { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
       { key: 'anzahl', label: 'Anzahl zurück', type: 'number', required: true, halb: true },
       { key: '_trennPfand', type: 'static', html: '' },
-      { key: 'kontaktId', label: 'Von wem?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${k.typ})` })) },
+      { key: 'kontaktId', label: 'Von wem?', type: 'select', options: kunden.map((k) => ({ v: k.id, l: `${k.name} (${kontaktTypLabel(k)})` })) },
       { key: 'wer', label: 'oder Name frei eintragen', placeholder: 'z. B. Stammkunde Meier' },
       { key: '_pfandInfo', type: 'static', html: '<div class="hint" data-pfand-info></div>' },
       { key: 'notiz', label: 'Notiz', type: 'textarea' },
@@ -26522,7 +26605,7 @@ Views.fahrten = {
     const alle = await DB.getAll('fahrten');
     const staende = await idMap('staende');
     const jahre = [...new Set(alle.map((f) => (f.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
-    const jahr = Views.fahrten._jahr || jahre[0] || U.todayIso().slice(0, 4);
+    const jahr = jahre.includes(Views.fahrten._jahr) ? Views.fahrten._jahr : (jahre[0] || U.todayIso().slice(0, 4));   // gemerktes Jahr nur, wenn es noch Fahrten hat (Finaltest 09.11.2026, F1)
     const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
     const kmJahr = U.sum(list, (f) => f.km);
     const kmSatz = S.get('kmPauschale');
@@ -26605,8 +26688,11 @@ Views.fahrten = {
         const nm = (id) => staende.find((s) => s.id === id)?.name || geloeschterStandName(id) || '';   // reiner Name, ohne „(gelöscht)“ (Ultra-Test 05.11.2026, G1)
         let standId = null, freiZiel = '', autoName = '';
         if (v.typ === 'zwischen') {
-          if (!v.vonStandId || !v.nachStandId) throw feldFehler(!v.vonStandId ? 'vonStandId' : 'nachStandId', 'Bitte Von- und Nach-Stand wählen.');
-          freiZiel = `${nm(v.vonStandId)} → ${nm(v.nachStandId)}`; autoName = freiZiel;
+          /* Ältere Vorlagen kennen nur den Text „A → B“, nicht die Stand-Kennungen: Beim Ändern der Kilometer bleibt der Text
+             dann stehen, statt beide Stände neu zu verlangen (Finaltest 09.11.2026, F2) */
+          const altText = vl && !v.vonStandId && !v.nachStandId && / → /.test(vl.freiZiel || '') ? vl.freiZiel : '';
+          if (!altText && (!v.vonStandId || !v.nachStandId)) throw feldFehler(!v.vonStandId ? 'vonStandId' : 'nachStandId', 'Bitte Von- und Nach-Stand wählen.');
+          freiZiel = altText || `${nm(v.vonStandId)} → ${nm(v.nachStandId)}`; autoName = freiZiel;
         } else if (v.typ === 'stand') {
           if (!v.standId) throw feldFehler('standId', 'Bitte einen Stand wählen.');
           standId = v.standId; autoName = nm(v.standId);
@@ -26614,7 +26700,8 @@ Views.fahrten = {
           if (!(v.freiZiel || '').trim()) throw feldFehler('freiZiel', 'Bitte eine Beschreibung angeben.');
           freiZiel = v.freiZiel.trim(); autoName = freiZiel;
         }
-        const rec = { id: vl ? vl.id : U.uuid(), name: (v.name || '').trim() || autoName, km: v.km, zweck: v.zweck || '', standId, freiZiel };
+        const rec = { id: vl ? vl.id : U.uuid(), name: (v.name || '').trim() || autoName, km: v.km, zweck: v.zweck || '', standId, freiZiel,
+          vonStandId: v.typ === 'zwischen' ? (v.vonStandId || null) : null, nachStandId: v.typ === 'zwischen' ? (v.nachStandId || null) : null };   // Stände gemerkt (Finaltest 09.11.2026, F2)
         const list = S.get('fahrtvorlagen') || [];
         const i = list.findIndex((x) => x.id === rec.id);
         if (i >= 0) list[i] = rec; else list.push(rec);
@@ -33788,6 +33875,7 @@ async function boot() {
 /* Öffentliche Modul-Oberfläche: const-Deklarationen landen nicht automatisch
    am window-Objekt – explizit exportieren (u. a. für tests/test.html). */
 Object.assign(window, {
+  netzFetch, kontaktTypLabel, wanderungHistorieBerichtigen,
   wennSichtbar, tabelleLesen, standortFehlerText, standortGenauText, istSpeicherVoll, speicherVollFehler, SPEICHER_VOLL_TEXT, mitFrist, nebenbei, STARTHINWEISE, unbehandelterFehler, UNBEHANDELT_TEXT, fehlerMelden, chargeLoeschWarnung,
   TesterSperre, ZurueckWeb, U, DB, S, UI, Views, NAV, Anhang, Sprachnotiz, Voice, Wetter, Backup, Xlsx, Export, UNTERLAGEN_KAT, ZUCHT_AN, Statistik, Pdf, PdfImport,
   Reporting, Demo, Wizard, FormGuard, TEST_MODE, Testmodus, Erinnerung, Einfuehrung, Bewertung, standortHolen, verkaufRabattEuro, verkaufGebindeG, verkaufHonigText, istFertigsirup, FERTIGSIRUP_KG_JE_L, mikrofonFehlerText, Lizenz, LIZENZ_PRODUKTE, nativDateiTeilen, nativTeilenBereit, xlsxSpeichern, STORE_LABELS, Notif, Splash, Wisch, Reiter, bereichsReiter, Mulde,

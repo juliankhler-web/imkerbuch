@@ -7283,6 +7283,233 @@ test('openVolkForm: legt ein Volk an, hängt die Königin dran, löst sie beim W
   }
 });
 
+/* ---------- Finaltest 09.11.2026 (Prüfer Königinnen/Varroa und Trachten/Wanderungen/Fahrten) ---------- */
+const setzFeld = (w, modal, id, wert) => { const e = modal.querySelector('#f-' + id); if (!e) throw new Error('Feld fehlt: ' + id); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); e.dispatchEvent(new w.Event('change', { bubbles: true })); };
+const kurz = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('Finaltest 09.11.2026 K1: Volk-Formular löst eine gewählte Königin aus ihrem bisherigen Volk', async (w) => {
+  dialogeSchliessen(w);
+  const stand = await w.DB.put('staende', { name: 'K1-Stand', lat: null, lng: null, notizen: '' });
+  const q = await w.DB.put('koeniginnen', { kennung: 'K1-Q', jahrgang: 2025, status: 'aktiv', historie: [] });
+  const a = await w.DB.put('voelker', { name: 'K1-Volk A', standId: stand.id, status: 'aktiv', koeniginId: q.id, historie: [] });
+  q.historie.push({ volkId: a.id, von: '2026-01-01', bis: null }); await w.DB.put('koeniginnen', q);
+  const b = await w.DB.put('voelker', { name: 'K1-Volk B', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  try {
+    w.openVolkForm(b, {}, () => {});
+    await kurz(300);
+    const modal = w.document.querySelector('.modal-back');
+    assert(modal, 'der Dialog steht offen');
+    const opt = [...modal.querySelectorAll('#f-koeniginId option')].find((o) => o.value === q.id);
+    assert(opt && opt.textContent.includes('K1-Volk A'), 'die Auswahl nennt das Volk, in dem die Königin sitzt: ' + (opt && opt.textContent));
+    setzFeld(w, modal, 'koeniginId', q.id);
+    modal.querySelector('[data-save]').click();
+    await kurz(500);
+    const a2 = await w.DB.get('voelker', a.id), b2 = await w.DB.get('voelker', b.id), q2 = await w.DB.get('koeniginnen', q.id);
+    assertEq(a2.koeniginId, null, 'Volk A hat die Königin nicht mehr');
+    assertEq(b2.koeniginId, q.id, 'Volk B führt sie jetzt');
+    const offen = (q2.historie || []).filter((h) => !h.bis);
+    assertEq(offen.length, 1, 'genau eine offene Zuordnung');
+    assertEq(offen[0].volkId, b.id, '… und zwar auf Volk B');
+    assert((a2.historie || []).some((h) => /umgesetzt/.test(h.text)), 'Volk A bekommt einen Historie-Eintrag');
+  } finally {
+    dialogeSchliessen(w);
+    for (const id of [a.id, b.id]) await w.DB.del('voelker', id);
+    await w.DB.del('koeniginnen', q.id); await w.DB.del('staende', stand.id);
+  }
+});
+
+test('Finaltest 09.11.2026 K2: Zuordnung von Hand macht die Königin wieder aktiv; aufgelöstes Volk braucht ein Bis-Datum', async (w) => {
+  dialogeSchliessen(w);
+  const stand = await w.DB.put('staende', { name: 'K2-Stand', lat: null, lng: null, notizen: '' });
+  const va = await w.DB.put('voelker', { name: 'K2-Volk Anna', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const valt = await w.DB.put('voelker', { name: 'K2-Volk Alt', standId: stand.id, status: 'aufgeloest', koeniginId: null, historie: [] });
+  const q = await w.DB.put('koeniginnen', { kennung: 'K2-Q', jahrgang: 2023, status: 'umgeweiselt', historie: [{ volkId: va.id, von: '2024-05-01', bis: '2025-06-01' }] });
+  const q3 = await w.DB.put('koeniginnen', { kennung: 'K2-Q3', jahrgang: 2026, status: 'aktiv', historie: [] });
+  try {
+    w.Views.koeniginnen.historieForm(q, null);
+    await kurz(300);
+    let modal = w.document.querySelector('.modal-back'); assert(modal, 'Dialog A offen');
+    setzFeld(w, modal, 'volkId', va.id); setzFeld(w, modal, 'von', '2026-11-01'); setzFeld(w, modal, 'bis', '');
+    modal.querySelector('[data-save]').click();
+    await kurz(600);
+    assertEq((await w.DB.get('koeniginnen', q.id)).status, 'aktiv', 'die Königin ist wieder aktiv');
+    assertEq((await w.DB.get('voelker', va.id)).koeniginId, q.id, 'und sitzt im Volk');
+    dialogeSchliessen(w);
+    w.Views.koeniginnen.historieForm(q3, null);
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back'); assert(modal, 'Dialog B offen');
+    setzFeld(w, modal, 'volkId', valt.id); setzFeld(w, modal, 'von', '2026-11-02'); setzFeld(w, modal, 'bis', '');
+    modal.querySelector('[data-save]').click();
+    await kurz(400);
+    assert(w.document.querySelector('.modal-back'), 'der Dialog bleibt offen');
+    assert(/aufgelöst/.test(w.document.querySelector('.modal-back').textContent), 'mit Hinweis auf das aufgelöste Volk');
+    assertEq((await w.DB.get('voelker', valt.id)).koeniginId, null, 'das aufgelöste Volk bekommt keine Königin');
+    assertEq(((await w.DB.get('koeniginnen', q3.id)).historie || []).length, 0, 'nichts in der Historie gespeichert');
+  } finally {
+    dialogeSchliessen(w);
+    for (const id of [q.id, q3.id]) await w.DB.del('koeniginnen', id);
+    for (const id of [va.id, valt.id]) await w.DB.del('voelker', id);
+    await w.DB.del('staende', stand.id);
+  }
+});
+
+test('Finaltest 09.11.2026 K4/K6: Königinnen-Kennung bleibt eindeutig, Mutter muss älter sein', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  try {
+    // a) Formular offen, inzwischen legt ein anderes Formular (Shortcut „Neue Mutter anlegen“) dieselbe Kennung an → nächste freie Nummer
+    w.Views.koeniginnen.form(null, () => {});
+    await kurz(300);
+    let modal = w.document.querySelector('.modal-back'); assert(modal, 'Dialog offen');
+    const vorschlag = modal.querySelector('#f-kennung').value;
+    assert(/-\d{3}$/.test(vorschlag), 'das Formular schlägt eine Kennung vor: ' + vorschlag);
+    await w.DB.put('koeniginnen', { kennung: vorschlag, jahrgang: new Date().getFullYear(), status: 'aktiv', historie: [] });
+    modal.querySelector('[data-save]').click();
+    await kurz(600);
+    let alle = await w.DB.getAll('koeniginnen');
+    assertEq(alle.length, 2, 'zweite Königin angelegt');
+    assert(alle[0].kennung !== alle[1].kennung, 'die Kennungen unterscheiden sich: ' + alle.map((k) => k.kennung).join(', '));
+    dialogeSchliessen(w);
+    // b) unveränderter Vorschlag folgt dem eingetragenen Jahrgang
+    w.Views.koeniginnen.form(null, () => {});
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back');
+    setzFeld(w, modal, 'jahrgang', '2024');
+    modal.querySelector('[data-save]').click();
+    await kurz(600);
+    alle = await w.DB.getAll('koeniginnen');
+    const k24 = alle.find((k) => k.jahrgang === 2024);
+    assert(k24 && /-24-/.test(k24.kennung), 'die Kennung trägt den Jahrgang 24: ' + (k24 && k24.kennung));
+    dialogeSchliessen(w);
+    // c) selbst getippte Doppelung wird abgewiesen (auch in anderer Schreibweise)
+    w.Views.koeniginnen.form(null, () => {});
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back');
+    setzFeld(w, modal, 'kennung', vorschlag.toLowerCase());
+    modal.querySelector('[data-save]').click();
+    await kurz(400);
+    assert(w.document.querySelector('.modal-back'), 'der Dialog bleibt bei doppelter Kennung offen');
+    assert(/schon vergeben/.test(modal.textContent), 'mit Hinweis „schon vergeben“');
+    assertEq((await w.DB.getAll('koeniginnen')).length, 3, 'nichts Neues gespeichert');
+    dialogeSchliessen(w);
+    // d) Mutter aus späterem Jahrgang
+    const jung = alle.find((k) => k.jahrgang !== 2024);
+    w.Views.koeniginnen.form(null, () => {});
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back');
+    setzFeld(w, modal, 'kennung', 'K6-23'); setzFeld(w, modal, 'jahrgang', '2023'); setzFeld(w, modal, 'mutterId', jung.id);
+    modal.querySelector('[data-save]').click();
+    await kurz(400);
+    assert(w.document.querySelector('.modal-back'), 'der Dialog bleibt offen');
+    assert(/früheren Jahrgang/.test(modal.textContent), 'mit verständlicher Meldung');
+    assertEq((await w.DB.getAll('koeniginnen')).length, 3, 'nichts gespeichert');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Finaltest 09.11.2026 F1: Fahrtenbuch bleibt nicht auf einem leeren Jahr hängen', async (w) => isolierteDaten(w, async () => {
+  const stand = await w.DB.put('staende', { name: 'F1-Stand', kmEntfernung: 10, lat: null, lng: null, notizen: '' });
+  await w.DB.put('fahrten', { datum: '2026-03-01', standId: stand.id, km: 20, zweck: 'Kontrolle', notiz: '' });
+  w.Views.fahrten._jahr = '2025';   // gemerktes Jahr ohne Fahrten (z. B. nach dem Löschen der letzten 2025er Fahrt)
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.fahrten.render(host);
+    assert(host.textContent.includes('Kilometer 2026'), 'die Seite springt auf ein Jahr mit Fahrten');
+    assert(!host.textContent.includes('Noch keine Fahrt erfasst'), 'die Fahrt ist sichtbar');
+  } finally { host.remove(); w.Views.fahrten._jahr = ''; }
+}));
+
+test('Finaltest 09.11.2026 F2: Fahrt-Vorlage „zwischen zwei Ständen“ merkt sich die Stände, alte Vorlagen bleiben änderbar', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const a = await w.DB.put('staende', { name: 'F2-Heim', lat: null, lng: null, notizen: '' });
+  const b = await w.DB.put('staende', { name: 'F2-Raps', lat: null, lng: null, notizen: '' });
+  try {
+    w.Views.fahrten.vorlageForm(null);
+    await kurz(300);
+    let modal = w.document.querySelector('.modal-back'); assert(modal, 'Dialog offen');
+    setzFeld(w, modal, 'typ', 'zwischen'); setzFeld(w, modal, 'vonStandId', a.id); setzFeld(w, modal, 'nachStandId', b.id); setzFeld(w, modal, 'km', '30');
+    modal.querySelector('[data-save]').click(); await kurz(500);
+    let vl = (w.S.get('fahrtvorlagen') || []).find((x) => x.freiZiel === 'F2-Heim → F2-Raps');
+    assert(vl, 'Vorlage gespeichert'); assertEq(vl.vonStandId, a.id, 'Von-Stand gemerkt'); assertEq(vl.nachStandId, b.id, 'Nach-Stand gemerkt');
+    dialogeSchliessen(w);
+    w.Views.fahrten.vorlageForm(vl);
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back');
+    assertEq(modal.querySelector('#f-vonStandId').value, a.id, 'Von-Stand vorbelegt');
+    setzFeld(w, modal, 'km', '31');
+    modal.querySelector('[data-save]').click(); await kurz(500);
+    assertEq(Number((w.S.get('fahrtvorlagen') || []).find((x) => x.id === vl.id).km), 31, 'nur die Kilometer geändert');
+    dialogeSchliessen(w);
+    const alt = { id: w.U.uuid(), name: 'F2-Heim → F2-Raps alt', km: 20, zweck: '', standId: null, freiZiel: 'F2-Heim → F2-Raps' };
+    await w.S.set('fahrtvorlagen', [...(w.S.get('fahrtvorlagen') || []), alt]);
+    w.Views.fahrten.vorlageForm(alt);
+    await kurz(300);
+    modal = w.document.querySelector('.modal-back');
+    setzFeld(w, modal, 'km', '21');
+    modal.querySelector('[data-save]').click(); await kurz(500);
+    const alt2 = (w.S.get('fahrtvorlagen') || []).find((x) => x.id === alt.id);
+    assertEq(Number(alt2.km), 21, 'alte Vorlage ohne Stand-Kennungen: Kilometer geändert');
+    assertEq(alt2.freiZiel, 'F2-Heim → F2-Raps', 'der Text bleibt');
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Finaltest 09.11.2026 F3: Wanderung korrigieren berichtigt die Volk-Historie statt anzuhängen', async (w) => isolierteDaten(w, async () => {
+  const heim = await w.DB.put('staende', { name: 'F3-Heim', lat: null, lng: null, notizen: '' });
+  const raps = await w.DB.put('staende', { name: 'F3-Raps', lat: null, lng: null, notizen: '' });
+  const wald = await w.DB.put('staende', { name: 'F3-Wald', lat: null, lng: null, notizen: '' });
+  const volk = await w.DB.put('voelker', { name: 'F3-Anna', standId: heim.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const wanderung = await w.DB.put('wanderungen', { datum: '2026-04-20', vonStandId: heim.id, nachStandId: raps.id, volkIds: [volk.id], notiz: '' });
+  // so schreibt das Formular die Historie beim Speichern
+  const v1 = await w.DB.get('voelker', volk.id);
+  v1.historie.push({ datum: '2026-04-20', text: 'Gewandert: „F3-Heim“ → „F3-Raps“', wanderungId: wanderung.id }); await w.DB.put('voelker', v1);
+  // Ziel und Datum korrigiert
+  await w.wanderungHistorieBerichtigen(wanderung.id, [volk.id], '2026-04-22', 'F3-Heim', 'F3-Wald');
+  let h = (await w.DB.get('voelker', volk.id)).historie.filter((x) => /Gewandert/.test(x.text));
+  assertEq(h.length, 1, 'weiter genau ein Wander-Eintrag');
+  assertEq(h[0].datum, '2026-04-22', 'mit dem neuen Datum'); assertEq(h[0].text, 'Gewandert: „F3-Heim“ → „F3-Wald“', 'und dem neuen Ziel');
+  // Volk aus der Wanderung genommen → Eintrag weg
+  await w.wanderungHistorieBerichtigen(wanderung.id, [], '2026-04-22', 'F3-Heim', 'F3-Wald');
+  h = (await w.DB.get('voelker', volk.id)).historie.filter((x) => /Gewandert/.test(x.text));
+  assertEq(h.length, 0, 'der Eintrag ist entfernt');
+}));
+
+test('Finaltest 09.11.2026 F4: „Fahrt buchen“ direkt nach „Rückgängig“ bucht wieder', async (w) => isolierteDaten(w, async () => {
+  const stand = await w.DB.put('staende', { name: 'F4-Stand', kmEntfernung: 12.5, lat: null, lng: null, notizen: '' });
+  await w.fahrtSchnellBuchen(stand.id);
+  await kurz(200);
+  assertEq((await w.DB.getAll('fahrten')).length, 1, 'erste Fahrt gebucht');
+  const undo = w.document.querySelector('.toast-aktion'); assert(undo, 'der Hinweis bietet Rückgängig');
+  undo.click(); await kurz(250);
+  assertEq((await w.DB.getAll('fahrten')).length, 0, 'Rückgängig löscht die Fahrt');
+  await w.fahrtSchnellBuchen(stand.id);   // innerhalb der 1,5-Sekunden-Sperre
+  await kurz(200);
+  assertEq((await w.DB.getAll('fahrten')).length, 1, 'der zweite Tipp bucht wieder');
+}));
+
+test('Finaltest 09.11.2026 T1: Tracht-Erinnerung übernimmt eine vorhandene „Als Aufgabe“-Aufgabe', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso();
+  const von = w.U.addDays(heute, 10), bis = w.U.addDays(heute, 30);
+  const t = await w.DB.put('trachten', { pflanze: 'Efeu', bezeichnung: 'Efeu', standIds: [], von, bis, jaehrlich: false, erinnernTage: 0, region: '', notiz: '' });
+  await w.DB.put('aufgaben', { titel: 'Efeu-Aufgabe', faellig: w.U.addDays(von, -3), erledigt: false, quelle: 'tracht', refId: t.id, trachtJahr: von.slice(0, 4), erinnerung: false, standId: null, kategorie: '', notiz: '' });
+  t.erinnernTage = 7;
+  const a = await w.Tracht.aufgabePflegen(t);
+  assert(a, 'es gibt eine Aufgabe');
+  assertEq(a.faellig, w.U.addDays(von, -7), 'fällig 7 Tage vor Blühbeginn');
+  assertEq(a.erinnerung, true, 'sie gilt jetzt als Erinnerung');
+  assertEq((await w.DB.getAll('aufgaben')).filter((x) => x.refId === t.id).length, 1, 'keine zweite Aufgabe');
+}));
+
+test('Finaltest 09.11.2026 W1/X2: deutscher Hinweis ohne Verbindung; Kontakt-Rolle lesbar', async (w) => {
+  const orig = w.fetch;
+  w.fetch = () => Promise.reject(new TypeError('Failed to fetch'));
+  try {
+    let msg = '';
+    try { await w.netzFetch('https://api.brightsky.dev/x', undefined, 'zum Wetterdienst'); } catch (e) { msg = e.message; }
+    assertEq(msg, 'Keine Verbindung zum Wetterdienst – bist du online?');
+  } finally { w.fetch = orig; }
+  assertEq(w.kontaktTypLabel({ typ: 'kunde' }), 'Kunde / Abnehmer');
+  assertEq(w.kontaktTypLabel({ typ: 'lieferant' }), 'Lieferant');
+  assertEq(w.kontaktTypLabel({ typ: 'unbekannt' }), 'unbekannt', 'unbekannte Werte bleiben lesbar');
+});
+
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
   const altInventar = await w.DB.getAll('inventar');
