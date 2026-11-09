@@ -16,9 +16,9 @@ for (const w of ['anmelden-entwurf', 'ENTWURF', 'Bloom', 'Entwickler-Schalter', 
 if (seite.includes('../')) throw new Error('index.html enthält noch ../');
 if (seite.includes('noindex')) throw new Error('Startseite hat noch noindex – seit 08.11.2026 freigegeben');
 writeFileSync(join(Z, 'index.html'), seite);
-for (const d of ['.htaccess', 'v', 'media/app-bilder', 'media/hero-flug-1280.mp4', 'media/hero-flug-handy.mp4', 'media/hintergrund-flug.mp4', 'media/bienenjahr-flug-1280.mp4', 'media/bienenjahr-flug-handy.mp4']) cpSync(join(Q, d), join(Z, d), { recursive: true });
+for (const d of ['.htaccess', 'v', 'media/app-bilder', 'media/hero-flug-1280.mp4', 'media/hero-flug-handy.mp4', 'media/hintergrund-flug.mp4', 'media/bienenjahr-flug-1280.mp4', 'media/bienenjahr-flug-handy.mp4', 'media/partner']) cpSync(join(Q, d), join(Z, d), { recursive: true });
 /* Das 3D-Logo (Kopf und Fuß) liegt im App-Ordner; die Vorschau holt es mit ../assets/logo, der Server unter /assets/logo.
-   Das Partner-Logo von PFAU-Honig wird seit 04.11.2026 nicht mehr gezeigt (nur noch ein kleiner Textlink im Fuß). */
+   Das PFAU-Logo (website-neu/media/partner) wird seit 09.11.2026 im Abschnitt „Imkereien“ gezeigt (mit Zustimmung, als Werbung gekennzeichnet). */
 cpSync(join(WURZEL, 'assets/logo'), join(Z, 'assets/logo'), { recursive: true });
 mkdirSync(join(Z, '.well-known'), { recursive: true });
 cpSync(join(Q, 'stimme.php'), join(Z, 'stimme.php'));   // Stimmenzähler für „Was als Nächstes kommt“
