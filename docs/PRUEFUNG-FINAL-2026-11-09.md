@@ -89,3 +89,4 @@ Prüfung (Workflow `imkerbuch-portion`, Run wf_0a2a9889-729): 43 bestätigte Fun
 - **Prüftiefe Stück-Gruppen:** 504 Lösch-/Wiederherstell-Reihenfolgen, Zufallsfolgen über 28+ Startwerte, Vergleich mit dem alten Stand für Einzel-/ml-/kg-Behandlungen – keine Verstöße.
 - **Rest aus Runde 4 (Runde 5 läuft):** „–“ und zurück auf dasselbe Mittel kostet einen Streifen zu viel; endgültig gelöschte Gruppen-Position; doppelte Nennung im Hinweis.
 - **Ergebnis Zwischenstand:** voller Lauf 1142 von 1142 Tests grün.
+- **Runde 5 (wf_c0a6e63e-879):** „–“ und zurück kehrt in die Gruppe zurück, gelöschte Gruppen-Position rechnet wie vorher, Rückgaben je Position zusammengefasst. Gegenprüfung: 1 Problem, niedrig (alle Völker einer Gruppe wählen „–“ und kehren zurück → jedes rundet einzeln auf; gleich wie Runde 4) – bewusst so gelassen. Voller Lauf 1145 von 1145 Tests grün.

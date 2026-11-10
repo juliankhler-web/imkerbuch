@@ -9605,6 +9605,91 @@ test('Finaltest P2 N21: Stück-Gruppe ohne Abzug und Position – die erste gew�
   assertEq([await h.lager(), 'abzugSoll' in (await w.DB.get('behandlungen', h.recs[0].id))], [[2], false], 'N21b: Lager 2, keine Grenze');
 })));
 
+test('Finaltest P2 N22: Stück-Gruppe – ein gelöstes Volk („–“ oder anderes Mittel) kehrt mit dem Produkt der Gruppe in sie zurück, statt einzeln aufzurunden', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // a: Lager 5, 2 × 0,5 (A 1, B 0). B „–“, dann im Formular wieder Apivar → Lager 4, A 1, B 0 (vorher Lager 3, B trug 1)
+  let g = await p2r2Gruppe(w, 'N22a', [{ menge: 5 }], [0.5, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, _verbrauchId: '' });
+  let b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([b.abzugGruppe, b.abzugGruppeGeloest, await g.lager()], [undefined, g.recs[0].abzugGruppe, [4]], 'N22a: B gelöst, die Kennung ist gemerkt');
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(b));
+  f.setz('_verbrauchId', g.pos[0].id); await w99(50);
+  const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assertEq(info, 'Abzug 0 Stück (die übrigen Völker der Behandlung tragen schon 1 Stück) von 4 Stück → Rest 4 Stück', 'N22a: Hinweis');
+  await f.speichern();
+  b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([await g.lager(), await g.traegt(g.recs[0]), await g.traegt(g.recs[1]), b.abzugGruppe, 'abzugGruppeGeloest' in b], [[4], 1, 0, g.recs[0].abzugGruppe, false], 'N22a: Lager 4, A 1, B 0, B wieder in der Gruppe');
+  await g.stimmt([5], Infinity, 'N22a');
+  await g.loeschen(g.recs[0]);
+  assertEq([await g.lager(), await g.traegt(g.recs[1])], [[4], 1], 'N22a: A gelöscht – B trägt das angebrochene Stück');
+  await g.loeschen(g.recs[1]);
+  assertEq(await g.lager(), [5], 'N22a: beide gelöscht – Lager 5');
+  // b: Umweg über ein anderes Mittel – B auf Bayvarol, dann wieder Apivar → Apivar 4, Bayvarol 5, B 0 (vorher Apivar 3)
+  g = await p2r2Gruppe(w, 'N22b', [{ menge: 5 }], [0.5, 0.5]);
+  const bay = await p2r4Bayvarol(w, 'N22b');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, mittel: 'Bayvarol', _verbrauchId: bay.id });
+  assertEq([await g.lager(), await p2r4Lager(w, bay)], [[4], 4], 'N22b: auf Bayvarol – einzeln');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, mittel: 'Apivar', _verbrauchId: g.pos[0].id });
+  b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([await g.lager(), await p2r4Lager(w, bay), await g.traegt(g.recs[1]), b.abzugGruppe], [[4], 5, 0, g.recs[0].abzugGruppe], 'N22b: zurück auf Apivar – Apivar 4, Bayvarol 5, B 0');
+  await g.stimmt([5], Infinity, 'N22b');
+  // c: Fehlmenge beim Anlegen (Lager 1, 0,7/0,7/0,5 → trägt 1, Grenze 1). C „–“, Nachschub, C wieder Apivar: die alte Fehlmenge
+  //    wird nicht nachgebucht (Bedarf der Gruppe wächst nicht: 1,4 → 1,9 bleibt 2 Stück), die Grenze bleibt 1
+  g = await p2r2Gruppe(w, 'N22c', [{ menge: 1 }], [0.7, 0.7, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[2].id), { menge: 0.5, _verbrauchId: '' });
+  const p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl += 5; await w.DB.put('inventar', p);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[2].id), { menge: 0.5, _verbrauchId: g.pos[0].id });
+  assertEq([await g.lager(), (await g.aktiv()).length, (await g.aktiv()).map((x) => x.abzugSoll)], [[5], 3, [1, 1, 1]], 'N22c: Lager 5, C wieder dabei, Grenze 1');
+  await g.stimmt([6], 1, 'N22c');
+  // d: Die übrigen sind alle gelöscht – ohne Gruppe rechnet B einzeln (aufgerundet)
+  g = await p2r2Gruppe(w, 'N22d', [{ menge: 5 }], [0.5, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, _verbrauchId: '' });
+  await g.loeschen(g.recs[0]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, _verbrauchId: g.pos[0].id });
+  b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([await g.lager(), await g.traegt(g.recs[1]), !!b.abzugGruppe], [[4], 1, false], 'N22d: Lager 4, B trägt 1 einzeln');
+})));
+
+test('Finaltest P2 N23: Stück-Gruppe – ist ihre Position endgültig gelöscht, löst ein anderes Mittel das Volk (der gemerkte Name entscheidet)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // a: 2 × 0,5 Apivar, Apivar-Position endgültig gelöscht, B auf Bayvarol → Bayvarol 4, B trägt 1, gelöst (vorher Bayvarol 5, B in der Gruppe)
+  let g = await p2r2Gruppe(w, 'N23a', [{ menge: 5 }], [0.5, 0.5]);
+  const bay = await p2r4Bayvarol(w, 'N23a');
+  await w.DB.del('inventar', g.pos[0].id);
+  assert(!(await w.DB.getAll('papierkorb')).some((t) => t.daten && t.daten.id === g.pos[0].id), 'N23a: endgültig gelöscht');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, mittel: 'Bayvarol', _verbrauchId: bay.id });
+  let b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([await p2r4Lager(w, bay), await g.traegt(g.recs[1]), !!b.abzugGruppe, await g.traegt(g.recs[0])], [4, 1, false, 1], 'N23a: Bayvarol 4, B trägt 1, gelöst; A behält sein Stück');
+  // b: dasselbe Produkt (Packung B, gemerkter Name „… Packung A“) – B bleibt in der Gruppe, die trägt schon ihren Bedarf
+  g = await p2r2Gruppe(w, 'N23b', [{ menge: 5 }, { menge: 5 }], [0.5, 0.5]);
+  await w.DB.del('inventar', g.pos[0].id);
+  const alle = await w.DB.getAll('behandlungen'), inv = await w.DB.getAll('inventar');
+  assertEq([w.stueckWechselArt(alle, inv, alle.find((x) => x.id === g.recs[1].id), g.pos[1].id).art,
+    w.stueckWechselArt(alle, inv, alle.find((x) => x.id === g.recs[1].id), bay.id).art], ['gruppe', 'loesen'], 'N23b: gleiches Produkt rechnet gemeinsam, anderes löst');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, _verbrauchId: g.pos[1].id });
+  b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([(await w.DB.get('inventar', g.pos[1].id)).stueckzahl, await g.traegt(g.recs[1]), b.abzugGruppe], [5, 0, g.recs[0].abzugGruppe], 'N23b: Packung B bleibt 5, B in der Gruppe');
+})));
+
+test('Finaltest P2 N24: Stück-Gruppe – Hinweis, Rückfrage und Meldung nennen jede Position nur einmal (Rückgaben zusammengefasst)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen }) => {
+  // Ältere Daten: 3 × 0,5 tragen 1/1/1 (Bedarf 2). A „–“: sein Stück und ein Stück eines anderen Volks kommen zurück – beide von „Apivar N24“
+  let h = await p2StueckGruppe(w, 'N24', [0.5, 0.5, 0.5], [1, 1, 1], 7);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.form(h.recs[0]));
+  f.setz('_verbrauchId', ''); await w99(50);
+  const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assertEq(info, 'Kein Abzug mehr – 2 Stück Apivar N24 gehen zurück in den Bestand.', 'N24: Hinweis (vorher „1 Stück Apivar N24, 1 Stück Apivar N24“)');
+  await f.speichern();
+  assertEq(await h.bestand(), 9, 'N24: Lager 9');
+  // Löschen: Rückfrage und Meldung
+  h = await p2StueckGruppe(w, 'N24b', [0.5, 0.5, 0.5], [1, 1, 1], 7);
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(h.recs[0]));
+  await f.loeschen();
+  const frage = fragen.map((x) => x.text || '').find((t) => t.includes('Apivar N24b')) || '';
+  assert(/ 2 Stück Apivar N24b gehen zurück in den Bestand\./.test(frage) && (frage.match(/Apivar N24b/g) || []).length === 1, 'N24b: Rückfrage ' + frage);
+  const meldung = toasts.map((x) => x.msg).find((t) => /^Behandlung gelöscht/.test(t)) || '';
+  assert(/· 2 Stück Apivar N24b zurück im Bestand/.test(meldung) && (meldung.match(/Apivar N24b/g) || []).length === 1, 'N24b: Meldung ' + meldung);
+  assertEq(await h.bestand(), 9, 'N24b: Lager 9');
+  assertEq(w.abzugJePosition([{ inventarId: 'x', menge: 1 }, { inventarId: 'y', menge: 2 }, { inventarId: 'x', menge: 0.5 }]).map((a) => `${a.inventarId}${a.menge}`), ['x1.5', 'y2'], 'abzugJePosition');
+})));
+
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
   const altInventar = await w.DB.getAll('inventar');

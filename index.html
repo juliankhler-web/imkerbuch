@@ -5856,19 +5856,62 @@ function stueckAenderPlan(rec, neuMenge, gruppe, inventar = null) {
       bekam beim Löschen der übrigen ihr Stück.
     - 'erste': Die Gruppe hat noch gar keine Position und trägt nichts (beim Anlegen fehlte alles) – nur der Anteil dieses Volks
       wird gebucht, die Grenze ist danach, was die Gruppe trägt. Vorher buchte die Wahl bei einem Volk den Bedarf aller nach.
-    - 'gruppe': andere Position desselben Produkts – die Gruppe rechnet gemeinsam (Runde 3). */
+    - 'gruppe': andere Position desselben Produkts – die Gruppe rechnet gemeinsam (Runde 3).
+    - 'zurueck': ein gelöstes Volk (abzugGruppeGeloest) wählt wieder eine Position des Produkts seiner alten Gruppe – es kehrt in
+      die Gruppe zurück (Runde 5, stueckRueckkehr).
+    Runde 5 (10.11.2026): Ist das Produkt der Gruppe unbekannt (ihre Position endgültig gelöscht), entscheidet der gemerkte Name
+    (stueckGruppeProduktGemerkt); ohne Namen löst jede andere Position – wie vor Portion 2. Vorher blieb ein Volk, das auf Bayvarol
+    umgestellt wurde, in der Apivar-Gruppe und trug nichts. */
 function stueckWechselArt(behandlungen, inventar, alt, id) {
+  if (alt && !alt.abzugGruppe && alt.abzugGruppeGeloest) return stueckRueckkehr(behandlungen, inventar, alt, id);
   if (!alt || !alt.abzugGruppe || !(alt.verbrauchAbzug || []).every((a) => a && a.einheit === 'Stück')) return null;
   const pos = id ? (inventar || []).find((p) => p && p.id === id) : null;
   if (id && !pos) return null;
   if (stueckGruppeVon(behandlungen, inventar, alt)) {
-    const ref = stueckGruppeProdukt(behandlungen, alt, inventar);
-    if (!id || (ref && materialArt(pos) !== ref)) return { art: 'loesen', plan: stueckGruppeLoeschPlan(behandlungen, inventar, alt) };
+    const ref = stueckGruppeProdukt(behandlungen, alt, inventar) || (pos ? stueckGruppeProduktGemerkt(behandlungen, alt, inventar, pos) : '');
+    if (!id || !ref || materialArt(pos) !== ref) return { art: 'loesen', plan: stueckGruppeLoeschPlan(behandlungen, inventar, alt) };
     return verbrauchEinheit(pos) === 'Stück' ? { art: 'gruppe' } : null;
   }
   if (id && verbrauchEinheit(pos) === 'Stück' && !(alt.verbrauchAbzug || []).length && !stueckGruppeStart(behandlungen, alt, inventar)
     && !stueckGetragen(stueckGruppeMitglieder(behandlungen, alt, inventar))) return { art: 'erste' };
   return null;
+}
+/** Produkt der Gruppe von rec aus dem gemerkten Namen (eigener Abzug, gemerkte Position, sonst die Start-Position der Gruppe),
+    gemessen an der Position pos: materialArt von pos mit dem gemerkten Namen; '' = kein Name bekannt. Für den Fall, dass die
+    Position der Gruppe endgültig gelöscht ist (Runde 5, 10.11.2026). */
+function stueckGruppeProduktGemerkt(behandlungen, rec, inventar, pos) {
+  const eigen = ((rec && rec.verbrauchAbzug) || [])[0];
+  const name = (eigen && eigen.bezeichnung) || (rec && rec.abzugPosition && rec.abzugPosition.bezeichnung)
+    || ((stueckGruppeStart(behandlungen, rec, inventar) || {}).bezeichnung) || '';
+  return name && pos ? materialArt({ ...pos, bezeichnung: name }) : '';
+}
+/* Rückkehr in die Gruppe (Runde 5, 10.11.2026): „–“ oder ein anderes Mittel hat das Volk aus seiner Gruppe gelöst (abzugGruppeGeloest
+   merkt die Kennung). Wählt es später wieder eine Position mit dem Produkt der Gruppe, rechnet es wieder mit ihr – wie ein Mitglied,
+   dessen Menge von 0 auf seine Menge steigt (stueckAenderPlan): nachgezogen wird nur, was der Gruppe dann zum Bedarf fehlt, eine alte
+   Fehlmenge nicht. Vorher rundete es seine Menge einzeln auf: 2 × 0,5 (Lager 5 → 4), B „–“ und wieder Apivar → Lager 3 statt 4.
+   Liefert { art: 'zurueck', gruppeId, mitglieder, plan(menge) } oder null (dann rechnet es einzeln: die Gruppe ist leer, ihr Produkt
+   unbekannt oder ein anderes). */
+function stueckRueckkehr(behandlungen, inventar, alt, id) {
+  const pos = id ? (inventar || []).find((p) => p && p.id === id) : null;
+  if (!pos || verbrauchEinheit(pos) !== 'Stück') return null;
+  const basis = { id: alt.id, abzugGruppe: alt.abzugGruppeGeloest };
+  const start = stueckGruppeStart(behandlungen, basis, inventar);
+  const sp = start ? (inventar || []).find((p) => p && p.id === start.inventarId) : null;
+  if (!sp || verbrauchEinheit(sp) !== 'Stück' || materialArt(sp) !== materialArt(pos)) return null;
+  const mitglieder = stueckGruppeMitglieder(behandlungen, basis, inventar);
+  if (!mitglieder.length) return null;
+  return { art: 'zurueck', gruppeId: alt.abzugGruppeGeloest, mitglieder,
+    plan: (menge) => stueckAenderPlan({ ...basis, menge: 0, verbrauchAbzug: [] }, menge, mitglieder, inventar) };
+}
+/** Rückgaben je Position zusammengefasst (Runde 5): der eigene Abzug und der der übrigen Völker können dieselbe Position nennen –
+    der Hinweis zählte sie sonst doppelt auf („1 Stück Apivar A, 1 Stück Apivar A“). */
+function abzugJePosition(liste) {
+  const m = new Map();
+  for (const a of liste || []) {
+    const k = a.inventarId || `?${m.size}`, da = m.get(k);
+    if (da) da.menge = stueckRund6((Number(da.menge) || 0) + (Number(a.menge) || 0)); else m.set(k, { ...a });
+  }
+  return [...m.values()];
 }
 
 /** Standard-Löschaktion für onDelete: Bestätigung → Papierkorb → neu rendern */
@@ -11603,7 +11646,8 @@ Views.behandlungen = {
        auf „–“, und Menge 0,5 → 1,5 zog nichts nach (Lager 8 statt 7). Jetzt steht sie auf der Position der Gruppe – wie
        behandlungAendern (gruppenStart) sie annimmt –, damit die Gruppenrechnung greift. */
     // Runde 3: dieselbe, fest gewählte Position wie behandlungAendern (stueckGruppeStart, auch eine gemerkte abzugPosition)
-    const alleBeh = bestehend && b.abzugGruppe ? await DB.getAll('behandlungen') : [], alleInv = bestehend && b.abzugGruppe ? await DB.getAll('inventar') : [];
+    const mitGruppe = bestehend && !!(b.abzugGruppe || b.abzugGruppeGeloest);   // Runde 5: auch ein gelöstes Volk kann zurückkehren
+    const alleBeh = mitGruppe ? await DB.getAll('behandlungen') : [], alleInv = mitGruppe ? await DB.getAll('inventar') : [];
     if (bestehend && !bisherId && b.abzugGruppe) {
       const start = (stueckGruppeStart(alleBeh, b, alleInv) || {}).inventarId || '';
       const pos = mittelPosten.find((p) => p.id === start);
@@ -11671,13 +11715,14 @@ Views.behandlungen = {
         const inventar = await DB.getAll('inventar'), da = new Set(inventar.map((p) => p.id));
         const plan = stueckGruppeLoeschPlan(await DB.getAll('behandlungen'), inventar, b);
         // Nur nennen, was zurückkommen kann – eine endgültig gelöschte Position bekommt nichts zurück
-        const zurueck = liste((plan ? plan.rueck : (b.verbrauchAbzug || [])).filter((a) => da.has(a.inventarId)));
+        // Runde 5: je Position zusammengefasst (eigener Abzug und der der übrigen Völker nannten dieselbe Position sonst doppelt)
+        const zurueck = liste(abzugJePosition((plan ? plan.rueck : (b.verbrauchAbzug || [])).filter((a) => da.has(a.inventarId))));
         const angebrochen = ' Das angebrochene Stück bleibt bei den übrigen Völkern verbucht.';
         if (!(await UI.confirm({ title: 'Behandlung löschen?',
           text: 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') + (plan && plan.uebergeben > 0 ? angebrochen : ''),
           confirmText: 'Löschen', danger: true }))) return false;
         const erg = await loescheMitMaterial('behandlungen', b, { bericht: true });
-        UI.toast('Behandlung gelöscht' + (erg.zurueck.length ? ` · ${liste(erg.zurueck)} zurück im Bestand` : '')
+        UI.toast('Behandlung gelöscht' + (erg.zurueck.length ? ` · ${liste(abzugJePosition(erg.zurueck))} zurück im Bestand` : '')
           + (erg.uebergeben > 0 ? ' · das angebrochene Stück bleibt bei den übrigen Völkern verbucht' : ''));
         renderRoute();
         return true;
@@ -12475,6 +12520,21 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
       } else if (bedarf > rest) abzug = abziehen(id, bedarf - rest);
       const traegt = Math.min(rest, bedarf) + Math.round(abzug.reduce((n, a) => n + (Number(a.menge) || 0), 0));
       soll = traegt < bedarf ? traegt : Infinity;
+    } else if (wechsel && wechsel.art === 'zurueck') {
+      /* Runde 5 (10.11.2026): Ein gelöstes Volk wählt wieder eine Position mit dem Produkt seiner alten Gruppe – es kehrt zurück. Sein
+         bisheriger Abzug (z. B. Bayvarol) geht zurück, von der Position kommt nur, was der Gruppe dann zum Bedarf fehlt – wie beim
+         Erhöhen eines Mitglieds von 0 (stueckAenderPlan): eine alte Fehlmenge wird nicht nachgebucht, die Grenze steigt um den Zuwachs.
+         Vorher rundete es einzeln auf: 2 × 0,5, B „–“ und wieder Apivar → Lager 3 statt 4. */
+      for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+      const plan = wechsel.plan(neuMenge);
+      soll = plan.sollNeu;
+      abzug = [];
+      if (plan.nachziehen > 0) {
+        const vorher = gefehlt;
+        abzug = abziehen(id, plan.nachziehen);
+        const bekommen = plan.nachziehen - r3(gefehlt - vorher);
+        if (bekommen < plan.nachziehen) soll = plan.getragen + bekommen;
+      }
     } else {
       for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
       abzug = id ? abziehen(id, neuMenge) : [];
@@ -12485,12 +12545,16 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
     if (geloest) {
       // Aus der Gruppe gelöst (Runde 4): ohne Kennung, gemerkte Position und Grenze; die übrigen behalten die Grenze der Gruppe
       for (const k of ['abzugGruppe', 'abzugPosition', 'abzugSoll', 'abzugUebergeben']) delete neu[k];
+      neu.abzugGruppeGeloest = alt.abzugGruppe;   // Runde 5: gemerkt – wählt das Volk wieder das Produkt der Gruppe, kehrt es zurück
       korbOps = stueckSollKorbOps(d.papierkorb, alt.abzugGruppe, geloest.soll);
-    } else if (soll !== null && alt.abzugGruppe) {
+    } else if (soll !== null && (alt.abzugGruppe || (wechsel && wechsel.art === 'zurueck'))) {
       // Die Grenze der Stück-Gruppe gilt für alle ihre Einträge (Nachbesserung P2, Runde 2)
+      const gruppeId = alt.abzugGruppe || wechsel.gruppeId;
       neu = mitStueckSoll(neu, soll);
-      for (const m of stueckGruppeMitglieder(d.behandlungen, alt, d.inventar)) { const x = mitglieder.get(m.id) || m; if (!stueckSollGleich(x, soll)) mitglieder.set(m.id, mitStueckSoll(x, soll)); }
-      korbOps = stueckSollKorbOps(d.papierkorb, alt.abzugGruppe, soll);
+      if (!alt.abzugGruppe) { neu.abzugGruppe = gruppeId; delete neu.abzugGruppeGeloest; }   // Rückkehr in die Gruppe (Runde 5)
+      const gruppe = alt.abzugGruppe ? stueckGruppeMitglieder(d.behandlungen, alt, d.inventar) : wechsel.mitglieder;
+      for (const m of gruppe) { const x = mitglieder.get(m.id) || m; if (!stueckSollGleich(x, soll)) mitglieder.set(m.id, mitStueckSoll(x, soll)); }
+      korbOps = stueckSollKorbOps(d.papierkorb, gruppeId, soll);
     }
     const aufgaben = wartezeitAufgabenPlan(d, alt, neu, zielText);
     return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'behandlungen', obj: neu }, [...mitglieder.values()].map((obj) => ({ store: 'behandlungen', obj })), korbOps, aufgaben),
@@ -25593,11 +25657,13 @@ function verdrahteVerbrauch(m, posten, mengeFn, bisher = null) {
     const pos = posten.find((i) => i.id === sel.value);
     /* Runde 4 (10.11.2026): andere Auswahl bei einem Mitglied einer Stück-Gruppe – dieselbe Entscheidung wie behandlungAendern
        (stueckWechselArt). „–“ zählt nur, wenn die bisherige Position angeboten war (sonst heißt „–“ „nicht angefasst“). */
-    const wechsel = bisher && bisher.rec && bisher.rec.abzugGruppe && (pos ? pos.id !== bisher.start : !!bisher.start && bisher.angeboten)
+    // Runde 5: auch ein gelöstes Volk (abzugGruppeGeloest), das wieder das Produkt seiner Gruppe wählt (stueckRueckkehr)
+    const wechsel = bisher && bisher.rec && (bisher.rec.abzugGruppe || bisher.rec.abzugGruppeGeloest) && (pos ? pos.id !== bisher.start : !!bisher.start && bisher.angeboten)
       ? stueckWechselArt(bisher.behandlungen || [], bisher.inventar || [], bisher.rec, pos ? pos.id : '') : null;
     const loesen = wechsel && wechsel.art === 'loesen' ? wechsel.plan : null;
     const da = new Set((bisher && bisher.inventar || []).map((p) => p && p.id));
-    const loesRueck = loesen ? loesen.rueck.filter((a) => da.has(a.inventarId) && Number(a.menge) > 0) : [];
+    // Runde 5: je Position zusammengefasst – eigener Abzug und der der übrigen Völker nannten dieselbe Position sonst doppelt
+    const loesRueck = loesen ? abzugJePosition(loesen.rueck.filter((a) => da.has(a.inventarId) && Number(a.menge) > 0)) : [];
     const loesText = loesRueck.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
     const bleibtText = loesen && loesen.uebergeben > 0
       ? ` ${U.fmtNum(loesen.uebergeben, 2)} Stück ${loesen.uebergeben === 1 ? 'bleibt' : 'bleiben'} bei den übrigen Völkern der Behandlung verbucht.` : '';
@@ -25642,8 +25708,14 @@ function verdrahteVerbrauch(m, posten, mengeFn, bisher = null) {
       menge = Math.max(0, stueckBedarf(stueckMengen(bisher.gruppe) + roh) - traegt);
       if (traegt > 0) gruppeText = ` (die übrigen Völker der Behandlung tragen schon ${U.fmtNum(traegt, 2)} ${e})`;
     }
+    // Rückkehr in die alte Gruppe (Runde 5): dieselbe Rechnung wie behandlungAendern – nur, was der Gruppe dann zum Bedarf fehlt
+    if (e === 'Stück' && wechsel && wechsel.art === 'zurueck') {
+      const plan = wechsel.plan(roh);
+      menge = plan.nachziehen;
+      if (plan.getragen > 0) gruppeText = ` (die übrigen Völker der Behandlung tragen schon ${U.fmtNum(plan.getragen, 2)} ${e})`;
+    }
     const rest = Math.max(0, bestand - menge);
-    info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b>${gruppeText || (wechsel && wechsel.art === 'gruppe' ? '' : aufText(roh, menge))} von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
+    info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b>${gruppeText || (wechsel && (wechsel.art === 'gruppe' || wechsel.art === 'zurueck') ? '' : aufText(roh, menge))} von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
       + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '')
       + (loesen ? (loesText ? `. Dafür gehen ${U.esc(loesText)} zurück in den Bestand.` : '.') + bleibtText
         : zurueckText && bisher.angeboten ? `. Dafür gehen ${U.esc(zurueckText)} zurück in den Bestand.` : '');
