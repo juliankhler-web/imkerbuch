@@ -437,8 +437,9 @@ html.js .karten-bahn.zieht,.bahn.zieht{scroll-snap-type:none;cursor:grabbing;use
 .kommt-hinweis{margin-top:14px;font-size:14px;color:var(--text-3)}
 /* Abstimmung als eine Kachel (Julian 10.11.2026, Entwurf B: dunkler Kopf wie eine Instagram-Frage). Eine Stimme je Browser,
    wechseln geht; nach dem eigenen Tipp zeigen Balken die Anteile aller Stimmen (stimme.php liefert nur Zahlen je Idee). */
-.umfrage{max-width:520px;margin-top:clamp(36px,4vw,56px);background:var(--creme);border-radius:22px;overflow:hidden;border:1px solid var(--linie)}
-.umfrage-kopf{background:var(--text);color:#fff;text-align:center;padding:clamp(18px,2vw,24px) 22px}
+.umfrage{position:relative;max-width:520px;margin-top:clamp(36px,4vw,56px);background:var(--creme);border-radius:22px;border:1px solid var(--linie)}
+.umfrage-kopf{background:var(--text);color:#fff;text-align:center;padding:clamp(18px,2vw,24px) 22px;border-radius:21px 21px 0 0}
+.umfrage-kopf p{font-size:13.5px;color:#E8DCC6;margin-top:6px}
 .umfrage-kopf small{display:block;font-size:12.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--honig-2)}
 .umfrage-kopf h3{font-size:clamp(19px,1.7vw,22px);font-weight:650;line-height:1.25;margin-top:6px;color:#fff}
 .umfrage-liste{list-style:none;margin:0;padding:16px 16px 4px;display:flex;flex-direction:column;gap:9px}
@@ -455,6 +456,11 @@ html.js .karten-bahn.zieht,.bahn.zieht{scroll-snap-type:none;cursor:grabbing;use
 .umfrage-fuss{display:flex;justify-content:center;align-items:center;gap:8px;font-size:14px;color:var(--text-3);padding:10px 16px 16px;margin:0;min-height:22px}
 .umfrage-fuss .live{width:8px;height:8px;border-radius:50%;background:var(--wiese);display:inline-block}
 html:not(.js) .umfrage-fuss{display:none}
+/* Kleine Feier beim Tipp (Julian 10.11.2026): Zeile wackelt, Bienen fliegen heraus – nicht bei „Bewegung reduzieren“ */
+.umfrage-wahl.wackelt{animation:umfrage-wackeln .55s ease}
+@keyframes umfrage-wackeln{20%{transform:rotate(-2.5deg) scale(1.03)}40%{transform:rotate(2.5deg) scale(1.03)}60%{transform:rotate(-1.5deg)}80%{transform:rotate(1deg)}}
+.umfrage-biene{position:absolute;pointer-events:none;z-index:5}
+@media(prefers-reduced-motion:reduce){.umfrage-wahl.wackelt{animation:none}}
 /* 07 Imkereien aus der Praxis (Julian 09.11.2026, Beispiel 2 ohne „Partner-Imkerei“): drei Karten, PFAU breiter mit Logo,
    jede einzeln als Werbung gekennzeichnet. Logos liegen lokal in media/partner (Zustimmung der Betriebe, Julian 09.11.2026); es wird nichts von Instagram geladen – nur ein Link. */
 .imk-raster{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px;margin-top:clamp(36px,4vw,56px)}
@@ -1248,14 +1254,14 @@ html:not(.js) .umfrage-fuss{display:none}
         <div class="rechts">
           <p class="satz" data-zeigen style="--v:1">Du entscheidest mit, was als Nächstes kommt. Ein Tipp genügt, ohne Anmeldung.</p>
           <div class="umfrage" data-zeigen style="--v:2" role="group" aria-labelledby="umfrage-titel">
-            <div class="umfrage-kopf"><small>Deine Stimme zählt</small><h3 id="umfrage-titel">Was soll ImkerBuch als Nächstes können?</h3></div>
+            <div class="umfrage-kopf"><small>Deine Stimme zählt</small><h3 id="umfrage-titel">Was soll ImkerBuch als Nächstes können?</h3><p>Mehrere Antworten möglich</p></div>
             <ul class="umfrage-liste">
               <li><button type="button" class="umfrage-wahl" data-idee="geraete" aria-pressed="false"><i class="balken" aria-hidden="true"></i><span class="name">Cloud für mehrere Geräte</span><span class="anteil"></span></button></li>
               <li><button type="button" class="umfrage-wahl" data-idee="helfer" aria-pressed="false"><i class="balken" aria-hidden="true"></i><span class="name">Zugänge für Helfer</span><span class="anteil"></span></button></li>
               <li><button type="button" class="umfrage-wahl" data-idee="waage" aria-pressed="false"><i class="balken" aria-hidden="true"></i><span class="name">Stockwaage verbinden</span><span class="anteil"></span></button></li>
               <li><button type="button" class="umfrage-wahl" data-idee="glas" aria-pressed="false"><i class="balken" aria-hidden="true"></i><span class="name">Code auf dem Honigglas</span><span class="anteil"></span></button></li>
             </ul>
-            <p class="umfrage-fuss" aria-live="polite"><i class="live" aria-hidden="true"></i><span data-umfrage-text>Live · Tipp auf eine Idee</span></p>
+            <p class="umfrage-fuss" aria-live="polite"><i class="live" aria-hidden="true"></i><span data-umfrage-text>Live · Tipp auf eine oder mehrere Ideen</span></p>
           </div>
           <p class="kommt-hinweis">Ideen und Pläne, keine Zusage und kein Termin.</p>
         </div>
@@ -1684,25 +1690,25 @@ html:not(.js) .umfrage-fuss{display:none}
     };
     requestAnimationFrame(schritt);
   }
-  /* Abstimmung (eine Kachel, eine Stimme je Browser, wechseln geht). Der Browser merkt sich nur, wofür hier getippt wurde;
-     nach dem Tipp zeigen Balken die Anteile aller Stimmen. Ältere Merker mit mehreren Ideen gelten als abgestimmt. */
+  /* Abstimmung (eine Kachel, Julian 10.11.2026): mehrere Ideen möglich, nochmal tippen nimmt die Stimme zurück.
+     Der Browser merkt sich nur, wofür hier getippt wurde; nach dem ersten Tipp zeigen Balken den Anteil an allen Stimmen. */
   const stimmeLesen = () => { try { return JSON.parse(localStorage.getItem('imkerbuch-stimmen')) || {}; } catch (e) { return {}; } };
   const stimmeMerken = (s) => { try { localStorage.setItem('imkerbuch-stimmen', JSON.stringify(s)); } catch (e) { /* privat: gilt nur für diesen Besuch */ } };
   const umfrage = document.querySelector('.umfrage');
   if (umfrage) {
     const wahlen = [...umfrage.querySelectorAll('.umfrage-wahl')], fuss = umfrage.querySelector('[data-umfrage-text]');
+    const LEER = 'Live · Tipp auf eine oder mehrere Ideen';
     const meine = () => Object.keys(stimmeLesen()).filter((k) => wahlen.some((w) => w.dataset.idee === k));
     const markieren = () => { const m = meine(); wahlen.forEach((w) => w.setAttribute('aria-pressed', String(m.includes(w.dataset.idee)))); };
     const zeigenErgebnis = (z) => {
-      const summe = wahlen.reduce((n, w) => n + (z[w.dataset.idee] || 0), 0);
-      if (!summe) { fuss.textContent = 'Danke für deine Stimme!'; return; }
-      umfrage.classList.add('ergebnis');
+      const summe = wahlen.reduce((n, w) => n + (z[w.dataset.idee] || 0), 0), offen = meine().length > 0 && summe > 0;
+      umfrage.classList.toggle('ergebnis', offen);
       wahlen.forEach((w) => {
-        const p = Math.round((z[w.dataset.idee] || 0) * 100 / summe);
-        w.querySelector('.balken').style.width = p + '%';
-        w.querySelector('.anteil').textContent = p + ' %';
+        const p = offen ? Math.round((z[w.dataset.idee] || 0) * 100 / summe) : 0;
+        w.querySelector('.balken').style.width = offen ? p + '%' : '0';
+        w.querySelector('.anteil').textContent = offen ? p + ' %' : '';
       });
-      fuss.textContent = 'Live · ' + summe + (summe === 1 ? ' Stimme' : ' Stimmen');
+      fuss.textContent = offen ? 'Live · ' + summe + (summe === 1 ? ' Stimme' : ' Stimmen') : (meine().length ? 'Danke für deine Stimme!' : LEER);
     };
     const laden = async () => {
       const r = await fetch('/stimme.php', { cache: 'no-store' });
@@ -1710,24 +1716,44 @@ html:not(.js) .umfrage-fuss{display:none}
       if (!r.ok || !a.ok) throw new Error(r.status);
       return a.stimmen;
     };
+    const BIENE = '<svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true"><ellipse cx="8.5" cy="7" rx="4" ry="3" fill="#fff" stroke="#21170B" stroke-width=".8" opacity=".9" transform="rotate(-25 8.5 7)"/><ellipse cx="14.5" cy="6.5" rx="3.6" ry="2.7" fill="#fff" stroke="#21170B" stroke-width=".8" opacity=".9" transform="rotate(20 14.5 6.5)"/><ellipse cx="12" cy="14" rx="7" ry="5" fill="#E9A23B" stroke="#21170B" stroke-width="1"/><path d="M10 9.4v9.2M13.6 9.2v9.6" stroke="#21170B" stroke-width="1.8"/><circle cx="18" cy="13" r="1" fill="#21170B"/></svg>';
+    const feiern = (w) => {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches || !w.animate) return;
+      w.classList.remove('wackelt'); void w.offsetWidth; w.classList.add('wackelt');
+      const kr = umfrage.getBoundingClientRect(), br = w.getBoundingClientRect(), N = 14;
+      const x0 = br.left - kr.left + br.width / 2, y0 = br.top - kr.top + br.height / 2;
+      for (let i = 0; i < N; i++) {
+        const b = document.createElement('span'), gr = 16 + Math.random() * 10;
+        b.className = 'umfrage-biene'; b.innerHTML = BIENE;
+        b.style.cssText = `width:${gr}px;height:${gr}px;left:${x0 - gr / 2 + (Math.random() - 0.5) * br.width * 0.7}px;top:${y0 - gr / 2}px`;
+        umfrage.appendChild(b);
+        const winkel = (-175 + i * (170 / (N - 1))) * Math.PI / 180 + (Math.random() - 0.5) * 0.35, weit = 70 + Math.random() * 90;
+        const dx = Math.cos(winkel) * weit, dy = Math.sin(winkel) * weit - 30, dreh = (Math.random() - 0.5) * 70;
+        b.animate([
+          { transform: 'translate(0,0) scale(.3) rotate(0)', opacity: 0 },
+          { transform: `translate(${dx * 0.4}px,${dy * 0.4 - 12}px) scale(1) rotate(${dreh / 2}deg)`, opacity: 1, offset: 0.3 },
+          { transform: `translate(${dx}px,${dy}px) scale(.85) rotate(${dreh}deg)`, opacity: 0 },
+        ], { duration: 1000 + Math.random() * 600, delay: Math.random() * 120, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'backwards' }).onfinish = () => b.remove();
+      }
+    };
     markieren();
     if (meine().length) laden().then(zeigenErgebnis).catch(() => { fuss.textContent = 'Danke für deine Stimme!'; });
-    let laeuft = false;
+    const laeuft = new Set();
     wahlen.forEach((w) => w.addEventListener('click', async () => {
-      const m = meine();
-      if (laeuft || (m.length === 1 && m[0] === w.dataset.idee)) return;
-      laeuft = true; fuss.textContent = 'Wird gezählt …';
+      const idee = w.dataset.idee;
+      if (laeuft.has(idee)) return;
+      const an = !meine().includes(idee);
+      laeuft.add(idee);
+      if (an) feiern(w);
       try {
-        const daten = { idee: w.dataset.idee, richtung: 'plus' };
-        if (m.length === 1) daten.weg = m[0];
-        const r = await fetch('/stimme.php', { method: 'POST', body: new URLSearchParams(daten) });
+        const r = await fetch('/stimme.php', { method: 'POST', body: new URLSearchParams({ idee, richtung: an ? 'plus' : 'minus' }) });
         const a = await r.json();
         if (!r.ok || !a.ok) throw new Error(r.status);   // 200 ohne echte Zählung zählt nicht als Stimme
-        stimmeMerken({ [w.dataset.idee]: 1 });
+        const s = stimmeLesen(); if (an) s[idee] = 1; else delete s[idee]; stimmeMerken(s);
         markieren(); zeigenErgebnis(a.stimmen);
       } catch (e) {
         fuss.textContent = 'Ging gerade nicht – bitte später noch einmal.';
-      } finally { laeuft = false; }
+      } finally { laeuft.delete(idee); }
     }));
   }
   const zeigen = $$('[data-zeigen]');
