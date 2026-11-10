@@ -77,3 +77,15 @@ Reparatur Bereich für Bereich (Workflow `imkerbuch-portion-reparieren`, Run wf_
   2. Zusammenführen: auch dort gelöschte Lager-Abgänge/-Zugänge/Pfand korrigieren den Bestand (Test D2b).
   3. Test D7 prüft jetzt wirklich mit einem älteren, anderen Satz.
 - **Ergebnis:** voller Lauf 1090 von 1090 Tests grün.
+
+## 6. Portion 2: Honig, Behandlungen/Fütterung, Stände/Völker, Statistik (10.11.2026)
+
+Prüfung (Workflow `imkerbuch-portion`, Run wf_0a2a9889-729): 43 bestätigte Funde, sofort an Julian gemeldet. Reparatur Bereich für Bereich (wf_8d709d7f-a98), danach vier Nachbesserungsrunden mit je unabhängiger Gegenprüfung (wf_21f774b5-90f, wf_af186c64-e6e, wf_31ab269a-56d, wf_1535462b-9c7).
+
+- **Behandlungen/Fütterung (12):** alle behoben – Abzug springt nicht mehr auf anderes Mittel/Futter über (materialProdukt), Fertigsirup/Futterteig zieht Produktgewicht ab, Fütterung mit Fehlmenge änderbar, Fütterungsjahr, Stück-Gruppen (Löschen/Wiederherstellen/Ändern/Mittelwechsel/„–“ mit gemerkter Grenze abzugSoll), Öko-Angaben beim Zusammenführen, später angelegte Völker nicht vorgehakt, Bio-Umschalter-Fehler, Live-Hinweis in ganzen Stück, Futter-Rechner-Text, Tablet-Spalte.
+- **Honig (12):** 9 behoben (Anzahl erhöhen, MHD-Erinnerung folgt, negativer Marktpreis/Mengen, doppelte Chargennummer, Datumsreihenfolge, Pollen/Propolis als eigenes Produkt inkl. Rechnung, 0-€-Verkauf, Rückfrage beim Schließen, Ernten unterscheidbar). **Offen (braucht Mockup/Julian):** Marktpreis ändern, einzelnes Glas aus dem Korb, Stand-Ernte gesammelt ändern/löschen (Hinweistext ist eingebaut).
+- **Stände/Völker (12):** alle behoben (Filter nach Stand-Löschen, Zusatzfelder bleiben, natürliche Sortierung, Durchsicht endet, Stockkarte-Knopf, „Ohne Stand“ einmal, Volksakte nach Wanderung, Vereinigen mit Stand, Gewicht ≥ 0, Texte).
+- **Statistik (7):** alle behoben (Stand heute, Honig-Kachel, Ziehen rollt mit, Jahre nach Zeit, Hinweistext, Beschriftungen, Daten nur einmal laden).
+- **Prüftiefe Stück-Gruppen:** 504 Lösch-/Wiederherstell-Reihenfolgen, Zufallsfolgen über 28+ Startwerte, Vergleich mit dem alten Stand für Einzel-/ml-/kg-Behandlungen – keine Verstöße.
+- **Rest aus Runde 4 (Runde 5 läuft):** „–“ und zurück auf dasselbe Mittel kostet einen Streifen zu viel; endgültig gelöschte Gruppen-Position; doppelte Nennung im Hinweis.
+- **Ergebnis Zwischenstand:** voller Lauf 1142 von 1142 Tests grün.

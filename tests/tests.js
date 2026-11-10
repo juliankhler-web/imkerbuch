@@ -3316,8 +3316,9 @@ test('fuetterungVerbrauch: kg zieht Zucker ab, Liter den Sirup', (w) => {
     w.literAusZucker(5, '3:2') * 3, 0.05, 'Liter aus dem Verhältnis gerechnet');
   // eingetragene Liter haben Vorrang vor der Rückrechnung
   assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p2', mengeKg: 5, _sirupLiter: 8, futterart: 'Zuckerwasser 3:2' }, posten, 2), 16, 'eingetragene Liter zählen');
-  // eigener Zuckerwert schlägt die Menge
-  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p1', mengeKg: 10, zuckerKg: 4, futterart: 'Futterteig' }, posten, 1), 4, 'zuckerKg gewinnt');
+  // Futterteig aus einer Futterteig-Position: das Produktgewicht geht ab (Finaltest Portion 1, 09.11.2026), aus einer Zucker-Position der eigene Zuckerwert
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p1', mengeKg: 10, zuckerKg: 4, futterart: 'Futterteig' }, posten, 1), 10, 'Futterteig-Gewicht');
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p3', mengeKg: 10, zuckerKg: 4, futterart: 'Futterteig' }, [...posten, { id: 'p3', bezeichnung: 'Zucker 2026', einheit: 'kg', stueckzahl: 100 }], 1), 4, 'zuckerKg gewinnt bei Zucker');
   // Futterart ohne Verhältnis: keine Liter ableitbar
   assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'p2', mengeKg: 5, futterart: 'Futterteig' }, posten, 1), 0, 'ohne Verhältnis keine Liter');
   assertEq(w.fuetterungVerbrauch({ _verbrauchId: '', mengeKg: 5 }, posten, 3), 0, 'ohne Auswahl kein Verbrauch');
@@ -8211,6 +8212,1399 @@ test('Finaltest P1 LZ6/LZ8: verlorener Kauf nach der Frist – Hinweis aufs Stor
     await w.S.set('lizenz', vor, { auto: true }); await w.S.set('testStartGeraet', vorGeraet, { auto: true });
   }
 }));
+test('Finaltest P1 BF1: Lager-Abzug springt nur auf dasselbe Produkt über (Ameisensäure nie auf Oxalsäure, Zucker nie auf Apiinvert)', async (w) => isolierteDaten(w, async () => {
+  const pos = (bezeichnung, kategorie, einheit, stueckzahl, anschaffung = '2026-01-01') => w.DB.put('inventar', { typ: 'verbrauch', bezeichnung, kategorie, einheit, stueckzahl, anschaffung });
+  const as = await pos('Ameisensäure 60 %', 'Behandlungsmittel', 'ml', 100), ox = await pos('Oxalsäure 3,5 % (Oxuvar)', 'Behandlungsmittel', 'ml', 1000);
+  const v = []; for (const n of ['BF1-A', 'BF1-B', 'BF1-C']) v.push(await w.DB.put('voelker', { name: n, status: 'aktiv', historie: [{ datum: '2025-04-01', text: 'angelegt' }] }));
+  const erg = await w.behandlungenJeVolkAnlegen(v.map((x) => ({ volkId: x.id, menge: 50 })), { mittel: 'Ameisensäure 60 %', datum: '2026-08-01', einheit: 'ml', _verbrauchId: as.id });
+  assertEq([erg.buchung.abzug.length, erg.buchung.gefehlt], [1, 50], 'nur Ameisensäure abgezogen, 50 ml fehlen');
+  assertEq([(await w.DB.get('inventar', as.id)).stueckzahl, (await w.DB.get('inventar', ox.id)).stueckzahl], [0, 1000], 'Oxalsäure bleibt unberührt');
+  const zucker = await pos('Zucker', 'Futter', 'kg', 5), api = await pos('Apiinvert Bag-in-Box', 'Futter', 'kg', 56);
+  const k = await w.verbrauchAbziehenKette(zucker.id, 15, { pruefen: false });
+  assertEq([k.abgezogen, k.gefehlt, (await w.DB.get('inventar', api.id)).stueckzahl], [5, 10, 56], 'Apiinvert springt nicht für Zucker ein');
+  // Dasselbe Produkt springt weiter ein: Zucker 2025 → Zucker 2026, Packung A → Packung B
+  const z25 = await pos('Zucker 2025', 'Futter', 'kg', 5, '2025-08-01'), z26 = await pos('Zucker 2026', 'Futter', 'kg', 20, '2026-08-01');
+  const k2 = await w.verbrauchAbziehenKette(z25.id, 10, { pruefen: false });
+  assertEq([k2.gefehlt, (await w.DB.get('inventar', z26.id)).stueckzahl], [0, 15], 'Zucker 2026 springt für Zucker 2025 ein');
+  const art = (bezeichnung, kategorie = 'Behandlungsmittel') => w.materialArt({ typ: 'verbrauch', bezeichnung, kategorie, einheit: 'Stück' });
+  assertEq(art('Apivar Packung A'), art('Apivar Packung B'), 'Packung A und B sind dasselbe Mittel');
+  assert(art('Ameisensäure 60 %') !== art('Ameisensäure 85 %'), 'andere Stärke ist ein anderes Mittel');
+  assertEq(art('Gläser 500 g Karton A', 'Gläser/Deckel'), art('Gläser 500 g Karton B', 'Gläser/Deckel'), 'Gläser wie bisher');
+}));
+
+test('Finaltest P1 BF2: Fertigsirup und Futterteig aus einer kg-Position ziehen das Produktgewicht ab', (w) => {
+  const posten = [
+    { id: 'api', bezeichnung: 'Apiinvert Bag-in-Box', kategorie: 'Futter', einheit: 'kg', stueckzahl: 56 },
+    { id: 'teig', bezeichnung: 'Apifonda Futterteig', kategorie: 'Futter', einheit: 'kg', stueckzahl: 25 },
+    { id: 'z', bezeichnung: 'Zucker', kategorie: 'Futter', einheit: 'kg', stueckzahl: 50 },
+  ];
+  const kg = 10 * w.FERTIGSIRUP_KG_JE_L;   // 10 L Apiinvert ≈ 13,6 kg
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'api', futterart: 'Futtersirup (z. B. Apiinvert)', mengeKg: kg, zuckerKg: 10, _sirupLiter: 10 }, posten, 3), Math.round(kg * 3 * 1000) / 1000, '3 × 13,6 kg Sirup');
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'teig', futterart: 'Futterteig', mengeKg: 2.5, zuckerKg: 2.3 }, posten, 3), 7.5, '3 × 2,5 kg Futterteig');
+  assertEq(w.fuetterungVerbrauch({ _verbrauchId: 'z', futterart: 'Zuckerwasser 3:2', mengeKg: 5 }, posten, 3), 15, 'Zuckerwasser zieht weiter den Zucker ab');
+});
+
+test('Finaltest P1 BF3: Fütterung mit Fehlmenge bleibt änderbar – nur der Unterschied wird gebucht, Fehlmenge gemeldet', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts }) => {
+  const z = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Zucker BF3', kategorie: 'Futter', einheit: 'kg', stueckzahl: 0 });
+  const volk = await w.DB.put('voelker', { name: 'BF3-Volk', status: 'aktiv', historie: [] });
+  const basis = { volkId: volk.id, datum: '2026-09-15', futterart: 'Zuckerwasser 3:2', mengeKg: 5, zuckerKg: null, winterfutter: false };
+  const anteil = (menge) => [{ inventarId: z.id, bezeichnung: 'Zucker BF3', menge, einheit: 'kg' }];   // 5 kg Zucker auf 3 × 5 kg verteilt
+  const f1 = await w.DB.put('fuetterungen', { ...basis, verbrauchAbzug: anteil(1.667) });
+  const f2 = await w.DB.put('fuetterungen', { ...basis, verbrauchAbzug: anteil(1.667) });
+  const f3 = await w.DB.put('fuetterungen', { ...basis, verbrauchAbzug: anteil(1.666) });
+  const bestand = async () => (await w.DB.get('inventar', z.id)).stueckzahl;
+  const e1 = await w.fuetterungAendern(f1, { winterfutter: true, datum: '2026-09-16', _verbrauchId: z.id });
+  assertEq([e1.winterfutter, e1.datum, e1.gefehlt, await bestand(), (await w.DB.get('fuetterungen', f1.id)).verbrauchAbzug[0].menge], [true, '2026-09-16', 0, 0, 1.667], 'nur Haken und Datum: gespeichert, Abzug bleibt');
+  const e2 = await w.fuetterungAendern(await w.DB.get('fuetterungen', f1.id), { mengeKg: 6, _verbrauchId: z.id });
+  assertEq([e2.mengeKg, e2.gefehlt, await bestand()], [6, 1, 0], 'mehr Zucker: gespeichert, 1 kg fehlt');
+  await w.fuetterungAendern(f2, { mengeKg: 1, _verbrauchId: z.id });
+  assertEq([await bestand(), (await w.DB.get('fuetterungen', f2.id)).verbrauchAbzug[0].menge], [0.667, 1], 'weniger: nur was über 1 kg abgezogen war, kommt zurück');
+  // über das Formular: nur das Datum ändern
+  const f = await lagerFormular(w, () => w.Views.fuetterung.einzelForm(f3, 'BF3-Volk'));
+  f.setz('datum', '2026-09-20'); await f.speichern();
+  assertEq([(await w.DB.get('fuetterungen', f3.id)).datum, await bestand()], ['2026-09-20', 0.667], 'Formular speichert, Bestand unverändert');
+  assert(toasts.some((t) => t.msg === 'Fütterung gespeichert'), 'Meldung: ' + JSON.stringify(toasts));
+})));
+
+test('Finaltest P1 BF4: Fütterung bleibt nicht auf einem leeren Jahr hängen', async (w) => isolierteDaten(w, async () => {
+  const volk = await w.DB.put('voelker', { name: 'BF4-Volk', status: 'aktiv', historie: [] });
+  await w.DB.put('fuetterungen', { volkId: volk.id, datum: '2026-09-01', futterart: 'Zuckerwasser 3:2', mengeKg: 4, winterfutter: true });
+  w.Views.fuetterung._jahr = '2025';   // gemerktes Jahr, dessen Fütterungen alle gelöscht sind
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.fuetterung.render(host);
+    assert(host.textContent.includes('BF4-Volk'), 'die Fütterung von 2026 ist sichtbar');
+    assert(!host.textContent.includes('Zucker 2025'), 'keine Kachel für das leere Jahr');
+  } finally { host.remove(); w.Views.fuetterung._jahr = ''; }
+}));
+
+test('Finaltest P1 BF5: Behandlung in Stück – Gruppenmitglied ohne eigenen Abzug über das Formular ändern zieht nach', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar BF5', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 8 });   // 10 − 2 Stück für 3 × 0,5
+  const v = []; for (const n of ['BF5-A', 'BF5-B', 'BF5-C']) v.push(await w.DB.put('voelker', { name: n, status: 'aktiv', historie: [] }));
+  const basis = { zielTyp: 'volk', datum: '2026-08-01', mittel: 'Apivar BF5', einheit: 'Stück', anwendungsart: '', wartezeitTage: 0, notiz: '', abzugGruppe: 'gruppe-bf5' };
+  const ein = [{ inventarId: p.id, bezeichnung: 'Apivar BF5', menge: 1, einheit: 'Stück' }];
+  await w.DB.put('behandlungen', { ...basis, zielId: v[0].id, menge: 0.5, verbrauchAbzug: ein });
+  const B = await w.DB.put('behandlungen', { ...basis, zielId: v[1].id, menge: 0.5, verbrauchAbzug: [] });
+  await w.DB.put('behandlungen', { ...basis, zielId: v[2].id, menge: 0.5, verbrauchAbzug: ein });
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(B));
+  assertEq(f.m.querySelector('#f-_verbrauchId').value, p.id, 'Auswahl steht auf der Position der Gruppe');
+  f.setz('menge', '1.5'); await f.speichern();
+  assertEq((await w.DB.get('inventar', p.id)).stueckzahl, 7, 'ein Stück nachgezogen (0,5 + 1,5 + 0,5 = 2,5 → 3)');
+})));
+
+test('Finaltest P1 BF6: alte Sicherung zusammengeführt überschreibt aktuelle Öko-Angaben eines Kontakts nicht', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('kontakte', { name: 'Imkerhof Süd BF6', typ: 'lieferant', bio: 'ja', oekoWas: 'Bio-Zucker', oekoNummer: 'DE-ÖKO-006', oekoGueltigBis: '2027-12-31', notiz: '' });
+  await w.DB.put('kontakte', { name: 'Leerhof BF6', typ: 'lieferant', notiz: '' });
+  const alt = { app: 'ImkerBuch', formatVersion: 1, stores: { bioeintraege: [
+    { id: w.U.uuid(), bereich: 'partner', name: 'Imkerhof Süd BF6', rolle: 'Lieferant', was: '', kontrollnummer: '', gueltigBis: '2025-06-30', notiz: 'alte Notiz' },
+    { id: w.U.uuid(), bereich: 'partner', name: 'Leerhof BF6', rolle: 'Lieferant', was: 'Wachs', kontrollnummer: 'DE-ÖKO-001', gueltigBis: '2026-12-31' },
+  ] } };
+  await w.Backup.applyMerge(alt); await w.Backup.nachImport(alt);
+  const k = async (name) => (await w.DB.getAll('kontakte')).find((x) => x.name === name);
+  const sued = await k('Imkerhof Süd BF6'), leer = await k('Leerhof BF6');
+  assertEq([sued.bio, sued.oekoWas, sued.oekoNummer, sued.oekoGueltigBis], ['ja', 'Bio-Zucker', 'DE-ÖKO-006', '2027-12-31'], 'aktuelle Angaben bleiben');
+  assertEq([leer.bio, leer.oekoWas, leer.oekoNummer, leer.oekoGueltigBis], ['ja', 'Wachs', 'DE-ÖKO-001', '2026-12-31'], 'leere Felder werden gefüllt');
+}));
+
+test('Finaltest P1 BF7: Behandlung in Stück löschen – das angebrochene Stück des übrigen Volks bleibt verbucht', async (w) => isolierteDaten(w, async () => {
+  const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar BF7', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 8 });   // 10 − 2 Stück für 3 × 0,5
+  const v = []; for (const n of ['BF7-A', 'BF7-B', 'BF7-C']) v.push(await w.DB.put('voelker', { name: n, status: 'aktiv', historie: [] }));
+  const basis = { zielTyp: 'volk', datum: '2026-08-01', mittel: 'Apivar BF7', einheit: 'Stück', anwendungsart: '', wartezeitTage: 0, notiz: '', abzugGruppe: 'gruppe-bf7' };
+  const ein = [{ inventarId: p.id, bezeichnung: 'Apivar BF7', menge: 1, einheit: 'Stück' }];
+  const A = await w.DB.put('behandlungen', { ...basis, zielId: v[0].id, menge: 0.5, verbrauchAbzug: ein });
+  const B = await w.DB.put('behandlungen', { ...basis, zielId: v[1].id, menge: 0.5, verbrauchAbzug: [] });
+  const C = await w.DB.put('behandlungen', { ...basis, zielId: v[2].id, menge: 0.5, verbrauchAbzug: ein });
+  const bestand = async () => (await w.DB.get('inventar', p.id)).stueckzahl;
+  assertEq(await w.loescheMitMaterial('behandlungen', A), 1, 'A gibt sein Stück zurück');
+  assertEq(await bestand(), 9, 'Lager 9');
+  assertEq(await w.loescheMitMaterial('behandlungen', C), 0, 'C gibt nichts zurück – B braucht das angebrochene Stück');
+  assertEq([await bestand(), (await w.DB.get('behandlungen', B.id)).verbrauchAbzug.reduce((s, a) => s + a.menge, 0)], [9, 1], 'Lager 9, B trägt das Stück');
+  const korbC = (await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === C.id);
+  assertEq(korbC.daten.verbrauchAbzug, [], 'im Papierkorb steht nur, was zurückkam');
+  await w.loescheMitMaterial('behandlungen', await w.DB.get('behandlungen', B.id));
+  assertEq(await bestand(), 10, 'zuletzt alles zurück');
+}));
+
+test('Finaltest P1 BF8/BF10/BF12: Stand-Behandlung – später angelegte Völker nicht vorgehakt, Hinweis rundet Stück, Mengen in einer Spalte', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'BF8-Stand' });
+  const volk = (name, seit) => w.DB.put('voelker', { name, status: 'aktiv', standId: st.id, funktion: 'Wirtschaftsvolk', historie: [{ datum: seit, text: 'angelegt' }] });
+  const alt1 = await volk('BF8-Alt-1', '2026-03-01'), alt2 = await volk('BF8-Alt-2', '2026-03-01'), neu = await volk('BF8-Neu', '2026-11-01');
+  const ap = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar BF10', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 10 });
+  const f = await lagerFormular(w, () => w.Views.behandlungen.sammelForm());
+  try {
+    f.setz('datum', '2026-08-01'); f.setz('standId', st.id); await w99(50);
+    const zeile = (x) => f.m.querySelector(`#f-volkIds input[value="${x.id}"]`).closest('label');
+    const an = (x) => zeile(x).querySelector('input[type=checkbox]').checked;
+    assertEq([an(alt1), an(alt2), an(neu)], [true, true, false], 'später angelegtes Volk nicht vorgehakt');
+    assert(/in der App seit 01\.11\.2026/.test(zeile(neu).textContent) && !/in der App seit/.test(zeile(alt1).textContent), 'Hinweis am Namen: ' + zeile(neu).textContent);
+    assertEq(w.getComputedStyle(zeile(alt1)).display, 'flex', 'Zeile ist eine Flex-Zeile, das Mengenfeld steht rechts');
+    zeile(neu).querySelector('input[type=checkbox]').click(); await w99(30);   // von Hand anhaken geht
+    f.setz('menge', '0.5'); f.setz('einheit', 'Stück'); f.setz('_verbrauchId', ap.id); await w99(50);
+    const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+    assert(info.includes('Abzug 2 Stück (zusammen 1,5 Stück, aufgerundet) von 10 Stück → Rest 8 Stück'), 'Hinweis rechnet ganze Stück: ' + info);
+  } finally { dialogeSchliessen(w); w.FormGuard.dirty = false; }
+})));
+
+test('Finaltest P1 BF9: Bio-Umschalter – scheitert das Speichern, springt die Auswahl zurück und es kommt eine Meldung', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  await w.S.set('imkerei', { ...w.S.get('imkerei'), bio: 'ja' });
+  await w.Views.bio.tabBetrieb(host);
+  const sel = host.querySelector('#bio-an'), echt = w.S.set;
+  w.S.set = async () => { throw new Error('Schreibfehler BF9'); };
+  try { sel.value = 'nein'; sel.dispatchEvent(new w.Event('change')); await w99(50); }
+  finally { w.S.set = echt; }
+  assertEq([sel.value, w.S.get('imkerei').bio], ['ja', 'ja'], 'Auswahl zeigt den gespeicherten Wert');
+  assert(toasts.some((t) => t.typ === 'err' && /Schreibfehler BF9/.test(t.msg)), 'eigene Meldung: ' + JSON.stringify(toasts));
+})));
+
+test('Finaltest P1 BF11: Futter-Rechner – Meldung zählt die weiteren Fütterungen und nennt vergangene Termine', (w) => {
+  const heute = w.U.todayIso();
+  const plan = { termine: ['2020-09-01', '2020-09-08', w.U.addDays(heute, 7), w.U.addDays(heute, 14)] };
+  assertEq(w.fuetterungsPlanText(plan, 4), '3 weitere Fütterungen als Aufgaben angelegt (1 davon ist schon vorbei und als erledigt eingetragen)', 'eine liegt zurück');
+  assertEq(w.fuetterungsPlanText({ termine: ['2020-09-01', '2020-09-08', '2020-09-15'] }, 3), '2 weitere Fütterungen als Aufgaben angelegt (alle sind schon vorbei und als erledigt eingetragen)', 'alle zurück');
+  assertEq(w.fuetterungsPlanText({ termine: [heute, w.U.addDays(heute, 7)] }, 2), '1 weitere Fütterung als Aufgabe angelegt', 'keine zurück');
+});
+
+test('Finaltest P1 H1: Abfüllung – „Anzahl abgefüllt“ erhöhen zieht „Davon noch zum Verkauf“ mit, eigene Eingabe bleibt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const c = await w.DB.put('chargen', { losnummer: 'H1-01', datum: '2026-07-01', ernteIds: [], lagerKg: 30, lagerHerkunft: 'Test', mengeKg: 30 });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 10, bestand: 10 });
+  await w.Views.honig.abfuellEditForm(await w.DB.get('abfuellungen', a.id)); await kurz(300);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m, 'anzahl', '16');
+  assertEq(m.querySelector('#f-bestand').value, '16', 'das Feld geht beim Tippen mit');
+  m.querySelector('[data-save]').click(); await kurz(600);
+  let neu = await w.DB.get('abfuellungen', a.id);
+  assertEq([neu.anzahl, neu.bestand], [16, 16], 'die 6 zusätzlichen Gläser stehen zum Verkauf – nichts gilt als verkauft');
+  dialogeSchliessen(w);
+  // Wer den Bestand selbst ändert, behält seine Zahl
+  await w.Views.honig.abfuellEditForm(neu); await kurz(300);
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m, 'bestand', '12'); setzFeld(w, m, 'anzahl', '18');
+  assertEq(m.querySelector('#f-bestand').value, '12', 'eigene Eingabe wird nicht überschrieben');
+})));
+
+test('Finaltest P1 H2: MHD-Erinnerung folgt MHD-Korrektur, früherem MHD, Ausverkauf und Löschen der Abfüllung', async (w) => isolierteDaten(w, async () => {
+  const inTagen = (n) => w.U.addDays(w.U.todayIso(), n);
+  const c = await w.DB.put('chargen', { losnummer: 'H2-01', datum: '2024-12-01', ernteIds: [], lagerKg: 10, lagerHerkunft: 'Test', mengeKg: 2 });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2024-12-01', mhd: inTagen(21), gebindeG: 500, anzahl: 4, bestand: 4 });
+  const offen = async () => (await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd' && !x.erledigt && x.refId === a.id);
+  await w.pruefeMhd();
+  assertEq((await offen()).length, 1, 'Erinnerung angelegt');
+  await w.DB.put('abfuellungen', { ...(await w.DB.get('abfuellungen', a.id)), mhd: inTagen(800) });
+  await w.pruefeMhd();
+  assertEq((await offen()).length, 0, 'MHD weit weg: Erinnerung verschwindet');
+  await w.DB.put('abfuellungen', { ...(await w.DB.get('abfuellungen', a.id)), mhd: inTagen(15) });
+  await w.pruefeMhd();
+  let auf = await offen();
+  assertEq(auf.length, 1, 'früheres MHD: genau eine Erinnerung');
+  assertEq(auf[0].faellig, inTagen(15), 'mit dem neuen Datum fällig');
+  assert(auf[0].titel.includes(w.U.fmtDate(inTagen(15))), 'Titel nennt das neue Datum: ' + auf[0].titel);
+  await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 1, preisJeGlas: 6 });
+  await w.pruefeMhd();
+  auf = await offen();
+  assert(auf.length === 1 && /3 × 500 g/.test(auf[0].titel), 'Glas-Zahl aufgefrischt: ' + (auf[0] || {}).titel);
+  await w.verkaufErfassen({ abfuellungId: a.id, anzahl: 3, preisJeGlas: 6 });
+  await w.pruefeMhd();
+  assertEq((await offen()).length, 0, 'alles verkauft: keine offene Erinnerung mehr');
+  // Abfüllung weg → Erinnerung weg
+  const b = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2024-12-01', mhd: inTagen(10), gebindeG: 250, anzahl: 2, bestand: 2 });
+  await w.pruefeMhd();
+  assertEq((await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd' && !x.erledigt && x.refId === b.id).length, 1, 'zweite Abfüllung erinnert');
+  await w.DB.del('abfuellungen', b.id);
+  await w.pruefeMhd();
+  assertEq((await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd' && !x.erledigt && x.refId === b.id).length, 0, 'gelöschte Abfüllung: Erinnerung weg');
+  // Inventar-Erinnerungen bleiben unberührt
+  const it = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'H2-Mittel', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 3, ablauf: inTagen(5) });
+  await w.pruefeMhd(); await w.pruefeMhd();
+  assertEq((await w.DB.getAll('aufgaben')).filter((x) => x.quelle === 'mhd' && !x.erledigt && x.refId === it.id).length, 1, 'Inventar-Ablauf bleibt eine Erinnerung');
+}));
+
+test('Finaltest P1 H3: Marktpreis ≤ 0 abgewiesen, alter Preis ≤ 0 gilt als „kein Preis“; Kassieren nennt den echten Grund', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const c = await w.DB.put('chargen', { losnummer: 'H3-01', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, mhd: '2028-01-01' });
+  const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 4, bestand: 4 });
+  w.Views.markt.preisSetzen(a, c); await kurz(250);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m, 'preis', '-5');
+  m.querySelector('[data-save]').click(); await kurz(300);
+  assert(!((w.S.get('marktpreise') || {})[a.id]), 'negativer Preis nicht gespeichert');
+  assert(w.document.querySelector('.modal-back'), 'Formular bleibt offen');
+  dialogeSchliessen(w);
+  await w.S.set('marktpreise', { [a.id]: -5 });   // Altdaten aus der Zeit vor der Prüfung
+  await w.Views.markt.render(host);
+  assert(!/-5,00/.test(host.textContent), 'Kachel zeigt keinen negativen Preis');
+  // Kassieren mit mehr Gläsern als im Bestand: die Meldung nennt den Grund
+  await w.Views.markt.kassieren({ [a.id]: 9 }, [a], () => 6, 54);
+  const t = toasts.pop();
+  assert(t && /Nur 4 Gebinde/.test(t.msg), 'echter Grund statt „Bestand prüfen“: ' + (t && t.msg));
+})));
+
+test('Finaltest P1 H4: negative Erntemenge und negative Gesamtmenge einer Charge werden abgewiesen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'H4-Anna', status: 'aktiv', koeniginId: null, historie: [] });
+  const e = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Raps', mengeKg: 20 });
+  let f = null; try { await w.ernteSpeichern({ ...e, mengeKg: -12 }); } catch (x) { f = x; }
+  assert(f && f.feld === 'mengeKg', 'Feldfehler an der Menge: ' + (f && f.message));
+  assertEq((await w.DB.get('ernten', e.id)).mengeKg, 20, 'Ernte unverändert');
+  f = null; try { await w.ernteSpeichern({ zielTyp: 'volk', zielId: v.id, datum: '2026-06-02', produktart: 'Honig', mengeKg: 0 }); } catch (x) { f = x; }
+  assert(f && f.feld === 'mengeKg', 'neue Ernte mit 0 kg abgewiesen');
+  const alt0 = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2025-06-01', produktart: 'Honig', mengeKg: 0 });
+  await w.ernteSpeichern({ ...alt0, notiz: 'nur Notiz' });   // Altdaten mit 0 kg bleiben beim Bearbeiten speicherbar
+  assertEq((await w.DB.get('ernten', alt0.id)).notiz, 'nur Notiz', 'alte 0-kg-Ernte speicherbar');
+  await w.Views.honig.chargeForm(null); await kurz(400);
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  if (m.querySelector('#f-quelle')) setzFeld(w, m, 'quelle', 'lager');
+  setzFeld(w, m, 'losnummer', 'H4-01'); setzFeld(w, m, 'lagerKg', '5'); setzFeld(w, m, 'mengeKg', '-50');
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assert(!(await w.DB.getAll('chargen')).some((x) => x.losnummer === 'H4-01'), 'Charge mit −50 kg nicht gespeichert');
+})));
+
+test('Finaltest P1 H5: Chargennummer – Vorschlag ist frei (Papierkorb zählt), doppelte Nummer abgewiesen, Altdaten speicherbar', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const jahr = w.U.todayIso().slice(0, 4);
+  const c1 = await w.DB.put('chargen', { losnummer: `${jahr}-01`, datum: w.U.todayIso(), ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5 });
+  await w.DB.put('chargen', { losnummer: `${jahr}-02`, datum: w.U.todayIso(), ernteIds: [], lagerKg: 4, lagerHerkunft: 'Test', mengeKg: 4 });
+  await w.DB.softDel('chargen', c1.id);
+  assertEq(w.freieLosnummer(jahr, await w.DB.getAll('chargen'), await w.DB.getAll('papierkorb')), `${jahr}-03`, 'nicht wieder 2026-02');
+  assertEq(w.freieLosnummer('2031', [{ losnummer: '2030-01' }, { losnummer: '2030-02' }], []), '2031-01', 'nur Chargen des Jahres zählen');
+  await w.Views.honig.chargeForm(null); await kurz(400);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assertEq(m.querySelector('#f-losnummer').value, `${jahr}-03`, 'Formular schlägt die freie Nummer vor');
+  if (m.querySelector('#f-quelle')) setzFeld(w, m, 'quelle', 'lager');
+  setzFeld(w, m, 'lagerKg', '3');
+  for (const nr of [`${jahr}-02`, `${jahr}-01`]) {
+    setzFeld(w, m, 'losnummer', nr);
+    m.querySelector('[data-save]').click(); await kurz(500);
+    assertEq((await w.DB.getAll('chargen')).filter((x) => x.losnummer === nr).length, nr.endsWith('02') ? 1 : 0, `${nr} nicht ein zweites Mal vergeben`);
+  }
+  setzFeld(w, m, 'losnummer', `${jahr}-03`);
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assert((await w.DB.getAll('chargen')).some((x) => x.losnummer === `${jahr}-03`), 'freie Nummer gespeichert');
+  dialogeSchliessen(w);
+  // Altdaten mit doppelter Nummer: bloßes Bearbeiten bleibt möglich
+  const d1 = await w.DB.put('chargen', { losnummer: 'H5-DUP', datum: '2025-07-01', ernteIds: [], lagerKg: 2, lagerHerkunft: 'Test', mengeKg: 2, etikettNotiz: '' });
+  await w.DB.put('chargen', { losnummer: 'H5-DUP', datum: '2025-07-02', ernteIds: [], lagerKg: 2, lagerHerkunft: 'Test', mengeKg: 2 });
+  await w.Views.honig.chargeForm(d1); await kurz(400);
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m, 'etikettNotiz', 'H5-geändert');
+  m.querySelector('[data-save]').click(); await kurz(500);
+  assertEq((await w.DB.get('chargen', d1.id)).etikettNotiz, 'H5-geändert', 'Altdaten mit unveränderter Nummer speicherbar');
+})));
+
+test('Finaltest P1 H6/H7/H11/H12: Charge-Formular – Ernten neueste zuerst, belegte am Ende; Produkt, Volk und genaue Menge im Text; „Neue Charge“ nicht als geändert', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const anna = await w.DB.put('voelker', { name: 'H6-Anna', status: 'aktiv', koeniginId: null, historie: [] });
+  const berta = await w.DB.put('voelker', { name: 'H6-Berta', status: 'aktiv', koeniginId: null, historie: [] });
+  const ernte = (datum, kg, volk, extra = {}) => w.DB.put('ernten', { zielTyp: 'volk', zielId: volk.id, datum, produktart: 'Honig', sorte: 'Raps', mengeKg: kg, ...extra });
+  await ernte('2025-07-15', 5, anna);
+  await ernte('2026-05-20', 10.04, anna); await ernte('2026-05-20', 9.96, berta);
+  await ernte('2026-06-01', 7, anna);
+  const belegt = await ernte('2026-08-02', 8, berta);
+  await ernte('2026-06-30', 2, anna, { produktart: 'Pollen', sorte: '' });
+  await w.DB.put('chargen', { losnummer: 'H6-ALT', datum: '2026-08-03', ernteIds: [belegt.id], lagerKg: 0, mengeKg: 8 });
+  await w.Views.honig.chargeForm(null); await kurz(400);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assertEq(w.FormGuard.dirty, false, 'unverändert: kein „Änderungen verwerfen?“');
+  const zeilen = [...m.querySelectorAll('#f-ernteIds label.check-line')].map((l) => l.textContent.replace(/\s+/g, ' ').trim());
+  const datum = zeilen.map((z) => (z.match(/\d\d\.\d\d\.\d{4}/) || [''])[0]);
+  assertEq(datum, ['30.06.2026', '01.06.2026', '20.05.2026', '20.05.2026', '15.07.2025', '02.08.2026'], 'Reihenfolge: ' + zeilen.join(' | '));
+  assert(/Pollen/.test(zeilen[0]), 'Pollen nennt sein Produkt: ' + zeilen[0]);
+  dialogeSchliessen(w);
+  await w.Views.honig.abfuellForm(); await kurz(400);
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  const quellen = [...m.querySelectorAll('#f-chargeId option')].map((o) => o.textContent);
+  assert(quellen.some((q) => /10,04 kg · H6-Anna/.test(q)) && quellen.some((q) => /9,96 kg · H6-Berta/.test(q)), 'zwei Ernten am selben Tag unterscheidbar: ' + quellen.join(' | '));
+  assert(quellen.some((q) => /Ernte Pollen ·/.test(q)), 'Pollen beim Abfüllen erkennbar: ' + quellen.join(' | '));
+})));
+
+test('Finaltest P1 H8/H10: Verkauf zu 0 € – Text passt zur Kassenbuch-Zeile; Stand-Ernte nennt ihre Gruppe beim Bearbeiten', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const p = w.nachVerkaufFragen({ verkauf: { id: 'h8', datum: w.U.todayIso(), anzahl: 2, betrag: 0, preisJeGlas: 0 }, text: 'Honig 500 g' });
+  await kurz(200);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  const txt = m.querySelector('[data-nach-verkauf]').textContent;
+  assert(/0,00 €/.test(txt) && !/kommt nichts ins Kassenbuch/.test(txt), 'Honig-Text stimmt: ' + txt);
+  m.querySelector('[data-fertig]').click(); await Promise.race([p, kurz(800)]);
+  dialogeSchliessen(w);
+  const stand = await w.DB.put('staende', { name: 'H10-Stand', lat: null, lng: null, notizen: '' });
+  const v1 = await w.DB.put('voelker', { name: 'H10-A', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const v2 = await w.DB.put('voelker', { name: 'H10-B', standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] });
+  const recs = await w.ernteJeVolkAnlegen([{ volkId: v1.id, menge: 12 }, { volkId: v2.id, menge: 8 }], { gruppeStandId: stand.id, datum: w.U.todayIso(), produktart: 'Honig', sorte: 'Raps', wassergehalt: null, schleuderung: null, notiz: '' });
+  const einzel = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v1.id, datum: w.U.todayIso(), produktart: 'Honig', sorte: 'Linde', mengeKg: 3 });
+  await w.Views.honig.tabErnten(host);
+  host.querySelector(`.row[data-id="${recs[0].id}"]`).click();
+  await warteBis(() => w.document.querySelector('.modal-back #f-mengeKg'));
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  const h = m.querySelector('[data-ernte-gruppe]');
+  assert(h && /H10-Stand/.test(h.textContent) && /2 Völkern/.test(h.textContent), 'Hinweis auf die Stand-Ernte: ' + (h && h.textContent));
+  dialogeSchliessen(w);
+  host.querySelector(`.row[data-id="${einzel.id}"]`).click();
+  await warteBis(() => w.document.querySelector('.modal-back #f-mengeKg'));
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assert(!m.querySelector('[data-ernte-gruppe]'), 'Einzel-Ernte ohne Hinweis');
+})));
+
+/* ---------- Finaltest Portion 1 (09.11.2026), Bereich Stände und Völker (SV1–SV12) ---------- */
+test('Finaltest P1 SV1: Völker-Filter auf gelöschtem Stand fällt auf „Alle aktiven“ zurück, „Neues Volk“ nicht auf den gelöschten Stand', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const heide = await w.DB.put('staende', { name: 'Heide' }), moor = await w.DB.put('staende', { name: 'Moor' });
+  for (const [n, st] of [['H1', heide], ['H2', heide], ['M1', moor]]) await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [] });
+  const V = w.Views.voelker, alt = { st: V._stand, a: V._alte, s: V._suche, f: V._funktion };
+  try {
+    V._stand = heide.id; V._alte = false; V._suche = ''; V._funktion = '';
+    assertEq(await w.standLoeschen(heide), true, 'Stand gelöscht');
+    await V.render(host);
+    assertEq(V._stand, '', 'Filter zurückgesetzt');
+    assertEq([...host.querySelectorAll('#v-liste .r-title')].map((x) => x.textContent.trim()), ['H1', 'H2', 'M1'], 'Liste zeigt alle aktiven (vorher „Noch keine Völker“)');
+    host.querySelector('#add').click(); await w99(300);
+    const m = letztesModal(w);
+    assert(m && m.querySelector('#f-standId'), 'Formular „Neues Volk“ offen');
+    assertEq(m.querySelector('#f-standId').value, '', 'ohne Stand vorbelegt (vorher „Heide (gelöscht)“)');
+    assert(![...m.querySelectorAll('#f-standId option')].some((o) => o.value === heide.id), 'gelöschter Stand nicht wählbar');
+  } finally { V._stand = alt.st; V._alte = alt.a; V._suche = alt.s; V._funktion = alt.f; }
+})));
+
+test('Finaltest P1 SV2: Bearbeiten einer alten Durchsicht behält Werte inzwischen entfernter Zusatzfelder', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  await w.S.set('stockkartenFelder', [{ name: 'Baurahmen', typ: 'zahl' }]);   // „Drohnenbrut“ wurde entfernt
+  const v = await w.DB.put('voelker', { name: 'SV2', status: 'aktiv', historie: [] });
+  const sk = await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-06-01', zusatz: { Drohnenbrut: true, Baurahmen: 2 }, notiz: 'alt' });
+  const f = await lagerFormular(w, async () => w.Views.volk.stockkarteForm(v, await w.DB.get('stockkarten', sk.id)));
+  f.setz('notiz', 'neu'); await f.speichern();
+  const nach = await w.DB.get('stockkarten', sk.id);
+  assertEq([nach.notiz, nach.zusatz], ['neu', { Drohnenbrut: true, Baurahmen: 2 }], 'Drohnenbrut bleibt (vorher still gelöscht)');
+  // Neue Durchsicht: nur die aktuellen Felder
+  const f2 = await lagerFormular(w, () => w.Views.volk.stockkarteForm(v, null));
+  f2.setz('notiz', 'frisch'); await f2.speichern();
+  const neu = (await w.DB.getAll('stockkarten')).find((x) => x.notiz === 'frisch');
+  assert(neu && !('Drohnenbrut' in neu.zusatz), 'neue Durchsicht ohne entferntes Feld');
+})));
+
+test('Finaltest P1 SV3/SV12: natürliche Sortierung auf Völker-, Stand- und Ständeseite; „1 aktives Volk“; Lösch-Rückfrage mit „…“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host, fragen }) => {
+  const s2 = await w.DB.put('staende', { name: 'Stand 2' });
+  await w.DB.put('staende', { name: 'Stand 10' }); await w.DB.put('staende', { name: 'apfelgarten' });
+  for (const n of ['Volk 10', 'Volk 2', 'Volk 1', 'Volk 21', 'Volk 3', 'volk 4']) await w.DB.put('voelker', { name: n, standId: s2.id, status: 'aktiv', historie: [] });
+  const V = w.Views.voelker, alt = { st: V._stand, a: V._alte, s: V._suche, f: V._funktion };
+  const titel = () => [...host.querySelectorAll('.r-title')].map((x) => x.textContent.trim());
+  try {
+    V._stand = ''; V._alte = false; V._suche = ''; V._funktion = '';
+    await V.render(host);
+    assertEq(titel(), ['Volk 1', 'Volk 2', 'Volk 3', 'volk 4', 'Volk 10', 'Volk 21'], 'Völker-Seite');
+    host.innerHTML = ''; await w.Views.stand.render(host, s2.id);
+    assertEq([...host.querySelectorAll('[data-volk] .r-title')].map((x) => x.textContent.trim()), ['Volk 1', 'Volk 2', 'Volk 3', 'volk 4', 'Volk 10', 'Volk 21'], 'Stand-Seite');
+    host.innerHTML = ''; await w.Views.staende.render(host);
+    assertEq(titel(), ['apfelgarten', 'Stand 2', 'Stand 10'], 'Bienenstände');
+    // Einzahl
+    const s1 = await w.DB.put('staende', { name: 'Solo' });
+    for (const v of await w.DB.getAll('voelker')) await w.DB.put('voelker', { ...v, status: 'aufgeloest' });
+    await w.DB.put('voelker', { name: 'Einzig', standId: s1.id, status: 'aktiv', historie: [] });
+    host.innerHTML = ''; await w.Views.staende.render(host);
+    assert(/· 1 aktives Volk$/.test(host.querySelector('.page-head .sub').textContent.trim()), 'Ständeliste: ' + host.querySelector('.page-head .sub').textContent);
+    host.innerHTML = ''; await w.Views.stand.render(host, s1.id);
+    assertEq(host.querySelector('.page-head .sub').textContent.trim(), '1 aktives Volk', 'Stand-Seite');
+    // Lösch-Rückfrage: typografisches Schlusszeichen
+    await w.standLoeschen(await w.DB.get('staende', s2.id));
+    assert(fragen.some((o) => o.text && o.text.startsWith('„Stand 2“ wandert in den Papierkorb.')), 'Rückfrage: ' + JSON.stringify(fragen.map((o) => o.text)));
+  } finally { V._stand = alt.st; V._alte = alt.a; V._suche = alt.s; V._funktion = alt.f; }
+})));
+
+test('Finaltest P1 SV4/SV5/SV10: Durchsicht – übersprungene Völker wechseln sich nicht endlos ab; „Stockkarte“ öffnet den Reiter Stockkarte; „aufgelöst“', async (w) => isolierteDaten(w, async () => {
+  const k1 = await w.DB.put('voelker', { name: 'K1', status: 'aktiv', historie: [] });
+  const k2 = await w.DB.put('voelker', { name: 'K2', status: 'aktiv', historie: [] });
+  const weg = await w.DB.put('voelker', { name: 'Weg', status: 'aufgeloest', historie: [] });
+  const altTab = w.Views.volk._tab;
+  const txt = () => sdMain(w).textContent.replace(/\s+/g, ' ');
+  try {
+    await sdOeffnen(w, k1.id);
+    for (let i = 0; i < 5; i++) await sdTippe(w, 'Überspringen');
+    await sdTippe(w, 'Ohne Eintrag weiter');
+    assert(await warteBis(() => w.location.hash === '#/durchsicht/' + k2.id), 'weiter zu K2');
+    assert(await warteBis(() => sdMain(w).querySelector('.sd-volk b')?.textContent === 'K2'), 'K2 offen');
+    for (let i = 0; i < 5; i++) await sdTippe(w, 'Überspringen');
+    assert(/Ohne Eintrag beenden/.test(txt()), 'K1 wurde übersprungen – kein „weiter“ zurück zu K1: ' + txt().slice(0, 200));
+    await sdTippe(w, 'Ohne Eintrag beenden');
+    assert(await warteBis(() => /Durchgang beendet/.test(txt())), 'Schluss-Bildschirm (vorher wieder K1)');
+    assert(/0 von 2 gespeichert/.test(txt()) && /K1 ?offen/.test(txt()) && /K2 ?offen/.test(txt()), 'beide als offen genannt: ' + txt());
+    // „offen ›“ holt K1 zurück; Knopf „Stockkarte“ öffnet den Reiter Stockkarte, auch wenn zuletzt „Gewicht“ offen war
+    sdMain(w).querySelector(`[data-sd-zu="${k1.id}"]`).click();
+    assert(await warteBis(() => sdMain(w).querySelector('.sd-volk b')?.textContent === 'K1'), 'K1 wieder offen');
+    w.Views.volk._tab = 'gewicht';
+    sdMain(w).querySelector('[data-sd-karte]').click();
+    assert(await warteBis(() => w.location.hash === '#/volk/' + k1.id), 'Volk-Seite');
+    assertEq(w.Views.volk._tab, 'stockkarte', 'Reiter Stockkarte (vorher Gewicht)');
+    // Aufgelöstes Volk: Text mit Umlaut, „Stockkarte ansehen“ setzt den Reiter
+    w.Views.volk._tab = 'gewicht';
+    w.location.hash = '#/durchsicht/' + weg.id;
+    assert(await warteBis(() => /nicht mehr aktiv/.test(sdMain(w).textContent)), 'Hinweis für aufgelöstes Volk');
+    assert(/„Weg“ ist nicht mehr aktiv \(aufgelöst\)\./.test(txt()), 'mit Umlaut: ' + txt());
+    [...sdMain(w).querySelectorAll('button')].find((b) => /Stockkarte ansehen/.test(b.textContent)).click();
+    assert(await warteBis(() => w.location.hash === '#/volk/' + weg.id), 'Volk-Seite');
+    assertEq(w.Views.volk._tab, 'stockkarte', 'Reiter Stockkarte');
+  } finally { w.Views.volk._tab = altTab; w.Views.durchsicht._entwuerfe.clear(); w.Views.durchsicht._uebersprungen = new Set(); w.location.hash = '#/dashboard'; await warteBis(() => w.document.body.dataset.route === 'dashboard'); }
+}));
+
+test('Finaltest P1 SV6: Völker-Kachel fasst Völker ohne Stand und mit gelöschtem Stand zu einer Zeile „Ohne Stand“ zusammen', async (w) => isolierteDaten(w, async () => {
+  const garten = await w.DB.put('staende', { name: 'Garten' });
+  await w.DB.put('voelker', { name: 'G1', standId: garten.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'O1', standId: null, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'Kopie', standId: 'weg-gibts-nicht', status: 'aktiv', historie: [] });
+  const d = w.document.createElement('div'); d.innerHTML = await w.DASH_WIDGETS.voelker.html();
+  const zeilen = [...d.querySelectorAll('.v-stand')].map((x) => [...x.children].map((c) => c.textContent.trim()).join(' '));
+  assertEq(zeilen, ['Ohne Stand 2', 'Garten 1'], 'eine Zeile „Ohne Stand“ (vorher zweimal)');
+}));
+
+test('Finaltest P1 SV7: Volksakte – Einträge „Ganzer Stand“ nach dem Stand am jeweiligen Tag (Wanderung, Stand-Wechsel)', async (w) => isolierteDaten(w, async () => {
+  const altS = await w.DB.put('staende', { name: 'Altstand' }), neuS = await w.DB.put('staende', { name: 'Neustand' });
+  const v = await w.DB.put('voelker', { name: 'Wanderer', standId: neuS.id, status: 'aktiv', historie: [{ datum: '2026-01-01', text: 'angelegt' },
+    { datum: '2026-06-01', text: 'Stand gewechselt', standVon: altS.id, standNach: neuS.id }] });
+  const beh = (zielId, datum, mittel) => w.DB.put('behandlungen', { zielTyp: 'stand', zielId, datum, mittel, menge: 30, einheit: 'ml', wartezeitTage: 0, notiz: '' });
+  await beh(altS.id, '2026-05-01', 'Oxalsäure SV7'); await beh(neuS.id, '2026-04-01', 'Ameisensäure SV7'); await beh(neuS.id, '2026-07-01', 'Milchsäure SV7');
+  await w.DB.put('ernten', { zielTyp: 'stand', zielId: altS.id, datum: '2026-05-20', produktart: 'Honig', sorte: 'Raps', mengeKg: 12 });
+  const teile = await w.Export.volkTeile(await w.DB.get('voelker', v.id), '2026');
+  const b = teile.find((t) => t.k === 'behandlungen'), e = teile.find((t) => t.k === 'ernten');
+  const bText = JSON.stringify(b.rows);
+  assert(/Oxalsäure SV7/.test(bText) && /Milchsäure SV7/.test(bText) && !/Ameisensäure SV7/.test(bText), 'Altstand vor der Wanderung, Neustand danach: ' + bText);
+  assertEq(e.rows.length, 1, 'Ernte am Altstand gehört dazu');
+  assertEq(b.hinweis, 'Mit aufgeführt: Einträge für den ganzen Stand „Neustand“ bzw. „Altstand“ – nur von Tagen, an denen das Volk dort stand.', 'Hinweis nennt beide Stände');
+  // Wanderung aus dem Wanderbuch statt Historie
+  const v2 = { id: 'SV7-w', standId: neuS.id, historie: [] };
+  const f = w.Export.filter({ volk: v2, jahr: '2026', wanderungen: [{ datum: '2026-06-01', vonStandId: altS.id, nachStandId: neuS.id, volkIds: ['SV7-w'] }] });
+  assert(f('behandlungen', { zielTyp: 'stand', zielId: altS.id, datum: '2026-05-01' }) && !f('behandlungen', { zielTyp: 'stand', zielId: neuS.id, datum: '2026-05-01' }), 'Wanderbuch zählt');
+}));
+
+test('Finaltest P1 SV8/SV9/SV11: Volk-Seite – Vereinigen nennt den Stand (eigener Stand zuerst), Gewicht > 0, Kopfzeile ohne doppelten Punkt', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ host }) => {
+  const a = await w.DB.put('staende', { name: 'Stand A' }), b = await w.DB.put('staende', { name: 'Stand B' });
+  await w.DB.put('voelker', { name: 'Volk 1', standId: b.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'Volk 10', standId: a.id, status: 'aktiv', historie: [] });
+  await w.DB.put('voelker', { name: 'Volk 1', standId: a.id, status: 'aktiv', historie: [] });
+  const v = await w.DB.put('voelker', { name: 'Volk 2', standId: a.id, status: 'aktiv', funktion: 'Wirtschaftsvolk', beutenkennung: 'Z-07', historie: [] });
+  const altTab = w.Views.volk._tab;
+  try {
+    w.Views.volk._tab = 'stockkarte';
+    await w.Views.volk.render(host, v.id);
+    assertEq(host.querySelector('.page-head .sub').textContent.trim(), 'Stand A · Wirtschaftsvolk · Z-07', 'kein „· ·“ ohne Beutentyp');
+    dialogeSchliessen(w); host.querySelector('#merge').click(); await w99(300);
+    const opts = [...letztesModal(w).querySelectorAll('#f-ziel option')].filter((o) => o.value).map((o) => o.textContent.trim());
+    assertEq(opts, ['Volk 1 · Stand A', 'Volk 10 · Stand A', 'Volk 1 · Stand B'], 'mit Stand, eigener Stand zuerst, natürlich sortiert');
+    dialogeSchliessen(w);
+    // Gewicht: -5 abgewiesen
+    const box = w.document.createElement('div'); host.appendChild(box);
+    await w.Views.volk.tabGewicht(box, v);
+    const f = await lagerFormular(w, async () => box.querySelector('#gAdd').click());
+    f.setz('gewichtKg', '-5'); await f.speichern();
+    assertEq((await w.DB.getAll('gewichte')).length, 0, '-5 kg nicht gespeichert');
+    assert(/größer 0/.test(f.m.textContent), 'Meldung am Feld: ' + f.m.textContent.slice(0, 200));
+    f.setz('gewichtKg', '31,5'); await f.speichern();
+    assertEq((await w.DB.getAll('gewichte')).map((g) => g.gewichtKg), [31.5], 'gültiges Gewicht gespeichert');
+    // Aufgelöstes Volk: Badge mit Umlaut
+    const weg = await w.DB.put('voelker', { name: 'Weg', standId: a.id, status: 'aufgeloest', historie: [] });
+    host.innerHTML = ''; await w.Views.volk.render(host, weg.id);
+    assertEq(host.querySelector('.flex-wrap.mb16 .badge').textContent.trim(), 'aufgelöst', 'Badge');
+  } finally { w.Views.volk._tab = altTab; dialogeSchliessen(w); }
+})));
+
+/* ===== Finaltest Portion 1 (09.11.2026), Bereich Statistik und Startseite ===== */
+test('Finaltest P1 S1: Statistik Völker – vergangenes Jahr heißt „Stand 31.12.“, das laufende „Stand heute“', async (w) => isolierteDaten(w, async () => {
+  const J = +w.U.todayIso().slice(0, 4);
+  for (let i = 1; i <= 3; i++) await w.DB.put('voelker', { name: 'S1-Volk ' + i, status: 'aktiv', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }] });
+  await w.DB.put('voelker', { name: 'S1-weg', status: 'aufgeloest', historie: [{ datum: `${J - 2}-04-01`, text: 'angelegt' }, { datum: `${J}-01-01`, text: 'aufgelöst' }] });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: `${J - 1}-07-01`, mengeKg: 5 });   // damit das Vorjahr oben wählbar ist
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.reporting, alt = { t: V._typ, j: V._jahr };
+  const kachel = () => { const s = host.querySelector('#rep .stat'); return [s.querySelector('.s-label').textContent.trim(), s.querySelector('.s-value').textContent.trim()]; };
+  try {
+    V._typ = 'voelker'; V._jahr = String(J - 1); await V.render(host);
+    assertEq(kachel(), ['Stand 31.12.', '4'], 'Vorjahr: Stand zum Jahresende');
+    V._jahr = String(J); host.innerHTML = ''; await V.render(host);
+    assertEq(kachel(), ['Stand heute', '3'], 'laufendes Jahr: heute');
+  } finally { V._typ = alt.t; V._jahr = alt.j; host.remove(); }
+}));
+test('Finaltest P1 S2: Kachel „Honigertrag“ und ihr Link öffnen die Statistik beim Reiter „Honig“', async (w) => isolierteDaten(w, async () => {
+  await w.S.set('dashboardWidgets', ['ertrag']);
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: w.U.todayIso(), mengeKg: 5 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.reporting, alt = { t: V._typ, g: V._gruppe }, echtNav = w.navTo;
+  const ziele = []; w.navTo = (r) => ziele.push(r);
+  host.addEventListener('click', (e) => { if (e.target.closest('a')) e.preventDefault(); }, true);   // Link nicht wirklich öffnen
+  try {
+    await w.Views.dashboard.render(host);
+    const link = host.querySelector('[data-stat-honig]');
+    assert(link, 'Link „Statistiken“ in der Kachel');
+    V._typ = 'voelker'; V._gruppe = 'stand';
+    link.closest('.dash-klick').querySelector('h2').click();
+    assertEq([V._typ, V._gruppe, ziele.join()], ['ertrag', 'volk', 'reporting'], 'Kachel: Reiter Honig');
+    V._typ = 'voelker';
+    link.click();
+    assertEq(V._typ, 'ertrag', 'Link: Reiter Honig');
+  } finally { w.navTo = echtNav; V._typ = alt.t; V._gruppe = alt.g; host.remove(); }
+}));
+test('Finaltest P1 S3: Anpassen-Liste rollt beim Ziehen am Rand mit – Kachel kommt in einem Zug ganz nach unten und oben', async (w) => {
+  const box = w.document.createElement('div');
+  box.style.cssText = 'position:fixed;top:60px;left:0;width:320px;height:220px;overflow-y:auto;z-index:99990;background:#fff';
+  const host = w.document.createElement('div'); box.appendChild(host); w.document.body.appendChild(box);
+  const ids = Object.keys(w.DASH_WIDGETS);
+  const st = { aktiv: [...ids], verf: [] };
+  const opt = { bubbles: true, cancelable: true, pointerId: 43, pointerType: 'touch', isPrimary: true, button: 0 };
+  const pe = (typ, el, y) => el.dispatchEvent(new w.PointerEvent(typ, { ...opt, clientX: 300, clientY: y }));
+  try {
+    w.dashCfgListe(host, st, { label: w.dashLabel, icon: w.dashIcon, aktivTitel: 'Aktiv', hinweis: 'Hinweis' });
+    assert(box.scrollHeight > box.clientHeight + 100, 'Liste ist länger als das Fenster');
+    const r0 = box.getBoundingClientRect();
+    // nach unten: erste Kachel an den unteren Rand ziehen und halten
+    let grip = host.querySelector('[data-aktiv] [data-grip]'), gr = grip.getBoundingClientRect();
+    pe('pointerdown', grip, gr.top + gr.height / 2);
+    pe('pointermove', host.querySelector('[data-aktiv]'), r0.bottom - 4);
+    for (let i = 0; i < 80 && box.scrollTop < box.scrollHeight - box.clientHeight - 1; i++) await w99(100);   // kopflos laufen weniger Bilder pro Sekunde
+    await w99(100);
+    assert(box.scrollTop > 0 && box.scrollTop >= box.scrollHeight - box.clientHeight - 1, 'Fenster rollt bis ganz unten mit (scrollTop ' + box.scrollTop + ')');
+    pe('pointerup', host.querySelector('[data-aktiv]'), r0.bottom - 4); await w99(30);
+    assertEq(st.aktiv.at(-1), ids[0], 'erste Kachel landet ganz unten: ' + st.aktiv.join());
+    // nach oben: letzte Kachel an den oberen Rand ziehen und halten
+    const letzte = [...host.querySelectorAll('[data-aktiv] .cfg-row')].at(-1);
+    letzte.scrollIntoView({ block: 'end', behavior: 'instant' }); await w99(30);
+    grip = letzte.querySelector('[data-grip]'); gr = grip.getBoundingClientRect();
+    pe('pointerdown', grip, gr.top + gr.height / 2);
+    const start = box.scrollTop;
+    assert(start > 100, 'Liste steht unten (scrollTop ' + start + ')');
+    pe('pointermove', host.querySelector('[data-aktiv]'), r0.top + 2);
+    for (let i = 0; i < 80 && box.scrollTop > 0; i++) await w99(100);   // kopflos laufen weniger Bilder pro Sekunde
+    await w99(100);
+    pe('pointerup', host.querySelector('[data-aktiv]'), r0.top + 2); await w99(30);
+    assertEq(box.scrollTop, 0, 'ganz nach oben gerollt');
+    assertEq(st.aktiv[0], ids[0], 'die Kachel steht wieder ganz oben: ' + st.aktiv.join());
+  } finally { box.remove(); }
+});
+test('Finaltest P1 S4: Statistik Honig nach „Jahr“ steht der Zeit nach, nicht nach Menge', async (w) => isolierteDaten(w, async () => {
+  for (const [j, kg] of [['2023', 50], ['2024', 10], ['2025', 40], ['2026', 20]]) await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x', datum: `${j}-07-01`, mengeKg: kg });
+  assertEq((await w.Reporting.ertrag('jahr')).map((r) => r.k), ['2023', '2024', '2025', '2026'], 'Jahre der Reihe nach');
+  assertEq((await w.Reporting.ertrag('volk')).length, 1, 'andere Gruppen bleiben nach Menge');
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.reporting, alt = { t: V._typ, g: V._gruppe, j: V._jahr };
+  try {
+    V._typ = 'ertrag'; V._gruppe = 'jahr'; V._jahr = ''; await V.render(host);
+    assertEq([...host.querySelectorAll('#rep tbody tr td:first-child')].map((td) => td.textContent.trim()), ['2023', '2024', '2025', '2026'], 'Tabelle der Reihe nach');
+  } finally { V._typ = alt.t; V._gruppe = alt.g; V._jahr = alt.j; host.remove(); }
+}));
+test('Finaltest P1 S5: Anpassen-Fenster verspricht keine Verknüpfungskacheln mehr', async (w) => {
+  try {
+    w.Views.dashboard.configure(); await w99(50);
+    const m = letztesModal(w);
+    assert(!/Verknüpfungskachel|Jeder Bereich lässt sich/.test(m.textContent), 'kein veralteter Satz');
+    const grp = [...m.querySelectorAll('#cfg-dash .cfg-grp')].map((g) => g.textContent.trim());
+    assertEq(grp, ['Auf der Startseite', 'Weitere Kacheln'], 'Überschriften Startseite');
+    assertEq([...m.querySelectorAll('#cfg-nav .cfg-grp')].map((g) => g.textContent.trim())[1], 'Verfügbare Bereiche', 'Schnellzugriff behält seine Überschrift');
+  } finally { dialogeSchliessen(w); }
+});
+test('Finaltest P1 S6: Balkendiagramm mit langen Namen zeigt nur Beschriftungen, die nebeneinander passen', (w) => {
+  const beschr = (html) => (html.match(/text-anchor="middle"/g) || []).length;
+  const namen = ['Rapsfeld Nord', 'Schlossgarten', 'Heidefläche', 'Obstwiese Süd', 'Waldrand Ost', 'Kirschgarten', 'Lindenallee', 'Bachufer West', 'Weinberg Alt', 'Sonnenhang', 'Heimstand 2', 'Klostergarten'];
+  assertEq(beschr(w.UI.chart({ type: 'bars', labels: namen, series: [{ name: 'kg', values: namen.map((_, i) => i + 1) }] })), 6, '12 lange Namen: jede zweite');
+  assertEq(beschr(w.UI.chart({ type: 'bars', labels: ['2022', '2023', '2024', '2025', '2026'], series: [{ name: 'kg', values: [1, 2, 3, 4, 5] }] })), 5, 'Jahre: alle');
+  const monate = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+  assertEq(beschr(w.UI.chart({ type: 'line', labels: monate, series: [{ name: 'V', values: monate.map((_, i) => i) }] })), 12, 'Monate: alle');
+});
+test('Finaltest P1 S7: Statistik liest die Daten einmal und rechnet bei „Volk“ keine ungenutzte Gruppierung', async (w) => isolierteDaten(w, async () => {
+  const J = w.U.todayIso().slice(0, 4);
+  const v = await w.DB.put('voelker', { name: 'S7-Volk', status: 'aktiv' });
+  await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: `${J}-06-01`, mengeKg: 12 });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const V = w.Views.reporting, alt = { t: V._typ, g: V._gruppe, j: V._jahr };
+  const echt = { daten: w.Statistik.daten, ertrag: w.Reporting.ertrag };
+  let daten = 0, ertrag = 0;
+  w.Statistik.daten = function (...a) { daten++; return echt.daten.apply(this, a); };
+  w.Reporting.ertrag = function (...a) { ertrag++; return echt.ertrag.apply(this, a); };
+  try {
+    V._typ = 'ertrag'; V._gruppe = 'volk'; V._jahr = J; await V.render(host);
+    assertEq([daten, ertrag], [1, 0], 'einmal gelesen, keine Gruppierung je Volk nebenher');
+    const rl = host.querySelector('.rang-liste')?.textContent || '';
+    assert(/S7-Volk/.test(rl) && /12(,0)?\s*kg/.test(rl), 'Rangliste stimmt: ' + rl.replace(/\s+/g, ' ').trim());
+    assert(host.querySelectorAll('.st-k').length >= 1, '„Auf einen Blick“ da');
+    assert(host.querySelector(`[data-stjahr="${J}"]`), 'Jahr oben wählbar');
+    const d = await echt.daten.call(w.Statistik);
+    assertEq(d.ernten.length, 1, 'Statistik.daten liefert die Speicher');
+    assert(d.volkMap.get(v.id), 'und die Völker-Karte');
+  } finally { Object.assign(w.Statistik, { daten: echt.daten }); w.Reporting.ertrag = echt.ertrag; V._typ = alt.t; V._gruppe = alt.g; V._jahr = alt.j; host.remove(); }
+}));
+
+/* Nachbesserung P2 (10.11.2026): fünf Funde der unabhängigen Durchsicht im Diff von Finaltest Portion 2. */
+async function p2StueckGruppe(w, name, mengen, abzug, lager) {
+  const p = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar ' + name, kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: lager });
+  const basis = { zielTyp: 'volk', datum: '2026-08-01', mittel: 'Apivar ' + name, einheit: 'Stück', anwendungsart: '', wartezeitTage: 0, notiz: '', abzugGruppe: 'gruppe-' + name };
+  const recs = [];
+  for (let i = 0; i < mengen.length; i++) {
+    const v = await w.DB.put('voelker', { name: `${name}-${i}`, status: 'aktiv', historie: [] });
+    recs.push(await w.DB.put('behandlungen', { ...basis, zielId: v.id, menge: mengen[i],
+      verbrauchAbzug: abzug[i] ? [{ inventarId: p.id, bezeichnung: 'Apivar ' + name, menge: abzug[i], einheit: 'Stück' }] : [] }));
+  }
+  const bestand = async () => (await w.DB.get('inventar', p.id)).stueckzahl;
+  const traegt = async (r) => ((await w.DB.get('behandlungen', r.id)) || { verbrauchAbzug: [] }).verbrauchAbzug.reduce((s, a) => s + a.menge, 0);
+  const loeschen = async (r) => w.loescheMitMaterial('behandlungen', await w.DB.get('behandlungen', r.id));
+  const zurueck = async (r) => w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === r.id).id);
+  // Regel: die aktiven Einträge tragen zusammen genau ihren Bedarf (aufgerundete Summe), das Lager hat den Rest
+  const stimmt = async (start, text) => {
+    const aktiv = (await w.DB.getAll('behandlungen')).filter((b) => b.abzugGruppe === basis.abzugGruppe);
+    const bedarf = Math.ceil(aktiv.reduce((s, b) => s + b.menge, 0) - 1e-9);
+    const getragen = aktiv.reduce((s, b) => s + (b.verbrauchAbzug || []).reduce((t, a) => t + a.menge, 0), 0);
+    assertEq([getragen, await bestand()], [bedarf, start - bedarf], text);
+  };
+  return { p, recs, bestand, traegt, loeschen, zurueck, stimmt };
+}
+
+test('Finaltest P2 N1: Stück-Gruppe – löschen und aus dem Papierkorb zurückholen ergibt in jeder Reihenfolge das richtige Lager', async (w) => isolierteDaten(w, async () => {
+  // Fall 1: A löschen, C löschen (C übergibt sein Stück an B), A zurückholen → Lager 9 (vorher 8), dann C zurück → 8
+  let g = await p2StueckGruppe(w, 'N1a', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  let [A, B, C] = g.recs;
+  await g.loeschen(A); await g.stimmt(10, 'A gelöscht');
+  assertEq(await g.loeschen(C), 0, 'C gibt nichts zurück'); await g.stimmt(10, 'C gelöscht, B trägt das Stück');
+  await g.zurueck(A); await g.stimmt(10, 'A zurück: Lager 9');
+  assertEq([await g.bestand(), await g.traegt(A), await g.traegt(B)], [9, 0, 1], 'A und B brauchen zusammen 1 Stück');
+  await g.zurueck(C); await g.stimmt(10, 'C zurück: Lager 8');
+  assertEq(await g.bestand(), 8, 'alle drei wieder da: 2 Stück');
+  // Fall 2: A, C, B löschen, C zurückholen → Lager 9 (vorher 10), C trägt das Stück
+  g = await p2StueckGruppe(w, 'N1b', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  [A, B, C] = g.recs;
+  await g.loeschen(A); await g.loeschen(C); await g.loeschen(B);
+  assertEq(await g.bestand(), 10, 'alle gelöscht: alles zurück');
+  await g.zurueck(C); await g.stimmt(10, 'C zurück');
+  assertEq([await g.bestand(), await g.traegt(C)], [9, 1], 'C zieht sein Stück wieder ab');
+  await g.zurueck(B); await g.stimmt(10, 'B zurück'); await g.zurueck(A); await g.stimmt(10, 'A zurück');
+  assertEq(await g.bestand(), 8, 'alle drei wieder da');
+  // Fall 3: zuerst das Mitglied ohne eigenen Abzug löschen – die Gruppe braucht danach nur noch 1 Stück
+  g = await p2StueckGruppe(w, 'N1c', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  [A, B, C] = g.recs;
+  assertEq(await g.loeschen(B), 1, 'B ohne Abzug: ein Stück kommt aus der Gruppe zurück'); await g.stimmt(10, 'B gelöscht');
+  await g.zurueck(B); await g.stimmt(10, 'B zurück'); assertEq(await g.bestand(), 8, 'wieder 2 Stück');
+  // Ursprünglicher BF7-Ablauf bleibt: A (1 zurück), C (0, Stück an B), B (1 zurück)
+  g = await p2StueckGruppe(w, 'N1d', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  [A, B, C] = g.recs;
+  assertEq([await g.loeschen(A), await g.bestand()], [1, 9], 'BF7: A');
+  assertEq([await g.loeschen(C), await g.bestand(), await g.traegt(B)], [0, 9, 1], 'BF7: C');
+  const korbC = (await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === C.id);
+  assertEq([korbC.daten.verbrauchAbzug, korbC.daten.abzugPosition.inventarId], [[], g.p.id], 'Papierkorb: nichts zurückgekommen, Position der Gruppe gemerkt');
+  assertEq([await g.loeschen(B), await g.bestand()], [1, 10], 'BF7: B');
+  await g.zurueck(C);
+  const cZurueck = await w.DB.get('behandlungen', C.id);
+  assertEq([await g.bestand(), 'abzugPosition' in cZurueck], [9, false], 'C zurück trägt sein Stück, die Merkangabe ist weg');
+  // Ohne Gruppe bleibt es beim gemerkten Abzug
+  const ml = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Ameisensäure N1', kategorie: 'Behandlungsmittel', einheit: 'ml', stueckzahl: 950 });
+  const v = await w.DB.put('voelker', { name: 'N1-ml', status: 'aktiv', historie: [] });
+  const e = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-08-01', mittel: 'Ameisensäure N1', menge: 50, einheit: 'ml', wartezeitTage: 0, notiz: '', verbrauchAbzug: [{ inventarId: ml.id, bezeichnung: 'Ameisensäure N1', menge: 50, einheit: 'ml' }] });
+  await w.loescheMitMaterial('behandlungen', e);
+  assertEq((await w.DB.get('inventar', ml.id)).stueckzahl, 1000, 'ml: alles zurück');
+  await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === e.id).id);
+  assertEq((await w.DB.get('inventar', ml.id)).stueckzahl, 950, 'ml: wieder abgezogen');
+}));
+
+test('Finaltest P2 N2: Hinweis beim Bearbeiten in Stück nennt genau das, was das Speichern bucht (einzeln und Gruppe, mehr und weniger)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const fall = async (name, mengen, abzug, lager, wer, neu, erwartet) => {
+    const g = await p2StueckGruppe(w, name, mengen, abzug, lager);
+    const f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[wer]));
+    f.setz('menge', String(neu)); await w99(50);
+    const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+    const t = info.match(/Rest (\d+) Stück|→ (\d+) Stück|bleibt bei (\d+) Stück/);
+    assert(t, `${name}: Hinweis nennt das Lager danach: ${info}`);
+    const angekuendigt = Number(t[1] || t[2] || t[3]);
+    await f.speichern();
+    assertEq([angekuendigt, await g.bestand()], [erwartet, erwartet], `${name}: Hinweis „${info}“ und Lager stimmen`);
+    return info;
+  };
+  let info = await fall('N2a', [1.5], [2], 8, 0, 1.8, 8);   // 2 Stück reichen für 1,8
+  assert(!/Dazu kommen/.test(info) && !/aufgerundet/.test(info), 'kein versprochener Abzug: ' + info);
+  info = await fall('N2b', [1.5], [2], 8, 0, 1.2, 8);        // 1,2 braucht weiter 2 Stück
+  assert(!/zurück/.test(info), 'nichts zurück versprochen: ' + info);
+  await fall('N2c', [1.5], [2], 8, 0, 2.5, 7);               // 3 Stück: eins dazu
+  await fall('N2d', [1.5], [2], 8, 0, 0.8, 9);               // 1 Stück: eins zurück
+  await fall('N2e', [0.5, 0.5, 0.5], [1, 0, 1], 8, 1, 1.0, 8);   // Gruppe 2,0 → weiter 2 Stück
+  await fall('N2f', [0.5, 0.5, 0.5], [1, 0, 1], 8, 1, 1.5, 7);   // Gruppe 2,5 → 3 Stück
+  await fall('N2g', [1.0, 0.5], [1, 1], 8, 0, 0.5, 9);           // Gruppe 1,0 → 1 Stück, A gibt seins zurück
+})));
+
+test('Finaltest P2 N3: Abzugskette – „Zucker Sack 25 kg“ springt für Zucker ein, „Apivar Packung 10 Stück“ ist Apivar, „60%“ = „60 %“', async (w) => isolierteDaten(w, async () => {
+  const prod = (bezeichnung, kategorie = 'Behandlungsmittel') => w.materialProdukt({ bezeichnung, kategorie });
+  assertEq([prod('Zucker Sack 25 kg', 'Futter'), prod('Zucker', 'Futter'), prod('Zucker Sack 25kg', 'Futter')], ['zucker', 'zucker', 'zucker'], 'Zucker');
+  assertEq([prod('Apivar Packung 10 Stück'), prod('Apivar'), prod('Apivar Packung A')], ['apivar', 'apivar', 'apivar'], 'Apivar');
+  assertEq(prod('Ameisensäure 60%'), prod('Ameisensäure 60 %'), '60% und 60 % gleich');
+  assert(prod('Ameisensäure 60 %') !== prod('Ameisensäure 85 %'), '60 % ≠ 85 %');
+  assert(prod('Ameisensäure 60 %') !== prod('Oxalsäure 3,5 % (Oxuvar)'), 'Ameisensäure ≠ Oxalsäure');
+  assert(prod('Zucker', 'Futter') !== prod('Apiinvert Bag-in-Box', 'Futter'), 'Zucker ≠ Apiinvert');
+  const pos = (bezeichnung, kategorie, einheit, stueckzahl, anschaffung) => w.DB.put('inventar', { typ: 'verbrauch', bezeichnung, kategorie, einheit, stueckzahl, anschaffung });
+  const z = await pos('Zucker', 'Futter', 'kg', 5, '2026-01-01'), sack = await pos('Zucker Sack 25 kg', 'Futter', 'kg', 25, '2026-02-01');
+  const api = await pos('Apiinvert Bag-in-Box', 'Futter', 'kg', 56, '2026-01-15');
+  const k = await w.verbrauchAbziehenKette(z.id, 15, { pruefen: false });
+  assertEq([k.abgezogen, k.gefehlt, (await w.DB.get('inventar', sack.id)).stueckzahl, (await w.DB.get('inventar', api.id)).stueckzahl], [15, 0, 15, 56], 'der Sack springt ein, Apiinvert nicht');
+  const a60 = await pos('Ameisensäure 60%', 'Behandlungsmittel', 'ml', 100, '2026-01-01'), b60 = await pos('Ameisensäure 60 %', 'Behandlungsmittel', 'ml', 500, '2026-02-01');
+  const a85 = await pos('Ameisensäure 85 %', 'Behandlungsmittel', 'ml', 500, '2026-01-15');
+  const k2 = await w.verbrauchAbziehenKette(a60.id, 300, { pruefen: false });
+  assertEq([k2.gefehlt, (await w.DB.get('inventar', b60.id)).stueckzahl, (await w.DB.get('inventar', a85.id)).stueckzahl], [0, 300, 500], '60 % springt für 60% ein, 85 % nicht');
+}));
+
+test('Finaltest P2 N4: Löschen einer Behandlung – „angebrochenes Stück“ nur, wenn wirklich ein Stück an ein anderes Volk ging', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, fragen }) => {
+  // 50 ml Ameisensäure, die Position ist endgültig gelöscht: keine Rede von Stück oder übrigen Völkern
+  const v = await w.DB.put('voelker', { name: 'N4-ml', status: 'aktiv', historie: [] });
+  const ml = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-08-01', mittel: 'Ameisensäure N4', menge: 50, einheit: 'ml', wartezeitTage: 0, notiz: '', verbrauchAbzug: [{ inventarId: 'weg-n4', bezeichnung: 'Ameisensäure N4', menge: 50, einheit: 'ml' }] });
+  let f = await lagerFormular(w, () => w.Views.behandlungen.form(ml));
+  await f.loeschen();
+  let frage = fragen.pop().text, meldung = toasts.pop().msg;
+  assert(!/angebrochen/.test(frage) && !/zurück in den Bestand/.test(frage), 'Rückfrage: ' + frage);
+  assertEq(meldung, 'Behandlung gelöscht', 'Meldung');
+  // Gruppe 3 × 0,5 Stück (1/0/1): A gibt sein Stück zurück, C übergibt seins an B
+  const g = await p2StueckGruppe(w, 'N4', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  const [A, , C] = g.recs;
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(A));
+  await f.loeschen();
+  frage = fragen.pop().text; meldung = toasts.pop().msg;
+  assert(/1 Stück Apivar N4 gehen zurück in den Bestand/.test(frage) && !/angebrochen/.test(frage), 'Rückfrage A: ' + frage);
+  assert(/1 Stück Apivar N4 zurück im Bestand/.test(meldung) && !/angebrochen/.test(meldung), 'Meldung A: ' + meldung);
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(C));
+  await f.loeschen();
+  frage = fragen.pop().text; meldung = toasts.pop().msg;
+  assert(/angebrochene Stück bleibt bei den übrigen Völkern/.test(frage) && !/zurück in den Bestand/.test(frage), 'Rückfrage C: ' + frage);
+  assertEq(meldung, 'Behandlung gelöscht · das angebrochene Stück bleibt bei den übrigen Völkern verbucht', 'Meldung C');
+  assertEq(await g.bestand(), 9, 'Lager 9');
+  // loescheMitMaterial meldet die Übergabe ausdrücklich
+  const g2 = await p2StueckGruppe(w, 'N4b', [0.5, 0.5, 0.5], [1, 0, 1], 8);
+  const b1 = await w.loescheMitMaterial('behandlungen', g2.recs[0], { bericht: true });
+  const b2 = await w.loescheMitMaterial('behandlungen', g2.recs[2], { bericht: true });
+  assertEq([b1.menge, b1.uebergeben, b2.menge, b2.uebergeben], [1, 0, 0, 1], 'Bericht: zurück und übergeben');
+})));
+
+test('Finaltest P2 N5: Pollen aus „Direkt abfüllen“ heißt auf Rechnung und in Listen „Pollen“, alte Chargen bleiben Honig', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'N5-Volk', status: 'aktiv', koeniginId: null, historie: [] });
+  const ernte = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2026-06-30', produktart: 'Pollen', sorte: '', mengeKg: 2 });
+  const f = await lagerFormular(w, () => w.Views.honig.abfuellForm());
+  f.setz('chargeId', 'ernte:' + ernte.id); f.setz('g_250', '4');
+  await f.speichern();
+  const c = (await w.DB.getAll('chargen')).find((x) => (x.ernteIds || []).includes(ernte.id));
+  assert(c, 'Charge angelegt');
+  assertEq(c.produkt, 'Pollen', 'Produkt an der Charge gespeichert');
+  const a = (await w.DB.getAll('abfuellungen')).find((x) => x.chargeId === c.id);
+  assertEq(w.rechnungHonigText(a, c), `Pollen 250 g Glas (Charge ${c.losnummer})`, 'Rechnungstext');
+  const em = new Map([[ernte.id, ernte]]);
+  assertEq([w.honigName(c, em), w.verkaufHonigText({}, a, c, em)], ['Pollen', '250 g · Pollen'], 'Name in Listen');
+  assertEq(w.honigName({ produkt: 'Pollen', sorte: 'Raps', ernteIds: [] }, new Map()), 'Pollen (Raps)', 'mit Sorte');
+  assertEq(w.honigName({ produkt: 'Pollen', etikettNotiz: 'Blütenpollen', ernteIds: [] }, new Map()), 'Blütenpollen', 'Etikett nennt das Produkt schon');
+  // Alte Chargen ohne Feld bleiben Honig
+  const alt = { losnummer: '2025-01', etikettNotiz: 'Rapshonig', ernteIds: [] };
+  assertEq(w.rechnungHonigText({ gebindeG: 500 }, alt), 'Honig „Rapshonig“ 500 g Glas (Charge 2025-01)', 'alte Charge');
+  assertEq(w.honigName({ losnummer: '2025-02', ernteIds: [] }, new Map()), 'Honig', 'ohne alles: Honig');
+})));
+
+/* Nachbesserung P2, Runde 2 (10.11.2026): Gegenprüfung A–E zu den Stück-Gruppen, materialProdukt und dem Produkt der Charge. */
+// Gruppe so anlegen wie die App (behandlungenJeVolkAnlegen): Positionen [{ name, menge, anschaffung }], Mengen je Volk
+async function p2r2Gruppe(w, name, positionen, mengen) {
+  const pos = [];
+  for (const [i, x] of positionen.entries()) pos.push(await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: x.name || `Apivar ${name} Packung ${'ABCD'[i]}`, kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: x.menge, anschaffung: x.anschaffung || `2026-0${i + 1}-01` }));
+  const voelker = [];
+  for (let i = 0; i < mengen.length; i++) voelker.push(await w.DB.put('voelker', { name: `${name}-${i}`, status: 'aktiv', historie: [] }));
+  const erg = await w.behandlungenJeVolkAnlegen(voelker.map((v, i) => ({ volkId: v.id, menge: mengen[i] })),
+    { datum: '2026-08-01', mittel: 'Apivar ' + name, einheit: 'Stück', anwendungsart: '', wartezeitTage: 0, notiz: '', _verbrauchId: pos[0].id });
+  const gruppe = erg.recs[0].abzugGruppe;
+  const lager = async () => { const r = []; for (const p of pos) r.push((await w.DB.get('inventar', p.id)).stueckzahl); return r; };
+  const aktiv = async () => (await w.DB.getAll('behandlungen')).filter((b) => b.abzugGruppe === gruppe);
+  const traegt = async (r) => ((await w.DB.get('behandlungen', r.id)) || { verbrauchAbzug: [] }).verbrauchAbzug.reduce((s, a) => s + a.menge, 0);
+  const getragenVon = async (id) => (await aktiv()).reduce((s, b) => s + (b.verbrauchAbzug || []).filter((a) => !id || a.inventarId === id).reduce((t, a) => t + a.menge, 0), 0);
+  const bedarf = async () => Math.ceil((await aktiv()).reduce((s, b) => s + b.menge, 0) - 1e-9);
+  const korb = async (r) => (await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === r.id);
+  const loeschen = async (r) => w.loescheMitMaterial('behandlungen', await w.DB.get('behandlungen', r.id), { bericht: true });
+  const zurueck = async (r) => w.DB.trashRestore((await korb(r)).id);
+  // Jede Position: Lager + was die Gruppe von ihr trägt = Anfangsbestand; die Gruppe trägt min(Bedarf, soll)
+  const stimmt = async (anfang, soll, text) => {
+    const l = await lager();
+    for (const [i, p] of pos.entries()) assertEq(l[i] + await getragenVon(p.id), anfang[i], `${text}: Position ${i + 1} (Lager ${l.join('/')})`);
+    assertEq(await getragenVon(), Math.min(await bedarf(), soll), `${text}: getragen = min(Bedarf, Soll)`);
+  };
+  return { pos, recs: erg.recs, erg, lager, aktiv, traegt, getragenVon, bedarf, korb, loeschen, zurueck, stimmt };
+}
+
+test('Finaltest P2 N6: Stück-Gruppe mit Fehlmenge (Lager 1, 3 × 0,5) – jedes Mitglied lässt sich löschen und zurückholen, die Fehlmenge bleibt', async (w) => isolierteDaten(w, async () => {
+  for (const nachschub of [false, true]) {
+    for (let wer = 0; wer < 3; wer++) {
+      const name = `N6${nachschub ? 'n' : ''}${wer}`;
+      const g = await p2r2Gruppe(w, name, [{ menge: 1 }], [0.5, 0.5, 0.5]);
+      assertEq([g.erg.buchung.gefehlt, await g.traegt(g.recs[0]), await g.traegt(g.recs[1]), await g.traegt(g.recs[2])], [1, 1, 0, 0], `${name}: 1 Stück fehlt, verteilt 1/0/0`);
+      assertEq(g.recs.map((r) => r.abzugSoll), [1, 1, 1], `${name}: Grenze gemerkt`);
+      let anfang = [1];
+      if (nachschub) {   // Nachschub nach dem Anlegen: die alte Fehlmenge wird trotzdem nicht nachgebucht
+        const p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl += 5; await w.DB.put('inventar', p); anfang = [6];
+      }
+      const r = g.recs[wer];
+      const bericht = await g.loeschen(r);
+      await g.stimmt(anfang, 1, `${name} gelöscht`);
+      const k = await g.korb(r);
+      assertEq([bericht.menge, bericht.uebergeben, k.daten.abzugUebergeben, k.daten.abzugSoll], [0, wer === 0 ? 1 : 0, wer === 0 ? 1 : 0, 1], `${name}: Papierkorb vermerkt Übergabe und Grenze`);
+      const erg = await g.zurueck(r);
+      assert(erg && erg.daten && erg.daten.id === r.id, `${name}: zurückgeholt (vorher „Material reicht nicht“)`);
+      assert(!erg.materialGefehlt, `${name}: keine neue Fehlmenge gemeldet`);
+      await g.stimmt(anfang, 1, `${name} zurück`);
+      const da = await w.DB.get('behandlungen', r.id);
+      // Kommt er ohne Abzug zurück, bleibt die Position gemerkt (Runde 3), die Übergabe-Angabe ist weg
+      assertEq([da.verbrauchAbzug.length, 'abzugPosition' in da, 'abzugUebergeben' in da, da.abzugSoll], [0, true, false, 1], `${name}: Position gemerkt, Übergabe weg, Grenze bleibt`);
+    }
+  }
+  // Fehlt beim Zurückholen wirklich Bestand (anderweitig verbraucht): kein Abbruch, die Fehlmenge wird gemeldet und gilt ab jetzt
+  const g = await p2r2Gruppe(w, 'N6x', [{ menge: 2 }], [0.5, 0.5, 0.5]);
+  assertEq([await g.traegt(g.recs[0]), await g.traegt(g.recs[1]), 'abzugSoll' in g.recs[0]], [1, 1, false], 'N6x: genug da, keine Grenze');
+  await g.loeschen(g.recs[0]);
+  assertEq(await g.lager(), [1], 'N6x: ein Stück zurück');
+  const p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl = 0; await w.DB.put('inventar', p);
+  const erg = await g.zurueck(g.recs[0]);
+  assertEq([!!erg, erg.materialGefehlt && erg.materialGefehlt.menge, await g.lager(), await g.getragenVon()], [true, 1, [0], 1], 'N6x: zurück, 1 Stück fehlte');
+  assertEq((await g.aktiv()).map((b) => b.abzugSoll), [1, 1, 1], 'N6x: die neue Grenze gilt für alle');
+  p.stueckzahl = 5; await w.DB.put('inventar', p);
+  await g.loeschen(g.recs[2]); await g.zurueck(g.recs[2]);
+  assertEq([await g.lager(), await g.getragenVon()], [[5], 1], 'N6x: Nachschub wird beim Löschen/Zurückholen nicht angetastet');
+  // Ältere Gruppen ohne gemerkte Grenze (Lager 0, 1/0/0): genauso – keine Fehlermeldung, nichts nachgebucht
+  const alt = await p2StueckGruppe(w, 'N6alt', [0.5, 0.5, 0.5], [1, 0, 0], 3);
+  for (const r of alt.recs) {
+    await alt.loeschen(r); await alt.zurueck(r);
+    assertEq([await alt.bestand(), (await Promise.all(alt.recs.map((x) => alt.traegt(x)))).reduce((s, x) => s + x, 0)], [3, 1], 'N6alt: Lager und getragen unverändert');
+  }
+}));
+
+test('Finaltest P2 N7: Stück-Gruppe aus zwei Lagerpositionen (P1 = 1, P2 = 5, 3 × 0,5) – jede Lösch-Reihenfolge, Lager und getragener Abzug stimmen', async (w) => isolierteDaten(w, async () => {
+  const reihen = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+  for (const [k, reihe] of reihen.entries()) {
+    const name = `N7${'abcdef'[k]}`;
+    const g = await p2r2Gruppe(w, name, [{ menge: 1, anschaffung: '2026-01-01' }, { menge: 5, anschaffung: '2026-02-01' }], [0.5, 0.5, 0.5]);
+    assertEq(g.recs.map((r) => r.verbrauchAbzug.map((a) => `${a.inventarId === g.pos[0].id ? 'P1' : 'P2'}:${a.menge}`).join()), ['P1:1', 'P2:1', ''], `${name}: Kette P1:1 / P2:1 / 0`);
+    assertEq(await g.lager(), [0, 4], `${name}: Lager [0, 4]`);
+    const anfang = [1, 5];
+    for (const [schritt, i] of reihe.entries()) {
+      await g.loeschen(g.recs[i]);
+      await g.stimmt(anfang, Infinity, `${name}: ${schritt + 1}. gelöscht (Eintrag ${i + 1})`);
+      if (schritt === 0) assertEq((await g.lager()).reduce((s, x) => s + x, 0), 5, `${name}: nach dem ersten Löschen 1 Stück mehr im Lager (vorher blieb es bei 4)`);
+    }
+    assertEq(await g.lager(), [1, 5], `${name}: alle gelöscht – alles zurück`);
+    // Zurückholen in derselben Reihenfolge, nach jedem Schritt dieselbe Regel
+    for (const i of reihe) { await g.zurueck(g.recs[i]); await g.stimmt(anfang, Infinity, `${name}: Eintrag ${i + 1} zurück`); }
+    assertEq((await g.lager()).reduce((s, x) => s + x, 0), 4, `${name}: alle zurück – wieder 2 Stück`);
+    // Löschen, löschen, zurückholen: die Gruppe trägt zwischendurch nie mehr als ihren Bedarf
+    await g.loeschen(g.recs[reihe[0]]); await g.stimmt(anfang, Infinity, `${name}: erneut gelöscht`);
+    await g.loeschen(g.recs[reihe[1]]); await g.stimmt(anfang, Infinity, `${name}: zweites gelöscht`);
+    await g.zurueck(g.recs[reihe[0]]); await g.stimmt(anfang, Infinity, `${name}: eins zurück`);
+  }
+}));
+
+test('Finaltest P2 N8: Stück-Gruppe verringern – der Überschuss kommt auch aus dem Abzug der übrigen zurück, der Hinweis sagt dasselbe', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // 0,5/0,7/1,5/0,5 trägt 1/1/2/0, Lager 6 von 10. Das vierte (ohne eigenen Abzug) auf 0,2: Bedarf 3 → 1 Stück zurück, Lager 7
+  const g = await p2StueckGruppe(w, 'N8', [0.5, 0.7, 1.5, 0.5], [1, 1, 2, 0], 6);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[3]));
+  f.setz('menge', '0.2'); await w99(50);
+  let info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/1 Stück gehen zurück in den Bestand → 7 Stück/.test(info), 'Hinweis: ' + info);
+  await f.speichern();
+  assertEq(await g.bestand(), 7, 'Lager 7 (vorher 6)');
+  await g.stimmt(10, 'nach dem Ändern');
+  assertEq((await w.DB.get('behandlungen', g.recs[3].id)).menge, 0.2, 'Menge gespeichert');
+  // Zwei Positionen: P1 = 1, P2 = 5, Mengen 0,3/0,3/0,5 tragen P1:1 / 0 / P2:1. Das zweite auf 0,2 → Bedarf 1, das Stück von P2 kommt zurück
+  const h = await p2r2Gruppe(w, 'N8b', [{ menge: 1 }, { menge: 5 }], [0.3, 0.3, 0.5]);
+  assertEq(h.recs.map((r) => r.verbrauchAbzug.map((a) => `${a.inventarId === h.pos[0].id ? 'P1' : 'P2'}:${a.menge}`).join()), ['P1:1', '', 'P2:1'], 'N8b: Kette');
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(h.recs[1]));
+  f.setz('menge', '0.2'); await w99(50);
+  info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  // Die Auswahl steht fest auf der ersten Position der Kette (P1, Runde 3): Der Hinweis nennt deren Lager danach und sagt, wohin
+  // das Stück geht – an P2, die spätere Position der Kette (vorher je nach Reihenfolge der Kennungen mal P1, mal P2)
+  assert(/1 Stück gehen zurück in den Bestand → 0 Stück \(davon 1 Stück zu „Apivar N8b Packung B“\)/.test(info), 'Hinweis N8b: ' + info);
+  await f.speichern();
+  assertEq([await h.lager(), await h.getragenVon()], [[0, 5], 1], 'N8b: P2 wieder 5, die Gruppe trägt 1');
+  await h.stimmt([1, 5], Infinity, 'N8b');
+  // Mehr Menge zieht über die Kette nach, gleiche Menge (nur Notiz) ändert nichts
+  await w.behandlungAendern(await w.DB.get('behandlungen', h.recs[1].id), { menge: 1.2 });
+  await h.stimmt([1, 5], Infinity, 'N8b: auf 1,2 erhöht');
+  assertEq(await h.getragenVon(), 2, 'N8b: Bedarf 2');
+  const vorher = await h.lager();
+  await w.behandlungAendern(await w.DB.get('behandlungen', h.recs[0].id), { notiz: 'nur Notiz' });
+  assertEq(await h.lager(), vorher, 'N8b: nur Notiz – Lager unverändert');
+  // Gruppe mit Fehlmenge: Verringern hält die Grenze; Erhöhen mit Nachschub zieht nur den Zuwachs des Bedarfs nach (Runde 3) –
+  // die alte Fehlmenge bleibt, die Grenze steigt um den Zuwachs
+  const s = await p2r2Gruppe(w, 'N8c', [{ menge: 1 }], [0.5, 0.5, 0.5, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', s.recs[1].id), { menge: 0.2 });
+  await s.stimmt([1], 1, 'N8c: verringert');
+  const p = await w.DB.get('inventar', s.pos[0].id); p.stueckzahl = 4; await w.DB.put('inventar', p);
+  await w.behandlungAendern(await w.DB.get('behandlungen', s.recs[2].id), { menge: 0.9 });
+  await s.stimmt([5], 2, 'N8c: erhöht mit Nachschub – Bedarf 2 → 3, getragen 1 → 2');
+  assertEq((await s.aktiv()).map((b) => b.abzugSoll), [2, 2, 2, 2], 'N8c: Grenze 2');
+})));
+
+test('Finaltest P2 N9: Abzugskette – „Apiinvert 16 kg Eimer“, „Apiinvert Bag-in-Box“ und „Bayvarol Packung 20 Streifen“ springen ein', async (w) => isolierteDaten(w, async () => {
+  const prod = (bezeichnung, kategorie = 'Behandlungsmittel') => w.materialProdukt({ bezeichnung, kategorie });
+  assertEq([prod('Apiinvert 16 kg Eimer', 'Futter'), prod('Apiinvert Bag-in-Box', 'Futter'), prod('Apiinvert Beutel', 'Futter'), prod('Apiinvert Kanister 28 kg', 'Futter'), prod('Apiinvert', 'Futter')],
+    ['apiinvert', 'apiinvert', 'apiinvert', 'apiinvert', 'apiinvert'], 'Apiinvert');
+  assertEq([prod('Bayvarol Packung 20 Streifen'), prod('Bayvarol 4 Streifen'), prod('Bayvarol')], ['bayvarol', 'bayvarol', 'bayvarol'], 'Bayvarol');
+  assertEq([prod('Oxalsäure Flasche 1000 ml'), prod('Oxalsäure')], ['oxalsäure', 'oxalsäure'], 'Flasche');
+  assert(prod('Apiinvert Eimer', 'Futter') !== prod('Zucker', 'Futter'), 'Apiinvert ≠ Zucker');
+  assert(prod('Bayvarol Packung 20 Streifen') !== prod('Apivar Packung 10 Stück'), 'Bayvarol ≠ Apivar');
+  const pos = (bezeichnung, kategorie, einheit, stueckzahl, anschaffung) => w.DB.put('inventar', { typ: 'verbrauch', bezeichnung, kategorie, einheit, stueckzahl, anschaffung });
+  const a = await pos('Apiinvert', 'Futter', 'kg', 5, '2026-01-01'), eimer = await pos('Apiinvert 16 kg Eimer', 'Futter', 'kg', 16, '2026-02-01'), bib = await pos('Apiinvert Bag-in-Box', 'Futter', 'kg', 28, '2026-03-01');
+  const k = await w.verbrauchAbziehenKette(a.id, 30, { pruefen: false });
+  assertEq([k.gefehlt, (await w.DB.get('inventar', eimer.id)).stueckzahl, (await w.DB.get('inventar', bib.id)).stueckzahl], [0, 0, 19], 'Eimer und Bag-in-Box springen ein');
+  const b = await pos('Bayvarol', 'Behandlungsmittel', 'Stück', 2, '2026-01-01'), pack = await pos('Bayvarol Packung 20 Streifen', 'Behandlungsmittel', 'Stück', 20, '2026-02-01');
+  const k2 = await w.verbrauchAbziehenKette(b.id, 6, { pruefen: false });
+  assertEq([k2.gefehlt, (await w.DB.get('inventar', pack.id)).stueckzahl], [0, 16], 'die Packung Streifen springt ein');
+}));
+
+test('Finaltest P2 N10: Charge über „Charge anlegen“ aus Pollen heißt Pollen, gemischt oder Honig bleibt Honig', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'N10-Volk', status: 'aktiv', koeniginId: null, historie: [] });
+  const ernte = (produktart, sorte = '') => w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2026-06-30', produktart, sorte, mengeKg: 2 });
+  const p1 = await ernte('Pollen'), p2 = await ernte('Pollen', 'Raps'), h = await ernte('Honig', 'Linde'), pr = await ernte('Propolis');
+  const em = new Map([p1, p2, h, pr].map((e) => [e.id, e]));
+  assertEq([w.chargeProduktAusErnten([p1.id, p2.id], em), w.chargeProduktAusErnten([p1.id, h.id], em), w.chargeProduktAusErnten([p1.id, pr.id], em), w.chargeProduktAusErnten([h.id], em), w.chargeProduktAusErnten(['weg'], em)],
+    ['Pollen', '', '', '', null], 'Ableitung');
+  const anlegen = async (los, ids, c = null) => {
+    const f = await lagerFormular(w, () => w.Views.honig.chargeForm(c));
+    if (!c) f.setz('losnummer', los);
+    for (const box of f.m.querySelectorAll('#f-ernteIds input[type=checkbox]')) if (box.checked !== ids.includes(box.value)) box.click();
+    await f.speichern();
+    return (await w.DB.getAll('chargen')).find((x) => x.losnummer === los);
+  };
+  let c = await anlegen('N10-1', [p1.id, p2.id]);
+  assert(c, 'Charge gespeichert');
+  assertEq(c.produkt, 'Pollen', 'Produkt aus den Ernten');
+  assertEq([w.honigName(c, em), w.rechnungHonigText({ gebindeG: 250 }, c, {}).startsWith('Pollen')], ['Pollen (Raps)', true], 'Name und Rechnung');
+  c = await anlegen('N10-1', [p1.id, h.id], c);
+  assertEq('produkt' in c, false, 'mit Honig gemischt: wieder Honig');
+  const h2 = await ernte('Honig', 'Linde'); em.set(h2.id, h2);
+  const c2 = await anlegen('N10-2', [h2.id]);
+  assertEq([c2 && 'produkt' in c2, w.honigName(c2, em)], [false, 'Linde'], 'Honig bleibt Honig');
+})));
+
+test('Finaltest P2 N11: Stück-Gruppe – zufällige Folgen aus Löschen, Zurückholen, Ändern (auch Erhöhen nach Nachschub), Positionswechsel, Produktwechsel, „–“ und Nachschub halten Lager und Abzug stimmig', async (w) => isolierteDaten(w, async () => {
+  // Fester Startwert: jeder Lauf prüft dieselben Folgen
+  let saat = 20261110;
+  const zufall = () => { saat = (saat + 0x6D2B79F5) | 0; let t = Math.imul(saat ^ (saat >>> 15), 1 | saat); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const wahl = (liste) => liste[Math.floor(zufall() * liste.length)];
+  const MENGEN = [0.2, 0.3, 0.5, 0.7, 1, 1.5];
+  const bedarfVon = (ms) => Math.ceil(Math.round(ms.reduce((s, x) => s + x, 0) * 1e6) / 1e6 - 1e-9);
+  const summe = (l) => l.reduce((s, x) => s + x, 0);
+  let mitFehl = 0, ohneFehl = 0, erhoehtNachNachschub = 0, gewechselt = 0, geloestProdukt = 0, geloestOhne = 0;
+  for (let fall = 0; fall < 36; fall++) {
+    const n = 2 + Math.floor(zufall() * 3), zweiPos = zufall() < 0.5, nachschubErlaubt = fall % 3 !== 0;
+    const mengen = Array.from({ length: n }, () => wahl(MENGEN));
+    const lager = zweiPos ? [Math.floor(zufall() * 3), 1 + Math.floor(zufall() * 3)] : [1 + Math.floor(zufall() * 4)];
+    const name = `N11-${fall}`;
+    const g = await p2r2Gruppe(w, name, lager.map((menge) => ({ menge })), mengen);
+    const anfang = [...lager];
+    // Runde 4: ein anderes Produkt (Bayvarol). Wer darauf oder auf „–“ umgestellt wird, verlässt die Gruppe und rechnet einzeln
+    const bay = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: `Bayvarol ${name}`, kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: Math.floor(zufall() * 3), anschaffung: '2026-01-15' });
+    const bayAnfang = bay.stueckzahl, geloest = new Map();
+    // Modell: die Gruppe trägt min(Bedarf, soll); soll = Infinity, solange nichts fehlte
+    let soll = bedarfVon(mengen) > summe(anfang) ? summe(anfang) : Infinity;
+    if (Number.isFinite(soll)) mitFehl++; else ohneFehl++;
+    const menge = new Map(g.recs.map((r, i) => [r.id, mengen[i]]));
+    const aktiv = new Set(g.recs.map((r) => r.id)), korb = new Set();
+    const verlauf = [`Mengen ${mengen.join('/')}, Lager ${lager.join('/')}`];
+    const pruefen = async (schritt) => {
+      const l = await g.lager(), getragen = await g.getragenVon();
+      const bedarf = bedarfVon([...aktiv].map((id) => menge.get(id)));
+      const text = `${name} ${schritt} (${verlauf.join('; ')})`;
+      assert(l.every((x) => x >= 0), `${text}: kein Lager unter 0`);
+      // Jede Position: Lager + was die Gruppe von ihr trägt = Anfang (samt Nachschub)
+      for (const [i, p] of g.pos.entries()) assertEq(l[i] + await g.getragenVon(p.id), anfang[i], `${text}: Position ${i + 1}: Lager + getragen = Anfang`);
+      assert(getragen <= bedarf, `${text}: getragen ${getragen} ≤ Bedarf ${bedarf}`);
+      assertEq(getragen, Math.min(bedarf, soll), `${text}: getragen = min(Bedarf ${bedarf}, Soll ${soll})`);
+      // Gelöste Einträge: ohne Gruppenfelder, tragen nur Bayvarol (ihre Menge aufgerundet, soweit da war); Bayvarol-Lager stimmt
+      let bt = 0;
+      for (const [id, erwartet] of geloest) {
+        const x = await w.DB.get('behandlungen', id);
+        assert(x && !x.abzugGruppe && !('abzugSoll' in x) && !x.abzugPosition, `${text}: gelöster Eintrag ohne Gruppenfelder`);
+        assert((x.verbrauchAbzug || []).every((a) => a.inventarId === bay.id), `${text}: gelöster Eintrag trägt nur Bayvarol`);
+        const t = (x.verbrauchAbzug || []).reduce((u, a) => u + a.menge, 0);
+        assertEq(t, erwartet, `${text}: gelöster Eintrag trägt`);
+        bt += t;
+      }
+      assertEq((await w.DB.get('inventar', bay.id)).stueckzahl + bt, bayAnfang, `${text}: Bayvarol Lager + getragen = Anfang`);
+    };
+    await pruefen('angelegt');
+    let nachschubDa = false;
+    for (let s = 0; s < 8; s++) {
+      const r = zufall();
+      const getragen = await g.getragenVon(), frei = summe(await g.lager());
+      if (nachschubErlaubt && r < 0.15) {
+        const i = Math.floor(zufall() * g.pos.length);
+        const p = await w.DB.get('inventar', g.pos[i].id); p.stueckzahl += 2; await w.DB.put('inventar', p); anfang[i] += 2; nachschubDa = true;
+        verlauf.push(`Nachschub P${i + 1}`);
+        await pruefen(`${s}: Nachschub`);
+        continue;
+      }
+      if (r < 0.4 && aktiv.size) {
+        const id = wahl([...aktiv]);
+        await w.loescheMitMaterial('behandlungen', await w.DB.get('behandlungen', id));
+        aktiv.delete(id); korb.add(id); verlauf.push(`lösche ${g.recs.findIndex((x) => x.id === id)}`);
+        await pruefen(`${s}: gelöscht`);
+      } else if (r < 0.62 && korb.size) {
+        const id = wahl([...korb]);
+        const bedarf = bedarfVon([...aktiv, id].map((x) => menge.get(x)));
+        const will = Math.max(0, Math.min(bedarf, soll) - getragen), kriegt = Math.min(will, frei);
+        if (kriegt < will) soll = getragen + kriegt;
+        const erg = await w.DB.trashRestore((await w.DB.getAll('papierkorb')).find((t) => t.daten && t.daten.id === id).id);
+        assert(erg, `${name} ${s}: zurückgeholt`);
+        assertEq(erg.materialGefehlt ? erg.materialGefehlt.menge : 0, will - kriegt, `${name} ${s}: gemeldete Fehlmenge`);
+        korb.delete(id); aktiv.add(id); verlauf.push(`zurück ${g.recs.findIndex((x) => x.id === id)}`);
+        await pruefen(`${s}: zurück`);
+      } else if (r < 0.75 && zweiPos && aktiv.size) {
+        // Positionswechsel (Runde 3): der eigene Abzug geht zurück, die neue Position gibt, was der Gruppe dann zum Bedarf fehlt –
+        // wie ein neues Anlegen; die Grenze wird neu gesetzt (fehlte nichts: keine; sonst das Getragene), auch im Papierkorb
+        const id = wahl([...aktiv]), rec = await w.DB.get('behandlungen', id);
+        const start = (w.stueckGruppeStart(await w.DB.getAll('behandlungen'), rec, await w.DB.getAll('inventar')) || {}).inventarId;
+        const ziel = g.pos.find((p) => p.id !== start);
+        const eigen = (rec.verbrauchAbzug || []).reduce((t, a) => t + a.menge, 0);
+        const rest = getragen - eigen, bedarf = bedarfVon([...aktiv].map((x) => menge.get(x)));
+        const kriegt = rest >= bedarf ? 0 : Math.min(bedarf - rest, frei + eigen);
+        const traegt = Math.min(rest, bedarf) + kriegt;
+        soll = traegt < bedarf ? traegt : Infinity;
+        await w.behandlungAendern(rec, { menge: menge.get(id), _verbrauchId: ziel.id });
+        gewechselt++; verlauf.push(`wechsel ${g.recs.findIndex((x) => x.id === id)} → P${g.pos.indexOf(ziel) + 1}`);
+        for (const t of (await w.DB.getAll('papierkorb')).filter((x) => x.daten && x.daten.abzugGruppe === rec.abzugGruppe)) {
+          assertEq('abzugSoll' in t.daten ? t.daten.abzugSoll : Infinity, soll, `${name} ${s}: die neue Grenze steht auch im Papierkorb`);
+        }
+        await pruefen(`${s}: Positionswechsel`);
+      } else if (aktiv.size && zufall() < 0.3) {
+        // Runde 4: anderes Produkt oder „–“ – wie Löschen für die Gruppe (sie trägt min(Bedarf der übrigen, Grenze), die Grenze
+        // bleibt), das Volk zieht danach seine Menge aufgerundet vom anderen Produkt ab
+        const id = wahl([...aktiv]), rec = await w.DB.get('behandlungen', id), aufBay = zufall() < 0.5;
+        const traegt = aufBay ? Math.min(bedarfVon([menge.get(id)]), (await w.DB.get('inventar', bay.id)).stueckzahl) : 0;
+        await w.behandlungAendern(rec, { menge: menge.get(id), _verbrauchId: aufBay ? bay.id : '' });
+        aktiv.delete(id); geloest.set(id, traegt);
+        if (aufBay) geloestProdukt++; else geloestOhne++;
+        verlauf.push(`${aufBay ? 'Bayvarol' : '„–“'} ${g.recs.findIndex((x) => x.id === id)}`);
+        await pruefen(`${s}: gelöst`);
+      } else if (aktiv.size) {
+        const id = wahl([...aktiv]), alt = menge.get(id);
+        const groesser = MENGEN.filter((x) => x > alt);
+        const neu = nachschubDa && groesser.length && zufall() < 0.6 ? wahl(groesser) : wahl(MENGEN.filter((x) => x !== alt));
+        const bedarfAlt = bedarfVon([...aktiv].map((x) => menge.get(x)));
+        const bedarf = bedarfVon([...aktiv].map((x) => (x === id ? neu : menge.get(x))));
+        const zuwachs = Math.max(0, bedarf - bedarfAlt);
+        if (neu > alt) {
+          // Runde 3: nur der Zuwachs des Bedarfs, eine alte Fehlmenge wird nicht nachgebucht; die Grenze steigt um den Zuwachs
+          const ziel = Math.min(bedarf, soll + zuwachs);
+          const will = Math.max(0, ziel - getragen), kriegt = Math.min(will, frei);
+          soll = kriegt < will ? getragen + kriegt : soll + zuwachs;
+          if (nachschubDa) erhoehtNachNachschub++;
+        }
+        await w.behandlungAendern(await w.DB.get('behandlungen', id), { menge: neu });
+        menge.set(id, neu); verlauf.push(`ändere ${g.recs.findIndex((x) => x.id === id)} ${alt} → ${neu}`);
+        if (neu > alt) assert(await g.getragenVon() - getragen <= zuwachs, `${name} ${s}: Erhöhen bucht höchstens den Zuwachs des Bedarfs (${zuwachs}) – keine alte Fehlmenge`);
+        await pruefen(`${s}: ${alt} → ${neu}`);
+      }
+    }
+  }
+  assert(mitFehl >= 5 && ohneFehl >= 5, `Fälle mit (${mitFehl}) und ohne Fehlmenge (${ohneFehl})`);
+  assert(erhoehtNachNachschub >= 5 && gewechselt >= 5, `Erhöhen nach Nachschub (${erhoehtNachNachschub}) und Positionswechsel (${gewechselt}) kommen vor`);
+  assert(geloestProdukt >= 3 && geloestOhne >= 3, `Produktwechsel (${geloestProdukt}) und „–“ (${geloestOhne}) kommen vor`);
+}));
+
+/* Nachbesserung P2, Runde 3 (10.11.2026): sechs Punkte der Gegenprüfung zu Stück-Gruppen, materialProdukt und Chargen-Produkt. */
+test('Finaltest P2 N12: Stück-Gruppe – der Überschuss geht in fester Reihenfolge zurück (spätere Position der Kette zuerst, dann das zuletzt angelegte Mitglied)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Reine Rechnung: dieselben Mitglieder in jeder Reihenfolge ergeben dasselbe
+  const inv = [{ id: 'n12-p1', anschaffung: '2026-01-01' }, { id: 'n12-p2', anschaffung: '2026-02-01' }];
+  const m = (id, createdAt, inventarId) => ({ id, createdAt, abzugGruppe: 'n12', menge: 0.5, verbrauchAbzug: [{ inventarId, menge: 1, einheit: 'Stück' }] });
+  const a = m('n12-a', '2026-08-01T10:00:00.000Z', 'n12-p1'), b = m('n12-b', '2026-08-01T10:00:05.000Z', 'n12-p1'), c = m('n12-c', '2026-08-01T09:00:00.000Z', 'n12-p2');
+  const rang = w.stueckKettenRang(inv, 'n12-p1');
+  for (const reihe of [[a, b, c], [c, b, a], [b, a, c], [c, a, b], [a, c, b], [b, c, a]]) {
+    const e1 = w.stueckUeberschussNehmen([], reihe, 1, rang);
+    assertEq(e1.rueck.map((x) => x.inventarId), ['n12-p2'], 'ein Stück: von der späteren Position P2');
+    const e2 = w.stueckUeberschussNehmen([], reihe, 2, rang);
+    assertEq([e2.rueck.map((x) => x.inventarId), [...e2.mitglieder.keys()].sort()], [['n12-p2', 'n12-p1'], ['n12-b', 'n12-c']], 'zwei Stück: dann P1 vom zuletzt angelegten Mitglied (b)');
+  }
+  // Startet die Kette bei P2 (neuere Position gewählt), ist P1 in der Kette später und gibt zuerst zurück
+  assertEq(w.stueckUeberschussNehmen([], [a, c], 1, w.stueckKettenRang(inv, 'n12-p2')).rueck[0].inventarId, 'n12-p1', 'Kette ab P2');
+  // Der eigene Abzug geht vor
+  assertEq(w.stueckUeberschussNehmen([{ inventarId: 'n12-p1', menge: 1, einheit: 'Stück' }], [c], 1, rang).rueck[0].inventarId, 'n12-p1', 'eigener Abzug zuerst');
+  // In der App: der Fall aus N8b, mehrmals frisch angelegt – jedes Mal geht das Stück an P2, Hinweis und Lager sagen dasselbe
+  for (let k = 0; k < 6; k++) {
+    const h = await p2r2Gruppe(w, `N12x${k}`, [{ menge: 1 }, { menge: 5 }], [0.3, 0.3, 0.5]);
+    const f = await lagerFormular(w, () => w.Views.behandlungen.form(h.recs[1]));
+    assertEq(f.m.querySelector('#f-_verbrauchId').value, h.pos[0].id, `N12x${k}: die Auswahl steht fest auf der ersten Position der Kette`);
+    f.setz('menge', '0.2'); await w99(50);
+    const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+    assert(new RegExp(`1 Stück gehen zurück in den Bestand → 0 Stück \\(davon 1 Stück zu „Apivar N12x${k} Packung B“\\)`).test(info), `N12x${k}: Hinweis ${info}`);
+    await f.speichern();
+    assertEq(await h.lager(), [0, 5], `N12x${k}: P2 bekommt das Stück zurück`);
+    await h.stimmt([1, 5], Infinity, `N12x${k}`);
+  }
+})));
+
+test('Finaltest P2 N13: Stück-Gruppe erhöhen – eine alte Fehlmenge wird nicht nachgebucht, die Grenze steigt nur um den Zuwachs', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Lager 1, 3 × 0,5 (1 Stück fehlt), Nachschub +5, ein Mitglied 0,5 → 1,5: Bedarf 2 → 3, die Gruppe trägt 2 (vorher 3), Lager 4
+  let g = await p2r2Gruppe(w, 'N13a', [{ menge: 1 }], [0.5, 0.5, 0.5]);
+  let p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl += 5; await w.DB.put('inventar', p);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[1]));
+  f.setz('menge', '1.5'); await w99(50);
+  let info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/Dazu kommen 1 Stück von 5 Stück → Rest 4 Stück/.test(info), 'Hinweis: ' + info);
+  await f.speichern();
+  assertEq([await g.lager(), await g.getragenVon()], [[4], 2], 'N13a: Lager 4, die Gruppe trägt 2');
+  await g.stimmt([6], 2, 'N13a');
+  assertEq((await g.aktiv()).map((b) => b.abzugSoll), [2, 2, 2], 'N13a: Grenze um den Zuwachs auf 2 angehoben');
+  // Nur Notiz bei gleicher Menge (wie das Formular, mit der Position): nichts wird nachgebucht (vorher 1 Stück)
+  const vorher = await g.lager();
+  const e = await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[2].id), { notiz: 'nur Notiz', menge: 0.5, _verbrauchId: g.pos[0].id });
+  assertEq([await g.lager(), e.gefehlt], [vorher, 0], 'N13a: nur Notiz – Lager unverändert');
+  // Mitglied im Papierkorb: Die Grenze steigt auch dort, das Zurückholen bucht die alte Fehlmenge nicht nach
+  g = await p2r2Gruppe(w, 'N13b', [{ menge: 1 }], [0.5, 0.5, 0.5]);
+  await g.loeschen(g.recs[2]);
+  p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl += 5; await w.DB.put('inventar', p);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[0].id), { menge: 1.5 });
+  assertEq([await g.lager(), await g.getragenVon(), (await g.korb(g.recs[2])).daten.abzugSoll], [[4], 2, 2], 'N13b: Bedarf 1 → 2, ein Stück nachgezogen, Grenze 2 auch im Papierkorb');
+  const erg = await g.zurueck(g.recs[2]);
+  assert(erg && !erg.materialGefehlt, 'N13b: zurückgeholt, keine neue Fehlmenge');
+  await g.stimmt([6], 2, 'N13b: nach dem Zurückholen');
+  // Ohne Fehlmenge bleibt es beim Bedarf: 3 × 0,5 bei Lager 5, ein Mitglied auf 1,5 → 3 Stück, keine Grenze
+  g = await p2r2Gruppe(w, 'N13c', [{ menge: 5 }], [0.5, 0.5, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 1.5 });
+  await g.stimmt([5], Infinity, 'N13c');
+  assert((await g.aktiv()).every((b) => !('abzugSoll' in b)), 'N13c: keine Grenze');
+  // Einzeleintrag wie bisher: 1,5 Stück mit 1 getragenen auf 3 → höchstens 2 nachgezogen (aufgerundeter Unterschied)
+  const pos = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar N13d', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 5 });
+  const v = await w.DB.put('voelker', { name: 'N13d', status: 'aktiv', historie: [] });
+  const einzel = await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: v.id, datum: '2026-08-01', mittel: 'Apivar N13d', menge: 1.5, einheit: 'Stück', wartezeitTage: 0, notiz: '', verbrauchAbzug: [{ inventarId: pos.id, bezeichnung: 'Apivar N13d', menge: 1, einheit: 'Stück' }] });
+  await w.behandlungAendern(einzel, { menge: 3 });
+  assertEq((await w.DB.get('inventar', pos.id)).stueckzahl, 3, 'N13d: Einzeleintrag zieht 2 nach (wie bisher)');
+})));
+
+test('Finaltest P2 N14: Stück-Gruppe – Positionswechsel setzt die Grenze bei allen Mitgliedern und im Papierkorb neu', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Fall a: Lager 0 beim Anlegen (Grenze 0), C gelöscht, Nachschub 5, A mit P1 verbunden, dann B gelöscht → Lager 4, A trägt 1
+  let g = await p2r2Gruppe(w, 'N14a', [{ menge: 0 }], [0.5, 0.5, 0.5]);
+  assertEq(g.recs.map((r) => r.abzugSoll), [0, 0, 0], 'N14a: Grenze 0 gemerkt');
+  await g.loeschen(g.recs[2]);
+  let p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl = 5; await w.DB.put('inventar', p);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[0].id), { menge: 0.5, _verbrauchId: g.pos[0].id });
+  assertEq([await g.lager(), await g.traegt(g.recs[0])], [[4], 1], 'N14a: A trägt 1');
+  assert((await g.aktiv()).every((b) => !('abzugSoll' in b)), 'N14a: nichts fehlte – die Grenze fällt bei allen weg');
+  assertEq('abzugSoll' in (await g.korb(g.recs[2])).daten, false, 'N14a: auch im Papierkorb');
+  await g.loeschen(g.recs[1]);
+  assertEq([await g.lager(), await g.traegt(g.recs[0])], [[4], 1], 'N14a: B gelöscht – das verbrauchte Stück bleibt verbraucht (vorher Lager 5)');
+  await g.zurueck(g.recs[2]);
+  await g.stimmt([5], Infinity, 'N14a: C zurück');
+  // Fall b: P1 = 1, 4 × 0,5 (Grenze 1), P2 = 5; B (ohne Abzug) im Formular auf P2 umgestellt, dann C gelöscht → [0, 4]
+  g = await p2r2Gruppe(w, 'N14b', [{ menge: 1 }, { menge: 0 }], [0.5, 0.5, 0.5, 0.5]);
+  p = await w.DB.get('inventar', g.pos[1].id); p.stueckzahl = 5; await w.DB.put('inventar', p);
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[1]));
+  f.setz('_verbrauchId', g.pos[1].id); await w99(50);
+  const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/Abzug 1 Stück \(die übrigen Völker der Behandlung tragen schon 1 Stück\) von 5 Stück → Rest 4 Stück/.test(info), 'N14b: Hinweis ' + info);
+  await f.speichern();
+  assertEq(await g.lager(), [0, 4], 'N14b: B zieht 1 Stück von P2');
+  assert((await g.aktiv()).every((b) => !('abzugSoll' in b)), 'N14b: nichts fehlte – keine Grenze');
+  await g.loeschen(g.recs[2]);
+  assertEq(await g.lager(), [0, 4], 'N14b: C gelöscht – Lager [0, 4] (vorher [0, 5])');
+  await g.stimmt([1, 5], Infinity, 'N14b');
+  // Fall c: Wechsel mit Fehlmenge – die Grenze ist danach das Getragene, an allen Mitgliedern und im Papierkorb
+  g = await p2r2Gruppe(w, 'N14c', [{ menge: 1 }, { menge: 0 }], [1, 1, 1]);
+  assertEq(g.recs.map((r) => r.abzugSoll), [1, 1, 1], 'N14c: Grenze 1 gemerkt');
+  await g.loeschen(g.recs[2]);
+  p = await w.DB.get('inventar', g.pos[1].id); p.stueckzahl = 1; await w.DB.put('inventar', p);
+  const e = await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 2, _verbrauchId: g.pos[1].id });
+  assertEq([e.gefehlt, await g.lager(), await g.getragenVon()], [1, [0, 0], 2], 'N14c: B auf P2 mit 2 Stück – Bedarf 3, 2 getragen, 1 fehlt');
+  assertEq([...(await g.aktiv()).map((b) => b.abzugSoll), (await g.korb(g.recs[2])).daten.abzugSoll], [2, 2, 2], 'N14c: neue Grenze 2 bei allen und im Papierkorb');
+  await g.stimmt([1, 1], 2, 'N14c');
+  // Überschuss beim Wechsel: tragen die übrigen schon mehr als den Bedarf, geht er zurück
+  const h = await p2StueckGruppe(w, 'N14d', [0.3, 0.3, 0.6], [1, 0, 1], 8);
+  const q = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar N14d Packung B', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 5 });
+  await w.behandlungAendern(h.recs[1], { menge: 0.1, _verbrauchId: q.id });
+  assertEq([await h.bestand(), (await w.DB.get('inventar', q.id)).stueckzahl], [9, 5], 'N14d: Bedarf 1 – ein Stück zurück, P2 unberührt');
+  await h.stimmt(10, 'N14d');
+})));
+
+test('Finaltest P2 N15: Abzugskette – Stärken bleiben unterscheidbar („Flasche 60%“ ≠ „Flasche 85%“), „Eimer Zucker“ ≠ „Eimer Sirup“', async (w) => isolierteDaten(w, async () => {
+  const prod = (bezeichnung, kategorie = 'Behandlungsmittel') => w.materialProdukt({ bezeichnung, kategorie });
+  assertEq([prod('Ameisensäure Flasche 60%'), prod('Ameisensäure Flasche 85 %')], ['ameisensäure 60%', 'ameisensäure 85%'], 'Stärke bleibt');
+  assertEq(prod('Ameisensäure Flasche 60%'), prod('Ameisensäure 60 %'), 'mit und ohne Flasche gleich');
+  assertEq([prod('Eimer Zucker', 'Futter'), prod('Eimer Sirup', 'Futter'), prod('Eimer', 'Futter')], ['zucker', 'sirup', 'eimer'], 'Eimer + Produkt; leer → ganzer Name');
+  assertEq([prod('Zucker Charge 2025-07', 'Futter'), prod('Oxalsäure Nr. 3'), prod('Apivar Packung B'), prod('Apivar Los L2407')], ['zucker', 'oxalsäure', 'apivar', 'apivar'], 'Kennungen fallen weg');
+  // Bisherige Fälle (N3/N9) bleiben
+  assertEq([prod('Zucker Sack 25 kg', 'Futter'), prod('Apivar Packung 10 Stück'), prod('Apiinvert 16 kg Eimer', 'Futter'), prod('Bayvarol Packung 20 Streifen'), prod('Oxalsäure Flasche 1000 ml'), prod('Apiinvert Kanister 28 kg', 'Futter')],
+    ['zucker', 'apivar', 'apiinvert', 'bayvarol', 'oxalsäure', 'apiinvert'], 'N3/N9');
+  const pos = (bezeichnung, kategorie, einheit, stueckzahl, anschaffung) => w.DB.put('inventar', { typ: 'verbrauch', bezeichnung, kategorie, einheit, stueckzahl, anschaffung });
+  const a60 = await pos('Ameisensäure N15 Flasche 60%', 'Behandlungsmittel', 'ml', 0, '2026-01-01'), a85 = await pos('Ameisensäure N15 Flasche 85%', 'Behandlungsmittel', 'ml', 1000, '2026-02-01');
+  const k = await w.verbrauchAbziehenKette(a60.id, 100, { pruefen: false });
+  assertEq([k.gefehlt, (await w.DB.get('inventar', a85.id)).stueckzahl], [100, 1000], '85 % springt nicht für 60 % ein, die Fehlmenge wird gemeldet');
+  const z = await pos('Eimer Zucker', 'Futter', 'kg', 0, '2026-01-01'), s = await pos('Eimer Sirup', 'Futter', 'kg', 50, '2026-02-01'), z2 = await pos('Zucker Eimer 2', 'Futter', 'kg', 20, '2026-03-01');
+  const k2 = await w.verbrauchAbziehenKette(z.id, 10, { pruefen: false });
+  assertEq([k2.gefehlt, (await w.DB.get('inventar', s.id)).stueckzahl, (await w.DB.get('inventar', z2.id)).stueckzahl], [0, 50, 10], 'Sirup springt nicht für Zucker ein, der zweite Zucker-Eimer schon');
+}));
+
+test('Finaltest P2 N16: Charge aus Pollen-Ernten plus Honig aus dem Lagerbestand heißt nicht „Pollen“', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'N16-Volk', status: 'aktiv', koeniginId: null, historie: [] });
+  const pollen = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: '2026-06-30', produktart: 'Pollen', sorte: '', mengeKg: 2 });
+  const em = new Map([[pollen.id, pollen]]);
+  assertEq([w.chargeProduktAusErnten([pollen.id], em), w.chargeProduktAusErnten([pollen.id], em, 3), w.chargeProduktAusErnten([pollen.id], em, 0)], ['Pollen', '', 'Pollen'], 'Ableitung mit Lagerbestand');
+  const f = await lagerFormular(w, () => w.Views.honig.chargeForm(null));
+  f.setz('losnummer', 'N16-1'); f.setz('quelle', 'beides'); await w99(50);
+  f.setz('lagerKg', '3'); f.setz('lagerHerkunft', 'Vorjahr, eigener Stand');
+  for (const box of f.m.querySelectorAll('#f-ernteIds input[type=checkbox]')) if (box.checked !== (box.value === pollen.id)) box.click();
+  await f.speichern();
+  const c = (await w.DB.getAll('chargen')).find((x) => x.losnummer === 'N16-1');
+  assert(c, 'Charge gespeichert');
+  assertEq([c.lagerKg, c.ernteIds, 'produkt' in c, w.chargeProdukt(c)], [3, [pollen.id], false, 'Honig'], 'mit Lagerbestand bleibt es Honig');
+})));
+
+test('Finaltest P2 N17: Stück-Gruppe – ohne Bestand zurückgeholt behält der Eintrag die Position, späteres Erhöhen zieht ab', async (w) => isolierteDaten(w, async () => {
+  // 2 × 1 Stück bei Lager 2: beide löschen (alles zurück), Lager leeren, A zurückholen (1 fehlt, Grenze 0) – keiner trägt etwas
+  const ohneBestand = async (name) => {
+    const g = await p2r2Gruppe(w, name, [{ menge: 2 }], [1, 1]);
+    assertEq([await g.traegt(g.recs[0]), await g.traegt(g.recs[1])], [1, 1], `${name}: je 1 Stück`);
+    await g.loeschen(g.recs[0]); await g.loeschen(g.recs[1]);
+    assertEq(await g.lager(), [2], `${name}: beide gelöscht – alles zurück`);
+    const p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl = 0; await w.DB.put('inventar', p);
+    const erg = await g.zurueck(g.recs[0]);
+    assertEq([erg.materialGefehlt && erg.materialGefehlt.menge, await g.getragenVon()], [1, 0], `${name}: zurück ohne Bestand – 1 Stück fehlt, keiner trägt etwas`);
+    return { g, p };
+  };
+  const { g, p } = await ohneBestand('N17');
+  const a = await w.DB.get('behandlungen', g.recs[0].id);
+  assertEq([a.verbrauchAbzug, a.abzugPosition && a.abzugPosition.inventarId, a.abzugSoll], [[], g.pos[0].id, 0], 'die Position bleibt gemerkt (vorher gelöscht)');
+  assertEq((w.stueckGruppeStart(await g.aktiv(), a, await w.DB.getAll('inventar')) || {}).inventarId, g.pos[0].id, 'stueckGruppeStart kennt sie');
+  // Nachschub, dann A 1 → 2: Bedarf 1 → 2, Grenze 0 + 1 → ein Stück wird abgezogen (vorher nichts)
+  p.stueckzahl = 5; await w.DB.put('inventar', p);
+  await w.behandlungAendern(a, { menge: 2 });
+  const a2 = await w.DB.get('behandlungen', g.recs[0].id);
+  assertEq([await g.lager(), await g.traegt(g.recs[0]), 'abzugPosition' in a2, a2.abzugSoll], [[4], 1, false, 1], 'Erhöhen zieht 1 Stück ab, die gemerkte Position ist erledigt');
+  await g.stimmt([5], 1, 'N17');
+  // Das Formular steht auf der gemerkten Position – wie behandlungAendern
+  const { g: g2 } = await ohneBestand('N17b');
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(g2.recs[0]));
+  assertEq(f.m.querySelector('#f-_verbrauchId').value, g2.pos[0].id, 'Formular: Auswahl auf der gemerkten Position');
+  dialogeSchliessen(w);
+}));
+
+/* Nachbesserung P2, Runde 4 (10.11.2026): vier Punkte der Gegenprüfung – Gruppe nur über dasselbe Produkt, „–“ löst aus der
+   Gruppe, materialProdukt nach Behälterwörtern, erste Position einer Gruppe ohne Abzug bucht nur den eigenen Anteil. */
+async function p2r4Bayvarol(w, name, menge = 5) {
+  return w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: `Bayvarol ${name}`, kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: menge, anschaffung: '2026-02-15' });
+}
+const p2r4Lager = async (w, p) => (await w.DB.get('inventar', p.id)).stueckzahl;
+
+test('Finaltest P2 N18: Stück-Gruppe – ein Volk auf ein anderes Mittel umgestellt verlässt die Gruppe und rechnet einzeln, die Mittel werden nicht zusammengerechnet', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // a: Apivar 5, 2 × 0,5 (A trägt 1, B 0). B im Formular auf Bayvarol → Bayvarol 4, B trägt 1 (vorher Bayvarol 5, B trug 0)
+  let g = await p2r2Gruppe(w, 'N18a', [{ menge: 5 }], [0.5, 0.5]);
+  let bay = await p2r4Bayvarol(w, 'N18a');
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[1]));
+  f.setz('_verbrauchId', bay.id); await w99(50);
+  let info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/^Abzug 1 Stück \(zusammen 0,5 Stück, aufgerundet\) von 5 Stück → Rest 4 Stück\.$/.test(info), 'N18a: Hinweis ' + info);
+  await f.speichern();
+  let b = await w.DB.get('behandlungen', g.recs[1].id);
+  assertEq([await g.lager(), await p2r4Lager(w, bay), b.verbrauchAbzug.map((a) => `${a.inventarId === bay.id ? 'Bay' : 'Api'}${a.menge}`)], [[4], 4, ['Bay1']], 'N18a: Apivar 4, Bayvarol 4, B trägt 1 Bayvarol');
+  assert(!b.abzugGruppe && !('abzugSoll' in b) && !b.abzugPosition, 'N18a: B ist aus der Gruppe gelöst');
+  await g.loeschen(g.recs[0]);
+  assertEq([await g.lager(), await p2r4Lager(w, bay)], [[5], 4], 'N18a: A gelöscht – Apivar wieder 5, Bayvarol bleibt bei B');
+  // b: 1,5 + 0,5 (A trägt 2), B auf Bayvarol → Apivar 3, Bayvarol 4 (vorher 5)
+  g = await p2r2Gruppe(w, 'N18b', [{ menge: 5 }], [1.5, 0.5]);
+  bay = await p2r4Bayvarol(w, 'N18b');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[1].id), { menge: 0.5, mittel: 'Bayvarol', _verbrauchId: bay.id });
+  assertEq([await g.lager(), await p2r4Lager(w, bay)], [[3], 4], 'N18b: Apivar 3, Bayvarol 4');
+  await g.stimmt([5], Infinity, 'N18b');
+  // c: 3 × 0,5 (1/0/1), A auf Bayvarol: A's Apivar-Stück kommt zurück (B und C tragen ihren Bedarf); C gelöscht → Bayvarol 4, Apivar 4
+  g = await p2r2Gruppe(w, 'N18c', [{ menge: 5 }], [0.5, 0.5, 0.5]);
+  bay = await p2r4Bayvarol(w, 'N18c');
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[0].id), { menge: 0.5, _verbrauchId: bay.id });
+  assertEq([await g.lager(), await p2r4Lager(w, bay)], [[4], 4], 'N18c: nach dem Wechsel');
+  await g.loeschen(g.recs[2]);
+  assertEq([await g.lager(), await p2r4Lager(w, bay), await g.traegt(g.recs[0]), await g.traegt(g.recs[1])], [[4], 4, 1, 1], 'N18c: C gelöscht – das Bayvarol-Stück bleibt verbraucht (vorher Bayvarol 5)');
+  // d: A trägt das einzige Stück (2 × 0,5) und wechselt auf Bayvarol: das angebrochene Apivar-Stück bleibt bei B, der Hinweis sagt es
+  g = await p2r2Gruppe(w, 'N18d', [{ menge: 5 }], [0.5, 0.5]);
+  bay = await p2r4Bayvarol(w, 'N18d');
+  const f2 = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[0]));
+  f2.setz('_verbrauchId', bay.id); await w99(50);
+  info = f2.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/Rest 4 Stück\. 1 Stück bleibt bei den übrigen Völkern der Behandlung verbucht\./.test(info), 'N18d: Hinweis ' + info);
+  await f2.speichern();
+  assertEq([await g.lager(), await p2r4Lager(w, bay), await g.traegt(g.recs[1])], [[4], 4, 1], 'N18d: Apivar 4 (B trägt 1), Bayvarol 4');
+  // e: Ältere Daten mit gemischter Gruppe (B trägt Bayvarol, gleiche Kennung) – B zählt nicht zu A's Gruppe
+  const api = await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'Apivar N18e', kategorie: 'Behandlungsmittel', einheit: 'Stück', stueckzahl: 4 });
+  bay = await p2r4Bayvarol(w, 'N18e', 4);
+  const basis = { zielTyp: 'volk', datum: '2026-08-01', mittel: 'Apivar', einheit: 'Stück', menge: 0.5, abzugGruppe: 'gruppe-N18e' };
+  const ab = (p) => [{ inventarId: p.id, bezeichnung: p.bezeichnung, menge: 1, einheit: 'Stück' }];
+  const ea = await w.DB.put('behandlungen', { ...basis, zielId: 'v1', verbrauchAbzug: ab(api) });
+  const eb = await w.DB.put('behandlungen', { ...basis, zielId: 'v2', mittel: 'Bayvarol', verbrauchAbzug: ab(bay) });
+  const ec = await w.DB.put('behandlungen', { ...basis, zielId: 'v3', verbrauchAbzug: [] });
+  const alle = await w.DB.getAll('behandlungen'), inv = await w.DB.getAll('inventar');
+  assertEq(w.stueckGruppeMitglieder(alle, ea, inv).map((x) => x.id), [ec.id], 'N18e: zu A gehört nur C (gleiches Produkt)');
+  assertEq(w.stueckGruppeMitglieder(alle, eb, inv).map((x) => x.id), [ec.id], 'N18e: zu B nur C (ohne eigene Position)');
+  await w.loescheMitMaterial('behandlungen', ea);
+  assertEq([await p2r4Lager(w, api), await p2r4Lager(w, bay), ((await w.DB.get('behandlungen', ec.id)).verbrauchAbzug || []).map((a) => a.inventarId)], [4, 4, [api.id]],
+    'N18e: A gelöscht – das Apivar-Stück geht an C (vorher kam es zurück, weil Bayvarol für C „mitzählte“)');
+})));
+
+test('Finaltest P2 N19: Stück-Gruppe – „–“ (kein Abzug) löst das Volk aus der Gruppe, der Überschuss der übrigen kommt zurück', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // a: Lager 5, 2 × 0,5 (A 1, B 0). B auf „–“, dann A gelöscht → Lager 5 (vorher 4, und B trug danach 1)
+  let g = await p2r2Gruppe(w, 'N19a', [{ menge: 5 }], [0.5, 0.5]);
+  let f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[1]));
+  f.setz('_verbrauchId', ''); await w99(50);
+  let info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assertEq(info, 'Kein Abzug – der Bestand bleibt unverändert.', 'N19a: Hinweis');
+  await f.speichern();
+  const b = await w.DB.get('behandlungen', g.recs[1].id);
+  assert(!b.abzugGruppe && !('abzugSoll' in b) && !b.abzugPosition && !(b.verbrauchAbzug || []).length, 'N19a: B gelöst, ohne Abzug');
+  assertEq(await g.lager(), [4], 'N19a: Lager 4 – A trägt sein Stück');
+  await g.loeschen(g.recs[0]);
+  assertEq(await g.lager(), [5], 'N19a: A gelöscht – Lager 5');
+  // b: 3 × 0,5 (1/0/1), C auf „–“, dann A 0,5 → 0,2 → die Gruppe (A, B) trägt 1, Lager 4 (vorher blieben 2 verbucht)
+  g = await p2r2Gruppe(w, 'N19b', [{ menge: 5 }], [0.5, 0.5, 0.5]);
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[2].id), { menge: 0.5, _verbrauchId: '' });
+  await w.behandlungAendern(await w.DB.get('behandlungen', g.recs[0].id), { menge: 0.2 });
+  assertEq([await g.lager(), await g.getragenVon()], [[4], 1], 'N19b: Lager 4, die Gruppe trägt 1');
+  await g.stimmt([5], Infinity, 'N19b');
+  // c: Überschuss – 3 × 0,5 tragen 0/1/1 (Lager 8 von 10), A auf „–“: B und C brauchen 1, ein Stück kommt zurück; der Hinweis sagt es
+  const h = await p2StueckGruppe(w, 'N19c', [0.5, 0.5, 0.5], [0, 1, 1], 8);
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(h.recs[0]));
+  f.setz('_verbrauchId', ''); await w99(50);
+  info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assertEq(info, 'Kein Abzug mehr – 1 Stück Apivar N19c gehen zurück in den Bestand.', 'N19c: Hinweis');
+  await f.speichern();
+  assertEq(await h.bestand(), 9, 'N19c: Lager 9');
+  assert(!(await w.DB.get('behandlungen', h.recs[0].id)).abzugGruppe, 'N19c: A gelöst');
+  await h.stimmt(10, 'N19c');
+  // d: A trägt das einzige Stück (2 × 0,5) und bekommt „–“: das angebrochene Stück bleibt bei B (wie beim Löschen)
+  g = await p2r2Gruppe(w, 'N19d', [{ menge: 5 }], [0.5, 0.5]);
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[0]));
+  f.setz('_verbrauchId', ''); await w99(50);
+  info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assertEq(info, 'Kein Abzug – der Bestand bleibt unverändert. 1 Stück bleibt bei den übrigen Völkern der Behandlung verbucht.', 'N19d: Hinweis');
+  await f.speichern();
+  assertEq([await g.lager(), await g.traegt(g.recs[1])], [[4], 1], 'N19d: Lager 4, B trägt 1');
+  await g.loeschen(g.recs[1]);
+  assertEq(await g.lager(), [5], 'N19d: B gelöscht – Lager 5');
+  // e: nur Notiz geändert (Auswahl bleibt auf der Position der Gruppe) löst nichts
+  g = await p2r2Gruppe(w, 'N19e', [{ menge: 5 }], [0.5, 0.5]);
+  f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[1]));
+  f.setz('notiz', 'nur Notiz'); await f.speichern();
+  assertEq([(await w.DB.get('behandlungen', g.recs[1].id)).abzugGruppe, await g.lager()], [g.recs[0].abzugGruppe, [4]], 'N19e: B bleibt in der Gruppe');
+})));
+
+test('Finaltest P2 N20: materialProdukt – nach Flasche/Eimer zählt die Zahl, nach Charge/Lot/Nr. fällt die Kennung weg, nach Packung/Karton/Sack nur Ziffer oder Buchstabe', async (w) => isolierteDaten(w, async () => {
+  const prod = (bezeichnung, kategorie = 'Behandlungsmittel') => w.materialProdukt({ bezeichnung, kategorie });
+  assertEq([prod('Ameisensäure Flasche 60'), prod('Ameisensäure Flasche 85')], ['ameisensäure 60', 'ameisensäure 85'], 'Flasche + Zahl bleibt');
+  assert(prod('Futtersirup Eimer 12') !== prod('Futtersirup Eimer 14', 'Behandlungsmittel'), 'Eimer + Zahl bleibt');
+  assertEq([prod('Oxalsäure Kanister 30'), prod('Oxalsäure Beutel 50'), prod('Apiinvert Bag-in-Box 28', 'Futter')], ['oxalsäure 30', 'oxalsäure 50', 'apiinvert 28'], 'Kanister, Beutel, Bag-in-Box');
+  assertEq([prod('Apivar Charge 4711'), prod('Apivar Lot AB12'), prod('Apivar Nr. 17'), prod('Apivar')], ['apivar', 'apivar', 'apivar', 'apivar'], 'Kennung nach Charge/Lot/Nr. fällt weg');
+  assertEq([prod('Apivar Packung B'), prod('Apivar Karton 2'), prod('Zucker Sack 3', 'Futter'), prod('Apivar Packung 12')], ['apivar', 'apivar', 'zucker', 'apivar 12'], 'nach Packung/Karton/Sack nur Ziffer oder Buchstabe');
+  assertEq([prod('Packung 10er Apivar'), prod('Zucker Sack 25 kg', 'Futter'), prod('Apivar Packung 10 Stück'), prod('Ameisensäure Flasche 60%')], ['apivar', 'zucker', 'apivar', 'ameisensäure 60%'], 'bisherige Fälle bleiben');
+  const pos = (bezeichnung, einheit, stueckzahl, anschaffung) => w.DB.put('inventar', { typ: 'verbrauch', bezeichnung, kategorie: 'Behandlungsmittel', einheit, stueckzahl, anschaffung });
+  const a60 = await pos('Ameisensäure N20 Flasche 60', 'ml', 0, '2026-01-01'), a85 = await pos('Ameisensäure N20 Flasche 85', 'ml', 1000, '2026-02-01');
+  const k = await w.verbrauchAbziehenKette(a60.id, 100, { pruefen: false });
+  assertEq([k.gefehlt, (await w.DB.get('inventar', a85.id)).stueckzahl], [100, 1000], '85 springt nicht für 60 ein, die Fehlmenge wird gemeldet');
+}));
+
+test('Finaltest P2 N21: Stück-Gruppe ohne Abzug und Position – die erste gewählte Position bucht nur den Anteil dieses Volks', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  // Lager 0 beim Anlegen (3 × 0,5, Grenze 0), Nachschub 5, A im Formular mit P1 verbunden → nur A's 0,5 → 1 Stück, Lager 4 (vorher 3)
+  const g = await p2r2Gruppe(w, 'N21', [{ menge: 0 }], [0.5, 0.5, 0.5]);
+  const p = await w.DB.get('inventar', g.pos[0].id); p.stueckzahl = 5; await w.DB.put('inventar', p);
+  const f = await lagerFormular(w, () => w.Views.behandlungen.form(g.recs[0]));
+  f.setz('_verbrauchId', g.pos[0].id); await w99(50);
+  const info = f.m.querySelector('[data-verbrauch-info]').textContent;
+  assert(/^Abzug 1 Stück \(zusammen 0,5 Stück, aufgerundet\) von 5 Stück → Rest 4 Stück$/.test(info), 'N21: Hinweis ' + info);
+  await f.speichern();
+  assertEq([await g.lager(), await g.traegt(g.recs[0])], [[4], 1], 'N21: Lager 4, A trägt 1');
+  assertEq((await g.aktiv()).map((b) => b.abzugSoll), [1, 1, 1], 'N21: Grenze = was die Gruppe trägt');
+  await g.stimmt([5], 1, 'N21');
+  await g.loeschen(g.recs[1]);
+  assertEq(await g.lager(), [4], 'N21: B gelöscht – Lager 4 (wie vorher)');
+  const erg = await g.zurueck(g.recs[1]);
+  assertEq([await g.lager(), erg && erg.materialGefehlt ? erg.materialGefehlt.menge : 0], [[4], 0], 'N21: B zurück – keine alte Fehlmenge nachgebucht');
+  await g.stimmt([5], 1, 'N21: zurück');
+  // Gibt es nur ein Volk mehr in der Gruppe, deckt sein Anteil den Bedarf: keine Grenze
+  const h = await p2r2Gruppe(w, 'N21b', [{ menge: 0 }], [0.5, 0.5]);
+  await h.loeschen(h.recs[1]);
+  const q = await w.DB.get('inventar', h.pos[0].id); q.stueckzahl = 3; await w.DB.put('inventar', q);
+  await w.behandlungAendern(await w.DB.get('behandlungen', h.recs[0].id), { menge: 0.5, _verbrauchId: h.pos[0].id });
+  assertEq([await h.lager(), 'abzugSoll' in (await w.DB.get('behandlungen', h.recs[0].id))], [[2], false], 'N21b: Lager 2, keine Grenze');
+})));
+
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
   const altInventar = await w.DB.getAll('inventar');
@@ -12107,8 +13501,9 @@ test('F03: Fütterungsänderung bucht alten und neuen Verbrauch gemeinsam', asyn
     let error; try { await w.fuetterungAendern(f, { mengeKg: 30 }); } catch (e) { error = e; } assert(error, 'veralteter Editor abgewiesen');
     await mitAbbruch(w, 'fuetterungen', async () => { let e; try { await w.fuetterungAendern(neu, { mengeKg: 25 }); } catch (x) { e = x; } assert(e); });
     assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20); assertEq((await w.DB.get('fuetterungen', id)).mengeKg, 20);
-    let knapp; try { await w.fuetterungAendern(neu, { mengeKg: 50 }); } catch (e) { knapp = e; } assert(knapp);
-    assertEq((await w.DB.get('inventar', pos)).stueckzahl, 20, 'Fehlmenge ändert auch die alte Buchung nicht');
+    // Fehlmenge wird gemeldet, nicht abgewiesen – wie beim Anlegen (Finaltest Portion 1, 09.11.2026)
+    const knapp = await w.fuetterungAendern(neu, { mengeKg: 50 });
+    assertEq([(await w.DB.get('inventar', pos)).stueckzahl, knapp.gefehlt, (await w.DB.get('fuetterungen', id)).verbrauchAbzug[0].menge], [0, 10, 40], 'Rest abgezogen, 10 kg fehlen');
   } finally { await w.DB.del('fuetterungen', id); await w.DB.del('inventar', pos); }
 });
 
@@ -20606,7 +22001,9 @@ test('Lager-Paket R1 (#34): Sammel-Behandlung und -Fütterung – die Anteile er
   const vk = [];
   for (const name of ['R1-A', 'R1-B', 'R1-C', 'R1-D']) vk.push(await w.DB.put('voelker', { name, status: 'aktiv' }));
   const speichern = async (oeffnen) => { const f = await lagerFormular(w, oeffnen); await f.speichern(); };
-  const alleLoeschen = async (store) => { for (const r of await w.DB.getAll(store)) await w.loescheMitMaterial(store, r); };
+  // Jeden Eintrag frisch lesen wie das Formular (Nachbesserung P2, Runde 2): In einer Stück-Gruppe übergibt ein gelöschter Eintrag den Rest
+  // seines Abzugs an einen verbleibenden – eine vorher gelesene Kopie wäre dann veraltet
+  const alleLoeschen = async (store) => { for (const r of await w.DB.getAll(store)) { const x = await w.DB.get(store, r.id); if (x) await w.loescheMitMaterial(store, x); } };
   // Apivar (Stück), Bestand 5: 3 Völker × 2 Stück → 5 abgezogen; alle drei löschen → 5 (vorher 0 → 2 → 4 → 6)
   const apivar = await lagerPosten(w, 'Apivar R1', 5, { kategorie: 'Behandlungsmittel', einheit: 'Stück' });
   await speichern(() => w.Views.behandlungen.sammelForm({ volkIds: vk.slice(0, 3).map((v) => v.id), mittel: 'Apivar', menge: 2, einheit: 'Stück', _verbrauchId: apivar.id }));
@@ -20945,7 +22342,7 @@ test('Stand löschen (Julian 05.11.2026, statt der Sperre aus R2 #5): mit Nachwe
   await w.DB.put('fahrten', { datum: '2026-05-01', standId: leer.id, km: 12, zweck: 'Fahrt zum Stand', notiz: '' });
   fragen.length = 0;
   assertEq(await w.standLoeschen(leer), true, 'gelöscht');
-  assertEq(fragen.map((x) => [x.title, x.text]), [['Stand löschen?', '„Leerstand" wandert in den Papierkorb.']], 'die übliche Rückfrage');
+  assertEq(fragen.map((x) => [x.title, x.text]), [['Stand löschen?', '„Leerstand“ wandert in den Papierkorb.']], 'die übliche Rückfrage');   // Schlusszeichen seit Finaltest P1 SV12
   assertEq(w.geloeschterStandName(leer.id), 'Leerstand', 'auch ohne Nachweise gemerkt (Fahrtenbuch, Aufgaben, Material)');
   // Kommt während der Rückfrage ein Nachweis dazu, wird trotzdem gelöscht – der Name steht ja gemerkt dabei
   const ohne = await w.DB.put('staende', { name: 'Ohne' });
@@ -21231,9 +22628,9 @@ test('Ultra-Test 05.11.2026 (G7): Volksakte nennt auch den gelöschten Stand im 
   const teil = async (v, k) => (await w.Export.volkTeile(await w.DB.get('voelker', v.id))).find((t) => t.k === k);
   for (const k of ['behandlungen', 'ernten']) {
     const t = await teil(alt, k);
-    assertEq([t.rows.length, t.hinweis], [1, 'Mit aufgeführt: Einträge für den ganzen Stand „Waldrand (gelöscht)“ (aktueller Standort des Volks).'], k + ': Hinweis beim gelöschten Stand');
+    assertEq([t.rows.length, t.hinweis], [1, 'Mit aufgeführt: Einträge für den ganzen Stand „Waldrand (gelöscht)“ – nur von Tagen, an denen das Volk dort stand.'], k + ': Hinweis beim gelöschten Stand');   // Text seit Finaltest P1 E7
   }
-  assertEq((await teil(da, 'behandlungen')).hinweis, 'Mit aufgeführt: Einträge für den ganzen Stand „Heim“ (aktueller Standort des Volks).', 'vorhandener Stand wie bisher');
+  assertEq((await teil(da, 'behandlungen')).hinweis, 'Mit aufgeführt: Einträge für den ganzen Stand „Heim“ – nur von Tagen, an denen das Volk dort stand.', 'vorhandener Stand wie bisher');
 })));
 
 test('Ultra-Test 05.11.2026 (G8): Ein zweites Fenster übernimmt den gemerkten Namen beim Signal – ohne Neuladen', async (w) => isolierteDaten(w, async () => {

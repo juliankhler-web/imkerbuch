@@ -683,6 +683,8 @@ input.combo-inp{appearance:none;background-image:url('data:image/svg+xml,<svg xm
 .field .check-line input[type=checkbox]{width:22px;height:22px;flex-shrink:0;accent-color:var(--honey)}
 .check-line{display:flex;align-items:center;gap:10px;padding:9px 0;cursor:pointer;font-size:14.5px;font-weight:550}
 .check-line input{width:21px;height:21px;accent-color:var(--honey);flex-shrink:0}
+/* Völkerliste mit Menge je Volk (Finaltest Portion 1, 09.11.2026): „.field label{display:block}“ schlug „.check-line{display:flex}“ – die Mengenfelder klebten am Namen statt rechts in einer Spalte */
+.field .menge-je-volk label.check-line{display:flex;align-items:center;gap:10px}
 .rating{display:flex;gap:4px}
 .rating button{width:38px;height:38px;border-radius:10px;border:1.5px solid var(--line2);font-weight:700;font-size:14px;color:var(--muted);background:var(--card)}
 .rating button.active{background:var(--honey-soft);border-color:var(--honey);color:var(--honey-deep)}
@@ -2631,7 +2633,7 @@ const CHANGELOG = [
   ] },
   { version: '1.27', datum: '2026-08-06', punkte: [
     'Verbrauchsmaterial hat jetzt eine <b>Einheit</b> – Mittelwände und Zucker in kg, Sirup in Litern, Säuren in ml, Gläser in Stück. Sie wird aus der Bezeichnung vorgeschlagen und ist überschreibbar; nur bei „Stück" wird auf ganze Zahlen gerundet. Die Beschriftung des Bestandsfeldes nennt die Einheit mit.',
-    'Beim Erfassen einer <b>Fütterung</b> (mit und ohne Rechner) kannst du die passende Position aus dem Verbrauchsmaterial wählen – beim Speichern wird abgezogen. Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup, jeweils mal der Zahl der gefütterten Völker. Ein Hinweis zeigt vorher, was abgezogen wird und was übrig bleibt.',
+    'Beim Erfassen einer <b>Fütterung</b> (mit und ohne Rechner) kannst du die passende Position aus dem Verbrauchsmaterial wählen – beim Speichern wird abgezogen. Positionen in kg ziehen bei Zuckerwasser den reinen Zucker ab, bei Futterteig und Fertigsirup das Gewicht; Positionen in Litern den angesetzten Sirup – jeweils mal der Zahl der gefütterten Völker. Ein Hinweis zeigt vorher, was abgezogen wird und was übrig bleibt.',
     'Dasselbe bei der <b>Behandlung</b>, einzeln und als Sammel-Erfassung: Menge je Volk × Anzahl der Völker wird vom gewählten Mittel abgezogen.',
     'Reicht der Bestand nicht, geht er auf null und die App sagt dir, wie viel gefehlt hat – statt stillschweigend ins Minus zu laufen. Fällt der Bestand unter den Mindestbestand, greift die vorhandene Erinnerung.',
     'Der GeoBox-Viewer stand mit einer Adresse in der App, die auf eine Fehlerseite führte. Jetzt stehen beide bekannten Adressen dort, mit dem klaren Hinweis, dass das Portal oft nicht erreichbar ist – die automatische Berechnung braucht es nicht.',
@@ -3514,7 +3516,7 @@ const DB = {
     const mitAbzug = Array.isArray(vorab.daten && vorab.daten.verbrauchAbzug) && vorab.daten.verbrauchAbzug.length > 0;
     const pruefBereiche = [...new Set([...({ abfuellungen: ['chargen', 'abfuellungen', 'honigabgaenge', 'papierkorb'], chargen: ['chargen'],
       inventar: ['chargen', 'abfuellungen', 'honigabgaenge', 'materialzugaenge', 'papierkorb'],
-      behandlungen: ['aufgaben', 'voelker', 'staende'],   // Behandlung: Wartezeit-Erinnerung zurück (#23)
+      behandlungen: ['aufgaben', 'voelker', 'staende', 'behandlungen', 'papierkorb'],   // Behandlung: Wartezeit-Erinnerung zurück (#23); Stück-Gruppe rechnet über ihren Bedarf (Nachbesserung P2)
       koeniginnen: ['voelker', 'koeniginnen'],            // Königin: Zuordnung nur zurück, wenn das Volk frei ist (#7/#26)
       zuchtserien: ['aufgaben'],                          // Zuchtserie: Kalender-Aufgaben zurück (#22)
       staende: ['settings', 'voelker'] }[vorab.store] || []), ...(mitAbzug ? ['papierkorb'] : [])])];   // Stand: gemerkten Namen streichen (Julian 05.11.2026), seine Völker zurück (Großbestand-Test 09.11.2026)
@@ -3552,14 +3554,48 @@ const DB = {
           const material = tx.objectStore('inventar').getAll();
           material.onsuccess = schritt(() => {
             const posten = new Map(material.result.map((p) => [p.id, p]));
+            /* Behandlung aus einer Stück-Gruppe (Nachbesserung P2, 10.11.2026): Nicht stur den gemerkten Abzug wieder abziehen,
+               sondern so viele Stück, wie der Gruppe mit diesem Eintrag zum Bedarf fehlen – wie das Löschen rechnet. Vorher
+               stimmte das Lager nach „A löschen, C löschen, A zurückholen“ (8 statt 9) oder „A, C, B löschen, C zurückholen“
+               (10 statt 9) nicht, weil C sein Stück beim Löschen an B übergeben hatte. */
+            /* Nachbesserung P2, Runde 2 (10.11.2026): Die Gruppe trägt danach min(Bedarf, Soll) – eine beim Anlegen entstandene
+               Fehlmenge wird nicht nachgebucht. Abgezogen wird über die Kette (erst die Position der Gruppe, dann dieselbe Sorte),
+               nur was da ist; fehlt etwas, wird es gemeldet (ergebnis.materialGefehlt) und gilt als neue Grenze – wie beim Anlegen.
+               Vorher brach das Zurückholen mit „Material reicht nicht“ ab, und der Bestandsbuch-Eintrag blieb im Papierkorb gefangen. */
+            let liste = abzug, materialGefehlt = null;
+            const kette = new Map();
+            if (t.store === 'behandlungen') {
+              const plan = stueckGruppeWiederPlan(pruefDaten.behandlungen, material.result, t.daten);
+              if (plan && !plan.pos && plan.abziehen > 0 && materialImPapierkorb(pruefDaten, plan.position.inventarId)) {
+                throw new Error('Ein benötigter Materialposten fehlt. Bitte zuerst den Materialposten wiederherstellen; der Eintrag bleibt im Papierkorb.');
+              }
+              if (plan) {
+                const b = plan.pos && plan.abziehen > 0 ? materialAbzugPlan(material.result, plan.position.inventarId, plan.abziehen, kette) : { abzug: [], gefehlt: 0 };
+                liste = [];
+                t.daten.verbrauchAbzug = b.abzug;
+                let soll = plan.soll;
+                if (b.gefehlt > 0) {
+                  soll = plan.getragen + plan.abziehen - b.gefehlt;
+                  materialGefehlt = { menge: b.gefehlt, einheit: 'Stück', bezeichnung: plan.position.bezeichnung || '' };
+                  for (const m of plan.gruppe) if (!stueckSollGleich(m, soll)) this._auftraege(tx, [{ store: 'behandlungen', obj: mitStueckSoll(m, soll) }]);
+                  this._auftraege(tx, stueckSollKorbOps(pruefDaten.papierkorb, t.daten.abzugGruppe, soll, t.daten.id));
+                }
+                t.daten = mitStueckSoll(t.daten, soll);
+              }
+              /* Die gemerkte Position bleibt, wenn der Eintrag ohne Abzug zurückkommt (Runde 3, 10.11.2026): Trägt danach kein Mitglied
+                 etwas, kennt die Gruppe ihre Position sonst nicht mehr, und ein späteres Erhöhen zöge nichts ab (stueckGruppeStart). */
+              if ((t.daten.verbrauchAbzug || []).length) delete t.daten.abzugPosition;
+              delete t.daten.abzugUebergeben;
+            }
             const mengen = new Map();
-            for (const a of abzug) {
+            for (const a of liste) {
               const menge = Number(a && a.menge);
               if (!a || !Number.isFinite(menge) || menge < 0) throw new Error('Der gespeicherte Materialabzug enthält eine ungültige Menge. Nichts wurde geändert.');
               if (menge === 0) continue;
               mengen.set(a.inventarId, (mengen.get(a.inventarId) || 0) + menge);
             }
-            const geaendert = [];
+            const geaendert = [...kette.values()];
+            for (const pos of geaendert) pos.lastModified = U.nowIso();
             for (const [id, menge] of mengen) {
               const pos = posten.get(id);
               /* Endgültig gelöschter Posten (Fund 04.11.2026, #4/#24): Es gibt keinen Bestand mehr, von dem abzuziehen wäre –
@@ -3602,7 +3638,7 @@ const DB = {
             ziel.put(t.daten);
             tx.objectStore('papierkorb').delete(trashId);
             this._revisionSchreiben(tx);
-            ergebnis = t;
+            ergebnis = materialGefehlt ? { ...t, materialGefehlt } : t;
           });
         });
       });
@@ -4227,7 +4263,10 @@ const UI = {
       g += `<line class="gridline" x1="${padL}" y1="${y(v)}" x2="${W - padR}" y2="${y(v)}"/><text class="axis" x="${padL - 6}" y="${y(v) + 3}" text-anchor="end">${U.fmtNum(v, 1)}</text>`;
     }
     const n = labels.length, slot = iw / n;
-    const skip = Math.ceil(n / 12);
+    /* Lange Namen (Völker, Stände) überlappten bei 12 Balken zu Buchstabensalat: nur so viele Beschriftungen, wie
+       nebeneinander passen – etwa 6,2 Einheiten je Zeichen bei Schrift 10 (Finaltest Portion 1, 09.11.2026) */
+    const lmax = Math.max(...labels.map((l) => Math.min(10, String(l).length)));
+    const skip = Math.max(Math.ceil(n / 12), Math.ceil((lmax * 6.2 + 6) / slot));
     labels.forEach((l, i) => { if (i % skip === 0) g += `<text class="axis" x="${padL + slot * (i + 0.5)}" y="${H - 8}" text-anchor="middle">${U.esc(String(l).slice(0, 10))}</text>`; });
     series.forEach((s, si) => {
       const col = s.color || defaultColors[si % defaultColors.length];
@@ -5598,6 +5637,240 @@ function feldFehler(feld, text) { return Object.assign(new Error(text), { feld }
 function zielIdAus(v) { const id = v.zielTyp === 'volk' ? v.zielVolk : v.zielStand; if (!id) throw feldFehler(v.zielTyp === 'volk' ? 'zielVolk' : 'zielStand', 'Bitte Volk bzw. Stand auswählen.'); return id; }
 /** Formular-Vorbelegung für Datensätze mit zielTyp/zielId */
 const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zielId : '', zielStand: r.zielTyp === 'stand' ? r.zielId : '' } : {});
+/* =====================================================================
+   BEHANDLUNG PRO VOLK IN STÜCK – GEMEINSAME RECHNUNG DER GRUPPE
+   Eine Behandlung für mehrere Völker (abzugGruppe) rundet gemeinsam auf ganze Stück auf: 3 × 0,5 Stück → 2 Stück,
+   verteilt 1/0/1. Löschen, Wiederherstellen, Ändern und der Hinweis im Formular rechnen mit diesen Helfern
+   (Nachbesserung P2, 10.11.2026). Vorher rechnete jeder Weg selbst: Löschen gab nur den Unterschied zurück, das
+   Wiederherstellen zog stur den gemerkten Abzug ab – nach „löschen, löschen, wiederherstellen“ stimmte das Lager nicht.
+   EINE Regel (Nachbesserung P2, Runde 2, 10.11.2026):
+   - Gruppe = alle aktiven Einträge mit derselben abzugGruppe und Abzug in Stück (oder noch ohne Abzug) – egal, von welcher
+     Lagerposition ihr Abzug kam. Vorher zählten nur Einträge, deren Abzug von der ersten Position stammte: Mit zwei Positionen
+     (P1 = 1, P2 = 5) fiel der Eintrag von P2 aus der Rechnung, und beim Löschen blieb ein Stück zu viel bei der Gruppe.
+   - Bedarf = aufgerundete Summe der Mengen. Die Gruppe trägt min(Bedarf, Soll). Soll (Feld abzugSoll an jedem Eintrag) steht nur
+     da, wenn beim Anlegen, Ändern oder Wiederherstellen Bestand fehlte: Eine Fehlmenge bleibt Fehlmenge und wird beim Löschen und
+     Wiederherstellen NICHT nachträglich gebucht. Ohne Feld gibt es keine Grenze.
+   - Löschen gibt den Überschuss zurück, auf die Positionen, von denen wirklich abgezogen wurde (zuletzt abgezogen zuerst); der Rest
+     des eigenen Abzugs geht an ein verbleibendes Mitglied. Wiederherstellen scheitert nie an „Material reicht nicht“: Es zieht
+     ab, was da ist, und meldet die Fehlmenge – wie das Anlegen.
+   ===================================================================== */
+const stueckRund6 = (n) => Math.round(n * 1e6) / 1e6;
+const behandlungMenge = (b) => Math.max(0, Number(b && b.menge) || 0);
+const abzugSumme = (b) => ((b && b.verbrauchAbzug) || []).reduce((s, a) => s + (Number(a && a.menge) || 0), 0);
+const stueckGetragen = (liste) => Math.round((liste || []).reduce((s, b) => s + abzugSumme(b), 0));
+const stueckMengen = (liste) => (liste || []).reduce((s, b) => s + behandlungMenge(b), 0);
+/** Ganze Stück für eine Menge (0,5 + 0,5 + 0,5 → 2). */
+function stueckBedarf(menge) { return Math.max(0, Math.ceil(stueckRund6(menge) - 1e-9)); }
+/** Die übrigen aktiven Einträge der Gruppe von rec: dieselbe abzugGruppe, Abzug in ganzen Stück oder (noch) keiner – egal,
+    von welcher Lagerposition (Nachbesserung P2, Runde 2). */
+/* Runde 4 (10.11.2026): nur Mitglieder mit DEMSELBEN Produkt (materialArt der Position, von der sie abziehen bzw. die sie sich
+   gemerkt haben). Vorher zählte ein Volk, das auf ein anderes Mittel umgestellt war, weiter mit: ein halber Streifen Apivar und ein
+   halber Streifen Bayvarol wurden zu „1 Stück reicht“. Unbekannt (keine eigene Position, Position endgültig gelöscht) zählt mit;
+   ohne inventar wird nicht nach Produkt gefiltert. */
+function stueckGruppeMitglieder(behandlungen, rec, inventar = null) {
+  if (!rec || !rec.abzugGruppe) return [];
+  const ref = inventar ? stueckGruppeProdukt(behandlungen, rec, inventar) : '';
+  return (behandlungen || []).filter((b) => {
+    if (!b || b.id === rec.id || b.abzugGruppe !== rec.abzugGruppe || !(b.verbrauchAbzug || []).every((a) => a && a.einheit === 'Stück')) return false;
+    const eigen = ref ? stueckProduktVon(b, inventar) : '';
+    return !eigen || eigen === ref;
+  });
+}
+/** Produkt eines Eintrags: materialArt der Position seines Abzugs bzw. der gemerkten (abzugPosition); '' = unbekannt. */
+function stueckProduktVon(b, inventar) {
+  const id = ((((b && b.verbrauchAbzug) || [])[0]) || {}).inventarId || (b && b.abzugPosition && b.abzugPosition.inventarId) || '';
+  const p = id ? (inventar || []).find((x) => x && x.id === id) : null;
+  return p ? materialArt(p) : '';
+}
+/** Produkt der Gruppe aus Sicht von rec: sein eigenes, sonst das der Start-Position der Gruppe; '' = unbekannt. */
+function stueckGruppeProdukt(behandlungen, rec, inventar) {
+  const eigen = stueckProduktVon(rec, inventar);
+  if (eigen) return eigen;
+  const start = stueckGruppeStart(behandlungen, rec, inventar);
+  const p = start ? (inventar || []).find((x) => x && x.id === start.inventarId) : null;
+  return p ? materialArt(p) : '';
+}
+/** Wie viele Stück die Gruppe höchstens trägt (Feld abzugSoll; Infinity = keine Grenze). Ältere Einträge ohne Feld: trägt die
+    Gruppe weniger als ihren Bedarf, hat beim Anlegen etwas gefehlt – dann gilt das, was sie trägt. */
+function stueckGruppeSoll(liste) {
+  const werte = (liste || []).map((b) => (b && b.abzugSoll != null && b.abzugSoll !== '' ? Number(b.abzugSoll) : NaN)).filter((x) => Number.isFinite(x) && x >= 0);
+  if (werte.length) return Math.min(...werte);
+  const getragen = stueckGetragen(liste);
+  return getragen < stueckBedarf(stueckMengen(liste)) ? getragen : Infinity;
+}
+/** Kopie von b mit der Grenze soll (Infinity: ohne Feld). */
+function mitStueckSoll(b, soll) {
+  const x = { ...b };
+  if (Number.isFinite(soll)) x.abzugSoll = soll; else delete x.abzugSoll;
+  return x;
+}
+const stueckSollGleich = (b, soll) => (Number.isFinite(soll) ? b.abzugSoll === soll : !('abzugSoll' in b));
+/** Aufträge, die die Grenze auch an die Einträge der Gruppe im Papierkorb schreiben – so stimmt sie auch, wenn später alle
+    gelöscht sind und einer zurückkommt (ohneId: der gerade bearbeitete Papierkorb-Eintrag). */
+function stueckSollKorbOps(papierkorb, gruppe, soll, ohneId = null) {
+  return (papierkorb || []).filter((t) => t && t.store === 'behandlungen' && t.daten && gruppe && t.daten.abzugGruppe === gruppe && t.daten.id !== ohneId && !stueckSollGleich(t.daten, soll))
+    .map((t) => ({ store: 'papierkorb', obj: { ...t, daten: mitStueckSoll(t.daten, soll) } }));
+}
+/** Sortierschlüssel der Lagerpositionen wie in der Abzugskette (materialAbzugPlan): Anschaffung bzw. Anlegen, bei Gleichstand die
+    Kennung; Positionen, die es nicht (mehr) gibt, ganz hinten. */
+function stueckPositionsSchluessel(inventar) {
+  const pos = new Map((inventar || []).filter(Boolean).map((p) => [p.id, p]));
+  return (id) => { const p = pos.get(id); return p ? `0${p.anschaffung || p.createdAt || ''}\u0000${id}` : `1${id || ''}`; };
+}
+/** Rang einer Position in der Abzugskette der Gruppe: die Start-Position 0, dann die übrigen in der Reihenfolge der Kette (1, 2 …),
+    Positionen, die es nicht mehr gibt, -1. Höherer Rang = später in der Kette = gibt beim Zurückbuchen zuerst zurück (Runde 3). */
+function stueckKettenRang(inventar, startId) {
+  const schluessel = stueckPositionsSchluessel(inventar);
+  const reihe = (inventar || []).filter((p) => p && p.id !== startId).map((p) => p.id).sort((a, b) => (schluessel(a) < schluessel(b) ? -1 : schluessel(a) > schluessel(b) ? 1 : 0));
+  const rang = new Map(reihe.map((id, i) => [id, i + 1]));
+  if (startId && (inventar || []).some((p) => p && p.id === startId)) rang.set(startId, 0);
+  return (id) => (rang.has(id) ? rang.get(id) : -1);
+}
+/** Position, von der die Gruppe abzieht: eigener Abzug, sonst die beim Löschen gemerkte (abzugPosition), sonst die eines Mitglieds.
+    Runde 3 (10.11.2026): Unter den Mitgliedern fest gewählt – zuerst ein eigener Abzug, sonst eine gemerkte Position, jeweils die
+    früheste Position der Kette (inventar). Vorher entschied die Reihenfolge der zufälligen Kennungen in der Datenbank, und mit zwei
+    Positionen nannten Formular und Speichern mal P1, mal P2. */
+function stueckGruppeStart(behandlungen, rec, inventar = null) {
+  const eigen = ((rec && rec.verbrauchAbzug) || [])[0];
+  if (eigen && eigen.inventarId) return { inventarId: eigen.inventarId, bezeichnung: eigen.bezeichnung || '', einheit: eigen.einheit || '' };
+  if (rec && rec.abzugPosition && rec.abzugPosition.inventarId) return { ...rec.abzugPosition };
+  if (!rec || !rec.abzugGruppe) return null;
+  const mitAbzug = [], gemerkt = [];
+  for (const x of behandlungen || []) {
+    if (!x || x.id === rec.id || x.abzugGruppe !== rec.abzugGruppe) continue;
+    const a = (x.verbrauchAbzug || [])[0];
+    if (a && a.inventarId) mitAbzug.push({ inventarId: a.inventarId, bezeichnung: a.bezeichnung || '', einheit: a.einheit || '' });
+    else if (x.abzugPosition && x.abzugPosition.inventarId) gemerkt.push({ ...x.abzugPosition });
+  }
+  const liste = mitAbzug.length ? mitAbzug : gemerkt;
+  if (!liste.length) return null;
+  const schluessel = stueckPositionsSchluessel(inventar);
+  return liste.reduce((best, x) => (schluessel(x.inventarId) < schluessel(best.inventarId) ? x : best));
+}
+/* Ist rec Teil einer Gruppe in ganzen Stück? Liefert { position, pos, gruppe } oder null. Die Einheit kommt von der Position,
+   ist sie nicht (mehr) da, von den gemerkten Abzügen. */
+function stueckGruppeVon(behandlungen, inventar, rec) {
+  if (!rec || !rec.abzugGruppe) return null;
+  const position = stueckGruppeStart(behandlungen, rec, inventar);
+  if (!position) return null;
+  const pos = (inventar || []).find((p) => p && p.id === position.inventarId) || null;
+  const eigen = rec.verbrauchAbzug || [];
+  if (eigen.length && !eigen.every((a) => a && a.einheit === 'Stück')) return null;
+  if (pos ? verbrauchEinheit(pos) !== 'Stück' : position.einheit !== 'Stück') return null;
+  return { position: { inventarId: position.inventarId, bezeichnung: (pos && pos.bezeichnung) || position.bezeichnung, einheit: 'Stück' }, pos,
+    gruppe: stueckGruppeMitglieder(behandlungen, rec, inventar) };
+}
+/* Nimmt `frei` Stück aus den Abzügen: zuerst aus `eigen`, dann von den Mitgliedern. Liefert { rueck, eigen, mitglieder: Map(id →
+   geänderte Kopie) }. Runde 3 (10.11.2026): eine feste Reihenfolge – nach der Abzugskette (rang, stueckKettenRang), die spätere
+   Position zuerst; bei Gleichstand das zuletzt angelegte Mitglied (Anlegezeit, dann Datum), dann der zuletzt abgezogene Eintrag.
+   Vorher hing es an der Reihenfolge der zufälligen Kennungen in der Datenbank, welche Position das Stück zurückbekam. */
+function stueckUeberschussNehmen(eigenAbzug, gruppe, frei, rang = null) {
+  const r = typeof rang === 'function' ? rang : () => 0;
+  const eigen = (eigenAbzug || []).map((a) => ({ ...a })), rueck = [], mitglieder = new Map(), geaendert = new Set();
+  const nimm = (eintraege) => {
+    for (const e of eintraege) {
+      if (frei <= 0) break;
+      const n = Math.min(Number(e.a.menge) || 0, frei);
+      if (n <= 0) continue;
+      rueck.push({ ...e.a, menge: n }); e.a.menge -= n; frei -= n;
+      if (e.b) geaendert.add(e.b.id);
+    }
+  };
+  const vergleich = (x, y) => r(y.a.inventarId) - r(x.a.inventarId);
+  nimm(eigen.map((a, j) => ({ a, j })).sort((x, y) => vergleich(x, y) || y.j - x.j));
+  const zeit = (b) => `${b.createdAt || ''}\u0000${b.datum || ''}\u0000${b.id || ''}`;
+  const listen = new Map((gruppe || []).map((b) => [b.id, (b.verbrauchAbzug || []).map((a) => ({ ...a }))]));
+  const eintraege = (gruppe || []).flatMap((b) => listen.get(b.id).map((a, j) => ({ b, a, j })));
+  nimm(eintraege.sort((x, y) => vergleich(x, y) || (zeit(y.b) > zeit(x.b) ? 1 : zeit(y.b) < zeit(x.b) ? -1 : 0) || y.j - x.j));
+  for (const b of gruppe || []) if (geaendert.has(b.id)) mitglieder.set(b.id, { ...b, verbrauchAbzug: listen.get(b.id).filter((a) => a.menge > 0) });
+  return { rueck, eigen: eigen.filter((a) => a.menge > 0), mitglieder };
+}
+/** Löschen: Was geht zurück ins Lager, wer trägt welche Stück weiter? null = keine Stück-Gruppe (dann gilt der gemerkte Abzug).
+    Zurück kommt, was die Gruppe danach mehr trägt als min(Bedarf, Soll) – zuerst aus dem eigenen Abzug, dann von den übrigen.
+    Der Rest des eigenen Abzugs wandert an ein verbleibendes Mitglied. mitglieder = geänderte übrige Einträge (auch die Grenze). */
+function stueckGruppeLoeschPlan(behandlungen, inventar, rec) {
+  const g = stueckGruppeVon(behandlungen, inventar, rec);
+  if (!g) return null;
+  const soll = stueckGruppeSoll([rec, ...g.gruppe]);
+  const getragen = stueckGetragen([rec, ...g.gruppe]);
+  const frei = Math.max(0, getragen - Math.min(soll, stueckBedarf(stueckMengen(g.gruppe))));
+  const { rueck, eigen: bleibt, mitglieder: neu } = stueckUeberschussNehmen(rec.verbrauchAbzug, g.gruppe, frei, stueckKettenRang(inventar, g.position.inventarId));
+  const aktuell = (b) => neu.get(b.id) || b;
+  if (bleibt.length && g.gruppe.length) {
+    const ziel = aktuell(g.gruppe.find((b) => (aktuell(b).verbrauchAbzug || []).length) || g.gruppe[0]);
+    const liste = (ziel.verbrauchAbzug || []).map((a) => ({ ...a }));
+    for (const u of bleibt) { const da = liste.find((a) => a.inventarId === u.inventarId); if (da) da.menge += u.menge; else liste.push(u); }
+    neu.set(ziel.id, { ...ziel, verbrauchAbzug: liste });
+  }
+  // Die Grenze gilt für alle, die bleiben – auch wenn sie bisher nur aus der Rechnung kam (ältere Einträge ohne Feld)
+  for (const b of g.gruppe) { const x = aktuell(b); if (!stueckSollGleich(x, soll)) neu.set(b.id, mitStueckSoll(x, soll)); }
+  return { position: g.position, rueck, soll, uebergeben: g.gruppe.length ? bleibt.reduce((s, a) => s + a.menge, 0) : 0, mitglieder: [...neu.values()] };
+}
+/** Wiederherstellen: Wie viele Stück zieht die Gruppe wieder ab? So viele, wie ihr dann bis min(Bedarf, Soll) fehlen.
+    null = keine Stück-Gruppe (dann gilt der gemerkte Abzug). behandlungen = die aktiven Einträge, papierkorb = alle
+    Ist kein Mitglied mehr aktiv, gilt die Grenze aus dem Papierkorb-Eintrag selbst (sie wird bei jeder Änderung auch dort nachgeführt). */
+function stueckGruppeWiederPlan(behandlungen, inventar, rec) {
+  const g = stueckGruppeVon(behandlungen, inventar, rec);
+  if (!g) return null;
+  const eigen = rec.abzugSoll != null && rec.abzugSoll !== '' ? Number(rec.abzugSoll) : NaN;
+  const soll = g.gruppe.length ? stueckGruppeSoll(g.gruppe) : (Number.isFinite(eigen) && eigen >= 0 ? eigen : Infinity);
+  const getragen = stueckGetragen(g.gruppe);
+  const bedarf = stueckBedarf(stueckMengen(g.gruppe) + behandlungMenge(rec));
+  return { position: g.position, pos: g.pos, gruppe: g.gruppe, soll, getragen, abziehen: Math.max(0, Math.min(bedarf, soll) - getragen) };
+}
+/** Ändern der Menge in Stück (behandlungAendern und der Hinweis im Formular – dieselbe Rechnung). rec = bisheriger Eintrag
+    (menge, verbrauchAbzug, abzugSoll), gruppe = übrige Mitglieder (stueckGruppeMitglieder, bei einem Einzeleintrag []).
+    Gleiche oder größere Menge: nachgezogen wird, was der Gruppe zum Bedarf fehlt (soweit vorhanden) – aber eine alte Fehlmenge
+    nicht (Runde 3, 10.11.2026): Die Gruppe darf nur um das wachsen, um das der Bedarf wächst (Bedarf neu − Bedarf alt), höchstens
+    bis zum neuen Bedarf; die Grenze steigt um denselben Zuwachs (sollNeu; ohne Grenze bleibt es ohne). Vorher zog „Lager 1,
+    3 × 0,5, Nachschub, ein Mitglied 0,5 → 1,5“ auch das beim Anlegen fehlende Stück nach (trug 3 statt 2), schon das bloße
+    Speichern mit gleicher Menge buchte es nach.
+    Kleinere Menge: zurück kommt, was die Gruppe danach mehr trägt als min(Bedarf, Soll) – aus dem eigenen Abzug und, reicht der
+    nicht, auch aus dem der übrigen (Nachbesserung P2, Runde 2: vorher höchstens der eigene, bei 0 blieb ein Stück zu viel),
+    in der festen Reihenfolge der Abzugskette (inventar, Runde 3).
+    Liefert { nachziehen, sollNeu, rueck, eigen (Abzug danach), mitglieder (Map), getragen, bedarf, soll }. */
+function stueckAenderPlan(rec, neuMenge, gruppe, inventar = null) {
+  const g = gruppe || [], alle = [rec, ...g];
+  const getragen = stueckGetragen(alle), soll = stueckGruppeSoll(alle);
+  const neu = Math.max(0, Number(neuMenge) || 0);
+  const bedarf = stueckBedarf(stueckMengen(g) + neu);
+  if (neu >= behandlungMenge(rec) - 1e-9) {
+    // Nur in einer Gruppe (abzugGruppe). Ein Einzeleintrag rechnet wie bisher: nachgezogen wird, was ihm zum Bedarf fehlt, beim
+    // Erhöhen höchstens der auf ganze Stück aufgerundete Unterschied der Menge
+    const zuwachs = Math.max(0, bedarf - stueckBedarf(stueckMengen(alle)));
+    const ziel = rec.abzugGruppe ? Math.min(bedarf, soll + zuwachs) : bedarf;
+    const mehr = stueckRund6(neu - behandlungMenge(rec));
+    const nachziehen = !rec.abzugGruppe && mehr > 1e-9 ? Math.min(Math.max(0, ziel - getragen), stueckBedarf(mehr)) : Math.max(0, ziel - getragen);
+    return { nachziehen, sollNeu: soll + zuwachs, rueck: [], eigen: (rec.verbrauchAbzug || []).map((a) => ({ ...a })), mitglieder: new Map(), getragen, bedarf, soll };
+  }
+  const frei = Math.max(0, getragen - Math.min(bedarf, soll));
+  const start = stueckGruppeStart(g, rec, inventar);
+  return { nachziehen: 0, sollNeu: soll, ...stueckUeberschussNehmen(rec.verbrauchAbzug, g, frei, stueckKettenRang(inventar, start && start.inventarId)), getragen, bedarf, soll };
+}
+/** Mitglied einer Stück-Gruppe bekommt eine ANDERE Auswahl als bisher (id = neue Position, '' = ausdrücklich „–“). Wie rechnet
+    behandlungAendern das? Dieselbe Entscheidung nutzt der Hinweis im Formular (Runde 4, 10.11.2026). Liefert null (keine Stück-Gruppe:
+    wie ein Einzeleintrag) oder { art }:
+    - 'loesen': „–“ oder ein anderes Produkt (materialArt) – das Volk verlässt die Gruppe wie beim Löschen (plan =
+      stueckGruppeLoeschPlan: der Überschuss geht zurück, ein angebrochenes Stück bleibt bei den übrigen) und rechnet danach einzeln
+      (eigene Menge aufgerundet). Vorher zählte es weiter mit: Apivar und Bayvarol wurden zusammengerechnet, und ein Volk mit „–“
+      bekam beim Löschen der übrigen ihr Stück.
+    - 'erste': Die Gruppe hat noch gar keine Position und trägt nichts (beim Anlegen fehlte alles) – nur der Anteil dieses Volks
+      wird gebucht, die Grenze ist danach, was die Gruppe trägt. Vorher buchte die Wahl bei einem Volk den Bedarf aller nach.
+    - 'gruppe': andere Position desselben Produkts – die Gruppe rechnet gemeinsam (Runde 3). */
+function stueckWechselArt(behandlungen, inventar, alt, id) {
+  if (!alt || !alt.abzugGruppe || !(alt.verbrauchAbzug || []).every((a) => a && a.einheit === 'Stück')) return null;
+  const pos = id ? (inventar || []).find((p) => p && p.id === id) : null;
+  if (id && !pos) return null;
+  if (stueckGruppeVon(behandlungen, inventar, alt)) {
+    const ref = stueckGruppeProdukt(behandlungen, alt, inventar);
+    if (!id || (ref && materialArt(pos) !== ref)) return { art: 'loesen', plan: stueckGruppeLoeschPlan(behandlungen, inventar, alt) };
+    return verbrauchEinheit(pos) === 'Stück' ? { art: 'gruppe' } : null;
+  }
+  if (id && verbrauchEinheit(pos) === 'Stück' && !(alt.verbrauchAbzug || []).length && !stueckGruppeStart(behandlungen, alt, inventar)
+    && !stueckGetragen(stueckGruppeMitglieder(behandlungen, alt, inventar))) return { art: 'erste' };
+  return null;
+}
+
 /** Standard-Löschaktion für onDelete: Bestätigung → Papierkorb → neu rendern */
 /* Löschen über den Papierkorb – der gemeinsame Weg für fast alle Formulare.
 
@@ -5605,8 +5878,10 @@ const zielFormValues = (r) => (r ? { ...r, zielVolk: r.zielTyp === 'volk' ? r.zi
    Abfüllung), wird er hier zurückgegeben. Vorher tat das nur der jeweils
    „große" Dialog: Wer eine Fütterung über das VOLK löschte, verlor den Zucker
    für immer – dieselbe Fütterung über den Fütterungs-Reiter gelöscht gab ihn
-   zurück. Ein Weg, ein Ergebnis. */
-async function loescheMitMaterial(store, erwartet) {
+   zurück. Ein Weg, ein Ergebnis.
+   Mit { bericht: true } kommt statt der Zahl { menge, uebergeben, zurueck } zurück (Nachbesserung P2, 10.11.2026): uebergeben
+   zählt die Stück, die bei einer Stück-Gruppe an ein verbleibendes Mitglied gingen, zurueck listet, was wirklich zurückkam. */
+async function loescheMitMaterial(store, erwartet, { bericht = false } = {}) {
   // Abfüllung: Verkäufe und Rechnungen in derselben Transaktion prüfen – die Rückfrage im Formular kann veraltet sein (Fund 04.11.2026)
   const mitVerkauf = store === 'abfuellungen';
   const mitWartezeit = store === 'behandlungen';   // Wartezeit-Erinnerung entfernen bzw. die Sammel-Erinnerung verkleinern (Fund 04.11.2026, #23)
@@ -5614,21 +5889,41 @@ async function loescheMitMaterial(store, erwartet) {
   // Kassenbuch: auch Verkäufe und Abgänge, deren Einnahme zu einer Beleg-Rechnung gehört (Prüfung 08.11.2026, P11/P15)
   return DB.aendereAtomar([store, 'inventar', 'papierkorb', ...(mitVerkauf ? ['verkaeufe', 'rechnungen'] : mitRechnung ? ['rechnungen', 'verkaeufe', 'materialabgaenge'] : []), ...(mitWartezeit ? ['aufgaben'] : [])], (d) => {
     const rec = d[store].find((x) => x.id === erwartet.id);
-    if (!rec) return { ops: [], wert: 0 };
+    if (!rec) return { ops: [], wert: bericht ? { menge: 0, uebergeben: 0, zurueck: [] } : 0 };
     if (JSON.stringify(rec) !== JSON.stringify(erwartet)) throw new Error('Der Eintrag wurde inzwischen geändert. Bitte erneut öffnen.');
     const sperre = mitVerkauf ? abfuellungVerkaufSperre(d, rec.id) : mitRechnung ? rechnungBuchungSperre(rec, d.rechnungen, d.kassenbuch, d.verkaeufe, d.materialabgaenge) : null;
     if (sperre) throw new Error(sperre);
     const material = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
-    let menge = 0;
-    for (const a of (rec.verbrauchAbzug || [])) {
+    let menge = 0, uebergeben = 0;
+    const zurueckListe = [];
+    /* Behandlung pro Volk in Stück (Finaltest Portion 1, 09.11.2026): Die Gruppe hat auf ganze Stück aufgerundet (3 × 0,5 → 2 Stück,
+       verteilt 1/0/1). Löschte man die beiden Einträge mit Abzug, kamen beide Stück zurück – auch das angebrochene des
+       verbleibenden Volks (Lager 10 statt 9). Jetzt trägt die Gruppe danach genau ihren Bedarf (stueckGruppeLoeschPlan);
+       der Rest wandert an ein verbleibendes Mitglied. */
+    const plan = store === 'behandlungen' ? stueckGruppeLoeschPlan(d.behandlungen, d.inventar, rec) : null;
+    const rueck = plan ? plan.rueck : (rec.verbrauchAbzug || []);
+    for (const a of rueck) {
       const p = material.get(a.inventarId);
       if (!p) { materialFehltPruefen(d, a); continue; }   // endgültig gelöscht: ohne Rückbuchung löschen (Fund 04.11.2026, #4/#24)
       const n = buchungsZahl(a.menge, 'Materialabzug'); menge += n;
       const neu = buchungsZahl(p.stueckzahl, 'Materialbestand') + n;
       p.stueckzahl = verbrauchEinheit(p) === 'Stück' ? Math.round(neu) : Math.round(neu * 1000) / 1000;
       geaendert.set(p.id, p);
+      if (n > 0) zurueckListe.push({ ...a, menge: n });
     }
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(papierkorbAuftraege(store, rec), mitWartezeit ? wartezeitAufgabenPlan(d, rec, null) : []), wert: menge };
+    let archiv = rec, mitglieder = [];
+    if (plan) {
+      uebergeben = plan.uebergeben;
+      mitglieder = plan.mitglieder;
+      /* Im Papierkorb steht, was wirklich zurückkam (das Zusammenführen rechnet damit), dazu die Position der Gruppe:
+         Das Wiederherstellen rechnet wie hier über den Bedarf der Gruppe (stueckGruppeWiederPlan) – Nachbesserung P2, 10.11.2026. */
+      /* Dazu, was an ein verbleibendes Mitglied ging (abzugUebergeben), und die Grenze der Gruppe (abzugSoll, nur wenn beim
+         Anlegen etwas fehlte) – das Zurückholen bucht eine alte Fehlmenge so nicht nach (Nachbesserung P2, Runde 2). */
+      archiv = { ...mitStueckSoll(rec, plan.soll), verbrauchAbzug: plan.rueck, abzugPosition: plan.position, abzugUebergeben: plan.uebergeben };
+    }
+    const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(mitglieder.map((obj) => ({ store: 'behandlungen', obj })),
+      plan ? stueckSollKorbOps(d.papierkorb, rec.abzugGruppe, plan.soll) : [], papierkorbAuftraege(store, archiv), mitWartezeit ? wartezeitAufgabenPlan(d, rec, null) : []);
+    return { ops, wert: bericht ? { menge, uebergeben, zurueck: zurueckListe } : menge };
   });
 }
 /* Fehlt ein Materialposten, auf den ein gemerkter Abzug zeigt (Fund 04.11.2026, #4/#24)? Liegt er im Papierkorb: Fehler, erst
@@ -6116,8 +6411,10 @@ const DASH_WIDGETS = {
     const staende = await DB.getAll('staende');
     // Zweispaltig (Tablet/iPad) ist die Kachel so hoch wie ihre Nachbarin – die freie Fläche zeigt die Völker je Stand
     // (Julian 09.11.2026, Entwurf freigegeben). Auf dem Handy (einspaltig) blendet CSS die Liste aus.
-    const zahl = new Map(); for (const x of v) zahl.set(x.standId || '', (zahl.get(x.standId || '') || 0) + 1);
+    /* Völker mit Kennung eines gelöschten Stands zählen zu „Ohne Stand“ – vorher stand die Zeile zweimal da
+       (Finaltest Portion 1, 09.11.2026) */
     const name = new Map(staende.map((st) => [st.id, st.name || 'Stand']));
+    const zahl = new Map(); for (const x of v) { const k = x.standId && name.has(x.standId) ? x.standId : ''; zahl.set(k, (zahl.get(k) || 0) + 1); }
     const reihen = [...zahl].map(([id, n]) => ({ n, ohne: !(id && name.has(id)), name: id && name.has(id) ? name.get(id) : 'Ohne Stand' }))
       .sort((a, b) => b.n - a.n || a.ohne - b.ohne || NATUERLICH.compare(a.name, b.name));   // „Ohne Stand“ bei gleicher Zahl hinten
     const MAX = 5, mehr = reihen.length - MAX;
@@ -6219,7 +6516,7 @@ const DASH_WIDGETS = {
     const ernten = (await DB.getAll('ernten')).filter(istHonigErnte);
     const byYear = U.groupBy(ernten, (e) => (e.datum || '').slice(0, 4));
     const years = [...byYear.keys()].filter(Boolean).sort().slice(-5);
-    return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small">Statistiken</a></div>
+    return `<div class="card" style="margin:0"><div class="card-title">${icon('honig')}<h2>Honigertrag</h2><a href="#/reporting" class="small" data-stat-honig>Statistiken</a></div>
       ${years.length ? UI.chart({ type: 'bars', labels: years, series: [{ name: 'kg', values: years.map((y) => U.sum(byYear.get(y), (e) => e.mengeKg)) }], height: 160, unit: 'kg' }) : '<div class="muted small">Noch keine Ernten erfasst.</div>'}</div>`;
   }},
   prognose: { label: 'Ernteprognose', ic: 'rechner', ziel: 'rechner', async html() {
@@ -6457,8 +6754,12 @@ Views.dashboard = {
     }
     // Kachel-Klick führt in den passenden Bereich – Buttons/Links in der Kachel behalten Vorrang
     main.addEventListener('click', (e) => {
-      if (e.target.closest('button, a, input, select, label')) return;   // label: Abhak-Kästchen der Aufgaben-Kachel
       const k = e.target.closest('[data-ziel]');
+      /* Kachel „Honigertrag“ und ihr Link „Statistiken“ öffnen den Reiter „Honig“ – ohne Vorgabe kam „Völker“
+         (Finaltest Portion 1, 09.11.2026) */
+      const vorgabe = e.target.closest('button, a, input, select, label');
+      if (k && k.querySelector('[data-stat-honig]') && (!vorgabe || vorgabe.matches('[data-stat-honig]'))) { Views.reporting._typ = 'ertrag'; Views.reporting._gruppe = 'volk'; }
+      if (vorgabe) return;   // label: Abhak-Kästchen der Aufgaben-Kachel
       if (k && k.dataset.ziel) navTo(k.dataset.ziel);
     });
   },
@@ -6484,7 +6785,8 @@ Views.dashboard = {
     $('#cfg-tabs', m.el).appendChild(tabbar);
     dashCfgListe($('#cfg-dash', m.el), stDash, { label: dashLabel, icon: dashIcon,
       aktivTitel: 'Auf der Startseite',
-      hinweis: 'Rotes − nimmt eine Kachel weg, grünes + fügt sie hinzu, mit ⁝⁝ verschiebst du. Jeder Bereich lässt sich hinzufügen – ohne eigenes Daten-Widget als Verknüpfungskachel. Tipp: Auf der Startseite selbst geht das Verschieben auch – Kachel gedrückt halten und ziehen.' });
+      verfTitel: 'Weitere Kacheln',   // nur Kacheln mit Inhalt, Verknüpfungskacheln gibt es nicht mehr (Finaltest Portion 1, 09.11.2026)
+      hinweis: 'Rotes − nimmt eine Kachel weg, grünes + fügt sie hinzu, mit ⁝⁝ verschiebst du. Tipp: Auf der Startseite selbst geht das Verschieben auch – Kachel gedrückt halten und ziehen.' });
     dashCfgListe($('#cfg-nav', m.el), stNav, { label: bereichKurz, icon: bereichIcon, max: 3,
       aktivTitel: 'Im Schnellzugriff',
       hinweis: '„Start“ steht immer vorne, dahinter bis zu drei Bereiche – der Rest liegt unter „Mehr“. Du kannst die Leiste auch direkt verschieben: einen Eintrag unten gedrückt halten und ziehen.' });
@@ -6501,7 +6803,7 @@ Views.dashboard = {
 function dashCfgListe(host, st, opts) {
   const zeichnen = () => {
     host.innerHTML = `<div class="cfg-grp">${opts.aktivTitel || 'Aktiv'}</div><div class="cfg-list" data-aktiv></div>
-      <div class="cfg-grp">Verfügbare Bereiche</div><div class="cfg-list" data-verf></div>
+      <div class="cfg-grp">${opts.verfTitel || 'Verfügbare Bereiche'}</div><div class="cfg-list" data-verf></div>
       <div class="hint">${opts.hinweis || ''}</div>`;
     const aE = $('[data-aktiv]', host), vE = $('[data-verf]', host);
     st.aktiv.forEach((entry, i) => {
@@ -6536,22 +6838,45 @@ function dashCfgListe(host, st, opts) {
 }
 /** Ziehen per Verschiebegriff (Finger + Maus, Pointer Events). */
 function dashCfgDrag(listEl, st, opts, zeichnen) {
-  let row = null;
+  let row = null, fingerY = 0, raf = 0, box = null;
+  const einordnen = (y) => {
+    const andere = $$('.cfg-row', listEl).filter((r) => r !== row);
+    const ziel = andere.find((r) => { const b = r.getBoundingClientRect(); return y < b.top + b.height / 2; });
+    if (opts.fixFirst && ziel && ziel === andere[0]) { listEl.insertBefore(row, andere[0].nextSibling); return; } // nie vor „Start“
+    if (ziel) listEl.insertBefore(row, ziel); else listEl.appendChild(row);
+  };
+  /* Am Rand des Fensters mitrollen, sonst kommt eine Kachel nicht in einem Zug ganz nach oben oder unten –
+     wie langDruckSortieren(rollen) beim Menü „Mehr“ (Finaltest Portion 1, 09.11.2026) */
+  const rollen = () => {
+    if (!row) return;
+    if (!listEl.isConnected) { row = null; return; }
+    if (box) {
+      const r = box.getBoundingClientRect(), zone = 50;
+      let v = 0;
+      if (fingerY < r.top + zone) v = -Math.ceil((r.top + zone - fingerY) / 5);
+      else if (fingerY > r.bottom - zone) v = Math.ceil((fingerY - (r.bottom - zone)) / 5);
+      v = Math.max(-16, Math.min(16, v));
+      if (v) { const vorher = box.scrollTop; box.scrollTop += v; if (box.scrollTop !== vorher) einordnen(fingerY); }
+    }
+    raf = requestAnimationFrame(rollen);
+  };
   $$('[data-grip]', listEl).forEach((g) => g.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     row = g.closest('.cfg-row'); row.classList.add('drag');
     try { g.setPointerCapture(e.pointerId); } catch (_) {}
+    fingerY = e.clientY;
+    box = listEl.parentElement;   // nächstes rollbares Fenster (hier .modal-body)
+    while (box && !(box.scrollHeight > box.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(rollen);
   }));
   const move = (e) => {
     if (!row) return;
-    const andere = $$('.cfg-row', listEl).filter((r) => r !== row);
-    const ziel = andere.find((r) => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
-    if (opts.fixFirst && ziel && ziel === andere[0]) { listEl.insertBefore(row, andere[0].nextSibling); return; } // nie vor „Start“
-    if (ziel) listEl.insertBefore(row, ziel); else listEl.appendChild(row);
+    fingerY = e.clientY;
+    einordnen(e.clientY);
   };
   const ende = () => {
     if (!row) return;
-    row = null;
+    row = null; cancelAnimationFrame(raf);
     let neu = $$('.cfg-row', listEl).map((r) => r.dataset.id);
     if (opts.fixFirst && neu[0] !== st.aktiv[0]) neu = [st.aktiv[0], ...neu.filter((x) => x !== st.aktiv[0])];
     st.aktiv = neu; zeichnen();
@@ -7698,9 +8023,10 @@ function belegstelleLabel(b) { if (!b) return ''; const zus = b.drohnenlinie || 
 Views.staende = {
   title: 'Bienenstände',
   async render(main) {
-    const staende = U.sortBy(await DB.getAll('staende'), (s) => s.name.toLowerCase());
+    /* Natürlich sortiert wie die Reiter der Völker-Seite, Einzahl „1 aktives Volk“ (Finaltest Portion 1, 09.11.2026) */
+    const staende = (await DB.getAll('staende')).sort((a, b) => NATUERLICH.compare(a.name || '', b.name || ''));
     const voelker = (await DB.getAll('voelker')).filter((v) => v.status === 'aktiv');
-    main.innerHTML = pageHead('Bienenstände', `${staende.length} ${staende.length === 1 ? 'Stand' : 'Stände'} · ${voelker.length} aktive Völker`,
+    main.innerHTML = pageHead('Bienenstände', `${staende.length} ${staende.length === 1 ? 'Stand' : 'Stände'} · ${voelker.length === 1 ? '1 aktives Volk' : `${voelker.length} aktive Völker`}`,
       `<button class="btn btn-primary no-print" id="add">${icon('plus')} Neuer Stand</button>`) +
       `<div class="card">` + (staende.length ? `<div class="rows">` + staende.map((s) => {
         const n = voelker.filter((v) => v.standId === s.id).length;
@@ -7740,6 +8066,8 @@ function geloeschterStandName(id) {
     Vorhandener Stand: sein Name, genau wie bisher. Gelöscht: „Name (gelöscht)“ mit dem gemerkten Namen; ist keiner gemerkt
     (Altdaten), der Rückfalltext mit Zusatz – etwa „vonOrt (gelöscht)“ einer alten Wanderung –, sonst „gelöschter Stand“.
     Ohne Kennung: '' – dann bleibt es bei dem, was die Stelle bisher zeigte. `staende`: Map (idMap) oder Liste. */
+/** Status eines Volks zum Anzeigen – „aufgelöst“ mit Umlaut (Finaltest Portion 1, 09.11.2026). */
+function volkStatusText(status) { return ({ aktiv: 'aktiv', aufgeloest: 'aufgelöst', vereinigt: 'vereinigt' })[status] || status || ''; }
 function standNameAnzeige(id, staende, rueckfall = '') {
   if (!id) return '';
   // Map nicht per instanceof erkennen: Eine Map aus einem anderen Fenster (Tests, iframe) wäre sonst keine
@@ -7839,7 +8167,7 @@ async function standLoeschen(s) {
   const hinweis = standNachweisHinweis(d, s);
   if (!(await UI.confirm(hinweis
     ? { title: 'Stand mit Nachweisen löschen?', text: hinweis + voelkerText, confirmText: 'Trotzdem löschen' }
-    : { title: 'Stand löschen?', text: `„${s.name}" wandert in den Papierkorb.${voelkerText}` }))) return false;
+    : { title: 'Stand löschen?', text: `„${s.name}“ wandert in den Papierkorb.${voelkerText}` }))) return false;
   try {
     /* In EINER Transaktion: Stand in den Papierkorb, Völker lösen, Namen merken. Kommt während der Rückfrage ein Nachweis
        dazu, ist das kein Grund mehr zum Abbruch – sein Name steht ja gemerkt dabei (Julian 05.11.2026). */
@@ -7909,7 +8237,8 @@ Views.stand = {
   async render(main, id) {
     const s = await DB.get('staende', id);
     if (!s) { main.innerHTML = emptyState('warn', 'Stand nicht gefunden.'); return; }
-    const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === id && v.status === 'aktiv');
+    /* Natürlich sortiert – vorher Reihenfolge der zufälligen Kennungen (Finaltest Portion 1, 09.11.2026) */
+    const voelker = (await DB.getAll('voelker')).filter((v) => v.standId === id && v.status === 'aktiv').sort((a, b) => NATUERLICH.compare(a.name || '', b.name || ''));
     const fahrten = U.sortBy((await DB.getAll('fahrten')).filter((f) => f.standId === id), (f) => f.datum, true);
     const jahrAktuell = U.todayIso().slice(0, 4);
     // Tracht an diesem Stand (v2.83): blüht gerade → bald → später → vorbei
@@ -7919,7 +8248,7 @@ Views.stand = {
     const links = s.lat && s.lng ? U.mapsLinks(s.lat, s.lng) : null;
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('staende')">${icon('back')} Alle Stände</button>
-      ${pageHead(s.name, `${voelker.length} aktive ${voelker.length === 1 ? 'Volk' : 'Völker'}`, `
+      ${pageHead(s.name, `${voelker.length} ${voelker.length === 1 ? 'aktives Volk' : 'aktive Völker'}`, `
         <button class="btn btn-ghost btn-sm no-print" id="edit">${icon('pencil')} Bearbeiten</button>
         <button class="btn btn-ghost btn-sm no-print" id="wschild" title="${imkereiStaat() === 'DE' ? 'Schild mit Name, Anschrift und Völkerzahl (§ 5a Bienenseuchen-Verordnung)' : 'Schild mit Name, Anschrift und Nummer für den Bienenstand'}">${icon('doc')} ${imkereiStaat() === 'DE' ? 'Wanderschild' : 'Standschild'}</button>
         <button class="btn btn-danger btn-sm no-print" id="del">${icon('trash')}</button>`)}
@@ -8420,6 +8749,9 @@ Views.voelker = {
     const staende = await idMap('staende');
     const queens = await idMap('koeniginnen');
     Views.voelker._daten = { voelker, staende, queens };
+    /* Gelöschter Stand im Filter fällt auf „Alle aktiven“ zurück (Finaltest Portion 1, 09.11.2026) – sonst leere Liste
+       „Noch keine Völker“ und „Neues Volk“ legte das Volk auf den gelöschten Stand. */
+    if (Views.voelker._stand && !staende.has(Views.voelker._stand)) Views.voelker._stand = '';
     const filterStand = Views.voelker._stand || '';
     const showAlte = Views.voelker._alte || false;
     const aktive = voelker.filter((v) => v.status === 'aktiv');
@@ -8441,7 +8773,7 @@ Views.voelker = {
         <input class="inp" id="v-suche" type="search" inputmode="search" autocomplete="off" placeholder="Volk suchen – Name, Beute, Stand, Königin …" value="${U.esc(Views.voelker._suche || '')}">
         ${vieleStaende ? `<select class="inp" id="v-stand" aria-label="Stand oder Archiv wählen">
           <option value="" ${!filterStand && !showAlte ? 'selected' : ''}>Alle aktiven</option>
-          ${U.sortBy([...staende.values()], (s) => (s.name || '').toLowerCase()).map((s) => `<option value="${U.esc(s.id)}" ${filterStand === s.id ? 'selected' : ''}>${U.esc(s.name)}</option>`).join('')}
+          ${[...staende.values()].sort((a, b) => NATUERLICH.compare(a.name || '', b.name || '')).map((s) => `<option value="${U.esc(s.id)}" ${filterStand === s.id ? 'selected' : ''}>${U.esc(s.name)}</option>`).join('')}
           <option value="__archiv" ${showAlte ? 'selected' : ''}>Archiv (aufgelöst/vereinigt)</option>
         </select>` : ''}
       </div>` : '') +
@@ -8457,7 +8789,7 @@ Views.voelker = {
           return renderRoute();
         });
     }
-    const add = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
+    const add = () => openVolkForm(null, { standId: staende.has(filterStand) ? filterStand : null }, renderRoute);
     bindAdd(add, main);
     const sammel = $('#sammel', main);
     if (sammel) sammel.onclick = () => sammelErfassung((Views.voelker._liste || []).filter((v) => v.status === 'aktiv'));
@@ -8509,7 +8841,8 @@ Views.voelker = {
     const funktion = Views.voelker._funktion || '';
     const passtFunktion = (v) => !funktion || (funktion === '__ohne' ? !String(v.funktion || '').trim() : String(v.funktion || '').trim() === funktion);
     const fName = funktion === '__ohne' ? 'ohne Funktion' : funktion;
-    const list = U.sortBy(voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && passtFunktion(v) && trifft(v)), (v) => v.name.toLowerCase());
+    /* Natürlich sortiert wie Reiter und Durchsicht – „Volk 2“ vor „Volk 10“ (Finaltest Portion 1, 09.11.2026) */
+    const list = voelker.filter((v) => (showAlte ? v.status !== 'aktiv' : v.status === 'aktiv') && (!filterStand || v.standId === filterStand) && passtFunktion(v) && trifft(v)).sort((a, b) => NATUERLICH.compare(a.name || '', b.name || ''));
     Views.voelker._liste = list;
     const seite = seitenweise('voelker', list);
     const zaehl = suchtext || funktion ? `<div class="small muted mb8">${list.length} ${list.length === 1 ? 'Volk' : 'Völker'}${funktion ? ` · ${U.esc(fName)}` : ''}${suchtext ? ` · passend zu „${U.esc(Views.voelker._suche.trim())}“` : ''}</div>` : '';
@@ -8526,7 +8859,7 @@ Views.voelker = {
       : funktion ? `<p class="small muted">Kein Volk mit der Funktion „${U.esc(fName)}“ in dieser Auswahl.</p>`
       : emptyState('volk', showAlte ? 'Keine aufgelösten oder vereinigten Völker.' : 'Noch keine Völker. Lege dein erstes Volk an – die Stockkarte wartet schon.', showAlte ? '' : `<button class="btn btn-primary" id="add2">${icon('plus')} Erstes Volk anlegen</button>`);
     const add2 = $('#add2', box);
-    if (add2) add2.onclick = () => openVolkForm(null, { standId: filterStand || null }, renderRoute);
+    if (add2) add2.onclick = () => openVolkForm(null, { standId: staende.has(filterStand) ? filterStand : null }, renderRoute);
     const volkVon = (r) => list.find((x) => x.id === r.dataset.id);
     Wisch.liste(box, '.row[data-id]', {
       bearbeiten: (r) => openVolkForm(volkVon(r), {}, renderRoute),
@@ -8630,10 +8963,14 @@ Views.volk = {
     const q = v.koeniginId ? await DB.get('koeniginnen', v.koeniginId) : null;
     const qc = q ? queenColor(q.jahrgang) : null;
     const tab = Views.volk._tab || 'stockkarte';
-    const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${U.esc(v.status)}</span>`;
+    /* Status mit Umlaut wie in der Völkerliste; Kopfzeile ohne doppelten Trennpunkt, wenn Beutentyp oder Funktion fehlen
+       (Finaltest Portion 1, 09.11.2026) */
+    const statusBadge = v.status === 'aktiv' ? '<span class="badge b-ok">aktiv</span>' : `<span class="badge b-muted">${U.esc(volkStatusText(v.status))}</span>`;
+    const kopfTeile = [stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a>` : v.standId ? U.esc(standNameAnzeige(v.standId, [])) : '',
+      U.esc(v.funktion || ''), U.esc(v.beutentyp || ''), U.esc(v.beutenkennung || '')].filter(Boolean).join(' · ');
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('voelker')">${icon('back')} Alle Völker</button>
-      ${pageHead(v.name, `${stand ? `<a href="#/stand/${stand.id}">${U.esc(stand.name)}</a> · ` : v.standId ? `${U.esc(standNameAnzeige(v.standId, []))} · ` : ''}${v.funktion ? U.esc(v.funktion) + ' · ' : ''}${U.esc(v.beutentyp || '')} ${v.beutenkennung ? '· ' + U.esc(v.beutenkennung) : ''}`, `
+      ${pageHead(v.name, kopfTeile, `
         <span class="flex-wrap no-print">
           ${v.status === 'aktiv' ? `<button class="btn btn-primary btn-sm" id="sdVolk">${icon('check2')} Durchsicht am Stand</button>` : ''}
           <button class="btn btn-ghost btn-sm" id="qr">${icon('qr')} QR-Code</button>
@@ -8676,12 +9013,16 @@ Views.volk = {
     if (dis) dis.onclick = async () => { if (await volkAufloesen(v)) renderRoute(); };
     const mg = $('#merge');
     if (mg) mg.onclick = async () => {
-      const others = (await DB.getAll('voelker')).filter((x) => x.status === 'aktiv' && x.id !== v.id);
+      /* Mit Standname, Völker des eigenen Stands zuerst, natürlich sortiert – zwei „Volk 1“ an verschiedenen Ständen waren
+         nicht zu unterscheiden, eine Fehlwahl archiviert das Volk (Finaltest Portion 1, 09.11.2026) */
+      const mgStaende = await idMap('staende');
+      const others = (await DB.getAll('voelker')).filter((x) => x.status === 'aktiv' && x.id !== v.id)
+        .sort((a, b) => ((b.standId || '') === (v.standId || '')) - ((a.standId || '') === (v.standId || '')) || NATUERLICH.compare(a.name || '', b.name || ''));
       if (!others.length) return UI.toast('Kein anderes aktives Volk vorhanden', 'err');
       UI.formModal({
         title: 'Volk vereinigen', lizenzFrei: true,   // senkt die Völkerzahl – in Light immer erlaubt
         fields: [
-          { key: 'ziel', label: `„${v.name}“ vereinigen mit`, type: 'select', required: true, options: others.map((o) => ({ v: o.id, l: o.name })) },
+          { key: 'ziel', label: `„${v.name}“ vereinigen mit`, type: 'select', required: true, keepOrder: true, options: others.map((o) => ({ v: o.id, l: `${o.name} · ${standNameAnzeige(o.standId, mgStaende) || 'ohne Stand'}` })) },
           { key: 'hinweis', type: 'static', html: '<div class="hint">Dieses Volk wird als „vereinigt“ archiviert, das Zielvolk bleibt bestehen. Die Königin dieses Volks wird abgemeldet.</div>' },
         ],
         saveText: 'Vereinigen',
@@ -8776,7 +9117,9 @@ Views.volk = {
       values: Object.assign({}, basis, s ? {} : { datum: U.todayIso() }, zusatzWerte),
       async onSave(val) {
         const vorlageName = (val._vorlageName || '').trim(); delete val._vorlageName;
-        const zusatz = {};
+        /* Mit den alten Werten beginnen: Werte inzwischen entfernter Felder bleiben erhalten, wie die Rückfrage beim
+           Entfernen zusagt (Finaltest Portion 1, 09.11.2026) */
+        const zusatz = { ...((s && s.zusatz) || {}) };
         felder.forEach((f, i) => { zusatz[f.name] = val['z' + i]; delete val['z' + i]; });
         val.zusatz = zusatz;
         if (vorlageName) {
@@ -8873,13 +9216,12 @@ Views.volk = {
       async onSave(val) {
         const neu = !f;
         delete val._sirupLiter;            // nur Anzeige, gespeichert wird der Zucker
-        if (f) await fuetterungAendern(f, val);
-        else await DB.put('fuetterungen', { volkId: v.id, ...val });
+        const erg = f ? await fuetterungAendern(f, val) : await DB.put('fuetterungen', { volkId: v.id, ...val });
         if (neu && val.wiedervorlageTage > 0) {
           await DB.put('aufgaben', { titel: `Fütterung prüfen: ${v.name}`, faellig: U.addDays(val.datum, Math.round(val.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: v.id, volkId: v.id, notiz: `Nach ${val.futterart} (${U.fmtNum(val.mengeKg)} kg) vom ${U.fmtDate(val.datum)}` });
           Notif.check();
         }
-        UI.toast('Fütterung gespeichert'); renderRoute();
+        fuetterungGeaendertMelden(f ? erg : null); renderRoute();
       },
       onDelete: papierkorbDelete('fuetterungen', f, 'Fütterung löschen?', 'Wandert in den Papierkorb.'),
     }));
@@ -8967,7 +9309,10 @@ Views.volk = {
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: U.todayIso(), halb: true },
         { key: 'gewichtKg', label: 'Gewicht (kg)', type: 'number', required: true, halb: true },
       ],
-      async onSave(val) { await DB.put('gewichte', { volkId: v.id, ...val }); UI.toast('Gewicht gespeichert'); renderRoute(); },
+      async onSave(val) {
+        if (!(Number(val.gewichtKg) > 0)) throw feldFehler('gewichtKg', 'Bitte ein Gewicht größer 0 eingeben.');   // Finaltest Portion 1, 09.11.2026: -5 kg landete in Kurve und Tabelle
+        await DB.put('gewichte', { volkId: v.id, ...val }); UI.toast('Gewicht gespeichert'); renderRoute();
+      },
     });
     box.addEventListener('click', async (e) => {
       if (jahrFilterKlick(Views.volk._filter, e)) return;
@@ -9033,12 +9378,15 @@ Views.durchsicht = {
   title: 'Am Stand',
   _entwuerfe: new Map(),   // volkId → { id, schritt, antworten, audio: [{ blob, transkript }] }
   _erledigt: new Set(),    // in diesem Durchgang gespeicherte Völker
+  /* Ohne Eintrag übersprungene Völker: zählen nicht als gespeichert, „nächstes Volk“ lässt sie aber aus – sonst wechselten
+     sich zwei übersprungene Völker endlos ab (Finaltest Portion 1, 09.11.2026). Der Schluss zeigt sie weiter als „offen ›“. */
+  _uebersprungen: new Set(),
   _aufnahme: null,         // { volkId, stop }
   _ende: false,
   _zuletzt: null,          // zuletzt geöffnetes Volk – für „Weiter bei …“ auf der Startseite
   /** Neuer Durchgang (vom Stand oder vom Volk aus). */
   starten(volkId) {
-    this._erledigt = new Set(); this._ende = false;
+    this._erledigt = new Set(); this._uebersprungen = new Set(); this._ende = false;
     navTo('durchsicht/' + volkId);
     this.grenzeVorab();
   },
@@ -9192,7 +9540,8 @@ Views.durchsicht = {
     const volk = volkId ? await DB.get('voelker', volkId) : null;
     if (!volk) { main.innerHTML = emptyState('warn', 'Dieses Volk gibt es auf diesem Gerät nicht (mehr).',`<button class="btn btn-ghost mt12" onclick="navTo('voelker')">Zu den Völkern</button>`); return; }
     if (volk.status !== 'aktiv') {
-      main.innerHTML = emptyState('volk', `„${U.esc(volk.name)}“ ist nicht mehr aktiv (${U.esc(volk.status)}).`, `<button class="btn btn-ghost mt12" onclick="navTo('volk/${U.esc(volk.id)}')">Stockkarte ansehen</button>`);
+      /* Status mit Umlaut; „Stockkarte ansehen“ öffnet den Reiter Stockkarte, nicht den zuletzt benutzten (Finaltest Portion 1, 09.11.2026) */
+      main.innerHTML = emptyState('volk', `„${U.esc(volk.name)}“ ist nicht mehr aktiv (${U.esc(volkStatusText(volk.status))}).`, `<button class="btn btn-ghost mt12" onclick="Views.volk._tab='stockkarte';navTo('volk/${U.esc(volk.id)}')">Stockkarte ansehen</button>`);
       return;
     }
     const stand = volk.standId ? await DB.get('staende', volk.standId) : null;
@@ -9206,7 +9555,7 @@ Views.durchsicht = {
     this.entwurfMerken();   // auch der Schritt: Nach einem Neustart geht es dort weiter
     if (e.datum && e.datum !== U.todayIso() && this._hatInhalt(e) && !this._alteGefragt.has(volk.id)) { this._alteGefragt.add(volk.id); this.alterEntwurfFragen(volk, e); }
     const offeneNach = () => {
-      for (let i = 1; i <= reihe.length; i++) { const v = reihe[(pos + i) % reihe.length]; if (v.id !== volk.id && !this._erledigt.has(v.id)) return v; }
+      for (let i = 1; i <= reihe.length; i++) { const v = reihe[(pos + i) % reihe.length]; if (v.id !== volk.id && !this._erledigt.has(v.id) && !this._uebersprungen.has(v.id)) return v; }
       return null;
     };
     const erledigt = reihe.filter((v) => this._erledigt.has(v.id)).length;
@@ -9275,7 +9624,7 @@ Views.durchsicht = {
         return navTo('durchsicht/' + n.id);                       // Entwurf dieses Volks bleibt erhalten
       }
       if (t.hasAttribute('data-sd-weg')) { await this.aufnahmeBeenden(); return navTo(stand ? 'stand/' + stand.id : 'volk/' + volk.id); }
-      if (t.hasAttribute('data-sd-karte')) { await this.aufnahmeBeenden(); return navTo('volk/' + volk.id); }
+      if (t.hasAttribute('data-sd-karte')) { await this.aufnahmeBeenden(); Views.volk._tab = 'stockkarte'; return navTo('volk/' + volk.id); }   // Reiter Stockkarte, nicht der zuletzt benutzte (Finaltest Portion 1, 09.11.2026)
       if (t.hasAttribute('data-sd-mic')) {
         if (this._aufnahme) { await this.aufnahmeBeenden(); return renderRoute(); }
         if (Lizenz.nurVoll('Sprachnotizen') || this._aufnahmeStartet) return;   // Doppeltipp: Eine zweite Aufnahme liefe unbemerkt weiter
@@ -9306,8 +9655,8 @@ Views.durchsicht = {
           if (err.lizenz) return;
           return UI.toast(istSpeicherVoll(err) ? SPEICHER_VOLL_TEXT : 'Speichern fehlgeschlagen: ' + err.message, 'err');
         }
-        if (gespeichert) UI.toast(`Gespeichert · ${volk.name}`);
-        else { this._entwuerfe.delete(volk.id); await this.entwurfMerken(); }
+        if (gespeichert) { UI.toast(`Gespeichert · ${volk.name}`); this._uebersprungen.delete(volk.id); }
+        else { this._entwuerfe.delete(volk.id); this._uebersprungen.add(volk.id); await this.entwurfMerken(); }
         if (naechstes) return navTo('durchsicht/' + naechstes.id);
         this._ende = volk.id; return renderRoute();
       }
@@ -9324,8 +9673,8 @@ Views.durchsicht = {
     </div>`;
     main.addEventListener('click', (ev) => {
       const zu = ev.target.closest('[data-sd-zu]');
-      if (zu) { this._ende = false; return navTo('durchsicht/' + zu.dataset.sdZu); }
-      if (ev.target.closest('[data-sd-fertig]')) { this._ende = false; this._erledigt = new Set(); navTo(stand ? 'stand/' + stand.id : 'volk/' + volk.id); }
+      if (zu) { this._ende = false; this._uebersprungen.delete(zu.dataset.sdZu); return navTo('durchsicht/' + zu.dataset.sdZu); }
+      if (ev.target.closest('[data-sd-fertig]')) { this._ende = false; this._erledigt = new Set(); this._uebersprungen = new Set(); navTo(stand ? 'stand/' + stand.id : 'volk/' + volk.id); }
     });
   },
 };
@@ -11249,8 +11598,20 @@ Views.behandlungen = {
        Vorher stand sie auf „–“, und schon „Tierarzt ändern“ buchte das Mittel still in den Bestand zurück und vergaß den Abzug.
        Wird die Position nicht angeboten (Papierkorb, endgültig gelöscht), heißt „–“ „nicht angefasst“. */
     const bestehend = !!(b && b.id);
-    const bisherId = bestehend ? ((b.verbrauchAbzug || [])[0] || {}).inventarId || '' : '';
+    let bisherId = bestehend ? ((b.verbrauchAbzug || [])[0] || {}).inventarId || '' : '';
+    /* Mitglied einer Stück-Gruppe ohne eigenen Abzug (3 × 0,5 Stück → 1/0/1, Finaltest Portion 1, 09.11.2026): Die Auswahl stand
+       auf „–“, und Menge 0,5 → 1,5 zog nichts nach (Lager 8 statt 7). Jetzt steht sie auf der Position der Gruppe – wie
+       behandlungAendern (gruppenStart) sie annimmt –, damit die Gruppenrechnung greift. */
+    // Runde 3: dieselbe, fest gewählte Position wie behandlungAendern (stueckGruppeStart, auch eine gemerkte abzugPosition)
+    const alleBeh = bestehend && b.abzugGruppe ? await DB.getAll('behandlungen') : [], alleInv = bestehend && b.abzugGruppe ? await DB.getAll('inventar') : [];
+    if (bestehend && !bisherId && b.abzugGruppe) {
+      const start = (stueckGruppeStart(alleBeh, b, alleInv) || {}).inventarId || '';
+      const pos = mittelPosten.find((p) => p.id === start);
+      if (pos && verbrauchEinheit(pos) === 'Stück') bisherId = start;
+    }
     const bisherAngeboten = !!bisherId && mittelPosten.some((p) => p.id === bisherId);
+    // Übrige Einträge der Gruppe: Der Hinweis rechnet damit wie behandlungAendern (stueckAenderPlan, Nachbesserung P2, Runde 2)
+    const bisherGruppe = bestehend && b.abzugGruppe ? stueckGruppeMitglieder(alleBeh, b, alleInv) : [];
     const m = UI.formModal({
       title: b ? 'Behandlung bearbeiten' : 'Behandlung dokumentieren', wide: true, lizenzBereich: 'Behandlungen und Bestandsbuch',
       fields: [
@@ -11303,18 +11664,27 @@ Views.behandlungen = {
       },
       /* Wie bei der Fütterung: Löschen gibt das Mittel zurück in den Bestand. */
       onDelete: b ? async () => {
-        const zurueck = (b.verbrauchAbzug || []).map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+        const liste = (xs) => xs.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+        /* Stück-Gruppe (Nachbesserung P2, 10.11.2026): Rückfrage und Meldung richten sich nach derselben Rechnung wie das Löschen
+           (stueckGruppeLoeschPlan) bzw. nach dem, was loescheMitMaterial ausdrücklich zurückmeldet. Vorher sprach die Meldung
+           vom „angebrochenen Stück“, sobald weniger zurückkam als gemerkt – auch bei 50 ml Ameisensäure, deren Position fehlte. */
+        const inventar = await DB.getAll('inventar'), da = new Set(inventar.map((p) => p.id));
+        const plan = stueckGruppeLoeschPlan(await DB.getAll('behandlungen'), inventar, b);
+        // Nur nennen, was zurückkommen kann – eine endgültig gelöschte Position bekommt nichts zurück
+        const zurueck = liste((plan ? plan.rueck : (b.verbrauchAbzug || [])).filter((a) => da.has(a.inventarId)));
+        const angebrochen = ' Das angebrochene Stück bleibt bei den übrigen Völkern verbucht.';
         if (!(await UI.confirm({ title: 'Behandlung löschen?',
-          text: 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : ''),
+          text: 'Der Bestandsbuch-Eintrag wandert in den Papierkorb (30 Tage).' + (zurueck ? ` ${zurueck} gehen zurück in den Bestand.` : '') + (plan && plan.uebergeben > 0 ? angebrochen : ''),
           confirmText: 'Löschen', danger: true }))) return false;
-        await loescheMitMaterial('behandlungen', b);
-        UI.toast('Behandlung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
+        const erg = await loescheMitMaterial('behandlungen', b, { bericht: true });
+        UI.toast('Behandlung gelöscht' + (erg.zurueck.length ? ` · ${liste(erg.zurueck)} zurück im Bestand` : '')
+          + (erg.uebergeben > 0 ? ' · das angebrochene Stück bleibt bei den übrigen Völkern verbucht' : ''));
         renderRoute();
         return true;
       } : null,
     });
     verdrahteVerbrauch(m, mittelPosten, () => { const el = $('#f-menge', m.el); return el ? U.parseNum(el.value) : 0; },
-      bestehend ? { start: bisherId, angeboten: bisherAngeboten, menge: Math.max(0, Number(b.menge) || 0), abzug: b.verbrauchAbzug || [] } : null);
+      bestehend ? { start: bisherId, angeboten: bisherAngeboten, menge: Math.max(0, Number(b.menge) || 0), abzug: b.verbrauchAbzug || [], gruppe: bisherGruppe, rec: b, inventar: alleInv, behandlungen: alleBeh } : null);
   },
   detail(b, ziel) {
     const m = UI.modal({
@@ -11396,25 +11766,42 @@ Views.behandlungen = {
     const standSel = $('#f-standId', m.el);
     /* Von Hand abgewählte Völker bleiben abgewählt (Prüfung 08.11.2026, P2): Vorher hakte ein Wechsel der Funktion alle
        sichtbaren Völker wieder an – das abgewählte Volk bekam beim Speichern trotzdem einen Eintrag und einen Lager-Abzug. */
-    const abgewaehlt = new Set();
+    const abgewaehlt = new Set(), angehakt = new Set();
     const volkBox = $('#f-volkIds', m.el), zeilenSichtbar = () => $$('label.check-line', volkBox).filter((l) => l.style.display !== 'none');
     volkBox.addEventListener('change', (e) => {
       const cb = e.target;
       if (!cb || cb.type !== 'checkbox') return;
-      if (cb.checked) abgewaehlt.delete(cb.value); else abgewaehlt.add(cb.value);
+      if (cb.checked) { abgewaehlt.delete(cb.value); angehakt.add(cb.value); } else { abgewaehlt.add(cb.value); angehakt.delete(cb.value); }
     });
     const knopf = (sel, fn) => { const k = $(sel, m.el); if (k) k.addEventListener('click', fn); };
     knopf('[data-alle]', () => abgewaehlt.clear());
     knopf('[data-keine]', () => zeilenSichtbar().forEach((l) => abgewaehlt.add($('input[type=checkbox]', l).value)));
+    /* Nach dem Behandlungstag in der App angelegte Völker (Finaltest Portion 1, 09.11.2026): wie bei der Ernte am ganzen Stand
+       mit „in der App seit …“ anbieten und nicht vorhaken – vorher bekamen sie still einen Bestandsbuch-Eintrag und einen
+       Lager-Anteil für einen Tag, an dem sie laut App noch nicht da waren. Von Hand anhaken geht weiter. */
+    const volkNamen = new Map();
+    const spaeterSeit = (id) => {
+      const tag = ($('#f-datum', m.el) || {}).value || U.todayIso(), x = voelkerAlle.find((y) => y.id === id);
+      return x && volkBeginn(x, tag) > tag ? volkBeginn(x, tag) : '';
+    };
+    const seitMarkieren = () => $$('label.check-line', volkBox).forEach((l) => {
+      const cb = $('input[type=checkbox]', l), sp = $('span', l);
+      if (!sp) return;
+      if (!volkNamen.has(cb.value)) volkNamen.set(cb.value, sp.textContent);
+      const seit = spaeterSeit(cb.value);
+      sp.textContent = volkNamen.get(cb.value) + (seit ? ` · in der App seit ${U.fmtDate(seit)}` : '');
+    });
     const vorauswahl = () => {
+      seitMarkieren();
       if (!standSel.value) return;
-      zeilenSichtbar().forEach((l) => { const cb = $('input[type=checkbox]', l); cb.checked = !abgewaehlt.has(cb.value); });
+      zeilenSichtbar().forEach((l) => { const cb = $('input[type=checkbox]', l); cb.checked = !abgewaehlt.has(cb.value) && (!spaeterSeit(cb.value) || angehakt.has(cb.value)); });
       jeVolk.auffrischen();
       volkFilter.zahl();   // Zähler mit den neuen Häkchen (Großbestand-Test 09.11.2026, #1: stand „0 von 80 ausgewählt“)
     };
     standSel.addEventListener('change', vorauswahl);
     $('#f-funktion', m.el).addEventListener('change', vorauswahl);
     $('#f-datum', m.el).addEventListener('change', vorauswahl);   // anderes Datum, andere Völker am Stand (Prüfung 2, 08.11.2026, R3)
+    seitMarkieren();
     verdrahteVerbrauch(m, mittelPosten, () => jeVolk.werte().reduce((s, x) => s + (x.menge > 0 ? x.menge : 0), 0));
   },
 };
@@ -11541,14 +11928,29 @@ async function fuetterungsPlanAufgaben(plan, volkIds, alleVoelker) {
   return angelegt;
 }
 
+/* Meldung zu „Speichern + in Aufgaben“ (Finaltest Portion 1, 09.11.2026): Der Knopf verspricht die WEITEREN Fütterungen als
+   Aufgaben; die Meldung zählte aber auch die gerade erfasste mit („4 Aufgaben“ statt 3). Termine bis heute kommen gleich als
+   erledigt hinein – das sagt die Meldung jetzt dazu, sonst wundert man sich, dass keine Erinnerung kommt. */
+function fuetterungsPlanText(plan, angelegt) {
+  const weitere = Math.max(0, angelegt - 1), heute = U.todayIso();
+  const vorbei = ((plan && plan.termine) || []).slice(1, angelegt).filter((t) => t <= heute).length;
+  return `${weitere} weitere ${weitere === 1 ? 'Fütterung als Aufgabe' : 'Fütterungen als Aufgaben'} angelegt`
+    + (vorbei ? ` (${vorbei === weitere ? (weitere === 1 ? 'sie ist' : 'alle sind') : vorbei === 1 ? '1 davon ist' : `${vorbei} davon sind`} schon vorbei und als erledigt eingetragen)` : '');
+}
 /* Wie viel Material eine Fütterung verbraucht, hängt an der Einheit der
    gewählten Position: kg-Positionen liefern reinen Zucker, Liter-Positionen den
-   angesetzten Sirup. Mal der Zahl der gefütterten Völker. */
+   angesetzten Sirup. Mal der Zahl der gefütterten Völker.
+   Fertigsirup und Futterteig aus einer kg-Position (Finaltest Portion 1, 09.11.2026): Abgezogen wird das Produktgewicht
+   („Menge (kg)“), nicht der reine Zucker darin – vorher gingen für 10 L Apiinvert (13,6 kg) nur 10 kg vom Lager ab, für
+   2,5 kg Futterteig nur 2,3 kg. Den reinen Zucker zieht eine kg-Position nur bei Zuckerwasser (Verhältnis in der Futterart)
+   oder wenn sie selbst Zucker ist („Zucker“ im Namen, kein Teig oder Sirup). */
 function fuetterungVerbrauch(v, posten, anzahlVoelker) {
   const pos = (posten || []).find((i) => i.id === (v && v._verbrauchId));
   if (!pos) return 0;
   const n = Math.max(1, Math.round(anzahlVoelker || 1));
-  const zucker = Math.max(0, Number(v.zuckerKg) || Number(v.mengeKg) || 0);
+  const istZuckerPosten = /zucker/i.test(pos.bezeichnung || '') && !/teig|fondant|sirup|invert|ambrosia/i.test(pos.bezeichnung || '');
+  const produktGewicht = verbrauchEinheit(pos) !== 'L' && !verhaeltnisAusFutterart(v.futterart) && !istZuckerPosten && Number(v.mengeKg) > 0;
+  const zucker = produktGewicht ? Number(v.mengeKg) : Math.max(0, Number(v.zuckerKg) || Number(v.mengeKg) || 0);
   if (verbrauchEinheit(pos) === 'L') {
     let liter = Math.max(0, Number(v._sirupLiter) || 0);
     if (!liter && istFertigsirup(v.futterart)) liter = Math.max(0, Number(v.mengeKg) || 0) / FERTIGSIRUP_KG_JE_L;
@@ -11753,28 +12155,65 @@ async function fuetterungAendern(erwartet, werte) {
     const alt = d.fuetterungen.find((f) => f.id === erwartet.id);
     if (!alt || JSON.stringify(alt) !== JSON.stringify(erwartet)) throw new Error('Diese Fütterung wurde inzwischen geändert. Bitte erneut öffnen.');
     const posten = new Map(d.inventar.map((x) => [x.id, x])), geaendert = new Map();
-    const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : Math.round(n * 1000) / 1000;
-    for (const a of (alt.verbrauchAbzug || [])) {
+    const r3 = (n) => Math.round(n * 1000) / 1000;
+    const runden = (p, n) => verbrauchEinheit(p) === 'Stück' ? Math.round(n) : r3(n);
+    const zurueck = (a, n) => {
       const p = posten.get(a.inventarId);
-      if (!p) { materialFehltPruefen(d, a); continue; }   // endgültig gelöscht: kein Bestand mehr, nichts zurückzubuchen (Fund 04.11.2026, #4/#24)
-      p.stueckzahl = runden(p, buchungsZahl(p.stueckzahl, 'Materialbestand') + buchungsZahl(a.menge, 'Materialabzug'));
+      if (!p) { materialFehltPruefen(d, a); return; }   // endgültig gelöscht: kein Bestand mehr, nichts zurückzubuchen (Fund 04.11.2026, #4/#24)
+      p.stueckzahl = runden(p, buchungsZahl(p.stueckzahl, 'Materialbestand') + n);
       geaendert.set(p.id, p);
-    }
-    let id = eingabe._verbrauchId !== undefined ? eingabe._verbrauchId : alt.verbrauchAbzug?.[0]?.inventarId;
+    };
+    const altAbzug = (alt.verbrauchAbzug || []).map((a) => ({ ...a })), altStart = (altAbzug[0] || {}).inventarId || '';
+    let id = eingabe._verbrauchId !== undefined ? eingabe._verbrauchId : altStart;
     // Ohne eigene Wahl bleibt der bisherige Posten – ist er endgültig gelöscht, gibt es nichts mehr abzuziehen (Fund 04.11.2026, #4/#24)
     if (eingabe._verbrauchId === undefined && id && !posten.has(id)) id = '';
     const v = { ...alt, ...eingabe, _verbrauchId: id };
     buchungsZahl(v.mengeKg, 'Futtermenge');
-    const abzug = [];
-    if (id) {
-      const plan = materialAbzugPlan(d.inventar, id, fuetterungVerbrauch(v, d.inventar, 1), geaendert);
-      abzug.push(...plan.abzug);
-      if (plan.gefehlt > 0.0000001) throw new Error(`Material reicht nicht: ${U.fmtNum(plan.gefehlt)} ${plan.einheit} fehlen. Die Fütterung wurde nicht geändert.`);
+    /* Wie behandlungAendern (Finaltest Portion 1, 09.11.2026): Vorher wurde der alte Abzug zurückgebucht, die volle Menge neu
+       geplant und bei Fehlmenge abgewiesen – eine Fütterung, bei deren Anlegen Zucker fehlte, ließ sich danach nicht einmal im
+       Datum oder beim Haken „Winterfutter“ ändern. Jetzt: gleiche Position und gleiche Menge → Abzug bleibt, wie er ist; sonst
+       nur der Unterschied. Was damals fehlte, zählt als verbraucht (wird beim Verringern zuerst abgebaut). Fehlmengen werden
+       gemeldet (gefehlt), nicht abgewiesen: verbraucht ist verbraucht – wie beim Anlegen. */
+    let abzug = altAbzug, gefehlt = 0, einheit = '';
+    const gleicheMenge = Number(v.mengeKg) === Number(alt.mengeKg) && (Number(v.zuckerKg) || 0) === (Number(alt.zuckerKg) || 0) && String(v.futterart || '') === String(alt.futterart || '');
+    if (id && id === altStart && posten.has(id)) {
+      if (!gleicheMenge) {
+        const sollAlt = fuetterungVerbrauch({ ...alt, _verbrauchId: id }, d.inventar, 1), sollNeu = fuetterungVerbrauch(v, d.inventar, 1);
+        const schon = r3(altAbzug.reduce((s, a) => s + (Number(a.menge) || 0), 0));
+        if (sollNeu > sollAlt) {
+          const plan = materialAbzugPlan(d.inventar, id, r3(sollNeu - sollAlt), geaendert);
+          gefehlt = plan.gefehlt; einheit = plan.einheit || '';
+          for (const y of plan.abzug) { const da = abzug.find((z) => z.inventarId === y.inventarId); if (da) da.menge = r3(da.menge + y.menge); else abzug.push(y); }
+        } else {
+          let rest = r3(Math.max(0, schon - sollNeu));   // nur was über die neue Menge hinaus abgezogen ist, geht zurück
+          for (let i = abzug.length - 1; i >= 0 && rest > 0.0000001; i--) {
+            const a = abzug[i], p = posten.get(a.inventarId);
+            const n = Math.min(buchungsZahl(a.menge, 'Materialabzug'), (p ? verbrauchEinheit(p) : a.einheit) === 'Stück' ? Math.floor(rest + 1e-9) : rest);
+            if (n <= 0) break;
+            zurueck(a, n); a.menge = r3(a.menge - n); rest = r3(rest - n);
+          }
+          abzug = abzug.filter((a) => a.menge > 0);
+        }
+      }
+    } else {
+      for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+      abzug = [];
+      if (id) {
+        const plan = materialAbzugPlan(d.inventar, id, fuetterungVerbrauch(v, d.inventar, 1), geaendert);
+        abzug = plan.abzug; gefehlt = plan.gefehlt; einheit = plan.einheit || '';
+      }
     }
     const neu = { ...alt, ...eingabe, verbrauchAbzug: abzug };
     delete neu._verbrauchId; delete neu._sirupLiter;
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'fuetterungen', obj: neu }), wert: neu };
+    // Zurück kommt der gespeicherte Eintrag; die Fehlmenge steht unsichtbar daran (nicht aufzählbar, also nie mit gespeichert)
+    const wert = Object.defineProperties({ ...neu }, { gefehlt: { value: r3(gefehlt) }, einheit: { value: einheit } });
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'fuetterungen', obj: neu }), wert };
   });
+}
+/** Meldung nach dem Ändern einer Fütterung – nennt eine Fehlmenge wie beim Anlegen (Finaltest Portion 1, 09.11.2026). */
+function fuetterungGeaendertMelden(erg) {
+  const fehlt = erg && erg.gefehlt > 0;
+  UI.toast(fehlt ? `Fütterung gespeichert – ${U.fmtNum(erg.gefehlt, 2)} ${erg.einheit} fehlten im Bestand` : 'Fütterung gespeichert', fehlt ? 'err' : undefined);
 }
 function fuetterungVerbrauchAusFormular(m, posten, anzahlVoelker) {
   const wert = (id) => { const el = $(id, m.el); return el ? U.parseNum(el.value) : 0; };
@@ -11821,6 +12260,12 @@ async function behandlungenJeVolkAnlegen(liste, daten) {
     const mitAbzug = !!eingabe._verbrauchId && d.inventar.some((p) => p.id === eingabe._verbrauchId);
     const plan = mitAbzug ? materialAbzugPlan(d.inventar, eingabe._verbrauchId, summe, geaendert) : { abzug: [], gefehlt: 0 };
     recs.forEach((r, i) => { r.verbrauchAbzug = abzugAnteilGewichtet(plan, mengen, i); });
+    /* Fehlte beim Anlegen in Stück etwas, merkt sich jeder Eintrag der Gruppe, wie viel sie trägt (abzugSoll, Nachbesserung P2,
+       Runde 2): Löschen und Zurückholen buchen die Fehlmenge dann nicht nachträglich – auch wenn inzwischen Nachschub da ist. */
+    if (gruppe && plan.einheit === 'Stück' && plan.gefehlt > 0) {
+      const getragen = Math.round(plan.abzug.reduce((s, a) => s + (Number(a.menge) || 0), 0));
+      recs.forEach((r) => { r.abzugSoll = getragen; });
+    }
     const ops = [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat(recs.map((obj) => ({ store: 'behandlungen', obj })));
     const wz = Number(wartezeitWert(eingabe.wartezeitTage)) || 0;
     if (wz > 0) {
@@ -11852,6 +12297,7 @@ async function ernteJeVolkAnlegen(liste, daten) {
    Abgewählte Völker sind ausgegraut. Darunter steht die Summe. werte() liefert [{ volkId, name, menge }] der angehakten,
    sichtbaren Völker; menge ist NaN, wenn das Feld leer ist. */
 function verdrahteMengeJeVolk(m, box, oben, { einheit = () => '', summe = null } = {}) {
+  box.classList.add('menge-je-volk');   // Mengenfelder rechts in einer Spalte (CSS, Finaltest Portion 1, 09.11.2026)
   const zeilen = () => $$('label.check-line', box);
   const feld = (lab) => {
     let inp = $('input[data-volk-menge]', lab);
@@ -11919,12 +12365,18 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
     const altAbzug = (alt.verbrauchAbzug || []).map((a) => ({ ...a }));
     // Mitglied einer Gruppe ohne eigenen Abzug (0 Stück nach der Aufteilung, z. B. 3 × 0,5 Stück → 2 Stück auf zwei Einträge):
     // die Start-Position der Gruppe übernehmen, damit die Gruppenrechnung unten greift (Ultra-Test 3, 09.11.2026)
-    const gruppenStart = !altAbzug.length && alt.abzugGruppe ? (d.behandlungen.map((b) => b.abzugGruppe === alt.abzugGruppe ? ((b.verbrauchAbzug || [])[0] || {}).inventarId : '').find(Boolean) || '') : '';
+    /* Runde 3 (10.11.2026): über stueckGruppeStart – fest gewählt wie im Formular und mit der beim Löschen gemerkten Position
+       (abzugPosition), die ein ohne Bestand zurückgeholter Eintrag behält. Vorher wusste die Gruppe nach „zurückgeholt, keiner trägt
+       etwas“ ihre Position nicht mehr, und ein späteres Erhöhen zog nichts ab. */
+    const gruppenStart = !altAbzug.length && alt.abzugGruppe ? ((stueckGruppeStart(d.behandlungen, alt, d.inventar) || {}).inventarId || '') : '';
     const stueckGruppe = !!gruppenStart && posten.has(gruppenStart) && verbrauchEinheit(posten.get(gruppenStart)) === 'Stück';   // nur ganze Stück teilt die Gruppe untereinander auf
     const altStart = altAbzug.length ? altAbzug[0].inventarId : (stueckGruppe ? gruppenStart : '');
     const id = eingabe._verbrauchId !== undefined ? (eingabe._verbrauchId || '') : altStart;
     const altMenge = Math.max(0, Number(alt.menge) || 0), neuMenge = Math.max(0, Number(eingabe.menge) || 0);
     let abzug = altAbzug, gefehlt = 0, einheit = '';
+    let mitglieder = new Map(), soll = null, geloest = null;   // Stück-Gruppe: geänderte übrige Einträge, neue Grenze (null = unverändert), Lösch-Plan beim Lösen
+    // Andere Auswahl als bisher bei einem Mitglied einer Stück-Gruppe (auch ausdrücklich „–“): wie rechnen? (Runde 4, stueckWechselArt)
+    const wechsel = id !== altStart ? stueckWechselArt(d.behandlungen, d.inventar, alt, id) : null;
     const zurueck = (a, n) => {
       const p = posten.get(a.inventarId);
       if (!p) { materialFehltPruefen(d, a); return; }   // Papierkorb: erst wiederherstellen; endgültig gelöscht: kein Bestand mehr (#4/#24)
@@ -11944,14 +12396,31 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
          Stück noch fehlt, höchstens so viel wie bisher. Zurück kommt nur, was nach dem Ändern übrig ist. */
       const ganz = posten.has(id) ? verbrauchEinheit(posten.get(id)) === 'Stück' : (altAbzug[0] || {}).einheit === 'Stück';
       if (ganz) {
-        // auch Mitglieder ohne eigenen Abzug zählen zur Gruppe – sonst fehlte ihre Menge, und das Lager bekam Stück zurück, die es nie gab (Ultra-Test 3)
-        const gruppe = alt.abzugGruppe ? d.behandlungen.filter((b) => b.id !== alt.id && b.abzugGruppe === alt.abzugGruppe && (!(b.verbrauchAbzug || []).length || b.verbrauchAbzug[0].inventarId === altStart)) : [];
-        const mengeSonst = gruppe.reduce((s, b) => s + Math.max(0, Number(b.menge) || 0), 0);
-        const schon = [alt, ...gruppe].reduce((s, b) => s + (b.verbrauchAbzug || []).reduce((t, a) => t + (Number(a.menge) || 0), 0), 0);
-        const noetig = Math.ceil(r3(mengeSonst + neuMenge) - 1e-9);
-        // Menge gleich, aber die Gruppe trägt weniger Stück als nötig (Mittel war abgewählt und ist wieder gewählt): fehlende nachziehen
-        if (diff === 0) diff = Math.max(0, noetig - Math.round(schon));
-        else diff = diff > 0 ? Math.min(Math.ceil(diff - 1e-9), Math.max(0, noetig - Math.round(schon))) : -Math.min(Math.ceil(-diff - 1e-9), Math.max(0, Math.round(schon) - noetig));
+        /* Auch Mitglieder ohne eigenen Abzug zählen zur Gruppe – sonst fehlte ihre Menge, und das Lager bekam Stück zurück, die es
+           nie gab (Ultra-Test 3). Dieselbe Rechnung wie der Hinweis im Formular (stueckAenderPlan). Nachbesserung P2, Runde 2:
+           Beim Verringern kommt der Überschuss der Gruppe zurück, auch aus dem Abzug der übrigen – vorher höchstens der eigene
+           (0,5/0,7/1,5/0,5 trägt 1/1/2/0, das vierte auf 0,2: die Gruppe trug weiter 4 statt 3). */
+        const plan = stueckAenderPlan(alt, neuMenge, stueckGruppeMitglieder(d.behandlungen, alt, d.inventar), d.inventar);
+        soll = plan.sollNeu;
+        if (plan.nachziehen > 0) {
+          const vorher = gefehlt;
+          if (!posten.has(id)) { materialFehltPruefen(d, altAbzug[0]); soll = Math.min(soll, plan.getragen); }   // im Papierkorb: Meldung; endgültig gelöscht: nichts mehr abzuziehen
+          else {
+            for (const y of abziehen(id, plan.nachziehen)) {
+              const da = abzug.find((z) => z.inventarId === y.inventarId);
+              if (da) da.menge = r3(da.menge + y.menge); else abzug.push(y);
+            }
+            // Wie beim Anlegen: Fehlte etwas, trägt die Gruppe ab jetzt höchstens das Vorhandene; sonst steigt die Grenze um den
+            // Zuwachs des Bedarfs bzw. fällt weg, wenn nichts mehr fehlt (sollNeu, Runde 3)
+            const bekommen = plan.nachziehen - r3(gefehlt - vorher);
+            soll = bekommen < plan.nachziehen ? plan.getragen + bekommen : plan.sollNeu;
+          }
+        } else if (plan.rueck.length) {
+          for (const a of plan.rueck) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+          abzug = plan.eigen;
+          mitglieder = plan.mitglieder;
+        }
+        diff = 0;
       }
       if (diff > 0) {
         if (!posten.has(id)) materialFehltPruefen(d, altAbzug[0]);   // im Papierkorb: Meldung; endgültig gelöscht: nichts mehr abzuziehen
@@ -11971,14 +12440,60 @@ async function behandlungAendern(erwartet, werte, zielText = '') {
         }
         abzug = abzug.filter((a) => a.menge > 0);
       }
+    } else if (wechsel && wechsel.art === 'loesen') {
+      /* Runde 4 (10.11.2026): „–“ oder ein anderes Produkt – das Volk verlässt die Gruppe wie beim Löschen (der Überschuss der Gruppe
+         geht zurück, ein angebrochenes Stück bleibt bei den übrigen) und rechnet danach wie ein Einzeleintrag: seine Menge wird auf
+         ganze Stück aufgerundet abgezogen. Vorher rechnete die Gruppe Apivar und Bayvarol zusammen, und ein Volk mit „–“ zählte weiter
+         mit (es bekam beim Löschen der übrigen ihr Stück). */
+      for (const a of wechsel.plan.rueck) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+      for (const m of wechsel.plan.mitglieder) mitglieder.set(m.id, m);
+      abzug = id ? abziehen(id, neuMenge) : [];
+      geloest = wechsel.plan;
+    } else if (wechsel && wechsel.art === 'erste') {
+      /* Runde 4: Die Gruppe trug noch nichts und kannte keine Position (beim Anlegen fehlte alles). Nur der Anteil dieses Volks wird
+         gebucht (aufgerundet), die Grenze ist danach, was die Gruppe trägt – eine alte Fehlmenge wird nicht nachgebucht. */
+      abzug = abziehen(id, neuMenge);
+      const bedarf = stueckBedarf(stueckMengen(stueckGruppeMitglieder(d.behandlungen, alt, d.inventar)) + neuMenge);
+      const traegt = Math.round(abzug.reduce((n, a) => n + (Number(a.menge) || 0), 0));
+      soll = traegt < bedarf ? traegt : Infinity;
+    } else if (wechsel && wechsel.art === 'gruppe') {
+      /* Stück-Gruppe auf eine andere Position umgestellt (Runde 3, 10.11.2026): Der eigene Abzug geht zurück, von der neuen Position
+         kommt, was der Gruppe dann zum Bedarf fehlt (tragen die übrigen schon mehr, geht der Überschuss zurück) – wie ein neues
+         Anlegen. Die Grenze wird neu gesetzt: fehlte nichts, fällt sie weg; fehlte etwas, gilt, was die Gruppe danach trägt – bei
+         allen Mitgliedern und ihren Einträgen im Papierkorb (unten). Vorher blieb die alte Grenze stehen: „Lager 0 beim Anlegen,
+         Nachschub, A mit P1 verbunden, B löschen“ gab das Stück zurück, das A gerade verbraucht hatte (Lager 5 statt 4), und
+         ein umgestelltes Mitglied zog stur seine Menge auf ganze Stück ab, auch wenn die Gruppe sie schon trug. */
+      const gruppe = stueckGruppeMitglieder(d.behandlungen, alt, d.inventar);
+      for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+      const rest = stueckGetragen(gruppe), bedarf = stueckBedarf(stueckMengen(gruppe) + neuMenge);
+      abzug = [];
+      if (rest > bedarf) {
+        const start = stueckGruppeStart(d.behandlungen, { id: alt.id, abzugGruppe: alt.abzugGruppe }, d.inventar);
+        const u = stueckUeberschussNehmen([], gruppe, rest - bedarf, stueckKettenRang(d.inventar, start && start.inventarId));
+        for (const a of u.rueck) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
+        mitglieder = u.mitglieder;
+      } else if (bedarf > rest) abzug = abziehen(id, bedarf - rest);
+      const traegt = Math.min(rest, bedarf) + Math.round(abzug.reduce((n, a) => n + (Number(a.menge) || 0), 0));
+      soll = traegt < bedarf ? traegt : Infinity;
     } else {
       for (const a of altAbzug) zurueck(a, buchungsZahl(a.menge, 'Materialabzug'));
       abzug = id ? abziehen(id, neuMenge) : [];
     }
-    const neu = { ...alt, ...eingabe, verbrauchAbzug: abzug };
+    let neu = { ...alt, ...eingabe, verbrauchAbzug: abzug }, korbOps = [];
     delete neu._verbrauchId;
+    if (abzug.length) delete neu.abzugPosition;   // trägt wieder selbst: die gemerkte Position (Runde 3) ist erledigt
+    if (geloest) {
+      // Aus der Gruppe gelöst (Runde 4): ohne Kennung, gemerkte Position und Grenze; die übrigen behalten die Grenze der Gruppe
+      for (const k of ['abzugGruppe', 'abzugPosition', 'abzugSoll', 'abzugUebergeben']) delete neu[k];
+      korbOps = stueckSollKorbOps(d.papierkorb, alt.abzugGruppe, geloest.soll);
+    } else if (soll !== null && alt.abzugGruppe) {
+      // Die Grenze der Stück-Gruppe gilt für alle ihre Einträge (Nachbesserung P2, Runde 2)
+      neu = mitStueckSoll(neu, soll);
+      for (const m of stueckGruppeMitglieder(d.behandlungen, alt, d.inventar)) { const x = mitglieder.get(m.id) || m; if (!stueckSollGleich(x, soll)) mitglieder.set(m.id, mitStueckSoll(x, soll)); }
+      korbOps = stueckSollKorbOps(d.papierkorb, alt.abzugGruppe, soll);
+    }
     const aufgaben = wartezeitAufgabenPlan(d, alt, neu, zielText);
-    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'behandlungen', obj: neu }, aufgaben),
+    return { ops: [...geaendert.values()].map((obj) => ({ store: 'inventar', obj })).concat({ store: 'behandlungen', obj: neu }, [...mitglieder.values()].map((obj) => ({ store: 'behandlungen', obj })), korbOps, aufgaben),
       wert: { rec: neu, gefehlt, einheit, materialGeaendert: geaendert.size > 0, wartezeitGeaendert: aufgaben.length > 0 } };
   });
 }
@@ -12300,7 +12815,8 @@ Views.fuetterung = {
     const alle = await DB.getAll('fuetterungen');
     const voelker = await idMap('voelker');
     const jahre = [...new Set(alle.map((f) => (f.datum || '').slice(0, 4)))].filter(Boolean).sort().reverse();
-    const jahr = Views.fuetterung._jahr || jahre[0] || U.todayIso().slice(0, 4);
+    // Gemerktes Jahr nur, solange es dort noch Fütterungen gibt (Finaltest Portion 1, 09.11.2026) – sonst blieb die Seite nach dem Löschen leer stehen, ohne Reiter zum Umschalten
+    const jahr = jahre.includes(Views.fuetterung._jahr) ? Views.fuetterung._jahr : (jahre[0] || U.todayIso().slice(0, 4));
     const list = U.sortBy(alle.filter((f) => (f.datum || '').startsWith(jahr)), (f) => f.datum, true);
     /* „Futter" und „Zucker verbraucht" waren zwei Kacheln mit derselben Zahl:
        bei Zuckerwasser IST die erfasste Menge der reine Zucker. Jetzt steht der
@@ -12424,12 +12940,13 @@ Views.fuetterung = {
         { key: '_sirupLiter', label: 'Sirup (Liter)', type: 'number', hint: 'Rechnet mit der Menge (kg) zusammen: bei Zuckerwasser über das Mischverhältnis, bei Fertigsirup (z. B. Apiinvert) mit 1 L ≈ 1,36 kg. Bei Futterteig gibt es keine Liter.' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.' },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check' },
-        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
+        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen bei Zuckerwasser den reinen Zucker ab, bei Futterteig und Fertigsirup das Gewicht. Positionen in Litern ziehen den angesetzten Sirup ab. Leer lassen heißt: Bestand nicht verändern.' }),
       ],
       values: { ...f, _verbrauchId: f.verbrauchAbzug?.[0]?.inventarId || '' },
       async onSave(v) {
-        await fuetterungAendern(f, v);
-        UI.toast('Fütterung gespeichert'); renderRoute();
+        fuetterungGeaendertMelden(await fuetterungAendern(f, v));
+        if (v.datum) Views.fuetterung._jahr = String(v.datum).slice(0, 4);   // die geänderte Fütterung bleibt sichtbar (Finaltest Portion 1)
+        renderRoute();
       },
       /* Löschen gibt den Zucker wieder frei – vorher blieb er für immer
          „verbraucht" (Julian: „bleibt Zucker verbraucht und erhöht sich nicht
@@ -12477,7 +12994,7 @@ Views.fuetterung = {
         { key: '_ausRechner', type: 'static', showIf: () => !!(plan && plan.anzahl > 1), html: plan && plan.anzahl > 1 ? `<div class="hint">Danach ${plan.anzahl - 1} × ${U.fmtNum(plan.gabeRest.sirup.liter, 1)} L im Abstand von ${plan.abstand} Tagen.</div>` : '' },
         { key: 'zuckerKg', label: 'Davon reiner Zucker je Volk (kg)', type: 'number', hint: 'Nur nötig, wenn die Menge oben nicht schon reiner Zucker ist – z. B. bei Futterteig oder Fertigsirup.', showIf: () => !plan },
         { key: 'winterfutter', label: 'Winterfutter', type: 'check', showIf: () => !plan },
-        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen den reinen Zucker ab, Positionen in Litern den angesetzten Sirup. Leer lassen heißt: Bestand nicht verändern.' }),
+        ...verbrauchFelder(zuckerPosten, { hint: 'Positionen in kg ziehen bei Zuckerwasser den reinen Zucker ab, bei Futterteig und Fertigsirup das Gewicht. Positionen in Litern ziehen den angesetzten Sirup ab. Leer lassen heißt: Bestand nicht verändern.' }),
         { key: 'wiedervorlageTage', label: 'Erinnerung: erneut prüfen in (Tagen)', type: 'number', hint: 'Optional – legt beim Speichern eine Aufgabe an.', showIf: () => !plan },
       ],
       values: { ...vorbelegung },
@@ -12504,8 +13021,9 @@ Views.fuetterung = {
           await DB.put('aufgaben', { titel: `Fütterung prüfen (${n} ${n === 1 ? 'Volk' : 'Völker'})`, faellig: U.addDays(v.datum, Math.round(v.wiedervorlageTage)), erledigt: false, quelle: 'fuetterung', refId: null, notiz: `Nach ${v.futterart} (${U.fmtNum(v.mengeKg)} kg je Volk) vom ${U.fmtDate(v.datum)}` });
           Notif.check();
         }
+        if (v.datum) Views.fuetterung._jahr = String(v.datum).slice(0, 4);   // die neue Fütterung erscheint sofort (Finaltest Portion 1, 09.11.2026)
         UI.toast(`Fütterung für ${n} ${n === 1 ? 'Volk' : 'Völker'} gespeichert`
-          + (aufgaben ? ` · ${aufgaben} ${aufgaben === 1 ? 'Aufgabe' : 'Aufgaben'} angelegt` : ''));
+          + (aufgaben ? ` · ${fuetterungsPlanText(plan, aufgaben)}` : ''));
         renderRoute();
       },
     });
@@ -13309,7 +13827,10 @@ function verkaufHonigText(v, a, c, ernten) {
 }
 /** Bezeichnung einer Honig-Position in der Rechnung – aus einer Abfüllung oder (ohne Bestand) aus Sorte und Gebinde. */
 function rechnungHonigText(a, c, frei = {}) {
-  if (a) return `Honig ${c && c.etikettNotiz ? '„' + c.etikettNotiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
+  /* Pollen, Propolis … aus „Direkt abfüllen“ (Nachbesserung P2, 10.11.2026): Die Position nennt das Produkt der Charge statt „Honig“.
+     Steht im Etikett nur dasselbe Wort, kommt es nicht doppelt („Pollen „Pollen“ …“). */
+  const prod = chargeProdukt(c), notiz = String((c && c.etikettNotiz) || '').trim();
+  if (a) return `${prod} ${notiz && notiz.toLowerCase() !== prod.toLowerCase() ? '„' + notiz + '“ ' : ''}${gebindeLabel(a.gebindeG)} Glas (Charge ${c ? c.losnummer : '?'})`;
   return `Honig ${String(frei.sorte || '').trim() ? String(frei.sorte).trim() + ' ' : ''}${gebindeLabel(Number(frei.gebindeG) || 500)} Glas`;
 }
 function gebindeLabel(g) { return g >= 1000 ? U.fmtNum(g / 1000, g % 1000 ? 2 : 0) + ' kg' : U.fmtNum(g, 0) + ' g'; }
@@ -13601,6 +14122,20 @@ function ernteBelegung(chargen, exceptId) {
 function ernteBelegungPapierkorb(papierkorb, exceptId) {
   return ernteBelegung((papierkorb || []).filter((t) => t.store === 'chargen' && t.daten).map((t) => t.daten), exceptId);
 }
+/* Chargennummern, die schon vergeben sind – aktive Chargen UND Chargen im Papierkorb (Finaltest Portion 1, 09.11.2026): Nach dem
+   Löschen einer Charge schlug das Formular eine vorhandene Nummer vor, und eine getippte Nummer wurde nie geprüft – es gab drei
+   Chargen „2026-02“; Etikett, Bestand und Rückverfolgung konnten sie nicht mehr unterscheiden. */
+function losnummernVergeben(chargen, papierkorb, ausserId) {
+  return new Set([...(chargen || []).filter((c) => c.id !== ausserId), ...(papierkorb || []).filter((t) => t.store === 'chargen' && t.daten && t.daten.id !== ausserId).map((t) => t.daten)]
+    .map((c) => String(c.losnummer || '').trim()).filter(Boolean));
+}
+/** Erste freie Nummer „JJJJ-NN“, gezählt ab den Chargen dieses Jahres. */
+function freieLosnummer(jahr, chargen, papierkorb) {
+  const vergeben = losnummernVergeben(chargen, papierkorb);
+  let nr = [...vergeben].filter((n) => n.startsWith(jahr + '-')).length + 1, los;
+  do { los = `${jahr}-${String(nr++).padStart(2, '0')}`; } while (vergeben.has(los));
+  return los;
+}
 /* Ernte speichern – die Charge folgt der Ernte (Fund 04.11.2026, #2). Die Gesamtmenge einer Charge ist ein gespeicherter Wert.
    Wurde eine Ernte nachträglich korrigiert (Tippfehler 250 → 25 kg), blieb die Charge still auf 250 kg: Liste, PDF und
    Abfüll-Formular boten Honig an, den es nicht gab. Jetzt gilt: Stand die Gesamtmenge bisher genau auf „Ernten + Lagerbestand“,
@@ -13613,6 +14148,10 @@ async function ernteSpeichern(rec) {
     const ops = [{ store: 'ernten', obj: rec }], angepasst = [], vonHand = [];
     const alt = rec.id ? d.ernten.find((x) => x.id === rec.id) : null;
     const altKg = alt ? Number(alt.mengeKg) || 0 : 0, neuKg = Number(rec.mengeKg) || 0;
+    /* Menge über 0 kg (Finaltest Portion 1, 09.11.2026): „-12“ wurde gespeichert und minderte still den Ertrag des Volks in
+       Rangliste und Statistik. Eine alte Ernte mit 0 kg bleibt beim bloßen Bearbeiten speicherbar. */
+    const kgEingabe = Number(rec.mengeKg);
+    if (!Number.isFinite(kgEingabe) || kgEingabe < 0 || (kgEingabe === 0 && !(alt && altKg === 0))) throw feldFehler('mengeKg', 'Bitte eine Menge über 0 kg eintragen.');
     if (alt && Math.abs(neuKg - altKg) > 0.0001) {
       const r3 = (x) => Math.round(x * 1000) / 1000, kgText = (x) => U.fmtNum(x, 3);
       // Mengen VOR der Änderung. Ernten im Papierkorb zählen mit: ihr Honig steckt weiter in der Charge (Doku #2)
@@ -13671,10 +14210,33 @@ function chargeWassergehalt(charge, erntenMap) {
   return Math.round((werte.reduce((a, b) => a + Number(b), 0) / werte.length) * 10) / 10;
 }
 
-/** Anzeigename des Honigs einer Charge (Sorte, sonst Etikett-Bezeichnung, sonst „Honig“). */
+/** Anzeigename des Honigs einer Charge (Sorte, sonst Etikett-Bezeichnung, sonst „Honig“).
+    Charge aus Pollen, Propolis … (Feld produkt, Nachbesserung P2): das Produkt, mit Sorte in Klammern („Pollen (Raps)“) –
+    steckt das Produkt schon in Sorte bzw. Etikett („Blütenpollen“), nur dieses. */
 function honigName(charge, erntenMap) {
   if (!charge) return 'Honig';
-  return chargeSorten(charge, erntenMap)[0] || charge.etikettNotiz || 'Honig';
+  const name = chargeSorten(charge, erntenMap)[0] || charge.etikettNotiz || '';
+  const prod = chargeProdukt(charge);
+  if (prod === 'Honig') return name || 'Honig';
+  return !name || name.toLowerCase().includes(prod.toLowerCase()) ? (name || prod) : `${prod} (${name})`;
+}
+/** Produkt einer Charge: „Honig“, außer „Direkt abfüllen“ hat aus einer Pollen- oder Propolis-Ernte abgefüllt (Feld produkt,
+    Nachbesserung P2, 10.11.2026). Ältere Chargen tragen das Feld nicht und bleiben Honig. */
+function chargeProdukt(c) {
+  const p = String((c && c.produkt) || '').trim();
+  return p || 'Honig';
+}
+/** Produkt einer Charge aus ihren Ernten (Nachbesserung P2, Runde 2): Haben alle Ernten dieselbe Produktart und ist sie kein Honig
+    (Pollen, Propolis …), ist es diese – sonst '' (Honig); null, wenn keine der Ernten mehr da ist. Mit lagerKg > 0 immer '' (Runde 3). Für das Chargen-Formular: Vorher setzte nur „Direkt abfüllen“ das Feld
+    produkt, eine Pollen-Charge über „Charge anlegen“ hieß auf Rechnung und in Listen weiter „Honig“. */
+function chargeProduktAusErnten(ernteIds, erntenMap, lagerKg = 0) {
+  // Runde 3 (10.11.2026): Ist Honig aus dem Lagerbestand dabei („Menge aus Lagerbestand (kg)“), ist es keine reine Pollen-Charge
+  if ((Number(lagerKg) || 0) > 0) return '';
+  const liste = (ernteIds || []).map((id) => erntenMap && erntenMap.get(id)).filter(Boolean);
+  if (!liste.length) return null;   // keine Ernte mehr da (Papierkorb, gelöscht): nichts ableiten, das Feld bleibt, wie es ist
+  if (liste.some(istHonigErnte)) return '';
+  const arten = new Set(liste.map((e) => String(e.produktart || '').trim()));
+  return arten.size === 1 ? [...arten][0] : '';
 }
 
 /** Endliche, nichtnegative Buchungszahl; numerische Alt-Strings bleiben lesbar. */
@@ -14113,6 +14675,8 @@ async function verkaufForm(vorAbfuellungId = '') {
           : 'Von dieser Abfüllung ist nichts mehr auf Lager. Trotzdem als Verkauf buchen? Der Bestand bleibt bei 0, die Einnahme kommt ins Kassenbuch.');
         verkauf = await verkaufErfassen({ ...daten, ohneBestand: true });
       }
+      // Alle Gläser verkauft: die MHD-Erinnerung dieser Abfüllung verschwindet gleich (Finaltest Portion 1, 09.11.2026)
+      try { await pruefeMhd(); } catch (e) { console.error('MHD-Prüfung', e); }
       renderRoute(imBestandBleiben());
       /* Rückfrage aus Mockup 3 auch beim Honig (Julian 08.11.2026): „Rechnung dazu erstellen“ oder „Fertig (ohne Rechnung)“.
          Erst wenn das Formular zu ist. */
@@ -17572,7 +18136,10 @@ Views.bio = {
     /* Die Bio-Umstellung soll dort greifbar sein, wo man sie braucht – nicht nur
        unter Einstellungen. Geschrieben wird in dieselben Imkereidaten. */
     $('#bio-an', box).onchange = async (e) => {
-      await S.set('imkerei', Object.assign({}, S.get('imkerei'), { bio: e.target.value }));
+      /* Scheitert das Speichern (Finaltest Portion 1, 09.11.2026), springt die Auswahl auf den gespeicherten Wert zurück und
+         es kommt eine eigene Meldung – vorher zeigte sie „Nein“, während Etiketten und PDFs weiter Öko-Angaben führten. */
+      try { await S.set('imkerei', Object.assign({}, S.get('imkerei'), { bio: e.target.value })); }
+      catch (err) { e.target.value = S.get('imkerei').bio === 'ja' ? 'ja' : 'nein'; return fehlerMelden(err, 'Die Bio-Einstellung ließ sich nicht speichern. Bitte noch einmal versuchen.'); }
       UI.toast(e.target.value === 'ja' ? 'Als Bio-Imkerei geführt' : 'Öko-Angaben ausgeschaltet');
       renderRoute();
     };
@@ -18099,6 +18666,7 @@ Views.honig = {
           const erg = await verkaufStornieren(st.dataset.storno, { kasse });
           UI.toast((kasse ? 'Verkauf storniert' : 'Verkauf storniert – die Einnahme bleibt im Kassenbuch')
             + (erg && erg.abfuellungFehlt ? '. Die Gebinde konnten nicht zurück in den Bestand, weil die Abfüllung gelöscht ist.' : ''));
+          pruefeMhd().catch((e) => console.error('MHD-Prüfung', e));   // Gläser wieder im Bestand: MHD-Erinnerung abgleichen (Finaltest Portion 1, 09.11.2026)
           renderRoute();
         } catch (err) { fehlerMelden(err, 'Das Stornieren hat nicht geklappt. Bitte noch einmal versuchen.'); }
       }
@@ -18166,9 +18734,14 @@ Views.honig = {
       const ziel = await zielFelder(e || {}, 'Geerntet wurde');
       const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
       const staendeM = await idMap('staende');
+      /* Teil einer Ernte am ganzen Stand (Finaltest Portion 1, 09.11.2026): Beim Bearbeiten wies nichts darauf hin – jetzt steht
+         dabei, zu welcher Stand-Ernte der Eintrag gehört und dass Ändern und Löschen nur dieses Volk betreffen. */
+      const gruppe = e && e.ernteGruppe ? (await DB.getAll('ernten')).filter((x) => x.ernteGruppe === e.ernteGruppe) : [];
+      const gruppeSt = gruppe.length > 1 && e.ernteGruppeStand ? staendeM.get(e.ernteGruppeStand) : null;
       const m = UI.formModal({
         title: e ? 'Ernte bearbeiten' : 'Ernte erfassen', wide: true,
         fields: [
+          ...(gruppe.length > 1 ? [{ key: '_ernteGruppe', type: 'static', html: `<div class="hint mb8" data-ernte-gruppe>Gehört zur Ernte am ganzen Stand${gruppeSt ? ` „${U.esc(gruppeSt.name)}“` : ''} mit ${gruppe.length} Völkern. Ändern und Löschen gilt hier nur für dieses eine Volk – die anderen Einträge dieser Ernte bleiben, wie sie sind.</div>` }] : []),
           ...ziel,
           // Alt-Ernten können Produkte tragen, die es in der Auswahl nicht mehr gibt (z. B. „Wachs“) –
           // den Bestandswert mit anbieten, sonst würde er beim Speichern still zu „Honig“.
@@ -18573,7 +19146,8 @@ Views.honig = {
     const sortenOpts = await gelernteWerte(S.get('honigsorten'), 'ernten', 'sorte');
     const jahr = U.todayIso().slice(0, 4);
     const bestehende = await DB.getAll('chargen');
-    const imPapierkorb = ernteBelegungPapierkorb(await DB.getAll('papierkorb'), c && c.id);   // Fund 04.11.2026, #1
+    const papierkorbAlle = await DB.getAll('papierkorb');
+    const imPapierkorb = ernteBelegungPapierkorb(papierkorbAlle, c && c.id);   // Fund 04.11.2026, #1
     /* Wer die App mitten in der Saison anfängt, hat Honig im Lager, dem keine
        Ernte zuzuordnen ist. Ohne Ernten in der App ist „Lagerbestand" die
        sinnvolle Vorgabe; beides zusammen ist ausdrücklich erlaubt. */
@@ -18589,17 +19163,23 @@ Views.honig = {
     for (const e of ernten) { if (e.ernteGruppe) { if (!gruppen.has(e.ernteGruppe)) gruppen.set(e.ernteGruppe, []); gruppen.get(e.ernteGruppe).push(e); } else erntenEinzeln.push(e); }
     const eigeneIds = new Set((c && c.ernteIds) || []);
     for (const [g, liste] of [...gruppen]) { const drin = liste.filter((e) => eigeneIds.has(e.id)).length; if (drin > 0 && drin < liste.length) { erntenEinzeln.push(...liste); gruppen.delete(g); } }
-    const ernteText = (e) => { const n = e.zielTyp === 'volk' && voelkerName.get(e.zielId); return `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg${n ? ` · ${n.name}` : ''}`; };
+    // Pollen, Propolis & Co. nennen ihr Produkt (Finaltest Portion 1, 09.11.2026) – sonst sahen sie aus wie Honig
+    const produktVor = (e) => (istHonigErnte(e) ? '' : `${e.produktart} · `);
+    const ernteText = (e) => { const n = e.zielTyp === 'volk' && voelkerName.get(e.zielId); return `${U.fmtDate(e.datum)} · ${produktVor(e)}${e.sorte || 'Sorte offen'} · ${U.fmtNum(e.mengeKg)} kg${n ? ` · ${n.name}` : ''}`; };
     const gruppeText = (liste) => { const e = liste[0], kg = Math.round(liste.reduce((t, x) => t + (Number(x.mengeKg) || 0), 0) * 1000) / 1000, st = e.ernteGruppeStand && staendeName.get(e.ernteGruppeStand);
-      return `${U.fmtDate(e.datum)} · ${e.sorte || 'Sorte offen'} · ${U.fmtNum(kg)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''}`; };
-    const ernteOptionen = U.sortBy([...[...gruppen].map(([g, liste]) => ({ v: 'gruppe:' + g, l: gruppeText(liste), datum: liste[0].datum || '' })),
-      ...erntenEinzeln.map((e) => ({ v: e.id, l: ernteText(e), datum: e.datum || '' }))], (o) => o.datum, true).map(({ v, l }) => ({ v, l }));
+      return `${U.fmtDate(e.datum)} · ${produktVor(e)}${e.sorte || 'Sorte offen'} · ${U.fmtNum(kg)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''}`; };
+    /* Neueste zuerst, schon belegte Ernten (andere Charge, Charge im Papierkorb) ans Ende (Finaltest Portion 1, 09.11.2026): ohne
+       keepOrder sortierte das Formular nach dem Text „TT.MM.JJJJ“ – Jahre gemischt, freie Ernten zwischen den belegten versteckt. */
+    const belegtSonst = ernteBelegung(bestehende, c && c.id), eigeneErnten = new Set((c && c.ernteIds) || []);
+    const istBelegt = (ids) => ids.some((id) => !eigeneErnten.has(id) && (belegtSonst.has(id) || imPapierkorb.has(id)));
+    const ernteOptionen = U.sortBy([...[...gruppen].map(([g, liste]) => ({ v: 'gruppe:' + g, l: gruppeText(liste), datum: liste[0].datum || '', belegt: istBelegt(liste.map((e) => e.id)) })),
+      ...erntenEinzeln.map((e) => ({ v: e.id, l: ernteText(e), datum: e.datum || '', belegt: istBelegt([e.id]) }))], (o) => (o.belegt ? '0' : '1') + o.datum, true).map(({ v, l }) => ({ v, l }));
     const ernteIdsAuswahl = (ids) => { const rest = new Set(ids || []), aus = []; for (const [g, liste] of gruppen) if (liste.length && liste.every((e) => rest.has(e.id))) { aus.push('gruppe:' + g); liste.forEach((e) => rest.delete(e.id)); } return [...aus, ...rest]; };
     const ernteIdsAuswerten = (wahl) => (wahl || []).flatMap((x) => String(x).startsWith('gruppe:') ? (gruppen.get(String(x).slice(7)) || []).map((e) => e.id) : [x]);
     const m = UI.formModal({
       title: c ? 'Charge bearbeiten' : 'Neue Charge', wide: true,
       fields: [
-        { key: 'losnummer', label: 'Chargennummer', required: true, halb: true, default: `${jahr}-${String(bestehende.length + 1).padStart(2, '0')}`,
+        { key: 'losnummer', label: 'Chargennummer', required: true, halb: true, default: freieLosnummer(jahr, bestehende, papierkorbAlle),   // eine freie Nummer (Finaltest Portion 1, 09.11.2026)
           hint: 'Steht auf dem Etikett. Im Lebensmittelrecht heißt sie „Los" und wird dort mit einem vorangestellten L gedruckt.' },
         { key: 'datum', label: 'Charge angelegt am', type: 'date', required: true, halb: true, default: U.todayIso(),
           hint: 'Der Tag, an dem du den Honig zu dieser Charge zusammengefasst hast.' },
@@ -18608,7 +19188,7 @@ Views.honig = {
           options: [{ v: 'ernte', l: 'Aus Ernten in dieser App' }, { v: 'lager', l: 'Aus vorhandenem Lagerbestand' }, { v: 'beides', l: 'Beides zusammen' }],
           hint: 'Lagerbestand ist Honig, der schon vor der App-Nutzung im Eimer stand – ohne erfasste Ernte.' },
         { key: 'ernteIds', label: 'Enthaltene Ernten', type: 'multicheck', showIf: (f) => (f.quelle || quelleVorgabe) !== 'lager',
-          options: ernteOptionen },
+          options: ernteOptionen, keepOrder: true },
         { key: 'lagerKg', label: 'Menge aus Lagerbestand (kg)', type: 'number', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
           hint: 'Wird zur Erntemenge addiert.' },
         { key: 'lagerHerkunft', label: 'Woher stammt dieser Lagerbestand?', showIf: (f) => (f.quelle || quelleVorgabe) !== 'ernte',
@@ -18637,11 +19217,19 @@ Views.honig = {
       async onSave(v) {
         const nurLager = v.quelle === 'lager';
         const ohneLager = v.quelle === 'ernte';
+        // Neue oder geänderte Nummer: nicht schon vergeben (Finaltest Portion 1, 09.11.2026) – unveränderte Altdaten bleiben speicherbar
+        const los = String(v.losnummer || '').trim();
+        if ((!c || los !== String(c.losnummer || '').trim()) && losnummernVergeben(await DB.getAll('chargen'), await DB.getAll('papierkorb'), c && c.id).has(los))
+          throw feldFehler('losnummer', `Die Chargennummer ${los} ist schon vergeben (auch Chargen im Papierkorb zählen). Bitte eine andere Nummer eintragen.`);
         const ernteIds = nurLager ? [] : ernteIdsAuswerten(v.ernteIds);
         const lagerKg = ohneLager ? 0 : Math.max(0, Number(v.lagerKg) || 0);
         if (!ernteIds.length && lagerKg <= 0) throw feldFehler('ernteIds', 'Bitte Ernten anhaken oder eine Menge aus dem Lagerbestand eintragen.');
         // Gesamtmenge automatisch aus Ernten + Lagerbestand, sofern nicht manuell gesetzt
         const mengeKg = (v.mengeKg != null && v.mengeKg !== '') ? v.mengeKg : Math.round((summeAus(ernteIds) + lagerKg) * 1000) / 1000;
+        /* Gesamtmenge über 0 kg (Finaltest Portion 1, 09.11.2026): „-50“ wurde als neue Charge gespeichert. Eine alte Charge mit
+           unveränderter Menge bleibt beim bloßen Bearbeiten speicherbar. */
+        const kgZahl = Number(mengeKg);
+        if (!Number.isFinite(kgZahl) || kgZahl < 0 || (kgZahl === 0 && !(c && (Number(c.mengeKg) || 0) === 0))) throw feldFehler('mengeKg', 'Bitte eine Gesamtmenge über 0 kg eintragen.');
         if (c && mengeKg < (Number(c.mengeKg) || 0) - 0.0001) {   // nur beim Verkleinern: nicht weniger, als schon abgefüllt, als Verlust gebucht oder abgegeben ist (v3.00)
           const belegt = Math.round((chargeAbgefuelltKg(c.id, await DB.getAll('abfuellungen')) + chargeVerlustKg(c.id) + chargeVerarbeitetKg(c.id)) * 1000) / 1000;
           if (mengeKg < belegt - 0.0001) throw feldFehler('mengeKg', `Aus dieser Charge sind schon ${U.fmtNum(belegt, 2)} kg abgefüllt, als Verlust gebucht oder abgegeben – die Gesamtmenge kann nicht kleiner sein.`);
@@ -18652,6 +19240,9 @@ Views.honig = {
           wassergehalt: (v.wassergehalt === '' || v.wassergehalt == null) ? null : v.wassergehalt,
           laborDatum: v.laborDatum || null,
           etikettNotiz: v.etikettNotiz });
+        // Produkt aus den Ernten (Nachbesserung P2, Runde 2): Pollen-Ernten ergeben eine Pollen-Charge, Honig bleibt ohne Feld
+        const produkt = chargeProduktAusErnten(ernteIds, new Map(ernten.map((e) => [e.id, e])), lagerKg);
+        if (produkt) rec.produkt = produkt; else if (produkt === '' || !ernteIds.length) delete rec.produkt;
         await DB.put('chargen', rec);
         /* Ohne Ernte ist die Sorte an der Charge die einzige Angabe – fehlt sie,
            steht später „Honig" auf dem Etikett. Das melden, aber nicht blockieren:
@@ -18691,7 +19282,7 @@ Views.honig = {
        zusammenrechnen). Beides ist kombinierbar. */
     const lagerInp = $('#f-lagerKg', m.el), quelleSel = $('#f-quelle', m.el);
     if (mengeInp) {
-      const rechne = () => {
+      const rechne = (ausNutzer = true) => {
         const nurLager = quelleSel && quelleSel.value === 'lager';
         const ohneLager = quelleSel && quelleSel.value === 'ernte';
         const ernteSumme = (!nurLager && box) ? $$('input:checked', box).reduce((s, i) => s + summeAus(ernteIdsAuswerten([i.value])), 0) : 0;
@@ -18700,12 +19291,12 @@ Views.honig = {
         /* Drei Nachkommastellen (Fund 04.11.2026, #3/#8): fmtNum rundet sonst auf zwei, und gespeichert wird der Feldtext –
            aus 7,125 kg Ernte wurde eine Charge mit 7,13 kg, der Rest nach 14 × 500 g stand auf 0,13 statt 0,125 kg. */
         mengeInp.value = summe ? U.fmtNum(Math.round(summe * 1000) / 1000, 3) : '';
-        FormGuard.dirty = true;
+        if (ausNutzer) FormGuard.dirty = true;
       };
-      if (box) box.addEventListener('change', rechne);
-      if (lagerInp) lagerInp.addEventListener('input', rechne);
-      if (quelleSel) quelleSel.addEventListener('change', rechne);
-      if (!c) rechne(); // neue Charge: direkt aus (evtl. vorausgewählten) Ernten
+      if (box) box.addEventListener('change', () => rechne());
+      if (lagerInp) lagerInp.addEventListener('input', () => rechne());
+      if (quelleSel) quelleSel.addEventListener('change', () => rechne());
+      if (!c) rechne(false); // neue Charge: direkt aus (evtl. vorausgewählten) Ernten – noch keine Eingabe, also kein „Änderungen verwerfen?“ (Finaltest Portion 1, 09.11.2026)
     }
   },
   async chargeDetail(c) {
@@ -18830,11 +19421,15 @@ Views.honig = {
     for (const e of freieErnten) if (e.ernteGruppe) { if (!gruppenFrei.has(e.ernteGruppe)) gruppenFrei.set(e.ernteGruppe, []); gruppenFrei.get(e.ernteGruppe).push(e); }
     for (const [g, liste] of [...gruppenFrei]) if (alleErnten.filter((e) => e.ernteGruppe === g).length !== liste.length) gruppenFrei.delete(g);
     const inGruppe = new Set([...gruppenFrei.values()].flat().map((e) => e.id));
-    const staendeName = await idMap('staende');
+    const staendeName = await idMap('staende'), voelkerName = await idMap('voelker');
+    /* Produkt (Pollen, Propolis …), Volk und genaue Menge im Text (Finaltest Portion 1, 09.11.2026): Pollen sah aus wie Honig, und
+       zwei Ernten am selben Tag (10,04 kg Anna, 9,96 kg Berta) standen als zwei gleiche Zeilen „… 10 kg (ohne Charge)“ da. */
+    const produktVor = (e) => (istHonigErnte(e) ? '' : `${e.produktart} · `);
     const ernteQuellen = U.sortBy([
       ...[...gruppenFrei].map(([g, liste]) => { const e = liste[0], kg = Math.round(liste.reduce((t, x) => t + (Number(x.mengeKg) || 0), 0) * 1000) / 1000, st = e.ernteGruppeStand && staendeName.get(e.ernteGruppeStand);
-        return { v: 'gruppe:' + g, datum: e.datum || '', kg, ernten: liste, l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(kg, 1)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''} (ohne Charge)` }; }),
-      ...freieErnten.filter((e) => !inGruppe.has(e.id)).map((e) => ({ v: 'ernte:' + e.id, datum: e.datum || '', kg: Number(e.mengeKg) || 0, ernten: [e], l: `Ernte ${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg, 1)} kg (ohne Charge)` })),
+        return { v: 'gruppe:' + g, datum: e.datum || '', kg, ernten: liste, l: `Ernte ${produktVor(e)}${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(kg)} kg · ${liste.length} Völker${st ? ` (${st.name})` : ''} (ohne Charge)` }; }),
+      ...freieErnten.filter((e) => !inGruppe.has(e.id)).map((e) => { const n = e.zielTyp === 'volk' && voelkerName.get(e.zielId);
+        return { v: 'ernte:' + e.id, datum: e.datum || '', kg: Number(e.mengeKg) || 0, ernten: [e], l: `Ernte ${produktVor(e)}${e.sorte || 'Sorte offen'} · ${U.fmtDate(e.datum)} · ${U.fmtNum(e.mengeKg)} kg${n ? ` · ${n.name}` : ''} (ohne Charge)` }; }),
     ], (q) => q.datum, true);
     if (!frei.length && !freieErnten.length) return UI.toast('Nichts zum Abfüllen: Erfasse zuerst eine Ernte (Tab „Ernte“) oder lege eine Charge an.', 'err');
     const gebindeFelder = GEBINDE_PRESETS.map((g) => ({ key: 'g_' + g, label: gebindeLabel(g), type: 'number', placeholder: 'Anzahl' }));
@@ -18892,15 +19487,16 @@ Views.honig = {
           const quelle = ernteQuellen.find((q) => q.v === v.chargeId);
           if (!quelle) throw feldFehler('chargeId', 'Diese Ernte gibt es nicht mehr.');
           const ernte = quelle.ernten[0];
-          const vergeben = new Set(chargen.map((c) => String(c.losnummer)));
-          const jahr = (v.datum || U.todayIso()).slice(0, 4);
-          let nr = chargen.length + 1, losnummer;
-          do { losnummer = `${jahr}-${String(nr++).padStart(2, '0')}`; } while (vergeben.has(losnummer));
+          const losnummer = freieLosnummer((v.datum || U.todayIso()).slice(0, 4), chargen, await DB.getAll('papierkorb'));   // auch Chargen im Papierkorb zählen (Finaltest Portion 1, 09.11.2026)
           if (!(await UI.confirm({ title: 'Keine Charge angelegt',
-            text: `Direkt aus der Ernte ${ernte.sorte || ''} vom ${U.fmtDate(ernte.datum)}${quelle.ernten.length > 1 ? ` (${quelle.ernten.length} Völker, ${U.fmtNum(quelle.kg, 1)} kg)` : ''} abfüllen? Die App legt dafür die Charge ${losnummer} selbst an – die Losnummer steht auf dem Etikett und dient der Rückverfolgung.`,
+            text: `Direkt aus der Ernte ${istHonigErnte(ernte) ? '' : ernte.produktart + ' '}${ernte.sorte || ''} vom ${U.fmtDate(ernte.datum)}${quelle.ernten.length > 1 ? ` (${quelle.ernten.length} Völker, ${U.fmtNum(quelle.kg, 1)} kg)` : ''} abfüllen? Die App legt dafür die Charge ${losnummer} selbst an – die Losnummer steht auf dem Etikett und dient der Rückverfolgung.`,
             confirmText: 'Direkt abfüllen', danger: false }))) { const e = new Error('abgebrochen'); e.leise = true; throw e; }
+          /* Kein Honig (Pollen, Propolis …): das Produkt steht an der Charge (Finaltest Portion 1, 09.11.2026) – sonst hieß sie in
+             Bestand, Markt und Verkauf „Honig“. Eigenes Feld produkt (Nachbesserung P2, 10.11.2026): honigName und die Rechnung
+             (rechnungHonigText) nennen es statt „Honig“; als Etikett-Bezeichnung steht es weiter vorbelegt. */
+          const produkt = istHonigErnte(ernte) ? '' : String(ernte.produktart || '').trim();
           neueCharge = await DB.put('chargen', { losnummer, datum: v.datum || U.todayIso(), ernteIds: quelle.ernten.map((e) => e.id), lagerKg: 0, lagerHerkunft: '',
-            mengeKg: quelle.kg, sorte: '', wassergehalt: null, laborDatum: null, etikettNotiz: '', automatisch: true });
+            mengeKg: quelle.kg, sorte: '', wassergehalt: null, laborDatum: null, etikettNotiz: produkt, ...(produkt ? { produkt } : {}), automatisch: true });
           v.chargeId = neueCharge.id;
         }
         let erg;
@@ -18944,7 +19540,7 @@ Views.honig = {
   async abfuellEditForm(a) {
     if (!a) return;
     const c = await DB.get('chargen', a.chargeId);
-    UI.formModal({
+    const m = UI.formModal({
       title: `Abfüllung bearbeiten · Charge ${c ? c.losnummer : '?'}`, wide: true,
       fields: [
         { key: 'gebindeG', label: 'Gebindegröße (g)', type: 'number', required: true },
@@ -18991,10 +19587,24 @@ Views.honig = {
           confirmText: 'Löschen', danger: true }))) return false;
         await loescheMitMaterial('abfuellungen', a);
         UI.toast('Abfüllung gelöscht' + (zurueck ? ` · ${zurueck} zurück im Bestand` : ''));
+        pruefeMhd().catch((e) => console.error('MHD-Prüfung', e));   // ihre MHD-Erinnerung verschwindet gleich (Finaltest Portion 1, 09.11.2026)
         renderRoute();
         return true;
       },
     });
+    /* „Davon noch zum Verkauf“ geht mit der Anzahl mit, solange man es nicht selbst ändert (Finaltest Portion 1, 09.11.2026):
+       10 → 16 abgefüllt ließ den Bestand auf 10 – die 6 zusätzlichen Gläser galten als verkauft, ohne einen Verkauf. */
+    const anzInp = m && m.el && $('#f-anzahl', m.el), bestInp = m && m.el && $('#f-bestand', m.el);
+    if (anzInp && bestInp) {
+      let selbst = false;
+      bestInp.addEventListener('input', () => { selbst = true; });
+      anzInp.addEventListener('input', () => {
+        if (selbst) return;
+        const n = U.parseNum(anzInp.value);
+        if (n == null || !Number.isFinite(n)) return;
+        bestInp.value = String(Math.max(0, Math.round((Number(a.bestand) || 0) + Math.round(n) - (Number(a.anzahl) || 0))));
+      });
+    }
   },
 
   /* ---------- Bestandsübersicht: je Charge, Gebinde intelligent verrechnet ---------- */
@@ -19128,7 +19738,7 @@ Views.markt = {
       return !a || n > a.bestand;
     });
     const preise = S.get('marktpreise') || {};
-    const preis = (a) => preise[a.id] ?? 0;
+    const preis = (a) => { const p = Number(preise[a.id]); return Number.isFinite(p) && p > 0 ? p : 0; };   // ein gespeicherter Preis ≤ 0 gilt als „kein Preis“ – Antippen fragt neu (Finaltest Portion 1, 09.11.2026)
     const summe = Object.entries(korb).reduce((s, [id, n]) => { const a = abf.find((x) => x.id === id); return s + (a ? n * preis(a) : 0); }, 0);
     const anzahlKorb = Object.values(korb).reduce((a, b) => a + b, 0);
     main.innerHTML = `
@@ -19175,8 +19785,12 @@ Views.markt = {
       fields: [{ key: 'preis', label: `Preis für Charge ${c ? c.losnummer : '?'} (${gebindeLabel(a.gebindeG)})`, type: 'number', required: true, default: (S.get('marktpreise') || {})[a.id] || '' }],
       saveText: 'Übernehmen',
       async onSave(v) {
+        /* Nur Preise über 0 € (Finaltest Portion 1, 09.11.2026): „-5“ wurde gespeichert, Kassieren scheiterte danach immer –
+           und die Meldung nannte den falschen Grund („Bestand prüfen“). */
+        const p = Number(v.preis);
+        if (!Number.isFinite(p) || p <= 0) throw feldFehler('preis', 'Bitte einen Preis über 0 € eintragen, z. B. 6,50.');
         const preise = S.get('marktpreise') || {};
-        preise[a.id] = v.preis;
+        preise[a.id] = p;
         await S.set('marktpreise', preise);
         renderRoute();
       },
@@ -19206,18 +19820,20 @@ Views.markt = {
        mehr, welche drei Gläser noch zu kassieren sind. Was gebucht ist, fliegt
        raus; der Rest steht weiter da und kann erneut kassiert werden. */
     const rest = {};
-    let fehler = 0, kassiert = 0;
+    let fehler = 0, kassiert = 0, grund = '';
     for (const [id, n] of posten) {
       const a = abf.find((x) => x.id === id);
       try {
         await verkaufErfassen({ abfuellungId: id, anzahl: n, preisJeGlas: preis(a), notiz: 'Marktverkauf' });
         kassiert += n * (preis(a) || 0);
-      } catch (e) { fehler++; rest[id] = n; console.error(e); }
+      } catch (e) { fehler++; rest[id] = n; if (!grund) grund = e && e.message; console.error(e); }
     }
     Views.markt._korb = rest;
+    // Den echten Grund nennen statt pauschal „Bestand prüfen“ (Finaltest Portion 1, 09.11.2026)
     UI.toast(fehler
-      ? `${U.fmtEur(kassiert)} gebucht – ${fehler} Position(en) bleiben im Warenkorb (Bestand prüfen)`
+      ? `${U.fmtEur(kassiert)} gebucht – ${fehler} Position(en) bleiben im Warenkorb (${grund || 'Bestand prüfen'})`
       : `Kassiert: ${U.fmtEur(summe)}`, fehler ? 'err' : 'ok');
+    if (fehler < posten.length) pruefeMhd().catch((e) => console.error('MHD-Prüfung', e));   // ausverkaufte Gläser: MHD-Erinnerung abgleichen (Finaltest Portion 1)
     renderRoute();
   },
 };
@@ -21254,7 +21870,11 @@ function nachVerkaufFragen(erg) {
     const m = UI.modal({
       title: 'Verkauf gebucht', onClose: () => res(antwort),
       body: `<div data-nach-verkauf><p><b>${U.esc(b.kurz)}</b>${b.betrag > 0 ? ` · ${U.fmtEur(b.betrag)}` : ''}</p>
-        <p class="small muted">${b.betrag > 0 ? 'Bestand und Kassenbuch sind gebucht.' : 'Der Bestand ist gebucht. Ohne Preis kommt nichts ins Kassenbuch.'}${b.gefehlt > 0 ? ` Es fehlten ${U.fmtNum(b.gefehlt, 2)} ${U.esc(b.einheit)} im Bestand.` : ''}</p></div>`,
+        <p class="small muted">${b.betrag > 0 ? 'Bestand und Kassenbuch sind gebucht.'
+          /* Honig-Verkauf legt auch bei 0 € eine Kassenbuch-Zeile an (Finaltest Portion 1, 09.11.2026) – der Satz „kommt nichts ins
+             Kassenbuch“ stimmt nur beim Lager-Verkauf. */
+          : b.art === 'honig' ? 'Der Bestand ist gebucht. Im Kassenbuch steht eine Zeile mit 0,00 €. Verschenkte Gläser buchst du besser unter „Eigenverbrauch / Verlust“ als „Verschenkt“.'
+          : 'Der Bestand ist gebucht. Ohne Preis kommt nichts ins Kassenbuch.'}${b.gefehlt > 0 ? ` Es fehlten ${U.fmtNum(b.gefehlt, 2)} ${U.esc(b.einheit)} im Bestand.` : ''}</p></div>`,
       footer: `<button class="btn btn-ghost" type="button" data-fertig>Fertig (ohne Rechnung)</button><button class="btn btn-primary" type="button" data-rechnung>Rechnung dazu erstellen</button>`,
     });
     $('[data-fertig]', m.el).onclick = () => { antwort = 'fertig'; m.close(true); };
@@ -24733,8 +25353,9 @@ async function verbrauchAbziehen(inventarId, menge, { pruefen = true } = {}) {
     genug da war.
 
     Als „dieselbe Art" gilt: gleicher Bereich (Verbrauch/Inventar), gleiche
-    Einheit und gleiche Kategorie. Damit wandert der Abzug von „Zucker 2025" auf
-    „Zucker 2026", aber nie von Zucker auf Ameisensäure. Abgebaut wird das
+    Einheit und gleiche Kategorie, bei Futter und Behandlungsmitteln dazu dasselbe
+    Produkt (materialProdukt, Finaltest Portion 1). Damit wandert der Abzug von „Zucker 2025" auf
+    „Zucker 2026", aber nie von Zucker auf Apiinvert oder Ameisensäure. Abgebaut wird das
     ÄLTESTE zuerst, wie es sich für ein Lager gehört.
 
     Zurück kommt die Liste, was wo abgezogen wurde – die speichert der Aufrufer
@@ -24970,22 +25591,62 @@ function verdrahteVerbrauch(m, posten, mengeFn, bisher = null) {
   const zurueckText = bisher ? (bisher.abzug || []).map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ') : '';
   const zeige = () => {
     const pos = posten.find((i) => i.id === sel.value);
-    if (!pos) { info.textContent = zurueckText && bisher.angeboten ? `Kein Abzug mehr – ${zurueckText} gehen zurück in den Bestand.` : 'Kein Abzug – der Bestand bleibt unverändert.'; return; }
-    const menge = Math.max(0, Number(mengeFn()) || 0);
-    const bestand = verbrauchBestand(pos), e = verbrauchEinheit(pos);
-    if (bisher && pos.id === bisher.start) {
-      const diff = Math.round((menge - bisher.menge) * 1000) / 1000;
-      const weg = Math.min(-diff, U.sum(bisher.abzug || [], (a) => Number(a.menge) || 0));
-      if (diff > 0) info.innerHTML = `Schon abgezogen: ${U.esc(zurueckText)}. Dazu kommen <b>${U.fmtNum(diff, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(Math.max(0, bestand - diff), 2)} ${e}</b>`
-        + (diff > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(diff - bestand, 2)} ${e} fehlen)</span>` : '');
-      else if (diff < 0 && weg > 0) info.innerHTML = `<b>${U.fmtNum(weg, 2)} ${e}</b> gehen zurück in den Bestand → <b>${U.fmtNum(bestand + weg, 2)} ${e}</b>`;
-      else info.innerHTML = `Schon abgezogen: ${U.esc(zurueckText)}. Der Bestand bleibt bei <b>${U.fmtNum(bestand, 2)} ${e}</b>.`;
+    /* Runde 4 (10.11.2026): andere Auswahl bei einem Mitglied einer Stück-Gruppe – dieselbe Entscheidung wie behandlungAendern
+       (stueckWechselArt). „–“ zählt nur, wenn die bisherige Position angeboten war (sonst heißt „–“ „nicht angefasst“). */
+    const wechsel = bisher && bisher.rec && bisher.rec.abzugGruppe && (pos ? pos.id !== bisher.start : !!bisher.start && bisher.angeboten)
+      ? stueckWechselArt(bisher.behandlungen || [], bisher.inventar || [], bisher.rec, pos ? pos.id : '') : null;
+    const loesen = wechsel && wechsel.art === 'loesen' ? wechsel.plan : null;
+    const da = new Set((bisher && bisher.inventar || []).map((p) => p && p.id));
+    const loesRueck = loesen ? loesen.rueck.filter((a) => da.has(a.inventarId) && Number(a.menge) > 0) : [];
+    const loesText = loesRueck.map((a) => `${U.fmtNum(a.menge, 2)} ${a.einheit} ${a.bezeichnung}`).join(', ');
+    const bleibtText = loesen && loesen.uebergeben > 0
+      ? ` ${U.fmtNum(loesen.uebergeben, 2)} Stück ${loesen.uebergeben === 1 ? 'bleibt' : 'bleiben'} bei den übrigen Völkern der Behandlung verbucht.` : '';
+    if (!pos) {
+      if (loesen) info.innerHTML = (loesText ? `Kein Abzug mehr – ${U.esc(loesText)} gehen zurück in den Bestand.` : 'Kein Abzug – der Bestand bleibt unverändert.') + bleibtText;
+      else info.textContent = zurueckText && bisher.angeboten ? `Kein Abzug mehr – ${zurueckText} gehen zurück in den Bestand.` : 'Kein Abzug – der Bestand bleibt unverändert.';
       return;
     }
+    const roh = Math.max(0, Number(mengeFn()) || 0);
+    const bestand = verbrauchBestand(pos), e = verbrauchEinheit(pos);
+    /* Stück gibt es nur ganz (Finaltest Portion 1, 09.11.2026): Der Hinweis zeigte „Abzug 1,5 Stück → Rest 8,5 Stück“, gebucht
+       werden aber 2 Stück (materialAbzugPlan rundet auf). Jetzt rechnet auch der Hinweis mit ganzen Stück und sagt es dazu. */
+    const ganz = (x) => (e === 'Stück' ? Math.ceil(x - 1e-9) : x);
+    const aufText = (von, auf) => (auf !== von ? ` (zusammen ${U.fmtNum(von, 2)} Stück, aufgerundet)` : '');
+    const schonText = zurueckText ? `Schon abgezogen: ${U.esc(zurueckText)}. ` : '';
+    if (bisher && pos.id === bisher.start) {
+      const diffRoh = Math.round((roh - bisher.menge) * 1000) / 1000;
+      /* Stück (Nachbesserung P2, 10.11.2026): dieselbe Rechnung wie behandlungAendern (stueckAenderPlan) – mit den Mengen der
+         Gruppe und den schon abgezogenen ganzen Stück. Vorher nannte der Hinweis bei 1,5 → 1,8 „Dazu kommen 1 Stück“, gebucht
+         wurde nichts, weil 2 Stück schon reichen. Runde 2: Zurück kommt auch, was übrige Einträge der Gruppe zu viel tragen,
+         und zwar auf die Position, von der es abgezogen wurde – der Hinweis nennt das Lager dieser Position danach. */
+      let diff = diffRoh, weg = Math.min(-diff, U.sum(bisher.abzug || [], (a) => Number(a.menge) || 0)), hierhin = weg, woanders = [];
+      if (e === 'Stück') {
+        const plan = stueckAenderPlan({ ...(bisher.rec || {}), menge: bisher.menge, verbrauchAbzug: bisher.abzug || [] }, roh, bisher.gruppe, bisher.inventar);
+        weg = U.sum(plan.rueck, (a) => Number(a.menge) || 0);
+        diff = plan.nachziehen > 0 ? plan.nachziehen : -weg;
+        hierhin = U.sum(plan.rueck.filter((a) => a.inventarId === pos.id), (a) => Number(a.menge) || 0);
+        woanders = plan.rueck.filter((a) => a.inventarId !== pos.id);
+      }
+      if (diff > 0) info.innerHTML = `${schonText}Dazu kommen <b>${U.fmtNum(diff, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(Math.max(0, bestand - diff), 2)} ${e}</b>`
+        + (diff > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(diff - bestand, 2)} ${e} fehlen)</span>` : '');
+      else if (diff < 0 && weg > 0) info.innerHTML = `<b>${U.fmtNum(weg, 2)} ${e}</b> gehen zurück in den Bestand → <b>${U.fmtNum(bestand + hierhin, 2)} ${e}</b>`
+        + (woanders.length ? ` (davon ${U.esc(woanders.map((a) => `${U.fmtNum(a.menge, 2)} ${e} zu „${a.bezeichnung || 'andere Position'}“`).join(', '))})` : '');
+      else info.innerHTML = `${schonText}Der Bestand bleibt bei <b>${U.fmtNum(bestand, 2)} ${e}</b>${e === 'Stück' && diffRoh !== 0 ? ' – Stück zählen nur ganz, die schon abgezogenen passen weiter' : ''}.`;
+      return;
+    }
+    let menge = ganz(roh), gruppeText = '';
+    /* Stück-Gruppe auf eine andere Position umgestellt (Runde 3): Abgezogen wird, was der Gruppe dann zum Bedarf fehlt – wie
+       behandlungAendern. Der eigene bisherige Abzug zählt dabei nicht mehr mit (er geht zurück). */
+    if (e === 'Stück' && wechsel && wechsel.art === 'gruppe') {
+      const traegt = stueckGetragen(bisher.gruppe);
+      menge = Math.max(0, stueckBedarf(stueckMengen(bisher.gruppe) + roh) - traegt);
+      if (traegt > 0) gruppeText = ` (die übrigen Völker der Behandlung tragen schon ${U.fmtNum(traegt, 2)} ${e})`;
+    }
     const rest = Math.max(0, bestand - menge);
-    info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b> von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
+    info.innerHTML = `Abzug <b>${U.fmtNum(menge, 2)} ${e}</b>${gruppeText || (wechsel && wechsel.art === 'gruppe' ? '' : aufText(roh, menge))} von ${U.fmtNum(bestand, 2)} ${e} → Rest <b>${U.fmtNum(rest, 2)} ${e}</b>`
       + (menge > bestand ? ` <span class="zahl-warn">– Bestand reicht nicht (${U.fmtNum(menge - bestand, 2)} ${e} fehlen)</span>` : '')
-      + (zurueckText && bisher.angeboten ? `. Dafür gehen ${U.esc(zurueckText)} zurück in den Bestand.` : '');
+      + (loesen ? (loesText ? `. Dafür gehen ${U.esc(loesText)} zurück in den Bestand.` : '.') + bleibtText
+        : zurueckText && bisher.angeboten ? `. Dafür gehen ${U.esc(zurueckText)} zurück in den Bestand.` : '');
   };
   sel.addEventListener('change', zeige);
   m.el.addEventListener('input', zeige);
@@ -25030,7 +25691,51 @@ function materialNamensArt(p) {
     Eine Stelle für materialAbzugPlan, verbrauchAbziehenKette und das Umrechnen in abfuellungAendern. `rolle` gibt der
     Aufrufer vor, wenn er weiß, wofür die Position gewählt ist (Feld „Deckel“ beim Abfüllen). */
 function materialArt(p, rolle = materialRolle(p)) {
-  return JSON.stringify([inventarTyp(p), verbrauchEinheit(p), p.kategorie || '', Number(p.gebindeG) || 0, rolle]);
+  return JSON.stringify([inventarTyp(p), verbrauchEinheit(p), p.kategorie || '', Number(p.gebindeG) || 0, rolle, materialProdukt(p)]);
+}
+/* Produkt einer Position für die Abzugskette (Finaltest Portion 1, 09.11.2026): Bei Behandlungsmitteln und Futter reichte
+   „gleiche Kategorie und Einheit“ – fehlende Ameisensäure wurde still von der Oxalsäure abgezogen, fehlender Zucker vom
+   Apiinvert, und „50 ml fehlten“ wurde verschwiegen. Jetzt springt nur dasselbe Produkt ein. Verglichen wird der Name ohne
+   Jahr, Charge, Packungs-/Kartonzusatz und Gebindegewicht: „Zucker 2025“ → „Zucker 2026“ und „Apivar Packung A“ → „Apivar
+   Packung B“ gehen weiter, „Ameisensäure 60 %“ → „Oxalsäure 3,5 %“ nicht. Andere Kategorien (Gläser, Deckel …) bleiben wie bisher.
+   Nachbesserung P2 (10.11.2026): Nach „Sack“, „Packung“ … wird eine Zahl nur übersprungen, wenn keine Einheit folgt – „Zucker Sack
+   25 kg“ ist Zucker (vorher „zucker kg“), „Apivar Packung 10 Stück“ ist Apivar. „60%“ und „60 %“ sind dieselbe Stärke. */
+const MATERIAL_PRODUKT_KATEGORIEN = new Set(['Behandlungsmittel', 'Futter']);
+function materialProdukt(p) {
+  if (!p || !MATERIAL_PRODUKT_KATEGORIEN.has(p.kategorie)) return '';
+  const woerter = String(p.bezeichnung || '').toLowerCase().replace(/[()[\]{}]/g, ' ').replace(/(\d)\s+%/g, '$1%').split(/\s+/).filter(Boolean);
+  /* Runde 2 (10.11.2026): auch Eimer, Bag-in-Box, Beutel und Flasche sind nur die Packung, Streifen nur die Einheit – „Apiinvert 16 kg
+     Eimer“ und „Apiinvert Bag-in-Box“ sind Apiinvert, „Bayvarol Packung 20 Streifen“ ist Bayvarol (vorher „apiinvert eimer“ usw.). */
+  /* Runde 4 (10.11.2026): drei Sorten Wörter. Nach Charge, Lot, Nr. folgt eine Kennung („Charge 2025-07“, „Nr. 3“, „Los L2407“).
+     Nach Packung, Karton, Sack nur eine einzelne Ziffer oder ein einzelner Buchstabe („Packung A“, „Karton 2“). Behälterwörter
+     (Flasche, Eimer, Kanister, Beutel, Bag-in-Box, Gebinde) fallen selbst weg, das Wort danach bleibt immer. Vorher übersprangen
+     alle eine Zahl danach: „Ameisensäure Flasche 60“ und „Ameisensäure Flasche 85“ waren beide „ameisensäure“. */
+  const raus = new Set(['alt', 'neu', 'rest', 'nachkauf']), mitKennung = new Set(['charge', 'ch.', 'lot', 'los', 'nr.', 'nr']);
+  const packWort = new Set(['packung', 'karton', 'sack']), behaelter = new Set(['kanister', 'gebinde', 'eimer', 'bag-in-box', 'beutel', 'flasche']);
+  const einheiten = /^(kg|g|l|ml|liter|stück|stk\.?|st\.?|streifen)$/;
+  const behalten = [];
+  for (let i = 0; i < woerter.length; i++) {
+    const w = woerter[i], nach = woerter[i + 1] || '';
+    if (/^(19|20)\d{2}$/.test(w) || raus.has(w) || /^[-–—_/·:,.;#]+$/.test(w)) continue;
+    if (behaelter.has(w)) continue;
+    if (mitKennung.has(w) || packWort.has(w)) {
+      const mengeFolgt = /^\d+([.,]\d+)?$/.test(nach) && einheiten.test(woerter[i + 2] || '');   // „Sack 25 kg“: die Mengenregel unten nimmt „25 kg“
+      /* Runde 3 (10.11.2026): Übersprungen wird nur, was nach Kennung aussieht – eine Ziffer ohne „%“ („Charge 2025-07“, „Nr. 3“)
+         oder ein einzelner Buchstabe („Packung A“). Vorher fiel jedes kurze Wort weg: „Ameisensäure Flasche 60%“ und „… 85%“ waren
+         beide „ameisensäure“ (85 % sprang still für 60 % ein), „Eimer Zucker“ und „Eimer Sirup“ beide leer. */
+      const kennung = mitKennung.has(w) ? (/\d/.test(nach) && !/%/.test(nach)) || /^[a-zäöü]$/.test(nach) : /^([a-zäöü]|\d)$/.test(nach);
+      if (nach && kennung && !einheiten.test(nach) && !mengeFolgt) i++;
+      continue;
+    }
+    if (/^\d+er$/.test(w)) continue;                                                      // Packungsgröße „10er“
+    if (/^\d+([.,]\d+)?(kg|g|l|ml)$/.test(w)) continue;                                   // „25kg“
+    if (/^\d+([.,]\d+)?$/.test(w) && einheiten.test(nach)) { i++; continue; }             // „25 kg“, „1000 ml“
+    behalten.push(w);
+  }
+  // Ein einzelner Buchstabe oder eine einzelne Ziffer am Ende („Zucker 1“, „Zucker B“) zählt nicht zum Produkt – „Ameisensäure 60“ bleibt
+  while (behalten.length > 1 && /^([a-zäöü]|\d)$/.test(behalten[behalten.length - 1])) behalten.pop();
+  // Bleibt nichts übrig („Eimer“), zählt der ganze Name – sonst wären alle solchen Positionen „dasselbe Produkt“ (Runde 3)
+  return behalten.length ? behalten.join(' ') : woerter.join(' ');
 }
 /** Ganze Stücke nach dem größten Rest (Fund 04.11.2026, #24): jeder Anteil abgerundet, die fehlenden Stücke bekommen
     die Anteile mit dem größten Nachkommarest (bei Gleichstand der vordere). Die Summe ist genau die gerundete Gesamtmenge –
@@ -25372,6 +26077,9 @@ Views.papierkorb = {
           const wiederhergestellt = await DB.trashRestore(rs.dataset.restore);
           const mittelZurueck = wiederhergestellt && await mittelMitBeilageZurueck(eintrag);
           UI.toast(wiederhergestellt ? (mittelZurueck ? 'Wiederhergestellt, auch das Mittel unter „Meine Mittel“' : 'Wiederhergestellt') : 'Der Eintrag ist nicht mehr im Papierkorb.');
+          // Behandlung aus einer Stück-Gruppe: nur der vorhandene Bestand wurde abgezogen (Nachbesserung P2, Runde 2) – wie beim Anlegen melden
+          const fehlt = wiederhergestellt && wiederhergestellt.materialGefehlt;
+          if (fehlt) UI.toast(`${U.fmtNum(fehlt.menge, 2)} ${fehlt.einheit}${fehlt.bezeichnung ? ` ${fehlt.bezeichnung}` : ''} fehlten im Bestand – nur der vorhandene Bestand wurde abgezogen`, 'err');
           renderRoute();
         } catch (err) { UI.toast(err.message || 'Wiederherstellen fehlgeschlagen – bitte erneut versuchen.', 'err'); }
         return;
@@ -25412,7 +26120,10 @@ const Export = {
   STAMM: ['staende', 'voelker', 'koeniginnen', 'kontakte', 'inventar'],   // ohne Jahr: immer der aktuelle Stand
   DATUM: { zuchtserien: 'startdatum', trachten: 'von', aufgaben: 'faellig' }, // sonst „datum“
   datumVon(store, r) { return String(r[this.DATUM[store] || 'datum'] || '').slice(0, 10); },
-  /* Was gehört zu einem Volk? Behandlungen/Ernten für den ganzen Stand zählen beim Volk mit (aktueller Standort). */
+  /* Was gehört zu einem Volk? Behandlungen/Ernten für den ganzen Stand zählen beim Volk mit – an dem Stand, an dem das Volk
+     an ihrem Tag stand (standAmStichtag, wie Volk-Seite und Statistik). Vorher galt der heutige Standort: Nach einer Wanderung
+     fehlten die Einträge vom alten Stand, und die vom neuen standen schon vor der Ankunft drin (Finaltest Portion 1, 09.11.2026). */
+  standAm(v, r, wanderungen) { const tag = String(r.datum || '').slice(0, 10); return tag ? standAmStichtag(v, tag, wanderungen || []) : (v.standId || null); },
   VOLK: {
     voelker: (r, v) => r.id === v.id,
     koeniginnen: (r, v) => r.id === v.koeniginId || (r.historie || []).some((h) => h.volkId === v.id),
@@ -25420,8 +26131,8 @@ const Export = {
     fuetterungen: (r, v) => r.volkId === v.id,
     gewichte: (r, v) => r.volkId === v.id,
     varroa: (r, v) => r.volkId === v.id,
-    behandlungen: (r, v) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!v.standId && r.zielId === v.standId),
-    ernten: (r, v) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!v.standId && r.zielId === v.standId),
+    behandlungen: (r, v, wanderungen) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!r.zielId && Export.standAm(v, r, wanderungen) === r.zielId),
+    ernten: (r, v, wanderungen) => (r.zielTyp === 'volk' && r.zielId === v.id) || (r.zielTyp === 'stand' && !!r.zielId && Export.standAm(v, r, wanderungen) === r.zielId),
     wanderungen: (r, v) => (r.volkIds || []).includes(v.id),
     aufgaben: (r, v) => r.volkId === v.id,
   },
@@ -25432,9 +26143,9 @@ const Export = {
     fahrten: (r, s) => r.standId === s.id,
     trachten: (r, s) => (r.standIds || []).includes(s.id),
   },
-  filter({ volk = null, stand = null, jahr = '' } = {}) {
+  filter({ volk = null, stand = null, jahr = '', wanderungen = [] } = {}) {
     return (store, r) => {
-      if (volk && this.VOLK[store] && !this.VOLK[store](r, volk)) return false;
+      if (volk && this.VOLK[store] && !this.VOLK[store](r, volk, wanderungen)) return false;
       if (stand && this.STAND[store] && !this.STAND[store](r, stand)) return false;
       if (jahr && store === 'trachten' && r.jaehrlich) return true;   // „jedes Jahr“ gehört in jedes Jahr
       if (jahr && !this.STAMM.includes(store)) { const d = this.datumVon(store, r); if (d && d.slice(0, 4) !== jahr) return false; }
@@ -25446,11 +26157,20 @@ const Export = {
     ['fuetterungen', 'Fütterungen'], ['varroa', 'Varroa-Kontrollen'], ['gewichte', 'Gewichte'], ['ernten', 'Ernten'],
     ['wanderungen', 'Wanderungen'], ['aufgaben', 'Aufgaben'], ['_verlauf', 'Verlauf'], ['_anhaenge', 'Notizen & Anhänge']],
   async volkTeile(volk, jahr = '') {
-    const defs = await Xlsx.defs({ filter: this.filter({ volk, jahr }) });
-    const stand = volk.standId ? await DB.get('staende', volk.standId) : null;
+    const wanderungen = await DB.getAll('wanderungen');
+    const filter = this.filter({ volk, jahr, wanderungen });
+    const defs = await Xlsx.defs({ filter });
+    const alleStaende = await DB.getAll('staende');
     /* Auch ein gelöschter Stand: Seine Einträge „Ganzer Stand“ stehen über VOLK weiter in der Akte – der Hinweis dazu fehlte aber
-       (Ultra-Test 05.11.2026, G7). Jetzt mit „Name (gelöscht)“. */
-    const standName = volk.standId ? standNameAnzeige(volk.standId, stand ? [stand] : []) : '';
+       (Ultra-Test 05.11.2026, G7). Jetzt mit „Name (gelöscht)“. Genannt werden der heutige Stand und jeder frühere, von dem
+       Einträge mit aufgeführt sind (Finaltest Portion 1, 09.11.2026). */
+    const standHinweis = async (k) => {
+      const ids = new Set(volk.standId ? [volk.standId] : []);
+      for (const r of await DB.getAll(k)) if (r.zielTyp === 'stand' && r.zielId && filter(k, r)) ids.add(r.zielId);
+      if (!ids.size) return '';
+      const namen = [...ids].map((id) => `„${standNameAnzeige(id, alleStaende)}“`).join(' bzw. ');
+      return `Mit aufgeführt: Einträge für den ganzen Stand ${namen} – nur von Tagen, an denen das Volk dort stand.`;
+    };
     const imJahr = (iso) => !jahr || !iso || String(iso).startsWith(jahr);
     const teile = [];
     for (const [k, titel] of this.TEILE) {
@@ -25464,7 +26184,7 @@ const Export = {
         if (rows.some((r) => r.Art === 'Foto' || r.Art === 'Dokument')) hinweis = 'Fotos und Dokumente selbst stehen nicht im PDF – sie liegen in der App und in der Sicherung.';
       } else if (defs[k]) {
         rows = await defs[k].rows();
-        if ((k === 'behandlungen' || k === 'ernten') && standName) hinweis = `Mit aufgeführt: Einträge für den ganzen Stand „${standName}“ (aktueller Standort des Volks).`;
+        if (k === 'behandlungen' || k === 'ernten') hinweis = await standHinweis(k);
       }
       teile.push({ k, titel, rows, hinweis });
     }
@@ -25478,7 +26198,7 @@ const Export = {
     for (const store of stores) {
       if (this.STAMM.includes(store)) continue;
       for (const r of await DB.getAll(store)) {
-        if (st.volk && this.VOLK[store] && !this.VOLK[store](r, st.volk)) continue;
+        if (st.volk && this.VOLK[store] && !this.VOLK[store](r, st.volk, st.wanderungen)) continue;
         if (st.stand && this.STAND[store] && !this.STAND[store](r, st.stand)) continue;
         nimm(this.datumVon(store, r));
       }
@@ -25504,7 +26224,8 @@ const Export = {
     else if (vor.stand) bereiche = bereiche.filter((k) => this.STAND[k]);
     const voelker = U.sortBy(await DB.getAll('voelker'), (v) => (v.status === 'aktiv' ? '0' : '1') + (v.name || '').toLowerCase());
     const staende = U.sortBy(await DB.getAll('staende'), (x) => (x.name || '').toLowerCase());
-    const st = { bereich: bereiche.includes(vor.bereich) ? vor.bereich : 'voelker', volkId: vor.volk || '', standId: vor.stand || '', jahr: vor.jahr ?? null };
+    const st = { bereich: bereiche.includes(vor.bereich) ? vor.bereich : 'voelker', volkId: vor.volk || '', standId: vor.stand || '', jahr: vor.jahr ?? null,
+      wanderungen: await DB.getAll('wanderungen') };   // für „Stand am Tag“ bei Einträgen für den ganzen Stand (Finaltest Portion 1, 09.11.2026)
     const male = async () => {
       st.stand = this.STAND[st.bereich] ? staende.find((x) => x.id === st.standId) || null : null;
       /* Völker vom Stand aus (Großbestand-Test 09.11.2026, #11): Vorher standen alle Völker zur Wahl und die Stand-Wahl fehlte –
@@ -26160,7 +26881,8 @@ const Reporting = {
     for (const [, gleich] of U.groupBy(rows.filter((r) => r.volk), (r) => r.k)) {
       if (gleich.length > 1) for (const r of gleich) r.k += ` (${standNameAnzeige(r.volk.standId, staende) || 'ohne Stand'})`;
     }
-    return rows.map(({ volk, ...r }) => r).sort((a, b) => b.kg - a.kg);
+    // „Jahr“ steht der Zeit nach, sonst springt die Zeitachse im Diagramm nach Menge hin und her (Finaltest Portion 1, 09.11.2026)
+    return rows.map(({ volk, ...r }) => r).sort((a, b) => (gruppe === 'jahr' ? String(a.k).localeCompare(String(b.k)) : b.kg - a.kg));
   },
   /** Honig je Tracht (gleiche Pflanze über die Jahre zusammen) mit Ø je Volk und Vorjahr (laufendes Jahr: bis zum selben Kalendertag). */
   async ertragJeTracht(jahr = '') {
@@ -26254,7 +26976,8 @@ const Statistik = {
     const d = {};
     // rechnungen: per Rechnung verkaufter Honig zählt beim Verkauf mit (Fund 04.11.2026, #10)
     // wanderungen: Stand eines Volks am Tag einer Behandlung (Fund 04.11.2026, #32)
-    for (const st of ['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten', 'rechnungen', 'wanderungen']) d[st] = await DB.getAll(st);
+    // Alle 16 Speicher in EINEM Lesevorgang statt nacheinander (Finaltest Portion 1, 09.11.2026)
+    Object.assign(d, await DB.leseAlles(['voelker', 'staende', 'koeniginnen', 'stockkarten', 'fuetterungen', 'behandlungen', 'varroa', 'ernten', 'kassenbuch', 'verkaeufe', 'abfuellungen', 'aufgaben', 'fahrten', 'trachten', 'rechnungen', 'wanderungen']));
     d.volkMap = new Map(d.voelker.map((v) => [v.id, v]));
     return d;
   },
@@ -26551,7 +27274,10 @@ Views.reporting = {
     /* Ein Jahr für alle Reiter (v2.81) – Standard: das laufende Jahr */
     const jahrJetzt = U.todayIso().slice(0, 4);
     const jahreDa = new Set([jahrJetzt]);
-    for (const st of ['stockkarten', 'ernten', 'fuetterungen', 'behandlungen', 'varroa', 'kassenbuch', 'fahrten']) for (const r of await DB.getAll(st)) { const y = String(r.datum || '').slice(0, 4); if (/^\d{4}$/.test(y)) jahreDa.add(y); }
+    /* Daten EINMAL lesen und für Jahresliste, „Auf einen Blick“ und Rangliste teilen – vorher dreimal gelesen,
+       bei großem Bestand fast 1 s auf dem Handy (Finaltest Portion 1, 09.11.2026) */
+    const d = await Statistik.daten();
+    for (const st of ['stockkarten', 'ernten', 'fuetterungen', 'behandlungen', 'varroa', 'kassenbuch', 'fahrten']) for (const r of d[st]) { const y = String(r.datum || '').slice(0, 4); if (/^\d{4}$/.test(y)) jahreDa.add(y); }
     const jahreListe = [...jahreDa].sort().reverse();
     if (V._jahr === undefined || (V._jahr && !jahreListe.includes(V._jahr))) V._jahr = jahrJetzt;
     const jahr = V._jahr;
@@ -26564,12 +27290,13 @@ Views.reporting = {
       typ, (t) => { V._typ = t; return renderRoute(); });
     const box = $('#rep');
     /* Auf einen Blick + Auffällig – braucht ein einzelnes Jahr für den Vergleich */
-    $('#rep-blick').innerHTML = jahr ? Statistik.html(await Statistik.auswerten(typ, jahr), jahr)
+    $('#rep-blick').innerHTML = jahr ? Statistik.html(await Statistik.auswerten(typ, jahr, d), jahr)
       : `<div class="banner info mb12">${icon('info')} <span class="b-msg">Für „Auf einen Blick“ mit Vorjahresvergleich oben ein Jahr wählen. Darunter siehst du den Verlauf über alle Jahre.</span></div>`;
     if (typ === 'voelker') {
       const jahresSicht = await Reporting.voelkerEntwicklung();
       const daten = jahr ? await Reporting.voelkerVerlauf(jahr) : jahresSicht;
       const titel = jahr ? `Völkerentwicklung ${jahr} (Stand am Monatsende)` : 'Völkerentwicklung (aktive Völker zum Jahresende)';
+      // Vergangenes Jahr: der letzte Wert ist der 31.12., nicht heute – Beschriftung wie im PDF (Finaltest Portion 1, 09.11.2026)
       const hoch = daten.values.length ? Math.max(...daten.values) : 0;
       const tief = daten.values.length ? Math.min(...daten.values) : 0;
       box.innerHTML = `
@@ -26577,13 +27304,13 @@ Views.reporting = {
         <button class="btn btn-ghost btn-sm no-print" onclick="Pdf.report('voelker', '${U.esc(jahr)}')">${icon('doc')} PDF</button></div>
         ${daten.labels.length ? UI.chart({ type: 'line', labels: daten.labels, series: [{ name: 'Völker', values: daten.values }], height: 220 })
           + `<div class="stat-grid mt12">
-              <div class="stat"><div class="s-label">Stand heute</div><div class="s-value">${daten.values.at(-1)}</div></div>
+              <div class="stat"><div class="s-label">${jahr && jahr !== jahrJetzt ? 'Stand 31.12.' : 'Stand heute'}</div><div class="s-value">${daten.values.at(-1)}</div></div>
               <div class="stat"><div class="s-label">Höchststand</div><div class="s-value">${hoch}</div></div>
               <div class="stat"><div class="s-label">Veränderung</div><div class="s-value">${daten.values.at(-1) - daten.values[0] >= 0 ? '+' : ''}${daten.values.at(-1) - daten.values[0]}</div><div class="s-sub">von ${daten.values[0]} auf ${daten.values.at(-1)}${tief !== hoch ? ` · Tief ${tief}` : ''}</div></div>
             </div>`
           : emptyState('volk', 'Noch keine Völker erfasst.')}</div>`;
     } else if (typ === 'ertrag') {
-      const rows = await Reporting.ertrag(gruppe, gruppe === 'jahr' ? '' : jahr);
+      const rows = gruppe === 'volk' ? [] : await Reporting.ertrag(gruppe, gruppe === 'jahr' ? '' : jahr);   // „Volk“ zeigt die Rangliste, rows braucht nur der Rest
       const GRP = { volk: 'Volk', stand: 'Stand', sorte: 'Sorte', tracht: 'Tracht', jahr: 'Jahr' };
       // Tracht (v2.83): eigene Tabelle mit Ø je Volk und Vorjahr
       const tr = gruppe === 'tracht' ? await Reporting.ertragJeTracht(jahr) : null;
@@ -26593,7 +27320,7 @@ Views.reporting = {
       if (gruppe === 'volk') {
         /* Rangliste je Volk (Julian 08.11.2026): bestes Volk oben, Balken relativ zum besten, Jahr und Schnitt darüber,
            „Exportieren“ direkt in der Kopfzeile – alles zu dieser Liste an einer Stelle. */
-        const dRang = await Statistik.daten(), pruefRang = jahr ? (iso) => Statistik.im(iso, jahr) : () => true;
+        const dRang = d, pruefRang = jahr ? (iso) => Statistik.im(iso, jahr) : () => true;
         const rang = Statistik.honigRangliste(dRang, pruefRang);
         const standHinweis = Statistik.standErntenHinweis(Statistik.standErntenOhneVolk(dRang, pruefRang));   // (Prüfung 2, 08.11.2026, R11)
         const bestes = rang.length ? Math.max(rang[0].kg, 0) : 0;
@@ -28183,14 +28910,35 @@ async function pruefeMhdLauf() {
      Altdaten mit MHD an der Charge fängt abfMhd ab. */
   const abfAlle = await DB.getAll('abfuellungen');
   const chargenM = await idMap('chargen');
+  /* Offene Honig-MHD-Erinnerungen abgleichen (Finaltest Portion 1, 09.11.2026): Jede offene Aufgabe galt als „schon erinnert“ –
+     nach MHD-Korrektur, Ausverkauf oder Löschen der Abfüllung blieb „MHD läuft ab … am 01.12.2026“ stehen, bei früherem MHD
+     erinnerte sie zu spät. Passt sie nicht mehr (anderes Datum, nichts mehr übrig, außerhalb der Warnfrist, Abfüllung weg), wird
+     sie gelöscht und unten bei Bedarf neu angelegt; sonst bekommt sie die aktuelle Glas-Zahl. Inventar-Erinnerungen bleiben. */
+  const abfIdM = new Map(abfAlle.map((a) => [a.id, a]));
+  const inventarIds = new Set((await DB.getAll('inventar')).map((i) => i.id));
+  const honigMhdText = (a, mhd, c) => { const was = `${a.bestand} × ${gebindeLabel(a.gebindeG)} aus Charge ${c ? c.losnummer : '?'}`;
+    return mhd < heute ? `MHD überschritten: ${was}` : `MHD läuft ab: ${was} am ${U.fmtDate(mhd)}`; };
+  for (const t of [...offeneMhdAufgaben]) {
+    const abf = abfIdM.get(t.refId), ch = !abf && chargenM.get(t.refId);
+    const honig = abf || ch || /^mhd:/.test(t.anlass || '') || /^MHD /.test(t.titel || '');
+    if (!honig || (!abf && !ch && inventarIds.has(t.refId))) continue;
+    const mhd = abf ? abfMhd(abf, chargenM.get(abf.chargeId)) : ch ? ch.mhd : null;
+    const uebrig = abf ? (abf.bestand || 0) > 0 : ch ? chargeRestKg(ch, abfAlle) > 0.0001 : false;
+    const passt = !!mhd && uebrig && U.daysBetween(heute, mhd) <= MHD_WARN_TAGE && String(t.anlass || '').split(':')[1] === mhd;
+    if (!passt) { await DB.del('aufgaben', t.id); offeneMhdAufgaben.splice(offeneMhdAufgaben.indexOf(t), 1); continue; }
+    const warUeber = /^MHD überschritten/.test(t.titel || '');
+    if (abf && warUeber === (mhd < heute)) {   // gleiche Art (läuft ab / überschritten): nur die Glas-Zahl auffrischen
+      const titel = honigMhdText(abf, mhd, chargenM.get(abf.chargeId));
+      if (titel !== t.titel) { t.titel = titel; await DB.put('aufgaben', t); }
+    }
+  }
   for (const a of abfAlle) {
     const c = chargenM.get(a.chargeId);
     const mhd = abfMhd(a, c);
     const anlass = `mhd:${mhd}:${mhd < heute ? 'ueber' : 'bald'}`;
     if (!mhd || (a.bestand || 0) <= 0 || schonErinnert(a.id, anlass)) continue;
     if (U.daysBetween(heute, mhd) > MHD_WARN_TAGE) continue;
-    const was = `${a.bestand} × ${gebindeLabel(a.gebindeG)} aus Charge ${c ? c.losnummer : '?'}`;
-    const titel = mhd < heute ? `MHD überschritten: ${was}` : `MHD läuft ab: ${was} am ${U.fmtDate(mhd)}`;
+    const titel = honigMhdText(a, mhd, c);
     await DB.put('aufgaben', { titel, faellig: mhd, erledigt: false, quelle: 'mhd', refId: a.id, anlass, notiz: 'Restbestand vor Ablauf abverkaufen oder verwerten.' });
   }
   // Noch nicht abgefüllter Rest einer Altcharge, die ihr MHD selbst trägt
@@ -31055,7 +31803,7 @@ const PdfImport = {
           return;
         }
         const zielId = zielIdAus(v);
-        await DB.put('ernten', { zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: null, schleuderung: null, notiz: v.notiz });
+        await ernteSpeichern({ zielTyp: v.zielTyp, zielId, datum: v.datum, produktart: 'Honig', sorte: v.sorte || '', mengeKg: v.mengeKg, wassergehalt: null, schleuderung: null, notiz: v.notiz });   // prüft die Menge wie das Ernte-Formular (Finaltest Portion 1, 09.11.2026)
         UI.toast('Ernte übernommen');
       },
     });
@@ -33912,8 +34660,14 @@ async function migriereBioPartner(erzwingen = false) {
   for (const e of partner) {
     if (!e.name) continue;
     const vorhanden = finde(e.name);
+    /* Beim vorhandenen Kontakt nur Leeres füllen (Finaltest Portion 1, 09.11.2026): Eine alte Sicherung zusammengeführt
+       überschrieb sonst die aktuelle Öko-Kontrollnummer mit einer leeren und „gültig bis 2027“ mit dem alten Datum 2025 –
+       die App meldete das Zertifikat als abgelaufen. Beim Zusammenführen (erzwingen) bleibt auch ein „Nein“ am Kontakt stehen –
+       beim ersten Umzug nicht, da ist „Nein“ oft nur die Vorgabe des Formulars. */
     const daten = {
-      bio: 'ja', oekoWas: e.was || '', oekoNummer: e.kontrollnummer || '', oekoGueltigBis: e.gueltigBis || '',
+      bio: erzwingen && vorhanden && vorhanden.bio === 'nein' ? 'nein' : 'ja',
+      oekoWas: (vorhanden && vorhanden.oekoWas) || e.was || '', oekoNummer: (vorhanden && vorhanden.oekoNummer) || e.kontrollnummer || '',
+      oekoGueltigBis: (vorhanden && vorhanden.oekoGueltigBis) || e.gueltigBis || '',
       notiz: dazu(vorhanden && vorhanden.notiz, e.notiz),
     };
     if (vorhanden) {
