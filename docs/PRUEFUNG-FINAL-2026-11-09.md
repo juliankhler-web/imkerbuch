@@ -90,3 +90,15 @@ Prüfung (Workflow `imkerbuch-portion`, Run wf_0a2a9889-729): 43 bestätigte Fun
 - **Rest aus Runde 4 (Runde 5 läuft):** „–“ und zurück auf dasselbe Mittel kostet einen Streifen zu viel; endgültig gelöschte Gruppen-Position; doppelte Nennung im Hinweis.
 - **Ergebnis Zwischenstand:** voller Lauf 1142 von 1142 Tests grün.
 - **Runde 5 (wf_c0a6e63e-879):** „–“ und zurück kehrt in die Gruppe zurück, gelöschte Gruppen-Position rechnet wie vorher, Rückgaben je Position zusammengefasst. Gegenprüfung: 1 Problem, niedrig (alle Völker einer Gruppe wählen „–“ und kehren zurück → jedes rundet einzeln auf; gleich wie Runde 4) – bewusst so gelassen. Voller Lauf 1145 von 1145 Tests grün.
+
+## 7. Portion 3: PDF/Hilfe/Imme, Tablet, Sicherheit/Texte, Aufgaben/Zeiten + Julians Entwürfe (10.11.2026)
+
+Prüfung (wf_8968bc64-a00): 35 bestätigte Funde (1 hoch), sofort an Julian gemeldet. Reparatur Bereich für Bereich, dann Bau der 4 freigegebenen Entwürfe, dann Durchsicht (wf_87c783b0-bee).
+
+- **Sicherheit/Texte (6):** Hoch: präparierte Sicherung konnte Code ausführen – Zahlen-/Status-/Vorlagen-Felder werden beim Einlesen geprüft und bei der Anzeige maskiert. CSV-Bewertungen 1–5, U.parseNum streng („1.500 €“ = 1500, „3-4“/„Infinity“ abgewiesen), Light: Fahrten löschbar, alte Bereichsnamen. Prüferhinweis „breeding“ in docs/APP_STORE_TEXTE.md entfernt – **in App Store Connect beim Einreichen ebenso ändern.**
+- **PDF/Hilfe/Imme (12):** alle behoben (Rechnungs-PDF bricht Summenblock auf Seite 2 um, Einführung/Imme „Zeig’s mir“, 3.25-Neuerungen, PDF-Übernahme Sorte, Tablet-Einführung, Texte, Demo-Daten).
+- **Aufgaben/Zeiten (11):** alle behoben (Völkermeldung mit Hinweis bei späterem Beginn, Zeiterfassungsjahr, Tracht-Erinnerung bleibt verschoben, .ics mit Uhrzeit, Uhrzeit sichtbar, Zeitaufwand begrenzt, Wartezeit-Sammelerinnerung, Wassergehalt 18 %/Heide, Rechner-Grenzen, Propolis-Komma, Stand in Wartezeit-Erinnerung).
+- **UI/Tablet (6):** 5 behoben (Menü „Mehr“ zurücksetzen, Verschieben, lange Namen, „Dashboard“, Tippflächen, „Voll“-Marke). **Offen (Julian):** Reiterhöhe 34/32 px bewusst so (Platz).
+- **Entwürfe E1–E4 (Julian 10.11.2026 freigegeben):** Marktverkauf „−“ und „✎ Preis“, Stand-Ernte für alle ändern/löschen, Rechnung „Im Kassenbuch als“, Volk „besteht seit“. Damit erledigt: P1 Finanzen #9, P2 Honig #2b/#8/#9, P3 Aufgaben #1.
+- **Durchsicht – 3 Nachbesserungen selbst behoben:** „12,–“ mit Gedankenstrich, Sammeländerung schlägt bei neuem Datum die Tracht neu vor, „besteht seit“ bei Altdaten ohne Beginn leer (Tests P3 D1–D3).
+- **Ergebnis:** voller Lauf 1180 von 1180 Tests grün.

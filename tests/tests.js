@@ -775,7 +775,7 @@ test('Notif.icsFuerAufgaben: gültiger Kalender mit Alarm und Escaping', (w) => 
     { id: 'x1', titel: 'Füttern; Volk 1, prüfen', notiz: 'Zeile1\nZeile2', erledigt: false, faellig: '2026-07-10' },
     { id: 'x2', titel: 'Erledigt', erledigt: true, faellig: '2026-07-11' },
     { id: 'x3', titel: 'Ohne Datum', erledigt: false, faellig: null },
-  ]);
+  ], { uhrzeit: '08:00', vorlaufMin: 60 });   // ohne Uhrzeit: Erinnerungs-Uhrzeit aus den Einstellungen (Finaltest P3 AZ4)
   assert(ics.startsWith('BEGIN:VCALENDAR'), 'Kalender-Kopf');
   assertEq((ics.match(/BEGIN:VEVENT/g) || []).length, 1, 'nur offene Aufgaben mit Datum');
   assert(ics.includes('DTSTART:20260710T080000'), 'Termin 08:00 am Fälligkeitstag');
@@ -9689,6 +9689,900 @@ test('Finaltest P2 N24: Stück-Gruppe – Hinweis, Rückfrage und Meldung nennen
   assertEq(await h.bestand(), 9, 'N24b: Lager 9');
   assertEq(w.abzugJePosition([{ inventarId: 'x', menge: 1 }, { inventarId: 'y', menge: 2 }, { inventarId: 'x', menge: 0.5 }]).map((a) => `${a.inventarId}${a.menge}`), ['x1.5', 'y2'], 'abzugJePosition');
 })));
+
+test('Finaltest P3 S1: Sicherung – Zahlenfelder, Rechnungs-Status und Fahrt-Vorlagen werden beim Einlesen geprüft', async (w) => isolierteDaten(w, async () => {
+  const BOESE = '<img src=x data-p3>', Bk = w.Backup;
+  assertEq(Bk._rowsAusImport('koeniginnen', [{ id: 'q1', jahrgang: BOESE }, { id: 'q2', jahrgang: '2024' }, { id: 'q3', jahrgang: null }]).map((x) => x.jahrgang), [null, 2024, null], 'Jahrgang: HTML → null, Text-Zahl → Zahl, leer bleibt leer');
+  const sk = Bk._rowsAusImport('stockkarten', [{ id: 's1', volksstaerke: BOESE, brutbild: 3, sanftmut: '4' }])[0];
+  assertEq([sk.volksstaerke, sk.brutbild, sk.sanftmut], [null, 3, 4], 'Stockkarte');
+  const kb = Bk._rowsAusImport('kassenbuch', [{ id: 'k1', betrag: '12.5', steuersatz: BOESE }])[0];
+  assertEq([kb.betrag, kb.steuersatz], [12.5, null], 'Kassenbuch');
+  const er = Bk._rowsAusImport('ernten', [{ id: 'e1', mengeKg: 5, schleuderung: BOESE, wassergehalt: { x: 1 } }])[0];
+  assertEq([er.mengeKg, er.schleuderung, er.wassergehalt], [5, null, null], 'Ernte');
+  assertEq(Bk._rowsAusImport('rechnungen', [{ id: 'r1', status: BOESE }, { id: 'r2', status: 'storniert' }, { id: 'r3' }]).map((x) => x.status), ['entwurf', 'storniert', undefined], 'Rechnungs-Status nur aus der Liste');
+  const st = Bk._rowsAusImport('settings', [{ key: 'fahrtvorlagen', value: [{ id: "x');alert(1);('", name: 'Böse', km: 12 }, { id: 'gut-1', name: 'Gut', km: 3 }, 'kaputt'] }])[0];
+  assertEq(st.value.map((x) => x.id), ['gut-1'], 'Fahrt-Vorlagen: nur gültige Kennungen');
+  // Der echte Weg „Zusammenführen“ speichert die geprüften Werte
+  await Bk.applyMerge({ stores: { kassenbuch: [{ id: 'p3-kb', datum: '2026-03-01', typ: 'einnahme', kategorie: 'Spende', betrag: 5, steuersatz: BOESE, beschreibung: '', createdAt: w.U.nowIso(), lastModified: w.U.nowIso() }] } });
+  assertEq((await w.DB.get('kassenbuch', 'p3-kb')).steuersatz, null, 'Zusammenführen: Steuersatz verworfen');
+}));
+
+test('Finaltest P3 S1b: Anzeige setzt Zahlen- und Status-Felder nie roh ins HTML, Fahrt-Vorlage ohne id im onclick', async (w) => isolierteDaten(w, async () => {
+  const BOESE = '<img src=x data-p3>';
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const altTab = w.Views.volk._tab;
+  try {
+    // Alte Daten (z. B. aus dem Papierkorb) können noch ungeprüft sein – deshalb hier direkt in die Datenbank
+    const stand = await w.DB.put('staende', { name: 'P3-Stand', lat: null, lng: null, notizen: '' });
+    const q = await w.DB.put('koeniginnen', { jahrgang: BOESE, status: 'aktiv' });
+    const v = await w.DB.put('voelker', { name: 'P3-Volk', standId: stand.id, status: 'aktiv', koeniginId: q.id, historie: [] });
+    await w.DB.put('stockkarten', { volkId: v.id, datum: '2026-06-01', volksstaerke: BOESE, brutbild: 7, sanftmut: -1, notiz: '' });
+    w.Views.volk._tab = 'stockkarte';
+    await w.Views.volk.render(host, v.id);
+    assert(!host.querySelector('[data-p3]'), 'Volk-Seite: kein eingeschleustes Bild');
+    assert(/Brut 5\/5/.test(host.textContent) && /Sanftmut –/.test(host.textContent), 'Bewertung auf 1–5 begrenzt: ' + (host.textContent.match(/Stärke[^·]*·[^·]*·[^·]*/) || [''])[0]);
+    host.innerHTML = '';
+    await w.DB.put('kassenbuch', { datum: w.U.todayIso(), typ: 'einnahme', kategorie: 'Spende', betrag: 5, steuersatz: BOESE, kontaktId: null, beschreibung: 'P3' });
+    await w.Views.kassenbuch.tabBuchungen(host);
+    assert(!host.querySelector('[data-p3]'), 'Kassenbuch: kein eingeschleustes Bild');
+    host.innerHTML = '';
+    await w.DB.put('ernten', { zielTyp: 'volk', zielId: v.id, datum: w.U.todayIso(), produktart: 'Honig', sorte: 'Raps', mengeKg: 5, schleuderung: BOESE, notiz: '' });
+    await w.Views.honig.tabErnten(host);
+    assert(!host.querySelector('[data-p3]'), 'Ernten: kein eingeschleustes Bild');
+    host.innerHTML = '';
+    const r = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), status: BOESE, positionen: [] });
+    await w.Views.rechnung.render(host, r.id);
+    assert(!host.querySelector('[data-p3]'), 'Rechnung: Status als Text');
+    await w.S.set('fahrtvorlagen', [{ id: "x');window.__p3=1;('", name: 'Zum Lager', km: 12, zweck: '', standId: null, freiZiel: 'Lager' }]);
+    host.innerHTML = await w.fahrtSchnellListe();
+    const knopf = [...host.querySelectorAll('button')].find((b) => b.dataset.vorlageId);
+    assert(knopf, 'Knopf „Fahrt buchen“ da');
+    assertEq(knopf.dataset.vorlageId, "x');window.__p3=1;('", 'id im data-Attribut');
+    assert(!knopf.getAttribute('onclick').includes('__p3'), 'id steht nicht im onclick');
+  } finally { host.remove(); w.Views.volk._tab = altTab; dialogeSchliessen(w); }
+}));
+
+test('Finaltest P3 S2: CSV-Import – Bewertungen außerhalb 1–5 und Ernten ohne Menge werden nicht übernommen, Durchsicht geht immer auf', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const v = await w.DB.put('voelker', { name: 'P3-CSV-Volk', standId: null, status: 'aktiv', historie: [] });
+  const zone = w.document.createElement('div');
+  await w.Importer.run('stockkarten', [
+    { Volk: 'P3-CSV-Volk', Datum: '01.06.2026', 'Stärke': '7', Brut: '8', Sanftmut: '9', Notiz: 'P3 Skala 1-9' },
+    { Volk: 'P3-CSV-Volk', Datum: '02.06.2026', 'Stärke': '-1', Brut: '3', Sanftmut: '3', Notiz: 'P3 negativ' },
+  ], { volk: 'Volk', datum: 'Datum', volksstaerke: 'Stärke', brutbild: 'Brut', sanftmut: 'Sanftmut', notiz: 'Notiz' }, zone);
+  const sk = (await w.DB.getAll('stockkarten')).filter((s) => s.volkId === v.id);
+  assertEq(sk.length, 2, 'beide Zeilen importiert');
+  const a = sk.find((s) => s.notiz === 'P3 Skala 1-9'), b = sk.find((s) => s.notiz === 'P3 negativ');
+  assertEq([a.volksstaerke, a.brutbild, a.sanftmut, b.volksstaerke, b.brutbild], [null, null, null, null, 3], 'nur Werte von 1 bis 5');
+  assert(/4 Werte außerhalb des erlaubten Bereichs nicht übernommen/.test(zone.textContent), 'Ergebnis nennt es: ' + zone.textContent);
+  // Alte Daten mit 7 öffnen trotzdem
+  let fehler = null;
+  try { w.Views.volk.stockkarteDetail(v, { id: 'p3-alt', volkId: v.id, datum: '2026-06-03', volksstaerke: 7, brutbild: -1, sanftmut: 3 }); } catch (e) { fehler = e; }
+  assertEq(fehler, null, 'kein Absturz');
+  const m = w.document.querySelector('.modal-back');
+  assert(m && m.textContent.includes('★★★★★'), 'Detail zeigt 5 Sterne');
+  dialogeSchliessen(w);
+  await w.Importer.run('ernten', [{ Volk: 'P3-CSV-Volk', Datum: '01.07.2026', Menge: '0' }, { Volk: 'P3-CSV-Volk', Datum: '02.07.2026', Menge: '-3' }, { Volk: 'P3-CSV-Volk', Datum: '03.07.2026', Menge: '12,5' }],
+    { volk: 'Volk', datum: 'Datum', mengeKg: 'Menge' }, zone);
+  assertEq((await w.DB.getAll('ernten')).filter((e) => e.zielId === v.id).map((e) => e.mengeKg), [12.5], 'Ernten: nur die Zeile mit Menge über 0');
+}));
+
+test('Finaltest P3 S3: Zahleneingabe liest die ganze Eingabe – „1.500 €“ = 1500, Unklares und „Infinity“ sind keine Zahl', async (w) => {
+  const p = (x) => w.U.parseNum(x);
+  assertEq([p('1.500'), p('1.500 €'), p('1.500,00 €'), p('2.000 EUR'), p('12,50 €'), p('15,- €'), p('18,5 %'), p('12,5 kg'), p('€ 12,50'), p('-50')],
+    [1500, 1500, 1500, 2000, 12.5, 15, 18.5, 12.5, 12.5, -50], 'Einheit und Währung stören nicht');
+  for (const x of ['3-4', 'Infinity', '-Infinity', '1.500-', '1,2,3', '–', 'kg']) assert(isNaN(p(x)), `„${x}“ → keine Zahl`);
+  assert(isNaN(p(Infinity)), 'unendlich als Zahl → keine Zahl');
+  assertEq(p(w.U.fmtEur(1234.5)), 1234.5, 'fmtEur → parseNum hin und zurück');
+  // Im echten Formular: Feldfehler statt still falsch speichern
+  dialogeSchliessen(w);
+  let gespeichert = null;
+  const m = w.UI.formModal({ title: 'P3', fields: [{ key: 'betrag', label: 'Betrag', type: 'number' }], async onSave(v) { gespeichert = v; } });
+  try {
+    setzFeld(w, m.el, 'betrag', '3-4'); m.el.querySelector('[data-save]').click(); await kurz(200);
+    assertEq(gespeichert, null, '„3-4“ wird nicht gespeichert');
+    assert(m.el.querySelector('.field.invalid'), 'Feldfehler sichtbar');
+    setzFeld(w, m.el, 'betrag', '1.500 €'); m.el.querySelector('[data-save]').click(); await kurz(200);
+    assertEq(gespeichert && gespeichert.betrag, 1500, '„1.500 €“ → 1500');
+  } finally { dialogeSchliessen(w); }
+});
+
+test('Finaltest P3 S4: Light – vorhandene Fahrt lässt sich löschen, neu anlegen und ändern bleibt gesperrt', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const f1 = await w.DB.put('fahrten', { datum: '2026-05-01', standId: null, freiZiel: 'P3 Lager', km: 12, zweck: 'Einkauf/Besorgung', notiz: '' });
+  const f2 = await w.DB.put('fahrten', { datum: '2026-05-02', standId: null, freiZiel: 'P3 Verein', km: 20, zweck: 'Imkerverein/Versammlung', notiz: '' });
+  const echtLight = w.Lizenz.light, echtFenster = w.Lizenz.fenster, conf = w.UI.confirm; let fenster = 0;
+  w.Lizenz.light = () => true; w.Lizenz.fenster = () => { fenster++; }; w.UI.confirm = async () => true;
+  try {
+    const erg = await w.UI.nurLoeschen(() => w.fahrtForm(f1));
+    await kurz(100);
+    assert(!(await w.DB.get('fahrten', f1.id)), 'Fahrt gelöscht');
+    assert((await w.DB.getAll('papierkorb')).some((t) => t.store === 'fahrten' && t.daten && t.daten.id === f1.id), 'liegt im Papierkorb');
+    assert(erg, 'Löschen gemeldet');
+    assertEq(fenster, 0, 'kein Kauf-Fenster beim Löschen');
+    // Neu: Kauf-Fenster, kein Formular
+    await w.fahrtForm(null); await kurz(50);
+    assertEq(fenster, 1, 'Neu anlegen: Kauf-Fenster');
+    assertEq(w.document.querySelectorAll('.modal-back').length, 0, 'kein Formular');
+    // Ändern: Formular geht auf, Speichern bleibt gesperrt
+    await w.fahrtForm(f2); await kurz(200);
+    const m = w.document.querySelector('.modal-back'); assert(m, 'Formular offen');
+    setzFeld(w, m, 'km', '99'); m.querySelector('[data-save]').click(); await kurz(300);
+    assertEq(Number((await w.DB.get('fahrten', f2.id)).km), 20, 'Änderung nicht gespeichert');
+    assertEq(fenster, 2, 'Speichern: Kauf-Fenster');
+  } finally { w.Lizenz.light = echtLight; w.Lizenz.fenster = echtFenster; w.UI.confirm = conf; dialogeSchliessen(w); }
+}));
+
+test('Finaltest P3 S6: Excel-Blatt heißt „Lager“ und nennt den Bereich jeder Position', async (w) => isolierteDaten(w, async () => {
+  await w.DB.put('inventar', { typ: 'inventar', bezeichnung: 'P3 Beute', kategorie: 'Beuten', stueckzahl: 2 });
+  await w.DB.put('inventar', { typ: 'verbrauch', bezeichnung: 'P3 Gläser', kategorie: 'Gläser', stueckzahl: 100 });
+  const defs = await w.Xlsx.defs();
+  assertEq(defs.inventar.blatt, 'Lager', 'Blattname');
+  const rows = await defs.inventar.rows();
+  assertEq(rows.map((r) => `${r.Bezeichnung}: ${r.Bereich}`).sort(), ['P3 Beute: Geräte & Inventar', 'P3 Gläser: Verbrauchsmaterial'], 'Spalte Bereich');
+}));
+
+/* ---------- Finaltest Portion 3 (10.11.2026): PDF, Hilfe, Imme ---------- */
+/** Schreibt jedes doc.text eines PDFs mit Seite und Höhe (mm) mit; fn erzeugt das PDF. */
+async function ph3PdfTexte(w, fn) {
+  const altLib = w.Pdf.lib, echt = w.Pdf.finish, log = [];
+  let seiten = 0;
+  w.Pdf.lib = async function () {
+    const J = await altLib.call(this);
+    return function (...a) {
+      const doc = new J(...a), t = doc.text.bind(doc);
+      doc.text = (txt, x, y, o) => { log.push({ s: [].concat(txt).join(' '), y, seite: doc.getCurrentPageInfo().pageNumber }); return t(txt, x, y, o); };
+      return doc;
+    };
+  };
+  w.Pdf.finish = (doc) => { seiten = doc.getNumberOfPages(); };
+  try { await fn(); } finally { w.Pdf.lib = altLib; w.Pdf.finish = echt; }
+  return { log, seiten };
+}
+test('Finaltest P3 PH1: Rechnungs-PDF – Summen, Steuerangaben, Zahlungsziel und Dank rutschen nie in die Fußzeile oder unters Blatt', async (w) => isolierteDaten(w, async () => {
+  const heute = w.U.todayIso(), altImk = w.S.get('imkerei');
+  const rechnung = async (n, art, extra = {}) => {
+    const r = await w.DB.put('rechnungen', { nummer: null, datum: heute, kundeId: null, steuerart: art, kleinunternehmer: art === 'klein', pauschalsatz: 7.8, status: 'entwurf', qrAufDruck: false,
+      rabattTyp: 'prozent', rabattWert: 5, ...extra,
+      positionen: Array.from({ length: n }, (_, i) => ({ text: 'Blütenhonig 500 g', menge: 1, einzelpreis: 6.5, steuersatz: art === 'regel' ? (i % 2 ? 19 : 7) : 0, abfuellungId: null })) });
+    return ph3PdfTexte(w, () => w.Pdf.rechnung(r.id));
+  };
+  const WICHTIG = /Gesamtbetrag|Warenwert|Rabatt|Entgelt|Nettoentgelt|enthaltene USt|Zahlbar|§ 19|Vielen Dank/;
+  try {
+    for (const [n, art] of [[3, 'klein'], [16, 'klein'], [18, 'klein'], [20, 'klein'], [22, 'klein'], [23, 'klein'], [16, 'regel'], [18, 'regel'], [19, 'regel'], [20, 'regel']]) {
+      const { log, seiten } = await rechnung(n, art);
+      const z = log.filter((x) => WICHTIG.test(x.s));
+      assert(z.some((x) => /Gesamtbetrag/.test(x.s)), `${n} Pos. (${art}): Gesamtbetrag steht im PDF`);
+      assert(z.some((x) => /Zahlbar/.test(x.s)), `${n} Pos. (${art}): Zahlungsziel steht im PDF`);
+      if (art === 'regel') assert(z.some((x) => /Entgelt 19/.test(x.s)) && z.some((x) => /Entgelt 7/.test(x.s)), `${n} Pos.: Entgelt je Steuersatz`);
+      for (const x of z) assert(x.y <= 274, `${n} Pos. (${art}): „${x.s.slice(0, 40)}“ liegt bei ${x.y.toFixed(1)} mm – über der Fußlinie (278 mm)`);
+      const dank = z.find((x) => /Vielen Dank/.test(x.s));
+      assertEq(dank.seite, seiten, `${n} Pos. (${art}): Dank auf der letzten Seite`);
+      if (n === 3) assertEq(seiten, 1, 'kurze Rechnung bleibt auf einer Seite');
+    }
+    // Bio-Betrieb mit QR-Code: Dank + QR (24 mm ab Dank - 4) enden über den Bio-Logos bei 262 mm
+    await w.S.set('imkerei', { ...altImk, bio: 'ja', bioLogos: [] });
+    for (const n of [10, 12, 14, 16]) {
+      const { log } = await rechnung(n, 'klein', { qrAufDruck: true });
+      const dank = log.find((x) => /Vielen Dank/.test(x.s));
+      assert(dank.y + 20 <= 261, `Bio + QR, ${n} Pos.: QR endet bei ${(dank.y + 20).toFixed(1)} mm – vor den Bio-Logos (262 mm)`);
+    }
+  } finally { await w.S.set('imkerei', altImk); }
+}));
+test('Finaltest P3 PH2: Hilfe-Tour – nach „Weiter“ und „Speichern“ kommt immer „Geschafft!“, die Feld-Wache endet mit ihrem Schritt', async (w) => {
+  dialogeSchliessen(w);
+  const echt = { fertig: w.Assistent.fertig, beende: w.Assistent.beendeTour, toast: w.UI.toast }, einfAktiv = w.Einfuehrung.aktiv;
+  const ablauf = [], toasts = [];
+  w.Assistent.fertig = function (e) { ablauf.push('fertig'); return echt.fertig.call(this, e); };
+  w.Assistent.beendeTour = function (still) { ablauf.push('beende'); return echt.beende.call(this, still); };
+  w.UI.toast = (m) => { toasts.push(String(m)); };
+  w.Einfuehrung.aktiv = false;
+  try {
+    for (let runde = 0; runde < 3; runde++) {
+      const cr = w.currentRoute();
+      const e = { id: 'ph2', titel: 'PH2-Test', route: cr.route, param: cr.param || '', ohneAnrede: true,
+        tour: [{ feld: 'Testname', text: 'Name eintragen' }, { speichern: true, text: 'Speichern' }] };
+      const start = w.Assistent.starteTour(e);
+      await kurz(450);
+      const m = w.UI.formModal({ title: 'PH2', fields: [{ key: 'tn', label: 'Testname', type: 'text' }], onSave() {} });
+      await start;
+      let weiterKnopf = null;
+      for (let i = 0; i < 40 && !weiterKnopf; i++) { await kurz(100); weiterKnopf = w.document.querySelector('.bini-tip [data-weiter]'); }
+      assert(weiterKnopf, `Runde ${runde + 1}: Feld-Schritt zeigt „Weiter“`);
+      weiterKnopf.click();
+      await kurz(900);   // Speichern-Schritt steht, die alte Feld-Wache hatte Zeit für mindestens zwei Durchläufe
+      assert(w.Assistent.tour && w.Assistent.tour.i === 1, `Runde ${runde + 1}: Speichern-Schritt läuft noch`);
+      ablauf.length = 0; toasts.length = 0;
+      m.close(true);
+      await kurz(1000);
+      assertEq(ablauf[0], 'fertig', `Runde ${runde + 1}: nach dem Schließen endet die Hilfe mit „fertig“, nicht leise (${ablauf.join(', ')})`);
+      assert(toasts.includes('Geschafft! Gut gemacht.'), `Runde ${runde + 1}: „Geschafft!“ erscheint`);
+      assertEq(w.Assistent.tour, null, 'Tour ist beendet');
+    }
+  } finally {
+    w.Assistent.fertig = echt.fertig; w.Assistent.beendeTour = echt.beende; w.UI.toast = echt.toast; w.Einfuehrung.aktiv = einfAktiv;
+    w.Assistent.beendeTour(true); dialogeSchliessen(w); await w.renderRoute();
+  }
+});
+test('Finaltest P3 PH3: Imme „Zeig’s mir“ – Selektor auch in der Kopfleiste, genauer Text vor Teiltreffer, ohne Ziel kein fremder Knopf', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const main = w.document.querySelector('#main');
+  const kopf = w.document.createElement('button'); kopf.id = 'ph3-kopf'; kopf.className = 'icon-btn'; kopf.textContent = '☾';
+  w.document.body.appendChild(kopf);
+  const echtToast = w.UI.toast, toasts = [];
+  try {
+    main.innerHTML = '<div><button role="tab" class="tab">Buchungen</button></div><button class="btn btn-primary" id="ph3-falsch">Aufkleber scannen</button><button class="btn" id="ph3-buchung">Buchung</button>';
+    assertEq(w.Assistent.finde('Buchung').id, 'ph3-buchung', '„Buchung“ trifft den Knopf, nicht den Reiter „Buchungen“');
+    assertEq(w.Assistent.finde('Buchungen').getAttribute('role'), 'tab', 'der Reiter bleibt findbar');
+    assertEq(w.Assistent.finde('#ph3-kopf'), kopf, 'Selektor wird direkt gesucht – auch außerhalb von #main');
+    assertEq(w.Assistent.finde('#ph3-gibt-es-nicht'), null, 'unbekannter Selektor: kein Ersatzknopf');
+    assertEq(w.Assistent.finde(''), null, 'ohne Ziel: kein Hauptknopf („Aufkleber scannen“)');
+    assertEq(w.Assistent.finde('', { rueckfall: true }), null, 'ohne Ziel auch mit Rückfall nichts');
+    assertEq(w.Assistent.finde('Gibt es nicht').id, 'ph3-falsch', 'mit genanntem Ziel bleibt der Rückfall wie bisher');
+    const W = (id) => w.APP_WISSEN.find((e) => e.id === id);
+    assertEq(W('dashboard').zeige, '#dash-cfg', 'Startseite anpassen zeigt auf den Regler-Knopf');
+    assertEq(W('dunkelmodus').zeige, '#btn-theme');
+    assertEq(W('kassenbuch').zeige, '#an-verkauf', 'Kassenbuch zeigt auf „An- und Verkauf buchen“');
+    assert(!W('kassenbuch').schritte.some((s) => s.includes('„Buchung“')), 'kein Knopf „Buchung“ in den Schritten, den es dort nicht gibt');
+    // Ohne Ziel: Hinweis statt Markierung
+    w.UI.toast = (m) => { toasts.push(String(m)); };
+    await w.Assistent.zeige({ id: 'ph3', titel: 'Volk auflösen', route: 'voelker', zeige: '', schritte: ['Grund bestätigen'] });
+    assert(!w.document.querySelector('.bini-ziel'), 'nichts markiert');
+    assert(toasts.some((t) => /geöffnet – such dort nach: Grund bestätigen/.test(t)), 'Hinweis „such dort nach“: ' + toasts.join(' | '));
+    // Laborergebnis: Reiter „Sorte“ wird geöffnet, dann der Knopf markiert
+    w.Views.honig._tab = 'ernten';
+    await w.Assistent.zeige(W('labor'));
+    const ziel = w.document.querySelector('.bini-ziel');
+    assert(ziel && /Laborergebnis eintragen/.test(ziel.textContent), 'markiert ist „Laborergebnis eintragen“: ' + (ziel ? ziel.textContent : 'nichts'));
+    assertEq(w.Views.honig._tab, 'sorten', 'Reiter „Sorte“ ist offen');
+  } finally { w.UI.toast = echtToast; w.Assistent.markeWeg(); kopf.remove(); await w.renderRoute(); }
+}));
+test('Finaltest P3 PH4: PDF-Übernahme belegt Sorte und Mittel nur mit einem genauen Wort, nie mit „Ernte“ oder „geschleudert“', async (w) => {
+  const ernte = (t) => w.PdfImport.parse(t).find((x) => x.typ === 'ernte');
+  const beh = (t) => w.PdfImport.parse(t).find((x) => x.typ === 'behandlung');
+  assertEq(ernte('Rapsernte am 20.05.2026 am Heimstand Obstwiese, 32 kg').wert, 'Raps');
+  assertEq(ernte('Linde geschleudert 01.07.2026').wert, 'Linde');
+  assertEq(ernte('Honigernte Robinie 03.06.2026').wert, 'Robinie');
+  assertEq(ernte('Waldhonig Ernte 2.8.2026').wert, 'Waldhonig');
+  const allg = ernte('Ernte am 05.06.2026, 20 kg geschleudert');
+  assert(allg, 'allgemeines Wort: Ernte wird trotzdem erkannt');
+  assertEq(allg.wert, '', 'aber ohne Sorte');
+  assertEq(beh('Am 12.05.2026 Behandlung durchgeführt').wert, '', '„Behandlung“ ist kein Mittel');
+  assertEq(beh('Oxalsäure am 01.12.2025').wert, 'Oxalsäure');
+  // „Übernehmen“ reicht den genauen Wert ans Formular weiter
+  const echt = { form: w.PdfImport.ernteQuickForm, nurVoll: w.Lizenz.nurVoll };
+  let prefill = null;
+  w.PdfImport.ernteQuickForm = (p) => { prefill = p; };
+  w.Lizenz.nurVoll = () => false;
+  const aus = w.document.createElement('div'); w.document.body.appendChild(aus);
+  try {
+    const inhalt = 'BT /F1 12 Tf 20 200 Td (Rapsernte 20.05.2026 32 kg) Tj ET';
+    const pdf = new w.File([`%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length ${inhalt.length}>>stream
+${inhalt}
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+trailer<</Root 1 0 R>>`], 'test.pdf', { type: 'application/pdf' });
+    await w.PdfImport.read(pdf, aus);
+    assert(/Ernte: Raps/.test(aus.textContent), 'Liste zeigt „Ernte: Raps“');
+    aus.querySelector('[data-take]').click(); await kurz(50);
+    assertEq(prefill && prefill.sorte, 'Raps', 'Formular bekommt die Sorte „Raps“');
+  } finally { aus.remove(); w.PdfImport.ernteQuickForm = echt.form; w.Lizenz.nurVoll = echt.nurVoll; }
+});
+test('Finaltest P3 PH5: Einführung – die Schritte zur unteren Leiste nur, wenn es sie gibt (Tablet mit Seitenleiste)', async (w) => {
+  const tour = w.Einfuehrung.KAPITEL[0].eintrag.tour;
+  const leiste = tour.filter((st) => st.nurWenn);
+  assertEq(leiste.length, 2, 'die Schritte „Hier unten …“ und „Über „Mehr“ …“ hängen an der unteren Leiste');
+  assert(leiste.every((st) => /^#bottomnav/.test(st.knopf)), 'beides Schritte der unteren Leiste');
+  const bn = w.document.getElementById('bottomnav'), alt = bn.style.display;
+  try {
+    bn.style.display = 'none';
+    assert(leiste.every((st) => st.nurWenn() === false), 'ohne untere Leiste: Schritte fallen weg');
+  } finally { bn.style.display = alt; }
+  assertEq(leiste[0].nurWenn(), w.untereLeisteSichtbar(), 'gleiche Prüfung wie untereLeisteSichtbar');
+  // starteTour lässt Schritte mit nurWenn() === false aus – Zählung „Schritt x von y“ stimmt
+  const cr = w.currentRoute();
+  await w.Assistent.starteTour({ id: 'ph5', titel: 'PH5', route: cr.route, param: cr.param || '', ohneAnrede: true,
+    tour: [{ abschluss: '#ph5-gibt-es-nicht', text: 'a' }, { abschluss: '#ph5-x', nurWenn: () => false, text: 'b' }, { abschluss: '#ph5-y', nurWenn: () => true, text: 'c' }] });
+  try {
+    assertEq(w.Assistent.tour.e.tour.length, 2, 'ein Schritt ausgelassen');
+    assertEq(w.Assistent.tour.e.tour.map((s) => s.text).join(''), 'ac');
+  } finally { w.Assistent.beendeTour(true); }
+});
+test('Finaltest P3 PH6: Imme kennt die 3.25-Neuerungen (ganzer Stand, Rangliste, Rechnungs-Storno, Verkaufspreis) und nennt Bereiche richtig', async (w) => {
+  const top = (q) => { const s = w.assistentSuche(q); return s.app[0] ? s.app[0].id : null; };
+  for (const [q, id] of [
+    ['Behandlung für ganzen Stand', 'behandlung-stand'], ['Ernte für ganzen Stand', 'ernte-stand'],
+    ['Wo sehe ich welches Volk am meisten Honig bringt?', 'rangliste'], ['Honig pro Volk', 'rangliste'], ['Rangliste der Völker', 'rangliste'],
+    ['Rechnung stornieren', 'rechnung-storno'], ['Wie ändere ich den Verkaufspreis eines Artikels?', 'lager-preis'],
+    ['Verbrauchsmaterial buchen', 'material'], ['Verkauf stornieren', 'verkauf-storno'], ['Sammel-Erfassung', 'sammel-durchsicht'],
+  ]) assertEq(top(q), id, `„${q}“`);
+  assert(!w.APP_WISSEN.find((e) => e.id === 'sammel-durchsicht').stichw.includes('ganzer stand'), '„ganzer stand“ führt nicht mehr zur Sammel-Durchsicht');
+  for (const e of w.APP_WISSEN) {
+    const t = [e.antwort, ...(e.schritte || [])].join(' ');
+    assert(!/Dashboard/.test(t), `${e.id}: „Start“ statt „Dashboard“`);
+    assert(!/Menü ▸ Ernte(?! und Abfüllung)/.test(t), `${e.id}: Menüeintrag heißt „Ernte und Abfüllung“`);
+  }
+  assert(!w.APP_WISSEN.find((e) => e.id === 'behandlung').schritte.some((s) => /Volk oder Stand/.test(s)), 'Behandlung: Schritte passen zur Völkerliste');
+});
+test('Finaltest P3 PH7: Abgänge-PDF – Fußnote mit Umlauten und der Kategorie, unter der wirklich gebucht wird', async (w) => isolierteDaten(w, async () => {
+  const jahr = w.U.todayIso().slice(0, 4);
+  for (const [typ, kat] of [['produkt', 'Weitere Produkte'], ['verbrauch', 'Materialverkauf']]) {
+    const { log } = await ph3PdfTexte(w, () => w.Pdf.materialAbgaenge(jahr, typ, typ === 'produkt' ? 'Produkte' : 'Verbrauchsmaterial'));
+    const fuss = log.map((x) => x.s).find((s) => /im Kassenbuch gebucht/.test(s));
+    assert(fuss, typ + ': Fußnote steht da');
+    assert(/^Verkäufe sind zusätzlich/.test(fuss), typ + ': mit Umlauten – ' + fuss);
+    assert(fuss.includes(`(Kategorie ${kat})`), typ + ': Kategorie ' + kat + ' – ' + fuss);
+  }
+}));
+test('Finaltest P3 PH8: Beispieldaten passen zu den Regeln der App (Chargen, Rechnung, Wanderung, Behandlung je Volk, Zucht)', async (w) => isolierteDaten(w, async () => {
+  await w.Demo.create();
+  const [ernten, chargen, abf, beh, rech, kb, voelker, wand, zucht] = await Promise.all(['ernten', 'chargen', 'abfuellungen', 'behandlungen', 'rechnungen', 'kassenbuch', 'voelker', 'wanderungen', 'zuchtserien'].map((s) => w.DB.getAll(s)));
+  for (const c of chargen.filter((c) => (c.ernteIds || []).length)) {
+    const summe = w.U.sum(ernten.filter((e) => c.ernteIds.includes(e.id)), (e) => e.mengeKg);
+    assert(Math.abs(summe - c.mengeKg) < 0.05, `Charge ${c.losnummer}: ${c.mengeKg} kg = Summe ihrer Ernten (${summe.toFixed(1)} kg)`);
+    const abgefuellt = w.U.sum(abf.filter((a) => a.chargeId === c.id), (a) => a.anzahl * a.gebindeG / 1000);
+    assert(abgefuellt <= c.mengeKg + 0.001, `Charge ${c.losnummer}: abgefüllt ${abgefuellt} kg ≤ ${c.mengeKg} kg`);
+    const jahr = c.datum.slice(0, 4);
+    assert(ernten.filter((e) => c.ernteIds.includes(e.id)).every((e) => e.datum.slice(0, 4) === jahr), `Charge ${c.losnummer}: Ernten aus dem Chargen-Jahr`);
+  }
+  assertEq(beh.filter((b) => b.zielTyp === 'stand').length, 0, 'Behandlungen je Volk wie seit 3.25');
+  assert(beh.filter((b) => b.abzugGruppe).length >= 4, 'Stand-Behandlungen als Gruppe je Volk');
+  const re = rech.find((r) => r.nummer === 'RE-0001');
+  assertEq(re.status, 'festgeschrieben');
+  assert(re.absender && re.empfaenger, 'Schnappschuss von Absender und Empfänger');
+  assertEq(re.berechnungVersion, 2);
+  const ein = kb.filter((k) => k.rechnungId === re.id);
+  assertEq(ein.length, 1, 'festgeschriebene Rechnung hat ihre Einnahme');
+  assertEq(ein[0].betrag, Math.round(w.rechnungSummen(re).brutto * 100) / 100, 'Einnahme = Rechnungsbetrag');
+  const berta = voelker.find((v) => v.name === 'Volk Berta');
+  const letzte = w.U.sortBy(wand.filter((x) => (x.volkIds || []).includes(berta.id)), (x) => x.datum).pop();
+  assertEq(berta.standId, letzte.nachStandId, 'Berta steht dort, wohin sie zuletzt gewandert ist');
+  const heute = w.U.todayIso();
+  for (const z of zucht) if (w.U.addDays(z.startdatum, 12) > heute) assert(z.geschluepft == null && z.begattet == null, `${z.name}: vor dem Schlupftag noch keine Königinnen geschlüpft oder begattet`);
+}));
+test('Finaltest P3 PH9: Texte – „Was ist neu?“ ohne „&amp;“, Imkerschule führt zur Fütterung', async (w) => {
+  for (const c of w.CHANGELOG) for (const p of c.punkte) assert(!p.includes('&amp;'), `Version ${c.version}: einfaches „&“ schreiben – ${p.slice(0, 60)}`);
+  const html = w.nurFett('Geräte & Inventar <b>fett</b>');
+  const box = w.document.createElement('div'); box.innerHTML = html;
+  assertEq(box.textContent, 'Geräte & Inventar fett', 'im Fenster steht ein einfaches „&“');
+  const aktionen = w.LERN_KAPITEL.map((k) => k.aktion).filter(Boolean);
+  const fuetterung = aktionen.find((a) => /Fütterung/.test(a.label));
+  assertEq(fuetterung.route, 'fuetterung', 'Knopf „Zur Fütterung“ öffnet die Fütterung');
+});
+
+test('Finaltest P3 AZ1: Völkermeldung – erst nach dem Stichtag angelegte Völker bekommen keinen „0 (zu melden)“, sondern einen Prüf-Hinweis', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei');
+  const heute = w.U.todayIso();
+  const st = await w.DB.put('staende', { name: 'AZ1-Stand' });
+  for (let i = 1; i <= 3; i++) await w.DB.put('voelker', { name: 'AZ1-Volk ' + i, standId: st.id, status: 'aktiv', historie: [{ datum: heute, text: 'Volk angelegt' }] });
+  const echt = w.Pdf.finish; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' ').replace(/\\([()])/g, '$1'); };   // Klammern im PDF-Text ohne „\“
+  try {
+    // Thüringen meldet die eingewinterten Völker (1. Oktober des Vorjahres) – der Tag liegt immer vor heute
+    await w.S.set('imkerei', { ...altImk, bundesland: 'TH' });
+    await w.Pdf.tierseuchenkasse();
+    assert(!/\(0  \(zu melden\)/.test(text), 'keine „0 (zu melden)“ mehr');
+    assert(/\(0  \(bitte prüfen, siehe unten\)/.test(text), 'neben der 0 steht „bitte prüfen“');
+    assert(/3 Völker sind erst seit/.test(text), 'Hinweis nennt die später angelegten Völker');
+    // Völker, die schon vor dem Tag da waren: wie bisher „(zu melden)“, kein Hinweis
+    for (const v of await w.DB.getAll('voelker')) { v.historie = [{ datum: '2020-04-01', text: 'Volk angelegt' }]; await w.DB.put('voelker', v); }
+    await w.Pdf.tierseuchenkasse();
+    assert(/\(3  \(zu melden\)/.test(text), 'alte Völker: 3 (zu melden)');
+    assert(!/erst seit/.test(text), 'dann kein Hinweis');
+  } finally { w.Pdf.finish = echt; await w.S.set('imkerei', altImk); }
+}));
+
+test('Finaltest P3 AZ2: Zeiterfassung bleibt nicht auf einem leeren Jahr hängen und zeigt nach dem Speichern das Jahr des Eintrags', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const e = await w.DB.put('aufgaben', { titel: 'Durchsicht', faellig: '2026-05-10', erledigt: true, quelle: 'manuell', refId: null, kategorie: 'Sonstiges', zeitMinuten: 60, notiz: '', zeitNachtrag: true });
+  w.Views.zeiten._jahr = '2025';   // gemerktes Jahr ohne Einträge (z. B. nach dem Löschen des letzten 2025er Eintrags)
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.zeiten.render(host);
+    assert(host.textContent.includes('Stunden 2026'), 'die Seite springt auf ein Jahr mit Zeiten');
+    assert(host.querySelector(`.row[data-id="${e.id}"]`), 'der Eintrag ist sichtbar');
+    // Bearbeiten auf ein anderes Jahr: danach zeigt die Zeiterfassung dieses Jahr
+    const m = await w.zeitEintragForm(await w.DB.get('aufgaben', e.id)); await kurz(200);
+    setzFeld(w, m.el, 'datum', '2024-03-01');
+    m.el.querySelector('[data-save]').click(); await kurz(400);
+    assertEq((await w.DB.get('aufgaben', e.id)).faellig, '2024-03-01', 'gespeichert');
+    assertEq(w.Views.zeiten._jahr, '2024', 'das Jahr des Eintrags ist gemerkt');
+  } finally { dialogeSchliessen(w); host.remove(); w.Views.zeiten._jahr = ''; }
+}));
+
+test('Finaltest P3 AZ3: selbst verschobene Tracht-Erinnerung bleibt bei der Start-Wartung, ändert sich die Tracht, gilt wieder deren Datum', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const heute = w.U.todayIso();
+  const t = await w.DB.put('trachten', { pflanze: 'Efeu', bezeichnung: 'Efeu', standIds: [], von: w.U.addDays(heute, 20), bis: w.U.addDays(heute, 40), jaehrlich: false, erinnernTage: 7, region: '', notiz: '' });
+  try {
+    const a = await w.Tracht.aufgabePflegen(t);
+    assertEq(a.faellig, w.U.addDays(heute, 13), 'Erinnerung 7 Tage vor Blühbeginn');
+    const m = await w.aufgabeForm(await w.DB.get('aufgaben', a.id)); await kurz(200);
+    setzFeld(w, m.el, 'faellig', w.U.addDays(heute, 16));
+    setzFeld(w, m.el, 'notiz', 'Erst Samstag');
+    m.el.querySelector('[data-save]').click(); await kurz(400);
+    assertEq((await w.DB.get('aufgaben', a.id)).faellig, w.U.addDays(heute, 16), 'gespeichert');
+    await w.Tracht.allePflegen();
+    const b = await w.DB.get('aufgaben', a.id);
+    assertEq([b.faellig, b.notiz], [w.U.addDays(heute, 16), 'Erst Samstag'], 'die Start-Wartung lässt das selbst gewählte Datum stehen');
+    // Nur Notiz geändert: kein „von Hand“, das Datum folgt weiter der Tracht
+    const t2 = await w.DB.put('trachten', { pflanze: 'Heide', bezeichnung: 'Heide', standIds: [], von: w.U.addDays(heute, 30), bis: w.U.addDays(heute, 50), jaehrlich: false, erinnernTage: 3, region: '', notiz: '' });
+    const c = await w.Tracht.aufgabePflegen(t2);
+    const m2 = await w.aufgabeForm(await w.DB.get('aufgaben', c.id)); await kurz(200);
+    setzFeld(w, m2.el, 'notiz', 'nur Notiz');
+    m2.el.querySelector('[data-save]').click(); await kurz(400);
+    assert(!(await w.DB.get('aufgaben', c.id)).vonHand, 'nur Notiz geändert: Datum bleibt an der Tracht');
+    // Die Tracht selbst ändert sich (späterer Blühbeginn): dann gilt wieder das berechnete Datum
+    const t1 = await w.DB.get('trachten', t.id); t1.von = w.U.addDays(heute, 25); await w.DB.put('trachten', t1);
+    await w.Tracht.aufgabePflegen(t1);
+    const d = await w.DB.get('aufgaben', a.id);
+    assertEq(d.faellig, w.U.addDays(heute, 18), 'neuer Blühbeginn → neues Datum');
+    assert(!d.vonHand, 'das Merkmal „von Hand“ ist weg');
+  } finally { w.Lizenz.light = echtLight; dialogeSchliessen(w); }
+}));
+
+test('Finaltest P3 AZ4: Kalender-Export nimmt die Uhrzeit der Aufgabe, ohne Uhrzeit die Erinnerungs-Uhrzeit', (w) => {
+  const ics = w.Notif.icsFuerAufgaben([
+    { id: 'u1', titel: 'Tierarzt am Stand', erledigt: false, faellig: '2026-11-12', uhrzeit: '14:30' },
+    { id: 'u2', titel: 'Futterkontrolle', erledigt: false, faellig: '2026-11-13' },
+  ], { uhrzeit: '07:15', vorlaufMin: 30 });
+  const ev = ics.split('BEGIN:VEVENT').slice(1);
+  assert(ev[0].includes('DTSTART:20261112T143000'), 'mit Uhrzeit: 14:30');
+  assert(ev[0].includes('TRIGGER:-PT30M'), 'Alarm mit dem eingestellten Vorlauf');
+  assert(ev[1].includes('DTSTART:20261113T071500'), 'ohne Uhrzeit: Uhrzeit aus den Erinnerungs-Einstellungen');
+  assert(ev[1].includes('TRIGGER:-PT0M'), 'ohne Uhrzeit: Alarm zum Termin');
+});
+
+test('Finaltest P3 AZ5: Uhrzeit steht in Aufgabenliste und Startseiten-Kachel, am selben Tag nach Uhrzeit sortiert', async (w) => isolierteDaten(w, async () => {
+  const tag = w.U.addDays(w.U.todayIso(), 3);
+  await w.DB.put('aufgaben', { titel: 'AZ5 spät', faellig: tag, uhrzeit: '16:00', erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  await w.DB.put('aufgaben', { titel: 'AZ5 früh', faellig: tag, uhrzeit: '09:00', erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  await w.DB.put('aufgaben', { titel: 'AZ5 ohne', faellig: tag, erledigt: false, quelle: 'manuell', refId: null, notiz: '' });
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    await w.Views.aufgaben.render(host);
+    const zeilen = [...host.querySelectorAll('#auf-liste .row[data-aufgabe]')];
+    const titel = zeilen.map((r) => r.querySelector('.r-title').textContent.trim());
+    assertEq(titel.filter((x) => x.startsWith('AZ5')), ['AZ5 früh', 'AZ5 spät', 'AZ5 ohne'], 'am selben Tag nach Uhrzeit, ohne Uhrzeit zuletzt');
+    assert(zeilen[0].textContent.includes(`${w.U.fmtDate(tag)} · 09:00`), 'Datum mit Uhrzeit: ' + zeilen[0].textContent);
+    const kachel = await w.DASH_WIDGETS.aufgaben.html();
+    assert(kachel.includes('09:00') && kachel.indexOf('AZ5 früh') < kachel.indexOf('AZ5 spät'), 'Kachel zeigt die Uhrzeit und sortiert danach');
+  } finally { host.remove(); }
+}));
+
+test('Finaltest P3 AZ6: Zeitaufwand nur 1–1.440 Minuten – im Aufgaben-Formular und in der Dauer-Abfrage', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  const echtLight = w.Lizenz.light; w.Lizenz.light = () => false;
+  const a = await w.DB.put('aufgaben', { titel: 'AZ6 Rähmchen', faellig: w.U.todayIso(), erledigt: false, quelle: 'manuell', refId: null, notiz: '', kategorie: 'Sonstiges' });
+  try {
+    for (const falsch of ['100000', '-30']) {
+      const m = await w.aufgabeForm(await w.DB.get('aufgaben', a.id)); await kurz(200);
+      setzFeld(w, m.el, 'zeitMinuten', falsch);
+      m.el.querySelector('[data-save]').click(); await kurz(300);
+      assert(m.el.isConnected, falsch + ': das Formular bleibt offen');
+      assert(/1\.440 Minuten/.test(m.el.textContent), falsch + ': Hinweis am Feld');
+      assertEq((await w.DB.get('aufgaben', a.id)).zeitMinuten, undefined, falsch + ': nichts gespeichert');
+      dialogeSchliessen(w);
+    }
+    const m = await w.aufgabeForm(await w.DB.get('aufgaben', a.id)); await kurz(200);
+    setzFeld(w, m.el, 'zeitMinuten', '45');
+    m.el.querySelector('[data-save]').click(); await kurz(400);
+    assertEq((await w.DB.get('aufgaben', a.id)).zeitMinuten, 45, 'gültige Dauer wird gespeichert');
+    dialogeSchliessen(w);
+    // Dauer-Abfrage nach dem Abhaken
+    const x = await w.DB.get('aufgaben', a.id); x.erledigt = true; await w.DB.put('aufgaben', x);
+    w.zeitDialog(x); await kurz(200);
+    const modal = w.document.querySelector('.modal-back');
+    const feld = modal.querySelector('#zt-min'); feld.value = '100000'; feld.dispatchEvent(new w.Event('input', { bubbles: true }));
+    modal.querySelector('[data-ok]').click(); await kurz(300);
+    assertEq((await w.DB.get('aufgaben', a.id)).zeitMinuten, 45, '100000 wird in der Dauer-Abfrage nicht gespeichert');
+    assert(modal.isConnected, 'die Abfrage bleibt offen');
+  } finally { w.Lizenz.light = echtLight; dialogeSchliessen(w); }
+}));
+
+test('Finaltest P3 AZ7: Wartezeit-Sammelerinnerung – nur Notiz geändert, die verschobene Erinnerung bleibt ganz; Bezug Stand bzw. Völkernamen', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'Waldrand' }), st2 = await w.DB.put('staende', { name: 'Wiese' });
+  const v = [];
+  for (const n of ['Anna', 'Berta', 'Clara']) v.push(await w.DB.put('voelker', { name: n, standId: st.id, status: 'aktiv', historie: [] }));
+  const daten = { datum: '2026-11-01', mittel: 'Oxalsäure', einheit: 'ml', anwendungsart: 'Träufeln', wartezeitTage: 14, notiz: '' };
+  const erg = await w.behandlungenJeVolkAnlegen(v.map((x) => ({ volkId: x.id, menge: 50 })), daten);
+  const offen = async () => (await w.DB.getAll('aufgaben')).filter((a) => a.quelle === 'behandlung' && !a.erledigt);
+  let [a] = await offen();
+  assertEq(a.standId, st.id, 'alle am selben Stand: die Erinnerung gehört dem Stand');
+  const bezug = w.aufgabeBezug(a, await w.idMap('voelker'), await w.idMap('staende'));
+  assertEq([bezug.standName, bezug.voelkerAmStand], ['Waldrand', 3], 'Bezug „Waldrand · 3 Völker“');
+  a.faellig = '2026-11-16'; await w.DB.put('aufgaben', a);   // selbst verschoben
+  await w.behandlungAendern(await w.DB.get('behandlungen', erg.recs[0].id), { notiz: 'Tierarzt Dr. Huber anwesend' });
+  const nachher = await offen();
+  assertEq(nachher.length, 1, 'weiter genau eine Erinnerung');
+  assertEq([nachher[0].faellig, nachher[0].refIds.length], ['2026-11-16', 3], 'verschoben und mit allen drei Völkern');
+  // Ein anderes Ende löst die Behandlung wie bisher heraus
+  await w.behandlungAendern(await w.DB.get('behandlungen', erg.recs[1].id), { wartezeitTage: 20 });
+  assertEq((await offen()).length, 2, 'anderes Ende: eigene Erinnerung');
+  // Völker an zwei Ständen: kein Stand, die Namen stehen in der Notiz
+  const d = await w.DB.put('voelker', { name: 'Dora', standId: st2.id, status: 'aktiv', historie: [] });
+  await w.behandlungenJeVolkAnlegen([{ volkId: v[0].id, menge: 50 }, { volkId: d.id, menge: 50 }], { ...daten, mittel: 'Oxuvar', datum: '2026-11-05' });
+  const zwei = (await offen()).find((x) => /Oxuvar/.test(x.titel));
+  assert(!zwei.standId, 'zwei Stände: kein Stand');
+  assert(/Anna, Dora/.test(zwei.notiz), 'Namen in der Notiz: ' + zwei.notiz);
+}));
+
+test('Finaltest P3 AZ8: Imker-Rechner – Wassergehalt-Grenzen, Hinweis statt Unsinn bei 0 und negativen Werten, Komma im Propolis-Rechner', async (w) => isolierteDaten(w, async () => {
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  const setz = (sel, wert) => { const e = host.querySelector(sel); e.value = wert; e.dispatchEvent(new w.Event('input', { bubbles: true })); };
+  const txt = (id) => host.querySelector(id).textContent;
+  try {
+    await w.Views.rechner.render(host);
+    setz('[data-wg="wert"]', '18,0'); assert(/DIB-Qualität/.test(txt('#wg-out')), '18,0 % ist DIB-Qualität: ' + txt('#wg-out'));
+    setz('[data-wg="wert"]', '21,5'); assert(/Heidehonig/.test(txt('#wg-out')), 'über 20 %: Ausnahme Heidehonig');
+    setz('[data-wg="wert"]', '-3'); assert(/zwischen 0 und 100/.test(txt('#wg-out')) && !/sehr gut/.test(txt('#wg-out')), '−3 wird nicht bewertet');
+    setz('[data-wi="voelker"]', '0'); assert(/ab 1/.test(txt('#wi-out')) && !/Gesamt/.test(txt('#wi-out')), '0 Völker: Hinweis');
+    setz('[data-wi="voelker"]', '1'); assert(/Gesamt \(1 Volk\)/.test(txt('#wi-out')), 'Einzahl „1 Volk“: ' + txt('#wi-out'));
+    setz('[data-rm="proZarge"]', '0'); assert(/ab 1/.test(txt('#rm-out')), 'Rähmchen pro Zarge 0: Hinweis statt 10');
+    setz('[data-rm="proZarge"]', '10'); setz('[data-rm="reserve"]', '-50'); assert(/Reserve ab 0/.test(txt('#rm-out')), 'negative Reserve: Hinweis');
+    setz('[data-vb="milben"]', '-5'); assert(!/%/.test(txt('#vb-out')), 'negative Milben: kein Prozentwert');
+    setz('[data-we="menge"]', '-2'); assert(!/Reinwachs/.test(txt('#we-out')), 'negatives Altwachs: kein Ergebnis');
+    setz('[data-sk="ertragKg"]', '0'); assert(/Honigertrag/.test(txt('#sk-out')) && !/je Glas/.test(txt('#sk-out')), 'Ertrag 0: Hinweis statt Preis');
+    setz('[data-pt="propolis"]', '12,5'); assert(/≈ 62,5 ml/.test(txt('#pt-out')) && !/62\.5/.test(txt('#pt-out')), 'Komma statt Punkt: ' + txt('#pt-out'));
+  } finally { host.remove(); }
+}));
+
+test('Finaltest P3 UT1: Menü „Mehr“ – „Reihenfolge zurücksetzen“ sortiert im offenen Fenster, kein zweites (unsichtbares) Fenster', async (w) => isolierteDaten(w, async () => {
+  dialogeSchliessen(w);
+  await w.S.set('menuOrder', ['hilfe', 'voelker']);
+  const m = w.openMoreSheet(); await kurz(150);
+  try {
+    const grid = m.el.querySelector('.sheet-grid');
+    const reihe = () => [...grid.querySelectorAll('button[data-route]')].map((b) => b.dataset.route);
+    assertEq(reihe().slice(0, 2), ['hilfe', 'voelker'], 'vorher: gespeicherte Reihenfolge');
+    m.el.querySelector('[data-reset]').click(); await kurz(200);
+    assert(m.el.isConnected, 'dasselbe Fenster bleibt offen');
+    assertEq(w.document.querySelectorAll('#modal-root .modal-back, .modal-back').length, 1, 'genau ein Fenster – kein zweites darüber oder darunter');
+    assertEq(w.S.get('menuOrder'), [], 'Reihenfolge zurückgesetzt');
+    assertEq(reihe(), w.menuReihenfolge().filter((n) => n.route !== 'dashboard').map((n) => n.route), 'Kacheln in der Standard-Reihenfolge');
+    assert(!m.el.querySelector('[data-reset]'), 'Link „Reihenfolge zurücksetzen“ ist weg');
+    assert(!/·\s*$/.test(m.el.querySelector('.sheet-hint').textContent), 'kein „·“ am Ende des Hinweises: ' + m.el.querySelector('.sheet-hint').textContent);
+  } finally { dialogeSchliessen(w); }
+}));
+
+test('Finaltest P3 UT2: Langdruck-Sortieren – auf ein Ziel gezogen, wird die Verschiebung unterwegs zurückgenommen', async (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = 'position:fixed;left:10px;top:100px;display:flex;gap:4px;z-index:9999';
+  host.innerHTML = ['a', 'b', 'c', 'd', 'e'].map((x) => `<button data-k="${x}" style="width:60px;height:40px;flex:none">${x}</button>`).join('');
+  const ziel = w.document.createElement('div'); ziel.id = 'ut2-ziel';
+  ziel.style.cssText = 'position:fixed;left:10px;top:320px;width:120px;height:50px;z-index:9999';
+  w.document.body.append(host, ziel);
+  const opt = { bubbles: true, cancelable: true, pointerId: 41, pointerType: 'touch', isPrimary: true, button: 0 };
+  const pe = (typ, el, x, y) => el.dispatchEvent(new w.PointerEvent(typ, { ...opt, clientX: x, clientY: y }));
+  const mitte = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  const reihe = () => [...host.children].map((b) => b.dataset.k).join('');
+  let gespeichert = null, gelandet = null;
+  try {
+    w.langDruckSortieren(host, 'button', (els) => { gespeichert = els.map((b) => b.dataset.k).join(''); }, { ziele: '#ut2-ziel', onZiel: (el, zt) => { gelandet = [el.dataset.k, zt.id]; } });
+    const [ax, ay] = mitte(host.children[0]);
+    pe('pointerdown', host.children[0], ax, ay); await kurz(480);
+    const [cx, cy] = mitte(host.children[2]);
+    pe('pointermove', host, cx, cy); await kurz(60);
+    assert(reihe() !== 'abcde', 'unterwegs umgeordnet: ' + reihe());
+    const [zx, zy] = mitte(ziel);
+    pe('pointermove', host, zx, zy); await kurz(30);
+    pe('pointerup', host, zx, zy); await kurz(60);
+    assertEq(gelandet, ['a', 'ut2-ziel'], 'auf dem Ziel gelandet');
+    assertEq(reihe(), 'abcde', 'Ausgangsreihenfolge wiederhergestellt');
+    assertEq(gespeichert, null, 'nichts als neue Reihenfolge gespeichert');
+    // Ohne Ziel wird wie bisher umsortiert und gespeichert
+    pe('pointerdown', host.children[0], ax, ay); await kurz(480);
+    pe('pointermove', host, cx, cy); await kurz(60);
+    pe('pointerup', host, cx, cy); await kurz(60);
+    assert(gespeichert && gespeichert !== 'abcde', 'normales Sortieren speichert: ' + gespeichert);
+  } finally { host.remove(); ziel.remove(); w.document.body.classList.remove('lp-bar-hebt'); }
+});
+
+test('Finaltest P3 UT3: Lange Namen ohne Leerzeichen brechen im Seitenkopf und in Reitern um', async (w) => {
+  const host = w.document.createElement('div');
+  host.style.cssText = 'position:absolute;left:0;top:0;width:300px';
+  const lang = 'Obstbaumwiesenbienenstand_Nordwestlicher_Waldrand_Abteilung7';
+  host.innerHTML = w.pageHead(lang, `<a href="#/staende">${lang}</a>`) +
+    `<div class="tabs kleb-reiter"><div class="reiter-zeile"><button class="reiter-lang">${lang}</button><button>Alle</button></div></div>`;
+  const main = w.document.getElementById('main') || w.document.body;
+  main.appendChild(host);
+  try {
+    assertEq(w.getComputedStyle(host.querySelector('.page-head h1')).overflowWrap, 'anywhere', 'Überschrift bricht um');
+    assertEq(w.getComputedStyle(host.querySelector('.page-head .sub')).overflowWrap, 'anywhere', 'Unterzeile bricht um');
+    assertEq(w.getComputedStyle(host.querySelector('.kleb-reiter button.reiter-lang')).overflowWrap, 'anywhere', 'Reiter bricht um');
+    const kopf = host.querySelector('.page-head'), reiter = host.querySelector('button.reiter-lang');
+    assert(kopf.scrollWidth <= 301, `Seitenkopf ragt nicht seitlich heraus (scrollWidth ${kopf.scrollWidth} bei 300)`);
+    assert(reiter.scrollWidth <= reiter.clientWidth + 1, `Reitername bleibt im Reiter (${reiter.scrollWidth} bei ${reiter.clientWidth})`);
+  } finally { host.remove(); }
+});
+
+test('Finaltest P3 UT5: Tippflächen – ± im Anpassen-Fenster und Banner-Knopf unsichtbar auf 44 px vergrößert', async (w) => {
+  const host = w.document.createElement('div');
+  host.innerHTML = '<div class="cfg-row"><button class="cfg-btn cfg-minus">−</button></div><div class="banner warn"><span class="b-msg">x</span><button class="btn btn-sm">Sichern</button></div>';
+  w.document.body.appendChild(host);
+  try {
+    const cfg = host.querySelector('.cfg-btn'), cb = w.getComputedStyle(cfg, '::before');
+    assertEq([cfg.offsetWidth, cfg.offsetHeight], [28, 28], 'Knopf sieht aus wie vorher');
+    assertEq([cb.position, cb.top, cb.left], ['absolute', '-8px', '-8px'], 'Tippfläche 28 + 2 × 8 = 44 px');
+    const b = host.querySelector('.banner .btn'), bb = w.getComputedStyle(b, '::before');
+    assertEq([bb.position, bb.top, bb.bottom], ['absolute', '-4px', '-4px'], 'Banner-Knopf: 36 + 2 × 4 = 44 px');
+    assertEq(b.offsetHeight, 36, 'Banner-Knopf sieht aus wie vorher');
+  } finally { host.remove(); }
+});
+
+test('Finaltest P3 UT6: Light – „Voll“-Marke in der Leiste hochkant am Symbol, beim gewählten Bereich ausgeblendet', async (w) => {
+  const altLight = w.Lizenz.light, altCss = w.document.getElementById('light-css');
+  if (altCss) altCss.remove();
+  w.Lizenz.light = () => true;
+  try {
+    w.Lizenz.kennzeichnen();
+    const css = w.document.getElementById('light-css').textContent;
+    assert(/@media\(max-width:900px\) and \(orientation:portrait\)/.test(css), 'eigene Regel für die Leiste hochkant');
+    assert(css.includes('right:max(6px, calc(50% - 40px))'), 'Marke rückt bei breiten Knöpfen ans Symbol');
+    assert(css.includes('#bottomnav:not(.mehr-offen) button.active::after{display:none}'), 'gewählter Bereich ohne Marke');
+  } finally {
+    const neu = w.document.getElementById('light-css'); if (neu) neu.remove();
+    if (altCss) w.document.head.appendChild(altCss);
+    w.Lizenz.light = altLight; w.Lizenz.kennzeichnen();
+  }
+});
+
+/* ---------- Finaltest Portion 3 (10.11.2026): von Julian freigegebene Entwürfe E1–E4 ---------- */
+test('Finaltest P3 E1: Marktverkauf – „−“ nimmt genau ein Glas aus dem Korb (nicht über die Kachel), „✎ Preis“ ändert den Preis samt Korb', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const korbAlt = w.Views.markt._korb;
+  const hosts = [];
+  const zeichne = async () => { const h = w.document.createElement('div'); w.document.body.appendChild(h); hosts.push(h); await w.Views.markt.render(h); return h; };
+  try {
+    const c = await w.DB.put('chargen', { losnummer: 'E1-01', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 3, bestand: 3 });
+    await w.S.set('marktpreise', { [a.id]: 6 });
+    // Ohne Korb: kein Schild, kein „−“, aber „✎ Preis“
+    w.Views.markt._korb = {};
+    let h = await zeichne();
+    assert(!h.querySelector('[data-im-korb]') && !h.querySelector('[data-korb-minus]'), 'leerer Korb: kein Schild, kein „−“');
+    assert(h.querySelector(`[data-preis-aendern="${a.id}"]`), '„✎ Preis“ auf jeder Kachel');
+    // Alle drei im Korb: Kachel ausgegraut, „−“ trotzdem bedienbar
+    w.Views.markt._korb = { [a.id]: 3 };
+    h = await zeichne();
+    assert(/3 im Korb/.test(h.querySelector('[data-im-korb]').textContent), 'Schild „3 im Korb“');
+    const minus = h.querySelector(`[data-korb-minus="${a.id}"]`);
+    assertEq(minus.getAttribute('aria-label'), 'Ein Glas zurück', 'aria-label');
+    assert(!minus.closest('[data-tile]'), '„−“ liegt nicht in der Kachel');
+    assert(!h.querySelector(`[data-preis-aendern]`).closest('[data-tile]'), '„✎ Preis“ liegt nicht in der Kachel');
+    assert(h.querySelector('[data-tile]').disabled, 'Kachel ausgegraut');
+    minus.click(); await kurz(30);
+    assertEq(w.Views.markt._korb[a.id], 2, 'genau ein Glas zurück – kein neues dazu');
+    assertEq((await w.DB.get('abfuellungen', a.id)).bestand, 3, 'nur der Korb, der Bestand bleibt');
+    // Antippen der Kachel legt weiter eines dazu, „−“ zweimal → Position ganz raus
+    h = await zeichne();
+    h.querySelector('[data-tile]').click(); await kurz(30);
+    assertEq(w.Views.markt._korb[a.id], 3, 'Kachel legt eines dazu');
+    h.querySelector('[data-korb-minus]').click(); h.querySelector('[data-korb-minus]').click(); h.querySelector('[data-korb-minus]').click(); await kurz(30);
+    assert(!(a.id in w.Views.markt._korb), 'letztes Glas zurück: Position weg');
+    // Preis ändern mit 2 Gläsern im Korb: Vorgabe alter Preis, Hinweis, Summe rechnet neu
+    w.Views.markt._korb = { [a.id]: 2 };
+    h = await zeichne();
+    assert(/12,00/.test(h.querySelector('.markt-korb').textContent), 'Summe vorher 2 × 6 €');
+    h.querySelector('[data-preis-aendern]').click(); await kurz(250);
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    assert(m && /Verkaufspreis/.test(m.textContent), 'Preis-Formular offen');
+    assertEq(m.querySelector('#f-preis').value, '6', 'alter Preis als Vorgabe');
+    assert(/Gilt sofort auch für die 2 Gebinde im Warenkorb/.test(m.textContent), 'Hinweis auf den Korb: ' + m.textContent);
+    setzFeld(w, m, 'preis', '-1'); m.querySelector('[data-save]').click(); await kurz(250);
+    assertEq(w.S.get('marktpreise')[a.id], 6, 'negativer Preis weiter abgewiesen');
+    setzFeld(w, m, 'preis', '7,5'); m.querySelector('[data-save]').click(); await kurz(300);
+    assertEq(w.S.get('marktpreise')[a.id], 7.5, 'neuer Preis gespeichert');
+    h = await zeichne();
+    assert(/15,00/.test(h.querySelector('.markt-korb').textContent), 'Summe jetzt 2 × 7,50 €: ' + h.querySelector('.markt-korb').textContent);
+    // Light: „✎ Preis“ öffnet das Kauf-Fenster, kein Formular
+    dialogeSchliessen(w);
+    const fensterAlt = w.Lizenz.fenster; let gesperrt = 0;
+    w.Lizenz.fenster = () => { gesperrt++; }; w.Lizenz.light = () => true;
+    try { h.querySelector('[data-preis-aendern]').click(); await kurz(150); } finally { w.Lizenz.fenster = fensterAlt; w.Lizenz.light = () => false; }
+    assertEq(gesperrt, 1, 'Light: Kauf-Fenster');
+    assert(![...w.document.querySelectorAll('.modal-back')].some((x) => /Verkaufspreis/.test(x.textContent)), 'Light: kein Preis-Formular');
+  } finally { w.Views.markt._korb = korbAlt; hosts.forEach((x) => x.remove()); }
+})));
+
+test('Finaltest P3 E2: Stand-Ernte – Sorte und Datum für alle ändern, ganze Stand-Ernte löschen (einzeln wiederherstellbar)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ fragen, toasts, host }) => {
+  const stand = await w.DB.put('staende', { name: 'E2-Stand', lat: null, lng: null, notizen: '' });
+  const v = [];
+  for (const n of ['E2-A', 'E2-B', 'E2-C']) v.push(await w.DB.put('voelker', { name: n, standId: stand.id, status: 'aktiv', koeniginId: null, historie: [] }));
+  const recs = await w.ernteJeVolkAnlegen([{ volkId: v[0].id, menge: 12 }, { volkId: v[1].id, menge: 8 }, { volkId: v[2].id, menge: 5 }], { gruppeStandId: stand.id, datum: '2026-07-01', produktart: 'Honig', sorte: 'Raps', wassergehalt: 17.5, schleuderung: null, notiz: '' });
+  const g = recs[0].ernteGruppe;
+  const einzel = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v[0].id, datum: '2026-07-01', produktart: 'Honig', sorte: 'Raps', mengeKg: 3 });
+  const c = await w.DB.put('chargen', { losnummer: 'E2-01', datum: '2026-07-02', ernteIds: [recs[0].id], lagerKg: 0, mengeKg: 12 });
+  // Logik: Datum prüfen, alle in einer Transaktion
+  let f = null; try { await w.ernteGruppeAendern(g, { datum: '', sorte: 'X' }); } catch (x) { f = x; }
+  assert(f && f.feld === 'datum', 'ohne Datum: Feldfehler');
+  assertEq(await w.ernteGruppeAendern(g, { datum: '2026-07-05', sorte: ' Linde ' }), 3, 'drei Einträge geändert');
+  for (const r of recs) { const x = await w.DB.get('ernten', r.id); assertEq([x.datum, x.sorte, x.wassergehalt], ['2026-07-05', 'Linde', 17.5], 'Datum und Sorte neu, Wassergehalt bleibt'); }
+  assertEq((await w.DB.get('ernten', einzel.id)).datum, '2026-07-01', 'Einzel-Ernte unberührt');
+  assertEq((await w.DB.get('chargen', c.id)).mengeKg, 12, 'Charge-Menge unverändert');
+  // Oberfläche: Knöpfe im Formular, kleines Formular, Formular darunter schließt
+  await w.Views.honig.tabErnten(host);
+  host.querySelector(`.row[data-id="${recs[1].id}"]`).click();
+  await warteBis(() => w.document.querySelector('.modal-back #f-mengeKg'));
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assert(/E2-Stand/.test(m.querySelector('[data-ernte-gruppe]').textContent) && /3 Völkern/.test(m.querySelector('[data-ernte-gruppe]').textContent), 'Hinweis bleibt');
+  assert(/für alle 3 ändern/.test(m.querySelector('[data-gruppe-aendern]').textContent), 'Knopf nennt die Zahl');
+  m.querySelector('[data-gruppe-aendern]').click();
+  await warteBis(() => w.document.querySelector('.modal-back [data-gruppe-info]'));
+  const sub = [...w.document.querySelectorAll('.modal-back')].pop();
+  assert(/Charge E2-01/.test(sub.querySelector('[data-gruppe-info]').textContent), 'Hinweis nennt die Charge: ' + sub.querySelector('[data-gruppe-info]').textContent);
+  assertEq(sub.querySelector('#f-datum').value, '2026-07-05', 'Vorgabe: Datum des Eintrags');
+  setzFeld(w, sub, 'datum', '2026-07-10'); setzFeld(w, sub, 'sorte', 'Akazie');
+  sub.querySelector('[data-save]').click();
+  await warteBis(async () => (await w.DB.get('ernten', recs[2].id)).datum === '2026-07-10');
+  await kurz(200);
+  for (const r of recs) assertEq((await w.DB.get('ernten', r.id)).sorte, 'Akazie', 'Sorte für alle');
+  assertEq(w.document.querySelectorAll('.modal-back').length, 0, 'beide Fenster zu – das alte Formular schreibt nichts zurück');
+  // Ganze Stand-Ernte löschen
+  host.remove();   // neue Liste ohne die Klick-Verdrahtung der alten
+  const host2 = w.document.createElement('div'); w.document.body.appendChild(host2);
+  await w.Views.honig.tabErnten(host2);
+  host2.querySelector(`.row[data-id="${recs[0].id}"]`).click();
+  await warteBis(() => w.document.querySelector('.modal-back [data-gruppe-loeschen]'));
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  m.querySelector('[data-gruppe-loeschen]').click();
+  await warteBis(async () => !(await w.DB.get('ernten', recs[0].id)));
+  await kurz(150);
+  const frage = fragen.at(-1);
+  assert(/3 Völker/.test(frage.text) && /25 kg/.test(frage.text) && /Charge E2-01/.test(frage.text), 'Rückfrage mit Völkern, Menge und Charge: ' + frage.text);
+  for (const r of recs) assert(!(await w.DB.get('ernten', r.id)), 'Eintrag gelöscht');
+  assert(await w.DB.get('ernten', einzel.id), 'Einzel-Ernte bleibt');
+  const korb = (await w.DB.getAll('papierkorb')).filter((t) => t.store === 'ernten');
+  assertEq(korb.length, 3, 'drei Einträge im Papierkorb');
+  assert(await w.DB.get('chargen', c.id), 'Charge bleibt');
+  assertEq(w.document.querySelectorAll('.modal-back').length, 0, 'Formular geschlossen');
+  assert(!toasts.some((t) => t.typ === 'err'), 'keine Fehlermeldung: ' + JSON.stringify(toasts));
+  host2.remove();
+  // Einzeln wiederherstellen
+  await w.DB.trashRestore(korb.find((t) => t.daten.id === recs[1].id).id);
+  const zurueck = await w.DB.get('ernten', recs[1].id);
+  assert(zurueck && zurueck.ernteGruppe === g && zurueck.mengeKg === 8, 'einzeln wiederhergestellt');
+  // Abbrechen löscht nichts
+  w.UI.confirm = async () => false;
+  assertEq(await w.Views.honig.ernteGruppeLoeschenFragen(zurueck, null, { close() {} }), false, 'Abbrechen');
+  assert(await w.DB.get('ernten', recs[1].id), 'nach Abbrechen noch da');
+})));
+
+test('Finaltest P3 E3: Rechnung – „Im Kassenbuch als“ wählbar, festgeschrieben in der Einnahme, Storno übernimmt die Kategorie', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  // Logik: gewählt vor automatisch, Unbekanntes zählt nicht
+  const inv = [{ id: 'e3-kerze', typ: 'produkt' }];
+  assertEq(w.rechnungKategorie({ positionen: [{ inventarId: 'e3-kerze' }] }, inv), 'Weitere Produkte', 'reine Produkt-Rechnung: automatisch');
+  assertEq(w.rechnungKategorie({ positionen: [{ inventarId: 'e3-kerze' }], kassenKategorie: 'Sonstige Einnahme' }, inv), 'Sonstige Einnahme', 'gewählt');
+  assertEq(w.rechnungKategorie({ positionen: [{ text: 'x' }], kassenKategorie: 'Quatsch' }, inv), 'Honigverkauf', 'unbekannte Kategorie: automatisch');
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'E3 Kunde' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, datum: '2026-05-02',
+    positionen: [{ text: 'Ableger auf 5 Waben', abfuellungId: null, menge: 2, einzelpreis: 120, pfand: 0, steuersatz: 7 }] });
+  await w.Views.rechnung.render(host, r0.id);
+  const sel = host.querySelector('#r-kassenKategorie');
+  assert(sel, 'Auswahlfeld im Entwurf');
+  assertEq([...sel.options].map((o) => o.value), w.KASSEN_KATEGORIEN.einnahme, 'die Einnahme-Kategorien des Kassenbuchs');
+  assertEq(sel.value, 'Honigverkauf', 'Vorgabe wie bisher');
+  sel.value = 'Völker-/Ablegerverkauf'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await warteBis(async () => (await w.DB.get('rechnungen', r0.id)).kassenKategorie === 'Völker-/Ablegerverkauf');
+  await kurz(100);
+  host.innerHTML = ''; await w.Views.rechnung.render(host, r0.id);
+  assertEq(host.querySelector('#r-kassenKategorie').value, 'Völker-/Ablegerverkauf', 'gespeichert am Entwurf');
+  await w.Views.rechnung.festschreiben(await w.DB.get('rechnungen', r0.id), []);
+  const r = await w.DB.get('rechnungen', r0.id);
+  assertEq(r.status, 'festgeschrieben', 'festgeschrieben: ' + JSON.stringify(toasts.at(-1)));
+  const ein = (await w.DB.getAll('kassenbuch')).find((k) => k.rechnungId === r.id);
+  assertEq([ein.kategorie, ein.betrag], ['Völker-/Ablegerverkauf', 240], 'Einnahme unter der gewählten Kategorie');
+  host.innerHTML = ''; await w.Views.rechnung.render(host, r.id);
+  assert(!host.querySelector('#r-kassenKategorie'), 'festgeschriebene Rechnung: kein Auswahlfeld mehr');
+  await w.rechnungStornieren(r.id);
+  const storno = (await w.DB.getAll('kassenbuch')).find((k) => k.rechnungId === r.id && k.betrag < 0);
+  assertEq([storno.kategorie, storno.betrag], ['Völker-/Ablegerverkauf', -240], 'Storno mit derselben Kategorie');
+  // Rechnung zu einem Verkauf bucht selbst nichts: kein Auswahlfeld
+  const rv = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, datum: '2026-05-02', ausVerkauf: { art: 'honig', id: 'gibt-es-nicht' },
+    positionen: [{ text: 'Honig', abfuellungId: null, menge: 1, einzelpreis: 6, pfand: 0, steuersatz: 7 }] });
+  host.innerHTML = ''; await w.Views.rechnung.render(host, rv.id);
+  assert(!host.querySelector('#r-kassenKategorie'), 'Rechnung zu einem Verkauf: kein Auswahlfeld');
+})));
+
+test('Finaltest P3 E4: „Volk besteht seit“ – setzt den Beginn, nicht in die Zukunft, nicht nach späteren Einträgen; Unterlagen-Hinweis bei späten Völkern', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const heute = w.U.todayIso(), morgen = w.U.addDays(heute, 1);
+  // Logik
+  assertEq(w.volkBeginnPlan(null, '2025-04-01', heute), [{ datum: '2025-04-01', text: 'Volk angelegt' }], 'neues Volk');
+  assertEq(w.volkBeginnPlan(null, '', heute), [{ datum: heute, text: 'Volk angelegt' }], 'leer: heute');
+  let f = null; try { w.volkBeginnPlan(null, morgen, heute); } catch (x) { f = x; }
+  assert(f && f.feld === 'seit', 'Zukunft: Feldfehler');
+  const alt = { historie: [{ datum: '2026-06-01', text: 'Volk angelegt' }, { datum: '2026-07-01', text: 'Königin geändert' }] };
+  assertEq(w.volkBeginnPlan(alt, '2026-06-01', heute), null, 'unverändert: nichts zu tun');
+  assertEq(w.volkBeginnPlan(alt, '2025-03-01', heute).map((h) => h.datum), ['2025-03-01', '2026-07-01'], 'nur der Beginn rückt');
+  assertEq(alt.historie[0].datum, '2026-06-01', 'das Volk selbst bleibt bis zum Speichern unverändert');
+  f = null; try { w.volkBeginnPlan(alt, '2026-08-01', heute); } catch (x) { f = x; }
+  assert(f && f.feld === 'seit' && /01\.07\.2026/.test(f.message), 'nach einem späteren Eintrag: Feldfehler');
+  assertEq(w.volkBeginnPlan({ historie: [{ datum: '2026-09-01', text: 'Stand gewechselt', standVon: 'a', standNach: 'b' }] }, '2026-01-01', heute).map((h) => h.text), ['Volk angelegt', 'Stand gewechselt'], 'Stand-Vermerk bleibt, Beginn kommt davor');
+  // Neues Volk im Formular
+  const stand = await w.DB.put('staende', { name: 'E4-Stand' });
+  w.openVolkForm(null, { standId: stand.id }, () => {}); await kurz(300);
+  let m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assertEq(m.querySelector('#f-seit').value, heute, 'Vorgabe heute');
+  assert(/Wichtig für Völkermeldungen zum Stichtag/.test(m.querySelector('[data-field="seit"]').textContent), 'Hinweis unter dem Feld');
+  setzFeld(w, m, 'name', 'E4-Volk'); setzFeld(w, m, 'seit', '2025-04-15');
+  m.querySelector('[data-save]').click(); await kurz(400);
+  let volk = (await w.DB.getAll('voelker')).find((x) => x.name === 'E4-Volk');
+  assert(volk, 'Volk angelegt');
+  assertEq(volk.historie.map((h) => [h.datum, h.text]), [['2025-04-15', 'Volk angelegt']], 'Beginn gesetzt');
+  assert(!('seit' in volk), 'kein eigenes Feld am Volk');
+  assertEq(w.volkBeginn(volk), '2025-04-15', 'volkBeginn liest es');
+  assertEq(w.voelkerAmStichtag([volk], '2026-01-01').length, 1, 'zählt am Stichtag');
+  // Bearbeiten: zeigt den Beginn, Zukunft wird abgewiesen, Rückdatieren geht
+  dialogeSchliessen(w);
+  await w.openVolkForm(await w.DB.get('voelker', volk.id), {}, () => {});
+  m = [...w.document.querySelectorAll('.modal-back')].pop();
+  assertEq(m.querySelector('#f-seit').value, '2025-04-15', 'zeigt den vorhandenen Beginn');
+  setzFeld(w, m, 'seit', morgen); m.querySelector('[data-save]').click(); await kurz(300);
+  assert(m.isConnected && m.querySelector('[data-field="seit"]').classList.contains('invalid'), 'Zukunft: Feldfehler, Formular bleibt');
+  assertEq((await w.DB.get('voelker', volk.id)).historie[0].datum, '2025-04-15', 'nichts gespeichert');
+  setzFeld(w, m, 'seit', '2024-05-01'); m.querySelector('[data-save]').click(); await kurz(400);
+  assertEq((await w.DB.get('voelker', volk.id)).historie.map((h) => h.datum), ['2024-05-01'], 'Beginn verschoben, kein neuer Eintrag');
+  dialogeSchliessen(w);
+  // Unterlagen: Hinweis bei Völkern, die erst nach dem Tag beginnen (Thüringen: eingewintert 1.10. des Vorjahres)
+  const altImk = w.S.get('imkerei'), V = w.Views.meldungen, altV = { kat: V._kat, suche: V._suche, jahr: V._jahr };
+  try {
+    await w.S.set('imkerei', { ...altImk, bundesland: 'TH' });
+    for (let i = 1; i <= 2; i++) await w.DB.put('voelker', { name: 'E4-Neu ' + i, standId: stand.id, status: 'aktiv', historie: [{ datum: heute, text: 'Volk angelegt' }] });
+    const info = w.tskSpaetInfo(await w.DB.getAll('voelker'));
+    assertEq([info.anzahl, info.ab], [2, heute], 'zwei späte Völker');
+    V._kat = 'amt'; V._suche = '';
+    await V.render(host);
+    let warn = host.querySelector('[data-ul="tierseuchenkasse"] [data-ul-warnung]');
+    assert(warn && /2 Völker sind erst seit/.test(warn.textContent) && /„Volk besteht seit“/.test(warn.textContent), 'Hinweis in der Unterlagen-Zeile: ' + (warn && warn.textContent));
+    assertEq(host.querySelectorAll('[data-ul-warnung]').length, 1, 'nur bei der Völkermeldung');
+    for (const x of (await w.DB.getAll('voelker')).filter((x) => /E4-Neu/.test(x.name))) { x.historie = [{ datum: '2020-04-01', text: 'Volk angelegt' }]; await w.DB.put('voelker', x); }
+    assertEq(w.tskSpaetInfo(await w.DB.getAll('voelker')), null, 'alte Völker: kein Hinweis');
+    host.innerHTML = ''; await V.render(host);
+    assert(!host.querySelector('[data-ul-warnung]'), 'Zeile ohne Hinweis');
+    assertEq(w.tskSpaetInfo([{ status: 'aktiv', historie: [{ datum: heute }] }], { bundesland: 'BY' }), null, 'Bayern meldet nicht: kein Hinweis');
+    assert(w.tskSpaetInfo([{ status: 'aktiv', historie: [{ datum: heute }] }], { bundesland: 'TH' }), 'Thüringen: Hinweis');
+  } finally { await w.S.set('imkerei', altImk); V._kat = altV.kat; V._suche = altV.suche; V._jahr = altV.jahr; }
+  assert(!toasts.some((t) => t.typ === 'err' && !/Datum liegt in der Zukunft/.test(t.msg)), 'keine fremde Fehlermeldung: ' + JSON.stringify(toasts));
+})));
+
+test('Finaltest P3 D1: Durchsicht – „12,–“ mit Gedankenstrich ist 12', async (w) => {
+  assertEq([w.U.parseNum('12,–'), w.U.parseNum('12,– €'), w.U.parseNum('12,—'), w.U.parseNum('12,-')], [12, 12, 12, 12], 'Strich-Schreibweisen');
+});
+
+test('Finaltest P3 D2: Durchsicht – Stand-Ernte für alle ändern schlägt bei neuem Datum die Tracht neu vor', async (w) => isolierteDaten(w, async () => {
+  const st = await w.DB.put('staende', { name: 'D2-Stand' });
+  const raps = await w.DB.put('trachten', { name: 'Raps', von: '2026-04-15', bis: '2026-05-20' });
+  const linde = await w.DB.put('trachten', { name: 'Linde', von: '2026-06-20', bis: '2026-07-20' });
+  const g = 'd2-gruppe';
+  const a = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x1', datum: '2026-05-10', sorte: 'Raps', mengeKg: 5, trachtId: raps.id, ernteGruppe: g, ernteGruppeStand: st.id });
+  const b = await w.DB.put('ernten', { zielTyp: 'volk', zielId: 'x2', datum: '2026-05-10', sorte: 'Raps', mengeKg: 6, trachtId: raps.id, ernteGruppe: g, ernteGruppeStand: st.id });
+  const erwartet = (w.Tracht.vorschlagErnte([raps, linde], '2026-07-05', st.id) || {}).id || null;
+  assertEq(await w.ernteGruppeAendern(g, { datum: '2026-07-05', sorte: 'Linde' }), 2, 'zwei Einträge');
+  const na = await w.DB.get('ernten', a.id), nb = await w.DB.get('ernten', b.id);
+  assertEq([na.trachtId, nb.trachtId], [erwartet, erwartet], 'Tracht neu nach Datum');
+  assert(na.trachtId !== raps.id, 'nicht mehr Raps');
+  await w.ernteGruppeAendern(g, { datum: '2026-07-05', sorte: 'Linde (Sommer)' });
+  assertEq((await w.DB.get('ernten', a.id)).trachtId, erwartet, 'gleiches Datum: Tracht bleibt');
+}));
+
+test('Finaltest P3 D3: Durchsicht – Volk ohne lesbaren Beginn: Feld leer, Speichern ändert den Beginn nicht', async (w) => isolierteDaten(w, async () => {
+  const v = await w.DB.put('voelker', { name: 'D3-Volk', status: 'aktiv', historie: [{ datum: '', text: 'Volk angelegt' }, { datum: '2025-05-01', text: 'Königin geändert' }] });
+  const form = w.UI.formModal; let o;
+  w.UI.formModal = (x) => { o = x; return { el: w.document.createElement('div'), close() {} }; };
+  try {
+    await w.openVolkForm(v, {}, () => {});
+    const f = o.fields.find((x) => x.key === 'seit');
+    assertEq([f.default, o.values.seit], ['', ''], 'Feld leer');
+    await o.onSave({ ...o.values, notizen: 'nur Notiz' });
+    const n = await w.DB.get('voelker', v.id);
+    assertEq(n.historie[0].datum, '', 'Beginn unverändert');
+    assertEq(n.notizen, 'nur Notiz', 'gespeichert');
+  } finally { w.UI.formModal = form; }
+}));
 
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
