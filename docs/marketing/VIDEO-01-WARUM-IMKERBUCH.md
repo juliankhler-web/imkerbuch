@@ -28,3 +28,8 @@ Alle Aussagen über die App müssen stimmen (Stand Version 1.00) – vor der Ver
 1. Szenen 1–2 + 5: „Nie wieder nasse Stockkarten“
 2. Szenen 3 + 6: „Wartezeit vergessen? Nicht mehr.“
 3. Szenen 7 + 9: „Vom Stand bis zum Honigglas“
+
+## Stimme – Lizenz geprüft (10.11.2026)
+- Julian findet die **Siri-Stimme 3** am besten (Proben in `docs/marketing/ton/`).
+- **Aber:** Der macOS-Lizenzvertrag auf diesem Mac (Abschnitt „F. Stimmen; Live-Untertitel“) erlaubt Systemstimmen nur, um „eigene Originalinhalte und Projekte für deinen persönlichen, nicht kommerziellen Gebrauch zu erstellen“, und schließt u. a. Aufnahme und Veröffentlichung ausdrücklich aus. Das gilt auch für „Persönliche Stimme“. Siri-, Premium- und normale Mac-Stimmen sind damit **nicht** für das veröffentlichte Werbevideo erlaubt – nur als interne Probe/Taktgeber für den Schnitt.
+- Für die Veröffentlichung: Julians eigene Stimme oder ein Sprachdienst mit ausdrücklicher kommerzieller Lizenz (Bedingungen vorher lesen).
