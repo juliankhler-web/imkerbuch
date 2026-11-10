@@ -109,4 +109,4 @@ Prüfung (wf_8968bc64-a00): 35 bestätigte Funde (1 hoch), sofort an Julian geme
 
 - Version 1.00 (Commit aba2205), iOS-Bau 1.0 (100) per `xcodebuild archive/exportArchive` hochgeladen, Prüferhinweis ohne „breeding“, Testkauf über TestFlight (Gruppe „Julian intern“) laut Julian erfolgreich.
 - **Apple:** iOS 1.0 + In-App-Käufe Vollversion und 30-day Trial am 10.11.2026 zur Prüfung übermittelt – „Warten auf Prüfung“, Veröffentlichung manuell.
-- **Google:** `ImkerBuch-1.0-100.aab` signiert (Julian, Schreibtisch); Upload in der Play Console (Produktion) durch Julian, dann Einreichen.
+- **Google:** `ImkerBuch-1.0-100.aab` signiert und von Julian hochgeladen; Produktions-Release 100 (1.0), Länder DE/AT, Versionshinweise de-DE; am 10.11.2026 zur Überprüfung gesendet (11 Änderungen). Verwaltete Veröffentlichung an. Einzige Warnung: keine R8/ProGuard-Offenlegungsdatei (die App nutzt keine Verschleierung).
