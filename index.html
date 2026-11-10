@@ -549,6 +549,7 @@ html[data-theme="dark"] .stat{box-shadow:var(--shadow)}
 .markt-tile .mt-korb{align-self:flex-start;margin-bottom:8px}
 .markt-minus{position:absolute;top:8px;right:8px;width:44px;height:40px;padding:0;border-radius:12px;border:1.5px solid var(--line2);background:var(--card);color:var(--honey-deep);font-size:24px;font-weight:800;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .markt-minus:active{transform:scale(.94)}
+.markt-minus[disabled]{opacity:.45;cursor:default;transform:none}
 .markt-preis-knopf{position:absolute;right:8px;bottom:8px;min-height:32px;padding:4px 10px;border:0;border-radius:12px;background:var(--honey-soft);color:var(--honey-deep);font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
 .markt-preis-knopf:active{transform:scale(.96)}
 .markt-korb{position:sticky;bottom:calc(var(--nav-h) + 8px + env(safe-area-inset-bottom));background:var(--card);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px 16px;z-index:20}
@@ -8533,6 +8534,30 @@ function volkBeginnPlan(volk, seit, heute = U.todayIso()) {
   if (ersterIstBeginn) { h[0].datum = seit; return h; }
   return [{ datum: seit, text: 'Volk angelegt' }, ...h];
 }
+/* Frühester Eintrag zu einem Volk in Durchsichten, Behandlungen, Fütterungen, Varroa-Kontrollen, Wägungen und Ernten
+   (Gegenprüfung Entwürfe, 10.11.2026): „Volk besteht seit“ darf nicht danach liegen – sonst zählte die Völkermeldung das Volk
+   an einem Tag nicht mit, für den die App schon eine Durchsicht oder Behandlung führt. → { datum, was } oder null */
+async function volkFruehesterEintrag(volkId) {
+  if (!volkId) return null;
+  const d = await DB.leseAlles(['stockkarten', 'behandlungen', 'fuetterungen', 'varroa', 'gewichte', 'ernten']);
+  const quellen = [
+    ['stockkarten', 'eine Durchsicht', (r) => r.volkId === volkId],
+    ['behandlungen', 'eine Behandlung', (r) => r.zielTyp === 'volk' && r.zielId === volkId],
+    ['fuetterungen', 'eine Fütterung', (r) => r.volkId === volkId],
+    ['varroa', 'eine Varroa-Kontrolle', (r) => r.volkId === volkId],
+    ['gewichte', 'eine Wägung', (r) => r.volkId === volkId],
+    ['ernten', 'eine Ernte', (r) => r.zielTyp === 'volk' && r.zielId === volkId],
+  ];
+  let erster = null;
+  for (const [store, was, passt] of quellen) {
+    for (const r of d[store] || []) {
+      const t = String((r && r.datum) || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t) || !passt(r)) continue;
+      if (!erster || t < erster.datum) erster = { datum: t, was };
+    }
+  }
+  return erster;
+}
 /** Volk anlegen/bearbeiten inkl. Pflege der Königinnen-Zuordnungshistorie */
 async function openVolkForm(volk, defaults = {}, onDone) {
   if (!volk && !(await Lizenz.neuesVolkErlaubt())) return;
@@ -8562,6 +8587,10 @@ async function openVolkForm(volk, defaults = {}, onDone) {
     async onSave(v) {
       const seit = v.seit; delete v.seit;   // nicht als eigenes Feld am Volk speichern
       const beginnNeu = volkBeginnPlan(volk, seit);   // wirft Feldfehler: Zukunft oder nach späteren Verlaufseinträgen
+      if (volk && beginnNeu) {   // … und nicht nach vorhandenen Durchsichten, Behandlungen usw. (Gegenprüfung Entwürfe, 10.11.2026)
+        const erster = await volkFruehesterEintrag(volk.id);
+        if (erster && beginnNeu[0].datum > erster.datum) throw feldFehler('seit', `Am ${U.fmtDate(erster.datum)} gibt es schon ${erster.was} zu diesem Volk. Der Beginn darf nicht danach liegen.`);
+      }
       const alt = volk ? (volk.koeniginId || null) : null;   // „|| null“: ohne Feld schrieb jedes Speichern „Königin geändert“
       const altStand = volk ? (volk.standId || null) : undefined;
       const rec = Object.assign(volk || { status: 'aktiv', historie: [{ datum: U.todayIso(), text: 'Volk angelegt' }] }, v);
@@ -12448,8 +12477,12 @@ async function ernteJeVolkAnlegen(liste, daten) {
    dort einzeln wiederherstellbar; steckt die Ernte in einer Charge, bleibt ihr Honig dort gezählt. → Zahl der Einträge */
 async function ernteGruppeAendern(gruppeId, { datum, sorte } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(datum || '')) || Number.isNaN(Date.parse(datum))) throw feldFehler('datum', 'Bitte ein gültiges Datum eintragen.');
-  return DB.aendereAtomar(['ernten', 'trachten'], (d) => {
+  return DB.aendereAtomar(['ernten', 'trachten', 'papierkorb'], (d) => {
     const liste = d.ernten.filter((e) => gruppeId && e.ernteGruppe === gruppeId);
+    /* Einträge der Gruppe im Papierkorb ändern sich mit (Gegenprüfung Entwürfe, 10.11.2026): Sonst kam ein versehentlich gelöschter
+       Eintrag beim Wiederherstellen mit der alten Sorte zurück – die Stand-Ernte war gemischt, und das Etikett der Charge sprang
+       auf die ersetzte Sorte zurück. */
+    const imKorb = (d.papierkorb || []).filter((t) => t && t.store === 'ernten' && t.daten && gruppeId && t.daten.ernteGruppe === gruppeId);
     if (!liste.length) throw new Error('Diese Stand-Ernte gibt es nicht mehr. Bitte das Fenster neu öffnen. Nichts wurde geändert.');
     /* Neues Datum → Tracht neu vorschlagen wie beim Anlegen (Durchsicht Portion 3, 10.11.2026): sonst zählte eine auf Juli/Linde
        umgestellte Ernte in „Ertrag je Tracht“ und in der Statistik weiter zur Raps-Tracht. */
@@ -12459,7 +12492,8 @@ async function ernteGruppeAendern(gruppeId, { datum, sorte } = {}) {
       const t = Tracht.vorschlagErnte(d.trachten || [], datum, st);
       return t ? t.id : null;
     };
-    return { ops: liste.map((e) => ({ store: 'ernten', obj: { ...e, datum, sorte: String(sorte || '').trim(), trachtId: tracht(e) } })), wert: liste.length };
+    const neu = (e) => ({ ...e, datum, sorte: String(sorte || '').trim(), trachtId: tracht(e) });
+    return { ops: [...liste.map((e) => ({ store: 'ernten', obj: neu(e) })), ...imKorb.map((t) => ({ store: 'papierkorb', obj: { ...t, daten: neu(t.daten) } }))], wert: liste.length };
   });
 }
 async function ernteGruppeLoeschen(gruppeId) {
@@ -19018,8 +19052,11 @@ Views.honig = {
     const liste = (await DB.getAll('ernten')).filter((x) => x.ernteGruppe === e.ernteGruppe);
     const ids = new Set(liste.map((x) => x.id));
     const chargen = (await DB.getAll('chargen')).filter((c) => (c.ernteIds || []).some((id) => ids.has(id)));
+    const text = (cs) => (cs.length ? `${cs.length === 1 ? 'Charge' : 'Chargen'} ${cs.map((c) => c.losnummer || '?').join(', ')}` : '');
+    /* Eine Charge mit eigener Sorte behält ihren Namen – dort ändert sich die Sorte NICHT mit (Gegenprüfung Entwürfe, 10.11.2026). */
+    const eigene = chargen.filter((c) => String(c.sorte || '').trim()), ohneEigene = chargen.filter((c) => !String(c.sorte || '').trim());
     return { liste, chargen, kg: Math.round(liste.reduce((t, x) => t + (Number(x.mengeKg) || 0), 0) * 1000) / 1000,
-      chargenText: chargen.length ? `${chargen.length === 1 ? 'Charge' : 'Chargen'} ${chargen.map((c) => c.losnummer || '?').join(', ')}` : '' };
+      chargenText: text(chargen), chargenMitText: text(ohneEigene), chargenEigeneSorte: eigene };
   },
   async ernteGruppeForm(e, gruppeSt, sortenOpts, eltern) {
     const lage = await Views.honig._ernteGruppeLage(e);
@@ -19028,7 +19065,7 @@ Views.honig = {
     UI.formModal({
       title: 'Stand-Ernte ändern',
       fields: [
-        { key: '_info', type: 'static', html: `<div class="hint mb8" data-gruppe-info>Gilt für alle ${n} Einträge dieser Ernte${gruppeSt ? ` am Stand „${U.esc(gruppeSt.name)}“` : ''}. Menge, Wassergehalt und Notiz bleiben je Volk, wie sie sind. Bei neuem Datum schlägt die App die Tracht neu vor.${lage.chargenText ? ` Davon steckt schon etwas in ${U.esc(lage.chargenText)}: Dort ändert sich die Sorte mit – auch auf neuen Etiketten.` : ''}</div>` },
+        { key: '_info', type: 'static', html: `<div class="hint mb8" data-gruppe-info>Gilt für alle ${n} Einträge dieser Ernte${gruppeSt ? ` am Stand „${U.esc(gruppeSt.name)}“` : ''}. Menge, Wassergehalt und Notiz bleiben je Volk, wie sie sind. Bei neuem Datum schlägt die App die Tracht neu vor.${lage.chargenMitText ? ` Davon steckt schon etwas in ${U.esc(lage.chargenMitText)}: Dort ändert sich die Sorte mit – auch auf neuen Etiketten.` : ''}${lage.chargenEigeneSorte.map((c) => ` Charge ${U.esc(c.losnummer || '?')} hat eine eigene Sorte (${U.esc(String(c.sorte).trim())}) – die bleibt; ändere sie dort, wenn sie nicht mehr stimmt.`).join('')}</div>` },
         { key: 'datum', label: 'Datum', type: 'date', required: true, default: e.datum || U.todayIso() },
         { key: 'sorte', label: 'Honigsorte', type: 'suggest', options: sortenOpts, default: e.sorte || '', placeholder: 'auswählen, eintippen oder später vom Labor' },
       ],
@@ -19988,6 +20025,7 @@ Views.honig = {
 Views.markt = {
   title: 'Marktverkauf',
   _korb: {}, // abfuellungId -> anzahl
+  _minusNachlauf: {}, // abfuellungId -> Zeitpunkt, bis zu dem die Kachel nach dem letzten „−“ gesperrt bleibt (Gegenprüfung Entwürfe, 10.11.2026)
   async render(main) {
     const korb = Views.markt._korb;
     const alleAbf = await DB.getAll('abfuellungen');
@@ -20012,6 +20050,9 @@ Views.markt = {
         const c = chargen.get(a.chargeId);
         const name = honigName(c, ernten);
         const imKorb = korb[a.id] || 0;
+        /* Nach dem letzten „−“ bleibt der Knopf noch kurz ausgegraut an seiner Stelle stehen – ein Tipp zu viel landet dann auf
+           ihm und nicht auf der Kachel, die sonst gleich wieder ein Glas in den Korb legte (Gegenprüfung Entwürfe, 10.11.2026). */
+        const minusNachlauf = !imKorb && (Views.markt._minusNachlauf[a.id] || 0) > Date.now();
         /* Schild „2 im Korb“, „−“ nimmt EIN Glas zurück (nur aus dem Korb – gebucht wird erst beim Kassieren), „✎ Preis“ ändert den
            Preis der Kachel samt der Gläser im Korb (Finaltest Portion 3, 10.11.2026, Entwurf E1: Fund P2 Honig #2b und #8). */
         return `<div class="markt-zelle"><button class="markt-tile" data-tile="${U.esc(a.id)}" ${imKorb >= a.bestand ? 'disabled' : ''}>
@@ -20019,7 +20060,8 @@ Views.markt = {
           <span class="mt-name">${U.esc(name)}</span>
           <span class="mt-rest">${gebindeLabel(a.gebindeG)} · <b>${Math.max(0, a.bestand - imKorb)} übrig</b> · Charge ${U.esc(chargeUndLos(a, c))}</span>
           <span class="mt-preis">${preis(a) ? U.fmtEur(preis(a)) : '<span style="font-size:13px;color:var(--muted)">Preis antippen</span>'}</span>
-        </button>${imKorb ? `<button type="button" class="markt-minus" data-korb-minus="${U.esc(a.id)}" aria-label="Ein Glas zurück" title="Ein Glas zurück">−</button>` : ''}<button type="button" class="markt-preis-knopf" data-preis-aendern="${U.esc(a.id)}" aria-label="Preis ändern: ${U.esc(name)}, ${U.esc(gebindeLabel(a.gebindeG))}">✎ Preis</button></div>`;
+        </button>${imKorb ? `<button type="button" class="markt-minus" data-korb-minus="${U.esc(a.id)}" aria-label="Ein Glas zurück" title="Ein Glas zurück">−</button>`
+          : minusNachlauf ? `<button type="button" class="markt-minus" data-minus-nachlauf="${U.esc(a.id)}" disabled aria-label="Ein Glas zurück" title="Ein Glas zurück">−</button>` : ''}<button type="button" class="markt-preis-knopf" data-preis-aendern="${U.esc(a.id)}" aria-label="Preis ändern: ${U.esc(name)}, ${U.esc(gebindeLabel(a.gebindeG))}">✎ Preis</button></div>`;
       }).join('')}</div>`
       : emptyState('honig', 'Kein abgefüllter Bestand vorhanden. Fülle zuerst eine Charge im Tab „Abfüllung“ ab.')}
       ${anzahlKorb ? `<div class="markt-korb">
@@ -20030,15 +20072,35 @@ Views.markt = {
     main.addEventListener('click', async (e) => {
       // Ein Glas zurück: nur aus dem Korb, an der Stelle bleiben (Finaltest Portion 3, 10.11.2026, Entwurf E1)
       const minus = e.target.closest('[data-korb-minus]');
-      if (minus) { const id = minus.dataset.korbMinus; if ((korb[id] || 0) > 1) korb[id] -= 1; else delete korb[id]; return renderRoute({ scrollBehalten: true }); }
+      if (minus) {
+        const id = minus.dataset.korbMinus;
+        if ((korb[id] || 0) > 1) korb[id] -= 1;
+        else { delete korb[id]; Views.markt._minusNachlauf[id] = Date.now() + Views.markt.MINUS_NACHLAUF_MS; }
+        await renderRoute({ scrollBehalten: true });
+        // Den ausgegrauten Knopf nach der Sperrzeit wegnehmen (nur, wenn die Seite noch dieselbe ist)
+        setTimeout(() => {
+          if ((Views.markt._minusNachlauf[id] || 0) > Date.now()) return;
+          delete Views.markt._minusNachlauf[id];
+          document.querySelectorAll('[data-minus-nachlauf]').forEach((k) => { if (k.dataset.minusNachlauf === id) k.remove(); });
+        }, Views.markt.MINUS_NACHLAUF_MS + 50);
+        return;
+      }
       const pk = e.target.closest('[data-preis-aendern]');
       if (pk) { const a = abf.find((x) => x.id === pk.dataset.preisAendern); return a ? Views.markt.preisSetzen(a, chargen.get(a.chargeId)) : null; }
       const tile = e.target.closest('[data-tile]');
       if (tile) {
         const a = abf.find((x) => x.id === tile.dataset.tile);
+        // Gleich nach dem letzten „−“ zählt ein Tipp auf die Kachel nicht als neues Glas (Gegenprüfung Entwürfe, 10.11.2026)
+        if ((Views.markt._minusNachlauf[a.id] || 0) > Date.now()) return;
         if (!preis(a)) return Views.markt.preisSetzen(a, chargen.get(a.chargeId));
         korb[a.id] = (korb[a.id] || 0) + 1;
-        return renderRoute();
+        const id = a.id;
+        await renderRoute({ scrollBehalten: true });
+        /* Erscheint die Warenkorb-Leiste neu, verdeckte sie am Handy die eben angetippte untere Kachel – der nächste Tipp traf
+           dann die Leiste (Durchsicht 10.11.2026). Kachel so weit hochschieben, dass sie frei steht. */
+        const k = document.querySelector(`[data-tile="${CSS.escape(id)}"]`), leiste = document.querySelector('.markt-korb');
+        if (k && leiste) { const ueber = k.getBoundingClientRect().bottom - leiste.getBoundingClientRect().top; if (ueber > 0) window.scrollBy(0, ueber + 8); }
+        return;   // an der Stelle bleiben – am Handy sprang die Seite sonst nach oben (Gegenprüfung Entwürfe, 10.11.2026)
       }
       const entfernen = e.target.closest('[data-korb-entfernen]');
       if (entfernen) { delete korb[entfernen.dataset.korbEntfernen]; return renderRoute(); }
@@ -20064,10 +20126,11 @@ Views.markt = {
         const preise = S.get('marktpreise') || {};
         preise[a.id] = p;
         await S.set('marktpreise', preise);
-        renderRoute();
+        renderRoute({ scrollBehalten: true });   // an der Stelle bleiben (Gegenprüfung Entwürfe, 10.11.2026)
       },
     });
   },
+  MINUS_NACHLAUF_MS: 1000,
   wechselgeld(summe) {
     const m = UI.modal({
       title: 'Wechselgeld',
@@ -21043,7 +21106,8 @@ Views.rechnung = {
     const ausVerkauf = !!r.ausVerkauf;
     const posAenderbar = entwurf && !ausVerkauf;
     // Kategorie im Kassenbuch: gewählt oder wie bisher automatisch (Finaltest Portion 3, 10.11.2026, Entwurf E3)
-    const kbKategorie = entwurf && !ausVerkauf ? rechnungKategorie(r, await DB.getAll('inventar')) : '';
+    const kbInventar = entwurf && !ausVerkauf ? await DB.getAll('inventar') : [];   // gemerkt für das Zurücksetzen der Auswahl (Gegenprüfung Entwürfe, 10.11.2026)
+    const kbKategorie = entwurf && !ausVerkauf ? rechnungKategorie(r, kbInventar) : '';
     main.innerHTML = `
       <button class="btn btn-ghost btn-sm mb12 no-print" onclick="navTo('finanzen/rechnungen')">${icon('back')} Alle Rechnungen</button>
       ${ausVerkauf ? `<div class="banner info mb12 no-print" data-rechnung-aus-verkauf><span class="b-msg"><b>Rechnung zu einem Verkauf.</b> Der Verkauf ist schon gebucht. Beim Festschreiben ändern sich Bestand und Kassenbuch nicht noch einmal.${entwurf && !r.kundeId ? ' Wähle noch den Kunden.' : ''}${verkaufAbweichungText(r, entwurf)}</span></div>` : ''}
@@ -21143,7 +21207,14 @@ Views.rechnung = {
       $('#r-steuerart').onchange = async (e) => { if (await saveField(() => { r.steuerart = e.target.value; r.kleinunternehmer = (e.target.value === 'klein'); })) renderRoute(); };
       $('#r-qr').onchange = (e) => saveField(() => { r.qrAufDruck = e.target.checked; });
       const kbKat = $('#r-kassenKategorie');   // Finaltest Portion 3, 10.11.2026, Entwurf E3
-      if (kbKat) kbKat.onchange = async (e) => { if (!KASSEN_KATEGORIEN.einnahme.includes(e.target.value)) return; if (!(await saveField(() => { r.kassenKategorie = e.target.value; }))) e.target.value = kbKategorie; };
+      /* Abgelehnt → die Auswahl zeigt den zuletzt gespeicherten Wert, nicht den vom ersten Anzeigen (Gegenprüfung Entwürfe, 10.11.2026):
+         Nach „Völker-/Ablegerverkauf“ gespeichert und einem abgelehnten Wechsel stand sonst wieder „Honigverkauf“ da. */
+      if (kbKat) kbKat.onchange = async (e) => {
+        if (!KASSEN_KATEGORIEN.einnahme.includes(e.target.value)) return;
+        if (await saveField(() => { r.kassenKategorie = e.target.value; })) return;
+        if (gespeichert.kassenKategorie === undefined) delete r.kassenKategorie; else r.kassenKategorie = gespeichert.kassenKategorie;
+        e.target.value = rechnungKategorie(gespeichert, kbInventar);
+      };
       const neuZeichnen = async (fn) => { if (await saveField(fn)) renderRoute(); };
       $('#r-rabattTyp').onchange = (e) => neuZeichnen(() => { r.rabattTyp = e.target.value; });
       $('#r-rabattWert').onchange = (e) => neuZeichnen(() => { r.rabattWert = U.parseNum(e.target.value) || 0; });
@@ -26644,8 +26715,12 @@ function tskSpaetInfo(alle, imk = S.get('imkerei') || {}, heute = U.todayIso()) 
   const einTag = `${+stichtag.slice(0, 4) - 1}-${(regel && regel.einTag) || EINWINTERUNG_TAG}`;
   const mitEin = !(regel && regel.ohneEingewintert), mitStich = !regel || !!regel.stichtag || !!regel.stichtage;
   if (!mitStich && !mitEin) return null;
-  const tag = (regel && regel.zaehlt === 'eingewintert') || (!mitStich && mitEin) ? einTag : stichtag;
-  const spaet = (alle || []).filter((v) => v.status === 'aktiv' && volkBeginn(v, heute) > tag);
+  /* Schweiz: Der Einwinterungstag (1.11.) liegt vor dem Auswinterungstag – Völker, die erst danach beginnen, fehlen schon dort
+     (Gegenprüfung Entwürfe, 10.11.2026). */
+  const tag = (regel && regel.zaehlt === 'eingewintert') || (!mitStich && mitEin) || (land && land.staat === 'CH' && mitEin) ? einTag : stichtag;
+  /* Alle Völker, auch aufgelöste (Gegenprüfung Entwürfe, 10.11.2026): Die Zahl am Stichtag zählt sie mit – ein spät eingetragenes,
+     inzwischen aufgelöstes Volk fehlte dort ebenso, aber der Hinweis blieb aus. Wer erst nach dem Tag beginnt, endet auch danach. */
+  const spaet = (alle || []).filter((v) => volkBeginn(v, heute) > tag);
   return spaet.length ? { anzahl: spaet.length, ab: spaet.map((v) => volkBeginn(v, heute)).sort()[0], tag } : null;
 }
 /** Alle Unterlagen der App. jahr: richtet sich nach dem gewählten Jahr · nurJahr: PDF gibt es nur für ein einzelnes Jahr ·
@@ -31472,7 +31547,8 @@ const Pdf = {
       /* Völker, die erst NACH dem Tag in der App angelegt wurden (Finaltest Portion 3, 10.11.2026): Wer zum Start seine 12 Völker
          einträgt, bekam „Völker am 31.10.: 0 (zu melden)“ – die App kennt den Tag vor dem Anlegen nicht. Dann steht „(zu melden)“
          nicht neben der Zahl, sondern ein Hinweis, die Zahl selbst zu prüfen. */
-      const spaeter = (tag) => voelker.filter((v) => volkBeginn(v, heute) > tag);
+      // Aus ALLEN Völkern, auch aufgelösten – wie die Zahl am Stichtag (Gegenprüfung Entwürfe, 10.11.2026)
+      const spaeter = (tag) => alle.filter((v) => volkBeginn(v, heute) > tag);
       const spaetStich = spaeter(stichtag), spaetEin = mitEin ? spaeter(einTag) : [];
       const zuMeldenZusatz = (art, spaet) => (zuMelden === art ? (spaet.length ? '  (bitte prüfen, siehe unten)' : '  (zu melden)') : '');
       // Schweiz: zuerst der Herbst (eingewintert), dann das Frühjahr (ausgewintert) – Reihenfolge der BLV-Vorlage
@@ -31483,10 +31559,13 @@ const Pdf = {
       if (zuMelden === 'hoch') zeile(`Höchststand ${J - 1}:`, `${hoechst} (Orientierung – gemeldet wird der für ${J} erwartete Höchstbesatz)`, true);
       zeile('Völker heute:', voelker.length);
       // Hinweis zu später angelegten Völkern – für den Tag, der gemeldet wird (sonst den Stichtag)
-      const spaetTag = zuMelden === 'ein' || (!mitStich && mitEin) ? einTag : stichtag, spaet = spaetTag === einTag ? spaetEin : spaetStich;
-      if (spaet.length && (mitStich || mitEin)) {
+      // Schweiz: zuerst der Einwinterungstag – wer erst danach beginnt, fehlt schon dort (Gegenprüfung Entwürfe, 10.11.2026)
+      const chEin = staat === 'CH' && mitEin;
+      const spaetTag = zuMelden === 'ein' || (!mitStich && mitEin) || chEin ? einTag : stichtag, spaet = spaetTag === einTag ? spaetEin : spaetStich;
+      if (spaet.length && (mitStich || mitEin) && !(land && land.keine)) {   // Länder ohne Meldepflicht: kein „richtige melden“ (Durchsicht 10.11.2026)
         const ab = spaet.map((v) => volkBeginn(v, heute)).sort()[0];
-        hinweis(`Achtung: ${spaet.length} ${spaet.length === 1 ? 'Volk ist' : 'Völker sind'} erst seit ${U.fmtDate(ab)} in der App – für den ${U.fmtDate(spaetTag)} kennt die App ${spaet.length === 1 ? 'es' : 'sie'} noch nicht. Die Zahl für diesen Tag bitte prüfen und die richtige melden – oder beim Volk unter „Volk besteht seit“ den richtigen Beginn nachtragen.`, 40);   // Feld aus Entwurf E4
+        const auchAus = chEin && mitStich && spaetStich.length ? ` Für den ${U.fmtDate(stichtag)} gilt das ${spaetStich.length === spaet.length ? 'auch' : `für ${spaetStich.length} davon`}.` : '';
+        hinweis(`Achtung: ${spaet.length} ${spaet.length === 1 ? 'Volk ist' : 'Völker sind'} erst seit ${U.fmtDate(ab)} in der App – falls es ${spaet.length === 1 ? 'das Volk' : 'sie'} am ${U.fmtDate(spaetTag)} schon gab, fehlt ${spaet.length === 1 ? 'es' : 'sie'} in dieser Zahl (neue Ableger zählen dort zu Recht nicht).${auchAus} Die Zahl für ${auchAus ? 'diese Tage' : 'diesen Tag'} bitte prüfen und die richtige melden – oder beim Volk unter „Volk besteht seit“ den richtigen Beginn nachtragen.`, 40);   // Feld aus Entwurf E4
       }
       yy += 2;
       /* Ein Stand, der am Stichtag Völker trug und danach gelöscht wurde, steht mit seinem gemerkten Namen „(gelöscht)“ da –

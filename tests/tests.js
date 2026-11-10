@@ -10584,6 +10584,237 @@ test('Finaltest P3 D3: Durchsicht – Volk ohne lesbaren Beginn: Feld leer, Spei
   } finally { w.UI.formModal = form; }
 }));
 
+/* Gegenprüfung Entwürfe, 10.11.2026: Funde der Gegenprüfung zu E1–E4 */
+test('Finaltest P3 G1: Marktverkauf – ein „−“ zu viel legt kein Glas wieder hinein (Knopf bleibt kurz ausgegraut, Kachel kurz gesperrt)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const korbAlt = w.Views.markt._korb, nachlaufAlt = w.Views.markt._minusNachlauf;
+  const hosts = [];
+  const zeichne = async () => { const h = w.document.createElement('div'); w.document.body.appendChild(h); hosts.push(h); await w.Views.markt.render(h); return h; };
+  try {
+    w.Views.markt._minusNachlauf = {};
+    const c = await w.DB.put('chargen', { losnummer: 'G1-01', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 3, bestand: 3 });
+    await w.S.set('marktpreise', { [a.id]: 6 });
+    w.Views.markt._korb = { [a.id]: 1 };
+    let h = await zeichne();
+    h.querySelector(`[data-korb-minus="${a.id}"]`).click(); await kurz(30);
+    assert(!(a.id in w.Views.markt._korb), 'letztes Glas zurück: Korb leer');
+    // Neu gezeichnet: „−“ steht ausgegraut an derselben Stelle, ein weiterer Tipp darauf oder auf die Kachel legt nichts hinein
+    h = await zeichne();
+    const grau = h.querySelector(`[data-minus-nachlauf="${a.id}"]`);
+    assert(grau && grau.disabled && grau.classList.contains('markt-minus'), 'ausgegrauter „−“-Knopf an seiner Stelle');
+    assert(!h.querySelector('[data-korb-minus]'), 'kein aktiver „−“ mehr');
+    grau.click(); await kurz(30);
+    h.querySelector(`[data-tile="${a.id}"]`).click(); await kurz(30);
+    assert(!(a.id in w.Views.markt._korb), 'Tipp gleich danach: kein neues Glas im Korb – ' + JSON.stringify(w.Views.markt._korb));
+    assert(!h.querySelector('.markt-korb'), 'kein Warenkorb sichtbar');
+    // Nach der Sperrzeit: Knopf weg, die Kachel legt wieder ein Glas hinein
+    await kurz(w.Views.markt.MINUS_NACHLAUF_MS + 200);
+    assert(!grau.isConnected, 'ausgegrauter Knopf nach der Sperrzeit weg');
+    h.querySelector(`[data-tile="${a.id}"]`).click(); await kurz(30);
+    assertEq(w.Views.markt._korb[a.id], 1, 'danach legt die Kachel wieder ein Glas hinein');
+    // Mehrere Gläser: „−“ sperrt nichts, solange noch etwas im Korb liegt
+    w.Views.markt._korb = { [a.id]: 3 };
+    h = await zeichne();
+    h.querySelector('[data-korb-minus]').click(); await kurz(30);
+    assertEq(w.Views.markt._korb[a.id], 2, 'ein Glas zurück');
+    assert(!((w.Views.markt._minusNachlauf[a.id] || 0) > Date.now()), 'keine Sperre, solange noch Gläser im Korb liegen');
+  } finally { w.Views.markt._korb = korbAlt; w.Views.markt._minusNachlauf = nachlaufAlt; hosts.forEach((x) => x.remove()); dialogeSchliessen(w); }
+})));
+
+test('Finaltest P3 G2: Marktverkauf – Kachel antippen und „✎ Preis“ übernehmen bleiben an der Stelle (kein Sprung nach oben)', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const korbAlt = w.Views.markt._korb, aufrufe = [];
+  w.renderRoute = async (o) => { aufrufe.push(o || {}); };
+  const hosts = [];
+  const zeichne = async () => { const h = w.document.createElement('div'); w.document.body.appendChild(h); hosts.push(h); await w.Views.markt.render(h); return h; };
+  try {
+    const c = await w.DB.put('chargen', { losnummer: 'G2-01', datum: '2026-07-01', ernteIds: [], lagerKg: 5, lagerHerkunft: 'Test', mengeKg: 5, sorte: 'Raps' });
+    const a = await w.DB.put('abfuellungen', { chargeId: c.id, datum: '2026-07-02', gebindeG: 500, anzahl: 3, bestand: 3 });
+    await w.S.set('marktpreise', { [a.id]: 6 });
+    w.Views.markt._korb = {};
+    let h = await zeichne();
+    h.querySelector(`[data-tile="${a.id}"]`).click(); await kurz(30);
+    assertEq(w.Views.markt._korb[a.id], 1, 'Glas im Korb');
+    assertEq(aufrufe.at(-1).scrollBehalten, true, 'Kachel: Seite bleibt an der Stelle');
+    h = await zeichne();
+    h.querySelector(`[data-preis-aendern="${a.id}"]`).click(); await kurz(250);
+    const m = [...w.document.querySelectorAll('.modal-back')].pop();
+    setzFeld(w, m, 'preis', '9'); m.querySelector('[data-save]').click(); await kurz(300);
+    assertEq(w.S.get('marktpreise')[a.id], 9, 'Preis gespeichert');
+    assertEq(aufrufe.at(-1).scrollBehalten, true, '„Übernehmen“: Seite bleibt an der Stelle');
+  } finally { w.Views.markt._korb = korbAlt; hosts.forEach((x) => x.remove()); dialogeSchliessen(w); }
+})));
+
+test('Finaltest P3 G3: Stand-Ernte – „für alle ändern“ ändert Einträge im Papierkorb mit, Wiederherstellen bringt die neue Sorte', async (w) => isolierteDaten(w, async () => {
+  const stand = await w.DB.put('staende', { name: 'G3-Stand' });
+  const v = [];
+  for (const n of ['G3-Anna', 'G3-Berta', 'G3-Clara']) v.push(await w.DB.put('voelker', { name: n, standId: stand.id, status: 'aktiv', historie: [] }));
+  const recs = await w.ernteJeVolkAnlegen(v.map((x) => ({ volkId: x.id, menge: 6 })), { gruppeStandId: stand.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Raps', notiz: '' });
+  const g = recs[0].ernteGruppe;
+  // Fremder Eintrag im Papierkorb bleibt unberührt
+  const fremd = await w.DB.put('ernten', { zielTyp: 'volk', zielId: v[0].id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Raps', mengeKg: 2 });
+  await w.DB.softDel('ernten', fremd.id);
+  await w.ernteGruppeAendern(g, { datum: '2026-07-01', sorte: 'Lindenhonig' });
+  await w.DB.softDel('ernten', recs[0].id);   // Anna versehentlich gelöscht
+  assertEq(await w.ernteGruppeAendern(g, { datum: '2026-07-05', sorte: 'Sommertracht' }), 2, 'zwei aktive Einträge geändert');
+  const korb = await w.DB.getAll('papierkorb');
+  const anna = korb.find((t) => t.store === 'ernten' && t.daten.id === recs[0].id);
+  assertEq([anna.daten.datum, anna.daten.sorte], ['2026-07-05', 'Sommertracht'], 'Eintrag im Papierkorb ändert sich mit');
+  assertEq(anna.daten.mengeKg, 6, 'Menge bleibt');
+  const f = korb.find((t) => t.store === 'ernten' && t.daten.id === fremd.id);
+  assertEq([f.daten.datum, f.daten.sorte], ['2026-06-01', 'Raps'], 'fremder Eintrag im Papierkorb unberührt');
+  await w.DB.trashRestore(anna.id);
+  const zurueck = await w.DB.get('ernten', recs[0].id);
+  assertEq([zurueck.datum, zurueck.sorte, zurueck.ernteGruppe], ['2026-07-05', 'Sommertracht', g], 'wiederhergestellt mit der neuen Sorte');
+  for (const r of recs) assertEq((await w.DB.get('ernten', r.id)).sorte, 'Sommertracht', 'Stand-Ernte nicht gemischt');
+}));
+
+test('Finaltest P3 G4: Stand-Ernte – „Sorte ändert sich mit“ nur bei Chargen ohne eigene Sorte', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const stand = await w.DB.put('staende', { name: 'G4-Stand' });
+  const v = [];
+  for (const n of ['G4-A', 'G4-B', 'G4-C']) v.push(await w.DB.put('voelker', { name: n, standId: stand.id, status: 'aktiv', historie: [] }));
+  const recs = await w.ernteJeVolkAnlegen(v.map((x) => ({ volkId: x.id, menge: 5 })), { gruppeStandId: stand.id, datum: '2026-06-01', produktart: 'Honig', sorte: 'Raps', notiz: '' });
+  const eigen = await w.DB.put('chargen', { losnummer: 'G4-01', datum: '2026-06-02', ernteIds: [recs[0].id], lagerKg: 0, mengeKg: 5, sorte: 'Rapshonig (Labor)' });
+  const info = async () => {
+    dialogeSchliessen(w);
+    await w.Views.honig.ernteGruppeForm(recs[1], null, [], { close() {} });
+    await warteBis(() => w.document.querySelector('.modal-back [data-gruppe-info]'));
+    return [...w.document.querySelectorAll('.modal-back')].pop().querySelector('[data-gruppe-info]').textContent;
+  };
+  let t = await info();
+  assert(!/ändert sich die Sorte mit/.test(t), 'eigene Sorte: kein „ändert sich mit“ – ' + t);
+  assert(/Charge G4-01 hat eine eigene Sorte \(Rapshonig \(Labor\)\) – die bleibt/.test(t), 'Hinweis auf die eigene Sorte – ' + t);
+  // Zweite Charge ohne eigene Sorte: nur dort „ändert sich mit“
+  await w.DB.put('chargen', { losnummer: 'G4-02', datum: '2026-06-03', ernteIds: [recs[1].id], lagerKg: 0, mengeKg: 5, sorte: '' });
+  t = await info();
+  assert(/Davon steckt schon etwas in Charge G4-02: Dort ändert sich die Sorte mit/.test(t), 'Charge ohne eigene Sorte: ändert sich mit – ' + t);
+  assert(!/G4-01[^.]*ändert sich/.test(t) && /Charge G4-01 hat eine eigene Sorte/.test(t), 'G4-01 nicht als „ändert sich mit“ – ' + t);
+  // Nach dem Speichern: die eigene Sorte bleibt
+  await w.ernteGruppeAendern(recs[0].ernteGruppe, { datum: '2026-06-01', sorte: 'Lindenhonig' });
+  assertEq(w.honigName(await w.DB.get('chargen', eigen.id), await w.idMap('ernten')), 'Rapshonig (Labor)', 'Charge mit eigener Sorte behält den Namen');
+})));
+
+test('Finaltest P3 G5: Völkermeldung – spät eingetragene, inzwischen aufgelöste Völker zählen für den Hinweis mit (PDF und Unterlagen-Zeile)', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei'), heute = w.U.todayIso(), beginn = w.U.addDays(heute, -3);
+  const st = await w.DB.put('staende', { name: 'G5-Stand' });
+  const tot = await w.DB.put('voelker', { name: 'G5-Tot', standId: st.id, status: 'aufgelöst', historie: [{ datum: beginn, text: 'Volk angelegt' }, { datum: w.U.addDays(heute, -1), text: 'Volk aufgelöst' }] });
+  const echt = w.Pdf.finish; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' ').replace(/\\([()])/g, '$1'); };
+  const V = w.Views.meldungen, altV = { kat: V._kat, suche: V._suche, jahr: V._jahr };
+  const host = w.document.createElement('div'); w.document.body.appendChild(host);
+  try {
+    for (const land of ['HE', 'TH']) {
+      await w.S.set('imkerei', { ...altImk, bundesland: land });
+      await w.Pdf.tierseuchenkasse();
+      assert(!/\(0  \(zu melden\)/.test(text), `${land}: keine „0 (zu melden)“`);
+      assert(/\(0  \(bitte prüfen, siehe unten\)/.test(text), `${land}: „bitte prüfen“ neben der 0`);
+      assert(/1 Volk ist erst seit/.test(text), `${land}: Achtung-Zeile nennt das aufgelöste Volk`);
+      const i = w.tskSpaetInfo(await w.DB.getAll('voelker'));
+      assert(i && i.anzahl === 1 && i.ab === beginn, `${land}: Unterlagen-Hinweis – ` + JSON.stringify(i));
+      V._kat = 'amt'; V._suche = ''; host.innerHTML = '';
+      await V.render(host);
+      const warn = host.querySelector('[data-ul="tierseuchenkasse"] [data-ul-warnung]');
+      assert(warn && /1 Volk ist erst seit/.test(warn.textContent), `${land}: Hinweis in der Zeile – ` + (warn && warn.textContent));
+    }
+    // Ein lebendes Volk nachgetragen, das tote nicht: der Hinweis bleibt und nennt nur das tote
+    await w.DB.put('voelker', { name: 'G5-Lebt', standId: st.id, status: 'aktiv', historie: [{ datum: '2020-04-01', text: 'Volk angelegt' }] });
+    await w.Pdf.tierseuchenkasse();
+    assert(/1 Volk ist erst seit/.test(text) && /\(1  \(bitte prüfen, siehe unten\)/.test(text), 'zu kleine Zahl bleibt markiert: ' + text.slice(0, 400));
+    // Teilweise aufgelöst: beide späten Völker zählen
+    await w.DB.put('voelker', { name: 'G5-Neu', standId: st.id, status: 'aktiv', historie: [{ datum: beginn, text: 'Volk angelegt' }] });
+    assertEq(w.tskSpaetInfo(await w.DB.getAll('voelker')).anzahl, 2, 'aktives und aufgelöstes spätes Volk');
+    await w.Pdf.tierseuchenkasse();
+    assert(/2 Völker sind erst seit/.test(text), 'PDF nennt beide');
+    // Gegenprobe: das tote Volk mit richtigem Beginn → nur noch das neue
+    tot.historie[0].datum = '2020-04-01'; await w.DB.put('voelker', tot);
+    assertEq(w.tskSpaetInfo(await w.DB.getAll('voelker')).anzahl, 1, 'nur noch das neue Volk');
+  } finally { w.Pdf.finish = echt; await w.S.set('imkerei', altImk); V._kat = altV.kat; V._suche = altV.suche; V._jahr = altV.jahr; host.remove(); }
+}));
+
+test('Finaltest P3 G6: „Volk besteht seit“ darf nicht nach vorhandenen Durchsichten, Behandlungen, Fütterungen, Varroa-Kontrollen oder Ernten liegen', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async () => {
+  const st = await w.DB.put('staende', { name: 'G6-Stand' });
+  const volk = await w.DB.put('voelker', { name: 'G6', standId: st.id, status: 'aktiv', historie: [{ datum: '2026-03-01', text: 'Volk angelegt' }] });
+  assertEq(await w.volkFruehesterEintrag(volk.id), null, 'ohne Einträge: nichts');
+  await w.DB.put('behandlungen', { zielTyp: 'volk', zielId: volk.id, datum: '2026-04-12', mittel: 'Test', menge: 1 });
+  assertEq(await w.volkFruehesterEintrag(volk.id), { datum: '2026-04-12', was: 'eine Behandlung' }, 'Behandlung');
+  await w.DB.put('stockkarten', { volkId: volk.id, datum: '2026-04-10' });
+  assertEq(await w.volkFruehesterEintrag(volk.id), { datum: '2026-04-10', was: 'eine Durchsicht' }, 'Durchsicht ist früher');
+  await w.DB.put('stockkarten', { volkId: 'anderes-volk', datum: '2026-03-05' });
+  assertEq((await w.volkFruehesterEintrag(volk.id)).datum, '2026-04-10', 'Einträge anderer Völker zählen nicht');
+  for (const [store, rec, was] of [['fuetterungen', { volkId: volk.id }, 'eine Fütterung'], ['varroa', { volkId: volk.id }, 'eine Varroa-Kontrolle'], ['ernten', { zielTyp: 'volk', zielId: volk.id, mengeKg: 1 }, 'eine Ernte']]) {
+    const r = await w.DB.put(store, { ...rec, datum: '2026-03-20' });
+    assertEq(await w.volkFruehesterEintrag(volk.id), { datum: '2026-03-20', was }, was);
+    await w.DB.del(store, r.id);
+  }
+  // Im Formular: nach der Durchsicht → Feldfehler, nichts gespeichert
+  await w.openVolkForm(await w.DB.get('voelker', volk.id), {}, () => {});
+  const m = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m, 'seit', '2026-06-01'); m.querySelector('[data-save]').click(); await kurz(400);
+  assert(m.isConnected && m.querySelector('[data-field="seit"]').classList.contains('invalid'), 'Feldfehler, Formular bleibt offen');
+  assert(/Am 10\.04\.2026 gibt es schon eine Durchsicht zu diesem Volk/.test(m.querySelector('[data-field="seit"]').textContent), 'Meldung nennt Tag und Art: ' + m.querySelector('[data-field="seit"]').textContent);
+  assertEq((await w.DB.get('voelker', volk.id)).historie.map((h) => h.datum), ['2026-03-01'], 'nichts gespeichert');
+  // Am selben Tag wie die Durchsicht geht es
+  setzFeld(w, m, 'seit', '2026-04-10'); m.querySelector('[data-save]').click(); await kurz(400);
+  assertEq((await w.DB.get('voelker', volk.id)).historie.map((h) => h.datum), ['2026-04-10'], 'gleicher Tag erlaubt');
+  dialogeSchliessen(w);
+  // Früher geht immer
+  await w.openVolkForm(await w.DB.get('voelker', volk.id), {}, () => {});
+  const m2 = [...w.document.querySelectorAll('.modal-back')].pop();
+  setzFeld(w, m2, 'seit', '2025-05-01'); m2.querySelector('[data-save]').click(); await kurz(400);
+  assertEq((await w.DB.get('voelker', volk.id)).historie.map((h) => h.datum), ['2025-05-01'], 'früher erlaubt');
+})));
+
+test('Finaltest P3 G7: Völkermeldung Schweiz – Hinweis auf den Einwinterungstag, PDF und Unterlagen-Zeile gleich', async (w) => isolierteDaten(w, async () => {
+  const altImk = w.S.get('imkerei'), heute = w.U.todayIso();
+  const J = +heute.slice(0, 4), stichtag = heute >= `${J}-04-01` ? `${J}-04-01` : `${J - 1}-04-01`;   // Schweiz: ausgewintert 1. April
+  const st = await w.DB.put('staende', { name: 'G7-Stand' });
+  const p1Beginn = w.U.addDays(stichtag, -30);   // nach dem Einwintern (1.11.), vor dem Auswintern (1.4.)
+  await w.DB.put('voelker', { name: 'G7-P1', standId: st.id, status: 'aktiv', historie: [{ datum: p1Beginn, text: 'Volk angelegt' }] });
+  await w.DB.put('voelker', { name: 'G7-P2', standId: st.id, status: 'aktiv', historie: [{ datum: '2020-09-01', text: 'Volk angelegt' }] });
+  const echt = w.Pdf.finish; let text = '';
+  w.Pdf.finish = (doc) => { text = doc.internal.pages.flat().filter(Boolean).join(' ').replace(/\\([()])/g, '$1'); };
+  try {
+    await w.S.set('imkerei', { ...altImk, bundesland: 'CH' });
+    const i = w.tskSpaetInfo(await w.DB.getAll('voelker'));
+    assert(i && i.anzahl === 1 && i.ab === p1Beginn && i.tag < stichtag, 'Unterlagen: Einwinterungstag – ' + JSON.stringify(i));
+    await w.Pdf.tierseuchenkasse();
+    assert(/Achtung: 1 Volk ist erst seit/.test(text), 'PDF: Achtung-Zeile – ' + text.slice(0, 600));
+    assert(text.includes(`am ${w.U.fmtDate(i.tag)} schon gab`), 'PDF nennt denselben Tag wie die Zeile');
+    assert(!/zu melden/.test(text), 'Schweiz: kein „(zu melden)“');
+    // Ein Volk erst nach dem Auswintern: gilt für beide Tage
+    if (heute > stichtag) {
+      await w.DB.put('voelker', { name: 'G7-P3', standId: st.id, status: 'aktiv', historie: [{ datum: heute, text: 'Volk angelegt' }] });
+      assertEq(w.tskSpaetInfo(await w.DB.getAll('voelker')).anzahl, 2, 'zwei späte Völker');
+      await w.Pdf.tierseuchenkasse();
+      const fliess = text.replace(/\)\s*Tj[^(]*\(/g, ' ');   // Zeilenumbrüche des Hinweises zusammenfügen
+      assert(/2 Völker sind erst seit/.test(fliess) && fliess.includes(`Für den ${w.U.fmtDate(stichtag)} gilt das für 1 davon.`), 'PDF nennt auch den Auswinterungstag – ' + (fliess.match(/Achtung.{0,400}/) || [''])[0]);
+    }
+    // Alle Völker alt: kein Hinweis
+    for (const v of await w.DB.getAll('voelker')) { v.historie = [{ datum: '2020-04-01', text: 'Volk angelegt' }]; await w.DB.put('voelker', v); }
+    assertEq(w.tskSpaetInfo(await w.DB.getAll('voelker')), null, 'alte Völker: kein Hinweis');
+    await w.Pdf.tierseuchenkasse();
+    assert(!/erst seit/.test(text), 'PDF ohne Hinweis');
+  } finally { w.Pdf.finish = echt; await w.S.set('imkerei', altImk); }
+}));
+
+test('Finaltest P3 G8: Rechnung – abgelehntes Speichern von „Im Kassenbuch als“ zeigt den zuletzt gespeicherten Wert', async (w) => isolierteDaten(w, async () => stornoUmgebung(w, async ({ toasts, host }) => {
+  const kunde = await w.DB.put('kontakte', { typ: 'kunde', name: 'G8 Kunde' });
+  const r0 = await w.DB.put('rechnungen', { ...w.rechnungGrundwerte(), kundeId: kunde.id, steuerart: 'klein', kleinunternehmer: true, datum: '2026-05-02',
+    positionen: [{ text: 'Ableger', abfuellungId: null, menge: 1, einzelpreis: 120, pfand: 0, steuersatz: 7 }] });
+  await w.Views.rechnung.render(host, r0.id);
+  const sel = host.querySelector('#r-kassenKategorie');
+  assertEq(sel.value, 'Honigverkauf', 'Vorgabe');
+  sel.value = 'Völker-/Ablegerverkauf'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await warteBis(async () => (await w.DB.get('rechnungen', r0.id)).kassenKategorie === 'Völker-/Ablegerverkauf');
+  await kurz(100);
+  // Zweites Fenster ändert die Rechnung (Rabatt-Grund) → das Speichern hier wird abgelehnt
+  const anders = await w.DB.get('rechnungen', r0.id); anders.rabattGrund = 'Stammkunde'; await w.DB.put('rechnungen', anders);
+  sel.value = 'Sonstige Einnahme'; sel.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await warteBis(() => toasts.some((t) => t.typ === 'err' && /inzwischen geändert/.test(t.msg)));
+  await kurz(50);
+  assertEq(sel.value, 'Völker-/Ablegerverkauf', 'Auswahl zeigt den zuletzt gespeicherten Wert');
+  assertEq((await w.DB.get('rechnungen', r0.id)).kassenKategorie, 'Völker-/Ablegerverkauf', 'gespeichert bleibt Ableger');
+})));
+
 test('verdrahteGlasAbzug: Vorschlag, Zusammenzug und Warnung beim Abfüllen', async (w) => {
   dialogeSchliessen(w);
   const altInventar = await w.DB.getAll('inventar');
