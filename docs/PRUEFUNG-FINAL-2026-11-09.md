@@ -104,3 +104,9 @@ Prüfung (wf_8968bc64-a00): 35 bestätigte Funde (1 hoch), sofort an Julian geme
 - **Ergebnis:** voller Lauf 1180 von 1180 Tests grün.
 - **Gesamtprüfungen 10.11.2026 (Stand 50a2f6f):** gesamtpruefung 224 Seiten / 0 Auffälligkeiten; angriffstest 28 Seiten / nichts ausgeführt; MASSEN=1 224 Seiten / 0, langsamste Stelle ~0,2 s; pdf-pruefung 69 PDFs, 1 Hinweis (Chargenübersicht mit 80 Ernten je Charge: hohe Zeilen, lesbar) – bewusst so gelassen.
 - **Gezielte Gegenprüfung E1–E4 (wf_fc0fcc78-18a, Reparatur wf_267b4dae-90e):** 8 bestätigte Funde behoben (u. a. „−“ zu viel legte Glas wieder rein, Seite sprang nach oben, Papierkorb-Einträge bei Sammeländerung, Hinweis für aufgelöste/Schweiz, „besteht seit“ nicht nach vorhandenen Einträgen). Letzte 3 niedrige Punkte selbst: Warenkorb-Leiste schiebt die Kachel frei, kein Meldehinweis in Ländern ohne Meldepflicht, Hinweistext passt auch für echte Ableger. Voller Lauf 1188 von 1188 Tests grün.
+
+## 8. Einreichung (10.11.2026)
+
+- Version 1.00 (Commit aba2205), iOS-Bau 1.0 (100) per `xcodebuild archive/exportArchive` hochgeladen, Prüferhinweis ohne „breeding“, Testkauf über TestFlight (Gruppe „Julian intern“) laut Julian erfolgreich.
+- **Apple:** iOS 1.0 + In-App-Käufe Vollversion und 30-day Trial am 10.11.2026 zur Prüfung übermittelt – „Warten auf Prüfung“, Veröffentlichung manuell.
+- **Google:** `ImkerBuch-1.0-100.aab` signiert (Julian, Schreibtisch); Upload in der Play Console (Produktion) durch Julian, dann Einreichen.
