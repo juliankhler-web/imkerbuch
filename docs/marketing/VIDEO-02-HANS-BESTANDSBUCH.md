@@ -26,7 +26,7 @@
 - Szene 7 bewusst allgemein: keine Aussage, dass eine Kontrolle „bestanden“ ist.
 
 ## Bilder (Draw Things, FLUX.2 klein, Vorlage-Methode wie Folge 1)
-- Zuerst Hans-Vorlage: 3–4 Entwürfe, Julian wählt → `docs/marketing/bilder/folge2/hans-vorlage.png`.
+- **Hans-Vorlagen gewählt (Julian 11.11.2026: „c und b“):** Alltag/Küche = `docs/marketing/bilder/folge2/hans-vorlage.png` (Entwurf B, Polohemd, Seed 302); am Bienenstand = `folge2/hans-imker-vorlage.png` (Entwurf C, Imkerjacke mit hochgeschobenem Schleier, Seed 301). Prompts: `prompts-hans.json`. Versuch, die Imkerjacke per Vorlage aus B zu erzeugen, ergab nur ein weißes Hemd → C bleibt eigene Vorlage.
 - Danach LoRA-Training für Anna und Hans prüfen (Draw Things „PEFT“), damit beide zusammen in einem Bild gleich aussehen (Szenen 3, 6, 8). Bis dahin: Szenen mit beiden über die Vorlage-Methode versuchen.
 - Ansichten: s1-weit/s1-brief, s2-weit/s2-heft, s3-tuer, s6-schulter, s7-kontrolle, s8-lachen (+ App-Aufnahmen 4–6).
 
