@@ -2,6 +2,8 @@
 //   endkarte-16x9.png (1920x1080) und endkarte-9x16.png (1080x1920)
 // Aufruf:  swift docs/marketing/video01/werkzeuge/endkarte.swift [Ausgabeordner]
 // Ohne Angabe landet alles in docs/marketing/video01/ (Ordner über werkzeuge/).
+// Store-Zeile: Standard „Bald im App Store und bei Google Play“; nach dem Store-Start mit
+//   STORE_ZEILE="Im App Store und bei Google Play" swift endkarte.swift
 // Keine offiziellen Store-Abzeichen (Lizenz) – an ihrer Stelle bleibt freier Platz.
 
 import AppKit
@@ -165,7 +167,7 @@ func karte(breite W: CGFloat, hoehe H: CGFloat, hochkant: Bool) -> CGImage {
     let icon = ladeIcon()
     let titelZ = zeile("ImkerBuch", schrift((hochkant ? 150 : 168) * s, .bold), braun, kern: -1.5 * s)
     let unterZ = zeile("Dein digitales Stockbuch", schrift((hochkant ? 60 : 62) * s, .medium), braunMittel)
-    let storeZ = zeile("Im App Store und bei Google Play", schrift((hochkant ? 46 : 44) * s, .semibold), braun)
+    let storeZ = zeile(ProcessInfo.processInfo.environment["STORE_ZEILE"] ?? "Bald im App Store und bei Google Play", schrift((hochkant ? 46 : 44) * s, .semibold), braun)
     let pillZ = zeile("30 Tage alles kostenlos testen", schrift((hochkant ? 52 : 50) * s, .bold), braun)
 
     let pillPadX = 46 * s, pillPadY = 26 * s
