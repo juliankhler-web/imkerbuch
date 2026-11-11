@@ -28456,8 +28456,21 @@ const Lizenz = {
       UI.toast('Löse den Code im Play Store ein und tippe danach hier auf „Käufe wiederherstellen“.');
       return;
     }
-    try { await P.presentOfferCodeRedeemSheet(); } catch (e) { UI.toast('Code einlösen nicht möglich – bist du online?', 'err'); }
+    /* Apples Einlöse-Fenster meldet manchmal einen Fehler, obwohl der Code angenommen wurde, und der Kauf taucht erst mit
+       kurzer Verzögerung auf. Vorher hieß es dann „bist du online?“ und die Vollversion kam erst nach einem Neustart
+       (Julian, Test mit Code THEO26, 11.11.2026). Jetzt: danach einige Male nachsehen, erst dann etwas melden. */
+    let fehler = null;
+    try { await P.presentOfferCodeRedeemSheet(); } catch (e) { fehler = e; }
+    for (const warte of this.CODE_WARTEN) {
+      if (warte) await new Promise((r) => setTimeout(r, warte));
+      await this.vonAussenPruefen();
+      if (this.status(this.speicher()) === 'voll') return;
+    }
+    const abgebrochen = /cancel|abgebrochen/i.test(String(fehler && (fehler.message || fehler)));
+    if (fehler && !abgebrochen) UI.toast('Falls du den Code eingelöst hast, kann die Freischaltung einen Moment dauern. Tippe sonst gleich auf „Käufe wiederherstellen“.');
   },
+  /** Wartezeiten (ms) zum Nachsehen nach dem Einlöse-Fenster – im Test auf 0 gesetzt */
+  CODE_WARTEN: [0, 1500, 3000, 6000],
   _offen: false,
   /** Kauf-Fenster: vor dem Teststart, nach Ablauf und bei gesperrtem Schreiben. */
   /** Öffnet das Kauf-Fenster; das Versprechen erfüllt sich, wenn es wieder zu ist. */
@@ -28506,7 +28519,12 @@ const Lizenz = {
     if (this._kaufFehlt) UI.toast(`Dein Kauf wurde gerade nicht gefunden. Bitte prüfe, ob du bei ${this.android() ? 'Google Play' : 'Apple'} mit dem Konto angemeldet bist, mit dem du gekauft hast.`, 'err');
   },
   async ausstehendePruefen() {
-    if (this.android() && this._ausstehend) await this.vonAussenPruefen();
+    if (this.android()) { if (this._ausstehend) await this.vonAussenPruefen(); return; }
+    /* iPhone: Ein Code kann auch im App Store (Link) eingelöst werden, während ImkerBuch im Hintergrund wartet – beim
+       Zurückkehren nachsehen, höchstens alle 20 s und nur, solange die Vollversion noch nicht frei ist (11.11.2026). */
+    if (this.status(this.speicher()) === 'voll' || Date.now() - (this._zuletztVonAussen || 0) < 20000) return;
+    this._zuletztVonAussen = Date.now();
+    await this.vonAussenPruefen();
   },
   /** Kauf oder Code außerhalb des Kauf-Fensters: bezahlt melden und das Fenster schließen. */
   async vonAussenPruefen() {

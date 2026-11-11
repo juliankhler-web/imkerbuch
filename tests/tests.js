@@ -14014,6 +14014,34 @@ test('Kauf: fehlende Bestätigung wird nachgeholt, Doppeltippen, ausstehend und 
     assert(!ms.some(([m]) => /Kein Kauf/.test(m)), 'nicht behauptet, es gebe keinen Kauf');
   } finally { L.plugin = altP; L.android = altA; w.UI.toast = toast; await w.S.set('lizenz', lizenzVor, { auto: true }); }
 });
+test('Code einlösen (iPhone): Fehler aus dem Einlöse-Fenster, Kauf kommt verzögert – Vollversion ohne Neustart, keine Offline-Meldung', async (w) => {
+  const L = w.Lizenz, altP = L.plugin, altA = L.android, altW = L.CODE_WARTEN, toast = w.UI.toast, vor = w.S.get('lizenz'), ms = [];
+  w.UI.toast = (m, a) => ms.push([m, a]); L.android = () => false; L.CODE_WARTEN = [0, 0, 0];
+  let abfragen = 0, sheetFehler = new Error('unknown');
+  L.plugin = () => ({
+    presentOfferCodeRedeemSheet: async () => { throw sheetFehler; },
+    restorePurchases: async () => {},
+    // Apple liefert den eingelösten Kauf erst bei der zweiten Abfrage (wie im echten Test mit THEO26)
+    getPurchases: async () => (++abfragen >= 2 ? { purchases: [{ productIdentifier: w.LIZENZ_PRODUKTE.voll }] } : { purchases: [] }),
+  });
+  try {
+    await w.S.set('lizenz', { voll: false, testStart: null, geprueft: null }, { auto: true });
+    await L.codeEinloesen();
+    assertEq(L.status(L.speicher()), 'voll', 'Vollversion freigeschaltet');
+    assert(ms.some(([m]) => /Vollversion ist freigeschaltet/.test(m)), 'Danke gemeldet: ' + JSON.stringify(ms));
+    assert(!ms.some(([m]) => /online/.test(m)), 'keine falsche Offline-Meldung');
+    // Abbrechen ohne Einlösen: keine Meldung
+    ms.length = 0; abfragen = -99; sheetFehler = new Error('userCancelled');
+    await w.S.set('lizenz', { voll: false, testStart: null, geprueft: null }, { auto: true });
+    await L.codeEinloesen();
+    assertEq(L.status(L.speicher()), 'ohneTest', 'nichts freigeschaltet');
+    assertEq(ms.length, 0, 'Abbrechen meldet nichts: ' + JSON.stringify(ms));
+    // anderer Fehler, kein Kauf: ruhiger Hinweis statt „bist du online?“
+    sheetFehler = new Error('unknown');
+    await L.codeEinloesen();
+    assert(ms.some(([m]) => /Käufe wiederherstellen/.test(m)) && !ms.some(([m]) => /online/.test(m)), 'ruhiger Hinweis: ' + JSON.stringify(ms));
+  } finally { L.plugin = altP; L.android = altA; L.CODE_WARTEN = altW; w.UI.toast = toast; await w.S.set('lizenz', vor, { auto: true }); }
+});
 test('Kauf: leere Liste nimmt einen bezahlten Kauf nicht sofort weg, Rückerstattung schon', async (w) => {
   const L = w.Lizenz, altP = L.plugin, altA = L.android, toast = w.UI.toast, vor = w.S.get('lizenz'), tag = 86400000;
   const ms = []; w.UI.toast = (m, a) => ms.push([m, a]);
