@@ -704,6 +704,17 @@ html:not(.js) .umfrage-fuss{display:none}
 .video-start small{font-weight:500;opacity:.75}
 .video-start:hover span{background:var(--honig-2)}
 @media (max-width:600px){.video-start span{font-size:14px;padding:9px 14px;gap:8px;border-radius:12px}.video-start svg{width:14px;height:14px}.video-start{padding:12px!important}}
+.video-leiste{position:absolute;left:clamp(12px,2.2vw,26px);bottom:clamp(12px,2.2vw,26px);display:flex;gap:10px;align-items:center}
+.video-leiste[hidden]{display:none}
+.video-pause{display:inline-grid;place-items:center;width:58px;height:58px;border:0;cursor:pointer;border-radius:12px;background:rgba(43,27,5,.72);color:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.75)}
+.video-pause svg{width:24px;height:24px}
+.video-pause:hover{background:rgba(43,27,5,.85)}
+.video-ton{position:relative;display:inline-flex;align-items:center;gap:10px;border:0;cursor:pointer;background:var(--honig);color:#2B1B05;font:inherit;font-weight:800;font-size:22px;padding:16px 26px;border-radius:12px;box-shadow:0 12px 34px -10px rgba(60,35,5,.65),0 0 0 3px rgba(255,255,255,.75);animation:ton-puls 2.4s ease-in-out 3}
+.video-ton svg{width:28px;height:28px}
+.video-ton:hover{background:var(--honig-2)}
+.video-ton[hidden],.video-start[hidden],.video-pause[hidden]{display:none}
+@keyframes ton-puls{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@media (max-width:600px){.video-ton{font-size:17px;padding:11px 16px;gap:8px}.video-ton svg{width:22px;height:22px}.video-pause{width:46px;height:46px}.video-pause svg{width:20px;height:20px}}
 .video-notiz{max-width:980px;margin:12px auto 0;font-size:13px;color:#8F8169}
 </style>
 </head>
@@ -872,10 +883,11 @@ html:not(.js) .umfrage-fuss{display:none}
         <p class="satz rechts" data-zeigen style="--v:1">In 60 Sekunden erklärt: Warum ein ImkerBuch? Anna zeigt dir, wie aus Zettelchaos ein ordentliches Stockbuch wird.</p>
       </div>
       <div class="video-rahmen" data-zeigen style="--v:2">
-        <video id="erklaervideo-film" preload="none" playsinline poster="media/erklaervideo-poster.jpg" aria-label="Erklärvideo: Warum ein ImkerBuch?">
+        <video id="erklaervideo-film" preload="none" muted playsinline poster="media/erklaervideo-poster.jpg" aria-label="Erklärvideo: Warum ein ImkerBuch?">
           <source src="media/erklaervideo-folge1.mp4" type="video/mp4">
         </video>
         <button class="video-start" type="button" aria-label="Erklärvideo abspielen (1 Minute)"><span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.8v10.4a.8.8 0 0 0 1.2.7l8.6-5.2a.8.8 0 0 0 0-1.4L5.2 2.1A.8.8 0 0 0 4 2.8z" fill="currentColor"/></svg>Video abspielen <small>· 1:05</small></span></button>
+        <div class="video-leiste" hidden><button class="video-pause" type="button" aria-label="Video anhalten"><svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.2" fill="currentColor"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2" fill="currentColor"/></svg><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 4.8v14.4a1 1 0 0 0 1.5.9l11.3-7.2a1 1 0 0 0 0-1.8L8.5 3.9A1 1 0 0 0 7 4.8z" fill="currentColor"/></svg></button><button class="video-ton" type="button" aria-label="Ton einschalten und Video von vorn abspielen"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="m16 9.5 5 5M21 9.5l-5 5"/></svg>Ton an</button></div>
       </div>
       <p class="video-notiz">Sprecherstimme KI-erzeugt. Das Video wird von unserem eigenen Server geladen – ohne YouTube, ohne Cookies.</p>
     </section>
@@ -1920,9 +1932,31 @@ html:not(.js) .umfrage-fuss{display:none}
 })();
 </script>
 <script>
-(() => { const f = document.getElementById('erklaervideo-film'), k = document.querySelector('.video-start');
-  if (!f || !k) return;
-  k.addEventListener('click', () => { k.hidden = true; f.controls = true; f.play().catch(() => {}); });
+(() => {
+  /* Erklärvideo: spielt ohne Ton, sobald es zur Hälfte zu sehen ist; „Ton an“ startet es mit Ton von vorn.
+     Pause-Knopf (und Tippen aufs Video) hält an bzw. spielt weiter; selbst Angehaltenes startet beim Scrollen nicht neu.
+     Kein Autoplay bei „Bewegung reduzieren“ oder Datensparmodus – dann bleibt der Knopf „Video abspielen“. */
+  const f = document.getElementById('erklaervideo-film'), start = document.querySelector('.video-start'),
+        leiste = document.querySelector('.video-leiste'), ton = document.querySelector('.video-ton'), pause = document.querySelector('.video-pause');
+  if (!f || !start || !leiste || !ton || !pause) return;
+  let selbstPausiert = false, wirPausieren = false;
+  const knopf = () => { const p = f.paused; pause.querySelector('.i-pause').hidden = p; pause.querySelector('.i-play').hidden = !p; pause.setAttribute('aria-label', p ? 'Video abspielen' : 'Video anhalten'); };
+  const mitTon = () => { f.muted = false; f.loop = false; f.controls = true; leiste.hidden = true; start.hidden = true; };
+  start.addEventListener('click', () => { mitTon(); f.currentTime = 0; f.play().catch(() => {}); });
+  ton.addEventListener('click', () => { mitTon(); f.currentTime = 0; f.play().catch(() => {}); });
+  const umschalten = () => { if (f.paused) { selbstPausiert = false; f.play().catch(() => {}); } else { selbstPausiert = true; wirPausieren = true; f.pause(); } };
+  pause.addEventListener('click', umschalten);
+  f.addEventListener('click', () => { if (f.muted && !leiste.hidden) umschalten(); });
+  f.addEventListener('play', knopf); f.addEventListener('pause', () => { if (!wirPausieren && !f.muted) selbstPausiert = true; wirPausieren = false; knopf(); });
+  const auto = !matchMedia('(prefers-reduced-motion: reduce)').matches && !(navigator.connection && navigator.connection.saveData) && 'IntersectionObserver' in window;
+  if (!auto) return;
+  start.hidden = true; f.muted = true; f.loop = true;
+  new IntersectionObserver((e) => {
+    const sichtbar = e[0].isIntersecting;
+    if (sichtbar && f.paused && !selbstPausiert) {
+      f.play().then(() => { if (f.muted) leiste.hidden = false; }).catch(() => { start.hidden = false; leiste.hidden = true; });
+    } else if (!sichtbar && !f.paused) { wirPausieren = true; f.pause(); }
+  }, { threshold: 0.5 }).observe(f);
 })();
 </script>
 </body>
