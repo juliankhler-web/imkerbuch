@@ -52,6 +52,10 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 VIDEO = os.path.dirname(HIER)                      # docs/marketing/video01
 TMP = "/private/tmp/claude-501/video01-tmp"
 
+# Hintergrundmusik (Julian 11.11.2026, Pixabay-Stück atlasaudio-background-music-610019), ~16-20 dB unter der Stimme
+MUSIK = "ton/musik.wav"
+MUSIK_LAUT = 0.07
+
 VORLAUF = 0.15        # Szene beginnt so viel vor ihrem ersten Satz
 ENDE_HALTEN = 2.5     # Endkarte steht so lange nach dem letzten Wort
 UEBER_SZENE = 0.45    # Überblendung zwischen Szenen
@@ -122,8 +126,8 @@ SZENEN = {
         "abschnitte": [{"von": 1.25, "bis": 6.10},                 # Behandlung für den ganzen Stand
                        {"von": 6.45, "bis": 7.10, "gewicht": 1.5},  # "Behandlung für 6 Völker dokumentiert"
                        {"von": 8.27, "bis": 9.57, "anker": 9, "versatz": 0.0},   # anstehende Aufgaben
-                       {"von": 10.22, "bis": 11.90, "anker": 9, "versatz": 2.03},  # Unterlagen -> Bestandsbuch PDF
-                       {"von": 13.90, "bis": 14.20, "anker": 9, "versatz": 3.55, "standbild": True,
+                       {"von": 10.22, "bis": 11.90, "anker": 9, "versatz": 3.40},  # "… Unterlagen fürs Amt als PDF"
+                       {"von": 13.90, "bis": 14.20, "anker": 9, "versatz": 5.45, "standbild": True,   # "– zum Beispiel das Bestandsbuch"
                         # PDF groß: links lesbar (Datum, Volk, Oxalsäure, 30 ml, 0 Tage)
                         "q": {"fuellen": True, "rahmen": False, "zoom_start": 1.0, "zoom_ende": 1.03,
                               "fokus_x": 0.5, "fokus_y": 0.312},
@@ -134,11 +138,11 @@ SZENEN = {
     7: {"saetze": [10], "typ": "video", "datei": "aufnahmen/szene7.mp4",
         "hintergrund_bild": B + "s3-glas.png",
         "abschnitte": [{"von": 0.0, "bis": 0.98},                                  # Ernte
-                       {"von": 2.37, "bis": 2.93, "anker": 10, "versatz": 0.78, "standbild": True},  # Abfüllung ("bis zum Glas"), ruhiges Bild
-                       {"von": 1.27, "bis": 2.05, "anker": 10, "versatz": 2.0},    # Chargen
-                       {"von": 5.60, "bis": 6.78, "anker": 10, "versatz": 2.73},   # Etiketten-PDF
-                       {"von": 9.02, "bis": 9.48, "anker": 10, "versatz": 3.63},   # Marktverkauf: 3 Gläser, Kassieren
-                       {"von": 11.80, "bis": 14.13, "anker": 10, "versatz": 4.20}]},  # Kassenbuch
+                       {"von": 2.37, "bis": 2.93, "anker": 10, "versatz": 0.73, "standbild": True},  # Abfüllung ("bis zum Glas"), ruhiges Bild
+                       {"von": 1.27, "bis": 2.05, "anker": 10, "versatz": 1.88},   # Chargen
+                       {"von": 5.60, "bis": 6.78, "anker": 10, "versatz": 2.57},   # Etiketten-PDF
+                       {"von": 9.02, "bis": 9.48, "anker": 10, "versatz": 3.42},   # Marktverkauf: 3 Gläser, Kassieren
+                       {"von": 11.80, "bis": 14.13, "anker": 10, "versatz": 3.96}]},  # Kassenbuch
     8: {"saetze": [11, 12], "typ": "bild", "bilder": [
         {"datei": B + "s8-weit-logo.png",
          "q": {"zoom_start": 1.08, "zoom_ende": 1.0, "fokus_x": 0.45, "fokus_y": 0.45},
@@ -266,7 +270,8 @@ def ankerzeit(eintrag, T):
 def basis_plan(breite, hoehe, ausgabe, ton, bitrate):
     return {"breite": breite, "hoehe": hoehe, "fps": 30, "ausgabe": ausgabe, "ton": ton,
             "ton_lautstaerke": 1.0, "nachlauf": 0.0, "einblenden": 0.4, "abblenden": 0.6,
-            "hintergrund": "#FFF6E5", "bitrate_mbit": bitrate, "clips": []}
+            "hintergrund": "#FFF6E5", "bitrate_mbit": bitrate, "clips": [],
+            "musik": MUSIK, "musik_lautstaerke": MUSIK_LAUT}
 
 
 def bild_clips(sz, hoch, a, b, T, warnungen, name):
