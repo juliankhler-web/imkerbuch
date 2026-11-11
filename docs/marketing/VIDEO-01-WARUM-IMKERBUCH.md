@@ -47,3 +47,4 @@ Alle Aussagen über die App müssen stimmen (Stand Version 1.00) – vor der Ver
   4. Erfundene Imkerei-Anschrift mit echter PLZ (Kassel) → „Musterweg 1, 12345 Musterstadt“.
   5. Szenen 6 und 7 neu aufnehmen (PDF-Zoom links abgeschnitten, Wartezeit-Aufgabe zu kurz, Kassenbuch-Saldo angeschnitten); Kurz 2 Gesicht angeschnitten; Kurz 3 eigener Satz.
   6. App-Fehler: Aufblitzen beim Antippen im Marktverkauf (eigene Aufgabe, nächste App-Version).
+- **Musik (11.11.2026):** Julian hat `atlasaudio-background-music-610019.mp3` geliefert (125,7 s; Dateiname wie bei Pixabay Music, Quelle von Julian noch zu bestätigen). Eingemischt in alle fünf Videos über `render.swift` ("musik": "ton/musik.wav", "musik_lautstaerke": 0.07 → in Sprechpausen etwa 16–20 dB unter der Stimme, am Ende ausgeblendet). Vor dem Veröffentlichen: Lizenzseite des Stücks als PDF sichern (Pixabay-Lizenz: kommerziell ohne Namensnennung; YouTube kann trotzdem eine Content-ID-Meldung zeigen).
