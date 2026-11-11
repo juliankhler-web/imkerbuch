@@ -38,3 +38,8 @@
 Je Figur eine Aufnahme, jede Zeile ein Absatz mit Leerzeile dazwischen (ergibt Pausen; Schnitt per `zeiten.py`).
 - **Hans (Felix):** 1 „Kontrolle nächste Woche … Wo ist bloß mein Bestandsbuch?“ · 2 „Irgendwo hab ich doch aufgeschrieben, was ich im August gegen die Varroa gemacht hab …“ · 3 „Und die Kaufbelege?“ · 4 „Na, das ging ja schnell.“ · 5 „Gut … aber meine Stockkarte behalt ich trotzdem.“
 - **Anna (Frauenstimme):** 1 „Zeig mal her, Hans. Ich mach das inzwischen anders.“ · 2 „Nach jeder Behandlung trag ich's gleich am Stand ein. Mittel, Menge, alle Völker auf einmal.“ · 3 „Und fürs Amt tipp ich einmal – fertig ist das Bestandsbuch als PDF.“ · 4 „Fotografier ich und häng sie direkt an die Behandlung.“ · 5 „Hab ich mir schon gedacht.“ · 6 „ImkerBuch – dein digitales Stockbuch. Probier's dreißig Tage kostenlos aus.“
+
+## Ton (11.11.2026)
+- Julian lieferte: Hans = Felix Serenitas (v4), Anna = „Amy – Soft, Calm & Gentle Narrator“ (Voice Library, v4), beide im bezahlten Abo.
+- Geschnitten in `docs/marketing/ton/folge2/hans-1..5.wav` und `anna-1..6.wav` (Zuordnung über Sprechpausen, `zeilen.json` = Längen). Gesamt ca. 39 s Sprache → Video ca. 50 s.
+- Unsicher nur: Grenze Hans-4/Hans-5 (beide 2,5 s) – beim Rohschnitt anhören lassen.
