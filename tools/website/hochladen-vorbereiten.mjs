@@ -16,7 +16,7 @@ for (const w of ['anmelden-entwurf', 'ENTWURF', 'Bloom', 'Entwickler-Schalter', 
 if (seite.includes('../')) throw new Error('index.html enthält noch ../');
 if (seite.includes('noindex')) throw new Error('Startseite hat noch noindex – seit 08.11.2026 freigegeben');
 writeFileSync(join(Z, 'index.html'), seite);
-for (const d of ['.htaccess', 'v', 'media/app-bilder', 'media/hero-flug-1280.mp4', 'media/hero-flug-handy.mp4', 'media/hintergrund-flug.mp4', 'media/bienenjahr-flug-1280.mp4', 'media/bienenjahr-flug-handy.mp4', 'media/partner']) cpSync(join(Q, d), join(Z, d), { recursive: true });
+for (const d of ['.htaccess', 'v', 'media/app-bilder', 'media/hero-flug-1280.mp4', 'media/hero-flug-handy.mp4', 'media/hintergrund-flug.mp4', 'media/bienenjahr-flug-1280.mp4', 'media/bienenjahr-flug-handy.mp4', 'media/partner', 'media/erklaervideo-folge1.mp4', 'media/erklaervideo-poster.jpg']) cpSync(join(Q, d), join(Z, d), { recursive: true });
 /* Das 3D-Logo (Kopf und Fuß) liegt im App-Ordner; die Vorschau holt es mit ../assets/logo, der Server unter /assets/logo.
    Das PFAU-Logo (website-neu/media/partner) wird seit 09.11.2026 im Abschnitt „Imkereien“ gezeigt (mit Zustimmung, als Werbung gekennzeichnet). */
 cpSync(join(WURZEL, 'assets/logo'), join(Z, 'assets/logo'), { recursive: true });
