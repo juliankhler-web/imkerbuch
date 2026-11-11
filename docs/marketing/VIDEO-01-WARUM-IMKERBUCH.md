@@ -41,7 +41,7 @@ Alle Aussagen über die App müssen stimmen (Stand Version 1.00) – vor der Ver
 - **Rohschnitt fertig** mit Werkzeugen in `docs/marketing/video01/` (Renderer, App-Aufnahmen, Endkarte, Zeitpläne; Commit 6db8bd7). Felix-Vorschau: Zeitplan `docs/marketing/video01/timeline-16x9-felix.json`.
 - **Vor dem Veröffentlichen ändern (Prüfung 11.11.2026):**
   1. Oxalsäure (Träufeln) mit 14 Tagen Wartezeit ist fachlich falsch und widerspricht der Zeile mit 0 Tagen im selben PDF → Julian entscheidet Mittel/Wartezeit oder neuen Satz 9.
-  2. Satz 11 „ohne Internet“ stimmt nicht ganz (Testphase/Kauf einmal online, Wetter, Adresssuche) → Vorschlag „Komplett auf Deutsch, ohne Konto – und am Bienenstand auch ohne Netz.“
+  2. ~~Satz 11 „ohne Internet“ umformulieren~~ **bleibt so (Julian 11.11.2026):** dass Testphase und Kauf einmal Internet brauchen, ist für Nutzer selbstverständlich.
   3. Satz 9 „die Unterlagen fürs Amt“ → „Unterlagen fürs Amt als PDF, zum Beispiel das Bestandsbuch“.
   4. Erfundene Imkerei-Anschrift mit echter PLZ (Kassel) → „Musterweg 1, 12345 Musterstadt“.
   5. Szenen 6 und 7 neu aufnehmen (PDF-Zoom links abgeschnitten, Wartezeit-Aufgabe zu kurz, Kassenbuch-Saldo angeschnitten); Kurz 2 Gesicht angeschnitten; Kurz 3 eigener Satz.
