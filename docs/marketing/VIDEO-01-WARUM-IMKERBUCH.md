@@ -33,3 +33,16 @@ Alle Aussagen über die App müssen stimmen (Stand Version 1.00) – vor der Ver
 - Julian findet die **Siri-Stimme 3** am besten (Proben in `docs/marketing/ton/`).
 - **Aber:** Der macOS-Lizenzvertrag auf diesem Mac (Abschnitt „F. Stimmen; Live-Untertitel“) erlaubt Systemstimmen nur, um „eigene Originalinhalte und Projekte für deinen persönlichen, nicht kommerziellen Gebrauch zu erstellen“, und schließt u. a. Aufnahme und Veröffentlichung ausdrücklich aus. Das gilt auch für „Persönliche Stimme“. Siri-, Premium- und normale Mac-Stimmen sind damit **nicht** für das veröffentlichte Werbevideo erlaubt – nur als interne Probe/Taktgeber für den Schnitt.
 - Für die Veröffentlichung: Julians eigene Stimme oder ein Sprachdienst mit ausdrücklicher kommerzieller Lizenz (Bedingungen vorher lesen).
+
+## Stand 11.11.2026
+- **Stimme entschieden (Julian 10.11.2026): ElevenLabs, Sprecher „Felix Serenitas – Calm and Trustworthy“ (Voice Library, Modell v4).** Probe-Datei aus dem Gratis-Tarif liegt in Julians Downloads – nur zur Ansicht, NICHT veröffentlichen.
+- **Lizenz ElevenLabs (geprüft 10.11.2026):** Gratis-Tarif nur nicht-kommerziell. Für das veröffentlichte Video den Ton während eines bezahlten Abos neu erzeugen (Starter 6 $/Monat, 1. Monat 1 $; Ton aus der Abo-Zeit darf dauerhaft genutzt werden). Bei Voice-Library-Stimmen die Bedingungen auf der Seite der Stimme ansehen. Empfehlung: „Sprecherstimme KI-erzeugt“ in Abspann und Beschreibung (EU-KI-Verordnung Art. 50, Anwendung auf Erklärvideos nicht eindeutig). Quellen: elevenlabs.io/pricing, /terms-of-use-eu, /use-policy, Hilfe-Artikel „Can I publish the content I generate“.
+- **Store-Abzeichen:** nur Originale (Apple Marketing Guidelines, Google Partner Marketing Hub); Apple-Abzeichen nicht animieren, Marken-Zeile im Abspann; Google evtl. Markenfreigabe (≥ 1 Woche). Erst veröffentlichen, wenn die App in beiden Stores live ist.
+- **Rohschnitt fertig** mit Werkzeugen in `docs/marketing/video01/` (Renderer, App-Aufnahmen, Endkarte, Zeitpläne; Commit 6db8bd7). Felix-Vorschau: Zeitplan `docs/marketing/video01/timeline-16x9-felix.json`.
+- **Vor dem Veröffentlichen ändern (Prüfung 11.11.2026):**
+  1. Oxalsäure (Träufeln) mit 14 Tagen Wartezeit ist fachlich falsch und widerspricht der Zeile mit 0 Tagen im selben PDF → Julian entscheidet Mittel/Wartezeit oder neuen Satz 9.
+  2. Satz 11 „ohne Internet“ stimmt nicht ganz (Testphase/Kauf einmal online, Wetter, Adresssuche) → Vorschlag „Komplett auf Deutsch, ohne Konto – und am Bienenstand auch ohne Netz.“
+  3. Satz 9 „die Unterlagen fürs Amt“ → „Unterlagen fürs Amt als PDF, zum Beispiel das Bestandsbuch“.
+  4. Erfundene Imkerei-Anschrift mit echter PLZ (Kassel) → „Musterweg 1, 12345 Musterstadt“.
+  5. Szenen 6 und 7 neu aufnehmen (PDF-Zoom links abgeschnitten, Wartezeit-Aufgabe zu kurz, Kassenbuch-Saldo angeschnitten); Kurz 2 Gesicht angeschnitten; Kurz 3 eigener Satz.
+  6. App-Fehler: Aufblitzen beim Antippen im Marktverkauf (eigene Aufgabe, nächste App-Version).
