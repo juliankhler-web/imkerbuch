@@ -25,3 +25,25 @@ Raumkosten 2,24 €, Arbeit 1,64 €, Material 1,29 €, Vertrieb 1,00 €. Eige
 
 - Marktverkauf: Aufblitzen beim Antippen eines Glases (eigene Aufgabe vom 11.11.2026, läuft in separater Sitzung).
 - App Store Connect: neue Fragen „Funktionen für soziale Medien“ im Altersfreigabe-Fragebogen mit „Nein“ beantworten.
+
+## Gesamtübersicht – was noch vorhaben (Stand 11.11.2026)
+
+**Rund um den Store-Start**
+- Nach Freigabe: bei Apple und Google selbst veröffentlichen (Julian), Website-Knöpfe „Bald erhältlich“ → Store-Links, Web-Version (GitHub Pages) abschalten, Schlussbild Erklärvideo auf „Im App Store und bei Google Play“ + Store-Abzeichen, montags Auswertung.
+- Schweiz bei Google erst nach Klärung mit dem Steuerberater. Einführungspreis 14,99 € bis 31.12.2026, danach 24,99 €.
+- Prüfen, ob „ImkerBuch“ als Marke eingetragen ist. Google 15-%-Gebühr: Bedingungen noch akzeptieren.
+
+**Nächste App-Version (klein)**
+- Honigpreis-Rechner (siehe oben), Aufblitzen im Marktverkauf, Altersfreigabe-Frage soziale Medien.
+- Etiketten-Gestalter (Logo, Farben, Vorlagen, Etikettenbögen) – `docs/APP_STORE_EINREICHUNG.md` § 14.
+- Statistik pro Volk ausbauen (Rangliste, Netto Honig minus Futter, Jahresvergleich) – `docs/PLAN-PRAXIS-UMBAU-2026-11-07.md`.
+- Volk-Aufkleber mit normaler Handy-Kamera öffnen (imkerbuch.app/v/…), seit die Website online ist – `docs/QR_DEEPLINK.md`.
+
+**Große Vorhaben (Website-Abstimmung 11.11.2026: Cloud 6, Stockwaage 4, Code auf dem Glas 3, Helfer 2 Stimmen)**
+- Cloud für mehrere Geräte: eigenes Abo 1,99 €/Monat oder 19,99 €/Jahr, Anmeldung per E-Mail-Link, Server noch wählen, Website „Anmelden“ und Datenschutz anpassen – `docs/UEBERGABE_WEBSITE.md`, `docs/CLOUD_ABO_PREIS.md`.
+- Zugänge für Helfer / Betriebs-Tarif mit Mitarbeiter-Zeiten (nach der Cloud) – `docs/IDEEN_CLOUD.md`.
+- Stockwaage verbinden; Code auf dem Honigglas (Rückverfolgung für Kunden).
+- Größere Betriebe: Preisstaffel ab 50 Völkern (Idee 02.11.2026, Preise mit Berufsimkern prüfen).
+
+**Marketing**
+- Erklärvideo Folge 1 auf YouTube/Instagram/TikTok veröffentlichen (nach Store-Start); Folge 2 mit Hans; vorher LoRA für Anna und Hans trainieren.
