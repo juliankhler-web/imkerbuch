@@ -15,7 +15,7 @@
 | 5 | **App-Aufnahme:** Unterlagen → Bestandsbuch → PDF (Tabelle mit Datum, Volk, Mittel, Menge, Wartezeit). | **Anna:** „Und fürs Amt tipp ich einmal – fertig ist das Bestandsbuch als PDF.“ |
 | 6 | **App-Aufnahme:** in einer Behandlung „Belege (Foto / PDF)“ – Foto des Kassenbons wird angehängt. Hans schaut über Annas Schulter. | **Hans:** „Und die Kaufbelege?“ **Anna:** „Fotografier ich und häng sie direkt an die Behandlung.“ |
 | 7 | Hans entspannt am Küchentisch, Ausdruck in der Hand, eine Kontrolleurin (allgemein, kein Amtsabzeichen) nickt freundlich. | **Hans:** „Na, das ging ja schnell.“ |
-| 8 | Hans tippt selbst auf seinem Handy, Anna lacht daneben. | **Hans:** „Gut … aber meine Stockkarte behalt ich trotzdem.“ **Anna:** (lacht) |
+| 8 | Hans tippt selbst auf seinem Handy, Anna lacht daneben. | **Hans:** „Gut … aber meine Stockkarte behalt ich trotzdem.“ **Anna:** (lachend) „Hab ich mir schon gedacht.“ |
 | 9 | Schlussbild wie Folge 1 (Logo, Store-Zeile, „30 Tage alles kostenlos testen“). | **Anna:** „ImkerBuch – dein digitales Stockbuch. Probier's dreißig Tage kostenlos aus.“ |
 
 ## Aussagen – gegen die App geprüft (Stand Version 1.00, 11.11.2026)
@@ -33,3 +33,8 @@
 ## Kurzclips (hochkant)
 1. Szenen 1–2 + 5: „Kontrolle nächste Woche?“
 2. Szenen 4 + 6: „Behandlung und Beleg in Sekunden“
+
+## Sprechertexte für ElevenLabs (an Julian 11.11.2026)
+Je Figur eine Aufnahme, jede Zeile ein Absatz mit Leerzeile dazwischen (ergibt Pausen; Schnitt per `zeiten.py`).
+- **Hans (Felix):** 1 „Kontrolle nächste Woche … Wo ist bloß mein Bestandsbuch?“ · 2 „Irgendwo hab ich doch aufgeschrieben, was ich im August gegen die Varroa gemacht hab …“ · 3 „Und die Kaufbelege?“ · 4 „Na, das ging ja schnell.“ · 5 „Gut … aber meine Stockkarte behalt ich trotzdem.“
+- **Anna (Frauenstimme):** 1 „Zeig mal her, Hans. Ich mach das inzwischen anders.“ · 2 „Nach jeder Behandlung trag ich's gleich am Stand ein. Mittel, Menge, alle Völker auf einmal.“ · 3 „Und fürs Amt tipp ich einmal – fertig ist das Bestandsbuch als PDF.“ · 4 „Fotografier ich und häng sie direkt an die Behandlung.“ · 5 „Hab ich mir schon gedacht.“ · 6 „ImkerBuch – dein digitales Stockbuch. Probier's dreißig Tage kostenlos aus.“
