@@ -124,6 +124,6 @@ export async function appOeffnen(cdp) {
   if (!(await cdp.js('return typeof TEST_MODE !== "undefined" && TEST_MODE'))) throw new Error('Nicht in der Test-Datenbank – Abbruch');
   await cdp.js('await Demo.reset(); return 1;');
   await cdp.js(`await S.set('darkMode', 'hell'); applyTheme(); await S.set('wizardDone', true, { auto: true }); await S.set('letzteExterneSicherung', new Date().toISOString(), { auto: true }); document.querySelectorAll('#modal-root .modal-back').forEach((m) => m.remove()); return 1;`);
-  await cdp.js(`const i = S.get('imkerei'); Object.assign(i, { name: 'Imkerei Sonnenhang', strasse: 'Lindenweg 3', plz: '34123', ort: 'Kassel', registriernummer: '06 611 000 0001' }); await S.set('imkerei', i); return 1;`);
+  await cdp.js(`const i = S.get('imkerei'); Object.assign(i, { name: 'Imkerei Sonnenhang', strasse: 'Musterweg 1', plz: '12345', ort: 'Musterstadt', registriernummer: '00 000 000 0000' }); await S.set('imkerei', i); return 1;`);
   return cdp;
 }

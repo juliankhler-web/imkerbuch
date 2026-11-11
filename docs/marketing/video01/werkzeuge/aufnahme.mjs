@@ -4,7 +4,7 @@
    – danach baut zusammenbauen.swift daraus ein H.264-Video mit 30 Bildern/s (ohne Ton)
    Aufruf (lokaler Server auf Port 8931 muss laufen):
      node aufnahme.mjs 5|6|7        → docs/marketing/video01/aufnahmen/szene<N>.mp4
-   Hinweis: Mittel und Wartezeit in Szene 6 sind Vorführwerte (siehe WARTEZEIT unten). */
+   Szene 6 zeigt Oxalsäure mit der echten Honig-Wartezeit 0 Tage (siehe WARTEZEIT unten). */
 import { readFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { chromeStarten, appOeffnen, schlaf, TMP, GERAET } from './cdp.mjs';
@@ -13,7 +13,7 @@ const SZENE = process.argv[2];
 const HIER = new URL('.', import.meta.url).pathname;
 const ZIEL = new URL('../aufnahmen/', import.meta.url).pathname;
 const BILDER = `${TMP}/bilder-szene${SZENE}`;
-const MITTEL = 'Oxalsäure 3,5 % (Träufeln)', MENGE = '30', WARTEZEIT = '14';   // Vorführwerte Szene 6
+const MITTEL = 'Oxalsäure 3,5 % (Träufeln)', MENGE = '30', WARTEZEIT = '0';   // Szene 6: Oxalsäure hat für Honig 0 Tage Wartezeit (Oxuvar, Oxybee, VarroMed; Recherche 11.11.2026)
 
 /* Helfer in der Seite: Element suchen, weich scrollen, Seiten-Blende, Imme-Knopf aus */
 const HILFE = readFileSync(HIER + 'pdf-vorschau.js', 'utf8') + `
@@ -164,7 +164,7 @@ async function szene5() {
 }
 
 async function szene6() {
-  // Behandlung für den ganzen Stand → Wartezeit als Aufgabe → Unterlagen → Bestandsbuch als PDF
+  // Behandlung für den ganzen Stand → anstehende Aufgaben → Unterlagen → Bestandsbuch als PDF
   await neuLaden('#/behandlungen');
   await aufnahmeStart();
   await warte(600);
@@ -184,7 +184,7 @@ async function szene6() {
   await schreibe(WARTEZEIT, 80);
   await warte(400);
   await tippe('#modal-root .modal button', '^Speichern$', { nachher: 800 });
-  await tippe('#bottomnav [data-route="aufgaben"]', null, { nachher: 1400 });   // Wartezeit-Erinnerung steht in den Aufgaben
+  await tippe('#bottomnav [data-route="aufgaben"]', null, { nachher: 1600 });   // anstehende Aufgaben (Varroa-Kontrolle, Futterkontrolle …)
   // Unterlagen (in der App unter „Mehr“) – hier als kurzer Schnitt
   await js(`__pdfAbfangen(); Views.meldungen._kat = 'amt'; Views.meldungen._jahr = null; await __v.blende('#/meldungen'); return 1;`);
   await gleite('[data-ul="bestandsbuch"]', null, 0.55, 600);
@@ -192,7 +192,7 @@ async function szene6() {
   await tippe('[data-ul="bestandsbuch"] button', '^PDF$', { nachher: 0 });
   await js(`await __pdfZeigen(2.2); return 1;`);
   await warte(900);
-  await js(`const c = document.querySelector('#__pdfblatt .seite'); c.style.transformOrigin = '22% 12%'; c.style.transform = 'scale(1.9)'; return 1;`);   // langsam bis zur Spalte „Wartezeit“ heranzoomen
+  await js(`const c = document.querySelector('#__pdfblatt .seite'); c.style.transformOrigin = '0% 8%'; c.style.transform = 'scale(1.6)'; return 1;`);   // von links heranzoomen, Titel und Datum bleiben im Bild
   await warte(2000);
   await aufnahmeEnde();
 }
@@ -225,7 +225,7 @@ async function szene7() {
   // Kassenbuch (kurzer Schnitt): die Einnahme ist schon gebucht
   await js(`await __v.blende('#/kassenbuch'); return 1;`);
   await warte(300);
-  await js(`await __v.gleiten(document.querySelector('#main .row'), 0.42, 700); return 1;`);   // erste Buchungen = der Marktverkauf
+  await js(`await __v.gleiten(document.querySelector('#main .row'), 0.55, 700); return 1;`);   // erste Buchungen = der Marktverkauf
   await warte(1300);
   await aufnahmeEnde();
 }

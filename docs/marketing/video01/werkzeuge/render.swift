@@ -37,6 +37,12 @@
 // "fokus_x"/"fokus_y" wählen bei 9:16 den Bildausschnitt (0 = links/oben, 1 = rechts/unten).
 // "video": Hochkant-Aufnahme; bei 16:9 mittig im Handyrahmen vor weichgezeichnetem "hintergrund_bild"
 // (oder Creme), bei 9:16 volle Höhe ohne Rahmen. Ist das Quellvideo kürzer, bleibt das letzte Bild stehen.
+// "video" mit "fuellen": true (und "rahmen": false): das Video füllt das ganze Bild (deckend, Rand wird
+// abgeschnitten), z. B. ein KI-animierter 16:9-Clip anstelle eines Standbilds:
+//     { "typ": "video", "datei": "clips/szene1.mp4", "start": 0, "dauer": 3, "fuellen": true, "rahmen": false,
+//       "zoom_start": 1.0, "zoom_ende": 1.05, "fokus_x": 0.5, "fokus_y": 0.4 }
+// Ken Burns (zoom_start/zoom_ende/fokus_x/fokus_y/pan_x/pan_y) wirkt bei "video" auf den Inhalt des
+// Bildschirms (mit Rahmen: innerhalb des Handys; mit "fuellen": auf das ganze Bild). Standard: kein Zoom.
 
 import AVFoundation
 import CoreImage
@@ -67,6 +73,7 @@ struct Clip: Decodable {
     var rahmen: Bool?               // Handyrahmen zeichnen (Standard: true bei 16:9, false bei 9:16)
     var video_hoehe: Double?        // Anteil der Bildhöhe für den Bildschirm (Standard 0.86 bei 16:9, 1.0 bei 9:16)
     var tempo: Double?              // Abspielgeschwindigkeit des Quellvideos (Standard 1.0; 1.3 = 30 % schneller)
+    var fuellen: Bool?              // Video füllt das ganze Bild (deckend), ohne Rahmen und Hintergrund
 }
 
 /// Einblendung über allem (z. B. Titel): PNG in Videogröße mit Transparenz, weich ein- und ausgeblendet.
@@ -261,8 +268,14 @@ final class VideoQuelle {
     let rahmenBild: CIImage?
     let schirm: CGRect
     var groesse: CGSize = .zero
+    let fuellen: Bool
+    let zs: Double, ze: Double, fx: Double, fy: Double, px: Double, py: Double
 
     init(url: URL, clip: Clip) async {
+        fuellen = clip.fuellen ?? false
+        zs = clip.zoom_start ?? 1.0; ze = clip.zoom_ende ?? zs
+        fx = clip.fokus_x ?? 0.5; fy = clip.fokus_y ?? 0.5
+        px = clip.pan_x ?? 0; py = clip.pan_y ?? 0
         guard FileManager.default.fileExists(atPath: url.path) else { fehler("Video fehlt: \(url.path)") }
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first else { fehler("Keine Videospur: \(url.path)") }
@@ -293,16 +306,19 @@ final class VideoQuelle {
         reader.startReading()
 
         // Bildschirmgröße und Position
-        let rahmen = clip.rahmen ?? !hochkant
+        let rahmen = fuellen ? false : (clip.rahmen ?? !hochkant)
         let anteil = clip.video_hoehe ?? (hochkant ? 1.0 : 0.86)
         var sh = Double(H) * anteil
         var sw = sh * Double(qw / qh)
         if sw > Double(W) * 0.96 && !hochkant { sw = Double(W) * 0.96; sh = sw * Double(qh / qw) }
-        let sr = CGRect(x: (Double(W) - sw) / 2, y: (Double(H) - sh) / 2, width: sw, height: sh).integral
+        let sr = fuellen ? ausgabeRect
+            : CGRect(x: (Double(W) - sw) / 2, y: (Double(H) - sh) / 2, width: sw, height: sh).integral
         schirm = sr
 
         // Hintergrund: Illustration weichgezeichnet + Creme-Schleier, sonst ruhiges Creme
-        if let hb = clip.hintergrund_bild {
+        if fuellen {
+            hintergrund = CIImage(color: hgFarbe).cropped(to: ausgabeRect)
+        } else if let hb = clip.hintergrund_bild {
             let roh = ladeCIImage(pfad(hb))
             let deck = max(Double(W) / roh.extent.width, Double(H) / roh.extent.height) * 1.1
             let gross = roh.transformed(by: CGAffineTransform(scaleX: deck, y: deck))
@@ -370,8 +386,8 @@ final class VideoQuelle {
         return nil
     }
 
-    /// Bild zur Zeit `t` relativ zum Clipstart (Sekunden).
-    func bild(_ t: Double) -> CIImage {
+    /// Bild zur Zeit `t` relativ zum Clipstart (Sekunden); `p` = Fortschritt 0..1 im sichtbaren Fenster (Ken Burns).
+    func bild(_ t: Double, _ p: Double) -> CIImage {
         let ziel = max(0, t) * tempo + offset
         if aktuellPuffer == nil { aktuellPuffer = liesNaechsten() }
         if naechster == nil { naechster = liesNaechsten() }
@@ -389,10 +405,20 @@ final class VideoQuelle {
         } else {
             return hintergrund
         }
-        // Bildschirm deckend in `schirm` einpassen (Lanczos nicht nötig: einmalige Verkleinerung, linear reicht)
-        let s = max(schirm.width / inhalt.extent.width, schirm.height / inhalt.extent.height)
+        // Bildschirm deckend in `schirm` einpassen (Lanczos nicht nötig: einmalige Verkleinerung, linear reicht),
+        // dazu optional Ken Burns (Zoom/Fokus/Schwenk) auf den Inhalt
+        let e = glatt(p)
+        let z = max(zs + (ze - zs) * e, 1.0)
+        let s = max(schirm.width / inhalt.extent.width, schirm.height / inhalt.extent.height) * z
         var g = inhalt.transformed(by: CGAffineTransform(scaleX: s, y: s))
-        g = g.transformed(by: CGAffineTransform(translationX: schirm.midX - g.extent.midX, y: schirm.midY - g.extent.midY))
+        let gw = g.extent.width, gh = g.extent.height
+        var cx = (fx + px * (e - 0.5)) * gw                 // Fokuspunkt im skalierten Inhalt
+        var cy = (1 - (fy + py * (e - 0.5))) * gh           // (CoreImage: y nach oben)
+        cx = min(max(cx, schirm.width / 2), gw - schirm.width / 2)
+        cy = min(max(cy, schirm.height / 2), gh - schirm.height / 2)
+        g = g.transformed(by: CGAffineTransform(translationX: schirm.midX - cx - g.extent.minX,
+                                                y: schirm.midY - cy - g.extent.minY))
+        if fuellen { return g.cropped(to: ausgabeRect) }
         let leer = CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: ausgabeRect)
         let maskiert = g.applyingFilter("CIBlendWithMask", parameters: [
             kCIInputBackgroundImageKey: leer, kCIInputMaskImageKey: maske,
@@ -431,7 +457,8 @@ func clipBild(_ i: Int, _ t: Double) async -> CIImage {
         let f = fenster[i]
         return s.bild((t - f.a) / max(f.b - f.a, 0.001))
     case .video(let v):
-        return v.bild(t - starts[i])
+        let f = fenster[i]
+        return v.bild(t - starts[i], (t - f.a) / max(f.b - f.a, 0.001))
     }
 }
 
